@@ -136,6 +136,8 @@ export function createPty(opts) {
     earlyBytes = 0;
     recvDead = false;
     session = null;
+    // Frames held for a handshake that did not finish are not sent.
+    for (const p of pending.splice(0)) if (p.done) p.done(false);
     pending = [];
     sendQueue = Promise.resolve();
     recvQueue = Promise.resolve();
@@ -180,6 +182,8 @@ export function createPty(opts) {
       ev = ev || {};
       if (ws !== sock) return;
       ws = null;
+      // Keys held for a handshake that will not finish on this socket are lost.
+      for (const p of pending.splice(0)) if (p.done) p.done(false);
       if (!running) return;
       // A device the desk has since limited is refused with 1008. It is let go
       // quietly: the control socket's new role is what reconnects it.
@@ -287,7 +291,7 @@ export function createPty(opts) {
     earlyBytes = 0;
     for (const frame of held) receiveSealed(sock, session, frame);
     const queued = pending.splice(0);
-    for (const { payload, isText } of queued) queueSealed(sock, payload, isText);
+    for (const { payload, isText, done } of queued) queueSealed(sock, payload, isText, done);
   }
 
   function receiveSealed(sock, sess, frame) {
@@ -305,7 +309,7 @@ export function createPty(opts) {
     });
   }
 
-  function queueSealed(sock, payload, isText) {
+  function queueSealed(sock, payload, isText, done) {
     const bytes = isText ? enc.encode(payload) : (payload instanceof Uint8Array ? payload : new Uint8Array(payload));
     const tagged = new Uint8Array(bytes.length + 1);
     tagged[0] = isText ? FRAME_TEXT : FRAME_BINARY;
@@ -314,8 +318,16 @@ export function createPty(opts) {
     // Chained, so frames reach the socket in the order seal gave their
     // counters, whatever order WebCrypto's promises settle in.
     sendQueue = sendQueue.then(() => sess.seal(tagged)).then((frame) => {
-      if (ws === sock && sock.readyState === OPEN) sock.send(frame);
-    }).catch((err) => console.error("e2e: could not seal an outgoing frame", err));
+      if (ws === sock && sock.readyState === OPEN) {
+        sock.send(frame);
+        if (done) done(true);
+      } else if (done) {
+        done(false);
+      }
+    }).catch((err) => {
+      console.error("e2e: could not seal an outgoing frame", err);
+      if (done) done(false);
+    });
   }
 
   function closeForFailedHandshake(sock, reason) {
@@ -357,12 +369,16 @@ export function createPty(opts) {
    *  or keystrokes (bytes). Sealed when the desktop has a key, and held until
    *  a handshake in progress succeeds: nothing is sent plain once one is
    *  expected. */
-  function send(payload, isText) {
+  function send(payload, isText, done) {
     const sock = ws;
     if (!sock || sock.readyState !== OPEN) return false;
-    if (!hostKey) { sock.send(payload); return true; }
-    if (session) { queueSealed(sock, payload, isText); return true; }
-    pending.push({ payload, isText });
+    if (!hostKey) {
+      sock.send(payload);
+      if (done) done(true);
+      return true;
+    }
+    if (session) { queueSealed(sock, payload, isText, done); return true; }
+    pending.push({ payload, isText, done });
     return true;
   }
 
@@ -389,12 +405,24 @@ export function createPty(opts) {
       retries = 0;
       connect();
     },
-    sendInput(text) { return this.sendBytes(enc.encode(text)); },
-    sendBytes(bytes) {
+    /** sendInput types text. It returns false, and sends nothing, when the socket
+     *  is not open. done, if given, is called once with true when every frame has
+     *  been written to the socket, or with false when one was lost on the way
+     *  (a sealed frame that could not be sealed, a socket that closed or a
+     *  handshake that did not finish first). */
+    sendInput(text, done) { return this.sendBytes(enc.encode(text), done); },
+    sendBytes(bytes, done) {
       if (opts.viewOnly && opts.viewOnly()) return false; // refused by the server anyway
-      if (bytes.length <= INPUT_FRAME) return send(bytes, false);
+      if (bytes.length <= INPUT_FRAME) return send(bytes, false, done);
+      const frames = Math.ceil(bytes.length / INPUT_FRAME);
+      let left = frames;
+      let failed = false;
+      const part = done && ((ok) => {
+        if (!ok) failed = true;
+        if (--left === 0) done(!failed);
+      });
       let ok = true;
-      for (let at = 0; at < bytes.length; at += INPUT_FRAME) ok = send(bytes.subarray(at, at + INPUT_FRAME), false) && ok;
+      for (let at = 0; at < bytes.length; at += INPUT_FRAME) ok = send(bytes.subarray(at, at + INPUT_FRAME), false, part) && ok;
       return ok;
     },
     sendResize(cols, rows) { return send(JSON.stringify({ resize: { cols, rows } }), true); },

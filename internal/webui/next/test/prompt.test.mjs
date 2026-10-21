@@ -13,7 +13,7 @@ import { renderToString } from "./vendor/render-to-string.mjs";
 import { html } from "../assets/html.js";
 import { Live } from "../assets/shell/Live.js";
 import {
-  Prompt, diffRows, KEYS, MAX_DIFF_LINES, DESK_WORDS, NOT_CONNECTED_WORDS, IN_TERMINAL_WORDS, DETAILS_ON_DESKTOP_WORDS,
+  Prompt, diffRows, KEYS, NOT_DELIVERED_WORDS, MAX_DIFF_LINES, DESK_WORDS, NOT_CONNECTED_WORDS, IN_TERMINAL_WORDS, DETAILS_ON_DESKTOP_WORDS,
 } from "../assets/drawer/Prompt.js";
 import { createDom, install, settle } from "./dom.mjs";
 import { FakeWebSocket, harness, hello } from "./fakes.mjs";
@@ -185,7 +185,8 @@ test("a card made fit for the relay shows no command and no choice it cannot tak
   withPage({ extra: { [TAX]: { permission: { tool: "Bash", summary: "Bash: the details are on the desktop", command: "curl -H secret-token-abc", file: "/home/x/.env", diff: "+secret-token-abc", options: [], redacted: true } } } }, async (m) => {
     await m.connect();
     await m.open(TAX);
-    assert.equal(m.container.find(".prompt-command"), null);
+    // Elements are compared with ok, not equal: a failing equal prints both trees.
+    assert.ok(m.container.find(".prompt-command") === null, "a redacted card drew its command");
     // Whatever a card marked redacted still carries is not drawn.
     assert.ok(!m.card().textContent.includes("secret-token-abc") && !m.card().textContent.includes(".env"), "a redacted card showed its details");
     assert.match(m.card().textContent, new RegExp(DETAILS_ON_DESKTOP_WORDS));
@@ -273,7 +274,7 @@ test("a structured pane's drawer watches it, and its card's buttons send permiss
     assert.equal(m.ws().commands("permissionAnswer").length, 1);
     // An answer to another card is not this card's.
     await m.push({ type: "permissionAnswer", ok: false, error: "That request has already been answered or has ended", id: CART, cardSeq: 6, requestId: "req-1" });
-    assert.equal(m.card().find(".prompt-status--error"), null);
+    assert.ok(m.card().find(".prompt-status--error") === null, "an error was shown");
     // The desk refuses this one: the error is shown, and the card can be answered again.
     await m.push({ type: "permissionAnswer", ok: false, error: "That request has already been answered or has ended", id: CART, cardSeq: 7, requestId: "req-1" });
     assert.equal(m.status(), "That request has already been answered or has ended");
@@ -380,4 +381,110 @@ test("a window through the relay sends no structured watch and no permissionAnsw
   ws.frame({ type: "structured", id: "p1", card: { seq: 1 } });
   assert.equal(store.getState().structured, null);
   store.stop();
+});
+
+// ---------------------------------------------------- the follow-ups of the review
+
+// A card drawn on its own, with a sendKeys the test controls.
+function alone(props) {
+  const dom = createDom();
+  const restore = install(dom);
+  const container = dom.document.createElement("div");
+  dom.body.appendChild(container);
+  render(html`<${Prompt} ...${props} />`, container);
+  return { container, again: (more) => render(html`<${Prompt} ...${{ ...props, ...more }} />`, container), done: () => { render(null, container); restore(); } };
+}
+const TERMINAL_NODE = { pane: "p1", name: "tax", waitingOn: { kind: "user", text: "x" } };
+
+test("a terminal choice says Sending until the keys are written, then Sent", async () => {
+  let finish = null;
+  const a = alone({ node: TERMINAL_NODE, pane: { permission: permission() }, snap: { remote: false }, store: {}, sendKeys: (text, done) => { finish = done; return true; } });
+  try {
+    await settle();
+    a.container.findAll(".prompt-choice")[0].click();
+    await settle();
+    assert.match(a.container.find(".prompt-status").textContent, /^Sending .Yes.…$/);
+    finish(true);
+    await settle();
+    assert.match(a.container.find(".prompt-status").textContent, /^Sent .Yes.\. Waiting for the agent\.$/);
+  } finally {
+    a.done();
+  }
+});
+
+test("keys lost on the way are said, the buttons come back and the choice can be made again", async () => {
+  const calls = [];
+  const a = alone({ node: TERMINAL_NODE, pane: { permission: permission() }, snap: { remote: false }, store: {}, sendKeys: (text, done) => { calls.push(done); return true; } });
+  try {
+    await settle();
+    a.container.findAll(".prompt-choice")[0].click();
+    await settle();
+    assert.equal(a.container.findAll(".prompt-choice")[0].getAttribute("disabled") !== null, true, "not locked while sending");
+    calls[0](false);
+    await settle();
+    const status = a.container.find(".prompt-status");
+    assert.equal(status.textContent, NOT_DELIVERED_WORDS);
+    assert.equal(status.getAttribute("role"), "alert");
+    assert.ok(a.container.findAll(".prompt-choice").every((b) => b.getAttribute("disabled") === null), "the buttons stayed locked");
+    a.container.findAll(".prompt-choice")[1].click();
+    await settle();
+    assert.equal(calls.length, 2, "the choice could not be made again");
+    calls[1](true);
+    await settle();
+    assert.match(a.container.find(".prompt-status").textContent, /^Sent /);
+  } finally {
+    a.done();
+  }
+});
+
+test("a late answer from an earlier click does not change the card that followed it", async () => {
+  const calls = [];
+  const a = alone({ node: TERMINAL_NODE, pane: { permission: permission(), statusSince: "t1" }, snap: { remote: false }, store: {}, sendKeys: (text, done) => { calls.push(done); return true; } });
+  try {
+    await settle();
+    a.container.findAll(".prompt-choice")[0].click();
+    await settle();
+    a.again({ pane: { permission: permission({ command: "next one" }), statusSince: "t2" } });
+    await settle();
+    calls[0](false);
+    await settle();
+    assert.ok(!a.container.find(".prompt-status").textContent.includes(NOT_DELIVERED_WORDS), "the old card's failure was shown on the new card");
+  } finally {
+    a.done();
+  }
+});
+
+test("a structured pane's redacted card draws none of its details, whatever it carries", async () => {
+  const secret = { tool: "Bash", summary: "Bash: the details are on the desktop", command: "curl -H secret-token-abc", file: "/home/x/.env", description: "secret-token-abc", diff: "+secret-token-abc", options: [], redacted: true };
+  const node = { pane: "s1", name: "tax", structured: true, waitingOn: { kind: "user", text: "x" } };
+  const a = alone({ node, pane: { structured: true }, snap: { remote: true, structured: { id: "s1", card: { ...secret, seq: 1, requestId: "r1" } } }, store: {}, terminal: false });
+  try {
+    await settle();
+    const text = a.container.textContent;
+    assert.ok(!text.includes("secret-token-abc") && !text.includes(".env"), "the structured card drew a redacted card's details");
+    assert.match(text, new RegExp(DETAILS_ON_DESKTOP_WORDS));
+  } finally {
+    a.done();
+  }
+  // The state push's permission, shown while the card has not come yet.
+  const b = alone({ node, pane: { structured: true, permission: secret }, snap: { remote: true, structured: null }, store: {}, terminal: false });
+  try {
+    await settle();
+    const text = b.container.textContent;
+    assert.ok(!text.includes("secret-token-abc") && !text.includes(".env"), "the fallback drew a redacted permission's details");
+    assert.match(text, new RegExp(DETAILS_ON_DESKTOP_WORDS));
+  } finally {
+    b.done();
+  }
+});
+
+test("the question box asks to answer, not to tell", async () => {
+  const ASKED = { questions: [{ question: "Which?", options: [] }] };
+  const a = alone({ node: { pane: "p1", name: "cart" }, pane: { ask: ASKED }, snap: { remote: false, connection: "open" }, store: { send: () => true } });
+  try {
+    await settle();
+    assert.match(a.container.find(".mbar-input").getAttribute("placeholder"), /^Answer cart… \(one line, Enter sends\)$/);
+  } finally {
+    a.done();
+  }
 });

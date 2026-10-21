@@ -35,6 +35,7 @@ export const KEYS = Object.freeze({ yes: "\r", no: "\x1b" });
 
 export const DESK_WORDS = "Answer this on the desktop.";
 export const NOT_CONNECTED_WORDS = "The terminal is not connected, so nothing was sent.";
+export const NOT_DELIVERED_WORDS = "The choice did not reach the terminal. Try again.";
 export const NOT_ANSWERED_WORDS = "Not connected to Flockdeck, so the answer was not sent.";
 export const IN_TERMINAL_WORDS = "The choices are in the terminal below.";
 export const DETAILS_ON_DESKTOP_WORDS = "The details are on the desktop.";
@@ -80,30 +81,52 @@ function Details({ permission }) {
   `;
 }
 
-// A terminal pane's permission card.
+// What a card shows of a permission: its details, or for one made fit for the relay
+// (redacted) only its kind and that the rest is on the desktop. The details of a
+// redacted card are never drawn, whatever it still carries, on any path.
+function PermissionBody({ permission }) {
+  if (permission.redacted) {
+    return html`<p class="prompt-summary">${permission.summary || permission.tool}</p>
+      <p class="prompt-more">${DETAILS_ON_DESKTOP_WORDS}</p>`;
+  }
+  return html`<${Details} permission=${permission} />`;
+}
+
+// A terminal pane's permission card. A choice is "sending" from the click until
+// the keys are written to the socket, and "sent" after; keys lost on the way (a
+// sealed frame that could not be sealed, a socket that closed) put the buttons
+// back and say so.
 function TerminalPermission({ permission, sendKeys }) {
-  const [sent, setSent] = useState(null);
+  const [sent, setSent] = useState(null); // { name, written }
   const [note, setNote] = useState("");
   const options = (permission.options || []).filter((o) => o && Object.prototype.hasOwnProperty.call(KEYS, o.id));
   const choose = (opt) => {
     if (sent) return;
-    if (sendKeys && sendKeys(KEYS[opt.id])) {
-      setSent(opt.name || opt.id);
-      setNote("");
-    } else {
+    const name = opt.name || opt.id;
+    const token = {};
+    setSent({ name, written: false, token });
+    setNote("");
+    const done = (ok) => {
+      if (ok) {
+        setSent((s) => (s && s.token === token ? { ...s, written: true } : s));
+      } else {
+        setSent((s) => (s && s.token === token ? null : s));
+        setNote(NOT_DELIVERED_WORDS);
+      }
+    };
+    if (!(sendKeys && sendKeys(KEYS[opt.id], done))) {
+      setSent(null);
       setNote(NOT_CONNECTED_WORDS);
     }
   };
-  const redacted = !!permission.redacted;
   return html`
-    ${redacted ? html`<p class="prompt-summary">${permission.summary || permission.tool}</p>` : html`<${Details} permission=${permission} />`}
-    ${redacted ? html`<p class="prompt-more">${DETAILS_ON_DESKTOP_WORDS}</p>` : null}
+    <${PermissionBody} permission=${permission} />
     ${options.length > 0
       ? html`<div class="prompt-choices" role="group" aria-label="Choices">
           ${options.map((o) => html`<button type="button" class=${"prompt-choice prompt-choice--" + String(o.kind || "")} data-option=${o.id} disabled=${!!sent} onClick=${() => choose(o)}>${clip(o.name || o.id, 80)}</button>`)}
         </div>`
       : html`<p class="prompt-more">${IN_TERMINAL_WORDS}</p>`}
-    <p class=${"prompt-status" + (note ? " prompt-status--error" : "")} role=${note ? "alert" : "status"}>${sent ? "Sent “" + clip(sent, 80) + "”. Waiting for the agent." : note}</p>
+    <p class=${"prompt-status" + (note ? " prompt-status--error" : "")} role=${note ? "alert" : "status"}>${sent ? (sent.written ? "Sent “" + clip(sent.name, 80) + "”. Waiting for the agent." : "Sending “" + clip(sent.name, 80) + "”…") : note}</p>
   `;
 }
 
@@ -130,7 +153,7 @@ function StructuredPermission({ node, card, snap, store }) {
   };
   const says = refused || note || (done ? (reply && reply.ok ? "Answered." : "Sent. Waiting for the agent.") : remote ? DESK_WORDS : "");
   return html`
-    <${Details} permission=${card} />
+    <${PermissionBody} permission=${card} />
     ${remote
       ? null
       : html`<div class="prompt-choices" role="group" aria-label="Choices">
@@ -153,7 +176,7 @@ function Question({ node, ask, snap, store }) {
     </div>`)}
     ${snap.remote
       ? html`<p class="prompt-more">${IN_TERMINAL_WORDS}</p>`
-      : html`<${ManagerBar} snap=${snap} manager=${{ pane: node.pane, name: node.name || node.pane }} send=${(c) => store.send(c)} autoFocus=${false} />`}
+      : html`<${ManagerBar} snap=${snap} manager=${{ pane: node.pane, name: node.name || node.pane }} send=${(c) => store.send(c)} autoFocus=${false} verb="Answer" />`}
   `;
 }
 
@@ -180,7 +203,7 @@ export function Prompt({ node, pane = null, snap, store, sendKeys, terminal = tr
     } else if (pane && pane.permission) {
       id = idOf("sp", pane.permission.tool, pane.permission.command, pane.permission.file);
       title = "Permission: " + (pane.permission.tool || "tool");
-      body = html`<${Details} permission=${pane.permission} />
+      body = html`<${PermissionBody} permission=${pane.permission} />
         <p class="prompt-status" role="status">${snap.remote ? DESK_WORDS : snap.structuredError ? "The request could not be loaded: " + clip(snap.structuredError.error, 200) : "Loading the request…"}</p>`;
     }
   } else if (kind === "permission") {
