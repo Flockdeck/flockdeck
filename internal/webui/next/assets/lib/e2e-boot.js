@@ -22,12 +22,17 @@ import { loadE2E as defaultLoadE2E } from "./load-script.js";
 export function watchRemoteHello(store, opts = {}) {
   const load = opts.loadE2E || (() => defaultLoadE2E());
   const report = opts.onError || ((err) => console.error("e2e: could not register this window's key", err));
-  let seen = null;
+  // One run for each connection: the store empties the hello when the socket
+  // drops, and the next connection's hello is a new one. A later change to the
+  // hello (the prefs, the key table) is the same connection.
+  let seen = false;
   let stopped = false;
   const check = () => {
     const hello = store.getState().hello;
-    if (stopped || !hello || hello.remote !== true || hello === seen) return;
-    seen = hello;
+    if (stopped) return;
+    if (!hello) { seen = false; return; }
+    if (hello.remote !== true || seen) return;
+    seen = true;
     load()
       .then((E) => E.ensureRegistered())
       .catch(report);

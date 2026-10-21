@@ -1,18 +1,25 @@
 // Entry point of the new shell, loaded by index.html as a module. All imports
 // are relative, and nothing here is evaluated from text.
 //
-// There is no connection to the server yet, so the shell is drawn from an empty
-// hello and state, with the hello component in its main area. The socket and
-// store replace these two objects.
+// It makes the store of the control socket, starts it, and renders the shell
+// over it. A window reached through the relay registers its end-to-end key when
+// its hello arrives (watchRemoteHello loads e2e.js for that, which the page does
+// not carry), and sends no graph command: the store refuses them there.
 import { render } from "./vendor/preact.mjs";
 import { html } from "./html.js";
-import { Hello } from "./hello.js";
-import { Shell } from "./shell/app.js";
+import { createStore } from "./lib/store.js";
+import { controlUrl } from "./lib/socket.js";
+import { watchRemoteHello } from "./lib/e2e-boot.js";
+import { Live } from "./shell/Live.js";
 
-const hello = { keys: [] };
-const state = { root: "", projects: [] };
+const store = createStore({ url: controlUrl(window.location) });
+watchRemoteHello(store);
+store.start();
+// stop() unwatches the graph, so the desktop does not keep building it for a
+// window that has gone.
+window.addEventListener("pagehide", () => store.stop());
 
 render(
-  html`<${Shell} hello=${hello} state=${state} matchMedia=${window.matchMedia.bind(window)}><${Hello} /><//>`,
+  html`<${Live} store=${store} matchMedia=${window.matchMedia.bind(window)} />`,
   document.getElementById("app"),
 );
