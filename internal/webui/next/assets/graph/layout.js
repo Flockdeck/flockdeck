@@ -26,10 +26,10 @@ export const DEFAULTS = {
   gapX: 24,
   gapY: 48,
   pad: 16,
-  teamHead: 36,
+  teamHead: 52,
   teamGap: 40,
   stripGap: 48,
-  stripHead: 28,
+  stripHead: 52,
   // The widest a row of blocks gets before the next block starts a new row.
   rowWidth: 4 * 216 + 3 * 24,
 };
@@ -120,18 +120,20 @@ function layoutTree(tree, o) {
 }
 
 // Leaves in rows under a title, as the unlinked members and the solo strip are.
+// The rows are a full gapY apart, as tree rows are: a needs-you badge hangs
+// above its box and needs the room, or it would cover the row above.
 function layoutRows(panes, limit, o) {
   const pack = packRows(
     panes.map(() => ({ w: o.nodeW, h: o.nodeH })),
     limit,
     o.gapX,
-    o.gapY / 2,
+    o.gapY,
   );
   const boxes = [];
   let y = 0;
   for (const row of pack.rows) {
     for (const it of row.items) boxes.push({ pane: panes[it.at], x: it.x, y, depth: 0 });
-    y += row.h + o.gapY / 2;
+    y += row.h + o.gapY;
   }
   return { boxes, w: pack.w, h: pack.h };
 }
