@@ -88,6 +88,18 @@ export function ptyUrl(loc, paneId, held) {
   return url.href;
 }
 
+/** tell calls a send's callback with its outcome. A callback that throws is the
+ *  caller's bug: it is logged and goes no further, and is never told a second
+ *  time with another outcome. */
+function tell(done, ok) {
+  if (!done) return;
+  try {
+    done(ok);
+  } catch (err) {
+    console.error("pty: a send callback threw", err);
+  }
+}
+
 export function createPty(opts) {
   const WS = opts.WebSocket || globalThis.WebSocket;
   const setT = opts.setTimeout || ((fn, ms) => globalThis.setTimeout(fn, ms));
@@ -137,7 +149,7 @@ export function createPty(opts) {
     recvDead = false;
     session = null;
     // Frames held for a handshake that did not finish are not sent.
-    for (const p of pending.splice(0)) if (p.done) p.done(false);
+    for (const p of pending.splice(0)) tell(p.done, false);
     pending = [];
     sendQueue = Promise.resolve();
     recvQueue = Promise.resolve();
@@ -183,7 +195,7 @@ export function createPty(opts) {
       if (ws !== sock) return;
       ws = null;
       // Keys held for a handshake that will not finish on this socket are lost.
-      for (const p of pending.splice(0)) if (p.done) p.done(false);
+      for (const p of pending.splice(0)) tell(p.done, false);
       if (!running) return;
       // A device the desk has since limited is refused with 1008. It is let go
       // quietly: the control socket's new role is what reconnects it.
@@ -317,16 +329,23 @@ export function createPty(opts) {
     const sess = session;
     // Chained, so frames reach the socket in the order seal gave their
     // counters, whatever order WebCrypto's promises settle in.
+    // The outcome is told from the two handlers of one then, so a callback that
+    // throws cannot be taken for a frame that was lost and told a second time.
+    // Neither handler throws, which keeps the chain alive for the next frame.
     sendQueue = sendQueue.then(() => sess.seal(tagged)).then((frame) => {
+      let ok = false;
       if (ws === sock && sock.readyState === OPEN) {
-        sock.send(frame);
-        if (done) done(true);
-      } else if (done) {
-        done(false);
+        try {
+          sock.send(frame);
+          ok = true;
+        } catch (err) {
+          console.error("e2e: could not write an outgoing frame", err);
+        }
       }
-    }).catch((err) => {
+      tell(done, ok);
+    }, (err) => {
       console.error("e2e: could not seal an outgoing frame", err);
-      if (done) done(false);
+      tell(done, false);
     });
   }
 
@@ -374,7 +393,7 @@ export function createPty(opts) {
     if (!sock || sock.readyState !== OPEN) return false;
     if (!hostKey) {
       sock.send(payload);
-      if (done) done(true);
+      tell(done, true);
       return true;
     }
     if (session) { queueSealed(sock, payload, isText, done); return true; }

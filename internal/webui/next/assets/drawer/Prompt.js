@@ -22,7 +22,7 @@
 //
 // The text on a card is what an agent, a tool or a file said. It is drawn as
 // text and never as markup.
-import { useState } from "../vendor/hooks.mjs";
+import { useRef, useState } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
 import { clip } from "../graph/Node.js";
 import { ManagerBar } from "../graph/ManagerBar.js";
@@ -99,23 +99,30 @@ function PermissionBody({ permission }) {
 function TerminalPermission({ permission, sendKeys }) {
   const [sent, setSent] = useState(null); // { name, written }
   const [note, setNote] = useState("");
+  // Set at the click, not at the render after it: three clicks before the card
+  // is drawn again would otherwise each find it unanswered.
+  const busy = useRef(null); // the token of the choice in flight, or null
   const options = (permission.options || []).filter((o) => o && Object.prototype.hasOwnProperty.call(KEYS, o.id));
   const choose = (opt) => {
-    if (sent) return;
-    const name = opt.name || opt.id;
+    if (busy.current) return;
     const token = {};
+    busy.current = token;
+    const name = opt.name || opt.id;
     setSent({ name, written: false, token });
     setNote("");
     const done = (ok) => {
       if (ok) {
         setSent((s) => (s && s.token === token ? { ...s, written: true } : s));
       } else {
-        setSent((s) => (s && s.token === token ? null : s));
+        if (busy.current !== token) return;
+        busy.current = null;
+        setSent(null);
         setNote(NOT_DELIVERED_WORDS);
       }
     };
     if (!(sendKeys && sendKeys(KEYS[opt.id], done))) {
       setSent(null);
+      if (busy.current === token) busy.current = null;
       setNote(NOT_CONNECTED_WORDS);
     }
   };

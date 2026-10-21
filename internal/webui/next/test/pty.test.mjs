@@ -462,3 +462,80 @@ test("a sealed frame queued on an open session whose socket closes before it is 
   await waitFor(() => told.length > 0, "the callback");
   assert.deepEqual(told, [[false, 1]], "only the hello was written");
 });
+
+test("a callback that throws is not told a second time, plain or sealed", async () => {
+  const quiet = console.error;
+  console.error = () => {};
+  try {
+    const { pty } = make();
+    pty.start();
+    PtySocket.last.open();
+    const told = [];
+    assert.doesNotThrow(() => pty.sendInput("y", (ok) => { told.push(ok); throw new Error("bug in the caller"); }));
+    assert.deepEqual(told, [true]);
+
+    const h = await sealed();
+    await finish(h);
+    await sleep(100);
+    const sealedTold = [];
+    h.pty.sendInput("y", (ok) => { sealedTold.push(ok); throw new Error("bug in the caller"); });
+    await waitFor(() => sealedTold.length > 0, "the callback");
+    await sleep(50);
+    assert.deepEqual(sealedTold, [true], "a throwing callback was told false as well");
+    // The queue is still alive for the next frame.
+    const next = [];
+    h.pty.sendInput("z", (ok) => next.push(ok));
+    await waitFor(() => next.length > 0, "the next frame");
+    assert.deepEqual(next, [true]);
+  } finally {
+    console.error = quiet;
+  }
+});
+
+test("a frame that cannot be sealed tells its callback false, and the next frame still goes", async () => {
+  const E2E = loadE2E();
+  const host = await hostSide(E2E);
+  let failSeal = false;
+  const wrapped = {
+    ...E2E,
+    startTerminalHandshake: async (...args) => {
+      const hs = await E2E.startTerminalHandshake(...args);
+      const handshake = {
+        finish: async (response) => {
+          const real = await hs.handshake.finish(response);
+          return new Proxy(real, {
+            get(target, key) {
+              if (key === "seal" && failSeal) return () => Promise.reject(new Error("no key"));
+              const v = Reflect.get(target, key);
+              return typeof v === "function" ? v.bind(target) : v;
+            },
+          });
+        },
+      };
+      return { ...hs, handshake };
+    },
+  };
+  const made = make({ hostKey: host.pub, e2e: wrapped });
+  made.pty.start();
+  const ws = PtySocket.last;
+  ws.open();
+  await waitFor(() => ws.sent.length > 0, "the handshake hello");
+  const { response } = await host.answer(ws.sent[0]);
+  ws.bin(response);
+  await sleep(100);
+  const quiet = console.error;
+  console.error = () => {};
+  try {
+    const told = [];
+    failSeal = true;
+    made.pty.sendInput("y", (ok) => told.push([ok, ws.sent.length]));
+    await waitFor(() => told.length > 0, "the callback");
+    assert.deepEqual(told, [[false, 1]], "a frame that could not be sealed was reported as written");
+    failSeal = false;
+    made.pty.sendInput("z", (ok) => told.push([ok, ws.sent.length]));
+    await waitFor(() => told.length > 1, "the next callback");
+    assert.deepEqual(told[1], [true, 2]);
+  } finally {
+    console.error = quiet;
+  }
+});

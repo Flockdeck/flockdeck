@@ -488,3 +488,42 @@ test("the question box asks to answer, not to tell", async () => {
     a.done();
   }
 });
+
+test("several clicks before the card is drawn again send one choice", async () => {
+  const calls = [];
+  const a = alone({ node: TERMINAL_NODE, pane: { permission: permission() }, snap: { remote: false }, store: {}, sendKeys: (text, done) => { calls.push(text); return true; } });
+  try {
+    await settle();
+    const [yes, no] = a.container.findAll(".prompt-choice");
+    // No settle between them: the card has not been drawn with its buttons locked.
+    yes.click();
+    no.click();
+    yes.click();
+    await settle();
+    assert.deepEqual(calls, [KEYS.yes], "a second click in the same tick sent another choice");
+  } finally {
+    a.done();
+  }
+});
+
+test("a refused send frees the card for another choice, and a late failure of an older click is ignored", async () => {
+  const dones = [];
+  let open = false;
+  const a = alone({ node: TERMINAL_NODE, pane: { permission: permission() }, snap: { remote: false }, store: {}, sendKeys: (text, done) => { dones.push(done); return open; } });
+  try {
+    await settle();
+    a.container.findAll(".prompt-choice")[0].click();
+    await settle();
+    assert.equal(dones.length, 1);
+    assert.equal(a.container.find(".prompt-status").textContent, NOT_CONNECTED_WORDS);
+    open = true;
+    a.container.findAll(".prompt-choice")[0].click();
+    await settle();
+    assert.equal(dones.length, 2, "the card stayed locked after a send that was refused");
+    dones[0](false); // the refused click's callback, late
+    await settle();
+    assert.match(a.container.find(".prompt-status").textContent, /^Sending /, "an older click's failure changed the card");
+  } finally {
+    a.done();
+  }
+});
