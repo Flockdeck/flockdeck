@@ -389,6 +389,6 @@ test("main.js makes the store, registers the key on a remote hello, starts the s
   assert.match(src, /createStore\(\{ url: controlUrl\(window\.location\) \}\)/);
   assert.match(src, /watchRemoteHello\(store\)/);
   assert.match(src, /store\.start\(\)/);
-  assert.match(src, /addEventListener\("pagehide", \(\) => store\.stop\(\)\)/);
+  assert.match(src, /watchPageLifecycle\(window, store\)/);
   assert.ok(src.indexOf("watchRemoteHello(store)") < src.indexOf("store.start()"), "the watch must be set before the socket can say hello");
 });
