@@ -11,6 +11,7 @@ import (
 	"github.com/jmwri/flockdeck/internal/acp/acptest"
 	"github.com/jmwri/flockdeck/internal/agent"
 	"github.com/jmwri/flockdeck/internal/session"
+	"github.com/jmwri/flockdeck/internal/session/transcript"
 	"github.com/jmwri/flockdeck/internal/store"
 	"github.com/jmwri/flockdeck/internal/structured"
 )
@@ -248,6 +249,110 @@ func TestRestartingAStructuredPaneKeepsItsHistory(t *testing.T) {
 	}
 	if ws.Pane(id).Sess != nil {
 		t.Error("a restarted structured pane gained a session")
+	}
+}
+
+// restartAndWait restarts the structured pane and waits for the new session.
+func restartAndWait(t *testing.T, ws *Workspace, id string) {
+	t.Helper()
+	old := ws.StructuredRuntime(id)
+	if !ws.RestartPaneByID(id) {
+		t.Fatal("restart refused")
+	}
+	if now := ws.StructuredRuntime(id); now == nil || now == old {
+		t.Fatal("the restart did not start a fresh session")
+	}
+	statusWithin(t, ws, id, session.StatusIdle)
+}
+
+func noEntryIDTwice(t *testing.T, entries []transcript.Entry) {
+	t.Helper()
+	seen := map[string]bool{}
+	for _, en := range entries {
+		if seen[en.ID] {
+			t.Errorf("entry id %q is shown twice in %d entries", en.ID, len(entries))
+		}
+		seen[en.ID] = true
+	}
+}
+
+// Two restarts leave three sessions, in order, and the first one's entries are
+// still there with the ids they were given at the first restart.
+func TestRestartingTwiceKeepsEverySessionWithUniqueIds(t *testing.T) {
+	ws, lead, _ := structuredCrew(t)
+	id := spawnStructured(t, ws, lead, "plain")
+	statusWithin(t, ws, id, session.StatusIdle)
+	first, _ := ws.StructuredEntries(id)
+	restartAndWait(t, ws, id)
+	// The restarted session has said nothing yet; give it something to become history.
+	if _, err := ws.SendToPane(id, "plain", false); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		es, _ := ws.StructuredEntries(id)
+		if n := len(es); n >= len(first)+3 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the second session never answered")
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	statusWithin(t, ws, id, session.StatusIdle)
+	afterOne, _ := ws.StructuredEntries(id)
+	restartAndWait(t, ws, id)
+	all, _ := ws.StructuredEntries(id)
+
+	notes := 0
+	for _, en := range all {
+		if en.Kind == transcript.KindNotice && strings.Contains(en.Text, "restarted") {
+			notes++
+		}
+	}
+	if notes != 2 {
+		t.Errorf("%d restart notices after two restarts, want 2", notes)
+	}
+	if len(all) <= len(afterOne) {
+		t.Errorf("%d entries after the second restart, %d after the first", len(all), len(afterOne))
+	}
+	for i := range first {
+		if all[i].Kind != first[i].Kind || all[i].ID != "r0-"+first[i].ID {
+			t.Errorf("the first session's entry %d is %+v, want %s %q", i, all[i], first[i].Kind, "r0-"+first[i].ID)
+		}
+	}
+	noEntryIDTwice(t, all)
+	// The second session became history at the second restart, as r1-.
+	found := false
+	for _, en := range all {
+		found = found || strings.HasPrefix(en.ID, "r1-")
+	}
+	if !found {
+		t.Error("no entry of the second session was renamed r1-")
+	}
+}
+
+// Once the history is cut to its cap the notices still have names of their own.
+func TestRestartNoticesKeepUniqueIdsOncetheHistoryIsCut(t *testing.T) {
+	defer func(n int) { maxPaneHistory = n }(maxPaneHistory)
+	maxPaneHistory = 6
+	ws, lead, _ := structuredCrew(t)
+	id := spawnStructured(t, ws, lead, "plain")
+	statusWithin(t, ws, id, session.StatusIdle)
+	for i := 0; i < 9; i++ {
+		restartAndWait(t, ws, id)
+		entries, _ := ws.StructuredEntries(id)
+		noEntryIDTwice(t, entries)
+	}
+	entries, _ := ws.StructuredEntries(id)
+	var notices []string
+	for _, en := range entries {
+		if en.Kind == transcript.KindNotice {
+			notices = append(notices, en.ID)
+		}
+	}
+	if len(notices) < 2 {
+		t.Fatalf("only %v are left of the notices", notices)
 	}
 }
 

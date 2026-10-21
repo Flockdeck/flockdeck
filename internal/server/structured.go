@@ -315,15 +315,7 @@ func buildStructured(id string, sn structured.Snapshot) structuredMsg {
 // only the current session, so a window given its snapshot alone would lose the
 // earlier conversation at a restart. It must run on the workspace goroutine.
 func (s *Server) structuredSnapshotOf(id string) (structured.Snapshot, bool) {
-	rt := s.ws.StructuredRuntime(id)
-	if rt == nil {
-		return structured.Snapshot{}, false
-	}
-	sn := rt.Snapshot()
-	if entries, ok := s.ws.StructuredEntries(id); ok {
-		sn.Entries = entries
-	}
-	return sn, true
+	return s.ws.StructuredSnapshot(id)
 }
 
 // structuredDetailOf is the answer for one entry of a runtime. entries are the

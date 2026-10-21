@@ -35,7 +35,7 @@ import (
 
 // maxPaneHistory bounds the entries a restarted structured pane keeps from the
 // sessions before it.
-const maxPaneHistory = 2000
+var maxPaneHistory = 2000
 
 // ErrStructuredPane is what an operation that needs a terminal says when asked
 // of a structured pane.
@@ -421,6 +421,27 @@ func (w *Workspace) StructuredRuntime(id string) *structured.Runtime {
 	return nil
 }
 
+// StructuredSnapshot is the runtime's snapshot of the structured pane id with
+// the entries the pane shows in place of the session's own: the history of the
+// sessions before its last restart, then this one's. One runtime is read, once,
+// so the history and the session always belong together. The history of a
+// runtime never changes after it is made.
+func (w *Workspace) StructuredSnapshot(id string) (structured.Snapshot, bool) {
+	p := w.Pane(id)
+	if p == nil {
+		return structured.Snapshot{}, false
+	}
+	sr, ok := p.setRuntime().(*structuredRuntime)
+	if !ok {
+		return structured.Snapshot{}, false
+	}
+	sn := sr.rt.Snapshot()
+	entries := make([]transcript.Entry, 0, len(sr.prior)+len(sn.Entries))
+	entries = append(entries, sr.prior...)
+	sn.Entries = append(entries, sn.Entries...)
+	return sn, true
+}
+
 // StructuredEntries are the entries a structured pane shows, with the history
 // of the sessions before its last restart first.
 func (w *Workspace) StructuredEntries(id string) ([]transcript.Entry, bool) {
@@ -452,9 +473,12 @@ func (w *Workspace) restartStructured(p *Pane, old *structuredRuntime) {
 		e.ID = fmt.Sprintf("r%d-%s", p.generation, e.ID)
 		history = append(history, e)
 	}
+	// The notice is named by the restart it marks, not by the length of the
+	// history, which stops growing once it is cut to maxPaneHistory.
+	noteID := fmt.Sprintf("restart-%d", p.generation)
 	p.generation++
 	_ = old.Close()
-	history = append(history, transcript.Entry{ID: fmt.Sprintf("restart-%d", len(history)), Kind: transcript.KindNotice,
+	history = append(history, transcript.Entry{ID: noteID, Kind: transcript.KindNotice,
 		TS: time.Now().UTC().Format(time.RFC3339), Text: "The agent was restarted. This is a new session."})
 	if n := len(history); n > maxPaneHistory {
 		history = history[n-maxPaneHistory:]
