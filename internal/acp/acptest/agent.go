@@ -33,7 +33,7 @@
 //	ratelimit   answers the prompt with the JSON-RPC error -32603 "rate limit exceeded"
 //	env         reports its whole environment, one NAME=VALUE per line, in one chunk
 //	deaf-perm   asks for permission and stops reading stdin
-//	grandchild  starts a process of its own that sleeps for ten minutes, reports its id as "pid=N", then end_turn
+//	grandchild  starts a process of its own that sleeps for a minute, reports its id as "pid=N", then end_turn
 //
 // WithMute makes an agent that reads and never answers.
 //
@@ -72,7 +72,7 @@ const ArgAgent = "--acptest-agent"
 // agent started with ArgAgent, whose environment is not the test's.
 const ArgMarker = "--acptest-marker"
 
-// argSleeper makes a process do nothing for ten minutes. The grandchild
+// argSleeper makes a process do nothing for a minute. The grandchild
 // scenario starts one, as an agent starts a tool, so that a test can see
 // whether closing the client ended what the agent had started.
 const argSleeper = "--acptest-sleeper"
@@ -82,7 +82,7 @@ const argSleeper = "--acptest-sleeper"
 func RunIfAgent() bool {
 	for _, a := range os.Args[1:] {
 		if a == argSleeper {
-			time.Sleep(10 * time.Minute)
+			time.Sleep(time.Minute)
 			return true
 		}
 	}
