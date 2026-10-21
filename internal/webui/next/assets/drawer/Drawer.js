@@ -1,4 +1,5 @@
-// The drawer for one agent: a header and a Terminal tab. It shows the pane it
+// The drawer for one agent: a header, the card for what it is waiting on when it
+// is waiting on the person (Prompt.js), and a Terminal tab. It shows the pane it
 // is given and nothing else, and the shell puts it beside the graph, which keeps
 // drawing and keeps updating behind it.
 //
@@ -12,6 +13,7 @@
 import { useEffect, useReducer, useRef } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
 import { Header } from "./Header.js";
+import { Prompt } from "./Prompt.js";
 import { TerminalView, STRUCTURED_STUB } from "../lib/terminal.js";
 import { initialDrawer, reduceDrawer, focusNode } from "./state.js";
 import { LIST } from "../shell/keys.js";
@@ -55,28 +57,40 @@ export function hasTerminal(node, pane) {
 /** Drawer is the component. store is the store of store.js; node and pane are the
  *  graph node and the state push's entry for it. terminalOptions reach the
  *  terminal, which is how a test gives it fakes for xterm and the socket. */
-function DrawerBody({ store, node, pane = null, now, maximised = false, onClose, onToggleMax, terminalOptions = null }) {
+function DrawerBody({ store, snap = null, node, pane = null, now, maximised = false, onClose, onToggleMax, terminalOptions = null }) {
   const rootRef = useRef(null);
+  const terminalRef = useRef(null);
+  const terminal = hasTerminal(node, pane);
   // Opening, or opening another pane, takes the keyboard into the drawer.
   useEffect(() => {
     if (rootRef.current && rootRef.current.focus) rootRef.current.focus();
   }, [node.pane]);
+  // A structured pane's permission card comes with a number the answer must carry,
+  // and only a structured watch brings it. Closing the drawer, or opening another
+  // pane, gives the watch up.
+  useEffect(() => {
+    if (terminal) return undefined;
+    store.watchStructured(node.pane);
+    return () => store.unwatchStructured();
+  }, [store, node.pane, terminal]);
   const onKeyDown = (e) => {
     if (e.key !== LIST.cancel || e.defaultPrevented || inTerminal(e.target)) return;
     e.preventDefault();
     e.stopPropagation();
     if (onClose) onClose();
   };
-  const terminal = hasTerminal(node, pane);
+  const state = snap || store.getState();
+  const sendKeys = (text) => !!terminalRef.current && terminalRef.current.sendKeys(text);
   return html`
     <section class=${"drawer-body" + (maximised ? " drawer-body--max" : "")} data-drawer-pane=${node.pane} tabindex="-1" ref=${rootRef} onKeyDown=${onKeyDown}>
       <${Header} node=${node} pane=${pane} now=${now} maximised=${maximised} onClose=${onClose} onToggleMax=${onToggleMax} />
+      <${Prompt} node=${node} pane=${pane} snap=${state} store=${store} sendKeys=${sendKeys} terminal=${terminal} />
       <div class="drawer-tabs" role="tablist" aria-label="Views of this agent">
         <button type="button" role="tab" id="drawer-tab-terminal" aria-selected="true" aria-controls="drawer-panel-terminal" class="drawer-tab is-active">Terminal</button>
       </div>
       <div class="drawer-panel" role="tabpanel" id="drawer-panel-terminal" aria-labelledby="drawer-tab-terminal">
         ${terminal
-          ? html`<${TerminalView} key=${node.pane} store=${store} paneId=${node.pane} ...${terminalOptions || {}} />`
+          ? html`<${TerminalView} key=${node.pane} store=${store} paneId=${node.pane} onReady=${(c) => { terminalRef.current = c; }} ...${terminalOptions || {}} />`
           : html`<p class="drawer-stub">${STRUCTURED_STUB}</p>`}
       </div>
     </section>

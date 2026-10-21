@@ -9,7 +9,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { render } from "../assets/vendor/preact.mjs";
+import { render, options } from "../assets/vendor/preact.mjs";
+import { Drawer } from "../assets/drawer/Drawer.js";
 import { renderToString } from "./vendor/render-to-string.mjs";
 import { html } from "../assets/html.js";
 import { Live } from "../assets/shell/Live.js";
@@ -23,7 +24,10 @@ import { fakeKeys } from "./util.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixtureFile = join(here, "..", "..", "..", "server", "testdata", "graph-fixtures", "01-six-helpers-one-permission.json");
-const projects = [{ root: "/work/a", name: "alpha", waiting: 0, working: 0 }];
+const projects = [
+  { root: "/work/a", name: "alpha", waiting: 0, working: 0 },
+  { root: "/work/b", name: "beta", waiting: 0, working: 0 },
+];
 
 // The graph of fixture 1, with a change to a node where a test wants one. The
 // fixture's permission need is for pane TAX, so the needs-you strip has a row
@@ -243,3 +247,33 @@ test("the terminal cover offers Try again for a failed library load and not for 
   assert.ok(!chrome("blocked").includes("Try again"));
   assert.match(chrome("refused"), /Try again/);
 });
+
+test("after a switch the drawer is never drawn for the old project's pane, even for one frame", () =>
+  withPage({}, async (m) => {
+    await m.connect();
+    m.box(CART).click();
+    await settle();
+    assert.equal(m.name(), "cart");
+    // Every commit of the drawer, with the props it was given. A commit with the
+    // props it had before is Preact skipping an unchanged drawer, not a new draw.
+    const drawn = [];
+    const before = options.diffed;
+    options.diffed = (vnode) => {
+      if (vnode.type === Drawer) drawn.push(vnode.props);
+      if (before) before(vnode);
+    };
+    let known = null;
+    try {
+      await m.push(graph());
+      known = drawn[drawn.length - 1];
+      drawn.length = 0;
+      const rail = m.container.findAll("button").find((b) => b.attributes["data-root"] === "/work/b");
+      rail.click();
+      await settle();
+    } finally {
+      options.diffed = before;
+    }
+    const fresh = drawn.filter((p) => p !== known).map((p) => p.node && p.node.pane);
+    assert.ok(!fresh.includes(CART), "the drawer was drawn for project B with project A's pane");
+    assert.equal(m.bodies().length, 0);
+  }));

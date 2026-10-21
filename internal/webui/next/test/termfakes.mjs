@@ -101,8 +101,16 @@ export class FakeHost {
 export function fakeStore(snap) {
   let cur = snap;
   const subs = new Set();
+  const sent = [];
+  const watched = [];
   return {
     getState: () => cur,
+    // What the drawer asks of the store besides reading it.
+    send(cmd) { sent.push(cmd); return true; },
+    watchStructured(id) { watched.push(id); return true; },
+    unwatchStructured() { watched.push(null); },
+    get sent() { return sent; },
+    get watched() { return watched; },
     subscribe(fn) { subs.add(fn); return () => subs.delete(fn); },
     set(patch) { cur = { ...cur, ...patch }; for (const fn of [...subs]) fn(cur); },
     get subscribers() { return subs.size; },

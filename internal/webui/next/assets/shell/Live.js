@@ -79,7 +79,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null })
     mainRef=${mainRef}
     maximised=${drawer.maximised}
     drawer=${node
-      ? html`<${Drawer} store=${store} node=${node} pane=${pane} now=${Date.now()} maximised=${drawer.maximised}
+      ? html`<${Drawer} store=${store} snap=${snap} node=${node} pane=${pane} now=${Date.now()} maximised=${drawer.maximised}
           onClose=${drawer.close} onToggleMax=${drawer.toggleMax} terminalOptions=${terminalOptions} />`
       : null}
   ><${Home} snap=${snap} selected=${selected} onShown=${setShown} onOpen=${drawer.open} open=${drawer.pane} /><//>`;

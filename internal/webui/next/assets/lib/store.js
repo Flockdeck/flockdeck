@@ -15,6 +15,8 @@
 //   store.send(cmd)                          // a command object; false if not sent
 //   store.watchGraph(root)                   // "" is the project on screen
 //   store.unwatchGraph()
+//   store.watchStructured(id)                // one structured pane, local window only
+//   store.unwatchStructured()
 //
 // The snapshot:
 //
@@ -47,7 +49,20 @@
 //   sent          the latest accepted paneSend as { seq, id, queued, shell,
 //                 waiting, routed }, or null. A refused one arrives as a notice
 //                 with error true. seq grows with each one.
+//   structured    the latest structured message of the pane watchStructured
+//                 named (its card among the rest), or null. A push of another
+//                 pane than the one watched is not kept, and one with gone: true
+//                 clears it.
+//   structuredError  { error } after structuredWatch was refused, else null
+//   answer        the latest permissionAnswer reply as { seq, ok, error, id,
+//                 cardSeq, requestId, req }, or null. A view matches it to the
+//                 card it answered by id, cardSeq and requestId.
 //   dropped       how many frames were dropped as malformed
+//
+// The structured watch and permissionAnswer are for a window on the desk, as the
+// graph is: in a remote window the store sends neither, and the desktop would
+// refuse them. A structured pane is watched one at a time, and the watch is asked
+// for again after a reconnect.
 //
 // The graph is never asked for when remote is true, and never before the hello
 // has said whether it is. A watch survives a reconnect: when the next hello
@@ -66,11 +81,16 @@ export const DESK_ONLY_PHRASE = "machine Flockdeck runs on";
 
 const GRAPH_OPS = new Set(["graphSnapshot", "graphWatch", "graphUnwatch"]);
 
+/** DESK_ONLY says a command is one a remote window may not send: the graph
+ *  commands, the structured pane ones and permissionAnswer. The desktop refuses
+ *  them there, so the store does not send them. */
+const DESK_ONLY = (cmd) => typeof cmd === "string" && (cmd.startsWith("graph") || cmd.startsWith("structured") || cmd === "permissionAnswer");
+
 const initial = () => ({
   connection: "idle", retryInMs: 0,
   hello: null, remote: false, state: null,
   graph: null, graphGone: null, graphRefused: false, graphError: null,
-  notice: null, sent: null, dropped: 0,
+  notice: null, sent: null, structured: null, structuredError: null, answer: null, dropped: 0,
 });
 
 export function createStore(opts) {
@@ -82,6 +102,9 @@ export function createStore(opts) {
   let reqSeq = 0;
   let noticeSeq = 0;
   let sentSeq = 0;
+  let answerSeq = 0;
+  // The structured pane last asked for with watchStructured, or null.
+  let watchingPane = null;
 
   const notify = () => {
     for (const fn of [...listeners]) {
@@ -114,6 +137,10 @@ export function createStore(opts) {
     return socket.send({ cmd: "graphWatch", root: watching, req: "g" + ++reqSeq });
   }
 
+  function sendStructuredWatch() {
+    return socket.send({ cmd: "structuredWatch", id: watchingPane, req: "s" + ++reqSeq });
+  }
+
   function handle(msg) {
     switch (msg.type) {
       case "hello": {
@@ -122,6 +149,7 @@ export function createStore(opts) {
         // refused before is tried again unless this window is remote.
         set({ hello: msg, remote, graphRefused: remote, graphError: null });
         if (!remote && watching !== null) sendGraphWatch();
+        if (!remote && watchingPane !== null) sendStructuredWatch();
         break;
       }
       case "state":
@@ -149,6 +177,9 @@ export function createStore(opts) {
         }
         break;
       case "teamResult":
+        if (!msg.ok && msg.op === "structuredWatch" && watchingPane !== null) {
+          set({ structuredError: { error: String(msg.error || "") } });
+        }
         if (!msg.ok && GRAPH_OPS.has(msg.op)) {
           const error = String(msg.error || "");
           if (msg.code === DESK_ONLY_CODE || error.includes(DESK_ONLY_PHRASE)) {
@@ -158,6 +189,14 @@ export function createStore(opts) {
             set({ graphError: { op: msg.op, error } });
           }
         }
+        break;
+      case "structured":
+        if (watchingPane !== null && msg.id === watchingPane && !snap.remote) {
+          set(msg.gone ? { structured: null, structuredError: null } : { structured: msg, structuredError: null });
+        }
+        break;
+      case "permissionAnswer":
+        set({ answer: { ...msg, seq: ++answerSeq } });
         break;
       case "paneSend":
         // The answer to an accepted paneSend. A refusal comes as a notice.
@@ -175,7 +214,9 @@ export function createStore(opts) {
     start() { socket.start(); },
     stop() {
       if (watching !== null) socket.send({ cmd: "graphUnwatch" });
+      if (watchingPane !== null) socket.send({ cmd: "structuredUnwatch", id: watchingPane });
       watching = null;
+      watchingPane = null;
       socket.stop();
       snap = initial();
       notify();
@@ -189,7 +230,7 @@ export function createStore(opts) {
      *  socket is not open, or the command is a graph command and this window is
      *  remote. */
     send(cmd) {
-      if (snap.remote && typeof cmd.cmd === "string" && cmd.cmd.startsWith("graph")) return false;
+      if (snap.remote && DESK_ONLY(cmd.cmd)) return false;
       return socket.send(cmd);
     },
     /** watchGraph asks for the graph of a project, now and whenever it
@@ -204,6 +245,26 @@ export function createStore(opts) {
       set({ graphGone: null, graphError: null });
       if (snap.hello) sendGraphWatch();
       return true;
+    },
+    /** watchStructured asks for the structured messages of one pane, now and
+     *  whenever it changes, for its permission card. It replaces the pane watched
+     *  before, and returns false, asking for nothing, in a remote window. */
+    watchStructured(id) {
+      if (snap.remote || !id) return false;
+      const was = watchingPane;
+      if (was === id) return true;
+      if (was !== null) socket.send({ cmd: "structuredUnwatch", id: was });
+      watchingPane = id;
+      set({ structured: null, structuredError: null });
+      if (snap.hello) sendStructuredWatch();
+      return true;
+    },
+    unwatchStructured() {
+      if (watchingPane === null) return;
+      const was = watchingPane;
+      watchingPane = null;
+      if (!snap.remote) socket.send({ cmd: "structuredUnwatch", id: was });
+      set({ structured: null, structuredError: null });
     },
     unwatchGraph() {
       if (watching === null) return;
