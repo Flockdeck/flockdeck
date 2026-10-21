@@ -380,57 +380,41 @@ func TestE2EIsTheOldWindowsFileByteForByte(t *testing.T) {
 	}
 }
 
-// The terminal component needs xterm, its fit addon and the end-to-end layer to
-// have run before the module does. Classic scripts without async or defer run in
-// order, as the parser reaches them, and a module script waits for the whole
-// page, so the three come first, in this order, and plain. They are served from
-// the old tree, shared and not copied.
-func TestClassicScriptsComeBeforeTheModule(t *testing.T) {
+// The terminal's libraries are not in the page: as blocking scripts they were
+// about 1.1 s of first paint (docs/first-load.md). The page holds the module
+// and nothing else, and the loader names the three files, in the order a
+// terminal needs them, each of which the tagged build serves as JavaScript from
+// the old tree.
+func TestPageHoldsOnlyTheModuleAndTheLoaderNamesTheLibraries(t *testing.T) {
 	page, err := os.ReadFile(filepath.Join("assets", "index.html"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	tags := scriptTag.FindAllString(string(page), -1)
-	want := []string{"assets/vendor/xterm.js", "assets/vendor/addon-fit.js", "assets/e2e.js", "assets/main.js"}
-	if len(tags) != len(want) {
-		t.Fatalf("the page has %d script tags, want %d: %v", len(tags), len(want), tags)
+	if len(tags) != 1 || !strings.Contains(tags[0], `type="module"`) || !strings.Contains(tags[0], `src="assets/main.js"`) {
+		t.Fatalf("the page's script tags are %v, want only the module", tags)
 	}
-	srcOf := regexp.MustCompile(`\bsrc="([^"]+)"`)
-	for i, tag := range tags {
-		m := srcOf.FindStringSubmatch(tag)
-		if m == nil || m[1] != want[i] {
-			t.Errorf("script %d is %s, want %s", i, tag, want[i])
-			continue
-		}
-		module := strings.Contains(tag, `type="module"`)
-		if module != (i == len(want)-1) {
-			t.Errorf("%s: only the last script is a module", tag)
-		}
-		if !module && regexp.MustCompile(`\b(?:async|defer)\b`).MatchString(tag) {
-			t.Errorf("%s has async or defer, which lets the module run before it", tag)
-		}
-		if module && regexp.MustCompile(`\bnomodule\b`).MatchString(tag) {
-			t.Errorf("%s", tag)
-		}
+	loader, err := os.ReadFile(filepath.Join("assets", "lib", "load-script.js"))
+	if err != nil {
+		t.Fatal(err)
 	}
-	// And the files are served, as JavaScript, from the tagged build.
+	srcs := regexp.MustCompile(`src: "([^"]+)"`).FindAllStringSubmatch(string(loader), -1)
+	want := []string{"assets/vendor/xterm.js", "assets/vendor/addon-fit.js", "assets/e2e.js"}
+	if len(srcs) != len(want) {
+		t.Fatalf("the loader names %d files, want %d", len(srcs), len(want))
+	}
 	srv := serve(t)
-	for _, src := range want[:3] {
-		body, ct := get(t, srv.URL+"/"+src)
+	for i, m := range srcs {
+		if m[1] != want[i] {
+			t.Errorf("loader file %d is %s, want %s", i, m[1], want[i])
+		}
+		body, ct := get(t, srv.URL+"/"+m[1])
 		if !strings.Contains(ct, "javascript") || len(body) == 0 {
-			t.Errorf("%s is served as %q (%d bytes)", src, ct, len(body))
+			t.Errorf("%s is served as %q (%d bytes)", m[1], ct, len(body))
 		}
 	}
-	// The stylesheet for xterm comes with them.
+	// The stylesheet for xterm stays in the head.
 	if !strings.Contains(string(page), `href="assets/vendor/xterm.css"`) {
 		t.Error("the page does not load xterm's stylesheet")
-	}
-}
-
-func TestScriptOrderCheckCatchesWhatItIsFor(t *testing.T) {
-	for _, s := range []string{`<script async src="assets/e2e.js"></script>`, `<script src="assets/e2e.js" defer></script>`} {
-		if !regexp.MustCompile(`\b(?:async|defer)\b`).MatchString(scriptTag.FindString(s)) {
-			t.Errorf("the check misses %q", s)
-		}
 	}
 }

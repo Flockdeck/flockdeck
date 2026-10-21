@@ -283,22 +283,153 @@ test("controllers made one after another on one host leave no listeners behind",
 
 // ------------------------------------------------------------ the library and the role
 
-test("a page whose terminal library did not load shows a reason and throws nothing", () => {
-  const had = globalThis.Terminal;
-  globalThis.Terminal = undefined;
+test("libraries that are not in the page are loaded, with a line saying so, and then the terminal opens", async () => {
+  let release;
+  let calls = 0;
+  const h = build({
+    Terminal: null, FitAddon: null,
+    loadLibs: () => { calls++; return new Promise((r) => { release = r; }); },
+  });
+  h.ctl.start();
+  assert.equal(h.ctl.state.phase, "loading terminal");
+  assert.equal(PtySocket.instances.length, 0, "a socket opened before the libraries were here");
+  assert.match(renderToString(html`<${TerminalChrome} state=${h.ctl.state} hostRef=${{ current: null }} />`), /Loading terminal/);
+  h.ctl.start();
+  assert.equal(calls, 1, "a second start loaded again");
+  // They arrive: the globals the page has now are read.
+  globalThis.Terminal = FakeTerm;
+  globalThis.FitAddon = { FitAddon: FakeFit };
   try {
-    const h = build({ Terminal: null });
-    assert.doesNotThrow(() => h.ctl.start());
-    assert.equal(h.ctl.state.phase, "blocked");
-    assert.equal(h.ctl.state.reason, "The terminal library is not loaded.");
-    assert.equal(PtySocket.instances.length, 0);
-    // Started again once the script has run.
-    const h2 = build({ FitAddon: null });
-    assert.doesNotThrow(() => h2.ctl.start());
-    assert.equal(h2.ctl.state.phase, "blocked");
+    release();
+    await waitFor(() => h.ctl.state.phase !== "loading terminal", "the terminal to open");
+    assert.equal(PtySocket.instances.length, 1);
+    assert.equal(FakeTerm.instances.length, 1);
   } finally {
-    globalThis.Terminal = had;
+    delete globalThis.Terminal;
+    delete globalThis.FitAddon;
   }
+  h.ctl.dispose();
+});
+
+test("a failed load says so with Try again, tries again, and never opens a socket without the libraries", async () => {
+  let fail = true;
+  let calls = 0;
+  const h = build({
+    Terminal: null, FitAddon: null,
+    loadLibs: () => { calls++; return fail ? Promise.reject(new Error("net")) : Promise.resolve(); },
+  });
+  const quiet = console.error;
+  console.error = () => {};
+  try {
+    h.ctl.start();
+    await waitFor(() => h.ctl.state.phase === "load-failed", "the failure");
+    assert.match(h.ctl.state.reason, /could not be loaded/);
+    assert.equal(PtySocket.instances.length, 0);
+    const out = renderToString(html`<${TerminalChrome} state=${h.ctl.state} hostRef=${{ current: null }} onTryAgain=${() => {}} />`);
+    assert.match(out, /could not be loaded/);
+    assert.match(out, /Try again/);
+    // Still failing: still no socket.
+    h.ctl.tryAgain();
+    await waitFor(() => calls === 2 && h.ctl.state.phase === "load-failed", "the second failure");
+    assert.equal(PtySocket.instances.length, 0);
+    // The network is back.
+    fail = false;
+    globalThis.Terminal = FakeTerm;
+    globalThis.FitAddon = { FitAddon: FakeFit };
+    h.ctl.tryAgain();
+    await waitFor(() => h.ctl.state.phase !== "load-failed" && h.ctl.state.phase !== "loading terminal", "the terminal to open");
+    assert.equal(calls, 3);
+    assert.equal(PtySocket.instances.length, 1);
+  } finally {
+    console.error = quiet;
+    delete globalThis.Terminal;
+    delete globalThis.FitAddon;
+  }
+  h.ctl.dispose();
+});
+
+test("libraries that load but define nothing are a failed load", async () => {
+  const h = build({ Terminal: null, FitAddon: null, loadLibs: () => Promise.resolve() });
+  h.ctl.start();
+  await waitFor(() => h.ctl.state.phase === "load-failed", "the failure");
+  assert.match(h.ctl.state.reason, /did not load/);
+  assert.equal(PtySocket.instances.length, 0);
+});
+
+test("a terminal disposed while its libraries load opens nothing when they arrive", async () => {
+  let release;
+  const h = build({ Terminal: null, FitAddon: null, loadLibs: () => new Promise((r) => { release = r; }) });
+  h.ctl.start();
+  h.ctl.dispose();
+  globalThis.Terminal = FakeTerm;
+  globalThis.FitAddon = { FitAddon: FakeFit };
+  try {
+    release();
+    await new Promise((r) => setTimeout(r, 20));
+    assert.equal(PtySocket.instances.length, 0);
+    assert.equal(FakeTerm.instances.length, 0);
+    assert.equal(h.store.subscribers, 0);
+  } finally {
+    delete globalThis.Terminal;
+    delete globalThis.FitAddon;
+  }
+});
+
+test("a terminal that opens while another's libraries are half loaded waits for e2e.js too", async () => {
+  // xterm and the addon are in the page, e2e.js is still arriving: a second
+  // terminal with a keyed hello must not decide the end-to-end layer is missing.
+  const E2E = loadE2E();
+  const host = await hostSide(E2E);
+  let release;
+  const had = globalThis.FlockdeckE2E;
+  delete globalThis.FlockdeckE2E;
+  globalThis.Terminal = FakeTerm;
+  globalThis.FitAddon = { FitAddon: FakeFit };
+  const h = build({
+    snap: { hello: hello({ remote: true, e2ePublicKey: host.pub }), state: paneState({ p1: {} }) },
+    Terminal: null, FitAddon: null, e2e: null,
+    loadLibs: () => new Promise((r) => { release = r; }),
+  });
+  try {
+    h.ctl.start();
+    assert.equal(h.ctl.state.phase, "loading terminal", "started without waiting for e2e.js");
+    assert.equal(PtySocket.instances.length, 0);
+    globalThis.FlockdeckE2E = E2E;
+    release();
+    await waitFor(() => PtySocket.instances.length === 1, "the socket");
+    assert.notEqual(h.ctl.state.phase, "blocked");
+  } finally {
+    delete globalThis.Terminal;
+    delete globalThis.FitAddon;
+    delete globalThis.FlockdeckE2E;
+    if (had) globalThis.FlockdeckE2E = had;
+  }
+  h.ctl.dispose();
+});
+
+test("a sealed terminal whose end-to-end layer does not come with the libraries opens no socket", async () => {
+  // Terminal and the addon arrive, e2e.js does not: the hello carries a key, so
+  // the terminal is blocked, not plain.
+  const h = build({
+    snap: { hello: hello({ remote: true, e2ePublicKey: "AAAA" }), state: paneState({ p1: {} }) },
+    Terminal: null, FitAddon: null, e2e: null,
+    loadLibs: () => Promise.resolve(),
+  });
+  globalThis.Terminal = FakeTerm;
+  globalThis.FitAddon = { FitAddon: FakeFit };
+  const had = globalThis.FlockdeckE2E;
+  delete globalThis.FlockdeckE2E;
+  try {
+    h.ctl.start();
+    await waitFor(() => h.ctl.state.phase === "blocked", "blocked");
+    assert.match(h.ctl.state.reason, /end-to-end layer is not loaded/);
+    assert.equal(PtySocket.instances.length, 0);
+  } finally {
+    delete globalThis.Terminal;
+    delete globalThis.FitAddon;
+    if (had) globalThis.FlockdeckE2E = had;
+  }
+  h.ctl.dispose();
 });
 
 test("a viewer later allowed to watch panes gets its terminal", () => {

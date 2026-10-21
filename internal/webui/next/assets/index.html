@@ -14,13 +14,10 @@
      served from /, where assets/ is the server's /assets/. -->
 <div id="app"></div>
 <noscript>Flockdeck needs JavaScript.</noscript>
-<!-- The terminal's libraries and the end-to-end layer are classic scripts, which
-     run in order as the parser reaches them, and a module script waits until the
-     page is parsed. So these three, in this order and without async or defer,
-     have run by the time main.js does. They are served from the old tree. -->
-<script src="assets/vendor/xterm.js"></script>
-<script src="assets/vendor/addon-fit.js"></script>
-<script src="assets/e2e.js"></script>
+<!-- xterm, its fit addon and e2e.js are not here. The first terminal that opens
+     loads them (assets/lib/load-script.js), and a window reached through the
+     relay loads e2e.js when its hello arrives. As blocking scripts in this page
+     they were 131 KB and about 1.1 s of first paint on a phone's link. -->
 <script type="module" src="assets/main.js"></script>
 </body>
 </html>

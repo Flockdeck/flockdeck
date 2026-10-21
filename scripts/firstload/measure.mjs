@@ -95,13 +95,16 @@ const TYPES = { ".js": "text/javascript", ".mjs": "text/javascript", ".css": "te
 
 function buildCases(scratch) {
   const index = readTree("index.html").toString();
-  const noTerm = index
-    .replace('<script src="assets/vendor/xterm.js"></script>\n', "")
-    .replace('<script src="assets/vendor/addon-fit.js"></script>\n', "")
-    .replace('<script src="assets/e2e.js"></script>\n', "")
-    .replace('<link rel="stylesheet" href="assets/vendor/xterm.css">\n', "");
-  if (noTerm === index) throw new Error("index.html no longer has the terminal scripts in the form this tool expects");
-
+  // The page as it was before the terminal's libraries were loaded on first
+  // use: the three classic scripts in front of the module. The cases named
+  // eager use it, to show what moving them out saved. A page that has them
+  // already is used as it is.
+  const eagerTags = ['assets/vendor/xterm.js', 'assets/vendor/addon-fit.js', 'assets/e2e.js']
+    .map((p) => `<script src="${p}"></script>
+`).join('');
+  const moduleTag = '<script type="module" src="assets/main.js"></script>';
+  if (!index.includes(moduleTag)) throw new Error('index.html no longer has the module script in the form this tool expects');
+  const eager = index.includes('assets/vendor/xterm.js') ? index : index.replace(moduleTag, eagerTags + moduleTag);
   // The stand-in for the finished app: main.js plus every library module the
   // shell does not use yet, kept alive so a bundler cannot drop them.
   const full = `import "./main.js";
@@ -119,10 +122,12 @@ globalThis.__keep = [store, socket, pty, terminal, useStore, model];
   const abs = (p) => JSON.stringify(path.join(nextAssets, p).replaceAll("\\", "/"));
   fs.writeFileSync(fullFile, full.replace(/from "\.\/([^"]+)"/g, (_, p) => "from " + abs(p)).replace('import "./main.js"', "import " + abs("main.js")));
   const fullIndex = index.replace(`src="assets/main.js"`, `src="assets/main-full.js"`);
+  const fullEager = eager.replace(`src="assets/main.js"`, `src="assets/main-full.js"`);
   const cases = [
     { name: "modules", index },
     { name: "modules-full", index: fullIndex, override: { "assets/main-full.js": Buffer.from(full) } },
-    { name: "modules-no-terminal-libs", index: noTerm },
+    { name: "modules-eager", index: eager },
+    { name: "modules-full-eager", index: fullEager, override: { "assets/main-full.js": Buffer.from(full) } },
   ];
   if (ESBUILD) {
     const bundle = (entry, outName) => {
@@ -138,7 +143,8 @@ globalThis.__keep = [store, socket, pty, terminal, useStore, model];
     cases.push(
       { name: "concat", index, override: { "assets/main.js": one } },
       { name: "concat-full", index: fullIndex, override: { "assets/main-full.js": two } },
-      { name: "concat-no-terminal-libs", index: noTerm, override: { "assets/main.js": one } },
+      { name: "concat-eager", index: eager, override: { "assets/main.js": one } },
+      { name: "concat-full-eager", index: fullEager, override: { "assets/main-full.js": two } },
     );
   }
   return cases;
