@@ -16,10 +16,17 @@
 //      command goes out, the roster and the line about the desktop show.
 //
 // It does not look at or change the configuration directory, but it lists it
-// before and after and says whether anything changed (a Flockdeck running on the
-// same machine can change it on its own, so a change is reported, not assumed).
+// before and after. A change to the listing, or anything left in the sandbox,
+// fails the run, because it means the page's server wrote where it should not.
+// --allow-config-change turns that off, for a machine where another Flockdeck
+// is running and changes the directory on its own.
+//
+// Whatever the run makes (the build directory, the sandbox, the Chrome profile,
+// the server and the browser) is removed when it ends, however it ends: normally,
+// on an error, on SIGINT or SIGTERM, or when --ceiling minutes (default 20) pass.
 //
 //   node scripts/realpage/check.mjs [--out result.json] [--slowdown 1,4] [--repeat 3] [--only N]
+//                                   [--allow-config-change] [--ceiling 20]
 //
 // CHROME names the browser; otherwise a Chromium of Playwright's is looked for.
 import fs from "node:fs";
@@ -40,6 +47,54 @@ const slowdowns = opt("slowdown", "1,4").split(",").map(Number);
 const repeat = Number(opt("repeat", "3"));
 const only = opt("only", ""); // a fixture number, to run one
 const LIMIT_MS = 2000;
+const allowConfigChange = args.includes("--allow-config-change");
+const ceilingMin = Number(opt("ceiling", "20"));
+const SEND_MS = 30000; // one DevTools call
+const BUILD_MS = 180000;
+
+// ------------------------------------------------------------------ cleanup
+
+// Everything started or made is registered here, so that one function can undo
+// it from the normal end, from a failure, from a signal and from the watchdog.
+const live = { children: new Set(), dirs: [] };
+
+function killTree(child) {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  try {
+    if (process.platform === "win32") execFileSync("taskkill", ["/pid", String(child.pid), "/T", "/F"], { stdio: "ignore", timeout: 10000 });
+    else child.kill("SIGKILL");
+  } catch { try { child.kill(); } catch { /* gone */ } }
+}
+
+function cleanup() {
+  for (const c of live.children) killTree(c);
+  live.children.clear();
+  for (const d of live.dirs.splice(0)) {
+    // Chrome's processes can hold the profile for a moment after they are killed.
+    for (let i = 0; ; i++) {
+      try { fs.rmSync(d, { recursive: true, force: true }); break; } catch (e) {
+        if (i >= 25) { console.error("could not remove " + d + ": " + e.message); break; }
+        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 200);
+      }
+    }
+  }
+}
+
+function die(code, why) {
+  console.error(why);
+  cleanup();
+  process.exit(code);
+}
+
+process.on("SIGINT", () => die(130, "interrupted"));
+process.on("SIGTERM", () => die(143, "terminated"));
+setTimeout(() => die(1, `the check did not finish within ${ceilingMin} minutes`), ceilingMin * 60000).unref();
+
+function tempDir(prefix) {
+  const d = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  live.dirs.push(d);
+  return d;
+}
 
 // ------------------------------------------------------------------ expectations
 
@@ -115,7 +170,7 @@ function listDir(dir) {
 
 function buildServer(tmp) {
   const exe = path.join(tmp, process.platform === "win32" ? "graphfixture.exe" : "graphfixture");
-  execFileSync("go", ["build", "-tags", "next", "-o", exe, "./cmd/graphfixture"], { cwd: repo, stdio: "inherit" });
+  execFileSync("go", ["build", "-tags", "next", "-o", exe, "./cmd/graphfixture"], { cwd: repo, stdio: "inherit", timeout: BUILD_MS });
   return exe;
 }
 
@@ -127,13 +182,14 @@ function sandboxEnv(dir) {
 
 async function startServer(exe, fixture, sandbox) {
   const child = spawn(exe, ["-fixture", fixture, "-fixtures", fixtureDir], { env: sandboxEnv(sandbox), cwd: repo, stdio: ["ignore", "pipe", "pipe"] });
+  live.children.add(child);
   let out = "";
   child.stdout.on("data", (d) => (out += d));
   child.stderr.on("data", (d) => (out += d));
   for (let i = 0; i < 200 && !/open: /.test(out); i++) await sleep(50);
   const m = /open: (http:\/\/127\.0\.0\.1:\d+\/\?t=[0-9a-f]+)/.exec(out);
-  if (!m) { child.kill(); throw new Error("the fixture server did not start: " + out); }
-  return { url: m[1], stop: () => child.kill() };
+  if (!m) { killTree(child); live.children.delete(child); throw new Error("the fixture server did not start: " + out); }
+  return { url: m[1], stop: () => { killTree(child); live.children.delete(child); } };
 }
 
 // ------------------------------------------------------------------ the browser
@@ -154,14 +210,19 @@ function findChrome() {
 
 class Browser {
   static async launch() {
-    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "realpage-profile-"));
+    const dir = tempDir("realpage-profile-");
     const port = 9400 + Math.floor(Math.random() * 400);
     const child = spawn(findChrome(), ["--headless=new", `--remote-debugging-port=${port}`, `--user-data-dir=${dir}`, "--no-first-run", "--no-default-browser-check", "--disable-extensions", "--disable-background-networking", "--window-size=1280,900", "about:blank"], { stdio: "ignore" });
+    live.children.add(child);
     let ver = null;
     for (let i = 0; i < 100 && !ver; i++) { try { ver = await (await fetch(`http://127.0.0.1:${port}/json/version`)).json(); } catch { await sleep(100); } }
     if (!ver) throw new Error("the browser did not start");
     const b = new Browser(child, ver);
-    await new Promise((r) => (b.ws.onopen = r));
+    await new Promise((res, rej) => {
+      const t = setTimeout(() => rej(new Error("the DevTools socket did not open")), 10000);
+      b.ws.onopen = () => { clearTimeout(t); res(); };
+      b.ws.onerror = () => { clearTimeout(t); rej(new Error("the DevTools socket failed to open")); };
+    });
     return b;
   }
   constructor(child, ver) {
@@ -172,17 +233,28 @@ class Browser {
     this.id = 0;
     this.pending = new Map();
     this.events = [];
+    // A browser that dies mid-run must not leave a call waiting for ever.
+    this.ws.onclose = () => {
+      for (const { rej, timer } of this.pending.values()) { clearTimeout(timer); rej(new Error("the browser closed the DevTools socket")); }
+      this.pending.clear();
+    };
     this.ws.onmessage = (ev) => {
       const m = JSON.parse(ev.data);
       if (m.id && this.pending.has(m.id)) {
-        const { res, rej } = this.pending.get(m.id);
+        const { res, rej, timer } = this.pending.get(m.id);
+        clearTimeout(timer);
         this.pending.delete(m.id);
         if (m.error) rej(new Error(m.error.message)); else res(m.result);
       } else this.events.push(m);
     };
   }
   send(method, params = {}, sessionId) {
-    return new Promise((res, rej) => { const id = ++this.id; this.pending.set(id, { res, rej }); this.ws.send(JSON.stringify({ id, method, params, sessionId })); });
+    return new Promise((res, rej) => {
+      const id = ++this.id;
+      const timer = setTimeout(() => { this.pending.delete(id); rej(new Error(`${method} got no answer in ${SEND_MS / 1000} s`)); }, SEND_MS);
+      this.pending.set(id, { res, rej, timer });
+      try { this.ws.send(JSON.stringify({ id, method, params, sessionId })); } catch (e) { clearTimeout(timer); this.pending.delete(id); rej(e); }
+    });
   }
   async page() {
     const br = this;
@@ -213,7 +285,7 @@ class Browser {
       async close() { clearInterval(timer); await br.send("Target.closeTarget", { targetId }).catch(() => {}); },
     };
   }
-  close() { try { this.ws.close(); } catch { /* closed */ } this.child.kill(); }
+  close() { try { this.ws.close(); } catch { /* closed */ } killTree(this.child); live.children.delete(this.child); }
 }
 
 // What a page reports of itself.
@@ -369,7 +441,9 @@ async function secondCheck(browser, url, ex, rate) {
     const r = await click(page, sel);
     return { ...r, rowIsControl: isControl };
   });
-  // A key on the strip row: Tab to it, then Enter. The row is reached by keyboard only if it is a control.
+  // A key on the strip row: focus it, then Enter. Focus only works on a control, so
+  // a row that is not one fails here. That Tab reaches the row is covered by the
+  // node tests, not by this check.
   await way("stripKey", async (page) => {
     const sel = `.needs-row[data-pane="${target.pane}"][data-kind="${target.kind}"] .needs-pick`;
     const focusable = await page.eval(`(() => { const e = document.querySelector(${JSON.stringify(sel)}); if (!e) return false; e.focus(); return document.activeElement === e; })()`);
@@ -432,15 +506,18 @@ async function remoteCheck(browser, url, ex) {
 // ------------------------------------------------------------------ run
 
 const files = fs.readdirSync(fixtureDir).filter((f) => f.endsWith(".json")).map((f) => f.slice(0, -5)).filter((f) => !only || f.startsWith(only.padStart(2, "0") + "-")).sort();
-const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "realpage-"));
-const sandbox = fs.mkdtempSync(path.join(os.tmpdir(), "realpage-sandbox-"));
+const tmp = tempDir("realpage-");
+const sandbox = tempDir("realpage-sandbox-");
 const cfg = configDir();
 const before = listDir(cfg);
-const exe = buildServer(tmp);
-const browser = await Browser.launch();
-const report = { browser: browser.version, userAgent: browser.userAgent, platform: process.platform + " " + os.release(), node: process.version, slowdowns, repeat, limitMs: LIMIT_MS, fixtures: [] };
+let browser = null;
+let after = before;
+const report = { platform: process.platform + " " + os.release(), node: process.version, slowdowns, repeat, limitMs: LIMIT_MS, fixtures: [] };
 
 try {
+  const exe = buildServer(tmp);
+  browser = await Browser.launch();
+  Object.assign(report, { browser: browser.version, userAgent: browser.userAgent });
   for (const file of files) {
     const ex = expectation(file);
     const num = String(Number(file.slice(0, 2)));
@@ -466,12 +543,16 @@ try {
     }
     report.fixtures.push(entry);
   }
+  after = listDir(cfg);
+  report.config = { dir: cfg, before: before.length, after: after.length, changed: JSON.stringify(before) !== JSON.stringify(after), sandboxLeft: fs.readdirSync(sandbox) };
+} catch (e) {
+  console.error(e && e.stack ? e.stack : String(e));
+  cleanup();
+  process.exit(1);
 } finally {
-  browser.close();
+  if (browser) browser.close();
+  cleanup();
 }
-
-const after = listDir(cfg);
-report.config = { dir: cfg, before: before.length, after: after.length, changed: JSON.stringify(before) !== JSON.stringify(after), sandboxLeft: fs.readdirSync(sandbox) };
 
 // ------------------------------------------------------------------ the report
 
@@ -500,6 +581,10 @@ for (const f of report.fixtures) {
 }
 lines.push(`\nbrowser ${report.browser}`);
 lines.push(`config dir ${cfg}: ${before.length} files before, ${after.length} after, ${report.config.changed ? "CHANGED" : "unchanged"}; sandbox left ${JSON.stringify(report.config.sandboxLeft)}`);
+if ((report.config.changed || report.config.sandboxLeft.length) && !allowConfigChange) {
+  failed++;
+  lines.push("FAIL the configuration directory changed or the sandbox was written to; the page's server must not do either (pass --allow-config-change if another Flockdeck on this machine explains it)");
+}
 lines.push(failed ? `\n${failed} check(s) failed` : "\nall checks passed");
 console.log(lines.join("\n"));
 if (outFile) fs.writeFileSync(outFile, JSON.stringify(report, null, 2));
