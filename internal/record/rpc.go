@@ -72,8 +72,9 @@ const (
 	// rpcContextBytes is how much of the text already written is kept, for each
 	// kind of message text, so that what follows it is redacted with it in view:
 	// "password:" in one chunk and the password in the next, or the first lines
-	// of a private key and the rest. A label or key start further back than this
-	// is not seen.
+	// of a private key and the rest. A label further back than this is not seen.
+	// A private key whose BEGIN line is further back and which has not ended
+	// keeps that one line (see contextTail).
 	rpcContextBytes = 16 << 10
 	// rpcBufferBytes is how much is held before the file is written.
 	rpcBufferBytes = 64 << 10
@@ -390,7 +391,7 @@ func (r *RPCRecorder) emitHeldLocked(keepCtx bool) {
 		}
 		if keepCtx && h.ctx+h.tail != "" {
 			// first is zero: the next piece of this text has its own time.
-			r.held[k] = &held{ctx: tailBytes(h.ctx+h.tail, rpcContextBytes), dir: h.dir}
+			r.held[k] = &held{ctx: contextTail(h.ctx + h.tail), dir: h.dir}
 		}
 	}
 }
@@ -522,7 +523,7 @@ func (r *RPCRecorder) flushPending(final bool) {
 			// context of every kind is let go.
 			r.emitHeldLocked(false)
 		}
-		h := &held{ctx: tailBytes(ctx+head, rpcContextBytes), tail: tail, dir: p.dir, first: p.until, last: p.until}
+		h := &held{ctx: contextTail(ctx + head), tail: tail, dir: p.dir, first: p.until, last: p.until}
 		if tail != "" {
 			h.tmpl = cloneMsg(p.msg)
 		}
@@ -581,6 +582,28 @@ func tailBytes(s string, n int) string {
 		s = s[1:]
 	}
 	return s
+}
+
+// contextTail is the end of s that is kept as context, rpcContextBytes of it.
+// When a private key began further back than that and has not ended, its BEGIN
+// line is kept in front, so that the rest of the key, still arriving, is seen
+// as part of it and not as text with nothing secret about it. The line is a few
+// dozen bytes.
+func contextTail(s string) string {
+	tail := tailBytes(s, rpcContextBytes)
+	cut := len(s) - len(tail)
+	if cut == 0 {
+		return tail
+	}
+	for _, sp := range findPEM(s, nil) {
+		if sp.Start >= cut || sp.End <= cut || strings.Contains(s[sp.Start:sp.End], "-----END ") {
+			continue
+		}
+		if h, ok := pemLabel(s, sp.Start+len("-----BEGIN ")); ok && h-sp.Start <= 128 {
+			return s[sp.Start:h] + "\n" + tail
+		}
+	}
+	return tail
 }
 
 // redactAfter redacts text as it would be if it followed ctx, which is already

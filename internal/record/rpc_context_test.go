@@ -182,3 +182,53 @@ func TestRetentionByCountSparesOpenRecordingsOfBothKinds(t *testing.T) {
 		}
 	}
 }
+
+// A private key longer than the context kept has its BEGIN line cut off by the
+// time the rest arrives. The line is kept while the key has not ended, so the
+// rest is redacted as part of it.
+func TestRPCRedactsTheRestOfAKeyLongerThanTheContext(t *testing.T) {
+	line := "MIIEowIBAAKCAQEAzZ3k8QxY9wP2LmN5\n"
+	first := "here it is:\n-----BEGIN RSA PRIVATE KEY-----\n" + strings.Repeat(line, rpcContextBytes/len(line)+200)
+	secret := "ZZtopSecretBodyLine0123456789abcdef"
+	// Text after the key, longer than the end that is held back, so the secret is
+	// in the part that is written.
+	second := strings.Repeat(line, 20) + secret + "\n" + "-----END RSA PRIVATE KEY-----\n" + strings.Repeat("after the key. ", 40)
+	r, _, _ := newRPC(t, RPCConfig{})
+	for _, p := range []string{first, second} {
+		r.Tap(RPCIn, chunk("agent_message_chunk", "s1", p))
+		if err := r.Flush(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	b, err := os.ReadFile(r.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), secret) {
+		t.Errorf("the rest of a long key reached the file")
+	}
+	if !strings.Contains(string(b), "after the key. ") {
+		t.Errorf("the text after the key was lost")
+	}
+}
+
+// The line is kept only while the key is open, and only that line.
+func TestContextTailKeepsTheBeginLineOfAnOpenKeyOnly(t *testing.T) {
+	body := strings.Repeat("x", rpcContextBytes+10)
+	open := "-----BEGIN PRIVATE KEY-----\n" + body
+	got := contextTail(open)
+	if !strings.HasPrefix(got, "-----BEGIN PRIVATE KEY-----\n") || len(got) > rpcContextBytes+64 {
+		t.Errorf("an open key's line was not kept, or too much was: %d bytes, starts %q", len(got), got[:30])
+	}
+	closed := open + "\n-----END PRIVATE KEY-----\n" + strings.Repeat("y", rpcContextBytes)
+	if got := contextTail(closed); strings.Contains(got, "BEGIN") {
+		t.Errorf("the line of a key that ended was kept")
+	}
+	if got := contextTail("short"); got != "short" {
+		t.Errorf("short text changed: %q", got)
+	}
+	plain := strings.Repeat("z", rpcContextBytes+500)
+	if got := contextTail(plain); got != tailBytes(plain, rpcContextBytes) {
+		t.Errorf("text with no key was changed")
+	}
+}
