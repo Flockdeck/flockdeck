@@ -332,7 +332,7 @@ export function createStore(opts) {
       if (watchingPane !== null && watchSent()) socket.send({ cmd: "structuredUnwatch", id: watchingPane });
       watching = null;
       watchingPane = null;
-      if (watchingConv !== null) socket.send({ cmd: "conversationClose", id: watchingConv });
+      if (watchingConv !== null && snap.hello) socket.send({ cmd: "conversationClose", id: watchingConv });
       watchingConv = null;
       socket.stop();
       snap = initial();
@@ -347,7 +347,8 @@ export function createStore(opts) {
      *  socket is not open, or the command is a graph command and this window is
      *  remote. */
     send(cmd) {
-      if (snap.remote && DESK_ONLY(cmd.cmd)) return false;
+      // Until the hello says otherwise a window may be remote, so a desk-only command waits for it.
+      if ((snap.remote || !snap.hello) && DESK_ONLY(cmd.cmd)) return false;
       const sent = socket.send(cmd);
       if (sent && cmd.cmd === "structuredCancel" && cmd.req) {
         if (cancelPanes.size >= 20) cancelPanes.delete(cancelPanes.keys().next().value);
@@ -393,7 +394,7 @@ export function createStore(opts) {
      *  is closed) and does nothing for the pane already watched. */
     watchConversation(id) {
       if (!id || watchingConv === id) return false;
-      if (watchingConv !== null) socket.send({ cmd: "conversationClose", id: watchingConv });
+      if (watchingConv !== null && snap.hello) socket.send({ cmd: "conversationClose", id: watchingConv });
       watchingConv = id;
       set({ conversation: { id, supported: null, entries: [], atStart: false, older: "idle", refused: "" } });
       if (snap.hello) sendConversationOpen();
@@ -412,7 +413,7 @@ export function createStore(opts) {
       if (watchingConv === null) return;
       const was = watchingConv;
       watchingConv = null;
-      socket.send({ cmd: "conversationClose", id: was });
+      if (snap.hello) socket.send({ cmd: "conversationClose", id: was });
       set({ conversation: null });
     },
     unwatchGraph() {
