@@ -6,7 +6,7 @@ import { render } from "../assets/vendor/preact.mjs";
 import { html } from "../assets/html.js";
 import { Drawer } from "../assets/drawer/Drawer.js";
 import { Header } from "../assets/drawer/Header.js";
-import { MAX_ENTRIES, STOP_NOT_SENT_WORDS, contextText, costText, fileOf, activityOf, lastEntries } from "../assets/drawer/Structured.js";
+import { MAX_ENTRIES, STOP_NOT_SENT_WORDS, SEND_NOT_SENT_WORDS, contextText, costText, fileOf, activityOf, lastEntries } from "../assets/drawer/Structured.js";
 import { createDom, install, settle } from "./dom.mjs";
 import { fakeStore, paneState } from "./termfakes.mjs";
 import { FakeWebSocket, harness, hello } from "./fakes.mjs";
@@ -201,6 +201,32 @@ test("on the real store, a Stop pressed between the socket opening and the hello
     restore();
   }
 });
+
+test("a Send the store did not send says so and keeps the draft; the words go when a Send is sent or another pane is opened", () =>
+  with_(push(), {}, async (m) => {
+    let up = false;
+    m.store.send = (cmd) => { m.store.sent.push(cmd); return up; };
+    const words = () => m.container.find(".structured-note--send");
+    m.container.find(".structured-input").enter("run the tests");
+    await settle();
+    m.container.find(".structured-prompt").dispatch("submit");
+    await settle();
+    assert.equal(words().textContent, SEND_NOT_SENT_WORDS);
+    assert.equal(m.container.find(".structured-input").value, "run the tests", "the draft was lost");
+    up = true;
+    m.container.find(".structured-prompt").dispatch("submit");
+    await settle();
+    assert.equal(words(), null, "the words stayed after a Send that was sent");
+    assert.equal(m.container.find(".structured-input").value, "");
+    up = false;
+    m.container.find(".structured-input").enter("again");
+    await settle();
+    m.container.find(".structured-prompt").dispatch("submit");
+    await settle();
+    assert.ok(words());
+    await m.set({ structured: push({ id: "p4" }) }, { ...node, pane: "p4" });
+    assert.equal(words(), null, "the words followed the drawer to another pane");
+  }));
 
 test("a relay window draws the view but no prompt box and no Stop", () =>
   with_(push({ entries: [entry(1)] }), { remote: true }, async (m) => {
