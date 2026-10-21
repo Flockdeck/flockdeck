@@ -16,7 +16,8 @@ import { html } from "../html.js";
 import { Header } from "./Header.js";
 import { Prompt } from "./Prompt.js";
 import { Conversation } from "./Conversation.js";
-import { TerminalView, STRUCTURED_STUB } from "../lib/terminal.js";
+import { Structured } from "./Structured.js";
+import { TerminalView } from "../lib/terminal.js";
 import { initialDrawer, reduceDrawer, focusNode, focusRow } from "./state.js";
 import { LIST } from "../shell/keys.js";
 
@@ -140,7 +141,7 @@ function DrawerBody({ store, snap = null, node, pane = null, now, maximised = fa
       <div class="drawer-panel" role="tabpanel" id="drawer-panel-terminal" aria-labelledby="drawer-tab-terminal" hidden=${shown !== "terminal"}>
         ${terminal
           ? html`<${TerminalView} key=${node.pane} store=${store} paneId=${node.pane} onReady=${(c) => { terminalRef.current = { pane: node.pane, ctl: c }; }} ...${terminalOptions || {}} />`
-          : html`<p class="drawer-stub">${STRUCTURED_STUB}</p>`}
+          : html`<${Structured} pane=${node.pane} st=${state.structured} error=${state.structuredError} cancelError=${state.cancelError} desk=${!state.remote} store=${store} />`}
       </div>
       ${hasConv
         ? html`<div class="drawer-panel" role="tabpanel" id="drawer-panel-conversation" aria-labelledby="drawer-tab-conversation" hidden=${shown !== "conversation"}>

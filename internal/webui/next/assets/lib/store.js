@@ -57,6 +57,8 @@
 //                 pane than the one watched is not kept, and one with gone: true
 //                 clears it.
 //   structuredError  { error } after structuredWatch was refused, else null
+//   cancelError      { id, error } after structuredCancel was refused for pane id, null
+//                    after one that worked; a view shows it only for its own pane
 //   answer        the latest permissionAnswer reply as { seq, ok, error, id,
 //                 cardSeq, requestId, req }, or null. A view matches it to the
 //                 card it answered by id, cardSeq and requestId.
@@ -105,15 +107,17 @@ export const MAX_ENTRIES = 500;
 const GRAPH_OPS = new Set(["graphSnapshot", "graphWatch", "graphUnwatch"]);
 
 /** DESK_ONLY says a command is one a remote window may not send: the graph
- *  commands, the structured pane ones and permissionAnswer. The desktop refuses
- *  them there, so the store does not send them. */
-const DESK_ONLY = (cmd) => typeof cmd === "string" && (cmd.startsWith("graph") || cmd.startsWith("structured") || cmd === "permissionAnswer");
+ *  commands, the structured pane ones, permissionAnswer and paneSend. The
+ *  desktop refuses them there, so the store does not send them. paneSend is
+ *  sent from two places, the manager bar and a structured pane's prompt box, and
+ *  neither is drawn in a remote window. */
+const DESK_ONLY = (cmd) => typeof cmd === "string" && (cmd.startsWith("graph") || cmd.startsWith("structured") || cmd === "permissionAnswer" || cmd === "paneSend");
 
 const initial = () => ({
   connection: "idle", retryInMs: 0,
   hello: null, remote: false, state: null,
   graph: null, graphGone: null, graphRefused: false, graphError: null,
-  notice: null, sent: null, structured: null, structuredError: null, answer: null, conversation: null, dropped: 0,
+  notice: null, sent: null, structured: null, structuredError: null, cancelError: null, answer: null, conversation: null, dropped: 0,
 });
 
 /** upsert returns entries with each of the new ones in place of the one with its
@@ -145,6 +149,9 @@ export function createStore(opts) {
   let noticeSeq = 0;
   let sentSeq = 0;
   let answerSeq = 0;
+  // The pane each structuredCancel in flight was for, by its req, so a refusal is
+  // kept for that pane and shown only there.
+  const cancelPanes = new Map();
   // The structured pane last asked for with watchStructured, or null.
   let watchingPane = null;
   // The pane whose conversation is open, or null.
@@ -237,6 +244,11 @@ export function createStore(opts) {
       case "teamResult":
         if (!msg.ok && msg.op === "structuredWatch" && watchingPane !== null) {
           set({ structuredError: { error: String(msg.error || "") } });
+        }
+        if (msg.op === "structuredCancel") {
+          const id = cancelPanes.get(msg.req) || "";
+          cancelPanes.delete(msg.req);
+          set({ cancelError: msg.ok ? null : { id, error: String(msg.error || "") } });
         }
         if (!msg.ok && GRAPH_OPS.has(msg.op)) {
           const error = String(msg.error || "");
@@ -332,7 +344,12 @@ export function createStore(opts) {
      *  remote. */
     send(cmd) {
       if (snap.remote && DESK_ONLY(cmd.cmd)) return false;
-      return socket.send(cmd);
+      const sent = socket.send(cmd);
+      if (sent && cmd.cmd === "structuredCancel" && cmd.req) {
+        if (cancelPanes.size >= 20) cancelPanes.delete(cancelPanes.keys().next().value);
+        cancelPanes.set(cmd.req, String(cmd.id || ""));
+      }
+      return sent;
     },
     /** watchGraph asks for the graph of a project, now and whenever it
      *  changes. Before the hello has arrived the ask is kept and sent with it.

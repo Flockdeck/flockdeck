@@ -31,6 +31,12 @@ type structuredEnv struct {
 // terminal-shaped) with one structured helper of the boss started with task.
 func newStructuredEnv(t *testing.T, task string) *structuredEnv {
 	t.Helper()
+	return newStructuredEnvArgs(t, task)
+}
+
+// newStructuredEnvArgs is newStructuredEnv with more arguments for the fake agent.
+func newStructuredEnvArgs(t *testing.T, task string, more ...string) *structuredEnv {
+	t.Helper()
 	e := &structuredEnv{graphEnv: newGraphEnv(t)}
 	if err := store.SavePrefs(store.Prefs{StructuredPanes: true}); err != nil {
 		t.Fatal(err)
@@ -50,7 +56,7 @@ func newStructuredEnv(t *testing.T, task string) *structuredEnv {
 
 	exe, _ := os.Executable()
 	e.ws.UseStructuredCommand(func(agent.Spec) *structured.Command {
-		return &structured.Command{Path: exe, Args: []string{acptest.ArgAgent}}
+		return &structured.Command{Path: exe, Args: append([]string{acptest.ArgAgent}, more...)}
 	})
 	ask(e.srv, func() bool { e.ws.ReloadAgents(); return true })
 	id, ok := ask(e.srv, func() string {

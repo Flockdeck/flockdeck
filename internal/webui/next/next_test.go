@@ -134,7 +134,7 @@ func TestPageLoadsTheLiveShell(t *testing.T) {
 		got = append(got, k)
 	}
 	sort.Strings(got)
-	for _, want := range []string{"lib/store.js", "lib/socket.js", "lib/e2e-boot.js", "shell/Live.js", "shell/Home.js", "graph/Graph.js", "graph/Edges.js", "graph/ManagerBar.js", "drawer/Conversation.js"} {
+	for _, want := range []string{"lib/store.js", "lib/socket.js", "lib/e2e-boot.js", "shell/Live.js", "shell/Home.js", "graph/Graph.js", "graph/Edges.js", "graph/ManagerBar.js", "drawer/Conversation.js", "drawer/Structured.js"} {
 		if !seen[srv.URL+"/assets/"+want] {
 			t.Errorf("%s is not reached from the entry module; reached %v", want, got)
 		}

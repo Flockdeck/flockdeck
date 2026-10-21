@@ -12,7 +12,6 @@ import { buildGraphModel } from "../assets/graph/model.js";
 import { Drawer, useDrawer, hasTerminal, keysFor } from "../assets/drawer/Drawer.js";
 import { Header, sinceOf, spendText, countsOf } from "../assets/drawer/Header.js";
 import { initialDrawer, reduceDrawer } from "../assets/drawer/state.js";
-import { STRUCTURED_STUB } from "../assets/lib/terminal.js";
 import { createDom, install, settle } from "./dom.mjs";
 import { fakeKeys, fakeState } from "./util.mjs";
 import { PtySocket, FakeTerm, FakeFit, FakeObserver, fakeStore, paneState } from "./termfakes.mjs";
@@ -106,9 +105,10 @@ test("since, spend and counts read as the old header did", () => {
 
 const store = fakeStore({ hello: { type: "hello" }, state: paneState({ p1: {}, p2: {}, p3: { structured: true } }) });
 
-test("a structured pane shows the stub line and no terminal", () => {
+test("a structured pane shows its own view and no terminal", () => {
   const out = renderToString(html`<${Drawer} store=${store} node=${node({ structured: true })} now=${NOW} />`);
-  assert.ok(out.includes(STRUCTURED_STUB));
+  assert.ok(out.includes("data-structured-pane") || out.includes("Loading the agent."), "the structured view was not drawn");
+  assert.ok(out.includes("structured</span>"), "the kind label was not drawn");
   assert.ok(!out.includes("terminal-pane"), "a terminal was made for a structured pane");
   assert.equal(hasTerminal(node({ structured: true }), null), false);
   assert.equal(hasTerminal(node(), { structured: true }), false, "the state push's word was ignored");
@@ -119,7 +119,7 @@ test("a terminal pane has the Terminal tab and its terminal", () => {
   const out = renderToString(html`<${Drawer} store=${store} node=${node()} now=${NOW} />`);
   assert.match(out, /role="tab"[^>]*aria-selected="true"[^>]*>Terminal</);
   assert.match(out, /terminal-pane/);
-  assert.ok(!out.includes(STRUCTURED_STUB));
+  assert.ok(!out.includes("Loading the agent."));
 });
 
 test("keysOf gives the same list for a hello with no keys, and the hello's own when it has them", () => {
@@ -312,11 +312,11 @@ test("a pane that leaves the graph closes its drawer", () =>
     assert.equal(a.drawerBodies().length, 0);
   }));
 
-test("a structured pane's drawer shows the stub and opens no terminal or socket", () =>
+test("a structured pane's drawer shows the structured view and opens no terminal or socket", () =>
   withApp(async (a) => {
     a.box("p3").click();
     await settle();
-    assert.equal(a.container.find(".drawer-stub").textContent, STRUCTURED_STUB);
+    assert.ok(a.container.find(".drawer-stub").textContent.includes("Loading the agent"));
     assert.equal(a.container.find(".terminal-pane"), null);
     assert.equal(FakeTerm.instances.length, 0);
     assert.equal(PtySocket.instances.length, 0);

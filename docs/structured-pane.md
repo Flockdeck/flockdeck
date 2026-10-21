@@ -18,6 +18,7 @@ A window sends a command as one JSON object with a `cmd` field, over its control
 | `structuredWatch` | `id`, `req` | Answers with the `structured` message now, and sends it again whenever it changes. One pane at a time: watching another replaces the first. | yes | refused |
 | `structuredUnwatch` | none | Stops the pushes. | yes | refused |
 | `structuredDetail` | `id`, `entry`, `req` | Answers with a `structuredDetail` message for one entry. | yes | refused |
+| `structuredCancel` | `id`, `req` | Ends the running turn of that pane and drops the prompts waiting behind it; an open permission request of the pane is answered cancelled. Answers with a `teamResult` (`ok`), or an error if the pane is not a structured pane or has nothing running. Only that pane's own session is touched. | yes | refused |
 
 `id` is the pane's id. `req` is a token of the window's choosing; it is copied into the answer.
 
@@ -112,7 +113,21 @@ one-line field has its line breaks and tabs turned into spaces.
 A watch holds no goroutine of its own. The push is made from the state push the server already
 makes whenever the workspace changes.
 
-## 5. What is not covered
+## 5. The drawer view
+
+The new interface's drawer draws a structured pane from this watch (`drawer/Structured.js`). The
+header carries a "structured" label beside the name. The view shows the activity line, which is the
+tool still running with an icon for its kind and the first file its summary names, or the push's
+activity text, or "Idle". It shows the context used of its size, and the cost when the agent
+reported one. It draws the last 50 entries and nothing more: there is no Older button, because the
+push carries a fixed window and a button that asked for more would grow the list without limit. The
+Conversation tab pages through the whole history. Every text is drawn as text.
+
+The prompt box sends `paneSend` and the Stop button sends `structuredCancel`. A window reached
+through the relay draws the view without either, since the server refuses both there. A refused
+`structuredCancel` is shown under the box.
+
+## 6. What is not covered
 
 - Images' bytes and nested entries in `structuredDetail`.
 - A phone, or any window through the relay.
