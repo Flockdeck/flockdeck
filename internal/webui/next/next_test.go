@@ -18,6 +18,7 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -337,10 +338,21 @@ func TestVendoredFilesMatchTheirRecordedHash(t *testing.T) {
 // single limit of 120 s, so a file gets nodeFileLimit, well past the longest
 // file, and a single test in it gets nodeTestLimit so a hung one is reported by
 // name before the file's limit.
+//
+// Killing the Go test binary itself (the go test -timeout panic) does not stop
+// the node processes it started on Windows: they stay alive until they finish or
+// are ended by hand.
 const (
 	nodeTestProcesses = 2
 	nodeFileLimit     = 4 * time.Minute
 	nodeTestLimitMS   = "60000"
+)
+
+// nodePassed reads the count of passes. A file with no tests in it is reported by
+// node as one pass, of the file itself, and nodeFileOnly names that line.
+var (
+	nodePassed   = regexp.MustCompile(`(?m)^ℹ pass (\d+)`)
+	nodeFileOnly = regexp.MustCompile(`(?m)^✔ .*\.test\.mjs \(`)
 )
 
 func TestNodeTests(t *testing.T) {
@@ -355,6 +367,24 @@ func TestNodeTests(t *testing.T) {
 	if err != nil || len(files) < 2 {
 		t.Fatalf("test files %v, %v", files, err)
 	}
+	// Every test file in the directory must become a subtest, so a loop that
+	// skipped or stopped early cannot pass as a smaller suite.
+	entries, err := os.ReadDir("test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := 0
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".test.mjs") {
+			want++
+		}
+	}
+	var ran atomic.Int32
+	t.Cleanup(func() {
+		if got := int(ran.Load()); got != want && !t.Failed() {
+			t.Errorf("%d node test files ran, the directory has %d", got, want)
+		}
+	})
 	// The server's own key table, as the hello sends it, so the shell's tests
 	// run against the bindings that ship and not a copy written out here.
 	table, err := json.Marshal(help.Keys)
@@ -369,6 +399,7 @@ func TestNodeTests(t *testing.T) {
 	for _, file := range files {
 		t.Run(filepath.Base(file), func(t *testing.T) {
 			t.Parallel()
+			ran.Add(1)
 			slots <- struct{}{}
 			defer func() { <-slots }()
 			ctx, cancel := context.WithTimeout(context.Background(), nodeFileLimit)
@@ -381,10 +412,15 @@ func TestNodeTests(t *testing.T) {
 			start := time.Now()
 			out, err := cmd.CombinedOutput()
 			t.Logf("%s took %s", file, time.Since(start).Round(100*time.Millisecond))
+			if ctx.Err() == context.DeadlineExceeded {
+				t.Fatalf("killed after %s\n%s", nodeFileLimit, out)
+			}
 			if err != nil {
 				t.Fatalf("node tests failed: %v\n%s", err, out)
 			}
-			if !strings.Contains(string(out), "pass ") {
+			// An empty file exits 0 and node counts the file itself as the one pass,
+			// so the count is read, not the word "pass".
+			if m := nodePassed.FindSubmatch(out); m == nil || string(m[1]) == "0" || (string(m[1]) == "1" && nodeFileOnly.Match(out)) {
 				t.Errorf("node reported no passes:\n%s", out)
 			}
 		})
