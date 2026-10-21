@@ -43,7 +43,7 @@ const ICONS = {
   other: "M3 3h10v10H3zM6 8h4",
 };
 
-function Icon({ kind }) {
+export function Icon({ kind }) {
   return html`<svg class=${"conv-icon conv-icon--" + kind} viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false"><path d=${ICONS[kind] || ICONS.other} fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" /></svg>`;
 }
 

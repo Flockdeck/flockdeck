@@ -16,7 +16,6 @@ import { html } from "../assets/html.js";
 import { Live } from "../assets/shell/Live.js";
 import { Home } from "../assets/shell/Home.js";
 import { TerminalChrome } from "../assets/lib/terminal.js";
-import { STRUCTURED_STUB } from "../assets/lib/terminal.js";
 import { createDom, install, settle } from "./dom.mjs";
 import { FakeWebSocket, harness, hello } from "./fakes.mjs";
 import { PtySocket, FakeTerm, FakeFit, FakeObserver } from "./termfakes.mjs";
@@ -219,12 +218,12 @@ test("opening, maximising, restoring and closing the drawer send no pty resize",
     }
   }));
 
-test("a pane that cannot have a terminal shows the stub and opens no pty socket", () =>
+test("a pane that cannot have a terminal shows the structured view and opens no pty socket", () =>
   withPage({ g: graph({ [CART]: { kind: "structured" } }) }, async (m) => {
     await m.connect();
     m.box(CART).click();
     await settle();
-    assert.equal(m.container.find(".drawer-stub").textContent, STRUCTURED_STUB);
+    assert.ok(m.container.find(".drawer-stub").textContent.includes("Loading the agent"));
     assert.equal(PtySocket.instances.length, 0);
     assert.equal(FakeTerm.instances.length, 0);
   }));

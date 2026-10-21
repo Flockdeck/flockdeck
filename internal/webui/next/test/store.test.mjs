@@ -286,3 +286,25 @@ test("an accepted paneSend is kept as sent, with a sequence number that grows", 
   assert.ok(b.seq > a.seq);
   assert.equal(b.waiting, true);
 });
+
+test("a structuredCancel refusal is kept for the drawer, the next one that works clears it, and other ops leave it alone", async () => {
+  const { store, ws } = await up();
+  ws.frame(hello());
+  assert.equal(store.getState().cancelError, null);
+  assert.equal(store.send({ cmd: "structuredCancel", id: "p3", req: "c1" }), true);
+  assert.deepEqual(ws.sent.filter((c) => c.cmd === "structuredCancel"), [{ cmd: "structuredCancel", id: "p3", req: "c1" }]);
+  ws.frame({ type: "teamResult", op: "structuredCancel", ok: false, error: "That pane has nothing running to stop" });
+  assert.deepEqual(store.getState().cancelError, { error: "That pane has nothing running to stop" });
+  ws.frame({ type: "teamResult", op: "graphWatch", ok: true });
+  assert.notEqual(store.getState().cancelError, null, "another op cleared the cancel refusal");
+  ws.frame({ type: "teamResult", op: "structuredCancel", ok: true });
+  assert.equal(store.getState().cancelError, null);
+  assert.equal(store.getState().graphError, null, "a cancel refusal was taken for a graph error");
+});
+
+test("a remote window cannot send structuredCancel", async () => {
+  const { store, ws } = await up();
+  ws.frame(hello({ remote: true }));
+  assert.equal(store.send({ cmd: "structuredCancel", id: "p3", req: "c1" }), false);
+  assert.equal(ws.sent.filter((c) => c.cmd === "structuredCancel").length, 0);
+});

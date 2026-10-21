@@ -57,6 +57,7 @@
 //                 pane than the one watched is not kept, and one with gone: true
 //                 clears it.
 //   structuredError  { error } after structuredWatch was refused, else null
+//   cancelError      { error } after structuredCancel was refused, null after one that worked
 //   answer        the latest permissionAnswer reply as { seq, ok, error, id,
 //                 cardSeq, requestId, req }, or null. A view matches it to the
 //                 card it answered by id, cardSeq and requestId.
@@ -113,7 +114,7 @@ const initial = () => ({
   connection: "idle", retryInMs: 0,
   hello: null, remote: false, state: null,
   graph: null, graphGone: null, graphRefused: false, graphError: null,
-  notice: null, sent: null, structured: null, structuredError: null, answer: null, conversation: null, dropped: 0,
+  notice: null, sent: null, structured: null, structuredError: null, cancelError: null, answer: null, conversation: null, dropped: 0,
 });
 
 /** upsert returns entries with each of the new ones in place of the one with its
@@ -235,6 +236,9 @@ export function createStore(opts) {
       case "teamResult":
         if (!msg.ok && msg.op === "structuredWatch" && watchingPane !== null) {
           set({ structuredError: { error: String(msg.error || "") } });
+        }
+        if (msg.op === "structuredCancel") {
+          set({ cancelError: msg.ok ? null : { error: String(msg.error || "") } });
         }
         if (!msg.ok && GRAPH_OPS.has(msg.op)) {
           const error = String(msg.error || "");

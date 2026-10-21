@@ -113,7 +113,21 @@ one-line field has its line breaks and tabs turned into spaces.
 A watch holds no goroutine of its own. The push is made from the state push the server already
 makes whenever the workspace changes.
 
-## 5. What is not covered
+## 5. The drawer view
+
+The new interface's drawer draws a structured pane from this watch (`drawer/Structured.js`). The
+header carries a "structured" label beside the name. The view shows the activity line, which is the
+tool still running with an icon for its kind and the first file its summary names, or the push's
+activity text, or "Idle". It shows the context used of its size, and the cost when the agent
+reported one. It draws the last 50 entries and nothing more: there is no Older button, because the
+push carries a fixed window and a button that asked for more would grow the list without limit. The
+Conversation tab pages through the whole history. Every text is drawn as text.
+
+The prompt box sends `paneSend` and the Stop button sends `structuredCancel`. A window reached
+through the relay draws the view without either, since the server refuses both there. A refused
+`structuredCancel` is shown under the box.
+
+## 6. What is not covered
 
 - Images' bytes and nested entries in `structuredDetail`.
 - A phone, or any window through the relay.

@@ -58,6 +58,7 @@ export function Header({ node, pane = null, now = Date.now(), maximised = false,
     <header class="drawer-head">
       <div class="drawer-title">
         <h2 class="drawer-name">${node.name || node.pane}</h2>
+        ${node.structured || node.kind === "structured" ? html`<span class="drawer-kind">structured</span>` : null}
         <div class="drawer-actions">
           <button type="button" class="drawer-btn drawer-max" aria-pressed=${maximised ? "true" : "false"} onClick=${onToggleMax}>
             ${maximised ? "Restore" : "Maximise"}
