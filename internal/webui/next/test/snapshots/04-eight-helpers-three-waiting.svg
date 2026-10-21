@@ -1,0 +1,132 @@
+<svg class="graph" viewBox="0 0 968 548" width="968" height="548" role="group" aria-label="Team graph of 04-eight-helpers-three-waiting">
+<g class="gteam" data-team="0c501ed4">
+<rect class="gteam-frame" x="0" y="0" width="968" height="548" rx="10">
+</rect>
+<text class="gteam-title" x="16" y="24">Ship 04-eight-helpers-three-waiting</text>
+</g>
+<g class="gnode gnode--working gnode--manager" data-pane="0c501ed4" transform="translate(376 52)" role="group" aria-label="manager, manager, working, branch main, $9.50">
+<title>manager, manager, working, branch main, $9.50</title>
+<rect class="gnode-box" x="0" y="0" width="216" height="128" rx="6">
+</rect>
+<circle class="gmark gmark--circle" cx="18" cy="22" r="6">
+</circle>
+<text class="gnode-name" x="32" y="27">manager</text>
+<text class="gnode-state" x="204" y="27" text-anchor="end">working</text>
+<text class="gnode-role" x="12" y="47">manager · claude</text>
+<text class="gnode-live" x="12" y="67">
+</text>
+<text class="gnode-branch" x="12" y="87">main</text>
+<text class="gnode-spend" x="12" y="123">$9.50</text>
+</g>
+<g class="gnode gnode--waiting" data-pane="e8c9aa4e" transform="translate(16 228)" role="group" aria-label="build, worker, waiting, branch work/build">
+<title>build, worker, waiting, branch work/build</title>
+<rect class="gnode-box" x="0" y="0" width="216" height="128" rx="6">
+</rect>
+<polygon class="gmark gmark--diamond" points="18,15 25,22 18,29 11,22">
+</polygon>
+<text class="gnode-name" x="32" y="27">build</text>
+<text class="gnode-state" x="204" y="27" text-anchor="end">waiting</text>
+<text class="gnode-role" x="12" y="47">worker · claude</text>
+<text class="gnode-live" x="12" y="67">
+</text>
+<text class="gnode-branch" x="12" y="87">work/build</text>
+</g>
+<g class="gnode gnode--waiting" data-pane="160d47b0" transform="translate(256 228)" role="group" aria-label="notes, worker, waiting, branch work/notes">
+<title>notes, worker, waiting, branch work/notes</title>
+<rect class="gnode-box" x="0" y="0" width="216" height="128" rx="6">
+</rect>
+<polygon class="gmark gmark--diamond" points="18,15 25,22 18,29 11,22">
+</polygon>
+<text class="gnode-name" x="32" y="27">notes</text>
+<text class="gnode-state" x="204" y="27" text-anchor="end">waiting</text>
+<text class="gnode-role" x="12" y="47">worker · claude</text>
+<text class="gnode-live" x="12" y="67">
+</text>
+<text class="gnode-branch" x="12" y="87">work/notes</text>
+</g>
+<g class="gnode gnode--working" data-pane="262e0b2b" transform="translate(496 228)" role="group" aria-label="qa, worker, working, Reading the review note, branch work/qa, task T1 in-progress">
+<title>qa, worker, working, Reading the review note, branch work/qa, task T1 in-progress</title>
+<rect class="gnode-box" x="0" y="0" width="216" height="128" rx="6">
+</rect>
+<circle class="gmark gmark--circle" cx="18" cy="22" r="6">
+</circle>
+<text class="gnode-name" x="32" y="27">qa</text>
+<text class="gnode-state" x="204" y="27" text-anchor="end">working</text>
+<text class="gnode-role" x="12" y="47">worker · claude</text>
+<text class="gnode-live" x="12" y="67">Reading the review note</text>
+<text class="gnode-branch" x="12" y="87">work/qa</text>
+<g class="gchip" transform="translate(12 94)">
+<rect x="0" y="0" width="112" height="14" rx="7">
+</rect>
+<text x="8" y="11">T1 in-progress</text>
+</g>
+</g>
+<g class="gnode gnode--working" data-pane="d1faf784" transform="translate(736 228)" role="group" aria-label="deps, worker, working, Edit go.mod, branch work/deps">
+<title>deps, worker, working, Edit go.mod, branch work/deps</title>
+<rect class="gnode-box" x="0" y="0" width="216" height="128" rx="6">
+</rect>
+<circle class="gmark gmark--circle" cx="18" cy="22" r="6">
+</circle>
+<text class="gnode-name" x="32" y="27">deps</text>
+<text class="gnode-state" x="204" y="27" text-anchor="end">working</text>
+<text class="gnode-role" x="12" y="47">worker · claude</text>
+<text class="gnode-live" x="12" y="67">Edit go.mod</text>
+<text class="gnode-branch" x="12" y="87">work/deps</text>
+</g>
+<g class="gnode gnode--working" data-pane="73f13b59" transform="translate(16 404)" role="group" aria-label="site, worker, working, Edit docs/download.md, branch work/site">
+<title>site, worker, working, Edit docs/download.md, branch work/site</title>
+<rect class="gnode-box" x="0" y="0" width="216" height="128" rx="6">
+</rect>
+<circle class="gmark gmark--circle" cx="18" cy="22" r="6">
+</circle>
+<text class="gnode-name" x="32" y="27">site</text>
+<text class="gnode-state" x="204" y="27" text-anchor="end">working</text>
+<text class="gnode-role" x="12" y="47">worker · claude</text>
+<text class="gnode-live" x="12" y="67">Edit docs/download.md</text>
+<text class="gnode-branch" x="12" y="87">work/site</text>
+</g>
+<g class="gnode gnode--idle" data-pane="0aa92d92" transform="translate(256 404)" role="group" aria-label="signing, worker, idle, branch work/signing, task T2 blocked">
+<title>signing, worker, idle, branch work/signing, task T2 blocked</title>
+<rect class="gnode-box" x="0" y="0" width="216" height="128" rx="6">
+</rect>
+<circle class="gmark gmark--ring" cx="18" cy="22" r="5">
+</circle>
+<text class="gnode-name" x="32" y="27">signing</text>
+<text class="gnode-state" x="204" y="27" text-anchor="end">idle</text>
+<text class="gnode-role" x="12" y="47">worker · claude</text>
+<text class="gnode-live" x="12" y="67">
+</text>
+<text class="gnode-branch" x="12" y="87">work/signing</text>
+<g class="gchip" transform="translate(12 94)">
+<rect x="0" y="0" width="85" height="14" rx="7">
+</rect>
+<text x="8" y="11">T2 blocked</text>
+</g>
+</g>
+<g class="gnode gnode--idle" data-pane="ee480bbd" transform="translate(496 404)" role="group" aria-label="changelog, worker, idle, branch work/changelog">
+<title>changelog, worker, idle, branch work/changelog</title>
+<rect class="gnode-box" x="0" y="0" width="216" height="128" rx="6">
+</rect>
+<circle class="gmark gmark--ring" cx="18" cy="22" r="5">
+</circle>
+<text class="gnode-name" x="32" y="27">changelog</text>
+<text class="gnode-state" x="204" y="27" text-anchor="end">idle</text>
+<text class="gnode-role" x="12" y="47">worker · claude</text>
+<text class="gnode-live" x="12" y="67">
+</text>
+<text class="gnode-branch" x="12" y="87">work/changelog</text>
+</g>
+<g class="gnode gnode--exited" data-pane="ad682fde" transform="translate(736 404)" role="group" aria-label="old-branch, worker, down, branch work/old-branch">
+<title>old-branch, worker, down, branch work/old-branch</title>
+<rect class="gnode-box" x="0" y="0" width="216" height="128" rx="6">
+</rect>
+<path class="gmark gmark--cross" d="M13 17 L23 27 M23 17 L13 27">
+</path>
+<text class="gnode-name" x="32" y="27">old-branch</text>
+<text class="gnode-state" x="204" y="27" text-anchor="end">down</text>
+<text class="gnode-role" x="12" y="47">worker · claude</text>
+<text class="gnode-live" x="12" y="67">
+</text>
+<text class="gnode-branch" x="12" y="87">work/old-branch</text>
+</g>
+</svg>

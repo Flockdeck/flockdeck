@@ -1,0 +1,124 @@
+/* The team graph's SVG. The colours are app.css's tokens; the mark of a status
+ * differs in shape as well as in colour, and the status word is always drawn,
+ * so no state is told by colour alone. No rule here is for a hover. */
+.graph {
+  display: block;
+  max-width: none;
+  font-family: var(--sans);
+}
+
+.graph-empty {
+  color: var(--fg-dim);
+  padding: 16px;
+}
+
+.gteam-frame {
+  fill: var(--bg-inset);
+  stroke: var(--line);
+  stroke-width: 1;
+}
+
+.gteam-title {
+  fill: var(--fg-dim);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.gnode-box {
+  fill: var(--bg-raised);
+  stroke: var(--line-strong);
+  stroke-width: 1;
+}
+
+.gnode--manager .gnode-box {
+  stroke-width: 2;
+}
+
+.gnode--shell .gnode-box,
+.gnode--structured .gnode-box {
+  stroke-dasharray: 4 3;
+}
+
+.gnode-name {
+  fill: var(--fg);
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.gnode-state {
+  fill: var(--fg);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.gnode-role,
+.gnode-branch {
+  fill: var(--fg-dim);
+  font-size: 12px;
+}
+
+.gnode-live {
+  fill: var(--fg);
+  font-family: var(--mono);
+  font-size: 12px;
+}
+
+.gnode-branch,
+.gnode-spend {
+  font-family: var(--mono);
+}
+
+.gnode-spend {
+  fill: var(--fg-dim);
+  font-size: 12px;
+}
+
+.gchip rect {
+  fill: var(--bg-active);
+}
+
+.gchip text {
+  fill: var(--fg);
+  font-family: var(--mono);
+  font-size: 11px;
+}
+
+.gmark {
+  stroke-width: 2;
+  fill: none;
+  stroke: var(--idle);
+}
+
+.gmark--circle {
+  fill: var(--working);
+  stroke: var(--working);
+}
+
+.gmark--diamond {
+  fill: var(--waiting);
+  stroke: var(--waiting);
+}
+
+.gmark--square {
+  fill: var(--waiting);
+  stroke: var(--waiting);
+}
+
+.gmark--cross {
+  stroke: var(--exited);
+  stroke-linecap: round;
+}
+
+.gmark--dashed {
+  stroke-dasharray: 3 2;
+}
+
+.gnode--waiting .gnode-box,
+.gnode--blocked .gnode-box {
+  stroke: var(--waiting);
+}
+
+.gnode--exited .gnode-box,
+.gnode--failed .gnode-box {
+  stroke: var(--exited);
+}
