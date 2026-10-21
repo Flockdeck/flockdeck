@@ -8543,6 +8543,10 @@
     findInTerminal: () => openSearch(),
     history: () => openHistory(),
     projects: () => openProjects(),
+    // Only the new interface has a team graph. actionFor never returns these, so
+    // no key reaches them; the table needs an entry for every id.
+    nextNeedsYou: () => {},
+    managerBar: () => {},
     help: () => openHelp(),
 
     settings: () => openSettings(),
@@ -8735,7 +8739,19 @@
       const m = /^(?:Key([A-Z])|Digit([0-9]))$/.exec(e.code || "");
       if (m) key = (m[1] || m[2]).toLowerCase();
     }
-    return bindings.get(signature(e.ctrlKey, shift, e.altKey, key)) || "";
+    const id = bindings.get(signature(e.ctrlKey, shift, e.altKey, key)) || "";
+    // The team graph is in the new interface only. Its keys are not this
+    // window's, so they go on to the terminal, which is where Ctrl+Shift+U
+    // and Ctrl+Shift+H would otherwise be swallowed (readline's kill-line and
+    // backspace).
+    return newInterfaceOnly(id) ? "" : id;
+  }
+
+  /** newInterfaceOnly says an action is one of the new interface's team graph,
+   *  which this window has nothing to do for: its key is left to the terminal,
+   *  and the palette and the keyboard settings do not list it. */
+  function newInterfaceOnly(id) {
+    return id === "nextNeedsYou" || id === "managerBar";
   }
 
   // -------------------------------------------------------- command palette
@@ -8818,7 +8834,7 @@
       return k.label;
     };
     const cmds = keyTable
-      .filter((k) => !k.noPalette && ACTIONS[k.id])
+      .filter((k) => !k.noPalette && ACTIONS[k.id] && !newInterfaceOnly(k.id))
       .map((k) => mk(k.id, paletteLabel(k), { keys: k.keys, short: k.short, group: PAGE_ACTIONS.includes(k.id) ? "Go to" : k.section }));
     // The picker's own entries belong in the action table with everything
     // else, and are offered here only for as long as the table has not caught
@@ -14513,7 +14529,7 @@
     pane.append(settingRow("Every shortcut", "Undoes every remapping made here, for every action at once.", resetAll));
 
     let section = "";
-    keyTable.forEach((k) => {
+    keyTable.filter((k) => !newInterfaceOnly(k.id)).forEach((k) => {
       if (k.section !== section) {
         section = k.section;
         pane.append(el("div", "set-sub", section));

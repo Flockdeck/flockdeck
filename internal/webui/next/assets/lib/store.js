@@ -17,6 +17,9 @@
 //   store.unwatchGraph()
 //   store.watchStructured(id)                // one structured pane, local window only
 //   store.unwatchStructured()
+//   store.watchConversation(id)              // one pane's conversation, for the drawer's tab
+//   store.olderConversation()                // the page before the entries held
+//   store.unwatchConversation()
 //
 // The snapshot:
 //
@@ -57,6 +60,17 @@
 //   answer        the latest permissionAnswer reply as { seq, ok, error, id,
 //                 cardSeq, requestId, req }, or null. A view matches it to the
 //                 card it answered by id, cardSeq and requestId.
+//   conversation  the conversation of the pane watchConversation named, or null:
+//                 { id, supported, entries, atStart, older, refused }. supported is
+//                 null until the desktop has answered, then true, or false for a
+//                 pane with no stored conversation (a shell, or an agent with no
+//                 transcript reader), which has no tab. entries are the
+//                 transcript.Entry objects the desktop sent, oldest first; atStart
+//                 says the first of them is the start of the conversation; older
+//                 is "loading" while a page before them was asked for, else "idle".
+//                 refused is the desktop's text when it refused this device the
+//                 conversation, else "": it is shown once and not asked for again
+//                 until the next connection.
 //   dropped       how many frames were dropped as malformed
 //
 // The structured watch and permissionAnswer are for a window on the desk, as the
@@ -79,6 +93,15 @@ import { createSocket } from "./socket.js";
 export const DESK_ONLY_CODE = "deskOnly";
 export const DESK_ONLY_PHRASE = "machine Flockdeck runs on";
 
+/** VIEWER_REFUSED_PHRASE starts the notice the desktop sends a device that may only
+ *  view, for a command it may not send (internal/server/viewerrole.go,
+ *  viewerRefused). A Go test pins it against the server. */
+export const VIEWER_REFUSED_PHRASE = "This device can only view";
+
+/** MAX_ENTRIES bounds the entries held for one conversation. Past it the oldest
+ *  are dropped, and the conversation no longer starts at the first of them. */
+export const MAX_ENTRIES = 500;
+
 const GRAPH_OPS = new Set(["graphSnapshot", "graphWatch", "graphUnwatch"]);
 
 /** DESK_ONLY says a command is one a remote window may not send: the graph
@@ -90,8 +113,27 @@ const initial = () => ({
   connection: "idle", retryInMs: 0,
   hello: null, remote: false, state: null,
   graph: null, graphGone: null, graphRefused: false, graphError: null,
-  notice: null, sent: null, structured: null, structuredError: null, answer: null, dropped: 0,
+  notice: null, sent: null, structured: null, structuredError: null, answer: null, conversation: null, dropped: 0,
 });
+
+/** upsert returns entries with each of the new ones in place of the one with its
+ *  id, or after the last. The desktop sends an entry again when it changed (a
+ *  tool that finished). */
+function upsert(entries, more) {
+  const out = entries.slice();
+  const at = new Map(out.map((e, i) => [e.id, i]));
+  for (const e of more) {
+    if (at.has(e.id)) out[at.get(e.id)] = e;
+    else {
+      at.set(e.id, out.length);
+      out.push(e);
+    }
+  }
+  return out;
+}
+
+/** goodEntries keeps the entries that are objects with an id and a kind. */
+const goodEntries = (list) => (Array.isArray(list) ? list.filter((e) => e && typeof e === "object" && typeof e.id === "string" && e.id && typeof e.kind === "string") : []);
 
 export function createStore(opts) {
   let snap = initial();
@@ -105,6 +147,8 @@ export function createStore(opts) {
   let answerSeq = 0;
   // The structured pane last asked for with watchStructured, or null.
   let watchingPane = null;
+  // The pane whose conversation is open, or null.
+  let watchingConv = null;
 
   const notify = () => {
     for (const fn of [...listeners]) {
@@ -141,6 +185,14 @@ export function createStore(opts) {
     return socket.send({ cmd: "structuredWatch", id: watchingPane, req: "s" + ++reqSeq });
   }
 
+  function sendConversationOpen() {
+    const c = snap.conversation;
+    const cmd = { cmd: "conversationOpen", id: watchingConv };
+    // After a reconnect the desktop is asked only for what came since.
+    if (c && c.entries.length > 0) cmd.after = c.entries[c.entries.length - 1].id;
+    return socket.send(cmd);
+  }
+
   function handle(msg) {
     switch (msg.type) {
       case "hello": {
@@ -150,6 +202,10 @@ export function createStore(opts) {
         set({ hello: msg, remote, graphRefused: remote, graphError: null });
         if (!remote && watching !== null) sendGraphWatch();
         if (!remote && watchingPane !== null) sendStructuredWatch();
+        if (watchingConv !== null) {
+          if (snap.conversation && snap.conversation.refused) set({ conversation: { ...snap.conversation, refused: "" } });
+          sendConversationOpen();
+        }
         break;
       }
       case "state":
@@ -202,7 +258,48 @@ export function createStore(opts) {
         // The answer to an accepted paneSend. A refusal comes as a notice.
         set({ sent: { ...msg, seq: ++sentSeq } });
         break;
+      case "conversationPage": {
+        const c = snap.conversation;
+        if (watchingConv === null || msg.id !== watchingConv || !c) break;
+        if (msg.supported !== true) {
+          set({ conversation: { ...c, supported: false, entries: [], atStart: true, older: "idle", refused: "" } });
+          break;
+        }
+        const page = goodEntries(msg.entries);
+        let entries;
+        let atStart = !!msg.atStart;
+        if (c.older === "loading" && !msg.reset) {
+          // The page before the ones held.
+          entries = upsert(page, c.entries);
+        } else if (msg.reset || c.entries.length === 0) {
+          entries = page;
+        } else {
+          // The answer to an open that asked only for what came since.
+          entries = upsert(c.entries, page);
+          atStart = c.atStart;
+        }
+        set({ conversation: { ...c, supported: true, entries, atStart, older: "idle", refused: "" } });
+        break;
+      }
+      case "conversationAppend": {
+        const c = snap.conversation;
+        if (watchingConv === null || msg.id !== watchingConv || !c || c.supported !== true) break;
+        let entries = upsert(c.entries, goodEntries(msg.entries));
+        let atStart = c.atStart;
+        if (entries.length > MAX_ENTRIES) {
+          entries = entries.slice(entries.length - MAX_ENTRIES);
+          atStart = false;
+        }
+        set({ conversation: { ...c, entries, atStart } });
+        break;
+      }
       case "notice":
+        // The refusal of a conversation command is shown on the tab, once. The
+        // notice is kept as well, like any other.
+        if (watchingConv !== null && snap.conversation && snap.conversation.supported === null && msg.error && String(msg.text || "").startsWith(VIEWER_REFUSED_PHRASE)) {
+          set({ notice: { ...msg, seq: ++noticeSeq }, conversation: { ...snap.conversation, refused: String(msg.text) } });
+          break;
+        }
         set({ notice: { ...msg, seq: ++noticeSeq } });
         break;
       default:
@@ -217,6 +314,8 @@ export function createStore(opts) {
       if (watchingPane !== null) socket.send({ cmd: "structuredUnwatch", id: watchingPane });
       watching = null;
       watchingPane = null;
+      if (watchingConv !== null) socket.send({ cmd: "conversationClose", id: watchingConv });
+      watchingConv = null;
       socket.stop();
       snap = initial();
       notify();
@@ -265,6 +364,33 @@ export function createStore(opts) {
       watchingPane = null;
       if (!snap.remote) socket.send({ cmd: "structuredUnwatch", id: was });
       set({ structured: null, structuredError: null });
+    },
+    /** watchConversation asks for the conversation of one pane, now and as it
+     *  grows, for the drawer's tab. It replaces the pane watched before (that one
+     *  is closed) and does nothing for the pane already watched. */
+    watchConversation(id) {
+      if (!id || watchingConv === id) return false;
+      if (watchingConv !== null) socket.send({ cmd: "conversationClose", id: watchingConv });
+      watchingConv = id;
+      set({ conversation: { id, supported: null, entries: [], atStart: false, older: "idle", refused: "" } });
+      if (snap.hello) sendConversationOpen();
+      return true;
+    },
+    /** olderConversation asks for the page before the entries held. It asks once
+     *  at a time, and not at all at the start of the conversation. */
+    olderConversation() {
+      const c = snap.conversation;
+      if (watchingConv === null || !c || c.supported !== true || c.atStart || c.older === "loading" || c.entries.length === 0) return false;
+      if (!socket.send({ cmd: "conversationOlder", id: watchingConv, before: c.entries[0].id })) return false;
+      set({ conversation: { ...c, older: "loading" } });
+      return true;
+    },
+    unwatchConversation() {
+      if (watchingConv === null) return;
+      const was = watchingConv;
+      watchingConv = null;
+      socket.send({ cmd: "conversationClose", id: was });
+      set({ conversation: null });
     },
     unwatchGraph() {
       if (watching === null) return;

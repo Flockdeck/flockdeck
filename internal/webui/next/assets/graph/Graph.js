@@ -11,6 +11,7 @@ import { Node, clip } from "./Node.js";
 import { Badge } from "./Badge.js";
 import { NeedsYou } from "./NeedsYou.js";
 import { Edges, EdgeDefs, EdgeNotice, edgesOf } from "./Edges.js";
+import { navOf, onGraphKey } from "./keys.js";
 
 /**
  * Graph draws a graph model. layout may be given when the caller has laid the
@@ -24,6 +25,7 @@ export function Graph({ model, layout = null, onOpen = null, open = "" }) {
     return html`<p class="graph-empty">No agents in this project yet.</p>`;
   }
   const edges = edgesOf(model, lay);
+  const nav = navOf(model);
   const teamOf = new Map(model.teams.map((t) => [t.id, t]));
   return html`
     <svg
@@ -33,6 +35,7 @@ export function Graph({ model, layout = null, onOpen = null, open = "" }) {
       height=${lay.height}
       role="group"
       aria-label=${"Team graph of " + (model.project || "this project")}
+      onKeyDown=${onOpen ? (e) => onGraphKey(nav, e) : undefined}
     >
       ${lay.teams.map((f) => {
         const team = teamOf.get(f.id);

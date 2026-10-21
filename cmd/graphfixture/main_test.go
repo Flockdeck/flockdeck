@@ -431,6 +431,106 @@ func TestDeskValuesArePinnedToWorkspace(t *testing.T) {
 	}
 }
 
+// The permission options in the state push are the ones the desk gives a Claude
+// terminal pane's Bash prompt.
+func TestPermissionOptionsArePinnedToWorkspace(t *testing.T) {
+	want := workspace.TerminalPermissionOptions("claude", "Bash")
+	var got []workspace.PermissionOption
+	raw, err := json.Marshal(permissionView("ls")["options"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("options %v, workspace has %v", got, want)
+	}
+}
+
+// A terminal pane the graph says needs a permission or answers a question has the
+// view the desk puts on it in the state push, made from the fixture's own item;
+// no other pane has either view.
+func TestStatePushCarriesThePermissionAndQuestionViews(t *testing.T) {
+	for _, name := range allFixtures(t) {
+		t.Run(name, func(t *testing.T) {
+			fx, err := loadFixture(fixtureDir(t), name)
+			if err != nil {
+				t.Fatal(err)
+			}
+			raw, err := json.Marshal(fx.stateMsg())
+			if err != nil {
+				t.Fatal(err)
+			}
+			var st struct {
+				Panes map[string]struct {
+					Permission *struct {
+						Tool    string                       `json:"tool"`
+						Summary string                       `json:"summary"`
+						Command string                       `json:"command"`
+						Options []workspace.PermissionOption `json:"options"`
+					} `json:"permission"`
+					Ask *struct {
+						Questions []struct {
+							Question string `json:"question"`
+						} `json:"questions"`
+					} `json:"ask"`
+				} `json:"panes"`
+			}
+			if err := json.Unmarshal(raw, &st); err != nil {
+				t.Fatal(err)
+			}
+			perm, ask := map[string]string{}, map[string]string{}
+			for _, nd := range fx.needs {
+				if nd.Kind == "permission" && perm[nd.Pane] == "" {
+					perm[nd.Pane] = nd.Text
+				}
+				if nd.Kind == "ask" && ask[nd.Pane] == "" {
+					ask[nd.Pane] = nd.Text
+				}
+			}
+			seenPerm, seenAsk := 0, 0
+			for id, p := range st.Panes {
+				if text, ok := perm[id]; ok {
+					seenPerm++
+					if p.Permission == nil || p.Permission.Command != text || p.Permission.Tool != "Bash" || p.Permission.Summary != "Run: "+text {
+						t.Errorf("pane %s: permission %+v, want command %q", id, p.Permission, text)
+					} else if !reflect.DeepEqual(p.Permission.Options, workspace.TerminalPermissionOptions("claude", "Bash")) {
+						t.Errorf("pane %s: options %v", id, p.Permission.Options)
+					}
+					continue
+				}
+				if p.Permission != nil {
+					t.Errorf("pane %s has a permission view and no permission item", id)
+				}
+				if text, ok := ask[id]; ok {
+					seenAsk++
+					if p.Ask == nil || len(p.Ask.Questions) != 1 || p.Ask.Questions[0].Question != text {
+						t.Errorf("pane %s: ask %+v, want question %q", id, p.Ask, text)
+					}
+				} else if p.Ask != nil {
+					t.Errorf("pane %s has an ask view and no question item", id)
+				}
+			}
+			if seenPerm != len(perm) || seenAsk+countBoth(perm, ask) != len(ask) {
+				t.Errorf("%d of %d permission views and %d of %d ask views", seenPerm, len(perm), seenAsk, len(ask))
+			}
+		})
+	}
+}
+
+// countBoth is how many panes have a permission item and a question item: they
+// show the permission, which the desk shows for a pane that waits on one thing.
+func countBoth(perm, ask map[string]string) int {
+	n := 0
+	for id := range ask {
+		if _, ok := perm[id]; ok {
+			n++
+		}
+	}
+	return n
+}
+
 // The built tool links none of the packages that keep or look for the person's
 // configuration, so what the tool does not read cannot change by one of them
 // gaining a lookup. The list is of the tool alone: this test's own imports are
@@ -469,4 +569,47 @@ func TestToolLinksNoPackageThatKeepsConfiguration(t *testing.T) {
 		}
 	}
 	t.Logf("internal packages linked: %v", deps)
+}
+
+// A structured pane's card does not come with the state push, so a structured
+// pane gets neither view, whatever the graph says it waits on. No fixture has
+// one, so the test makes a pane of a fixture structured: the permission pane of
+// fixture 1 and the question pane of fixture 2.
+func TestStructuredPaneGetsNeitherView(t *testing.T) {
+	for _, c := range []struct{ fixture, pane, kind string }{
+		{"1", "366c9143", "permission"},
+		{"2", "48211787", "ask"},
+	} {
+		t.Run(c.kind, func(t *testing.T) {
+			fx, err := loadFixture(fixtureDir(t), c.fixture)
+			if err != nil {
+				t.Fatal(err)
+			}
+			views := func(f *fixture) (perm, ask bool) {
+				p := f.stateMsg()["panes"].(map[string]any)[c.pane].(map[string]any)
+				_, perm = p["permission"]
+				_, ask = p["ask"]
+				return
+			}
+			perm, ask := views(fx)
+			if c.kind == "permission" && !perm || c.kind == "ask" && !ask {
+				t.Fatalf("pane %s has no %s view as a terminal pane (permission %v, ask %v), so this test proves nothing", c.pane, c.kind, perm, ask)
+			}
+			cp := *fx
+			cp.nodes = append([]fixtureNode(nil), fx.nodes...)
+			found := false
+			for i := range cp.nodes {
+				if cp.nodes[i].Pane == c.pane {
+					cp.nodes[i].Kind = "structured"
+					found = true
+				}
+			}
+			if !found {
+				t.Fatalf("fixture %s has no pane %s", c.fixture, c.pane)
+			}
+			if perm, ask := views(&cp); perm || ask {
+				t.Errorf("structured pane %s has a view (permission %v, ask %v)", c.pane, perm, ask)
+			}
+		})
+	}
 }
