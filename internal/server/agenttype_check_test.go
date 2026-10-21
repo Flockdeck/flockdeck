@@ -18,7 +18,8 @@ import (
 // view, the agents list, helper counting, spend and recording start) ask the
 // pane's runtime (workspace.PaneRuntime) and do not look at which agent runs in
 // it, or at anything that exists only on a terminal pane. This file keeps that
-// true. It parses a named list of consumer files and fails on
+// true. It parses every non-test file of internal/server, internal/team and
+// internal/workspace, except the few listed in agentTypeExempt, and fails on
 //
 //   - a pane's agent id, kind, type, runner or id compared (== or !=), or used
 //     as a switch tag, against a string literal or a constant ("claude",
@@ -37,37 +38,62 @@ import (
 // The check is syntactic and so is fragile in two ways. It goes by names: any
 // Kind-named (or Agent-, Type-, Runner-, ID-named) variable compared with a
 // literal needs an entry below, whether it is a pane's or not. And it does not
-// follow values: an alias (k := p.Kind; k == "shell"), or an accessor that
-// returns the session, is out of scope. A reviewer reads the consumer files for
-// those; this catches the plain forms before they get there.
+// follow values past one step: a value copied into a variable (k := p.Kind;
+// k == "shell") is followed, but one passed through a function, or an accessor
+// that returns the session, is out of scope. A reviewer reads the consumer files
+// for those; this catches the plain forms before they get there.
 //
-// To add a consumer file, put its path (from the module root) in
-// agentTypeConsumers. If a place in it must still know the agent or reach the
-// session, add it to agentTypeAllowed under the file, keyed by the enclosing
-// function and the expression as the failure prints them, with how many
-// there are and why. The count means a second use of an allowed expression in
-// the same function fails, and so does a count that is too high.
-//
-// Left out on purpose: reap.go, baton.go, activity.go, background_check.go and
-// spawn.go in internal/workspace and spawn.go in internal/server. They start,
-// end and watch the process, or choose the agent from the catalog, which is
-// terminal work by nature and is where an agent id is meant to be read.
+// A new file in those packages is scanned without being added anywhere. If a
+// place in it must still know the agent or reach the session, add it to
+// agentTypeAllowed under the file, keyed by the enclosing function and the
+// expression as the failure prints them, with how many there are and why. The
+// count means a second use of an allowed expression in the same function fails,
+// and so does a count that is too high.
 
-// agentTypeConsumers are the files that read panes to show or count them.
-var agentTypeConsumers = []string{
-	"internal/server/teamgraph.go",
-	"internal/server/waiting.go",
-	"internal/server/paneinfo.go",
-	"internal/server/agents.go",
-	"internal/server/spend.go",
-	"internal/server/push.go",
-	"internal/server/control.go",
-	"internal/team/graph.go",
-	"internal/team/needs.go",
-	"internal/workspace/teamui.go",
-	"internal/workspace/paneinfo.go",
-	"internal/workspace/recording.go",
-	"internal/workspace/wake.go",
+// agentTypePackages are the packages whose files are scanned, from the module
+// root.
+var agentTypePackages = []string{"internal/server", "internal/team", "internal/workspace"}
+
+// agentTypeExempt are the files that are not scanned, each with why. They start,
+// end and watch the process, are the terminal's own side of the runtime, or
+// choose the agent from the catalog, which is terminal work by nature and is
+// where an agent id is meant to be read. A file here can plant a violation
+// unseen, so the list is short and a new file does not belong on it because it
+// has uses to allow: add those to agentTypeAllowed.
+var agentTypeExempt = map[string]string{
+	"internal/workspace/reap.go":             "ends the processes of a pane and its worktree",
+	"internal/workspace/baton.go":            "restarts a pane with a baton, which is a terminal restart; chooses the agent from the catalog",
+	"internal/workspace/activity.go":         "reads the terminal's activity",
+	"internal/workspace/background_check.go": "reads an agent's own background work files and transcript",
+	"internal/workspace/spawn.go":            "chooses the agent from the catalog and starts the pane",
+	"internal/server/spawn.go":               "chooses the agent from the catalog and starts the pane",
+	"internal/workspace/workspace.go":        "the Pane type and its terminal operations: status, resize, restart, hooks, start",
+	"internal/workspace/panekind.go":         "terminalRuntime, the terminal's implementation of PaneRuntime",
+	"internal/workspace/structuredpane.go":   "structuredRuntime, the structured implementation of PaneRuntime, and its start",
+	"internal/workspace/team.go":             "idle and exit notes read off a pane's session",
+}
+
+// agentTypeFiles are the files to scan: every non-test Go file of the packages
+// in agentTypePackages that is not exempt, from the module root, slash form.
+func agentTypeFiles(t *testing.T, root string) []string {
+	t.Helper()
+	var out []string
+	for _, pkg := range agentTypePackages {
+		ents, err := os.ReadDir(filepath.Join(root, filepath.FromSlash(pkg)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, e := range ents {
+			name := e.Name()
+			if e.IsDir() || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+				continue
+			}
+			if _, skip := agentTypeExempt[pkg+"/"+name]; !skip {
+				out = append(out, pkg+"/"+name)
+			}
+		}
+	}
+	return out
 }
 
 // agentTypeAllow is one allowed expression in one function.
@@ -79,6 +105,80 @@ type agentTypeAllow struct {
 // agentTypeAllowed are the places allowed to name an agent type or reach a
 // session, by file, then "function | expression". See the comment above.
 var agentTypeAllowed = map[string]map[string]agentTypeAllow{
+	"internal/server/artifacts_consent.go": {
+		"Server.setArtifactKind | artifactOffered[kind]": {1, "an artifact kind, not an agent type"},
+		"artifactAckText | \"recordings\"":               {1, "an artifact kind, not an agent type"},
+	},
+	"internal/server/artifacts_recordings.go": {
+		"Server.openRecording | e.Kind != recordingsKind": {1, "an artifact kind, not an agent type"},
+	},
+	"internal/server/artifacts_socket.go": {
+		"Server.artifactList | req.Kind == recordingsKind": {1, "an artifact kind, not an agent type"},
+	},
+	"internal/server/background.go": {
+		"backgroundViews | kind == \"agent\"": {1, "a background item's kind (agent or task), not a pane's"},
+		"backgroundViews | kind == \"task\"":  {1, "a background item's kind (agent or task), not a pane's"},
+	},
+	"internal/server/conversation_search.go": {
+		"matchEntryText | transcript.KindPrompt": {1, "a transcript entry's kind"},
+		"matchEntryText | transcript.KindReply":  {1, "a transcript entry's kind"},
+		"matchEntryText | transcript.KindTool":   {1, "a transcript entry's kind"},
+	},
+	"internal/server/help.go": {
+		"remoteFiltered | \"detach\"":  {1, "a command word, not an agent type"},
+		"remoteFiltered | \"helpers\"": {1, "a command word, not an agent type"},
+		"remoteFiltered | \"quit\"":    {1, "a command word, not an agent type"},
+	},
+	"internal/server/jevkey.go": {
+		"Server.jevKey | \"clear\"": {1, "the subcommand word of jevKey, not an agent type"},
+		"Server.jevKey | \"set\"":   {1, "the subcommand word of jevKey, not an agent type"},
+	},
+	"internal/server/preview.go": {
+		"Server.notePreview | changed[i].Kind == transcript.KindReply": {1, "a transcript entry's kind"},
+	},
+	"internal/server/pty.go": {
+		"Server.paneSession | p.Sess": {1, "the terminal's own pane session, for the terminal socket; a pane without one is not attached"},
+		"Server.repaintSize | p.Sess": {2, "the terminal's own pane session, for the terminal socket; a pane without one is not attached"},
+	},
+	"internal/server/relayscrub.go": {
+		"scrubGraphMsg | n.WaitingOn.Kind == team.WaitUser": {1, "a needs item's or wait's kind, not a pane's"},
+		"scrubNeeds | team.NeedAsk":                         {1, "a needs item's or wait's kind, not a pane's"},
+		"scrubNeeds | team.NeedPermission":                  {1, "a needs item's or wait's kind, not a pane's"},
+	},
+	"internal/server/remote.go": {
+		"Server.remotePair | kind != remote.KindHost":   {1, "a paired device's kind, not an agent type"},
+		"Server.remotePair | kind == remote.KindHost":   {1, "a paired device's kind, not an agent type"},
+		"Server.remoteRename | kind != remote.KindHost": {1, "a paired device's kind, not an agent type"},
+		"Server.remoteRename | kind == remote.KindHost": {1, "a paired device's kind, not an agent type"},
+	},
+	"internal/server/structured.go": {
+		"structuredDetailOf | transcript.KindNotice": {1, "a transcript entry's kind"},
+		"structuredDetailOf | transcript.KindPrompt": {1, "a transcript entry's kind"},
+		"structuredDetailOf | transcript.KindReply":  {1, "a transcript entry's kind"},
+	},
+	"internal/server/viewerrole.go": {
+		"controlClient.mayReceive | viewerMessageTypes[probe.Type]":  {1, "the message type of a push, not an agent type"},
+		"controlClient.mayReceive | watcherMessageTypes[probe.Type]": {1, "the message type of a push, not an agent type"},
+	},
+	"internal/team/events.go": {
+		"EventLog.Load | e.Kind != EventDelivery": {1, "an event's kind, not a pane's"},
+		"EventLog.Load | e.Kind != EventMessage":  {1, "an event's kind, not a pane's"},
+		"EventLog.Load | e.Kind != EventWake":     {1, "an event's kind, not a pane's"},
+		"EventLog.Load | e.Kind == EventWake":     {1, "an event's kind, not a pane's"},
+	},
+	"internal/workspace/claudelink.go": {
+		"resolveClaudeLink | e.Type != \"tree\"": {1, "a git tree entry's type"},
+	},
+	"internal/workspace/context.go": {
+		"Workspace.PaneContext | p.Kind == session.KindShell":   {1, "whether a pane is a shell or an agent, to brief it; not which agent"},
+		"Workspace.PaneContext | sib.Kind == session.KindShell": {1, "whether a pane is a shell or an agent, to brief it; not which agent"},
+	},
+	"internal/workspace/panesend.go": {
+		"Workspace.SendToPane | p.Sess": {1, "types into a terminal session; a structured pane is sent its prompt through its runtime just above"},
+	},
+	"internal/workspace/provider.go": {
+		"BatonProviderWith | spec.Runner == agent.RunnerAPI": {1, "the catalog entry's runner"},
+	},
 	"internal/server/agents.go": {
 		// The agents list describes the catalog, which is where an agent's runner
 		// and id are meant to be read. It does not read a pane.
@@ -251,6 +351,23 @@ func findAgentTypeUses(filename string, src []byte, consts map[string]bool) ([]a
 		}
 		ast.Inspect(d, func(n ast.Node) bool {
 			switch x := n.(type) {
+			case *ast.AssignStmt:
+				// A value copied into a variable is the same value: k := p.Kind.
+				if len(x.Lhs) == len(x.Rhs) {
+					for i, rhs := range x.Rhs {
+						if id, ok := x.Lhs[i].(*ast.Ident); ok && typed(rhs, agentTypeNames) {
+							aliases[id.Name] = true
+						}
+					}
+				}
+			case *ast.ValueSpec:
+				if len(x.Names) == len(x.Values) {
+					for i, v := range x.Values {
+						if typed(v, agentTypeNames) {
+							aliases[x.Names[i].Name] = true
+						}
+					}
+				}
 			case *ast.BinaryExpr:
 				if x.Op == token.EQL || x.Op == token.NEQ {
 					if (typed(x.X, agentTypeNames) && namedLit(x.Y)) || (typed(x.Y, agentTypeNames) && namedLit(x.X)) {
@@ -402,7 +519,7 @@ func TestConsumersDoNotBranchOnAgentType(t *testing.T) {
 	root := moduleRoot(t)
 	found := map[string]map[string]int{}
 	var problems []string
-	for _, rel := range agentTypeConsumers {
+	for _, rel := range agentTypeFiles(t, root) {
 		full := filepath.Join(root, filepath.FromSlash(rel))
 		src, err := os.ReadFile(full)
 		if err != nil {
@@ -474,6 +591,10 @@ func TestAgentTypeCheckFindsAPlantedViolation(t *testing.T) {
 		"local const":    "const agentClaude = \"claude\"\nfunc planted(p paneView) bool { return p.Agent == agentClaude }",
 		"switch const":   `func planted(p paneView) int { switch p.Kind { case session.KindShell: return 1 }; return 0 }`,
 		"switch binding": `func planted(p paneView) int { switch a := p.Agent; a { case "claude": return 1 }; return 0 }`,
+		"alias":          `func planted(p paneView) bool { k := p.Kind; return k == "shell" }`,
+		"alias, var":     `func planted(p paneView) bool { var a = p.Agent; return a == "claude" }`,
+		"alias, assign":  `func planted(p paneView) bool { var k string; k = p.Kind; return k == "shell" }`,
+		"alias, switch":  `func planted(p paneView) int { k := p.Kind; switch k { case "shell": return 1 }; return 0 }`,
 		"runner":         `func planted(spec agentSpec) bool { return spec.Runner == agent.RunnerACP }`,
 		"type name":      `func planted(c conv) bool { return c.Type == "acp" }`,
 		"id name":        `func planted(spec agentSpec) bool { return spec.ID == "claude" }`,
@@ -506,6 +627,96 @@ func TestAgentTypeCheckFindsAPlantedViolation(t *testing.T) {
 	} {
 		if n := count(fine); n != 0 {
 			t.Errorf("%s: %d violations found in a copy with none planted", name, n)
+		}
+	}
+}
+
+// Every non-test file of the three packages is scanned, with only the exempt
+// ones left out, so a file nobody listed is checked too.
+func TestAgentTypeCheckScansEveryFileButTheExemptOnes(t *testing.T) {
+	root := moduleRoot(t)
+	scanned := map[string]bool{}
+	for _, f := range agentTypeFiles(t, root) {
+		scanned[f] = true
+	}
+	for _, f := range []string{
+		"internal/workspace/panesend.go", "internal/server/pty.go", "internal/team/events.go",
+		"internal/server/teamgraph.go", "internal/workspace/wake.go",
+	} {
+		if !scanned[f] {
+			t.Errorf("%s is not scanned", f)
+		}
+	}
+	for f, why := range agentTypeExempt {
+		if scanned[f] {
+			t.Errorf("%s is exempt and scanned", f)
+		}
+		if why == "" {
+			t.Errorf("%s is exempt with no reason", f)
+		}
+		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(f))); err != nil {
+			t.Errorf("%s is exempt but not there: %v", f, err)
+		}
+	}
+	for f := range agentTypeAllowed {
+		if !scanned[f] {
+			t.Errorf("%s has allowances but is not scanned", f)
+		}
+	}
+	// Every Go file in the three packages is either scanned or exempt.
+	total := 0
+	for _, pkg := range agentTypePackages {
+		ents, _ := os.ReadDir(filepath.Join(root, filepath.FromSlash(pkg)))
+		for _, e := range ents {
+			if n := e.Name(); strings.HasSuffix(n, ".go") && !strings.HasSuffix(n, "_test.go") {
+				total++
+			}
+		}
+	}
+	if total != len(scanned)+len(agentTypeExempt) {
+		t.Errorf("%d files, %d scanned and %d exempt", total, len(scanned), len(agentTypeExempt))
+	}
+}
+
+// A violation planted in a file that was never on a list is found: panesend.go
+// has one allowed read of the session and a second use is over its count.
+func TestAViolationPlantedInAnUnlistedFileIsFound(t *testing.T) {
+	root := moduleRoot(t)
+	rel := "internal/workspace/panesend.go"
+	full := filepath.Join(root, filepath.FromSlash(rel))
+	orig, err := os.ReadFile(full)
+	if err != nil {
+		t.Fatal(err)
+	}
+	consts := packageConsts(filepath.Dir(full))
+	over := func(planted string) int {
+		src := append(append([]byte{}, orig...), []byte("\n"+planted+"\n")...)
+		uses, err := findAgentTypeUses(rel, src, consts)
+		if err != nil {
+			t.Fatalf("%v in:\n%s", err, planted)
+		}
+		found := map[string]int{}
+		for _, u := range uses {
+			found[u.key()]++
+		}
+		n := 0
+		for k, c := range found {
+			if c > agentTypeAllowed[rel][k].N {
+				n += c - agentTypeAllowed[rel][k].N
+			}
+		}
+		return n
+	}
+	if n := over(""); n != 0 {
+		t.Fatalf("panesend.go as it is has %d uses over its allowance", n)
+	}
+	for name, planted := range map[string]string{
+		"literal": `func planted(p *Pane) bool { return p.Agent == "claude" }`,
+		"alias":   `func planted(p *Pane) bool { a := p.Agent; return a == "claude" }`,
+		"session": `func planted(p *Pane) int { return p.Sess.Pid() }`,
+	} {
+		if n := over(planted); n != 1 {
+			t.Errorf("%s: %d violations over the allowance, want 1", name, n)
 		}
 	}
 }
