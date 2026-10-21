@@ -60,7 +60,7 @@ async function mount(graph = teamGraph(), { open = true, helloOver = {} } = {}) 
   await settle();
   const api = {
     ...h, ws, dom, container, model,
-    input: () => container.find("textarea"),
+    input: () => container.find(".mbar-input"),
     send: () => container.find(".mbar-send"),
     status: () => (container.find(".mbar-status") || { textContent: "" }).textContent,
     state: () => (container.find(".mbar") || { getAttribute: () => null }).getAttribute("data-state"),
@@ -68,6 +68,7 @@ async function mount(graph = teamGraph(), { open = true, helloOver = {} } = {}) 
     submit: async () => { api.send().click(); await settle(); },
     frame: async (m) => { ws.frame(m); await settle(); },
     sends: () => ws.commands("paneSend"),
+    redraw: async (m) => { render(html`<${App} store=${h.store} model=${m} />`, container); await settle(); },
     done: async () => { render(null, container); await settle(); restore(); },
   };
   return api;
@@ -92,7 +93,7 @@ test("managerOf is the first team's manager when it is a node, and null otherwis
 
 test("sending reaches paneSend with the manager's id and the exact text, and no allowShell", () =>
   withBar(async (a) => {
-    const text = "  /review the diff\n\n!ls  \tend  ";
+    const text = "  /review the diff, then !ls  \tend  ";
     await a.type(text);
     await a.submit();
     assert.deepEqual(a.sends(), [{ cmd: "paneSend", id: "p1", text }]);
@@ -159,6 +160,7 @@ test("an answer for another pane, or an approval notice, is not the answer to th
     await a.submit();
     await a.frame({ type: "paneSend", id: "p2", queued: false, shell: false });
     await a.frame({ type: "notice", text: "something else", error: true, kind: "approval" });
+    assert.equal(a.state(), "sending", "an approval notice was read as the refusal");
     await a.frame({ type: "notice", text: "fine", error: false });
     assert.equal(a.state(), "sending");
     await a.frame({ type: "paneSend", id: "p1", queued: false, shell: false });
@@ -286,7 +288,7 @@ test("the box can be reached by a ref for a view that moves the keyboard to it",
   };
   render(html`<${Wrap} />`, container);
   await settle();
-  assert.equal(ref.current, container.find("textarea"));
+  assert.equal(ref.current, container.find(".mbar-input"));
   assert.notEqual(dom.document.activeElement, ref.current, "autoFocus off still took the keyboard");
   render(null, container);
   await settle();
@@ -297,3 +299,42 @@ test("the text does not leak into markup rules: the page file has no eval or inn
   const src = readFileSync(join(here, "..", "assets", "graph", "ManagerBar.js"), "utf8");
   assert.ok(!/eval\(|innerHTML|dangerouslySetInnerHTML|new Function/.test(src));
 });
+
+test("the box is one line: a line break typed or pasted becomes a space", () =>
+  withBar(async (a) => {
+    assert.equal(a.input().getAttribute("type"), "text");
+    await a.type("one\ntwo\r\nthree");
+    assert.equal(a.input().value, "one two three");
+    await a.submit();
+    assert.deepEqual(a.sends().map((c) => c.text), ["one two three"]);
+    assert.match(a.input().getAttribute("placeholder"), /one line/);
+  }));
+
+test("a second Enter before the page has redrawn does not send again", () =>
+  withBar(async (a) => {
+    await a.type("once");
+    a.input().keydown("Enter");
+    a.input().keydown("Enter");
+    a.send().click();
+    await settle();
+    assert.equal(a.sends().length, 1);
+    // And one that comes after the redraw, with the box off.
+    a.input().keydown("Enter");
+    await settle();
+    assert.equal(a.sends().length, 1);
+    // Once the answer is in, the bar sends again.
+    await a.frame({ type: "paneSend", id: "p1", queued: false, shell: false });
+    await a.type("twice");
+    await a.submit();
+    assert.equal(a.sends().length, 2);
+  }));
+
+test("the box takes the keyboard once: a manager that goes and comes back does not take it again", () =>
+  withBar(async (a) => {
+    assert.equal(a.dom.document.activeElement, a.input());
+    a.input().blur();
+    assert.notEqual(a.dom.document.activeElement, a.input());
+    await a.redraw(buildGraphModel(soloGraph()));
+    await a.redraw(buildGraphModel(teamGraph()));
+    assert.notEqual(a.dom.document.activeElement, a.input(), "the box took the keyboard a second time");
+  }));

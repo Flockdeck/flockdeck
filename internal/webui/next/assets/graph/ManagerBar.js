@@ -4,8 +4,12 @@
 //
 // The desktop answers an accepted send with a paneSend message and a refusal with
 // an error notice; the store keeps both (snap.sent, snap.notice). The bar reads
-// the answer to its own send as the first paneSend for the manager's pane, or the
-// first error notice, that arrives after it sent. Only one send is open at a time.
+// the answer to its own send as the latest paneSend for the manager's pane, or the
+// latest error notice, since it sent. Only one send is open at a time.
+//
+// The box is one line. The desk types a text as a prompt, and in a pane that has
+// not asked for bracketed paste each line break types an Enter, so a text with
+// line breaks would be several prompts. A line break typed or pasted becomes a space.
 //
 // - An empty text, or one over 16 KiB, is stopped here in the desk's words.
 // - A project with no manager says so and the bar is off.
@@ -34,6 +38,9 @@ export const NOT_CONNECTED_WORDS = "Not connected to Flockdeck, so the text was 
 // desk removes before it looks at the text.
 // eslint-disable-next-line no-control-regex
 const CONTROLS = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/g;
+
+const ONE_LINE = /[\r\n]/;
+const ONE_LINE_ALL = /\r\n|[\r\n]/g;
 
 const encoder = typeof TextEncoder === "function" ? new TextEncoder() : null;
 const byteLength = (s) => (encoder ? encoder.encode(s).length : unescape(encodeURIComponent(s)).length);
@@ -95,6 +102,8 @@ export function ManagerBar({ snap, manager, send, inputRef, autoFocus = true }) 
   const [local, setLocal] = useState("");
   const [pending, setPending] = useState(null);
   const focused = useRef(false);
+  // Set at once on a send, so a second Enter before the page has redrawn does not send again.
+  const busy = useRef(false);
 
   const enabled = !!manager && !snap.remote;
   useEffect(() => {
@@ -110,6 +119,7 @@ export function ManagerBar({ snap, manager, send, inputRef, autoFocus = true }) 
 
   const open = pending && manager && pending.pane === manager.pane ? pending : null;
   const outcome = outcomeOf(snap, open);
+  if (!outcome || outcome.kind !== "sending") busy.current = false;
   const done = outcome && outcome.kind === "sent";
   // The text goes once the desk has taken it; a refused one stays to be changed.
   useEffect(() => {
@@ -119,7 +129,7 @@ export function ManagerBar({ snap, manager, send, inputRef, autoFocus = true }) 
   if (snap.remote) return null;
   if (!manager) {
     return html`<div class="mbar mbar--off" data-state="no-manager">
-      <textarea class="mbar-input" rows="1" disabled aria-label="Message the manager" placeholder="No manager" />
+      <input class="mbar-input" type="text" disabled aria-label="Message the manager" placeholder="No manager" />
       <button class="mbar-send" type="button" disabled>Send</button>
       <span class="mbar-status" role="status">${NO_MANAGER_WORDS}</span>
     </div>`;
@@ -127,7 +137,7 @@ export function ManagerBar({ snap, manager, send, inputRef, autoFocus = true }) 
 
   const sending = !!outcome && outcome.kind === "sending";
   const submit = () => {
-    if (sending) return;
+    if (busy.current) return;
     const why = checkText(draft);
     if (why) {
       setLocal(why);
@@ -136,8 +146,10 @@ export function ManagerBar({ snap, manager, send, inputRef, autoFocus = true }) 
     setLocal("");
     const mark = { pane: manager.pane, notice: snap.notice ? snap.notice.seq : 0, sent: snap.sent ? snap.sent.seq : 0 };
     // The text as written; allowShell is never sent.
-    if (send({ cmd: "paneSend", id: manager.pane, text: draft })) setPending(mark);
-    else {
+    if (send({ cmd: "paneSend", id: manager.pane, text: draft })) {
+      busy.current = true;
+      setPending(mark);
+    } else {
       setPending(null);
       setLocal(NOT_CONNECTED_WORDS);
     }
@@ -151,16 +163,18 @@ export function ManagerBar({ snap, manager, send, inputRef, autoFocus = true }) 
   const say = local ? { kind: "refused", text: local } : outcome;
   const state = say ? say.kind : "idle";
   return html`<div class="mbar" data-state=${state}>
-    <textarea
+    <input
       ref=${box}
       class="mbar-input"
-      rows="1"
+      type="text"
+      autocomplete="off"
       aria-label=${"Message " + clip(manager.name, 40)}
-      placeholder=${"Tell " + clip(manager.name, 40) + "…"}
+      placeholder=${"Tell " + clip(manager.name, 40) + "… (one line, Enter sends)"}
       disabled=${sending}
       value=${draft}
       onInput=${(e) => {
-        setDraft(e.target.value);
+        const v = e.target.value;
+        setDraft(ONE_LINE.test(v) ? v.replace(ONE_LINE_ALL, " ") : v);
         if (local) setLocal("");
       }}
       onKeyDown=${onKeyDown}
