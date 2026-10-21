@@ -1,11 +1,13 @@
 // The page's root component: the shell with the store behind it. The store's
 // snapshot gives the shell its hello and state, the rail's choice of project
-// goes to the store as the one graph watch, and the main area is the home screen.
-// main.js makes the store and renders this; it is a component of its own so a test
-// can render it on a fake socket.
-import { useRef, useState } from "../vendor/hooks.mjs";
+// goes to the store as the one graph watch, the main area is the home screen,
+// and the drawer slot holds the one agent a click or key on a graph box opened.
+// main.js makes the store and renders this; it is a component of its own so a
+// test can render it on a fake socket.
+import { useEffect, useMemo, useRef, useState } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
 import { useStore } from "../lib/use-store.js";
+import { Drawer, useDrawer } from "../drawer/Drawer.js";
 import { Shell } from "./app.js";
 import { Home } from "./Home.js";
 
@@ -13,12 +15,15 @@ import { Home } from "./Home.js";
 // shell does not take them for a change on every render.
 const NO_HELLO = Object.freeze({ keys: Object.freeze([]) });
 const NO_STATE = Object.freeze({ root: "", projects: Object.freeze([]) });
+const NO_PANES = new Set();
 
 /** Live draws the shell for a store. matchMedia and window are the page's,
- *  passed for a test. */
-export function Live({ store, matchMedia, window: win }) {
+ *  passed for a test, and terminalOptions reach the drawer's terminal (a test
+ *  gives it fakes for xterm and the socket). */
+export function Live({ store, matchMedia, window: win, terminalOptions = null }) {
   const snap = useStore(store);
   const [selected, setSelected] = useState("");
+  const [shown, setShown] = useState(null);
   // The store empties its hello and state when the socket drops. The rail and
   // the project chosen in it are kept through that, so a reconnect does not clear
   // the choice and ask for the graph a second time.
@@ -31,11 +36,32 @@ export function Live({ store, matchMedia, window: win }) {
     setSelected(root);
     store.watchGraph(root);
   };
+  // A store that was stopped (the page went to the back-forward cache) and is
+  // started again has no watch. The project already chosen is asked for once
+  // more when the connection comes back, since the shell does not choose it twice.
+  const last = useRef(snap.connection);
+  useEffect(() => {
+    if (last.current === "idle" && snap.connection !== "idle" && selected) store.watchGraph(selected);
+    last.current = snap.connection;
+  }, [snap.connection]);
+
+  const mainRef = useRef(null);
+  const paneIds = useMemo(() => (shown ? new Set(shown.nodes.map((n) => n.pane)) : NO_PANES), [shown]);
+  const drawer = useDrawer({ mainRef, paneIds });
+  const node = drawer.pane && shown ? shown.byPane.get(drawer.pane) : null;
+  const pane = node ? (kept.current.state.panes || {})[node.pane] || null : null;
+
   return html`<${Shell}
     hello=${kept.current.hello}
     state=${kept.current.state}
     onWatch=${onWatch}
     matchMedia=${matchMedia}
     window=${win}
-  ><${Home} snap=${snap} selected=${selected} /><//>`;
+    mainRef=${mainRef}
+    maximised=${drawer.maximised}
+    drawer=${node
+      ? html`<${Drawer} store=${store} node=${node} pane=${pane} now=${Date.now()} maximised=${drawer.maximised}
+          onClose=${drawer.close} onToggleMax=${drawer.toggleMax} terminalOptions=${terminalOptions} />`
+      : null}
+  ><${Home} snap=${snap} selected=${selected} onShown=${setShown} onOpen=${drawer.open} open=${drawer.pane} /><//>`;
 }

@@ -14,6 +14,7 @@ import { html } from "../html.js";
 import { Header } from "./Header.js";
 import { TerminalView, STRUCTURED_STUB } from "../lib/terminal.js";
 import { initialDrawer, reduceDrawer, focusNode } from "./state.js";
+import { LIST } from "../shell/keys.js";
 
 /** useDrawer holds the drawer's state for a view. mainRef is the main area, where
  *  the graph's boxes are, for the keyboard to return to. paneIds is a Set of the
@@ -61,7 +62,7 @@ function DrawerBody({ store, node, pane = null, now, maximised = false, onClose,
     if (rootRef.current && rootRef.current.focus) rootRef.current.focus();
   }, [node.pane]);
   const onKeyDown = (e) => {
-    if (e.key !== "Escape" || e.defaultPrevented || inTerminal(e.target)) return;
+    if (e.key !== LIST.cancel || e.defaultPrevented || inTerminal(e.target)) return;
     e.preventDefault();
     e.stopPropagation();
     if (onClose) onClose();

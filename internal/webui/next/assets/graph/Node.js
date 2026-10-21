@@ -8,6 +8,7 @@
 // markup. A text that is too long for the box is cut with an ellipsis; the
 // whole of it is in the box's <title>.
 import { html } from "../html.js";
+import { LIST } from "../shell/keys.js";
 
 /** The status words and marks. The mark's shape differs per state, so a status never rests on colour alone. */
 const STATES = {
@@ -105,7 +106,7 @@ function opener(onOpen, pane, open) {
     "aria-expanded": open ? "true" : "false",
     onClick: () => onOpen(pane),
     onKeyDown: (e) => {
-      if (e.key !== "Enter" && e.key !== " ") return;
+      if (e.key !== LIST.accept && e.key !== " ") return;
       e.preventDefault();
       onOpen(pane);
     },

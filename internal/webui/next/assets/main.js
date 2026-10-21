@@ -16,8 +16,13 @@ const store = createStore({ url: controlUrl(window.location) });
 watchRemoteHello(store);
 store.start();
 // stop() unwatches the graph, so the desktop does not keep building it for a
-// window that has gone.
+// window that has gone. A page kept in the back-forward cache comes back with
+// its socket stopped, so showing it again starts the store again (start is
+// idempotent, and Live asks for its graph once more).
 window.addEventListener("pagehide", () => store.stop());
+window.addEventListener("pageshow", (e) => {
+  if (e.persisted) store.start();
+});
 
 render(
   html`<${Live} store=${store} matchMedia=${window.matchMedia.bind(window)} />`,

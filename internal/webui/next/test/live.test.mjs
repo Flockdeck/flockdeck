@@ -260,7 +260,7 @@ test("the graph is refused by the desk: the same roster and line, and no retry",
   await m.connect();
   await m.push(stateMsg("/work/a", { p1: { id: "p1", name: "manager", activity: "idle" } }));
   await m.push({ type: "teamResult", ok: false, op: "graphWatch", code: "deskOnly", error: "the graph is shown on the machine Flockdeck runs on" });
-  assert.match(m.main().textContent, /The team graph is shown on the desktop/);
+  assert.match(m.main().textContent, /The desktop would not send the team graph to this window/);
   assert.equal(m.container.findAll(".home-agent").length, 1);
   assert.equal(m.ws().commands("graphWatch").length, 1);
   m.done();
