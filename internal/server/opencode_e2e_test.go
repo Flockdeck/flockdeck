@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"flag"
 	"fmt"
@@ -13,6 +14,7 @@ import (
 	"time"
 
 	"github.com/jmwri/flockdeck/internal/acp/acptest"
+	"github.com/jmwri/flockdeck/internal/testiso/iso"
 )
 
 // A real opencode, end to end, through the control commands a window uses and
@@ -97,6 +99,15 @@ func (e *structuredEnv) prompt(t *testing.T, text string) {
 	}
 }
 
+// insideDir reports whether path is dir or below it.
+func insideDir(path, dir string) bool {
+	if dir == "" {
+		return false
+	}
+	rel, err := filepath.Rel(dir, path)
+	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
+}
+
 func cardOf(m structuredMsg) map[string]any {
 	if m.Card == nil {
 		return nil
@@ -153,9 +164,11 @@ func TestRealOpencodeEndToEnd(t *testing.T) {
 	}
 	obs := observed{Steps: map[string]any{}}
 	step := func(name string, v any) { obs.Steps[name] = v; t.Logf("%s: %v", name, v) }
-	if out, err := exec.Command(exe, "--version").Output(); err == nil {
+	vctx, vcancel := context.WithTimeout(context.Background(), 20*time.Second)
+	if out, err := exec.CommandContext(vctx, exe, "--version").Output(); err == nil {
 		obs.Version = strings.TrimSpace(string(out))
 	}
+	vcancel()
 
 	// Isolation. The agent's profile, local data and XDG data, cache and state
 	// directories are new, outside the profile. The config home is left to the
@@ -171,11 +184,15 @@ func TestRealOpencodeEndToEnd(t *testing.T) {
 	}
 	logDir := t.TempDir()
 	rawLog := filepath.Join(logDir, "opencode-acp.log")
-	if profile, err := os.UserHomeDir(); err == nil {
-		for _, d := range []string{agentHome, work} {
-			if rel, err := filepath.Rel(profile, d); err == nil && !strings.HasPrefix(rel, "..") {
-				t.Fatalf("%s is inside the user profile %s", d, profile)
-			}
+	// The test isolation has already pointed the home directory at a temporary
+	// one, so the real profile is asked of it by name.
+	profile := iso.RealHomeDir()
+	if profile == "" {
+		t.Fatal("the real home directory is not known, so the profile guard cannot be checked")
+	}
+	for _, d := range []string{agentHome, work} {
+		if insideDir(d, profile) {
+			t.Fatalf("%s is inside the user profile %s", d, profile)
 		}
 	}
 	testExe, _ := os.Executable()
@@ -225,6 +242,9 @@ func TestRealOpencodeEndToEnd(t *testing.T) {
 	m = e.until(t, "a permission request", 150*time.Second, func(m structuredMsg) bool { return m.Card != nil })
 	card := cardOf(m)
 	step("permissionCard", card)
+	if m.Card.Command != "echo e2e-ok" {
+		t.Errorf("the request's rawInput.command did not reach the card: %q (T66 relies on it)", m.Card.Command)
+	}
 	if m.Status != "waiting" {
 		t.Errorf("status with a request open = %q", m.Status)
 	}
@@ -270,6 +290,9 @@ func TestRealOpencodeEndToEnd(t *testing.T) {
 	e.prompt(t, "Use your shell tool to run exactly this command and wait for it: node -e \"setTimeout(function(){},60000)\" "+marker)
 	m = e.until(t, "the second permission request", 150*time.Second, func(m structuredMsg) bool { return m.Card != nil })
 	step("cancelCard", cardOf(m))
+	if !strings.Contains(m.Card.Command, marker) {
+		t.Errorf("the second request's rawInput.command did not reach the card: %q", m.Card.Command)
+	}
 	if r, n := send(t, e.srv, e.c, answerCmd(e.child, m.Card.Seq, m.Card.RequestID, allowOnce(m))); !r.OK {
 		t.Fatalf("answer: %+v %q", r, n)
 	}
@@ -294,6 +317,7 @@ func TestRealOpencodeEndToEnd(t *testing.T) {
 	if left > 0 {
 		t.Logf("the cancelled command's process is still running (%d); it is stopped below", left)
 		_ = exec.Command("powershell", "-NoProfile", "-Command", fmt.Sprintf(`Get-CimInstance Win32_Process | Where-Object { $_.CommandLine -like '*%s*' -and $_.ProcessId -ne $PID } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }`, marker)).Run()
+		t.Errorf("the cancelled command's process was still running three seconds after the cancel (%d)", left)
 	}
 
 	// 4. Restart: the old agent ends, a new session starts, and it answers.
@@ -379,6 +403,10 @@ func TestRealOpencodeEndToEnd(t *testing.T) {
 		obs.Elicit = strings.Contains(log, "elicitation")
 		obs.AskSeen = strings.Contains(log, `"question"`)
 		obs.Notes = append(obs.Notes, fmt.Sprintf("raw log: %d bytes", len(b)))
+		// The request left open by the close was answered cancelled, not selected.
+		if !strings.Contains(log, `"outcome":{"outcome":"cancelled"}`) {
+			t.Error("the agent was never answered a cancelled outcome for the request the close left open")
+		}
 	}
 }
 
@@ -400,5 +428,27 @@ func TestTheRecordingProxyRelaysAndRecordsATurn(t *testing.T) {
 		if !strings.Contains(string(b), want) {
 			t.Errorf("the recording lacks %q", want)
 		}
+	}
+}
+
+// The profile guard compares with the real home directory. The test isolation
+// has moved the home directory the process sees, so a guard that asked the
+// process for it would compare with a temporary one and never fire.
+func TestTheProfileGuardFiresForAPathUnderTheRealHome(t *testing.T) {
+	real := iso.RealHomeDir()
+	if real == "" {
+		t.Skip("the real home directory is not known")
+	}
+	if seen, _ := os.UserHomeDir(); seen == real {
+		t.Fatalf("the process home is the real one (%s), so the isolation is off", seen)
+	}
+	if !insideDir(filepath.Join(real, "scratch", "agent"), real) || !insideDir(real, real) {
+		t.Error("a path under the real home was not caught")
+	}
+	if insideDir(real+"-sibling", real) || insideDir(filepath.Join(filepath.Dir(real), "other"), real) {
+		t.Error("a path beside the real home was caught")
+	}
+	if insideDir(filepath.Join(filepath.VolumeName(real)+string(filepath.Separator), "flockdeck-acp-1"), real) {
+		t.Error("a path at the root of the drive was caught")
 	}
 }

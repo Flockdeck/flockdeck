@@ -17,12 +17,21 @@ program and copies both directions to a log. The client does not keep raw traffi
 The run sends these prompts to opencode's hosted service, with no login, to its default free model
 (`opencode/big-pickle`): "Reply with the single word pong", a request to run `echo e2e-ok`, a
 request to run a `node` command that sleeps for a minute, "Reply with the single word pong2" and a
-request to run `echo close-test`. Nothing else is sent.
+request to run `echo close-test`. Those are the test's own prompts. opencode may fetch other things on its own at startup, such as model lists, and the protocol log does not show those.
+
+## What this record is
+
+The numbers and claims below are one run's account. The report file and the raw traffic log are not
+committed. The test itself asserts four things: the permission cards carry `rawInput.command`, the
+cancelled command's process is gone three seconds after the cancel, the close answers the open request
+cancelled, and no opencode or proxy process is left. Everything else here is recorded by the test and
+not asserted.
 
 ## Isolation
 
 - The workspace and its config are the usual temporary ones, and the test refuses to run if the
-  config directory is not under the temporary directory.
+  config directory is not under the temporary directory. The agent's directories are checked against
+  the real home directory, which the test isolation records before it moves the process's own.
 - The agent's profile, local app data and XDG data, cache and state directories are one new
   directory at the root of the drive, outside the user profile. The pane works in another. Flockdeck
   passes an agent only its minimal environment and those names.
@@ -47,7 +56,7 @@ opencode 1.19.3, from npm (`opencode-ai`, the Windows x64 program).
 | Start with no login | Works. `initialize` lists an `opencode-login` method, but `session/new` and prompts succeed without it. |
 | First prompt | The reply was `pong`. `usage_update` gave `used` 7,958 of `size` 200,000 and `cost` 0 USD. |
 | Tool use, default configuration | The shell tool ran with no `session/request_permission` at all. The `tool_call` for it has `kind: execute` and `rawInput: {cwd}`; the next `tool_call_update` adds `rawInput.command`. |
-| Tool use, with `{"permission":{"bash":"ask"}}` in the working directory | A `session/request_permission` arrived with `kind: execute`, the command as the title, `locations: []`, and `rawInput: {"command": "echo e2e-ok"}`. Options were `once` (allow_once), `always` (allow_always) and `reject` (reject_once). |
+| Tool use, with `{"permission":{"bash":"ask","edit":"ask"}}` in the working directory | A `session/request_permission` arrived with `kind: execute`, the command as the title, `locations: []`, and `rawInput: {"command": "echo e2e-ok"}`. Options were `once` (allow_once), `always` (allow_always) and `reject` (reject_once). |
 | Answer from a relay window | Refused with the desk-only sentence, and the request stayed open. |
 | Answer from the desk | Taken. The agent got `{"outcome":"selected","optionId":"once"}`, ran the command, and replied `e2e-ok`. |
 | Cancel in the middle of a command | `structuredCancel` was accepted. The agent got `session/cancel` and ended the turn with `stopReason: cancelled`. The pane went idle with a "Turn cancelled." notice. The `node` process and its parent shell, found by a marker in the command line, were gone three seconds later. |
@@ -62,7 +71,7 @@ opencode 1.19.3, from npm (`opencode-ai`, the Windows x64 program).
    asked (the default) carries `command` only on its later updates, not on the first `tool_call`.
 2. **By default opencode never asks for permission to run a shell command.** A pane run with an
    unconfigured opencode shows no permission cards, whatever the agent does. This is opencode's own
-   default. A pane that should ask needs `permission` set in its configuration, and Flockdeck does
+   default. A pane that should ask needs `permission` set in its configuration (the test sets `bash` and `edit` to `ask`), and Flockdeck does
    not set it.
 3. **After a restart, `structuredSnapshot` and the watch push hold only the new session's entries.**
    The workspace's own list (`StructuredEntries`) holds the earlier sessions and the notice, and in
