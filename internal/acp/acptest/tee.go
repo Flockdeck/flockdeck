@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"sync"
 	"time"
+
+	"github.com/jmwri/flockdeck/internal/sysproc"
 )
 
 // ArgTee makes a process a recording proxy for a real agent: the arguments
@@ -36,6 +38,7 @@ func runTee(args []string) int {
 		_, _ = log.WriteString(time.Now().UTC().Format("15:04:05.000") + " " + prefix + string(b))
 	}
 	cmd := exec.Command(args[1], args[2:]...)
+	sysproc.NoWindow(cmd)
 	cmd.Stderr = os.Stderr
 	in, err := cmd.StdinPipe()
 	if err != nil {
