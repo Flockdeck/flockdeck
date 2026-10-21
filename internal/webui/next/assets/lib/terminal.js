@@ -308,9 +308,13 @@ export function createTerminal(opts) {
   // kept while the control socket has no hello, so a drop of that socket
   // does not turn a sealed terminal plain.
   let lastKey = null;
+  // The key the latest dial used, so a refusal can be told from one the new key
+  // would not have met.
+  let dialKey = null;
   const currentKey = () => {
     const h = store.getState().hello;
     if (h) lastKey = keyOf(h);
+    dialKey = lastKey;
     return lastKey;
   };
 
@@ -341,6 +345,11 @@ export function createTerminal(opts) {
       // A socket let go quietly when the device was limited is dialled again
       // once the role says it may watch.
       if (pty.phase === "idle") pty.retryNow();
+      // A refusal under one key is not final under another: the desktop's key
+      // changes when it is reinstalled, and the hello that says so arrives after
+      // the dial that was refused. Only a hello can get here, so a gap in the
+      // control socket does not redial.
+      else if (pty.phase === "refused" && keyOf(store.getState().hello) !== dialKey) pty.retryNow();
       return;
     }
     pty = createPty({

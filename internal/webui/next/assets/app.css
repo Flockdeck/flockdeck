@@ -513,7 +513,7 @@ button { font: inherit; color: inherit; }
   flex-direction: column;
   background: var(--term-bg);
 }
-.terminal-pane .term-host {
+.terminal-pane .terminal-host {
   position: absolute;
   inset: 0;
   overflow: hidden;
@@ -521,7 +521,7 @@ button { font: inherit; color: inherit; }
   touch-action: none;
   isolation: isolate;
 }
-.terminal-pane .term-host.cropped .xterm { position: absolute; left: 6px; bottom: 0; }
+.terminal-pane .terminal-host.cropped .xterm { position: absolute; left: 6px; bottom: 0; }
 .size-note {
   position: absolute;
   right: 18px;

@@ -1,0 +1,101 @@
+/* The drawer for one agent: a header, a row of tabs and the tab's panel. It sits
+ * in the shell's drawer region; the shell sets the region's width and, narrow, its
+ * cover of the window. Colours are the shell's tokens. */
+
+.drawer-body {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  outline: none;
+}
+.drawer-body:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
+
+.drawer-head {
+  flex: 0 0 auto;
+  padding: 10px 12px 8px;
+  border-bottom: 1px solid var(--line);
+}
+.drawer-title { display: flex; align-items: center; gap: 8px; }
+.drawer-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.drawer-actions { display: flex; flex: 0 0 auto; gap: 6px; }
+.drawer-btn {
+  min-height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--bg-overlay);
+  color: var(--fg);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.drawer-btn:hover { background: var(--bg-hover); }
+.drawer-btn[aria-pressed="true"] { background: var(--accent-subtle); border-color: var(--accent-line); }
+.drawer-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+.drawer-facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 14px;
+  margin: 8px 0 0;
+  font-size: 12px;
+}
+.fact { display: flex; gap: 5px; min-width: 0; }
+.fact dt { color: var(--fg-faint); }
+.fact dd { margin: 0; color: var(--fg); overflow-wrap: anywhere; }
+.fact--waiting dd, .fact--blocked dd { color: var(--waiting); }
+.fact--exited dd, .fact--failed dd { color: var(--exited); }
+.fact--branch dd, .fact--spend dd, .fact--model dd { font-family: var(--mono); }
+
+.drawer-tabs {
+  flex: 0 0 auto;
+  display: flex;
+  gap: 2px;
+  padding: 0 8px;
+  border-bottom: 1px solid var(--line);
+}
+.drawer-tab {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  background: transparent;
+  color: var(--fg-dim);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+.drawer-tab.is-active { color: var(--fg); border-bottom-color: var(--accent); }
+.drawer-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+.drawer-panel {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.drawer-stub { margin: 0; padding: 16px 12px; color: var(--fg-dim); font-size: 13px; }
+
+/* Maximised: the drawer takes the main area as well, and the graph is not drawn
+ * while it does. It is still kept up to date, so it is current when restored. */
+.shell--max { grid-template-columns: var(--rail-w) minmax(0, 1fr); grid-template-areas: "rail top" "rail drawer" "rail notices"; }
+.shell--max .main { display: none; }
+.shell--max .drawer { width: auto; }
+
+@media (max-width: 640px) {
+  .shell--max .drawer { width: auto; }
+}
+
+@media (prefers-contrast: more) {
+  .drawer-btn { border-width: 2px; }
+}

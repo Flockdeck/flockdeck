@@ -295,3 +295,10 @@
 .gedge--told path {
   stroke-opacity: 0.6;
 }
+
+/* A box that opens a drawer is a button: it takes the keyboard, and the one
+ * whose drawer is open is marked. */
+.gnode[role="button"] { cursor: pointer; }
+.gnode[role="button"]:focus { outline: none; }
+.gnode[role="button"]:focus-visible .gnode-box { stroke: var(--accent); stroke-width: 3; }
+.gnode--open .gnode-box { stroke: var(--accent); stroke-width: 2; }

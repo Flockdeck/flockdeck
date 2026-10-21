@@ -568,3 +568,29 @@ test("disposing closes the socket and stops the retry", () => {
   assert.equal(ws.closed, true);
   assert.equal(h.store.subscribers, 0);
 });
+
+test("a refused socket is dialled again when a later hello brings another key, across a gap with no hello", async () => {
+  const E2E = loadE2E();
+  const host = await hostSide(E2E);
+  const h = build({ snap: { hello: hello({ remote: true }), state: paneState({ p1: {} }) }, e2e: E2E });
+  h.ctl.start();
+  const first = PtySocket.last;
+  first.open();
+  first.serverClose(1008, "wrong key");
+  assert.equal(h.ctl.state.phase, "refused");
+  // A hello that repeats the same (no) key is no reason to try again.
+  h.store.set({ hello: hello({ remote: true, prefs: {} }) });
+  assert.equal(PtySocket.instances.length, 1, "redialled under the key that was refused");
+  // The control socket drops; nothing is dialled while there is no hello.
+  h.store.set({ hello: null });
+  assert.equal(PtySocket.instances.length, 1);
+  assert.equal(h.ctl.state.phase, "refused");
+  // The next hello carries the desktop's new key.
+  h.store.set({ hello: hello({ remote: true, e2ePublicKey: host.pub }) });
+  assert.equal(PtySocket.instances.length, 2, "not dialled again with the new key");
+  const second = PtySocket.last;
+  second.open();
+  await waitFor(() => second.sent.length > 0, "the handshake hello");
+  assert.equal(typeof second.sent[0], "object", "the new socket was not sealed");
+  h.ctl.dispose();
+});
