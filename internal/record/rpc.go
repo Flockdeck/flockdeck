@@ -72,9 +72,16 @@ const (
 	// rpcContextBytes is how much of the text already written is kept, for each
 	// kind of message text, so that what follows it is redacted with it in view:
 	// "password:" in one chunk and the password in the next, or the first lines
-	// of a private key and the rest. A label or key start further back than this
-	// is not seen.
+	// of a private key and the rest. A label further back than this is not seen.
+	// A private key whose BEGIN line is further back and which has not ended
+	// keeps a BEGIN line (see contextOf).
 	rpcContextBytes = 16 << 10
+	// rpcMaxOpenKey is how long a private key with no END is held open: the
+	// text after its BEGIN line is redacted as part of it up to this many bytes.
+	// A key is a few kilobytes, so past this the BEGIN line was not one.
+	rpcMaxOpenKey = 64 << 10
+	// rpcBeginLine stands for the BEGIN line of an open key in its context.
+	rpcBeginLine = "-----BEGIN PRIVATE KEY-----"
 	// rpcBufferBytes is how much is held before the file is written.
 	rpcBufferBytes = 64 << 10
 )
@@ -156,6 +163,7 @@ type RPCRecorder struct {
 // and the last of what was.
 type held struct {
 	ctx         string // the end of the raw text already written, up to rpcContextBytes
+	open        int    // bytes of a private key with no END written so far, 0 when none is open
 	tail        string
 	tmpl        map[string]any // the message the text was in, with its text emptied
 	dir         string
@@ -390,7 +398,8 @@ func (r *RPCRecorder) emitHeldLocked(keepCtx bool) {
 		}
 		if keepCtx && h.ctx+h.tail != "" {
 			// first is zero: the next piece of this text has its own time.
-			r.held[k] = &held{ctx: tailBytes(h.ctx+h.tail, rpcContextBytes), dir: h.dir}
+			ctx, open := contextOf(h.ctx, h.open, h.tail)
+			r.held[k] = &held{ctx: ctx, open: open, dir: h.dir}
 		}
 	}
 }
@@ -504,9 +513,9 @@ func (r *RPCRecorder) flushPending(final bool) {
 	// written, or other messages, in between. So the end of every line of text
 	// is kept back, and put in front of the next piece of the same text before
 	// it is redacted. Nothing of a key that is still arriving is on the disk.
-	text, first, total, ctx := chunkTextOf(p.msg), p.time, p.merged, ""
+	text, first, total, ctx, prevOpen := chunkTextOf(p.msg), p.time, p.merged, "", 0
 	if prev := r.held[p.key]; prev != nil {
-		text, total, ctx = prev.tail+text, total+prev.merged, prev.ctx
+		text, total, ctx, prevOpen = prev.tail+text, total+prev.merged, prev.ctx, prev.open
 		if !prev.first.IsZero() {
 			first = prev.first
 		}
@@ -522,7 +531,8 @@ func (r *RPCRecorder) flushPending(final bool) {
 			// context of every kind is let go.
 			r.emitHeldLocked(false)
 		}
-		h := &held{ctx: tailBytes(ctx+head, rpcContextBytes), tail: tail, dir: p.dir, first: p.until, last: p.until}
+		hctx, hopen := contextOf(ctx, prevOpen, head)
+		h := &held{ctx: hctx, open: hopen, tail: tail, dir: p.dir, first: p.until, last: p.until}
 		if tail != "" {
 			h.tmpl = cloneMsg(p.msg)
 		}
@@ -581,6 +591,64 @@ func tailBytes(s string, n int) string {
 		s = s[1:]
 	}
 	return s
+}
+
+// openKeyStart is where the private key that s ends inside of begins, or -1 when
+// s does not end inside one. A key is open when findPEM found no END for it: its
+// block then runs to the end of s. A line that only looks like an END, such as
+// one for a certificate, does not close it, and a key whose real END is the last
+// thing in s is closed.
+func openKeyStart(s string) int {
+	if !strings.Contains(s, "-----BEGIN ") {
+		return -1
+	}
+	spans := findPEM(s, nil)
+	if len(spans) == 0 {
+		return -1
+	}
+	sp := spans[len(spans)-1]
+	const end = "-----END "
+	if k := strings.LastIndex(s[sp.Start:sp.End], end); k >= 0 {
+		if e, ok := pemLabel(s, sp.Start+k+len(end)); ok && e == sp.End {
+			return -1
+		}
+	}
+	return sp.Start
+}
+
+// contextOf is the context to keep once written has followed prev, and how much
+// of an open private key has been written so far (0 when none is open).
+// prevOpen is that count as it was for prev.
+//
+// The context is the end of the text, rpcContextBytes of it. When a private key
+// began further back than that and has not ended, a fixed BEGIN line is kept in
+// front, so that the rest of the key, still arriving, is seen as part of it and
+// not as text with nothing secret about it. The line is fixed, not a copy of the
+// one in the text, so its size is the same whatever that line was.
+//
+// The key is held open for rpcMaxOpenKey bytes. A BEGIN line that is not a key,
+// such as one quoted in prose, would otherwise make all the text after it count
+// as part of a key for the rest of the stream.
+func contextOf(prev string, prevOpen int, written string) (string, int) {
+	s := prev + written
+	tail := tailBytes(s, rpcContextBytes)
+	start := openKeyStart(s)
+	if start < 0 {
+		return tail, 0
+	}
+	open := len(s) - start
+	if prevOpen > 0 && start < len(prev) {
+		// The key that was open in prev is the one still open: its bytes before
+		// the context were counted then.
+		open = prevOpen + len(written)
+	}
+	if open > rpcMaxOpenKey {
+		return tail, 0
+	}
+	if start >= len(s)-len(tail) {
+		return tail, open
+	}
+	return rpcBeginLine + "\n" + tail, open
 }
 
 // redactAfter redacts text as it would be if it followed ctx, which is already

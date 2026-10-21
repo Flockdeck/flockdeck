@@ -182,3 +182,32 @@ func TestRetentionByCountSparesOpenRecordingsOfBothKinds(t *testing.T) {
 		}
 	}
 }
+
+// A private key longer than the context kept has its BEGIN line cut off by the
+// time the rest arrives. The line is kept while the key has not ended, so the
+// rest is redacted as part of it.
+func TestRPCRedactsTheRestOfAKeyLongerThanTheContext(t *testing.T) {
+	line := "MIIEowIBAAKCAQEAzZ3k8QxY9wP2LmN5\n"
+	first := "here it is:\n-----BEGIN RSA PRIVATE KEY-----\n" + strings.Repeat(line, rpcContextBytes/len(line)+200)
+	secret := "ZZtopSecretBodyLine0123456789abcdef"
+	// Text after the key, longer than the end that is held back, so the secret is
+	// in the part that is written.
+	second := strings.Repeat(line, 20) + secret + "\n" + "-----END RSA PRIVATE KEY-----\n" + strings.Repeat("after the key. ", 40)
+	r, _, _ := newRPC(t, RPCConfig{})
+	for _, p := range []string{first, second} {
+		r.Tap(RPCIn, chunk("agent_message_chunk", "s1", p))
+		if err := r.Flush(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	b, err := os.ReadFile(r.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), secret) {
+		t.Errorf("the rest of a long key reached the file")
+	}
+	if !strings.Contains(string(b), "after the key. ") {
+		t.Errorf("the text after the key was lost")
+	}
+}
