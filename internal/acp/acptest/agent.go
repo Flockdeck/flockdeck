@@ -33,6 +33,7 @@
 //	ratelimit   answers the prompt with the JSON-RPC error -32603 "rate limit exceeded"
 //	env         reports its whole environment, one NAME=VALUE per line, in one chunk
 //	deaf-perm   asks for permission and stops reading stdin
+//	grandchild  starts a process of its own that sleeps for ten minutes, reports its id as "pid=N", then end_turn
 //
 // WithMute makes an agent that reads and never answers.
 //
@@ -45,6 +46,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"sort"
 	"strconv"
 	"strings"
@@ -70,9 +72,20 @@ const ArgAgent = "--acptest-agent"
 // agent started with ArgAgent, whose environment is not the test's.
 const ArgMarker = "--acptest-marker"
 
+// argSleeper makes a process do nothing for ten minutes. The grandchild
+// scenario starts one, as an agent starts a tool, so that a test can see
+// whether closing the client ended what the agent had started.
+const argSleeper = "--acptest-sleeper"
+
 // RunIfAgent runs the fake agent and returns true when this process was
 // started as one. Call it first in TestMain and return when it reports true.
 func RunIfAgent() bool {
+	for _, a := range os.Args[1:] {
+		if a == argSleeper {
+			time.Sleep(10 * time.Minute)
+			return true
+		}
+	}
 	asked := os.Getenv(envAgent) == "1"
 	for _, a := range os.Args[1:] {
 		if a == ArgAgent {
@@ -607,6 +620,24 @@ func (a *agent) prompt(id, params json.RawMessage, n int) {
 		// Asks for permission; handle() has already stopped reading stdin.
 		a.askPermission(sid, json.RawMessage(strconv.Itoa(4000+n)))
 		select {}
+
+	case "grandchild":
+		exe, err := os.Executable()
+		if err != nil {
+			a.chunk(sid, "no executable: "+err.Error())
+			done("end_turn")
+			return
+		}
+		cmd := exec.Command(exe, argSleeper)
+		cmd.Env = []string{} // not the agent's variables, so it is not taken for an agent
+		if err := cmd.Start(); err != nil {
+			a.chunk(sid, "start: "+err.Error())
+			done("end_turn")
+			return
+		}
+		go func() { _ = cmd.Wait() }()
+		a.chunk(sid, "pid="+strconv.Itoa(cmd.Process.Pid))
+		done("end_turn")
 
 	case "exit":
 		fmt.Fprintln(os.Stderr, "acptest: exiting on request")
