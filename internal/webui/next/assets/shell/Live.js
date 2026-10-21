@@ -14,7 +14,7 @@ import { useStore } from "../lib/use-store.js";
 import { Drawer, useDrawer } from "../drawer/Drawer.js";
 import { ManagerBar, managerOf } from "../graph/ManagerBar.js";
 import { Shell } from "./app.js";
-import { Home } from "./Home.js";
+import { Home, sameProject } from "./Home.js";
 
 // What the shell is given before the first hello and state. Constants, so the
 // shell does not take them for a change on every render.
@@ -50,18 +50,23 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null })
     last.current = snap.connection;
   }, [snap.connection]);
 
+  // The picture on screen, for the project the window is on. Home reports it
+  // from an effect, so for one render after a switch it is still the old
+  // project's: nothing is bound to it until it is this project's.
+  const current = shown && selected && sameProject(shown.root, selected) ? shown : null;
+
   const mainRef = useRef(null);
   const paneIds = useMemo(() => (shown ? new Set(shown.nodes.map((n) => n.pane)) : NO_PANES), [shown]);
   const drawer = useDrawer({ mainRef, paneIds });
-  const node = drawer.pane && shown ? shown.byPane.get(drawer.pane) : null;
+  const node = drawer.pane && current ? current.byPane.get(drawer.pane) : null;
   const pane = node ? (kept.current.state.panes || {})[node.pane] || null : null;
 
   // The manager of the project on screen, from the picture Home draws: a push
   // that cannot be read leaves the last good one, and another project's does not
   // count. Before any graph there is no bar, so "no manager" is not said while
   // the graph is still being read.
-  const bar = shown && !snap.graphGone
-    ? html`<${ManagerBar} snap=${snap} manager=${managerOf(shown)} send=${(c) => store.send(c)} />`
+  const bar = current && !snap.graphGone
+    ? html`<${ManagerBar} snap=${snap} manager=${managerOf(current)} send=${(c) => store.send(c)} />`
     : null;
 
   return html`<${Shell}

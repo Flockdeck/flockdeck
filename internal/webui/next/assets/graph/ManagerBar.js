@@ -170,7 +170,8 @@ export function ManagerBar({ snap, manager, send, inputRef, autoFocus = true }) 
       autocomplete="off"
       aria-label=${"Message " + clip(manager.name, 40)}
       placeholder=${"Tell " + clip(manager.name, 40) + "… (one line, Enter sends)"}
-      disabled=${sending}
+      readOnly=${sending}
+      aria-busy=${sending ? "true" : undefined}
       value=${draft}
       onInput=${(e) => {
         const v = e.target.value;

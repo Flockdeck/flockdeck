@@ -5,10 +5,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
-import { render } from "../assets/vendor/preact.mjs";
+import { render, options } from "../assets/vendor/preact.mjs";
 import { html } from "../assets/html.js";
 import { Live } from "../assets/shell/Live.js";
-import { NO_MANAGER_WORDS, EMPTY_WORDS } from "../assets/graph/ManagerBar.js";
+import { ManagerBar, NO_MANAGER_WORDS, EMPTY_WORDS } from "../assets/graph/ManagerBar.js";
 import { createDom, install, settle } from "./dom.mjs";
 import { fakeKeys } from "./util.mjs";
 import { FakeWebSocket, harness, hello } from "./fakes.mjs";
@@ -192,5 +192,53 @@ test("a window through the relay shows no bar and sends no paneSend", async () =
   assert.equal(m.container.find(".mbar"), null);
   assert.match(m.top().textContent, /alpha/);
   assert.equal(m.sends().length, 0);
+  m.done();
+});
+
+test("after a switch the bar is never drawn with the old project's manager, even for one frame", async () => {
+  const m = await mount();
+  await m.connect();
+  await m.push(stateMsg());
+  await m.push(fixture(F1));
+  assert.ok(m.input());
+  // Every commit of the bar, with the props it was given. A commit with the
+  // props it had before is Preact skipping an unchanged bar, not a new draw.
+  const drawn = [];
+  const before = options.diffed;
+  let known = null;
+  options.diffed = (vnode) => {
+    if (vnode.type === ManagerBar) drawn.push(vnode.props);
+    if (before) before(vnode);
+  };
+  try {
+    await m.push(fixture(F1));
+    known = drawn[drawn.length - 1];
+    drawn.length = 0;
+    const rail = m.container.findAll("button").find((b) => b.attributes["data-root"] === "/work/b");
+    rail.click();
+    await settle();
+  } finally {
+    options.diffed = before;
+  }
+  const fresh = drawn.filter((p) => p !== known).map((p) => p.manager && p.manager.pane);
+  assert.ok(!fresh.includes(MANAGER), "the bar was drawn for project B with project A's manager");
+  assert.equal(m.container.find(".mbar"), null);
+  m.done();
+});
+
+test("the box keeps the keyboard while a send is open", async () => {
+  const m = await mount();
+  await m.connect();
+  await m.push(stateMsg());
+  await m.push(fixture(F1));
+  m.input().enter("hi");
+  await settle();
+  m.input().keydown("Enter");
+  await settle();
+  assert.equal(m.sends().length, 1);
+  assert.equal(m.dom.document.activeElement, m.input());
+  // A browser drops the keyboard from a focused input that becomes disabled (the
+  // fake document does not), so the box must be read-only, not disabled.
+  assert.equal(m.input().attributes.disabled, undefined, "the box was disabled while a send was open");
   m.done();
 });

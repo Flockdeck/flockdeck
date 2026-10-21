@@ -18,6 +18,7 @@ import { FakeWebSocket, harness, hello } from "./fakes.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 // The fake DOM keeps a boolean attribute as an attribute, a browser as a property.
+const ro = (el) => el.readOnly === true || (el.attributes && (el.attributes.readOnly !== undefined || el.attributes.readonly !== undefined));
 const off = (el) => el.disabled === true || (el.attributes && el.attributes.disabled !== undefined && el.attributes.disabled !== "false");
 
 const node = (pane, over = {}) => ({ pane, kind: "terminal", depth: 0, name: pane, status: "idle", activity: "idle", waitingOn: { kind: "none" }, ...over });
@@ -119,7 +120,7 @@ test("a queued send says the manager reads it when its turn ends, and the box is
     await a.type("do the thing");
     await a.submit();
     assert.equal(a.state(), "sending");
-    assert.ok(off(a.input()) && off(a.send()), "the bar took a second send while one was open");
+    assert.ok(ro(a.input()) && off(a.send()), "the bar took a second send while one was open");
     await a.frame({ type: "paneSend", id: "p1", queued: true, shell: false });
     assert.equal(a.status(), "Sent. The manager reads it when its turn ends.");
     assert.equal(a.state(), "sent");
