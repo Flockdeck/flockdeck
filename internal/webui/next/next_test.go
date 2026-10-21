@@ -85,7 +85,7 @@ var (
 
 // The page loads: index.html names a module, the module and everything it
 // imports is served as JavaScript, and the hello component is among them.
-func TestPageLoadsTheHelloComponent(t *testing.T) {
+func TestPageLoadsTheLiveShell(t *testing.T) {
 	srv := serve(t)
 	page, ct := get(t, srv.URL+"/")
 	if !strings.HasPrefix(ct, "text/html") {
@@ -126,13 +126,17 @@ func TestPageLoadsTheHelloComponent(t *testing.T) {
 	}
 	// "assets/main.js" from a page at the root is /assets/main.js.
 	visit(srv.URL + "/" + m[1])
-	if !seen[srv.URL+"/assets/hello.js"] {
-		var got []string
-		for k := range seen {
-			got = append(got, k)
+	// The entry module wires the live store: the socket, the store, the home
+	// screen with the graph, and the end-to-end key's loader.
+	var got []string
+	for k := range seen {
+		got = append(got, k)
+	}
+	sort.Strings(got)
+	for _, want := range []string{"lib/store.js", "lib/socket.js", "lib/e2e-boot.js", "shell/Live.js", "shell/Home.js", "graph/Graph.js", "graph/Edges.js"} {
+		if !seen[srv.URL+"/assets/"+want] {
+			t.Errorf("%s is not reached from the entry module; reached %v", want, got)
 		}
-		sort.Strings(got)
-		t.Errorf("the hello component is not reached from the entry module; reached %v", got)
 	}
 }
 

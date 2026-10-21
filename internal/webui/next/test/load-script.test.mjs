@@ -181,6 +181,7 @@ test("state pushes do not register again; a new hello does, and the file is stil
   for (let i = 0; i < 5; i++) st.set({ state: { type: "state", n: i } });
   await tick();
   assert.equal(calls, 1, "a state push asked again");
+  st.set({ hello: null }); // the control socket dropped
   st.set({ hello: { type: "hello", remote: true } });
   await waitFor(() => p.G.registered === 2, "the registration on the new hello");
   assert.equal(p.added.length, 1, "e2e.js was fetched again");
@@ -197,6 +198,7 @@ test("a failed load is reported, is not retried on every push, and is retried wi
   st.set({ state: { type: "state" } });
   await tick();
   assert.equal(p.added.length, 0, "a push retried the load");
+  st.set({ hello: null });
   st.set({ hello: { type: "hello", remote: true } });
   await tick();
   assert.deepEqual(p.srcs(), ["assets/e2e.js"]);
