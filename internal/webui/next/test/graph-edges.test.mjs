@@ -1,0 +1,219 @@
+// The edges of the graph: waiting-on, message by delivery state, and sent; the
+// cap notice; no edge to a pane that is not a node; and edges that follow the
+// boxes when the layout changes.
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+import { renderToString } from "./vendor/render-to-string.mjs";
+import { html } from "../assets/html.js";
+import { buildGraphModel } from "../assets/graph/model.js";
+import { layoutGraph } from "../assets/graph/layout.js";
+import { Graph } from "../assets/graph/Graph.js";
+import { edgesOf, deliveryWord, GRAPH_EDGE_CAP, MAX_DRAWN } from "../assets/graph/Edges.js";
+
+const here = dirname(fileURLToPath(import.meta.url));
+const fixtures = join(here, "..", "..", "..", "server", "testdata", "graph-fixtures");
+const fixture = (name) => JSON.parse(readFileSync(join(fixtures, name + ".json"), "utf8"));
+
+const node = (pane, over = {}) => ({ pane, kind: "terminal", depth: 0, name: pane, status: "idle", activity: "idle", waitingOn: { kind: "none" }, ...over });
+const graph = (nodes, edges = []) => ({ type: "graph", root: "/r", project: "p", teams: [], nodes, edges, solo: nodes.map((n) => n.pane), soloNeeds: [] });
+const msg = (from, to, delivery, id = 1) => ({ kind: "message", from, to, id, time: "2026-10-21T08:00:00Z", text: "hello", delivery });
+const sent = (from, to) => ({ kind: "sent", from, to, time: "2026-10-21T08:00:00Z" });
+const edges = (m, opts) => {
+  const model = buildGraphModel(m);
+  return edgesOf(model, layoutGraph(model), opts);
+};
+const draw = (m) => renderToString(html`<${Graph} model=${buildGraphModel(m)} />`);
+
+test("fixture 5: the undelivered message is an amber edge that says it has not been told yet", () => {
+  const m = fixture("05-six-helpers-undelivered-message");
+  const e = edges(m);
+  assert.equal(e.message.length, 1);
+  assert.equal(e.message[0].word, "not told yet");
+  const svg = draw(m);
+  assert.match(svg, /class="gedge gedge--message gedge--undelivered"/);
+  assert.match(svg, /gedge-label--amber[^>]*>.*?not told yet/);
+  assert.match(svg, /marker-end="url\(#gedge-arrow-amber\)"/);
+});
+
+test("each delivery state is drawn in words, and only a queued message is amber", () => {
+  const nodes = [node("a"), node("b")];
+  const states = { queued: "not told yet", notified: "told", woken: "woken", read: "read" };
+  for (const [state, word] of Object.entries(states)) {
+    const m = graph(nodes, [msg("a", "b", state)]);
+    assert.equal(edges(m).message[0].word, word, state);
+    const svg = draw(m);
+    assert.equal(svg.includes("gedge--undelivered"), state === "queued", state);
+    assert.ok(svg.includes(`>${word}<`), `${state} has its word on the edge`);
+  }
+});
+
+test("a delivery state or a missing one this file does not know is told as unknown, not as queued", () => {
+  for (const delivery of ["", "teleported", undefined]) {
+    const m = graph([node("a"), node("b")], [{ ...msg("a", "b", delivery) }]);
+    const svg = draw(m);
+    assert.equal(edges(m).message[0].word, "delivery unknown");
+    assert.ok(!svg.includes("gedge--undelivered"));
+    assert.ok(!svg.includes(">read<"));
+  }
+  assert.equal(deliveryWord("read"), "read");
+});
+
+test("a sent edge is dotted, says sent, and is never drawn as read", () => {
+  const m = graph([node("a"), node("b")], [sent("a", "b"), { ...sent("b", "a"), delivery: "read" }]);
+  const e = edges(m);
+  assert.equal(e.sent.length, 2);
+  assert.deepEqual(e.sent.map((x) => x.word), ["sent", "sent"]);
+  const svg = draw(m);
+  assert.equal(svg.split("gedge--sent").length - 1, 2);
+  assert.ok(!svg.includes(">read<"), "a sent edge was drawn as read");
+  assert.ok(!svg.includes("gedge--undelivered"));
+});
+
+test("waiting-on: to a helper that is a pane, a tag where the holder is not a pane, none for none or down", () => {
+  const m = graph([
+    node("m", { waitingOn: { kind: "helpers", text: "1 helper is busy", ref: "h" } }),
+    node("h"),
+    node("u", { waitingOn: { kind: "user", text: "npm test" } }),
+    node("r", { waitingOn: { kind: "reviewer", text: "T1 is in review", ref: "T1" } }),
+    node("t", { waitingOn: { kind: "task", text: "the vendor's key", ref: "T2" } }),
+    node("d", { waitingOn: { kind: "down", text: "exited", ref: "d" } }),
+    node("x", { waitingOn: { kind: "somethingnew", text: "?", ref: "z" } }),
+    node("lost", { waitingOn: { kind: "helpers", text: "gone", ref: "not-a-pane" } }),
+  ]);
+  const e = edges(m);
+  assert.deepEqual(e.waiting.map((x) => [x.from, x.to]), [["m", "h"]]);
+  assert.deepEqual(
+    e.tags.map((t) => [t.pane, t.word]),
+    [
+      ["u", "waiting on you"],
+      ["r", "waiting on a reviewer"],
+      ["t", "waiting on a task"],
+      ["lost", "waiting on a helper"],
+    ],
+  );
+  assert.equal(e.waiting.length + e.tags.length, 5, "down, none and an unknown kind draw nothing");
+});
+
+test("no edge is drawn to or from a pane that is not a node, and none from a pane to itself", () => {
+  const m = graph(
+    [node("a"), node("b")],
+    [msg("a", "ghost", "queued", 1), msg("ghost", "b", "read", 2), sent("a", "ghost"), sent("ghost", "a"), msg("a", "a", "read", 3), msg("a", "b", "read", 4)],
+  );
+  const e = edges(m);
+  assert.equal(e.message.length, 1);
+  assert.deepEqual([e.message[0].from, e.message[0].to], ["a", "b"]);
+  assert.equal(e.sent.length, 0);
+  const svg = draw(m);
+  assert.ok(!svg.includes("ghost"));
+  for (const x of [...e.message, ...e.sent, ...e.waiting]) assert.ok(!/NaN|undefined/.test(x.d), x.d);
+});
+
+test("edges follow the boxes when the layout changes", () => {
+  const m = graph([node("a"), node("b")], [msg("a", "b", "read")]);
+  const model = buildGraphModel(m);
+  const wide = edgesOf(model, layoutGraph(model, { nodeW: 300 }));
+  const narrow = edgesOf(model, layoutGraph(model, { nodeW: 150 }));
+  assert.notEqual(wide.message[0].d, narrow.message[0].d);
+  // The line starts on the edge of the first box and ends on the edge of the second.
+  for (const [e, w] of [[wide, 300], [narrow, 150]]) {
+    const lay = layoutGraph(model, { nodeW: w });
+    const a = lay.byPane.get("a");
+    const b = lay.byPane.get("b");
+    const nums = e.message[0].d.match(/-?\d+(\.\d+)?/g).map(Number);
+    const [sx, sy, , , ex, ey] = nums;
+    const onEdge = (box, x, y) => {
+      const inX = x >= box.x - 0.2 && x <= box.x + box.w + 0.2;
+      const inY = y >= box.y - 0.2 && y <= box.y + box.h + 0.2;
+      const touches = Math.abs(x - box.x) < 0.2 || Math.abs(x - box.x - box.w) < 0.2 || Math.abs(y - box.y) < 0.2 || Math.abs(y - box.y - box.h) < 0.2;
+      return inX && inY && touches;
+    };
+    assert.ok(onEdge(a, sx, sy), `starts on a's box (${sx},${sy})`);
+    assert.ok(onEdge(b, ex, ey), `ends on b's box (${ex},${ey})`);
+  }
+  // A tag hangs from the bottom of its box, wherever the box is.
+  const t = graph([node("a", { waitingOn: { kind: "user", text: "q" } })]);
+  const tm = buildGraphModel(t);
+  for (const opts of [{}, { nodeH: 200 }]) {
+    const lay = layoutGraph(tm, opts);
+    const tag = edgesOf(tm, lay).tags[0];
+    const box = lay.byPane.get("a");
+    assert.equal(tag.y, box.y + box.h);
+  }
+});
+
+test("several edges between one pair are spread, not drawn over each other", () => {
+  const m = graph([node("a"), node("b")], [msg("a", "b", "read", 1), msg("b", "a", "queued", 2), sent("a", "b")]);
+  const e = edges(m);
+  const ds = [...e.message, ...e.sent].map((x) => x.d);
+  assert.equal(new Set(ds).size, 3);
+});
+
+test("when a kind reaches the graph's cap the corner says so", () => {
+  const many = (n, make) => Array.from({ length: n }, (_, i) => make(i));
+  const nodes = [node("a"), node("b")];
+  const full = graph(nodes, many(GRAPH_EDGE_CAP, (i) => msg("a", "b", "read", i + 1)));
+  const e = edges(full);
+  assert.equal(e.message.length, MAX_DRAWN);
+  assert.equal(e.notices.length, 1);
+  assert.match(e.notices[0], /messages/);
+  assert.match(e.notices[0], new RegExp(`newest ${GRAPH_EDGE_CAP}`));
+  assert.match(e.notices[0], new RegExp(`${MAX_DRAWN} of ${GRAPH_EDGE_CAP} drawn`));
+  assert.match(draw(full), /class="gedge-notice"[^>]*><text[^>]*>Edges: messages/);
+
+  const sentFull = graph(nodes, many(GRAPH_EDGE_CAP, () => sent("a", "b")));
+  const s = edges(sentFull);
+  assert.equal(s.notices.length, 1);
+  assert.match(s.notices[0], /sent notes/);
+});
+
+test("thinning keeps the newest, which the graph sends first", () => {
+  const nodes = [node("a"), node("b")];
+  const list = Array.from({ length: 60 }, (_, i) => ({ ...msg("a", "b", "read", 60 - i), text: "m" + (60 - i) }));
+  const e = edges(graph(nodes, list), { maxDrawn: 5 });
+  assert.equal(e.message.length, 5);
+  assert.match(e.notices[0], /5 of 60 drawn/);
+  assert.equal(e.message.map((x) => x.text).join(","), "m60,m59,m58,m57,m56");
+});
+
+test("below the cap there is no notice", () => {
+  const e = edges(graph([node("a"), node("b")], [msg("a", "b", "read"), sent("a", "b")]));
+  assert.deepEqual(e.notices, []);
+  assert.ok(!draw(graph([node("a"), node("b")], [msg("a", "b", "read")])).includes("gedge-notice"));
+});
+
+test("edges do not hide a box: every pane is still drawn once, after the edges", () => {
+  const m = fixture("04-eight-helpers-three-waiting");
+  const svg = draw(m);
+  for (const n of m.nodes) assert.equal(svg.split(`data-pane="${n.pane}"`).length - 1 >= 1, true);
+  const firstBox = svg.indexOf('class="gnode ');
+  const lastEdge = svg.lastIndexOf('class="gedge ');
+  assert.ok(lastEdge < firstBox || firstBox < 0, "an edge is drawn over a box");
+});
+
+test("text from an agent is drawn as text on an edge", () => {
+  const evil = '"><script>alert(1)</script><g a="';
+  const m = graph(
+    [node("a", { waitingOn: { kind: "user", text: evil } }), node("b")],
+    [{ ...msg("a", "b", "queued"), text: evil }],
+  );
+  const svg = draw(m);
+  assert.ok(!svg.includes("<script"));
+  assert.ok(svg.includes("&lt;script>"));
+});
+
+test("an empty or unreadable model has no edges", () => {
+  assert.deepEqual(edgesOf(null, null), { waiting: [], tags: [], message: [], sent: [], notices: [] });
+  const model = buildGraphModel({});
+  assert.equal(edgesOf(model, layoutGraph(model)).message.length, 0);
+});
+
+test("every fixture draws edges without a bad number", () => {
+  for (const name of ["01-six-helpers-one-permission", "02-eight-helpers-permission-and-question", "03-nested-helper-question-and-returned-task", "04-eight-helpers-three-waiting", "05-six-helpers-undelivered-message"]) {
+    const model = buildGraphModel(fixture(name));
+    const e = edgesOf(model, layoutGraph(model));
+    for (const x of [...e.waiting, ...e.message, ...e.sent]) assert.ok(!/NaN|undefined|Infinity/.test(x.d + JSON.stringify(x.mid)), name);
+  }
+});

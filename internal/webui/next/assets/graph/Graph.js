@@ -1,8 +1,8 @@
 // The team graph as one SVG: a frame for each team with its boxes inside, and
 // the strip of panes in no team along the bottom. The positions come from
-// layout.js and each box from Node.js. This view draws the boxes only; the
-// edges, the needs-you marks and the drawer are other views over the same
-// layout.
+// layout.js and each box from Node.js. The edges are drawn by
+// Edges.js, under the boxes. The needs-you marks and the drawer are other views
+// over the same layout.
 //
 // Team goals, names and every other text are untrusted and are drawn as text.
 import { html } from "../html.js";
@@ -10,6 +10,7 @@ import { layoutGraph } from "./layout.js";
 import { Node, clip } from "./Node.js";
 import { Badge } from "./Badge.js";
 import { NeedsYou } from "./NeedsYou.js";
+import { Edges, EdgeDefs, EdgeNotice, edgesOf } from "./Edges.js";
 
 /**
  * Graph draws a graph model. layout may be given when the caller has laid the
@@ -20,6 +21,7 @@ export function Graph({ model, layout = null }) {
   if (!lay.ok || lay.nodes.length === 0) {
     return html`<p class="graph-empty">No agents in this project yet.</p>`;
   }
+  const edges = edgesOf(model, lay);
   const teamOf = new Map(model.teams.map((t) => [t.id, t]));
   return html`
     <svg
@@ -48,6 +50,8 @@ export function Graph({ model, layout = null }) {
             </g>
           `
         : null}
+      <${EdgeDefs} />
+      <${Edges} e=${edges} />
       ${lay.nodes.map((b) => {
         const node = model.byPane.get(b.pane);
         if (!node) return null;
@@ -61,6 +65,7 @@ export function Graph({ model, layout = null }) {
           </g>
         `;
       })}
+      <${EdgeNotice} e=${edges} width=${lay.width} />
     </svg>
   `;
 }
