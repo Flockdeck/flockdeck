@@ -288,3 +288,8 @@
   fill: var(--fg-dim);
   font-size: 12px;
 }
+
+/* Told (notified or woken) but not yet read: the same line, dimmer. */
+.gedge--told path {
+  stroke-opacity: 0.6;
+}

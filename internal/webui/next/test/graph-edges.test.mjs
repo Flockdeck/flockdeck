@@ -217,3 +217,63 @@ test("every fixture draws edges without a bad number", () => {
     for (const x of [...e.waiting, ...e.message, ...e.sent]) assert.ok(!/NaN|undefined|Infinity/.test(x.d + JSON.stringify(x.mid)), name);
   }
 });
+
+// ------------------------------------------------------------ pins
+
+const css = readFileSync(join(here, "..", "assets", "graph", "graph.css"), "utf8");
+// The declarations of the rule whose selector list is exactly sel.
+const rule = (sel) => {
+  const at = css.replaceAll("\r\n", "\n").split("\n" + sel + " {");
+  assert.ok(at.length === 2, `no single rule for ${sel}`);
+  return at[1].slice(0, at[1].indexOf("}"));
+};
+
+test("the graph's cap is the server's, and the default draws 40", () => {
+  assert.equal(GRAPH_EDGE_CAP, 100);
+  assert.equal(MAX_DRAWN, 40);
+  const list = Array.from({ length: 45 }, (_, i) => msg("a", "b", "read", 45 - i));
+  const e = edges(graph([node("a"), node("b")], list));
+  assert.equal(e.message.length, 40);
+  assert.match(e.notices[0], /40 of 45 drawn/);
+  assert.ok(!/newest 100/.test(e.notices[0]), "45 edges are not the graph's cap");
+});
+
+test("the line styles: sent dotted, waiting-on dashed, a queued message amber", () => {
+  assert.match(rule(".gedge--sent path"), /stroke-dasharray:\s*1 5/);
+  assert.match(rule(".gedge--sent path"), /stroke-linecap:\s*round/);
+  assert.match(rule(".gedge--waiting path,\n.gedge--tag path"), /stroke-dasharray:\s*6 3/);
+  assert.match(rule(".gedge--undelivered path"), /stroke:\s*var\(--waiting\)/);
+  assert.match(rule(".gedge-head--amber"), /fill:\s*var\(--waiting\)/);
+  // A message edge by itself is solid.
+  assert.ok(!/dasharray/.test(rule(".gedge path")));
+  // Told but not read is the same line, dimmer.
+  assert.match(rule(".gedge--told path"), /stroke-opacity/);
+  const svg = draw(graph([node("a"), node("b")], [msg("a", "b", "notified"), msg("b", "a", "queued", 2)]));
+  assert.ok(svg.includes("gedge--told"));
+});
+
+test("edges to panes that are not nodes are counted in the corner, not lost unsaid", () => {
+  const m = graph([node("a"), node("b")], [msg("a", "b", "read", 1), msg("a", "hidden", "queued", 2), msg("hidden", "b", "read", 3), sent("a", "hidden")]);
+  const e = edges(m);
+  assert.equal(e.message.length, 1);
+  assert.equal(e.notices.length, 2);
+  assert.match(e.notices[0], /messages.*2 not drawn, a pane is not in the graph/);
+  assert.match(e.notices[0], /1 of 3 drawn/);
+  assert.match(e.notices[1], /sent notes.*1 not drawn/);
+  // A self edge is not a dropped edge.
+  assert.deepEqual(edges(graph([node("a")], [msg("a", "a", "read")])).notices, []);
+});
+
+test("the waiting-on edge's title carries the graph's own text", () => {
+  const m = graph([node("m", { waitingOn: { kind: "helpers", text: "3 helpers are busy", ref: "h" } }), node("h")]);
+  const svg = draw(m);
+  assert.match(svg, /<title>waiting on a helper: 3 helpers are busy<\/title>/);
+});
+
+test("a tag's position is rounded", () => {
+  const model = buildGraphModel(graph([node("a", { waitingOn: { kind: "user", text: "q" } })]));
+  const lay = layoutGraph(model, { nodeW: 200.123456, pad: 16.987654 });
+  const t = edgesOf(model, lay).tags[0];
+  assert.equal(t.x, Math.round(t.x * 10) / 10);
+  assert.equal(t.y, Math.round(t.y * 10) / 10);
+});

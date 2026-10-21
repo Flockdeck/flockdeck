@@ -30,6 +30,8 @@ export const MAX_DRAWN = 40;
 
 const LANE = 14;
 
+const round = (n) => Math.round(n * 10) / 10;
+
 const DELIVERY_WORDS = {
   queued: "not told yet",
   notified: "told",
@@ -117,9 +119,9 @@ export function edgesOf(model, layout, options = {}) {
     const from = box(node.pane);
     if (!from) continue;
     if (h.pane && box(h.pane)) {
-      pending.push({ list: "waiting", kind: "waiting", from: node.pane, to: h.pane, word: h.word, key: "w:" + node.pane });
+      pending.push({ list: "waiting", kind: "waiting", from: node.pane, to: h.pane, word: h.word, detail: clip(node.waitingOn.text, 120), key: "w:" + node.pane });
     } else {
-      out.tags.push({ pane: node.pane, x: from.x + 12, y: from.y + from.h, word: h.word, holder: node.waitingOn.kind, detail: clip(node.waitingOn.text, 120) });
+      out.tags.push({ pane: node.pane, x: round(from.x + 12), y: round(from.y + from.h), word: h.word, holder: node.waitingOn.kind, detail: clip(node.waitingOn.text, 120) });
     }
   }
 
@@ -128,6 +130,9 @@ export function edgesOf(model, layout, options = {}) {
     // Newest first, as the graph sends them. Edges to or from a pane that is
     // not a node are left out, and so are edges from a pane to itself.
     const usable = all.filter((e) => e.from !== e.to && box(e.from) && box(e.to));
+    // Edges with an end that is not a node (a pane the graph left out, as
+    // panesHidden counts) are counted, so that they do not vanish unsaid.
+    const dropped = all.filter((e) => e.from !== e.to && !(box(e.from) && box(e.to))).length;
     const shown = usable.slice(0, maxDrawn);
     for (let i = 0; i < shown.length; i++) {
       const e = shown[i];
@@ -137,7 +142,8 @@ export function edgesOf(model, layout, options = {}) {
     const parts = [];
     const noun = kind === "message" ? "messages" : "sent notes";
     if (all.length >= GRAPH_EDGE_CAP) parts.push(`the graph holds only the newest ${GRAPH_EDGE_CAP}`);
-    if (shown.length < usable.length) parts.push(`${shown.length} of ${usable.length} drawn`);
+    if (shown.length < usable.length + dropped) parts.push(`${shown.length} of ${usable.length + dropped} drawn`);
+    if (dropped > 0) parts.push(`${dropped} not drawn, a pane is not in the graph`);
     if (parts.length > 0) out.notices.push(`Edges: ${noun}, ${parts.join("; ")}`);
   }
 
@@ -189,7 +195,7 @@ export function Edges({ e }) {
     )}
     ${e.waiting.map(
       (x) => html`<g class="gedge gedge--waiting" data-from=${x.from} data-to=${x.to} key=${x.key}>
-        <title>${x.word}</title>
+        <title>${x.detail ? x.word + ": " + x.detail : x.word}</title>
         <path d=${x.d} marker-end="url(#gedge-arrow-wait)" />
         <${Label} at=${x.mid} word=${x.word} cls="gedge-label--wait" />
       </g>`,
@@ -197,7 +203,7 @@ export function Edges({ e }) {
     ${e.message.map((x) => {
       const undelivered = x.delivery === "queued";
       return html`<g
-        class=${"gedge gedge--message" + (undelivered ? " gedge--undelivered" : "")}
+        class=${"gedge gedge--message" + (undelivered ? " gedge--undelivered" : "") + (x.delivery === "notified" || x.delivery === "woken" ? " gedge--told" : "")}
         data-from=${x.from}
         data-to=${x.to}
         data-delivery=${x.delivery}

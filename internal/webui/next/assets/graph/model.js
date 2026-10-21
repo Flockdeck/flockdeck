@@ -256,7 +256,9 @@ export function emptyModel() {
  *   list, each list as the graph gave it.
  * - needsByPane: pane id to its needs, a conflict under both of its panes.
  * - edges: spawn, message and sent edges apart, each in the graph's order.
- * - undelivered: message edges that have not been read.
+ * - undelivered: message edges that have not been read, so queued, notified and
+ *   woken ones. It is not the amber rule: only "queued" is "not told yet" (see
+ *   Edges.js).
  */
 export function buildGraphModel(msg) {
   if (!isObject(msg) || msg.type !== "graph") return emptyModel();
