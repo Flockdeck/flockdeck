@@ -402,7 +402,12 @@ export function createTerminal(opts) {
   return {
     start() {
       if (started || loading || disposed) return;
-      if (!Terminal || !FitAddon) {
+      // The libraries are needed unless a caller handed in xterm and its addon
+      // (a test), or all three are in the page already. xterm and the addon can
+      // be there while e2e.js is still arriving for another terminal, so e2e.js
+      // counts: a terminal started in that gap waits for the shared load too.
+      const injected = !!(opts.Terminal && opts.FitAddon);
+      if (!injected && !(Terminal && FitAddon && e2e)) {
         // The libraries are not in the page until the first terminal opens.
         // Say so while they load, and say so if they cannot be had, with a
         // button to try again. The socket is not opened until they have run,

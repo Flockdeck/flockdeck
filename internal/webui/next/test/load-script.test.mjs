@@ -41,20 +41,21 @@ test("the three files are the same-origin relative ones, in the order a terminal
   assert.deepEqual(Object.values(SCRIPTS).map((d) => d.src), ["assets/vendor/xterm.js", "assets/vendor/addon-fit.js", "assets/e2e.js"]);
 });
 
-test("xterm, the fit addon, then e2e.js, one after another, none async", async () => {
+test("xterm, the fit addon and e2e.js are asked for together, added in that order, none async", async () => {
   const p = fakePage();
   const done = loadTerminalLibs(p.env);
   await tick();
-  assert.deepEqual(p.srcs(), ["assets/vendor/xterm.js"], "the next file was requested before the last had run");
-  p.arrive("assets/vendor/xterm.js");
-  await tick();
-  assert.deepEqual(p.srcs(), ["assets/vendor/xterm.js", "assets/vendor/addon-fit.js"]);
-  p.arrive("assets/vendor/addon-fit.js");
-  await tick();
-  assert.equal(p.srcs().length, 3);
+  assert.deepEqual(p.srcs(), ["assets/vendor/xterm.js", "assets/vendor/addon-fit.js", "assets/e2e.js"], "downloaded side by side, in the order they must run");
+  assert.ok(p.added.every((e) => e.async === false), "a script added with async on can run out of order");
+  // They may arrive in any order; the promise is for all three.
   p.arrive("assets/e2e.js");
+  p.arrive("assets/vendor/xterm.js");
+  let settled = false;
+  done.then(() => { settled = true; });
+  await tick();
+  assert.equal(settled, false, "resolved before the addon had run");
+  p.arrive("assets/vendor/addon-fit.js");
   await done;
-  assert.ok(p.added.every((e) => e.async === false));
 });
 
 test("however many terminals ask, the files load once", async () => {
@@ -106,22 +107,20 @@ test("e2e.js is run once whether the remote hello or the first terminal asks fir
   assert.equal(q.srcs().filter((s) => s === "assets/e2e.js").length, 1);
 });
 
-test("a failed load rejects, removes its element, and the next ask tries again", async () => {
+test("a failed load rejects, removes its element, and the next ask tries again for what is missing", async () => {
   const p = fakePage();
   const first = loadTerminalLibs(p.env);
   await tick();
   p.arrive("assets/vendor/xterm.js");
-  await tick();
+  p.arrive("assets/e2e.js");
   p.fail("assets/vendor/addon-fit.js");
-  await assert.rejects(first, /could not load assets\/vendor\/addon-fit.js/);
-  assert.deepEqual(p.srcs(), ["assets/vendor/xterm.js"], "the failed element was left in the page");
+  await assert.rejects(first, (e) => e.message.startsWith("could not load assets/vendor/addon-fit.js"));
+  assert.deepEqual(p.srcs(), ["assets/vendor/xterm.js", "assets/e2e.js"], "the failed element was left in the page");
   const second = loadTerminalLibs(p.env);
   await tick();
-  // xterm is not fetched twice; the addon is asked for again.
-  assert.deepEqual(p.srcs(), ["assets/vendor/xterm.js", "assets/vendor/addon-fit.js"]);
+  // xterm and e2e.js are not fetched twice; the addon is asked for again.
+  assert.deepEqual(p.srcs(), ["assets/vendor/xterm.js", "assets/e2e.js", "assets/vendor/addon-fit.js"]);
   p.arrive("assets/vendor/addon-fit.js");
-  await tick();
-  p.arrive("assets/e2e.js");
   await second;
 });
 

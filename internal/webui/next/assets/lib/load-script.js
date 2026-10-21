@@ -82,8 +82,8 @@ export function loadE2E(env = {}) {
 }
 
 /**
- * loadTerminalLibs loads xterm, the fit addon, then e2e.js, in that order, and
- * resolves when all three have run. One load however many terminals ask: they
+ * loadTerminalLibs loads xterm, the fit addon and e2e.js, which run in that
+ * order, and resolves when all three have run. One load however many terminals ask: they
  * share the promise. After a failure the next call starts again, and files that
  * did load are not fetched twice.
  */
@@ -92,11 +92,11 @@ export function loadTerminalLibs(env = {}) {
   if (!doc) return Promise.reject(new Error("there is no page to load the terminal into"));
   const s = slot(doc);
   if (s.libs) return s.libs;
-  const p = (async () => {
-    await loadScript(SCRIPTS.xterm, env);
-    await loadScript(SCRIPTS.fit, env);
-    await loadScript(SCRIPTS.e2e, env);
-  })();
+  // All three are asked for at once: they download side by side, and as
+  // scripts added with async off they run in the order they were added, which is
+  // the order a terminal needs. A failure of any one fails the lot, and the next
+  // call asks again for what has not loaded.
+  const p = Promise.all([SCRIPTS.xterm, SCRIPTS.fit, SCRIPTS.e2e].map((d) => loadScript(d, env))).then(() => {});
   s.libs = p;
   p.then(
     () => {},

@@ -375,6 +375,38 @@ test("a terminal disposed while its libraries load opens nothing when they arriv
   }
 });
 
+test("a terminal that opens while another's libraries are half loaded waits for e2e.js too", async () => {
+  // xterm and the addon are in the page, e2e.js is still arriving: a second
+  // terminal with a keyed hello must not decide the end-to-end layer is missing.
+  const E2E = loadE2E();
+  const host = await hostSide(E2E);
+  let release;
+  const had = globalThis.FlockdeckE2E;
+  delete globalThis.FlockdeckE2E;
+  globalThis.Terminal = FakeTerm;
+  globalThis.FitAddon = { FitAddon: FakeFit };
+  const h = build({
+    snap: { hello: hello({ remote: true, e2ePublicKey: host.pub }), state: paneState({ p1: {} }) },
+    Terminal: null, FitAddon: null, e2e: null,
+    loadLibs: () => new Promise((r) => { release = r; }),
+  });
+  try {
+    h.ctl.start();
+    assert.equal(h.ctl.state.phase, "loading terminal", "started without waiting for e2e.js");
+    assert.equal(PtySocket.instances.length, 0);
+    globalThis.FlockdeckE2E = E2E;
+    release();
+    await waitFor(() => PtySocket.instances.length === 1, "the socket");
+    assert.notEqual(h.ctl.state.phase, "blocked");
+  } finally {
+    delete globalThis.Terminal;
+    delete globalThis.FitAddon;
+    delete globalThis.FlockdeckE2E;
+    if (had) globalThis.FlockdeckE2E = had;
+  }
+  h.ctl.dispose();
+});
+
 test("a sealed terminal whose end-to-end layer does not come with the libraries opens no socket", async () => {
   // Terminal and the addon arrive, e2e.js does not: the hello carries a key, so
   // the terminal is blocked, not plain.

@@ -47,7 +47,7 @@ The three scripts are no longer in `index.html`. The first terminal that opens l
 
 First paint falls by 1142 ms for the modules as shipped and by 1127 ms concatenated. The module graph is now under the 3 s budget on its own, including the finished-app stand-in (2.6 s), so the case for a concatenation tool is weaker than the first table made it. It is still 1.4 s faster, and the module graph is the case that grows with the stream cap, so step two on a phone still decides.
 
-The cost moves to the first terminal: it now waits for 131 KB (gzipped) fetched as three requests in a row, with "Loading terminal" showing meanwhile. By arithmetic from the link (a first byte after 3 round trips per request, 200 KB/s) that is about 2 s; it was not measured, and the table measures the page before any terminal opens. The three files could be fetched together and run in order if that wait matters.
+The cost moves to the first terminal: it now waits for 131 KB (gzipped) fetched as three requests at once, which run in order. By arithmetic from the link (a first byte after 3 round trips, then 131 KB at 200 KB/s) that is about 1.1 to 1.3 s, with "Loading terminal" showing meanwhile; it was not measured, and the table measures the page before any terminal opens. A terminal waits for e2e.js as well as xterm, so a failed e2e.js load stops a local terminal too: that is the strict choice, since the hello that says whether the window is remote may not have arrived when the load starts.
 
 ## Sensitivity
 
