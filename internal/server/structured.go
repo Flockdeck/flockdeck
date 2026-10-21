@@ -419,8 +419,6 @@ type errStructured string
 
 func (e errStructured) Error() string { return string(e) }
 
-// structuredWatch subscribes the window to one pane, replacing any it watched.
-// It must run on the workspace goroutine.
 // structuredCancel ends the running turn of the one structured pane named by
 // cmd.ID, and drops the prompts waiting behind it; an open permission request
 // of that pane is answered cancelled. It touches that pane's own runtime and
@@ -443,6 +441,8 @@ func (s *Server) structuredCancel(c *controlClient, cmd command) {
 	c.sendJSON(teamResultMsg{Type: "teamResult", Req: cmd.Req, Op: cmd.Cmd, OK: true})
 }
 
+// structuredWatch subscribes the window to one pane, replacing any it watched.
+// It must run on the workspace goroutine.
 func (s *Server) structuredWatch(c *controlClient, cmd command) {
 	rt := s.ws.StructuredRuntime(cmd.ID)
 	if rt == nil {

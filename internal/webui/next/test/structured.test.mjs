@@ -21,12 +21,13 @@ async function mount(st, { remote = false } = {}) {
   const container = dom.document.createElement("div");
   dom.body.appendChild(container);
   const store = fakeStore({ hello: { type: "hello" }, state: paneState({ p3: { structured: true } }), remote, structured: st, structuredError: null, cancelError: null, conversation: null });
-  const draw = () => render(html`<${Drawer} store=${store} snap=${store.getState()} node=${node} now=${NOW} />`, container);
+  let shown = node;
+  const draw = () => render(html`<${Drawer} store=${store} snap=${store.getState()} node=${shown} now=${NOW} />`, container);
   draw();
   await settle();
   return {
     container, store,
-    set: async (patch) => { store.set(patch); draw(); await settle(); },
+    set: async (patch, to) => { if (to) shown = to; store.set(patch); draw(); await settle(); },
     done: async () => { render(null, container); await settle(); restore(); },
   };
 }
@@ -147,7 +148,7 @@ test("Stop sends structuredCancel for this pane, and a refusal is shown", () =>
     assert.equal(m.store.sent[0].id, "p3");
     assert.ok(m.store.sent[0].req);
     assert.equal(m.container.find(".structured-note"), null);
-    await m.set({ cancelError: { error: "That pane has nothing running to stop" } });
+    await m.set({ cancelError: { id: "p3", error: "That pane has nothing running to stop" } });
     assert.equal(m.container.find(".structured-note").textContent, "That pane has nothing running to stop");
   }));
 
@@ -165,4 +166,27 @@ test("before the first push it says it is loading, and a refused watch says why"
     assert.ok(m.container.find(".drawer-stub").textContent.includes("Loading the agent"));
     await m.set({ structuredError: { error: "Too many structured panes are being watched" } });
     assert.equal(m.container.find(".drawer-stub").textContent, "Too many structured panes are being watched");
+  }));
+
+test("a cancel refusal is shown for its own pane and not for another one opened after it", () =>
+  with_(push(), {}, async (m) => {
+    await m.set({ cancelError: { id: "p3", error: "That pane has nothing running to stop" } });
+    assert.ok(m.container.find(".structured-note"));
+    await m.set({ structured: push({ id: "p9" }), cancelError: { id: "p3", error: "That pane has nothing running to stop" } }, { ...node, pane: "p9" });
+    assert.ok(m.container.find(".structured-stop"), "the other pane's view was not drawn");
+    assert.equal(m.container.find(".structured-note"), null, "pane p3's refusal was shown on pane p9");
+  }));
+
+test("rows keep their DOM elements when the oldest entry drops off the 50-entry window", () =>
+  with_(push({ entries: Array.from({ length: 50 }, (_, i) => entry(i)) }), {}, async (m) => {
+    const byId = () => new Map(m.container.findAll(".conv-row").map((r) => [r.getAttribute("data-entry"), r]));
+    const before = byId();
+    assert.equal(before.size, 50);
+    await m.set({ structured: push({ entries: Array.from({ length: 50 }, (_, i) => entry(i + 1)) }) });
+    const after = byId();
+    assert.equal(after.size, 50);
+    assert.ok(!after.has("e0"), "the oldest entry stayed");
+    for (let i = 1; i < 50; i++) {
+      assert.equal(after.get("e" + i), before.get("e" + i), "row e" + i + " was made again");
+    }
   }));

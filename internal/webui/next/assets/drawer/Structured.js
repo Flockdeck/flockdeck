@@ -22,6 +22,9 @@ import { clip } from "../graph/Node.js";
 import { Row, Icon, toolKind } from "./Conversation.js";
 
 export const MAX_ENTRIES = 50;
+// Each Stop carries its own req, so the store can tell which pane a refusal is for.
+let cancelSeq = 0;
+
 export const IDLE_WORDS = "Idle";
 export const NO_ENTRIES_WORDS = "Nothing has been said yet.";
 
@@ -78,7 +81,6 @@ export function lastEntries(st) {
  *  reached through the relay. */
 export function Structured({ pane, st, error = null, cancelError = null, desk = true, store }) {
   const [draft, setDraft] = useState("");
-  const [req, setReq] = useState(0);
   if (error) return html`<p class="drawer-stub conv-refused" role="status">${clip(String(error.error || ""), 300)}</p>`;
   if (!st || st.id !== pane) return html`<p class="drawer-stub">Loading the agent.</p>`;
   const act = activityOf(st);
@@ -92,8 +94,7 @@ export function Structured({ pane, st, error = null, cancelError = null, desk = 
     if (store.send({ cmd: "paneSend", id: pane, text })) setDraft("");
   };
   const stop = () => {
-    setReq(req + 1);
-    store.send({ cmd: "structuredCancel", id: pane, req: "c" + (req + 1) });
+    store.send({ cmd: "structuredCancel", id: pane, req: "c" + ++cancelSeq });
   };
   return html`
     <div class="structured" data-structured-pane=${pane}>
@@ -117,7 +118,7 @@ export function Structured({ pane, st, error = null, cancelError = null, desk = 
             <textarea class="structured-input" aria-label="Message to the agent" rows="2" value=${draft} onInput=${(e) => setDraft(e.target.value)}></textarea>
             <button type="submit" class="drawer-btn structured-send" disabled=${draft.trim() === ""}>Send</button>
             <button type="button" class="drawer-btn structured-stop" onClick=${stop}>Stop</button>
-            ${cancelError ? html`<p class="structured-note" role="status">${clip(String(cancelError.error || ""), 300)}</p>` : null}
+            ${cancelError && cancelError.id === pane ? html`<p class="structured-note" role="status">${clip(String(cancelError.error || ""), 300)}</p>` : null}
           </form>`
         : null}
     </div>

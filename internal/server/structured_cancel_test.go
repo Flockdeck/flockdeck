@@ -2,10 +2,15 @@ package server
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/jmwri/flockdeck/internal/acp/acptest"
 	"github.com/jmwri/flockdeck/internal/session"
+	"github.com/jmwri/flockdeck/internal/structured"
 	"github.com/jmwri/flockdeck/internal/workspace"
 )
 
@@ -89,8 +94,8 @@ func TestStructuredCancelStopsOnlyThatPanesTurn(t *testing.T) {
 }
 
 // A terminal pane and a pane that is not there are refused, and say why. An
-// idle structured pane has a live session and a cancel of no turn is accepted;
-// one whose agent is not running (structuredIdle) is refused.
+// idle structured pane has a live session and a cancel of no turn is accepted.
+// The pane whose agent is not running is the next test.
 func TestStructuredCancelRefusesWhatItCannotStop(t *testing.T) {
 	e := newStructuredEnv(t, "plain")
 	e.status(t, session.StatusIdle)
@@ -129,4 +134,54 @@ func TestStructuredCancelIsRefusedToTheRelayAndTheTurnGoesOn(t *testing.T) {
 	}
 	e.cancel(t, e.c, e.child) // let the fake agent go
 	e.waitStatus(t, e.child, session.StatusIdle)
+}
+
+// A cancel with a permission request open answers the request cancelled, and does
+// not pick one of its options: the fake agent writes the outcome it received.
+func TestStructuredCancelWithAnOpenRequestAnswersItCancelled(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "outcome")
+	e := newStructuredEnvArgs(t, "hold-perm", acptest.ArgMarker, marker)
+	e.status(t, session.StatusWaiting)
+	if res := e.cancel(t, e.c, e.child); !res.OK {
+		t.Fatalf("answer = %+v", res)
+	}
+	e.waitStatus(t, e.child, session.StatusIdle)
+	var got string
+	deadline := time.Now().Add(30 * time.Second)
+	for got == "" {
+		if b, err := os.ReadFile(marker); err == nil {
+			got = string(b)
+		}
+		if got == "" && time.Now().After(deadline) {
+			t.Fatal("the agent never wrote the outcome it was given")
+		}
+		if got == "" {
+			time.Sleep(25 * time.Millisecond)
+		}
+	}
+	if !strings.HasPrefix(got, "cancelled") || strings.Contains(got, "selected") {
+		t.Errorf("the agent's outcome = %q, want cancelled", got)
+	}
+	if e.ws.StructuredRuntime(e.child).Snapshot().Pending != nil {
+		t.Error("the request is still open after the cancel")
+	}
+}
+
+// A pane whose agent is no longer running has no turn to stop, and is told so.
+func TestStructuredCancelOfAPaneWhoseAgentHasExited(t *testing.T) {
+	e := newStructuredEnv(t, "exit")
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		ph, _ := ask(e.srv, func() structured.Phase { return e.ws.StructuredRuntime(e.child).Snapshot().Phase })
+		if ph == structured.PhaseExited {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the agent never exited: phase %v", ph)
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	if res := e.cancel(t, e.c, e.child); res.OK || res.Error != structuredIdle {
+		t.Errorf("answer = %+v, want the idle refusal", res)
+	}
 }

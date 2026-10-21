@@ -66,6 +66,10 @@ const (
 // asked for must not hold the variable that otherwise says so.
 const ArgAgent = "--acptest-agent"
 
+// ArgMarker, as an argument followed by a path, does what WithMarker does for an
+// agent started with ArgAgent, whose environment is not the test's.
+const ArgMarker = "--acptest-marker"
+
 // RunIfAgent runs the fake agent and returns true when this process was
 // started as one. Call it first in TestMain and return when it reports true.
 func RunIfAgent() bool {
@@ -100,6 +104,12 @@ type agent struct {
 }
 
 func newAgent() *agent {
+	marker := os.Getenv(envMarker)
+	for i, a := range os.Args[1:] {
+		if a == ArgMarker && i+2 < len(os.Args) {
+			marker = os.Args[i+2]
+		}
+	}
 	return &agent{
 		out:        bufio.NewWriterSize(os.Stdout, 1<<16),
 		waiters:    map[string]chan msg{},
@@ -107,7 +117,7 @@ func newAgent() *agent {
 		cancels:    make(chan struct{}, 8),
 		authMode:   os.Getenv(envAuth),
 		mute:       os.Getenv(envMute) == "1",
-		markerPath: os.Getenv(envMarker),
+		markerPath: marker,
 	}
 }
 

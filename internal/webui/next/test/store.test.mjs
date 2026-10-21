@@ -293,11 +293,11 @@ test("a structuredCancel refusal is kept for the drawer, the next one that works
   assert.equal(store.getState().cancelError, null);
   assert.equal(store.send({ cmd: "structuredCancel", id: "p3", req: "c1" }), true);
   assert.deepEqual(ws.sent.filter((c) => c.cmd === "structuredCancel"), [{ cmd: "structuredCancel", id: "p3", req: "c1" }]);
-  ws.frame({ type: "teamResult", op: "structuredCancel", ok: false, error: "That pane has nothing running to stop" });
-  assert.deepEqual(store.getState().cancelError, { error: "That pane has nothing running to stop" });
+  ws.frame({ type: "teamResult", req: "c1", op: "structuredCancel", ok: false, error: "That pane has nothing running to stop" });
+  assert.deepEqual(store.getState().cancelError, { id: "p3", error: "That pane has nothing running to stop" });
   ws.frame({ type: "teamResult", op: "graphWatch", ok: true });
   assert.notEqual(store.getState().cancelError, null, "another op cleared the cancel refusal");
-  ws.frame({ type: "teamResult", op: "structuredCancel", ok: true });
+  ws.frame({ type: "teamResult", req: "c2", op: "structuredCancel", ok: true });
   assert.equal(store.getState().cancelError, null);
   assert.equal(store.getState().graphError, null, "a cancel refusal was taken for a graph error");
 });
@@ -307,4 +307,26 @@ test("a remote window cannot send structuredCancel", async () => {
   ws.frame(hello({ remote: true }));
   assert.equal(store.send({ cmd: "structuredCancel", id: "p3", req: "c1" }), false);
   assert.equal(ws.sent.filter((c) => c.cmd === "structuredCancel").length, 0);
+});
+
+test("a cancel refusal is kept for the pane the cancel was for, by its req", async () => {
+  const { store, ws } = await up();
+  ws.frame(hello());
+  store.send({ cmd: "structuredCancel", id: "p3", req: "c1" });
+  store.send({ cmd: "structuredCancel", id: "p4", req: "c2" });
+  ws.frame({ type: "teamResult", req: "c2", op: "structuredCancel", ok: false, error: "No" });
+  assert.deepEqual(store.getState().cancelError, { id: "p4", error: "No" });
+  ws.frame({ type: "teamResult", req: "c1", op: "structuredCancel", ok: false, error: "Nope" });
+  assert.deepEqual(store.getState().cancelError, { id: "p3", error: "Nope" });
+});
+
+test("paneSend is desk only in the store, and goes in a window on the desk", async () => {
+  const local = await up();
+  local.ws.frame(hello());
+  assert.equal(local.store.send({ cmd: "paneSend", id: "p1", text: "hi" }), true);
+  assert.equal(local.ws.sent.filter((c) => c.cmd === "paneSend").length, 1);
+  const remote = await up();
+  remote.ws.frame(hello({ remote: true }));
+  assert.equal(remote.store.send({ cmd: "paneSend", id: "p1", text: "hi" }), false);
+  assert.equal(remote.ws.sent.filter((c) => c.cmd === "paneSend").length, 0);
 });
