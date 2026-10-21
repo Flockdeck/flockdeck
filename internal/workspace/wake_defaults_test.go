@@ -23,6 +23,9 @@ func TestWakeServiceDefaults(t *testing.T) {
 	if svc.projectHour != 20 {
 		t.Errorf("projectHour = %d, want 20", svc.projectHour)
 	}
+	// These two compare the constants with their own values, so they are a
+	// tripwire for a change to either and not a test of what it does:
+	// TestWakeLimits pins the behaviour of the pane and streak limits.
 	if wakePaneEvery != time.Minute || wakeStreakMax != 3 {
 		t.Errorf("pane every %v, streak %d, want 1m and 3", wakePaneEvery, wakeStreakMax)
 	}

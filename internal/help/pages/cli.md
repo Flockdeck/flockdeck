@@ -346,7 +346,7 @@ directory, which keeps the last 2,000 events or 256 KiB. A wake event holds the 
 message id, the pane, the agent, the rule's version and where it came from, the prompt line
 the rule matched (cut to 160 characters) and the line that was typed. A line that was typed
 without its Enter says so. An event holds no message text, except in text mode, where the
-line that was typed is the message, cut to 300 characters.
+line that was typed, which holds the message text, is kept cut to 300 characters.
 
 Switches turn the typed line off for everything, for one kind of agent or for one pane;
 `flockdeck wake`, described under wake below, sets them. It is also off for every agent
@@ -642,9 +642,11 @@ mode (below).
 The fixed line tells an agent to run `flockdeck inbox read`. An agent that cannot run
 commands, such as Aider, cannot do that. For such an agent, and only if you turn it on
 with `flockdeck wake text on -agent <id>`, the line is the message itself:
-`Flockdeck message from <role>: <text>`. Everything else about the wake is the same: the
-same conditions, limits, Enter written separately off switches and the hardening of `on`, and a pane switched off is not typed to in
-either mode. `wake text on` is refused where `wake on` is.
+`Flockdeck message from <role>: <text>`. Almost everything else about the wake is the same:
+the conditions, the pane and project limits, the Enter written separately, the off switches
+and the hardening of `on`, and a pane switched off is not typed to in either mode. The
+limit on lines in a row does not apply, as below. `wake text on` is refused where
+`wake on` is.
 
 What is typed is cut down first. Terminal escape sequences are removed whole, every run
 of white space including newlines becomes one space, control, invisible and
