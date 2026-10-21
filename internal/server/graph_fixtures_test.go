@@ -150,7 +150,7 @@ var graphFixtureSpecs = []fxSpec{
 	},
 	{
 		name:        "04-eight-helpers-three-waiting",
-		description: "Eight helpers on a release. One asks to run a command, one asks a question and one has a task back from review.",
+		description: "Eight helpers on a release. One asks to run a command, one asks a question and one has a task back from review. Three need the person but only two are waiting: the one with the returned task (qa) is working, so the tiled page marks two panes and the graph lists three.",
 		helpers: []fxHelper{
 			{name: "build", state: fxPerm, text: "git push origin release/2.4", since: 2},
 			{name: "notes", state: fxAsk, text: "Name the breaking change in the headline?", since: 10},
