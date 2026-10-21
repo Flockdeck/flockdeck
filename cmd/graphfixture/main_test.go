@@ -570,3 +570,46 @@ func TestToolLinksNoPackageThatKeepsConfiguration(t *testing.T) {
 	}
 	t.Logf("internal packages linked: %v", deps)
 }
+
+// A structured pane's card does not come with the state push, so a structured
+// pane gets neither view, whatever the graph says it waits on. No fixture has
+// one, so the test makes a pane of a fixture structured: the permission pane of
+// fixture 1 and the question pane of fixture 2.
+func TestStructuredPaneGetsNeitherView(t *testing.T) {
+	for _, c := range []struct{ fixture, pane, kind string }{
+		{"1", "366c9143", "permission"},
+		{"2", "48211787", "ask"},
+	} {
+		t.Run(c.kind, func(t *testing.T) {
+			fx, err := loadFixture(fixtureDir(t), c.fixture)
+			if err != nil {
+				t.Fatal(err)
+			}
+			views := func(f *fixture) (perm, ask bool) {
+				p := f.stateMsg()["panes"].(map[string]any)[c.pane].(map[string]any)
+				_, perm = p["permission"]
+				_, ask = p["ask"]
+				return
+			}
+			perm, ask := views(fx)
+			if c.kind == "permission" && !perm || c.kind == "ask" && !ask {
+				t.Fatalf("pane %s has no %s view as a terminal pane (permission %v, ask %v), so this test proves nothing", c.pane, c.kind, perm, ask)
+			}
+			cp := *fx
+			cp.nodes = append([]fixtureNode(nil), fx.nodes...)
+			found := false
+			for i := range cp.nodes {
+				if cp.nodes[i].Pane == c.pane {
+					cp.nodes[i].Kind = "structured"
+					found = true
+				}
+			}
+			if !found {
+				t.Fatalf("fixture %s has no pane %s", c.fixture, c.pane)
+			}
+			if perm, ask := views(&cp); perm || ask {
+				t.Errorf("structured pane %s has a view (permission %v, ask %v)", c.pane, perm, ask)
+			}
+		})
+	}
+}
