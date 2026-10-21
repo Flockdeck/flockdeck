@@ -141,7 +141,8 @@ export function safeLink(uri) {
  *    ptySize   { cols, rows } of the pty, or null
  *    sizeNote  { cols, rows } when the box is smaller than the pty, else null
  *
- *  Methods: start(), dispose(), fitToBox(), takeOver(), tryAgain(), focus(). */
+ *  Methods: start(), dispose(), fitToBox(), takeOver(), tryAgain(), focus(),
+ *  sendKeys(text). */
 export function createTerminal(opts) {
   const G = globalThis;
   // Read again after the libraries have loaded: they are not in the page at
@@ -500,6 +501,11 @@ export function createTerminal(opts) {
       if (pty) pty.retryNow();
     },
     focus() { if (term) term.focus(); },
+    /** sendKeys types text into the pane over the terminal socket, as keys the
+     *  person pressed: the drawer's permission buttons send Enter and Esc this
+     *  way, sealed when the desktop has a key. It returns false, and sends
+     *  nothing, while the socket is not open. */
+    sendKeys(text) { return !!pty && state.phase === "open" && pty.sendInput(String(text)); },
     get state() { return state; },
   };
 }

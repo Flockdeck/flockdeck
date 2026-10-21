@@ -1,0 +1,207 @@
+// The card at the top of the drawer for an agent that is waiting on the person:
+// a permission prompt, or a question.
+//
+// - A terminal pane's permission shows the real tool, command or file and the
+//   diff, as the state push's permission view has them, and a button for each
+//   choice the prompt offers. A button types the choice into the terminal over
+//   the terminal socket (Yes is Enter, the prompt's default, and No is Esc), which
+//   is sealed in a window reached through the relay. That is the one way a phone
+//   answers a permission, and only for a terminal pane.
+// - A structured pane's permission is answered with permissionAnswer, with the
+//   card's number, the agent's request id and the option's id exactly as the card
+//   carried them, and only in a window on the desk. A remote window shows the
+//   request with no buttons and says to answer it on the desktop.
+// - A question shows its text and options, and the box below it sends the answer
+//   with paneSend by the pane's id, which the desk allows for a question.
+//
+// Nothing here picks a choice on its own: no button has the keyboard, no key
+// answers, and an option that remembers its choice (allow_always) is a button
+// like the others. A choice is sent once for each card, so a second click, or a
+// key held down, cannot answer the prompt that comes next. A card that the desk
+// refuses an answer to is shown with its error and can be answered again.
+//
+// The text on a card is what an agent, a tool or a file said. It is drawn as
+// text and never as markup.
+import { useState } from "../vendor/hooks.mjs";
+import { html } from "../html.js";
+import { clip } from "../graph/Node.js";
+import { ManagerBar } from "../graph/ManagerBar.js";
+
+/** KEYS is what each terminal choice types: Yes is Enter, the default of Claude
+ *  Code's prompt, and No is Esc, its own "No, and tell Claude what to do
+ *  differently" (docs/status-matrix.md, B4 and B7). An option with any other id
+ *  has no keys and gets no button on a terminal pane. */
+export const KEYS = Object.freeze({ yes: "\r", no: "\x1b" });
+
+export const DESK_WORDS = "Answer this on the desktop.";
+export const NOT_CONNECTED_WORDS = "The terminal is not connected, so nothing was sent.";
+export const NOT_ANSWERED_WORDS = "Not connected to Flockdeck, so the answer was not sent.";
+export const IN_TERMINAL_WORDS = "The choices are in the terminal below.";
+export const DETAILS_ON_DESKTOP_WORDS = "The details are on the desktop.";
+
+/** MAX_DIFF_LINES is how many lines of a diff the card draws. The rest is said, not drawn. */
+export const MAX_DIFF_LINES = 200;
+
+/** diffRows splits a diff into the rows the card draws: each line with its kind
+ *  (added, removed or context, from its first character), and how many lines were
+ *  left out past MAX_DIFF_LINES. */
+export function diffRows(diff) {
+  const all = String(diff || "").split("\n");
+  if (all.length && all[all.length - 1] === "") all.pop();
+  const rows = all.slice(0, MAX_DIFF_LINES).map((text) => ({
+    text,
+    kind: text.startsWith("+") ? "add" : text.startsWith("-") ? "del" : "ctx",
+  }));
+  return { rows, more: Math.max(0, all.length - MAX_DIFF_LINES) };
+}
+
+/** isWaiting says the drawer's pane is waiting on the person, from what the state
+ *  push says of it and what the graph says of its node. */
+export function waitingOn(node, pane) {
+  if (pane && pane.permission) return "permission";
+  if (pane && pane.ask && Array.isArray(pane.ask.questions) && pane.ask.questions.length > 0) return "ask";
+  if (node && node.waitingOn && node.waitingOn.kind === "user") return "text";
+  return null;
+}
+
+const idOf = (...parts) => parts.map((p) => String(p == null ? "" : p)).join("\u0001");
+
+function Details({ permission }) {
+  const diff = permission.diff ? diffRows(permission.diff) : null;
+  return html`
+    ${permission.summary ? html`<p class="prompt-summary">${permission.summary}</p>` : null}
+    ${permission.command ? html`<pre class="prompt-command" aria-label="Command">${permission.command}</pre>` : null}
+    ${permission.file ? html`<p class="prompt-file"><span class="prompt-label">File</span> <code>${permission.file}</code></p>` : null}
+    ${permission.description ? html`<p class="prompt-desc">${permission.description}</p>` : null}
+    ${diff
+      ? html`<pre class="prompt-diff" aria-label="Changes">${diff.rows.map((r) => html`<span class=${"prompt-diff-" + r.kind}>${r.text}</span>`)}</pre>
+          ${diff.more > 0 ? html`<p class="prompt-more">${diff.more} more lines are on the desktop.</p>` : null}`
+      : null}
+  `;
+}
+
+// A terminal pane's permission card.
+function TerminalPermission({ permission, sendKeys }) {
+  const [sent, setSent] = useState(null);
+  const [note, setNote] = useState("");
+  const options = (permission.options || []).filter((o) => o && Object.prototype.hasOwnProperty.call(KEYS, o.id));
+  const choose = (opt) => {
+    if (sent) return;
+    if (sendKeys && sendKeys(KEYS[opt.id])) {
+      setSent(opt.name || opt.id);
+      setNote("");
+    } else {
+      setNote(NOT_CONNECTED_WORDS);
+    }
+  };
+  const redacted = !!permission.redacted;
+  return html`
+    ${redacted ? html`<p class="prompt-summary">${permission.summary || permission.tool}</p>` : html`<${Details} permission=${permission} />`}
+    ${redacted ? html`<p class="prompt-more">${DETAILS_ON_DESKTOP_WORDS}</p>` : null}
+    ${options.length > 0
+      ? html`<div class="prompt-choices" role="group" aria-label="Choices">
+          ${options.map((o) => html`<button type="button" class=${"prompt-choice prompt-choice--" + String(o.kind || "")} data-option=${o.id} disabled=${!!sent} onClick=${() => choose(o)}>${clip(o.name || o.id, 80)}</button>`)}
+        </div>`
+      : html`<p class="prompt-more">${IN_TERMINAL_WORDS}</p>`}
+    <p class=${"prompt-status" + (note ? " prompt-status--error" : "")} role=${note ? "alert" : "status"}>${sent ? "Sent “" + clip(sent, 80) + "”. Waiting for the agent." : note}</p>
+  `;
+}
+
+// A structured pane's permission card, answered with permissionAnswer in a window
+// on the desk.
+function StructuredPermission({ node, card, snap, store }) {
+  const [asked, setAsked] = useState(null); // { after } the answer seq when it was sent
+  const [note, setNote] = useState("");
+  const remote = !!snap.remote;
+  const a = snap.answer;
+  const reply = asked && a && a.seq > asked.after && a.id === node.pane && a.cardSeq === card.seq && a.requestId === card.requestId ? a : null;
+  const refused = reply && !reply.ok && reply.error ? String(reply.error) : "";
+  const done = !!asked && !refused;
+  const options = Array.isArray(card.options) ? card.options.filter((o) => o && typeof o.id === "string") : [];
+  const answer = (opt) => {
+    if (remote || done) return;
+    const sent = store.send({ cmd: "permissionAnswer", id: node.pane, cardSeq: card.seq, requestId: card.requestId, optionId: opt.id });
+    if (sent) {
+      setAsked({ after: snap.answer ? snap.answer.seq : 0 });
+      setNote("");
+    } else {
+      setNote(NOT_ANSWERED_WORDS);
+    }
+  };
+  const says = refused || note || (done ? (reply && reply.ok ? "Answered." : "Sent. Waiting for the agent.") : remote ? DESK_WORDS : "");
+  return html`
+    <${Details} permission=${card} />
+    ${remote
+      ? null
+      : html`<div class="prompt-choices" role="group" aria-label="Choices">
+          ${options.map((o) => html`<button type="button" class=${"prompt-choice prompt-choice--" + String(o.kind || "")} data-option=${o.id} data-kind=${o.kind || ""} disabled=${done} onClick=${() => answer(o)}>${clip(o.name || o.id, 80)}</button>`)}
+        </div>`}
+    <p class=${"prompt-status" + (refused || note ? " prompt-status--error" : "")} role=${refused || note ? "alert" : "status"}>${says}</p>
+  `;
+}
+
+// A question: its text and options, and the box that sends the answer.
+function Question({ node, ask, snap, store }) {
+  return html`
+    ${ask.questions.map((q) => html`<div class="prompt-question">
+      ${q.header ? html`<p class="prompt-label">${q.header}</p>` : null}
+      <p class="prompt-text">${q.question}</p>
+      ${Array.isArray(q.options) && q.options.length > 0
+        ? html`<ul class="prompt-options">${q.options.map((o) => html`<li><span class="prompt-option-label">${o.label}</span>${o.description ? html` <span class="prompt-option-desc">${o.description}</span>` : null}</li>`)}</ul>`
+        : null}
+      ${q.multiSelect ? html`<p class="prompt-more">More than one can be chosen.</p>` : null}
+    </div>`)}
+    ${snap.remote
+      ? html`<p class="prompt-more">${IN_TERMINAL_WORDS}</p>`
+      : html`<${ManagerBar} snap=${snap} manager=${{ pane: node.pane, name: node.name || node.pane }} send=${(c) => store.send(c)} autoFocus=${false} />`}
+  `;
+}
+
+/**
+ * Prompt is the card, or nothing when the pane is not waiting on the person.
+ * node and pane are the graph's and the state push's entries for it; snap is the
+ * store's snapshot, store the store, and sendKeys types into the pane's terminal
+ * (the terminal's sendKeys). terminal says whether the pane has one.
+ */
+export function Prompt({ node, pane = null, snap, store, sendKeys, terminal = true }) {
+  const kind = waitingOn(node, pane);
+  if (!kind) return null;
+  let body = null;
+  let id = "";
+  let title = "Waiting on you";
+  if (!terminal) {
+    // A structured pane's card, with the number and request id the answer needs.
+    const s = snap.structured && snap.structured.id === node.pane ? snap.structured : null;
+    const card = s && s.card ? s.card : null;
+    if (card) {
+      id = idOf("s", card.seq, card.requestId);
+      title = "Permission: " + (card.tool || "tool");
+      body = html`<${StructuredPermission} key=${id} node=${node} card=${card} snap=${snap} store=${store} />`;
+    } else if (pane && pane.permission) {
+      id = idOf("sp", pane.permission.tool, pane.permission.command, pane.permission.file);
+      title = "Permission: " + (pane.permission.tool || "tool");
+      body = html`<${Details} permission=${pane.permission} />
+        <p class="prompt-status" role="status">${snap.remote ? DESK_WORDS : snap.structuredError ? "The request could not be loaded: " + clip(snap.structuredError.error, 200) : "Loading the request…"}</p>`;
+    }
+  } else if (kind === "permission") {
+    const p = pane.permission;
+    id = idOf("p", p.tool, p.command, p.file, p.summary, pane.statusSince);
+    title = "Permission: " + (p.tool || "tool");
+    body = html`<${TerminalPermission} key=${id} permission=${p} sendKeys=${sendKeys} />`;
+  } else if (kind === "ask") {
+    id = idOf("a", pane.statusSince, pane.ask.questions.map((q) => q.question).join("\u0002"));
+    title = "Question";
+    body = html`<${Question} key=${id} node=${node} ask=${pane.ask} snap=${snap} store=${store} />`;
+  }
+  if (!body) {
+    // The graph says the pane waits on the person, and the state push has not said
+    // on what yet (or left the details for the desktop).
+    const text = node.waitingOn && node.waitingOn.text;
+    body = html`${text ? html`<p class="prompt-text">${clip(text, 200)}</p>` : null}
+      <p class="prompt-more">${terminal ? IN_TERMINAL_WORDS : DESK_WORDS}</p>`;
+  }
+  return html`<section class="prompt" role="region" aria-label="Needs you" data-prompt=${kind}>
+    <h3 class="prompt-title">${title}</h3>
+    ${body}
+  </section>`;
+}

@@ -99,3 +99,69 @@
 @media (prefers-contrast: more) {
   .drawer-btn { border-width: 2px; }
 }
+
+/* The card for an agent waiting on the person: what it asks, and the choices.
+ * Text on it is the agent's, the tool's or a file's, drawn as text. */
+.prompt {
+  flex: 0 0 auto;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--waiting-line);
+  background: var(--waiting-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 55%;
+  overflow: auto;
+}
+.prompt p { margin: 0; }
+.prompt-title { margin: 0; font-size: 13px; font-weight: 600; color: var(--waiting); }
+.prompt-summary, .prompt-text { font-size: 13px; overflow-wrap: anywhere; }
+.prompt-label { font-size: 11px; color: var(--fg-dim); text-transform: uppercase; letter-spacing: .04em; }
+.prompt-file, .prompt-desc { font-size: 12px; color: var(--fg-dim); overflow-wrap: anywhere; }
+.prompt-more { font-size: 12px; color: var(--fg-dim); }
+.prompt-command, .prompt-diff {
+  margin: 0;
+  padding: 8px;
+  background: var(--bg-inset);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  font: 12px/1.45 var(--mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 30vh;
+  overflow: auto;
+}
+.prompt-diff span { display: block; min-height: 1.45em; }
+.prompt-diff-add { color: var(--ok); }
+.prompt-diff-del { color: var(--exited); }
+.prompt-diff-ctx { color: var(--fg-dim); }
+.prompt-choices { display: flex; flex-wrap: wrap; gap: 8px; }
+.prompt-choice {
+  min-height: 32px;
+  padding: 0 12px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  background: var(--bg-overlay);
+  color: var(--fg);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+.prompt-choice:hover:not(:disabled) { background: var(--bg-hover); }
+.prompt-choice:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.prompt-choice:disabled { opacity: .5; cursor: default; }
+.prompt-choice--allow_once { border-color: var(--ok-line); }
+.prompt-choice--reject_once, .prompt-choice--reject_always { border-color: var(--exited-line); }
+.prompt-choice--allow_always { border-style: dashed; }
+.prompt-status { font-size: 12px; color: var(--fg-dim); min-height: 1em; overflow-wrap: anywhere; }
+.prompt-status--error { color: var(--exited); }
+.prompt-question { display: flex; flex-direction: column; gap: 4px; }
+.prompt-options { margin: 0; padding-left: 18px; font-size: 13px; }
+.prompt-option-label { font-weight: 600; }
+.prompt-option-desc { color: var(--fg-dim); }
+.prompt .mbar { flex: 0 0 auto; flex-wrap: wrap; }
+.prompt .mbar-status { max-width: 100%; }
+
+@media (prefers-contrast: more) {
+  .prompt-choice { border-width: 2px; }
+}
