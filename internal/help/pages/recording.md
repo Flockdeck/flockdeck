@@ -8,7 +8,8 @@ recording** while the pane is recording. A recording pane shows a red dot and
 the word "Recording" in its header, and its record button is pressed.
 
 Only agent panes can record: a shell has no conversation, so it has no record
-button. The first time you turn recording on, Flockdeck asks you to confirm,
+button. A structured agent's pane cannot record or export yet either, because its
+conversation is not stored where Flockdeck can read it. The first time you turn recording on, Flockdeck asks you to confirm,
 and tells you what is kept.
 
 ## Exporting without having recorded

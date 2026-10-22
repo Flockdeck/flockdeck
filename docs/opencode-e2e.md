@@ -73,11 +73,12 @@ opencode 1.19.3, from npm (`opencode-ai`, the Windows x64 program).
    unconfigured opencode shows no permission cards, whatever the agent does. This is opencode's own
    default. A pane that should ask needs `permission` set in its configuration (the test sets `bash` and `edit` to `ask`), and Flockdeck does
    not set it.
-3. **After a restart, `structuredSnapshot` and the watch push hold only the new session's entries.**
+3. **After a restart, `structuredSnapshot` and the watch push held only the new session's entries. Fixed by #431.**
    The workspace's own list (`StructuredEntries`) holds the earlier sessions and the notice, and in
    this run `structuredSnapshot` returned two entries (the new prompt and its reply) against 12 in
-   the workspace list. A drawer that follows the watch loses the earlier conversation at a restart.
-   I did not change this.
+   the workspace list. A drawer that followed the watch lost the earlier conversation at a restart.
+   I did not change this in the run; #431 did, and the snapshot and the push now show the earlier
+   sessions' entries first.
 4. **The permission request's `locations` is empty for a shell command**, so the card has no file
    and the summary is `execute: <command>`.
 
