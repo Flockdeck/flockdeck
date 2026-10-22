@@ -103,7 +103,7 @@ jobs:
           fi
           matrix='{include: [$oses[] | . as $os | range(1; $c[$os] + 1) | {os: $os, shard: ., of: $c[$os]}]}'
           {
-            echo "counts=$counts"
+            echo "counts="
             echo "shard=$(jq -c --argjson c "$counts" --argjson oses '["ubuntu-latest","windows-latest","macos-latest"]' "$matrix" <<< null)"
             echo "race=$(jq -c --argjson c "$counts" --argjson oses "$race_os" "$matrix" <<< null)"
             echo "race_os=$(jq -r 'join(" ")' <<< "$race_os")"
