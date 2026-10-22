@@ -38,15 +38,18 @@ done
 for config in linux:4 race:4 macos:2; do
 	profile=${config%:*}
 	of=${config#*:}
-	names=$(go run .github/scripts/shardtests.go -shard "1/$of" -profile "$profile" -plan -names 2>&1 | grep '^names ')
-	for pkg in $(echo "$names" | awk '{print $3}' | sort -u); do
+	# In a file: the names are more than one argument can hold.
+	namesfile=$(mktemp)
+	go run .github/scripts/shardtests.go -shard "1/$of" -profile "$profile" -plan -names 2>&1 | grep '^names ' > "$namesfile"
+	for pkg in $(awk '{print $3}' "$namesfile" | sort -u); do
 		files=$(grep -L '^//go:build' "$pkg"/*_test.go 2> /dev/null)
 		[ -n "$files" ] || continue
 		# shellcheck disable=SC2086
 		for fn in $(grep -hoE '^func (Fuzz|Example)[A-Za-z0-9_]*' $files | awk '{print $2}'); do
-			check "$profile in $of: $pkg $fn is in a share" bash -c 'grep -qE "^names [0-9]+ $1 (.* )?$2( |$)" <<< "$3"' _ "$pkg" "$fn" "$names"
+			check "$profile in $of: $pkg $fn is in a share" grep -qE "^names [0-9]+ $pkg (.* )?$fn( |$)" "$namesfile"
 		done
 	done
+	rm -f "$namesfile"
 done
 
 # A share count that is not a share of the plan is refused.
