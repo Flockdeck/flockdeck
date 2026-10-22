@@ -18,9 +18,10 @@
 #     run), so that a failing package gets a full second pass before it counts
 #     as green, which catches a test that only fails after another one;
 #   - a failed package has no failing test to name (it did not build, or it
-#     timed out), or it crashed with a panic or a fatal error, which ended the
-#     test binary and left the later tests unrun (one such package makes all of
-#     them run whole);
+#     timed out), or it crashed (a panic, os.Exit, log.Fatal, a kill), which
+#     ended the test binary and left the later tests unrun: a package whose
+#     tests failed normally ends its output with a bare FAIL line, and one that
+#     crashed does not (one such package makes all of them run whole);
 #   - the caller passed its own -run, which the retry would replace.
 #
 # Six release candidates of v0.3.4 in a row were each stopped by a different
@@ -47,20 +48,24 @@ first=$(tr -d '\r' < "$log" | grep -E -- '--- FAIL' | sed 's/^[[:space:]]*//' | 
 # subtest shows its parent failing as well, so the parents are enough. A
 # package's output comes whole and ends with its FAIL line, so the names seen
 # since the last package line belong to the package that line closes. Empty if
-# any failed package has no failing test to name, or crashed: a panic or a
-# fatal error ends the test binary, so the tests after the one that failed
-# never ran, and running only the failed one would leave them unrun.
+# any failed package has no failing test to name, or crashed. A binary whose
+# tests failed normally prints a bare FAIL line before go test adds the
+# package's own FAIL line; one that died (a panic, os.Exit, log.Fatal, a kill, a
+# timeout) does not. The tests after the one that failed never ran in a binary
+# that died, and running only the failed one would leave them unrun.
 names=$(tr -d '\r' < "$log" | awk '
 	/^--- FAIL: / { seen = seen "|" $3; next }
 	/^(panic:|fatal error:)/ { crashed = 1; next }
+	$0 == "FAIL" { bare = 1; next }
 	/^FAIL[ \t]+[^ \t]+/ {
-		if (seen == "" || crashed) { none = 1 }
+		if (seen == "" || crashed || !bare) { none = 1 }
 		all = all seen
 		seen = ""
 		crashed = 0
+		bare = 0
 		next
 	}
-	/^(ok|[?])[ \t]/ { seen = ""; crashed = 0; next }
+	/^(ok|[?])[ \t]/ { seen = ""; crashed = 0; bare = 0; next }
 	END { if (!none && all != "") print substr(all, 2) }
 ')
 

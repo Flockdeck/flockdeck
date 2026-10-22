@@ -122,6 +122,78 @@ func TestX(t *testing.T) {
 func TestY(t *testing.T) { t.Fatal("not selected, never runs") }
 EOF
 
+# TestA fails once, then TestB ends the binary without a panic; TestC never runs.
+scenario exitcrash <<'EOF'
+package x
+
+import (
+	"os"
+	"testing"
+)
+
+func TestA(t *testing.T) {
+	if _, err := os.Stat(os.Getenv("SCRATCH_MARK")); err != nil {
+		os.WriteFile(os.Getenv("SCRATCH_MARK"), nil, 0o644)
+		t.Fatal("fails the first time only")
+	}
+}
+
+func TestB(t *testing.T) {
+	os.Exit(1)
+}
+
+func TestC(t *testing.T) { t.Fatal("always fails, after the binary ended") }
+EOF
+
+# The same, through log.Fatal.
+scenario fatalcrash <<'EOF'
+package x
+
+import (
+	"os"
+	"log"
+	"testing"
+)
+
+func TestA(t *testing.T) {
+	if _, err := os.Stat(os.Getenv("SCRATCH_MARK")); err != nil {
+		os.WriteFile(os.Getenv("SCRATCH_MARK"), nil, 0o644)
+		t.Fatal("fails the first time only")
+	}
+}
+
+func TestB(t *testing.T) {
+	log.Fatal("ends the binary")
+}
+
+func TestC(t *testing.T) { t.Fatal("always fails, after the binary ended") }
+EOF
+
+# The same, with the process killed from outside the test (signal: killed).
+scenario killcrash <<'EOF'
+package x
+
+import (
+	"os"
+	"testing"
+)
+
+func TestA(t *testing.T) {
+	if _, err := os.Stat(os.Getenv("SCRATCH_MARK")); err != nil {
+		os.WriteFile(os.Getenv("SCRATCH_MARK"), nil, 0o644)
+		t.Fatal("fails the first time only")
+	}
+}
+
+func TestB(t *testing.T) {
+	p, _ := os.FindProcess(os.Getpid())
+	p.Kill()
+	select {}
+}
+
+func TestC(t *testing.T) { t.Fatal("always fails, after the binary ended") }
+EOF
+
 check flaky pull_request 0
 check flaky push 0
 check always pull_request 1
@@ -133,6 +205,11 @@ check panic push 1
 check coupled pull_request 0
 check coupled push 1
 check callerrun pull_request 0 -run '^TestX$'
+# A binary that ended without a panic is never narrowed either: the tests after
+# the one that failed did not run, and TestC always fails.
+check exitcrash pull_request 1
+check fatalcrash pull_request 1
+check killcrash pull_request 1
 
 # The retry is recorded in the log, where the step that names failures reads it.
 if ! grep -q 'once more' "$work/flaky.log"; then

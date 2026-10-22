@@ -263,17 +263,19 @@ jobs:
               # The top-level tests that failed. A package's output ends with
               # its FAIL line, so the names seen since the last package line
               # belong to it. None if any failed package has no test to name,
-              # or crashed (a panic or a fatal error ends the test binary, and
-              # the tests after it never ran). Only a pull request narrows the
+              # or crashed (the test binary ended, so the tests after it never
+              # ran; a binary whose tests failed normally prints a bare FAIL
+              # line first, and one that died does not). Only a pull request narrows the
               # second run: any other run runs the whole failed package again,
               # so that a test that fails only after another one is not hidden
               # (see go-test-once-more.sh).
-              $names = @(); $seen = @(); $none = $false; $crashed = $false
+              $names = @(); $seen = @(); $none = $false; $crashed = $false; $bare = $false
               foreach ($line in Get-Content $log) {
                 if ($line -match '^--- FAIL: (\S+)') { $seen += $Matches[1] }
                 elseif ($line -match '^(panic:|fatal error:)') { $crashed = $true }
-                elseif ($line -match '^FAIL\s+\S+') { if ($seen.Count -eq 0 -or $crashed) { $none = $true }; $names += $seen; $seen = @(); $crashed = $false }
-                elseif ($line -match '^(ok|\?)\s') { $seen = @(); $crashed = $false }
+                elseif ($line -eq 'FAIL') { $bare = $true }
+                elseif ($line -match '^FAIL\s+\S+') { if ($seen.Count -eq 0 -or $crashed -or -not $bare) { $none = $true }; $names += $seen; $seen = @(); $crashed = $false; $bare = $false }
+                elseif ($line -match '^(ok|\?)\s') { $seen = @(); $crashed = $false; $bare = $false }
               }
               $only = ''
               $what = "the packages that failed: $($failed -join ' ')"
