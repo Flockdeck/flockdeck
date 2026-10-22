@@ -14,17 +14,21 @@ description: >-
 # Three things are done about it:
 #
 #   - Only what the packages depend on is installed, not what they recommend.
-#     The recommends were most of the 170 packages, gstreamer plugins among them,
-#     which nothing here compiles against or runs.
+#     That is a small saving: of about 170 packages, 13 to 15 are recommends,
+#     and the rest are dependencies.
 #   - The downloaded files are cached for the week, so a job on a warm cache
 #     fetches only the package lists and what the mirror has changed. The cache
 #     is keyed by the week and falls back to the newest earlier one, and a hit
 #     on an older one is saved again under the week's key, after the files for
 #     versions the mirror has dropped are removed.
 #   - A mirror that is slow fails over quickly: apt gives up on a connection
-#     that sends nothing for 20 seconds, retries each file, and each attempt is
-#     cut off after 7 minutes at the most. From the second attempt the packages
-#     come from archive.ubuntu.com rather than the runner's mirror.
+#     that sends nothing for 20 seconds, retries each file, and the first
+#     attempt is cut off after 4.5 minutes (2 for the lists, 2.5 for the files)
+#     and the others after 7. From the second attempt the packages come from
+#     https://archive.ubuntu.com rather than the runner's mirror; the sources
+#     file keeps its Signed-By keyring, so the signatures are checked as before.
+#     On 22 October the runner's mirror stalled and archive.ubuntu.com fetched
+#     the same 59.5 MB in 26 seconds.
 
 runs:
   using: composite
@@ -45,15 +49,6 @@ runs:
         path: /var/tmp/gtk-apt-archives
         key: gtk-apt-${{ runner.os }}-${{ runner.arch }}-${{ steps.week.outputs.week }}
         restore-keys: gtk-apt-${{ runner.os }}-${{ runner.arch }}-
-
-    # TEMPORARY, removed before the merge: how much the recommends add.
-    - shell: bash
-      run: |
-        sudo apt-get -qq update || true
-        for r in "" "--no-install-recommends"; do
-          out=$(sudo apt-get -s install -y $r libgtk-4-dev libwebkitgtk-6.0-dev 2>&1 || true)
-          echo "::notice title=simulated install ${r:-with recommends}::$(echo "$out" | grep -c '^Inst') packages; $(echo "$out" | grep 'Need to get' | tr -d '\n')"
-        done
 
     # A killed apt can leave dpkg half done, so it is finished before the next
     # attempt. A step of a composite action has no time limit of its own; the
@@ -97,11 +92,10 @@ runs:
         done
         exit 1
 
-    # TEMPORARY, removed before the merge: lets this pull request's runs write
-    # the cache, to measure a warm install. The line after the comment is the
-    # one that stays.
+    # Only a push to main writes the cache. A run that restored an exact hit
+    # has nothing new to write.
     - uses: actions/cache/save@v4
-      if: steps.cache.outputs.cache-hit != 'true' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/pull/'))
+      if: steps.cache.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'
       with:
         path: /var/tmp/gtk-apt-archives
         key: gtk-apt-${{ runner.os }}-${{ runner.arch }}-${{ steps.week.outputs.week }}
