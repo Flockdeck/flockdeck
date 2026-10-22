@@ -106,7 +106,7 @@ image's bytes, or nested entries. An id that is not an entry of the pane is refu
 
 | What | Limit |
 | --- | --- |
-| Entries in a push | The newest 50. |
+| Entries in a push | The newest 51. |
 | A prompt, reply or notice in an entry | 4 KiB. |
 | A one-line field of an entry | 1 KiB. |
 | A whole push | 128 KiB. Past it the oldest entries are left out whole, and `older` counts them. |
