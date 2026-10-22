@@ -160,9 +160,14 @@ func next(t *testing.T, c *controlClient, typ string) map[string]any {
 	}
 }
 
-func notices(c *controlClient, wait time.Duration) []string {
+// settled returns the notices the window was sent once the background helper
+// work started so far has finished. The work is the only thing that sends a
+// notice later than the command that started it, so nothing more is coming:
+// waiting for a fixed time instead cost seconds in a test that only needed the
+// install to end.
+func (r *uiRig) settled(c *controlClient) []string {
+	r.srv.waitHelperWork()
 	var out []string
-	deadline := time.After(wait)
 	for {
 		select {
 		case raw := <-c.out:
@@ -170,7 +175,7 @@ func notices(c *controlClient, wait time.Duration) []string {
 			if json.Unmarshal(raw, &m) == nil && m["type"] == "notice" {
 				out = append(out, m["text"].(string))
 			}
-		case <-deadline:
+		default:
 			return out
 		}
 	}
@@ -201,7 +206,7 @@ func TestHelperCommandsAreRefusedFromARelayWindow(t *testing.T) {
 	} {
 		c := &controlClient{out: make(chan []byte, 16), remote: true, device: "dev-1"}
 		r.send(c, cmd)
-		got := notices(c, 200*time.Millisecond)
+		got := r.settled(c)
 		if len(got) != 1 || !strings.Contains(got[0], "not from a window reached through the relay") {
 			t.Errorf("%s from a relay window: notices %v", cmd.Cmd, got)
 		}
@@ -242,14 +247,14 @@ func TestHelperInstallNeedsConfirmationAndTheShownHash(t *testing.T) {
 
 	// Not confirmed: nothing happens.
 	r.send(c, command{Cmd: "helperInstall", ID: "lens", Text: "0.4.0", SHA256: sha})
-	time.Sleep(200 * time.Millisecond)
+	r.srv.waitHelperWork()
 	if _, ok := r.store.Current("lens"); ok {
 		t.Fatal("installed without confirmation")
 	}
 
 	// A hash other than the one shown: the release changed under the dialog.
 	r.send(c, command{Cmd: "helperInstall", ID: "lens", Text: "0.4.0", SHA256: strings.Repeat("0", 64), Confirmed: true})
-	got := notices(c, 2*time.Second)
+	got := r.settled(c)
 	if len(got) == 0 || !strings.Contains(strings.Join(got, "|"), "changed since it was shown") {
 		t.Fatalf("notices = %v", got)
 	}
@@ -258,7 +263,7 @@ func TestHelperInstallNeedsConfirmationAndTheShownHash(t *testing.T) {
 	}
 
 	r.send(c, command{Cmd: "helperInstall", ID: "lens", Text: "0.4.0", SHA256: sha, Confirmed: true})
-	got = notices(c, 3*time.Second)
+	got = r.settled(c)
 	if !strings.Contains(strings.Join(got, "|"), "Installed lens 0.4.0") {
 		t.Fatalf("notices = %v", got)
 	}
@@ -272,7 +277,7 @@ func TestHelperInstallNeverOverridesABadSignature(t *testing.T) {
 	sha := r.publish(t, "0.4.0", true, true)
 	c := &controlClient{out: make(chan []byte, 32)}
 	r.send(c, command{Cmd: "helperInstall", ID: "lens", Text: "0.4.0", SHA256: sha, Confirmed: true})
-	got := notices(c, 2*time.Second)
+	got := r.settled(c)
 	if !strings.Contains(strings.Join(got, "|"), "cannot be overridden") {
 		t.Fatalf("notices = %v", got)
 	}
@@ -285,12 +290,12 @@ func TestHelperStartOfAnUninstalledHelper(t *testing.T) {
 	r := newUIRig(t)
 	c := &controlClient{out: make(chan []byte, 16)}
 	r.send(c, command{Cmd: "helperStart", ID: "lens"})
-	got := notices(c, 300*time.Millisecond)
+	got := r.settled(c)
 	if len(got) != 1 || !strings.Contains(got[0], "not installed") {
 		t.Fatalf("notices = %v", got)
 	}
 	r.send(c, command{Cmd: "helperOpen", ID: "lens"})
-	got = notices(c, 300*time.Millisecond)
+	got = r.settled(c)
 	if len(got) != 1 || !strings.Contains(got[0], "Start the helper first") {
 		t.Fatalf("notices = %v", got)
 	}
@@ -301,13 +306,13 @@ func TestHelperUninstallKeepsDataUnlessAsked(t *testing.T) {
 	sha := r.publish(t, "0.4.0", true, false)
 	c := &controlClient{out: make(chan []byte, 32)}
 	r.send(c, command{Cmd: "helperInstall", ID: "lens", Text: "0.4.0", SHA256: sha, Confirmed: true})
-	notices(c, 3*time.Second)
+	r.settled(c)
 	note := r.store.DataDir("lens") + string(os.PathSeparator) + "notes.db"
 	if err := os.WriteFile(note, []byte("mine"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	r.send(c, command{Cmd: "helperUninstall", ID: "lens"})
-	got := notices(c, 500*time.Millisecond)
+	got := r.settled(c)
 	if len(got) != 1 || !strings.Contains(got[0], "data folder was kept") {
 		t.Fatalf("notices = %v", got)
 	}
@@ -315,7 +320,7 @@ func TestHelperUninstallKeepsDataUnlessAsked(t *testing.T) {
 		t.Fatal("the data went with a plain removal")
 	}
 	r.send(c, command{Cmd: "helperUninstall", ID: "lens", Purge: true})
-	notices(c, 500*time.Millisecond)
+	r.settled(c)
 	if _, err := os.Stat(note); err == nil {
 		t.Fatal("a purge left the data")
 	}
@@ -341,7 +346,7 @@ func TestHelperCommandsOnlyTakeCatalogueIDs(t *testing.T) {
 		} {
 			c := &controlClient{out: make(chan []byte, 16)}
 			r.send(c, cmd)
-			got := notices(c, 150*time.Millisecond)
+			got := r.settled(c)
 			if len(got) != 1 || !strings.Contains(got[0], "not a helper Flockdeck knows") {
 				t.Errorf("%s %q: notices %v", cmd.Cmd, id, got)
 			}
@@ -368,7 +373,7 @@ func TestAHelperBeingInstalledCannotBeStartedOrRemoved(t *testing.T) {
 	c := &controlClient{out: make(chan []byte, 16)}
 	for _, cmd := range []command{{Cmd: "helperStart", ID: "lens"}, {Cmd: "helperUninstall", ID: "lens"}, {Cmd: "helperUninstall", ID: "lens", Purge: true}} {
 		r.send(c, cmd)
-		got := notices(c, 150*time.Millisecond)
+		got := r.settled(c)
 		if len(got) != 1 || !strings.Contains(got[0], "being installed") {
 			t.Errorf("%s: notices %v", cmd.Cmd, got)
 		}
@@ -386,14 +391,14 @@ func TestAnInstallIsRefusedWhileTheHelperIsActive(t *testing.T) {
 	sha := r.publish(t, "0.4.0", true, false)
 	c := &controlClient{out: make(chan []byte, 32)}
 	r.send(c, command{Cmd: "helperInstall", ID: "lens", Text: "0.4.0", SHA256: sha, Confirmed: true})
-	notices(c, 3*time.Second)
+	r.settled(c)
 	// A start under way: the record exists from the first moment.
 	if err := r.store.WriteStartingForTest("lens"); err != nil {
 		t.Fatal(err)
 	}
 	sha = r.publish(t, "0.5.0", true, false)
 	r.send(c, command{Cmd: "helperInstall", ID: "lens", Text: "0.5.0", SHA256: sha, Confirmed: true})
-	got := notices(c, 2*time.Second)
+	got := r.settled(c)
 	if !strings.Contains(strings.Join(got, "|"), "running") {
 		t.Fatalf("notices = %v", got)
 	}
@@ -409,7 +414,7 @@ func TestTheWindowRefusesAReleaseBelowTheHighWaterMark(t *testing.T) {
 	sha := r.publish(t, "0.5.0", true, false)
 	c := &controlClient{out: make(chan []byte, 32)}
 	r.send(c, command{Cmd: "helperInstall", ID: "lens", Text: "0.5.0", SHA256: sha, Confirmed: true})
-	notices(c, 3*time.Second)
+	r.settled(c)
 	if err := r.store.Uninstall("lens", false); err != nil {
 		t.Fatal(err)
 	}
@@ -420,7 +425,7 @@ func TestTheWindowRefusesAReleaseBelowTheHighWaterMark(t *testing.T) {
 		t.Fatalf("plan = %v", m)
 	}
 	r.send(c, command{Cmd: "helperInstall", ID: "lens", Text: "0.3.0", SHA256: old, Confirmed: true})
-	got := notices(c, 2*time.Second)
+	got := r.settled(c)
 	if !strings.Contains(strings.Join(got, "|"), "older than a signed version") {
 		t.Fatalf("notices = %v", got)
 	}
@@ -434,7 +439,7 @@ func TestThePlanOfATamperedInstallIsARepair(t *testing.T) {
 	sha := r.publish(t, "0.4.0", true, false)
 	c := &controlClient{out: make(chan []byte, 32)}
 	r.send(c, command{Cmd: "helperInstall", ID: "lens", Text: "0.4.0", SHA256: sha, Confirmed: true})
-	notices(c, 3*time.Second)
+	r.settled(c)
 	if err := os.WriteFile(filepath.Join(r.store.Root, "lens", "versions", "0.4.0", "lens"), []byte("changed"), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -444,7 +449,7 @@ func TestThePlanOfATamperedInstallIsARepair(t *testing.T) {
 		t.Fatalf("plan = %v", m)
 	}
 	r.send(c, command{Cmd: "helperInstall", ID: "lens", Text: "0.4.0", SHA256: sha, Confirmed: true})
-	got := notices(c, 3*time.Second)
+	got := r.settled(c)
 	if !strings.Contains(strings.Join(got, "|"), "Installed lens 0.4.0") {
 		t.Fatalf("notices = %v", got)
 	}
@@ -463,12 +468,12 @@ func TestRepeatedHelperListingsDoNotHitTheCDN(t *testing.T) {
 	sha := r.publish(t, "0.4.0", true, false)
 	c := &controlClient{out: make(chan []byte, 256)}
 	r.send(c, command{Cmd: "helperInstall", ID: "lens", Text: "0.4.0", SHA256: sha, Confirmed: true})
-	notices(c, 3*time.Second)
+	r.settled(c)
 
 	r.mu.Lock()
 	r.pointerHits = 0
 	r.mu.Unlock()
-	settle := func() { time.Sleep(400 * time.Millisecond) }
+	settle := r.srv.waitHelperWork
 	r.send(c, command{Cmd: "helpers", Force: true})
 	settle()
 	if got := r.hits(); got != 1 {
@@ -511,14 +516,14 @@ func TestAFailedLookupIsNotRepeatedWithinTheTTL(t *testing.T) {
 	sha := r.publish(t, "0.4.0", true, false)
 	c := &controlClient{out: make(chan []byte, 256)}
 	r.send(c, command{Cmd: "helperInstall", ID: "lens", Text: "0.4.0", SHA256: sha, Confirmed: true})
-	notices(c, 3*time.Second)
+	r.settled(c)
 	r.mu.Lock()
 	delete(r.files, "/lens/latest.json")
 	r.pointerHits = 0
 	r.mu.Unlock()
 	for i := 0; i < 4; i++ {
 		r.send(c, command{Cmd: "helpers"})
-		time.Sleep(150 * time.Millisecond)
+		r.srv.waitHelperWork()
 	}
 	if got := r.hits(); got != 1 {
 		t.Fatalf("%d lookups of a source that is down, want 1", got)
@@ -540,7 +545,7 @@ func TestAnUnsignedLensHasNoOverrideInTheDialog(t *testing.T) {
 		t.Fatalf("an override screen's hash was sent: %v", m)
 	}
 	r.send(c, command{Cmd: "helperInstall", ID: "lens", Text: "0.4.0", SHA256: sha, Confirmed: true})
-	got := notices(c, 2*time.Second)
+	got := r.settled(c)
 	if !strings.Contains(strings.Join(got, "|"), "requires every release to be signed") {
 		t.Fatalf("notices = %v", got)
 	}
@@ -556,10 +561,10 @@ func TestTheRepairIsOfferedOnlyWhenTheProgramFailsItsCheck(t *testing.T) {
 	sha := r.publish(t, "0.4.0", true, false)
 	c := &controlClient{out: make(chan []byte, 64)}
 	r.send(c, command{Cmd: "helperInstall", ID: "lens", Text: "0.4.0", SHA256: sha, Confirmed: true})
-	notices(c, 3*time.Second)
+	r.settled(c)
 	rowOf := func(force bool) map[string]any {
 		r.send(c, command{Cmd: "helpers", Force: force})
-		time.Sleep(600 * time.Millisecond)
+		r.srv.waitHelperWork()
 		var last map[string]any
 		for {
 			select {
@@ -585,7 +590,7 @@ func TestTheRepairIsOfferedOnlyWhenTheProgramFailsItsCheck(t *testing.T) {
 	}
 	// A repair clears it.
 	r.send(c, command{Cmd: "helperInstall", ID: "lens", Text: "0.4.0", SHA256: sha, Confirmed: true})
-	notices(c, 3*time.Second)
+	r.settled(c)
 	// Without a new look: the repair itself clears it.
 	if row := rowOf(false); row["needsRepair"] == true {
 		t.Fatalf("a repaired install needs repair: %v", row)
@@ -600,7 +605,7 @@ func TestARepairBelowTheMarkWorksFromTheDialog(t *testing.T) {
 	shaLow := r.publish(t, "0.3.0", true, false)
 	c := &controlClient{out: make(chan []byte, 64)}
 	r.send(c, command{Cmd: "helperInstall", ID: "lens", Text: "0.5.0", SHA256: shaHigh, Confirmed: true})
-	notices(c, 3*time.Second)
+	r.settled(c)
 	// Down to 0.3.0 by naming it, as the command line can.
 	_, inst := r.srv.helperSupervisor()
 	if _, err := inst.Install(t.Context(), "lens", "0.3.0"); err != nil {
@@ -615,7 +620,7 @@ func TestARepairBelowTheMarkWorksFromTheDialog(t *testing.T) {
 		t.Fatalf("plan = %v", m)
 	}
 	r.send(c, command{Cmd: "helperInstall", ID: "lens", Text: "0.3.0", SHA256: shaLow, Confirmed: true})
-	got := notices(c, 3*time.Second)
+	got := r.settled(c)
 	if !strings.Contains(strings.Join(got, "|"), "Installed lens 0.3.0") {
 		t.Fatalf("notices = %v", got)
 	}
@@ -628,13 +633,13 @@ func TestAStartRefusedForATamperedProgramOffersTheRepair(t *testing.T) {
 	sha := r.publish(t, "0.4.0", true, false)
 	c := &controlClient{out: make(chan []byte, 64)}
 	r.send(c, command{Cmd: "helperInstall", ID: "lens", Text: "0.4.0", SHA256: sha, Confirmed: true})
-	notices(c, 3*time.Second)
+	r.settled(c)
 	if err := os.WriteFile(filepath.Join(r.store.Root, "lens", "versions", "0.4.0", "lens"), []byte("changed"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	r.send(c, command{Cmd: "helperStart", ID: "lens"})
 	var refused bool
-	for _, n := range notices(c, time.Second) {
+	for _, n := range r.settled(c) {
 		t.Log("notice:", n)
 		refused = refused || strings.Contains(n, "changed") || strings.Contains(n, "no longer")
 	}

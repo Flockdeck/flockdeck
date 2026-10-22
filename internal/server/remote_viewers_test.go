@@ -23,16 +23,9 @@ func TestTheDeskSeesAPhoneComeAndGo(t *testing.T) {
 	srv.SetRemote(&fakeRemote{ok: true})
 	desk := readControl(dialControl(t, srv))
 	desk.settle(t)
-	// The shell going idle is broadcast a second or two after the connection
-	// first falls quiet, and would carry the count out by itself.
-	for deadline := time.Now().Add(20 * time.Second); ; {
-		if _, ok := desk.stateWithin(3*time.Second, nil); !ok {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("the control connection never went quiet")
-		}
-	}
+	// The shell goes idle a second or two after its prompt, and that change is
+	// broadcast, which would carry the change under test out by itself.
+	desk.shellsHaveStarted(t)
 	viewers := func(n int) func(stateMsg) bool {
 		return func(s stateMsg) bool { return s.Remote != nil && s.Remote.Viewers == n }
 	}

@@ -207,7 +207,7 @@ manifest (`runsWithoutAsking`, see [ACP adapters](acp-adapters.md)).
   because it needs a record of the agent's pid and start time and a test on Unix, and a clean shutdown
   already ends the whole tree (`TestCloseEndsWhatTheAgentStarted`). A parent-death signal on Linux
   could close the gap later. After Flockdeck was killed, look for leftover agent or tool processes
-  whose parent is gone (parent pid 1 on Unix, or by the agent's name) and end them by hand.
+  whose parent is gone (parent pid 1, or the user's systemd process on Linux, or by the agent's name) and end them by hand.
 
 **A login or Node problem** puts the pane in the phase `needs setup` (section 2's `setup` field),
 which reads as blocked with the detail "needs setup". The team graph lists it as "Needs setting up"
