@@ -67,6 +67,8 @@ runs:
         # but root can change a file between the check and the install; only
         # the folder apt downloads into belongs to the user apt downloads as.
         dir=/var/tmp/gtk-apt-archives
+        # A link in place of the folder would send the commands below elsewhere.
+        if [ -L "$dir" ]; then sudo rm -f "$dir"; fi
         sudo mkdir -p "$dir"
         sudo chown -R root:root "$dir"
         sudo chmod 0755 "$dir"

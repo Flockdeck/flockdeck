@@ -135,6 +135,13 @@ jobs:
           go test -count=1 -timeout 10m -run 'Schema|TestGraph|TestTwoTeamGraph|TestStructuredDocQuotes' ./internal/server
           go test -count=1 -timeout 10m -run TestRecordingFollowsTheStoredConversation ./internal/workspace
 
+      # The check the action makes of the restored package files is itself
+      # tested, with package files made here.
+      - name: Test the package cache check (Linux)
+        if: needs.changes.outputs.docs_only != 'true' && runner.os == 'Linux'
+        timeout-minutes: 5
+        run: bash .github/actions/install-gtk/verify-cache-test.sh
+
       # The packages Wails' Linux backend (internal/appwindow, cgo) is compiled
       # against, which go vet, build and test all need on Linux. The action
       # caches the downloaded files, installs no recommended packages and fails
