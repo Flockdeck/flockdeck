@@ -118,9 +118,16 @@ jobs:
         timeout-minutes: 15
         run: go vet -tags next ./internal/webui/... ./internal/server/...
 
+      # The old window's tests in internal/webui run once, in the Test step
+      # below, and are not run a second time here: under the tag only the new
+      # shell's package and the tests that differ with the tag are run.
       - name: Test the next shell
         timeout-minutes: 20
-        run: go test -count=1 -tags next ./internal/webui/...
+        run: go test -count=1 -tags next ./internal/webui/next/...
+
+      - name: Test what the tag changes in the window package
+        timeout-minutes: 10
+        run: go test -count=1 -tags next -run 'TestNextFS|TestMjsIsServedAsJavaScript|TestOnlyTheAssetTreesAreEmbedded' ./internal/webui
 
       # A release's run also fails while the release key is still the
       # placeholder (TestReleaseKeyIsInPlace), so a release can never ship
