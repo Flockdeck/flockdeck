@@ -116,3 +116,48 @@ func TestAPromptGoesToThePaneItWasWrittenFor(t *testing.T) {
 		t.Error("a prompt for a pane no longer on screen reached the focused one")
 	}
 }
+
+// TestAPromptForAPaneNoLongerOnScreenIsNotBroadcastInstead covers the same
+// refusal with broadcast on. The prompt is told it was not sent, and that has to
+// be the end of it: falling on to the send would leave the missing pane's id
+// standing as focus, and every pane in the broadcast would take the text.
+func TestAPromptForAPaneNoLongerOnScreenIsNotBroadcastInstead(t *testing.T) {
+	srv, ws := newTestServer(t)
+	conn := dialControl(t, srv)
+	st := nextState(t, conn, nil)
+	first := st.Tabs[0].Root.Pane
+	sendCmd(t, conn, command{Cmd: "splitPane", ID: first, Dir: "h", Kind: "shell"})
+	st = nextState(t, conn, func(s stateMsg) bool { return len(s.Tabs[0].Root.Children) == 2 })
+	second := st.Tabs[0].Root.Children[0].Pane
+	if second == first {
+		second = st.Tabs[0].Root.Children[1].Pane
+	}
+	// The default broadcast covers agents only, so both shells are picked by hand.
+	sendCmd(t, conn, command{Cmd: "toggleBroadcast"})
+	nextState(t, conn, func(s stateMsg) bool { return s.Broadcast })
+	for _, id := range []string{first, second} {
+		sendCmd(t, conn, command{Cmd: "toggleBroadcastMember", ID: id})
+	}
+	sendCmd(t, conn, command{Cmd: "focusPane", ID: first})
+	nextState(t, conn, func(s stateMsg) bool { return s.Tabs[0].Focus == first })
+
+	const stray = "prompt-for-a-pane-that-is-gone"
+	sendCmd(t, conn, command{Cmd: "sendPrompt", ID: "gone", Text: "echo " + stray})
+	var note noticeMsg
+	readUntil(t, conn, "notice", &note)
+	if !note.Error || !strings.Contains(note.Text, "not sent") {
+		t.Fatalf("a prompt for a pane no longer on screen was told %+v, want it not sent", note)
+	}
+	// Text typed into a pane earlier is on its screen before text typed after
+	// it, so once a prompt sent to the whole broadcast shows in both panes, a
+	// stray one would already be there.
+	const after = "prompt-to-the-whole-broadcast"
+	sendCmd(t, conn, command{Cmd: "sendPrompt", Text: "echo " + after})
+	for _, id := range []string{first, second} {
+		s := sessionOf(t, srv, ws, id)
+		waitForText(t, s, after)
+		if strings.Contains(s.RecentText(8192), stray) {
+			t.Errorf("a prompt for a pane no longer on screen was typed into pane %s", id)
+		}
+	}
+}
