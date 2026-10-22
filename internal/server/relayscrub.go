@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"slices"
 	"strings"
+	"unicode"
 
 	"github.com/jmwri/flockdeck/internal/record"
 	"github.com/jmwri/flockdeck/internal/session/transcript"
@@ -30,8 +31,8 @@ import (
 // a relay window as well (see refuseRemoteText), so these scrubs are the second
 // lock and not the only one.
 //
-// A type with no scrub registered is sent as it is, which is right for a
-// message that carries none of this text. A type that does carry it must be
+// A type with no scrub registered is dropped unless it is on relayPass, the list
+// of types that carry nothing a pane made. A type that carries text must be
 // registered, and TestRelayScrubCoversEveryCarrier fails when a new message
 // holds a permission, a question or conversation text and is not.
 //
@@ -57,7 +58,9 @@ var relayScrubs = map[string]func([]byte) []byte{
 	// Notices and baton errors quote error strings: file names, ids, and text the
 	// window itself sent. None quotes a pane's task or transcript (checked in T114),
 	// but they are redacted and cut to a line so one that came to would not carry a page.
-	"notice":             scrubNotice,
+	"notice": scrubNotice,
+	// The only teamResult a relay window is sent is the refusal of a team command.
+	"teamResult":         scrubTeamResult,
 	"batonError":         scrubBatonError,
 	"conversationAppend": dropForRelay,
 	"conversationDetail": dropForRelay,
@@ -79,13 +82,47 @@ var relayScrubs = map[string]func([]byte) []byte{
 func dropForRelay([]byte) []byte { return nil }
 
 // scrubForRemote returns the message as a relay window may be sent it, or nil
-// to send nothing.
+// to send nothing. It is default-deny: a type with a scrub is rewritten by it, a
+// type on relayPass is sent as it is, and any other type, including one that
+// cannot be read, is dropped.
 func scrubForRemote(data []byte) []byte {
-	fn, ok := relayScrubs[messageType(data)]
-	if !ok {
+	typ := messageType(data)
+	if fn, ok := relayScrubs[typ]; ok {
+		return fn(data)
+	}
+	if _, ok := relayPass[typ]; ok {
 		return data
 	}
-	return fn(data)
+	return nil
+}
+
+// relayPass is every message type a relay window is sent as it is, because it
+// carries nothing a pane's agent or task made, or is repository content (see
+// below). A type added to the server is not sent to a relay window until it is
+// put here or given a scrub; TestEveryMessageTypeIsClassifiedForTheRelay holds
+// this list to what the server sends. The values say why each is safe.
+var relayPass = map[string]string{
+	"hello": "keys and settings", "prefs": "settings", "keys": "key table", "keyTable": "key table",
+	"artifacts": "whether the device may open the artifacts socket", "agentAddress": "settings", "radarSupport": "a flag", "jevKey": "a flag",
+	"remotePair": "pairing", "remoteOutcome": "relay result", "remoteDevices": "device list", "versions": "release list",
+	"helpers": "helper apps", "helperPlan": "helper apps",
+	"batonSaved":        "ids, a path and a count",
+	"attachImageResult": "a path or a reason", "browse": "folder names", "recents": "project paths", "worktrees": "branches and paths",
+	"ghProgress": "progress", "ghStatus": "gh install state", "gitWarn": "a warning",
+	"permissionAnswer": "the refusal a relay window is given: an error sentence",
+	"agentStarted":     "ids", "detached": "a flag",
+	// Repository content, not conversation text: whether a phone is sent a diff
+	// or an issue is a separate decision from T112.
+	"changes": "git status", "diff": "a diff", "ghPR": "a pull request", "ghPRs": "pull requests", "ghIssue": "an issue", "ghIssues": "issues", "ghChecks": "check runs",
+}
+
+// relayDeskOnly is every type the server sends that a relay window is not:
+// nothing sends them to one, and a relay window that is sent one is sent
+// nothing. The test holds the list to what the server sends.
+var relayDeskOnly = map[string]string{
+	"team": "the team panel is refused to a relay window", "tasks": "the board is refused to a relay window", "messages": "mail is refused to a relay window",
+	"paneInfo": "refused to a relay window", "paneMatches": "refused to a relay window", "paneSend": "refused to a relay window",
+	"noticeWithdraw": "an approval for windows on this machine only",
 }
 
 // messageType reads the type of a marshalled message. Every message here is a
@@ -334,7 +371,7 @@ func scrubTabs(tabs []tabView, panes map[string]paneView) {
 
 // maxRemoteNotice is how much of a notice's text or a baton's error a relay
 // window is sent.
-const maxRemoteNotice = 300
+const maxRemoteNotice = 400
 
 // scrubNotice redacts and cuts the text of a notice, and leaves every other field
 // as it was.
@@ -354,10 +391,56 @@ func cutField(data []byte, field string) []byte {
 	if !ok {
 		return nil
 	}
-	m[field] = team.CleanLine(record.Redact(text), maxRemoteNotice)
+	m[field] = cutLine(record.Redact(text), maxRemoteNotice)
 	out, err := json.Marshal(m)
 	if err != nil {
 		return nil
 	}
 	return out
+}
+
+// scrubTeamResult keeps the refusal a relay window is given for a team command
+// and drops any answer that holds data.
+func scrubTeamResult(data []byte) []byte {
+	var m teamResultMsg
+	if json.Unmarshal(data, &m) != nil || m.OK || m.Error == "" {
+		return nil
+	}
+	out, err := json.Marshal(teamResultMsg{Type: "teamResult", Req: m.Req, Op: m.Op, Error: cutLine(record.Redact(m.Error), maxRemoteNotice), Code: m.Code})
+	if err != nil {
+		return nil
+	}
+	return out
+}
+
+// cutLine makes s one line and cuts it to at most max characters. Control
+// characters and runs of white space, a new line among them, become one space,
+// so words are never joined. A cut falls at a space when there is one in the
+// last 40 characters, and is marked with an ellipsis.
+func cutLine(s string, max int) string {
+	var b strings.Builder
+	space := false
+	for _, r := range s {
+		if unicode.IsControl(r) || unicode.IsSpace(r) {
+			space = b.Len() > 0
+			continue
+		}
+		if space {
+			b.WriteByte(' ')
+			space = false
+		}
+		b.WriteRune(r)
+	}
+	runes := []rune(b.String())
+	if len(runes) <= max {
+		return string(runes)
+	}
+	runes = runes[:max-1]
+	for i := len(runes) - 1; i >= 0 && i >= len(runes)-40; i-- {
+		if runes[i] == ' ' {
+			runes = runes[:i]
+			break
+		}
+	}
+	return string(runes) + "…"
 }

@@ -162,30 +162,10 @@ func TestRelayPanicToEveryWindowIsFixedForTheRelay(t *testing.T) {
 	}
 }
 
-// Every message type the server sends is placed in one of three lists, so a
-// type added later is not sent to a relay window unmarked. A type that carries
+// Every message type the server sends is on one of three lists: scrubbed, passed as it is, or desk only. A
+// type added later is dropped for a relay window until it is classified. A type that carries
 // text must have a scrub; the others are said not to carry any.
 func TestEveryMessageTypeIsClassifiedForTheRelay(t *testing.T) {
-	// Types that carry no text a pane's agent or task made.
-	noText := map[string]string{
-		"hello": "keys, settings", "prefs": "settings", "keys": "key table", "keyTable": "key table",
-
-		"artifacts": "whether the device may open the artifacts socket", "agentAddress": "settings", "radarSupport": "a flag", "jevKey": "a flag",
-		"remotePair": "pairing", "remoteOutcome": "relay result", "remoteDevices": "device list", "versions": "release list",
-		"helpers": "helper apps", "helperPlan": "helper apps",
-		"batonSaved":        "ids, a path and a count",
-		"attachImageResult": "a path or a reason", "browse": "folder names", "recents": "project paths", "worktrees": "branches and paths",
-		"ghProgress": "progress", "ghStatus": "gh install state", "gitWarn": "a warning",
-		"paneSend": "refused to a relay window", "permissionAnswer": "refused to a relay window",
-		"paneInfo": "refused to a relay window", "paneMatches": "refused to a relay window", "teamResult": "a fixed refusal to a relay window",
-		"team": "refused to a relay window", "tasks": "refused to a relay window", "messages": "refused to a relay window",
-		"agentStarted": "ids", "detached": "a flag", "noticeWithdraw": "an id; sent to windows on this machine only",
-	}
-	// Repository content, not conversation text. Out of scope for T112: whether
-	// a phone is sent a diff or an issue is a separate decision.
-	repo := map[string]string{
-		"changes": "git status", "diff": "a diff", "ghPR": "a pull request", "ghPRs": "pull requests", "ghIssue": "an issue", "ghIssues": "issues", "ghChecks": "check runs",
-	}
 	found := map[string]bool{}
 	fset := token.NewFileSet()
 	files, err := filepath.Glob("*.go")
@@ -239,8 +219,8 @@ func TestEveryMessageTypeIsClassifiedForTheRelay(t *testing.T) {
 	}
 	for typ := range found {
 		_, scrubbed := relayScrubs[typ]
-		_, clean := noText[typ]
-		_, isRepo := repo[typ]
+		_, clean := relayPass[typ]
+		_, isRepo := relayDeskOnly[typ]
 		n := 0
 		for _, b := range []bool{scrubbed, clean, isRepo} {
 			if b {
@@ -249,12 +229,12 @@ func TestEveryMessageTypeIsClassifiedForTheRelay(t *testing.T) {
 		}
 		switch {
 		case n == 0:
-			t.Errorf("the server sends a %q message that is not classified for the relay: add it to relayScrubs if it carries text, or say in this test why it does not", typ)
+			t.Errorf("the server sends a %q message that is not classified for the relay: add it to relayScrubs if it carries text, to relayPass if it does not, or to relayDeskOnly if no relay window is sent it", typ)
 		case n > 1:
 			t.Errorf("%q is in more than one list", typ)
 		}
 	}
-	for _, m := range []map[string]string{noText, repo} {
+	for _, m := range []map[string]string{relayPass, relayDeskOnly} {
 		for typ := range m {
 			if !found[typ] {
 				t.Errorf("%q is classified here and no longer sent: drop it", typ)
