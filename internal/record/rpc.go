@@ -657,15 +657,27 @@ func contextOf(prev string, prevOpen int, written string) (string, int) {
 // private key in ctx and the rest of it in text, are found; what is returned is
 // what redacting text alone would have missed. Where the redacted ctx and the
 // redacted whole part ways, the whole's text from there on is returned, which
-// can repeat a few characters of ctx but never shows a secret.
+// can repeat a few characters of ctx but never shows a secret. Invisible
+// characters that Redact took out of the whole are not counted as a difference.
 func redactAfter(ctx, text string) string {
 	if ctx == "" {
 		return Redact(text)
 	}
 	before, whole := Redact(ctx), Redact(ctx+text)
-	n := 0
-	for n < len(before) && n < len(whole) && before[n] == whole[n] {
-		n++
+	// A mark the whole has taken out of the context is skipped in the context, so
+	// that the part that is the same does not end at the first one.
+	i, n := 0, 0
+	for i < len(before) && n < len(whole) {
+		if before[i] == whole[n] {
+			i++
+			n++
+			continue
+		}
+		if r, w := utf8.DecodeRuneInString(before[i:]); invisible(r) {
+			i += w
+			continue
+		}
+		break
 	}
 	for n > 0 && n < len(whole) && !utf8.RuneStart(whole[n]) {
 		n--
