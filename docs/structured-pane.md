@@ -163,7 +163,10 @@ option names are text the agent supplied.
 edit without sending a permission request at all, so no card appears and the pane looks supervised
 when it is not (`opencode-e2e.md` has the run that showed it). Setting
 `{"permission":{"bash":"ask","edit":"ask"}}` in opencode's own configuration made it ask (`opencode-e2e.md` names no file). Flockdeck does not
-set that for you, and does not warn about it in the pane today.
+set that for you. It warns instead: the drawer header of such a pane says "This agent runs commands
+and edits files without asking you first." for as long as the pane is open, in a window at the desk
+and in one reached through the relay. Which agents get the warning is recorded in the adapter
+manifest (`runsWithoutAsking`, see [ACP adapters](acp-adapters.md)).
 
 **What a structured pane loses against a terminal pane:**
 

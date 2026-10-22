@@ -197,7 +197,8 @@ reference](structured-pane.md#6-using-a-structured-pane):
 
 - opencode, by default, runs shell commands, writes and edits without sending a
   permission request, so its permission cards gate nothing unless its own
-  permissions are set to ask.
+  permissions are set to ask. The adapter manifest records this
+  (`runsWithoutAsking`) and the drawer header shows a standing warning for it.
 - A structured agent is given no pane identity, so it cannot run `flockdeck
   inbox`, which the wake line and the briefing tell it to do.
 - A login or Node problem shows as the phase `needs setup`: a blocked pane, and a
