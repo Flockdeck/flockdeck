@@ -92,6 +92,29 @@ Windows and macOS for each pull request and each push to main, with the race
 detector on Linux (and on macOS for pushes to main), and the purge script's
 tests in a job of their own.
 
+The suite is split into four shares per platform that run at the same time, and
+so is the race detector. Each job works out the same split from the names of the
+packages and tests (`.github/scripts/shardtests.go`): a package is in one share,
+and the slowest packages are cut by test name, so a new test is placed by its
+name and nothing is listed anywhere. `.github/test-weights.txt` only balances
+the shares; a stale weight makes a share slower, never a test unrun. A share
+fails if a package, or a test of a cut package, did not report exactly once.
+The job summary of each share shows its slowest packages and tests; those
+numbers are what the weights file is regenerated from. Run a share locally
+with `go run .github/scripts/shardtests.go -shard 2/4 -profile linux -gotestflags "-count=1"`
+(`-plan` prints every share and runs nothing).
+The tests of a package are listed with a plain `go test -list`, which ignores
+`-race` and build constraints other than this system's, so a test that exists
+only under another tag is in no share. Fuzz tests and examples are listed
+too, since a plain `go test` runs their seeds.
+
+The checks the branch protection names, `test (ubuntu-latest)` and the other
+two, are a job that collects the results of the platform's `static` job (format,
+vet, the build of the next shell), its `shard` jobs and its `race` jobs, and
+fails if any of them did not run or did not pass, or if the shares disagree
+about the split (`.github/scripts/test-gate.sh`). On Windows each share runs two
+packages at a time, since the runner has four cores.
+
 A pull request that changes only documentation runs less. That means every
 changed file is a `.md` or `.json` file under `docs/`, or a `.md` file at the
 repository root. A rename counts as a delete and an add, so both paths must
@@ -137,6 +160,13 @@ What the second run covers depends on the run:
 
 `.github/scripts/go-test-once-more-test.sh` runs the script against small
 scratch packages for each of these cases, and the Linux job runs it.
+
+The shares of the test jobs (`.github/scripts/shardtests.go -retry`) do the same
+for the packages and tests of their share. A pull request runs again only what
+failed. Any other run (`-retry-all`) runs again the whole failed package, or for
+a package that is cut across shares the tests of that share, and a package that
+crashed leaves its later tests unreported, so they are run again too. A share
+fails if what it ran did not report exactly once.
 
 ## Why Windows is slower, and what was measured
 
