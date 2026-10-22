@@ -711,3 +711,66 @@ func TestARealAgentsLastStderrLineIsInItsExitError(t *testing.T) {
 		t.Errorf("the call took %v", took)
 	}
 }
+
+// A cancel sent as soon as the prompt is on its way ends that turn. The agent
+// reads the prompt and starts the turn on another goroutine, and a cancel that
+// arrives in between is this turn's, not a leftover of an earlier one.
+func TestACancelRightAfterThePromptEndsTheTurn(t *testing.T) {
+	r := newRecorder()
+	path, args, env := acptest.Command(t, acptest.WithSlowTurnStart(100*time.Millisecond))
+	var mu sync.Mutex
+	prompts := 0
+	c, err := Start(Config{Path: path, Args: args, Env: env, Dir: acptest.SessionDir(t), Handler: r,
+		Tap: func(dir string, raw []byte) {
+			if dir == TapOut && strings.Contains(string(raw), `"session/prompt"`) {
+				mu.Lock()
+				prompts++
+				mu.Unlock()
+			}
+		}})
+	if err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	t.Cleanup(func() { _ = c.Close() })
+	if _, err := c.Initialize(ctxT(t)); err != nil {
+		t.Fatalf("initialize: %v", err)
+	}
+	sid, err := c.NewSession(ctxT(t), acptest.SessionDir(t), nil)
+	if err != nil {
+		t.Fatalf("session/new: %v", err)
+	}
+	for i := 1; i <= 8; i++ {
+		stop := make(chan string, 1)
+		go func() {
+			s, err := c.Prompt(ctxT(t), sid, "slow")
+			if err != nil {
+				t.Errorf("prompt: %v", err)
+			}
+			stop <- s
+		}()
+		// The prompt has been taken from the queue, so the cancel is behind it.
+		for deadline := time.Now().Add(wait); ; {
+			mu.Lock()
+			n := prompts
+			mu.Unlock()
+			if n >= i {
+				break
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("turn %d: the prompt was never written", i)
+			}
+			time.Sleep(time.Millisecond)
+		}
+		if err := c.Cancel(sid); err != nil {
+			t.Fatalf("turn %d: cancel: %v", i, err)
+		}
+		select {
+		case s := <-stop:
+			if s != StopCancelled {
+				t.Fatalf("turn %d: stop reason = %q, want %q", i, s, StopCancelled)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatalf("turn %d: the turn did not end after a cancel sent right behind the prompt", i)
+		}
+	}
+}

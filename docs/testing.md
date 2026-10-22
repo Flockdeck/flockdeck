@@ -111,3 +111,54 @@ documentation (a comment in `.github/workflows/test.yml` will do). A push to
 main and a release always run everything, so a test that reads a document from
 a package the Ubuntu step does not cover is first run there. If the list of
 changed files cannot be read, everything runs.
+
+## When a test fails once
+
+A package that fails is run again before the run counts as red
+(`.github/scripts/go-test-once-more.sh` on Linux and macOS, and the matching
+step on Windows). A test that fails twice fails the run. One that passes the
+second time does not, but it is named in a warning annotation and in the job
+summary, so a flaky test is fixed and not forgotten.
+
+What the second run covers depends on the run:
+
+- On a pull request, only the tests that failed. A flaky test in
+  `internal/server` used to cost a second run of the whole package, over eight
+  minutes on Windows.
+- On a push to main, a release run or a manual run, the whole failed package.
+  A test that fails only after another one has run (state the earlier one left
+  behind) passes alone, so a narrow retry would hide it. Something has to give
+  a failing package a full second pass before it counts as green, and this is
+  where it happens.
+- On any run, the whole failed package when it crashed with a panic or a fatal
+  error (the test binary ended, so the tests after the failed one never ran),
+  when it failed with no test to name (a build failure or a timeout), or when
+  the caller passed its own `-run`.
+
+`.github/scripts/go-test-once-more-test.sh` runs the script against small
+scratch packages for each of these cases, and the Linux job runs it.
+
+## Why Windows is slower, and what was measured
+
+Windows is two to ten times slower than Linux on the packages that start many
+processes and make many files: in one run `internal/gitx` took 600 s on Windows
+against 59 s on Linux, `internal/workspace` 501 s against 110 s, and
+`internal/server` 508 to 731 s against 180 to 350 s. Four runners were measured
+(`ci/exp-windows-speed`, never merged).
+
+- Defender is not the cause. The hosted Windows runner has real-time
+  protection off and `C:\` and `D:\` excluded already, so exclusions add
+  nothing: `internal/gitx` alone took 233, 313 and 301 s without them and 278,
+  213 and 284 s with them.
+- Where the files live is the likeliest cause, and moving them cut the median by
+  about a third. The checkout and the runner's temp directory are on
+  `D:`, but `TEMP` (where every test makes its files and git repositories) and
+  the Go build cache are on `C:`. Creating 3000 small files took 5 to 8 s on
+  `C:` and about 1 s on `D:`. The Windows job therefore points `TEMP`, `TMP`,
+  `GOCACHE` and `GOTMPDIR` at a directory under the runner's temp directory.
+  Whole `go test ./...` on Windows, three runs each, in seconds: `C:` 799, 829,
+  807; `TEMP` only on `D:` 666, 779 and 545 (one package failed on a flaky test
+  in that run); `TEMP` and the build cache on `D:` 541, 796, 529.
+- A run's machine matters as much as the setting. The same variant ranged up to
+  twice between runs, and run alone, `internal/gitx` took 180 to 310 s where the
+  full run gave it 560 to 600 s: the packages share four cores.
