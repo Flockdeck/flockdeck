@@ -11,7 +11,7 @@ Role data lives in prefs ([device access roles](/security/device-access-roles.md
 
 | Point | Rule |
 |---|---|
-| Incoming command (`allowCommand`) | Local windows and full devices may send anything. A viewer may send only commands that `commandAccess` marks `accessViewer` (none today) or, with `watchPanes`, `accessWatcher` (`conversationOpen`, `conversationOlder`, `conversationDetail`, `conversationClose`, `conversationSearch`). Unknown commands are refused. Refusal sends the notice "This device can only view..." |
+| Incoming command (`allowCommand`) | Local windows and full devices may send anything. A viewer may send only commands that `commandAccess` marks `accessViewer` (none today) or, with `watchPanes`, `accessWatcher` (`conversationOpen`, `conversationOlder`, `conversationDetail`, `conversationClose`, `conversationSearch`). Unknown commands are refused. Refusal sends the notice "This device can only view...". Through the relay these five are refused even to a watcher until the scrub task is done (see [relay trust](/security/relay-trust-and-e2e.md)); a relay window has no chat to close |
 | Outgoing message (`mayReceive`) | A viewer gets only `hello` and `artifacts`, plus `conversationPage`, `conversationDetail`, `conversationAppend`, `conversationSearch` if it may watch. Any later new type is dropped by default |
 | Snapshot (`viewerSnapshot`) | Empty projects, tabs and panes unless `watchPanes`; then panes without desk-only parts |
 | `hello` | A viewer gets empty prefs and its `role` and `watchPanes` |

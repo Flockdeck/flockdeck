@@ -196,18 +196,20 @@ func TestRemoteViewersReachTheDesksState(t *testing.T) {
 	}
 	defer phone.CloseNow()
 
+	// Until the scrub task is done a phone's chat open is refused, so it is not
+	// a viewer of the chat and the desk is not told it is.
 	sendCmd(t, phone, command{Cmd: "conversationOpen", ID: paneID})
-	if _, ok := desk.stateWithin(5*time.Second, hasRemoteViewer(paneID, "Jim's iPhone")); !ok {
-		t.Fatal("the desk was not told a phone opened this pane's chat")
+	if _, ok := desk.stateWithin(time.Second, hasRemoteViewer(paneID, "Jim's iPhone")); ok {
+		t.Fatal("the desk was told a phone opened a chat that is refused to it")
 	}
 
-	// The same phone also opens the pane's terminal: still the one phone.
+	// The phone opens the pane's terminal: that is what it is shown.
 	term := dialRemotePTYDevice(t, ts, paneID, "Jim's iPhone")
 	if _, ok := desk.stateWithin(5*time.Second, hasRemoteViewer(paneID, "Jim's iPhone")); !ok {
-		t.Fatal("the desk lost the phone from this pane once its terminal opened too")
+		t.Fatal("the desk was not told a phone opened this pane's terminal")
 	}
 
-	// The chat closes; the terminal is still open, so the phone is still shown.
+	// Closing a chat it never had changes nothing.
 	sendCmd(t, phone, command{Cmd: "conversationClose", ID: paneID})
 	if _, ok := desk.stateWithin(5*time.Second, hasRemoteViewer(paneID, "Jim's iPhone")); !ok {
 		t.Fatal("the desk dropped the phone while its terminal was still open on this pane")

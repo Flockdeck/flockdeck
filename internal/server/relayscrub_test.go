@@ -18,8 +18,6 @@ import (
 
 	"github.com/jmwri/flockdeck/internal/record"
 	"github.com/jmwri/flockdeck/internal/session"
-	"github.com/jmwri/flockdeck/internal/session/transcript"
-	"github.com/jmwri/flockdeck/internal/team"
 	"github.com/jmwri/flockdeck/internal/workspace"
 )
 
@@ -71,10 +69,10 @@ func relayPrompts() []relayPrompt {
 		{"bash", "Bash", `{"command":"curl -H 'Authorization: ` + relaySecrets[0] + `' ` + relaySecrets[3] + ` && echo done","description":"call the api with ` + relaySecrets[1] + `"}`,
 			[]string{"curl -H", "call the api", "echo done"}, "Run a command, " + detailsOnDesktop},
 		{"edit", "Edit", `{"filePath":"/home/dev/app/config.go","oldString":"key := \"\"","newString":"key := \"` + relaySecrets[2] + `\""}`,
-			[]string{"/home/dev/app", "key :="}, "Edit config.go, " + detailsOnDesktop},
+			[]string{"/home/dev/app", "key :=", "config.go"}, "Edit a file, " + detailsOnDesktop},
 		{"write", "Write", `{"filePath":"/home/dev/.env","content":"TOKEN=` + relaySecrets[1] + `"}`,
-			[]string{"/home/dev", "TOKEN="}, "Write .env, " + detailsOnDesktop},
-		{"mcp", "mcp__vault__read", `{"command":"read ` + secret + `"}`, nil, "Use mcp__vault__read, " + detailsOnDesktop},
+			[]string{"/home/dev", "TOKEN=", ".env"}, "Write a file, " + detailsOnDesktop},
+		{"mcp", "mcp__vault__read", `{"command":"read ` + secret + `"}`, nil, "Use a tool, " + detailsOnDesktop},
 		{"ask", "AskUserQuestion",
 			`{"questions":[{"header":"Key","question":"Use ` + relaySecrets[0] + ` for prod?","options":[{"label":"Yes, ` + relaySecrets[1] + `","description":"` + relaySecrets[2] + `"}]}]}`,
 			[]string{"for prod?"}, ""},
@@ -314,94 +312,6 @@ func TestRelayStatePushCarriesNoStructuredPaneContent(t *testing.T) {
 	}
 }
 
-// A tool row's label, summary and diff are redacted for the relay, the words of
-// the conversation are not, and a page, an append and a detail are all covered.
-func TestRelayConversationMessagesAreRedacted(t *testing.T) {
-	secret := relaySecrets[0]
-	entries := []transcript.Entry{
-		{ID: "1", Kind: transcript.KindPrompt, TS: "t", Text: "please use " + secret},
-		{ID: "2", Kind: transcript.KindTool, TS: "t", Name: "Bash", Label: "curl " + secret, Summary: "ran " + relaySecrets[1], Diff: "+key=" + relaySecrets[2], HasDetail: true},
-	}
-	check := func(what string, raw []byte, got []transcript.Entry) {
-		t.Helper()
-		if len(got) != 2 {
-			t.Fatalf("%s: %d entries", what, len(got))
-		}
-		if got[0].Text != entries[0].Text {
-			t.Errorf("%s: the prompt was changed: %q", what, got[0].Text)
-		}
-		tool := got[1]
-		for _, f := range []string{tool.Label, tool.Summary, tool.Diff} {
-			if leaks := relayLeaks([]byte(f)); len(leaks) > 0 {
-				t.Errorf("%s: %q in %q", what, leaks, f)
-			}
-		}
-		if tool.Name != "Bash" || !tool.HasDetail || !strings.Contains(tool.Label, "curl ") || !strings.Contains(tool.Label, record.Redacted) {
-			t.Errorf("%s: the row = %+v", what, tool)
-		}
-	}
-
-	raw, _ := json.Marshal(conversationPageMsg{Type: "conversationPage", ID: "p", Supported: true, Entries: entries})
-	var page conversationPageMsg
-	out := scrubForRemote(raw)
-	if err := json.Unmarshal(out, &page); err != nil {
-		t.Fatal(err)
-	}
-	check("page", out, page.Entries)
-
-	raw, _ = json.Marshal(conversationAppendMsg{Type: "conversationAppend", ID: "p", Entries: entries})
-	var app conversationAppendMsg
-	out = scrubForRemote(raw)
-	if err := json.Unmarshal(out, &app); err != nil {
-		t.Fatal(err)
-	}
-	check("append", out, app.Entries)
-
-	raw, _ = json.Marshal(conversationDetailMsg{Type: "conversationDetail", ID: "p", Entry: "2",
-		Detail: transcript.Detail{Text: "out " + secret, Diff: "+ " + relaySecrets[3], Entries: entries}})
-	var det conversationDetailMsg
-	out = scrubForRemote(raw)
-	if err := json.Unmarshal(out, &det); err != nil {
-		t.Fatal(err)
-	}
-	check("detail", out, det.Detail.Entries)
-	if leaks := relayLeaks([]byte(det.Detail.Text + det.Detail.Diff)); len(leaks) > 0 {
-		t.Errorf("detail text and diff hold %q", leaks)
-	}
-}
-
-// A graph that is ever sent to a relay window has its prompt text replaced and
-// its free text redacted. The graph commands are refused to a relay window all
-// the same (graph_access_test.go); this is the second lock.
-func TestRelayGraphIsScrubbed(t *testing.T) {
-	g := graphMsg{Type: "graph", Root: "/r", Project: "p",
-		Teams: []graphTeamView{{ID: "a", Manager: "a", Members: []string{"a"}, Goal: "ship with " + relaySecrets[0], Caps: []graphCap{},
-			Needs: []team.NeedsItem{{ID: "x", Kind: team.NeedPermission, Pane: "a", Text: "rm -rf /home " + relaySecrets[1]}, {ID: "y", Kind: team.NeedReturned, Pane: "a", Text: "done " + relaySecrets[2]}}}},
-		Nodes: []graphNodeView{{GraphNode: team.GraphNode{Pane: "a", WaitingOn: team.WaitingOn{Kind: team.WaitUser, Text: "rm -rf /home " + relaySecrets[3]}},
-			Name: "n " + relaySecrets[0], Peer: "p " + relaySecrets[1], Branch: "b " + relaySecrets[2], Agent: "g " + relaySecrets[3], Live: "tool " + relaySecrets[0],
-			Task: &graphTaskChip{ID: "t", Title: "title " + relaySecrets[1], State: "doing"}}},
-		Edges: []graphEdge{{Kind: graphEdgeMessage, From: "a", To: "b", Text: "see " + relaySecrets[2]}},
-		Solo:  []string{}, SoloNeeds: []team.NeedsItem{{ID: "z", Kind: team.NeedAsk, Pane: "b", Text: "which? " + relaySecrets[0]}}}
-	raw, _ := json.Marshal(g)
-	out := scrubForRemote(raw)
-	if out == nil {
-		t.Fatal("the graph was dropped")
-	}
-	if leaks := relayLeaks(out, "rm -rf", "which?"); len(leaks) > 0 {
-		t.Errorf("the graph holds %q:\n%s", leaks, out)
-	}
-	var back graphMsg
-	if err := json.Unmarshal(out, &back); err != nil {
-		t.Fatal(err)
-	}
-	if back.Nodes[0].WaitingOn.Text != detailsOnDesktop || back.Teams[0].Needs[0].Text != detailsOnDesktop || back.SoloNeeds[0].Text != detailsOnDesktop {
-		t.Errorf("prompt text = %q, %q, %q", back.Nodes[0].WaitingOn.Text, back.Teams[0].Needs[0].Text, back.SoloNeeds[0].Text)
-	}
-	if !strings.Contains(back.Teams[0].Needs[1].Text, "done ") {
-		t.Errorf("a need that is not a prompt lost its text: %q", back.Teams[0].Needs[1].Text)
-	}
-}
-
 // A relay window is refused the graph commands, whatever its role, and is not
 // subscribed. Lifting this needs the scrub above and a sealed channel (X1).
 func TestRelayWindowCannotWatchTheGraph(t *testing.T) {
@@ -567,11 +477,11 @@ func TestGraphCutsNamePeerBranchAndAgent(t *testing.T) {
 func TestRelayPaneScrubUnit(t *testing.T) {
 	secret := relaySecrets[0]
 	structured := paneView{ID: "s", Name: "n " + secret, Status: "waiting", Structured: true,
-		Detail: "d", Task: "t", Err: "e", Last: &lastReplyView{Text: "reply " + secret, Kind: "reply"},
+		Detail: "d", Task: "t", Err: "e", Last: &lastReplyView{Text: "reply " + secret, TS: "ts1", Kind: "reply"},
 		Permission: &permissionView{Tool: "Bash", Summary: "Run: x", Command: "x", Options: []permissionOption{{ID: "yes"}}},
 		Ask:        &askView{Questions: []askQuestionView{{Question: "q"}}}}
 	plain := paneView{ID: "p", Name: "n", Status: "waiting", Detail: "d " + secret, Task: "t " + secret,
-		Last: &lastReplyView{Text: "reply " + secret, Kind: "reply"},
+		Last: &lastReplyView{Text: "reply " + secret, TS: "ts1", Kind: "reply"},
 		Cwd:  "/home/" + secret, Branch: "b-" + secret, PeerName: "peer " + secret, Project: "pr " + secret,
 		Conflicts:  []conflictView{{ID: "c", Name: "c " + secret, Branch: "x " + secret, Paths: []string{"f-" + secret}}},
 		Permission: &permissionView{Tool: "Bash", Summary: "Run: x", Command: "x", Options: []permissionOption{{ID: "yes"}}}}
@@ -588,7 +498,7 @@ func TestRelayPaneScrubUnit(t *testing.T) {
 		t.Errorf("structured = %+v", s)
 	}
 	p := back.Panes["p"]
-	if p.Last == nil || p.Last.Kind != "reply" || !strings.Contains(p.Detail, "d ") || !p.DetailsOnDesktop {
+	if p.Last == nil || p.Last.Text != "" || p.Last.Kind != "reply" || p.Last.TS != "ts1" || p.Detail != "" || p.Task != "" || !p.DetailsOnDesktop {
 		t.Errorf("plain = %+v", p)
 	}
 	if !bytes.Contains(st, []byte(`"options":[]`)) {
@@ -619,25 +529,8 @@ func TestRelayAgentsScrubUnit(t *testing.T) {
 	if err := json.Unmarshal(raw, &back); err != nil {
 		t.Fatal(err)
 	}
-	if back.Items[0].Detail != "" || !strings.HasPrefix(back.Items[1].Detail, "typed ") {
+	if back.Items[0].Detail != "" || back.Items[1].Detail != "" {
 		t.Errorf("details = %q, %q", back.Items[0].Detail, back.Items[1].Detail)
-	}
-}
-
-// A subagent's report and description are agent output, redacted like a tool row.
-func TestRelayRedactsSubagentReportAndDescription(t *testing.T) {
-	entries := []transcript.Entry{{ID: "1", Kind: transcript.KindSubagent, TS: "t",
-		Description: "look at " + relaySecrets[0], Report: "found " + relaySecrets[1], HasDetail: true}}
-	out := scrubForRemote(mustJSON(t, conversationAppendMsg{Type: "conversationAppend", ID: "p", Entries: entries}))
-	if leaks := relayLeaks(out); len(leaks) > 0 {
-		t.Errorf("the entry holds %q:\n%s", leaks, out)
-	}
-	var back conversationAppendMsg
-	if err := json.Unmarshal(out, &back); err != nil {
-		t.Fatal(err)
-	}
-	if e := back.Entries[0]; !strings.HasPrefix(e.Description, "look at ") || !strings.HasPrefix(e.Report, "found ") {
-		t.Errorf("entry = %+v", e)
 	}
 }
 

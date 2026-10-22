@@ -149,11 +149,6 @@ var agentTypeAllowed = map[string]map[string]agentTypeAllow{
 		"Server.paneSession | p.Sess": {1, "the terminal's own pane session, for the terminal socket; a pane without one is not attached"},
 		"Server.repaintSize | p.Sess": {2, "the terminal's own pane session, for the terminal socket; a pane without one is not attached"},
 	},
-	"internal/server/relayscrub.go": {
-		"scrubGraphMsg | n.WaitingOn.Kind == team.WaitUser": {1, "a needs item's or wait's kind, not a pane's"},
-		"scrubNeeds | team.NeedAsk":                         {1, "a needs item's or wait's kind, not a pane's"},
-		"scrubNeeds | team.NeedPermission":                  {1, "a needs item's or wait's kind, not a pane's"},
-	},
 	"internal/server/remote.go": {
 		"Server.remotePair | kind != remote.KindHost":   {1, "a paired device's kind, not an agent type"},
 		"Server.remotePair | kind == remote.KindHost":   {1, "a paired device's kind, not an agent type"},

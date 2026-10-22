@@ -192,6 +192,13 @@ and the command are read, and answered, at the desk (see below).
 
 ## Your agents on your phone
 
+For now the chat is not sent to a phone. The relay can read the connection the
+chat travels on, so until the text it carries is checked and sealed, opening a
+pane on a phone shows its terminal, which is encrypted end to end, and the pane
+list shows who is waiting and why but not what the agent said. The chat is still
+on the desktop. The rest of this section describes the chat as it will work once
+that is done.
+
 Opening a pane from a paired device shows a chat with the agent, not its raw
 terminal, for a Claude Code pane and for Flockdeck's own chat client (the
 built-in Anthropic, OpenAI, Google and OpenAI-compatible agents). Anything

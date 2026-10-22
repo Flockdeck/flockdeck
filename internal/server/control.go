@@ -1543,6 +1543,11 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		c.refuseViewer()
 		return
 	}
+	// No conversation text goes to a window reached through the relay until
+	// the scrub task is done (relayscrub.go).
+	if c.refuseRemoteText(cmd) {
+		return
+	}
 	switch cmd.Cmd {
 	case "setDeviceRole":
 		s.setDeviceRole(c, cmd)

@@ -12,7 +12,7 @@ Devices paired through Flockdeck Remote each have a `DeviceAccess` in [prefs](/d
 | Role | Meaning |
 |---|---|
 | `full` | Everything a local window can do, except a few desk-only actions. Default for a device with no record (devices paired before roles existed). |
-| `viewer` | Can look, cannot act. Artifacts only unless `watchPanes` is set, which also shows pane names, tasks, replies, terminal output and chat, but still no typing, resizing or running. |
+| `viewer` | Can look, cannot act. Artifacts only unless `watchPanes` is set, which also shows pane names, status and terminal output, but still no typing, resizing or running. |
 
 Fail-closed rules in code:
 

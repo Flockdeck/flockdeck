@@ -12,7 +12,7 @@ import { renderToString } from "./vendor/render-to-string.mjs";
 import { html } from "../assets/html.js";
 import { Conversation, Row, toolKind, NO_ENTRIES_WORDS, MAX_TEXT } from "../assets/drawer/Conversation.js";
 import { Live } from "../assets/shell/Live.js";
-import { VIEWER_REFUSED_PHRASE, MAX_ENTRIES } from "../assets/lib/store.js";
+import { VIEWER_REFUSED_PHRASE, REMOTE_CONVERSATION_LINE, MAX_ENTRIES } from "../assets/lib/store.js";
 import { createDom, install, settle } from "./dom.mjs";
 import { FakeWebSocket, harness, hello } from "./fakes.mjs";
 import { PtySocket, FakeTerm, FakeFit, FakeObserver } from "./termfakes.mjs";
@@ -399,4 +399,29 @@ test("a hidden drawer panel is not displayed, whatever display the panel sets", 
   const hidden = css.search(/\.drawer-panel\[hidden\]\s*\{[^}]*display:\s*none/);
   assert.ok(panel >= 0 && /\.drawer-panel \{[^}]*display:\s*flex/.test(css), "the panel no longer sets display, so this test proves nothing");
   assert.ok(hidden > panel, "a hidden panel would show beside the shown one");
+});
+
+test("a remote window is not sent conversation text: nothing is asked and the tab says where it is", async () => {
+  const h = await harness();
+  h.store.start();
+  FakeWebSocket.last.open();
+  const ws = FakeWebSocket.last;
+  // Asked for before the hello is known, as the drawer does on a reload.
+  h.store.watchConversation("p1");
+  ws.frame(hello({ remote: true }));
+  assert.equal(ws.commands("conversationOpen").length, 0, "an open was sent to the desktop");
+  assert.equal(h.store.getState().conversation.refused, REMOTE_CONVERSATION_LINE);
+  // And when the pane is asked for after the hello.
+  h.store.watchConversation("p2");
+  assert.equal(ws.commands("conversationOpen").length, 0);
+  assert.equal(h.store.getState().conversation.refused, REMOTE_CONVERSATION_LINE);
+  assert.equal(h.store.olderConversation(), false);
+  assert.equal(ws.commands("conversationOlder").length, 0);
+});
+
+test("the notice a remote window is sent for a conversation command is shown on the tab", async () => {
+  const { store, ws } = await up();
+  store.watchConversation("p1");
+  ws.frame({ type: "notice", text: REMOTE_CONVERSATION_LINE, error: true });
+  assert.equal(store.getState().conversation.refused, REMOTE_CONVERSATION_LINE);
 });
