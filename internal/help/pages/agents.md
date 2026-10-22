@@ -93,8 +93,8 @@ What to know before you use one:
   the pane or quit is answered *cancelled*.
 - **The cards may gate nothing.** opencode, as shipped, runs shell commands,
   writes and edits without asking, so no permission card appears for them.
-  Flockdeck does not change that and does not warn about it in the pane today. The
-  setting `{"permission":{"bash":"ask","edit":"ask"}}` in opencode's
+  Flockdeck does not change that; the drawer header of such a pane says so for as
+  long as the pane is open. The setting `{"permission":{"bash":"ask","edit":"ask"}}` in opencode's
   own configuration makes it ask.
 - **It cannot read mail yet.** The line Flockdeck types to wake an agent, and the
   briefing, tell it to run `flockdeck inbox`, and a structured agent is not given

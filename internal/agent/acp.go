@@ -112,6 +112,13 @@ func (s Spec) ACPAdapter() (manifest.Adapter, bool) {
 	return manifest.Default().Lookup(s.ACP.Adapter)
 }
 
+// RunsWithoutAsking says the manifest records that the agent this Spec starts
+// runs commands and edits without sending a permission request.
+func (s Spec) RunsWithoutAsking() bool {
+	a, ok := s.ACPAdapter()
+	return ok && a.RunsWithoutAsking
+}
+
 // checkACP reports what is wrong with a structured entry's "acp" block. An
 // entry that is not structured has nothing to check. ok is false when the
 // entry cannot be used at all, which is when it names no adapter the manifest

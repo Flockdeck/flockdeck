@@ -222,3 +222,15 @@ func TestParseChecksTheFieldsAProcessOrNpmReads(t *testing.T) {
 		t.Errorf("the codex entry: %v", err)
 	}
 }
+
+func TestOnlyOpencodeIsRecordedAsRunningWithoutAsking(t *testing.T) {
+	for _, a := range Default().Adapters {
+		if want := a.ID == "opencode"; a.RunsWithoutAsking != want {
+			t.Errorf("%s: runsWithoutAsking = %v, want %v", a.ID, a.RunsWithoutAsking, want)
+		}
+	}
+	m, err := Parse([]byte(wrap(strings.Replace(goodAdapter, `"needsNode":false`, `"needsNode":false,"runsWithoutAsking":true`, 1))))
+	if err != nil || !m.Adapters[0].RunsWithoutAsking {
+		t.Errorf("the field is not read: %v, %+v", err, m)
+	}
+}

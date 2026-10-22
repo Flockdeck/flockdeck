@@ -203,6 +203,7 @@
 .conv-tool--running .conv-status { color: var(--waiting); }
 .conv-refused { color: var(--waiting); }
 
+.drawer-warn { margin: 6px 0 0; padding: 6px 10px; border: 1px solid var(--waiting-line); border-radius: 6px; background: var(--waiting-subtle); color: var(--fg); font-size: 12px; line-height: 1.4; }
 .drawer-kind { flex: 0 0 auto; padding: 1px 6px; border: 1px solid var(--line); border-radius: 8px; color: var(--fg-dim); font-size: 11px; }
 .structured { display: flex; flex-direction: column; gap: 8px; min-height: 0; }
 .structured-facts { display: flex; flex-direction: column; gap: 4px; font-size: 12px; }

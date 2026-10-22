@@ -35,6 +35,10 @@ type PaneCaps struct {
 	// AnswerPermission says a waiting permission can be answered by choosing
 	// one of its options from a window, not by typing into the agent.
 	AnswerPermission bool
+	// RunsUnasked says the pane's agent runs commands and edits without sending a
+	// permission request, so its permission cards gate nothing. A window warns of
+	// it for as long as the pane is open.
+	RunsUnasked bool
 }
 
 // PermissionOption is one choice of a permission prompt: an id a window can send

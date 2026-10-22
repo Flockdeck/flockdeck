@@ -135,6 +135,14 @@ func TestTheOldWindowsPaneListMarksAStructuredPane(t *testing.T) {
 	if snap.Panes[e.dev].Structured {
 		t.Error("a terminal pane is marked structured")
 	}
+	// The manifest says opencode runs without asking, and the push carries it for
+	// that pane alone.
+	if !pv.RunsUnasked {
+		t.Error("the opencode pane is not marked as running without asking")
+	}
+	if snap.Panes[e.dev].RunsUnasked {
+		t.Error("a terminal pane is marked as running without asking")
+	}
 	// The agents list names it too, with the same activity.
 	ask(e.srv, func() bool { e.srv.sendAgents(e.c); return true })
 	var list agentsMsg
