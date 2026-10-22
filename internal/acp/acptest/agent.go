@@ -63,6 +63,7 @@ const (
 	envMarker = "FLOCKDECK_ACPTEST_MARKER"
 	envMute   = "FLOCKDECK_ACPTEST_MUTE"
 	envDeaf   = "FLOCKDECK_ACPTEST_DEAF"
+	envSlow   = "FLOCKDECK_ACPTEST_SLOWSTART"
 )
 
 // ArgAgent, as an argument, also makes a process the fake agent. A test of how
@@ -119,6 +120,9 @@ type agent struct {
 	reqSeq     int
 	authMode   string
 	markerPath string
+	// slowStart is how long a turn waits to begin after its prompt was read, as
+	// it does on a machine that is busy.
+	slowStart time.Duration
 }
 
 func newAgent() *agent {
@@ -136,6 +140,7 @@ func newAgent() *agent {
 		authMode:   os.Getenv(envAuth),
 		mute:       os.Getenv(envMute) == "1",
 		markerPath: marker,
+		slowStart:  slowStartFromEnv(),
 	}
 }
 
@@ -276,9 +281,18 @@ func (a *agent) handle(m msg) {
 		if strings.HasPrefix(promptText(m.Params), "deaf-perm") {
 			a.deaf.Store(true)
 		}
+		// A cancel that is already here is from an earlier turn. One that arrives
+		// after this point is this turn's, however late the turn gets going: this
+		// is the reader, and the cancel is read after the prompt.
+		for len(a.cancels) > 0 {
+			<-a.cancels
+		}
 		a.turns.Add(1)
 		go func() {
 			defer a.turns.Done()
+			if a.slowStart > 0 {
+				time.Sleep(a.slowStart)
+			}
 			a.prompt(m.ID, m.Params, n)
 		}()
 	}
@@ -344,11 +358,6 @@ func (a *agent) prompt(id, params json.RawMessage, n int) {
 	}
 	word, _, _ := strings.Cut(ask, " ")
 	done := func(reason string) { a.result(id, map[string]any{"stopReason": reason}) }
-
-	// A cancel from an earlier turn is not this turn's.
-	for len(a.cancels) > 0 {
-		<-a.cancels
-	}
 
 	switch word {
 	case "plain":
@@ -694,4 +703,9 @@ func sortedStrings(s []string) []string {
 		}
 	}
 	return s
+}
+
+func slowStartFromEnv() time.Duration {
+	ms, _ := strconv.Atoi(os.Getenv(envSlow))
+	return time.Duration(ms) * time.Millisecond
 }
