@@ -106,7 +106,12 @@ func TestAPromptGoesToThePaneItWasWrittenFor(t *testing.T) {
 	if !note.Error || !strings.Contains(note.Text, "not sent") {
 		t.Errorf("a prompt for a pane no longer on screen was told %+v, want it not sent", note)
 	}
-	time.Sleep(500 * time.Millisecond)
+	// Text typed into the pane earlier is on its screen before text typed after
+	// it, so once a prompt sent afterwards shows, the one refused has had its
+	// chance to appear.
+	const after = "prompt-sent-after-the-refused-one"
+	sendCmd(t, conn, command{Cmd: "sendPrompt", ID: other, Text: "echo " + after})
+	waitForText(t, bystander, after)
 	if strings.Contains(bystander.RecentText(8192), marker+"-again") {
 		t.Error("a prompt for a pane no longer on screen reached the focused one")
 	}
