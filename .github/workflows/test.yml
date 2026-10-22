@@ -360,4 +360,16 @@ jobs:
         timeout-minutes: 25
         env:
           FLOCKDECK_TEST_S3_ENDPOINT: http://127.0.0.1:5055
-        run: go test -count=1 -timeout 20m -run '^TestPurgeScript' ./cmd/release
+        # -v and the list after it show where the 8 to 12 minutes go, test by
+        # test, in the log and in the job summary.
+        run: |
+          set -o pipefail
+          status=0
+          go test -v -count=1 -timeout 20m -run '^TestPurgeScript' ./cmd/release 2>&1 | tee "$RUNNER_TEMP/purge-test.log" || status=$?
+          {
+            echo '### TestPurgeScript timings (seconds)'
+            echo '```'
+            awk '$1 == "---" { t = $4; gsub(/[()s]/, "", t); print t, $2, $3 }' "$RUNNER_TEMP/purge-test.log" | sort -rn
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+          exit $status
