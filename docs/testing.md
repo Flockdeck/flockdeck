@@ -137,3 +137,28 @@ What the second run covers depends on the run:
 
 `.github/scripts/go-test-once-more-test.sh` runs the script against small
 scratch packages for each of these cases, and the Linux job runs it.
+
+## Why Windows is slower, and what was measured
+
+Windows is two to ten times slower than Linux on the packages that start many
+processes and make many files: in one run `internal/gitx` took 600 s on Windows
+against 59 s on Linux, `internal/workspace` 501 s against 110 s, and
+`internal/server` 508 to 731 s against 180 to 350 s. Four runners were measured
+(`ci/exp-windows-speed`, never merged).
+
+- Defender is not the cause. The hosted Windows runner has real-time
+  protection off and `C:\` and `D:\` excluded already, so exclusions add
+  nothing: `internal/gitx` alone took 233, 313 and 301 s without them and 278,
+  213 and 284 s with them.
+- Where the files live is the likeliest cause, and moving them cut the median by
+  about a third. The checkout and the runner's temp directory are on
+  `D:`, but `TEMP` (where every test makes its files and git repositories) and
+  the Go build cache are on `C:`. Creating 3000 small files took 5 to 8 s on
+  `C:` and about 1 s on `D:`. The Windows job therefore points `TEMP`, `TMP`,
+  `GOCACHE` and `GOTMPDIR` at a directory under the runner's temp directory.
+  Whole `go test ./...` on Windows, three runs each, in seconds: `C:` 799, 829,
+  807; `TEMP` only on `D:` 666, 779 and 545 (one package failed on a flaky test
+  in that run); `TEMP` and the build cache on `D:` 541, 796, 529.
+- A run's machine matters as much as the setting. The same variant ranged up to
+  twice between runs, and run alone, `internal/gitx` took 180 to 310 s where the
+  full run gave it 560 to 600 s: the packages share four cores.
