@@ -53,7 +53,12 @@ var relayScrubs = map[string]func([]byte) []byte{
 	// is not dropped: it is the answer to conversationOpen, and a page that says
 	// it is unsupported and holds nothing is how a phone is told to use the
 	// terminal. Everything else about a conversation is dropped.
-	"conversationPage":   scrubConversationPage,
+	"conversationPage": scrubConversationPage,
+	// Notices and baton errors quote error strings: file names, ids, and text the
+	// window itself sent. None quotes a pane's task or transcript (checked in T114),
+	// but they are redacted and cut to a line so one that came to would not carry a page.
+	"notice":             scrubNotice,
+	"batonError":         scrubBatonError,
 	"conversationAppend": dropForRelay,
 	"conversationDetail": dropForRelay,
 	"conversationSearch": dropForRelay,
@@ -261,7 +266,7 @@ func scrubConversationPage(data []byte) []byte {
 	if json.Unmarshal(data, &m) != nil {
 		return nil
 	}
-	out, err := json.Marshal(conversationPageMsg{Type: m.Type, ID: m.ID, Entries: []transcript.Entry{}})
+	out, err := json.Marshal(conversationPageMsg{Type: "conversationPage", ID: m.ID, Entries: []transcript.Entry{}})
 	if err != nil {
 		return nil
 	}
@@ -325,4 +330,34 @@ func scrubTabs(tabs []tabView, panes map[string]paneView) {
 			tabs[i].Title = pv.Name
 		}
 	}
+}
+
+// maxRemoteNotice is how much of a notice's text or a baton's error a relay
+// window is sent.
+const maxRemoteNotice = 300
+
+// scrubNotice redacts and cuts the text of a notice, and leaves every other field
+// as it was.
+func scrubNotice(data []byte) []byte { return cutField(data, "text") }
+
+// scrubBatonError does the same for the reason a baton command failed.
+func scrubBatonError(data []byte) []byte { return cutField(data, "error") }
+
+// cutField redacts one string field of a message and cuts it to a line. A message
+// that cannot be read, or has no such field, is dropped.
+func cutField(data []byte, field string) []byte {
+	var m map[string]any
+	if json.Unmarshal(data, &m) != nil {
+		return nil
+	}
+	text, ok := m[field].(string)
+	if !ok {
+		return nil
+	}
+	m[field] = team.CleanLine(record.Redact(text), maxRemoteNotice)
+	out, err := json.Marshal(m)
+	if err != nil {
+		return nil
+	}
+	return out
 }
