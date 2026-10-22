@@ -65,9 +65,9 @@ place to lift when the decision changes. They are there because:
   command a permission prompt asks about. That text is clipped but not scrubbed
   of secrets, and team data does not cross the relay in a sealed channel yet.
   The push is scrubbed for a relay window on its way out (`internal/server/relayscrub.go`):
-  a prompt's text becomes "details on the desktop" and the free text is redacted.
-  That scrub is the condition for lifting this refusal, with the sealed channel; it
-  does not lift it.
+  the graph message is dropped for it, and the state push and agents list carry no
+  prompt text, live line, opening prompt or last reply. That scrub is the condition
+  for lifting this refusal, with the sealed channel; it does not lift it.
 - A permission prompt of a terminal pane is answered with its choice buttons over
   the end-to-end encrypted terminal connection, and that stays the only way to
   answer one from a phone.

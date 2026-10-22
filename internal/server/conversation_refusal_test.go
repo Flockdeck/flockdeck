@@ -38,3 +38,18 @@ func TestConversationTabCommandsAreForWatchers(t *testing.T) {
 		}
 	}
 }
+
+// The new shell says the same line the server's refusal starts with.
+func TestNewShellStoreMatchesTheRemoteConversationLine(t *testing.T) {
+	b, err := os.ReadFile("../webui/next/assets/lib/store.js")
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := regexp.MustCompile(`export const REMOTE_CONVERSATION_LINE = "([^"]+)"`).FindStringSubmatch(string(b))
+	if m == nil {
+		t.Fatal("store.js does not declare REMOTE_CONVERSATION_LINE")
+	}
+	if m[1] != conversationsOnDesktop {
+		t.Errorf("store.js says %q, the server sends %q", m[1], conversationsOnDesktop)
+	}
+}

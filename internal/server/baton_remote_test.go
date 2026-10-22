@@ -25,9 +25,12 @@ func TestARelayWindowsTickDoesNotSendABatonToAnotherCompany(t *testing.T) {
 	}
 	defer phone.CloseNow()
 	pane := spawnGoPane(t, srv, ws)
-	sendCmd(t, phone, command{Cmd: "makeBaton", ID: pane})
+	// The phone is not sent a draft (it is the pane's task and last words), so the
+	// desk makes it and the phone starts from it.
+	desk := dialControl(t, srv)
+	sendCmd(t, desk, command{Cmd: "makeBaton", ID: pane})
 	var draft batonDraftMsg
-	readUntil(t, phone, "batonDraft", &draft)
+	readUntil(t, desk, "batonDraft", &draft)
 
 	sendCmd(t, phone, command{Cmd: "startFromBaton", ID: pane, Text: draft.Text, Agent: "gitcli", Confirmed: true})
 	var e batonErrorMsg
@@ -55,9 +58,9 @@ func TestARelayWindowsStartToAnotherCompanyWaitsForTheDesktopNotice(t *testing.T
 	defer phone.CloseNow()
 	pane := spawnGoPane(t, srv, ws)
 	shortApprovalWait(t, 20*time.Second)
-	sendCmd(t, phone, command{Cmd: "makeBaton", ID: pane})
+	sendCmd(t, window, command{Cmd: "makeBaton", ID: pane})
 	var draft batonDraftMsg
-	readUntil(t, phone, "batonDraft", &draft)
+	readUntil(t, window, "batonDraft", &draft)
 
 	sendCmd(t, phone, command{Cmd: "startFromBaton", ID: pane, Text: draft.Text, Agent: "gitcli", Confirmed: true})
 	n := nextApproval(t, window)

@@ -18,14 +18,18 @@ import (
 
 // agentView is one pane in the overview, across every open project.
 type agentView struct {
-	PaneID  string `json:"paneId"`
-	TabID   string `json:"tabId"`
-	Tab     string `json:"tab"`
-	Root    string `json:"root"`
-	Project string `json:"project"`
-	Name    string `json:"name"`
-	Branch  string `json:"branch"`
-	Kind    string `json:"kind"`
+	PaneID string `json:"paneId"`
+	TabID  string `json:"tabId"`
+	Tab    string `json:"tab"`
+	// TabNamed says the tab title was chosen by hand. A title nobody chose is made
+	// from the first words of the opening prompt, so a window reached through the
+	// relay is not sent it (relayscrub.go).
+	TabNamed bool   `json:"tabNamed,omitempty"`
+	Root     string `json:"root"`
+	Project  string `json:"project"`
+	Name     string `json:"name"`
+	Branch   string `json:"branch"`
+	Kind     string `json:"kind"`
 	// Role is the id of the role the pane was started in, empty for none.
 	Role   string `json:"role,omitempty"`
 	Status string `json:"status"`
@@ -117,9 +121,10 @@ func (s *Server) sendAgents(c *controlClient) {
 			rt := s.ws.Runtime(p)
 			st, detail := rt.Status()
 			av := agentView{
-				PaneID: p.ID,
-				TabID:  t.ID,
-				Tab:    t.Title,
+				PaneID:   p.ID,
+				TabID:    t.ID,
+				Tab:      t.Title,
+				TabNamed: t.Named,
 				// Root says where the pane is drawn, which is what
 				// revealing it has to switch to; Project says which
 				// project the agent is actually working in. They differ

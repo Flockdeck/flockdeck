@@ -28,3 +28,5 @@ Both legs are TLS and the relay decrypts to route. The control socket and HTTP a
 ## Other limits on remote windows
 
 No quit, restart or detach; no starting helper apps; team panel refused; update and version commands refused; a baton approval is never sent to a remote window.
+
+Until the scrub task (X1) is done, a remote window is sent no conversation text: the conversation commands are refused whatever the device role (`remoteTextCommands`), the conversation and graph messages are dropped or emptied at `controlClient.write`, and the state push and agents list clear the live line, opening prompt, last reply, questions, permission text and background work text (`internal/server/relayscrub.go`). The roster and the reason a pane needs the person stay. The terminal socket is sealed and is not covered.

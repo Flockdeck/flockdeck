@@ -100,6 +100,11 @@ export const DESK_ONLY_PHRASE = "machine Flockdeck runs on";
  *  viewerRefused). A Go test pins it against the server. */
 export const VIEWER_REFUSED_PHRASE = "This device can only view";
 
+/** REMOTE_CONVERSATION_LINE is what a remote window says in place of a conversation, and
+ *  how the desktop starts the notice it sends to one that asks anyway
+ *  (internal/server/relayscrub.go, conversationsOnDesktop). A Go test pins it. */
+export const REMOTE_CONVERSATION_LINE = "Conversations are shown on the desktop only for now";
+
 /** MAX_ENTRIES bounds the entries held for one conversation. Past it the oldest
  *  are dropped, and the conversation no longer starts at the first of them. */
 export const MAX_ENTRIES = 500;
@@ -193,6 +198,12 @@ export function createStore(opts) {
   }
 
   function sendConversationOpen() {
+    // A remote window is not sent conversation text until the scrub task is done, so it
+    // is not asked, and the drawer says where the conversation is.
+    if (snap.remote) {
+      if (snap.conversation) set({ conversation: { ...snap.conversation, refused: REMOTE_CONVERSATION_LINE } });
+      return false;
+    }
     const c = snap.conversation;
     const cmd = { cmd: "conversationOpen", id: watchingConv };
     // After a reconnect the desktop is asked only for what came since.
@@ -314,7 +325,7 @@ export function createStore(opts) {
       case "notice":
         // The refusal of a conversation command is shown on the tab, once. The
         // notice is kept as well, like any other.
-        if (watchingConv !== null && snap.conversation && snap.conversation.supported === null && msg.error && String(msg.text || "").startsWith(VIEWER_REFUSED_PHRASE)) {
+        if (watchingConv !== null && snap.conversation && snap.conversation.supported === null && msg.error && (String(msg.text || "").startsWith(VIEWER_REFUSED_PHRASE) || String(msg.text || "").startsWith(REMOTE_CONVERSATION_LINE))) {
           set({ notice: { ...msg, seq: ++noticeSeq }, conversation: { ...snap.conversation, refused: String(msg.text) } });
           break;
         }
