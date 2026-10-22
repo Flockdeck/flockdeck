@@ -204,6 +204,13 @@ jobs:
         timeout-minutes: 10
         run: go test -count=1 -tags next -run 'TestNextFS|TestMjsIsServedAsJavaScript|TestOnlyTheAssetTreesAreEmbedded|TestServedE2EScriptIsTheOldOne|TestIconIsTheOldOne' ./internal/webui
 
+      # The retry script, run against small packages that fail in the ways
+      # that matter to it (docs/testing.md, "When a test fails once").
+      - name: Test the retry script
+        if: needs.changes.outputs.docs_only != 'true' && (runner.os == 'Linux')
+        timeout-minutes: 5
+        run: bash .github/scripts/go-test-once-more-test.sh
+
       # A release's run also fails while the release key is still the
       # placeholder (TestReleaseKeyIsInPlace), so a release can never ship
       # unable to check what it downloads. Other runs have no key to hold.
@@ -255,16 +262,22 @@ jobs:
               $first = @(Get-Content $log | Select-String -Pattern '--- FAIL' | ForEach-Object { $_.Line.Trim() } | Sort-Object -Unique)
               # The top-level tests that failed. A package's output ends with
               # its FAIL line, so the names seen since the last package line
-              # belong to it. None if any failed package has no test to name.
-              $names = @(); $seen = @(); $none = $false
+              # belong to it. None if any failed package has no test to name,
+              # or crashed (a panic or a fatal error ends the test binary, and
+              # the tests after it never ran). Only a pull request narrows the
+              # second run: any other run runs the whole failed package again,
+              # so that a test that fails only after another one is not hidden
+              # (see go-test-once-more.sh).
+              $names = @(); $seen = @(); $none = $false; $crashed = $false
               foreach ($line in Get-Content $log) {
                 if ($line -match '^--- FAIL: (\S+)') { $seen += $Matches[1] }
-                elseif ($line -match '^FAIL\s+\S+') { if ($seen.Count -eq 0) { $none = $true }; $names += $seen; $seen = @() }
-                elseif ($line -match '^(ok|\?)\s') { $seen = @() }
+                elseif ($line -match '^(panic:|fatal error:)') { $crashed = $true }
+                elseif ($line -match '^FAIL\s+\S+') { if ($seen.Count -eq 0 -or $crashed) { $none = $true }; $names += $seen; $seen = @(); $crashed = $false }
+                elseif ($line -match '^(ok|\?)\s') { $seen = @(); $crashed = $false }
               }
               $only = ''
               $what = "the packages that failed: $($failed -join ' ')"
-              if (-not $none -and $names.Count -gt 0) {
+              if ($env:GITHUB_EVENT_NAME -eq 'pull_request' -and -not $none -and $names.Count -gt 0) {
                 $only = '-run "^(' + (($names | Sort-Object -Unique) -join '|') + ')$"'
                 $what = "the tests that failed in $($failed -join ' ')"
               }

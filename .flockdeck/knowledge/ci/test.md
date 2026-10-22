@@ -14,7 +14,7 @@ Job `test` runs on `ubuntu-latest`, `windows-latest` and `macos-latest` (`fail-f
 
 1. Linux only: installs `libgtk-4-dev` and `libwebkitgtk-6.0-dev`, then fails if `gofmt -l .` lists any file.
 2. `go vet ./...`.
-3. `go test -count=1 -timeout 20m ./...`. On Linux and macOS this runs `.github/scripts/go-test-once-more.sh`, on Windows an equivalent PowerShell block: the tests that failed are re-run alone once (the whole package if it failed with no failing test to name). A test that passes the second time does not fail the run; a warning annotation and the job summary name the packages and the tests that failed first.
+3. `go test -count=1 -timeout 20m ./...`. On Linux and macOS this runs `.github/scripts/go-test-once-more.sh`, on Windows an equivalent PowerShell block: the failed tests are re-run alone once on a pull request; the whole failed package is re-run on other events, after a panic or fatal error, with no failing test to name, or when the caller passed `-run`. A test that passes the second time does not fail the run; a warning annotation and the job summary name the packages and the tests that failed first.
 4. Linux and macOS: the same with `-race` and `CGO_ENABLED=1`.
 5. On failure, extracts `--- FAIL`, `panic:` and `WARNING: DATA RACE` blocks (30000 bytes at most) into an error annotation.
 
