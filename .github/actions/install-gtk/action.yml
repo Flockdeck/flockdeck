@@ -33,8 +33,14 @@ runs:
       shell: bash
       run: echo "week=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
 
+    # Restored by every run, saved only by a push to main (the last step). A
+    # cache a pull request wrote is visible to that pull request alone, but a
+    # run that writes nothing cannot poison one at all, and the files are
+    # checked again anyway: apt compares every file in the archive folder with
+    # the hash in the package lists, which are signed, and fetches it again if
+    # they differ.
     - id: cache
-      uses: actions/cache@v4
+      uses: actions/cache/restore@v4
       with:
         path: ~/gtk-apt-archives
         key: gtk-apt-${{ runner.os }}-${{ runner.arch }}-${{ steps.week.outputs.week }}
@@ -66,7 +72,7 @@ runs:
           if [ "$attempt" -gt 1 ]; then
             sudo dpkg --configure -a || true
             if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then
-              sudo sed -i 's|mirror+file:/etc/apt/apt-mirrors.txt|http://archive.ubuntu.com/ubuntu/|' /etc/apt/sources.list.d/ubuntu.sources || true
+              sudo sed -i 's|mirror+file:/etc/apt/apt-mirrors.txt|https://archive.ubuntu.com/ubuntu/|' /etc/apt/sources.list.d/ubuntu.sources || true
             fi
           fi
           if sudo timeout 120 apt-get "${opts[@]}" update && sudo timeout 300 apt-get "${opts[@]}" install -y --no-install-recommends libgtk-4-dev libwebkitgtk-6.0-dev; then
@@ -80,3 +86,12 @@ runs:
           sleep 10
         done
         exit 1
+
+    # TEMPORARY, removed before the merge: lets this pull request's runs write
+    # the cache, to measure a warm install. The line after the comment is the
+    # one that stays.
+    - uses: actions/cache/save@v4
+      if: steps.cache.outputs.cache-hit != 'true' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/pull/'))
+      with:
+        path: ~/gtk-apt-archives
+        key: gtk-apt-${{ runner.os }}-${{ runner.arch }}-${{ steps.week.outputs.week }}
