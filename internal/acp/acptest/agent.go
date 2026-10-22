@@ -662,11 +662,21 @@ func (a *agent) prompt(id, params json.RawMessage, n int) {
 
 	case "perm-then-exit":
 		// The turn ends, then the agent asks for permission outside any turn
-		// and exits with the request still open.
+		// and exits with the request still open. With a marker path it exits
+		// only once the test has created that file, to say it has seen the
+		// request, so a slow machine cannot lose the request first; without
+		// one it exits after a second.
 		done("end_turn")
 		go func() {
 			a.askPermission(sid, json.RawMessage(strconv.Itoa(4000+n)))
-			time.Sleep(700 * time.Millisecond)
+			if a.markerPath == "" {
+				time.Sleep(time.Second)
+			}
+			for deadline := time.Now().Add(30 * time.Second); a.markerPath != "" && time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+				if _, err := os.Stat(a.markerPath); err == nil {
+					break
+				}
+			}
 			fmt.Fprintln(os.Stderr, "acptest: exiting with a request open")
 			os.Exit(5)
 		}()

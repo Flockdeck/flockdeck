@@ -415,12 +415,18 @@ func TestTheAgentExitingWhileIdle(t *testing.T) {
 // A permission request the agent opened and never closed does not outlive the
 // agent: after the exit nothing is pending, and answering it is refused.
 func TestAnOpenRequestIsGoneWhenTheAgentExitsWhileIdle(t *testing.T) {
-	r := begin(t, fakeOptions(t))
+	// The agent exits only once this file exists, which is after the request
+	// has been seen.
+	seen := filepath.Join(t.TempDir(), "seen")
+	r := begin(t, fakeOptions(t, acptest.WithMarker(seen)))
 	if err := r.Send("perm-then-exit"); err != nil {
 		t.Fatal(err)
 	}
 	open := until(t, r, "the request", func(s Snapshot) bool { return s.Pending != nil })
 	id, seq := open.Pending.RequestID, open.Pending.Seq
+	if err := os.WriteFile(seen, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	s := until(t, r, "the exit", func(s Snapshot) bool { return s.Phase == PhaseExited })
 	if s.Pending != nil {
 		t.Errorf("request %q still pending after the exit", s.Pending.RequestID)
