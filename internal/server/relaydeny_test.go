@@ -112,19 +112,19 @@ func TestCutLine(t *testing.T) {
 		{"a\x00b", "a b"},
 		{"", ""},
 	} {
-		if got := cutLine(c.in, 50); got != c.want {
-			t.Errorf("cutLine(%q) = %q, want %q", c.in, got, c.want)
+		if got := safeLine(c.in, 50); got != c.want {
+			t.Errorf("safeLine(%q) = %q, want %q", c.in, got, c.want)
 		}
 	}
-	got := cutLine(long, 100)
+	got := safeLine(long, 100)
 	if !strings.HasSuffix(got, "…") || len([]rune(got)) > 100 || strings.HasSuffix(strings.TrimSuffix(got, "…"), " ") || !strings.HasSuffix(strings.TrimSuffix(got, "…"), "word") {
 		t.Errorf("cut at a word = %q (%d characters)", got, len([]rune(got)))
 	}
-	solid := cutLine(strings.Repeat("x", 500), 100)
+	solid := safeLine(strings.Repeat("x", 500), 100)
 	if len([]rune(solid)) != 100 || !strings.HasSuffix(solid, "…") {
 		t.Errorf("cut of one long word = %d characters", len([]rune(solid)))
 	}
-	if got := cutLine(strings.Repeat("日", 100), 100); got != strings.Repeat("日", 100) {
+	if got := safeLine(strings.Repeat("日", 100), 100); got != strings.Repeat("日", 100) {
 		t.Errorf("a line of exactly the limit was cut")
 	}
 }
@@ -347,10 +347,36 @@ func TestRelayPassNeedsOneTypeKey(t *testing.T) {
 
 // Format characters, such as a right-to-left override, are dropped from a notice.
 func TestCutLineDropsFormatCharacters(t *testing.T) {
-	if got := cutLine("a‮b‍c⁦d", 50); got != "abcd" {
+	if got := safeLine("a‮b‍c⁦d", 50); got != "abcd" {
 		t.Errorf("cutLine = %q", got)
 	}
-	if got := cutLine("a ‮ b", 50); got != "a b" {
+	if got := safeLine("a ‮ b", 50); got != "a b" {
 		t.Errorf("cutLine = %q", got)
+	}
+}
+
+// A format character inside a secret must not hide it from the redactor: the
+// line is normalised first, so the secret is whole when it is redacted.
+func TestRelayRedactsASecretSplitByAFormatCharacter(t *testing.T) {
+	split := func(s string, mark string) string { return s[:2] + mark + s[2:] }
+	for _, mark := range []string{"​", "‮", "⁠"} {
+		for _, secret := range relaySecrets[:3] {
+			hidden := split(secret, mark)
+			for name, raw := range map[string][]byte{
+				"notice":           mustJSON(t, noticeMsg{Type: "notice", Text: "failed with " + hidden, Error: true}),
+				"batonError":       mustJSON(t, batonErrorMsg{Type: "batonError", PaneID: "p", Req: "r", Cmd: "saveBaton", Error: "bad " + hidden}),
+				"teamResult":       mustJSON(t, teamResultMsg{Type: "teamResult", Op: "taskAdd", Error: "failed " + hidden}),
+				"permissionAnswer": mustJSON(t, permissionAnswerMsg{Type: "permissionAnswer", Req: "r", ID: "p", Error: "no " + hidden}),
+			} {
+				out := scrubForRemote(raw)
+				if out == nil {
+					t.Errorf("%s with %q was dropped", name, mark)
+					continue
+				}
+				if leaks := relayLeaks(out); len(leaks) > 0 {
+					t.Errorf("%s with %U inside %q sent %q", name, []rune(mark)[0], secret, leaks)
+				}
+			}
+		}
 	}
 }

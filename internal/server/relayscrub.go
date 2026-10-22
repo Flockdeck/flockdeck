@@ -395,7 +395,7 @@ func cutField(data []byte, field string) []byte {
 	if !ok {
 		return nil
 	}
-	m[field] = cutLine(record.Redact(text), maxRemoteNotice)
+	m[field] = safeLine(text, maxRemoteNotice)
 	out, err := json.Marshal(m)
 	if err != nil {
 		return nil
@@ -410,24 +410,31 @@ func scrubTeamResult(data []byte) []byte {
 	if json.Unmarshal(data, &m) != nil || m.OK || m.Error == "" {
 		return nil
 	}
-	out, err := json.Marshal(teamResultMsg{Type: "teamResult", Req: m.Req, Op: m.Op, Error: cutLine(record.Redact(m.Error), maxRemoteNotice), Code: m.Code})
+	out, err := json.Marshal(teamResultMsg{Type: "teamResult", Req: m.Req, Op: m.Op, Error: safeLine(m.Error, maxRemoteNotice), Code: m.Code})
 	if err != nil {
 		return nil
 	}
 	return out
 }
 
-// cutLine makes s one line and cuts it to at most max characters. Control
-// characters and runs of white space, a new line among them, become one space,
-// so words are never joined. A cut falls at a space when there is one in the
-// last 40 characters, and is marked with an ellipsis.
-func cutLine(s string, max int) string {
+// safeLine is a free-text string as a relay window is sent it: made one line,
+// redacted, then cut. The order matters. Normalising first drops the format
+// characters (a zero-width space, a bidi override) that could split a secret so
+// the redactor misses it, which dropping them after the redactor would put
+// back together.
+func safeLine(s string, max int) string {
+	return cutAt(record.Redact(normaliseLine(s)), max)
+}
+
+// normaliseLine makes s one line. Format characters (a bidi override, a
+// zero-width joiner) are dropped, not made a space; control characters and runs
+// of white space, a new line among them, become one space, so words are never
+// joined.
+func normaliseLine(s string) string {
 	var b strings.Builder
 	space := false
 	for _, r := range s {
 		if unicode.Is(unicode.Cf, r) {
-			// A format character (a bidi override, a zero-width joiner) is dropped, not
-			// made a space.
 			continue
 		}
 		if unicode.IsControl(r) || unicode.IsSpace(r) {
@@ -440,9 +447,15 @@ func cutLine(s string, max int) string {
 		}
 		b.WriteRune(r)
 	}
-	runes := []rune(b.String())
+	return b.String()
+}
+
+// cutAt cuts s to at most max characters. A cut falls at a space when there is
+// one in the last 40 characters, and is marked with an ellipsis.
+func cutAt(s string, max int) string {
+	runes := []rune(s)
 	if len(runes) <= max {
-		return string(runes)
+		return s
 	}
 	runes = runes[:max-1]
 	for i := len(runes) - 1; i >= 0 && i >= len(runes)-40; i-- {
@@ -463,7 +476,7 @@ func scrubPermissionAnswer(data []byte) []byte {
 		return nil
 	}
 	out, err := json.Marshal(permissionAnswerMsg{Type: "permissionAnswer", Req: m.Req, ID: m.ID, CardSeq: m.CardSeq, RequestID: m.RequestID,
-		Error: cutLine(record.Redact(m.Error), maxRemoteNotice)})
+		Error: safeLine(m.Error, maxRemoteNotice)})
 	if err != nil {
 		return nil
 	}
