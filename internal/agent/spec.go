@@ -354,3 +354,11 @@ func Group(token string, values ...string) Arg {
 	}
 	return g
 }
+
+// OffersWakeText says the user may opt this agent type in to being given the
+// message text in place of the fixed wake line: an agent that cannot run a
+// command (Caps.TextWake), or one behind a protocol, which has no Flockdeck
+// command line at all.
+func (s Spec) OffersWakeText() bool {
+	return s.Caps.TextWake || s.Runner == RunnerACP
+}

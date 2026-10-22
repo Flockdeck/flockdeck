@@ -801,3 +801,12 @@ func TestOnlyAiderOffersTextWake(t *testing.T) {
 		}
 	}
 }
+
+func TestWakeTextIsOfferedToAiderAndProtocolAgentsOnly(t *testing.T) {
+	for _, spec := range (&Catalog{Specs: normalizeAll(Builtins())}).Specs {
+		want := spec.ID == "aider" || spec.Runner == RunnerACP
+		if got := spec.OffersWakeText(); got != want {
+			t.Errorf("%q: OffersWakeText = %v, want %v", spec.ID, got, want)
+		}
+	}
+}

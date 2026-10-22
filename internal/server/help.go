@@ -559,7 +559,7 @@ func (s *Server) setWakeSwitch(c *controlClient, cmd command) {
 	// agent whose catalog entry offers it may be opted in; turning it off is
 	// always allowed.
 	if cmd.Kind == store.WakeText && cmd.Text == "on" {
-		if spec, ok := agent.Load().Find(cmd.ID); !ok || !spec.Caps.TextWake {
+		if spec, ok := agent.Load().Find(cmd.ID); !ok || !spec.OffersWakeText() {
 			c.notify("Typed message text is only offered for agents that cannot run commands, and "+cmd.ID+" is not one", true)
 			return
 		}
