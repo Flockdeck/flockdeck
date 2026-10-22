@@ -357,3 +357,13 @@ func TestACPPassEnvTwoCasesOfOneName(t *testing.T) {
 		t.Errorf("on %s: lower %v, exact %v", runtime.GOOS, lower, exact)
 	}
 }
+
+func TestASpecKnowsFromTheManifestThatItRunsWithoutAsking(t *testing.T) {
+	got := map[string]bool{}
+	for _, s := range Builtins() {
+		got[s.ID] = s.RunsWithoutAsking()
+	}
+	if !got["opencode-acp"] || got["gemini-acp"] || got["codex-acp"] || got["claude"] {
+		t.Errorf("runs without asking = %v", got)
+	}
+}

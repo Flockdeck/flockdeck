@@ -9,6 +9,11 @@
 import { html } from "../html.js";
 import { stateOf, dirtyOf } from "../graph/Node.js";
 
+/** UNASKED_WORDS is the standing warning for an agent the manifest records as
+ *  running commands and edits without sending a permission request. It says only
+ *  that, and is a constant: nothing from the agent is in it. */
+export const UNASKED_WORDS = "This agent runs commands and edits files without asking you first.";
+
 /** sinceOf says how long a status has lasted, as "3m", "2h 5m" or "45s", from
  *  an RFC 3339 time and the current time in milliseconds. A time that is not
  *  one, or is in the future, gives an empty string. */
@@ -66,6 +71,7 @@ export function Header({ node, pane = null, now = Date.now(), maximised = false,
           <button type="button" class="drawer-btn drawer-close" aria-label="Close the agent" onClick=${onClose}>Close</button>
         </div>
       </div>
+      ${pane && pane.runsUnasked === true ? html`<p class="drawer-warn" role="note">${UNASKED_WORDS}</p>` : null}
       <dl class="drawer-facts">
         ${who ? html`<div class="fact fact--who"><dt>Agent</dt><dd>${who}</dd></div>` : null}
         <div class=${"fact fact--status fact--" + state.key}>

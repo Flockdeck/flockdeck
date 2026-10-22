@@ -24,6 +24,12 @@ the user installs it. An adapter that is pinned (Codex) is installed by Flockdec
 at exactly that version, because its adapter ships previews almost daily and has
 changed owner before.
 
+`runsWithoutAsking` is set on an adapter whose agent, started the way Flockdeck
+starts it, runs shell commands and edits without sending a permission request.
+It is what was seen of the tested version. A structured pane of such an agent
+shows a standing warning in the drawer header, and its permission cards gate
+nothing unless the agent's own configuration is set to ask.
+
 ## Node
 
 Node.js is not bundled. An adapter marked "yes" under Needs Node cannot start

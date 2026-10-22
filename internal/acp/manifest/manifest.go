@@ -57,6 +57,12 @@ type Adapter struct {
 	// Install is the text shown for how to get it.
 	Install string `json:"install"`
 	Note    string `json:"note,omitempty"`
+	// RunsWithoutAsking says the agent, started the way Flockdeck starts it,
+	// runs shell commands and edits files without sending a permission request,
+	// so a permission card gates nothing for it. A window warns of it for the
+	// life of the pane. It is what was observed of the tested version, not a
+	// promise about others.
+	RunsWithoutAsking bool `json:"runsWithoutAsking,omitempty"`
 }
 
 // Manifest is the list.

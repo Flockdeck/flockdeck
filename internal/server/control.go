@@ -459,6 +459,11 @@ type paneView struct {
 	// Structured says the pane's agent is driven over a protocol, so it has no
 	// terminal: the old window draws a stub for it and types nothing into it.
 	Structured bool `json:"structured,omitempty"`
+	// RunsUnasked says the pane's agent runs commands and edits without sending
+	// a permission request, so a permission card gates nothing for it. A window
+	// shows a standing warning. It is a fact about the agent and is sent to a
+	// relay window as it is.
+	RunsUnasked bool `json:"runsUnasked,omitempty"`
 	// RemoteViewers is the device name of every window reached through the
 	// relay that has this pane open right now, in its chat view or its
 	// terminal -- so a window at the desk can show that a phone, its own
@@ -822,6 +827,7 @@ func (s *Server) snapshot() stateMsg {
 				PeerName:     ws.PeerNameOf(p),
 				Task:         p.Task,
 				Structured:   rt.Transport() == workspace.TransportStructured,
+				RunsUnasked:  rt.Caps().RunsUnasked,
 			}
 			pv.RemoteViewers = s.remoteViewersFor(p.ID)
 			pv.RemoteInsecure = remoteTermViewers.insecure(p.ID)

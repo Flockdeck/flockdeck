@@ -186,7 +186,29 @@ permission request is answered by choosing one of its options. Nothing answers a
 request on its own, except that an open request is answered cancelled when the
 turn is stopped and when the pane is closed. A structured pane gets no phone push
 for a pending permission, and `permissionAnswer` is refused to a window reached
-through the relay, so the request can be answered at the desk only.
+through the relay, so the request can be answered at the desk only. What a relay
+window is told of a structured pane is its roster entry with the names
+redacted (name, status, directory, branch, project, agent, model), a flag saying
+the details are on the desktop, and no text the agent wrote
+(`internal/server/relayscrub.go`).
+
+Current limits, each said plainly in the [structured pane
+reference](structured-pane.md#6-using-a-structured-pane):
+
+- opencode, by default, runs shell commands, writes and edits without sending a
+  permission request, so its permission cards gate nothing unless its own
+  permissions are set to ask. The adapter manifest records this
+  (`runsWithoutAsking`) and the drawer header shows a standing warning for it.
+- A structured agent is given no pane identity, so it cannot run `flockdeck
+  inbox`, which the wake line and the briefing tell it to do.
+- A login or Node problem shows as the phase `needs setup`: a blocked pane, and a
+  "Needs setting up" item in the team graph with the step to take. For a
+  missing Node the step ends with restarting Flockdeck, since a new Node on the
+  path is only seen after a restart.
+- No stream recording is started for a structured pane, though the recorder
+  exists.
+- A restart starts a fresh session and keeps the earlier entries with a notice,
+  also when the new agent cannot be started.
 
 The pieces, each its own package:
 
@@ -244,11 +266,12 @@ is pushed a new one when it changes, no more often than every 500 milliseconds.
 `paneSend` sends text to a pane by id, the conversation commands read a pane's
 conversation, and `permissionAnswer` answers a structured pane's permission
 request. The graph commands, `paneSend` and `permissionAnswer` are refused to a
-window reached through the relay. The conversation commands are not: a relay
-device with watch access can read a terminal pane's conversation. A structured
-pane's is not stored where they read, and its own commands are refused to the relay. The default window calls
-none of these, so the window described above is unchanged. The page built with
-`-tags next` (`webui.Variant` says which a binary carries) is a new shell laid
+window reached through the relay. The conversation commands are not. Today a relay
+device with watch access can read a terminal pane's conversation. The decision is
+to stop that (T112, in progress). A structured pane's conversation is not stored
+where they read, and its own commands are refused to the relay. The default
+window calls none of these, so the window described above is unchanged. The page
+built with `-tags next` (`webui.Variant` says which a binary carries) is a new shell laid
 over it, and that one calls them. The messages are in the
 [team graph reference](team-graph.md).
 

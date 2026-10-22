@@ -69,6 +69,59 @@ made-up price is worse than none. An API agent given an address of its own,
 such as a gateway's, is not priced at all, since what it charges is not the
 vendor's list price.
 
+## Structured agents (beta)
+
+A structured agent is one Flockdeck talks to over the Agent Client Protocol
+instead of in a terminal. Its pane has no screen: the new interface's drawer
+shows its conversation, a box to send it a prompt and a Stop button, and the
+current window shows a stub line and sends it nothing. Today the one offered is
+opencode (structured). There is none for Claude Code.
+
+It is off until you turn it on. Put `"structuredPanes": true` in `prefs.json`
+in the state directory (there is no setting for it in the window); until then
+the picker does not offer a structured agent. Turning it off again takes effect
+when you restart a pane or when the agents are read again, and does not end a
+running pane.
+
+What to know before you use one:
+
+- **Approval is at the desk.** A permission request is answered from a window on
+  this machine, by choosing one of the options the agent offered. A phone gets no
+  notification for it and cannot answer it, and a window reached through the
+  relay is told its name, status, directory, branch, project, agent and model, and
+  no text the agent wrote. Nothing is answered for you; a request still open when you stop the turn, close or restart
+  the pane or quit is answered *cancelled*.
+- **The cards may gate nothing.** opencode, as shipped, runs shell commands,
+  writes and edits without asking, so no permission card appears for them.
+  Flockdeck does not change that; the drawer header of such a pane says so for as
+  long as the pane is open. The setting `{"permission":{"bash":"ask","edit":"ask"}}` in opencode's
+  own configuration makes it ask.
+- **Mail needs an opt-in.** A structured agent has no `flockdeck` command and is
+  not given the pane identity one needs, so it cannot run `flockdeck inbox`. By
+  default it is not woken by mail at all, and its briefing says mail is not
+  available to it. `flockdeck wake text on -agent opencode-acp` turns it on for
+  that agent type. Then each wake is one prompt holding the oldest unread
+  message, as `Flockdeck message from agent "<role>": <text>` (`the user` for a
+  message you wrote), and the message counts as read once the agent takes it.
+  This puts text written by another agent in front of an agent that may run
+  commands, as if it were a turn from you. What limits it: the fixed start of the
+  line, one line with escapes and control characters removed, the sender label cut
+  at 32 characters, the text cut at 300 characters, and a briefing that tells the
+  agent to treat the text as a message from another agent and not as your
+  instruction. The agent cannot fetch what is cut. Leave it off for an agent you
+  would not trust with a peer's words.
+- **A login or Node problem** shows as a blocked pane marked "needs setup", and
+  as "Needs setting up" in the team graph, with the one step to take: sign in with
+  the agent's own tool (Flockdeck never signs in), install the agent, or install Node 20 or
+  newer where the adapter needs it and restart Flockdeck, since a new Node on the
+  path is only seen by a restarted Flockdeck. Start the pane again after the other
+  two.
+- **A restart starts a new session.** The earlier entries stay above a line saying
+  the agent was restarted. If the new agent cannot be started, they stay too, with
+  a line giving the reason.
+- **Nothing is recorded or exported.** Recording and export are not available for a
+  structured pane yet.
+
 ## An endpoint's address
 
 The OpenAI-compatible endpoint ships with no address, because none would be

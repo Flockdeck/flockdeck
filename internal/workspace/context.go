@@ -148,6 +148,13 @@ type PaneContext struct {
 	// reports its lifecycle through hooks.
 	Notified bool
 
+	// Structured says the pane is an agent behind a protocol, with no terminal
+	// and no Flockdeck command line, so it cannot run `inbox` or `msg send`.
+	// MailText says its mail is delivered as prompts holding the message text,
+	// which the person has to have allowed for its agent type.
+	Structured bool
+	MailText   bool
+
 	// KnowledgeDir is the project's knowledge bundle in this pane's own checkout,
 	// when the briefing should point at it. See knowledgeDir.
 	KnowledgeDir string
@@ -318,6 +325,11 @@ func (w *Workspace) PaneContext(paneID string) (PaneContext, bool) {
 		c.OtherProjects = append(c.OtherProjects, groupNames[g.ID])
 	}
 	sort.Strings(c.OtherProjects)
+
+	if p.Structured() {
+		c.Structured = true
+		c.MailText = w.wakeSettings != nil && wakeTextAllowed(wakeCandidate{Agent: p.Agent, Deliver: func(string) error { return nil }}, w.wakeSettings)
+	}
 
 	if !c.Shell && p.IsAgent() && c.Cwd != "" {
 		c.KnowledgeDir = w.knowledgeDir(paneID, c.Cwd, c.ProjectRoot)

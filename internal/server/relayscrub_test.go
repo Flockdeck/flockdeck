@@ -488,7 +488,7 @@ func TestGraphCutsNamePeerBranchAndAgent(t *testing.T) {
 // card of another pane has empty options in the bytes, not only after decoding.
 func TestRelayPaneScrubUnit(t *testing.T) {
 	secret := relaySecrets[0]
-	structured := paneView{ID: "s", Name: "n " + secret, Status: "waiting", Structured: true,
+	structured := paneView{ID: "s", Name: "n " + secret, Status: "waiting", Structured: true, RunsUnasked: true,
 		Detail: "d", Task: "t", Err: "e", Last: &lastReplyView{Text: "reply " + secret, TS: "ts1", Kind: "reply"},
 		Permission: &permissionView{Tool: "Bash", Summary: "Run: x", Command: "x", Options: []permissionOption{{ID: "yes"}}},
 		Ask:        &askView{Questions: []askQuestionView{{Question: "q"}}}}
@@ -506,6 +506,9 @@ func TestRelayPaneScrubUnit(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := back.Panes["s"]
+	if !s.RunsUnasked {
+		t.Error("the warning flag did not reach the relay window")
+	}
 	if s.Last != nil || s.Detail != "" || s.Task != "" || s.Err != "" || s.Permission != nil || s.Ask != nil || !s.DetailsOnDesktop || s.Status != "waiting" {
 		t.Errorf("structured = %+v", s)
 	}

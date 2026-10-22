@@ -11,20 +11,21 @@ import { createDom, install, settle } from "./dom.mjs";
 import { fakeStore, paneState } from "./termfakes.mjs";
 import { FakeWebSocket, harness, hello } from "./fakes.mjs";
 import { Structured } from "../assets/drawer/Structured.js";
+import { UNASKED_WORDS } from "../assets/drawer/Header.js";
 
 const NOW = Date.parse("2026-10-21T09:20:00Z");
 const node = { pane: "p3", kind: "structured", structured: true, name: "shop-w2", role: "worker", agent: "gemini", status: "working", activity: "working", since: "2026-10-21T09:14:02Z" };
 const entry = (i, over = {}) => ({ id: "e" + i, kind: "reply", ts: "2026-10-21T09:00:00Z", markdown: "reply " + i, ...over });
 const push = (over = {}) => ({ type: "structured", id: "p3", kind: "structured", entries: [], plan: [], usage: { used: 0, size: 0 }, ...over });
 
-async function mount(st, { remote = false } = {}) {
+async function mount(st, { remote = false, pane = null } = {}) {
   const dom = createDom();
   const restore = install(dom);
   const container = dom.document.createElement("div");
   dom.body.appendChild(container);
   const store = fakeStore({ hello: { type: "hello" }, state: paneState({ p3: { structured: true } }), remote, structured: st, structuredError: null, cancelError: null, conversation: null });
   let shown = node;
-  const draw = () => render(html`<${Drawer} store=${store} snap=${store.getState()} node=${shown} now=${NOW} />`, container);
+  const draw = () => render(html`<${Drawer} store=${store} snap=${store.getState()} node=${shown} pane=${pane} now=${NOW} />`, container);
   draw();
   await settle();
   return {
@@ -294,3 +295,27 @@ test("rows keep their DOM elements when the oldest entry drops off the 50-entry 
       assert.equal(after.get("e" + i), before.get("e" + i), "row e" + i + " was made again");
     }
   }));
+
+test("an agent the manifest records as running without asking carries a standing warning in the header, at the desk and through the relay", async () => {
+  for (const remote of [false, true]) {
+    await with_(push({ entries: [entry(1)] }), { remote, pane: { id: "p3", structured: true, runsUnasked: true } }, async (m) => {
+      const warn = m.container.find(".drawer-warn");
+      assert.ok(warn, "no warning in the " + (remote ? "relay" : "desk") + " window");
+      assert.equal(warn.textContent, UNASKED_WORDS);
+      assert.equal(UNASKED_WORDS, "This agent runs commands and edits files without asking you first.");
+      // It stays while the pane is open, whatever the pane does.
+      await m.set({ structured: push({ entries: [entry(1), entry(2)], card: null }) });
+      assert.ok(m.container.find(".drawer-warn"), "the warning went away");
+    });
+  }
+});
+
+test("no warning for an agent the manifest does not flag, or for a flag that is not true", async () => {
+  for (const pane of [null, { id: "p3", structured: true }, { id: "p3", structured: true, runsUnasked: false }, { id: "p3", structured: true, runsUnasked: "<b>yes</b>" }]) {
+    await with_(push(), { pane }, async (m) => {
+      assert.equal(m.container.find(".drawer-warn"), null, "a warning for " + JSON.stringify(pane));
+      assert.equal(m.container.findAll("b").length, 0);
+    });
+  }
+});
+

@@ -654,8 +654,14 @@ direction-changing characters are dropped, and other text, non-ASCII included, i
 written. The line is at most 300 characters. The fixed start means the line cannot begin
 with the slash or exclamation mark that some programs read as a command of their own. Text
 mode is off for every agent until you turn it on, and it can only be turned on for an
-agent whose catalog entry offers it, which today is Aider alone. The wake event keeps the
+agent whose catalog entry offers it, which today is Aider and the structured agents. The wake event keeps the
 line that was typed, so with text mode on the event log holds that much of the message.
+
+A structured agent (see Agents) has no `flockdeck` command at all. It is given no wake
+without text mode. With it, each wake is one prompt, `Flockdeck message from agent "<role>": <text>`
+(`the user` for a message you wrote), with the label cut at 32 characters and the text at
+300, and the agent cannot fetch what is cut. That puts another agent's words in front of
+an agent that may run commands, so turn it on only for an agent you would trust with them.
 
 The fixed line names only the newest unread message, and the agent reads the rest with
 `inbox`. An agent in text mode cannot, so every unread message is typed in turn, oldest

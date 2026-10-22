@@ -46,6 +46,8 @@ type structuredRuntime struct {
 	w  *Workspace
 	p  *Pane
 	rt *structured.Runtime
+	// unasked is the manifest's word that the agent runs without asking.
+	unasked bool
 
 	started time.Time
 	// prior is what the sessions before this one showed, oldest first. A restart
@@ -118,7 +120,7 @@ func (w *Workspace) startStructured(p *Pane, spec agent.Spec) {
 		return
 	}
 	p.history = nil
-	sr := &structuredRuntime{w: w, p: p, rt: rt, started: time.Now(), prior: prior,
+	sr := &structuredRuntime{w: w, p: p, rt: rt, unasked: spec.RunsWithoutAsking(), started: time.Now(), prior: prior,
 		status: session.StatusStarting, since: time.Now(), stop: make(chan struct{})}
 	w.mu.Lock()
 	p.Sess = nil
@@ -211,7 +213,7 @@ func (s *structuredRuntime) ReportedSpend() (spend.Context, bool) {
 }
 
 func (s *structuredRuntime) Caps() PaneCaps {
-	return PaneCaps{Structured: true, AnswerPermission: true}
+	return PaneCaps{Structured: true, AnswerPermission: true, RunsUnasked: s.unasked}
 }
 
 func (s *structuredRuntime) Status() (session.Status, string) {

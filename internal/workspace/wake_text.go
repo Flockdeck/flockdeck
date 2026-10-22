@@ -19,6 +19,26 @@ import (
 // and similar programs read a line that begins with a slash or an exclamation
 // mark as a command of their own, and this line always begins with "Flockdeck".
 
+// structuredTextNeedsOptIn is the one place that decides whether a structured
+// pane may be given message text without the person having opted its agent type
+// in. A prompt is an instruction channel to an agent that may run commands, so
+// it is on: a structured pane gets the fixed line until the person opts in.
+// A structured agent cannot run `inbox read`, so without the opt-in it cannot
+// read mail at all, and its briefing says so. Turning this off gives every
+// structured pane the text.
+const structuredTextNeedsOptIn = true
+
+// wakeTextAllowed says whether the wake for c carries the message text. A
+// terminal pane needs an agent whose catalog entry offers it and the person's
+// opt-in. A pane sent prompts needs the opt-in, or none if
+// structuredTextNeedsOptIn is off.
+func wakeTextAllowed(c wakeCandidate, set WakeSettings) bool {
+	if c.Deliver != nil {
+		return !structuredTextNeedsOptIn || set.WakeText(c.Agent)
+	}
+	return c.TextOK && set.WakeText(c.Agent)
+}
+
 // wakeTextRoleMax is the most characters of the sender's role that are typed.
 const wakeTextRoleMax = 32
 
@@ -34,6 +54,12 @@ func wakeTextLine(m team.Message) string {
 	if text == "" {
 		return wakeLine(m.ID)
 	}
+	return cutRunes(wakeTextPrefix+wakeTextSender(m)+": "+text, team.MaxTextLine)
+}
+
+// wakeTextSender names the sender for the prefix: the role, else the name,
+// else who it must have been, cleaned and cut.
+func wakeTextSender(m team.Message) string {
 	role := cleanWakeText(m.From.Role)
 	if role == "" {
 		role = cleanWakeText(m.From.Name)
@@ -44,8 +70,42 @@ func wakeTextLine(m team.Message) string {
 	case role == "":
 		role = "another agent"
 	}
-	role = cutRunes(role, wakeTextRoleMax)
-	return cutRunes(wakeTextPrefix+role+": "+text, team.MaxTextLine)
+	return cutRunes(role, wakeTextRoleMax)
+}
+
+// wakeTextPrompt is the line a pane that is sent prompts gets. It names the
+// sender so that no sender can pass as the person: a message the person wrote
+// (Sender.User) says "the user", and every other message says "agent" and puts
+// the sender's role, or the pane's name when it has no role, in quotes. Both
+// are text an agent can set for itself, so a role or name of "the user" reads as
+// agent "the user". The agent cannot fetch what is cut, so a cut line ends in an
+// ellipsis, and a message with no text left is said to have none.
+func wakeTextPrompt(m team.Message) string {
+	text := cleanWakeText(m.Text)
+	if text == "" {
+		text = "(no readable text)"
+	}
+	full := wakeTextPrefix + wakePromptSender(m) + ": " + text
+	if utf8.RuneCountInString(full) <= team.MaxTextLine {
+		return full
+	}
+	return cutRunes(full, team.MaxTextLine-1) + "…"
+}
+
+// wakePromptSender is the sender part of a prompt line, after the prefix.
+func wakePromptSender(m team.Message) string {
+	if m.From.User {
+		return "the user"
+	}
+	label := cleanWakeText(m.From.Role)
+	if label == "" {
+		label = cleanWakeText(m.From.Name)
+	}
+	label = cutRunes(strings.ReplaceAll(label, `"`, ""), wakeTextRoleMax)
+	if label == "" {
+		return "an unnamed agent"
+	}
+	return `agent "` + label + `"`
 }
 
 // cleanWakeText turns s into one line of plain text. Terminal escape sequences

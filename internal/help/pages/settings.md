@@ -165,6 +165,9 @@ two pages: pick a section to open it, and **← All settings** goes back.
   Kept in `prefs.json`.
 - Auto-approve read-only's own default: **General ›
   New panes** in the settings. Kept in `prefs.json`.
+- Structured agents (beta): no setting in the window. Put
+  `"structuredPanes": true` in `prefs.json` to have them offered;
+  [Agents and models](#agents) says what to know first.
 - Status detection with Jev: **Status detection** in the settings. Kept
   in `prefs.json`; off unless you turn it on, and only from the machine
   itself.

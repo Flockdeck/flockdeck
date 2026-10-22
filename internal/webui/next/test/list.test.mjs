@@ -287,3 +287,20 @@ test("an entry without an id is no row, and an id that comes twice is one row", 
   } });
   assert.deepEqual(model.needs.map((n) => [n.pane, n.text]), [["p1", "first"]]);
 });
+
+test("a remote window's roster row for an agent that runs without asking opens a drawer with the warning", async () => {
+  await withPage({ narrow: true, remote: true }, async (m) => {
+    await m.connect();
+    await m.push(stateMsg({ ...ROSTER, p1: { ...ROSTER.p1, structured: true, runsUnasked: true } }));
+    m.container.findAll(".list-pick").find((b) => b.parentNode.getAttribute("data-pane") === "p1").click();
+    await settle();
+    assert.match(m.container.find(".drawer-warn").textContent, /runs commands and edits files without asking/);
+    // Another agent's drawer has none.
+    m.drawer().keydown("Escape");
+    await settle();
+    m.container.findAll(".list-pick").find((b) => b.parentNode.getAttribute("data-pane") === "p3").click();
+    await settle();
+    assert.equal(m.container.find(".drawer-warn"), null);
+  });
+});
+
