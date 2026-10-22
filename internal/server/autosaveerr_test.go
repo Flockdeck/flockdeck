@@ -1,13 +1,11 @@
 package server
 
 import (
-	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/jmwri/flockdeck/internal/store"
 )
@@ -67,14 +65,7 @@ func TestAFailingTimedSaveIsReportedOnceUntilOneWorks(t *testing.T) {
 	save() // so failing after that is news once more
 
 	var notices []string
-	deadline := time.Now().Add(3 * time.Second)
-	for {
-		ctx, cancel := context.WithDeadline(context.Background(), deadline)
-		_, data, err := conn.Read(ctx)
-		cancel()
-		if err != nil {
-			break
-		}
+	for _, data := range readThroughBarrier(t, srv, conn) {
 		var note noticeMsg
 		if json.Unmarshal(data, &note) != nil || note.Type != "notice" || !strings.Contains(note.Text, "could not be saved") {
 			continue
