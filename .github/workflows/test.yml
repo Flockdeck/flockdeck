@@ -43,22 +43,53 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
-  test:
-    strategy:
-      # Every platform runs to the end even when another fails, so a failure
-      # shows everything that needs fixing rather than the first of it.
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-    runs-on: ${{ matrix.os }}
-    # The slowest platform takes about half an hour. A job past this is hung,
-    # and the default of six hours would hold a runner and the pull request
-    # for all of it.
-    timeout-minutes: 60
+  # Whether the pull request changes nothing but documentation. A change to
+  # the docs (docs/ and the markdown files at the root) cannot break the build,
+  # so the full suite is not run for it: the steps of the test job are skipped
+  # and the docs-test job below runs the tests that read those files. The test
+  # job itself still runs and reports, because the branch protection names its
+  # three checks, "test (ubuntu-latest)" and the others, and a job that is
+  # skipped as a whole is never reported under those names. Every push to main
+  # and every release runs everything.
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: read
+    outputs:
+      docs_only: ${{ steps.diff.outputs.docs_only }}
     steps:
-      # The token that fetched the code is not left in .git/config, where
-      # every test, and whatever a test runs, could read it. Nothing here
-      # needs it: the tests make their own repositories and fetch nothing.
+      - id: diff
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT: ${{ github.event_name }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          docs_only=false
+          # If the list of files cannot be read, everything runs.
+          if [ "$EVENT" = pull_request ] && files=$(gh api --paginate "repos/$REPO/pulls/$PR/files" --jq '.[] | .filename, (.previous_filename // empty)') && [ -n "$files" ]; then
+            if ! echo "$files" | grep -Evq '^(docs/.*|[^/]+\.md)$'; then
+              docs_only=true
+            fi
+          fi
+          echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
+          echo "docs_only=$docs_only"
+
+  # The tests that read the files a documentation-only change touches: the
+  # pages and the schemas in docs/, the help pages, the release notes. They run
+  # in place of the full suite for such a change. CGO is off because the window
+  # package has a stand-in without it, so no GTK packages are needed.
+  # A test elsewhere that reads a doc is found by the run for the merge to main.
+  docs-test:
+    needs: changes
+    if: needs.changes.outputs.docs_only == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CGO_ENABLED: "0"
+    steps:
       - uses: actions/checkout@v7
         with:
           ref: ${{ inputs.ref }}
@@ -69,13 +100,49 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Test
+        timeout-minutes: 15
+        run: |
+          go test -count=1 -timeout 10m ./internal/help ./internal/record ./internal/acp/manifest ./cmd/docgen ./cmd/sitegen ./cmd/deploydrift ./cmd/release
+          go test -count=1 -timeout 10m -run 'TestStructuredMessagesFitTheSchema|TestStructuredDocQuotesTheLimits|TestGraph|TestSchema|TestTwoTeamGraph' ./internal/server
+          go test -count=1 -timeout 10m -run 'TestRecordingFollowsTheStoredConversation' ./internal/workspace
+
+  test:
+    strategy:
+      # Every platform runs to the end even when another fails, so a failure
+      # shows everything that needs fixing rather than the first of it.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    needs: changes
+    runs-on: ${{ matrix.os }}
+    # The slowest platform takes about half an hour. A job past this is hung,
+    # and the default of six hours would hold a runner and the pull request
+    # for all of it.
+    timeout-minutes: 60
+    steps:
+      # The token that fetched the code is not left in .git/config, where
+      # every test, and whatever a test runs, could read it. Nothing here
+      # needs it: the tests make their own repositories and fetch nothing.
+      - uses: actions/checkout@v7
+        if: needs.changes.outputs.docs_only != 'true'
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      - uses: actions/setup-go@v7
+        if: needs.changes.outputs.docs_only != 'true'
+        with:
+          go-version-file: go.mod
+          cache: true
+
       # Wails' Linux backend (internal/appwindow) is cgo, against GTK4 and
       # the GTK4-based WebKitGTK -- go vet/build/test all compile it, on
       # Linux, whether or not this run ever opens a window. Without these,
       # every step below fails at the pkg-config stage, not at anything this
       # repo's own code did.
       - name: Install GTK4/WebKitGTK dev packages (Linux, for Wails)
-        if: runner.os == 'Linux'
+        if: needs.changes.outputs.docs_only != 'true' && (runner.os == 'Linux')
         # The step once hung for 36 minutes on the runner's package mirror. Each
         # attempt is cut off after a few minutes and tried again.
         timeout-minutes: 20
@@ -94,7 +161,7 @@ jobs:
       # every file.
       - name: Format
         timeout-minutes: 5
-        if: runner.os == 'Linux'
+        if: needs.changes.outputs.docs_only != 'true' && (runner.os == 'Linux')
         run: |
           unformatted=$(gofmt -l .)
           if [ -n "$unformatted" ]; then
@@ -104,6 +171,7 @@ jobs:
           fi
 
       - name: Vet
+        if: needs.changes.outputs.docs_only != 'true'
         timeout-minutes: 15
         run: go vet ./...
 
@@ -111,10 +179,12 @@ jobs:
       # the packages it touches are built, vetted and tested under the tag, not
       # the whole suite a second time.
       - name: Build the next shell
+        if: needs.changes.outputs.docs_only != 'true'
         timeout-minutes: 15
         run: go build -tags next ./...
 
       - name: Vet the next shell
+        if: needs.changes.outputs.docs_only != 'true'
         timeout-minutes: 15
         run: go vet -tags next ./internal/webui/... ./internal/server/...
 
@@ -122,10 +192,12 @@ jobs:
       # below, and are not run a second time here: under the tag only the new
       # shell's package and the tests that differ with the tag are run.
       - name: Test the next shell
+        if: needs.changes.outputs.docs_only != 'true'
         timeout-minutes: 20
         run: go test -count=1 -tags next ./internal/webui/next/...
 
       - name: Test what the tag changes in the window package
+        if: needs.changes.outputs.docs_only != 'true'
         timeout-minutes: 10
         run: go test -count=1 -tags next -run 'TestNextFS|TestMjsIsServedAsJavaScript|TestOnlyTheAssetTreesAreEmbedded' ./internal/webui
 
@@ -149,7 +221,7 @@ jobs:
       # release candidates of v0.3.4 in a row were stopped by a different
       # test each, every one of them the runner's timing.
       - name: Test
-        if: runner.os != 'Windows'
+        if: needs.changes.outputs.docs_only != 'true' && (runner.os != 'Windows')
         timeout-minutes: 45
         shell: bash
         env:
@@ -164,7 +236,7 @@ jobs:
       # A failed package is run once more, as go-test-once-more.sh does
       # elsewhere.
       - name: Test
-        if: runner.os == 'Windows'
+        if: needs.changes.outputs.docs_only != 'true' && (runner.os == 'Windows')
         timeout-minutes: 45
         env:
           FLOCKDECK_RELEASE_BUILD: ${{ inputs.release && '1' || '' }}
@@ -210,7 +282,7 @@ jobs:
       # never pull_request.
       - name: Race
         timeout-minutes: 45
-        if: runner.os == 'Linux' || (runner.os == 'macOS' && github.event_name != 'pull_request')
+        if: needs.changes.outputs.docs_only != 'true' && (runner.os == 'Linux' || (runner.os == 'macOS' && github.event_name != 'pull_request'))
         shell: bash
         env:
           CGO_ENABLED: "1"
