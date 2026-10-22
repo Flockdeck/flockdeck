@@ -309,6 +309,12 @@ func (s *wakeService) consider(c wakeCandidate) string {
 	if !s.settings().WakeEnabled(c.Agent, c.ID) {
 		return "switched off"
 	}
+	if c.Deliver != nil && !text {
+		// A pane sent prompts has no command to read mail with, so without the
+		// text there is nothing a wake could tell it that it could act on, and
+		// each one would spend a turn.
+		return "no text wake for a pane that cannot read mail"
+	}
 	now := s.now()
 	if st, _ := c.Sess.Status(); st != session.StatusIdle {
 		// Waiting on anything, working, starting: not at an empty prompt.

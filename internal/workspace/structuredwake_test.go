@@ -1,7 +1,6 @@
 package workspace
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -35,7 +34,7 @@ func newStructuredWakeRig(t *testing.T, ws *Workspace) *structuredWakeRig {
 	ws.stopWake()
 	r := &structuredWakeRig{ws: ws}
 	r.svc = newWakeService(ws.wakeCandidates, ws.team.inbox, ws.team.notifier,
-		func() WakeSettings { return wakeAllOn{} },
+		func() WakeSettings { return wakeTextOn{} },
 		func(e team.Event) { r.mu.Lock(); r.events = append(r.events, e); r.mu.Unlock() })
 	r.svc.now = func() time.Time { r.mu.Lock(); defer r.mu.Unlock(); return time.Now().Add(r.offset) }
 	r.svc.sleep = func(time.Duration, <-chan struct{}) bool { return true }
@@ -184,11 +183,11 @@ func TestAStructuredPaneIsWokenWhenItGoesIdle(t *testing.T) {
 		t.Fatalf("after the turn: %q", why)
 	}
 	got := waitForPrompts(t, ws, id, 2)
-	if want := wakeLine(m.ID); got != want {
+	if want := wakeTextPrompt(m); got != want {
 		t.Errorf("the agent was sent %q, want %q", got, want)
 	}
-	if strings.Contains(got, body) {
-		t.Error("the message text was sent")
+	if !strings.Contains(got, body) {
+		t.Error("the message text was not sent")
 	}
 	if p := ws.Pane(id); p.Sess != nil {
 		t.Error("a session appeared")
@@ -199,16 +198,15 @@ func TestAStructuredPaneIsWokenWhenItGoesIdle(t *testing.T) {
 		t.Fatalf("%d wake events", len(ev))
 	}
 	e := ev[0]
-	if e.Kind != team.EventWake || e.ID != m.ID || e.Pane != id || e.Rule != "structured" || e.Line != wakeLine(m.ID) || e.Unsubmitted {
+	if e.Kind != team.EventWake || e.ID != m.ID || e.Pane != id || e.Rule != "structured" || e.Line != wakeTextPrompt(m) || e.Unsubmitted {
 		t.Errorf("event = %+v", e)
-	}
-	raw, _ := json.Marshal(e)
-	if strings.Contains(string(raw), body) {
-		t.Error("the event carries the message text")
 	}
 	for _, msg := range ws.team.inbox.List(id, true) {
 		if msg.ID == m.ID && msg.WokenAt.IsZero() {
 			t.Error("the message was not marked woken")
+		}
+		if msg.ID == m.ID && msg.ReadAt.IsZero() {
+			t.Error("the message was not marked read")
 		}
 	}
 }
@@ -357,6 +355,8 @@ func TestASentPromptMovesTheStructuredPanesLastFlockdeckInput(t *testing.T) {
 // recorded, and the pane waits out the minute.
 func TestARefusedWakePromptLeavesTheMessageUnwoken(t *testing.T) {
 	r := newWakeRig(t)
+	r.mail.msgs = []team.Message{{ID: 7, Text: "hello"}}
+	r.svc.settings = func() WakeSettings { return wakeTextOn{} }
 	r.cand.Deliver = func(string) error { return structured.ErrNotRunning }
 	if why := r.try(); why != "" {
 		t.Fatalf("not tried: %s", why)
@@ -384,6 +384,7 @@ func TestTheWakeSwitchesHoldBackAStructuredPane(t *testing.T) {
 	set := func(scope, who string, on bool) {
 		t.Helper()
 		p := store.Prefs{StructuredPanes: true}
+		p.SetWake(store.WakeText, "opencode-acp", true)
 		p.SetWake(scope, who, on)
 		if err := store.SavePrefs(p); err != nil {
 			t.Fatal(err)

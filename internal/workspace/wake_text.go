@@ -73,20 +73,39 @@ func wakeTextSender(m team.Message) string {
 	return cutRunes(role, wakeTextRoleMax)
 }
 
-// wakeTextPrompt is wakeTextLine for a pane that is sent prompts. The agent
-// cannot fetch what is cut, so a cut line ends in an ellipsis, and a message
-// with no text left is said to have none, since the fixed line would send the
-// agent to a command it cannot run.
+// wakeTextPrompt is the line a pane that is sent prompts gets. It names the
+// sender so that no sender can pass as the person: a message the person wrote
+// (Sender.User) says "the user", and every other message says "agent" and puts
+// the sender's role, or the pane's name when it has no role, in quotes. Both
+// are text an agent can set for itself, so a role or name of "the user" reads as
+// agent "the user". The agent cannot fetch what is cut, so a cut line ends in an
+// ellipsis, and a message with no text left is said to have none.
 func wakeTextPrompt(m team.Message) string {
 	text := cleanWakeText(m.Text)
 	if text == "" {
 		text = "(no readable text)"
 	}
-	full := wakeTextPrefix + wakeTextSender(m) + ": " + text
+	full := wakeTextPrefix + wakePromptSender(m) + ": " + text
 	if utf8.RuneCountInString(full) <= team.MaxTextLine {
 		return full
 	}
 	return cutRunes(full, team.MaxTextLine-1) + "…"
+}
+
+// wakePromptSender is the sender part of a prompt line, after the prefix.
+func wakePromptSender(m team.Message) string {
+	if m.From.User {
+		return "the user"
+	}
+	label := cleanWakeText(m.From.Role)
+	if label == "" {
+		label = cleanWakeText(m.From.Name)
+	}
+	label = cutRunes(strings.NewReplacer(`"`, "", "“", "", "”", "").Replace(label), wakeTextRoleMax)
+	if label == "" {
+		return "an unnamed agent"
+	}
+	return `agent "` + label + `"`
 }
 
 // cleanWakeText turns s into one line of plain text. Terminal escape sequences
