@@ -84,3 +84,7 @@ non-zero and lists what was refused.
 If a guard trips, the message names what was reached; fix the test rather than
 the guard. `internal/testiso/testiso_test.go` holds the regression tests that
 prove each guard trips.
+
+## What a pull request runs
+
+The test workflow (.github/workflows/test.yml) runs the whole suite on Linux, Windows and macOS for each pull request and each push to main. A pull request that changes only files under docs/ or markdown files at the repository root runs a smaller job instead, docs-test, which covers the tests that read those files. The three platform checks still report on it, with their steps skipped, because the branch protection requires them. A test that reads a doc from some other package is not in that job, so it is first run by the push to main.
