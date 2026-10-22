@@ -65,8 +65,9 @@ func main() {
 	retryAll := flag.Bool("retry-all", false, "with -retry, run the whole of a failed package, or of the share's part of one, again, not just what failed")
 	logPath := flag.String("log", "", "also write go test's output to this file")
 	plan := flag.Bool("plan", false, "print all the shares and run nothing")
+	names := flag.Bool("names", false, "with -plan, also print the tests of each package that is cut")
 	jobsMax := flag.Int("jobs", 2, "how many go test commands of the share run at once")
-	digestPath := flag.String("digest", "", "write the plan's digest to this file")
+	digestPath := flag.String("digest", "", "write the plan's digest and the number of shares to this file")
 	goFlags := flag.String("gotestflags", "", "flags for go test, separated by spaces (in place of the ones after --)")
 	flag.Parse()
 	extra := flag.Args()
@@ -102,6 +103,9 @@ func main() {
 	}
 	if *plan {
 		printPlan(shares)
+		if *names {
+			printNames(shares)
+		}
 		fmt.Println("plan", digest(shares))
 		return
 	}
@@ -110,7 +114,7 @@ func main() {
 	fmt.Printf("shardtests: share %d of %d (%s): %d packages whole, %d cut, about %.0f s; plan %s\n",
 		i, n, *profile, len(mine.whole), len(mine.cut), mine.weight, digest(shares))
 	if *digestPath != "" {
-		if err := os.WriteFile(*digestPath, []byte(digest(shares)+"\n"), 0o644); err != nil {
+		if err := os.WriteFile(*digestPath, []byte(fmt.Sprintf("%s %d\n", digest(shares), n)), 0o644); err != nil {
 			fatal("%v", err)
 		}
 	}
@@ -186,16 +190,22 @@ func goOutput(name string, args ...string) string {
 	return out.String()
 }
 
-// listTests is the names of a package's tests.
+// hasTestPrefix is true for the names go test runs without being asked: tests,
+// examples and the seed runs of fuzz tests. Benchmarks are not among them.
+func hasTestPrefix(name string) bool {
+	return strings.HasPrefix(name, "Test") || strings.HasPrefix(name, "Fuzz") || strings.HasPrefix(name, "Example")
+}
+
+// listTests is the names of a package's tests, examples and fuzz tests.
 func listTests(path string) []string {
 	arg := "./" + path
 	if path == "." {
 		arg = "."
 	}
 	var names []string
-	for _, line := range strings.Split(goOutput("go", "test", "-list", "^Test", arg), "\n") {
+	for _, line := range strings.Split(goOutput("go", "test", "-list", "^(Test|Fuzz|Example)", arg), "\n") {
 		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "Test") && !strings.ContainsAny(line, " \t") {
+		if hasTestPrefix(line) && !strings.ContainsAny(line, " \t") {
 			names = append(names, line)
 		}
 	}
@@ -352,6 +362,20 @@ func digest(shares []*share) string {
 	return fmt.Sprintf("%x", h.Sum(nil))[:12]
 }
 
+// printNames lists, for each share, the tests of the packages that are cut.
+func printNames(shares []*share) {
+	for k, s := range shares {
+		var paths []string
+		for p := range s.cut {
+			paths = append(paths, p)
+		}
+		sort.Strings(paths)
+		for _, p := range paths {
+			fmt.Println("names", k+1, p, strings.Join(s.cut[p], " "))
+		}
+	}
+}
+
 func printPlan(shares []*share) {
 	for k, s := range shares {
 		fmt.Printf("share %d: about %.0f s, %d whole, %d cut\n", k+1, s.weight, len(s.whole), len(s.cut))
@@ -381,7 +405,7 @@ type run struct {
 
 var (
 	pkgLine  = regexp.MustCompile(`^(ok|FAIL|\?)\s+` + regexp.QuoteMeta(modulePath) + `(\S*)(?:\s+([0-9.]+)s)?`)
-	testLine = regexp.MustCompile(`^--- (PASS|FAIL|SKIP): (Test\S*) \(([0-9.]+)s\)`)
+	testLine = regexp.MustCompile(`^--- (PASS|FAIL|SKIP): ((?:Test|Fuzz|Example)\S*) \(([0-9.]+)s\)`)
 )
 
 func goTest(args []string) *run {

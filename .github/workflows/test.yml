@@ -65,6 +65,8 @@ jobs:
       contents: read
     outputs:
       docs_only: ${{ steps.diff.outputs.docs_only }}
+      counts: ${{ steps.diff.outputs.counts }}
+      shard: ${{ steps.diff.outputs.shard }}
       race: ${{ steps.diff.outputs.race }}
       race_os: ${{ steps.diff.outputs.race_os }}
     steps:
@@ -86,14 +88,26 @@ jobs:
           fi
           echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
           echo "docs_only=$docs_only"
+          # How many shares each platform is split into: four on Linux and
+          # Windows, two on macOS, where a minute costs ten times as much and
+          # a share ran in about three minutes, most of it setting up. This
+          # is the one place the numbers are written. The matrices of the
+          # shard and race jobs and the count the test job checks the shares
+          # against all come from it.
+          counts='{"ubuntu-latest":4,"windows-latest":4,"macos-latest":2}'
           # Where the race detector runs: macOS only outside pull requests.
           if [ "$EVENT" = pull_request ]; then
-            echo 'race={"include":[{"os":"ubuntu-latest","shard":1,"of":4},{"os":"ubuntu-latest","shard":2,"of":4},{"os":"ubuntu-latest","shard":3,"of":4},{"os":"ubuntu-latest","shard":4,"of":4}]}' >> "$GITHUB_OUTPUT"
-            echo 'race_os=ubuntu-latest' >> "$GITHUB_OUTPUT"
+            race_os='["ubuntu-latest"]'
           else
-            echo 'race={"include":[{"os":"ubuntu-latest","shard":1,"of":4},{"os":"ubuntu-latest","shard":2,"of":4},{"os":"ubuntu-latest","shard":3,"of":4},{"os":"ubuntu-latest","shard":4,"of":4},{"os":"macos-latest","shard":1,"of":2},{"os":"macos-latest","shard":2,"of":2}]}' >> "$GITHUB_OUTPUT"
-            echo 'race_os=ubuntu-latest macos-latest' >> "$GITHUB_OUTPUT"
+            race_os='["ubuntu-latest","macos-latest"]'
           fi
+          matrix='{include: [$oses[] | . as $os | range(1; $c[$os] + 1) | {os: $os, shard: ., of: $c[$os]}]}'
+          {
+            echo "counts=$counts"
+            echo "shard=$(jq -c --argjson c "$counts" --argjson oses '["ubuntu-latest","windows-latest","macos-latest"]' "$matrix" <<< null)"
+            echo "race=$(jq -c --argjson c "$counts" --argjson oses "$race_os" "$matrix" <<< null)"
+            echo "race_os=$(jq -r 'join(" ")' <<< "$race_os")"
+          } >> "$GITHUB_OUTPUT"
 
   # The checks that are not tests, on each platform: formatting, vet, the build
   # of the next shell and the tests of the scripts the workflow relies on.
@@ -230,21 +244,8 @@ jobs:
     name: shard (${{ matrix.os }}, ${{ matrix.shard }}/${{ matrix.of }})
     strategy:
       fail-fast: false
-      # Four shares on Linux and Windows, two on macOS: a macOS minute costs
-      # ten times a Linux one, and its shares ran in about three minutes each,
-      # most of it setting up, so more of them only add cost.
-      matrix:
-        include:
-          - { os: ubuntu-latest, shard: 1, of: 4 }
-          - { os: ubuntu-latest, shard: 2, of: 4 }
-          - { os: ubuntu-latest, shard: 3, of: 4 }
-          - { os: ubuntu-latest, shard: 4, of: 4 }
-          - { os: windows-latest, shard: 1, of: 4 }
-          - { os: windows-latest, shard: 2, of: 4 }
-          - { os: windows-latest, shard: 3, of: 4 }
-          - { os: windows-latest, shard: 4, of: 4 }
-          - { os: macos-latest, shard: 1, of: 2 }
-          - { os: macos-latest, shard: 2, of: 2 }
+      # The shares per platform are decided in the changes job.
+      matrix: ${{ fromJSON(needs.changes.outputs.shard) }}
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.docs_only != 'true' }}
     runs-on: ${{ matrix.os }}
@@ -296,9 +297,12 @@ jobs:
           OF: ${{ matrix.of }}
           RETRY_ALL: ${{ github.event_name != 'pull_request' && '-retry-all' || '' }}
         run: |
-          go run .github/scripts/shardtests.go -shard "$env:SHARD/$env:OF" -profile windows -retry $env:RETRY_ALL `
-            -log "$env:RUNNER_TEMP\go-test.log" -digest "$env:RUNNER_TEMP\plan.txt" `
-            -gotestflags "-count=1 -timeout 20m -p 2"
+          # An empty argument would end the tool's flags, so the optional one
+          # is added to a list only when there is one.
+          $goargs = @('-shard', "$env:SHARD/$env:OF", '-profile', 'windows', '-retry')
+          if ($env:RETRY_ALL) { $goargs += $env:RETRY_ALL }
+          $goargs += @('-log', "$env:RUNNER_TEMP\go-test.log", '-digest', "$env:RUNNER_TEMP\plan.txt", '-gotestflags', '-count=1 -timeout 20m -p 2')
+          go run .github/scripts/shardtests.go @goargs
           exit $LASTEXITCODE
 
       # A job's log can only be read signed in to GitHub, and its annotations
@@ -347,7 +351,7 @@ jobs:
     name: race (${{ matrix.os }}, ${{ matrix.shard }}/${{ matrix.of }})
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.changes.outputs.race || '{"include":[{"os":"ubuntu-latest","shard":1,"of":4},{"os":"ubuntu-latest","shard":2,"of":4},{"os":"ubuntu-latest","shard":3,"of":4},{"os":"ubuntu-latest","shard":4,"of":4},{"os":"macos-latest","shard":1,"of":2},{"os":"macos-latest","shard":2,"of":2}]}') }}
+      matrix: ${{ fromJSON(needs.changes.outputs.race) }}
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.docs_only != 'true' }}
     runs-on: ${{ matrix.os }}
@@ -459,8 +463,8 @@ jobs:
         if: needs.changes.outputs.docs_only != 'true'
         timeout-minutes: 5
         env:
-          RACE_OSES: ${{ needs.changes.outputs.race_os || 'ubuntu-latest macos-latest' }}
-        run: bash .github/scripts/test-gate.sh "$RUNNER_TEMP/results" "${{ matrix.os }}" "$RACE_OSES" "${{ matrix.os == 'macos-latest' && 2 || 4 }}"
+          RACE_OSES: ${{ needs.changes.outputs.race_os }}
+        run: bash .github/scripts/test-gate.sh "$RUNNER_TEMP/results" "${{ matrix.os }}" "$RACE_OSES" "${{ fromJSON(needs.changes.outputs.counts)[matrix.os] }}"
 
   # scripts/purge-downloads.sh deletes released files for good, so its tests
   # (cmd/release/purge_test.go) run it for real: the runner's aws CLI against

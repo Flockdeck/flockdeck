@@ -103,6 +103,10 @@ The job summary of each share shows its slowest packages and tests; those
 numbers are what the weights file is regenerated from. Run a share locally
 with `go run .github/scripts/shardtests.go -shard 2/4 -profile linux -gotestflags "-count=1"`
 (`-plan` prints every share and runs nothing).
+The tests of a package are listed with a plain `go test -list`, which ignores
+`-race` and build constraints other than this system's, so a test that exists
+only under another tag is in no share. Fuzz tests and examples are listed
+too, since a plain `go test` runs their seeds.
 
 The checks the branch protection names, `test (ubuntu-latest)` and the other
 two, are a job that collects the results of the platform's `static` job (format,

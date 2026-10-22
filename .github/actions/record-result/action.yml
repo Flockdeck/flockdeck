@@ -45,3 +45,7 @@ runs:
         name: result-${{ inputs.kind }}-${{ inputs.os }}-${{ inputs.index }}
         path: ${{ runner.temp }}/result/${{ inputs.kind }}-${{ inputs.os }}-${{ inputs.index }}.txt
         retention-days: 1
+        # A job that is run again leaves a new file under the same name, which
+        # must replace the first attempt's. A job that is not run again keeps
+        # the file of its first attempt, which is for the same commit.
+        overwrite: true

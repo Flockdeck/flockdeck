@@ -31,6 +31,24 @@ for config in linux:4 windows:4 macos:2 race:4 race:2; do
 	}
 done
 
+# Fuzz tests and examples run under a plain go test, so they must be in a share
+# of every package that is cut. The plan is asked for the names of those
+# packages; files with a build constraint are left out, since the listing is for
+# this system.
+for config in linux:4 race:4 macos:2; do
+	profile=${config%:*}
+	of=${config#*:}
+	names=$(go run .github/scripts/shardtests.go -shard "1/$of" -profile "$profile" -plan -names 2>&1 | grep '^names ')
+	for pkg in $(echo "$names" | awk '{print $3}' | sort -u); do
+		files=$(grep -L '^//go:build' "$pkg"/*_test.go 2> /dev/null)
+		[ -n "$files" ] || continue
+		# shellcheck disable=SC2086
+		for fn in $(grep -hoE '^func (Fuzz|Example)[A-Za-z0-9_]*' $files | awk '{print $2}'); do
+			check "$profile in $of: $pkg $fn is in a share" bash -c 'grep -qE "^names [0-9]+ $1 (.* )?$2( |$)" <<< "$3"' _ "$pkg" "$fn" "$names"
+		done
+	done
+done
+
 # A share count that is not a share of the plan is refused.
 check "a share past the last is refused" bash -c '! go run .github/scripts/shardtests.go -shard 5/4 -profile linux -plan > /dev/null 2>&1'
 

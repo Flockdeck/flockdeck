@@ -10,11 +10,14 @@
 # The tests are split across jobs, and the branch protection names one check
 # per platform, so a job per platform collects what the others found. Each job
 # writes DIR/KIND-OS-INDEX.txt with its status and the digest of the plan it
-# ran ("success 3f2a..."): static-OS-0 for the checks that are not tests, then
+# ran and how many shares it was one of ("success 3f2a 4"): static-OS-0 for the
+# checks that are not tests, then
 # shard-OS-1 to shard-OS-N for the tests, and race-OS-1 to race-OS-N where the
 # race detector runs. All must be there and succeeded, and the shares of a kind
 # must have agreed on the plan: a share that worked out another split could
-# leave a test unrun or run it twice.
+# leave a test unrun or run it twice. Each must also say it was one of SHARDS
+# shares, so that a plan split four ways of which one was run is not passed
+# because the gate was told one.
 set -uo pipefail
 
 dir="$1"
@@ -23,23 +26,43 @@ race_oses="$3"
 shards="$4"
 bad=0
 
+if ! [[ $shards =~ ^[1-9][0-9]*$ ]]; then
+	echo "::error::SHARDS must be a positive number, got '$shards'"
+	exit 2
+fi
+if [ -z "$race_oses" ]; then
+	echo "::error::RACE_OSES must name the platforms the race detector runs on, or none"
+	exit 2
+fi
+
 problem() {
 	echo "::error title=Tests on $os::$1"
 	bad=1
 }
 
-# check KIND INDEX reads the result of one job and sets digest to its plan.
+# check KIND INDEX reads the result of one job and sets digest to its plan and
+# count to the number of shares it says the plan has.
 check() {
 	local file="$dir/$1-$os-$2.txt"
 	digest=""
+	count=""
 	if [ ! -f "$file" ]; then
 		problem "$1 $2 left no result: it did not run, was cancelled, or its runner was lost"
 		return
 	fi
 	local status
-	read -r status digest < "$file" || true
+	read -r status digest count < "$file" || true
 	if [ "$status" != success ]; then
 		problem "$1 $2 ended with status ${status:-none}"
+	fi
+}
+
+# shares_of KIND INDEX checks one share: its result, and that the plan it ran has
+# the number of shares there should be.
+shares_of() {
+	check "$1" "$2"
+	if [ -n "$digest" ] && [ "$count" != "$shards" ]; then
+		problem "$1 $2 ran a plan of ${count:-an unknown number of} shares, not $shards"
 	fi
 }
 
@@ -47,7 +70,7 @@ check() {
 agree() {
 	local kind=$1 first="" i
 	for i in $(seq 1 "$shards"); do
-		check "$kind" "$i"
+		shares_of "$kind" "$i"
 		if [ -z "$digest" ]; then
 			problem "$kind $i reported no plan"
 		elif [ -z "$first" ]; then
