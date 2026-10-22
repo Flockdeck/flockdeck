@@ -58,6 +58,13 @@ func runFake(mode string) {
 	case "exit":
 		fmt.Fprintln(os.Stderr, "fatal: cannot start")
 		os.Exit(3)
+	case "exit-late":
+		// Stdout ends first and the reason follows on stderr a moment later:
+		// the order a loaded machine can give "exit", made certain.
+		_ = os.Stdout.Close()
+		time.Sleep(150 * time.Millisecond)
+		fmt.Fprintln(os.Stderr, "fatal: cannot start")
+		os.Exit(3)
 	case "holdstderr":
 		// A descendant that keeps stdout and stderr open after this one is gone.
 		exe, _ := os.Executable()

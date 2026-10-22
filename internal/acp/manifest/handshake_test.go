@@ -121,3 +121,42 @@ func handshakeWithin(t *testing.T, cfg HandshakeConfig, d time.Duration) (Handsh
 		return HandshakeResult{}, nil
 	}
 }
+
+// The adapter writes its reason to stderr and exits. Stdout can reach its end
+// before the reader of stderr has that line, so the error has to wait for the
+// line, or the user is told an adapter failed with no reason. One run rarely
+// loses the race, so the test runs it many times.
+func TestHandshakeFailureAlwaysCarriesTheAdaptersLastWords(t *testing.T) {
+	const runs = 200
+	cfg := fakeAdapter(t, "exit")
+	missed := 0
+	for i := 0; i < runs; i++ {
+		_, err := Handshake(context.Background(), cfg)
+		if err == nil || !strings.Contains(err.Error(), "fatal: cannot start") {
+			missed++
+			if missed == 1 {
+				t.Logf("run %d: err = %v", i, err)
+			}
+		}
+	}
+	if missed > 0 {
+		t.Errorf("%d of %d failed handshakes lost the adapter's stderr line", missed, runs)
+	}
+}
+
+// The same with the order made certain: stdout ends, and the reason arrives
+// 150 ms later.
+func TestHandshakeWaitsForTheReasonThatFollowsTheEndOfStdout(t *testing.T) {
+	const runs = 10
+	cfg := fakeAdapter(t, "exit-late")
+	missed := 0
+	for i := 0; i < runs; i++ {
+		_, err := Handshake(context.Background(), cfg)
+		if err == nil || !strings.Contains(err.Error(), "fatal: cannot start") {
+			missed++
+		}
+	}
+	if missed > 0 {
+		t.Errorf("%d of %d failed handshakes lost the adapter's stderr line", missed, runs)
+	}
+}
