@@ -58,6 +58,13 @@ func runFake(mode string) {
 	case "exit":
 		fmt.Fprintln(os.Stderr, "fatal: cannot start")
 		os.Exit(3)
+	case "exit-late":
+		// Stdout ends first and the reason follows on stderr a moment later:
+		// the order a loaded machine can give "exit", made certain.
+		_ = os.Stdout.Close()
+		time.Sleep(150 * time.Millisecond)
+		fmt.Fprintln(os.Stderr, "fatal: cannot start")
+		os.Exit(3)
 	case "holdstderr":
 		// A descendant that keeps stdout and stderr open after this one is gone.
 		exe, _ := os.Executable()
@@ -66,6 +73,17 @@ func runFake(mode string) {
 		c.Stdout, c.Stderr = os.Stdout, os.Stderr
 		_ = c.Start()
 		fmt.Println(`{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":1}}`)
+	case "exit-holdstderr":
+		// Ends without answering, with a reason on stderr, while a descendant
+		// keeps stderr open: the wait for the end of stderr has to give up.
+		exe, _ := os.Executable()
+		c := exec.Command(exe)
+		c.Env = append(os.Environ(), fakeEnv+"=descendant")
+		c.Stderr = os.Stderr
+		_ = c.Start()
+		fmt.Fprintln(os.Stderr, "fatal: cannot start")
+		_ = os.Stdout.Close()
+		os.Exit(3)
 	case "escape":
 		// A descendant that left the adapter's session and keeps the streams
 		// open, so the tree can not reach it. It ends itself after 20 seconds.

@@ -121,3 +121,52 @@ func handshakeWithin(t *testing.T, cfg HandshakeConfig, d time.Duration) (Handsh
 		return HandshakeResult{}, nil
 	}
 }
+
+// The adapter writes its reason to stderr and exits. Stdout can reach its end
+// before the reader of stderr has that line, so the error has to wait for the
+// line, or the user is told an adapter failed with no reason. One run rarely
+// loses the race, so the test runs it many times.
+func TestHandshakeFailureAlwaysCarriesTheAdaptersLastWords(t *testing.T) {
+	const runs = 200
+	cfg := fakeAdapter(t, "exit")
+	missed := 0
+	for i := 0; i < runs; i++ {
+		_, err := Handshake(context.Background(), cfg)
+		if err == nil || !strings.Contains(err.Error(), "fatal: cannot start") {
+			missed++
+			if missed == 1 {
+				t.Logf("run %d: err = %v", i, err)
+			}
+		}
+	}
+	if missed > 0 {
+		t.Errorf("%d of %d failed handshakes lost the adapter's stderr line", missed, runs)
+	}
+}
+
+// An adapter that ends without answering while a descendant holds stderr open
+// still gets an error that carries its reason, and the wait for the end of
+// stderr does not hang the handshake.
+func TestHandshakeDoesNotWaitForeverForStderrAHeldDescendantKeepsOpen(t *testing.T) {
+	_, err := handshakeWithin(t, fakeAdapter(t, "exit-holdstderr"), 5*time.Second)
+	if err == nil || !strings.Contains(err.Error(), "no answer to initialize: EOF") || !strings.Contains(err.Error(), "fatal: cannot start") {
+		t.Errorf("err = %v, want the missing answer and the adapter's reason", err)
+	}
+}
+
+// The same with the order made certain: stdout ends, and the reason arrives
+// 150 ms later.
+func TestHandshakeWaitsForTheReasonThatFollowsTheEndOfStdout(t *testing.T) {
+	const runs = 10
+	cfg := fakeAdapter(t, "exit-late")
+	missed := 0
+	for i := 0; i < runs; i++ {
+		_, err := Handshake(context.Background(), cfg)
+		if err == nil || !strings.Contains(err.Error(), "fatal: cannot start") {
+			missed++
+		}
+	}
+	if missed > 0 {
+		t.Errorf("%d of %d failed handshakes lost the adapter's stderr line", missed, runs)
+	}
+}

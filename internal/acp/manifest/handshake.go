@@ -44,6 +44,9 @@ const (
 	maxHandshakeLine = 4 << 20
 	stderrTail       = 2 << 10
 	handshakeGrace   = 3 * time.Second
+	// stderrDrainGrace is how long an error about an adapter that ended waits
+	// for the end of its stderr.
+	stderrDrainGrace = 500 * time.Millisecond
 )
 
 // Handshake starts the adapter, sends initialize with protocol version 1 and
@@ -94,7 +97,25 @@ func Handshake(ctx context.Context, cfg HandshakeConfig) (HandshakeResult, error
 	var tail tailBuffer
 	var wg sync.WaitGroup
 	wg.Add(1)
-	go func() { defer wg.Done(); _, _ = io.Copy(&tail, stderr) }()
+	stderrDone := make(chan struct{})
+	go func() { defer wg.Done(); defer close(stderrDone); _, _ = io.Copy(&tail, stderr) }()
+	// reason is the adapter's stderr for an error message. When the adapter has
+	// ended (ended is true), stdout can reach its end before the reader of
+	// stderr has the line written just before the exit, so the end of stderr is
+	// waited for, for a moment. It is bounded because a descendant can hold
+	// stderr open, and it is skipped for an adapter that answered and is still
+	// running, which has nothing more to say.
+	reason := func(ended bool) string {
+		if ended {
+			t := time.NewTimer(stderrDrainGrace)
+			defer t.Stop()
+			select {
+			case <-stderrDone:
+			case <-t.C:
+			}
+		}
+		return tail.suffix()
+	}
 	defer func() {
 		_ = stdin.Close()
 		tree.End(proc, reaped, handshakeGrace)
@@ -107,7 +128,7 @@ func Handshake(ctx context.Context, cfg HandshakeConfig) (HandshakeResult, error
 
 	req := `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1,"clientCapabilities":{},"clientInfo":{"name":"flockdeck-canary","version":"0"}}}` + "\n"
 	if _, err := io.WriteString(stdin, req); err != nil {
-		return res, fmt.Errorf("handshake: write: %w%s", err, tail.suffix())
+		return res, fmt.Errorf("handshake: write: %w%s", err, reason(true))
 	}
 
 	type reply struct {
@@ -135,7 +156,7 @@ func Handshake(ctx context.Context, cfg HandshakeConfig) (HandshakeResult, error
 	case r := <-got:
 		r.res.Took = time.Since(started)
 		if r.err != nil {
-			return r.res, fmt.Errorf("handshake: %w%s", r.err, tail.suffix())
+			return r.res, fmt.Errorf("handshake: %w%s", r.err, reason(errors.Is(r.err, io.EOF)))
 		}
 		return r.res, nil
 	case <-ctx.Done():
