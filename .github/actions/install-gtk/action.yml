@@ -40,6 +40,15 @@ runs:
         key: gtk-apt-${{ runner.os }}-${{ runner.arch }}-${{ steps.week.outputs.week }}
         restore-keys: gtk-apt-${{ runner.os }}-${{ runner.arch }}-
 
+    # TEMPORARY, removed before the merge: how much the recommends add.
+    - shell: bash
+      run: |
+        sudo apt-get -qq update || true
+        for r in "" "--no-install-recommends"; do
+          out=$(sudo apt-get -s install -y $r libgtk-4-dev libwebkitgtk-6.0-dev 2>&1 || true)
+          echo "::notice title=simulated install ${r:-with recommends}::$(echo "$out" | grep -c '^Inst') packages; $(echo "$out" | grep 'Need to get' | tr -d '\n')"
+        done
+
     # A killed apt can leave dpkg half done, so it is finished before the next
     # attempt. A step of a composite action has no time limit of its own; the
     # caller sets one on the step that uses this action, and the job has one.
@@ -71,12 +80,3 @@ runs:
           sleep 10
         done
         exit 1
-
-    # TEMPORARY, removed before the merge: how much the recommends add.
-    - shell: bash
-      run: |
-        sudo apt-get -qq update || true
-        for r in "" "--no-install-recommends"; do
-          out=$(sudo apt-get -s install -y $r libgtk-4-dev libwebkitgtk-6.0-dev 2>&1 || true)
-          echo "::notice title=simulated install ${r:-with recommends}::$(echo "$out" | grep -c '^Inst') packages; $(echo "$out" | grep 'Need to get' | tr -d '\n')"
-        done
