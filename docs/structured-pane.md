@@ -38,9 +38,10 @@ place to lift when the decision changes. They are there because:
   a phone could show a request it cannot answer.
 
 The state push (`paneView`) is scrubbed on its way to a relay window (`internal/server/relayscrub.go`).
-For a structured pane it keeps only the roster fields: the name, the status and the activity word, and
-the flag `detailsOnDesktop`. The last reply, the detail line, the task, the error and the permission card
-are removed, and a question is never sent. The `structured` and `structuredDetail` messages are dropped
+For a structured pane it clears the last reply, the detail line, the task, the error and the permission
+card, never sends a question, and sets the flag `detailsOnDesktop`. The rest of the pane's entry still
+goes, with names redacted: the directory, branch, project, agent, model, status and activity word, and
+the other roster fields. No text the agent wrote is sent. The `structured` and `structuredDetail` messages are dropped
 for a relay window as a second lock behind the refusal of the commands.
 
 A pane that is not a structured pane (a terminal, a shell, an id that is not there, an empty id) is
@@ -161,7 +162,7 @@ option names are text the agent supplied.
 **The permission cards may gate nothing.** opencode, by default, runs a shell command, a write or an
 edit without sending a permission request at all, so no card appears and the pane looks supervised
 when it is not (`opencode-e2e.md` has the run that showed it). Setting
-`{"permission":{"bash":"ask","edit":"ask"}}` in the working directory made it ask. Flockdeck does not
+`{"permission":{"bash":"ask","edit":"ask"}}` in opencode's own configuration made it ask (`opencode-e2e.md` names no file). Flockdeck does not
 set that for you, and does not warn about it in the pane today.
 
 **What a structured pane loses against a terminal pane:**
@@ -169,8 +170,8 @@ set that for you, and does not warn about it in the pane today.
 - A phone gets no push notification for a pending permission, because it could not answer it.
 - `permissionAnswer` is refused to a window reached through the relay, and to a device that may only
   view. So are the commands of section 1.
-- A relay window is told only that the pane exists, its name and its status. The scrub in section 1
-  removes what the agent said.
+- A relay window is told the pane's name, status, directory, branch, project, agent and model, and no
+  text the agent wrote. The scrub in section 1 removes what the agent said.
 - By decision, a window reached through the relay is to receive no conversation text from any pane
   until the scrub of what goes to the relay has been reviewed. The change that enforces this is in
   progress. Until it lands, the conversation commands still reach a relay device that may watch, for

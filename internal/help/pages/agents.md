@@ -88,21 +88,23 @@ What to know before you use one:
 - **Approval is at the desk.** A permission request is answered from a window on
   this machine, by choosing one of the options the agent offered. A phone gets no
   notification for it and cannot answer it, and a window reached through the
-  relay is told only that the pane exists, its name and its status. Nothing is
-  answered for you; a request still open when you stop the turn, close or restart
+  relay is told its name, status, directory, branch, project, agent and model, and
+  no text the agent wrote. Nothing is answered for you; a request still open when you stop the turn, close or restart
   the pane or quit is answered *cancelled*.
 - **The cards may gate nothing.** opencode, as shipped, runs shell commands,
   writes and edits without asking, so no permission card appears for them.
-  Flockdeck does not change that and does not warn about it in the pane today. Its
-  own setting `{"permission":{"bash":"ask","edit":"ask"}}` in the working
-  directory makes it ask.
+  Flockdeck does not change that and does not warn about it in the pane today. The
+  setting `{"permission":{"bash":"ask","edit":"ask"}}` in opencode's
+  own configuration makes it ask.
 - **It cannot read mail yet.** The line Flockdeck types to wake an agent, and the
   briefing, tell it to run `flockdeck inbox`, and a structured agent is not given
   the pane identity that command needs, so the command fails.
 - **A login or Node problem** shows as a blocked pane marked "needs setup", and
   as "Needs setting up" in the team graph, with the one step to take: sign in with
-  the agent's own tool (Flockdeck never signs in), install Node 20 or newer where
-  the adapter needs it, or install the agent. Start the pane again afterwards.
+  the agent's own tool (Flockdeck never signs in), install the agent, or install Node 20 or
+  newer where the adapter needs it and restart Flockdeck, since a new Node on the
+  path is only seen by a restarted Flockdeck. Start the pane again after the other
+  two.
 - **A restart starts a new session.** The earlier entries stay above a line saying
   the agent was restarted. If the new agent cannot be started, they stay too, with
   a line giving the reason.
