@@ -89,7 +89,8 @@ prove each guard trips.
 
 The test workflow (`.github/workflows/test.yml`) runs the whole suite on Linux,
 Windows and macOS for each pull request and each push to main, with the race
-detector on Linux, and the purge script's tests in a job of their own.
+detector on Linux (and on macOS for pushes to main), and the purge script's
+tests in a job of their own.
 
 A pull request that changes only documentation runs less. That means every
 changed file is a `.md` or `.json` file under `docs/`, or a `.md` file at the
@@ -100,8 +101,9 @@ qualify. Then:
   still report, because the branch protection requires them. Their steps are
   skipped, except on Ubuntu, which runs the tests that read documentation
   (help, record, the ACP manifest, docgen, sitegen, deploydrift, the notices
-  test in `cmd/release`, and the schema and graph page tests in the server and
-  the workspace). A failure there is reported under `test (ubuntu-latest)`.
+  test in `cmd/release`, the schema, graph page and limits-quoting tests in the
+  server, and the recording schema test in the workspace). A failure there is
+  reported under `test (ubuntu-latest)`.
 - The purge script's job is skipped.
 
 To get the full run for such a pull request, change one file in it that is not

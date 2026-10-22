@@ -361,7 +361,9 @@ jobs:
         env:
           FLOCKDECK_TEST_S3_ENDPOINT: http://127.0.0.1:5055
         # -v and the list after it show where the 8 to 12 minutes go, test by
-        # test, in the log and in the job summary.
+        # test, in the log and in the job summary. The list includes the
+        # indented subtests, so a parent's time contains its children's and
+        # the times do not add up to the total.
         run: |
           set -o pipefail
           status=0
