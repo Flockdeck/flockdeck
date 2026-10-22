@@ -36,6 +36,12 @@ remove() {
 	fi
 }
 
+# partial and lock are apt's own, and kept only as a real folder and a real
+# file; a link in their place would be followed by what the action does to them.
+while IFS= read -r -d '' f; do
+	remove "$f" "not what apt keeps there"
+done < <(find "$dir" -mindepth 1 -maxdepth 1 \( \( -name partial ! -type d \) -o \( -name lock ! -type f \) \) -print0)
+
 # Anything that is not a .deb, a link or a folder included, has no use in an
 # archive folder.
 while IFS= read -r -d '' f; do

@@ -72,6 +72,8 @@ runs:
         sudo mkdir -p "$dir"
         sudo chown -R root:root "$dir"
         sudo chmod 0755 "$dir"
+        # What came back as partial or lock is not kept: it could be a link.
+        sudo rm -rf "$dir/partial" "$dir/lock"
         sudo mkdir -p "$dir/partial"
         sudo chown _apt "$dir/partial"
         echo "cache hit: ${CACHE_HIT:-false}; cached package files: $(find "$dir" -maxdepth 1 -name '*.deb' | wc -l)"

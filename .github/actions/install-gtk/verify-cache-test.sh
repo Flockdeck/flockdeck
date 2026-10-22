@@ -61,12 +61,14 @@ check "a file whose hash is not listed is removed" test ! -e "$good"
 
 # A package name that apt-cache would take for an option never reaches it.
 fresh
-evil='-oDir::Etc::sourcelist=/x'
+evil='-oDebug::x=1'
 d="$work/evil"
 rm -rf "$d"
 mkdir -p "$d/DEBIAN"
 printf 'Package: %s\nVersion: 1.0\nArchitecture: amd64\nMaintainer: t <t@example.com>\nDescription: t\n' "$evil" > "$d/DEBIAN/control"
 dpkg-deb --nocheck --build "$d" "$cache/${evil}_1.0_amd64.deb" > /dev/null 2>&1
+# The test means nothing unless the file is there to be removed.
+check "the file named like an option was made" test -f "$cache/${evil}_1.0_amd64.deb"
 export LISTED_HASH=$(sha256sum "$cache/${evil}_1.0_amd64.deb" | awk '{print $1}')
 verify
 check "a package named like an option is removed" test -z "$(ls "$cache" | grep -- '^-o')"
@@ -93,6 +95,15 @@ check "a folder is removed" test ! -e "$cache/sub"
 check "a link is removed" test ! -L "$cache/link"
 check "a folder named .deb is removed" test ! -e "$cache/dir.deb"
 check "partial is kept" test -d "$cache/partial"
+
+# A link in place of partial or lock is removed, not followed.
+fresh
+rm -rf "$cache/partial"
+ln -s /etc "$cache/partial"
+ln -s /etc/passwd "$cache/lock"
+verify
+check "a link in place of partial is removed" test ! -L "$cache/partial"
+check "a link in place of lock is removed" test ! -L "$cache/lock"
 
 # A genuine file under another file name is removed, though its hash is listed.
 fresh
