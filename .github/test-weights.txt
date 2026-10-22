@@ -1,0 +1,68 @@
+# How long each package's tests took on a CI runner, in seconds, for the shard
+# tool (.github/scripts/shardtests.go): one line per package, relative to the
+# module, with the columns of the profiles it is run with. They are read from
+# the log of run 39766273971 (22 October), the whole test step of each leg, so
+# they include the slowdown of packages sharing four cores.
+#
+# They only balance the shards. A package that is not listed is given
+# DEFAULT_WEIGHT, a package whose weight is out of date makes its shard slower
+# or faster, and neither can make a test run twice or not at all: that is
+# decided by the names of the packages and the tests alone.
+#
+# package linux windows macos race
+cmd/deploydrift 0.082 0.187 0.142 1.330
+cmd/docgen 0.006 0.072 0.014 1.042
+cmd/graphfixture 1.954 9.947 2.982 3.057
+cmd/portproxy 0.010 0.607 0.026 1.018
+cmd/release 44.870 55.573 244.863 100.037
+cmd/sitegen 35.026 74.152 40.272 42.320
+design 0.212 0.304 0.462 1.261
+internal/acp 13.446 19.208 13.652 54.520
+internal/acp/bridge 7.329 8.122 3.850 26.329
+internal/acp/manifest 0.596 1.711 0.665 2.772
+internal/agent 0.091 3.038 0.798 1.494
+internal/appwindow 0.311 1.384 1.166 1.416
+internal/artifacts 5.508 16.564 7.979 10.125
+internal/baton 21.374 26.965 43.470 243.354
+internal/channel 0.731 2.854 1.349 1.849
+internal/chat 1.300 2.086 1.540 3.085
+internal/chat/tool 4.764 6.888 4.877 11.206
+internal/creds 0.045 1.587 0.212 1.089
+internal/e2e 0.011 0.041 0.024 1.028
+internal/ghcli 0.020 0.049 0.019 1.018
+internal/gitx 46.609 366.917 106.182 51.308
+internal/help 0.083 0.150 0.109 1.992
+internal/helpers 10.698 42.705 11.897 51.260
+internal/hooks 5.185 5.267 5.260 8.379
+internal/idle 0.002 0.032 0.009 1.021
+internal/jev 0.135 0.182 0.185 1.239
+internal/jevgate 0.177 0.229 0.261 1.318
+internal/keybindings 0.014 1.722 0.133 1.059
+internal/layout 0.201 0.239 0.359 2.671
+internal/legacyenv 0.002 0.023 0.012 1.012
+internal/pricing 0.003 0.056 0.011 1.017
+internal/proctree 0.866 0.501 1.430 1.896
+internal/radar 0.464 8.695 1.596 1.453
+internal/record 6.244 18.285 8.961 87.976
+internal/record/schemacheck 0.260 0.290 0.195 2.282
+internal/recordview 2.840 3.806 3.673 27.527
+internal/remote 5.122 14.039 6.160 6.983
+internal/review 0.578 21.702 4.597 1.969
+internal/route 0.007 0.074 0.026 1.054
+internal/secretname 4.684 4.286 12.111 10.731
+internal/selfupdate 0.847 8.740 2.958 2.365
+internal/server 244.703 634.750 275.128 338.299
+internal/server/structuredtest 0.008 0.118 0.013 1.026
+internal/session 26.195 35.696 22.780 30.038
+internal/session/transcript 0.610 1.886 0.918 9.612
+internal/spend 0.002 0.028 0.011 1.023
+internal/store 0.694 18.934 2.010 2.157
+internal/structured 9.648 10.857 9.995 84.256
+internal/sysproc 0.267 0.157 0.185 1.931
+internal/tasks 0.944 6.590 0.848 2.706
+internal/team 0.037 0.087 0.027 1.096
+internal/testiso 0.031 0.100 0.038 3.055
+internal/testiso/iso 0.614 0.485 0.423 7.463
+internal/webui 83.724 195.484 111.983 128.167
+internal/workspace 39.907 412.192 57.827 88.618
+. 25.772 66.097 24.426 27.597
