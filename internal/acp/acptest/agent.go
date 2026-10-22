@@ -649,6 +649,28 @@ func (a *agent) prompt(id, params json.RawMessage, n int) {
 		fmt.Fprintln(os.Stderr, "acptest: exiting on request")
 		os.Exit(3)
 
+	case "exit-idle":
+		// The turn ends normally, and the agent then exits on its own while
+		// the client is waiting for the next prompt.
+		a.chunk(sid, "bye")
+		done("end_turn")
+		go func() {
+			time.Sleep(300 * time.Millisecond)
+			fmt.Fprintln(os.Stderr, "acptest: exiting while idle")
+			os.Exit(4)
+		}()
+
+	case "perm-then-exit":
+		// The turn ends, then the agent asks for permission outside any turn
+		// and exits with the request still open.
+		done("end_turn")
+		go func() {
+			a.askPermission(sid, json.RawMessage(strconv.Itoa(4000+n)))
+			time.Sleep(700 * time.Millisecond)
+			fmt.Fprintln(os.Stderr, "acptest: exiting with a request open")
+			os.Exit(5)
+		}()
+
 	default:
 		a.chunk(sid, "unknown scenario: "+ask)
 		done("end_turn")

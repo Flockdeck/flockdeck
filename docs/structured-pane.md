@@ -196,6 +196,15 @@ manifest (`runsWithoutAsking`, see [ACP adapters](acp-adapters.md)).
   user turn. The guards are the fixed prefix, the single line, the two cuts and the briefing's
   untrusted-data disclaimer. The gate is `structuredTextNeedsOptIn` in
   `internal/workspace/wake_text.go`.
+- No startup sweep on Unix. If Flockdeck is killed outright, a structured agent and what it started
+  are not looked for by the next run. On Windows the job object that holds the agent's tree is closed
+  with Flockdeck and takes it down. On Unix the agent is the leader of a session of its own and
+  nothing ends it: a well-behaved agent exits when its standard input closes, which it does, but a
+  tool it started may keep running. The sweep that exists (`ReapStaleWorktreeProcesses`) reads the
+  record of a terminal pane's process, which a structured pane does not write. Decision (T110): not
+  added now, because it needs a record of the agent's pid and start time and a test on Unix, and a
+  clean shutdown already ends the whole tree (`TestCloseEndsWhatTheAgentStarted`). It is a known
+  limit for a crash on Unix.
 
 **A login or Node problem** puts the pane in the phase `needs setup` (section 2's `setup` field),
 which reads as blocked with the detail "needs setup". The team graph lists it as "Needs setting up"

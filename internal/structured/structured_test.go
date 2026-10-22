@@ -389,6 +389,47 @@ func TestTheAgentExitingMidTurn(t *testing.T) {
 	}
 }
 
+// An agent that exits between turns, with nothing queued, still ends the pane:
+// the runtime is waiting for the next prompt and has to notice on its own.
+func TestTheAgentExitingWhileIdle(t *testing.T) {
+	r := begin(t, fakeOptions(t))
+	if err := r.Send("exit-idle"); err != nil {
+		t.Fatal(err)
+	}
+	until(t, r, "the turn to end", func(s Snapshot) bool { return strings.Contains(replies(s), "bye") })
+	s := until(t, r, "the exit", func(s Snapshot) bool { return s.Phase == PhaseExited })
+	if !strings.Contains(s.Err, "exiting while idle") {
+		t.Errorf("err = %q, want the agent's last stderr line", s.Err)
+	}
+	if s.Status != "" || s.Pending != nil || s.Queued != 0 {
+		t.Errorf("state after an idle exit: status %q, pending %v, queued %d", s.Status, s.Pending, s.Queued)
+	}
+	if err := r.Send("plain"); !errors.Is(err, ErrNotRunning) {
+		t.Errorf("Send after an exit: %v", err)
+	}
+	if err := r.Cancel(); !errors.Is(err, ErrNotRunning) {
+		t.Errorf("Cancel after an exit: %v", err)
+	}
+}
+
+// A permission request the agent opened and never closed does not outlive the
+// agent: after the exit nothing is pending, and answering it is refused.
+func TestAnOpenRequestIsGoneWhenTheAgentExitsWhileIdle(t *testing.T) {
+	r := begin(t, fakeOptions(t))
+	if err := r.Send("perm-then-exit"); err != nil {
+		t.Fatal(err)
+	}
+	open := until(t, r, "the request", func(s Snapshot) bool { return s.Pending != nil })
+	id, seq := open.Pending.RequestID, open.Pending.Seq
+	s := until(t, r, "the exit", func(s Snapshot) bool { return s.Phase == PhaseExited })
+	if s.Pending != nil {
+		t.Errorf("request %q still pending after the exit", s.Pending.RequestID)
+	}
+	if err := r.AnswerCard(seq, id, "allow"); err == nil {
+		t.Error("an answer to a request of an exited agent was accepted")
+	}
+}
+
 func TestAMissingLoginIsASetupState(t *testing.T) {
 	for _, at := range []string{"new", "prompt"} {
 		t.Run(at, func(t *testing.T) {
