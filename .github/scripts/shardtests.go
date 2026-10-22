@@ -101,6 +101,7 @@ func main() {
 	}
 	if *plan {
 		printPlan(shares)
+		fmt.Println("plan", digest(shares))
 		return
 	}
 
@@ -338,8 +339,13 @@ func digest(shares []*share) string {
 	h := sha256.New()
 	for _, s := range shares {
 		fmt.Fprintln(h, strings.Join(s.units, ","))
-		for p, names := range s.cut {
-			fmt.Fprintln(h, p, strings.Join(names, ","))
+		var paths []string
+		for p := range s.cut {
+			paths = append(paths, p)
+		}
+		sort.Strings(paths)
+		for _, p := range paths {
+			fmt.Fprintln(h, p, strings.Join(s.cut[p], ","))
 		}
 	}
 	return fmt.Sprintf("%x", h.Sum(nil))[:12]
