@@ -111,31 +111,3 @@ runs:
       with:
         path: /var/tmp/gtk-apt-archives
         key: gtk-apt-${{ runner.os }}-${{ runner.arch }}-${{ steps.week.outputs.week }}
-
-    # TEMPORARY: a tampered package file of the same size is removed and
-    # fetched again, and an untouched one is kept.
-    - shell: bash
-      env:
-        VERIFY: ${{ github.action_path }}/verify-cache.sh
-      run: |
-        dir=/var/tmp/gtk-apt-archives
-        deb=$(ls "$dir"/libgtk-4-dev_*.deb | head -1)
-        echo "::group::untouched"; bash "$VERIFY" "$dir"; echo "::endgroup::"
-        [ -f "$deb" ] || { echo "::error::an untouched file was removed"; exit 1; }
-        orig=$(sha256sum "$deb" | awk '{print $1}'); size=$(stat -c %s "$deb")
-        sudo cp "$deb" /var/tmp/orig.deb
-        # Flip one byte in the middle, so the size is the same.
-        sudo python3 -c "
-        import sys
-        p=sys.argv[1]
-        b=bytearray(open(p,'rb').read())
-        b[len(b)//2]^=0xff
-        open(p,'wb').write(b)" "$deb"
-        [ "$(stat -c %s "$deb")" = "$size" ] || { echo "::error::size changed"; exit 1; }
-        echo "tampered: $(sha256sum "$deb" | awk '{print $1}') (was $orig), same size $size"
-        echo "::group::tampered"; bash "$VERIFY" "$dir"; echo "::endgroup::"
-        [ ! -e "$deb" ] || { echo "::error::the tampered file was kept"; exit 1; }
-        sudo apt-get -o Dir::Cache::archives="$dir" -o APT::Keep-Downloaded-Packages=true install -y --reinstall --no-install-recommends libgtk-4-dev 2>&1 | tail -3
-        new=$(sha256sum "$deb" | awk '{print $1}')
-        [ "$new" = "$orig" ] || { echo "::error::refetched file differs: $new"; exit 1; }
-        echo "::notice title=tamper check::tampered same-size libgtk-4-dev deb was removed and fetched again, hash $new matches"
