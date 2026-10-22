@@ -92,6 +92,9 @@ type purging struct {
 	cfZoneCode    int      // answer Cloudflare's zone GET with this, when set
 }
 
+// purgeParallel holds the tests newPurging has already made parallel.
+var purgeParallel sync.Map
+
 func newPurging(t *testing.T) *purging {
 	t.Helper()
 	endpoint := os.Getenv("FLOCKDECK_TEST_S3_ENDPOINT")
@@ -111,6 +114,16 @@ func newPurging(t *testing.T) *purging {
 	}
 	if _, err := exec.LookPath("sh"); err != nil {
 		t.Skip("no sh to run the purge script with")
+	}
+	// Each test makes its own bucket, its own three servers, its own shim
+	// directory and its own log, and gives the script its settings through the
+	// environment of one command, so the tests share nothing and run at once.
+	// Each script run starts the aws CLI a dozen times, a second apiece, which
+	// is what the job's ten minutes were. A test that calls this more than once
+	// is made parallel the first time only. None of these tests may use
+	// t.Setenv or change directory, which a parallel test cannot.
+	if _, again := purgeParallel.LoadOrStore(t, true); !again {
+		t.Parallel()
 	}
 	suffix := make([]byte, 6)
 	rand.Read(suffix)
