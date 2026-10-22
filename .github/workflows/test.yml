@@ -144,14 +144,18 @@ jobs:
       - name: Install GTK4/WebKitGTK dev packages (Linux, for Wails)
         if: needs.changes.outputs.docs_only != 'true' && (runner.os == 'Linux')
         # The step once hung for 36 minutes on the runner's package mirror. Each
-        # attempt is cut off after a few minutes and tried again.
-        timeout-minutes: 20
+        # attempt is cut off after at most 7 minutes (2 for the update, 5 for
+        # the install) and tried again, up to three times, which the step's
+        # limit of 25 minutes covers. A killed apt can leave dpkg half done, so
+        # it is finished before the next attempt.
+        timeout-minutes: 25
         run: |
           for attempt in 1 2 3; do
-            if sudo timeout 300 apt-get update && sudo timeout 600 apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev; then
+            if sudo timeout 120 apt-get update && sudo timeout 300 apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev; then
               exit 0
             fi
             echo "::warning::apt attempt $attempt failed or timed out"
+            sudo dpkg --configure -a || true
             sleep 10
           done
           exit 1
