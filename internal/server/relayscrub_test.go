@@ -268,9 +268,9 @@ func TestRelayScrubFailsClosed(t *testing.T) {
 			t.Errorf("%s: a message the scrub cannot read was sent: %s", typ, got)
 		}
 	}
-	other := []byte(`{"type":"notice","text":"hello"}`)
+	other := []byte(`{"type":"prefs","text":"hello"}`)
 	if got := scrubForRemote(other); !bytes.Equal(got, other) {
-		t.Errorf("a notice was changed: %s", got)
+		t.Errorf("a message with no scrub was changed: %s", got)
 	}
 }
 

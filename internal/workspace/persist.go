@@ -300,6 +300,13 @@ func (w *Workspace) restoreProject(root string) int {
 // behind it not known: giving it up then gives the tab the title it would be
 // given if it were opened now. Taking it for automatic instead would have left
 // a tab named by hand before the upgrade with no way back to naming itself.
+//
+// This means an older title made from a prompt (its first 28 characters) is kept
+// as a name. A window reached through the relay is sent a hand-chosen title, cut
+// to 40 characters and redacted (internal/server/relayscrub.go), so such a title
+// can go out. It was decided not to clear it on migration: that would drop real
+// names for everyone who named a tab before the marker existed, and the title
+// stops going out once the tab is renamed or UseAutoTitle is used.
 func (w *Workspace) restoreTitle(tab *Tab, saved store.Tab, marked bool) {
 	switch {
 	case saved.Named:

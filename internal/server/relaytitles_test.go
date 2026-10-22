@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jmwri/flockdeck/internal/session"
 	"github.com/jmwri/flockdeck/internal/workspace"
 )
 
@@ -168,11 +169,11 @@ func TestEveryMessageTypeIsClassifiedForTheRelay(t *testing.T) {
 	// Types that carry no text a pane's agent or task made.
 	noText := map[string]string{
 		"hello": "keys, settings", "prefs": "settings", "keys": "key table", "keyTable": "key table",
-		"notice":    "fixed sentences; a panic value is not quoted to a relay window",
+
 		"artifacts": "whether the device may open the artifacts socket", "agentAddress": "settings", "radarSupport": "a flag", "jevKey": "a flag",
 		"remotePair": "pairing", "remoteOutcome": "relay result", "remoteDevices": "device list", "versions": "release list",
 		"helpers": "helper apps", "helperPlan": "helper apps",
-		"batonSaved": "ids, a path and a count", "batonError": "the reason a baton failed",
+		"batonSaved":        "ids, a path and a count",
 		"attachImageResult": "a path or a reason", "browse": "folder names", "recents": "project paths", "worktrees": "branches and paths",
 		"ghProgress": "progress", "ghStatus": "gh install state", "gitWarn": "a warning",
 		"paneSend": "refused to a relay window", "permissionAnswer": "refused to a relay window",
@@ -200,6 +201,17 @@ func TestEveryMessageTypeIsClassifiedForTheRelay(t *testing.T) {
 			t.Fatal(err)
 		}
 		ast.Inspect(file, func(n ast.Node) bool {
+			// A type given any way but as a literal in the message is not seen by
+			// this scan, so one is an error: write the type as a literal where the
+			// message is made.
+			if as, ok := n.(*ast.AssignStmt); ok {
+				for _, lhs := range as.Lhs {
+					if sel, ok := lhs.(*ast.SelectorExpr); ok && sel.Sel.Name == "Type" {
+						t.Errorf("%s assigns a message's Type after it is made: write the type as a literal in the message, so the relay classification sees it", f)
+					}
+				}
+				return true
+			}
 			kv, ok := n.(*ast.KeyValueExpr)
 			if !ok {
 				return true
@@ -211,9 +223,13 @@ func TestEveryMessageTypeIsClassifiedForTheRelay(t *testing.T) {
 			case *ast.BasicLit:
 				key = strings.Trim(k.Value, `"`)
 			}
-			lit, ok := kv.Value.(*ast.BasicLit)
-			if (key == "Type" || key == "type") && ok && lit.Kind == token.STRING {
+			if key != "Type" && key != "type" {
+				return true
+			}
+			if lit, ok := kv.Value.(*ast.BasicLit); ok && lit.Kind == token.STRING {
 				found[strings.Trim(lit.Value, `"`)] = true
+			} else {
+				t.Errorf("%s gives a message type that is not a literal: write the type as a literal, so the relay classification sees it", f)
 			}
 			return true
 		})
@@ -249,5 +265,59 @@ func TestEveryMessageTypeIsClassifiedForTheRelay(t *testing.T) {
 		if !found[typ] {
 			t.Errorf("relayScrubs has %q, which the server no longer sends", typ)
 		}
+	}
+}
+
+// A notice and a baton error quote error strings, so a relay window is sent them
+// redacted and cut to a line, with every other field as it was.
+func TestRelayNoticeAndBatonErrorAreRedactedAndCut(t *testing.T) {
+	long := strings.Repeat("x", 2*maxRemoteNotice)
+	out := scrubForRemote(mustJSON(t, noticeMsg{Type: "notice", Text: "failed with " + relaySecrets[0] + "\n" + long, Error: true, Kind: "approval"}))
+	if leaks := relayLeaks(out); len(leaks) > 0 {
+		t.Errorf("the notice holds %q", leaks)
+	}
+	var n noticeMsg
+	if err := json.Unmarshal(out, &n); err != nil || !n.Error || n.Kind != "approval" || len([]rune(n.Text)) != maxRemoteNotice || !strings.HasPrefix(n.Text, "failed with ") {
+		t.Errorf("notice = %+v, %v", n, err)
+	}
+	out = scrubForRemote(mustJSON(t, batonErrorMsg{Type: "batonError", PaneID: "p", Req: "r", Cmd: "saveBaton", Error: "bad " + relaySecrets[1] + " " + long}))
+	if leaks := relayLeaks(out); len(leaks) > 0 {
+		t.Errorf("the baton error holds %q", leaks)
+	}
+	var e batonErrorMsg
+	if err := json.Unmarshal(out, &e); err != nil || e.PaneID != "p" || e.Req != "r" || e.Cmd != "saveBaton" || len([]rune(e.Error)) != maxRemoteNotice {
+		t.Errorf("baton error = %+v, %v", e, err)
+	}
+	if scrubForRemote([]byte(`{"type":"notice"}`)) != nil || scrubForRemote([]byte(`{"type":"batonError","error":7}`)) != nil {
+		t.Error("a message with no text to cut was sent")
+	}
+}
+
+// The agents list fills TabNamed from the tab: a tab renamed by hand says so, and
+// one that took its title from its prompt does not. The relay scrub depends on it.
+func TestAgentsListFillsTabNamedFromTheTab(t *testing.T) {
+	srv, ws := newTestServer(t)
+	lead := firstPane(t, srv, ws)
+	named, ok := ask(srv, func() string {
+		tab := ws.NewTab(session.KindShell, ws.ActiveRoot(), "agent")
+		ws.NameTab(tab.ID, "mine")
+		return tab.Tree.Panes()[0]
+	})
+	if !ok {
+		t.Fatal("the workspace did not answer")
+	}
+	conn := dialControl(t, srv)
+	sendCmd(t, conn, command{Cmd: "agents"})
+	var list agentsMsg
+	readUntil(t, conn, "agents", &list)
+	seen := map[string]agentView{}
+	for _, it := range list.Items {
+		seen[it.PaneID] = it
+	}
+	if it, ok := seen[named]; !ok || !it.TabNamed || it.Tab != "mine" {
+		t.Errorf("the renamed tab's pane = %+v", it)
+	}
+	if it, ok := seen[lead]; !ok || it.TabNamed {
+		t.Errorf("the pane of a tab nobody renamed = %+v", it)
 	}
 }
