@@ -1,0 +1,26 @@
+name: Use the runner's faster drive for temp files and the Go build cache (Windows)
+description: >-
+  Points TEMP, TMP, GOCACHE and GOTMPDIR at the runner's temp folder, which is
+  on the D: drive.
+
+# On the Windows runner the checkout and the runner's temp directory are on the
+# D: drive, but the temp directory the tests use (TEMP, where every test makes
+# its files and git repositories) and the Go build cache are on C:, which is
+# much slower for many small files: 3000 small files took 5 to 8 seconds there
+# and about 1 on D:. With both on the runner's temp drive the whole suite took a
+# median of 541 s against 807 s (three runs each; docs/testing.md has the
+# numbers). Use this before setup-go, so that the build cache it restores and
+# saves is the one on D:. It does nothing on other systems.
+
+runs:
+  using: composite
+  steps:
+    - if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        $base = Join-Path $env:RUNNER_TEMP 'gotest'
+        foreach ($d in 'tmp', 'gocache', 'gotmp') { New-Item -ItemType Directory -Force (Join-Path $base $d) | Out-Null }
+        "TEMP=$base\tmp" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+        "TMP=$base\tmp" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+        "GOCACHE=$base\gocache" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+        "GOTMPDIR=$base\gotmp" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV

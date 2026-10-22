@@ -45,6 +45,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 const (
@@ -63,11 +64,15 @@ func main() {
 	retry := flag.Bool("retry", false, "run what failed once more, on its own")
 	logPath := flag.String("log", "", "also write go test's output to this file")
 	plan := flag.Bool("plan", false, "print all the shares and run nothing")
+	jobsMax := flag.Int("jobs", 2, "how many go test commands of the share run at once")
+	digestPath := flag.String("digest", "", "write the plan's digest to this file")
+	goFlags := flag.String("gotestflags", "", "flags for go test, separated by spaces (in place of the ones after --)")
 	flag.Parse()
 	extra := flag.Args()
 	if len(extra) > 0 && extra[0] == "--" {
 		extra = extra[1:]
 	}
+	extra = append(strings.Fields(*goFlags), extra...)
 	var i, n int
 	if _, err := fmt.Sscanf(*shard, "%d/%d", &i, &n); err != nil || n < 1 || i < 1 || i > n {
 		fatal("-shard wants I/N with 1 <= I <= N, got %q", *shard)
@@ -102,7 +107,12 @@ func main() {
 	mine := shares[i-1]
 	fmt.Printf("shardtests: share %d of %d (%s): %d packages whole, %d cut, about %.0f s; plan %s\n",
 		i, n, *profile, len(mine.whole), len(mine.cut), mine.weight, digest(shares))
-	status := execute(mine, extra, *retry)
+	if *digestPath != "" {
+		if err := os.WriteFile(*digestPath, []byte(digest(shares)+"\n"), 0o644); err != nil {
+			fatal("%v", err)
+		}
+	}
+	status := execute(mine, extra, *retry, *jobsMax)
 	if c, ok := logw.(io.Closer); ok {
 		c.Close()
 	}
@@ -353,23 +363,28 @@ func out(format string, a ...any) {
 
 // run is the result of one go test command.
 type run struct {
-	output string
-	status int
-	pkgs   map[string][]string // package -> its result lines: ok, FAIL or ?
-	tests  map[string][]string // test name -> PASS, FAIL or SKIP
+	output  string
+	status  int
+	pkgs    map[string][]string // package -> its result lines: ok, FAIL or ?
+	tests   map[string][]string // test name -> PASS, FAIL or SKIP
+	pkgSec  map[string]float64  // package -> the seconds its line gives
+	testSec map[string]float64  // test name -> the seconds its line gives
+	wall    float64             // seconds the command took
 }
 
 var (
-	pkgLine  = regexp.MustCompile(`^(ok|FAIL|\?)\s+` + regexp.QuoteMeta(modulePath) + `(\S*)`)
-	testLine = regexp.MustCompile(`^--- (PASS|FAIL|SKIP): (Test\S*) \(`)
+	pkgLine  = regexp.MustCompile(`^(ok|FAIL|\?)\s+` + regexp.QuoteMeta(modulePath) + `(\S*)(?:\s+([0-9.]+)s)?`)
+	testLine = regexp.MustCompile(`^--- (PASS|FAIL|SKIP): (Test\S*) \(([0-9.]+)s\)`)
 )
 
 func goTest(args []string) *run {
-	r := &run{pkgs: map[string][]string{}, tests: map[string][]string{}}
+	r := &run{pkgs: map[string][]string{}, tests: map[string][]string{}, pkgSec: map[string]float64{}, testSec: map[string]float64{}}
+	began := time.Now()
 	cmd := exec.Command("go", append([]string{"test"}, args...)...)
 	var buf bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &buf, &buf
 	err := cmd.Run()
+	r.wall = time.Since(began).Seconds()
 	if err != nil {
 		r.status = 1
 		if ee, ok := err.(*exec.ExitError); ok {
@@ -387,9 +402,15 @@ func goTest(args []string) *run {
 				p = "."
 			}
 			r.pkgs[p] = append(r.pkgs[p], m[1])
+			if v, err := strconv.ParseFloat(m[3], 64); err == nil {
+				r.pkgSec[p] += v
+			}
 		}
 		if m := testLine.FindStringSubmatch(line); m != nil {
 			r.tests[m[2]] = append(r.tests[m[2]], m[1])
+			if v, err := strconv.ParseFloat(m[3], 64); err == nil {
+				r.testSec[m[2]] += v
+			}
 		}
 	}
 	return r
@@ -505,7 +526,7 @@ func (j *job) verify() []string {
 }
 
 // execute runs a share and returns the exit status.
-func execute(s *share, extra []string, retry bool) int {
+func execute(s *share, extra []string, retry bool, jobsMax int) int {
 	var jobs []*job
 	if len(s.whole) > 0 {
 		args := append(append([]string{}, extra...), pkgArgs(s.whole)...)
@@ -523,15 +544,24 @@ func execute(s *share, extra []string, retry bool) int {
 		jobs = append(jobs, &job{title: fmt.Sprintf("%s (%d tests)", p, len(names)), path: p, names: names, args: args})
 	}
 
+	// A share's commands run a few at a time, not all at once: on a 4 vCPU
+	// runner a package that takes 3 minutes alone took 10 when everything ran
+	// together. The cut packages with the most tests start first.
+	sort.SliceStable(jobs, func(a, b int) bool { return len(jobs[a].names) > len(jobs[b].names) })
+	began := time.Now()
 	var wg sync.WaitGroup
+	sem := make(chan struct{}, max(jobsMax, 1))
 	for _, j := range jobs {
 		wg.Add(1)
 		go func(j *job) {
 			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
 			j.r = goTest(j.args)
 		}(j)
 	}
 	wg.Wait()
+	defer func() { summarize(jobs, time.Since(began).Seconds()) }()
 
 	status := 0
 	for _, j := range jobs {
@@ -578,4 +608,55 @@ func execute(s *share, extra []string, retry bool) int {
 		}
 	}
 	return status
+}
+
+// summarize adds the share's timings to the job summary, when there is one:
+// each command, then the slowest packages and tests, in seconds. These are the
+// numbers to regenerate .github/test-weights.txt from.
+func summarize(jobs []*job, wall float64) {
+	path := os.Getenv("GITHUB_STEP_SUMMARY")
+	if path == "" {
+		return
+	}
+	type row struct {
+		name string
+		sec  float64
+	}
+	var cmds, items []row
+	for _, j := range jobs {
+		cmds = append(cmds, row{j.title, j.r.wall})
+		if j.path == "" {
+			for _, p := range j.whole {
+				items = append(items, row{p, j.r.pkgSec[p]})
+			}
+			continue
+		}
+		for _, name := range j.names {
+			items = append(items, row{j.path + " " + name, j.r.testSec[name]})
+		}
+	}
+	sort.Slice(items, func(a, b int) bool { return items[a].sec > items[b].sec })
+	var b strings.Builder
+	fmt.Fprintln(&b, "### Share timings (seconds)")
+	fmt.Fprintln(&b)
+	fmt.Fprintf(&b, "The share took %.0f s.\n", wall)
+	fmt.Fprintln(&b)
+	fmt.Fprintln(&b, "```")
+	for _, r := range cmds {
+		fmt.Fprintf(&b, "%7.1f  command: %s\n", r.sec, r.name)
+	}
+	fmt.Fprintln(&b)
+	for k, r := range items {
+		if k == 25 {
+			break
+		}
+		fmt.Fprintf(&b, "%7.1f  %s\n", r.sec, r.name)
+	}
+	fmt.Fprintln(&b, "```")
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0o644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	f.WriteString(b.String())
 }

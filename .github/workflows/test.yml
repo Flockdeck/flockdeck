@@ -46,11 +46,12 @@ jobs:
   # Whether the pull request changes nothing but documentation. A change to
   # the docs (the .md and .json files under docs/, and the markdown files at the
   # root) cannot break the build, so the full suite is not run for it: the
-  # steps of the test job are skipped, except that its Ubuntu leg runs the tests
-  # that read those files. The test job itself still runs and reports, because
-  # the branch protection names its three checks, "test (ubuntu-latest)" and the
-  # others, and a job that is skipped as a whole is never reported under those
-  # names. Every push to main and every release runs everything.
+  # static, shard and race jobs are skipped, and the Ubuntu leg of the test job
+  # runs the tests that read those files. The test job itself still runs and
+  # reports, because the branch protection names its three checks, "test
+  # (ubuntu-latest)" and the others, and a job that is skipped as a whole is
+  # never reported under those names. Every push to main and every release runs
+  # everything.
   #
   # The files are read from the merge commit of the pull request, not from the
   # API: the API's list can lag behind a push, and reading it takes a
@@ -64,6 +65,8 @@ jobs:
       contents: read
     outputs:
       docs_only: ${{ steps.diff.outputs.docs_only }}
+      race: ${{ steps.diff.outputs.race }}
+      race_os: ${{ steps.diff.outputs.race_os }}
     steps:
       - uses: actions/checkout@v7
         if: github.event_name == 'pull_request'
@@ -83,81 +86,47 @@ jobs:
           fi
           echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
           echo "docs_only=$docs_only"
+          # Where the race detector runs: macOS only outside pull requests.
+          if [ "$EVENT" = pull_request ]; then
+            echo 'race={"os":["ubuntu-latest"],"shard":[1,2,3,4]}' >> "$GITHUB_OUTPUT"
+            echo 'race_os=ubuntu-latest' >> "$GITHUB_OUTPUT"
+          else
+            echo 'race={"os":["ubuntu-latest","macos-latest"],"shard":[1,2,3,4]}' >> "$GITHUB_OUTPUT"
+            echo 'race_os=ubuntu-latest macos-latest' >> "$GITHUB_OUTPUT"
+          fi
 
-  test:
+  # The checks that are not tests, on each platform: formatting, vet, the build
+  # of the next shell and the tests of the scripts the workflow relies on.
+  static:
+    name: static (${{ matrix.os }})
     strategy:
-      # Every platform runs to the end even when another fails, so a failure
-      # shows everything that needs fixing rather than the first of it.
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     needs: changes
-    # Run even when the changes job failed or timed out: a job skipped because
-    # its dependency failed is counted as passing by the branch protection. An
-    # empty docs_only is read as "not docs only", so everything runs.
-    if: ${{ !cancelled() }}
+    if: ${{ !cancelled() && needs.changes.outputs.docs_only != 'true' }}
     runs-on: ${{ matrix.os }}
-    # The slowest platform takes about half an hour. A job past this is hung,
-    # and the default of six hours would hold a runner and the pull request
-    # for all of it.
-    timeout-minutes: 60
+    timeout-minutes: 45
     steps:
       # The token that fetched the code is not left in .git/config, where
       # every test, and whatever a test runs, could read it. Nothing here
       # needs it: the tests make their own repositories and fetch nothing.
       - uses: actions/checkout@v7
-        if: needs.changes.outputs.docs_only != 'true' || runner.os == 'Linux'
         with:
           ref: ${{ inputs.ref }}
           persist-credentials: false
 
-      # On the Windows runner the checkout and the runner's temp directory are
-      # on the D: drive, but the temp directory the tests use (TEMP, where
-      # every test makes its files and git repositories) and the Go build cache
-      # are on C:, which is much slower for many small files: 3000 small files
-      # took 5 to 8 seconds there and about 1 on D:. With both on the runner's
-      # temp drive the whole suite took a median of 541 s against 807 s (three
-      # runs each; docs/testing.md has the numbers). This comes before setup-go
-      # so that the build cache it restores and saves is the one on D:.
-      - name: Use the runner's faster drive for temp files and the Go build cache (Windows)
-        if: runner.os == 'Windows' && needs.changes.outputs.docs_only != 'true'
-        shell: pwsh
-        run: |
-          $base = Join-Path $env:RUNNER_TEMP 'gotest'
-          foreach ($d in 'tmp', 'gocache', 'gotmp') { New-Item -ItemType Directory -Force (Join-Path $base $d) | Out-Null }
-          "TEMP=$base\tmp" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
-          "TMP=$base\tmp" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
-          "GOCACHE=$base\gocache" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
-          "GOTMPDIR=$base\gotmp" | Out-File -Append -Encoding utf8 $env:GITHUB_ENV
+      - uses: ./.github/actions/fast-drive
 
       - uses: actions/setup-go@v7
-        if: needs.changes.outputs.docs_only != 'true' || runner.os == 'Linux'
         with:
           go-version-file: go.mod
           cache: true
 
-      # For a change to documentation only, the tests that read those files
-      # run in place of the rest. The Ubuntu leg reports them as its own
-      # failures. CGO is off because the window package has a stand-in without
-      # it, so no GTK packages are needed. A test elsewhere that reads a doc is
-      # first run by the push to main. The release notes test is the one test
-      # of cmd/release that reads a root markdown file; the rest of it builds
-      # the application.
-      - name: Test what reads the docs (documentation-only change)
-        if: needs.changes.outputs.docs_only == 'true' && runner.os == 'Linux'
-        timeout-minutes: 20
-        env:
-          CGO_ENABLED: "0"
-        run: |
-          go test -count=1 -timeout 10m ./internal/help ./internal/record ./internal/acp/manifest ./cmd/docgen ./cmd/sitegen ./cmd/deploydrift
-          go test -count=1 -timeout 10m -run TestNoticesNameEveryLinkedModule ./cmd/release
-          go test -count=1 -timeout 10m -run 'Schema|TestGraph|TestTwoTeamGraph|TestStructuredDocQuotes' ./internal/server
-          go test -count=1 -timeout 10m -run TestRecordingFollowsTheStoredConversation ./internal/workspace
-
       # The check the action makes of the restored package files is itself
       # tested, with package files made here.
       - name: Test the package cache check (Linux)
-        if: needs.changes.outputs.docs_only != 'true' && runner.os == 'Linux'
+        if: runner.os == 'Linux'
         timeout-minutes: 5
         run: bash .github/actions/install-gtk/verify-cache-test.sh
 
@@ -167,7 +136,7 @@ jobs:
       # over from a slow mirror. Three attempts of at most 7 minutes fit in the
       # step's 25.
       - name: Install GTK4/WebKitGTK dev packages (Linux, for Wails)
-        if: needs.changes.outputs.docs_only != 'true' && (runner.os == 'Linux')
+        if: runner.os == 'Linux'
         timeout-minutes: 25
         uses: ./.github/actions/install-gtk
 
@@ -176,7 +145,7 @@ jobs:
       # every file.
       - name: Format
         timeout-minutes: 5
-        if: needs.changes.outputs.docs_only != 'true' && (runner.os == 'Linux')
+        if: runner.os == 'Linux'
         run: |
           unformatted=$(gofmt -l .)
           if [ -n "$unformatted" ]; then
@@ -186,7 +155,6 @@ jobs:
           fi
 
       - name: Vet
-        if: needs.changes.outputs.docs_only != 'true'
         timeout-minutes: 15
         run: go vet ./...
 
@@ -194,171 +162,280 @@ jobs:
       # the packages it touches are built, vetted and tested under the tag, not
       # the whole suite a second time.
       - name: Build the next shell
-        if: needs.changes.outputs.docs_only != 'true'
         timeout-minutes: 15
         run: go build -tags next ./...
 
       - name: Vet the next shell
-        if: needs.changes.outputs.docs_only != 'true'
         timeout-minutes: 15
         run: go vet -tags next ./internal/webui/... ./internal/server/...
 
-      # The old window's tests in internal/webui run once, in the Test step
-      # below, and are not run a second time here: under the tag only the new
-      # shell's package and the tests that differ with the tag are run.
+      # The old window's tests in internal/webui run once, in the shares of the
+      # test jobs, and are not run a second time here: under the tag only the
+      # new shell's package and the tests that differ with the tag are run.
       - name: Test the next shell
-        if: needs.changes.outputs.docs_only != 'true'
         timeout-minutes: 20
         run: go test -count=1 -tags next ./internal/webui/next/...
 
       - name: Test what the tag changes in the window package
-        if: needs.changes.outputs.docs_only != 'true'
         timeout-minutes: 10
         run: go test -count=1 -tags next -run 'TestNextFS|TestMjsIsServedAsJavaScript|TestOnlyTheAssetTreesAreEmbedded|TestServedE2EScriptIsTheOldOne|TestIconIsTheOldOne' ./internal/webui
 
       # The retry script, run against small packages that fail in the ways
       # that matter to it (docs/testing.md, "When a test fails once").
       - name: Test the retry script
-        if: needs.changes.outputs.docs_only != 'true' && (runner.os == 'Linux')
+        if: runner.os == 'Linux'
         timeout-minutes: 5
         run: bash .github/scripts/go-test-once-more-test.sh
 
-      # A release's run also fails while the release key is still the
-      # placeholder (TestReleaseKeyIsInPlace), so a release can never ship
-      # unable to check what it downloads. Other runs have no key to hold.
-      #
-      # The output is kept as well as shown, for the step after this one.
-      #
-      # -count=1 runs every test again rather than trusting a result the
-      # shared build cache kept from another run, which could have been on
-      # other files a test reads, or another machine's timing. -timeout
-      # names the limit rather than leaning on go test's ten minutes: the
-      # server's tests alone take three, and several times that under the
-      # race detector.
-      #
-      # A package that fails is run once more on its own before the step
-      # fails (.github/scripts/go-test-once-more.sh). One that fails twice
-      # still fails it; one that passes the second time is named in a warning
-      # with the tests that failed, to be fixed rather than forgotten. Six
-      # release candidates of v0.3.4 in a row were stopped by a different
-      # test each, every one of them the runner's timing.
+      - name: Test the result check
+        if: runner.os == 'Linux'
+        timeout-minutes: 5
+        run: bash .github/scripts/test-gate-test.sh
+
+      - if: always()
+        uses: ./.github/actions/record-result
+        with:
+          kind: static
+          os: ${{ matrix.os }}
+          index: "0"
+          status: ${{ job.status }}
+
+  # The tests, in four shares per platform that run at the same time. Each job
+  # works out the same split (.github/scripts/shardtests.go) and runs its own
+  # share; the job named test (the check the branch protection names) collects
+  # them. The split is by package, and by test for the slowest packages, so a
+  # test belongs to a share by its name and a new one needs no list.
+  #
+  # -count=1 runs every test again rather than trusting a result the shared
+  # build cache kept from another run, which could have been on other files a
+  # test reads, or another machine's timing. -timeout names the limit rather
+  # than leaning on go test's ten minutes. A release's run also fails while the
+  # release key is still the placeholder (TestReleaseKeyIsInPlace), so a
+  # release can never ship unable to check what it downloads. Other runs have
+  # no key to hold.
+  #
+  # A package or a test that fails is run once more on its own before the job
+  # fails. One that fails twice still fails it; one that passes the second time
+  # is named in a warning, to be fixed rather than forgotten. Six release
+  # candidates of v0.3.4 in a row were stopped by a different test each, every
+  # one of them the runner's timing.
+  shard:
+    name: shard (${{ matrix.os }}, ${{ matrix.shard }}/4)
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        shard: [1, 2, 3, 4]
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.docs_only != 'true' }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      - uses: ./.github/actions/fast-drive
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install GTK4/WebKitGTK dev packages (Linux, for Wails)
+        if: runner.os == 'Linux'
+        timeout-minutes: 25
+        uses: ./.github/actions/install-gtk
+
       - name: Test
-        if: needs.changes.outputs.docs_only != 'true' && (runner.os != 'Windows')
-        timeout-minutes: 45
+        if: runner.os != 'Windows'
+        timeout-minutes: 40
         shell: bash
         env:
           FLOCKDECK_RELEASE_BUILD: ${{ inputs.release && '1' || '' }}
-        run: bash .github/scripts/go-test-once-more.sh "$RUNNER_TEMP/go-test.log" -count=1 -timeout 20m
-
-      # Windows runs the tests from the runner's own shell, PowerShell 7, as
-      # it always has: moving them to Git's bash changed what they ran in, and
-      # one failed there that had never failed before. cmd does the
-      # redirection, so that nothing depends on how PowerShell treats a
-      # program writing to stderr; the output is shown once the tests end.
-      # The tests that failed are run once more, as go-test-once-more.sh does
-      # elsewhere: only those tests, or the whole package when it failed with
-      # no failing test to name.
-      - name: Test
-        if: needs.changes.outputs.docs_only != 'true' && (runner.os == 'Windows')
-        timeout-minutes: 45
-        env:
-          FLOCKDECK_RELEASE_BUILD: ${{ inputs.release && '1' || '' }}
+          SHARD: ${{ matrix.shard }}
+          PROFILE: ${{ runner.os == 'macOS' && 'macos' || 'linux' }}
         run: |
-          $log = "$env:RUNNER_TEMP\go-test.log"
-          cmd /c "go test -count=1 -timeout 20m ./... > `"$log`" 2>&1"
-          $status = $LASTEXITCODE
-          Get-Content $log
-          if ($status -ne 0) {
-            $failed = @(Get-Content $log | Select-String -Pattern '^FAIL\s+(\S+)' | ForEach-Object { $_.Matches[0].Groups[1].Value } | Sort-Object -Unique)
-            if ($failed.Count -gt 0) {
-              $first = @(Get-Content $log | Select-String -Pattern '--- FAIL' | ForEach-Object { $_.Line.Trim() } | Sort-Object -Unique)
-              # The top-level tests that failed. A package's output ends with
-              # its FAIL line, so the names seen since the last package line
-              # belong to it. None if any failed package has no test to name,
-              # or crashed (the test binary ended, so the tests after it never
-              # ran; a binary whose tests failed normally prints a bare FAIL
-              # line first, and one that died does not). Only a pull request narrows the
-              # second run: any other run runs the whole failed package again,
-              # so that a test that fails only after another one is not hidden
-              # (see go-test-once-more.sh).
-              $names = @(); $seen = @(); $none = $false; $crashed = $false; $bare = $false
-              foreach ($line in Get-Content $log) {
-                if ($line -match '^--- FAIL: (\S+)') { $seen += $Matches[1] }
-                elseif ($line -match '^(panic:|fatal error:)') { $crashed = $true }
-                elseif ($line -eq 'FAIL') { $bare = $true }
-                elseif ($line -match '^FAIL\s+\S+') { if ($seen.Count -eq 0 -or $crashed -or -not $bare) { $none = $true }; $names += $seen; $seen = @(); $crashed = $false; $bare = $false }
-                elseif ($line -match '^(ok|\?)\s') { $seen = @(); $crashed = $false; $bare = $false }
-              }
-              $only = ''
-              $what = "the packages that failed: $($failed -join ' ')"
-              if ($env:GITHUB_EVENT_NAME -eq 'pull_request' -and -not $none -and $names.Count -gt 0) {
-                $only = '-run "^(' + (($names | Sort-Object -Unique) -join '|') + ')$"'
-                $what = "the tests that failed in $($failed -join ' ')"
-              }
-              $rerun = "$env:RUNNER_TEMP\go-test-again.log"
-              Write-Output "::group::Running $what once more"
-              cmd /c "go test -count=1 -timeout 20m $only $($failed -join ' ') > `"$rerun`" 2>&1"
-              $status = $LASTEXITCODE
-              Get-Content $rerun
-              Write-Output "::endgroup::"
-              Add-Content $log "===== once more: $($failed -join ' ')"
-              Add-Content $log (Get-Content $rerun)
-              if ($status -eq 0) {
-                $body = ((@("Failed, then passed when run again:") + $failed + @("") + $first) -join "`n").Replace('%', '%25').Replace("`n", '%0A')
-                Write-Output "::warning title=Tests that passed only when run again on Windows::$body"
-                if ($env:GITHUB_STEP_SUMMARY) {
-                  Add-Content $env:GITHUB_STEP_SUMMARY (@("### Passed only when run again (Windows)", '```') + $failed + @("") + $first + @('```'))
-                }
-              }
-            }
-          }
-          exit $status
+          go run .github/scripts/shardtests.go -shard "$SHARD/4" -profile "$PROFILE" -retry \
+            -log "$RUNNER_TEMP/go-test.log" -digest "$RUNNER_TEMP/plan.txt" \
+            -gotestflags "-count=1 -timeout 20m"
 
-      # The workspace is reached from many goroutines through one owner, and a
-      # mistake in that is a race rather than a failure. The detector needs a C
-      # toolchain, which the application itself never does, so it runs where
-      # the runner has one: gcc on Linux, and on macOS the clang that comes
-      # with Xcode. macOS runs it too because its scheduler and its own code
-      # -- how a process is watched, how a file is locked -- give races other
-      # timings than Linux does. Windows is left out until a C toolchain on
-      # its runner is known to work with the detector.
-      #
-      # On macOS the detector is the slowest step of the slowest queue, so it
-      # runs on pushes to main and in a release's run, and not on pull
-      # requests. Linux runs it on every pull request. A race only macOS's
-      # timings show is therefore found after the merge, not before it. A
-      # release's run is started by a tag or by hand, so the event it sees is
-      # never pull_request.
-      - name: Race
-        timeout-minutes: 45
-        if: needs.changes.outputs.docs_only != 'true' && (runner.os == 'Linux' || (runner.os == 'macOS' && github.event_name != 'pull_request'))
-        shell: bash
+      # Windows runs the tests from the runner's own shell, PowerShell 7, as it
+      # always has: moving them to Git's bash changed what they ran in, and one
+      # failed there that had never failed before. Two packages at a time per
+      # share: the runner has four cores, and gitx took 600 s with every
+      # package running together against 180 to 310 s alone.
+      - name: Test
+        if: runner.os == 'Windows'
+        timeout-minutes: 40
         env:
-          CGO_ENABLED: "1"
-        # A package that fails is run once more, as in the Test step. A data
-        # race the second run does not hit is named in its warning too.
-        run: bash .github/scripts/go-test-once-more.sh "$RUNNER_TEMP/go-race.log" -race -count=1 -timeout 20m
+          FLOCKDECK_RELEASE_BUILD: ${{ inputs.release && '1' || '' }}
+          SHARD: ${{ matrix.shard }}
+        run: |
+          go run .github/scripts/shardtests.go -shard "$env:SHARD/4" -profile windows -retry `
+            -log "$env:RUNNER_TEMP\go-test.log" -digest "$env:RUNNER_TEMP\plan.txt" `
+            -gotestflags "-count=1 -timeout 20m -p 2"
+          exit $LASTEXITCODE
 
       # A job's log can only be read signed in to GitHub, and its annotations
       # can be read by anyone, from the web or the API. So a failure is also
       # given as one: every failing test, panic and data race, with what it
       # printed. A test that panics on purpose logs "flockdeck: panic ..." and
-      # passes, so only go test's own lines are taken. It comes last, so that
-      # it sees the race detector's failures as well as the tests'.
+      # passes, so only go test's own lines are taken.
       - name: Name the failures
         if: failure()
         timeout-minutes: 5
         shell: bash
         run: |
           : > "$RUNNER_TEMP/failures.txt"
-          for log in "$RUNNER_TEMP/go-test.log" "$RUNNER_TEMP/go-race.log"; do
-            [ -f "$log" ] || continue
-            grep -E -A20 -- '--- FAIL|^panic:|^WARNING: DATA RACE' "$log" | tr -d '\r' >> "$RUNNER_TEMP/failures.txt" || true
-          done
+          grep -E -A20 -- '--- FAIL|^panic:|^WARNING: DATA RACE' "$RUNNER_TEMP/go-test.log" | tr -d '\r' >> "$RUNNER_TEMP/failures.txt" || true
           head -c 30000 "$RUNNER_TEMP/failures.txt" > "$RUNNER_TEMP/failures.cut" && mv "$RUNNER_TEMP/failures.cut" "$RUNNER_TEMP/failures.txt"
           [ -s "$RUNNER_TEMP/failures.txt" ] || exit 0
           body=$(sed -e 's/%/%25/g' "$RUNNER_TEMP/failures.txt" | awk 'BEGIN { ORS = "%0A" } { print }')
-          echo "::error title=go test failed on ${{ runner.os }}::$body"
+          echo "::error title=go test failed on ${{ runner.os }} (share ${{ matrix.shard }}/4)::$body"
+
+      - if: always()
+        uses: ./.github/actions/record-result
+        with:
+          kind: shard
+          os: ${{ matrix.os }}
+          index: ${{ matrix.shard }}
+          status: ${{ job.status }}
+          plan: ${{ runner.temp }}/plan.txt
+
+  # The workspace is reached from many goroutines through one owner, and a
+  # mistake in that is a race rather than a failure. The detector needs a C
+  # toolchain, which the application itself never does, so it runs where the
+  # runner has one: gcc on Linux, and on macOS the clang that comes with Xcode.
+  # macOS runs it too because its scheduler and its own code -- how a process
+  # is watched, how a file is locked -- give races other timings than Linux
+  # does. Windows is left out until a C toolchain on its runner is known to
+  # work with the detector.
+  #
+  # On macOS the detector is the slowest step of the slowest queue, so it runs
+  # on pushes to main and in a release's run, and not on pull requests. Linux
+  # runs it on every pull request. A race only macOS's timings show is
+  # therefore found after the merge, not before it. A release's run is started
+  # by a tag or by hand, so the event it sees is never pull_request. Which
+  # platforms run it is decided by the changes job, since a matrix cannot be
+  # chosen by the event.
+  race:
+    name: race (${{ matrix.os }}, ${{ matrix.shard }}/4)
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.changes.outputs.race || '{"os":["ubuntu-latest","macos-latest"],"shard":[1,2,3,4]}') }}
+    needs: changes
+    if: ${{ !cancelled() && needs.changes.outputs.docs_only != 'true' }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Install GTK4/WebKitGTK dev packages (Linux, for Wails)
+        if: runner.os == 'Linux'
+        timeout-minutes: 25
+        uses: ./.github/actions/install-gtk
+
+      - name: Race
+        timeout-minutes: 40
+        shell: bash
+        env:
+          CGO_ENABLED: "1"
+          SHARD: ${{ matrix.shard }}
+        run: |
+          go run .github/scripts/shardtests.go -shard "$SHARD/4" -profile race -retry \
+            -log "$RUNNER_TEMP/go-race.log" -digest "$RUNNER_TEMP/plan.txt" \
+            -gotestflags "-race -count=1 -timeout 20m"
+
+      - name: Name the failures
+        if: failure()
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          : > "$RUNNER_TEMP/failures.txt"
+          grep -E -A20 -- '--- FAIL|^panic:|^WARNING: DATA RACE' "$RUNNER_TEMP/go-race.log" | tr -d '\r' >> "$RUNNER_TEMP/failures.txt" || true
+          head -c 30000 "$RUNNER_TEMP/failures.txt" > "$RUNNER_TEMP/failures.cut" && mv "$RUNNER_TEMP/failures.cut" "$RUNNER_TEMP/failures.txt"
+          [ -s "$RUNNER_TEMP/failures.txt" ] || exit 0
+          body=$(sed -e 's/%/%25/g' "$RUNNER_TEMP/failures.txt" | awk 'BEGIN { ORS = "%0A" } { print }')
+          echo "::error title=go test -race failed on ${{ runner.os }} (share ${{ matrix.shard }}/4)::$body"
+
+      - if: always()
+        uses: ./.github/actions/record-result
+        with:
+          kind: race
+          os: ${{ matrix.os }}
+          index: ${{ matrix.shard }}
+          status: ${{ job.status }}
+          plan: ${{ runner.temp }}/plan.txt
+
+  # The three checks the branch protection names, "test (ubuntu-latest)" and the
+  # others, are this job. It reports each platform from the results its static,
+  # shard and race jobs left, and it runs when they fail, or are cancelled or
+  # skipped, because a job skipped because its dependency failed is counted as
+  # passing by the branch protection. It runs on Linux for every platform, since
+  # all it does is read the results (.github/scripts/test-gate.sh).
+  #
+  # For a change to documentation only the other jobs are skipped, and the tests
+  # that read those files run here in place of the rest, on the Ubuntu name. CGO
+  # is off because the window package has a stand-in without it, so no GTK
+  # packages are needed. A test elsewhere that reads a doc is first run by the
+  # push to main. The release notes test is the one test of cmd/release that
+  # reads a root markdown file; the rest of it builds the application.
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    needs: [changes, static, shard, race]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ inputs.ref }}
+          persist-credentials: false
+
+      - uses: actions/setup-go@v7
+        if: needs.changes.outputs.docs_only == 'true' && matrix.os == 'ubuntu-latest'
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Test what reads the docs (documentation-only change)
+        if: needs.changes.outputs.docs_only == 'true' && matrix.os == 'ubuntu-latest'
+        timeout-minutes: 20
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          go test -count=1 -timeout 10m ./internal/help ./internal/record ./internal/acp/manifest ./cmd/docgen ./cmd/sitegen ./cmd/deploydrift
+          go test -count=1 -timeout 10m -run TestNoticesNameEveryLinkedModule ./cmd/release
+          go test -count=1 -timeout 10m -run 'Schema|TestGraph|TestTwoTeamGraph|TestStructuredDocQuotes' ./internal/server
+          go test -count=1 -timeout 10m -run TestRecordingFollowsTheStoredConversation ./internal/workspace
+
+      - uses: actions/download-artifact@v4
+        if: needs.changes.outputs.docs_only != 'true'
+        continue-on-error: true
+        with:
+          pattern: result-*-${{ matrix.os }}-*
+          path: ${{ runner.temp }}/results
+          merge-multiple: true
+
+      - name: Check the results
+        if: needs.changes.outputs.docs_only != 'true'
+        timeout-minutes: 5
+        env:
+          RACE_OSES: ${{ needs.changes.outputs.race_os || 'ubuntu-latest macos-latest' }}
+        run: bash .github/scripts/test-gate.sh "$RUNNER_TEMP/results" "${{ matrix.os }}" "$RACE_OSES" 4
 
   # scripts/purge-downloads.sh deletes released files for good, so its tests
   # (cmd/release/purge_test.go) run it for real: the runner's aws CLI against

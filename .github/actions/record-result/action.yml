@@ -1,0 +1,47 @@
+name: Record the result of a test job
+description: >-
+  Leaves the job's status, and the digest of the plan it ran, for the job that
+  collects the platform's result (.github/scripts/test-gate.sh).
+
+# Run it with `if: always()` as the last step, so that a failed job leaves its
+# result too. A job that is cancelled, or whose runner is lost, leaves none,
+# and the collecting job counts that as a failure.
+
+inputs:
+  kind:
+    description: static, shard or race
+    required: true
+  os:
+    description: the platform, as in the matrix
+    required: true
+  index:
+    description: which share, counting from 1; 0 for a job that is not split
+    required: true
+  status:
+    description: the job's status, job.status
+    required: true
+  plan:
+    description: a file that holds the digest of the plan the job ran, if it ran one
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env:
+        KIND: ${{ inputs.kind }}
+        TARGET: ${{ inputs.os }}
+        INDEX: ${{ inputs.index }}
+        STATUS: ${{ inputs.status }}
+        PLAN: ${{ inputs.plan }}
+      run: |
+        mkdir -p "$RUNNER_TEMP/result"
+        digest=""
+        if [ -n "$PLAN" ] && [ -f "$PLAN" ]; then digest=$(tr -d '\r\n' < "$PLAN"); fi
+        echo "$STATUS $digest" > "$RUNNER_TEMP/result/$KIND-$TARGET-$INDEX.txt"
+
+    - uses: actions/upload-artifact@v4
+      with:
+        name: result-${{ inputs.kind }}-${{ inputs.os }}-${{ inputs.index }}
+        path: ${{ runner.temp }}/result/${{ inputs.kind }}-${{ inputs.os }}-${{ inputs.index }}.txt
+        retention-days: 1
