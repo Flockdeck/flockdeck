@@ -203,7 +203,7 @@ jobs:
       - name: Test what the tag changes in the window package
         if: needs.changes.outputs.docs_only != 'true'
         timeout-minutes: 10
-        run: go test -count=1 -tags next -run 'TestNextFS|TestMjsIsServedAsJavaScript|TestOnlyTheAssetTreesAreEmbedded' ./internal/webui
+        run: go test -count=1 -tags next -run 'TestNextFS|TestMjsIsServedAsJavaScript|TestOnlyTheAssetTreesAreEmbedded|TestServedE2EScriptIsTheOldOne|TestIconIsTheOldOne' ./internal/webui
 
       # A release's run also fails while the release key is still the
       # placeholder (TestReleaseKeyIsInPlace), so a release can never ship
