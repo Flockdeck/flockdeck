@@ -182,11 +182,20 @@ manifest (`runsWithoutAsking`, see [ACP adapters](acp-adapters.md)).
 - The old window shows a stub line and sends it nothing; the pane is for the new interface's drawer.
 - No Conversation tab and no export, since the conversation is not stored where Flockdeck reads it.
   Flockdeck does not load or resume the agent's own session.
-- Structured agents cannot read mail today. The typed wake line and the opening briefing tell an agent
-  to run `flockdeck inbox`, but a structured agent is not given `FLOCKDECK_API`, `FLOCKDECK_TOKEN` or
-  `FLOCKDECK_PANE` (names starting `FLOCKDECK_` are never passed to an agent), so the command fails
-  with "this only works inside a flockdeck pane". The wake is counted as delivered. This is a current
-  limit.
+- Mail reaches a structured agent only as text in a prompt, and only after an opt-in. The agent is
+  not given `FLOCKDECK_API`, `FLOCKDECK_TOKEN` or `FLOCKDECK_PANE` (names starting `FLOCKDECK_` are
+  never passed to an agent), so it cannot run `flockdeck inbox`, and its briefing has its own Messages
+  section that does not mention the command. Without the opt-in for its agent type
+  (`flockdeck wake text on -agent <id>`, the setting aider uses) it is not woken by mail, the mail
+  stays unread, and the briefing says mail is not available. With it, each wake is one prompt with the
+  oldest unread message: `Flockdeck message from agent "<role>": <text>`, or `the user` for a message
+  marked as the person's. The text is one line with escapes and control characters removed, the label
+  is cut at 32 characters and the whole line at 300 with an ellipsis, and the agent cannot fetch what
+  is cut. The message is marked read once the prompt is accepted, and the wake event logs the line.
+  This is a trust change: text written by another agent reaches an agent that may run commands as a
+  user turn. The guards are the fixed prefix, the single line, the two cuts and the briefing's
+  untrusted-data disclaimer. The gate is `structuredTextNeedsOptIn` in
+  `internal/workspace/wake_text.go`.
 
 **A login or Node problem** puts the pane in the phase `needs setup` (section 2's `setup` field),
 which reads as blocked with the detail "needs setup". The team graph lists it as "Needs setting up"
