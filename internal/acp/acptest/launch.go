@@ -4,7 +4,9 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"testing"
+	"time"
 )
 
 // Option changes how the fake agent behaves.
@@ -95,4 +97,10 @@ func WithMute() Option {
 // pipe and then block.
 func WithDeaf() Option {
 	return func(l *launch) { l.env = append(l.env, envDeaf+"=1") }
+}
+
+// WithSlowTurnStart makes each turn begin d after its prompt was read, as it
+// does when the machine is busy. A cancel that comes in that time is for the turn.
+func WithSlowTurnStart(d time.Duration) Option {
+	return func(l *launch) { l.env = append(l.env, envSlow+"="+strconv.Itoa(int(d.Milliseconds()))) }
 }
