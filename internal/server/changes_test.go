@@ -383,11 +383,11 @@ func TestPanesPerPathCreditsTheDeepestWorktree(t *testing.T) {
 // date, well inside the fifteen second polling interval.
 func TestConnectingAWindowRefreshesGit(t *testing.T) {
 	noGitPoll(t)
-	srv, _, repo := newRepoServer(t)
+	srv, ws, repo := newRepoServer(t)
 
 	// Let the refresh made shortly after startup land first, so what follows
 	// can only be explained by the connection.
-	time.Sleep(1500 * time.Millisecond)
+	waitForStartupGit(t, srv, ws)
 	if err := os.WriteFile(filepath.Join(repo, "new-file.txt"), []byte("x\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -408,6 +408,36 @@ func TestConnectingAWindowRefreshesGit(t *testing.T) {
 // long it took is no measure of that: git on a busy runner took nine seconds
 // to commit, and a test that called anything near the polling interval a poll
 // failed on the machine and not on the code.
+// waitForStartupGit returns once the read of each shown pane's checkout, which
+// the server makes shortly after it starts, has been applied: every pane then
+// has a branch. A fixed wait for it either cost more than it needed or, on a
+// slow machine, was not enough.
+func waitForStartupGit(t *testing.T, srv *Server, ws *workspace.Workspace) {
+	t.Helper()
+	for deadline := time.Now().Add(20 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+		done, ok := ask(srv, func() bool {
+			n := 0
+			for _, tab := range ws.VisibleTabs() {
+				for _, id := range tab.Tree.Panes() {
+					if p := ws.Pane(id); p != nil {
+						n++
+						if p.Git.Branch == "" {
+							return false
+						}
+					}
+				}
+			}
+			return n > 0
+		})
+		if ok && done {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the checkouts were not read after startup")
+		}
+	}
+}
+
 func noGitPoll(t *testing.T) {
 	t.Helper()
 	old := gitStatusInterval
@@ -466,10 +496,10 @@ func TestReviewFromASubdirectoryDiffsTheRightFile(t *testing.T) {
 // for the polling interval to come round.
 func TestCommitRefreshesThePaneHeaders(t *testing.T) {
 	noGitPoll(t)
-	srv, _, repo := newRepoServer(t)
+	srv, ws, repo := newRepoServer(t)
 	// Let the refresh made shortly after startup land first: one that came
 	// after the commit would settle the headers by itself.
-	time.Sleep(1500 * time.Millisecond)
+	waitForStartupGit(t, srv, ws)
 	conn := dialControl(t, srv)
 	nextState(t, conn, nil)
 

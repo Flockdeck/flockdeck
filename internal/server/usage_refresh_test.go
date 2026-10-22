@@ -28,16 +28,9 @@ func TestUsageIsReadAgainWhileNothingElseChanges(t *testing.T) {
 	srv, _ := newTestServer(t)
 	r := readControl(dialControl(t, srv))
 	r.settle(t)
-	// The shell going idle is broadcast a second or two after the connection
-	// first falls quiet, and would carry the new figure out by itself.
-	for deadline := time.Now().Add(20 * time.Second); ; {
-		if _, ok := r.stateWithin(3*time.Second, nil); !ok {
-			break
-		}
-		if time.Now().After(deadline) {
-			t.Fatal("the control connection never went quiet")
-		}
-	}
+	// The shell goes idle a second or two after its prompt, and that change is
+	// broadcast, which would carry the change under test out by itself.
+	r.shellsHaveStarted(t)
 
 	cpu.Store(90)
 	if _, ok := r.stateWithin(2*time.Second, func(s stateMsg) bool {
