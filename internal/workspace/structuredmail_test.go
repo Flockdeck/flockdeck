@@ -216,3 +216,15 @@ func TestNoSenderCanPassAsTheUserInAStructuredPrompt(t *testing.T) {
 		t.Errorf("a sender with no name gave %q", got)
 	}
 }
+
+// The sender label is cut at wakeTextRoleMax, whether it came from the role or
+// from the name, so a long one cannot crowd out the text.
+func TestALongSenderLabelIsCutInAStructuredPrompt(t *testing.T) {
+	long := strings.Repeat("r", 300)
+	for _, from := range []team.Sender{{Pane: "p9", Role: long}, {Pane: "p9", Name: long}} {
+		want := wakeTextPrefix + `agent "` + strings.Repeat("r", wakeTextRoleMax) + `": hi`
+		if got := wakeTextPrompt(team.Message{ID: 1, Text: "hi", From: from}); got != want {
+			t.Errorf("sender %.20q... gave %q, want %q", from.Role+from.Name, got, want)
+		}
+	}
+}

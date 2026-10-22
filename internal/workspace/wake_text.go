@@ -101,7 +101,7 @@ func wakePromptSender(m team.Message) string {
 	if label == "" {
 		label = cleanWakeText(m.From.Name)
 	}
-	label = cutRunes(strings.NewReplacer(`"`, "", "“", "", "”", "").Replace(label), wakeTextRoleMax)
+	label = cutRunes(strings.ReplaceAll(label, `"`, ""), wakeTextRoleMax)
 	if label == "" {
 		return "an unnamed agent"
 	}
