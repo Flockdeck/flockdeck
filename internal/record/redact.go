@@ -177,7 +177,9 @@ type Span struct {
 // provider's key prefix, a JWT) and nothing that is only named as a secret.
 // It is the part of Find that is safe to run on text that has been joined
 // across line breaks.
-func FindTokens(s string) []Span {
+func FindTokens(s string) []Span { return spansIn(s, findTokens) }
+
+func findTokens(s string) []Span {
 	var out []Span
 	for _, t := range tokenShapes {
 		if !mayMatch(s, t.kind) {
@@ -193,7 +195,7 @@ func FindTokens(s string) []Span {
 // Find reports what Redact would replace in s, as spans of s, without
 // replacing it. Spans that overlap are merged into one.
 func Find(s string) []Span {
-	return merge(append(findOthers(s, false), FindTokens(s)...))
+	return spansIn(s, func(s string) []Span { return merge(append(findOthers(s, false), findTokens(s)...)) })
 }
 
 // findOthers is Find without the shaped tokens: private keys, credentials after
@@ -604,7 +606,25 @@ const MaxRedactBytes = 1 << 20
 // patterns: a secret with no recognisable shape, in text that does not name it
 // as one, is kept as it was said. Its time is linear in the length of s, up to
 // MaxRedactBytes.
+//
+// A secret with an invisible character inside it (a zero-width space, a bidi
+// control) is read as if the character were not there. Text with none of them
+// is returned as it was, apart from what is redacted.
 func Redact(s string) string {
+	if t, at := withoutInvisible(s); at != nil {
+		// Only a text that holds a secret once they are gone loses them, so
+		// that an emoji joined with U+200D, or a word in a script that
+		// needs a joiner, is kept as it was. The text is read without them
+		// first: the front of a secret can be long enough to match alone,
+		// and what follows the mark would be left.
+		if r := redactRounds(t); r != t {
+			return r
+		}
+	}
+	return redactRounds(s)
+}
+
+func redactRounds(s string) string {
 	for range 4 {
 		next := redactOnce(s)
 		if next == s {
@@ -676,7 +696,7 @@ func RedactValue(v any) any {
 	case map[string]any:
 		out := make(map[string]any, len(x))
 		for k, e := range x {
-			if nameIsSecret(k, true) {
+			if nameIsSecret(k, true) || nameIsSecretUnseen(k) {
 				out[k] = Redacted
 				continue
 			}
@@ -685,6 +705,13 @@ func RedactValue(v any) any {
 		return out
 	}
 	return v
+}
+
+// nameIsSecretUnseen reports whether a key names a secret once the characters
+// that show nothing are taken out of it.
+func nameIsSecretUnseen(k string) bool {
+	t, at := withoutInvisible(k)
+	return at != nil && nameIsSecret(t, true)
 }
 
 // ClipValue is Clip for every string in a decoded JSON value.
@@ -738,7 +765,7 @@ func KeyIsSecret(name string) bool { return nameIsSecret(name, true) }
 // with the forms Redact takes and Find does not (see findOthers), for a caller
 // that has to replace in a text other than the one it looked at.
 func RedactSpans(s string) []Span {
-	return merge(append(findOthers(s, true), FindTokens(s)...))
+	return spansIn(s, func(s string) []Span { return merge(append(findOthers(s, true), findTokens(s)...)) })
 }
 
 // compoundBefore reports whether the name l[:i+4] that ends in "pass" has another
