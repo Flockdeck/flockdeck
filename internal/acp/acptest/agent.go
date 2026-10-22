@@ -649,6 +649,38 @@ func (a *agent) prompt(id, params json.RawMessage, n int) {
 		fmt.Fprintln(os.Stderr, "acptest: exiting on request")
 		os.Exit(3)
 
+	case "exit-idle":
+		// The turn ends normally, and the agent then exits on its own while
+		// the client is waiting for the next prompt.
+		a.chunk(sid, "bye")
+		done("end_turn")
+		go func() {
+			time.Sleep(300 * time.Millisecond)
+			fmt.Fprintln(os.Stderr, "acptest: exiting while idle")
+			os.Exit(4)
+		}()
+
+	case "perm-then-exit":
+		// The turn ends, then the agent asks for permission outside any turn
+		// and exits with the request still open. With a marker path it exits
+		// only once the test has created that file, to say it has seen the
+		// request, so a slow machine cannot lose the request first; without
+		// one it exits after a second.
+		done("end_turn")
+		go func() {
+			a.askPermission(sid, json.RawMessage(strconv.Itoa(4000+n)))
+			if a.markerPath == "" {
+				time.Sleep(time.Second)
+			}
+			for deadline := time.Now().Add(30 * time.Second); a.markerPath != "" && time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+				if _, err := os.Stat(a.markerPath); err == nil {
+					break
+				}
+			}
+			fmt.Fprintln(os.Stderr, "acptest: exiting with a request open")
+			os.Exit(5)
+		}()
+
 	default:
 		a.chunk(sid, "unknown scenario: "+ask)
 		done("end_turn")
