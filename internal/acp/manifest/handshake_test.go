@@ -144,6 +144,16 @@ func TestHandshakeFailureAlwaysCarriesTheAdaptersLastWords(t *testing.T) {
 	}
 }
 
+// An adapter that ends without answering while a descendant holds stderr open
+// still gets an error that carries its reason, and the wait for the end of
+// stderr does not hang the handshake.
+func TestHandshakeDoesNotWaitForeverForStderrAHeldDescendantKeepsOpen(t *testing.T) {
+	_, err := handshakeWithin(t, fakeAdapter(t, "exit-holdstderr"), 5*time.Second)
+	if err == nil || !strings.Contains(err.Error(), "no answer to initialize: EOF") || !strings.Contains(err.Error(), "fatal: cannot start") {
+		t.Errorf("err = %v, want the missing answer and the adapter's reason", err)
+	}
+}
+
 // The same with the order made certain: stdout ends, and the reason arrives
 // 150 ms later.
 func TestHandshakeWaitsForTheReasonThatFollowsTheEndOfStdout(t *testing.T) {
