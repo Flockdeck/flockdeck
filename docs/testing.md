@@ -111,3 +111,29 @@ documentation (a comment in `.github/workflows/test.yml` will do). A push to
 main and a release always run everything, so a test that reads a document from
 a package the Ubuntu step does not cover is first run there. If the list of
 changed files cannot be read, everything runs.
+
+## When a test fails once
+
+A package that fails is run again before the run counts as red
+(`.github/scripts/go-test-once-more.sh` on Linux and macOS, and the matching
+step on Windows). A test that fails twice fails the run. One that passes the
+second time does not, but it is named in a warning annotation and in the job
+summary, so a flaky test is fixed and not forgotten.
+
+What the second run covers depends on the run:
+
+- On a pull request, only the tests that failed. A flaky test in
+  `internal/server` used to cost a second run of the whole package, over eight
+  minutes on Windows.
+- On a push to main, a release run or a manual run, the whole failed package.
+  A test that fails only after another one has run (state the earlier one left
+  behind) passes alone, so a narrow retry would hide it. Something has to give
+  a failing package a full second pass before it counts as green, and this is
+  where it happens.
+- On any run, the whole failed package when it crashed with a panic or a fatal
+  error (the test binary ended, so the tests after the failed one never ran),
+  when it failed with no test to name (a build failure or a timeout), or when
+  the caller passed its own `-run`.
+
+`.github/scripts/go-test-once-more-test.sh` runs the script against small
+scratch packages for each of these cases, and the Linux job runs it.
