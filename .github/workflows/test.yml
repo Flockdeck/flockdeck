@@ -51,6 +51,10 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     runs-on: ${{ matrix.os }}
+    # The slowest platform takes about half an hour. A job past this is hung,
+    # and the default of six hours would hold a runner and the pull request
+    # for all of it.
+    timeout-minutes: 60
     steps:
       # The token that fetched the code is not left in .git/config, where
       # every test, and whatever a test runs, could read it. Nothing here
@@ -72,14 +76,24 @@ jobs:
       # repo's own code did.
       - name: Install GTK4/WebKitGTK dev packages (Linux, for Wails)
         if: runner.os == 'Linux'
+        # The step once hung for 36 minutes on the runner's package mirror. Each
+        # attempt is cut off after a few minutes and tried again.
+        timeout-minutes: 20
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev
+          for attempt in 1 2 3; do
+            if sudo timeout 300 apt-get update && sudo timeout 600 apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev; then
+              exit 0
+            fi
+            echo "::warning::apt attempt $attempt failed or timed out"
+            sleep 10
+          done
+          exit 1
 
       # The code is kept gofmt-clean by hand. Checked on Linux only: a Windows
       # checkout turns line endings into CRLF, which gofmt would report in
       # every file.
       - name: Format
+        timeout-minutes: 5
         if: runner.os == 'Linux'
         run: |
           unformatted=$(gofmt -l .)
@@ -90,18 +104,22 @@ jobs:
           fi
 
       - name: Vet
+        timeout-minutes: 15
         run: go vet ./...
 
       # The new shell is built with the next tag and is never in a release. Only
       # the packages it touches are built, vetted and tested under the tag, not
       # the whole suite a second time.
       - name: Build the next shell
+        timeout-minutes: 15
         run: go build -tags next ./...
 
       - name: Vet the next shell
+        timeout-minutes: 15
         run: go vet -tags next ./internal/webui/... ./internal/server/...
 
       - name: Test the next shell
+        timeout-minutes: 20
         run: go test -count=1 -tags next ./internal/webui/...
 
       # A release's run also fails while the release key is still the
@@ -125,6 +143,7 @@ jobs:
       # test each, every one of them the runner's timing.
       - name: Test
         if: runner.os != 'Windows'
+        timeout-minutes: 45
         shell: bash
         env:
           FLOCKDECK_RELEASE_BUILD: ${{ inputs.release && '1' || '' }}
@@ -139,6 +158,7 @@ jobs:
       # elsewhere.
       - name: Test
         if: runner.os == 'Windows'
+        timeout-minutes: 45
         env:
           FLOCKDECK_RELEASE_BUILD: ${{ inputs.release && '1' || '' }}
         run: |
@@ -182,6 +202,7 @@ jobs:
       # release's run is started by a tag or by hand, so the event it sees is
       # never pull_request.
       - name: Race
+        timeout-minutes: 45
         if: runner.os == 'Linux' || (runner.os == 'macOS' && github.event_name != 'pull_request')
         shell: bash
         env:
@@ -198,6 +219,7 @@ jobs:
       # it sees the race detector's failures as well as the tests'.
       - name: Name the failures
         if: failure()
+        timeout-minutes: 5
         shell: bash
         run: |
           : > "$RUNNER_TEMP/failures.txt"
@@ -217,6 +239,7 @@ jobs:
   # against. It needs no GTK, since cmd/release is not the application.
   purge-script:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v7
         with:
@@ -229,9 +252,11 @@ jobs:
           cache: true
 
       - name: Shellcheck
+        timeout-minutes: 5
         run: shellcheck -s sh scripts/purge-downloads.sh
 
       - name: Start an S3-compatible store
+        timeout-minutes: 5
         run: |
           python3 -m venv "$RUNNER_TEMP/moto"
           "$RUNNER_TEMP/moto/bin/pip" install --quiet 'moto[server]==5.2.3'
@@ -245,6 +270,7 @@ jobs:
           exit 1
 
       - name: Test
+        timeout-minutes: 25
         env:
           FLOCKDECK_TEST_S3_ENDPOINT: http://127.0.0.1:5055
         run: go test -count=1 -timeout 20m -run '^TestPurgeScript' ./cmd/release
