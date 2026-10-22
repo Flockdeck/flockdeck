@@ -1,0 +1,117 @@
+name: Install GTK4/WebKitGTK dev packages
+description: >-
+  The packages Wails' Linux backend (internal/appwindow, cgo) is compiled
+  against, installed from a cache of the downloaded files when there is one.
+
+# Wails' Linux backend is cgo, against GTK4 and the GTK4-based WebKitGTK: go
+# vet, build and test all compile it on Linux, whether or not the run ever opens
+# a window. Without these packages every step fails at the pkg-config stage, not
+# at anything this repo's own code did.
+#
+# The download is the slow and the unreliable part: 62 to 72 MB from the
+# runner's mirror, which has taken from 3 seconds to 5 minutes (251 kB/s), hung
+# once for 36 minutes, and on two runs of 22 October failed all three attempts.
+# Three things are done about it:
+#
+#   - Only what the packages depend on is installed, not what they recommend.
+#     That is a small saving: of about 170 packages, 13 to 15 are recommends,
+#     and the rest are dependencies.
+#   - The downloaded files are cached for the week, so a job on a warm cache
+#     fetches only the package lists and what the mirror has changed. The cache
+#     is keyed by the week and falls back to the newest earlier one, and a hit
+#     on an older one is saved again under the week's key, after the files for
+#     versions the mirror has dropped are removed. Only a push to main writes
+#     it, and every run checks what it restored before installing from it (see
+#     verify-cache.sh): apt itself would install a same-size file as it is.
+#   - A mirror that is slow fails over quickly: apt gives up on a connection
+#     that sends nothing for 20 seconds, retries each file, and the first
+#     attempt is cut off after 4.5 minutes (2 for the lists, 2.5 for the files)
+#     and the others after 7. From the second attempt the packages come from
+#     https://archive.ubuntu.com rather than the runner's mirror; the sources
+#     file keeps its Signed-By keyring, so the signatures are checked as before.
+#     On 22 October the runner's mirror stalled and archive.ubuntu.com fetched
+#     the same 59.5 MB in 26 seconds. The arm64 runner has no mirror list: it
+#     uses http://ports.ubuntu.com directly, so the change is not made there and
+#     arm64 has no failover; its attempts only repeat.
+
+runs:
+  using: composite
+  steps:
+    - id: week
+      shell: bash
+      run: echo "week=$(date -u +%G-%V)" >> "$GITHUB_OUTPUT"
+
+    # Restored by every run, saved only by a push to main (the last step). A
+    # cache a pull request wrote is visible to that pull request alone, but
+    # whatever runs on main can write the one main and everything else reads
+    # (the tests of main run third-party code), so what is restored is not
+    # trusted: the step below checks every file against the package lists.
+    - id: cache
+      uses: actions/cache/restore@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+      with:
+        path: /var/tmp/gtk-apt-archives
+        key: gtk-apt-${{ runner.os }}-${{ runner.arch }}-${{ steps.week.outputs.week }}
+        restore-keys: gtk-apt-${{ runner.os }}-${{ runner.arch }}-
+
+    # A killed apt can leave dpkg half done, so it is finished before the next
+    # attempt. A step of a composite action has no time limit of its own; the
+    # caller sets one on the step that uses this action, and the job has one.
+    - shell: bash
+      env:
+        CACHE_HIT: ${{ steps.cache.outputs.cache-hit }}
+        VERIFY: ${{ github.action_path }}/verify-cache.sh
+      run: |
+        start=$SECONDS
+        # Outside the home folder, which the user apt downloads as cannot enter.
+        # The folder and what was restored into it belong to root, so nothing
+        # but root can change a file between the check and the install; only
+        # the folder apt downloads into belongs to the user apt downloads as.
+        dir=/var/tmp/gtk-apt-archives
+        # A link in place of the folder would send the commands below elsewhere.
+        if [ -L "$dir" ]; then sudo rm -f "$dir"; fi
+        sudo mkdir -p "$dir"
+        sudo chown -R root:root "$dir"
+        sudo chmod 0755 "$dir"
+        # What came back as partial or lock is not kept: it could be a link.
+        sudo rm -rf "$dir/partial" "$dir/lock"
+        sudo mkdir -p "$dir/partial"
+        sudo chown _apt "$dir/partial"
+        echo "cache hit: ${CACHE_HIT:-false}; cached package files: $(find "$dir" -maxdepth 1 -name '*.deb' | wc -l)"
+        opts=(-o Dir::Cache::archives="$dir" -o APT::Keep-Downloaded-Packages=true -o Acquire::Retries=3 -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20)
+        for attempt in 1 2 3; do
+          if [ "$attempt" -gt 1 ]; then
+            sudo dpkg --configure -a || true
+            if [ -f /etc/apt/sources.list.d/ubuntu.sources ]; then
+              sudo sed -i 's|mirror+file:/etc/apt/apt-mirrors.txt|https://archive.ubuntu.com/ubuntu/|' /etc/apt/sources.list.d/ubuntu.sources || true
+            fi
+          fi
+          # The first attempt is cut off early: on a good day the 60 MB take
+          # 5 to 30 seconds, and on a bad one 5 minutes or more, so waiting
+          # longer for the runner's mirror is the slow way to fail over. What
+          # it fetched is kept in the folder and not fetched again.
+          install_limit=$((attempt == 1 ? 150 : 300))
+          # The check comes after the update, which verifies the signature of
+          # the lists the files are checked against, and before the install.
+          if sudo timeout 120 apt-get "${opts[@]}" update && bash "$VERIFY" "$dir" && sudo timeout "$install_limit" apt-get "${opts[@]}" install -y --no-install-recommends libgtk-4-dev libwebkitgtk-6.0-dev; then
+            # Files for versions the mirror no longer offers are dropped, so the
+            # cache does not grow from week to week. The lock and the folder
+            # apt downloads into are not for the cache, and cannot be read by
+            # the user that saves it.
+            sudo apt-get "${opts[@]}" autoclean || true
+            sudo rm -rf "$dir/partial" "$dir/lock"
+            sudo chmod -R a+rX "$dir"
+            echo "::notice title=GTK install::took $((SECONDS - start)) s on attempt $attempt, cache hit: ${CACHE_HIT:-false}"
+            exit 0
+          fi
+          echo "::warning::apt attempt $attempt failed or timed out"
+          sleep 10
+        done
+        exit 1
+
+    # Only a push to main writes the cache. A run that restored an exact hit
+    # has nothing new to write.
+    - uses: actions/cache/save@caa296126883cff596d87d8935842f9db880ef25 # v5.1.0
+      if: steps.cache.outputs.cache-hit != 'true' && github.ref == 'refs/heads/main'
+      with:
+        path: /var/tmp/gtk-apt-archives
+        key: gtk-apt-${{ runner.os }}-${{ runner.arch }}-${{ steps.week.outputs.week }}
