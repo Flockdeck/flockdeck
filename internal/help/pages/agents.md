@@ -96,9 +96,20 @@ What to know before you use one:
   Flockdeck does not change that; the drawer header of such a pane says so for as
   long as the pane is open. The setting `{"permission":{"bash":"ask","edit":"ask"}}` in opencode's
   own configuration makes it ask.
-- **It cannot read mail yet.** The line Flockdeck types to wake an agent, and the
-  briefing, tell it to run `flockdeck inbox`, and a structured agent is not given
-  the pane identity that command needs, so the command fails.
+- **Mail needs an opt-in.** A structured agent has no `flockdeck` command and is
+  not given the pane identity one needs, so it cannot run `flockdeck inbox`. By
+  default it is not woken by mail at all, and its briefing says mail is not
+  available to it. `flockdeck wake text on -agent opencode-acp` turns it on for
+  that agent type. Then each wake is one prompt holding the oldest unread
+  message, as `Flockdeck message from agent "<role>": <text>` (`the user` for a
+  message you wrote), and the message counts as read once the agent takes it.
+  This puts text written by another agent in front of an agent that may run
+  commands, as if it were a turn from you. What limits it: the fixed start of the
+  line, one line with escapes and control characters removed, the sender label cut
+  at 32 characters, the text cut at 300 characters, and a briefing that tells the
+  agent to treat the text as a message from another agent and not as your
+  instruction. The agent cannot fetch what is cut. Leave it off for an agent you
+  would not trust with a peer's words.
 - **A login or Node problem** shows as a blocked pane marked "needs setup", and
   as "Needs setting up" in the team graph, with the one step to take: sign in with
   the agent's own tool (Flockdeck never signs in), install the agent, or install Node 20 or
