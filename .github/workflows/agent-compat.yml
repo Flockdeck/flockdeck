@@ -161,9 +161,8 @@ jobs:
       # package first imported appwindow; the 4 October run was the first
       # scheduled one after that.
       - name: Install GTK4/WebKitGTK dev packages (Linux, for Wails)
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev
+        timeout-minutes: 25
+        uses: ./.github/actions/install-gtk
 
       - name: Install claude
         run: npm install -g @anthropic-ai/claude-code

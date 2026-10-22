@@ -135,29 +135,15 @@ jobs:
           go test -count=1 -timeout 10m -run 'Schema|TestGraph|TestTwoTeamGraph|TestStructuredDocQuotes' ./internal/server
           go test -count=1 -timeout 10m -run TestRecordingFollowsTheStoredConversation ./internal/workspace
 
-      # Wails' Linux backend (internal/appwindow) is cgo, against GTK4 and
-      # the GTK4-based WebKitGTK -- go vet/build/test all compile it, on
-      # Linux, whether or not this run ever opens a window. Without these,
-      # every step below fails at the pkg-config stage, not at anything this
-      # repo's own code did.
+      # The packages Wails' Linux backend (internal/appwindow, cgo) is compiled
+      # against, which go vet, build and test all need on Linux. The action
+      # caches the downloaded files, installs no recommended packages and fails
+      # over from a slow mirror. Three attempts of at most 7 minutes fit in the
+      # step's 25.
       - name: Install GTK4/WebKitGTK dev packages (Linux, for Wails)
         if: needs.changes.outputs.docs_only != 'true' && (runner.os == 'Linux')
-        # The step once hung for 36 minutes on the runner's package mirror. Each
-        # attempt is cut off after at most 7 minutes (2 for the update, 5 for
-        # the install) and tried again, up to three times, which the step's
-        # limit of 25 minutes covers. A killed apt can leave dpkg half done, so
-        # it is finished before the next attempt.
         timeout-minutes: 25
-        run: |
-          for attempt in 1 2 3; do
-            if sudo timeout 120 apt-get update && sudo timeout 300 apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev; then
-              exit 0
-            fi
-            echo "::warning::apt attempt $attempt failed or timed out"
-            sudo dpkg --configure -a || true
-            sleep 10
-          done
-          exit 1
+        uses: ./.github/actions/install-gtk
 
       # The code is kept gofmt-clean by hand. Checked on Linux only: a Windows
       # checkout turns line endings into CRLF, which gofmt would report in
