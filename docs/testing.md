@@ -157,6 +157,13 @@ What the second run covers depends on the run:
 `.github/scripts/go-test-once-more-test.sh` runs the script against small
 scratch packages for each of these cases, and the Linux job runs it.
 
+The shares of the test jobs (`.github/scripts/shardtests.go -retry`) do the same
+for the packages and tests of their share. A pull request runs again only what
+failed. Any other run (`-retry-all`) runs again the whole failed package, or for
+a package that is cut across shares the tests of that share, and a package that
+crashed leaves its later tests unreported, so they are run again too. A share
+fails if what it ran did not report exactly once.
+
 ## Why Windows is slower, and what was measured
 
 Windows is two to ten times slower than Linux on the packages that start many

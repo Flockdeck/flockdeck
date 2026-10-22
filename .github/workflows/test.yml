@@ -88,10 +88,10 @@ jobs:
           echo "docs_only=$docs_only"
           # Where the race detector runs: macOS only outside pull requests.
           if [ "$EVENT" = pull_request ]; then
-            echo 'race={"os":["ubuntu-latest"],"shard":[1,2,3,4]}' >> "$GITHUB_OUTPUT"
+            echo 'race={"include":[{"os":"ubuntu-latest","shard":1,"of":4},{"os":"ubuntu-latest","shard":2,"of":4},{"os":"ubuntu-latest","shard":3,"of":4},{"os":"ubuntu-latest","shard":4,"of":4}]}' >> "$GITHUB_OUTPUT"
             echo 'race_os=ubuntu-latest' >> "$GITHUB_OUTPUT"
           else
-            echo 'race={"os":["ubuntu-latest","macos-latest"],"shard":[1,2,3,4]}' >> "$GITHUB_OUTPUT"
+            echo 'race={"include":[{"os":"ubuntu-latest","shard":1,"of":4},{"os":"ubuntu-latest","shard":2,"of":4},{"os":"ubuntu-latest","shard":3,"of":4},{"os":"ubuntu-latest","shard":4,"of":4},{"os":"macos-latest","shard":1,"of":2},{"os":"macos-latest","shard":2,"of":2}]}' >> "$GITHUB_OUTPUT"
             echo 'race_os=ubuntu-latest macos-latest' >> "$GITHUB_OUTPUT"
           fi
 
@@ -192,6 +192,13 @@ jobs:
         timeout-minutes: 5
         run: bash .github/scripts/test-gate-test.sh
 
+      # The split of the tests across jobs is the same on every run and for
+      # every job, which the jobs rely on to agree without talking.
+      - name: Test the split of the tests
+        if: runner.os == 'Linux'
+        timeout-minutes: 10
+        run: bash .github/scripts/shardtests-test.sh
+
       - if: always()
         uses: ./.github/actions/record-result
         with:
@@ -220,12 +227,24 @@ jobs:
   # candidates of v0.3.4 in a row were stopped by a different test each, every
   # one of them the runner's timing.
   shard:
-    name: shard (${{ matrix.os }}, ${{ matrix.shard }}/4)
+    name: shard (${{ matrix.os }}, ${{ matrix.shard }}/${{ matrix.of }})
     strategy:
       fail-fast: false
+      # Four shares on Linux and Windows, two on macOS: a macOS minute costs
+      # ten times a Linux one, and its shares ran in about three minutes each,
+      # most of it setting up, so more of them only add cost.
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        shard: [1, 2, 3, 4]
+        include:
+          - { os: ubuntu-latest, shard: 1, of: 4 }
+          - { os: ubuntu-latest, shard: 2, of: 4 }
+          - { os: ubuntu-latest, shard: 3, of: 4 }
+          - { os: ubuntu-latest, shard: 4, of: 4 }
+          - { os: windows-latest, shard: 1, of: 4 }
+          - { os: windows-latest, shard: 2, of: 4 }
+          - { os: windows-latest, shard: 3, of: 4 }
+          - { os: windows-latest, shard: 4, of: 4 }
+          - { os: macos-latest, shard: 1, of: 2 }
+          - { os: macos-latest, shard: 2, of: 2 }
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.docs_only != 'true' }}
     runs-on: ${{ matrix.os }}
@@ -255,9 +274,11 @@ jobs:
         env:
           FLOCKDECK_RELEASE_BUILD: ${{ inputs.release && '1' || '' }}
           SHARD: ${{ matrix.shard }}
+          OF: ${{ matrix.of }}
           PROFILE: ${{ runner.os == 'macOS' && 'macos' || 'linux' }}
+          RETRY_ALL: ${{ github.event_name != 'pull_request' && '-retry-all' || '' }}
         run: |
-          go run .github/scripts/shardtests.go -shard "$SHARD/4" -profile "$PROFILE" -retry \
+          go run .github/scripts/shardtests.go -shard "$SHARD/$OF" -profile "$PROFILE" -retry $RETRY_ALL \
             -log "$RUNNER_TEMP/go-test.log" -digest "$RUNNER_TEMP/plan.txt" \
             -gotestflags "-count=1 -timeout 20m"
 
@@ -272,8 +293,10 @@ jobs:
         env:
           FLOCKDECK_RELEASE_BUILD: ${{ inputs.release && '1' || '' }}
           SHARD: ${{ matrix.shard }}
+          OF: ${{ matrix.of }}
+          RETRY_ALL: ${{ github.event_name != 'pull_request' && '-retry-all' || '' }}
         run: |
-          go run .github/scripts/shardtests.go -shard "$env:SHARD/4" -profile windows -retry `
+          go run .github/scripts/shardtests.go -shard "$env:SHARD/$env:OF" -profile windows -retry $env:RETRY_ALL `
             -log "$env:RUNNER_TEMP\go-test.log" -digest "$env:RUNNER_TEMP\plan.txt" `
             -gotestflags "-count=1 -timeout 20m -p 2"
           exit $LASTEXITCODE
@@ -293,7 +316,7 @@ jobs:
           head -c 30000 "$RUNNER_TEMP/failures.txt" > "$RUNNER_TEMP/failures.cut" && mv "$RUNNER_TEMP/failures.cut" "$RUNNER_TEMP/failures.txt"
           [ -s "$RUNNER_TEMP/failures.txt" ] || exit 0
           body=$(sed -e 's/%/%25/g' "$RUNNER_TEMP/failures.txt" | awk 'BEGIN { ORS = "%0A" } { print }')
-          echo "::error title=go test failed on ${{ runner.os }} (share ${{ matrix.shard }}/4)::$body"
+          echo "::error title=go test failed on ${{ runner.os }} (share ${{ matrix.shard }}/${{ matrix.of }})::$body"
 
       - if: always()
         uses: ./.github/actions/record-result
@@ -321,10 +344,10 @@ jobs:
   # platforms run it is decided by the changes job, since a matrix cannot be
   # chosen by the event.
   race:
-    name: race (${{ matrix.os }}, ${{ matrix.shard }}/4)
+    name: race (${{ matrix.os }}, ${{ matrix.shard }}/${{ matrix.of }})
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.changes.outputs.race || '{"os":["ubuntu-latest","macos-latest"],"shard":[1,2,3,4]}') }}
+      matrix: ${{ fromJSON(needs.changes.outputs.race || '{"include":[{"os":"ubuntu-latest","shard":1,"of":4},{"os":"ubuntu-latest","shard":2,"of":4},{"os":"ubuntu-latest","shard":3,"of":4},{"os":"ubuntu-latest","shard":4,"of":4},{"os":"macos-latest","shard":1,"of":2},{"os":"macos-latest","shard":2,"of":2}]}') }}
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.docs_only != 'true' }}
     runs-on: ${{ matrix.os }}
@@ -351,8 +374,10 @@ jobs:
         env:
           CGO_ENABLED: "1"
           SHARD: ${{ matrix.shard }}
+          OF: ${{ matrix.of }}
+          RETRY_ALL: ${{ github.event_name != 'pull_request' && '-retry-all' || '' }}
         run: |
-          go run .github/scripts/shardtests.go -shard "$SHARD/4" -profile race -retry \
+          go run .github/scripts/shardtests.go -shard "$SHARD/$OF" -profile race -retry $RETRY_ALL \
             -log "$RUNNER_TEMP/go-race.log" -digest "$RUNNER_TEMP/plan.txt" \
             -gotestflags "-race -count=1 -timeout 20m"
 
@@ -366,7 +391,7 @@ jobs:
           head -c 30000 "$RUNNER_TEMP/failures.txt" > "$RUNNER_TEMP/failures.cut" && mv "$RUNNER_TEMP/failures.cut" "$RUNNER_TEMP/failures.txt"
           [ -s "$RUNNER_TEMP/failures.txt" ] || exit 0
           body=$(sed -e 's/%/%25/g' "$RUNNER_TEMP/failures.txt" | awk 'BEGIN { ORS = "%0A" } { print }')
-          echo "::error title=go test -race failed on ${{ runner.os }} (share ${{ matrix.shard }}/4)::$body"
+          echo "::error title=go test -race failed on ${{ runner.os }} (share ${{ matrix.shard }}/${{ matrix.of }})::$body"
 
       - if: always()
         uses: ./.github/actions/record-result
@@ -435,7 +460,7 @@ jobs:
         timeout-minutes: 5
         env:
           RACE_OSES: ${{ needs.changes.outputs.race_os || 'ubuntu-latest macos-latest' }}
-        run: bash .github/scripts/test-gate.sh "$RUNNER_TEMP/results" "${{ matrix.os }}" "$RACE_OSES" 4
+        run: bash .github/scripts/test-gate.sh "$RUNNER_TEMP/results" "${{ matrix.os }}" "$RACE_OSES" "${{ matrix.os == 'macos-latest' && 2 || 4 }}"
 
   # scripts/purge-downloads.sh deletes released files for good, so its tests
   # (cmd/release/purge_test.go) run it for real: the runner's aws CLI against

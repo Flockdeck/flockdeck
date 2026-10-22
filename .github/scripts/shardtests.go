@@ -62,6 +62,7 @@ func main() {
 	profile := flag.String("profile", "linux", "which column of the weights to use: linux, windows, macos or race")
 	weightsPath := flag.String("weights", ".github/test-weights.txt", "the file of package weights")
 	retry := flag.Bool("retry", false, "run what failed once more, on its own")
+	retryAll := flag.Bool("retry-all", false, "with -retry, run the whole of a failed package, or of the share's part of one, again, not just what failed")
 	logPath := flag.String("log", "", "also write go test's output to this file")
 	plan := flag.Bool("plan", false, "print all the shares and run nothing")
 	jobsMax := flag.Int("jobs", 2, "how many go test commands of the share run at once")
@@ -113,7 +114,7 @@ func main() {
 			fatal("%v", err)
 		}
 	}
-	status := execute(mine, extra, *retry, *jobsMax)
+	status := execute(mine, extra, *retry, *retryAll, *jobsMax)
 	if c, ok := logw.(io.Closer); ok {
 		c.Close()
 	}
@@ -532,7 +533,7 @@ func (j *job) verify() []string {
 }
 
 // execute runs a share and returns the exit status.
-func execute(s *share, extra []string, retry bool, jobsMax int) int {
+func execute(s *share, extra []string, retry, retryAll bool, jobsMax int) int {
 	var jobs []*job
 	if len(s.whole) > 0 {
 		args := append(append([]string{}, extra...), pkgArgs(s.whole)...)
@@ -585,18 +586,26 @@ func execute(s *share, extra []string, retry bool, jobsMax int) int {
 				continue
 			}
 			items := j.failedItems()
+			// Outside a pull request the whole of a failed package is run
+			// again, so that a test that fails only after another one has run
+			// does not pass alone and hide it (go-test-once-more.sh does the
+			// same). For a cut package that is the tests of this share.
 			if len(items) == 0 || len(items) > 50 {
 				status = 1
 				continue
 			}
-			second := j.again(items, extra)
-			out("::group::Running once more: %s\n%s::endgroup::\n", strings.Join(items, " "), second.output)
+			again := items
+			if retryAll && j.path != "" {
+				again = j.names
+			}
+			second := j.again(again, extra)
+			out("::group::Running once more: %s\n%s::endgroup::\n", strings.Join(again, " "), second.output)
 			if second.status != 0 {
 				status = 1
 				continue
 			}
 			out("::warning title=Tests that passed only when run again::Failed, then passed when run again:%%0A%s\n", strings.Join(items, "%0A"))
-			j.replace(items, second)
+			j.replace(again, second)
 		}
 	}
 
