@@ -150,7 +150,8 @@ against 59 s on Linux, `internal/workspace` 501 s against 110 s, and
   protection off and `C:\` and `D:\` excluded already, so exclusions add
   nothing: `internal/gitx` alone took 233, 313 and 301 s without them and 278,
   213 and 284 s with them.
-- Where the files live is. The checkout and the runner's temp directory are on
+- Where the files live is the likeliest cause, and moving them cut the median by
+  about a third. The checkout and the runner's temp directory are on
   `D:`, but `TEMP` (where every test makes its files and git repositories) and
   the Go build cache are on `C:`. Creating 3000 small files took 5 to 8 s on
   `C:` and about 1 s on `D:`. The Windows job therefore points `TEMP`, `TMP`,
