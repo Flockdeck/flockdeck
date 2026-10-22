@@ -236,8 +236,9 @@ jobs:
       # one failed there that had never failed before. cmd does the
       # redirection, so that nothing depends on how PowerShell treats a
       # program writing to stderr; the output is shown once the tests end.
-      # A failed package is run once more, as go-test-once-more.sh does
-      # elsewhere.
+      # The tests that failed are run once more, as go-test-once-more.sh does
+      # elsewhere: only those tests, or the whole package when it failed with
+      # no failing test to name.
       - name: Test
         if: needs.changes.outputs.docs_only != 'true' && (runner.os == 'Windows')
         timeout-minutes: 45
@@ -252,9 +253,24 @@ jobs:
             $failed = @(Get-Content $log | Select-String -Pattern '^FAIL\s+(\S+)' | ForEach-Object { $_.Matches[0].Groups[1].Value } | Sort-Object -Unique)
             if ($failed.Count -gt 0) {
               $first = @(Get-Content $log | Select-String -Pattern '--- FAIL' | ForEach-Object { $_.Line.Trim() } | Sort-Object -Unique)
+              # The top-level tests that failed. A package's output ends with
+              # its FAIL line, so the names seen since the last package line
+              # belong to it. None if any failed package has no test to name.
+              $names = @(); $seen = @(); $none = $false
+              foreach ($line in Get-Content $log) {
+                if ($line -match '^--- FAIL: (\S+)') { $seen += $Matches[1] }
+                elseif ($line -match '^FAIL\s+\S+') { if ($seen.Count -eq 0) { $none = $true }; $names += $seen; $seen = @() }
+                elseif ($line -match '^(ok|\?)\s') { $seen = @() }
+              }
+              $only = ''
+              $what = "the packages that failed: $($failed -join ' ')"
+              if (-not $none -and $names.Count -gt 0) {
+                $only = '-run "^(' + (($names | Sort-Object -Unique) -join '|') + ')$"'
+                $what = "the tests that failed in $($failed -join ' ')"
+              }
               $rerun = "$env:RUNNER_TEMP\go-test-again.log"
-              Write-Output "::group::Running the packages that failed once more: $($failed -join ' ')"
-              cmd /c "go test -count=1 -timeout 20m $($failed -join ' ') > `"$rerun`" 2>&1"
+              Write-Output "::group::Running $what once more"
+              cmd /c "go test -count=1 -timeout 20m $only $($failed -join ' ') > `"$rerun`" 2>&1"
               $status = $LASTEXITCODE
               Get-Content $rerun
               Write-Output "::endgroup::"
@@ -263,6 +279,9 @@ jobs:
               if ($status -eq 0) {
                 $body = ((@("Failed, then passed when run again:") + $failed + @("") + $first) -join "`n").Replace('%', '%25').Replace("`n", '%0A')
                 Write-Output "::warning title=Tests that passed only when run again on Windows::$body"
+                if ($env:GITHUB_STEP_SUMMARY) {
+                  Add-Content $env:GITHUB_STEP_SUMMARY (@("### Passed only when run again (Windows)", '```') + $failed + @("") + $first + @('```'))
+                }
               }
             }
           }
