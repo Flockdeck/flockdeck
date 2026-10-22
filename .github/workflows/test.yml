@@ -44,68 +44,45 @@ concurrency:
 
 jobs:
   # Whether the pull request changes nothing but documentation. A change to
-  # the docs (docs/ and the markdown files at the root) cannot break the build,
-  # so the full suite is not run for it: the steps of the test job are skipped
-  # and the docs-test job below runs the tests that read those files. The test
-  # job itself still runs and reports, because the branch protection names its
-  # three checks, "test (ubuntu-latest)" and the others, and a job that is
-  # skipped as a whole is never reported under those names. Every push to main
-  # and every release runs everything.
+  # the docs (the .md and .json files under docs/, and the markdown files at the
+  # root) cannot break the build, so the full suite is not run for it: the
+  # steps of the test job are skipped, except that its Ubuntu leg runs the tests
+  # that read those files. The test job itself still runs and reports, because
+  # the branch protection names its three checks, "test (ubuntu-latest)" and the
+  # others, and a job that is skipped as a whole is never reported under those
+  # names. Every push to main and every release runs everything.
+  #
+  # The files are read from the merge commit of the pull request, not from the
+  # API: the API's list can lag behind a push, and reading it takes a
+  # permission a caller of this workflow (release.yml, docker-image.yml) may not
+  # grant. A rename is counted as a delete and an add, so both paths are
+  # checked. If the list cannot be read, everything runs.
   changes:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       contents: read
-      pull-requests: read
     outputs:
       docs_only: ${{ steps.diff.outputs.docs_only }}
     steps:
+      - uses: actions/checkout@v7
+        if: github.event_name == 'pull_request'
+        with:
+          fetch-depth: 2
+          persist-credentials: false
+
       - id: diff
         env:
-          GH_TOKEN: ${{ github.token }}
           EVENT: ${{ github.event_name }}
-          PR: ${{ github.event.pull_request.number }}
-          REPO: ${{ github.repository }}
         run: |
           docs_only=false
-          # If the list of files cannot be read, everything runs.
-          if [ "$EVENT" = pull_request ] && files=$(gh api --paginate "repos/$REPO/pulls/$PR/files" --jq '.[] | .filename, (.previous_filename // empty)') && [ -n "$files" ]; then
-            if ! echo "$files" | grep -Evq '^(docs/.*|[^/]+\.md)$'; then
+          if [ "$EVENT" = pull_request ] && files=$(git diff --name-only --no-renames HEAD^1 HEAD) && [ -n "$files" ]; then
+            if ! echo "$files" | grep -Evq '^(docs/.*[.](md|json)|[^/]+[.]md)$'; then
               docs_only=true
             fi
           fi
           echo "docs_only=$docs_only" >> "$GITHUB_OUTPUT"
           echo "docs_only=$docs_only"
-
-  # The tests that read the files a documentation-only change touches: the
-  # pages and the schemas in docs/, the help pages, the release notes. They run
-  # in place of the full suite for such a change. CGO is off because the window
-  # package has a stand-in without it, so no GTK packages are needed.
-  # A test elsewhere that reads a doc is found by the run for the merge to main.
-  docs-test:
-    needs: changes
-    if: needs.changes.outputs.docs_only == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    env:
-      CGO_ENABLED: "0"
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          ref: ${{ inputs.ref }}
-          persist-credentials: false
-
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Test
-        timeout-minutes: 15
-        run: |
-          go test -count=1 -timeout 10m ./internal/help ./internal/record ./internal/acp/manifest ./cmd/docgen ./cmd/sitegen ./cmd/deploydrift ./cmd/release
-          go test -count=1 -timeout 10m -run 'TestStructuredMessagesFitTheSchema|TestStructuredDocQuotesTheLimits|TestGraph|TestSchema|TestTwoTeamGraph' ./internal/server
-          go test -count=1 -timeout 10m -run 'TestRecordingFollowsTheStoredConversation' ./internal/workspace
 
   test:
     strategy:
@@ -115,6 +92,10 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
     needs: changes
+    # Run even when the changes job failed or timed out: a job skipped because
+    # its dependency failed is counted as passing by the branch protection. An
+    # empty docs_only is read as "not docs only", so everything runs.
+    if: ${{ !cancelled() }}
     runs-on: ${{ matrix.os }}
     # The slowest platform takes about half an hour. A job past this is hung,
     # and the default of six hours would hold a runner and the pull request
@@ -125,16 +106,34 @@ jobs:
       # every test, and whatever a test runs, could read it. Nothing here
       # needs it: the tests make their own repositories and fetch nothing.
       - uses: actions/checkout@v7
-        if: needs.changes.outputs.docs_only != 'true'
+        if: needs.changes.outputs.docs_only != 'true' || runner.os == 'Linux'
         with:
           ref: ${{ inputs.ref }}
           persist-credentials: false
 
       - uses: actions/setup-go@v7
-        if: needs.changes.outputs.docs_only != 'true'
+        if: needs.changes.outputs.docs_only != 'true' || runner.os == 'Linux'
         with:
           go-version-file: go.mod
           cache: true
+
+      # For a change to documentation only, the tests that read those files
+      # run in place of the rest. The Ubuntu leg reports them as its own
+      # failures. CGO is off because the window package has a stand-in without
+      # it, so no GTK packages are needed. A test elsewhere that reads a doc is
+      # first run by the push to main. The release notes test is the one test
+      # of cmd/release that reads a root markdown file; the rest of it builds
+      # the application.
+      - name: Test what reads the docs (documentation-only change)
+        if: needs.changes.outputs.docs_only == 'true' && runner.os == 'Linux'
+        timeout-minutes: 20
+        env:
+          CGO_ENABLED: "0"
+        run: |
+          go test -count=1 -timeout 10m ./internal/help ./internal/record ./internal/acp/manifest ./cmd/docgen ./cmd/sitegen ./cmd/deploydrift
+          go test -count=1 -timeout 10m -run TestNoticesNameEveryLinkedModule ./cmd/release
+          go test -count=1 -timeout 10m -run 'Schema|TestGraph|TestTwoTeamGraph|TestStructuredDocQuotes' ./internal/server
+          go test -count=1 -timeout 10m -run TestRecordingFollowsTheStoredConversation ./internal/workspace
 
       # Wails' Linux backend (internal/appwindow) is cgo, against GTK4 and
       # the GTK4-based WebKitGTK -- go vet/build/test all compile it, on
@@ -144,14 +143,18 @@ jobs:
       - name: Install GTK4/WebKitGTK dev packages (Linux, for Wails)
         if: needs.changes.outputs.docs_only != 'true' && (runner.os == 'Linux')
         # The step once hung for 36 minutes on the runner's package mirror. Each
-        # attempt is cut off after a few minutes and tried again.
-        timeout-minutes: 20
+        # attempt is cut off after at most 7 minutes (2 for the update, 5 for
+        # the install) and tried again, up to three times, which the step's
+        # limit of 25 minutes covers. A killed apt can leave dpkg half done, so
+        # it is finished before the next attempt.
+        timeout-minutes: 25
         run: |
           for attempt in 1 2 3; do
-            if sudo timeout 300 apt-get update && sudo timeout 600 apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev; then
+            if sudo timeout 120 apt-get update && sudo timeout 300 apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev; then
               exit 0
             fi
             echo "::warning::apt attempt $attempt failed or timed out"
+            sudo dpkg --configure -a || true
             sleep 10
           done
           exit 1
@@ -199,7 +202,7 @@ jobs:
       - name: Test what the tag changes in the window package
         if: needs.changes.outputs.docs_only != 'true'
         timeout-minutes: 10
-        run: go test -count=1 -tags next -run 'TestNextFS|TestMjsIsServedAsJavaScript|TestOnlyTheAssetTreesAreEmbedded' ./internal/webui
+        run: go test -count=1 -tags next -run 'TestNextFS|TestMjsIsServedAsJavaScript|TestOnlyTheAssetTreesAreEmbedded|TestServedE2EScriptIsTheOldOne|TestIconIsTheOldOne' ./internal/webui
 
       # A release's run also fails while the release key is still the
       # placeholder (TestReleaseKeyIsInPlace), so a release can never ship
