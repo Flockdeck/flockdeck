@@ -611,13 +611,22 @@ const MaxRedactBytes = 1 << 20
 // control) is read as if the character were not there. Text with none of them
 // is returned as it was, apart from what is redacted.
 func Redact(s string) string {
-	if t, at := withoutInvisible(s); at != nil {
+	// A text over the limit is read as far as the limit, as redactOnce does, so
+	// that the text made without the marks is no bigger than that.
+	head := s
+	if len(s) > MaxRedactBytes {
+		head = s[:capCut(s)]
+	}
+	if t, had := stripInvisible(head); had {
 		// Only a text that holds a secret once they are gone loses them, so
 		// that an emoji joined with U+200D, or a word in a script that
 		// needs a joiner, is kept as it was. The text is read without them
 		// first: the front of a secret can be long enough to match alone,
 		// and what follows the mark would be left.
 		if r := redactRounds(t); r != t {
+			if len(head) < len(s) {
+				return endHead(r)
+			}
 			return r
 		}
 	}
@@ -640,18 +649,7 @@ func redactRounds(s string) string {
 // ends a quoted value, two pieces of a flag and its value brought together.
 func redactOnce(s string) string {
 	if len(s) > MaxRedactBytes {
-		head := redactOnce(s[:capCut(s)])
-		// Not a half of a mark, and not a second mark after one.
-		for k := len(Redacted) - 1; k >= 1; k-- {
-			if strings.HasSuffix(head, Redacted[:k]) {
-				head = head[:len(head)-k]
-				break
-			}
-		}
-		if strings.HasSuffix(head, Redacted) {
-			return head
-		}
-		return head + Redacted
+		return endHead(redactOnce(s[:capCut(s)]))
 	}
 	spans := findOthers(s, true)
 	if len(spans) > 0 {
@@ -678,6 +676,22 @@ func redactOnce(s string) string {
 		}
 	}
 	return s
+}
+
+// endHead is the redacted start of a text that was cut at MaxRedactBytes, with
+// the one mark for the rest after it.
+func endHead(head string) string {
+	// Not a half of a mark, and not a second mark after one.
+	for k := len(Redacted) - 1; k >= 1; k-- {
+		if strings.HasSuffix(head, Redacted[:k]) {
+			head = head[:len(head)-k]
+			break
+		}
+	}
+	if strings.HasSuffix(head, Redacted) {
+		return head
+	}
+	return head + Redacted
 }
 
 // RedactValue is Redact for a decoded JSON value: every string in it is
@@ -710,8 +724,8 @@ func RedactValue(v any) any {
 // nameIsSecretUnseen reports whether a key names a secret once the characters
 // that show nothing are taken out of it.
 func nameIsSecretUnseen(k string) bool {
-	t, at := withoutInvisible(k)
-	return at != nil && nameIsSecret(t, true)
+	t, had := stripInvisible(k)
+	return had && nameIsSecret(t, true)
 }
 
 // ClipValue is Clip for every string in a decoded JSON value.

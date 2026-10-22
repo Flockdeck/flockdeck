@@ -1,6 +1,7 @@
 package record
 
 import (
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -134,31 +135,94 @@ func TestRedactValueFindsASecretKeyWithAMarkInside(t *testing.T) {
 	}
 }
 
-func TestWithoutInvisibleMapsBackToTheText(t *testing.T) {
-	s := "a\u200bé\xffb\U000e0100c"
-	out, at := withoutInvisible(s)
-	if out != "aé\xffbc" || len(at) != len(out) {
-		t.Fatalf("out = %q, at = %v", out, at)
+func TestStripInvisibleCutsMapBackToTheText(t *testing.T) {
+	s := "a\u200bé\xffb\U000e0100\u200bc"
+	out, cuts := stripInvisibleCuts(s)
+	if out != "aé\xffbc" || len(cuts) != 2 {
+		t.Fatalf("out = %q, cuts = %v", out, cuts)
 	}
 	for i := range out {
-		if s[at[i]] != out[i] {
-			t.Errorf("byte %d of %q is at %d of %q, which is %q", i, out, at[i], s, s[at[i]])
+		if got := orig(cuts, i); s[got] != out[i] {
+			t.Errorf("byte %d of %q is at %d of %q, which is %q", i, out, got, s, s[got])
 		}
 	}
-	if _, at := withoutInvisible("plain é text"); at != nil {
+	if o, cuts := stripInvisibleCuts("plain é text"); cuts != nil || o != "plain é text" {
 		t.Error("text with none was changed")
+	}
+	if o, had := stripInvisible(s); !had || o != out {
+		t.Errorf("stripInvisible = %q, %v", o, had)
 	}
 }
 
-// Marks before a secret, and a mark inside a secret that follows them, put the
-// span after the marks.
-func TestSpansStartAfterMarksBeforeTheSecret(t *testing.T) {
-	const secret = "gh​p_abcdefghijklmnopqrstuvwxyz0123456789"
-	s := "​​​" + secret
-	for name, find := range map[string]func(string) []Span{"Find": Find, "FindTokens": FindTokens, "RedactSpans": RedactSpans} {
-		spans := find(s)
-		if len(spans) != 1 || s[spans[0].Start:spans[0].End] != secret {
-			t.Errorf("%s: spans = %+v", name, spans)
+// Characters Unicode lists as default-ignorable that are not in category Cf.
+func TestRedactReadsPastEveryDefaultIgnorableCharacter(t *testing.T) {
+	for _, r := range []rune{0x17B4, 0x17B5, 0x180F, 0x2065, 0xFFF0, 0xFFF8, 0xE0080, 0x1D173, 0xFE00, 0xE01EF, 0x180B, 0x3164} {
+		if !invisible(r) {
+			t.Errorf("%U is not taken for invisible", r)
+			continue
 		}
+		in := "key AK" + string(r) + "IAIOSFODNN7EXAMPLE"
+		if got := Redact(in); got != "key "+Redacted {
+			t.Errorf("%U: %q", r, got)
+		}
+	}
+	for _, r := range []rune{0xA0, 0x3000, 0x2800, 0x7F, 0x01, 0x0301, 'a', 0xE9} {
+		if invisible(r) {
+			t.Errorf("%U is taken for invisible", r)
+		}
+	}
+}
+
+// A mark in the text written so far does not make the whole of it come back
+// when the next piece holds a secret.
+func TestRedactAfterSkipsMarksTheWholeDropped(t *testing.T) {
+	ctx := "start \u200b" + strings.Repeat("filler words ", 1000)
+	clean := redactAfter(strings.Replace(ctx, "\u200b", "", 1), "token AKIAIOSFODNN7EXAMPLE")
+	got := redactAfter(ctx, "token AKIAIOSFODNN7EXAMPLE")
+	if len(got) > len(clean)+16 || !strings.Contains(got, Redacted) || strings.Contains(got, "IOSFODNN7EXAMPLE") {
+		t.Errorf("got %d bytes %q, a text with no mark gives %d bytes %q", len(got), got, len(clean), clean)
+	}
+	// A mark in the text and a secret that begins in the context and ends in the next piece.
+	got = redactAfter("key AK\u200bIAIOSFODN", "N7EXAMPLE done")
+	if strings.Contains(got, "N7EXAMPLE") {
+		t.Errorf("got %q", got)
+	}
+}
+
+// A big text with one mark is not copied bigger than the limit.
+func TestRedactOfABigTextWithOneMarkAllocatesLittle(t *testing.T) {
+	big := strings.Repeat("some words and numbers 12345 ", 300000) // 8.7 MB
+	marked := big[:100] + "\u200b" + big[100:]
+	measure := func(f func()) uint64 {
+		var a, b runtime.MemStats
+		runtime.GC()
+		runtime.ReadMemStats(&a)
+		f()
+		runtime.ReadMemStats(&b)
+		return b.TotalAlloc - a.TotalAlloc
+	}
+	clean := measure(func() { Redact(big) })
+	got := measure(func() { Redact(marked) })
+	if got > clean+4<<20 {
+		t.Errorf("Redact allocated %d bytes with a mark, %d without", got, clean)
+	}
+	cleanFind := measure(func() { Find(big) })
+	gotFind := measure(func() { Find(marked) })
+	if gotFind > cleanFind+2*uint64(len(big)) {
+		t.Errorf("Find allocated %d bytes with a mark, %d without", gotFind, cleanFind)
+	}
+}
+
+// A text over the limit that has a split secret in what is read is cut there and
+// ends with the one mark for the rest, as one without marks does.
+func TestRedactOfATextOverTheLimitWithASplitSecret(t *testing.T) {
+	in := "AK​IAIOSFODNN7EXAMPLE " + strings.Repeat("some words 12345 ", 100000)
+	if len(in) <= MaxRedactBytes {
+		t.Fatal("the text is not over the limit")
+	}
+	got := Redact(in)
+	if strings.Contains(got, "IOSFODNN7EXAMPLE") || !strings.HasPrefix(got, Redacted+" some words") ||
+		!strings.HasSuffix(got, Redacted) || len(got) > MaxRedactBytes+len(Redacted) {
+		t.Errorf("got %d bytes, starting %q ending %q", len(got), got[:30], got[len(got)-30:])
 	}
 }
