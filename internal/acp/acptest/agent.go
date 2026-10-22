@@ -284,8 +284,14 @@ func (a *agent) handle(m msg) {
 		// A cancel that is already here is from an earlier turn. One that arrives
 		// after this point is this turn's, however late the turn gets going: this
 		// is the reader, and the cancel is read after the prompt.
-		for len(a.cancels) > 0 {
-			<-a.cancels
+		// Not a receive that waits: a turn still running can take the last one.
+	drain:
+		for {
+			select {
+			case <-a.cancels:
+			default:
+				break drain
+			}
 		}
 		a.turns.Add(1)
 		go func() {
