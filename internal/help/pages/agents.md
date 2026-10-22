@@ -69,6 +69,46 @@ made-up price is worse than none. An API agent given an address of its own,
 such as a gateway's, is not priced at all, since what it charges is not the
 vendor's list price.
 
+## Structured agents (beta)
+
+A structured agent is one Flockdeck talks to over the Agent Client Protocol
+instead of in a terminal. Its pane has no screen: the new interface's drawer
+shows its conversation, a box to send it a prompt and a Stop button, and the
+current window shows a stub line and sends it nothing. Today the one offered is
+opencode (structured). There is none for Claude Code.
+
+It is off until you turn it on. Put `"structuredPanes": true` in `prefs.json`
+in the state directory (there is no setting for it in the window); until then
+the picker does not offer a structured agent. Turning it off again takes effect
+when you restart a pane or when the agents are read again, and does not end a
+running pane.
+
+What to know before you use one:
+
+- **Approval is at the desk.** A permission request is answered from a window on
+  this machine, by choosing one of the options the agent offered. A phone gets no
+  notification for it and cannot answer it, and a window reached through the
+  relay is told only that the pane exists, its name and its status. Nothing is
+  answered for you; a request still open when you stop the turn, close or restart
+  the pane or quit is answered *cancelled*.
+- **The cards may gate nothing.** opencode, as shipped, runs shell commands,
+  writes and edits without asking, so no permission card appears for them.
+  Flockdeck does not change that and does not warn about it in the pane today. Its
+  own setting `{"permission":{"bash":"ask","edit":"ask"}}` in the working
+  directory makes it ask.
+- **It cannot read mail yet.** The line Flockdeck types to wake an agent, and the
+  briefing, tell it to run `flockdeck inbox`, and a structured agent is not given
+  the pane identity that command needs, so the command fails.
+- **A login or Node problem** shows as a blocked pane marked "needs setup", and
+  as "Needs setting up" in the team graph, with the one step to take: sign in with
+  the agent's own tool (Flockdeck never signs in), install Node 20 or newer where
+  the adapter needs it, or install the agent. Start the pane again afterwards.
+- **A restart starts a new session.** The earlier entries stay above a line saying
+  the agent was restarted. If the new agent cannot be started, they stay too, with
+  a line giving the reason.
+- **Nothing is recorded or exported.** Recording and export are not available for a
+  structured pane yet.
+
 ## An endpoint's address
 
 The OpenAI-compatible endpoint ships with no address, because none would be
