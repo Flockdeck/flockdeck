@@ -74,7 +74,7 @@ func runWake(args []string, out io.Writer) error {
 		read:     store.ReadWake,
 		offersText: func(id string) bool {
 			spec, ok := agent.Load().Find(id)
-			return ok && spec.Caps.TextWake
+			return ok && spec.OffersWakeText()
 		},
 	}, args, out)
 }

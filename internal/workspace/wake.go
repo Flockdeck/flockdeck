@@ -291,9 +291,7 @@ func (s *wakeService) consider(c wakeCandidate) string {
 	// In text mode every unread message is typed in turn, oldest first, at the
 	// normal limits; otherwise only the newest is named, and the agent reads
 	// the rest with `inbox`.
-	// A pane that is sent a prompt takes the fixed line whatever the text setting
-	// says: the message text is only ever typed into a terminal.
-	text := c.TextOK && c.Deliver == nil && s.settings().WakeText(c.Agent)
+	text := wakeTextAllowed(c, s.settings())
 	id := 0
 	if text {
 		if unread := s.mail.List(c.ID, false); len(unread) > 0 {
@@ -432,7 +430,7 @@ func (s *wakeService) fire(c wakeCandidate, id int, text bool, r session.WakeRea
 	off := func() bool {
 		set := s.settings()
 		set.Invalidate()
-		return !set.WakeEnabled(c.Agent, c.ID) || (text && !set.WakeText(c.Agent))
+		return !set.WakeEnabled(c.Agent, c.ID) || (text && !wakeTextAllowed(c, set))
 	}
 	typing := func() bool {
 		t := c.Sess.LastUserInput()
@@ -451,10 +449,13 @@ func (s *wakeService) fire(c wakeCandidate, id int, text bool, r session.WakeRea
 	if text {
 		if m, ok := s.message(c.ID, id); ok {
 			line = wakeTextLine(m)
+			if c.Deliver != nil {
+				line = wakeTextPrompt(m)
+			}
 		}
 	}
 	if c.Deliver != nil {
-		s.deliver(c, id, line, r, at)
+		s.deliver(c, id, line, text, r, at)
 		return
 	}
 	if err := c.Sess.WriteStringFrom(session.InputFlockdeck, line); err != nil {
@@ -498,12 +499,18 @@ func (s *wakeService) fire(c wakeCandidate, id int, text bool, r session.WakeRea
 // taken or refused whole, so there is no Enter to miss and no line left in an
 // input box: the message is marked woken when the prompt was accepted, and a
 // refusal backs the pane off for the minute.
-func (s *wakeService) deliver(c wakeCandidate, id int, line string, r session.WakeReading, at time.Time) {
+//
+// With text the prompt holds the message, so it counts as read once accepted:
+// the agent has no command to read it with, and nothing else would clear it.
+func (s *wakeService) deliver(c wakeCandidate, id int, line string, text bool, r session.WakeReading, at time.Time) {
 	if err := c.Deliver(line); err != nil {
 		s.undo(c, at, true)
 		return
 	}
 	s.mail.MarkWoken(c.ID, id)
+	if text {
+		_, _ = s.mail.Read(c.ID, id)
+	}
 	if s.record != nil {
 		s.record(team.Event{
 			Kind: team.EventWake, ID: id, Time: s.now(), Pane: c.ID, Agent: c.Agent,

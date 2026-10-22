@@ -369,31 +369,6 @@ func TestARefusedWakePromptLeavesTheMessageUnwoken(t *testing.T) {
 	}
 }
 
-// A pane that is sent a prompt gets the fixed line even if its candidate offers
-// the message text and the user switched text on for the agent: the text is only
-// ever typed into a terminal.
-func TestAPromptedPaneIsNeverGivenTheMessageText(t *testing.T) {
-	r := newWakeRig(t)
-	const body = "the body of the message"
-	r.mail.msgs = []team.Message{{ID: 7, Text: body}}
-	r.svc.settings = func() WakeSettings { return wakeTextOn{} }
-	var sent []string
-	r.cand.TextOK = true
-	r.cand.Deliver = func(line string) error { sent = append(sent, line); return nil }
-	if why := r.try(); why != "" {
-		t.Fatalf("not woken: %s", why)
-	}
-	if len(sent) != 1 || sent[0] != wakeLine(7) || strings.Contains(sent[0], body) {
-		t.Errorf("sent %q", sent)
-	}
-	if len(r.mail.read) != 0 {
-		t.Errorf("messages marked read: %v", r.mail.read)
-	}
-	if len(r.sess.written()) != 0 {
-		t.Errorf("typed %q", r.sess.written())
-	}
-}
-
 // Each wake switch holds a structured pane back, and a damaged preferences file
 // does too; with the switch back on the pane is woken.
 func TestTheWakeSwitchesHoldBackAStructuredPane(t *testing.T) {
