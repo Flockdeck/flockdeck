@@ -51,12 +51,26 @@ func TestRelayScrubIsDefaultDeny(t *testing.T) {
 // The pass list is what the phone needs: the roster messages are scrubbed, and
 // the settings, device and helper messages pass.
 func TestRelayPassListHoldsWhatAPhoneNeeds(t *testing.T) {
-	for _, typ := range []string{"hello", "prefs", "keys", "helpers", "worktrees", "recents", "remoteDevices", "jevKey", "changes", "diff", "ghPR"} {
+	// Every type sent to a relay window as it is, each pinned here by name, so
+	// moving one off the list (to desk only, or to a scrub) is a change to this
+	// test. agentStarted and attachImageResult are what the phone's start-agent
+	// flow and its chat read.
+	pinned := []string{
+		"hello", "prefs", "keys", "keyTable", "artifacts", "agentAddress", "radarSupport", "jevKey",
+		"remotePair", "remoteOutcome", "remoteDevices", "versions", "helpers", "helperPlan",
+		"batonSaved", "attachImageResult", "browse", "recents", "worktrees",
+		"ghProgress", "ghStatus", "gitWarn", "agentStarted", "detached",
+		"changes", "diff", "ghPR", "ghPRs", "ghIssue", "ghIssues", "ghChecks",
+	}
+	for _, typ := range pinned {
 		if _, ok := relayPass[typ]; !ok {
 			t.Errorf("%s is not sent to a relay window", typ)
 		}
 	}
-	for _, typ := range []string{"state", "agents", "notice", "batonError", "teamResult", "conversationPage"} {
+	if len(relayPass) != len(pinned) {
+		t.Errorf("relayPass has %d types and %d are pinned here: pin the new one", len(relayPass), len(pinned))
+	}
+	for _, typ := range []string{"state", "agents", "notice", "batonError", "teamResult", "permissionAnswer", "conversationPage"} {
 		if _, ok := relayScrubs[typ]; !ok {
 			t.Errorf("%s has no scrub", typ)
 		}
@@ -171,6 +185,69 @@ func TestNoFixedNoticeIsLongerThanTheRelayLimit(t *testing.T) {
 			}
 		}
 	}
+	// textOf counts the fixed characters in an expression that makes a notice: a
+	// literal, a constant, a format string given to Sprintf or Errorf, and the
+	// longest return of a function in this package that returns a string (called
+	// by name or as a method). Anything else is text that is not known.
+	funcText := map[string]int{}
+	var textOf func(e ast.Expr, depth int) (int, bool)
+	textOf = func(e ast.Expr, depth int) (int, bool) {
+		switch x := e.(type) {
+		case *ast.BasicLit:
+			if s, err := strconv.Unquote(x.Value); err == nil {
+				return len([]rune(s)), false
+			}
+		case *ast.Ident:
+			if s, ok := consts[x.Name]; ok {
+				return len([]rune(s)), false
+			}
+		case *ast.ParenExpr:
+			return textOf(x.X, depth)
+		case *ast.BinaryExpr:
+			a, da := textOf(x.X, depth)
+			b, db := textOf(x.Y, depth)
+			return a + b, da || db
+		case *ast.CallExpr:
+			name := ""
+			switch fn := x.Fun.(type) {
+			case *ast.Ident:
+				name = fn.Name
+			case *ast.SelectorExpr:
+				name = fn.Sel.Name
+			}
+			if (name == "Sprintf" || name == "Errorf") && len(x.Args) > 0 {
+				n, _ := textOf(x.Args[0], depth)
+				return n, true
+			}
+			if n, ok := funcText[name]; ok && depth < 3 {
+				return n, true
+			}
+		}
+		return 0, true
+	}
+	for pass := 0; pass < 3; pass++ {
+		for _, file := range parsed {
+			for _, d := range file.Decls {
+				fd, ok := d.(*ast.FuncDecl)
+				if !ok || fd.Body == nil || fd.Type.Results == nil || len(fd.Type.Results.List) != 1 {
+					continue
+				}
+				if id, ok := fd.Type.Results.List[0].Type.(*ast.Ident); !ok || id.Name != "string" {
+					continue
+				}
+				best := 0
+				ast.Inspect(fd.Body, func(n ast.Node) bool {
+					if r, ok := n.(*ast.ReturnStmt); ok && len(r.Results) == 1 {
+						if n, _ := textOf(r.Results[0], pass); n > best {
+							best = n
+						}
+					}
+					return true
+				})
+				funcText[fd.Name.Name] = best
+			}
+		}
+	}
 	// Room left for the error text a notice appends. The layout-save notice adds
 	// an operating system error, which is a path and a few words.
 	const room = 150
@@ -189,29 +266,15 @@ func TestNoFixedNoticeIsLongerThanTheRelayLimit(t *testing.T) {
 			if !ok || (sel.Sel.Name != "notify" && sel.Sel.Name != "notifyAll" && sel.Sel.Name != "notifyApproval" && sel.Sel.Name != "noticeDesk") {
 				return true
 			}
-			var total int
-			var dynamic bool
-			var walk func(e ast.Expr)
-			walk = func(e ast.Expr) {
-				switch x := e.(type) {
-				case *ast.BasicLit:
-					if s, err := strconv.Unquote(x.Value); err == nil {
-						total += len([]rune(s))
-					}
-				case *ast.Ident:
-					if s, ok := consts[x.Name]; ok {
-						total += len([]rune(s))
-					} else {
-						dynamic = true
-					}
-				case *ast.BinaryExpr:
-					walk(x.X)
-					walk(x.Y)
-				default:
-					dynamic = true
+			// A notice that is only ever sent from a command a relay window is
+			// refused first is long on purpose and never reaches one.
+			if c, ok := call.Args[0].(*ast.CallExpr); ok {
+				if id, ok := c.Fun.(*ast.Ident); ok && id.Name == "artifactAckText" {
+					// setRemoteArtifacts returns at refusedArtifactsThroughRelay before it.
+					return true
 				}
 			}
-			walk(call.Args[0])
+			total, dynamic := textOf(call.Args[0], 0)
 			checked++
 			limit := maxRemoteNotice
 			if dynamic {
@@ -230,4 +293,64 @@ func TestNoFixedNoticeIsLongerThanTheRelayLimit(t *testing.T) {
 		t.Fatalf("checked only %d notices: the scan is looking in the wrong place", checked)
 	}
 	t.Logf("%d notices checked, the longest has %d fixed characters", checked, longest)
+}
+
+// A permission answer reaches a relay window only as a refusal with its reason
+// redacted and cut; an answer that was given, or has no reason, is dropped.
+func TestRelayPermissionAnswerIsOnlyTheRefusal(t *testing.T) {
+	if scrubForRemote(mustJSON(t, permissionAnswerMsg{Type: "permissionAnswer", Req: "r", ID: "p", OK: true})) != nil {
+		t.Error("an answer that was given was sent")
+	}
+	if scrubForRemote(mustJSON(t, permissionAnswerMsg{Type: "permissionAnswer", Req: "r", ID: "p", OK: true, Error: "x"})) != nil {
+		t.Error("an answer that says ok and has an error was sent")
+	}
+	if scrubForRemote(mustJSON(t, permissionAnswerMsg{Type: "permissionAnswer", Req: "r", ID: "p"})) != nil {
+		t.Error("a refusal with no reason was sent")
+	}
+	out := scrubForRemote(mustJSON(t, permissionAnswerMsg{Type: "permissionAnswer", Req: "r", ID: "p", CardSeq: 4, RequestID: "q",
+		Error: "The answer could not be given: " + relaySecrets[0] + " " + strings.Repeat("because it is full ", 60)}))
+	if leaks := relayLeaks(out); len(leaks) > 0 {
+		t.Errorf("the refusal holds %q", leaks)
+	}
+	var back permissionAnswerMsg
+	if err := json.Unmarshal(out, &back); err != nil || back.OK || back.Req != "r" || back.ID != "p" || back.CardSeq != 4 || back.RequestID != "q" ||
+		!strings.HasPrefix(back.Error, "The answer could not be given: ") || len([]rune(back.Error)) > maxRemoteNotice {
+		t.Errorf("refusal = %+v, %v", back, err)
+	}
+}
+
+// A message sent as it is has exactly one key called type, whatever its case, so
+// the type this side reads is the one the phone reads.
+func TestRelayPassNeedsOneTypeKey(t *testing.T) {
+	ok := `{"type":"prefs","a":1}`
+	if got := scrubForRemote([]byte(ok)); string(got) != ok {
+		t.Fatalf("a good message was changed or dropped: %s", got)
+	}
+	for _, bad := range []string{
+		`{"type":"prefs","type":"state"}`,
+		`{"type":"prefs","a":1,"type":"conversationAppend"}`,
+		`{"type":"prefs","Type":"changes"}`,
+		`{"type":"prefs","TYPE":"x"}`,
+		`{"type":"prefs"} {"type":"x"}`,
+		`{"type":"prefs"}x`,
+		`[{"type":"prefs"}]`,
+		`{"type":"prefs","a":`,
+	} {
+		if got := scrubForRemote([]byte(bad)); got != nil {
+			t.Errorf("%s was sent: %s", bad, got)
+		}
+	}
+	if hasOneTypeKey([]byte(`{"a":{"type":"x"},"type":"prefs"}`)) != true {
+		t.Error("a type key inside a nested object was counted")
+	}
+}
+
+// Format characters, such as a right-to-left override, are dropped from a notice.
+func TestCutLineDropsFormatCharacters(t *testing.T) {
+	if got := cutLine("a‮b‍c⁦d", 50); got != "abcd" {
+		t.Errorf("cutLine = %q", got)
+	}
+	if got := cutLine("a ‮ b", 50); got != "a b" {
+		t.Errorf("cutLine = %q", got)
+	}
 }

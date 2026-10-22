@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"slices"
 	"strings"
 	"unicode"
@@ -60,7 +61,11 @@ var relayScrubs = map[string]func([]byte) []byte{
 	// but they are redacted and cut to a line so one that came to would not carry a page.
 	"notice": scrubNotice,
 	// The only teamResult a relay window is sent is the refusal of a team command.
-	"teamResult":         scrubTeamResult,
+	"teamResult": scrubTeamResult,
+	// Today a relay window is sent only the refusal of the command. The same message
+	// carries the reason an answer could not be given, and the OK reply, when the
+	// refusal is lifted (permission-answer-relay in permission_answer.go).
+	"permissionAnswer":   scrubPermissionAnswer,
 	"batonError":         scrubBatonError,
 	"conversationAppend": dropForRelay,
 	"conversationDetail": dropForRelay,
@@ -90,7 +95,7 @@ func scrubForRemote(data []byte) []byte {
 	if fn, ok := relayScrubs[typ]; ok {
 		return fn(data)
 	}
-	if _, ok := relayPass[typ]; ok {
+	if _, ok := relayPass[typ]; ok && hasOneTypeKey(data) {
 		return data
 	}
 	return nil
@@ -109,8 +114,7 @@ var relayPass = map[string]string{
 	"batonSaved":        "ids, a path and a count",
 	"attachImageResult": "a path or a reason", "browse": "folder names", "recents": "project paths", "worktrees": "branches and paths",
 	"ghProgress": "progress", "ghStatus": "gh install state", "gitWarn": "a warning",
-	"permissionAnswer": "the refusal a relay window is given: an error sentence",
-	"agentStarted":     "ids", "detached": "a flag",
+	"agentStarted": "ids", "detached": "a flag",
 	// Repository content, not conversation text: whether a phone is sent a diff
 	// or an issue is a separate decision from T112.
 	"changes": "git status", "diff": "a diff", "ghPR": "a pull request", "ghPRs": "pull requests", "ghIssue": "an issue", "ghIssues": "issues", "ghChecks": "check runs",
@@ -421,6 +425,11 @@ func cutLine(s string, max int) string {
 	var b strings.Builder
 	space := false
 	for _, r := range s {
+		if unicode.Is(unicode.Cf, r) {
+			// A format character (a bidi override, a zero-width joiner) is dropped, not
+			// made a space.
+			continue
+		}
 		if unicode.IsControl(r) || unicode.IsSpace(r) {
 			space = b.Len() > 0
 			continue
@@ -443,4 +452,52 @@ func cutLine(s string, max int) string {
 		}
 	}
 	return string(runes) + "…"
+}
+
+// scrubPermissionAnswer keeps the refusal of a permission answer and drops an
+// answer that was given or has no reason: the reason is redacted and cut to a
+// line.
+func scrubPermissionAnswer(data []byte) []byte {
+	var m permissionAnswerMsg
+	if json.Unmarshal(data, &m) != nil || m.OK || m.Error == "" {
+		return nil
+	}
+	out, err := json.Marshal(permissionAnswerMsg{Type: "permissionAnswer", Req: m.Req, ID: m.ID, CardSeq: m.CardSeq, RequestID: m.RequestID,
+		Error: cutLine(record.Redact(m.Error), maxRemoteNotice)})
+	if err != nil {
+		return nil
+	}
+	return out
+}
+
+// hasOneTypeKey reports whether a message is a JSON object with exactly one key
+// that is "type" in any case. Go reads a repeated key as the last one and, for a
+// struct, matches a key without regard to case; a browser's JSON.parse takes the
+// last of two exact keys. So a message with two could be classified as one type
+// here and read as another there; a message sent as it is must not be one.
+func hasOneTypeKey(data []byte) bool {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
+		return false
+	}
+	n := 0
+	for dec.More() {
+		tok, err := dec.Token()
+		key, ok := tok.(string)
+		if err != nil || !ok {
+			return false
+		}
+		if strings.EqualFold(key, "type") {
+			n++
+		}
+		var skip json.RawMessage
+		if dec.Decode(&skip) != nil {
+			return false
+		}
+	}
+	if tok, err := dec.Token(); err != nil || tok != json.Delim('}') {
+		return false
+	}
+	_, err := dec.Token()
+	return n == 1 && err == io.EOF
 }
