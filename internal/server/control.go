@@ -153,11 +153,17 @@ func (s *Server) reportPanic(c *controlClient, doing string, r any) {
 	if logPanic(doing, r, stack) {
 		text += ". The details are in error.log in Flockdeck's state directory"
 	}
+	// The panic value can quote what was being read (a transcript, a task), so
+	// a window reached through the relay is told the fixed part only.
+	remoteText := fmt.Sprintf("Something went wrong %s. The details are on the desktop", doing)
 	if c != nil {
+		if c.remote {
+			text = remoteText
+		}
 		c.notify(text, true)
 		return
 	}
-	s.notifyAll(text, true)
+	s.notifyAllOr(text, remoteText, true)
 }
 
 // logPanic appends a recovered panic and its stack to error.log in the state
@@ -180,11 +186,25 @@ func logPanic(doing string, r any, stack []byte) bool {
 
 // notifyAll sends a one-off message to every connected window.
 func (s *Server) notifyAll(text string, isErr bool) {
+	s.notifyAllOr(text, text, isErr)
+}
+
+// notifyAllOr is notifyAll with other words for a window reached through the
+// relay, for a notice that quotes something that window may not be sent.
+func (s *Server) notifyAllOr(text, remoteText string, isErr bool) {
 	data, err := json.Marshal(noticeMsg{Type: "notice", Text: text, Error: isErr})
 	if err != nil {
 		return
 	}
+	remoteData, err := json.Marshal(noticeMsg{Type: "notice", Text: remoteText, Error: isErr})
+	if err != nil {
+		return
+	}
 	for _, c := range s.clientList() {
+		if c.remote {
+			c.send(remoteData)
+			continue
+		}
 		c.send(data)
 	}
 }

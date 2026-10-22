@@ -24,7 +24,7 @@ import (
 const planted = "ZXQ-PLANTED-9431"
 
 func TestRelayTextCommandsAreEveryOneThatReturnsConversation(t *testing.T) {
-	want := []string{"conversationDetail", "conversationOlder", "conversationOpen", "conversationSearch", "conversations"}
+	want := []string{"conversationDetail", "conversationOlder", "conversationOpen", "conversationSearch", "conversations", "makeBaton"}
 	var got []string
 	for name := range remoteTextCommands {
 		got = append(got, name)
@@ -169,6 +169,7 @@ func TestRelayWindowSeesNoConversationTextInAFullSession(t *testing.T) {
 			{Cmd: "conversationDetail", ID: paneID, Entry: "a1"},
 			{Cmd: "conversationSearch", ID: paneID, Q: "PLANTED"},
 			{Cmd: "conversations", Path: ws.ActiveRoot()},
+			{Cmd: "makeBaton", ID: paneID},
 			{Cmd: "agents"},
 			{Cmd: "graphSnapshot", Req: "g"},
 		} {
@@ -209,10 +210,10 @@ func TestRelayWindowSeesNoConversationTextInAFullSession(t *testing.T) {
 				t.Errorf("%s: sent a %s: %.200s", dev, messageType(raw), raw)
 			}
 		}
-		wantNotices := 4
+		wantNotices := 5
 		if dev == "watch-dev" {
 			// conversations is refused to a viewer before this gate, as it always was.
-			wantNotices = 3
+			wantNotices = 3 // conversations and makeBaton are refused to a viewer before this gate
 		}
 		if page != 2 || notices != wantNotices || states == 0 {
 			t.Errorf("%s: %d pages, %d refusals, %d states; want 2, %d and some", dev, page, notices, states, wantNotices)

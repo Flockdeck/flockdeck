@@ -9,6 +9,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -240,7 +241,18 @@ func TestRelayScrubLeavesAStateWithNoPromptAlone(t *testing.T) {
 		if messageType(data) != "state" {
 			continue
 		}
-		if got := scrubForRemote(data); !bytes.Equal(got, data) {
+		got := scrubForRemote(data)
+		// Only the tab titles and the search flag differ: the rest of a state
+		// with no prompt in it is sent as it was.
+		var a, b map[string]any
+		if json.Unmarshal(data, &a) != nil || json.Unmarshal(got, &b) != nil {
+			t.Fatal("a state could not be read")
+		}
+		for _, m := range []map[string]any{a, b} {
+			delete(m, "tabs")
+			delete(m, "canSearchConversation")
+		}
+		if !reflect.DeepEqual(a, b) {
 			t.Fatalf("the scrub changed a state with no prompt:\n%.300s\n%.300s", data, got)
 		}
 		return

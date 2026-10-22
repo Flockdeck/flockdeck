@@ -708,9 +708,11 @@ func (s *Server) armGraphTick() {
 // graphCommand answers the graph commands. A window reached through the relay
 // is refused all of them, as it is for the Team panel. Decision: the phone scope
 // of the graph is not decided, so the desk is the only place it is shown; this
-// refusal is the one place to lift when it is. If a later change opens
-// the graph to the relay, it must first scrub secrets from the command text a
-// permission prompt carries: neither this view nor paneView scrubs it today.
+// refusal is the one place to lift when it is. The graph message is dropped for
+// a relay window as well (relayscrub.go): a node's live line is a pane's last
+// reply and an edge holds the text of a message. If a later change opens the
+// graph to the relay, it must first write a scrub for that text, with the
+// sealed channel the plan asks for.
 // Plan v8 locks this: structured (ACP) panes stay desktop-only until a sealed
 // team socket exists; a terminal pane can be approved from a phone only through
 // the drawer's choice buttons on the sealed terminal path; merges are desk-only.

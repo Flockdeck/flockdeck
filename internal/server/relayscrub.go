@@ -58,6 +58,8 @@ var relayScrubs = map[string]func([]byte) []byte{
 	"conversationDetail": dropForRelay,
 	"conversationSearch": dropForRelay,
 	"conversations":      dropForRelay,
+	// A baton draft is the pane's task and what its agent last said, rendered as text.
+	"batonDraft": dropForRelay,
 	// The graph holds the live line of each pane, the text of each message
 	// between agents and the text of each permission and question. Its commands
 	// are refused to a relay window already; this is the second lock.
@@ -188,7 +190,7 @@ func scrubPane(pv *paneView) {
 // conflict radar names. A secret in a directory name or a branch is as much a
 // secret on the phone.
 func scrubPaneNames(pv *paneView) {
-	pv.Name, pv.PeerName = record.Redact(pv.Name), record.Redact(pv.PeerName)
+	pv.Name, pv.PeerName = capName(pv.Name), capName(pv.PeerName)
 	pv.Project, pv.Branch, pv.Cwd = record.Redact(pv.Project), record.Redact(pv.Branch), record.Redact(pv.Cwd)
 	if len(pv.Conflicts) > 0 {
 		cs := make([]conflictView, len(pv.Conflicts))
@@ -213,6 +215,9 @@ func scrubStateMsg(data []byte) []byte {
 		scrubPane(&pv)
 		m.Panes[id] = pv
 	}
+	scrubTabs(m.Tabs, m.Panes)
+	// The search is of a conversation, which this window is not sent.
+	m.CanSearchConversation = false
 	out, err := json.Marshal(m)
 	if err != nil {
 		return nil
@@ -228,8 +233,15 @@ func scrubAgentsMsg(data []byte) []byte {
 	for i := range m.Items {
 		it := &m.Items[i]
 		it.Waiting = scrubSummary(it.Waiting)
-		it.Name, it.Branch = record.Redact(it.Name), record.Redact(it.Branch)
-		it.Project, it.Tab, it.Root = record.Redact(it.Project), record.Redact(it.Tab), record.Redact(it.Root)
+		it.Name, it.Branch = capName(it.Name), record.Redact(it.Branch)
+		it.Project, it.Root = record.Redact(it.Project), record.Redact(it.Root)
+		title := it.Tab
+		it.Tab = "Tab"
+		if it.TabNamed {
+			it.Tab = capName(title)
+		} else if it.Name != "" {
+			it.Tab = it.Name
+		}
 		it.Detail = ""
 		it.BackgroundWork = scrubBackground(it.BackgroundWork)
 		it.BackgroundEnded = scrubBackground(it.BackgroundEnded)
@@ -270,6 +282,7 @@ var remoteTextCommands = map[string]bool{
 	"conversationDetail": true,
 	"conversationSearch": true,
 	"conversations":      true,
+	"makeBaton":          true,
 }
 
 // refuseRemoteText answers a relay window's conversation command with a plain
@@ -290,4 +303,26 @@ func (c *controlClient) refuseRemoteText(cmd command) bool {
 		c.putMessage(data)
 	}
 	return true
+}
+
+// maxRemoteName is how much of a pane's name or peer name a relay window is
+// sent. A person or an agent chose the name, so it can be any length of text.
+const maxRemoteName = 40
+
+func capName(s string) string { return team.CleanLine(record.Redact(s), maxRemoteName) }
+
+// scrubTabs replaces the title of each tab a person did not name. Such a title
+// is made from the first words of the opening prompt, so a relay window is
+// sent the name of the pane in focus instead, which is its folder.
+func scrubTabs(tabs []tabView, panes map[string]paneView) {
+	for i := range tabs {
+		if tabs[i].Named {
+			tabs[i].Title = capName(tabs[i].Title)
+			continue
+		}
+		tabs[i].Title = "Tab"
+		if pv, ok := panes[tabs[i].Focus]; ok && pv.Name != "" {
+			tabs[i].Title = pv.Name
+		}
+	}
 }
