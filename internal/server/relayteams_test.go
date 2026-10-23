@@ -362,3 +362,43 @@ func TestRelayTeamsOverTheSocketHoldNoPaneName(t *testing.T) {
 		}
 	}
 }
+
+// The project name is the one free text in the relay form, so it goes through
+// the same redaction and cut as the names elsewhere on the relay.
+func TestRelayTeamsProjectNameIsRedactedAndCut(t *testing.T) {
+	const key = "AKIAIOSFODNN7EXAMPLE"
+	cases := map[string]string{
+		"a key":                   "build " + key + " now",
+		"a key with an invisible": "build AK​IAIOSFODNN7EXAMPLE now",
+		"a long name":             strings.Repeat("long-name ", 12),
+		"a newline and controls":  "line one\nline two\r\x1b[31m\x00\ttab",
+	}
+	for name, project := range cases {
+		t.Run(name, func(t *testing.T) {
+			in := relayTeamsMsg{Type: "relayTeams", V: relayTeamsVersion, Projects: []relayTeamProject{{
+				ID: "p1", Project: project, Panes: []relayPane{{ID: "a", Kind: "terminal", Status: "idle"}}}}}
+			b, _ := json.Marshal(in)
+			var out relayTeamsMsg
+			if err := json.Unmarshal(scrubRelayTeams(b), &out); err != nil || len(out.Projects) != 1 {
+				t.Fatalf("%v", err)
+			}
+			got := out.Projects[0].Project
+			if strings.Contains(got, key) || strings.Contains(got, "IAIOSFODNN7") {
+				t.Errorf("the key is in the name: %q", got)
+			}
+			if name == "a key" || name == "a key with an invisible" {
+				if !strings.Contains(got, "[redacted]") {
+					t.Errorf("name = %q, want [redacted] in it", got)
+				}
+			}
+			if n := len([]rune(got)); n > maxRemoteName {
+				t.Errorf("name has %d characters, want at most %d: %q", n, maxRemoteName, got)
+			}
+			for _, r := range got {
+				if r < 0x20 || r == 0x7f {
+					t.Errorf("name holds the control character %U: %q", r, got)
+				}
+			}
+		})
+	}
+}
