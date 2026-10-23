@@ -8,10 +8,10 @@ It compares two lists the sources hold: the actions of the key table (`internal/
 
 | | Actions | Commands |
 | --- | --- | --- |
-| done | 10 | 11 |
+| done | 20 | 11 |
 | replaced | 0 | 3 |
 | cut | 14 | 11 |
-| planned | 34 | 131 |
+| planned | 24 | 131 |
 | unclassified | 0 | 0 |
 | total | 58 | 156 |
 
@@ -57,7 +57,7 @@ The old interface let a person tile, split, move and broadcast to panes. The new
 | T132 (C6, Changes) | `changes` | `changes`, `commit`, `diff`, `gitFetch`, `gitPull`, `gitPush` |
 | T133 (C7, worktrees) | `worktrees` | `conflictRadar`, `worktreeAdd`, `worktreePrune`, `worktreeRemove`, `worktrees` |
 | T134 (C8, GitHub) |  | `ghChecks`, `ghInstall`, `ghIssue`, `ghIssueComment`, `ghIssueCreate`, `ghIssues`, `ghLogin`, `ghLoginCancel`, `ghLogout`, `ghPR`, `ghPRComment`, `ghPRCreate`, `ghPRs`, `ghStatus` |
-| T136 (L1, start flows and pane lifecycle) | `zoomPane`, `restartPane`, `lockPane`, `closePane`, `newAgentTab`, `newAgentTabChoose`, `newShellTab`, `nextTab`, `prevTab`, `selectTab`, `closeFinishedPanes`, `startTeam` | `agents`, `browse`, `closeFinishedPanes`, `focusPane`, `recents`, `refreshAgents`, `teamClose`, `toggleZoom` |
+| T136 (L1, start flows and pane lifecycle) | `selectTab`, `closeFinishedPanes` | `agents`, `browse`, `closeFinishedPanes`, `focusPane`, `recents`, `refreshAgents`, `teamClose`, `toggleZoom` |
 | T137 (L2, settings) | `settings`, `fontUp`, `fontDown`, `fontReset` | `accentColor`, `cursorBlink`, `cursorStyle`, `dismissTip`, `fontFamily`, `fontSize`, `railExpanded`, `railWidth`, `resetKeybinding`, `resetKeybindings`, `resetTips`, `screenReader`, `scrollback`, `setAgentAddress`, `setAgentDefault`, `setKeybinding`, `statusLine`, `theme` |
 | T138 (L3, help) |  | `helpSeen` |
 | T139 (L4, history, find, pane info) | `recordPane`, `exportTranscript`, `revealTranscript`, `paneInfo`, `findInTerminal`, `findPane`, `history`, `openRecordings` | `conversations`, `exportTranscript`, `findPane`, `openRecordings`, `paneInfo`, `recordPane`, `resumeConversation`, `revealPane`, `revealTranscript` |
@@ -90,20 +90,20 @@ These are safety and security controls. The new interface has no way to do them 
 | `movePaneDown` | Move pane down (Ctrl+Shift+↓) | cut | Moving and merging panes and tabs is cut; the team is a graph. |
 | `movePaneToNewTab` | Move pane to a tab of its own | cut | Moving and merging panes and tabs is cut; the team is a graph. |
 | `tilePanes` | Tile these panes evenly | cut | Tiling and splitting panes is cut; the team is a graph. |
-| `zoomPane` | Zoom pane (Ctrl+Shift+Z) | planned | T136 (L1, start flows and pane lifecycle) |
-| `restartPane` | Restart pane | planned | T136 (L1, start flows and pane lifecycle) |
-| `lockPane` | Lock pane | planned | T136 (L1, start flows and pane lifecycle) |
+| `zoomPane` | Zoom pane (Ctrl+Shift+Z) | done |  |
+| `restartPane` | Restart pane | done |  |
+| `lockPane` | Lock pane | done |  |
 | `recordPane` | Start recording | planned | T139 (L4, history, find, pane info). Recording a terminal pane; recording a structured pane is T145 (P1) |
 | `exportTranscript` | Export transcript | planned | T139 (L4, history, find, pane info) |
 | `revealTranscript` | Reveal transcript | planned | T139 (L4, history, find, pane info) |
 | `paneInfo` | Pane info (Ctrl+Shift+Y) | planned | T139 (L4, history, find, pane info) |
-| `closePane` | Close pane (Ctrl+Shift+W) | planned | T136 (L1, start flows and pane lifecycle) |
-| `newAgentTab` | New agent tab (Ctrl+Shift+T) | planned | T136 (L1, start flows and pane lifecycle) |
-| `newAgentTabChoose` | New agent tab (choose agent)… | planned | T136 (L1, start flows and pane lifecycle) |
-| `newShellTab` | New shell tab (Ctrl+Shift+N) | planned | T136 (L1, start flows and pane lifecycle) |
-| `nextTab` | Next tab (Ctrl+Tab) | planned | T136 (L1, start flows and pane lifecycle) |
-| `prevTab` | Previous tab (Ctrl+Shift+Tab) | planned | T136 (L1, start flows and pane lifecycle) |
-| `selectTab` | Select tab by number (Alt+1 … Alt+9) | planned | T136 (L1, start flows and pane lifecycle) |
+| `closePane` | Close pane (Ctrl+Shift+W) | done |  |
+| `newAgentTab` | New agent tab (Ctrl+Shift+T) | done |  |
+| `newAgentTabChoose` | New agent tab (choose agent)… | done |  |
+| `newShellTab` | New shell tab (Ctrl+Shift+N) | done |  |
+| `nextTab` | Next tab (Ctrl+Tab) | done |  |
+| `prevTab` | Previous tab (Ctrl+Shift+Tab) | done |  |
+| `selectTab` | Select tab by number (Alt+1 … Alt+9) | planned | T136 (L1, start flows and pane lifecycle). The tab strip sends selectTab when a tab is pressed; the Alt+number key is not run |
 | `mergeAllTabs` | Merge every tab into this one | cut | Moving and merging panes and tabs is cut; the team is a graph. |
 | `moveTabLeft` | Move tab left | done |  |
 | `moveTabRight` | Move tab right | done |  |
@@ -113,7 +113,7 @@ These are safety and security controls. The new interface has no way to do them 
 | `makeBaton` | Make baton: hand this pane's work to another agent | planned | T141 (L6, helpers, baton, projects) |
 | `agents` | All agents across projects (Ctrl+Shift+A) | planned | T143 (L8, remaining actions). The list of agents across projects has no task; decide whether the graph's project switch is enough |
 | `closeFinishedPanes` | Close finished panes — idle agents and cleanly exited panes, in every open project | planned | T136 (L1, start flows and pane lifecycle) |
-| `startTeam` | Start a team — a manager agent that starts the rest | planned | T136 (L1, start flows and pane lifecycle) |
+| `startTeam` | Start a team — a manager agent that starts the rest | done |  |
 | `team` | Team — this project's roster, task board and messages (Ctrl+Shift+M) | planned | T143 (L8, remaining actions). The graph is the roster; the task board and messages dialog has no task |
 | `apiKeys` | API keys… | planned | T140 (L5, API keys, remote, notifications) |
 | `worktrees` | Worktrees (Ctrl+Shift+G) | planned | T133 (C7, worktrees) |

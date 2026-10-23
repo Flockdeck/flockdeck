@@ -88,23 +88,14 @@ var keyVerdicts = map[string]Verdict{
 	"movePaneDown":     cut(whyRearrange),
 	"movePaneToNewTab": cut(whyRearrange),
 	"tilePanes":        cut(whyTiling),
-	"zoomPane":         task(tL1),
-	"restartPane":      task(tL1),
-	"lockPane":         task(tL1),
 	"recordPane":       task(tL4, "Recording a terminal pane; recording a structured pane is T145 (P1)"),
 	"exportTranscript": task(tL4),
 	"revealTranscript": task(tL4),
 	"paneInfo":         task(tL4),
-	"closePane":        task(tL1),
 
 	// Tabs.
-	"newAgentTab":       task(tL1),
-	"newAgentTabChoose": task(tL1),
-	"newShellTab":       task(tL1),
-	"nextTab":           task(tL1),
-	"prevTab":           task(tL1),
-	"selectTab":         task(tL1),
-	"mergeAllTabs":      cut(whyRearrange),
+	"selectTab":    task(tL1, "The tab strip sends selectTab when a tab is pressed; the Alt+number key is not run"),
+	"mergeAllTabs": cut(whyRearrange),
 
 	// Agents.
 	"toggleBroadcast":       cut(whyBroadcast),
@@ -113,7 +104,6 @@ var keyVerdicts = map[string]Verdict{
 	"makeBaton":             task(tL6),
 	"agents":                task(tL8, "The list of agents across projects has no task; decide whether the graph's project switch is enough"),
 	"closeFinishedPanes":    task(tL1),
-	"startTeam":             task(tL1),
 	"team":                  task(tL8, "The graph is the roster; the task board and messages dialog has no task"),
 	"apiKeys":               task(tL5),
 

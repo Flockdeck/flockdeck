@@ -84,7 +84,7 @@ var (
 	quoted      = regexp.MustCompile(`"([A-Za-z0-9]+)"`)
 	prefCmdLine = regexp.MustCompile(`const PREF_CMD = \{([^}]*)\}`)
 	implemented = regexp.MustCompile(`export const IMPLEMENTED = \[([^\]]*)\]`)
-	liveAction  = regexp.MustCompile(`(?m)^    ([A-Za-z]+): \(\) => \{`)
+	liveAction  = regexp.MustCompile(`(?m)^    ([A-Za-z]+):`)
 )
 
 // isComment is whether a line of JavaScript is a comment, which may name a

@@ -31,6 +31,12 @@ func TestEveryOldActionAndCommandIsAccountedFor(t *testing.T) {
 	}
 }
 
+// commandWithoutAction are actions whose command the new interface sends, from a
+// click, while the action's key is not run: the key table's selectTab is
+// "Alt+1 … Alt+9", a range with no single binding, and the tab strip sends the
+// command when a tab is pressed.
+var commandWithoutAction = map[string]bool{"selectTab": true}
+
 // What is classified has to exist, or the table keeps lines for things that were
 // renamed or removed. And a thing the new interface already does must not still
 // be called cut.
@@ -54,9 +60,15 @@ func TestClassificationsNameRealThings(t *testing.T) {
 			t.Errorf("command %q is classified (%v), but the new interface sends it: remove the line", name, v.Kind)
 		}
 	}
-	for id, v := range keyVerdicts {
-		if f.Implemented[id] && v.Kind != Planned {
-			t.Errorf("action %q is classified as cut or replaced, but the new shell runs it", id)
+	for id := range keyVerdicts {
+		if f.Implemented[id] {
+			t.Errorf("action %q is classified, but the new shell runs it: remove the line", id)
+		}
+		// An action and the command of the same name are one feature. If the new
+		// interface sends the command and the action is still waiting on a task,
+		// one of the two lists is out of date.
+		if f.NewCommands[id] && !f.Implemented[id] && !commandWithoutAction[id] {
+			t.Errorf("action %q is not run by the new shell, but the new interface sends the command of the same name: the shell does not run the action, or the scan missed it", id)
 		}
 	}
 }
@@ -146,7 +158,14 @@ func TestTheScanFindsWhatIsThere(t *testing.T) {
 	if len(f.NewCommands) < 8 {
 		t.Errorf("only %d new commands found: %v", len(f.NewCommands), f.NewCommands)
 	}
-	for _, want := range []string{"palette", "toggleRail", "projects", "nextRegion", "prevRegion", "nextNeedsYou", "managerBar"} {
+	for _, want := range []string{
+		// IMPLEMENTED in shell/app.js.
+		"palette", "toggleRail", "projects", "nextRegion", "prevRegion", "help",
+		// The actions block of shell/Live.js, written as `name: () => {`,
+		// `name: () => send(...)` and `name: needPane(...)`.
+		"nextNeedsYou", "managerBar", "newAgentTab", "newAgentTabChoose", "newShellTab", "startTeam",
+		"nextTab", "prevTab", "moveTabLeft", "moveTabRight", "zoomPane", "restartPane", "lockPane", "closePane",
+	} {
 		if !f.Implemented[want] {
 			t.Errorf("the scan does not find %q among the actions the new shell runs: %v", want, f.Implemented)
 		}
