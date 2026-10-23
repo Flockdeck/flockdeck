@@ -63,6 +63,12 @@ type Adapter struct {
 	// life of the pane. It is what was observed of the tested version, not a
 	// promise about others.
 	RunsWithoutAsking bool `json:"runsWithoutAsking,omitempty"`
+	// LaunchEnv is environment Flockdeck sets for the adapter when it starts it,
+	// after whatever else the agent is given, so it wins. It is how an agent that
+	// takes its settings from the environment is made to ask before it acts:
+	// opencode reads OPENCODE_CONFIG_CONTENT. Values are fixed text in this file,
+	// never read from the user's environment.
+	LaunchEnv map[string]string `json:"launchEnv,omitempty"`
 }
 
 // Manifest is the list.
@@ -151,6 +157,9 @@ func (a Adapter) check() error {
 			return fmt.Errorf("arg %q is not a plain argument", clipText(arg, 40))
 		}
 	}
+	if err := checkLaunchEnv(a.LaunchEnv); err != nil {
+		return err
+	}
 	for name, v := range map[string]string{"pin": a.Pin, "minVersion": a.MinVersion, "minNode": a.MinNode, "testedWith": a.TestedWith} {
 		if v == "" {
 			continue
@@ -160,6 +169,37 @@ func (a Adapter) check() error {
 		}
 	}
 	return nil
+}
+
+var launchEnvRe = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
+
+// checkLaunchEnv accepts a few plain names and short values. A name that is
+// Flockdeck's own (FLOCKDECK_, PERCH_) is refused, as the entry-level passEnv refuses it.
+func checkLaunchEnv(env map[string]string) error {
+	if len(env) > 4 {
+		return errors.New("launchEnv takes at most 4 variables")
+	}
+	for name, v := range env {
+		switch {
+		case !launchEnvRe.MatchString(name) || len(name) > 60:
+			return fmt.Errorf("launchEnv name %q is not a variable name in capitals", clipText(name, 40))
+		case strings.HasPrefix(name, "FLOCKDECK_") || strings.HasPrefix(name, "PERCH_"):
+			return fmt.Errorf("launchEnv may not set %s: those names are Flockdeck's own", name)
+		case v == "" || len(v) > 400 || hasControl(v):
+			return fmt.Errorf("launchEnv %s must be text of 1 to 400 characters with no control character", name)
+		}
+	}
+	return nil
+}
+
+// LaunchEnvList is LaunchEnv as name=value, sorted by name.
+func (a Adapter) LaunchEnvList() []string {
+	var out []string
+	for name, v := range a.LaunchEnv {
+		out = append(out, name+"="+v)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // Default is the manifest this build was released with. It is checked by the

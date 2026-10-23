@@ -28,7 +28,12 @@ changed owner before.
 starts it, runs shell commands and edits without sending a permission request.
 It is what was seen of the tested version. A structured pane of such an agent
 shows a standing warning in the drawer header, and its permission cards gate
-nothing unless the agent's own configuration is set to ask.
+nothing unless the agent's own configuration is set to ask. No adapter is marked now.
+
+`launchEnv` is environment Flockdeck sets for the adapter when it starts it: up to four variables, with
+capital-letter names that are not Flockdeck's own and fixed values written in the manifest. It is added after
+`passEnv` and replaces a variable of the same name, so the user's environment cannot undo it. opencode has one:
+`OPENCODE_CONFIG_CONTENT`, which makes `bash` and `edit` ask (see [Structured panes](structured-pane.md)).
 
 ## Node
 

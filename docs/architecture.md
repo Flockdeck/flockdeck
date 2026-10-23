@@ -196,9 +196,11 @@ Current limits, each said plainly in the [structured pane
 reference](structured-pane.md#6-using-a-structured-pane):
 
 - opencode, by default, runs shell commands, writes and edits without sending a
-  permission request, so its permission cards gate nothing unless its own
-  permissions are set to ask. The adapter manifest records this
-  (`runsWithoutAsking`) and the drawer header shows a standing warning for it.
+  permission request. Flockdeck starts it with `OPENCODE_CONFIG_CONTENT` set so
+  that `bash` and `edit` ask (the manifest's `launchEnv`), which replaces the
+  user's own `bash` and `edit` settings for that pane. An agent that cannot be made
+  to ask is marked `runsWithoutAsking` in the manifest and the drawer header shows a
+  standing warning for it; none is marked now.
 - A structured agent is given no pane identity, so it cannot run `flockdeck
   inbox`, which the wake line and the briefing tell it to do.
 - A login or Node problem shows as the phase `needs setup`: a blocked pane, and a

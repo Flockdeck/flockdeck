@@ -91,11 +91,14 @@ What to know before you use one:
   relay is told its name, status, directory, branch, project, agent and model, and
   no text the agent wrote. Nothing is answered for you; a request still open when you stop the turn, close or restart
   the pane or quit is answered *cancelled*.
-- **The cards may gate nothing.** opencode, as shipped, runs shell commands,
-  writes and edits without asking, so no permission card appears for them.
-  Flockdeck does not change that; the drawer header of such a pane says so for as
-  long as the pane is open. The setting `{"permission":{"bash":"ask","edit":"ask"}}` in opencode's
-  own configuration makes it ask.
+- **opencode asks before it runs a command or edits a file.** opencode, as
+  shipped, does neither with a question, so Flockdeck starts it with `bash` and
+  `edit` set to ask, and each arrives as a permission card. This replaces your own
+  `bash` and `edit` settings in opencode's configuration, or in the project's, for a
+  structured pane, including any `deny` rule: that command is now a question for
+  you. Other settings, such as `webfetch`, are left as you set them, and opencode
+  still runs those without asking unless you say otherwise. A terminal opencode
+  pane keeps its own configuration.
 - **Mail needs an opt-in.** A structured agent has no `flockdeck` command and is
   not given the pane identity one needs, so it cannot run `flockdeck inbox`. By
   default it is not woken by mail at all, and its briefing says mail is not
