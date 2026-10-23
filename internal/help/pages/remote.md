@@ -22,7 +22,7 @@ instead. Glancing at a pane from the phone leaves the desk's terminal as it was;
 typing on the phone fits it to the phone until you type at the desk again. A
 pane is never made smaller than 20 columns by 5 rows or larger than 500 by 200.
 The desk's own window shows a small phone glyph on a pane's header while a
-paired device has it open, in its chat or its terminal, naming the device, so
+paired device has it open, in its terminal, naming the device, so
 text appearing there is not a surprise.
 
 Nothing on this machine listens for the network. The local server still binds
@@ -96,9 +96,9 @@ the button beside a device's name steps it through three settings:
   then the device is shut out: it is sent no panes, tabs, projects, paths or
   preferences, gets no push notifications, cannot open a terminal, and Flockdeck
   refuses every command it sends.
-- **View artifacts and watch panes**: the same, and it also sees the panes, their
-  chat and their terminal output, and gets push notifications about waiting
-  agents. It still cannot type, resize or run anything.
+- **View artifacts and watch panes**: the same, and it also sees the panes (their
+  names, status and what they are waiting for, but not what the agents said) and
+  their terminal output, and gets push notifications about waiting agents. It still cannot type, resize or run anything.
 
 The setting is kept on this machine and checked here, on every command and every
 keystroke, not in the device's window, so a modified page does not get round it.
@@ -404,8 +404,9 @@ it and what it prints) is end-to-end encrypted between this machine and the
 paired browser, with keys the relay hands out but never holds. Only the
 terminal and the recordings viewer are: when either side has no registered key,
 the terminal is served unencrypted, and the recordings viewer is not served. Everything else passes through the relay decrypted, so it is
-**trusted**, and whoever runs it could read it: the chat view of a pane and
-what you type into it, the state and latest replies of every pane, pictures you
+**trusted**, and whoever runs it could read it: the state of every pane (its
+name, directory, branch, status and what it is waiting for, but not what an
+agent said or the text of a permission request or question), pictures you
 attach, diffs, commit, push and pull request data, and anything typed into a
 dialog, an API key included. The relay never sees this machine's local token or
 the API keys kept here, though anything typed into a remote window, a shell
@@ -524,8 +525,8 @@ shared relay cannot read them, unless a side has no registered key, or the relay
 swaps or withholds the keys it hands out or tampers with the client it serves
 (see **What the relay can see**). Apart from push notification content, and terminals (except in the cases
 above), the operator can read everything else that passes through: pane state,
-the chat view, diffs, commit and pull request data, pictures and any API key
-typed into a dialog. It is not generally
+diffs, commit and pull request data, pictures and any API key typed into a
+dialog. It is not generally
 available yet. The
 relay's own configuration is described in
 [Self-hosting the relay](https://docs.flockdeck.ai/self-hosting/overview.html).
