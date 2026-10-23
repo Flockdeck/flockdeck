@@ -3,8 +3,11 @@ package help
 import (
 	"encoding/json"
 	"io/fs"
+	"regexp"
 	"strings"
 	"testing"
+	"unicode"
+	"unicode/utf8"
 )
 
 func TestPagesRender(t *testing.T) {
@@ -422,50 +425,175 @@ func TestWorktreesPageHoldsTheConflictRadarDetail(t *testing.T) {
 // binding of the table (a range such as "Alt+1 … Alt+9" excepted) has to come
 // into a page through [[key:id]] or [[action:id]] or {{keys}}. Keys the table
 // does not own, such as a terminal program's Ctrl+C, are not its business.
+//
+// The check reads a paragraph at a time with the markup and the placeholders
+// taken out, so a binding split over <kbd> elements, over a line break, in other
+// case, with other separators or with its modifiers in another order is found
+// as well as the plain spelling.
 func TestNoPageWritesATableBindingByHand(t *testing.T) {
 	for _, slug := range order {
 		src, err := fs.ReadFile(pagesFS, "pages/"+slug+".md")
 		if err != nil {
 			t.Fatal(err)
 		}
-		for i, line := range strings.Split(string(src), "\n") {
-			// What a placeholder expands to is the table's own, so drop them
-			// before looking.
-			bare := stripPlaceholders(line)
-			for _, k := range Keys {
-				if k.Keys == "" || strings.Contains(k.Keys, "…") {
-					continue
-				}
-				if strings.Contains(bare, k.Keys) {
-					t.Errorf("%s.md:%d writes %q (%s) by hand; use [[key:%s]]:\n\t%s", slug, i+1, k.Keys, k.Label, k.ID, strings.TrimSpace(line))
-				}
+		line := 1
+		for _, para := range strings.Split(strings.ReplaceAll(string(src), "\r\n", "\n"), "\n\n") {
+			for _, k := range handWrittenKeys(para) {
+				t.Errorf("%s.md:%d writes %q (%s) by hand; use [[key:%s]]:\n\t%s", slug, line, k.Keys, k.Label, k.ID, strings.TrimSpace(strings.SplitN(para, "\n", 2)[0]))
 			}
+			line += strings.Count(para, "\n") + 2
 		}
 	}
 }
 
-// stripPlaceholders removes the [[key:...]] and [[action:...]] placeholders from a
-// line, and the {{keys...}} ones.
-func stripPlaceholders(line string) string {
-	for _, pair := range [][2]string{{"[[", "]]"}, {"{{", "}}"}} {
-		for {
-			i := strings.Index(line, pair[0])
-			if i < 0 {
+// handWrittenKeys is the table's bindings that a paragraph of a page writes
+// itself, in any spelling normalBinding folds together.
+func handWrittenKeys(para string) []Key {
+	text := normalBinding(stripMarkup(stripPlaceholders(para)))
+	var out []Key
+	for _, k := range Keys {
+		if k.Keys == "" || strings.Contains(k.Keys, "…") {
+			continue
+		}
+		for _, v := range bindingVariants(k.Keys) {
+			if containsWord(text, v) {
+				out = append(out, k)
 				break
 			}
-			j := strings.Index(line[i:], pair[1])
-			if j < 0 {
-				break
-			}
-			line = line[:i] + line[i+j+len(pair[1]):]
 		}
 	}
-	return line
+	return out
+}
+
+var (
+	placeholderRE = regexp.MustCompile(`\[\[(?:key|action):[^\[\]]*\]\]|\{\{keys[^{}]*\}\}`)
+	tagRE         = regexp.MustCompile(`<[^>]*>`)
+	sepRE         = regexp.MustCompile(`\s*[+-]\s*`)
+	modRE         = regexp.MustCompile(`^((?:(?:ctrl|alt|shift|cmd)\+)*)(.+)$`)
+)
+
+// stripPlaceholders removes the [[key:...]] and [[action:...]] placeholders, and
+// the {{keys...}} ones. Only a closed placeholder of those kinds goes, so a stray
+// "[[" or "{{" hides nothing after it.
+func stripPlaceholders(text string) string {
+	return placeholderRE.ReplaceAllString(text, "")
+}
+
+// stripMarkup drops HTML tags and the backticks of code spans, so
+// <kbd>Ctrl</kbd>+<kbd>D</kbd> and `Ctrl+D` read as Ctrl+D.
+func stripMarkup(text string) string {
+	return strings.ReplaceAll(tagRE.ReplaceAllString(text, ""), "`", "")
+}
+
+// normalBinding lower-cases text, makes every run of white space one space, and
+// writes a separator as a plain "+" without spaces around it, with Control, Cmd,
+// Command and Meta as ctrl.
+func normalBinding(text string) string {
+	text = strings.ToLower(strings.Join(strings.Fields(text), " "))
+	text = sepRE.ReplaceAllString(text, "+")
+	for _, from := range []string{"control", "command", "meta", "cmd"} {
+		text = strings.ReplaceAll(text, from, "ctrl")
+	}
+	return text
+}
+
+// bindingVariants is a binding in normal form with its modifiers in every order.
+func bindingVariants(binding string) []string {
+	lower := strings.ToLower(binding)
+	m := modRE.FindStringSubmatch(lower)
+	if m == nil || m[1] == "" {
+		return []string{normalBinding(lower)}
+	}
+	mods := strings.Split(strings.TrimSuffix(m[1], "+"), "+")
+	var out []string
+	var walk func(rest, picked []string)
+	walk = func(rest, picked []string) {
+		if len(rest) == 0 {
+			out = append(out, normalBinding(strings.Join(picked, "+")+"+"+m[2]))
+			return
+		}
+		for i := range rest {
+			next := append(append([]string{}, rest[:i]...), rest[i+1:]...)
+			walk(next, append(append([]string{}, picked...), rest[i]))
+		}
+	}
+	walk(mods, nil)
+	return out
+}
+
+// containsWord says v is in text with no letter or digit against either end, so
+// a page that names F12 does not count as naming F1.
+func containsWord(text, v string) bool {
+	alnum := func(r rune) bool { return unicode.IsLetter(r) || unicode.IsDigit(r) }
+	for from := 0; ; {
+		i := strings.Index(text[from:], v)
+		if i < 0 {
+			return false
+		}
+		i += from
+		before, _ := utf8.DecodeLastRuneInString(text[:i])
+		after, _ := utf8.DecodeRuneInString(text[i+len(v):])
+		if (i == 0 || !alnum(before)) && (i+len(v) == len(text) || !alnum(after)) {
+			return true
+		}
+		from = i + 1
+	}
 }
 
 func TestStripPlaceholders(t *testing.T) {
 	got := stripPlaceholders("press [[key:palette]] or {{keys:Panes}} not Ctrl+Shift+K [[action:help]]")
 	if got != "press  or  not Ctrl+Shift+K " {
 		t.Errorf("got %q", got)
+	}
+	// A stray opener does not swallow what follows it.
+	if got := stripPlaceholders("a [[ b Ctrl+Shift+D c [[key:help]] d"); got != "a [[ b Ctrl+Shift+D c  d" {
+		t.Errorf("got %q", got)
+	}
+}
+
+// The ways a page can write Ctrl+Shift+D (and F1) that the check has to find, and
+// the ones that are not a binding.
+func TestHandWrittenKeysSpellings(t *testing.T) {
+	found := []string{
+		"Press Ctrl+Shift+D here",
+		"Press `Ctrl+Shift+D` here",
+		"Press <kbd>Ctrl+Shift+D</kbd> here",
+		"Press <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>D</kbd> here",
+		"Press <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>D</kbd> here",
+		"Press ctrl+shift+d here",
+		"Press CTRL+SHIFT+D here",
+		"Press Ctrl-Shift-D here",
+		"Press Ctrl + Shift + D here",
+		"Press Control+Shift+D here",
+		"Press Shift+Ctrl+D here",
+		"Press Cmd+Shift+D here",
+		"Press <kbd>Ctrl+Shift+d</kbd> here",
+		"Press Ctrl+\nShift+D here",
+		"Press Ctrl+Shift+\nD here",
+		"Press Ctrl+Shift+D. Then more.",
+		"a [[ stray Ctrl+Shift+D",
+		"[[key:help]] then Ctrl+Shift+D",
+	}
+	for _, p := range found {
+		if got := handWrittenKeys(p); len(got) != 1 || got[0].Keys != "Ctrl+Shift+D" {
+			t.Errorf("not found in %q: %v", p, got)
+		}
+	}
+	for _, p := range []string{"Press F1 here", "Press f1 here", "Press <kbd>F1</kbd> here"} {
+		if got := handWrittenKeys(p); len(got) != 1 || got[0].Keys != "F1" {
+			t.Errorf("F1 not found in %q: %v", p, got)
+		}
+	}
+	for _, p := range []string{
+		"Press [[key:broadcast]] here",
+		"F12 and F10 are the browser's",
+		"Ctrl+Shift+Dx is nothing",
+		"Ctrl+C copies",
+		"A control like a dial, with a shift of a day",
+		"{{keys:Panes}}",
+	} {
+		if got := handWrittenKeys(p); len(got) != 0 {
+			t.Errorf("found %v in %q", got, p)
+		}
 	}
 }
