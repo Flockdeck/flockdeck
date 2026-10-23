@@ -275,7 +275,8 @@ request. The graph commands, `paneSend` and `permissionAnswer` are refused to a
 window reached through the relay. The conversation commands are not. Today a relay
 device with watch access can read a terminal pane's conversation. The decision is
 to stop that (T112, in progress). A structured pane's conversation is not stored
-where they read, and its own commands are refused to the relay. The default
+in a file: the conversation commands read it from the runtime's memory through
+`workspace.StructuredStream`, and its own commands are refused to the relay. The default
 window calls none of these, so the window described above is unchanged. The page
 built with `-tags next` (`webui.Variant` says which a binary carries) is a new shell laid
 over it, and that one calls them. The messages are in the

@@ -17,6 +17,7 @@ import { Header } from "./Header.js";
 import { Prompt } from "./Prompt.js";
 import { Conversation } from "./Conversation.js";
 import { Structured } from "./Structured.js";
+import { Lifecycle } from "./Lifecycle.js";
 import { TerminalView } from "../lib/terminal.js";
 import { initialDrawer, reduceDrawer, focusNode, focusRow } from "./state.js";
 import { LIST } from "../shell/keys.js";
@@ -76,7 +77,7 @@ export function hasTerminal(node, pane) {
 /** Drawer is the component. store is the store of store.js; node and pane are the
  *  graph node and the state push's entry for it. terminalOptions reach the
  *  terminal, which is how a test gives it fakes for xterm and the socket. */
-function DrawerBody({ store, snap = null, node, pane = null, now, maximised = false, onClose, onToggleMax, terminalOptions = null }) {
+function DrawerBody({ store, snap = null, node, pane = null, now, maximised = false, onClose, onToggleMax, terminalOptions = null, life = null }) {
   const rootRef = useRef(null);
   const terminalRef = useRef(null);
   const terminal = hasTerminal(node, pane);
@@ -131,6 +132,7 @@ function DrawerBody({ store, snap = null, node, pane = null, now, maximised = fa
   return html`
     <section class=${"drawer-body" + (maximised ? " drawer-body--max" : "")} data-drawer-pane=${node.pane} tabindex="-1" ref=${rootRef} onKeyDown=${onKeyDown}>
       <${Header} node=${node} pane=${pane} now=${now} maximised=${maximised} onClose=${onClose} onToggleMax=${onToggleMax} />
+      ${life ? html`<${Lifecycle} node=${node} pane=${pane} life=${life} />` : null}
       <${Prompt} node=${node} pane=${pane} snap=${state} store=${store} sendKeys=${sendKeys} terminal=${terminal} />
       <div class="drawer-tabs" role="tablist" aria-label="Views of this agent" onKeyDown=${tabKeys}>
         <button type="button" role="tab" id="drawer-tab-terminal" aria-selected=${shown === "terminal" ? "true" : "false"} aria-controls="drawer-panel-terminal" tabindex=${shown === "terminal" ? 0 : -1} ref=${(el) => { tabRefs.current.terminal = el; }} class=${"drawer-tab" + (shown === "terminal" ? " is-active" : "")} onClick=${() => setTab("terminal")}>Terminal</button>

@@ -2,6 +2,8 @@ import { useEffect, useMemo, useReducer, useRef, useState } from "../vendor/hook
 import { html } from "../html.js";
 import { Rail } from "./rail.js";
 import { Palette } from "./palette.js";
+import { Help } from "./Help.js";
+import { loadHelp } from "../lib/help.js";
 import { bindingsFrom, keyAction, unreadable } from "./keys.js";
 
 /** NARROW_QUERY is the phone width. app.css repeats it in its narrow rules, and
@@ -10,7 +12,7 @@ export const NARROW_QUERY = "(max-width: 640px)";
 
 /** IMPLEMENTED are the actions of the key table this window runs. The palette
  *  lists every other action too, marked as not in this window yet. */
-export const IMPLEMENTED = ["palette", "toggleRail", "projects", "nextRegion", "prevRegion"];
+export const IMPLEMENTED = ["palette", "toggleRail", "projects", "nextRegion", "prevRegion", "help"];
 
 /** REGIONS are the parts of the page the keyboard moves between, in order. The
  *  drawer is one only while it holds something. */
@@ -29,12 +31,12 @@ export function keysOf(hello) {
 }
 const firstRoot = (state) => (state && state.projects && state.projects[0] && state.projects[0].root) || "";
 
-/** initial is the shell's own state: the open palette, the rail's width, which
+/** initial is the shell's own state: the open palette and help, the rail's width, which
  *  project is watched (and the root the state last named, so a change of it can
  *  be told from a repeat) and which region was asked to take the keyboard. */
 export function initial({ state } = {}) {
   const root = (state && state.root) || "";
-  return { paletteOpen: false, railCollapsed: false, selected: root || firstRoot(state), seenRoot: root, focus: "", focusSeq: 0 };
+  return { paletteOpen: false, helpOpen: false, railCollapsed: false, selected: root || firstRoot(state), seenRoot: root, focus: "", focusSeq: 0 };
 }
 
 /** regionsOf is the regions that can take the keyboard now. */
@@ -64,8 +66,15 @@ export function reduce(s, ev, ctx = {}) {
     }
     case "closePalette":
       return s.paletteOpen ? { ...s, paletteOpen: false } : s;
+    case "closeHelp":
+      return s.helpOpen ? { ...s, helpOpen: false } : s;
     case "action":
+      // While the help is open the keyboard stays in it: the key that opens it
+      // closes it, and no other action runs underneath.
+      if (s.helpOpen && ev.id !== "help") return s;
       switch (ev.id) {
+        case "help":
+          return { ...s, paletteOpen: false, helpOpen: !s.helpOpen };
         case "palette":
           return { ...s, paletteOpen: !s.paletteOpen };
         case "toggleRail":
@@ -139,8 +148,10 @@ export function useNarrow(matchMedia, override) {
  *  state names a different active one. top, children and drawer are what the
  *  views put in the regions. maximised, with a drawer, gives the drawer the main
  *  area; mainRef is the main area's element for a view that returns the keyboard
- *  to a box in it. window is the page's, passed in for a test. */
-export function Shell({ hello, state, notice, onWatch, narrow: narrowProp, matchMedia, top, children, drawer, maximised = false, mainRef, window: win, actions = NO_ACTIONS }) {
+ *  to a box in it. window is the page's, passed in for a test. helpLoad fetches
+ *  the help pages (lib/help.js); the default asks the page's own address. blocked
+ *  says a view's modal dialog is open, and no key then reaches an action. */
+export function Shell({ hello, state, notice, onDismissNotice, onWatch, narrow: narrowProp, matchMedia, top, children, drawer, maximised = false, mainRef, window: win, actions = NO_ACTIONS, blocked = false, helpLoad }) {
   const keys = keysOf(hello);
   const bindings = useMemo(() => bindingsFrom(keys), [keys]);
   const broken = useMemo(() => unreadable(keys), [keys]);
@@ -154,11 +165,21 @@ export function Shell({ hello, state, notice, onWatch, narrow: narrowProp, match
   own.current = actions;
   const ids = Object.keys(actions).sort().join(",");
   const implemented = useMemo(() => (ids ? IMPLEMENTED.concat(ids.split(",")) : IMPLEMENTED), [ids]);
+  // A view's modal dialog is open: no key reaches an action under it.
+  const isBlocked = useRef(blocked);
+  isBlocked.current = blocked;
   const act = (ev) => {
+    if (isBlocked.current) return;
     const fn = ev.type === "action" ? own.current[ev.id] : null;
     if (fn) fn();
     else dispatch(ev);
   };
+
+  const load = useMemo(() => {
+    if (helpLoad) return helpLoad;
+    const w = win || (typeof window !== "undefined" ? window : null);
+    return () => (w && w.fetch ? loadHelp(w.fetch.bind(w), w.location) : Promise.resolve({ error: "The help pages could not be loaded." }));
+  }, [helpLoad, win]);
 
   const ownMain = useRef(null);
   const regions = { rail: useRef(null), main: mainRef || ownMain, drawer: useRef(null) };
@@ -221,8 +242,15 @@ export function Shell({ hello, state, notice, onWatch, narrow: narrowProp, match
       <main class=${"main" + (narrow ? " main--list" : "")} tabindex="-1" ref=${regions.main}>${children}</main>
       <aside class="drawer" aria-label="Agent" tabindex="-1" ref=${regions.drawer} hidden=${!drawerOpen}>${drawer}</aside>
       <div class="notices" role="status" aria-live="polite">
-        ${said ? html`<p class="notice">${said}</p>` : null}
+        ${said
+          ? html`<p class="notice">${said}${notice && onDismissNotice
+              ? html` <button type="button" class="notice-dismiss" onClick=${onDismissNotice}>Dismiss</button>`
+              : null}</p>`
+          : null}
       </div>
+      ${s.helpOpen
+        ? html`<${Help} keys=${keys} implemented=${implemented} load=${load} onClose=${() => dispatch({ type: "closeHelp" })} />`
+        : null}
       ${s.paletteOpen
         ? html`<${Palette} keys=${keys} implemented=${implemented} onRun=${run} onClose=${() => dispatch({ type: "closePalette" })} />`
         : null}

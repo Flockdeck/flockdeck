@@ -406,7 +406,10 @@ terminal and the recordings viewer are: when either side has no registered key,
 the terminal is served unencrypted, and the recordings viewer is not served. Everything else passes through the relay decrypted, so it is
 **trusted**, and whoever runs it could read it: the state of every pane (its
 name, directory, branch, status and what it is waiting for, but not what an
-agent said or the text of a permission request or question), pictures you
+agent said or the text of a permission request or question), the shape of your
+teams (which pane manages which, each pane's role, status, the kind of wait it is
+in, its unread count and the project name, but no pane or team names, goals or
+message text) which is not sealed until the team socket exists, pictures you
 attach, diffs, commit, push and pull request data, and anything typed into a
 dialog, an API key included. The relay never sees this machine's local token or
 the API keys kept here, though anything typed into a remote window, a shell
@@ -525,7 +528,7 @@ shared relay cannot read them, unless a side has no registered key, or the relay
 swaps or withholds the keys it hands out or tampers with the client it serves
 (see **What the relay can see**). Apart from push notification content, and terminals (except in the cases
 above), the operator can read everything else that passes through: pane state,
-diffs, commit and pull request data, pictures and any API key typed into a
+team shape (unsealed until the team socket exists), diffs, commit and pull request data, pictures and any API key typed into a
 dialog. It is not generally
 available yet. The
 relay's own configuration is described in

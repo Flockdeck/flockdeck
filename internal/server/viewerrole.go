@@ -213,6 +213,7 @@ var watcherMessageTypes = map[string]bool{
 	"conversationDetail": true,
 	"conversationAppend": true,
 	"conversationSearch": true,
+	"relayTeams":         true,
 }
 
 // mayReceive reports whether a message may go to this window.

@@ -611,7 +611,9 @@ func (s *Server) pushGraph() {
 		}
 	}
 	if !watching {
-		s.graphStatics = nil
+		if !s.relayWatching {
+			s.graphStatics = nil
+		}
 		return
 	}
 	s.dropUnwatchedStatics()
@@ -667,6 +669,12 @@ func (s *Server) dropUnwatchedStatics() {
 	for _, c := range s.greetedClients() {
 		if c.graphRoot != "" {
 			watched[c.graphRoot] = true
+		}
+	}
+	// The relay form of the teams reads every project.
+	if s.relayWatching {
+		for _, p := range s.ws.Projects() {
+			watched[p.Root] = true
 		}
 	}
 	for root := range s.graphStatics {

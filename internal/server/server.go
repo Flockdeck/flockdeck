@@ -154,6 +154,13 @@ type Server struct {
 	graphAt        time.Time
 	graphArmed     bool
 	graphTickArmed bool
+	// relayTeamsAt, relayTeamsArmed and relayTickArmed do the same for the
+	// relay form of the teams (relayteams.go), and relayWatching says a window
+	// through the relay was open at the last push.
+	relayTeamsAt    time.Time
+	relayTeamsArmed bool
+	relayTickArmed  bool
+	relayWatching   bool
 	// structAt and structArmed are the same for the structured pane pushes.
 	structAt    time.Time
 	structArmed bool
@@ -309,6 +316,9 @@ type Server struct {
 	// convos is the phone chat view's live streams, one per pane that has
 	// been opened by at least one client. See conversation.go.
 	convos conversationHub
+	// convoArmed is true while a re-read of the structured panes' conversations
+	// is waiting to happen; see pushStructuredConversations.
+	convoArmed atomic.Bool
 
 	// preview is each agent pane's latest-reply preview, for the phone's
 	// inbox row. See preview.go.

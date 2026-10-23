@@ -397,6 +397,52 @@ session.
   schema, this page and the golden file the tests compare a two-team project
   against, so the change is on purpose.
 
+## 9a. The relay form: relayTeams
+
+A window reached through the relay is never sent the graph message, and the graph
+commands stay refused to it (section 1). It is sent `relayTeams` instead: a message
+of its own that the server pushes to such a window without being asked, when a
+window comes in, when the form changes (at most every 500 ms) and every 30 seconds
+at the latest. A window on this machine is never sent it. A viewer is sent it only
+if it may watch panes.
+
+```text
+{"type":"relayTeams","v":1,"projects":[{
+  "id":"p1","project":"flockdeck",
+  "teams":[{"id":"<manager pane id>","label":"Team 1","manager":"<id>","members":["<id>"],
+            "needs":[{"pane":"<id>","kind":"permission"}]}],
+  "panes":[{"id":"<id>","parent":"<id>","depth":1,"team":"<id>","kind":"terminal",
+            "label":"Worker 2","status":"waiting","role":"worker","activity":"waiting",
+            "wait":{"kind":"user","prompt":"permission"},"unread":0}],
+  "solo":["<id>"],"soloNeeds":[]}]}
+```
+
+Every field is an enumerated word, an id Flockdeck made (`^[A-Za-z0-9_-]{1,64}$`),
+a count, or a label made by the server (`Team 1`, `Worker 2`: the built-in role and
+the pane's place among those of that role). The one free text is `project`, which is
+redacted and cut to one line. `role` is a built-in role id, or `other`. `wait.kind`
+is `user`, `down`, `reviewer`, `task` or `helpers`; `wait.prompt` is `permission` or
+`question` for a wait on a person; `wait.on` is the first busy helper, for `helpers`.
+A need's `kind` is `permission`, `question`, `returned`, `conflict`, `down`, `setup`
+or `unread`.
+
+Not in it: pane names, peer names, goals, live lines, branches, task titles, edge
+texts, the texts of needs and waits, permission and question text, agent names and
+paths. A structured pane has `kind` and `status` and nothing else. The names of
+teams and panes are open: until the user decides they may cross, a pane is "Worker 2".
+This message withholds names, but the existing `state` message to a relay window still carries pane names (redacted and cut to 40 characters), so names are not hidden from the relay by this form.
+
+Two locks hold this. The form is built from the graph by field, and the scrub
+registered for the type (`scrubRelayTeams`) checks every field again against the
+allow lists and makes the labels itself, so a mistake in the builder does not put
+text on the wire. Tests list the fields by name, plant a marker in every free-text
+field of a graph, and read a real relay socket.
+
+**Team structure crosses the relay in the clear** until the sealed team socket
+exists. `remote.Capability` is 2 with this form. A client that reads a capability
+below 2 should show no team view; a desktop at capability 1 still sends the roster
+as before.
+
 ## 10. What is not covered
 
 - **Anything beyond a message's delivery state.** The log of what Flockdeck did

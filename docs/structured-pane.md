@@ -133,9 +133,16 @@ tool still running with an icon for its kind and the first file its summary name
 activity text, or "Idle". It shows the context used of its size, and the cost when the agent
 reported one. It draws the last 50 entries and nothing more: there is no Older button, because the
 push carries a fixed window and a button that asked for more would grow the list without limit.
-There is no Conversation tab for a structured pane: its conversation is held in memory and not in a
-file Flockdeck can read, so the conversation commands answer that it is not supported, and the older
-entries are not shown in this version. Every text is drawn as text.
+The drawer still draws the push and has no Conversation tab. The server, though, now answers the
+conversation commands (`conversationOpen`, `conversationOlder`, `conversationDetail` and
+`conversationSearch`) for a structured pane, from the runtime's entries: pages of 50, older pages by
+cursor, `conversationDetail` for an entry's text (up to 64 KiB each for text and diff), and
+`conversationAppend` as the entries change. They are in memory, so they go as far back as the bridge's
+cap (10000 entries) plus the history kept across restarts (2000). A restart is sent as a
+`conversationPage` with `reset` set, and a cursor from before it is answered the same way. A
+`conversationDetail` for an entry the runtime no longer holds answers with a one-line notice. The
+`structured` and `structuredDetail` messages stay until the new Conversation view uses these. Every
+text is drawn as text.
 
 The prompt box sends `paneSend` and the Stop button sends `structuredCancel`. A window reached
 through the relay draws the view without either, since the server refuses both there. A refused
@@ -203,12 +210,14 @@ for a structured pane and no warning.
   view. So are the commands of section 1.
 - A relay window is told the pane's name, status, directory, branch, project, agent and model, and no
   text the agent wrote. The scrub in section 1 removes what the agent said.
-- By decision, a window reached through the relay is to receive no conversation text from any pane
-  until the scrub of what goes to the relay has been reviewed. The change that enforces this is in
-  progress. Until it lands, the conversation commands still reach a relay device that may watch, for
-  a terminal pane. They never carry a structured pane's, which has no stored conversation.
+- A window reached through the relay receives no conversation text from any pane (T112).
+  `refuseRemoteText` refuses `conversationOpen`, `conversationOlder`, `conversationDetail` and
+  `conversationSearch` to it for every pane, and it is sent no `conversationAppend`,
+  `conversationDetail` or `conversationSearch`, so a structured pane's conversation does not reach it
+  by this path either (`TestARelayWindowGetsNothingOfAStructuredPanesConversation`).
 - The old window shows a stub line and sends it nothing; the pane is for the new interface's drawer.
-- No Conversation tab and no export, since the conversation is not stored where Flockdeck reads it.
+- No export, since the conversation is not stored where Flockdeck reads it. The conversation
+  commands read it from memory (see the drawer section above).
   Flockdeck does not load or resume the agent's own session.
 - Mail reaches a structured agent only as text in a prompt, and only after an opt-in. The agent is
   not given `FLOCKDECK_API`, `FLOCKDECK_TOKEN` or `FLOCKDECK_PANE` (names starting `FLOCKDECK_` are
