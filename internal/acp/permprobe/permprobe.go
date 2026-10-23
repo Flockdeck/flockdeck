@@ -24,6 +24,8 @@ import (
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/jmwri/flockdeck/internal/sysproc"
 )
 
 // Rule is one resolved permission rule.
@@ -231,9 +233,7 @@ type Runner func(ctx context.Context, path string, args []string, dir string, en
 func Exec(ctx context.Context, path string, args []string, dir string, env []string) ([]byte, error) {
 	ctx, cancel := context.WithTimeout(ctx, execTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, path, args...)
-	cmd.Dir = dir
-	cmd.Env = env
+	cmd := probeCmd(ctx, path, args, dir, env)
 	// A program that is killed but whose child holds the pipe open does not keep
 	// the probe waiting.
 	cmd.WaitDelay = 2 * time.Second
@@ -246,6 +246,16 @@ func Exec(ctx context.Context, path string, args []string, dir string, env []str
 		return nil, errors.New("the output is too long")
 	}
 	return out.buf.Bytes(), nil
+}
+
+// probeCmd is the command Exec runs. On Windows it starts without a console
+// window: the probe runs at every pane start, and a window would flash each time.
+func probeCmd(ctx context.Context, path string, args []string, dir string, env []string) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, path, args...)
+	cmd.Dir = dir
+	cmd.Env = env
+	sysproc.NoWindow(cmd)
+	return cmd
 }
 
 type limited struct {
