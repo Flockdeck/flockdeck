@@ -3,11 +3,15 @@
 // settings Flockdeck launches it with so that those tools ask.
 //
 // It exists for opencode, which reads OPENCODE_CONFIG_CONTENT as the last of its
-// settings sources and prints the rules it resolved with `opencode debug agent
-// build`. A rule has a permission (a tool name, or * for all), a pattern and an
-// action; the last rule that matches is the one that applies. The user's and the
-// project's settings are among those rules, and so are an agent's own permission
-// settings in the project, which come after any launch setting and so win over it.
+// settings sources and prints the rules it resolved with `opencode agent list`.
+// A rule has a permission (a tool name, or * for all), a pattern and an action;
+// the last rule that matches is the one that applies. The user's and the
+// project's settings are among those rules. So are the permissions an agent is
+// given in the project's configuration (`agent.NAME.permission`, or a file under
+// `.opencode/agent`), which come after any launch setting and so win over it. The
+// built-in agents' own defaults come before it, so the launch setting wins over
+// those: the `plan` agent's `edit: deny` is followed by the launch setting's
+// `edit: ask`. The checks here read the listing and do not assume either order.
 package permprobe
 
 import (

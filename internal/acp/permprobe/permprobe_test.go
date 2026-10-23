@@ -348,3 +348,22 @@ func TestInlineAcceptsExactlyTheMostRulesAndRefusesOneMore(t *testing.T) {
 		t.Errorf("%d rules accepted: %.60s", maxRules+1, got)
 	}
 }
+
+// A subagent is checked as much as a primary agent: a task starts it.
+func TestCheckSaysUnaskedWhenOnlyASubagentAllows(t *testing.T) {
+	agents := func(setting string) []Agent {
+		rules := userRules
+		if setting != "" {
+			rules = settingRules(setting)
+		}
+		return []Agent{
+			{Name: "build", Mode: "primary", Rules: rules},
+			{Name: "plan", Mode: "primary", Rules: rules},
+			{Name: "general", Mode: "subagent", Rules: append(append([]Rule(nil), rules...), r("bash", "*", "allow"))},
+		}
+	}
+	res := check(&fake{agents: agents})
+	if !res.Unasked || strings.Join(res.Agents, ",") != "general" {
+		t.Errorf("%+v", res)
+	}
+}

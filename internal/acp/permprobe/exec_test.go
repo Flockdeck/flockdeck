@@ -121,3 +121,35 @@ func TestExecRefusesOutputOverTheLimit(t *testing.T) {
 		t.Fatalf("err = %v, %d bytes", err, len(out))
 	}
 }
+
+// The child's environment is exactly the one given: nothing is added to it by
+// Exec, and the parent's is not passed on. (On Windows the runtime adds
+// SYSTEMROOT when a child has none; that is the only addition allowed.)
+func TestExecGivesTheProgramExactlyTheEnvironmentItWasGiven(t *testing.T) {
+	t.Setenv("FLOCKDECK_NOT_GIVEN", "leaked")
+	exe, env := helper(t, "print", "FLOCKDECK_A=1", "FLOCKDECK_B=two")
+	out, err := Exec(context.Background(), exe, nil, t.TempDir(), env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]bool{}
+	for _, kv := range env {
+		want[kv] = true
+	}
+	got := map[string]bool{}
+	for _, line := range strings.Split(strings.ReplaceAll(string(out), "\r", ""), "\n") {
+		if kv, ok := strings.CutPrefix(line, "env "); ok {
+			got[kv] = true
+		}
+	}
+	for kv := range got {
+		if !want[kv] && !strings.HasPrefix(strings.ToUpper(kv), "SYSTEMROOT=") {
+			t.Errorf("the program has %q, which it was not given", kv)
+		}
+	}
+	for kv := range want {
+		if !got[kv] {
+			t.Errorf("the program lacks %q", kv)
+		}
+	}
+}

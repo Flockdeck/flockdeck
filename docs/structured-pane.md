@@ -183,7 +183,11 @@ project's rules for `bash` and `edit` stay in their order, an allow becomes an a
 such as `"rm *": "deny"` still denies. That is about the user's and the project's rules, not the built-in agents' own:
 the value applies to every agent, so opencode's built-in `plan` agent, whose own rules deny `edit`, asks for an edit
 instead of denying it. That is a permission card and not an unasked edit, and `plan` is reached only if a session is
-switched into it. Every other permission key (`read`, `webfetch`, `external_directory` and the rest) is left as the user set it, and
+switched into it. This was read from opencode 1.19.3 in an empty project: `opencode agent list` without the value
+lists `plan`'s `edit` rules as `*` deny, then two allows for plan files, and with the value set the same rules
+are followed by `bash` `*` ask and `edit` `*` ask, so the last matching rule for `edit` is ask. That is the
+resolved rules, not an edit attempted by `plan`. The built-in agents' defaults come before the value and a project's
+`agent.NAME.permission` comes after it, which is why the second still wins (see below). Every other permission key (`read`, `webfetch`, `external_directory` and the rest) is left as the user set it, and
 opencode's own defaults for them still apply, so a web fetch or a search is not asked about unless the user's
 configuration says so. Flockdeck sets nothing to allow, only to ask. The card offers "Always" as opencode
 sends it, and choosing it for a command allows that kind of command for the rest of the session, including one
