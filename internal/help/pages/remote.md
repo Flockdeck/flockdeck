@@ -263,8 +263,8 @@ Every open pane also appears in the paired device's list with its status and
 what it is waiting on (the agent's latest reply is not sent for now), a time,
 and an unread dot, so you can see what's happened everywhere without opening
 each one. Opening the list again after a while away leads with **Since you last
-looked**: agents that finished, and ones that started waiting, since this
-device last had it open. A tap on any of those jumps to and
+looked**: new replies (a count only, with no text), agents that finished, and
+ones that started waiting, since this device last had it open. A tap on any of those jumps to and
 highlights the first row it counts, opening its helper group first if that
 was folded. It says nothing once there is nothing honest left to count. One
 waiting on a permission or a question says so in the list, with the tool
