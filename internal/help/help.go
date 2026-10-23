@@ -62,6 +62,33 @@ type Page struct {
 	HTML string `json:"html"`
 	// Text is the same content as words only, which is what search matches.
 	Text string `json:"text"`
+	// Tree is the same page as nodes the new interface builds elements from,
+	// so it never has to turn text into markup. It is not part of the old
+	// interface's answer; see TreePage.
+	Tree []Node `json:"-"`
+}
+
+// TreePage is a page as the new interface is sent it: the nodes and what the
+// contents list and the search need, and no HTML.
+type TreePage struct {
+	Slug    string `json:"slug"`
+	Title   string `json:"title"`
+	Summary string `json:"summary"`
+	Text    string `json:"text"`
+	Tree    []Node `json:"tree"`
+}
+
+// TreePages is Pages in the form the new interface reads.
+func TreePages() ([]TreePage, error) {
+	pages, err := Pages()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]TreePage, len(pages))
+	for i, p := range pages {
+		out[i] = TreePage{Slug: p.Slug, Title: p.Title, Summary: p.Summary, Text: p.Text, Tree: p.Tree}
+	}
+	return out, nil
 }
 
 var (
@@ -124,12 +151,21 @@ func renderPage(slug string) (Page, error) {
 	if err != nil {
 		return Page{}, fmt.Errorf("help: render %s: %w", slug, err)
 	}
+	known := make(map[string]bool, len(order))
+	for _, s := range order {
+		known[s] = true
+	}
+	tree, err := treeOf(htmlText, known)
+	if err != nil {
+		return Page{}, fmt.Errorf("help: tree %s: %w", slug, err)
+	}
 	return Page{
 		Slug:    slug,
 		Title:   title,
 		Summary: summary,
 		HTML:    htmlText,
 		Text:    plainText(htmlText),
+		Tree:    tree,
 	}, nil
 }
 

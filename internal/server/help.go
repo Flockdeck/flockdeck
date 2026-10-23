@@ -621,13 +621,29 @@ var helpBody = sync.OnceValues(func() ([]byte, error) {
 	return json.Marshal(map[string]any{"pages": pages})
 })
 
+// treeBody is what /help.json?form=tree answers with: the same pages as nodes
+// the new interface builds elements from, with no HTML in them.
+var treeBody = sync.OnceValues(func() ([]byte, error) {
+	pages, err := help.TreePages()
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(map[string]any{"pages": pages})
+})
+
 // handleHelp serves the rendered help pages to an authorised window.
 func (s *Server) handleHelp(w http.ResponseWriter, r *http.Request) {
 	if !s.authorised(r) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 		return
 	}
-	data, err := helpBody()
+	// One address for both interfaces: through the relay a new path would have
+	// to be allowed there first, and a query is not a new path.
+	body, packKey := helpBody, "/help.json"
+	if r.URL.Query().Get("form") == "tree" {
+		body, packKey = treeBody, "/help.json?form=tree"
+	}
+	data, err := body()
 	if err != nil {
 		http.Error(w, "the help pages could not be rendered", http.StatusInternalServerError)
 		return
@@ -644,7 +660,7 @@ func (s *Server) handleHelp(w http.ResponseWriter, r *http.Request) {
 	// relay the window is often a phone, and the first one opens the help
 	// unasked.
 	if fromRemote(r) && acceptsGzip(r) {
-		if packed, ok := gzipped("/help.json", func() ([]byte, error) { return data, nil }); ok {
+		if packed, ok := gzipped(packKey, func() ([]byte, error) { return data, nil }); ok {
 			w.Header().Set("Content-Encoding", "gzip")
 			w.Header().Set("Vary", "Accept-Encoding")
 			data = packed
