@@ -75,6 +75,9 @@ The same folder also holds:
   mode, which is off for every agent until you turn it on for one, the line
   is the message itself, cut to 300 characters on one line, for an agent that
   cannot run commands, and the log keeps that line, so it holds message text.
+  A structured agent (a beta feature) that you have opted in to text mode is
+  sent the message the same way, as a prompt over its protocol, with no
+  prompt rule involved, and the log keeps that line too.
   A line is typed only where Flockdeck has a tested rule for recognising that
   agent's prompt, and none has yet. The log keeps the last 2,000 events or
   256 KiB. None of this is sent anywhere by Flockdeck. If you use Flockdeck

@@ -463,6 +463,7 @@ func TestThePrivacyPolicyDisclosesTypeSafe(t *testing.T) {
 		"holds no message text, except the line typed in text mode",
 		"the line is the message itself, cut to 300 characters",
 		"so it holds message text",
+		"A structured agent (a beta feature) that you have opted in to text mode is sent the message the same way, as a prompt over its protocol",
 	} {
 		if !strings.Contains(policy, want) {
 			t.Errorf("privacy.html does not say %q", want)
