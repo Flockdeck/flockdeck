@@ -127,7 +127,7 @@ environment was given.
 ## close
 
 Run from inside a pane, this closes another pane, with the same effect
-Ctrl+Shift+W has on the one you're focused on:
+[[key:closePane]] has on the one you're focused on:
 
 ```sh
 flockdeck close [-force] <pane-id>
@@ -149,7 +149,7 @@ prints how many it left.
 Like `spawn` and `peer-name`, this only works inside a pane, using the address
 and token its environment was given. It lets a coordinating agent
 clean up a helper whose work is done without a person pressing
-Ctrl+Shift+W.
+[[key:closePane]].
 
 ## team
 
