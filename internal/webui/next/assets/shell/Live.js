@@ -19,6 +19,7 @@ import { Shell, useNarrow } from "./app.js";
 import { Home, sameProject, rosterOf } from "./Home.js";
 import { Start } from "./Start.js";
 import { Confirm } from "./Confirm.js";
+import { LIST } from "./keys.js";
 import { Updates, trapTab } from "./Updates.js";
 import { Tabs } from "./Tabs.js";
 import { useLifecycle } from "../drawer/Lifecycle.js";
@@ -238,7 +239,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null })
           notice=${snap.notice && snap.notice.seq > updatesAt ? String(snap.notice.text || "") : ""} send=${send} onClose=${() => setUpdatesAt(-1)} />`
       : null}
     ${quitAsk
-      ? html`<div class="dialog-scrim">
+      ? html`<div class="dialog-scrim" onKeyDown=${(e) => e.key === LIST.tab && trapTab(e, e.currentTarget)}>
           <${Confirm} title=${quitQuestion(kept.current.hello.keys)} words=${["The layout is saved first. Agents that are running stop."]} label="Quit and stop everything"
             onConfirm=${() => { setQuitAsk(false); send({ cmd: "quit" }); }} onCancel=${() => setQuitAsk(false)} />
         </div>`

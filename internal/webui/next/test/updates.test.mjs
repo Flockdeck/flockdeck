@@ -214,10 +214,18 @@ test("Escape closes the dialog and Tab stays inside it", () =>
   withPage({ state: { update: UPDATE } }, async (m) => {
     await m.click(m.byText(".rail-updates", /Update/));
     const d = m.container.find(".dialog");
-    for (let i = 0; i < 12; i++) {
-      d.dispatch("keydown", { key: "Tab", shiftKey: false });
-      assert.ok(d.query(() => true).includes(m.dom.document.activeElement) || m.dom.document.activeElement === d, "focus left the dialog");
-    }
+    // Tab at the last control goes to the first, Shift+Tab at the first to the
+    // last, and the browser is not left to move the keyboard out.
+    const doc = m.dom.document;
+    const input = d.find("input");
+    const notes = d.find(".upd-notes");
+    input.focus();
+    let ev = input.dispatch("keydown", { key: "Tab", shiftKey: false });
+    assert.ok(ev.defaultPrevented, "Tab was left to the browser");
+    assert.equal(doc.activeElement, notes);
+    ev = notes.dispatch("keydown", { key: "Tab", shiftKey: true });
+    assert.ok(ev.defaultPrevented, "Shift+Tab was left to the browser");
+    assert.equal(doc.activeElement, input);
     d.dispatch("keydown", { key: "Escape" });
     await settle();
     assert.equal(m.container.find(".dialog"), null);
@@ -242,11 +250,24 @@ test("quit asks first, with the key table's question, and sends nothing on Cance
     assert.match(c.textContent, /Stop every agent in every open project\?/);
     assert.equal(m.sent("quit").length, 0);
     assert.equal(m.dom.document.activeElement.textContent, "Cancel");
-    const scrim = m.container.find(".dialog-scrim");
-    for (let i = 0; i < 5; i++) {
-      scrim.find(".confirm").dispatch("keydown", { key: "Tab", shiftKey: i % 2 === 1 });
-      assert.ok(scrim.query(() => true).includes(m.dom.document.activeElement), "focus left the question");
-    }
+    // Tab walks Cancel, Quit and back; Shift+Tab walks the other way.
+    const doc = m.dom.document;
+    const label = () => doc.activeElement && doc.activeElement.textContent;
+    const tab = async (shiftKey) => {
+      const ev = doc.activeElement.dispatch("keydown", { key: "Tab", shiftKey });
+      await settle();
+      return ev;
+    };
+    assert.equal(label(), "Cancel");
+    const ev = await tab(false);
+    assert.ok(ev.defaultPrevented, "Tab was left to the browser");
+    assert.equal(label(), "Quit and stop everything");
+    await tab(false);
+    assert.equal(label(), "Cancel");
+    await tab(true);
+    assert.equal(label(), "Quit and stop everything");
+    await tab(true);
+    assert.equal(label(), "Cancel");
     await m.click(m.byText(".dialog-btn", /^Cancel$/));
     assert.equal(m.container.find(".confirm"), null);
     assert.equal(m.sent("quit").length, 0);
