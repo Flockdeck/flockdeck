@@ -114,20 +114,46 @@ const bare = (v) => (v === undefined || v === null || v === "" || v === false ||
 
 const same = (a, b) => JSON.stringify(bare(a) ?? null) === JSON.stringify(bare(b) ?? null);
 
-/** settledPatch is the changes still waiting for the desktop after a prefs push
- *  (raw) arrived, when the push before it was prev. A change is answered when the
- *  push agrees with it, or when the push moved that setting to something else
- *  (the desktop's word wins). A push that leaves the setting as it was is about
- *  something else, and the change keeps waiting. A missing or empty value is the
+/** addPending records the values this window just sent (patch, by preference) at
+ *  the end of what it is already waiting on, in the order they were sent. The
+ *  desktop answers each command in turn, so its pushes come back as a stale
+ *  answer to an earlier one before the last. */
+export function addPending(pending, patch) {
+  const next = { ...pending };
+  for (const [k, v] of Object.entries(patch)) next[k] = [...(next[k] || []), v];
+  return next;
+}
+
+/** latestOf is what the window shows while it waits: the last value sent for
+ *  each setting. */
+export function latestOf(pending) {
+  const out = {};
+  for (const [k, list] of Object.entries(pending)) out[k] = list[list.length - 1];
+  return out;
+}
+
+/** settledPending is what is still waiting after a prefs push (raw) arrived, when
+ *  the push before it was prev. A push that matches one of the values sent for a
+ *  setting (the first that does, as the answers come in order) answers up to and
+ *  including that one, and the later ones keep waiting.
+ *  A push that matches none, and moved the setting from where it was, is another
+ *  window's word and ends the wait. A push that left the setting as it was is
+ *  about something else, and the wait goes on. A missing or empty value is the
  *  same as the default's, as the desktop leaves those out. */
-export function settledPatch(patch, raw, prev) {
-  const kept = {};
+export function settledPending(pending, raw, prev) {
   const r = raw && typeof raw === "object" ? raw : {};
   const q = prev && typeof prev === "object" ? prev : {};
-  for (const [k, v] of Object.entries(patch)) {
-    if (!same(r[k], v) && same(r[k], q[k])) kept[k] = v;
+  const kept = {};
+  for (const [k, list] of Object.entries(pending)) {
+    let at = -1;
+    list.forEach((v, i) => { if (at < 0 && same(r[k], v)) at = i; });
+    if (at >= 0) {
+      if (at < list.length - 1) kept[k] = list.slice(at + 1);
+    } else if (same(r[k], q[k])) {
+      kept[k] = list;
+    }
   }
-  return Object.keys(kept).length === Object.keys(patch).length ? patch : kept;
+  return Object.keys(kept).length === Object.keys(pending).length && Object.keys(kept).every((k) => kept[k] === pending[k]) ? pending : kept;
 }
 
 /** WHY says why a value was not sent. */

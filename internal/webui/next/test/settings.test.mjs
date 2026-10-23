@@ -10,7 +10,7 @@ import { render } from "../assets/vendor/preact.mjs";
 import { html } from "../assets/html.js";
 import { Live } from "../assets/shell/Live.js";
 import {
-  ACCENTS, DEFAULT_FONT, FONT_DEFAULT, applyLook, fontStack, prefsOf, reducedMotion, settledPatch, setting, termOptionsOf, WHY,
+  ACCENTS, DEFAULT_FONT, FONT_DEFAULT, applyLook, fontStack, prefsOf, reducedMotion, addPending, latestOf, settledPending, setting, termOptionsOf, WHY,
 } from "../assets/lib/prefs.js";
 import { createDom, install, settle } from "./dom.mjs";
 import { FakeWebSocket, harness, hello } from "./fakes.mjs";
@@ -100,19 +100,30 @@ test("a value the desktop would refuse is not sent", () => {
   assert.ok(setting("fontFamily", "x".repeat(200)));
 });
 
-test("a push settles a change it agrees with or moved on, and leaves the rest waiting", () => {
-  const patch = { theme: "light", fontSize: 20, cursorSteady: false, dismissedTips: [] };
-  // Agrees with the theme; the font size is as it was before the push (an unrelated push).
-  assert.deepEqual(settledPatch(patch, { theme: "light" }, {}), { fontSize: 20 });
-  assert.deepEqual(settledPatch({ theme: "light" }, { fontSize: 14 }, {}), { theme: "light" }, "an unrelated push leaves it");
-  // The push moved the setting to something else: the desktop's word wins.
-  assert.deepEqual(settledPatch({ theme: "light" }, { theme: "system" }, {}), {});
-  assert.deepEqual(settledPatch({ theme: "light" }, {}, { theme: "system" }), {}, "moved back to the default");
-  assert.deepEqual(settledPatch({ theme: "" }, {}, {}), {}, "dark is the empty value");
-  assert.deepEqual(settledPatch({ fontSize: 20 }, { fontSize: 20 }, { fontSize: 20 }), {});
-  assert.deepEqual(settledPatch({ fontSize: 20 }, null, null), { fontSize: 20 });
-  const same = { theme: "light" };
-  assert.equal(settledPatch(same, { fontSize: 1 }, {}), same, "nothing settled keeps the same object");
+test("pending changes: kept in order, answered in order, and the latest is shown", () => {
+  let p = addPending({}, { fontSize: 14 });
+  p = addPending(p, { fontSize: 15, theme: "light" });
+  p = addPending(p, { fontSize: 16 });
+  assert.deepEqual(p, { fontSize: [14, 15, 16], theme: ["light"] });
+  assert.deepEqual(latestOf(p), { fontSize: 16, theme: "light" });
+  // A stale answer to the first command leaves the later ones waiting.
+  const a = settledPending(p, { fontSize: 14 }, { fontSize: 13 });
+  assert.deepEqual(a.fontSize, [15, 16]);
+  assert.deepEqual(a.theme, ["light"], "the theme was unchanged by that push, so it still waits");
+  const b = settledPending(a, { fontSize: 15 }, { fontSize: 14 });
+  assert.deepEqual(b.fontSize, [16]);
+  assert.deepEqual(settledPending(b, { fontSize: 16, theme: "light" }, { fontSize: 15 }), {});
+  // An answer that skips ahead settles what it answers and the ones before it.
+  assert.deepEqual(settledPending({ fontSize: [14, 15, 16] }, { fontSize: 15 }, { fontSize: 13 }), { fontSize: [16] });
+  // A value sent twice: the first answer settles the first, not the whole list.
+  assert.deepEqual(settledPending({ fontSize: [14, 15, 14] }, { fontSize: 14 }, { fontSize: 13 }), { fontSize: [15, 14] });
+  // A value none of ours matches, moved from where it was, is another window's word.
+  assert.deepEqual(settledPending({ fontSize: [14, 15] }, { fontSize: 20 }, { fontSize: 13 }), {});
+  // A push that left it as it was is about something else.
+  const wait = { theme: ["light"] };
+  assert.equal(settledPending(wait, { fontSize: 14 }, {}), wait, "nothing settled keeps the same object");
+  assert.deepEqual(settledPending({ theme: [""] }, {}, {}), {}, "dark is the empty value");
+  assert.deepEqual(settledPending({ fontSize: [20] }, null, null), { fontSize: [20] });
 });
 
 test("the terminal's options come from the settings", () => {
@@ -166,7 +177,7 @@ const stateOf = (g) => ({
   panes: Object.fromEntries(g.nodes.map((n) => [n.pane, { id: n.pane, name: n.name, structured: n.kind === "structured" }])),
 });
 
-async function mount(prefs = {}) {
+async function mount(prefs = {}, liveProps = {}) {
   PtySocket.reset();
   FakeTerm.reset();
   FakeObserver.instances.length = 0;
@@ -180,7 +191,7 @@ async function mount(prefs = {}) {
     Terminal: FakeTerm, FitAddon: FakeFit, ResizeObserver: FakeObserver, WebSocket: PtySocket,
     location: { href: "http://127.0.0.1:5000/", pathname: "/", protocol: "http:" }, isFocused: () => false,
   };
-  render(html`<${Live} store=${store} window=${dom.window} terminalOptions=${terminalOptions} />`, container);
+  render(html`<${Live} store=${store} window=${dom.window} terminalOptions=${terminalOptions} ...${liveProps} />`, container);
   await settle();
   const ws = () => FakeWebSocket.last;
   const g = graph();
@@ -216,8 +227,8 @@ async function mount(prefs = {}) {
   return m;
 }
 
-async function withPage(prefs, fn) {
-  const m = await mount(prefs);
+async function withPage(prefs, fn, liveProps = {}) {
+  const m = await mount(prefs, liveProps);
   try {
     await fn(m);
   } finally {
@@ -353,6 +364,52 @@ test("two changes made before the desktop answers are both shown", () =>
     assert.equal(m.root.dataset.theme, "light");
     assert.equal(m.sent("theme").length + m.sent("accentColor").length + m.sent("fontSize").length, 3);
   }));
+
+test("stale answers to quick changes do not make the setting flick back", () =>
+  withPage({}, async (m) => {
+    await m.connect();
+    await m.openSettings("terminal");
+    const size = () => m.container.find("#set-font-size-value").textContent;
+    for (let i = 0; i < 3; i++) await m.click(m.container.find("#set-font-up"));
+    assert.deepEqual(m.sent("fontSize").map((c) => c.size), [14, 15, 16]);
+    assert.equal(size(), "16 px");
+    await m.push({ type: "prefs", prefs: { fontSize: 14 } });
+    assert.equal(size(), "16 px", "the answer to the first change");
+    await m.push({ type: "prefs", prefs: { fontSize: 15 } });
+    assert.equal(size(), "16 px", "the answer to the second");
+    await m.push({ type: "prefs", prefs: { fontSize: 16 } });
+    assert.equal(size(), "16 px", "the last");
+    await m.push({ type: "prefs", prefs: { fontSize: 22 } });
+    assert.equal(size(), "22 px", "another window's value is shown");
+  }));
+
+test("a setting another window changed stays changed through later pushes about something else", () =>
+  withPage({}, async (m) => {
+    await m.connect();
+    await m.openSettings("terminal");
+    const size = () => m.container.find("#set-font-size-value").textContent;
+    await m.click(m.container.find("#set-font-up"));
+    await m.push({ type: "prefs", prefs: { fontSize: 20 } });
+    assert.equal(size(), "20 px", "the other window's word");
+    await m.click(m.container.find("#set-font-down"));
+    assert.equal(size(), "19 px");
+    // The next push is about the theme; the size in it is as it was.
+    await m.push({ type: "prefs", prefs: { fontSize: 20, theme: "light" } });
+    assert.equal(size(), "19 px", "this window's change is still waiting");
+    await m.push({ type: "prefs", prefs: { fontSize: 19, theme: "light" } });
+    assert.equal(size(), "19 px");
+  }));
+
+test("a change nothing answers is dropped after the wait", () =>
+  withPage({ fontSize: 15 }, async (m) => {
+    await m.connect();
+    await m.openSettings("terminal");
+    await m.click(m.container.find("#set-font-up"));
+    assert.equal(m.container.find("#set-font-size-value").textContent, "16 px");
+    await new Promise((r) => setTimeout(r, 150));
+    await settle();
+    assert.equal(m.container.find("#set-font-size-value").textContent, "15 px", "back to what the desktop keeps");
+  }, { patchWaitMs: 40 }));
 
 test("a change the desktop refuses is taken back when its notice arrives", () =>
   withPage({ theme: "light" }, async (m) => {

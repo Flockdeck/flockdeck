@@ -21,7 +21,7 @@ import { Start } from "./Start.js";
 import { Tabs } from "./Tabs.js";
 import { Settings } from "./Settings.js";
 import { useLifecycle } from "../drawer/Lifecycle.js";
-import { FONT_DEFAULT, FONT_MAX, FONT_MIN, PATCH_WAIT_MS, applyLook, prefsOf, reducedMotion, settledPatch, setting, termOptionsOf } from "../lib/prefs.js";
+import { FONT_DEFAULT, FONT_MAX, FONT_MIN, PATCH_WAIT_MS, applyLook, prefsOf, reducedMotion, addPending, latestOf, settledPending, setting, termOptionsOf } from "../lib/prefs.js";
 import { catalogOf, closeTabWarnings, moveTabCommand, newTabCommand, tabsOf } from "../lib/lifecycle.js";
 
 // What the shell is given before the first hello and state. Constants, so the
@@ -51,7 +51,7 @@ function nodeOfPane(p) {
 /** Live draws the shell for a store. matchMedia and window are the page's,
  *  passed for a test, and terminalOptions reach the drawer's terminal (a test
  *  gives it fakes for xterm and the socket). */
-export function Live({ store, matchMedia, window: win, terminalOptions = null }) {
+export function Live({ store, matchMedia, window: win, terminalOptions = null, patchWaitMs = PATCH_WAIT_MS }) {
   const narrow = useNarrow(matchMedia);
   const snap = useStore(store);
   const [selected, setSelected] = useState("");
@@ -145,7 +145,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null })
   useEffect(() => {
     const before = lastPrefs.current;
     lastPrefs.current = kept_prefs;
-    setPatch((p) => settledPatch(p, kept_prefs, before));
+    setPatch((p) => settledPending(p, kept_prefs, before));
   }, [kept_prefs]);
   useEffect(() => {
     setPatch({});
@@ -154,10 +154,10 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null })
   // something else) does not stay on screen for good.
   useEffect(() => {
     if (Object.keys(patch).length === 0) return undefined;
-    const t = setTimeout(() => setPatch({}), PATCH_WAIT_MS);
+    const t = setTimeout(() => setPatch({}), patchWaitMs);
     return () => clearTimeout(t);
   }, [patch]);
-  const prefs = useMemo(() => prefsOf({ ...(kept_prefs || {}), ...patch }), [kept_prefs, patch]);
+  const prefs = useMemo(() => prefsOf({ ...(kept_prefs || {}), ...latestOf(patch) }), [kept_prefs, patch]);
   useEffect(() => {
     applyLook(page, prefs);
   }, [page, prefs.theme, prefs.accent]);
@@ -173,7 +173,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null })
     const s = setting(name, value);
     if (!s) return false;
     send(s.command);
-    setPatch((p) => ({ ...p, ...s.patch }));
+    setPatch((p) => addPending(p, s.patch));
     return true;
   };
   const bumpFont = (to) => {
