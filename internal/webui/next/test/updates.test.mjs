@@ -41,10 +41,18 @@ async function withPage(opts, fn) {
     },
   };
   ws().open();
+  // stateFirst: the state push arrives before the hello, so the hello is the
+  // only thing that changes after the first render of the actions.
+  if (opts.stateFirst) {
+    ws().frame(stateMsg(opts.state));
+    await settle();
+  }
   ws().frame(hello({ keys: KEYS, prefs: opts.prefs || {}, remote: !!opts.remote }));
   await settle();
-  ws().frame(stateMsg(opts.state));
-  await settle();
+  if (!opts.stateFirst) {
+    ws().frame(stateMsg(opts.state));
+    await settle();
+  }
   try {
     await fn(m);
   } finally {
@@ -63,6 +71,11 @@ test("notes are shaped into headings, bullets and paragraphs, with bold and code
   assert.deepEqual(b[2].items[1].map((r) => r.t), ["text", "code", "text"]);
 });
 
+test("http and https addresses are links", () => {
+  assert.equal(webUrl("http://github.test/x"), "http://github.test/x");
+  assert.equal(webUrl("https://github.test/x"), "https://github.test/x");
+});
+
 test("only http and https addresses are links", () => {
   assert.equal(webUrl("https://github.com/x"), "https://github.com/x");
   for (const bad of ["javascript:alert(1)", "data:text/html,x", "/relative", "", null, "ftp://x"]) assert.equal(webUrl(bad), "");
@@ -73,6 +86,16 @@ test("an update is read only when it has a version, and not in a remote window",
   assert.equal(updateOf({ update: UPDATE }, true), null);
   assert.equal(updateOf({ update: UPDATE }, false).version, "v9.9.9");
   assert.equal(updateOf({ update: { version: 3 } }, false), null);
+});
+
+test("an update with an empty version is no update", () => {
+  assert.equal(updateOf({ update: { version: "", notes: "x" } }, false), null);
+});
+
+test("a heading never goes past level 6", () => {
+  assert.equal(notesBlocks("###### deep")[0].level, 6);
+  assert.equal(notesBlocks("##### deep")[0].level, 6);
+  assert.equal(notesBlocks("# top")[0].level, 3);
 });
 
 test("version rows are cleaned, and the install word follows the relation", () => {
@@ -253,3 +276,73 @@ test("the page asks the desktop to save as it is hidden", () => {
   handlers.pagehide({});
   assert.deepEqual(calls, ["save", "stop"]);
 });
+
+test("while the quit question is open no key reaches an action", () =>
+  withPage({}, async (m) => {
+    await m.key("q", { ctrlKey: true, altKey: true });
+    assert.ok(m.container.find(".confirm"));
+    await m.key("q", { ctrlKey: true, shiftKey: true });
+    assert.equal(m.sent("detach").length, 0);
+    assert.ok(m.container.find(".confirm"));
+  }));
+
+test("while the Updates dialog is open no key reaches an action", () =>
+  withPage({}, async (m) => {
+    await m.click(m.byText(".rail-updates", /Updates/));
+    await m.key("q", { ctrlKey: true, shiftKey: true });
+    await m.key("q", { ctrlKey: true, altKey: true });
+    assert.equal(m.sent("detach").length, 0);
+    assert.equal(m.container.find(".confirm"), null);
+    assert.ok(m.container.find(".dialog"));
+  }));
+
+test("a hello that says remote after the first render still makes quit and detach say the relay words", () =>
+  withPage({ remote: true, stateFirst: true }, async (m) => {
+    await m.key("q", { ctrlKey: true, altKey: true });
+    assert.equal(m.container.find(".confirm"), null);
+    assert.match(m.container.find(".notice").textContent, new RegExp(RELAY_WORDS.slice(0, 30)));
+    await m.key("q", { ctrlKey: true, shiftKey: true });
+    assert.equal(m.sent("detach").length, 0);
+  }));
+
+test("a second look at the versions does not show the last answer while the new one loads", () =>
+  withPage({}, async (m) => {
+    await m.click(m.byText(".rail-updates", /Updates/));
+    await m.click(m.byText(".dialog-btn", /Install a specific version/));
+    await m.push({ type: "versions", items: [{ version: "v-old-answer", relation: "older" }] });
+    assert.match(m.container.find(".dialog").textContent, /v-old-answer/);
+    await m.click(m.byText(".dialog-btn", /^Close$/));
+    await m.click(m.byText(".rail-updates", /Updates/));
+    await m.click(m.byText(".dialog-btn", /Install a specific version/));
+    assert.equal(m.sent("listVersions").length, 2);
+    assert.doesNotMatch(m.container.find(".dialog").textContent, /v-old-answer/);
+    assert.match(m.container.find(".dialog").textContent, /Loading/);
+    await m.push({ type: "versions", items: [{ version: "v-new-answer", relation: "newer" }] });
+    assert.match(m.container.find(".dialog").textContent, /v-new-answer/);
+  }));
+
+// The fake DOM keeps a checkbox's state as the property or as the attribute.
+const on = (box) => !!(box.checked ?? box.attributes.checked);
+
+test("the switch starts on when updates are on and off when the preference says off, and follows a prefs push", () => {
+  const run = (prefs, fn) => withPage({ prefs }, async (m) => {
+    await m.click(m.byText(".rail-updates", /Updates/));
+    await fn(m, m.container.find("input"));
+  });
+  return run({}, async (m, box) => {
+    assert.equal(on(box), true);
+  }).then(() => run({ updatesOff: true }, async (m, box) => {
+    assert.equal(on(box), false);
+    await m.push({ type: "prefs", prefs: {} });
+    assert.equal(on(m.container.find("input")), true);
+  }));
+});
+
+test("a notice from before the dialog opened is not shown in it, a newer one is", () =>
+  withPage({}, async (m) => {
+    await m.push({ type: "notice", text: "STALE-NOTICE" });
+    await m.click(m.byText(".rail-updates", /Updates/));
+    assert.doesNotMatch(m.container.find(".dialog").textContent, /STALE-NOTICE/);
+    await m.push({ type: "notice", text: "FRESH-NOTICE" });
+    assert.match(m.container.find(".dialog").textContent, /FRESH-NOTICE/);
+  }));
