@@ -16,6 +16,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync/atomic"
@@ -428,6 +429,20 @@ func TestNodeTests(t *testing.T) {
 	if err := os.WriteFile(keysFile, table, 0o600); err != nil {
 		t.Fatal(err)
 	}
+	// The help pages as the server sends them to this shell, for the tests of the
+	// help dialog to draw every real page.
+	pages, err := help.TreePages()
+	if err != nil {
+		t.Fatal(err)
+	}
+	helpJSON, err := json.Marshal(map[string]any{"pages": pages})
+	if err != nil {
+		t.Fatal(err)
+	}
+	helpFile := filepath.Join(t.TempDir(), "help.json")
+	if err := os.WriteFile(helpFile, helpJSON, 0o600); err != nil {
+		t.Fatal(err)
+	}
 	slots := make(chan struct{}, nodeTestProcesses)
 	for _, file := range files {
 		t.Run(filepath.Base(file), func(t *testing.T) {
@@ -440,7 +455,7 @@ func TestNodeTests(t *testing.T) {
 			cmd := exec.CommandContext(ctx, node, "--test", "--test-timeout="+nodeTestLimitMS, file)
 			// testiso.Main has already pointed the home and config variables at a
 			// throwaway directory and cleared the credentials; node inherits that.
-			cmd.Env = append(os.Environ(), "NEXT_KEYS_JSON="+keysFile)
+			cmd.Env = append(os.Environ(), "NEXT_KEYS_JSON="+keysFile, "NEXT_HELP_JSON="+helpFile)
 			cmd.WaitDelay = 5 * time.Second
 			start := time.Now()
 			out, err := cmd.CombinedOutput()
@@ -516,5 +531,27 @@ func TestPageHoldsOnlyTheModuleAndTheLoaderNamesTheLibraries(t *testing.T) {
 	// The stylesheet for xterm stays in the head.
 	if !strings.Contains(string(page), `href="assets/vendor/xterm.css"`) {
 		t.Error("the page does not load xterm's stylesheet")
+	}
+}
+
+// The help dialog checks a page's tags again before it draws them, against a
+// list of its own. The two lists have to be the same, or a tag the server lets
+// through is silently dropped, or one the server drops is let in.
+func TestHelpTagListsAgree(t *testing.T) {
+	src, err := os.ReadFile(filepath.Join("assets", "lib", "help.js"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := regexp.MustCompile(`(?s)export const TAGS = \[(.*?)\];`).FindSubmatch(src)
+	if m == nil {
+		t.Fatal("lib/help.js has no TAGS list")
+	}
+	var got []string
+	for _, q := range regexp.MustCompile(`"([a-z0-9]+)"`).FindAllSubmatch(m[1], -1) {
+		got = append(got, string(q[1]))
+	}
+	sort.Strings(got)
+	if want := help.AllowedTags(); !slices.Equal(got, want) {
+		t.Errorf("lib/help.js TAGS = %v; help.AllowedTags() = %v", got, want)
 	}
 }

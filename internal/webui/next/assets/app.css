@@ -489,6 +489,71 @@ button { font: inherit; color: inherit; }
 .palette-keys { font: 11px/1.4 var(--mono); color: var(--fg-dim); }
 .palette-empty { padding: 10px 12px; color: var(--fg-dim); }
 
+/* The help. */
+.help-scrim {
+  z-index: 3;
+  position: fixed;
+  inset: 0;
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding-top: 6vh;
+  background: var(--scrim);
+}
+.help {
+  width: min(960px, calc(100vw - 24px));
+  height: min(720px, 86vh);
+  display: grid;
+  grid-template-columns: minmax(200px, 280px) minmax(0, 1fr);
+  background: var(--bg-overlay);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-3);
+  overflow: hidden;
+}
+.help-sentinel { position: absolute; width: 0; height: 0; overflow: hidden; }
+.help-nav {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  border-right: 1px solid var(--line);
+}
+.help-search {
+  padding: 10px 12px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-inset);
+  color: var(--fg);
+  font: inherit;
+}
+.help-search:focus-visible { outline-offset: -2px; }
+.help-list { list-style: none; margin: 0; padding: 4px; overflow-y: auto; }
+.help-item {
+  display: block;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: var(--radius);
+  background: none;
+  color: var(--fg);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.help-item.is-current { background: var(--accent-subtle); }
+.help-item-title { display: block; }
+.help-item-sub { display: block; font-size: 12px; color: var(--fg-dim); overflow-wrap: anywhere; }
+.help-none, .help-note { padding: 10px 12px; color: var(--fg-dim); }
+.help-content { min-width: 0; padding: 12px 20px; overflow-y: auto; overflow-wrap: anywhere; }
+.help-content h1 { font-size: 20px; margin: 0 0 12px; }
+.help-content h2 { font-size: 16px; margin: 20px 0 8px; }
+.help-content h3 { font-size: 14px; margin: 16px 0 6px; }
+.help-content kbd, .help-content code { font: 12px/1.4 var(--mono); }
+.help-content pre { overflow-x: auto; padding: 8px 10px; background: var(--bg-inset); border-radius: var(--radius); }
+.help-content table { border-collapse: collapse; max-width: 100%; display: block; overflow-x: auto; }
+.help-content th, .help-content td { padding: 4px 10px; border-bottom: 1px solid var(--line-subtle); text-align: left; vertical-align: top; }
+.help-content a { color: var(--accent-strong); }
+
 /* Narrow: the rail becomes a bar along the top and the main area a list. The
  * drawer covers the window. */
 @media (max-width: 640px) {
@@ -513,6 +578,10 @@ button { font: inherit; color: inherit; }
   .rail-item { width: auto; min-height: 40px; white-space: nowrap; }
   .rail-item.is-active { box-shadow: inset 0 -3px 0 var(--accent); }
   .palette-input { font-size: 16px; }
+  .help { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); height: 92vh; }
+  .help-nav { max-height: 40%; border-right: 0; border-bottom: 1px solid var(--line); }
+  .help-search { font-size: 16px; }
+  .help-scrim { padding-top: 2vh; }
   .rail-toggle { display: none; }
   .shell--rail-collapsed .rail-name { display: inline; }
   .main--list { padding: 0; }

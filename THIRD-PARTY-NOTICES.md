@@ -643,7 +643,7 @@ NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
 SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
-### The Go standard library and runtime, golang.org/x/crypto, golang.org/x/sys, rsc.io/qr — BSD 3-Clause
+### The Go standard library and runtime, golang.org/x/crypto, golang.org/x/net, golang.org/x/sys, rsc.io/qr — BSD 3-Clause
 
 Copyright (c) 2009 The Go Authors. All rights reserved.
 
