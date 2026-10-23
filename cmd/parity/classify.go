@@ -117,10 +117,6 @@ var keyVerdicts = map[string]Verdict{
 	"history":        task(tL4),
 
 	// The window.
-	"settings":       task(tL2),
-	"fontUp":         task(tL2),
-	"fontDown":       task(tL2),
-	"fontReset":      task(tL2),
 	"remote":         task(tL5),
 	"helpers":        task(tL6),
 	"openRecordings": task(tL4),
@@ -160,21 +156,12 @@ var cmdVerdicts = map[string]Verdict{
 	"teamClose":          task(tL1),
 
 	// L2: settings.
-	"accentColor":      task(tL2),
-	"theme":            task(tL2),
-	"fontFamily":       task(tL2),
-	"fontSize":         task(tL2),
-	"cursorStyle":      task(tL2),
-	"cursorBlink":      task(tL2),
-	"scrollback":       task(tL2),
-	"screenReader":     task(tL2),
 	"statusLine":       task(tL2),
 	"railExpanded":     task(tL2),
 	"railWidth":        task(tL2),
 	"setKeybinding":    task(tL2),
 	"resetKeybinding":  task(tL2),
 	"resetKeybindings": task(tL2),
-	"resetTips":        task(tL2),
 	"dismissTip":       task(tL2),
 	"setAgentDefault":  task(tL2),
 	"setAgentAddress":  task(tL2),
@@ -292,13 +279,12 @@ var cmdVerdicts = map[string]Verdict{
 	"msgSeen":    task(tL8, "Team messages have no task"),
 
 	// Routing and review, TypeSafe's Jev: docs are deferred until they ship.
-	"autoReview":        task(tL8, "Safety control: the new shell cannot turn auto review off"),
-	"autoReviewDefault": task(tL8, "Safety control: the default for new panes"),
-	"setRouting":        task(tL8, "Routing has no task"),
-	"setWeights":        task(tL8, "Routing has no task"),
-	"clearRoutingLog":   task(tL8, "Routing has no task"),
-	"jevKey":            task(tL8, "Security control: the Jev key is set and cleared here"),
-	"jevStatus":         task(tL8, "The Jev status has no task"),
+	"autoReview":      task(tL8, "Safety control: the new shell cannot turn auto review off"),
+	"setRouting":      task(tL8, "Routing has no task"),
+	"setWeights":      task(tL8, "Routing has no task"),
+	"clearRoutingLog": task(tL8, "Routing has no task"),
+	"jevKey":          task(tL8, "Security control: the Jev key is set and cleared here"),
+	"jevStatus":       task(tL8, "The Jev status has no task"),
 }
 
 // dynamicSites are the places the old interface builds the name of a command at
@@ -338,4 +324,4 @@ var notCommands = []string{
 // order the rest are built in.
 // When the new interface sends one of these commands the row loses its task and
 // TestRetirementGateIsInTheDoc fails: that is the cue to remove it from this list.
-var blocksRetirement = []string{"autoReview", "autoReviewDefault", "jevKey"}
+var blocksRetirement = []string{"autoReview", "jevKey"}
