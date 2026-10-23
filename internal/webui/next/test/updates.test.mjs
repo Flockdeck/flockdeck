@@ -79,9 +79,9 @@ test("version rows are cleaned, and the install word follows the relation", () =
   const v = versionsOf({ items: [{ version: "v1", relation: "older", notes: 4 }, { nope: 1 }, null] });
   assert.equal(v.items.length, 1);
   assert.equal(v.items[0].notes, "");
-  assert.equal(installLabel("newer"), "Update to…");
-  assert.equal(installLabel("older"), "Roll back to…");
-  assert.equal(installLabel("current"), "Reinstall");
+  assert.equal(installLabel("newer"), "Download update");
+  assert.equal(installLabel("older"), "Download older version");
+  assert.equal(installLabel("current"), "Download again");
   assert.equal(versionsOf(null), null);
 });
 
@@ -169,9 +169,9 @@ test("the versions list is asked for, drawn as text, and a click installs that v
     const rows = m.container.findAll(".upd-version");
     assert.equal(rows.length, 3);
     assert.match(rows[0].textContent, /2026-10-01/);
-    assert.match(rows[0].textContent, /Update to…/);
+    assert.match(rows[0].textContent, /Download update/);
     assert.match(rows[1].textContent, /running now/);
-    assert.match(rows[1].textContent, /Reinstall/);
+    assert.match(rows[1].textContent, /Download again/);
     assert.match(rows[2].textContent, /<b>v0<\/b>/);
     assert.equal(m.container.find(".upd-versions b"), null);
     await m.click(rows[2].find("button"));
@@ -219,6 +219,11 @@ test("quit asks first, with the key table's question, and sends nothing on Cance
     assert.match(c.textContent, /Stop every agent in every open project\?/);
     assert.equal(m.sent("quit").length, 0);
     assert.equal(m.dom.document.activeElement.textContent, "Cancel");
+    const scrim = m.container.find(".dialog-scrim");
+    for (let i = 0; i < 5; i++) {
+      scrim.find(".confirm").dispatch("keydown", { key: "Tab", shiftKey: i % 2 === 1 });
+      assert.ok(scrim.query(() => true).includes(m.dom.document.activeElement), "focus left the question");
+    }
     await m.click(m.byText(".dialog-btn", /^Cancel$/));
     assert.equal(m.container.find(".confirm"), null);
     assert.equal(m.sent("quit").length, 0);

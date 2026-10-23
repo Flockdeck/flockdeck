@@ -19,7 +19,7 @@ import { Shell, useNarrow } from "./app.js";
 import { Home, sameProject, rosterOf } from "./Home.js";
 import { Start } from "./Start.js";
 import { Confirm } from "./Confirm.js";
-import { Updates } from "./Updates.js";
+import { Updates, trapTab } from "./Updates.js";
 import { Tabs } from "./Tabs.js";
 import { useLifecycle } from "../drawer/Lifecycle.js";
 import { RELAY_WORDS, quitQuestion, updateOf } from "../lib/updates.js";

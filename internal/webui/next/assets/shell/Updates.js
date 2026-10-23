@@ -19,7 +19,7 @@ import {
 /** focusables are the controls Tab moves between inside the dialog. */
 const focusables = (root) => (root && root.querySelectorAll ? [...root.querySelectorAll("button, input, a, .upd-notes")].filter((n) => !n.disabled) : []);
 
-function trapTab(e, root) {
+export function trapTab(e, root) {
   const list = focusables(root);
   if (list.length === 0) return;
   const at = list.indexOf(root.ownerDocument.activeElement);

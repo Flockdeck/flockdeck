@@ -82,10 +82,11 @@ export function notesBlocks(text) {
   return out;
 }
 
-/** installLabel is the words on a version's button: newer is an update, older a
- *  roll back, the running one a reinstall. */
+/** installLabel is the words on a version's button. One click downloads and
+ *  stages the release at once, so it says download; restarting onto it is a
+ *  separate step. */
 export function installLabel(relation) {
-  return relation === "newer" ? "Update to…" : relation === "older" ? "Roll back to…" : "Reinstall";
+  return relation === "newer" ? "Download update" : relation === "older" ? "Download older version" : "Download again";
 }
 
 /** versionsOf reads the desktop's listVersions answer into { items, error }, or
