@@ -685,3 +685,51 @@ test("when the key comes back the refusal's own reason is shown again, without a
   assert.equal(PtySocket.instances.length, 1);
   h.ctl.dispose();
 });
+
+// ------------------------------------------------------------ setOptions
+
+test("setOptions changes only what differs and measures the box again after a change", () => {
+  const h = build({ termOptions: { fontSize: 15 } });
+  h.ctl.start();
+  let measured = 0;
+  const real = FakeFit.prototype.proposeDimensions;
+  FakeFit.prototype.proposeDimensions = function () { measured++; return real.call(this); };
+  try {
+    h.ctl.setOptions({ fontSize: 15, scrollback: 10000 });
+    const same = measured;
+    h.ctl.setOptions({ fontSize: 18, scrollback: 10000 });
+    assert.equal(h.term().options.fontSize, 18);
+    assert.equal(measured, same + 1, "a changed font measures the box once");
+    h.ctl.setOptions({ fontSize: 18 });
+    assert.equal(measured, same + 1, "no change, no measuring");
+    h.ctl.setOptions(null);
+    h.ctl.setOptions({ cursorStyle: "bar", cursorBlink: false });
+    assert.equal(h.term().options.cursorStyle, "bar");
+    assert.equal(h.term().options.cursorBlink, false);
+    assert.equal(PtySocket.instances.length === 0 || resizesSent(PtySocket.last).length === 0, true, "it never sends a resize");
+  } finally {
+    FakeFit.prototype.proposeDimensions = real;
+  }
+});
+
+test("options set while the libraries load are laid over the ones it was made with", async () => {
+  let release;
+  const h = build({ Terminal: null, FitAddon: null, termOptions: { fontSize: 15, scrollback: 123 }, loadLibs: () => new Promise((r) => { release = r; }) });
+  h.ctl.start();
+  h.ctl.setOptions({ fontSize: 19 });
+  h.ctl.setOptions({ cursorStyle: "underline" });
+  globalThis.Terminal = FakeTerm;
+  globalThis.FitAddon = { FitAddon: FakeFit };
+  try {
+    release();
+    await waitFor(() => FakeTerm.instances.length === 1, "the terminal");
+    const o = h.term().options;
+    assert.equal(o.fontSize, 19, "the later setting wins over the one it was made with");
+    assert.equal(o.scrollback, 123, "one nobody changed stays");
+    assert.equal(o.cursorStyle, "underline", "both calls were kept");
+  } finally {
+    delete globalThis.Terminal;
+    delete globalThis.FitAddon;
+    h.ctl.dispose();
+  }
+});

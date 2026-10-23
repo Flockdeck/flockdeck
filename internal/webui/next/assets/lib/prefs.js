@@ -112,15 +112,20 @@ export const PATCH_WAIT_MS = 5000;
 
 const bare = (v) => (v === undefined || v === null || v === "" || v === false || (Array.isArray(v) && v.length === 0) ? null : v);
 
+const same = (a, b) => JSON.stringify(bare(a) ?? null) === JSON.stringify(bare(b) ?? null);
+
 /** settledPatch is the changes still waiting for the desktop after a prefs push
- *  arrived: those the push does not yet agree with. A push about something else
- *  (another window changed another setting) leaves them as they were. A missing
- *  or empty value is the same as the default's, as the desktop leaves those out. */
-export function settledPatch(patch, raw) {
+ *  (raw) arrived, when the push before it was prev. A change is answered when the
+ *  push agrees with it, or when the push moved that setting to something else
+ *  (the desktop's word wins). A push that leaves the setting as it was is about
+ *  something else, and the change keeps waiting. A missing or empty value is the
+ *  same as the default's, as the desktop leaves those out. */
+export function settledPatch(patch, raw, prev) {
   const kept = {};
   const r = raw && typeof raw === "object" ? raw : {};
+  const q = prev && typeof prev === "object" ? prev : {};
   for (const [k, v] of Object.entries(patch)) {
-    if (JSON.stringify(bare(r[k]) ?? null) !== JSON.stringify(bare(v) ?? null)) kept[k] = v;
+    if (!same(r[k], v) && same(r[k], q[k])) kept[k] = v;
   }
   return Object.keys(kept).length === Object.keys(patch).length ? patch : kept;
 }

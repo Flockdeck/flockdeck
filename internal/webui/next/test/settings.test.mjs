@@ -38,6 +38,13 @@ test("a corrupt or missing stored value reads as the default", () => {
   });
   assert.deepEqual(bad, base);
   assert.equal(prefsOf({ fontSize: 13.5 }).fontSize, FONT_DEFAULT);
+  assert.equal(prefsOf({ fontSize: 3 }).fontSize, FONT_DEFAULT, "below the smallest");
+  assert.equal(prefsOf({ fontSize: 7 }).fontSize, FONT_DEFAULT);
+  assert.equal(prefsOf({ fontSize: 8 }).fontSize, 8);
+  assert.equal(prefsOf({ scrollback: 5000.5 }).scrollback, 10000, "not a whole number of lines");
+  assert.equal(prefsOf({ scrollback: 200001 }).scrollback, 10000, "above the most");
+  assert.equal(prefsOf({ scrollback: 999 }).scrollback, 10000);
+  assert.equal(prefsOf({ scrollback: 200000 }).scrollback, 200000);
   assert.equal(prefsOf({ fontSize: "14" }).fontSize, FONT_DEFAULT);
   assert.equal(prefsOf({ accentColor: "teal" }).accent, "", "teal was the default's old name");
   assert.equal(prefsOf({ dismissedTips: ["a", 3, "b"] }).dismissedTips, 2);
@@ -93,15 +100,19 @@ test("a value the desktop would refuse is not sent", () => {
   assert.ok(setting("fontFamily", "x".repeat(200)));
 });
 
-test("a push settles only the changes it agrees with", () => {
+test("a push settles a change it agrees with or moved on, and leaves the rest waiting", () => {
   const patch = { theme: "light", fontSize: 20, cursorSteady: false, dismissedTips: [] };
-  assert.deepEqual(settledPatch(patch, { theme: "light" }), { fontSize: 20 });
-  assert.deepEqual(settledPatch({ theme: "light" }, { fontSize: 14 }), { theme: "light" }, "an unrelated push leaves it");
-  assert.deepEqual(settledPatch({ theme: "" }, {}), {}, "dark is the empty value");
-  assert.deepEqual(settledPatch({ fontSize: 20 }, { fontSize: 20 }), {});
-  assert.deepEqual(settledPatch({ fontSize: 20 }, null), { fontSize: 20 });
+  // Agrees with the theme; the font size is as it was before the push (an unrelated push).
+  assert.deepEqual(settledPatch(patch, { theme: "light" }, {}), { fontSize: 20 });
+  assert.deepEqual(settledPatch({ theme: "light" }, { fontSize: 14 }, {}), { theme: "light" }, "an unrelated push leaves it");
+  // The push moved the setting to something else: the desktop's word wins.
+  assert.deepEqual(settledPatch({ theme: "light" }, { theme: "system" }, {}), {});
+  assert.deepEqual(settledPatch({ theme: "light" }, {}, { theme: "system" }), {}, "moved back to the default");
+  assert.deepEqual(settledPatch({ theme: "" }, {}, {}), {}, "dark is the empty value");
+  assert.deepEqual(settledPatch({ fontSize: 20 }, { fontSize: 20 }, { fontSize: 20 }), {});
+  assert.deepEqual(settledPatch({ fontSize: 20 }, null, null), { fontSize: 20 });
   const same = { theme: "light" };
-  assert.equal(settledPatch(same, { fontSize: 1 }), same, "nothing settled keeps the same object");
+  assert.equal(settledPatch(same, { fontSize: 1 }, {}), same, "nothing settled keeps the same object");
 });
 
 test("the terminal's options come from the settings", () => {
@@ -315,6 +326,32 @@ test("another window's unrelated push does not undo a change that is still waiti
     assert.equal(m.root.dataset.theme, "light");
     await m.push({ type: "prefs", prefs: { fontSize: 15, theme: "system" } });
     assert.equal("theme" in m.root.dataset, false, "once the desktop agreed, its word is the one shown");
+  }));
+
+test("a different value pushed for the setting just changed is the one shown", () =>
+  withPage({}, async (m) => {
+    await m.connect();
+    await m.openSettings("appearance");
+    await m.click(choice(m, "set-theme-choice", "light"));
+    assert.equal(m.root.dataset.theme, "light");
+    await m.push({ type: "prefs", prefs: { theme: "system" } });
+    assert.equal("theme" in m.root.dataset, false, "the desktop's word won");
+    assert.equal(on(choice(m, "set-theme-choice", "system")), true);
+  }));
+
+test("two changes made before the desktop answers are both shown", () =>
+  withPage({}, async (m) => {
+    await m.connect();
+    await m.openSettings("appearance");
+    await m.click(choice(m, "set-theme-choice", "light"));
+    await m.click(choice(m, "set-accent-choice", "pink"));
+    assert.equal(m.root.dataset.theme, "light", "the first is still shown");
+    assert.equal(m.root.dataset.accent, "pink");
+    await m.click(m.byText(".settings-tab", /^Terminal$/));
+    await m.click(m.container.find("#set-font-up"));
+    assert.equal(m.container.find("#set-font-size-value").textContent, "14 px");
+    assert.equal(m.root.dataset.theme, "light");
+    assert.equal(m.sent("theme").length + m.sent("accentColor").length + m.sent("fontSize").length, 3);
   }));
 
 test("a change the desktop refuses is taken back when its notice arrives", () =>

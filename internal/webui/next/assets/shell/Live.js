@@ -141,8 +141,11 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null })
   // notice, which ends the wait and puts the window back to what is kept.
   const page = win || (typeof window !== "undefined" ? window : null);
   const kept_prefs = kept.current.hello.prefs;
+  const lastPrefs = useRef(kept_prefs);
   useEffect(() => {
-    setPatch((p) => settledPatch(p, kept_prefs));
+    const before = lastPrefs.current;
+    lastPrefs.current = kept_prefs;
+    setPatch((p) => settledPatch(p, kept_prefs, before));
   }, [kept_prefs]);
   useEffect(() => {
     setPatch({});
