@@ -428,3 +428,47 @@ test("the real key table lists in the keys entry", { skip: realKeys() ? false : 
     assert.match(help.textContent, /yes/);
   } finally { m.done(); }
 });
+
+// A hostile answer goes through the loader and the dialog, not only through
+// cleanNodes: the step that cleans a page has to be the one the dialog is behind.
+const hostile = {
+  pages: [{
+    slug: "evil", title: "Evil", summary: "s", text: "evil words here",
+    tree: [
+      { t: "script", c: [{ x: "boom()" }] },
+      { t: "p", c: [
+        { t: "img", c: [{ x: "alt words" }] },
+        { t: "a", h: "javascript:alert(1)", c: [{ x: "bad link" }] },
+        { t: "a", h: "https://example.com/ok", c: [{ x: "good link" }] },
+        { t: "marquee", c: [{ x: "odd tag" }] },
+      ] },
+    ],
+  }],
+};
+const hostileFetch = async () => ({ ok: true, json: async () => JSON.parse(JSON.stringify(hostile)) });
+
+test("a hostile page that goes through the loader comes out clean", async () => {
+  const got = await loadHelp(hostileFetch, new URL("http://127.0.0.1:5/"));
+  const tags = [];
+  const hrefs = [];
+  const walk = (ns) => ns.forEach((n) => { if (n.t) tags.push(n.t); if (n.h) hrefs.push(n.h); walk(n.c || []); });
+  walk(got.pages[0].tree);
+  assert.deepEqual(tags.sort(), ["a", "p"]);
+  assert.deepEqual(hrefs, ["https://example.com/ok"]);
+  assert.match(JSON.stringify(got.pages[0].tree), /bad link/, "the words of a dropped link stay");
+});
+
+test("a hostile page opened in the dialog puts no script, image or javascript: link in the DOM", async () => {
+  const helpLoad = () => loadHelp(hostileFetch, new URL("http://127.0.0.1:5/"));
+  const m = await mount({ helpLoad });
+  try {
+    await m.press("F1");
+    m.items().find((i) => i.getAttribute("data-page") === "evil").click();
+    await settle();
+    const c = m.content();
+    assert.match(c.textContent, /bad link/);
+    for (const tag of ["script", "img", "marquee"]) assert.equal(c.find(tag), null, tag);
+    const hrefs = c.findAll("a").map((a) => a.getAttribute("href"));
+    assert.deepEqual(hrefs, ["https://example.com/ok"]);
+  } finally { m.done(); }
+});
