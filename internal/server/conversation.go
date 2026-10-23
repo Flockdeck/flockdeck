@@ -7,6 +7,7 @@ import (
 	"github.com/jmwri/flockdeck/internal/agent"
 	"github.com/jmwri/flockdeck/internal/session"
 	"github.com/jmwri/flockdeck/internal/session/transcript"
+	"github.com/jmwri/flockdeck/internal/workspace"
 )
 
 // This file is the desktop side of the phone's chat view: the
@@ -237,7 +238,7 @@ func (s *Server) conversationOpen(c *controlClient, paneID, after string) {
 		pc := s.convos.get(paneID)
 		pc.mu.Lock()
 		defer pc.mu.Unlock()
-		s.syncStreamLocked(pc, r, false)
+		s.syncStreamLocked(paneID, pc, r, false)
 		if !pc.supported {
 			c.sendJSON(conversationPageMsg{Type: "conversationPage", ID: paneID, Supported: false})
 			return
@@ -282,17 +283,35 @@ func (s *Server) conversationOpen(c *controlClient, paneID, after string) {
 // stream ends up in the requested memory mode: light for a pane nobody is
 // watching yet, full for a client that is opening it right now. pc.mu must
 // be held.
-func (s *Server) syncStreamLocked(pc *paneConvo, r resolvedPane, light bool) {
+func (s *Server) syncStreamLocked(paneID string, pc *paneConvo, r resolvedPane, light bool) {
 	if pc.stream != nil && pc.sessionID == r.sessionID {
 		pc.stream.SetLight(light)
 		return
 	}
 	pc.spec, pc.sessionID = r.spec, r.sessionID
-	stream, ok := transcript.StreamFor(r.spec, r.sessionID)
+	stream, ok := s.streamFor(paneID, r.spec, r.sessionID)
 	pc.stream, pc.supported = stream, ok
 	if ok {
 		stream.SetLight(light)
 	}
+}
+
+// streamFor is the stream a pane's conversation is read from: the runtime's own
+// for a structured pane, which keeps its conversation in memory, and the
+// agent's transcript file for any other.
+func (s *Server) streamFor(paneID string, spec agent.Spec, sessionID string) (transcript.Stream, bool) {
+	if st, ok := s.ws.StructuredStream(paneID); ok {
+		return st, true
+	}
+	return transcript.StreamFor(spec, sessionID)
+}
+
+// isRuntimeStream says the stream is a runtime's own, read from memory (a
+// structured pane's), and not a file tailed for an agent that keeps one. It asks
+// the stream and not the agent: a runtime has no hook event and no file to tail.
+func isRuntimeStream(st transcript.Stream) bool {
+	_, ok := st.(*workspace.StructuredStream)
+	return ok
 }
 
 // pageFor answers an open request's page: the newest conversationPageSize
@@ -446,7 +465,7 @@ func (s *Server) ConversationHookEvent(paneID string) {
 		pc.mu.Lock()
 		// Nobody has this pane open yet -- it is only here for the inbox
 		// preview -- so its stream starts light.
-		s.syncStreamLocked(pc, r, true)
+		s.syncStreamLocked(paneID, pc, r, true)
 		pc.mu.Unlock()
 	}
 	s.refreshConversation(paneID, pc)
@@ -462,7 +481,7 @@ func (s *Server) refreshConversation(paneID string, pc *paneConvo) {
 	sessionID := s.ws.ConversationOf(paneID)
 	if sessionID != "" && sessionID != pc.sessionID {
 		pc.sessionID = sessionID
-		stream, ok := transcript.StreamFor(pc.spec, sessionID)
+		stream, ok := s.streamFor(paneID, pc.spec, sessionID)
 		pc.stream, pc.supported = stream, ok
 		if !pc.supported {
 			s.preview.drop(paneID)
@@ -474,7 +493,10 @@ func (s *Server) refreshConversation(paneID string, pc *paneConvo) {
 		// A pane still nobody has open keeps its new stream light too, the
 		// same as if this were its first ever conversation.
 		stream.SetLight(len(pc.watchers) == 0)
-		s.notePreview(paneID, pc.stream.Refresh())
+		changedNow := pc.stream.Refresh()
+		if !isRuntimeStream(pc.stream) {
+			s.notePreview(paneID, changedNow)
+		}
 		// Already answered as a reset below, whatever this says -- a new
 		// session id is reset enough on its own -- so this only drains it for
 		// the next call, the same reason conversationOpen does.
@@ -502,7 +524,9 @@ func (s *Server) refreshConversation(paneID string, pc *paneConvo) {
 	// this is the one place a pane's transcript is tailed for a client that
 	// has never opened it -- but only pushed on to clients that are.
 	changed := pc.stream.Refresh()
-	s.notePreview(paneID, changed)
+	if !isRuntimeStream(pc.stream) {
+		s.notePreview(paneID, changed)
+	}
 	// A conversation can be replaced in place under an unchanged session id
 	// -- a chat pane's own /clear, which (unlike Claude Code's) never gets a
 	// new one; see Stream.Reset. A client already watching must be told to
@@ -572,4 +596,50 @@ func (s *Server) conversationPollLoop() {
 			}
 		}
 	}
+}
+
+// watchedStructured lists the structured panes at least one client is watching.
+func (h *conversationHub) watchedStructured() []string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	var ids []string
+	for id, pc := range h.panes {
+		pc.mu.Lock()
+		if isRuntimeStream(pc.stream) && len(pc.watchers) > 0 {
+			ids = append(ids, id)
+		}
+		pc.mu.Unlock()
+	}
+	return ids
+}
+
+// structuredConversationRead, when set, is called each time the merged re-read
+// of the structured panes' conversations runs. It is for a test to count them.
+var structuredConversationRead func()
+
+// pushStructuredConversations arranges for the structured panes a window has
+// open to be re-read in a moment, once. A structured pane has no hook event and
+// no file to tail: the state push that follows any change in its runtime is the
+// signal, so this runs with each one, and the re-read is merged to one in
+// structuredInterval. It runs on the workspace goroutine and does not block.
+func (s *Server) pushStructuredConversations() {
+	if len(s.convos.watchedStructured()) == 0 || !s.convoArmed.CompareAndSwap(false, true) {
+		return
+	}
+	time.AfterFunc(structuredInterval, func() {
+		s.convoArmed.Store(false)
+		if structuredConversationRead != nil {
+			structuredConversationRead()
+		}
+		select {
+		case <-s.closed:
+			return
+		default:
+		}
+		for _, id := range s.convos.watchedStructured() {
+			if pc, ok := s.convos.lookup(id); ok {
+				s.refreshConversation(id, pc)
+			}
+		}
+	})
 }
