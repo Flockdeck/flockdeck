@@ -28,6 +28,7 @@
 import { html } from "../html.js";
 import { useEffect, useRef, useState } from "../vendor/hooks.mjs";
 import { createPty, ptyUrl } from "./pty.js";
+import { DEFAULT_FONT } from "./prefs.js";
 import { loadTerminalLibs } from "./load-script.js";
 
 /** STRUCTURED_STUB is what a structured pane's terminal says, as the old
@@ -44,8 +45,6 @@ const MIN_COLS = 20;
 const MIN_ROWS = 5;
 const MAX_COLS = 500;
 const MAX_ROWS = 200;
-
-const DEFAULT_FONT = '"Cascadia Mono", "JetBrains Mono", Consolas, "SF Mono", Menlo, monospace';
 
 /** isTerminalReply says what the terminal sends is it answering its program
  *  and not somebody typing: an OSC, DCS, APC or PM string, a CSI ending in R,
@@ -175,6 +174,9 @@ export function createTerminal(opts) {
   let replaying = false;
   let replayGen = 0;
   let box = null; // the size the box would take, from the fit addon
+  // Options set before the terminal was made (the libraries load late), laid over
+  // the ones it was created with.
+  let later = null;
 
   const set = (patch) => {
     state = { ...state, ...patch };
@@ -196,6 +198,7 @@ export function createTerminal(opts) {
       linkHandler: { activate: (_ev, uri) => { if (safeLink(uri) && opts.openExternal) opts.openExternal(uri); } },
       theme: { background: "#0a0e11", foreground: "#d7dfe4", cursor: "#4fd1db", selectionBackground: "#1f4e53" },
       ...opts.termOptions,
+      ...later,
     });
     fit = new FitAddon();
     term.loadAddon(fit);
@@ -501,6 +504,21 @@ export function createTerminal(opts) {
       if (pty) pty.retryNow();
     },
     focus() { if (term) term.focus(); },
+    /** setOptions changes xterm options on the open terminal (a font, the
+     *  cursor, the scrollback), or on the one about to open. The box is measured
+     *  again, since a font changes the size of a cell. It never sends a resize. */
+    setOptions(o) {
+      if (!o) return;
+      if (!term) { later = { ...later, ...o }; return; }
+      let changed = false;
+      for (const [k, v] of Object.entries(o)) {
+        if (term.options[k] !== v) {
+          term.options[k] = v;
+          changed = true;
+        }
+      }
+      if (changed) measure();
+    },
     /** sendKeys types text into the pane over the terminal socket, as keys the
      *  person pressed: the drawer's permission buttons send Enter and Esc this
      *  way, sealed when the desktop has a key. It returns false, and sends

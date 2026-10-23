@@ -32,7 +32,7 @@ export const TITLES = { agent: "Start an agent", team: "Start a team" };
 const focusables = (root) => (root && root.querySelectorAll ? [...root.querySelectorAll("select, textarea, input, button")].filter((n) => !n.disabled) : []);
 
 /** trapTab keeps Tab and Shift+Tab inside the dialog. */
-function trapTab(e, root) {
+export function trapTab(e, root) {
   const list = focusables(root);
   if (list.length === 0) return;
   const doc = root.ownerDocument;

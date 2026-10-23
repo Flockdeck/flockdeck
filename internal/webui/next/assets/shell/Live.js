@@ -19,7 +19,9 @@ import { Shell, useNarrow } from "./app.js";
 import { Home, sameProject, rosterOf } from "./Home.js";
 import { Start } from "./Start.js";
 import { Tabs } from "./Tabs.js";
+import { Settings } from "./Settings.js";
 import { useLifecycle } from "../drawer/Lifecycle.js";
+import { FONT_DEFAULT, FONT_MAX, FONT_MIN, applyLook, prefsOf, reducedMotion, setting, termOptionsOf } from "../lib/prefs.js";
 import { catalogOf, closeTabWarnings, moveTabCommand, newTabCommand, tabsOf } from "../lib/lifecycle.js";
 
 // What the shell is given before the first hello and state. Constants, so the
@@ -60,6 +62,10 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null })
   const [local, setLocal] = useState("");
   const [dismissed, setDismissed] = useState(0);
   const [opening, setOpening] = useState("");
+  // The settings dialog, and the changes made in it that the desktop has not
+  // answered yet (by preference, as the desktop will keep them).
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [patch, setPatch] = useState({});
   // The store empties its hello and state when the socket drops. The rail and
   // the project chosen in it are kept through that, so a reconnect does not clear
   // the choice and ask for the graph a second time.
@@ -129,6 +135,38 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null })
   const noticeSeq = snap.notice ? snap.notice.seq : 0;
   const noticeText = local || (snap.notice && noticeSeq > dismissed ? String(snap.notice.text || "") : "");
   const say = (text) => setLocal(text);
+
+  // The settings: the desktop's, with this window's own changes over them until
+  // the desktop answers. A change it refuses (a viewer's) is answered with a
+  // notice, which ends the wait and puts the window back to what is kept.
+  const page = win || (typeof window !== "undefined" ? window : null);
+  const kept_prefs = kept.current.hello.prefs;
+  useEffect(() => {
+    setPatch({});
+  }, [kept_prefs, noticeSeq]);
+  const prefs = useMemo(() => prefsOf({ ...(kept_prefs || {}), ...patch }), [kept_prefs, patch]);
+  useEffect(() => {
+    applyLook(page, prefs);
+  }, [page, prefs.theme, prefs.accent]);
+  const reduced = reducedMotion(page);
+  const look = useMemo(() => termOptionsOf(prefs, reduced), [prefs, reduced]);
+  const termProps = useMemo(
+    () => ({ ...(terminalOptions || {}), termOptions: { ...look, ...((terminalOptions && terminalOptions.termOptions) || {}) } }),
+    [terminalOptions, look],
+  );
+  // change sends one setting and shows it now. It answers whether the value
+  // was one the desktop would keep.
+  const change = (name, value) => {
+    const s = setting(name, value);
+    if (!s) return false;
+    send(s.command);
+    setPatch((p) => ({ ...p, ...s.patch }));
+    return true;
+  };
+  const bumpFont = (to) => {
+    if (to < FONT_MIN || to > FONT_MAX) return;
+    if (change("fontSize", to)) say("Font size " + to + "px");
+  };
   // A notice from the desk replaces one of this page's own.
   useEffect(() => {
     if (noticeSeq) setLocal("");
@@ -165,6 +203,10 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null })
       const el = barRef.current;
       if (el && el.focus) el.focus();
     },
+    settings: () => setSettingsOpen(true),
+    fontUp: () => bumpFont(prefs.fontSize + 1),
+    fontDown: () => bumpFont(prefs.fontSize - 1),
+    fontReset: () => bumpFont(FONT_DEFAULT),
     newAgentTab: () => send(newTabCommand({ kind: "agent" })),
     newAgentTabChoose: () => setStarting("agent"),
     newShellTab: () => send(newTabCommand({ kind: "shell" })),
@@ -185,7 +227,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null })
     restartPane: needPane(() => life.begin("restart", node, pane)),
     lockPane: needPane(() => life.toggleLock(node.pane, !(pane && pane.locked))),
     closePane: needPane(() => (pane && pane.locked ? say("This pane is locked. Unlock it to close it.") : life.begin("close", node, pane))),
-  }), [current, snap.graphGone, win, drawer.pane, node, pane, tabs, life.request]);
+  }), [current, snap.graphGone, win, drawer.pane, node, pane, tabs, life.request, prefs.fontSize]);
 
   return html`<${Shell}
     hello=${kept.current.hello}
@@ -198,15 +240,17 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null })
     mainRef=${mainRef}
     actions=${actions}
     maximised=${drawer.maximised}
-    blocked=${!!starting}
+    blocked=${!!starting || settingsOpen}
+    onSettings=${() => setSettingsOpen(true)}
     notice=${noticeText}
     onDismissNotice=${() => { setLocal(""); setDismissed(noticeSeq); }}
     drawer=${node
       ? html`<${Drawer} store=${store} snap=${snap} node=${node} pane=${pane} now=${Date.now()} maximised=${drawer.maximised}
-          onClose=${drawer.close} onToggleMax=${drawer.toggleMax} terminalOptions=${terminalOptions} life=${life} />`
+          onClose=${drawer.close} onToggleMax=${drawer.toggleMax} terminalOptions=${termProps} life=${life} />`
       : null}
   >${snap.state ? html`<${Tabs} tabs=${tabs} send=${send} show=${onDesk} warnFor=${(t) => closeTabWarnings(t, current ? current.byPane : null, statePanes)} onChoose=${() => setStarting("agent")} />` : null}
     <${Home} snap=${snap} selected=${selected} onShown=${setShown} onOpen=${drawer.open} open=${drawer.pane} narrow=${narrow} />
+    ${settingsOpen ? html`<${Settings} prefs=${prefs} change=${change} onClose=${() => setSettingsOpen(false)} />` : null}
     ${starting
       ? html`<${Start} mode=${starting} catalog=${catalog} project=${project} send=${send} onClose=${() => setStarting("")} />`
       : null}
