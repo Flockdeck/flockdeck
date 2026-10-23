@@ -49,6 +49,9 @@
 //   notice        the latest notice as { seq, text, error, ... }, or null. seq
 //                 grows with each one, so a view can tell a new notice from a
 //                 repeat of the same text.
+//   versions      the latest listVersions answer as { items, error }, or null
+//                 before one (and again after the next listVersions is sent)
+//   detached      true once the desktop has detached this window
 //   sent          the latest accepted paneSend as { seq, id, queued, shell,
 //                 waiting, routed }, or null. A refused one arrives as a notice
 //                 with error true. seq grows with each one.
@@ -112,20 +115,25 @@ export const REMOTE_CONVERSATION_LINE = "Conversations are shown on the desktop 
  *  are dropped, and the conversation no longer starts at the first of them. */
 export const MAX_ENTRIES = 500;
 
+/** MACHINE_ONLY are the commands that change what the machine runs: updating,
+ *  restarting, detaching, quitting. A remote window sends none of them, and the
+ *  desktop would refuse them if it did. */
+const MACHINE_ONLY = ["checkForUpdate", "listVersions", "installVersion", "restart", "updates", "detach", "quit"];
+
 const GRAPH_OPS = new Set(["graphSnapshot", "graphWatch", "graphUnwatch"]);
 
 /** DESK_ONLY says a command is one a remote window may not send: the graph
- *  commands, the structured pane ones, permissionAnswer and paneSend. The
+ *  commands, the structured pane ones, permissionAnswer, paneSend and MACHINE_ONLY. The
  *  desktop refuses them there, so the store does not send them. paneSend is
  *  sent from two places, the manager bar and a structured pane's prompt box, and
  *  neither is drawn in a remote window. */
-const DESK_ONLY = (cmd) => typeof cmd === "string" && (cmd.startsWith("graph") || cmd.startsWith("structured") || cmd === "permissionAnswer" || cmd === "paneSend");
+const DESK_ONLY = (cmd) => typeof cmd === "string" && (cmd.startsWith("graph") || cmd.startsWith("structured") || cmd === "permissionAnswer" || cmd === "paneSend" || MACHINE_ONLY.includes(cmd));
 
 const initial = () => ({
   connection: "idle", retryInMs: 0,
   hello: null, remote: false, state: null,
   graph: null, graphGone: null, graphRefused: false, graphError: null,
-  notice: null, sent: null, started: null, structured: null, structuredError: null, cancelError: null, answer: null, conversation: null, dropped: 0,
+  notice: null, versions: null, detached: false, sent: null, started: null, structured: null, structuredError: null, cancelError: null, answer: null, conversation: null, dropped: 0,
 });
 
 /** upsert returns entries with each of the new ones in place of the one with its
@@ -329,6 +337,12 @@ export function createStore(opts) {
         set({ conversation: { ...c, entries, atStart } });
         break;
       }
+      case "versions":
+        set({ versions: { items: Array.isArray(msg.items) ? msg.items : [], error: typeof msg.error === "string" ? msg.error : "" } });
+        break;
+      case "detached":
+        set({ detached: true });
+        break;
       case "notice":
         // The refusal of a conversation command is shown on the tab, once. The
         // notice is kept as well, like any other.
@@ -368,6 +382,7 @@ export function createStore(opts) {
       // Until the hello says otherwise a window may be remote, so a desk-only command waits for it.
       if ((snap.remote || !snap.hello) && DESK_ONLY(cmd.cmd)) return false;
       const sent = socket.send(cmd);
+      if (sent && cmd.cmd === "listVersions" && snap.versions) set({ versions: null });
       if (sent && cmd.cmd === "structuredCancel" && cmd.req) {
         if (cancelPanes.size >= 20) cancelPanes.delete(cancelPanes.keys().next().value);
         cancelPanes.set(cmd.req, String(cmd.id || ""));

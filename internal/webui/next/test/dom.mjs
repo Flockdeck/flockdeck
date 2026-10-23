@@ -212,8 +212,13 @@ class Element_ extends Node_ {
   }
 }
 
-// Only what the tests ask for: tag, .class, #id, [attr] and [attr=value], one of them.
+// Only what the tests ask for: tag, .class, #id, [attr] and [attr=value], one of them, or a comma list of them.
 function matcher(sel) {
+  // A list of selectors matches what any of them matches.
+  if (sel.includes(",")) {
+    const each = sel.split(",").map((x) => matcher(x.trim()));
+    return (n) => each.some((f) => f(n));
+  }
   if (sel.startsWith(".")) return (n) => (n.attributes.class || "").split(/\s+/).includes(sel.slice(1));
   if (sel.startsWith("#")) return (n) => n.attributes.id === sel.slice(1);
   const m = /^\[([\w-]+)="([^"]*)"\]$/.exec(sel);
