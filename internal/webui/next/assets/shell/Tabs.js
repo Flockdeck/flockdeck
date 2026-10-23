@@ -32,6 +32,7 @@ export const CLOSE_WAITING_WORDS = "An agent in this tab is waiting for your ans
 export function Tabs({ tabs, send, onChoose, warnFor, show = true }) {
   const [renaming, setRenaming] = useState("");
   const [closing, setClosing] = useState(null);
+  const [stop, setStop] = useState("");
   const root = useRef(null);
   // The tab whose button takes the keyboard back after this render: one that
   // had it (a browser drops the keyboard from a button it moves in the list when
@@ -57,6 +58,28 @@ export function Tabs({ tabs, send, onChoose, warnFor, show = true }) {
     const cmd = current ? moveTabCommand(tabs, current.id, dir) : null;
     if (cmd) send(cmd);
   };
+  // Roving tabindex: one tab button is in the Tab order, the one that last had the
+  // keyboard, else the open tab, else the first. Arrow keys, Home and End move the
+  // keyboard along the tabs and do not choose one; Enter or Space on a tab does.
+  const stopId = tabs.some((t) => t.id === stop) ? stop : current ? current.id : tabs.length ? tabs[0].id : "";
+  const onListKey = (e) => {
+    if (composing(e) || e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return;
+    const li = e.target && e.target.getAttribute && e.target.getAttribute("role") === "tab" ? e.target.closest("li") : null;
+    const at = li ? tabs.findIndex((t) => t.id === li.getAttribute("data-tab")) : -1;
+    if (at < 0) return;
+    let to = -1;
+    if (e.key === LIST.right) to = (at + 1) % tabs.length;
+    else if (e.key === LIST.left) to = (at - 1 + tabs.length) % tabs.length;
+    else if (e.key === LIST.home) to = 0;
+    else if (e.key === LIST.end) to = tabs.length - 1;
+    if (to < 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const next = [...root.current.querySelectorAll("li")].find((n) => n.getAttribute("data-tab") === tabs[to].id);
+    const pick = next ? next.querySelector('[role="tab"]') : null;
+    setStop(tabs[to].id);
+    if (pick) pick.focus();
+  };
   const askClose = (t) => {
     const words = warnFor ? warnFor(t) : [];
     if (words.length === 0 && t.activity === "waiting") words.push(CLOSE_WAITING_WORDS);
@@ -65,7 +88,7 @@ export function Tabs({ tabs, send, onChoose, warnFor, show = true }) {
   };
   return html`
     <div class="tabs" role="toolbar" aria-label="Tabs" ref=${root}>
-      <ul class="tabs-list" role="tablist" aria-label="Open tabs">
+      <ul class="tabs-list" role="tablist" aria-label="Open tabs" onKeyDown=${onListKey}>
         ${tabs.map((t) =>
           renaming === t.id
             ? html`<${RenameBox} key=${t.id} tab=${t} onDone=${(text) => {
@@ -74,7 +97,7 @@ export function Tabs({ tabs, send, onChoose, warnFor, show = true }) {
                 refocus.current = t.id;
                 setRenaming("");
               }} />`
-            : html`<${TabItem} key=${t.id} tab=${t} onSelect=${() => send({ cmd: "selectTab", id: t.id })}
+            : html`<${TabItem} key=${t.id} tab=${t} stop=${t.id === stopId} onFocus=${() => setStop(t.id)} onSelect=${() => send({ cmd: "selectTab", id: t.id })}
                 onRename=${() => setRenaming(t.id)}
                 onClose=${() => askClose(t)} />`)}
       </ul>
@@ -96,13 +119,13 @@ export function Tabs({ tabs, send, onChoose, warnFor, show = true }) {
   `;
 }
 
-function TabItem({ tab, onSelect, onRename, onClose }) {
+function TabItem({ tab, stop, onFocus, onSelect, onRename, onClose }) {
   const cls = "tab" + (tab.active ? " is-active" : "") + (tab.activity ? " tab--" + tab.activity : "");
   const label = (tab.title || "Untitled") + (tab.activity ? ", " + tab.activity : "");
   return html`
     <li class=${cls} role="presentation" data-tab=${tab.id}>
       <button type="button" class="tab-pick" role="tab" aria-selected=${tab.active ? "true" : "false"} aria-label=${label} title=${tab.title}
-        onClick=${onSelect} onDblClick=${onRename}>
+        tabindex=${stop ? "0" : "-1"} onFocus=${onFocus} onClick=${onSelect} onDblClick=${onRename}>
         <span class="tab-title">${tab.title || "Untitled"}</span>
         ${tab.activity ? html`<span class=${"badge badge--" + tab.activity} aria-hidden="true">${tab.activity}</span>` : null}
       </button>
