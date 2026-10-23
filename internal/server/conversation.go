@@ -613,6 +613,10 @@ func (h *conversationHub) watchedStructured() []string {
 	return ids
 }
 
+// structuredConversationRead, when set, is called each time the merged re-read
+// of the structured panes' conversations runs. It is for a test to count them.
+var structuredConversationRead func()
+
 // pushStructuredConversations arranges for the structured panes a window has
 // open to be re-read in a moment, once. A structured pane has no hook event and
 // no file to tail: the state push that follows any change in its runtime is the
@@ -624,6 +628,9 @@ func (s *Server) pushStructuredConversations() {
 	}
 	time.AfterFunc(structuredInterval, func() {
 		s.convoArmed.Store(false)
+		if structuredConversationRead != nil {
+			structuredConversationRead()
+		}
 		select {
 		case <-s.closed:
 			return

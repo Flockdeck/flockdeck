@@ -210,13 +210,11 @@ for a structured pane and no warning.
   view. So are the commands of section 1.
 - A relay window is told the pane's name, status, directory, branch, project, agent and model, and no
   text the agent wrote. The scrub in section 1 removes what the agent said.
-- By decision, a window reached through the relay is to receive no conversation text from any pane
-  until the scrub of what goes to the relay has been reviewed. The change that enforces this is in
-  progress. Until it lands, the conversation commands still reach a relay device that may watch, for
-  a terminal pane. A relay window is refused all four commands for any pane, and is sent no
-  `conversationAppend`, `conversationDetail` or `conversationSearch`, so a structured pane's
-  conversation does not reach it by the new path either
-  (`TestARelayWindowGetsNothingOfAStructuredPanesConversation`).
+- A window reached through the relay receives no conversation text from any pane (T112).
+  `refuseRemoteText` refuses `conversationOpen`, `conversationOlder`, `conversationDetail` and
+  `conversationSearch` to it for every pane, and it is sent no `conversationAppend`,
+  `conversationDetail` or `conversationSearch`, so a structured pane's conversation does not reach it
+  by this path either (`TestARelayWindowGetsNothingOfAStructuredPanesConversation`).
 - The old window shows a stub line and sends it nothing; the pane is for the new interface's drawer.
 - No export, since the conversation is not stored where Flockdeck reads it. The conversation
   commands read it from memory (see the drawer section above).
