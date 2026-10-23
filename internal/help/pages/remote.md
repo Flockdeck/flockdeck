@@ -184,8 +184,7 @@ own column beside whichever one is open, instead of swapping the whole
 screen for it; tapping another row swaps only that side, so the list keeps
 its scroll position and any helper group you had open.
 
-On a phone, opening a pane shows a chat with the agent rather than its raw
-terminal, for a Claude Code pane and Flockdeck's own chat client (see
+On a phone, opening a pane shows its terminal for now, not a chat (see
 **Your agents on your phone**, below). When an agent stops to ask a question
 or for a permission, the phone says so and which tool it is; the question
 and the command are read, and answered, at the desk (see below).
@@ -232,15 +231,15 @@ they can hold a key or a password and the phone is reached through the relay.
 Answer at the desk, or open the pane's terminal view from the phone, where the
 whole prompt is shown and the answer is typed over the encrypted connection.
 Earlier versions answered a question with buttons on the phone; that is no
-longer done. Text that a tool row shows in the chat (a command's label, a
-summary or a diff) has secrets such as keys and tokens replaced with
-`[redacted]` before it is sent.
+longer done. Tool rows are not sent to a phone at all for now.
 
 This needs a phone app that hides Yes and No for a card marked `redacted`. An
 older app draws Yes and No whenever a card is there, and presses the terminal's
-answer without showing what it is. The change is flockdeck-remote #39, merged
-to main and not yet tagged; the app version that has it is filled in here when
-it is tagged. Update the app before relying on this.
+answer without showing what it is. The fix is in flockdeck-remote v0.2.51. It
+reaches phones when the relay is next deployed. Until a phone shows the new
+cards, do not answer a permission card from a phone: answer at the desk, or
+open the pane's terminal view.
+
 Each reply also carries its own **Copy**, for the whole thing as Markdown,
 and **Quote**, which drops a paragraph or so of it into the box, quoted,
 ahead of whatever you've already typed. A message you start and don't send
