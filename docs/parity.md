@@ -11,9 +11,9 @@ It compares two lists the sources hold: the actions of the key table (`internal/
 | done | 7 | 0 |
 | replaced | 0 | 3 |
 | cut | 14 | 11 |
-| planned | 37 | 138 |
+| planned | 37 | 142 |
 | unclassified | 0 | 0 |
-| total | 58 | 152 |
+| total | 58 | 156 |
 
 Done means the new interface runs the action or sends the command under that name. Replaced means it sends another command for it. Cut is on purpose. Planned names the task on the board that owns it.
 
@@ -36,7 +36,7 @@ The old interface let a person tile, split, move and broadcast to panes. The new
 | action | `mergeAllTabs` | Moving and merging panes and tabs is cut; the team is a graph. |
 | action | `toggleBroadcast` | Broadcasting to panes is cut; a manager sends to its team. |
 | action | `toggleBroadcastMember` | Broadcasting to panes is cut; a manager sends to its team. |
-| action | `promptAll` | Broadcasting to panes is cut; a manager sends to its team. |
+| action | `promptAll` | Broadcasting to panes is cut; a manager sends to its team. It opens the prompt bar aimed at the focused pane, which the new prompt (paneSend) covers; with broadcast on it reached every member. |
 | command | `mergeAllTabs` | Moving and merging panes and tabs is cut; the team is a graph. |
 | command | `mergeTab` | Moving and merging panes and tabs is cut; the team is a graph. |
 | command | `movePane` | Moving and merging panes and tabs is cut; the team is a graph. |
@@ -62,7 +62,7 @@ The old interface let a person tile, split, move and broadcast to panes. The new
 | T138 (L3, help) | `help` | `helpSeen` |
 | T139 (L4, history, find, pane info) | `recordPane`, `exportTranscript`, `revealTranscript`, `paneInfo`, `findInTerminal`, `findPane`, `history`, `openRecordings` | `conversations`, `exportTranscript`, `findPane`, `openRecordings`, `paneInfo`, `recordPane`, `resumeConversation`, `revealPane`, `revealTranscript` |
 | T140 (L5, API keys, remote, notifications) | `apiKeys`, `remote` | `keyClear`, `keySet`, `keys`, `notifications`, `presence`, `pushAnonymous`, `pushDelay`, `pushNotify`, `remoteDevices`, `remoteDisable`, `remoteEnable`, `remoteMove`, `remotePair`, `remoteReconnect`, `remoteRemove`, `remoteRename`, `remoteRevoke`, `remoteUnverify`, `remoteVerify`, `setDeviceRole` |
-| T141 (L6, helpers, baton, projects) | `makeBaton`, `helpers` | `addRepoToGroup`, `archiveProject`, `closeProject`, `groupProjects`, `helperInstall`, `helperOpen`, `helperPlan`, `helperStart`, `helperStop`, `helperUninstall`, `helpers`, `makeBaton`, `openProject`, `removeProject`, `removeRepoFromGroup`, `renameGroup`, `renameProject`, `reorderProjects`, `selectProject`, `selectRepo` |
+| T141 (L6, helpers, baton, projects) | `makeBaton`, `helpers` | `addRepoToGroup`, `approveBaton`, `archiveProject`, `closeProject`, `groupProjects`, `helperInstall`, `helperOpen`, `helperPlan`, `helperStart`, `helperStop`, `helperUninstall`, `helpers`, `makeBaton`, `openProject`, `removeProject`, `removeRepoFromGroup`, `renameGroup`, `renameProject`, `reorderProjects`, `restartWithBaton`, `saveBaton`, `selectProject`, `selectRepo`, `startFromBaton` |
 | T142 (L7, updates, detach, quit) | `detach`, `quit` | `checkForUpdate`, `detach`, `installVersion`, `listVersions`, `quit`, `restart`, `save`, `updates` |
 | T143 (L8, remaining actions) | `agents`, `team` | `autoReview`, `autoReviewDefault`, `clearRoutingLog`, `jevKey`, `jevStatus`, `msgList`, `msgSeen`, `msgSend`, `setRouting`, `setWeights`, `taskAdd`, `taskAssign`, `taskBranch`, `taskNote`, `taskPrune`, `taskStatus` |
 
@@ -99,7 +99,7 @@ The old interface let a person tile, split, move and broadcast to panes. The new
 | `moveTabRight` | Move tab right | planned | T136 (L1, start flows and pane lifecycle). Reordering tabs is kept; a judgement to confirm |
 | `toggleBroadcast` | Toggle broadcast (Ctrl+Shift+B) | cut | Broadcasting to panes is cut; a manager sends to its team. |
 | `toggleBroadcastMember` | Add this pane to broadcast, or take it out | cut | Broadcasting to panes is cut; a manager sends to its team. |
-| `promptAll` | Prompt all panes (Ctrl+Shift+P) | cut | Broadcasting to panes is cut; a manager sends to its team. |
+| `promptAll` | Prompt all panes (Ctrl+Shift+P) | cut | Broadcasting to panes is cut; a manager sends to its team. It opens the prompt bar aimed at the focused pane, which the new prompt (paneSend) covers; with broadcast on it reached every member. |
 | `makeBaton` | Make baton: hand this pane's work to another agent | planned | T141 (L6, helpers, baton, projects) |
 | `agents` | All agents across projects (Ctrl+Shift+A) | planned | T143 (L8, remaining actions). The list of agents across projects has no task; decide whether the graph's project switch is enough |
 | `closeFinishedPanes` | Close finished panes — idle agents and cleanly exited panes, in every open project | planned | T136 (L1, start flows and pane lifecycle) |
@@ -136,9 +136,10 @@ The old interface let a person tile, split, move and broadcast to panes. The new
 | `accentColor` | planned | T137 (L2, settings) |
 | `addRepoToGroup` | planned | T141 (L6, helpers, baton, projects) |
 | `agents` | planned | T136 (L1, start flows and pane lifecycle). The agent picker |
+| `approveBaton` | planned | T141 (L6, helpers, baton, projects). Arrives from the desktop in a notice's action, not named in the old interface |
 | `archiveProject` | planned | T141 (L6, helpers, baton, projects) |
-| `autoReview` | planned | T143 (L8, remaining actions). Auto review has no task |
-| `autoReviewDefault` | planned | T143 (L8, remaining actions). Auto review has no task |
+| `autoReview` | planned | T143 (L8, remaining actions). Safety control: the new shell cannot turn auto review off |
+| `autoReviewDefault` | planned | T143 (L8, remaining actions). Safety control: the default for new panes |
 | `browse` | planned | T136 (L1, start flows and pane lifecycle). The folder picker of the start flow |
 | `changes` | planned | T132 (C6, Changes) |
 | `checkForUpdate` | planned | T142 (L7, updates, detach, quit) |
@@ -187,7 +188,7 @@ The old interface let a person tile, split, move and broadcast to panes. The new
 | `helperUninstall` | planned | T141 (L6, helpers, baton, projects) |
 | `helpers` | planned | T141 (L6, helpers, baton, projects) |
 | `installVersion` | planned | T142 (L7, updates, detach, quit) |
-| `jevKey` | planned | T143 (L8, remaining actions). The Jev key has no task |
+| `jevKey` | planned | T143 (L8, remaining actions). Security control: the Jev key is set and cleared here |
 | `jevStatus` | planned | T143 (L8, remaining actions). The Jev status has no task |
 | `keyClear` | planned | T140 (L5, API keys, remote, notifications) |
 | `keySet` | planned | T140 (L5, API keys, remote, notifications) |
@@ -244,10 +245,12 @@ The old interface let a person tile, split, move and broadcast to panes. The new
 | `resetTips` | planned | T137 (L2, settings) |
 | `restart` | planned | T142 (L7, updates, detach, quit). Restart after an update |
 | `restartPane` | planned | T136 (L1, start flows and pane lifecycle) |
+| `restartWithBaton` | planned | T141 (L6, helpers, baton, projects). Sent through a helper in the old interface |
 | `resumeConversation` | planned | T139 (L4, history, find, pane info) |
 | `revealPane` | planned | T139 (L4, history, find, pane info) |
 | `revealTranscript` | planned | T139 (L4, history, find, pane info) |
-| `save` | planned | T142 (L7, updates, detach, quit). Saves the layout when the page unloads |
+| `save` | planned | T142 (L7, updates, detach, quit). Saves the layout when the page unloads; may be moot once tiling is cut |
+| `saveBaton` | planned | T141 (L6, helpers, baton, projects). Sent through a helper in the old interface |
 | `screenReader` | planned | T137 (L2, settings) |
 | `scrollback` | planned | T137 (L2, settings) |
 | `selectProject` | planned | T141 (L6, helpers, baton, projects). Tells the desktop which project is active |
@@ -262,6 +265,7 @@ The old interface let a person tile, split, move and broadcast to panes. The new
 | `setWeights` | planned | T143 (L8, remaining actions). Routing has no task |
 | `splitPane` | cut | Tiling and splitting panes is cut; the team is a graph. |
 | `startAgent` | planned | T136 (L1, start flows and pane lifecycle) |
+| `startFromBaton` | planned | T141 (L6, helpers, baton, projects). Sent through a helper in the old interface |
 | `statusLine` | planned | T137 (L2, settings) |
 | `swapPanes` | cut | Moving and merging panes and tabs is cut; the team is a graph. |
 | `taskAdd` | planned | T143 (L8, remaining actions). Editing the task board has no task |

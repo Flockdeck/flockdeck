@@ -220,3 +220,55 @@ func TestParityDocIsCurrent(t *testing.T) {
 		t.Errorf("%s is out of date: run `go run ./cmd/parity -w` from the repository root", outFile)
 	}
 }
+
+// The scan reads `cmd: "name"`, so a command the old interface sends through a
+// helper, in the shorthand { cmd, ... }, or by a name the desktop supplies is
+// invisible to it. The other direction finds them: a command the server handles
+// and the old interface quotes must be one the scan found, one listed as sent by
+// a helper or supplied by the server, or a string that is not a command at all.
+func TestNoServerCommandNamedInTheOldInterfaceIsMissed(t *testing.T) {
+	f, err := gather(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	known, err := serverKnows(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	app, err := readFile(root, oldApp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name := range known {
+		if !strings.Contains(app, `"`+name+`"`) {
+			continue
+		}
+		if _, ok := f.OldCommands[name]; ok || slices.Contains(notCommands, name) {
+			continue
+		}
+		t.Errorf("the server handles %q and the old interface quotes it, but the scan did not find it sent. If the old interface sends it (through a helper, or as { cmd, ... }), add it to helperCommands and classify it; if the string is not a command, add it to notCommands.", name)
+	}
+	for _, name := range notCommands {
+		if !strings.Contains(app, `"`+name+`"`) || !known[name] {
+			t.Errorf("notCommands lists %q, which is not both quoted in the old interface and a case in the server: remove it", name)
+		}
+	}
+	for _, name := range helperCommands {
+		if !strings.Contains(app, `"`+name+`"`) {
+			t.Errorf("helperCommands lists %q, which the old interface does not name", name)
+		}
+		if !known[name] {
+			t.Errorf("helperCommands lists %q, which the server does not handle", name)
+		}
+	}
+	for _, name := range serverSuppliedCommands {
+		if !known[name] {
+			t.Errorf("serverSuppliedCommands lists %q, which the server does not handle", name)
+		}
+	}
+	for _, name := range blocksRetirement {
+		if _, ok := f.OldCommands[name]; !ok {
+			t.Errorf("blocksRetirement lists %q, which the old interface does not send", name)
+		}
+	}
+}

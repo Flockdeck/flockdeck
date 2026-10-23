@@ -27,6 +27,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -144,6 +145,11 @@ func gather(root string) (Facts, error) {
 			if _, ok := f.OldCommands[m[1]]; !ok {
 				f.OldCommands[m[1]] = 0
 			}
+		}
+	}
+	for _, n := range append(slices.Clone(helperCommands), serverSuppliedCommands...) {
+		if _, ok := f.OldCommands[n]; !ok {
+			f.OldCommands[n] = 0
 		}
 	}
 	if m := prefCmdLine.FindStringSubmatch(old); m != nil {

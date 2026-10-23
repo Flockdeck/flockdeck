@@ -1,7 +1,5 @@
 package main
 
-import "fmt"
-
 // Kind is what is said of an action or command the new interface does not do
 // yet.
 type Kind int
@@ -113,7 +111,7 @@ var keyVerdicts = map[string]Verdict{
 	// Agents.
 	"toggleBroadcast":       cut(whyBroadcast),
 	"toggleBroadcastMember": cut(whyBroadcast),
-	"promptAll":             cut(whyBroadcast),
+	"promptAll":             cut(whyBroadcast + " It opens the prompt bar aimed at the focused pane, which the new prompt (paneSend) covers; with broadcast on it reached every member."),
 	"makeBaton":             task(tL6),
 	"agents":                task(tL8, "The list of agents across projects has no task; decide whether the graph's project switch is enough"),
 	"closeFinishedPanes":    task(tL1),
@@ -250,6 +248,10 @@ var cmdVerdicts = map[string]Verdict{
 	"helperStop":          task(tL6),
 	"helperUninstall":     task(tL6),
 	"makeBaton":           task(tL6),
+	"saveBaton":           task(tL6, "Sent through a helper in the old interface"),
+	"restartWithBaton":    task(tL6, "Sent through a helper in the old interface"),
+	"startFromBaton":      task(tL6, "Sent through a helper in the old interface"),
+	"approveBaton":        task(tL6, "Arrives from the desktop in a notice's action, not named in the old interface"),
 	"openProject":         task(tL6),
 	"closeProject":        task(tL6),
 	"removeProject":       task(tL6),
@@ -271,7 +273,7 @@ var cmdVerdicts = map[string]Verdict{
 	"quit":           task(tL7),
 	"restart":        task(tL7, "Restart after an update"),
 	"updates":        task(tL7),
-	"save":           task(tL7, "Saves the layout when the page unloads"),
+	"save":           task(tL7, "Saves the layout when the page unloads; may be moot once tiling is cut"),
 
 	// Git, worktrees, GitHub.
 	"changes":        task(tC6),
@@ -314,12 +316,12 @@ var cmdVerdicts = map[string]Verdict{
 	"msgSeen":    task(tL8, "Team messages have no task"),
 
 	// Routing and review, TypeSafe's Jev: docs are deferred until they ship.
-	"autoReview":        task(tL8, "Auto review has no task"),
-	"autoReviewDefault": task(tL8, "Auto review has no task"),
+	"autoReview":        task(tL8, "Safety control: the new shell cannot turn auto review off"),
+	"autoReviewDefault": task(tL8, "Safety control: the default for new panes"),
 	"setRouting":        task(tL8, "Routing has no task"),
 	"setWeights":        task(tL8, "Routing has no task"),
 	"clearRoutingLog":   task(tL8, "Routing has no task"),
-	"jevKey":            task(tL8, "The Jev key has no task"),
+	"jevKey":            task(tL8, "Security control: the Jev key is set and cleared here"),
 	"jevStatus":         task(tL8, "The Jev status has no task"),
 }
 
@@ -336,4 +338,26 @@ var dynamicSites = []string{
 	`sel.kind === "prs" ? "ghPRComment" : "ghIssueComment"`,
 }
 
-var _ = fmt.Sprintf
+// helperCommands are commands the old interface sends through a local helper
+// that builds the message from a variable (run("saveBaton")), so the scan of
+// `cmd: "name"` cannot see them.
+var helperCommands = []string{"saveBaton", "restartWithBaton", "startFromBaton"}
+
+// serverSuppliedCommands are commands the old interface sends because the
+// desktop's own message names them (a notice's action), so no source of the old
+// interface holds the name.
+var serverSuppliedCommands = []string{"approveBaton"}
+
+// notCommands are strings that are a `case` of a switch in internal/server and
+// are also quoted in the old interface, without being commands it sends: message
+// types, tool names, option values. The test of the other direction (a command
+// of the server that the old interface names, and the scan missed) skips these.
+var notCommands = []string{
+	"Bash", "Edit", "MultiEdit", "Write", "all", "auto", "block", "clear", "close", "dark",
+	"down", "hello", "left", "list", "open", "recordings", "resize", "set", "teal", "top", "up",
+}
+
+// blocksRetirement are commands that are safety or security controls. The new
+// interface has to have them before the old one is removed (T162), whichever
+// order the rest are built in.
+var blocksRetirement = []string{"autoReview", "autoReviewDefault", "jevKey"}
