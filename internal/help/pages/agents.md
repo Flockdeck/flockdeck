@@ -95,7 +95,9 @@ What to know before you use one:
   shipped, runs commands and edits files without a question, so Flockdeck starts it
   with `bash` and `edit` set to ask, and each arrives as a permission card. This
   builds the setting from your own and the project's `bash` and `edit` rules: each
-  allow becomes a question, and a `deny` stays a deny. Choosing *Always* on a card
+  allow becomes a question, and a `deny` stays a deny. That is about your and the
+  project's rules, not the built-in agents' own: opencode's `plan` agent, which denies
+  edits, asks for them instead, with a card. Choosing *Always* on a card
   allows that kind of command for the rest of the session, one you had denied
   included. Other settings, such
   as `webfetch`, `read` and `external_directory`, are left as you set them, and

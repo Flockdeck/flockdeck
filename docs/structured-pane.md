@@ -180,7 +180,10 @@ user's global `opencode.json`, a file named by `OPENCODE_CONFIG`, the project's 
 earlier one, so a plain `bash` and `edit` setting would replace the user's and the project's own, patterns and
 denials included. Flockdeck therefore builds the value from what opencode resolves (below): the user's and the
 project's rules for `bash` and `edit` stay in their order, an allow becomes an ask, and a deny stays a deny. A rule
-such as `"rm *": "deny"` still denies. Every other permission key (`read`, `webfetch`, `external_directory` and the rest) is left as the user set it, and
+such as `"rm *": "deny"` still denies. That is about the user's and the project's rules, not the built-in agents' own:
+the value applies to every agent, so opencode's built-in `plan` agent, whose own rules deny `edit`, asks for an edit
+instead of denying it. That is a permission card and not an unasked edit, and `plan` is reached only if a session is
+switched into it. Every other permission key (`read`, `webfetch`, `external_directory` and the rest) is left as the user set it, and
 opencode's own defaults for them still apply, so a web fetch or a search is not asked about unless the user's
 configuration says so. Flockdeck sets nothing to allow, only to ask. The card offers "Always" as opencode
 sends it, and choosing it for a command allows that kind of command for the rest of the session, including one
