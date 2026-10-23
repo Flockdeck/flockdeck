@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -62,8 +63,24 @@ func TestExecReturnsWhatTheProgramPrintedInTheGivenDirectoryWithOnlyTheGivenEnvi
 	if strings.Contains(got, "FLOCKDECK_NOT_GIVEN") || strings.Contains(got, "leaked") {
 		t.Errorf("the parent's environment reached the program: %q", got)
 	}
-	if !strings.Contains(strings.ToLower(got), "dir "+strings.ToLower(dir)) {
-		t.Errorf("the program did not run in %s: %q", dir, got)
+	// macOS reports its temporary folder through a symlink (/private/var), so
+	// compare the resolved paths.
+	var printed string
+	for _, line := range strings.Split(strings.ReplaceAll(got, "\r", ""), "\n") {
+		if p, ok := strings.CutPrefix(line, "dir "); ok {
+			printed = p
+		}
+	}
+	want, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	have, err := filepath.EvalSymlinks(printed)
+	if err != nil {
+		t.Fatalf("the program printed the directory %q: %v", printed, err)
+	}
+	if !strings.EqualFold(have, want) {
+		t.Errorf("the program did not run in %s (printed %s)", dir, printed)
 	}
 }
 
