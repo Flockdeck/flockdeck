@@ -268,6 +268,17 @@ test("quit asks first, with the key table's question, and sends nothing on Cance
     assert.equal(label(), "Quit and stop everything");
     await tab(true);
     assert.equal(label(), "Cancel");
+    // Any other key is left alone: Enter and Space on Quit must not be taken.
+    await tab(false);
+    assert.equal(label(), "Quit and stop everything");
+    for (const key of ["Enter", " ", "a"]) {
+      const other = doc.activeElement.dispatch("keydown", { key, shiftKey: false });
+      await settle();
+      assert.ok(!other.defaultPrevented, JSON.stringify(key) + " was taken");
+      assert.equal(label(), "Quit and stop everything");
+    }
+    await tab(false);
+    assert.equal(label(), "Cancel");
     await m.click(m.byText(".dialog-btn", /^Cancel$/));
     assert.equal(m.container.find(".confirm"), null);
     assert.equal(m.sent("quit").length, 0);
