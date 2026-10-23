@@ -426,6 +426,11 @@ func TestWorktreesPageHoldsTheConflictRadarDetail(t *testing.T) {
 // into a page through [[key:id]] or [[action:id]] or {{keys}}. Keys the table
 // does not own, such as a terminal program's Ctrl+C, are not its business.
 //
+// Known limits, accepted: a prose pair of angle brackets, &nbsp;, an en dash,
+// "Ctrl plus Shift plus D", and a table binding that is another program's too
+// ("tmux uses Ctrl+B") are not told apart from a hand-written binding or are
+// flagged; reword the page or use the placeholder.
+//
 // The check reads a paragraph at a time with the markup and the placeholders
 // taken out, so a binding split over <kbd> elements, over a line break, in other
 // case, with other separators or with its modifiers in another order is found
@@ -468,7 +473,8 @@ func handWrittenKeys(para string) []Key {
 var (
 	placeholderRE = regexp.MustCompile(`\[\[(?:key|action):[^\[\]]*\]\]|\{\{keys[^{}]*\}\}`)
 	tagRE         = regexp.MustCompile(`<[^>]*>`)
-	sepRE         = regexp.MustCompile(`\s*[+-]\s*`)
+	plusRE        = regexp.MustCompile(`\s*\+\s*`)
+	dashRE        = regexp.MustCompile(`(\w)\s*-\s*(\w)`)
 	modRE         = regexp.MustCompile(`^((?:(?:ctrl|alt|shift|cmd)\+)*)(.+)$`)
 )
 
@@ -479,18 +485,27 @@ func stripPlaceholders(text string) string {
 	return placeholderRE.ReplaceAllString(text, "")
 }
 
-// stripMarkup drops HTML tags and the backticks of code spans, so
-// <kbd>Ctrl</kbd>+<kbd>D</kbd> and `Ctrl+D` read as Ctrl+D.
+// stripMarkup drops HTML tags, the backticks of code spans and the * and _ of
+// emphasis, so <kbd>Ctrl</kbd>+<kbd>D</kbd>, `Ctrl+D` and **Ctrl**+**D** read as
+// Ctrl+D.
 func stripMarkup(text string) string {
-	return strings.ReplaceAll(tagRE.ReplaceAllString(text, ""), "`", "")
+	return strings.NewReplacer("`", "", "*", "", "_", "").Replace(tagRE.ReplaceAllString(text, ""))
 }
 
 // normalBinding lower-cases text, makes every run of white space one space, and
 // writes a separator as a plain "+" without spaces around it, with Control, Cmd,
-// Command and Meta as ctrl.
+// Command and Meta as ctrl. A "-" is a separator only between two word
+// characters, so the key "-" of Ctrl+- stays a key and keeps the space after it.
 func normalBinding(text string) string {
 	text = strings.ToLower(strings.Join(strings.Fields(text), " "))
-	text = sepRE.ReplaceAllString(text, "+")
+	text = plusRE.ReplaceAllString(text, "+")
+	for {
+		next := dashRE.ReplaceAllString(text, "$1+$2")
+		if next == text {
+			break
+		}
+		text = next
+	}
 	for _, from := range []string{"control", "command", "meta", "cmd"} {
 		text = strings.ReplaceAll(text, from, "ctrl")
 	}
@@ -571,12 +586,19 @@ func TestHandWrittenKeysSpellings(t *testing.T) {
 		"Press Ctrl+\nShift+D here",
 		"Press Ctrl+Shift+\nD here",
 		"Press Ctrl+Shift+D. Then more.",
+		"Press **Ctrl**+**Shift**+**D** here",
+		"Press _Ctrl_+_Shift_+_D_ here",
 		"a [[ stray Ctrl+Shift+D",
 		"[[key:help]] then Ctrl+Shift+D",
 	}
 	for _, p := range found {
 		if got := handWrittenKeys(p); len(got) != 1 || got[0].Keys != "Ctrl+Shift+D" {
 			t.Errorf("not found in %q: %v", p, got)
+		}
+	}
+	for _, p := range []string{"Press Ctrl+- to shrink.", "Press Ctrl + - to shrink.", "Press **Ctrl**+**-** to shrink."} {
+		if got := handWrittenKeys(p); len(got) != 1 || got[0].Keys != "Ctrl+-" {
+			t.Errorf("Ctrl+- not found in %q: %v", p, got)
 		}
 	}
 	for _, p := range []string{"Press F1 here", "Press f1 here", "Press <kbd>F1</kbd> here"} {
