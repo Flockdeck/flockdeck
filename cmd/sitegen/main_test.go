@@ -458,6 +458,19 @@ func TestThePrivacyPolicyDisclosesTypeSafe(t *testing.T) {
 	if strings.Contains(policy, "entirely on your computer") {
 		t.Error("privacy.html still says the app runs entirely on your computer")
 	}
+	// The message log holds no text except the line typed in text mode.
+	for _, want := range []string{
+		"holds no message text, except the line typed in text mode",
+		"the line is the message itself, cut to 300 characters",
+		"so it holds message text",
+	} {
+		if !strings.Contains(policy, want) {
+			t.Errorf("privacy.html does not say %q", want)
+		}
+	}
+	if strings.Contains(policy, "The log holds no message text. It also") {
+		t.Error("privacy.html says the log holds no message text without the text-mode exception")
+	}
 	trust := strings.Join(strings.Fields(pages["trust.html"]), " ")
 	for _, want := range []string{"One optional feature sends content to a third party, TypeSafe AI"} {
 		if !strings.Contains(trust, want) {
