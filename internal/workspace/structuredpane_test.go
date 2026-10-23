@@ -104,7 +104,7 @@ func TestAStructuredHelperIsAPaneWithNoSession(t *testing.T) {
 		t.Fatalf("structured %v, session %v, parent %q, role %q, agent %q", p.Structured(), p.Sess, p.Parent, p.Role, p.Agent)
 	}
 	rt := ws.Runtime(p)
-	if rt.Transport() != TransportStructured || !rt.Caps().Structured || !rt.Caps().AnswerPermission || rt.Caps().RunsUnasked {
+	if rt.Transport() != TransportStructured || !rt.Caps().Structured || !rt.Caps().AnswerPermission || !rt.Caps().RunsUnasked {
 		t.Errorf("transport %q, caps %+v", rt.Transport(), rt.Caps())
 	}
 	statusWithin(t, ws, id, session.StatusIdle)

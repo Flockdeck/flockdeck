@@ -10,9 +10,10 @@ import { html } from "../html.js";
 import { stateOf, dirtyOf } from "../graph/Node.js";
 
 /** UNASKED_WORDS is the standing warning for an agent the manifest records as
- *  running commands and edits without sending a permission request. It says only
- *  that, and is a constant: nothing from the agent is in it. */
-export const UNASKED_WORDS = "This agent runs commands and edits files without asking you first.";
+ *  possibly running commands and edits without sending a permission request
+ *  (opencode: Flockdeck starts it to ask, but a repository's own settings can
+ *  allow). It is a constant: nothing from the agent is in it. */
+export const UNASKED_WORDS = "This agent may run commands and edit files without asking you first, if the repository's opencode settings allow it. A project's opencode.json or .opencode folder can also load plugins and MCP servers that run code, so no permission setting makes an opencode pane safe in a repository you do not trust.";
 
 /** sinceOf says how long a status has lasted, as "3m", "2h 5m" or "45s", from
  *  an RFC 3339 time and the current time in milliseconds. A time that is not

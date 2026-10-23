@@ -302,7 +302,7 @@ test("an agent the manifest records as running without asking carries a standing
       const warn = m.container.find(".drawer-warn");
       assert.ok(warn, "no warning in the " + (remote ? "relay" : "desk") + " window");
       assert.equal(warn.textContent, UNASKED_WORDS);
-      assert.equal(UNASKED_WORDS, "This agent runs commands and edits files without asking you first.");
+      assert.equal(UNASKED_WORDS, "This agent may run commands and edit files without asking you first, if the repository's opencode settings allow it. A project's opencode.json or .opencode folder can also load plugins and MCP servers that run code, so no permission setting makes an opencode pane safe in a repository you do not trust.");
       // It stays while the pane is open, whatever the pane does.
       await m.set({ structured: push({ entries: [entry(1), entry(2)], card: null }) });
       assert.ok(m.container.find(".drawer-warn"), "the warning went away");

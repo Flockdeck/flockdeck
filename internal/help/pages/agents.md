@@ -91,21 +91,22 @@ What to know before you use one:
   relay is told its name, status, directory, branch, project, agent and model, and
   no text the agent wrote. Nothing is answered for you; a request still open when you stop the turn, close or restart
   the pane or quit is answered *cancelled*.
-- **opencode asks before it runs a command or edits a file.** opencode, as
-  shipped, does neither with a question, so Flockdeck starts it with `bash` and
-  `edit` set to ask, and each arrives as a permission card. This replaces your own
-  `bash` and `edit` settings in opencode's configuration, or in the project's, for a
-  structured pane, including any `deny` rule: that command is now a question for
-  you. Choosing *Always* on a card allows that kind of command for the rest of the
-  session, one you had denied included. Other settings, such as `webfetch`,
-  `read` and `external_directory`, are left as you set them, and opencode still
-  runs those without asking unless you say otherwise; Flockdeck never sets
-  anything to allow. A terminal opencode pane keeps its own configuration. The
-  cards do not hold in a repository whose own opencode settings give an agent
+- **opencode is started to ask, which a repository can override.** opencode, as
+  shipped, runs commands and edits files without a question, so Flockdeck starts it
+  with `bash` and `edit` set to ask, and each arrives as a permission card. This
+  replaces your own `bash` and `edit` settings in opencode's configuration, or in
+  the project's, for a structured pane, including any `deny` rule: that command is
+  now a question for you. Choosing *Always* on a card allows that kind of command
+  for the rest of the session, one you had denied included. Other settings, such
+  as `webfetch`, `read` and `external_directory`, are left as you set them, and
+  opencode still runs those without asking unless you say otherwise; Flockdeck
+  never sets anything to allow. A terminal opencode pane keeps its own
+  configuration. A repository whose own opencode settings give an agent
   (`agent.build.permission`, or a file under `.opencode/agent`) permission to run
-  commands: those win over the setting Flockdeck makes, and the command runs
-  without a card. Treat a structured opencode pane as supervised only in a
-  repository you trust.
+  commands wins over this, and the command runs without a card. A project's
+  `opencode.json` or `.opencode` folder can also load plugins and MCP servers that
+  run code. So the drawer header of the pane says "This agent may run commands and edit files without asking you first, if the repository's opencode settings allow it. A project's opencode.json or .opencode folder can also load plugins and MCP servers that run code, so no permission setting makes an opencode pane safe in a repository you do not trust." Open
+  a repository you do not trust in a terminal pane, not a structured one.
 - **Mail needs an opt-in.** A structured agent has no `flockdeck` command and is
   not given the pane identity one needs, so it cannot run `flockdeck inbox`. By
   default it is not woken by mail at all, and its briefing says mail is not

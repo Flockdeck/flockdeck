@@ -224,12 +224,12 @@ func TestParseChecksTheFieldsAProcessOrNpmReads(t *testing.T) {
 	}
 }
 
-func TestNoAdapterIsRecordedAsRunningWithoutAsking(t *testing.T) {
-	// opencode was, until Flockdeck began to start it with its permissions set to
-	// ask (see launchEnv); the field is still read, for an adapter that is not.
+func TestOnlyOpencodeIsRecordedAsPossiblyRunningWithoutAsking(t *testing.T) {
+	// Flockdeck starts opencode to ask (see launchEnv), but a repository's own
+	// agent permissions win over that, so the warning stays.
 	for _, a := range Default().Adapters {
-		if a.RunsWithoutAsking {
-			t.Errorf("%s: runsWithoutAsking is set", a.ID)
+		if want := a.ID == "opencode"; a.RunsWithoutAsking != want {
+			t.Errorf("%s: runsWithoutAsking = %v, want %v", a.ID, a.RunsWithoutAsking, want)
 		}
 	}
 	m, err := Parse([]byte(wrap(strings.Replace(goodAdapter, `"needsNode":false`, `"needsNode":false,"runsWithoutAsking":true`, 1))))

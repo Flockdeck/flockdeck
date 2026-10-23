@@ -4,7 +4,6 @@ package manifest
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -139,31 +138,4 @@ func TestCanaryLaunchEnvAsks(t *testing.T) {
 			t.Errorf("%s resolves to %q with the launchEnv set, want ask", tool, askedFor[tool])
 		}
 	}
-}
-
-// lastActions reads opencode's `debug agent` output and returns, for each tool,
-// the action of the last rule that names it with the pattern * (the last
-// matching rule is the one that applies).
-func lastActions(out []byte, tools ...string) (map[string]string, error) {
-	i := strings.IndexByte(string(out), '{')
-	if i < 0 {
-		return nil, os.ErrInvalid
-	}
-	var agent struct {
-		Permission []struct {
-			Permission, Action, Pattern string
-		} `json:"permission"`
-	}
-	if err := json.Unmarshal(out[i:], &agent); err != nil {
-		return nil, err
-	}
-	got := map[string]string{}
-	for _, r := range agent.Permission {
-		for _, tool := range tools {
-			if r.Permission == tool && r.Pattern == "*" {
-				got[tool] = r.Action
-			}
-		}
-	}
-	return got, nil
 }

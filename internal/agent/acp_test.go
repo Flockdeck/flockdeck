@@ -363,8 +363,9 @@ func TestASpecKnowsFromTheManifestThatItRunsWithoutAsking(t *testing.T) {
 	for _, s := range Builtins() {
 		got[s.ID] = s.RunsWithoutAsking()
 	}
-	// opencode is started with its permissions set to ask, so none is recorded.
-	if got["opencode-acp"] || got["gemini-acp"] || got["codex-acp"] || got["claude"] {
+	// opencode is started to ask, but a repository's own agent permissions win
+	// over that, so it is still recorded.
+	if !got["opencode-acp"] || got["gemini-acp"] || got["codex-acp"] || got["claude"] {
 		t.Errorf("runs without asking = %v", got)
 	}
 }

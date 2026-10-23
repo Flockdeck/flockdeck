@@ -184,11 +184,17 @@ and the same under `permission:` in the front matter of `.opencode/agent/build.m
 file), put their rules after the inline value in the agent's resolved rules, and the last matching rule wins.
 `opencode debug agent build` shows the allow after the ask. `TestRealOpencodeEndToEnd` run against the first
 fixture got no permission card: the shell command ran and the turn ended. So the permission cards gate commands
-only in a repository you trust not to set an agent's permissions to allow. Open an unfamiliar repository in a
-terminal pane, not a structured one, until that is fixed (T126). A terminal opencode pane is not started this way and keeps its own configuration. The
-adapter manifest can still mark an agent that runs without asking (`runsWithoutAsking`); the drawer header of
-such a pane says "This agent runs commands and edits files without asking you first." for as long as the pane
-is open. No built-in agent is marked now. The old window shows a stub for a structured pane and no warning.
+only in a repository you trust not to set an agent's permissions to allow. A project's `opencode.json` or
+`.opencode` folder can also load plugins and MCP servers, which run code, so no permission setting makes an
+opencode pane safe in a repository you do not trust: open an unfamiliar repository in a terminal pane, not a
+structured one.
+
+For that reason the adapter manifest still marks opencode `runsWithoutAsking`, and the drawer header of the pane
+says, for as long as the pane is open, "This agent may run commands and edit files without asking you first, if the repository's opencode settings allow it. A project's opencode.json or .opencode folder can also load plugins and MCP servers that run code, so no permission setting makes an opencode pane safe in a repository you do not trust." T126 is the follow-up that checks
+at launch whether `bash` and `edit` really resolve to ask and warns only if they do not.
+
+A terminal opencode pane is not started this way and keeps its own configuration. The old window shows a stub
+for a structured pane and no warning.
 
 **What a structured pane loses against a terminal pane:**
 

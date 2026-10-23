@@ -135,10 +135,11 @@ func TestTheOldWindowsPaneListMarksAStructuredPane(t *testing.T) {
 	if snap.Panes[e.dev].Structured {
 		t.Error("a terminal pane is marked structured")
 	}
-	// Flockdeck starts opencode with its permissions set to ask, so the manifest
-	// no longer says it runs without asking and the push carries no warning.
-	if pv.RunsUnasked {
-		t.Error("the opencode pane is marked as running without asking")
+	// Flockdeck starts opencode to ask, but a repository's own agent permissions
+	// win over that, so the manifest still flags it and the push carries it for
+	// that pane alone.
+	if !pv.RunsUnasked {
+		t.Error("the opencode pane is not marked as possibly running without asking")
 	}
 	if snap.Panes[e.dev].RunsUnasked {
 		t.Error("a terminal pane is marked as running without asking")

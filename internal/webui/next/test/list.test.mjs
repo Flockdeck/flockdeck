@@ -294,7 +294,7 @@ test("a remote window's roster row for an agent that runs without asking opens a
     await m.push(stateMsg({ ...ROSTER, p1: { ...ROSTER.p1, structured: true, runsUnasked: true } }));
     m.container.findAll(".list-pick").find((b) => b.parentNode.getAttribute("data-pane") === "p1").click();
     await settle();
-    assert.match(m.container.find(".drawer-warn").textContent, /runs commands and edits files without asking/);
+    assert.match(m.container.find(".drawer-warn").textContent, /may run commands and edit files without asking you first, if the repository.s opencode settings allow it/);
     // Another agent's drawer has none.
     m.drawer().keydown("Escape");
     await settle();
