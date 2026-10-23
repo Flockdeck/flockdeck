@@ -166,14 +166,42 @@ answers a request for you. An open request is answered cancelled when the turn i
 pane is closed or restarted, when Flockdeck quits and when the agent exits. The card's title and the
 option names are text the agent supplied.
 
-**The permission cards may gate nothing.** opencode, by default, runs a shell command, a write or an
-edit without sending a permission request at all, so no card appears and the pane looks supervised
-when it is not (`opencode-e2e.md` has the run that showed it). Setting
-`{"permission":{"bash":"ask","edit":"ask"}}` in opencode's own configuration made it ask (`opencode-e2e.md` names no file). Flockdeck does not
-set that for you. It warns instead: in the new interface's drawer, at the desk and through the relay,
-the header of such a pane says "This agent runs commands and edits files without asking you first."
-for as long as the pane is open. The old window shows a stub for a structured pane and no warning. Which agents get the warning is recorded in the adapter
-manifest (`runsWithoutAsking`, see [ACP adapters](acp-adapters.md)).
+**opencode is started to ask.** opencode, by default, runs a shell command, a write or an edit without
+sending a permission request at all, so no card would appear and the pane would look supervised when it is
+not (`opencode-e2e.md` has the run that showed it). Flockdeck therefore starts it with
+`OPENCODE_CONFIG_CONTENT={"permission":{"bash":"ask","edit":"ask"}}` in its environment (`launchEnv` in
+the adapter manifest, see [ACP adapters](acp-adapters.md)), and shell commands and file edits arrive as
+permission cards. This was checked against opencode 1.19.3: its own `debug config` shows the setting taking
+effect, and `TestRealOpencodeEndToEnd` run with no `opencode.json` anywhere gets a card for the shell command.
+
+What this does to opencode's own configuration, as 1.19.3 resolves it: the sources, lowest first, are the
+user's global `opencode.json`, a file named by `OPENCODE_CONFIG`, the project's `opencode.json`, and
+`OPENCODE_CONFIG_CONTENT`. A permission key set by a later source replaces the whole value of that key from an
+earlier one, so Flockdeck's `bash` and `edit` replace the user's and the project's own `bash` and `edit` settings
+for this pane, patterns and denials included. A rule such as `"rm *": "deny"` becomes a question you answer.
+Every other permission key (`read`, `webfetch`, `external_directory` and the rest) is left as the user set it, and
+opencode's own defaults for them still apply, so a web fetch or a search is not asked about unless the user's
+configuration says so. Flockdeck sets nothing to allow, only to ask. The card offers "Always" as opencode
+sends it, and choosing it for a command allows that kind of command for the rest of the session, including one
+the user had denied in their own configuration; Flockdeck does not take that option off the card.
+
+**The gate does not hold where a repository sets permissions for an agent.** Checked on 1.19.3 with a fixture
+project: `{"agent":{"build":{"permission":{"bash":"allow","edit":"allow"}}}}` in the project's `opencode.json`,
+and the same under `permission:` in the front matter of `.opencode/agent/build.md` (and of a custom agent's
+file), put their rules after the inline value in the agent's resolved rules, and the last matching rule wins.
+`opencode debug agent build` shows the allow after the ask. `TestRealOpencodeEndToEnd` run against the first
+fixture got no permission card: the shell command ran and the turn ended. So the permission cards gate commands
+only in a repository you trust not to set an agent's permissions to allow. A project's `opencode.json` or
+`.opencode` folder can also load plugins and MCP servers, which run code, so no permission setting makes an
+opencode pane safe in a repository you do not trust: open an unfamiliar repository in a terminal pane, not a
+structured one.
+
+For that reason the adapter manifest still marks opencode `runsWithoutAsking`, and the drawer header of the pane
+says, for as long as the pane is open, "This agent may run commands and edit files without asking you first, if the repository's opencode settings allow it. A project's opencode.json or .opencode folder can also load plugins and MCP servers that run code, so no permission setting makes an opencode pane safe in a repository you do not trust." T126 is the follow-up that checks
+at launch whether `bash` and `edit` really resolve to ask and warns only if they do not.
+
+A terminal opencode pane is not started this way and keeps its own configuration. The old window shows a stub
+for a structured pane and no warning.
 
 **What a structured pane loses against a terminal pane:**
 

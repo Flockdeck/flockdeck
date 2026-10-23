@@ -24,11 +24,19 @@ the user installs it. An adapter that is pinned (Codex) is installed by Flockdec
 at exactly that version, because its adapter ships previews almost daily and has
 changed owner before.
 
-`runsWithoutAsking` is set on an adapter whose agent, started the way Flockdeck
-starts it, runs shell commands and edits without sending a permission request.
-It is what was seen of the tested version. A structured pane of such an agent
-shows a standing warning in the drawer header, and its permission cards gate
-nothing unless the agent's own configuration is set to ask.
+`runsWithoutAsking` is set on an adapter whose agent may run shell commands and edits without
+sending a permission request. It is what was seen of the tested version. A structured pane of such an agent
+shows a standing warning in the drawer header. opencode is marked although Flockdeck starts it to ask
+(`launchEnv`, below): a repository's own agent permissions override that.
+
+`launchEnv` is environment Flockdeck sets for the adapter when it starts it: up to four variables, with
+capital-letter names that are not Flockdeck's own and fixed values written in the manifest. It is added after
+`passEnv` and replaces a variable of the same name, so the user's environment cannot undo it. opencode has one:
+`OPENCODE_CONFIG_CONTENT`, which makes `bash` and `edit` ask (see [Structured panes](structured-pane.md)). The weekly canary (`acp-canary.yml`) runs
+`opencode debug agent build` with it set, on the pinned and the latest version, and fails if `bash` or `edit` no
+longer resolve to ask. It looks at the build agent in an empty project, so it shows that the launch value still
+takes effect, not that a repository cannot override it. It reads the resolved configuration, not a tool call,
+which would need a model.
 
 ## Node
 
