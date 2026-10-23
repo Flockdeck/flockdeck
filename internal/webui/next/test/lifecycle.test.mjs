@@ -805,3 +805,41 @@ test("the tab stop falls back when the tab that held it goes", () =>
     await m.push(stateOf(graph(), {}, { tabs: [TABS[0], TABS[1]] }));
     assert.deepEqual(stopOf(m), ["-1", "0"], "back to the open tab");
   }));
+
+test("an arrow key that belongs to an input method moves nothing", () =>
+  withPage({}, async (m) => {
+    await m.connect();
+    pickOf(m, "t2").focus();
+    const ev = arrow(m, "t2", "ArrowRight", { isComposing: true });
+    await settle();
+    assert.equal(ev.defaultPrevented, false);
+    assert.equal(m.dom.document.activeElement, pickOf(m, "t2"));
+    assert.deepEqual(stopOf(m), ["-1", "0", "-1"]);
+  }));
+
+test("an arrow key that moves the tabs goes no further up the page", () =>
+  withPage({}, async (m) => {
+    await m.connect();
+    const seen = [];
+    m.dom.window.addEventListener("keydown", (e) => seen.push(e.key));
+    pickOf(m, "t2").focus();
+    arrow(m, "t2", "ArrowRight");
+    await settle();
+    assert.deepEqual(seen, [], "the page's key listener did not see the arrow");
+    // A key the list does not use still reaches it.
+    arrow(m, "t3", "q");
+    assert.deepEqual(seen, ["q"]);
+  }));
+
+test("a tab the keyboard reaches by a click or by Tab becomes the tab stop", () =>
+  withPage({}, async (m) => {
+    await m.connect();
+    assert.deepEqual(stopOf(m), ["-1", "0", "-1"]);
+    // A browser fires focus on the button when a click or Tab gives it the keyboard.
+    pickOf(m, "t3").dispatch("focus");
+    await settle();
+    assert.deepEqual(stopOf(m), ["-1", "-1", "0"]);
+    pickOf(m, "t1").dispatch("focus");
+    await settle();
+    assert.deepEqual(stopOf(m), ["0", "-1", "-1"]);
+  }));
