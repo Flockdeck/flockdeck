@@ -1,6 +1,6 @@
 # Privacy policy
 
-*Last updated: 19 October 2026*
+*Last updated: 23 October 2026*
 
 Flockdeck is made by Jim Wright, an individual based in the United Kingdom.
 This policy explains what personal data is involved when you use the
@@ -66,15 +66,23 @@ The same folder also holds:
 - the messages agents in your panes send each other, until they are read and
   for a week after, or for 30 days if never read, and a log of when each
   message was sent, delivered and read, and between which panes. The log
-  holds no message text. It also holds a record of each line Flockdeck typed
-  into an idle agent's terminal to tell it that mail is waiting (the pane,
-  the agent, the rule version, the prompt line it matched and the line
-  typed), and of each case where that line was typed but not submitted. The
-  line is fixed text with a message number. It names no sender and holds none
-  of the message. It is typed only where Flockdeck has a tested rule for
-  recognising that agent's prompt, and none has yet. None of this is sent
-  anywhere by Flockdeck. If you use Flockdeck Remote, the typed line is part
-  of the terminal contents it carries, like anything else typed;
+  holds no message text, except the line typed in text mode (below). It also
+  holds a record of each line Flockdeck typed into an idle agent's terminal
+  to tell it that mail is waiting (the pane, the agent, the rule version, the
+  prompt line it matched and the line typed), and of each case where that
+  line was typed but not submitted. By default the line is fixed text with a
+  message number. It names no sender and holds none of the message. In text
+  mode, which is off for every agent until you turn it on for one, the line
+  is the message itself, cut to 300 characters on one line, for an agent that
+  cannot run commands, and the log keeps that line, so it holds message text.
+  A structured agent (a beta feature) that you have opted in to text mode is
+  sent the message the same way, as a prompt over its protocol, with no
+  prompt rule involved, and the log keeps that line too.
+  A line is typed only where Flockdeck has a tested rule for recognising that
+  agent's prompt, and none has yet. The log keeps the last 2,000 events or
+  256 KiB. None of this is sent anywhere by Flockdeck. If you use Flockdeck
+  Remote, the typed line is part of the terminal contents it carries, like
+  anything else typed;
 - a photo you attach to a message from a paired phone, removed after about a
   week;
 - if you turn on recording for a pane, or export a pane's transcript, a
