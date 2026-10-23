@@ -1103,6 +1103,7 @@ func (s *Server) broadcastState() {
 		// shares the push with changed: a task or a message does not show in it.
 		s.pushTeam()
 		s.pushGraph()
+		s.pushRelayTeams()
 		s.pushStructured()
 		snap := s.snapshot()
 		data, err := json.Marshal(snap)
@@ -1151,6 +1152,9 @@ type controlClient struct {
 	// teamgraph.go), which is subscribed to apart from the Team panel.
 	graphRoot string
 	graphSent []byte
+	// relayTeamsSent is the relay form of the teams this window was last sent,
+	// so an unchanged one is not sent again.
+	relayTeamsSent []byte
 	// structID is the structured pane the window watches (see structured.go), and
 	// structSent the message it was last sent. Both belong to the workspace
 	// goroutine.
@@ -1424,6 +1428,9 @@ func (s *Server) handleControl(w http.ResponseWriter, r *http.Request) {
 		if err == nil {
 			s.sendSnapshotTo(c, snap, data)
 		}
+		// A window through the relay is sent the relay form of the teams as it
+		// comes in, and kept current from the pushes after.
+		s.sendRelayTeamsTo(c)
 		// lastState has to go on describing what every window holds. Nothing
 		// was broadcast while there were no windows, so the state may since
 		// have moved away and come back to it; comparing against it would then

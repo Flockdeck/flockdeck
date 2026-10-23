@@ -154,6 +154,13 @@ type Server struct {
 	graphAt        time.Time
 	graphArmed     bool
 	graphTickArmed bool
+	// relayTeamsAt, relayTeamsArmed and relayTickArmed do the same for the
+	// relay form of the teams (relayteams.go), and relayWatching says a window
+	// through the relay was open at the last push.
+	relayTeamsAt    time.Time
+	relayTeamsArmed bool
+	relayTickArmed  bool
+	relayWatching   bool
 	// structAt and structArmed are the same for the structured pane pushes.
 	structAt    time.Time
 	structArmed bool
