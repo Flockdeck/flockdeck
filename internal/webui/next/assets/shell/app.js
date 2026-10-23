@@ -140,7 +140,7 @@ export function useNarrow(matchMedia, override) {
  *  views put in the regions. maximised, with a drawer, gives the drawer the main
  *  area; mainRef is the main area's element for a view that returns the keyboard
  *  to a box in it. window is the page's, passed in for a test. */
-export function Shell({ hello, state, notice, onWatch, narrow: narrowProp, matchMedia, top, children, drawer, maximised = false, mainRef, window: win, actions = NO_ACTIONS }) {
+export function Shell({ hello, state, notice, onDismissNotice, onWatch, narrow: narrowProp, matchMedia, top, children, drawer, maximised = false, mainRef, window: win, actions = NO_ACTIONS }) {
   const keys = keysOf(hello);
   const bindings = useMemo(() => bindingsFrom(keys), [keys]);
   const broken = useMemo(() => unreadable(keys), [keys]);
@@ -221,7 +221,11 @@ export function Shell({ hello, state, notice, onWatch, narrow: narrowProp, match
       <main class=${"main" + (narrow ? " main--list" : "")} tabindex="-1" ref=${regions.main}>${children}</main>
       <aside class="drawer" aria-label="Agent" tabindex="-1" ref=${regions.drawer} hidden=${!drawerOpen}>${drawer}</aside>
       <div class="notices" role="status" aria-live="polite">
-        ${said ? html`<p class="notice">${said}</p>` : null}
+        ${said
+          ? html`<p class="notice">${said}${notice && onDismissNotice
+              ? html` <button type="button" class="notice-dismiss" onClick=${onDismissNotice}>Dismiss</button>`
+              : null}</p>`
+          : null}
       </div>
       ${s.paletteOpen
         ? html`<${Palette} keys=${keys} implemented=${implemented} onRun=${run} onClose=${() => dispatch({ type: "closePalette" })} />`

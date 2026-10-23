@@ -69,7 +69,7 @@ export function Header({ node, pane = null, now = Date.now(), maximised = false,
           <button type="button" class="drawer-btn drawer-max" aria-pressed=${maximised ? "true" : "false"} onClick=${onToggleMax}>
             ${maximised ? "Restore" : "Maximise"}
           </button>
-          <button type="button" class="drawer-btn drawer-close" aria-label="Close the agent" onClick=${onClose}>Close</button>
+          <button type="button" class="drawer-btn drawer-close" aria-label="Hide the drawer" onClick=${onClose}>Hide</button>
         </div>
       </div>
       ${pane && pane.runsUnasked === true ? html`<p class="drawer-warn" role="note">${UNASKED_WORDS}</p>` : null}

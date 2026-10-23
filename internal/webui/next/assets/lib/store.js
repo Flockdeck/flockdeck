@@ -59,6 +59,9 @@
 //   structuredError  { error } after structuredWatch was refused, else null
 //   cancelError      { id, error } after structuredCancel was refused for pane id, null
 //                    after one that worked; a view shows it only for its own pane
+//   started       the latest startAgent answer as { seq, paneId, id }, or null: the
+//                 pane the desktop started and the id the window gave the command.
+//                 seq grows with each one. A refusal arrives as a notice.
 //   answer        the latest permissionAnswer reply as { seq, ok, error, id,
 //                 cardSeq, requestId, req }, or null. A view matches it to the
 //                 card it answered by id, cardSeq and requestId.
@@ -122,7 +125,7 @@ const initial = () => ({
   connection: "idle", retryInMs: 0,
   hello: null, remote: false, state: null,
   graph: null, graphGone: null, graphRefused: false, graphError: null,
-  notice: null, sent: null, structured: null, structuredError: null, cancelError: null, answer: null, conversation: null, dropped: 0,
+  notice: null, sent: null, started: null, structured: null, structuredError: null, cancelError: null, answer: null, conversation: null, dropped: 0,
 });
 
 /** upsert returns entries with each of the new ones in place of the one with its
@@ -153,6 +156,7 @@ export function createStore(opts) {
   let reqSeq = 0;
   let noticeSeq = 0;
   let sentSeq = 0;
+  let startedSeq = 0;
   let answerSeq = 0;
   // The pane each structuredCancel in flight was for, by its req, so a refusal is
   // kept for that pane and shown only there.
@@ -282,6 +286,9 @@ export function createStore(opts) {
         break;
       case "permissionAnswer":
         set({ answer: { ...msg, seq: ++answerSeq } });
+        break;
+      case "agentStarted":
+        set({ started: { paneId: String(msg.paneId || ""), id: String(msg.id || ""), seq: ++startedSeq } });
         break;
       case "paneSend":
         // The answer to an accepted paneSend. A refusal comes as a notice.
