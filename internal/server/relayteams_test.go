@@ -333,8 +333,9 @@ func TestRelayTeamsCapability(t *testing.T) {
 }
 
 // Over a real relay socket, with the marker in the name of every pane, the
-// window is sent the relay form and nothing it was sent holds the marker: not
-// the form, not the state, not a notice.
+// window is sent the relay form and the form holds no marker. The state push
+// still carries pane names, redacted and cut to 40 characters; this test is of
+// relayTeams only.
 func TestRelayTeamsOverTheSocketHoldNoPaneName(t *testing.T) {
 	e := newGraphEnv(t)
 	ask(e.srv, func() bool {
@@ -400,5 +401,122 @@ func TestRelayTeamsProjectNameIsRedactedAndCut(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// Each rule of the scrub that the every-field test does not reach: what a
+// structured pane may carry, the wait kinds, the clamps, the caps and the check
+// that a team's manager is a pane that is sent.
+func TestRelayTeamsScrubRules(t *testing.T) {
+	scrub := func(p relayTeamProject) relayTeamProject {
+		t.Helper()
+		b, _ := json.Marshal(relayTeamsMsg{Type: "relayTeams", V: relayTeamsVersion, Projects: []relayTeamProject{p}})
+		var m relayTeamsMsg
+		if err := json.Unmarshal(scrubRelayTeams(b), &m); err != nil || len(m.Projects) != 1 {
+			t.Fatalf("%v", err)
+		}
+		return m.Projects[0]
+	}
+	full := relayPane{Kind: graphKindStructured, Status: "working", Shell: true, Role: "worker", Activity: "working", Unread: 3,
+		Wait: &relayWait{Kind: "user", Prompt: "permission"}}
+
+	t.Run("a structured pane keeps its kind and status only", func(t *testing.T) {
+		s := full
+		s.ID = "s1"
+		got := scrub(relayTeamProject{Panes: []relayPane{s}}).Panes[0]
+		if got.Kind != graphKindStructured || got.Status != "working" {
+			t.Errorf("pane = %+v", got)
+		}
+		if got.Shell || got.Role != "" || got.Activity != "" || got.Unread != 0 || got.Wait != nil {
+			t.Errorf("a structured pane keeps more than its kind and status: %+v", got)
+		}
+	})
+	t.Run("a terminal pane keeps them", func(t *testing.T) {
+		s := full
+		s.ID, s.Kind = "t1", graphKindTerminal
+		got := scrub(relayTeamProject{Panes: []relayPane{s}}).Panes[0]
+		if !got.Shell || got.Role != "worker" || got.Activity != "working" || got.Unread != 3 || got.Wait == nil || got.Wait.Prompt != "permission" {
+			t.Errorf("pane = %+v", got)
+		}
+	})
+	t.Run("a wait of a kind not on the list is dropped", func(t *testing.T) {
+		got := scrub(relayTeamProject{Panes: []relayPane{{ID: "a", Kind: "terminal", Status: "idle", Wait: &relayWait{Kind: "evil"}}}}).Panes[0]
+		if got.Wait != nil {
+			t.Errorf("wait = %+v", got.Wait)
+		}
+	})
+	t.Run("depth and unread are clamped", func(t *testing.T) {
+		got := scrub(relayTeamProject{Panes: []relayPane{
+			{ID: "a", Kind: "terminal", Status: "idle", Depth: 1 << 30, Unread: 1 << 30},
+			{ID: "b", Kind: "terminal", Status: "idle", Depth: -5, Unread: -5}}}).Panes
+		if got[0].Depth != 64 || got[0].Unread != 99999 || got[1].Depth != 0 || got[1].Unread != 0 {
+			t.Errorf("panes = %+v", got)
+		}
+	})
+	t.Run("a team whose manager is not sent is dropped", func(t *testing.T) {
+		got := scrub(relayTeamProject{
+			Panes: []relayPane{{ID: "a", Kind: "terminal", Status: "idle"}},
+			Teams: []relayTeam{{ID: "a", Manager: "gone", Members: []string{"a"}}}})
+		if len(got.Teams) != 0 {
+			t.Errorf("teams = %+v", got.Teams)
+		}
+	})
+	t.Run("the caps", func(t *testing.T) {
+		var panes []relayPane
+		var needs []relayNeed
+		for i := 0; i < maxRelayPanes+10; i++ {
+			panes = append(panes, relayPane{ID: "p" + strings.Repeat("x", 1) + string(rune('a'+i%26)) + strings.Repeat("0", i/26), Kind: "terminal", Status: "idle"})
+		}
+		for i := 0; i < maxRelayNeeds+10; i++ {
+			needs = append(needs, relayNeed{Pane: panes[0].ID, Kind: "down"})
+		}
+		got := scrub(relayTeamProject{Panes: panes, SoloNeeds: needs, Solo: []string{panes[0].ID, panes[len(panes)-1].ID}})
+		if len(got.Solo) != 1 {
+			t.Errorf("a pane past the cap is named in solo: %v", got.Solo)
+		}
+		if len(got.Panes) != maxRelayPanes || len(got.SoloNeeds) != maxRelayNeeds {
+			t.Errorf("%d panes (max %d), %d needs (max %d)", len(got.Panes), maxRelayPanes, len(got.SoloNeeds), maxRelayNeeds)
+		}
+		var projects []relayTeamProject
+		for i := 0; i < maxRelayProjects+5; i++ {
+			projects = append(projects, relayTeamProject{})
+		}
+		b, _ := json.Marshal(relayTeamsMsg{Type: "relayTeams", V: relayTeamsVersion, Projects: projects})
+		var m relayTeamsMsg
+		_ = json.Unmarshal(scrubRelayTeams(b), &m)
+		if len(m.Projects) != maxRelayProjects {
+			t.Errorf("%d projects, want %d", len(m.Projects), maxRelayProjects)
+		}
+	})
+}
+
+// The builder is the first lock: before the scrub, the form already holds no
+// pane name and no text of a wait.
+func TestRelayTeamsBuilderHoldsNoTextBeforeTheScrub(t *testing.T) {
+	g := fuzzGraph()
+	for i := range g.Nodes {
+		g.Nodes[i].Name = planted + " name"
+		g.Nodes[i].Live = planted + " live"
+		g.Nodes[i].Branch = planted + " branch"
+		g.Nodes[i].WaitingOn.Text = planted + " wait"
+	}
+	g.Teams[0].Goal = planted + " goal"
+	g.Teams[0].Needs[0].Text = planted + " need"
+	g.SoloNeeds[0].Text = planted + " need"
+	g.Edges[0].Text = planted + " edge"
+	g.Project = "Proj"
+	raw, err := json.Marshal(relayTeamsMsg{Type: "relayTeams", V: relayTeamsVersion, Projects: relayProjectsFromGraphs([]graphMsg{g})})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(raw, []byte(planted)) {
+		t.Errorf("the builder's output holds text:\n%s", raw)
+	}
+	var m relayTeamsMsg
+	_ = json.Unmarshal(raw, &m)
+	for _, p := range m.Projects[0].Panes {
+		if p.Wait != nil && p.Wait.On != "" && p.Wait.On != "w1" {
+			t.Errorf("wait.on = %q", p.Wait.On)
+		}
 	}
 }

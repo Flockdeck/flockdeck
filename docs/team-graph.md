@@ -430,6 +430,7 @@ Not in it: pane names, peer names, goals, live lines, branches, task titles, edg
 texts, the texts of needs and waits, permission and question text, agent names and
 paths. A structured pane has `kind` and `status` and nothing else. The names of
 teams and panes are open: until the user decides they may cross, a pane is "Worker 2".
+This message withholds names, but the existing `state` message to a relay window still carries pane names (redacted and cut to 40 characters), so names are not hidden from the relay by this form.
 
 Two locks hold this. The form is built from the graph by field, and the scrub
 registered for the type (`scrubRelayTeams`) checks every field again against the
