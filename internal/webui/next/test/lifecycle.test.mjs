@@ -742,3 +742,66 @@ test("a window with no catalog says no agent can be started and sends nothing", 
     await m.click(m.byText(".dialog-btn", /^Start$/));
     assert.equal(m.ws().sent.length, 0);
   }));
+
+// ---------------------------------------------------------------- tablist keys
+
+const stopOf = (m) => m.container.findAll("li").filter((n) => n.attributes["data-tab"]).map((n) => n.findAll("button").find((b) => b.attributes.role === "tab").attributes.tabindex);
+const arrow = (m, id, key, init = {}) => pickOf(m, id).keydown(key, init);
+
+test("one tab button is in the Tab order: the open tab, else the first", () =>
+  withPage({}, async (m) => {
+    await m.connect();
+    assert.deepEqual(stopOf(m), ["-1", "0", "-1"]);
+    await m.push(stateOf(graph(), {}, { activeTab: "" }));
+    assert.deepEqual(stopOf(m), ["0", "-1", "-1"]);
+  }));
+
+test("Left, Right, Home and End move the keyboard along the tabs without choosing one", () =>
+  withPage({}, async (m) => {
+    await m.connect();
+    m.clear();
+    pickOf(m, "t2").focus();
+    const press = async (from, key) => {
+      const ev = arrow(m, from, key);
+      await settle();
+      assert.equal(ev.defaultPrevented, true, key + " was not claimed");
+    };
+    await press("t2", "ArrowRight");
+    assert.equal(m.dom.document.activeElement, pickOf(m, "t3"));
+    assert.deepEqual(stopOf(m), ["-1", "-1", "0"], "the tab stop follows the keyboard");
+    await press("t3", "ArrowRight");
+    assert.equal(m.dom.document.activeElement, pickOf(m, "t1"), "wraps to the first");
+    await press("t1", "ArrowLeft");
+    assert.equal(m.dom.document.activeElement, pickOf(m, "t3"), "wraps to the last");
+    await press("t3", "Home");
+    assert.equal(m.dom.document.activeElement, pickOf(m, "t1"));
+    await press("t1", "End");
+    assert.equal(m.dom.document.activeElement, pickOf(m, "t3"));
+    assert.equal(m.ws().sent.length, 0, "moving the keyboard chooses nothing");
+  }));
+
+test("arrow keys with a modifier, or from anywhere but a tab button, are left alone", () =>
+  withPage({}, async (m) => {
+    await m.connect();
+    pickOf(m, "t2").focus();
+    for (const init of [{ ctrlKey: true }, { altKey: true }, { shiftKey: true }, { metaKey: true }]) {
+      assert.equal(arrow(m, "t2", "ArrowRight", init).defaultPrevented, false);
+    }
+    assert.equal(m.dom.document.activeElement, pickOf(m, "t2"));
+    // The rename field is in the list; its arrows move its caret.
+    await m.click(m.byText(".tabs-btn", /^Rename$/));
+    assert.equal(m.container.find(".tab-rename").keydown("ArrowRight").defaultPrevented, false);
+    // The close button is not a tab.
+    assert.equal(m.container.findAll(".tab-close")[0].keydown("ArrowRight").defaultPrevented, false);
+  }));
+
+test("the tab stop falls back when the tab that held it goes", () =>
+  withPage({}, async (m) => {
+    await m.connect();
+    pickOf(m, "t2").focus();
+    arrow(m, "t2", "ArrowRight");
+    await settle();
+    assert.deepEqual(stopOf(m), ["-1", "-1", "0"]);
+    await m.push(stateOf(graph(), {}, { tabs: [TABS[0], TABS[1]] }));
+    assert.deepEqual(stopOf(m), ["-1", "0"], "back to the open tab");
+  }));
