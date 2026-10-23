@@ -149,8 +149,9 @@ export function useNarrow(matchMedia, override) {
  *  views put in the regions. maximised, with a drawer, gives the drawer the main
  *  area; mainRef is the main area's element for a view that returns the keyboard
  *  to a box in it. window is the page's, passed in for a test. helpLoad fetches
- *  the help pages (lib/help.js); the default asks the page's own address. */
-export function Shell({ hello, state, notice, onWatch, narrow: narrowProp, matchMedia, top, children, drawer, maximised = false, mainRef, window: win, actions = NO_ACTIONS, helpLoad }) {
+ *  the help pages (lib/help.js); the default asks the page's own address. blocked
+ *  says a view's modal dialog is open, and no key then reaches an action. */
+export function Shell({ hello, state, notice, onDismissNotice, onWatch, narrow: narrowProp, matchMedia, top, children, drawer, maximised = false, mainRef, window: win, actions = NO_ACTIONS, blocked = false, helpLoad }) {
   const keys = keysOf(hello);
   const bindings = useMemo(() => bindingsFrom(keys), [keys]);
   const broken = useMemo(() => unreadable(keys), [keys]);
@@ -164,7 +165,11 @@ export function Shell({ hello, state, notice, onWatch, narrow: narrowProp, match
   own.current = actions;
   const ids = Object.keys(actions).sort().join(",");
   const implemented = useMemo(() => (ids ? IMPLEMENTED.concat(ids.split(",")) : IMPLEMENTED), [ids]);
+  // A view's modal dialog is open: no key reaches an action under it.
+  const isBlocked = useRef(blocked);
+  isBlocked.current = blocked;
   const act = (ev) => {
+    if (isBlocked.current) return;
     const fn = ev.type === "action" ? own.current[ev.id] : null;
     if (fn) fn();
     else dispatch(ev);
@@ -237,7 +242,11 @@ export function Shell({ hello, state, notice, onWatch, narrow: narrowProp, match
       <main class=${"main" + (narrow ? " main--list" : "")} tabindex="-1" ref=${regions.main}>${children}</main>
       <aside class="drawer" aria-label="Agent" tabindex="-1" ref=${regions.drawer} hidden=${!drawerOpen}>${drawer}</aside>
       <div class="notices" role="status" aria-live="polite">
-        ${said ? html`<p class="notice">${said}</p>` : null}
+        ${said
+          ? html`<p class="notice">${said}${notice && onDismissNotice
+              ? html` <button type="button" class="notice-dismiss" onClick=${onDismissNotice}>Dismiss</button>`
+              : null}</p>`
+          : null}
       </div>
       ${s.helpOpen
         ? html`<${Help} keys=${keys} implemented=${implemented} load=${load} onClose=${() => dispatch({ type: "closeHelp" })} />`
