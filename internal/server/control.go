@@ -1104,6 +1104,7 @@ func (s *Server) broadcastState() {
 		s.pushTeam()
 		s.pushGraph()
 		s.pushStructured()
+		s.pushStructuredConversations()
 		snap := s.snapshot()
 		data, err := json.Marshal(snap)
 		if err != nil {

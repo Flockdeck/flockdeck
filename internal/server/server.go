@@ -309,6 +309,9 @@ type Server struct {
 	// convos is the phone chat view's live streams, one per pane that has
 	// been opened by at least one client. See conversation.go.
 	convos conversationHub
+	// convoArmed is true while a re-read of the structured panes' conversations
+	// is waiting to happen; see pushStructuredConversations.
+	convoArmed atomic.Bool
 
 	// preview is each agent pane's latest-reply preview, for the phone's
 	// inbox row. See preview.go.
