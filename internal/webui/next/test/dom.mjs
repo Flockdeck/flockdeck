@@ -203,6 +203,13 @@ class Element_ extends Node_ {
   querySelectorAll(selector) {
     return this.findAll(selector);
   }
+  querySelector(selector) {
+    return this.find(selector);
+  }
+  closest(tag) {
+    for (let n = this; n && n.nodeType === 1; n = n.parentNode) if (n.localName === tag) return n;
+    return null;
+  }
 }
 
 // Only what the tests ask for: tag, .class, #id, [attr] and [attr=value], one of them.

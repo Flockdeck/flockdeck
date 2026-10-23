@@ -478,7 +478,14 @@ test("a tab button that had the keyboard keeps it when the tabs are reordered", 
     await m.connect();
     pickOf(m, "t2").focus();
     assert.equal(m.dom.document.activeElement, pickOf(m, "t2"));
-    // The desk moves Second to the front; the fake DOM drops focus from a moved node as a browser does.
+    // The desk moves Second to the front. A browser drops the keyboard from a
+    // button when the list moves nodes around it, so the list does that here.
+    const list = m.container.find(".tabs-list");
+    const move = list.insertBefore.bind(list);
+    list.insertBefore = (n, ref) => {
+      m.dom.document._active = null;
+      return move(n, ref);
+    };
     await m.push(stateOf(graph(), {}, { tabs: [TABS[1], TABS[0], TABS[2]] }));
     assert.deepEqual(m.container.findAll(".tab").map((t) => t.attributes["data-tab"]), ["t2", "t1", "t3"]);
     assert.equal(m.dom.document.activeElement, pickOf(m, "t2"));

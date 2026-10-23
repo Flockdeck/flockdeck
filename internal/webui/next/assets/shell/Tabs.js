@@ -39,15 +39,16 @@ export function Tabs({ tabs, send, onChoose, warnFor, show = true }) {
   // keyboard is read here, before the page is changed.
   const refocus = useRef("");
   const had = root.current && root.current.ownerDocument ? root.current.ownerDocument.activeElement : null;
-  if (had && had.attributes && had.attributes.role === "tab" && had.parentNode && root.current.contains(had)) {
-    refocus.current = had.parentNode.attributes["data-tab"] || "";
+  if (had && had.getAttribute && had.getAttribute("role") === "tab" && root.current.contains(had)) {
+    const li = had.closest("li");
+    if (li) refocus.current = li.getAttribute("data-tab") || "";
   }
   useEffect(() => {
     const id = refocus.current;
     if (!id || !root.current) return;
     refocus.current = "";
-    const li = root.current.findAll ? root.current.findAll("li").find((n) => n.attributes["data-tab"] === id) : null;
-    const pick = li && li.findAll("button").find((b) => b.attributes.role === "tab");
+    const li = [...root.current.querySelectorAll("li")].find((n) => n.getAttribute("data-tab") === id);
+    const pick = li ? li.querySelector('[role="tab"]') : null;
     if (pick && pick.focus && pick.ownerDocument.activeElement !== pick) pick.focus();
   });
   if (!show) return html`<div class="tabs tabs--off"><p class="tabs-note">${OTHER_PROJECT_WORDS}</p></div>`;
