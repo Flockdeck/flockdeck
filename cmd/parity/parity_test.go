@@ -272,3 +272,31 @@ func TestNoServerCommandNamedInTheOldInterfaceIsMissed(t *testing.T) {
 		}
 	}
 }
+
+// The safety and security controls have a section of their own in the generated
+// file, naming the owner and the task that must wait for them.
+func TestRetirementGateIsInTheDoc(t *testing.T) {
+	out, err := generate(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, section, ok := strings.Cut(out, "## Must exist before the old interface is retired")
+	if !ok {
+		t.Fatal("the generated file has no section for what must exist before the old interface is retired")
+	}
+	section, _, _ = strings.Cut(section, "\n## ")
+	if !strings.Contains(section, "T162") {
+		t.Error("the section does not name T162")
+	}
+	for _, n := range blocksRetirement {
+		line := ""
+		for _, l := range strings.Split(section, "\n") {
+			if strings.HasPrefix(l, "| `"+n+"` |") {
+				line = l
+			}
+		}
+		if line == "" || !strings.Contains(line, "T143") || !strings.Contains(line, "T162") {
+			t.Errorf("%s has no row naming its owner and T162: %q", n, line)
+		}
+	}
+}

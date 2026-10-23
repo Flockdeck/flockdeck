@@ -66,6 +66,16 @@ The old interface let a person tile, split, move and broadcast to panes. The new
 | T142 (L7, updates, detach, quit) | `detach`, `quit` | `checkForUpdate`, `detach`, `installVersion`, `listVersions`, `quit`, `restart`, `save`, `updates` |
 | T143 (L8, remaining actions) | `agents`, `team` | `autoReview`, `autoReviewDefault`, `clearRoutingLog`, `jevKey`, `jevStatus`, `msgList`, `msgSeen`, `msgSend`, `setRouting`, `setWeights`, `taskAdd`, `taskAssign`, `taskBranch`, `taskNote`, `taskPrune`, `taskStatus` |
 
+## Must exist before the old interface is retired
+
+These are safety and security controls. The new interface has no way to do them yet, and T162 (the flip) must not remove the old interface until it does.
+
+| Command | Owner | Gate | What it is |
+| --- | --- | --- | --- |
+| `autoReview` | T143 (L8, remaining actions) | T162 | Safety control: the new shell cannot turn auto review off |
+| `autoReviewDefault` | T143 (L8, remaining actions) | T162 | Safety control: the default for new panes |
+| `jevKey` | T143 (L8, remaining actions) | T162 | Security control: the Jev key is set and cleared here |
+
 ## Actions of the key table
 
 | Action | What it is | Status | |

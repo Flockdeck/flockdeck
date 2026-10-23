@@ -368,6 +368,18 @@ func generate(root string) (string, error) {
 	}
 	b.WriteString("\n")
 
+	b.WriteString("## Must exist before the old interface is retired\n\n")
+	b.WriteString("These are safety and security controls. The new interface has no way to do them yet, and T162 (the flip) must not remove the old interface until it does.\n\n")
+	b.WriteString("| Command | Owner | Gate | What it is |\n| --- | --- | --- | --- |\n")
+	for _, n := range blocksRetirement {
+		for _, r := range cmdRows {
+			if r.Name == n {
+				fmt.Fprintf(&b, "| `%s` | %s | T162 | %s |\n", r.Name, r.Task, strings.TrimPrefix(r.Note, r.Task+". "))
+			}
+		}
+	}
+	b.WriteString("\n")
+
 	b.WriteString("## Actions of the key table\n\n")
 	b.WriteString("| Action | What it is | Status | |\n| --- | --- | --- | --- |\n")
 	for _, r := range keyRows {
