@@ -147,8 +147,10 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     lastPrefs.current = kept_prefs;
     setPatch((p) => settledPending(p, kept_prefs, before));
   }, [kept_prefs]);
+  // Only a refusal ends the wait: any other notice ("Agent finished") is about
+  // something else, and the change goes on waiting for its answer.
   useEffect(() => {
-    setPatch({});
+    if (snap.notice && snap.notice.error) setPatch({});
   }, [noticeSeq]);
   // A change nothing ever answers (another window set the same setting to
   // something else) does not stay on screen for good.

@@ -400,6 +400,22 @@ test("a setting another window changed stays changed through later pushes about 
     assert.equal(size(), "19 px");
   }));
 
+test("a notice that is not a refusal does not end the wait", () =>
+  withPage({}, async (m) => {
+    await m.connect();
+    await m.openSettings("terminal");
+    const size = () => m.container.find("#set-font-size-value").textContent;
+    await m.click(m.container.find("#set-font-up"));
+    await m.click(m.container.find("#set-font-up"));
+    assert.equal(size(), "15 px");
+    await m.push({ type: "notice", text: "Agent finished", error: false });
+    assert.equal(size(), "15 px", "an unrelated notice did not step it back");
+    await m.push({ type: "prefs", prefs: { fontSize: 14 } });
+    assert.equal(size(), "15 px");
+    await m.push({ type: "notice", text: "This window can only look", error: true });
+    assert.equal(size(), "14 px", "a refusal does, back to what the desktop keeps");
+  }));
+
 test("a change nothing answers is dropped after the wait", () =>
   withPage({ fontSize: 15 }, async (m) => {
     await m.connect();
