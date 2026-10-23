@@ -7,6 +7,7 @@ import (
 	"github.com/jmwri/flockdeck/internal/agent"
 	"github.com/jmwri/flockdeck/internal/session"
 	"github.com/jmwri/flockdeck/internal/session/transcript"
+	"github.com/jmwri/flockdeck/internal/workspace"
 )
 
 // This file is the desktop side of the phone's chat view: the
@@ -299,13 +300,18 @@ func (s *Server) syncStreamLocked(paneID string, pc *paneConvo, r resolvedPane, 
 // for a structured pane, which keeps its conversation in memory, and the
 // agent's transcript file for any other.
 func (s *Server) streamFor(paneID string, spec agent.Spec, sessionID string) (transcript.Stream, bool) {
-	if spec.Runner == agent.RunnerACP {
-		if st, ok := s.ws.StructuredStream(paneID); ok {
-			return st, true
-		}
-		return nil, false
+	if st, ok := s.ws.StructuredStream(paneID); ok {
+		return st, true
 	}
 	return transcript.StreamFor(spec, sessionID)
+}
+
+// isRuntimeStream says the stream is a runtime's own, read from memory (a
+// structured pane's), and not a file tailed for an agent that keeps one. It asks
+// the stream and not the agent: a runtime has no hook event and no file to tail.
+func isRuntimeStream(st transcript.Stream) bool {
+	_, ok := st.(*workspace.StructuredStream)
+	return ok
 }
 
 // pageFor answers an open request's page: the newest conversationPageSize
@@ -488,7 +494,7 @@ func (s *Server) refreshConversation(paneID string, pc *paneConvo) {
 		// same as if this were its first ever conversation.
 		stream.SetLight(len(pc.watchers) == 0)
 		changedNow := pc.stream.Refresh()
-		if pc.spec.Runner != agent.RunnerACP {
+		if !isRuntimeStream(pc.stream) {
 			s.notePreview(paneID, changedNow)
 		}
 		// Already answered as a reset below, whatever this says -- a new
@@ -518,7 +524,7 @@ func (s *Server) refreshConversation(paneID string, pc *paneConvo) {
 	// this is the one place a pane's transcript is tailed for a client that
 	// has never opened it -- but only pushed on to clients that are.
 	changed := pc.stream.Refresh()
-	if pc.spec.Runner != agent.RunnerACP {
+	if !isRuntimeStream(pc.stream) {
 		s.notePreview(paneID, changed)
 	}
 	// A conversation can be replaced in place under an unchanged session id
@@ -599,7 +605,7 @@ func (h *conversationHub) watchedStructured() []string {
 	var ids []string
 	for id, pc := range h.panes {
 		pc.mu.Lock()
-		if pc.spec.Runner == agent.RunnerACP && len(pc.watchers) > 0 {
+		if isRuntimeStream(pc.stream) && len(pc.watchers) > 0 {
 			ids = append(ids, id)
 		}
 		pc.mu.Unlock()

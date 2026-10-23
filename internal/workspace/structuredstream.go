@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"cmp"
 	"reflect"
 	"strings"
 	"sync"
@@ -142,14 +143,8 @@ func (s *StructuredStream) Detail(id string) (transcript.Detail, bool) {
 	if inline == nil {
 		return transcript.Detail{Text: structuredGone}, true
 	}
-	var text, diff string
-	switch inline.Kind {
-	case transcript.KindPrompt, transcript.KindNotice:
-		text = inline.Text
-	case transcript.KindReply:
-		text = inline.Markdown
-	}
-	diff = inline.Diff
+	// A prompt or notice carries its words in Text, a reply in Markdown.
+	text, diff := cmp.Or(inline.Text, inline.Markdown), inline.Diff
 	if fetch != nil {
 		if d, ok := fetch(id); ok {
 			if d.Text != "" {
