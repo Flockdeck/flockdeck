@@ -416,3 +416,56 @@ func TestWorktreesPageHoldsTheConflictRadarDetail(t *testing.T) {
 		}
 	}
 }
+
+// A binding written into a page by hand is the drift the placeholders exist to
+// prevent: remap the action and the page goes on saying the old key. Every
+// binding of the table (a range such as "Alt+1 … Alt+9" excepted) has to come
+// into a page through [[key:id]] or [[action:id]] or {{keys}}. Keys the table
+// does not own, such as a terminal program's Ctrl+C, are not its business.
+func TestNoPageWritesATableBindingByHand(t *testing.T) {
+	for _, slug := range order {
+		src, err := fs.ReadFile(pagesFS, "pages/"+slug+".md")
+		if err != nil {
+			t.Fatal(err)
+		}
+		for i, line := range strings.Split(string(src), "\n") {
+			// What a placeholder expands to is the table's own, so drop them
+			// before looking.
+			bare := stripPlaceholders(line)
+			for _, k := range Keys {
+				if k.Keys == "" || strings.Contains(k.Keys, "…") {
+					continue
+				}
+				if strings.Contains(bare, k.Keys) {
+					t.Errorf("%s.md:%d writes %q (%s) by hand; use [[key:%s]]:\n\t%s", slug, i+1, k.Keys, k.Label, k.ID, strings.TrimSpace(line))
+				}
+			}
+		}
+	}
+}
+
+// stripPlaceholders removes the [[key:...]] and [[action:...]] placeholders from a
+// line, and the {{keys...}} ones.
+func stripPlaceholders(line string) string {
+	for _, pair := range [][2]string{{"[[", "]]"}, {"{{", "}}"}} {
+		for {
+			i := strings.Index(line, pair[0])
+			if i < 0 {
+				break
+			}
+			j := strings.Index(line[i:], pair[1])
+			if j < 0 {
+				break
+			}
+			line = line[:i] + line[i+j+len(pair[1]):]
+		}
+	}
+	return line
+}
+
+func TestStripPlaceholders(t *testing.T) {
+	got := stripPlaceholders("press [[key:palette]] or {{keys:Panes}} not Ctrl+Shift+K [[action:help]]")
+	if got != "press  or  not Ctrl+Shift+K " {
+		t.Errorf("got %q", got)
+	}
+}
