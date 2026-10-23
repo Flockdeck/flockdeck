@@ -96,9 +96,16 @@ What to know before you use one:
   `edit` set to ask, and each arrives as a permission card. This replaces your own
   `bash` and `edit` settings in opencode's configuration, or in the project's, for a
   structured pane, including any `deny` rule: that command is now a question for
-  you. Other settings, such as `webfetch`, are left as you set them, and opencode
-  still runs those without asking unless you say otherwise. A terminal opencode
-  pane keeps its own configuration.
+  you. Choosing *Always* on a card allows that kind of command for the rest of the
+  session, one you had denied included. Other settings, such as `webfetch`,
+  `read` and `external_directory`, are left as you set them, and opencode still
+  runs those without asking unless you say otherwise; Flockdeck never sets
+  anything to allow. A terminal opencode pane keeps its own configuration. The
+  cards do not hold in a repository whose own opencode settings give an agent
+  (`agent.build.permission`, or a file under `.opencode/agent`) permission to run
+  commands: those win over the setting Flockdeck makes, and the command runs
+  without a card. Treat a structured opencode pane as supervised only in a
+  repository you trust.
 - **Mail needs an opt-in.** A structured agent has no `flockdeck` command and is
   not given the pane identity one needs, so it cannot run `flockdeck inbox`. By
   default it is not woken by mail at all, and its briefing says mail is not

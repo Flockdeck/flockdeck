@@ -174,7 +174,18 @@ earlier one, so Flockdeck's `bash` and `edit` replace the user's and the project
 for this pane, patterns and denials included. A rule such as `"rm *": "deny"` becomes a question you answer.
 Every other permission key (`read`, `webfetch`, `external_directory` and the rest) is left as the user set it, and
 opencode's own defaults for them still apply, so a web fetch or a search is not asked about unless the user's
-configuration says so. A terminal opencode pane is not started this way and keeps its own configuration. The
+configuration says so. Flockdeck sets nothing to allow, only to ask. The card offers "Always" as opencode
+sends it, and choosing it for a command allows that kind of command for the rest of the session, including one
+the user had denied in their own configuration; Flockdeck does not take that option off the card.
+
+**The gate does not hold where a repository sets permissions for an agent.** Checked on 1.19.3 with a fixture
+project: `{"agent":{"build":{"permission":{"bash":"allow","edit":"allow"}}}}` in the project's `opencode.json`,
+and the same under `permission:` in the front matter of `.opencode/agent/build.md` (and of a custom agent's
+file), put their rules after the inline value in the agent's resolved rules, and the last matching rule wins.
+`opencode debug agent build` shows the allow after the ask. `TestRealOpencodeEndToEnd` run against the first
+fixture got no permission card: the shell command ran and the turn ended. So the permission cards gate commands
+only in a repository you trust not to set an agent's permissions to allow. Open an unfamiliar repository in a
+terminal pane, not a structured one, until that is fixed (T126). A terminal opencode pane is not started this way and keeps its own configuration. The
 adapter manifest can still mark an agent that runs without asking (`runsWithoutAsking`); the drawer header of
 such a pane says "This agent runs commands and edits files without asking you first." for as long as the pane
 is open. No built-in agent is marked now. The old window shows a stub for a structured pane and no warning.

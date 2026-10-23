@@ -4,10 +4,13 @@ package manifest
 
 import (
 	"context"
+	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestCanaryInitialize is the weekly canary handshake (see
@@ -71,4 +74,96 @@ func TestCanaryInitialize(t *testing.T) {
 		t.Fatalf("initialize failed: %v", err)
 	}
 	t.Logf("initialize ok in %v: protocol %d, agent %q %q, auth methods %v", res.Took, res.ProtocolVersion, res.AgentName, res.AgentVersion, res.AuthMethods)
+}
+
+// TestCanaryLaunchEnvAsks checks, for an adapter whose manifest entry has a
+// launchEnv, that the newest version still turns it into the permissions
+// Flockdeck relies on. For opencode that is the shell and edit tools asking:
+// the job runs `opencode debug agent build` with the launchEnv set and reads
+// the build agent's resolved rules, whose last matching rule is the one that
+// applies. This is the resolved configuration, not a tool call: a real call
+// would need a model, and the canary sends no prompt. The pinned run shows
+// what the tested version resolves to; the latest run is the one that can
+// turn red.
+func TestCanaryLaunchEnvAsks(t *testing.T) {
+	bin := os.Getenv("FLOCKDECK_CANARY_BIN")
+	if bin == "" {
+		t.Skip("FLOCKDECK_CANARY_BIN is not set; the canary job sets it")
+	}
+	iso := os.Getenv("FLOCKDECK_CANARY_ISO")
+	if iso == "" || !filepath.IsAbs(iso) {
+		t.Fatal("FLOCKDECK_CANARY_ISO must be the absolute path of the temporary folder made for this job")
+	}
+	id := os.Getenv("FLOCKDECK_CANARY_ADAPTER")
+	a, ok := Default().Lookup(id)
+	if !ok {
+		t.Fatalf("no adapter %q in the manifest", id)
+	}
+	if len(a.LaunchEnv) == 0 {
+		t.Skipf("%s sets no launchEnv", id)
+	}
+	if id != "opencode" {
+		t.Fatalf("%s has a launchEnv and no check is written for it", id)
+	}
+	env := []string{"PATH=" + os.Getenv("PATH"), "CI=1"}
+	for k, v := range map[string]string{
+		"HOME": "home", "USERPROFILE": "home", "XDG_CONFIG_HOME": "config", "XDG_DATA_HOME": "data",
+		"XDG_CACHE_HOME": "cache", "XDG_STATE_HOME": "state", "APPDATA": "appdata", "LOCALAPPDATA": "localappdata", "TMPDIR": "tmp",
+	} {
+		dir := filepath.Join(iso, v)
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		env = append(env, k+"="+dir)
+	}
+	work := filepath.Join(iso, "work")
+	if err := os.MkdirAll(work, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, bin, "debug", "agent", "build")
+	cmd.Dir = work
+	cmd.Env = append(env, a.LaunchEnvList()...)
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatalf("opencode debug agent build: %v", err)
+	}
+	askedFor, err := lastActions(out, "bash", "edit")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("resolved rules, last match: %v", askedFor)
+	for _, tool := range []string{"bash", "edit"} {
+		if askedFor[tool] != "ask" {
+			t.Errorf("%s resolves to %q with the launchEnv set, want ask", tool, askedFor[tool])
+		}
+	}
+}
+
+// lastActions reads opencode's `debug agent` output and returns, for each tool,
+// the action of the last rule that names it with the pattern * (the last
+// matching rule is the one that applies).
+func lastActions(out []byte, tools ...string) (map[string]string, error) {
+	i := strings.IndexByte(string(out), '{')
+	if i < 0 {
+		return nil, os.ErrInvalid
+	}
+	var agent struct {
+		Permission []struct {
+			Permission, Action, Pattern string
+		} `json:"permission"`
+	}
+	if err := json.Unmarshal(out[i:], &agent); err != nil {
+		return nil, err
+	}
+	got := map[string]string{}
+	for _, r := range agent.Permission {
+		for _, tool := range tools {
+			if r.Permission == tool && r.Pattern == "*" {
+				got[tool] = r.Action
+			}
+		}
+	}
+	return got, nil
 }

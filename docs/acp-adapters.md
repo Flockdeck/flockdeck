@@ -33,7 +33,9 @@ nothing unless the agent's own configuration is set to ask. No adapter is marked
 `launchEnv` is environment Flockdeck sets for the adapter when it starts it: up to four variables, with
 capital-letter names that are not Flockdeck's own and fixed values written in the manifest. It is added after
 `passEnv` and replaces a variable of the same name, so the user's environment cannot undo it. opencode has one:
-`OPENCODE_CONFIG_CONTENT`, which makes `bash` and `edit` ask (see [Structured panes](structured-pane.md)).
+`OPENCODE_CONFIG_CONTENT`, which makes `bash` and `edit` ask (see [Structured panes](structured-pane.md)). The weekly canary (`acp-canary.yml`) runs
+`opencode debug agent build` with it set, on the pinned and the latest version, and fails if `bash` or `edit` no
+longer resolve to ask. That is the resolved configuration, not a tool call, which would need a model.
 
 ## Node
 

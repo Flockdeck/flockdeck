@@ -9,7 +9,9 @@ name: acp-canary
 #              (the newest the registry has, the `preview` tag where there is
 #              one), install the adapter into a temporary folder and send one
 #              `initialize`. It never logs in, sends a prompt or opens a
-#              session.
+#              session. For opencode it then reads the permission rules the
+#              agent resolves with the manifest's launchEnv set, and fails if
+#              the shell and edit tools no longer ask.
 #
 # This is a report, not a gate. It runs on a schedule and by hand only, never
 # on a pull request or a push, so it can not stop a merge: a red run here means
@@ -140,6 +142,17 @@ jobs:
           FLOCKDECK_CANARY_ISO: ${{ env.ISO }}
           FLOCKDECK_CANARY_ADAPTER: ${{ matrix.adapter }}
         run: go test -tags acp_canary ./internal/acp/manifest -run TestCanaryInitialize -v -count=1 -timeout 5m
+
+      - name: Check that the launch environment still makes the agent ask
+        # Only for an adapter whose manifest entry sets launchEnv (opencode).
+        # It reads the agent's resolved permission rules, with no prompt and no
+        # login; the latest channel is the run that tells us a new version
+        # stopped honouring it.
+        env:
+          FLOCKDECK_CANARY_BIN: ${{ env.ISO }}/adapter/node_modules/.bin/${{ env.CMD }}
+          FLOCKDECK_CANARY_ISO: ${{ env.ISO }}
+          FLOCKDECK_CANARY_ADAPTER: ${{ matrix.adapter }}
+        run: go test -tags acp_canary ./internal/acp/manifest -run TestCanaryLaunchEnvAsks -v -count=1 -timeout 5m
 
       - name: Show whether the runner home changed
         if: always()
