@@ -20,7 +20,7 @@ function fakeWindow() {
 }
 function fakeStore() {
   const calls = [];
-  return { calls, start: () => calls.push("start"), stop: () => calls.push("stop") };
+  return { calls, start: () => calls.push("start"), stop: () => calls.push("stop"), send: () => true };
 }
 
 test("pagehide stops the store", () => {

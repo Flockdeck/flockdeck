@@ -8,7 +8,11 @@
 /** watchPageLifecycle wires a window's pagehide and pageshow to a store, and
  *  returns a function that removes both. */
 export function watchPageLifecycle(win, store) {
-  const hide = () => store.stop();
+  // The layout is saved as the page goes, while the socket is still open.
+  const hide = () => {
+    store.send({ cmd: "save" });
+    store.stop();
+  };
   const show = (e) => {
     if (e.persisted) store.start();
   };

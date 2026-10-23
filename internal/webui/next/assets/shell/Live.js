@@ -18,8 +18,12 @@ import { nextNeedsYou, paneAt } from "../graph/keys.js";
 import { Shell, useNarrow } from "./app.js";
 import { Home, sameProject, rosterOf } from "./Home.js";
 import { Start } from "./Start.js";
+import { Confirm } from "./Confirm.js";
+import { LIST } from "./keys.js";
+import { Updates, trapTab } from "./Updates.js";
 import { Tabs } from "./Tabs.js";
 import { useLifecycle } from "../drawer/Lifecycle.js";
+import { RELAY_WORDS, quitQuestion, updateOf } from "../lib/updates.js";
 import { catalogOf, closeTabWarnings, moveTabCommand, newTabCommand, tabsOf } from "../lib/lifecycle.js";
 
 // What the shell is given before the first hello and state. Constants, so the
@@ -60,6 +64,10 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null })
   const [local, setLocal] = useState("");
   const [dismissed, setDismissed] = useState(0);
   const [opening, setOpening] = useState("");
+  // The updates dialog (with the seq of the notice when it opened, so it shows
+  // only newer ones) and the question before quit.
+  const [updatesAt, setUpdatesAt] = useState(-1);
+  const [quitAsk, setQuitAsk] = useState(false);
   // The store empties its hello and state when the socket drops. The rail and
   // the project chosen in it are kept through that, so a reconnect does not clear
   // the choice and ask for the graph a second time.
@@ -129,6 +137,15 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null })
   const noticeSeq = snap.notice ? snap.notice.seq : 0;
   const noticeText = local || (snap.notice && noticeSeq > dismissed ? String(snap.notice.text || "") : "");
   const say = (text) => setLocal(text);
+  // Once the desktop has detached this window the page closes itself, or says it
+  // can be closed when the browser will not let a script do it.
+  useEffect(() => {
+    if (!snap.detached) return;
+    const w = win || (typeof window !== "undefined" ? window : null);
+    if (w && w.close) w.close();
+    setLocal("Flockdeck has detached from this window and the agents keep running. You can close this tab.");
+  }, [snap.detached]);
+  const update = updateOf(snap.state, snap.remote);
   // A notice from the desk replaces one of this page's own.
   useEffect(() => {
     if (noticeSeq) setLocal("");
@@ -181,11 +198,13 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null })
       const cmd = cur ? moveTabCommand(tabs, cur.id, 1) : null;
       if (cmd) send(cmd);
     },
+    detach: () => (snap.remote ? say(RELAY_WORDS) : send({ cmd: "detach" })),
+    quit: () => (snap.remote ? say(RELAY_WORDS) : setQuitAsk(true)),
     zoomPane: needPane(() => drawer.toggleMax()),
     restartPane: needPane(() => life.begin("restart", node, pane)),
     lockPane: needPane(() => life.toggleLock(node.pane, !(pane && pane.locked))),
     closePane: needPane(() => (pane && pane.locked ? say("This pane is locked. Unlock it to close it.") : life.begin("close", node, pane))),
-  }), [current, snap.graphGone, win, drawer.pane, node, pane, tabs, life.request]);
+  }), [current, snap.graphGone, snap.remote, win, drawer.pane, node, pane, tabs, life.request]);
 
   return html`<${Shell}
     hello=${kept.current.hello}
@@ -198,7 +217,12 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null })
     mainRef=${mainRef}
     actions=${actions}
     maximised=${drawer.maximised}
-    blocked=${!!starting}
+    blocked=${!!starting || updatesAt >= 0 || quitAsk}
+    railFoot=${snap.remote
+      ? null
+      : html`<button type="button" class=${"rail-updates" + (update ? " has-update" : "")} onClick=${() => setUpdatesAt(noticeSeq)}>
+          ${update ? "Update " + update.version : "Updates"}
+        </button>`}
     notice=${noticeText}
     onDismissNotice=${() => { setLocal(""); setDismissed(noticeSeq); }}
     drawer=${node
@@ -209,6 +233,16 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null })
     <${Home} snap=${snap} selected=${selected} onShown=${setShown} onOpen=${drawer.open} open=${drawer.pane} narrow=${narrow} />
     ${starting
       ? html`<${Start} mode=${starting} catalog=${catalog} project=${project} send=${send} onClose=${() => setStarting("")} />`
+      : null}
+    ${updatesAt >= 0
+      ? html`<${Updates} update=${update} versions=${snap.versions} updatesOff=${!!(kept.current.hello.prefs && kept.current.hello.prefs.updatesOff)}
+          notice=${snap.notice && snap.notice.seq > updatesAt ? String(snap.notice.text || "") : ""} send=${send} onClose=${() => setUpdatesAt(-1)} />`
+      : null}
+    ${quitAsk
+      ? html`<div class="dialog-scrim" onKeyDown=${(e) => e.key === LIST.tab && trapTab(e, e.currentTarget)}>
+          <${Confirm} title=${quitQuestion(kept.current.hello.keys)} words=${["The layout is saved first. Agents that are running stop."]} label="Quit and stop everything"
+            onConfirm=${() => { setQuitAsk(false); send({ cmd: "quit" }); }} onCancel=${() => setQuitAsk(false)} />
+        </div>`
       : null}
   <//>`;
 }

@@ -64,7 +64,6 @@ const (
 	tL4 = "T139 (L4, history, find, pane info)"
 	tL5 = "T140 (L5, API keys, remote, notifications)"
 	tL6 = "T141 (L6, helpers, baton, projects)"
-	tL7 = "T142 (L7, updates, detach, quit)"
 	tL8 = "T143 (L8, remaining actions)"
 )
 
@@ -124,8 +123,6 @@ var keyVerdicts = map[string]Verdict{
 	"remote":         task(tL5),
 	"helpers":        task(tL6),
 	"openRecordings": task(tL4),
-	"detach":         task(tL7),
-	"quit":           task(tL7),
 }
 
 // cmdVerdicts classify every control-socket command the old interface sends
@@ -242,14 +239,6 @@ var cmdVerdicts = map[string]Verdict{
 	"selectRepo":          task(tL6),
 
 	// L7: updates, detach, quit.
-	"checkForUpdate": task(tL7),
-	"installVersion": task(tL7),
-	"listVersions":   task(tL7),
-	"detach":         task(tL7),
-	"quit":           task(tL7),
-	"restart":        task(tL7, "Restart after an update"),
-	"updates":        task(tL7),
-	"save":           task(tL7, "Saves the layout when the page unloads; may be moot once tiling is cut"),
 
 	// Git, worktrees, GitHub.
 	"changes":        task(tC6),
