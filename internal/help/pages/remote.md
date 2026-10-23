@@ -40,8 +40,8 @@ serves headless: no window, and no browser is ever looked for on that
 machine. It runs just as well on a spare box, a home server, a NAS or a
 cheap VPS as it does on the machine in front of you. Pair it the same way
 (`flockdeck remote enable` then `flockdeck remote pair`) and it's a desktop
-in every way that matters here: full interface, chat on a phone, the
-lot. That puts the app itself on hardware you already control, for free;
+in every way that matters here: the full interface, a pane's terminal on
+a phone, the lot. That puts the app itself on hardware you already control, for free;
 reaching it from a phone through the shared relay is the same Flockdeck Remote
 subscription as from any desktop.
 
@@ -259,17 +259,17 @@ agent has spent in its conversation (a token count and the tightest of its
 usage windows for one on a subscription, or a rough cost in dollars for one
 paying by the token). The usage window itself is coloured once it is close to running out.
 
-Every open pane also appears in the paired device's list with its latest
-reply, or the question it's waiting on, a time, and an unread dot, so you
-can see what's happened everywhere without opening each one. Opening the
-list again after a while away leads with **Since you last looked**: new
-replies, agents that finished, and ones that started waiting, since this
+Every open pane also appears in the paired device's list with its status and
+what it is waiting on (the agent's latest reply is not sent for now), a time,
+and an unread dot, so you can see what's happened everywhere without opening
+each one. Opening the list again after a while away leads with **Since you last
+looked**: agents that finished, and ones that started waiting, since this
 device last had it open. A tap on any of those jumps to and
 highlights the first row it counts, opening its helper group first if that
 was folded. It says nothing once there is nothing honest left to count. One
 waiting on a permission or a question says so in the list, with the tool
-named; tapping the row opens the chat, and the answer is given at the desk or
-in the pane's terminal view. Messages Flockdeck
+named; tapping the row opens the pane's terminal for now, and the answer is
+given at the desk or in the terminal view. Messages Flockdeck
 itself injects (a background task finishing, a session notice) show as
 small notes, never as if you had typed them.
 
