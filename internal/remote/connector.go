@@ -24,7 +24,7 @@ const Subprotocol = "flockdeck-relay.v1"
 // relay as Flockdeck-Capability when the tunnel opens. It goes up when a
 // build can do something a browser may need to know about; the relay only
 // records it.
-const Capability = 1
+const Capability = 2
 
 // The relay closes the tunnel with one of these when retrying would be wrong.
 const (

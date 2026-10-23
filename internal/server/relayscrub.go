@@ -76,7 +76,8 @@ var relayScrubs = map[string]func([]byte) []byte{
 	// The graph holds the live line of each pane, the text of each message
 	// between agents and the text of each permission and question. Its commands
 	// are refused to a relay window already; this is the second lock.
-	"graph": dropForRelay,
+	"graph":      dropForRelay,
+	"relayTeams": scrubRelayTeams,
 	// A structured pane is for the desk until there is a sealed team socket.
 	// The commands are refused to a relay window already; this is the second
 	// lock if one is ever let through.
