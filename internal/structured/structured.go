@@ -34,6 +34,7 @@ import (
 	"github.com/jmwri/flockdeck/internal/acp"
 	"github.com/jmwri/flockdeck/internal/acp/bridge"
 	"github.com/jmwri/flockdeck/internal/acp/manifest"
+	"github.com/jmwri/flockdeck/internal/acp/permprobe"
 	"github.com/jmwri/flockdeck/internal/agent"
 	"github.com/jmwri/flockdeck/internal/record"
 	"github.com/jmwri/flockdeck/internal/session/transcript"
@@ -158,6 +159,10 @@ type Options struct {
 	// means none, which is what a pane with recording off passes.
 	Records *record.Manager
 	Meta    record.Meta
+	// PermissionRunner runs the permission check of an adapter that has one
+	// (Spec.ACPPermissionProbe). Nil means the real program. It is for tests.
+	PermissionRunner permprobe.Runner
+
 	// Recorder is a recording that is already open. It is used in place of
 	// Records, and closed by Close.
 	Recorder Recorder
@@ -248,6 +253,10 @@ type Runtime struct {
 	nextSub int
 	rec     Recorder
 	tapSeen int64
+	// permRan says the launch check of the agent's permissions has run, and
+	// permUnasked what it found; permNote says in a few words how it went.
+	permRan, permUnasked bool
+	permNote             string
 
 	tearOnce sync.Once
 	stopTap  chan struct{}
@@ -606,7 +615,53 @@ func (r *Runtime) resolve() (Command, *Setup, error) {
 	if abs, err := filepath.Abs(path); err == nil {
 		path = abs
 	}
-	return Command{Path: path, Args: append([]string(nil), a.Args...), env: r.env()}, nil, nil
+	env := r.env()
+	if pp, ok := r.opts.Spec.ACPPermissionProbe(); ok {
+		env = r.checkPermissions(path, pp, a, env)
+	}
+	return Command{Path: path, Args: append([]string(nil), a.Args...), env: env}, nil, nil
+}
+
+// checkPermissions reads what the agent resolves in the pane's directory, sets
+// the adapter's setting so that the tools ask while the user's denials stay, and
+// reads it again to see whether a tool still allows. It returns env with the
+// setting replaced.
+func (r *Runtime) checkPermissions(path string, pp manifest.PermissionProbe, a manifest.Adapter, env []string) []string {
+	launch := make([]string, 0, len(env))
+	for _, kv := range env {
+		if name, _, _ := strings.Cut(kv, "="); !strings.EqualFold(name, pp.Setting) {
+			launch = append(launch, kv)
+		}
+	}
+	run := r.opts.PermissionRunner
+	if run == nil {
+		run = permprobe.Exec
+	}
+	res := permprobe.Check(r.ctx, run, path, pp.Args, r.opts.Cwd, launch, pp.Setting, a.LaunchEnv[pp.Setting], pp.Tools...)
+	r.mu.Lock()
+	r.permRan, r.permUnasked, r.permNote = true, res.Unasked, res.Note
+	r.mu.Unlock()
+	r.notify()
+	return append(launch, pp.Setting+"="+res.Inline)
+}
+
+// Unasked says the agent may run commands or edit files without a permission
+// request. For an adapter with a launch check it is what the check found once it
+// has run, and until then the manifest's word; for any other, the manifest's.
+func (r *Runtime) Unasked() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.permRan {
+		return r.permUnasked
+	}
+	return r.opts.Spec.RunsWithoutAsking()
+}
+
+// PermissionNote says in a few words how the launch check of the permissions went.
+func (r *Runtime) PermissionNote() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.permNote
 }
 
 // launch gets the agent to a session. It reports whether there is one.

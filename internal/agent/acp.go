@@ -123,6 +123,16 @@ func (s Spec) ACPLaunchEnv() []string {
 	return a.LaunchEnvList()
 }
 
+// ACPPermissionProbe is the check the manifest says to run when this Spec's
+// agent starts, if it names one.
+func (s Spec) ACPPermissionProbe() (manifest.PermissionProbe, bool) {
+	a, ok := s.ACPAdapter()
+	if !ok || a.PermissionProbe == nil {
+		return manifest.PermissionProbe{}, false
+	}
+	return *a.PermissionProbe, true
+}
+
 // RunsWithoutAsking says the manifest records that the agent this Spec starts
 // runs commands and edits without sending a permission request.
 func (s Spec) RunsWithoutAsking() bool {

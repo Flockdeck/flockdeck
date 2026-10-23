@@ -197,13 +197,15 @@ reference](structured-pane.md#6-using-a-structured-pane):
 
 - opencode, by default, runs shell commands, writes and edits without sending a
   permission request. Flockdeck starts it with `OPENCODE_CONFIG_CONTENT` set so
-  that `bash` and `edit` ask (the manifest's `launchEnv`), which replaces the
-  user's own `bash` and `edit` settings for that pane. That is not the whole
-  story: a repository's own agent permissions (`agent.<name>.permission` in its
+  that `bash` and `edit` ask (the manifest's `launchEnv`), built at launch from
+  the rules opencode resolves in the pane's directory so that the user's and the
+  project's denials stay (`internal/acp/permprobe`, the manifest's
+  `permissionProbe`). That is not the whole story: a repository's own agent permissions (`agent.<name>.permission` in its
   `opencode.json`, or a file under `.opencode/agent`) come after the launch value
-  and win, and a project can load plugins and MCP servers that run code. So the
-  manifest still marks opencode `runsWithoutAsking` and the drawer header shows a
-  standing, softened warning for it. See the opencode section of
+  and win, and a project can load plugins and MCP servers that run code. So Flockdeck
+  reads the rules again with the value set, and the drawer header shows its warning
+  only if `bash` or `edit` still allow, or the check could not be made (until then
+  the manifest's `runsWithoutAsking` stands). See the opencode section of
   [structured panes](structured-pane.md#6-using-a-structured-pane).
 - A structured agent is given no pane identity, so it cannot run `flockdeck
   inbox`, which the wake line and the briefing tell it to do.

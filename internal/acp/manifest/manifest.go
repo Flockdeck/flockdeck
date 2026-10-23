@@ -69,6 +69,27 @@ type Adapter struct {
 	// opencode reads OPENCODE_CONFIG_CONTENT. Values are fixed text in this file,
 	// never read from the user's environment.
 	LaunchEnv map[string]string `json:"launchEnv,omitempty"`
+	// PermissionProbe says how to find out, when a pane starts, whether the
+	// launchEnv made the agent ask in this working directory. See
+	// PermissionProbe. When it is set, RunsWithoutAsking holds only until that
+	// check has run, and the check's answer replaces it.
+	PermissionProbe *PermissionProbe `json:"permissionProbe,omitempty"`
+}
+
+// PermissionProbe is a command that prints the agent's resolved permissions, run
+// in the pane's working directory with the adapter's environment, so that the
+// user's and the project's own settings are part of what it prints. Flockdeck
+// runs it without the launchEnv setting, builds a value for the setting that
+// keeps the user's denials and makes every allow ask, then runs it again with
+// that value to see whether a project's own agent settings still allow. The
+// agent is the one named in Args, and the output is read by internal/acp/permprobe.
+type PermissionProbe struct {
+	// Args follow the adapter's command.
+	Args []string `json:"args"`
+	// Setting is the launchEnv variable the value is set in.
+	Setting string `json:"setting"`
+	// Tools are the permissions that must ask: names of the agent's tools.
+	Tools []string `json:"tools"`
 }
 
 // Manifest is the list.
@@ -160,6 +181,9 @@ func (a Adapter) check() error {
 	if err := checkLaunchEnv(a.LaunchEnv); err != nil {
 		return err
 	}
+	if err := a.PermissionProbe.check(a); err != nil {
+		return err
+	}
 	for name, v := range map[string]string{"pin": a.Pin, "minVersion": a.MinVersion, "minNode": a.MinNode, "testedWith": a.TestedWith} {
 		if v == "" {
 			continue
@@ -167,6 +191,37 @@ func (a Adapter) check() error {
 		if _, err := ParseVersion(v); err != nil || !exactVersion(v) {
 			return fmt.Errorf("%s %q is not an exact version (no ranges, no tags, no latest)", name, v)
 		}
+	}
+	return nil
+}
+
+// check accepts a probe that names a launchEnv variable, a few plain arguments
+// and a few tools. A nil probe is fine.
+func (p *PermissionProbe) check(a Adapter) error {
+	if p == nil {
+		return nil
+	}
+	if _, ok := a.LaunchEnv[p.Setting]; !ok {
+		return fmt.Errorf("permissionProbe setting %q is not in launchEnv", clipText(p.Setting, 40))
+	}
+	if len(p.Args) == 0 || len(p.Args) > 6 {
+		return errors.New("permissionProbe takes 1 to 6 args")
+	}
+	for _, arg := range p.Args {
+		if len(arg) > 40 || !argRe.MatchString(arg) {
+			return fmt.Errorf("permissionProbe arg %q is not a plain argument", clipText(arg, 40))
+		}
+	}
+	if len(p.Tools) == 0 || len(p.Tools) > 4 {
+		return errors.New("permissionProbe takes 1 to 4 tools")
+	}
+	for _, tool := range p.Tools {
+		if len(tool) > 40 || !cmdRe.MatchString(tool) {
+			return fmt.Errorf("permissionProbe tool %q is not a tool name", clipText(tool, 40))
+		}
+	}
+	if !a.RunsWithoutAsking {
+		return errors.New("permissionProbe on an adapter that does not run without asking has nothing to replace")
 	}
 	return nil
 }
