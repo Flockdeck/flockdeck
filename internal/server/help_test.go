@@ -162,3 +162,45 @@ func nextPrefs(t *testing.T, conn *websocket.Conn, cond func(store.Prefs) bool) 
 	t.Fatal("timed out waiting for the expected prefs")
 	return store.Prefs{}
 }
+
+// The new interface asks for the same pages as nodes, at the same address, and
+// gets no HTML.
+func TestHelpIsServedAsATreeToTheNewInterface(t *testing.T) {
+	srv, _ := newTestServer(t)
+
+	resp, err := http.Get(srv.baseURL() + "/help.json?form=tree")
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusForbidden {
+		t.Errorf("tree form without a token = %d, want 403", resp.StatusCode)
+	}
+
+	resp, err = http.Get(srv.baseURL() + "/help.json?form=tree&t=" + srv.Token())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("tree form = %d, want 200", resp.StatusCode)
+	}
+	if cc := resp.Header.Get("Cache-Control"); cc != "no-store" {
+		t.Errorf("Cache-Control = %q, want no-store", cc)
+	}
+	var raw map[string][]map[string]json.RawMessage
+	if err := json.NewDecoder(resp.Body).Decode(&raw); err != nil {
+		t.Fatal(err)
+	}
+	if len(raw["pages"]) != len(help.Slugs()) {
+		t.Fatalf("got %d pages, want %d", len(raw["pages"]), len(help.Slugs()))
+	}
+	for _, p := range raw["pages"] {
+		if _, has := p["html"]; has {
+			t.Errorf("a page came with HTML: %s", p["slug"])
+		}
+		if len(p["tree"]) < 3 {
+			t.Errorf("page %s has no tree", p["slug"])
+		}
+	}
+}
