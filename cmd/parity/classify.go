@@ -105,8 +105,6 @@ var keyVerdicts = map[string]Verdict{
 	"prevTab":           task(tL1),
 	"selectTab":         task(tL1),
 	"mergeAllTabs":      cut(whyRearrange),
-	"moveTabLeft":       task(tL1, "Reordering tabs is kept; a judgement to confirm"),
-	"moveTabRight":      task(tL1, "Reordering tabs is kept; a judgement to confirm"),
 
 	// Agents.
 	"toggleBroadcast":       cut(whyBroadcast),
@@ -127,7 +125,6 @@ var keyVerdicts = map[string]Verdict{
 	"findInTerminal": task(tL4),
 	"findPane":       task(tL4),
 	"history":        task(tL4),
-	"help":           task(tL3),
 
 	// The window.
 	"settings":       task(tL2),
@@ -163,19 +160,8 @@ var cmdVerdicts = map[string]Verdict{
 	"toggleBroadcastMember": cut(whyBroadcast),
 
 	// L1: start flows and pane lifecycle.
-	"startAgent":         task(tL1),
-	"newTab":             task(tL1),
-	"closePane":          task(tL1),
-	"closeTab":           task(tL1),
 	"closeFinishedPanes": task(tL1),
-	"restartPane":        task(tL1),
-	"lockPane":           task(tL1),
 	"toggleZoom":         task(tL1),
-	"selectTab":          task(tL1),
-	"nextTab":            task(tL1),
-	"prevTab":            task(tL1),
-	"renameTab":          task(tL1),
-	"moveTab":            task(tL1),
 	"focusPane":          task(tL1),
 	"browse":             task(tL1, "The folder picker of the start flow"),
 	"recents":            task(tL1, "Recent folders of the start flow"),
@@ -360,4 +346,6 @@ var notCommands = []string{
 // blocksRetirement are commands that are safety or security controls. The new
 // interface has to have them before the old one is removed (T162), whichever
 // order the rest are built in.
+// When the new interface sends one of these commands the row loses its task and
+// TestRetirementGateIsInTheDoc fails: that is the cue to remove it from this list.
 var blocksRetirement = []string{"autoReview", "autoReviewDefault", "jevKey"}
