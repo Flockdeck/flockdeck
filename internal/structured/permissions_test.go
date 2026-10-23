@@ -7,6 +7,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jmwri/flockdeck/internal/acp/acptest"
 	"github.com/jmwri/flockdeck/internal/acp/manifest"
@@ -17,14 +18,14 @@ import (
 // These tests start no agent: they resolve what would be started, with the
 // permission check's program replaced.
 
-func resolveWith(t *testing.T, adapter string, run permprobe.Runner) (*Runtime, Command, string) {
+func newPermRuntime(t *testing.T, ctx context.Context, adapter string, run permprobe.Runner) (*Runtime, string) {
 	t.Helper()
 	exe, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
 	}
 	cwd := acptest.SessionDir(t)
-	r := &Runtime{
+	return &Runtime{
 		opts: Options{
 			Spec: agent.Spec{ID: "fake", Runner: agent.RunnerACP,
 				ACP: agent.ACPSpec{Adapter: adapter, PassEnv: []string{"OPENCODE_CONFIG_CONTENT"}}},
@@ -34,9 +35,14 @@ func resolveWith(t *testing.T, adapter string, run permprobe.Runner) (*Runtime, 
 				Output: func(context.Context, string, ...string) (string, error) { return "v22.0.0", nil }},
 			PermissionRunner: run,
 		},
-		ctx:  context.Background(),
+		ctx:  ctx,
 		subs: map[int]chan struct{}{},
-	}
+	}, cwd
+}
+
+func resolveWith(t *testing.T, adapter string, run permprobe.Runner) (*Runtime, Command, string) {
+	t.Helper()
+	r, cwd := newPermRuntime(t, context.Background(), adapter, run)
 	cmd, _, err := r.resolve()
 	if err != nil {
 		t.Fatal(err)
@@ -44,9 +50,18 @@ func resolveWith(t *testing.T, adapter string, run permprobe.Runner) (*Runtime, 
 	return r, cmd, cwd
 }
 
-func rulesJSON(rules ...permprobe.Rule) []byte {
-	b, _ := json.Marshal(map[string]any{"name": "build", "permission": rules})
-	return b
+// listing is what the agent list prints for the agents given.
+func listing(agents map[string][]permprobe.Rule) []byte {
+	var b strings.Builder
+	for _, name := range []string{"build", "general", "x"} {
+		rules, ok := agents[name]
+		if !ok {
+			continue
+		}
+		j, _ := json.MarshalIndent(rules, "  ", "  ")
+		b.WriteString(name + " (primary)\n  " + string(j) + "\n")
+	}
+	return []byte(b.String())
 }
 
 func rule(tool, pattern, action string) permprobe.Rule {
@@ -64,23 +79,21 @@ func settingOf(env []string) (string, int) {
 	return v, n
 }
 
+var asking = []permprobe.Rule{rule("*", "*", "allow"), rule("bash", "*", "ask"), rule("edit", "*", "ask")}
+
 func TestTheLaunchCheckKeepsTheUsersDenialsAndClearsTheWarning(t *testing.T) {
 	var dirs []string
 	var seen [][]string
 	run := func(_ context.Context, path string, args []string, dir string, env []string) ([]byte, error) {
 		dirs = append(dirs, dir)
 		seen = append(seen, env)
-		if v, n := settingOf(env); n == 1 {
-			// With the setting, the agent resolves what it says.
-			var s struct {
-				Permission map[string]json.RawMessage `json:"permission"`
-			}
-			if err := json.Unmarshal([]byte(v), &s); err != nil {
-				t.Errorf("the setting is not JSON: %v", err)
-			}
-			return rulesJSON(rule("*", "*", "allow"), rule("bash", "*", "ask"), rule("bash", "rm *", "deny"), rule("edit", "*", "ask")), nil
+		if _, n := settingOf(env); n == 1 {
+			// With the setting every agent asks and the denial stays.
+			rules := append(append([]permprobe.Rule(nil), asking...), rule("bash", "rm *", "deny"))
+			return listing(map[string][]permprobe.Rule{"build": rules, "general": rules, "x": rules}), nil
 		}
-		return rulesJSON(rule("*", "*", "allow"), rule("bash", "rm *", "deny"), rule("bash", "*", "allow"), rule("edit", "*", "allow")), nil
+		rules := []permprobe.Rule{rule("*", "*", "allow"), rule("bash", "rm *", "deny"), rule("bash", "*", "allow"), rule("edit", "*", "allow")}
+		return listing(map[string][]permprobe.Rule{"build": rules, "general": rules}), nil
 	}
 	r, cmd, cwd := resolveWith(t, "opencode", run)
 	if len(dirs) != 2 || dirs[0] != cwd || dirs[1] != cwd {
@@ -101,16 +114,22 @@ func TestTheLaunchCheckKeepsTheUsersDenialsAndClearsTheWarning(t *testing.T) {
 	}
 }
 
-func TestTheLaunchCheckWarnsWhenAProjectsAgentStillAllows(t *testing.T) {
-	run := func(_ context.Context, _ string, _ []string, _ string, env []string) ([]byte, error) {
-		if _, n := settingOf(env); n == 1 {
-			return rulesJSON(rule("bash", "*", "ask"), rule("edit", "*", "ask"), rule("bash", "*", "allow")), nil
+func TestTheLaunchCheckWarnsWhenAnyAgentStillAllows(t *testing.T) {
+	for name, agents := range map[string]map[string][]permprobe.Rule{
+		"the build agent":   {"build": append(append([]permprobe.Rule(nil), asking...), rule("bash", "*", "allow")), "general": asking},
+		"a default agent":   {"build": asking, "x": append(append([]permprobe.Rule(nil), asking...), rule("bash", "*", "allow"))},
+		"a subagent's edit": {"build": asking, "general": append(append([]permprobe.Rule(nil), asking...), rule("edit", "*", "allow"))},
+	} {
+		run := func(_ context.Context, _ string, _ []string, _ string, env []string) ([]byte, error) {
+			if _, n := settingOf(env); n == 1 {
+				return listing(agents), nil
+			}
+			return listing(map[string][]permprobe.Rule{"build": {rule("*", "*", "allow")}}), nil
 		}
-		return rulesJSON(rule("*", "*", "allow")), nil
-	}
-	r, _, _ := resolveWith(t, "opencode", run)
-	if !r.Unasked() {
-		t.Error("a shell that still allows was not flagged")
+		r, _, _ := resolveWith(t, "opencode", run)
+		if !r.Unasked() {
+			t.Errorf("%s: a tool that still allows was not flagged (%s)", name, r.PermissionNote())
+		}
 	}
 }
 
@@ -125,6 +144,37 @@ func TestTheLaunchCheckFallsBackToTheManifestSettingAndWarns(t *testing.T) {
 	}
 	if !r.Unasked() {
 		t.Error("an unreadable check cleared the warning")
+	}
+}
+
+// Closing a pane must not wait for the check: the runtime's context reaches it.
+func TestTheLaunchCheckStopsWhenThePaneIsClosed(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	started := make(chan struct{})
+	run := func(c context.Context, _ string, _ []string, _ string, _ []string) ([]byte, error) {
+		select {
+		case started <- struct{}{}:
+		default:
+		}
+		<-c.Done()
+		return nil, c.Err()
+	}
+	r, _ := newPermRuntime(t, ctx, "opencode", run)
+	done := make(chan struct{})
+	go func() {
+		r.resolve()
+		close(done)
+	}()
+	select {
+	case <-started:
+	case <-time.After(10 * time.Second):
+		t.Fatal("the check never started")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(10 * time.Second):
+		t.Fatal("resolve went on waiting for the check after the context ended")
 	}
 }
 

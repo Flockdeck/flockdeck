@@ -23,7 +23,7 @@ func TestRealOpencodeFixtures(t *testing.T) {
 		t.Fatal("FLOCKDECK_REAL_OPENCODE must be an absolute path")
 	}
 	const plainSetting = `{"permission":{"bash":"ask","edit":"ask"}}`
-	args := []string{"debug", "agent", "build"}
+	args := []string{"agent", "list"}
 
 	// newEnv is a fresh isolated environment, and the user's own config file.
 	newEnv := func(t *testing.T, userConfig string) []string {
@@ -89,6 +89,28 @@ func TestRealOpencodeFixtures(t *testing.T) {
 			files:   map[string]string{"opencode.json": `{"agent":{"build":{"permission":{"bash":"allow","edit":"allow"}}}}`},
 			unasked: true,
 		},
+		"a default agent with an allow": {
+			files:   map[string]string{"opencode.json": `{"default_agent":"x","agent":{"x":{"mode":"primary","permission":{"bash":"allow"}}}}`},
+			unasked: true,
+		},
+		"a default agent in a file with an allow": {
+			files: map[string]string{
+				"opencode.json":        `{"default_agent":"x"}`,
+				".opencode/agent/x.md": "---\ndescription: x\nmode: primary\npermission:\n  bash: allow\n---\nx\n",
+			},
+			unasked: true,
+		},
+		"a subagent the task tool starts with an allow": {
+			files:   map[string]string{"opencode.json": `{"agent":{"general":{"permission":{"bash":"allow"}}}}`},
+			unasked: true,
+		},
+		"a subagent with an edit allow": {
+			files:   map[string]string{"opencode.json": `{"agent":{"explore":{"permission":{"edit":"allow"}}}}`},
+			unasked: true,
+		},
+		"an agent that denies": {
+			files: map[string]string{"opencode.json": `{"agent":{"x":{"mode":"primary","permission":{"bash":"deny","edit":"deny"}}}}`},
+		},
 		"an agent file with an allow": {
 			files:   map[string]string{".opencode/agent/build.md": "---\ndescription: build\npermission:\n  bash: allow\n  edit: allow\n---\nbuild things\n"},
 			unasked: true,
@@ -97,9 +119,9 @@ func TestRealOpencodeFixtures(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			env := newEnv(t, tc.user)
 			dir := project(t, tc.files)
-			res := Check(context.Background(), Exec, bin, args, dir, env, "OPENCODE_CONFIG_CONTENT", plainSetting, "bash", "edit")
+			res := Check(context.Background(), Exec, bin, args, dir, env, "OPENCODE_CONFIG_CONTENT", plainSetting, "build", "bash", "edit")
 			t.Logf("setting %s; unasked %v; %s", res.Inline, res.Unasked, res.Note)
-			if res.Note != "checked" {
+			if !strings.HasPrefix(res.Note, "checked") {
 				t.Fatalf("the check did not run cleanly: %s", res.Note)
 			}
 			if res.Unasked != tc.unasked {
@@ -115,9 +137,15 @@ func TestRealOpencodeFixtures(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			rules, err := ParseRules(out)
+			agents, err := ParseAgents(out)
 			if err != nil {
 				t.Fatal(err)
+			}
+			var rules []Rule
+			for _, a := range agents {
+				if a.Name == "build" {
+					rules = a.Rules
+				}
 			}
 			for _, d := range tc.denies {
 				tool, pattern, _ := strings.Cut(d, ":")

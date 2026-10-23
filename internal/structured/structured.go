@@ -637,7 +637,7 @@ func (r *Runtime) checkPermissions(path string, pp manifest.PermissionProbe, a m
 	if run == nil {
 		run = permprobe.Exec
 	}
-	res := permprobe.Check(r.ctx, run, path, pp.Args, r.opts.Cwd, launch, pp.Setting, a.LaunchEnv[pp.Setting], pp.Tools...)
+	res := permprobe.Check(r.ctx, run, path, pp.Args, r.opts.Cwd, launch, pp.Setting, a.LaunchEnv[pp.Setting], pp.Agent, pp.Tools...)
 	r.mu.Lock()
 	r.permRan, r.permUnasked, r.permNote = true, res.Unasked, res.Note
 	r.mu.Unlock()

@@ -17,6 +17,7 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -40,27 +41,63 @@ const (
 	Timeout = 30 * time.Second
 )
 
-// ParseRules reads the output of the agent's `debug agent` command: the agent
-// as JSON, perhaps after some lines of text.
-func ParseRules(out []byte) ([]Rule, error) {
-	i := bytes.IndexByte(out, '{')
-	if i < 0 {
-		return nil, errors.New("no agent in the output")
+// execTimeout is Timeout; a test shortens it.
+var execTimeout = Timeout
+
+// Agent is one agent and the rules it resolved.
+type Agent struct {
+	Name, Mode string
+	Rules      []Rule
+}
+
+var agentHeader = regexp.MustCompile(`^(\S+) \((\w+)\)$`)
+
+const maxAgents = 64
+
+// ParseAgents reads the output of the agent program's list of agents: for each
+// agent a line "name (mode)" at the start of a line, then its rules as a JSON
+// array. Lines before the first agent are ignored. It fails when there is no
+// agent, an agent's rules are not an array of rules, or there are too many.
+func ParseAgents(out []byte) ([]Agent, error) {
+	text := strings.ReplaceAll(string(out), "\r", "")
+	var agents []Agent
+	var body []string
+	flush := func() error {
+		if len(agents) == 0 {
+			return nil
+		}
+		a := &agents[len(agents)-1]
+		if err := json.Unmarshal([]byte(strings.Join(body, "\n")), &a.Rules); err != nil {
+			return fmt.Errorf("the rules of %q: %w", a.Name, err)
+		}
+		if len(a.Rules) > 20*maxRules {
+			return fmt.Errorf("the rules of %q are too many", a.Name)
+		}
+		return nil
 	}
-	var agent struct {
-		Permission []Rule `json:"permission"`
+	for _, line := range strings.Split(text, "\n") {
+		if m := agentHeader.FindStringSubmatch(line); m != nil {
+			if err := flush(); err != nil {
+				return nil, err
+			}
+			if len(agents) >= maxAgents {
+				return nil, errors.New("too many agents")
+			}
+			agents = append(agents, Agent{Name: m[1], Mode: m[2]})
+			body = body[:0]
+			continue
+		}
+		if len(agents) > 0 {
+			body = append(body, line)
+		}
 	}
-	dec := json.NewDecoder(bytes.NewReader(out[i:]))
-	if err := dec.Decode(&agent); err != nil {
+	if err := flush(); err != nil {
 		return nil, err
 	}
-	if len(agent.Permission) == 0 {
-		return nil, errors.New("the agent has no permission rules")
+	if len(agents) == 0 {
+		return nil, errors.New("no agent in the output")
 	}
-	if len(agent.Permission) > 20*maxRules {
-		return nil, errors.New("too many permission rules")
-	}
-	return agent.Permission, nil
+	return agents, nil
 }
 
 // For is the rules that apply to one tool, in order: those naming the tool and
@@ -188,11 +225,14 @@ type Runner func(ctx context.Context, path string, args []string, dir string, en
 // Exec runs the program and returns its standard output, at most a few megabytes
 // of it, within Timeout.
 func Exec(ctx context.Context, path string, args []string, dir string, env []string) ([]byte, error) {
-	ctx, cancel := context.WithTimeout(ctx, Timeout)
+	ctx, cancel := context.WithTimeout(ctx, execTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, path, args...)
 	cmd.Dir = dir
 	cmd.Env = env
+	// A program that is killed but whose child holds the pipe open does not keep
+	// the probe waiting.
+	cmd.WaitDelay = 2 * time.Second
 	var out limited
 	cmd.Stdout = &out
 	if err := cmd.Run(); err != nil {
@@ -219,36 +259,50 @@ func (l *limited) Write(p []byte) (int, error) {
 
 // Result is what a launch learned.
 type Result struct {
-	// Inline is the settings text to launch with, or "" for the plain setting.
+	// Inline is the settings text to launch with, or the plain setting.
 	Inline string
-	// Unasked says a tool still runs some command unasked with Inline set, or
-	// that this could not be found out.
+	// Unasked says a tool still runs some command unasked with Inline set, in
+	// some agent, or that this could not be found out.
 	Unasked bool
+	// Agents names the agents in which a tool is unasked, when that was found.
+	Agents []string
 	// Note says in a few words what happened, for a log or a test.
 	Note string
 }
 
-// Check reads the rules the agent resolves without any launch setting, builds the
-// settings that keep the denials and ask where it would allow, and reads the
-// rules again with those set to see whether a tool still allows. launch is the
-// environment without the setting, setting is the variable name, and fallback its
-// plain value, used when the rules cannot be read or turned into settings.
-func Check(ctx context.Context, run Runner, path string, args []string, dir string, launch []string, setting, fallback string, tools ...string) Result {
+// Check reads the agents and the rules the program resolves without any launch
+// setting, builds the settings from the rules of the baseline agent (the one the
+// user's and the project's own permissions reach, without an agent's own) so that
+// the tools ask and the denials stay, and reads the agents again with those set
+// to see whether any agent, the session's default or one a task starts, still
+// allows a tool. launch is the environment without the setting, setting is the
+// variable name, and fallback its plain value, used when the rules cannot be read
+// or turned into settings. Every agent counts, not only the one a session starts
+// in: a project can name a default agent and can give a subagent its own rules,
+// and this does not try to work out which one a session will use.
+func Check(ctx context.Context, run Runner, path string, args []string, dir string, launch []string, setting, fallback, baseline string, tools ...string) Result {
 	with := func(value string) []string {
 		out := append([]string(nil), launch...)
 		return append(out, setting+"="+value)
 	}
 	res := Result{Inline: fallback, Unasked: true}
-	out, err := run(ctx, path, args, dir, launch)
-	var rules []Rule
+	agents, err := listAgents(ctx, run, path, args, dir, launch)
+	var base *Agent
 	if err == nil {
-		rules, err = ParseRules(out)
+		for i := range agents {
+			if agents[i].Name == baseline {
+				base = &agents[i]
+			}
+		}
+		if base == nil {
+			err = fmt.Errorf("no agent called %q", baseline)
+		}
 	}
 	if err != nil {
 		res.Note = "the rules could not be read: " + err.Error()
 		return verify(ctx, run, path, args, dir, with(fallback), res, tools)
 	}
-	inline, ok := Inline(rules, tools...)
+	inline, ok := Inline(base.Rules, tools...)
 	if !ok {
 		res.Note = "the rules could not be kept: using the plain setting"
 		return verify(ctx, run, path, args, dir, with(fallback), res, tools)
@@ -257,21 +311,34 @@ func Check(ctx context.Context, run Runner, path string, args []string, dir stri
 	return verify(ctx, run, path, args, dir, with(inline), res, tools)
 }
 
-func verify(ctx context.Context, run Runner, path string, args []string, dir string, env []string, res Result, tools []string) Result {
+func listAgents(ctx context.Context, run Runner, path string, args []string, dir string, env []string) ([]Agent, error) {
 	out, err := run(ctx, path, args, dir, env)
-	var rules []Rule
-	if err == nil {
-		rules, err = ParseRules(out)
+	if err != nil {
+		return nil, err
 	}
+	return ParseAgents(out)
+}
+
+func verify(ctx context.Context, run Runner, path string, args []string, dir string, env []string, res Result, tools []string) Result {
+	agents, err := listAgents(ctx, run, path, args, dir, env)
 	if err != nil {
 		if res.Note == "" {
 			res.Note = "the result could not be checked: " + err.Error()
 		}
 		return res
 	}
-	res.Unasked = AnyUnasked(rules, tools...)
+	res.Unasked = false
+	for _, a := range agents {
+		if AnyUnasked(a.Rules, tools...) {
+			res.Unasked = true
+			res.Agents = append(res.Agents, a.Name)
+		}
+	}
 	if res.Note == "" {
 		res.Note = "checked"
+		if res.Unasked {
+			res.Note += ": a tool can run unasked in " + strings.Join(res.Agents, ", ")
+		}
 	}
 	return res
 }

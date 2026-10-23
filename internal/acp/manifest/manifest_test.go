@@ -302,7 +302,7 @@ func TestOnlyOpencodeHasAPermissionProbeAndItNamesTheLaunchSetting(t *testing.T)
 		if p == nil {
 			t.Fatal("opencode has no permissionProbe")
 		}
-		if strings.Join(p.Args, " ") != "debug agent build" || p.Setting != "OPENCODE_CONFIG_CONTENT" ||
+		if strings.Join(p.Args, " ") != "agent list" || p.Agent != "build" || p.Setting != "OPENCODE_CONFIG_CONTENT" ||
 			strings.Join(p.Tools, " ") != "bash edit" {
 			t.Errorf("probe = %+v", *p)
 		}
@@ -313,6 +313,8 @@ func TestABadPermissionProbeIsRefused(t *testing.T) {
 	oc, _ := Default().Lookup("opencode")
 	for name, mut := range map[string]func(*PermissionProbe){
 		"a setting that is not in launchEnv": func(p *PermissionProbe) { p.Setting = "OTHER" },
+		"no agent":                           func(p *PermissionProbe) { p.Agent = "" },
+		"an agent with a space":              func(p *PermissionProbe) { p.Agent = "build it" },
 		"no args":                            func(p *PermissionProbe) { p.Args = nil },
 		"seven args":                         func(p *PermissionProbe) { p.Args = make([]string, 7) },
 		"an arg with a space":                func(p *PermissionProbe) { p.Args = []string{"debug agent"} },

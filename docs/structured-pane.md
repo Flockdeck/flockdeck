@@ -197,26 +197,35 @@ only in a repository you trust not to set an agent's permissions to allow. A pro
 opencode pane safe in a repository you do not trust: open an unfamiliar repository in a terminal pane, not a
 structured one.
 
-**The launch check.** When a structured opencode pane starts, Flockdeck runs `opencode debug agent build` in the
-pane's own directory, with the environment the agent gets but without the setting. That prints the rules opencode
-resolves there: the user's, the project's and any agent-level ones. Flockdeck builds `OPENCODE_CONFIG_CONTENT` from
-the rules for `bash` and `edit` as described above, starts the agent with it, and runs the same command again with it
-set. If `bash` or `edit` can still run some command without asking (the last rule for every command allows it, or a
-rule for some commands allows it after the last rule for every command), or either run fails or prints something
-Flockdeck cannot read, the pane is flagged. If the first run cannot be read or turned into a value (too many rules,
-a rule it does not know, a value over 12 KiB), the manifest's plain value is used instead, which asks for
-everything and drops the user's denials, and the pane is flagged only if the second run still shows an allow or
-cannot be read. The check is `internal/acp/permprobe`; the manifest entry's `permissionProbe` names the command, the
-variable and the tools. It costs two extra starts of opencode, run one after the other before the agent starts:
-about 1.9 s each on the machine it was measured on (opencode 1.19.3, Windows), so a pane takes about 4 s longer to
-start. The pane shows as starting until it is done.
+**The launch check.** When a structured opencode pane starts, Flockdeck runs `opencode agent list` in the pane's own
+directory, with the environment the agent gets but without the setting. That prints every agent opencode knows there
+and the rules each resolved: the user's, the project's and any agent-level ones. Flockdeck builds
+`OPENCODE_CONFIG_CONTENT` from the `build` agent's rules for `bash` and `edit` as described above, starts the agent
+with it, and runs the same command again with it set. **Every** agent in the second listing is looked at, not only
+`build`: a project can name another agent as the one a session starts in (`default_agent`), and can give a subagent
+that the task tool starts its own rules, and `build`'s rules say nothing about either. If `bash` or `edit` can still
+run some command without asking in any agent (the last rule for every command allows it, or a rule for some commands
+allows it after the last rule for every command), or the second run fails or prints something Flockdeck cannot read,
+the pane is flagged. This is slightly conservative: an agent the session never uses still flags the pane. It covers
+`bash` and `edit` only; `webfetch`, `read` and the others are as before. If the first run cannot be read or turned
+into a value (no `build` agent, too many rules, a rule it does not know, a value over 12 KiB), the manifest's plain
+value is used instead, which asks for everything and drops the user's denials, and the pane is flagged only if the
+second run still shows an allow or cannot be read. The check is `internal/acp/permprobe`; the manifest entry's
+`permissionProbe` names the command, the agent, the variable and the tools.
+
+It costs two extra starts of opencode, run one after the other before the agent starts: about 2 s each on the
+machine it was measured on (opencode 1.19.3, Windows; a fixture run of both took 4 s), so a pane takes about 4 s
+longer to start. The pane shows as starting until it is done. Each run is stopped after 30 s and when the pane is
+closed, so a hung opencode holds the pane in starting for up to 60 s. opencode loads a project's plugins when it runs,
+so a project's plugin code runs three times at pane start (the two checks and the agent). That is no different from
+the agent starting, and it is one more reason the sentence below is true for every opencode pane.
 
 Until the check has run the manifest's `runsWithoutAsking` stands, so the flag shows from the start and goes if the
 check finds nothing. `TestRealOpencodeFixtures` (set `FLOCKDECK_REAL_OPENCODE` to the opencode program) runs it
 against a real opencode in fixture projects: an empty project, the user's granular shell and a denied edit, a
-project's allow, a project's own denials, an agent-level allow in `opencode.json` and one in
-`.opencode/agent/build.md`. The first four end with the tools asking and the denials in place; the last two are
-flagged.
+project's allow, a project's own denials, an agent that denies, and the flagged cases: an agent-level allow in
+`opencode.json` and in `.opencode/agent/build.md`, a `default_agent` with an allow (in `opencode.json` and in a file),
+and a subagent (`general`, `explore`) with an allow. The five that are not flagged end with the tools asking and the denials in place.
 
 The drawer header of the pane says, while it is flagged, "This agent may run commands and edit files without asking you first: in this repository Flockdeck could not make it ask, or could not check. A project's opencode.json or .opencode folder can also load plugins and MCP servers that run code, so no permission setting makes an opencode pane safe in a repository you do not trust." The same sentence about plugins and MCP servers
 holds for every opencode pane, flagged or not; it is in the help page.

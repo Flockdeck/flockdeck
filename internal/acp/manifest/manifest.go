@@ -76,16 +76,21 @@ type Adapter struct {
 	PermissionProbe *PermissionProbe `json:"permissionProbe,omitempty"`
 }
 
-// PermissionProbe is a command that prints the agent's resolved permissions, run
-// in the pane's working directory with the adapter's environment, so that the
-// user's and the project's own settings are part of what it prints. Flockdeck
-// runs it without the launchEnv setting, builds a value for the setting that
-// keeps the user's denials and makes every allow ask, then runs it again with
-// that value to see whether a project's own agent settings still allow. The
-// agent is the one named in Args, and the output is read by internal/acp/permprobe.
+// PermissionProbe is a command that lists the agents and the permissions each
+// resolved, run in the pane's working directory with the adapter's environment,
+// so that the user's and the project's own settings are part of what it prints.
+// Flockdeck runs it without the launchEnv setting, builds a value for the setting
+// from the rules of Agent that keeps the user's denials and makes every allow
+// ask, then runs it again with that value to see whether any agent, the one a
+// session starts in or one a task starts, still allows. The output is read by
+// internal/acp/permprobe.
 type PermissionProbe struct {
 	// Args follow the adapter's command.
 	Args []string `json:"args"`
+	// Agent is the agent whose rules the value is built from: the one the user's
+	// and the project's own permissions reach without an agent's own. Every agent
+	// the command lists is checked afterwards.
+	Agent string `json:"agent"`
 	// Setting is the launchEnv variable the value is set in.
 	Setting string `json:"setting"`
 	// Tools are the permissions that must ask: names of the agent's tools.
@@ -203,6 +208,9 @@ func (p *PermissionProbe) check(a Adapter) error {
 	}
 	if _, ok := a.LaunchEnv[p.Setting]; !ok {
 		return fmt.Errorf("permissionProbe setting %q is not in launchEnv", clipText(p.Setting, 40))
+	}
+	if !cmdRe.MatchString(p.Agent) || len(p.Agent) > 40 {
+		return fmt.Errorf("permissionProbe agent %q is not an agent name", clipText(p.Agent, 40))
 	}
 	if len(p.Args) == 0 || len(p.Args) > 6 {
 		return errors.New("permissionProbe takes 1 to 6 args")
