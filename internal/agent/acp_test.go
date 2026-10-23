@@ -363,7 +363,28 @@ func TestASpecKnowsFromTheManifestThatItRunsWithoutAsking(t *testing.T) {
 	for _, s := range Builtins() {
 		got[s.ID] = s.RunsWithoutAsking()
 	}
+	// opencode is started to ask, but a repository's own agent permissions win
+	// over that, so it is still recorded.
 	if !got["opencode-acp"] || got["gemini-acp"] || got["codex-acp"] || got["claude"] {
 		t.Errorf("runs without asking = %v", got)
+	}
+}
+
+func TestASpecKnowsTheEnvironmentTheManifestSetsForItsAdapter(t *testing.T) {
+	got := map[string][]string{}
+	for _, s := range Builtins() {
+		got[s.ID] = s.ACPLaunchEnv()
+	}
+	want := `OPENCODE_CONFIG_CONTENT={"permission":{"bash":"ask","edit":"ask"}}`
+	if len(got["opencode-acp"]) != 1 || got["opencode-acp"][0] != want {
+		t.Errorf("opencode-acp: %v, want %s", got["opencode-acp"], want)
+	}
+	for id, env := range got {
+		if id != "opencode-acp" && len(env) != 0 {
+			t.Errorf("%s sets %v", id, env)
+		}
+	}
+	if env := (Spec{ID: "x", Runner: RunnerCLI}).ACPLaunchEnv(); env != nil {
+		t.Errorf("a terminal entry sets %v", env)
 	}
 }

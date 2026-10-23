@@ -820,3 +820,39 @@ func TestDetailIsTheBridgesDetail(t *testing.T) {
 		t.Error("detail for an entry that is not there")
 	}
 }
+
+// An adapter's launchEnv reaches the child, after what the entry passes on, so
+// the user's own environment cannot undo it; an adapter with none gets nothing.
+func TestTheAdaptersLaunchEnvironmentReachesTheChildAndWins(t *testing.T) {
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	run := func(adapter string) string {
+		t.Helper()
+		o := Options{
+			Spec: agent.Spec{ID: "fake", Runner: agent.RunnerACP,
+				ACP: agent.ACPSpec{Adapter: adapter, PassEnv: []string{"OPENCODE_CONFIG_CONTENT", "KEEP_ME"}}},
+			Cwd:     acptest.SessionDir(t),
+			Environ: []string{"OPENCODE_CONFIG_CONTENT={\"permission\":\"allow\"}", "KEEP_ME=kept"},
+			Command: &Command{Path: exe, Args: []string{acptest.ArgAgent}},
+		}
+		r := begin(t, o)
+		if err := r.Send("env"); err != nil {
+			t.Fatal(err)
+		}
+		return replies(until(t, r, "the environment", func(s Snapshot) bool { return idle(s) && strings.Contains(replies(s), "=") }))
+	}
+	got := run("opencode")
+	want := `OPENCODE_CONFIG_CONTENT={"permission":{"bash":"ask","edit":"ask"}}`
+	if n := strings.Count(got, "OPENCODE_CONFIG_CONTENT="); n != 1 || !strings.Contains(got, want) {
+		t.Errorf("the child's OPENCODE_CONFIG_CONTENT (%d of them) is not %s:\n%s", n, want, got)
+	}
+	if !strings.Contains(got, "KEEP_ME=kept") {
+		t.Errorf("a passed variable was lost:\n%s", got)
+	}
+	// An adapter that sets nothing passes the user's own value on, as before.
+	if got := run("gemini"); !strings.Contains(got, `OPENCODE_CONFIG_CONTENT={"permission":"allow"}`) {
+		t.Errorf("an adapter with no launchEnv changed a passed variable:\n%s", got)
+	}
+}

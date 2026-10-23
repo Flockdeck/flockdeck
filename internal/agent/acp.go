@@ -112,6 +112,17 @@ func (s Spec) ACPAdapter() (manifest.Adapter, bool) {
 	return manifest.Default().Lookup(s.ACP.Adapter)
 }
 
+// ACPLaunchEnv is the environment the manifest says Flockdeck sets for the
+// adapter this Spec starts, as name=value. It is added after ACPPassEnv and wins
+// over it: a name the user's environment also passes is set to this value.
+func (s Spec) ACPLaunchEnv() []string {
+	a, ok := s.ACPAdapter()
+	if !ok {
+		return nil
+	}
+	return a.LaunchEnvList()
+}
+
 // RunsWithoutAsking says the manifest records that the agent this Spec starts
 // runs commands and edits without sending a permission request.
 func (s Spec) RunsWithoutAsking() bool {

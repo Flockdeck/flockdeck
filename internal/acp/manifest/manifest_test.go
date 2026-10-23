@@ -1,6 +1,7 @@
 package manifest
 
 import (
+	"encoding/json"
 	"os"
 	"strings"
 	"testing"
@@ -223,7 +224,9 @@ func TestParseChecksTheFieldsAProcessOrNpmReads(t *testing.T) {
 	}
 }
 
-func TestOnlyOpencodeIsRecordedAsRunningWithoutAsking(t *testing.T) {
+func TestOnlyOpencodeIsRecordedAsPossiblyRunningWithoutAsking(t *testing.T) {
+	// Flockdeck starts opencode to ask (see launchEnv), but a repository's own
+	// agent permissions win over that, so the warning stays.
 	for _, a := range Default().Adapters {
 		if want := a.ID == "opencode"; a.RunsWithoutAsking != want {
 			t.Errorf("%s: runsWithoutAsking = %v, want %v", a.ID, a.RunsWithoutAsking, want)
@@ -232,5 +235,56 @@ func TestOnlyOpencodeIsRecordedAsRunningWithoutAsking(t *testing.T) {
 	m, err := Parse([]byte(wrap(strings.Replace(goodAdapter, `"needsNode":false`, `"needsNode":false,"runsWithoutAsking":true`, 1))))
 	if err != nil || !m.Adapters[0].RunsWithoutAsking {
 		t.Errorf("the field is not read: %v, %+v", err, m)
+	}
+}
+
+// launchEnv is what Flockdeck sets for an adapter: opencode is told to ask.
+func TestOpencodeIsLaunchedToAskAndNoOtherAdapterSetsEnvironment(t *testing.T) {
+	for _, a := range Default().Adapters {
+		if a.ID != "opencode" {
+			if len(a.LaunchEnv) != 0 {
+				t.Errorf("%s sets environment: %v", a.ID, a.LaunchEnv)
+			}
+			continue
+		}
+		if len(a.LaunchEnv) != 1 {
+			t.Fatalf("opencode launchEnv = %v, want exactly OPENCODE_CONFIG_CONTENT", a.LaunchEnv)
+		}
+		var cfg struct {
+			Permission map[string]string `json:"permission"`
+		}
+		if err := json.Unmarshal([]byte(a.LaunchEnv["OPENCODE_CONFIG_CONTENT"]), &cfg); err != nil {
+			t.Fatalf("OPENCODE_CONFIG_CONTENT is not the config object: %v", err)
+		}
+		if len(cfg.Permission) != 2 || cfg.Permission["bash"] != "ask" || cfg.Permission["edit"] != "ask" {
+			t.Errorf("permission = %v, want bash and edit set to ask and nothing else", cfg.Permission)
+		}
+	}
+}
+
+func TestLaunchEnvIsChecked(t *testing.T) {
+	base := func(env string) string {
+		return strings.Replace(goodAdapter, `"needsNode":false`, `"needsNode":false,"launchEnv":`+env, 1)
+	}
+	for name, env := range map[string]string{
+		"lower case name":  `{"opencode_x":"1"}`,
+		"flockdeck name":   `{"FLOCKDECK_TOKEN":"1"}`,
+		"perch name":       `{"PERCH_TOKEN":"1"}`,
+		"name with equals": `{"A=B":"1"}`,
+		"empty value":      `{"A":""}`,
+		"control value":    `{"A":"x\u0007y"}`,
+		"long value":       `{"A":"` + strings.Repeat("x", 401) + `"}`,
+		"five variables":   `{"A":"1","B":"1","C":"1","D":"1","E":"1"}`,
+	} {
+		if _, err := Parse([]byte(wrap(base(env)))); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+	m, err := Parse([]byte(wrap(base(`{"B_TWO":"2","A_ONE":"1"}`))))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := m.Adapters[0].LaunchEnvList(); len(got) != 2 || got[0] != "A_ONE=1" || got[1] != "B_TWO=2" {
+		t.Errorf("LaunchEnvList = %v, want sorted by name", got)
 	}
 }

@@ -119,7 +119,25 @@ type Recorder interface {
 // env is the environment the agent is started with: acp.MinimalEnv and exactly
 // the variables the entry lists, from the environment given in the options.
 func (r *Runtime) env() []string {
-	return append(acp.MinimalEnv(), r.opts.Spec.ACPPassEnv(r.opts.Environ)...)
+	env := append(acp.MinimalEnv(), r.opts.Spec.ACPPassEnv(r.opts.Environ)...)
+	// What the manifest sets for the adapter comes last and replaces a variable
+	// of the same name that was passed on, so the user's environment cannot undo it.
+	set := r.opts.Spec.ACPLaunchEnv()
+	if len(set) == 0 {
+		return env
+	}
+	names := map[string]bool{}
+	for _, kv := range set {
+		name, _, _ := strings.Cut(kv, "=")
+		names[strings.ToUpper(name)] = true
+	}
+	kept := env[:0:0]
+	for _, kv := range env {
+		if name, _, _ := strings.Cut(kv, "="); !names[strings.ToUpper(name)] {
+			kept = append(kept, kv)
+		}
+	}
+	return append(kept, set...)
 }
 
 // Options describes the pane to start.

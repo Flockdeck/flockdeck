@@ -175,13 +175,10 @@ func TestRealOpencodeEndToEnd(t *testing.T) {
 	// workspace's temporary one.
 	agentHome := acptest.SessionDir(t)
 	work := acptest.SessionDir(t)
-	// With no configuration opencode runs its shell tool without asking (the first
-	// run of this test saw no session/request_permission at all). A project
-	// config in the working directory makes it ask, which is the case this test
-	// is for.
-	if err := os.WriteFile(filepath.Join(work, "opencode.json"), []byte(`{"permission":{"bash":"ask","edit":"ask"}}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
+	// No opencode.json is written here: Flockdeck's own launch sets the agent to
+	// ask (the manifest's launchEnv), and this test is what shows it does. The
+	// first run of the test, with no configuration at all, saw no
+	// session/request_permission.
 	logDir := t.TempDir()
 	rawLog := filepath.Join(logDir, "opencode-acp.log")
 	// The test isolation has already pointed the home directory at a temporary
