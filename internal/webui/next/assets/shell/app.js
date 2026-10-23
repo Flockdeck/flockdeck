@@ -140,7 +140,7 @@ export function useNarrow(matchMedia, override) {
  *  views put in the regions. maximised, with a drawer, gives the drawer the main
  *  area; mainRef is the main area's element for a view that returns the keyboard
  *  to a box in it. window is the page's, passed in for a test. */
-export function Shell({ hello, state, notice, onDismissNotice, onWatch, narrow: narrowProp, matchMedia, top, children, drawer, maximised = false, mainRef, window: win, actions = NO_ACTIONS }) {
+export function Shell({ hello, state, notice, onDismissNotice, onWatch, narrow: narrowProp, matchMedia, top, children, drawer, maximised = false, mainRef, window: win, actions = NO_ACTIONS, blocked = false }) {
   const keys = keysOf(hello);
   const bindings = useMemo(() => bindingsFrom(keys), [keys]);
   const broken = useMemo(() => unreadable(keys), [keys]);
@@ -154,7 +154,11 @@ export function Shell({ hello, state, notice, onDismissNotice, onWatch, narrow: 
   own.current = actions;
   const ids = Object.keys(actions).sort().join(",");
   const implemented = useMemo(() => (ids ? IMPLEMENTED.concat(ids.split(",")) : IMPLEMENTED), [ids]);
+  // A view's modal dialog is open: no key reaches an action under it.
+  const isBlocked = useRef(blocked);
+  isBlocked.current = blocked;
   const act = (ev) => {
+    if (isBlocked.current) return;
     const fn = ev.type === "action" ? own.current[ev.id] : null;
     if (fn) fn();
     else dispatch(ev);

@@ -146,8 +146,46 @@ export function closeWarnings(node, pane) {
     );
   }
   if (node && node.structured) {
-    out.push("A structured agent's conversation is not saved, and is gone once the pane is closed.");
+    out.push("Flockdeck does not keep a structured agent's conversation, so it is gone once the pane is closed.");
   }
+  const unread = pane && pane.unread > 0 ? pane.unread : 0;
+  if (unread > 0) {
+    out.push(unread + " unread " + (unread === 1 ? "message" : "messages") + " for this agent will be dropped.");
+  }
+  return out;
+}
+
+/** isRunning says the pane is an agent that has not ended, so closing it stops
+ *  something. A shell, or an agent that exited or failed, is not. */
+function isRunning(node, pane) {
+  if ((node && node.shell) || (pane && pane.shell)) return false;
+  const status = (node && node.status) || (pane && pane.status) || "";
+  return !!(node || pane) && status !== "exited" && status !== "failed";
+}
+
+/** closeTabWarnings are the sentences shown before a tab is closed, over the
+ *  panes it holds. nodes maps a pane id to its graph node and panes is the state
+ *  push's entry for each; either may lack a pane. Empty when the tab holds
+ *  nothing running and nothing to say. */
+export function closeTabWarnings(tab, nodes, panes) {
+  const ids = tab && Array.isArray(tab.panes) ? tab.panes : [];
+  let running = 0, waiting = 0, changed = 0, structured = 0, unread = 0;
+  for (const id of ids) {
+    const node = (nodes && nodes.get && nodes.get(id)) || null;
+    const pane = (panes && panes[id]) || null;
+    if (isRunning(node, pane)) running++;
+    if (isWaitingOnPerson(node, pane)) waiting++;
+    if (node) changed += (node.dirty || 0) + (node.untracked || 0);
+    if ((node && node.structured) || (pane && pane.structured)) structured++;
+    if (pane && pane.unread > 0) unread += pane.unread;
+  }
+  const out = [];
+  const many = (n, one, more) => n + " " + (n === 1 ? one : more);
+  if (running > 0) out.push("Closing this tab ends " + many(running, "running agent.", "running agents."));
+  if (waiting > 0) out.push(many(waiting, "agent in it is", "agents in it are") + " waiting for your answer. Closing the tab cancels the " + (waiting === 1 ? "request" : "requests") + ".");
+  if (changed > 0) out.push("The checkouts in it have " + many(changed, "changed file", "changed files") + " that are not committed. They stay on disk.");
+  if (structured > 0) out.push("Flockdeck does not keep the conversation of " + many(structured, "structured agent", "structured agents") + ", so it is gone once the tab is closed.");
+  if (unread > 0) out.push(many(unread, "unread message", "unread messages") + " for these agents will be dropped.");
   return out;
 }
 
@@ -165,6 +203,14 @@ export function restartWarnings(node, pane) {
   return out;
 }
 
+/** paneIdsOf lists the panes in a tab's layout tree. */
+function paneIdsOf(node, out = []) {
+  if (!node || typeof node !== "object") return out;
+  if (node.pane) out.push(String(node.pane));
+  if (Array.isArray(node.children)) for (const c of node.children) paneIdsOf(c, out);
+  return out;
+}
+
 /** tabsOf is the tabs of a state push: id, title, whether the title was chosen by
  *  hand, what the tab is doing and whether it is the one on the desk. */
 export function tabsOf(state) {
@@ -178,6 +224,7 @@ export function tabsOf(state) {
       named: !!t.named,
       activity: String(t.activity || ""),
       active: String(t.id) === active,
+      panes: paneIdsOf(t.root),
     }));
 }
 

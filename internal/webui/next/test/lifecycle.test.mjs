@@ -15,7 +15,7 @@ import { WORKTREE_WORDS } from "../assets/shell/Start.js";
 import { OTHER_PROJECT_WORDS, CLOSE_WAITING_WORDS } from "../assets/shell/Tabs.js";
 import { LOCKED_WORDS } from "../assets/drawer/Lifecycle.js";
 import {
-  catalogOf, closeWarnings, defaultValue, moveTabCommand, newTabCommand, optionsOf, restartWarnings, splitValue, startAgentCommand,
+  catalogOf, closeTabWarnings, closeWarnings, defaultValue, moveTabCommand, newTabCommand, optionsOf, restartWarnings, splitValue, startAgentCommand,
   startProblem, tabsOf, valueOf,
 } from "../assets/lib/lifecycle.js";
 import { createDom, install, settle } from "./dom.mjs";
@@ -91,10 +91,47 @@ test("closing warns about a request waiting, uncommitted files and a structured 
   assert.match(dirty[0], /3 changed files/);
   assert.match(dirty[0], /stay on disk/);
   assert.match(closeWarnings({ ...clean, dirty: 1 }, null)[0], /1 changed file /);
-  assert.match(closeWarnings({ ...clean, structured: true }, null)[0], /not saved/);
+  assert.match(closeWarnings({ ...clean, structured: true }, null)[0], /does not keep/);
   // Nothing an agent wrote is in a warning.
   const text = closeWarnings({ ...clean, name: "NAME-FROM-AGENT", task: { title: "TITLE-FROM-AGENT" }, dirty: 1 }, { name: "NAME-FROM-AGENT" }).join(" ");
   assert.doesNotMatch(text, /FROM-AGENT/);
+});
+
+test("closing warns about unread mail that closing drops", () => {
+  const clean = { pane: "p", dirty: 0, untracked: 0, waitingOn: { kind: "none" } };
+  assert.match(closeWarnings(clean, { unread: 3 }).join(" "), /3 unread messages for this agent will be dropped/);
+  assert.match(closeWarnings(clean, { unread: 1 }).join(" "), /1 unread message for this agent/);
+  assert.deepEqual(closeWarnings(clean, { unread: 0 }), []);
+});
+
+test("closing a tab warns over every pane in it, and counts, never names", () => {
+  const tab = { id: "t", panes: ["a", "b", "c", "gone"] };
+  const nodes = new Map([
+    ["a", { pane: "a", status: "working", dirty: 2, untracked: 0, waitingOn: { kind: "none" }, name: "NAME-FROM-AGENT" }],
+    ["b", { pane: "b", status: "waiting", structured: true, dirty: 0, untracked: 1, waitingOn: { kind: "user" } }],
+    ["c", { pane: "c", status: "exited", dirty: 0, untracked: 0, waitingOn: { kind: "none" } }],
+  ]);
+  const panes = { a: { unread: 2 }, b: { unread: 1, permission: {} } };
+  const words = closeTabWarnings(tab, nodes, panes);
+  const text = words.join(" ");
+  assert.match(text, /ends 2 running agents/);
+  assert.match(text, /1 agent in it is waiting/);
+  assert.match(text, /3 changed files/);
+  assert.match(text, /stay on disk/);
+  assert.match(text, /1 structured agent/);
+  assert.match(text, /3 unread messages/);
+  assert.doesNotMatch(text, /FROM-AGENT/);
+  // Only shells and ended agents: nothing to ask.
+  assert.deepEqual(closeTabWarnings({ panes: ["c"] }, nodes, {}), []);
+  assert.deepEqual(closeTabWarnings({ panes: ["s"] }, new Map(), { s: { shell: true, status: "idle" } }), []);
+  assert.deepEqual(closeTabWarnings({ panes: [] }, nodes, panes), []);
+  assert.deepEqual(closeTabWarnings(null, null, null), []);
+});
+
+test("a tab lists the panes of its layout", () => {
+  const tabs = tabsOf({ tabs: [{ id: "a", root: { id: "n", children: [{ id: "x", pane: "p1" }, { id: "y", children: [{ id: "z", pane: "p2" }] }] } }, { id: "b" }] });
+  assert.deepEqual(tabs[0].panes, ["p1", "p2"]);
+  assert.deepEqual(tabs[1].panes, []);
 });
 
 test("restarting a structured agent says the session starts fresh", () => {
@@ -214,6 +251,7 @@ async function withPage(opts, fn) {
   }
 }
 
+const pickOf = (m, id) => m.container.findAll("li").find((n) => n.attributes["data-tab"] === id).findAll("button").find((b) => b.attributes.role === "tab");
 const valueIn = (el) => (el.value !== undefined ? el.value : el.attributes.value);
 const fill = async (m, sel, value) => {
   const el = m.container.find(sel);
@@ -383,6 +421,7 @@ test("rename: Enter sends the title, Escape leaves it, empty asks for the automa
     await settle();
     assert.deepEqual(m.sent("renameTab"), [{ cmd: "renameTab", id: "t2", text: "Release" }]);
     assert.equal(m.container.find(".tab-rename"), null);
+    assert.equal(m.dom.document.activeElement, pickOf(m, "t2"), "the keyboard goes back to the tab");
 
     m.clear();
     await m.click(m.byText(".tabs-btn", /^Rename$/));
@@ -390,6 +429,7 @@ test("rename: Enter sends the title, Escape leaves it, empty asks for the automa
     m.container.find(".tab-rename").keydown("Escape");
     await settle();
     assert.equal(m.sent("renameTab").length, 0);
+    assert.equal(m.dom.document.activeElement, pickOf(m, "t2"), "Escape also gives the keyboard back");
 
     // A double click on a tab opens the same field; an unchanged title sends nothing.
     await m.click(m.container.findAll(".tab-pick")[0]);
@@ -400,12 +440,19 @@ test("rename: Enter sends the title, Escape leaves it, empty asks for the automa
     await settle();
     assert.equal(m.sent("renameTab").length, 0, "an unchanged title is not a rename");
 
+    // Empty on a tab with the automatic title changes nothing; on a named one it asks for the automatic title.
     m.container.findAll(".tab-pick")[0].dispatch("dblclick");
     await settle();
     await fill(m, ".tab-rename", "");
     m.container.find(".tab-rename").keydown("Enter");
     await settle();
-    assert.deepEqual(m.sent("renameTab"), [{ cmd: "renameTab", id: "t1", text: "" }]);
+    assert.equal(m.sent("renameTab").length, 0);
+    m.container.findAll(".tab-pick")[1].dispatch("dblclick");
+    await settle();
+    await fill(m, ".tab-rename", "");
+    m.container.find(".tab-rename").keydown("Enter");
+    await settle();
+    assert.deepEqual(m.sent("renameTab"), [{ cmd: "renameTab", id: "t2", text: "" }]);
   }));
 
 test("move left and right send the tab it goes in front of, and are off at the ends", () =>
@@ -426,6 +473,17 @@ test("move left and right send the tab it goes in front of, and are off at the e
     assert.equal(!!m.byText(".tabs-btn", /^Move left$/).disabled || m.byText(".tabs-btn", /^Move left$/).attributes.disabled !== undefined, true);
   }));
 
+test("a tab button that had the keyboard keeps it when the tabs are reordered", () =>
+  withPage({}, async (m) => {
+    await m.connect();
+    pickOf(m, "t2").focus();
+    assert.equal(m.dom.document.activeElement, pickOf(m, "t2"));
+    // The desk moves Second to the front; the fake DOM drops focus from a moved node as a browser does.
+    await m.push(stateOf(graph(), {}, { tabs: [TABS[1], TABS[0], TABS[2]] }));
+    assert.deepEqual(m.container.findAll(".tab").map((t) => t.attributes["data-tab"]), ["t2", "t1", "t3"]);
+    assert.equal(m.dom.document.activeElement, pickOf(m, "t2"));
+  }));
+
 test("closing a tab sends closeTab, and asks first when it is waiting on someone", () =>
   withPage({}, async (m) => {
     await m.connect();
@@ -442,6 +500,46 @@ test("closing a tab sends closeTab, and asks first when it is waiting on someone
     await m.click(m.container.findAll(".tab-close")[2]);
     await m.click(m.byText(".confirm .dialog-btn", /^Close tab$/));
     assert.deepEqual(m.sent("closeTab"), [{ cmd: "closeTab", id: "t3" }]);
+  }));
+
+test("closing a tab with a running agent in it asks, listing what it ends", () =>
+  withPage({
+    g: graph({ [CART]: { dirty: 2, untracked: 0 } }),
+    extra: { [CART]: { unread: 4 } },
+    over: { tabs: [{ id: "t1", title: "One", root: { id: "n", pane: CART } }, { id: "t2", title: "Two" }] },
+  }, async (m) => {
+    await m.connect();
+    m.clear();
+    await m.click(m.container.findAll(".tab-close")[0]);
+    assert.equal(m.sent("closeTab").length, 0, "a tab with a running agent is not closed at once");
+    const text = m.container.find(".confirm").textContent;
+    assert.match(text, /ends 1 running agent/);
+    assert.match(text, /2 changed files/);
+    assert.match(text, /4 unread messages/);
+    await m.click(m.byText(".confirm .dialog-btn", /^Close tab$/));
+    assert.deepEqual(m.sent("closeTab"), [{ cmd: "closeTab", id: "t1" }]);
+    // An empty tab goes at once.
+    m.clear();
+    await m.click(m.container.findAll(".tab-close")[1]);
+    assert.deepEqual(m.sent("closeTab"), [{ cmd: "closeTab", id: "t2" }]);
+  }));
+
+test("while the start dialog is open no key reaches an action under it", () =>
+  withPage({ extra: { [TAX]: { permission: { tool: "Bash", options: [] } } } }, async (m) => {
+    await m.connect();
+    await open(m, TAX);
+    await m.click(m.byText(".tabs-btn", /Choose agent/));
+    m.clear();
+    await m.key("Ctrl+Shift+W");
+    await m.key("Ctrl+Shift+K");
+    await m.key("Ctrl+Shift+T");
+    assert.equal(m.container.find(".confirm"), null, "no question opened behind the dialog");
+    assert.equal(m.container.find(".palette"), null);
+    assert.equal(m.ws().sent.length, 0);
+    m.container.find(".dialog").dispatch("keydown", { key: "Escape", ctrlKey: false, shiftKey: false, altKey: false });
+    await settle();
+    await m.key("Ctrl+Shift+K");
+    assert.ok(m.container.find(".palette"), "the keys work again once it is closed");
   }));
 
 test("tabs belong to the desk's project: another project gets a line and no tabs", () =>

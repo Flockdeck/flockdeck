@@ -20,7 +20,7 @@ import { Home, sameProject, rosterOf } from "./Home.js";
 import { Start } from "./Start.js";
 import { Tabs } from "./Tabs.js";
 import { useLifecycle } from "../drawer/Lifecycle.js";
-import { catalogOf, moveTabCommand, newTabCommand, tabsOf } from "../lib/lifecycle.js";
+import { catalogOf, closeTabWarnings, moveTabCommand, newTabCommand, tabsOf } from "../lib/lifecycle.js";
 
 // What the shell is given before the first hello and state. Constants, so the
 // shell does not take them for a change on every render.
@@ -198,13 +198,14 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null })
     mainRef=${mainRef}
     actions=${actions}
     maximised=${drawer.maximised}
+    blocked=${!!starting}
     notice=${noticeText}
     onDismissNotice=${() => { setLocal(""); setDismissed(noticeSeq); }}
     drawer=${node
       ? html`<${Drawer} store=${store} snap=${snap} node=${node} pane=${pane} now=${Date.now()} maximised=${drawer.maximised}
           onClose=${drawer.close} onToggleMax=${drawer.toggleMax} terminalOptions=${terminalOptions} life=${life} />`
       : null}
-  >${snap.state ? html`<${Tabs} tabs=${tabs} send=${send} show=${onDesk} onChoose=${() => setStarting("agent")} />` : null}
+  >${snap.state ? html`<${Tabs} tabs=${tabs} send=${send} show=${onDesk} warnFor=${(t) => closeTabWarnings(t, current ? current.byPane : null, statePanes)} onChoose=${() => setStarting("agent")} />` : null}
     <${Home} snap=${snap} selected=${selected} onShown=${setShown} onOpen=${drawer.open} open=${drawer.pane} narrow=${narrow} />
     ${starting
       ? html`<${Start} mode=${starting} catalog=${catalog} project=${project} send=${send} onClose=${() => setStarting("")} />`
