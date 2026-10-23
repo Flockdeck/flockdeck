@@ -10,7 +10,7 @@ import { render } from "../assets/vendor/preact.mjs";
 import { html } from "../assets/html.js";
 import { Live } from "../assets/shell/Live.js";
 import {
-  ACCENTS, DEFAULT_FONT, FONT_DEFAULT, applyLook, fontStack, prefsOf, reducedMotion, setting, termOptionsOf, WHY,
+  ACCENTS, DEFAULT_FONT, FONT_DEFAULT, applyLook, fontStack, prefsOf, reducedMotion, settledPatch, setting, termOptionsOf, WHY,
 } from "../assets/lib/prefs.js";
 import { createDom, install, settle } from "./dom.mjs";
 import { FakeWebSocket, harness, hello } from "./fakes.mjs";
@@ -91,6 +91,17 @@ test("a value the desktop would refuse is not sent", () => {
   ]) assert.equal(setting(name, value), null, name + " " + value);
   assert.ok(setting("fontSize", 8) && setting("fontSize", 28) && setting("scrollback", 1000) && setting("scrollback", 200000));
   assert.ok(setting("fontFamily", "x".repeat(200)));
+});
+
+test("a push settles only the changes it agrees with", () => {
+  const patch = { theme: "light", fontSize: 20, cursorSteady: false, dismissedTips: [] };
+  assert.deepEqual(settledPatch(patch, { theme: "light" }), { fontSize: 20 });
+  assert.deepEqual(settledPatch({ theme: "light" }, { fontSize: 14 }), { theme: "light" }, "an unrelated push leaves it");
+  assert.deepEqual(settledPatch({ theme: "" }, {}), {}, "dark is the empty value");
+  assert.deepEqual(settledPatch({ fontSize: 20 }, { fontSize: 20 }), {});
+  assert.deepEqual(settledPatch({ fontSize: 20 }, null), { fontSize: 20 });
+  const same = { theme: "light" };
+  assert.equal(settledPatch(same, { fontSize: 1 }), same, "nothing settled keeps the same object");
 });
 
 test("the terminal's options come from the settings", () => {
@@ -291,6 +302,19 @@ test("theme: choosing sends the command, shows at once, and the desktop's push c
     assert.equal("theme" in m.root.dataset, false);
     await m.click(choice(m, "set-theme-choice", "dark"));
     assert.deepEqual(m.sent("theme").map((c) => c.text), ["light", "system", "dark"]);
+  }));
+
+test("another window's unrelated push does not undo a change that is still waiting", () =>
+  withPage({}, async (m) => {
+    await m.connect();
+    await m.openSettings("appearance");
+    await m.click(choice(m, "set-theme-choice", "light"));
+    await m.push({ type: "prefs", prefs: { fontSize: 15 } });
+    assert.equal(m.root.dataset.theme, "light", "the unrelated push did not flick it back");
+    await m.push({ type: "prefs", prefs: { fontSize: 15, theme: "light" } });
+    assert.equal(m.root.dataset.theme, "light");
+    await m.push({ type: "prefs", prefs: { fontSize: 15, theme: "system" } });
+    assert.equal("theme" in m.root.dataset, false, "once the desktop agreed, its word is the one shown");
   }));
 
 test("a change the desktop refuses is taken back when its notice arrives", () =>

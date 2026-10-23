@@ -106,6 +106,25 @@ export function applyLook(win, p) {
   else delete root.dataset.accent;
 }
 
+/** PATCH_WAIT_MS is how long a change shown before the desktop answers is kept
+ *  if no answer ever matches it (another window changed the same setting). */
+export const PATCH_WAIT_MS = 5000;
+
+const bare = (v) => (v === undefined || v === null || v === "" || v === false || (Array.isArray(v) && v.length === 0) ? null : v);
+
+/** settledPatch is the changes still waiting for the desktop after a prefs push
+ *  arrived: those the push does not yet agree with. A push about something else
+ *  (another window changed another setting) leaves them as they were. A missing
+ *  or empty value is the same as the default's, as the desktop leaves those out. */
+export function settledPatch(patch, raw) {
+  const kept = {};
+  const r = raw && typeof raw === "object" ? raw : {};
+  for (const [k, v] of Object.entries(patch)) {
+    if (JSON.stringify(bare(r[k]) ?? null) !== JSON.stringify(bare(v) ?? null)) kept[k] = v;
+  }
+  return Object.keys(kept).length === Object.keys(patch).length ? patch : kept;
+}
+
 /** WHY says why a value was not sent. */
 export const WHY = {
   fontFamily: "That is too long for a list of fonts: " + FONT_FAMILY_MAX + " characters at most.",

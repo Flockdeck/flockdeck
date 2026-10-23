@@ -324,4 +324,7 @@ var notCommands = []string{
 // order the rest are built in.
 // When the new interface sends one of these commands the row loses its task and
 // TestRetirementGateIsInTheDoc fails: that is the cue to remove it from this list.
+// autoReviewDefault left it that way: it is the default a new pane starts with,
+// not a control on a running pane, and junk in the file reads as off. autoReview
+// (a running pane's own switch) and jevKey stay.
 var blocksRetirement = []string{"autoReview", "jevKey"}

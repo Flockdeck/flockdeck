@@ -21,7 +21,7 @@ import { Start } from "./Start.js";
 import { Tabs } from "./Tabs.js";
 import { Settings } from "./Settings.js";
 import { useLifecycle } from "../drawer/Lifecycle.js";
-import { FONT_DEFAULT, FONT_MAX, FONT_MIN, applyLook, prefsOf, reducedMotion, setting, termOptionsOf } from "../lib/prefs.js";
+import { FONT_DEFAULT, FONT_MAX, FONT_MIN, PATCH_WAIT_MS, applyLook, prefsOf, reducedMotion, settledPatch, setting, termOptionsOf } from "../lib/prefs.js";
 import { catalogOf, closeTabWarnings, moveTabCommand, newTabCommand, tabsOf } from "../lib/lifecycle.js";
 
 // What the shell is given before the first hello and state. Constants, so the
@@ -142,8 +142,18 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null })
   const page = win || (typeof window !== "undefined" ? window : null);
   const kept_prefs = kept.current.hello.prefs;
   useEffect(() => {
+    setPatch((p) => settledPatch(p, kept_prefs));
+  }, [kept_prefs]);
+  useEffect(() => {
     setPatch({});
-  }, [kept_prefs, noticeSeq]);
+  }, [noticeSeq]);
+  // A change nothing ever answers (another window set the same setting to
+  // something else) does not stay on screen for good.
+  useEffect(() => {
+    if (Object.keys(patch).length === 0) return undefined;
+    const t = setTimeout(() => setPatch({}), PATCH_WAIT_MS);
+    return () => clearTimeout(t);
+  }, [patch]);
   const prefs = useMemo(() => prefsOf({ ...(kept_prefs || {}), ...patch }), [kept_prefs, patch]);
   useEffect(() => {
     applyLook(page, prefs);
