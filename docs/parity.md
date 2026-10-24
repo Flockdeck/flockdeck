@@ -8,10 +8,10 @@ It compares two lists the sources hold: the actions of the key table (`internal/
 
 | | Actions | Commands |
 | --- | --- | --- |
-| done | 41 | 108 |
+| done | 41 | 114 |
 | replaced | 0 | 1 |
 | cut | 14 | 12 |
-| planned | 3 | 35 |
+| planned | 3 | 29 |
 | unclassified | 0 | 0 |
 | total | 58 | 156 |
 
@@ -54,7 +54,7 @@ The old interface let a person tile, split, move and broadcast to panes. The new
 
 | Task | Actions | Commands |
 | --- | --- | --- |
-| T132 (C6, Changes) | `changes` | `changes`, `commit`, `diff`, `gitFetch`, `gitPull`, `gitPush` |
+| T132 (C6, Changes) | `changes` |  |
 | T134 (C8, GitHub) |  | `ghChecks`, `ghInstall`, `ghIssue`, `ghIssueComment`, `ghIssueCreate`, `ghIssues`, `ghLogin`, `ghLoginCancel`, `ghLogout`, `ghPR`, `ghPRComment`, `ghPRCreate`, `ghPRs`, `ghStatus` |
 | T136 (L1, start flows and pane lifecycle) | `selectTab`, `closeFinishedPanes` | `closeFinishedPanes`, `focusPane`, `refreshAgents`, `teamClose`, `toggleZoom` |
 | T137 (L2, settings) |  | `dismissTip`, `railExpanded`, `railWidth`, `resetKeybinding`, `resetKeybindings`, `setAgentAddress`, `setAgentDefault`, `setKeybinding`, `statusLine` |
@@ -142,20 +142,20 @@ These are safety and security controls. The new interface has no way to do them 
 | `autoReview` | done |  |
 | `autoReviewDefault` | done |  |
 | `browse` | done |  |
-| `changes` | planned | T132 (C6, Changes) |
+| `changes` | done |  |
 | `checkForUpdate` | done |  |
 | `clearRoutingLog` | done |  |
 | `closeFinishedPanes` | planned | T136 (L1, start flows and pane lifecycle) |
 | `closePane` | done |  |
 | `closeProject` | done |  |
 | `closeTab` | done |  |
-| `commit` | planned | T132 (C6, Changes) |
+| `commit` | done |  |
 | `conflictRadar` | done |  |
 | `conversations` | done |  |
 | `cursorBlink` | done |  |
 | `cursorStyle` | done |  |
 | `detach` | done |  |
-| `diff` | planned | T132 (C6, Changes) |
+| `diff` | done |  |
 | `dismissTip` | planned | T137 (L2, settings) |
 | `exportTranscript` | done |  |
 | `findPane` | done |  |
@@ -176,9 +176,9 @@ These are safety and security controls. The new interface has no way to do them 
 | `ghPRCreate` | planned | T134 (C8, GitHub) |
 | `ghPRs` | planned | T134 (C8, GitHub) |
 | `ghStatus` | planned | T134 (C8, GitHub) |
-| `gitFetch` | planned | T132 (C6, Changes) |
-| `gitPull` | planned | T132 (C6, Changes) |
-| `gitPush` | planned | T132 (C6, Changes) |
+| `gitFetch` | done |  |
+| `gitPull` | done |  |
+| `gitPush` | done |  |
 | `groupProjects` | done |  |
 | `helpSeen` | planned | T138 (L3, help). The first-run welcome |
 | `helperInstall` | done |  |

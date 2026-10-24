@@ -35,7 +35,10 @@ func TestEveryOldActionAndCommandIsAccountedFor(t *testing.T) {
 // click, while the action's key is not run: the key table's selectTab is
 // "Alt+1 … Alt+9", a range with no single binding, and the tab strip sends the
 // command when a tab is pressed.
-var commandWithoutAction = map[string]bool{"selectTab": true}
+//
+// changes is the same: the drawer's Changes tab sends the command when it opens,
+// and the key that opens the tab is not wired yet.
+var commandWithoutAction = map[string]bool{"selectTab": true, "changes": true}
 
 // What is classified has to exist, or the table keeps lines for things that were
 // renamed or removed. And a thing the new interface already does must not still
