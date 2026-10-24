@@ -195,6 +195,11 @@ func (s *fixtureServer) answer(cmd, req, root, id, text string) []any {
 			return []any{map[string]any{"type": "teamResult", "req": req, "op": cmd, "ok": false, "error": "no project is open at " + root}}
 		}
 		return []any{json.RawMessage(s.fx.raw)}
+	case "teamWatch":
+		if s.fx.team == nil {
+			return nil
+		}
+		return []any{json.RawMessage(s.fx.team)}
 	case "paneSend":
 		return s.paneSend(id, text)
 	case "conversationOpen", "conversationOlder":

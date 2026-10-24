@@ -22,6 +22,7 @@ var fixtureSubdir = filepath.Join("internal", "server", "testdata", "graph-fixtu
 type fixture struct {
 	name string
 	raw  []byte
+	team []byte // NAME.team.json: the team message teamWatch is answered with, or nil
 	root string
 	proj string
 	// nodes are the panes of the graph, in the order the file has them.
@@ -79,7 +80,7 @@ func fixtureNames(dir string) ([]string, error) {
 	}
 	var out []string
 	for _, e := range ents {
-		if n, ok := strings.CutSuffix(e.Name(), ".json"); ok && !e.IsDir() {
+		if n, ok := strings.CutSuffix(e.Name(), ".json"); ok && !e.IsDir() && !strings.HasSuffix(n, ".team") {
 			out = append(out, n)
 		}
 	}
@@ -133,6 +134,10 @@ func loadFixture(dir, which string) (*fixture, error) {
 		return nil, fmt.Errorf("%s is not a graph message", name)
 	}
 	fx := &fixture{name: name, raw: raw, root: g.Root, proj: g.Project, nodes: g.Nodes}
+	// A team push (tasks) the page asks for with teamWatch, when the fixture has one beside it.
+	if team, err := os.ReadFile(filepath.Join(dir, name+".team.json")); err == nil {
+		fx.team = team
+	}
 	for _, t := range g.Teams {
 		fx.needs = append(fx.needs, t.Needs...)
 	}

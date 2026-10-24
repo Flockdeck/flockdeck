@@ -86,9 +86,9 @@ import { HAS_TREE, TREE_VIEW, firstViewOf, viewsOf } from "../assets/shell/Views
 
 test("the switch offers Tree first only when the page has it, and the page starts there then", () => {
   assert.equal(HAS_TREE, true, "the outline is built in");
-  assert.deepEqual(viewsOf().map(([id]) => id), ["tree", "graph", "board", "changes", "replay"]);
+  assert.deepEqual(viewsOf().map(([id]) => id), ["tree", "deps", "graph", "board", "changes", "replay"]);
   assert.deepEqual(viewsOf(false).map(([id]) => id), ["graph", "board", "changes", "replay"]);
-  assert.deepEqual(viewsOf(true).map(([id]) => id), ["tree", "graph", "board", "changes", "replay"]);
+  assert.deepEqual(viewsOf(true).map(([id]) => id), ["tree", "deps", "graph", "board", "changes", "replay"]);
   assert.equal(firstViewOf(), TREE_VIEW[0]);
   assert.equal(firstViewOf(false), "graph");
   assert.equal(firstViewOf(true), TREE_VIEW[0]);
