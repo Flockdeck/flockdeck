@@ -19,6 +19,7 @@ import { reasonOf, isLoud } from "./Badge.js";
 import { TreeRow, TreeHead } from "./TreeRow.js";
 import { TreeDecisions } from "./TreeDecisions.js";
 import { chipsOf } from "./chips.js";
+import { rollupOf } from "./model.js";
 
 /** TICK_MS is how often the ages are worked out again. */
 export const TICK_MS = 30000;
@@ -79,7 +80,17 @@ export function rowsOf(model, collapsed = new Set()) {
       const kids = cur.children.filter((c) => model.byPane.has(c.pane) && !seen.has(c.pane));
       const node = model.byPane.get(cur.pane);
       out.push({ pane: cur.pane, depth: d, parent: par, kids: kids.length, collapsed: kids.length > 0 && collapsed.has(cur.pane), team: team && team.manager === cur.pane ? team : null });
-      if (collapsed.has(cur.pane)) continue;
+      if (collapsed.has(cur.pane)) {
+        // Folded: its helpers are not rows, and are not listed later as strays either.
+        const hidden = kids.slice();
+        while (hidden.length > 0) {
+          const h = hidden.pop();
+          if (seen.has(h.pane)) continue;
+          seen.add(h.pane);
+          for (const c of h.children) hidden.push(c);
+        }
+        continue;
+      }
       const sorted = order(kids);
       for (let i = sorted.length - 1; i >= 0; i--) stack.push({ f: sorted[i], depth: d + 1, parent: node.pane });
     }
@@ -109,13 +120,23 @@ export function stepOf(rows, pane, key) {
     case "End":
       return rows[rows.length - 1].pane;
     case "ArrowRight":
-      // The next row is the first helper when it is one level down.
-      return rows[at + 1] && rows[at + 1].parent === pane ? rows[at + 1].pane : "";
+      // A collapsed parent is opened by foldOf; an open one goes to its first helper.
+      return !rows[at].collapsed && rows[at + 1] && rows[at + 1].parent === pane ? rows[at + 1].pane : "";
     case "ArrowLeft":
-      return rows[at].parent;
+      // An open parent is folded by foldOf; any other row goes to its parent.
+      return rows[at].kids > 0 && !rows[at].collapsed ? "" : rows[at].parent;
     default:
       return "";
   }
+}
+
+/** foldOf says what a key does to the row it is on: "expand" (Right on a collapsed parent), "collapse" (Left on an open one) or "". */
+export function foldOf(rows, pane, key) {
+  const r = rows.find((x) => x.pane === pane);
+  if (!r || r.kids === 0) return "";
+  if (key === "ArrowRight" && r.collapsed) return "expand";
+  if (key === "ArrowLeft" && !r.collapsed) return "collapse";
+  return "";
 }
 
 /** costOf is a pane's own spend, or the team's on its manager when the push has none of the pane's, as "$3.82"; "" when there is none. */
@@ -147,7 +168,9 @@ export function Tree({ model, onOpen = null, open = "", decisions = null }) {
   // The two rows a link chip lights while it is hovered or focused.
   const [lit, setLit] = useState(["", ""]);
   const ref = useRef(null);
-  const rows = rowsOf(model);
+  // The panes whose helpers are folded away.
+  const [folded, setFolded] = useState(() => new Set());
+  const rows = rowsOf(model, folded);
   // The ages move only while there is a row to show them on.
   const any = rows.length > 0;
   useEffect(() => {
@@ -157,6 +180,15 @@ export function Tree({ model, onOpen = null, open = "", decisions = null }) {
   }, [any]);
   // The stop is the row the keyboard was last on, else the first row.
   const stop = rows.some((r) => r.pane === focus) ? focus : rows.length > 0 ? rows[0].pane : "";
+  // Folding a pane puts the keyboard on it, so the row it was on is never one that is hidden.
+  const toggle = (pane) => {
+    setFolded((f) => {
+      const next = new Set(f);
+      if (!next.delete(pane)) next.add(pane);
+      return next;
+    });
+    setFocus(pane);
+  };
   const onKeyDown = (e) => {
     if (e.defaultPrevented || composing(e) || e.ctrlKey || e.altKey || e.shiftKey || e.metaKey) return;
     // The row the key is on: the row itself, or the row a chip of it sits in.
@@ -176,6 +208,12 @@ export function Tree({ model, onOpen = null, open = "", decisions = null }) {
         e.preventDefault();
         onOpen(pane);
       }
+      return;
+    }
+    const fold = foldOf(rows, pane, e.key);
+    if (fold) {
+      e.preventDefault();
+      toggle(pane);
       return;
     }
     const to = stepOf(rows, pane, e.key);
@@ -200,7 +238,7 @@ export function Tree({ model, onOpen = null, open = "", decisions = null }) {
     <div class="tree-rows" role="tree" aria-label="Agents" ref=${ref} onKeyDown=${onKeyDown}>
       ${rows.map((r) => {
         const node = model.byPane.get(r.pane);
-        return html`<${Fragment} key=${r.pane}><${TreeRow} row=${r} node=${node} needs=${needsOf(model, r.pane)} doing=${doingOf(node, needsOf(model, r.pane))} chips=${chipsOf(model, node, needsOf(model, r.pane), now)} lit=${lit[0] === r.pane || lit[1] === r.pane} onLink=${go} onLit=${(a, b) => setLit([a, b])} stop=${stop === r.pane}
+        return html`<${Fragment} key=${r.pane}><${TreeRow} row=${r} node=${node} needs=${needsOf(model, r.pane)} doing=${doingOf(node, needsOf(model, r.pane))} chips=${chipsOf(model, node, needsOf(model, r.pane), now)} roll=${r.collapsed ? rollupOf(model, r.pane) : null} onToggle=${toggle} lit=${lit[0] === r.pane || lit[1] === r.pane} onLink=${go} onLit=${(a, b) => setLit([a, b])} stop=${stop === r.pane}
           selected=${open === r.pane} age=${ageOf(node.since, now)} cost=${costOf(node, r.team)}
           onFocus=${() => setFocus(r.pane)} onOpen=${onOpen} />
           ${r.team && r.kids === 0 ? html`<div class="tree-note" role="treeitem" aria-disabled="true" aria-level=${r.depth + 2}>No helpers yet. The manager starts them as it plans.</div>` : null}

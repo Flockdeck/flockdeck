@@ -37,3 +37,23 @@
 button.tree-chip { cursor: pointer; }
 button.tree-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .tree-note { color: var(--fg-dim); font-size: 12px; padding: 6px 8px 6px 42px; }
+.tree-toggle { cursor: pointer; }
+.tree-roll { color: var(--fg-dim); font-family: var(--mono, monospace); }
+.tree-need { color: var(--waiting); font-weight: 600; }
+
+/* The columns follow the width of the main column, so an open drawer counts. */
+@container main (max-width: 680px) {
+  .tree-head { display: none; }
+  .tree-c--role, .tree-c--task, .tree-c--age { display: none; }
+  .tree-indent { flex-basis: 5px; }
+  .tree-c--name { flex-basis: max(48px, calc(80px - var(--depth, 0) * 13px)); }
+}
+
+/* A phone: two lines to a row, the doing line under the name. */
+@media (max-width: 560px) {
+  .tree-row { align-content: center; flex-wrap: wrap; padding: 6px 6px 6px 0; row-gap: 2px; }
+  .tree-c--name { flex: 0 1 auto; }
+  .tree-c--doing { flex: 1 0 100%; order: 9; overflow: visible; padding-left: 40px; white-space: normal; }
+  .tree-chips { flex-wrap: wrap; }
+  .tree-c--cost { margin-left: auto; }
+}
