@@ -454,6 +454,7 @@ test("the graph view has the column and the graph side by side", () => {
   assert.match(out, /<aside class="graph-side"/);
   assert.match(out, /<div class="graph-main"><svg class="graph"/);
   assert.match(out, /Esc closes the drawer/);
+});
 
 test("a stuck pane is a known, quiet kind with its own word", () => {
   const msg = {
