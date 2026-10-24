@@ -27,6 +27,9 @@ import { History } from "./History.js";
 import { PaneInfo } from "./PaneInfo.js";
 import { FindPane } from "./FindPane.js";
 import { Helpers } from "./Helpers.js";
+import { Team } from "./Team.js";
+import { Agents } from "./Agents.js";
+import { TEAM_RELAY_WORDS } from "../lib/team.js";
 import { Baton } from "./Baton.js";
 import { Projects } from "./Projects.js";
 import { Approvals } from "./Approvals.js";
@@ -108,6 +111,10 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
   const [helpersOpen, setHelpersOpen] = useState(false);
   const [projectsOpen, setProjectsOpen] = useState(false);
   const [baton, setBaton] = useState(null);
+  // The Team dialog (the task board and messages) and the Agents dialog (every pane
+  // in every open project).
+  const [teamOpen, setTeamOpen] = useState(false);
+  const [agentsOpen, setAgentsOpen] = useState(false);
   // The requests for an answer put away in this window.
   const [putAway, setPutAway] = useState(() => new Set());
   // The baton commands sent and not answered. A command stays here after the
@@ -350,6 +357,12 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     }
     fn();
   };
+  // The Team dialog keeps a watch on the project chosen in the rail while it is open.
+  useEffect(() => {
+    if (!teamOpen) return undefined;
+    store.watchTeam(selected);
+    return () => store.unwatchTeam();
+  }, [teamOpen, selected]);
   const actions = useMemo(() => ({
     nextNeedsYou: () => {
       if (!current || snap.graphGone) return;
@@ -366,6 +379,8 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     apiKeys: () => openSettings("keys"),
     remote: () => openSettings("remote"),
     helpers: () => (snap.remote ? say(HELPER_RELAY_WORDS) : setHelpersOpen(true)),
+    team: () => (snap.remote ? say(TEAM_RELAY_WORDS) : setTeamOpen(true)),
+    agents: () => setAgentsOpen(true),
     makeBaton: needPane(() => {
       if (snap.remote) return say(BATON_RELAY_WORDS);
       const req = inflight.current.next();
@@ -487,7 +502,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     mainRef=${mainRef}
     actions=${actions}
     maximised=${drawer.maximised}
-    blocked=${!!starting || settingsOpen || updatesAt >= 0 || quitAsk || historyOpen || !!infoFor || findingPane || helpersOpen || projectsOpen || !!baton}
+    blocked=${!!starting || settingsOpen || updatesAt >= 0 || quitAsk || historyOpen || !!infoFor || findingPane || helpersOpen || projectsOpen || !!baton || teamOpen || agentsOpen}
     onSettings=${() => openSettings("general")}
     onProjects=${() => setProjectsOpen(true)}
     railFoot=${snap.remote
@@ -523,6 +538,14 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
           notice=${snap.notice && snap.notice.seq > updatesAt ? String(snap.notice.text || "") : ""} send=${send} onClose=${() => setUpdatesAt(-1)} />`
       : null}
     <${Approvals} approvals=${snap.approvals} dismissed=${putAway} send=${send} onDismiss=${(id) => setPutAway((s) => new Set(s).add(id))} />
+    ${teamOpen
+      ? html`<${Team} team=${snap.team} tasks=${snap.teamTasks} messages=${snap.teamMessages} result=${snap.teamResult} root=${selected}
+          gone=${snap.teamGone ? snap.teamGone.error || "This project can no longer be read." : snap.teamRefused ? TEAM_RELAY_WORDS : ""}
+          send=${send} onClose=${() => setTeamOpen(false)} />`
+      : null}
+    ${agentsOpen
+      ? html`<${Agents} list=${snap.agentsList} send=${send} onChoose=${(a) => { if (a.root && a.root !== selected) onWatch(a.root); setOpening(a.paneId); }} onClose=${() => setAgentsOpen(false)} />`
+      : null}
     ${helpersOpen ? html`<${Helpers} helpers=${snap.helpers} plan=${snap.helperPlan} send=${send} onClose=${() => setHelpersOpen(false)} />` : null}
     ${projectsOpen
       ? html`<${Projects} open=${openOf(snap.state || kept.current.state)} recents=${snap.recents} browse=${snap.browse} root=${state.root || ""} send=${send} onClose=${() => setProjectsOpen(false)} />`
