@@ -98,7 +98,7 @@ var (
 )
 
 // Pages returns every help page, in reading order. The result is rendered on
-// the first call and reused; the content is compiled in, so it cannot change
+// the first call and reused; the content is embedded in the binary, so it cannot change
 // underneath us.
 func Pages() ([]Page, error) {
 	once.Do(func() { loaded, loadErr = render() })

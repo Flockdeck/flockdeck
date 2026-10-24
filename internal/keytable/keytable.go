@@ -5,6 +5,7 @@
 package keytable
 
 import (
+	"bytes"
 	"encoding/json"
 	"strings"
 )
@@ -64,15 +65,17 @@ func (t Table) Lookup(id string) (Key, bool) {
 
 // From turns a table written in another package's own Key type into a Table,
 // through the JSON both share. The program uses it to hand the server the
-// front end's table; it panics if the shapes have drifted apart, which the
-// first run shows.
+// front end's table; it panics if the shapes have drifted apart (a field this
+// type lacks counts), which the first run shows.
 func From(v any) Table {
 	b, err := json.Marshal(v)
 	if err != nil {
 		panic("keytable: " + err.Error())
 	}
+	dec := json.NewDecoder(bytes.NewReader(b))
+	dec.DisallowUnknownFields()
 	var t Table
-	if err := json.Unmarshal(b, &t); err != nil {
+	if err := dec.Decode(&t); err != nil {
 		panic("keytable: " + err.Error())
 	}
 	return t
