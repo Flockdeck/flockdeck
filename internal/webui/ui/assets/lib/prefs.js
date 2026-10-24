@@ -40,6 +40,15 @@ export const SCROLLBACK_MIN = 1000;
 export const SCROLLBACK_MAX = 200000;
 export const SCROLLBACK_DEFAULT = 10000;
 export const FONT_FAMILY_MAX = 200;
+/** DRAWER_MIN, DRAWER_MAX and DRAWER_DEFAULT are the widths the agent drawer is drawn at, in
+ *  pixels. The centre keeps at least CENTRE_MIN; the key in the interface's preferences is
+ *  "layout.drawerW". */
+export const DRAWER_MIN = 320;
+export const DRAWER_MAX = 1600;
+export const DRAWER_DEFAULT = 420;
+export const CENTRE_MIN = 360;
+export const DRAWER_KEY = "layout.drawerW";
+
 /** RAIL_MIN, RAIL_MAX and RAIL_DEFAULT are the widths the rail is drawn at, in pixels. The
  *  desktop keeps a width inside the same bounds. */
 export const RAIL_MIN = 180;
@@ -85,6 +94,7 @@ export function prefsOf(raw) {
     push: pushOf(r.push),
     statusLine: r.spend && (r.spend.statusLine === "on" || r.spend.statusLine === "off") ? r.spend.statusLine : "auto",
     railExpanded: r.railExpanded === true,
+    drawerW: whole(ui[DRAWER_KEY]) && ui[DRAWER_KEY] >= DRAWER_MIN && ui[DRAWER_KEY] <= DRAWER_MAX ? ui[DRAWER_KEY] : DRAWER_DEFAULT,
     railWidth: whole(r.railWidth) && r.railWidth >= RAIL_MIN && r.railWidth <= RAIL_MAX ? r.railWidth : RAIL_DEFAULT,
     wake: wakeOf(r.wake),
     helpSeen: r.helpSeen === true,
@@ -268,6 +278,10 @@ export function setting(name, value, current = null, caps = null) {
     }
     case "railExpanded":
       return { command: { cmd: "railExpanded", kind: value ? "on" : "off" }, patch: { railExpanded: !!value } };
+    case "drawerW":
+      // The default is kept as nothing, so that it is the default of the day.
+      if (!whole(value) || value < DRAWER_MIN || value > DRAWER_MAX) return null;
+      return uiSetting(DRAWER_KEY, value === DRAWER_DEFAULT ? null : value, current, caps, null);
     case "railWidth":
       if (!whole(value) || value < RAIL_MIN || value > RAIL_MAX) return null;
       return { command: { cmd: "railWidth", size: value }, patch: { railWidth: value } };

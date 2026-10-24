@@ -5,7 +5,8 @@ import { Palette } from "./palette.js";
 import { Help } from "./Help.js";
 import { loadHelp } from "../lib/help.js";
 import { bindingsFrom, keyAction, rangeAction, rangesFrom, unreadable } from "./keys.js";
-import { RAIL_DEFAULT } from "../lib/prefs.js";
+import { DRAWER_DEFAULT, RAIL_DEFAULT } from "../lib/prefs.js";
+import { DrawerResize } from "./DrawerResize.js";
 
 /** NARROW_QUERY is the phone width. app.css repeats it in its narrow rules, and
  *  a test holds the two together. */
@@ -158,7 +159,7 @@ export function useNarrow(matchMedia, override) {
  *  to a box in it. window is the page's, passed in for a test. helpLoad fetches
  *  the help pages (lib/help.js); the default asks the page's own address. blocked
  *  says a view's modal dialog is open, and no key then reaches an action. */
-export function Shell({ hello, state, notice, onDismissNotice, onWatch, narrow: narrowProp, matchMedia, top, children, drawer, maximised = false, mainRef, bottom = null, total = "", window: win, actions = NO_ACTIONS, blocked = false, onSettings, onProjects, helpLoad, railFoot = null, paletteItems = null, railExpanded, railWidth = RAIL_DEFAULT, onRailExpanded, onRailWidth, keysOff = false, welcome = false, onHelpOpened }) {
+export function Shell({ hello, state, notice, onDismissNotice, onWatch, narrow: narrowProp, matchMedia, top, children, drawer, maximised = false, mainRef, bottom = null, total = "", window: win, actions = NO_ACTIONS, blocked = false, onSettings, onProjects, helpLoad, railFoot = null, paletteItems = null, railExpanded, railWidth = RAIL_DEFAULT, onRailExpanded, onRailWidth, drawerW = DRAWER_DEFAULT, onDrawerW = null, keysOff = false, welcome = false, onHelpOpened }) {
   const keys = keysOf(hello);
   const bindings = useMemo(() => bindingsFrom(keys), [keys]);
   const broken = useMemo(() => unreadable(keys), [keys]);
@@ -258,6 +259,10 @@ export function Shell({ hello, state, notice, onDismissNotice, onWatch, narrow: 
 
   // The rail's width while the pointer is dragging it, before it is kept.
   const [dragW, setDragW] = useState(null);
+  // The drawer's width while its border is dragged, before it is kept.
+  const [dragDrawer, setDragDrawer] = useState(null);
+  const drawerNow = dragDrawer === null ? drawerW : dragDrawer;
+  const canSize = drawerOpen && !maximised && !narrow && !!onDrawerW;
   const wide = railExpanded === undefined ? !s.railCollapsed : !!railExpanded;
   const width = dragW === null ? railWidth : dragW;
   const current = projects.find((p) => p.root === s.selected);
@@ -265,7 +270,7 @@ export function Shell({ hello, state, notice, onDismissNotice, onWatch, narrow: 
   const said = notice || (broken.length ? "These key bindings could not be read, so they do nothing: " + broken.join(", ") : "");
 
   return html`
-    <div class=${cls} style=${wide && !narrow && onRailWidth ? "--rail-w:" + width + "px" : undefined}>
+    <div class=${cls} style=${[wide && !narrow && onRailWidth ? "--rail-w:" + width + "px" : "", canSize && drawerNow !== DRAWER_DEFAULT ? "--drawer-w:" + drawerNow + "px" : ""].filter(Boolean).join(";") || undefined}>
       <${Rail}
         projects=${projects}
         active=${s.selected}
@@ -287,7 +292,9 @@ export function Shell({ hello, state, notice, onDismissNotice, onWatch, narrow: 
       </header>
       <main class=${"main" + (narrow ? " main--list" : "")} tabindex="-1" ref=${regions.main}>${children}</main>
       ${bottom ? html`<footer class="composer" aria-label="Manager">${bottom}</footer>` : null}
-      <aside class="drawer" aria-label="Agent" tabindex="-1" ref=${regions.drawer} hidden=${!drawerOpen}>${drawer}</aside>
+      <aside class="drawer" aria-label="Agent" tabindex="-1" ref=${regions.drawer} hidden=${!drawerOpen}>
+        ${canSize ? html`<${DrawerResize} width=${drawerNow} onWidth=${(px) => { setDragDrawer(null); onDrawerW(px); }} onDrag=${setDragDrawer} />` : null}
+        ${drawer}</aside>
       <div class="notices" role="status" aria-live="polite">
         ${said
           ? html`<p class="notice">${said}${notice && onDismissNotice

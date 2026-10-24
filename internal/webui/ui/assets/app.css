@@ -472,6 +472,7 @@ button { font: inherit; color: inherit; }
 /* One agent, in a drawer beside the main area. Empty until something opens it. */
 .drawer {
   grid-area: drawer;
+  position: relative;
   width: var(--drawer-w);
   min-height: 0;
   overflow: auto;
@@ -479,6 +480,20 @@ button { font: inherit; color: inherit; }
   border-left: 1px solid var(--line);
 }
 .drawer[hidden] { display: none; }
+/* The drawer keeps room for the main area when the window is made smaller. */
+.shell:not(.shell--narrow):not(.shell--max) .drawer { min-width: 320px; max-width: calc(100vw - var(--rail-w) - 360px); }
+/* The handle on the border between the main area and the drawer. */
+.drawer-resize {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 1;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  touch-action: none;
+}
+.drawer-resize:hover, .drawer-resize:focus-visible { background: var(--accent-line); }
 
 .notices { grid-area: notices; }
 .notices:empty { display: none; }
