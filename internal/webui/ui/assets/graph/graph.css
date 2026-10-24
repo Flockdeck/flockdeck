@@ -611,6 +611,7 @@
 /* The activity feed beside the team home. It sits right of the home at 360 px and
    under it below 1000 px. */
 .home-split { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; min-width: 0; }
+.home-col { container: main / inline-size; min-width: 0; }
 .home-split--feed { grid-template-columns: minmax(0, 1fr) 360px; }
 .feed {
   border-left: 1px solid var(--line);

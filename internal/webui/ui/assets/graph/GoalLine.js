@@ -35,14 +35,20 @@ export function elapsedOf(started, now) {
 /** helpersOf is the helper cap of a team as a sentence, or "" when no cap is
  *  known: "6 of 8 helpers", with ", at the cap" when it is reached. */
 export function helpersOf(team) {
+  const { used, max } = capOf(team);
+  if (max <= 0) return "";
+  return used + " of " + max + " helpers" + (used >= max ? ", at the cap" : "");
+}
+
+/** capOf is how many helpers a team has and the most it may have, over its caps. */
+export function capOf(team) {
   let used = 0;
   let max = 0;
   for (const c of team.caps) {
     used += c.used;
     max += c.max;
   }
-  if (max <= 0) return "";
-  return used + " of " + max + " helpers" + (used >= max ? ", at the cap" : "");
+  return { used, max };
 }
 
 /** summaryOf is the numbers of one team's line. now is the clock. */
@@ -58,6 +64,7 @@ export function summaryOf(model, team, now) {
     spend: team.spendUSD > 0 || team.spendPartial ? spendOf(team) : "",
     working,
     helpers: helpersOf(team),
+    capped: capOf(team).max > 0 && capOf(team).used >= capOf(team).max,
     needs: team.needs.length + team.needsHidden,
   };
 }
@@ -86,7 +93,7 @@ export function GoalLine({ model, now = null }) {
           ${s.elapsed ? html`<span class="goalline-fact goalline-time">${s.elapsed}</span>` : null}
           ${s.spend ? html`<span class="goalline-fact goalline-cost">${s.spend}</span>` : null}
           <span class="goalline-fact goalline-working">Working: ${s.working}</span>
-          ${s.helpers ? html`<span class=${"goalline-fact goalline-helpers" + (s.helpers.endsWith("cap") ? " is-capped" : "")}>${s.helpers.replace(", at the cap", "")}</span>` : null}
+          ${s.helpers ? html`<span class=${"goalline-fact goalline-helpers" + (s.capped ? " is-capped" : "")}>${s.helpers.replace(", at the cap", "")}</span>` : null}
           ${s.needs > 0
             ? html`<span class="goalline-fact goalline-needs">${s.needs} ${s.needs === 1 ? "needs" : "need"} you</span>`
             : html`<span class="goalline-fact goalline-none">Nothing waits on you</span>`}

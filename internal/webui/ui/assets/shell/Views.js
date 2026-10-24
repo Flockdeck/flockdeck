@@ -17,7 +17,7 @@ export const VIEWS = [["graph", "Graph"], ["board", "Board"], ["changes", "Chang
 
 /** TREE_VIEW is the outline of the team (rows with the activity feed beside it). It
  *  leads the switch and is the page's first view once HAS_TREE is true. */
-export const TREE_VIEW = ["tree", "Tree"];
+export const TREE_VIEW = ["tree", "Team"];
 
 /** HAS_TREE says the outline is built into this page. It is false until the
  *  outline's own change turns it on, so the switch does not offer a view that

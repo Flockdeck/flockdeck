@@ -58,6 +58,11 @@ test("a partial cost says so, the cap below its limit is not marked, and several
   assert.equal(s.spend, "$18.40 partial");
   assert.equal(s.helpers, "3 of 8 helpers");
   assert.equal(s.needs, 3);
+  assert.equal(s.capped, false);
+  const full = buildGraphModel(msg({ caps: [{ pane: "m", used: 8, max: 8 }] }));
+  assert.equal(summaryOf(full, full.teams[0], NOW).capped, true, "the model says so; the words are not searched");
+  const none = buildGraphModel(msg({ caps: [] }));
+  assert.equal(summaryOf(none, none.teams[0], NOW).capped, false, "no cap known is not a full cap");
   assert.equal(helpersOf({ caps: [{ used: 1, max: 2 }, { used: 2, max: 2 }] }), "3 of 4 helpers");
 });
 
@@ -87,15 +92,16 @@ test("the switch offers Tree first only when the page has it, and the page start
   assert.equal(firstViewOf(true), TREE_VIEW[0]);
   const tabs = [{ id: "t1", title: "Team", activity: "", active: true, panes: [] }];
   const out = renderToString(html`<${Tabs} tabs=${tabs} send=${() => {}} view="tree" onView=${() => {}} views=${viewsOf(true)} />`);
-  assert.match(out, /data-view="tree"[^>]*>Tree</);
+  assert.match(out, /data-view="tree"[^>]*>Team</);
   assert.match(out, /tabs-view is-on" data-view="tree" aria-pressed="true"/);
   assert.ok(out.indexOf('data-view="tree"') < out.indexOf('data-view="graph"'));
 });
 
-test("the main column is the container the layout asks about", async () => {
+test("the home column, not .main, is the container the layout asks about", async () => {
   const { readFileSync } = await import("node:fs");
   const css = readFileSync(new URL("../assets/app.css", import.meta.url), "utf8");
-  assert.match(css, /\.main \{\s*container: main \/ inline-size;/);
+  assert.doesNotMatch(css, /\.main \{[^}]*container:/, "a container on .main would pin dialogs and toasts inside it");
   const graph = readFileSync(new URL("../assets/graph/graph.css", import.meta.url), "utf8");
+  assert.match(graph, /\.home-col \{ container: main \/ inline-size;/);
   assert.match(graph, /@container main \(max-width: 560px\)/);
 });

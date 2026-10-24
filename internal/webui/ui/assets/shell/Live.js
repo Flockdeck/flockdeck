@@ -645,9 +645,11 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
       onHistory=${snap.remote ? null : () => setHistoryOpen(true)} onFind=${snap.remote ? null : () => setFindingPane(true)} />` : null}
     <div class="view-graph" hidden=${view !== "graph"}>
      <div class=${"home-split" + (showFeed ? " home-split--feed" : "")}>
+      <div class="home-col">
       <${Home} snap=${snap} selected=${selected} onShown=${setShown} onOpen=${drawer.open} open=${drawer.pane} narrow=${narrow} send=${snap.remote ? null : send}
         onStartTeam=${snap.remote ? null : () => setStarting("team")}
         onSeeChanges=${(p) => { drawer.open(p); setTabAsk((a) => ({ tab: "changes", n: a.n + 1, pane: p })); }} />
+      </div>
       ${showFeed ? html`<${Feed} feed=${feed} onFocus=${(p) => focusNode(mainRef.current, p)} />` : null}
      </div>
     </div>
