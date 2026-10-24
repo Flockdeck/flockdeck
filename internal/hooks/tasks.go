@@ -28,6 +28,9 @@ const (
 	// TaskEstimate its estimate in minutes (Minutes; zero clears).
 	TaskDepends  = "depends"
 	TaskEstimate = "estimate"
+	// TaskTeam gives a task to a team (Team is the pane id of its root; empty
+	// clears it).
+	TaskTeam = "team"
 )
 
 // TaskRequest is one operation on the caller's project's board. Which of the
@@ -64,6 +67,8 @@ type TaskRequest struct {
 	// operations.
 	Depends []string `json:"depends,omitempty"`
 	Minutes int      `json:"minutes,omitempty"`
+	// Team is the argument of the team operation.
+	Team string `json:"team,omitempty"`
 }
 
 // TaskResult is the answer: the task an operation changed or showed, or the tasks

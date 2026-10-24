@@ -44,6 +44,7 @@ func taskUsage() {
 		"       flockdeck task baton <id> <baton-id>\n"+
 		"       flockdeck task depends <id> [<id>...]\n"+
 		"       flockdeck task estimate <id> <minutes>\n"+
+		"       flockdeck task team <id> <team-root-pane>\n"+
 		"       flockdeck task prune [-days N]\n\n"+
 		"The task board of this project, shared by every agent in it whatever worktree\n"+
 		"it is in. States: planned, assigned, in-progress, in-review, done, blocked,\n"+
@@ -81,6 +82,8 @@ func runTaskWith(call taskCall, args []string, stdin io.Reader, out io.Writer) e
 		err = taskTwoArgs(call, hooks.TaskBranch, "branch", "<id> <branch>", rest, out)
 	case "baton":
 		err = taskTwoArgs(call, hooks.TaskBaton, "baton", "<id> <baton-id>", rest, out)
+	case "team":
+		err = taskTwoArgs(call, hooks.TaskTeam, "team", "<id> <team-root-pane>", rest, out)
 	case "depends":
 		err = taskDepends(call, rest, out)
 	case "estimate":
@@ -287,12 +290,14 @@ func taskTwoArgs(call taskCall, op, name, shape string, args []string, out io.Wr
 		req.Branch = pos[1]
 	case hooks.TaskBaton:
 		req.Baton = pos[1]
+	case hooks.TaskTeam:
+		req.Team = pos[1]
 	}
 	res, err := call(req)
 	if err != nil {
 		return err
 	}
-	return printChange(out, map[string]string{hooks.TaskAssign: "assigned", hooks.TaskBranch: "branch set on", hooks.TaskBaton: "baton set on"}[op], res)
+	return printChange(out, map[string]string{hooks.TaskAssign: "assigned", hooks.TaskBranch: "branch set on", hooks.TaskBaton: "baton set on", hooks.TaskTeam: "team set on"}[op], res)
 }
 
 // taskDepends sets the tasks a task waits on; with no ids it clears them.

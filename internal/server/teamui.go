@@ -111,11 +111,17 @@ type teamTaskView struct {
 	// window works out blocked, ready and the critical path from them. They are
 	// facts of the board and are not sent to a relay window (the team push is
 	// refused to one).
-	Depends     []string      `json:"depends,omitempty"`
-	EstimateMin int           `json:"estimateMin,omitempty"`
-	Notes       int           `json:"notes"`
-	Creator     teamActorView `json:"creator"`
-	Updated     string        `json:"updated"`
+	Depends     []string `json:"depends,omitempty"`
+	EstimateMin int      `json:"estimateMin,omitempty"`
+	// Team is the id of the team that works on the task, which is its manager's
+	// pane id: the team it was given with taskTeam, else the team of the pane
+	// that owns it. Left out while the task has none. TeamGiven says the board
+	// holds it, and not only that the owner is in a team.
+	Team      string        `json:"team,omitempty"`
+	TeamGiven bool          `json:"teamGiven,omitempty"`
+	Notes     int           `json:"notes"`
+	Creator   teamActorView `json:"creator"`
+	Updated   string        `json:"updated"`
 	// Moves are the moves the person may make now, by the rules table.
 	Moves []teamMoveView `json:"moves"`
 	// CanAssign and CanEdit say the person may assign the task and change its
@@ -311,6 +317,35 @@ func taskViewOf(t tasks.Task, members []team.Member, hasManager, full bool) team
 	return v
 }
 
+// withTeam adds the task's team to its view.
+func withTeam(ws *workspace.Workspace, v teamTaskView, t tasks.Task) teamTaskView {
+	if t.Team != "" {
+		v.Team, v.TeamGiven = t.Team, true
+	} else if t.OwnerPane != "" {
+		v.Team = ownerTeam(ws, t.OwnerPane)
+	}
+	return v
+}
+
+// ownerTeam is the id of the team a pane is in, empty for a pane in none. It is
+// the root above the pane when that root is a manager or the pane is below it,
+// the rule team.BuildGraph uses for a team.
+func ownerTeam(ws *workspace.Workspace, id string) string {
+	p := ws.Pane(id)
+	below := false
+	for i := 0; p != nil && p.Parent != "" && i < 64; i++ {
+		next := ws.Pane(p.Parent)
+		if next == nil {
+			break
+		}
+		p, below = next, true
+	}
+	if p == nil || !below && p.Role != team.ManagerRole {
+		return ""
+	}
+	return p.ID
+}
+
 // messageViewOf describes a message. members names the panes it went to.
 func messageViewOf(m team.Message, members []team.Member, cut int) teamMessageView {
 	v := teamMessageView{
@@ -462,7 +497,7 @@ func (s *Server) teamBuild(root string, members []team.Member, rows []teamRoster
 	open, msg.OpenHidden = newest(open, maxTeamOpen)
 	finished, msg.FinishedHidden = newest(finished, maxTeamFinished)
 	for _, t := range append(open, finished...) {
-		msg.Tasks = append(msg.Tasks, taskViewOf(t, members, msg.HasManager, false))
+		msg.Tasks = append(msg.Tasks, withTeam(ws, taskViewOf(t, members, msg.HasManager, false), t))
 	}
 	slices.SortStableFunc(msg.Tasks, func(a, b teamTaskView) int { return taskNumber(a.ID) - taskNumber(b.ID) })
 
@@ -590,6 +625,8 @@ func (s *Server) teamCommand(c *controlClient, cmd command) {
 		s.teamTask(c, cmd, hooks.TaskRequest{Op: hooks.TaskDepends, ID: cmd.ID, Depends: cmd.Depends})
 	case "taskEstimate":
 		s.teamTask(c, cmd, hooks.TaskRequest{Op: hooks.TaskEstimate, ID: cmd.ID, Minutes: cmd.Size})
+	case "taskTeam":
+		s.teamTask(c, cmd, hooks.TaskRequest{Op: hooks.TaskTeam, ID: cmd.ID, Team: cmd.Target})
 	case "taskPrune":
 		s.teamTask(c, cmd, hooks.TaskRequest{Op: hooks.TaskPrune, Days: cmd.Size})
 	case "msgList":
@@ -779,7 +816,7 @@ func (s *Server) taskList(c *controlClient, cmd command) {
 		hasManager := tasks.HasManager(members)
 		o.msg = teamTasksMsg{Type: "tasks", Root: cmd.Root, State: cmd.State, Hidden: hidden, Tasks: []teamTaskView{}}
 		for _, t := range list {
-			o.msg.Tasks = append(o.msg.Tasks, taskViewOf(t, members, hasManager, false))
+			o.msg.Tasks = append(o.msg.Tasks, withTeam(s.ws, taskViewOf(t, members, hasManager, false), t))
 		}
 		return o
 	})
@@ -809,7 +846,7 @@ func (s *Server) teamTask(c *controlClient, cmd command, req hooks.TaskRequest) 
 		}
 		if res.Task != nil {
 			members, _ := s.ws.TeamMembers(cmd.Root)
-			v := taskViewOf(*res.Task, members, tasks.HasManager(members), true)
+			v := withTeam(s.ws, taskViewOf(*res.Task, members, tasks.HasManager(members), true), *res.Task)
 			o.view = &v
 		}
 		o.changed = req.Op != hooks.TaskShow

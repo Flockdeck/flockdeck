@@ -218,6 +218,7 @@ const (
 	Baton    Kind = "baton"
 	Depends  Kind = "depends"
 	Estimate Kind = "estimate"
+	TeamKind Kind = "team"
 )
 
 // Change is what one operation did to a task.
@@ -640,6 +641,32 @@ func (b *Board) SetEstimate(a Actor, hasManager bool, id string, minutes int) (C
 		}
 		t.addEvent(a, t.Updated, what)
 		ch = Change{Kind: Estimate, Task: *t}
+		return nil
+	})
+	return ch, err
+}
+
+// SetTeam records the team that works on a task, by the pane id of its root.
+// An empty id clears it. The board does not know which panes exist; the caller
+// checks the id.
+func (b *Board) SetTeam(a Actor, hasManager bool, id, teamID string) (Change, error) {
+	var ch Change
+	err := b.update(func(f *file) error {
+		t, err := find(f, id)
+		if err != nil {
+			return err
+		}
+		if err := CheckEdit(*t, a, hasManager); err != nil {
+			return err
+		}
+		t.Team = teamID
+		t.Updated = b.now()
+		what := "took the task from its team"
+		if teamID != "" {
+			what = "gave the task to the team of " + teamID
+		}
+		t.addEvent(a, t.Updated, what)
+		ch = Change{Kind: TeamKind, Task: *t}
 		return nil
 	})
 	return ch, err

@@ -1007,6 +1007,12 @@
       "status": "stable"
     },
     {
+      "name": "taskTeam",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
       "name": "teamClose",
       "access": "full",
       "since": "1.0",

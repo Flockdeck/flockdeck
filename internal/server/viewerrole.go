@@ -141,7 +141,7 @@ var commandAccess = map[string]cmdAccess{
 	"structuredSnapshot": accessFull, "structuredWatch": accessFull, "structuredUnwatch": accessFull, "structuredCancel": accessFull,
 	"teamSnapshot": accessFull, "teamWatch": accessFull, "teamUnwatch": accessFull, "taskList": accessFull,
 	"taskGet": accessFull, "taskAdd": accessFull, "taskAssign": accessFull, "taskStatus": accessFull,
-	"taskNote": accessFull, "taskBranch": accessFull, "taskDepends": accessFull, "taskEstimate": accessFull, "taskPrune": accessFull, "msgList": accessFull,
+	"taskNote": accessFull, "taskBranch": accessFull, "taskDepends": accessFull, "taskEstimate": accessFull, "taskTeam": accessFull, "taskPrune": accessFull, "msgList": accessFull,
 	"msgSend": accessFull, "msgSeen": accessFull, "teamClose": accessFull,
 	"recordPane": accessFull, "exportTranscript": accessFull, "revealTranscript": accessFull, "openRecordings": accessFull,
 	"paneInfo": accessFull, "paneSend": accessFull, "findPane": accessFull, "jevKey": accessFull,

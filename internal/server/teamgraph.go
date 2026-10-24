@@ -129,6 +129,10 @@ type graphTeamView struct {
 	// Goal is the manager's opening task, and Started when its process began.
 	Goal    string `json:"goal,omitempty"`
 	Started string `json:"started,omitempty"`
+	// TaskID is the board task the team works on: the one given to it with
+	// taskTeam, else the first open one the manager owns. Left out when there
+	// is none.
+	TaskID string `json:"taskId,omitempty"`
 	// SpendUSD is the estimated spend of the team's panes that reported one.
 	// SpendPartial says some pane reported none (or an unpriced one), so the
 	// total is a floor.
@@ -246,10 +250,14 @@ func graphReviewerRole(members []team.Member, owner string) string {
 // inboxes: it changes when they do, not with every tool call, so it is kept
 // until the board file, the inboxes or the set of agents and their roles change.
 type graphStatic struct {
-	stamp       string
-	tasks       []team.GraphTask
-	moves       []team.TaskMove
-	chips       map[string]graphTaskChip
+	stamp string
+	tasks []team.GraphTask
+	moves []team.TaskMove
+	chips map[string]graphTaskChip
+	// givenTask is, for each team a task was given with taskTeam, the first open
+	// such task, else the first. ownTask is the first open task each pane owns.
+	givenTask   map[string]string
+	ownTask     map[string]string
 	unreadSince map[string]time.Time
 	// unreadMail counts a pane's unread messages that an agent or the person
 	// wrote. Flockdeck's own notices (a helper finished its turn) are left out:
@@ -285,7 +293,7 @@ func (s *Server) graphStaticFor(root string, members []team.Member) *graphStatic
 		return c
 	}
 	s.graphBuilds++
-	st := &graphStatic{stamp: stamp, chips: map[string]graphTaskChip{}, unreadSince: map[string]time.Time{}, unreadMail: map[string]int{}, undelivered: map[string]int{}}
+	st := &graphStatic{stamp: stamp, chips: map[string]graphTaskChip{}, givenTask: map[string]string{}, ownTask: map[string]string{}, unreadSince: map[string]time.Time{}, unreadMail: map[string]int{}, undelivered: map[string]int{}}
 
 	var board2 []tasks.Task
 	if berr != nil {
@@ -296,6 +304,7 @@ func (s *Server) graphStaticFor(root string, members []team.Member) *graphStatic
 		board2 = l
 	}
 	chipOf := map[string]*tasks.Task{}
+	openIDs := map[string]bool{}
 	for i := range board2 {
 		t := &board2[i]
 		g := team.GraphTask{ID: t.ID, State: string(t.State), OwnerRole: t.OwnerRole, OwnerPane: t.OwnerPane, Title: t.Title}
@@ -306,6 +315,15 @@ func (s *Server) graphStaticFor(root string, members []team.Member) *graphStatic
 			g.ReviewerRole = graphReviewerRole(members, t.OwnerPane)
 		}
 		st.tasks = append(st.tasks, g)
+		if t.Team != "" {
+			if cur, ok := st.givenTask[t.Team]; !ok || t.State.Open() && !openIDs[cur] {
+				st.givenTask[t.Team] = t.ID
+			}
+			openIDs[t.ID] = t.State.Open()
+		}
+		if t.OwnerPane != "" && t.State.Open() && st.ownTask[t.OwnerPane] == "" {
+			st.ownTask[t.OwnerPane] = t.ID
+		}
 		for _, e := range t.History {
 			from, to, ok := parseMove(e.What)
 			if !ok {
@@ -535,6 +553,11 @@ func (s *Server) graphPayload(root string) (graphMsg, error) {
 		rootPane := byID[tm.Root]
 		tv := graphTeamView{ID: tm.ID, Manager: tm.Root, Members: tm.Members, Caps: []graphCap{}, Needs: []team.NeedsItem{}}
 		tv.Goal = team.PlainText(rootPane.Task, graphGoalCut)
+		if id := st.givenTask[tm.ID]; id != "" {
+			tv.TaskID = id
+		} else {
+			tv.TaskID = st.ownTask[tm.Root]
+		}
 		if at := rts[tm.Root].StartedAt(); !at.IsZero() {
 			tv.Started = at.Format(time.RFC3339)
 		}

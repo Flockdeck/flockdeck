@@ -978,8 +978,12 @@ type SpawnRequest struct {
 	// company than the one it came from, or of one whose company is not known.
 	// Without it such a spawn is refused; with it the user is asked in a window,
 	// and the spawn waits for the answer.
-	BatonElsewhere bool   `json:"batonElsewhere,omitempty"`
-	Token          string `json:"token"`
+	BatonElsewhere bool `json:"batonElsewhere,omitempty"`
+	// TaskID is a task of the caller's board the helper is started for: with no
+	// task text, the task is the opening prompt, and the helper is given the
+	// task and its team. Resolved by the application, never text.
+	TaskID string `json:"taskId,omitempty"`
+	Token  string `json:"token"`
 
 	// Ctx is the request the spawn came in on, so that a handler that waits (for
 	// the user to allow a baton) stops waiting when the agent's command is
@@ -1025,6 +1029,11 @@ type SpawnResult struct {
 	// with `flockdeck baton show`.
 	BatonID   string `json:"batonId,omitempty"`
 	BatonPath string `json:"batonPath,omitempty"`
+	// TaskID is the task the helper was started for. TaskError says why it could
+	// not be given to the helper and its team, when that was refused; the helper
+	// runs either way.
+	TaskID    string `json:"taskId,omitempty"`
+	TaskError string `json:"taskError,omitempty"`
 }
 
 // BaseURL is the address panes call back on.
