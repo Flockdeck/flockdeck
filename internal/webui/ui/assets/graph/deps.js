@@ -1,4 +1,4 @@
-// What waits on what, derived in one place for the Dependencies view (Deps.js).
+// What waits on what, derived in one place for the Dependencies view (DepsView.js).
 //
 // Inputs are the task list of the team push (lib/team.js: id, title, state,
 // owner, ownerPane, depends, estimateMin) and the graph model (model.js: each
