@@ -115,7 +115,7 @@ test("the quit question is the key table's own, with a fallback", () => {
 
 test("the rail always has an Updates entry, and names the version when one is waiting", () =>
   withPage({}, async (m) => {
-    assert.ok(m.byText(".rail-updates", /^\s*Updates\s*$/));
+    assert.ok(m.byText(".rail-updates", /^\s*\S\s*Updates\s*$/));
     await m.push(stateMsg({ update: UPDATE }));
     assert.ok(m.byText(".rail-updates", /Update v9\.9\.9/));
   }));

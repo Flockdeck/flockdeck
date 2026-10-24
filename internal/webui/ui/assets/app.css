@@ -278,7 +278,7 @@ button { font: inherit; color: inherit; }
 
 .shell {
   --rail-w: 220px;
-  --rail-w-collapsed: 48px;
+  --rail-w-collapsed: 44px;
   --drawer-w: 420px;
   display: grid;
   height: 100%;
@@ -342,18 +342,53 @@ button { font: inherit; color: inherit; }
   white-space: nowrap;
 }
 .rail-empty { padding: 6px 8px; color: var(--fg-dim); }
-.rail-toggle {
+/* The foot of the rail: Manage projects, Settings, Helper apps, Updates and the
+ * width toggle, quiet, pushed to the bottom. A glyph when the rail is narrow, the
+ * glyph and its words when it is wide or a bar. */
+.rail-foot {
   margin-top: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.rail-btn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   padding: 6px 8px;
-  border: 1px solid var(--line);
+  border: 1px solid transparent;
   border-radius: var(--radius);
-  background: var(--bg-raised);
+  background: transparent;
+  color: var(--fg-dim);
+  text-align: left;
   cursor: pointer;
 }
-.rail-toggle:hover { background: var(--bg-hover); }
-.shell--rail-collapsed .rail-name { display: none; }
-.shell--rail-collapsed .rail-initial { display: inline-block; }
-.shell--rail-collapsed .rail > button { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rail-btn:hover { background: var(--bg-hover); color: var(--fg); }
+.rail-glyph { width: 20px; text-align: center; flex: none; }
+.shell--rail-collapsed .rail { align-items: center; padding: 6px 5px; }
+.shell--rail-collapsed .rail-list, .shell--rail-collapsed .rail-foot { align-items: center; }
+.shell--rail-collapsed .rail-name, .shell--rail-collapsed .rail-label { display: none; }
+.shell--rail-collapsed .rail-initial { display: inline-block; width: auto; font-weight: 600; }
+.shell--rail-collapsed .rail-item, .shell--rail-collapsed .rail-btn {
+  position: relative;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+}
+.shell--rail-collapsed .rail-item { border-color: var(--line); background: var(--bg-raised); }
+.shell--rail-collapsed .rail-item.is-active { background: var(--accent-subtle); border-color: var(--accent-line); box-shadow: inset 0 0 0 1px var(--accent); }
+.shell--rail-collapsed .rail-item .badge {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  min-width: 16px;
+  padding: 0 4px;
+  font-size: 10px;
+  line-height: 16px;
+}
+.shell--rail-collapsed .rail-item .badge--working { display: none; }
+.shell--rail-collapsed .rail-btn.has-update { color: var(--on-accent); background: var(--accent); }
 .rail { position: relative; }
 .rail-resize {
   position: absolute;
@@ -595,7 +630,8 @@ button { font: inherit; color: inherit; }
   .help-search { font-size: 16px; }
   .help-scrim { padding-top: 2vh; }
   .rail-toggle { display: none; }
-  .shell--rail-collapsed .rail-name { display: inline; }
+  .rail-foot { margin-top: 0; margin-left: auto; flex-direction: row; }
+  .rail-glyph { display: none; }
   .main--list { padding: 0; }
   .drawer {
     position: fixed;

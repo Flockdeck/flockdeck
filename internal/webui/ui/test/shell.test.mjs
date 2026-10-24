@@ -30,7 +30,7 @@ test("wide: the rail is a column, and the main area is not a list", () => {
   assert.ok(!out.includes("shell--narrow"));
   assert.ok(!out.includes("rail--bar"));
   assert.ok(!out.includes("main--list"));
-  assert.match(out, /class="rail-toggle"/);
+  assert.match(out, /class="rail-btn rail-toggle"/);
 });
 
 test("narrow: the rail collapses to a bar and the main area becomes a list", () => {
@@ -189,4 +189,12 @@ test("an action this window does not run changes nothing", () => {
   const s0 = initial({});
   assert.equal(reduce(s0, { type: "action", id: "worktrees" }), s0);
   assert.ok(!IMPLEMENTED.includes("worktrees"));
+});
+
+test("the foot buttons of the rail are named by their words, so a glyph-only rail is not unlabelled", () => {
+  const out = renderToString(html`<${Rail} projects=${[]} onSettings=${() => {}} onProjects=${() => {}} onToggle=${() => {}} collapsed=${true} />`);
+  for (const w of ["Manage projects", "Settings", "Widen"]) {
+    assert.match(out, new RegExp(`class="rail-btn [^"]*"[^>]*aria-label="${w}" title="${w}"`));
+  }
+  assert.match(out, /rail-glyph" aria-hidden="true"/);
 });

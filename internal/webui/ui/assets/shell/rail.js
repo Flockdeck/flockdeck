@@ -26,17 +26,26 @@ export function Rail({ projects = [], active = "", collapsed = false, narrow = f
           ? html`<li class="rail-empty">No projects open</li>`
           : projects.map((p) => html`<${RailItem} key=${p.root} project=${p} active=${p.root === active} onSelect=${onSelect} />`)}
       </ul>
-      ${onProjects ? html`<button type="button" class="rail-projects" onClick=${onProjects}>Manage projects</button>` : null}
-      ${onSettings ? html`<button type="button" class="rail-settings" onClick=${onSettings}>Settings</button>` : null}
-      ${foot}
+      <div class="rail-foot">
+        ${onProjects ? html`<${FootButton} cls="rail-projects" glyph="+" label="Manage projects" onClick=${onProjects} />` : null}
+        ${onSettings ? html`<${FootButton} cls="rail-settings" glyph="⚙" label="Settings" onClick=${onSettings} />` : null}
+        ${foot}
+        ${narrow
+          ? null
+          : html`<${FootButton} cls="rail-toggle" glyph=${collapsed ? "»" : "«"} label=${collapsed ? "Widen" : "Narrow"} pressed=${collapsed ? "true" : "false"} onClick=${onToggle} />`}
+      </div>
       ${!narrow && !collapsed && width !== null && onWidth ? html`<${Resize} width=${width} onWidth=${onWidth} onDrag=${onDrag} />` : null}
-      ${narrow
-        ? null
-        : html`<button type="button" class="rail-toggle" aria-pressed=${collapsed ? "true" : "false"} onClick=${onToggle}>
-            ${collapsed ? "Widen" : "Narrow"}
-          </button>`}
     </nav>
   `;
+}
+
+/** FootButton is one of the buttons at the foot of the rail. It is a glyph when the
+ *  rail is narrow and the glyph and its words when the rail is wide or a bar; the
+ *  words are always its accessible name and its tooltip. */
+export function FootButton({ cls, glyph, label, title = label, pressed, onClick }) {
+  return html`<button type="button" class=${"rail-btn " + cls} aria-label=${label} title=${title} aria-pressed=${pressed} onClick=${onClick}>
+    <span class="rail-glyph" aria-hidden="true">${glyph}</span><span class="rail-label">${label}</span>
+  </button>`;
 }
 
 function RailItem({ project, active, onSelect }) {
