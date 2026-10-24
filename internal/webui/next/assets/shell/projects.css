@@ -1,0 +1,146 @@
+/* The helper apps, baton and projects dialogs and their buttons at the foot of the
+ * rail. Colours and typefaces are the tokens of app.css; nothing here names one.
+ * The dialogs themselves are the start dialog's (start.css). */
+
+.rail-projects,
+.rail-helpers {
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+  color: var(--fg);
+  font: inherit;
+  cursor: pointer;
+}
+.rail-projects:hover,
+.rail-helpers:hover { background: var(--bg-hover); }
+.rail-helpers { margin-top: auto; }
+.rail-helpers + .rail-updates { margin-top: 6px; }
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+/* Helper apps. */
+.helper-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.helper-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 6px 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+}
+.helper-main { flex: 1 1 260px; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.helper-title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; }
+.helper-name { font-weight: 600; }
+.helper-meta { font-size: 12px; color: var(--fg-dim); overflow-wrap: anywhere; }
+.helper-flag { font-size: 12px; color: var(--waiting); }
+.helper-error { color: var(--exited); }
+.helper-path { font-size: 12px; font-family: var(--mono); overflow-wrap: anywhere; }
+.helper-log {
+  margin: 4px 0 0;
+  padding: 6px 8px;
+  max-height: 14em;
+  overflow: auto;
+  font-size: 12px;
+  font-family: var(--mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg-inset);
+}
+.helper-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.helper-head { margin: 0; font-size: 14px; }
+.helper-head:focus { outline: none; }
+.helper-sub { margin: 8px 0 2px; font-size: 13px; }
+.helper-facts { margin: 4px 0; display: flex; flex-direction: column; gap: 4px; }
+.helper-fact { display: flex; flex-wrap: wrap; gap: 2px 10px; }
+.helper-fact dt { flex: none; width: 90px; color: var(--fg-dim); font-size: 12px; }
+.helper-fact dd { margin: 0; min-width: 0; flex: 1 1 200px; overflow-wrap: anywhere; }
+.helper-code { font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; }
+.helper-allows { margin: 0; padding-left: 20px; }
+
+/* The requests the desktop is waiting on. */
+.approvals {
+  z-index: 4;
+  position: fixed;
+  right: 12px;
+  bottom: 12px;
+  width: min(420px, calc(100vw - 24px));
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.approval {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--bg-overlay);
+  border: 1px solid var(--waiting-line);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-3);
+}
+.approval-text { margin: 0; overflow-wrap: anywhere; }
+.approval-foot { display: flex; gap: 8px; }
+
+/* Baton. */
+.baton-text { resize: vertical; min-height: 12em; font-family: var(--mono); font-size: 12px; }
+.baton-sub { margin: 8px 0 0; font-size: 13px; }
+
+/* Projects. */
+.proj-section { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+.proj-h { margin: 0; font-size: 13px; }
+.proj-list, .proj-members, .proj-dirs { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.proj-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px 10px;
+  padding: 6px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--bg-raised);
+}
+.proj-row.is-active { border-color: var(--accent-line); background: var(--accent-subtle); }
+.proj-row.is-archived, .proj-row.is-missing { color: var(--fg-dim); }
+.proj-go, .proj-member-go, .proj-dir-into {
+  flex: 1 1 220px;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 2px 10px;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  padding: 2px 0;
+  cursor: pointer;
+}
+.proj-go--off { cursor: default; }
+.proj-name { font-weight: 600; overflow-wrap: anywhere; }
+.proj-path { font-size: 12px; color: var(--fg-dim); overflow-wrap: anywhere; }
+.proj-badges { display: flex; flex-wrap: wrap; gap: 6px; }
+.proj-badge { font-size: 12px; color: var(--fg-dim); }
+.proj-badge--waiting { color: var(--waiting); }
+.proj-actions { display: flex; flex-wrap: wrap; gap: 4px; }
+.proj-edit, .proj-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; flex: 1 1 100%; }
+.proj-name-input { flex: 1 1 200px; width: auto; }
+.proj-pick { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; flex: 1 1 220px; cursor: pointer; }
+.proj-members { flex: 1 1 100%; padding-left: 14px; }
+.proj-member { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 10px; }
+.proj-places { display: flex; flex-wrap: wrap; gap: 4px; }
+.proj-dir { display: flex; align-items: center; gap: 8px; }
+.proj-dir-into { flex: 1 1 auto; }

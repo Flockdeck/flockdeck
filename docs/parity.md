@@ -8,10 +8,10 @@ It compares two lists the sources hold: the actions of the key table (`internal/
 
 | | Actions | Commands |
 | --- | --- | --- |
-| done | 34 | 38 |
+| done | 36 | 64 |
 | replaced | 0 | 3 |
 | cut | 14 | 11 |
-| planned | 10 | 104 |
+| planned | 8 | 78 |
 | unclassified | 0 | 0 |
 | total | 58 | 156 |
 
@@ -57,11 +57,10 @@ The old interface let a person tile, split, move and broadcast to panes. The new
 | T132 (C6, Changes) | `changes` | `changes`, `commit`, `diff`, `gitFetch`, `gitPull`, `gitPush` |
 | T133 (C7, worktrees) | `worktrees` | `conflictRadar`, `worktreeAdd`, `worktreePrune`, `worktreeRemove`, `worktrees` |
 | T134 (C8, GitHub) |  | `ghChecks`, `ghInstall`, `ghIssue`, `ghIssueComment`, `ghIssueCreate`, `ghIssues`, `ghLogin`, `ghLoginCancel`, `ghLogout`, `ghPR`, `ghPRComment`, `ghPRCreate`, `ghPRs`, `ghStatus` |
-| T136 (L1, start flows and pane lifecycle) | `selectTab`, `closeFinishedPanes` | `agents`, `browse`, `closeFinishedPanes`, `focusPane`, `recents`, `refreshAgents`, `teamClose`, `toggleZoom` |
+| T136 (L1, start flows and pane lifecycle) | `selectTab`, `closeFinishedPanes` | `agents`, `closeFinishedPanes`, `focusPane`, `refreshAgents`, `teamClose`, `toggleZoom` |
 | T137 (L2, settings) |  | `dismissTip`, `railExpanded`, `railWidth`, `resetKeybinding`, `resetKeybindings`, `setAgentAddress`, `setAgentDefault`, `setKeybinding`, `statusLine` |
 | T138 (L3, help) |  | `helpSeen` |
 | T140 (L5, API keys, remote, notifications) | `apiKeys`, `remote` | `keyClear`, `keySet`, `keys`, `notifications`, `presence`, `pushAnonymous`, `pushDelay`, `pushNotify`, `remoteDevices`, `remoteDisable`, `remoteEnable`, `remoteMove`, `remotePair`, `remoteReconnect`, `remoteRemove`, `remoteRename`, `remoteRevoke`, `remoteUnverify`, `remoteVerify`, `setDeviceRole` |
-| T141 (L6, helpers, baton, projects) | `makeBaton`, `helpers` | `addRepoToGroup`, `approveBaton`, `archiveProject`, `closeProject`, `groupProjects`, `helperInstall`, `helperOpen`, `helperPlan`, `helperStart`, `helperStop`, `helperUninstall`, `helpers`, `makeBaton`, `openProject`, `removeProject`, `removeRepoFromGroup`, `renameGroup`, `renameProject`, `reorderProjects`, `restartWithBaton`, `saveBaton`, `selectProject`, `selectRepo`, `startFromBaton` |
 | T143 (L8, remaining actions) | `agents`, `team` | `autoReview`, `clearRoutingLog`, `jevKey`, `jevStatus`, `msgList`, `msgSeen`, `msgSend`, `setRouting`, `setWeights`, `taskAdd`, `taskAssign`, `taskBranch`, `taskNote`, `taskPrune`, `taskStatus` |
 
 ## Must exist before the old interface is retired
@@ -107,7 +106,7 @@ These are safety and security controls. The new interface has no way to do them 
 | `toggleBroadcast` | Toggle broadcast (Ctrl+Shift+B) | cut | Broadcasting to panes is cut; a manager sends to its team. |
 | `toggleBroadcastMember` | Add this pane to broadcast, or take it out | cut | Broadcasting to panes is cut; a manager sends to its team. |
 | `promptAll` | Prompt all panes (Ctrl+Shift+P) | cut | Broadcasting to panes is cut; a manager sends to its team. It opens the prompt bar aimed at the focused pane, which the new prompt (paneSend) covers; with broadcast on it reached every member. |
-| `makeBaton` | Make baton: hand this pane's work to another agent | planned | T141 (L6, helpers, baton, projects) |
+| `makeBaton` | Make baton: hand this pane's work to another agent | done |  |
 | `agents` | All agents across projects (Ctrl+Shift+A) | planned | T143 (L8, remaining actions). The list of agents across projects has no task; decide whether the graph's project switch is enough |
 | `closeFinishedPanes` | Close finished panes — idle agents and cleanly exited panes, in every open project | planned | T136 (L1, start flows and pane lifecycle) |
 | `startTeam` | Start a team — a manager agent that starts the rest | done |  |
@@ -131,7 +130,7 @@ These are safety and security controls. The new interface has no way to do them 
 | `fontDown` | Decrease font size (Ctrl+-) | done |  |
 | `fontReset` | Reset font size (Ctrl+0) | done |  |
 | `remote` | Flockdeck Remote… | planned | T140 (L5, API keys, remote, notifications) |
-| `helpers` | Helper apps… | planned | T141 (L6, helpers, baton, projects) |
+| `helpers` | Helper apps… | done |  |
 | `openRecordings` | Open recordings folder | done |  |
 | `detach` | Detach — close the window, leave agents running | done |  |
 | `quit` | Quit — stop every agent in every project | done |  |
@@ -141,19 +140,19 @@ These are safety and security controls. The new interface has no way to do them 
 | Command | Status | |
 | --- | --- | --- |
 | `accentColor` | done |  |
-| `addRepoToGroup` | planned | T141 (L6, helpers, baton, projects) |
+| `addRepoToGroup` | done |  |
 | `agents` | planned | T136 (L1, start flows and pane lifecycle). The agent picker |
-| `approveBaton` | planned | T141 (L6, helpers, baton, projects). Arrives from the desktop in a notice's action, not named in the old interface |
-| `archiveProject` | planned | T141 (L6, helpers, baton, projects) |
+| `approveBaton` | done |  |
+| `archiveProject` | done |  |
 | `autoReview` | planned | T143 (L8, remaining actions). Safety control: the new shell cannot turn auto review off |
 | `autoReviewDefault` | done |  |
-| `browse` | planned | T136 (L1, start flows and pane lifecycle). The folder picker of the start flow |
+| `browse` | done |  |
 | `changes` | planned | T132 (C6, Changes) |
 | `checkForUpdate` | done |  |
 | `clearRoutingLog` | planned | T143 (L8, remaining actions). Routing has no task |
 | `closeFinishedPanes` | planned | T136 (L1, start flows and pane lifecycle) |
 | `closePane` | done |  |
-| `closeProject` | planned | T141 (L6, helpers, baton, projects) |
+| `closeProject` | done |  |
 | `closeTab` | done |  |
 | `commit` | planned | T132 (C6, Changes) |
 | `conflictRadar` | planned | T133 (C7, worktrees) |
@@ -185,15 +184,15 @@ These are safety and security controls. The new interface has no way to do them 
 | `gitFetch` | planned | T132 (C6, Changes) |
 | `gitPull` | planned | T132 (C6, Changes) |
 | `gitPush` | planned | T132 (C6, Changes) |
-| `groupProjects` | planned | T141 (L6, helpers, baton, projects) |
+| `groupProjects` | done |  |
 | `helpSeen` | planned | T138 (L3, help). The first-run welcome |
-| `helperInstall` | planned | T141 (L6, helpers, baton, projects) |
-| `helperOpen` | planned | T141 (L6, helpers, baton, projects) |
-| `helperPlan` | planned | T141 (L6, helpers, baton, projects) |
-| `helperStart` | planned | T141 (L6, helpers, baton, projects) |
-| `helperStop` | planned | T141 (L6, helpers, baton, projects) |
-| `helperUninstall` | planned | T141 (L6, helpers, baton, projects) |
-| `helpers` | planned | T141 (L6, helpers, baton, projects) |
+| `helperInstall` | done |  |
+| `helperOpen` | done |  |
+| `helperPlan` | done |  |
+| `helperStart` | done |  |
+| `helperStop` | done |  |
+| `helperUninstall` | done |  |
+| `helpers` | done |  |
 | `installVersion` | done |  |
 | `jevKey` | planned | T143 (L8, remaining actions). Security control: the Jev key is set and cleared here |
 | `jevStatus` | planned | T143 (L8, remaining actions). The Jev status has no task |
@@ -202,7 +201,7 @@ These are safety and security controls. The new interface has no way to do them 
 | `keys` | planned | T140 (L5, API keys, remote, notifications). The API keys list |
 | `listVersions` | done |  |
 | `lockPane` | done |  |
-| `makeBaton` | planned | T141 (L6, helpers, baton, projects) |
+| `makeBaton` | done |  |
 | `mergeAllTabs` | cut | Moving and merging panes and tabs is cut; the team is a graph. |
 | `mergeTab` | cut | Moving and merging panes and tabs is cut; the team is a graph. |
 | `movePane` | cut | Moving and merging panes and tabs is cut; the team is a graph. |
@@ -216,7 +215,7 @@ These are safety and security controls. The new interface has no way to do them 
 | `newTab` | done |  |
 | `nextTab` | done |  |
 | `notifications` | planned | T140 (L5, API keys, remote, notifications) |
-| `openProject` | planned | T141 (L6, helpers, baton, projects) |
+| `openProject` | done |  |
 | `openRecordings` | done |  |
 | `paneInfo` | done |  |
 | `presence` | planned | T140 (L5, API keys, remote, notifications). Tells the desktop this window is in use, which notifications depend on |
@@ -227,7 +226,7 @@ These are safety and security controls. The new interface has no way to do them 
 | `quit` | done |  |
 | `railExpanded` | planned | T137 (L2, settings) |
 | `railWidth` | planned | T137 (L2, settings) |
-| `recents` | planned | T136 (L1, start flows and pane lifecycle). Recent folders of the start flow |
+| `recents` | done |  |
 | `recordPane` | done |  |
 | `refreshAgents` | planned | T136 (L1, start flows and pane lifecycle). The agent picker |
 | `remoteDevices` | planned | T140 (L5, API keys, remote, notifications) |
@@ -241,27 +240,27 @@ These are safety and security controls. The new interface has no way to do them 
 | `remoteRevoke` | planned | T140 (L5, API keys, remote, notifications) |
 | `remoteUnverify` | planned | T140 (L5, API keys, remote, notifications) |
 | `remoteVerify` | planned | T140 (L5, API keys, remote, notifications) |
-| `removeProject` | planned | T141 (L6, helpers, baton, projects) |
-| `removeRepoFromGroup` | planned | T141 (L6, helpers, baton, projects) |
-| `renameGroup` | planned | T141 (L6, helpers, baton, projects) |
-| `renameProject` | planned | T141 (L6, helpers, baton, projects) |
+| `removeProject` | done |  |
+| `removeRepoFromGroup` | done |  |
+| `renameGroup` | done |  |
+| `renameProject` | done |  |
 | `renameTab` | done |  |
-| `reorderProjects` | planned | T141 (L6, helpers, baton, projects) |
+| `reorderProjects` | done |  |
 | `resetKeybinding` | planned | T137 (L2, settings) |
 | `resetKeybindings` | planned | T137 (L2, settings) |
 | `resetTips` | done |  |
 | `restart` | done |  |
 | `restartPane` | done |  |
-| `restartWithBaton` | planned | T141 (L6, helpers, baton, projects). Sent through a helper in the old interface |
+| `restartWithBaton` | done |  |
 | `resumeConversation` | done |  |
 | `revealPane` | done |  |
 | `revealTranscript` | done |  |
 | `save` | done |  |
-| `saveBaton` | planned | T141 (L6, helpers, baton, projects). Sent through a helper in the old interface |
+| `saveBaton` | done |  |
 | `screenReader` | done |  |
 | `scrollback` | done |  |
-| `selectProject` | planned | T141 (L6, helpers, baton, projects). Tells the desktop which project is active |
-| `selectRepo` | planned | T141 (L6, helpers, baton, projects) |
+| `selectProject` | done |  |
+| `selectRepo` | done |  |
 | `selectTab` | done |  |
 | `sendPrompt` | replaced | sent as `paneSend`. Prompting one pane; prompting all is cut |
 | `setAgentAddress` | planned | T137 (L2, settings) |
@@ -272,7 +271,7 @@ These are safety and security controls. The new interface has no way to do them 
 | `setWeights` | planned | T143 (L8, remaining actions). Routing has no task |
 | `splitPane` | cut | Tiling and splitting panes is cut; the team is a graph. |
 | `startAgent` | done |  |
-| `startFromBaton` | planned | T141 (L6, helpers, baton, projects). Sent through a helper in the old interface |
+| `startFromBaton` | done |  |
 | `statusLine` | planned | T137 (L2, settings) |
 | `swapPanes` | cut | Moving and merging panes and tabs is cut; the team is a graph. |
 | `taskAdd` | planned | T143 (L8, remaining actions). Editing the task board has no task |
