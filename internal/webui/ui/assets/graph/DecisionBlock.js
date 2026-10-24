@@ -80,7 +80,7 @@ export function decisionOf(model, need, now = Date.now(), card = null) {
     // A structured card can be a file edit with no command: say "run" only for a command.
     const command = card ? String(card.command || "") : text;
     out.command = command;
-    out.line = command ? "asks to run" : (card && firstLine(card.summary)) || "asks permission";
+    out.line = command ? "asks to run" : "asks permission"; // the card body says what it is
   } else if (need.kind === "ask") {
     out.line = firstLine(text) || "asks a question";
   } else if (need.kind === "conflict") {
@@ -113,12 +113,12 @@ function Buttons({ children }) {
   return html`<div class="dec-actions" role="group" aria-label="Choices">${children}</div>`;
 }
 
-function Permission({ model, need, ctx }) {
+function Permission({ model, need, ctx, tail }) {
   const s = ctx.snap && ctx.snap.structured && ctx.snap.structured.id === need.pane ? ctx.snap.structured : null;
   const card = s && s.card ? s.card : null;
   const node = model.byPane.get(need.pane);
   if (card && node && ctx.store) {
-    return html`<${PermissionCard} node=${node} card=${card} snap=${ctx.snap} store=${ctx.store} />`;
+    return html`<${PermissionCard} node=${node} card=${card} snap=${ctx.snap} store=${ctx.store} tail=${tail} />`;
   }
   return null;
 }
@@ -183,7 +183,7 @@ export function DecisionBlock({ model, need, ctx = {} }) {
   const open = ctx.onOpen && need.kind !== "conflict" && need.kind !== "down" ? html`<button type="button" class="dec-btn dec-btn--ghost" onClick=${() => ctx.onOpen(need.pane)}>Open ${clip(d.who, 20)}</button>` : null;
   const hasOptions = questionOptions(ctx.panes && ctx.panes.get(need.pane)).length > 0;
   let body = null;
-  if (need.kind === "permission") body = html`<${Permission} model=${model} need=${need} ctx=${ctx} />`;
+  if (need.kind === "permission") body = html`<${Permission} model=${model} need=${need} ctx=${ctx} tail=${open} />`;
   else if (need.kind === "ask") body = html`<${Question} need=${need} ctx=${ctx} options=${questionOptions(ctx.panes && ctx.panes.get(need.pane))} tail=${open} />`;
   else if (need.kind === "conflict") body = html`<${Conflict} model=${model} need=${need} ctx=${ctx} />`;
   else if (need.kind === "down") body = html`<${Down} need=${need} who=${d.who} ctx=${ctx} />`;
@@ -200,7 +200,7 @@ export function DecisionBlock({ model, need, ctx = {} }) {
     ${d.command && !structuredCard ? html`<pre class="dec-command" aria-label="Command">${clip(d.command, 600)}</pre>` : null}
     ${need.kind === "permission" && !structuredCard ? html`<p class="dec-more">${TERMINAL_WORDS}</p>` : null}
     ${body}
-    ${(need.kind === "permission" || (need.kind === "ask" && !hasOptions)) && open ? html`<${Buttons}>${open}<//>` : null}
+    ${((need.kind === "permission" && !structuredCard) || (need.kind === "ask" && !hasOptions)) && open ? html`<${Buttons}>${open}<//>` : null}
   </section>`;
 }
 
