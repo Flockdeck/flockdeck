@@ -13,6 +13,7 @@
 import { useEffect, useState } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
 import { clip } from "./Node.js";
+import { taskOfTeam, taskLabelOf } from "./model.js";
 
 /** TICK_MS is how often the elapsed time is looked at again. */
 export const TICK_MS = 30000;
@@ -52,6 +53,12 @@ export function capOf(team) {
 }
 
 /** summaryOf is the numbers of one team's line. now is the clock. */
+/** goalOf is what the line says the team is for: its task (id and title) when it was started for one and the title is known, else the goal text, else the bare task id. */
+function goalOf(model, team) {
+  const task = taskOfTeam(model, team);
+  return task && task.title ? taskLabelOf(task) : team.goal || taskLabelOf(task);
+}
+
 export function summaryOf(model, team, now) {
   let working = 0;
   for (const id of team.members) {
@@ -59,7 +66,7 @@ export function summaryOf(model, team, now) {
     if (n && n.status === "working") working++;
   }
   return {
-    goal: team.goal,
+    goal: goalOf(model, team),
     elapsed: elapsedOf(team.started, now),
     working,
     helpers: helpersOf(team),
@@ -78,7 +85,7 @@ export function GoalLine({ model, now = null }) {
     return () => clearInterval(id);
   }, [now]);
   const clock = now !== null ? now : Date.now();
-  const rows = model.teams.filter((t) => t.goal);
+  const rows = model.teams.filter((t) => t.goal || taskOfTeam(model, t));
   if (rows.length === 0) return null;
   return html`<div class="goalline-box">
     ${rows.map((team) => {

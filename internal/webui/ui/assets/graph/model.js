@@ -546,3 +546,22 @@ export function labelOf(model, pane) {
   }
   return labels.get(pane) || pane;
 }
+
+/**
+ * taskOfTeam is the task a team was started for, as { id, title }, or null when
+ * the team has none (no `taskId`). The title is read from the task cards if the
+ * caller has them, else from a pane that carries the task (the manager's first),
+ * else it is "".
+ */
+export function taskOfTeam(model, team, tasks = null) {
+  if (!model || !model.ok || !team || !team.taskId) return null;
+  const card = Array.isArray(tasks) ? tasks.find((t) => t && t.id === team.taskId) : null;
+  const carries = (n) => (n && n.task && n.task.id === team.taskId ? n.task.title : "");
+  const title = (card && card.title) || carries(model.byPane.get(team.manager)) || model.nodes.map(carries).find(Boolean) || "";
+  return { id: team.taskId, title };
+}
+
+/** taskLabelOf is a task as one short label: "T4 · Limiter middleware", or just the id. */
+export function taskLabelOf(task) {
+  return task ? (task.title ? task.id + " · " + task.title : task.id) : "";
+}
