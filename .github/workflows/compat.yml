@@ -1,0 +1,39 @@
+name: compat
+
+# The compatibility matrix (cmd/compat): the previous release's front end against
+# this tree's API fixtures, and this tree's front end against the previous
+# release's fixtures. It needs the tags, so the checkout is whole.
+#
+# Actions is off, so nothing here has run on a runner; the test has been run
+# locally. To turn it on, add the pull_request trigger below.
+on:
+  workflow_dispatch:
+  # pull_request:
+  #   paths:
+  #     - "ui/**"
+  #     - "api/**"
+  #     - "internal/server/**"
+  #     - "cmd/compat/**"
+  #     - ".github/workflows/compat.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  matrix:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Run the matrix against the newest release tag
+        env:
+          COMPAT_RUN: "1"
+        run: go test -count=1 -v ./cmd/compat
