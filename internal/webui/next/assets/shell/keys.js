@@ -20,8 +20,9 @@ const IME = 229;
 /** composing is whether a keydown belongs to an input method, not to the page. */
 export const composing = (e) => !!(e.isComposing || e.keyCode === IME);
 
-/** LIST are the keys that move through, choose from and leave a list. */
-export const LIST = { up: "ArrowUp", down: "ArrowDown", left: "ArrowLeft", right: "ArrowRight", home: "Home", end: "End", accept: "Enter", cancel: "Escape", tab: "Tab" };
+/** LIST are the keys that move through, choose from and leave a list. step goes to
+ *  the next match of a search, as it does in nearly every program that searches. */
+export const LIST = { up: "ArrowUp", down: "ArrowDown", left: "ArrowLeft", right: "ArrowRight", home: "Home", end: "End", accept: "Enter", cancel: "Escape", tab: "Tab", step: "F3" };
 // vocabulary:end
 
 /** signature is the shape a binding and a keydown are both reduced to, so that

@@ -18,6 +18,8 @@ import { Prompt } from "./Prompt.js";
 import { Conversation } from "./Conversation.js";
 import { Structured } from "./Structured.js";
 import { Lifecycle } from "./Lifecycle.js";
+import { Tools } from "./Tools.js";
+import { FindBar } from "./FindBar.js";
 import { TerminalView } from "../lib/terminal.js";
 import { initialDrawer, reduceDrawer, focusNode, focusRow } from "./state.js";
 import { LIST } from "../shell/keys.js";
@@ -77,9 +79,17 @@ export function hasTerminal(node, pane) {
 /** Drawer is the component. store is the store of store.js; node and pane are the
  *  graph node and the state push's entry for it. terminalOptions reach the
  *  terminal, which is how a test gives it fakes for xterm and the socket. */
-function DrawerBody({ store, snap = null, node, pane = null, now, maximised = false, onClose, onToggleMax, terminalOptions = null, life = null }) {
+function DrawerBody({ store, snap = null, node, pane = null, now, maximised = false, onClose, onToggleMax, terminalOptions = null, life = null, tx = null, onInfo = null, findAsk = 0 }) {
   const rootRef = useRef(null);
   const terminalRef = useRef(null);
+  // The terminal's controller once it is made, for the search bar, and the search
+  // bar's state: whether it is open, what was last searched for (kept across
+  // closing it and across panes, as a browser keeps it) and the latest count.
+  const [ctl, setCtl] = useState(null);
+  const [finding, setFinding] = useState(false);
+  const [lastFind, setLastFind] = useState("");
+  const [matches, setMatches] = useState(null);
+  const [askSeq, setAskSeq] = useState(0);
   const terminal = hasTerminal(node, pane);
   // The settings that reach the terminal (font, cursor, scrollback) follow the
   // window's settings while it is open.
@@ -111,7 +121,22 @@ function DrawerBody({ store, snap = null, node, pane = null, now, maximised = fa
   const [tab, setTab] = useState("terminal");
   useEffect(() => {
     setTab("terminal");
+    setFinding(false);
+    setMatches(null);
   }, [node.pane]);
+  // Find in terminal, asked for from a key or the palette: the bar opens on the
+  // terminal tab, or takes the keyboard back if it is already open.
+  const seenAsk = useRef(findAsk);
+  useEffect(() => {
+    // Only a new ask counts: a drawer opened later does not act on an old one.
+    if (findAsk === seenAsk.current) return;
+    seenAsk.current = findAsk;
+    if (terminal) {
+      setTab("terminal");
+      setFinding(true);
+      setAskSeq((n) => n + 1);
+    }
+  }, [findAsk]);
   const onKeyDown = (e) => {
     if (e.key !== LIST.cancel || e.defaultPrevented || inTerminal(e.target)) return;
     e.preventDefault();
@@ -141,6 +166,10 @@ function DrawerBody({ store, snap = null, node, pane = null, now, maximised = fa
     <section class=${"drawer-body" + (maximised ? " drawer-body--max" : "")} data-drawer-pane=${node.pane} tabindex="-1" ref=${rootRef} onKeyDown=${onKeyDown}>
       <${Header} node=${node} pane=${pane} now=${now} maximised=${maximised} onClose=${onClose} onToggleMax=${onToggleMax} />
       ${life ? html`<${Lifecycle} node=${node} pane=${pane} life=${life} />` : null}
+      ${tx
+        ? html`<${Tools} node=${node} pane=${pane} tx=${tx} remote=${!!state.remote} terminal=${terminal} finding=${finding}
+            onInfo=${onInfo} onFind=${() => { setTab("terminal"); setFinding(true); setAskSeq((n) => n + 1); }} />`
+        : null}
       <${Prompt} node=${node} pane=${pane} snap=${state} store=${store} sendKeys=${sendKeys} terminal=${terminal} />
       <div class="drawer-tabs" role="tablist" aria-label="Views of this agent" onKeyDown=${tabKeys}>
         <button type="button" role="tab" id="drawer-tab-terminal" aria-selected=${shown === "terminal" ? "true" : "false"} aria-controls="drawer-panel-terminal" tabindex=${shown === "terminal" ? 0 : -1} ref=${(el) => { tabRefs.current.terminal = el; }} class=${"drawer-tab" + (shown === "terminal" ? " is-active" : "")} onClick=${() => setTab("terminal")}>Terminal</button>
@@ -149,8 +178,12 @@ function DrawerBody({ store, snap = null, node, pane = null, now, maximised = fa
           : null}
       </div>
       <div class="drawer-panel" role="tabpanel" id="drawer-panel-terminal" aria-labelledby="drawer-tab-terminal" hidden=${shown !== "terminal"}>
+        ${terminal && finding && ctl
+          ? html`<${FindBar} key=${node.pane} ctl=${ctl} name=${node.name} matches=${matches} initial=${lastFind} askSeq=${askSeq}
+              onClose=${(words) => { setLastFind(words); setFinding(false); setMatches(null); }} />`
+          : null}
         ${terminal
-          ? html`<${TerminalView} key=${node.pane} store=${store} paneId=${node.pane} onReady=${(c) => { terminalRef.current = { pane: node.pane, ctl: c }; }} ...${terminalOptions || {}} />`
+          ? html`<${TerminalView} key=${node.pane} store=${store} paneId=${node.pane} onReady=${(c) => { terminalRef.current = { pane: node.pane, ctl: c }; setCtl(c); }} ...${terminalOptions || {}} onMatches=${setMatches} />`
           : html`<${Structured} key=${node.pane} pane=${node.pane} st=${state.structured} error=${state.structuredError} cancelError=${state.cancelError} desk=${!state.remote} store=${store} />`}
       </div>
       ${hasConv

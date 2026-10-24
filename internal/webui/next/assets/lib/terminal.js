@@ -29,7 +29,7 @@ import { html } from "../html.js";
 import { useEffect, useRef, useState } from "../vendor/hooks.mjs";
 import { createPty, ptyUrl } from "./pty.js";
 import { DEFAULT_FONT } from "./prefs.js";
-import { loadTerminalLibs } from "./load-script.js";
+import { SEARCH_SCRIPT, loadScript, loadTerminalLibs } from "./load-script.js";
 
 /** STRUCTURED_STUB is what a structured pane's terminal says, as the old
  *  window does. */
@@ -177,6 +177,11 @@ export function createTerminal(opts) {
   // Options set before the terminal was made (the libraries load late), laid over
   // the ones it was created with.
   let later = null;
+  // The search addon, once it has loaded and been added to the terminal, and the
+  // load in flight.
+  let search = null;
+  let searchLoad = null;
+  const searchCtor = () => opts.SearchAddon || (G.SearchAddon && G.SearchAddon.SearchAddon);
 
   const set = (patch) => {
     state = { ...state, ...patch };
@@ -245,6 +250,28 @@ export function createTerminal(opts) {
       observer = new RO(() => measure());
       observer.observe(host);
     }
+  }
+
+  /** addSearch adds the search addon to the terminal and reports whether it is
+   *  there. Search is a convenience: an addon that will not add leaves the terminal
+   *  as it was. */
+  function addSearch() {
+    if (search) return true;
+    const Ctor = searchCtor();
+    if (!term || !Ctor) return false;
+    try {
+      const addon = new Ctor();
+      term.loadAddon(addon);
+      if (addon.onDidChangeResults) {
+        addon.onDidChangeResults((r) => {
+          if (opts.onMatches) opts.onMatches(r ? { index: r.resultIndex, count: r.resultCount } : null);
+        });
+      }
+      search = addon;
+    } catch {
+      search = null;
+    }
+    return !!search;
   }
 
   /** measure reads the size the box would take and brings the terminal to the
@@ -478,6 +505,8 @@ export function createTerminal(opts) {
       hostListeners = [];
       if (textareaFocus) { textareaFocus[0].removeEventListener("focus", textareaFocus[1]); textareaFocus = null; }
       stopPty();
+      search = null;
+      searchLoad = null;
       if (term) { term.dispose(); term = null; }
     },
     /** fitToBox makes the pty the size of this terminal's box and tells the
@@ -504,6 +533,47 @@ export function createTerminal(opts) {
       if (pty) pty.retryNow();
     },
     focus() { if (term) term.focus(); },
+    /** searchReady loads the search addon the first time, and resolves with
+     *  whether Find in terminal can work. After a failure the next call tries again. */
+    searchReady() {
+      if (search) return Promise.resolve(true);
+      if (!term) return Promise.resolve(false);
+      if (!searchLoad) {
+        const load = (async () => {
+          try {
+            if (!searchCtor()) await (opts.loadSearch || (() => loadScript(SEARCH_SCRIPT)))();
+          } catch {
+            return false;
+          }
+          return !disposed && addSearch();
+        })();
+        searchLoad = load;
+        load.then((ok) => { if (!ok && searchLoad === load) searchLoad = null; });
+      }
+      return searchLoad;
+    },
+    /** find finds the next match of text, or the previous one with back. typing
+     *  says it is a search made as the words are typed, which keeps the match
+     *  already found while it still matches. It returns whether there is a match,
+     *  or null when nothing was searched (no addon yet, or no text). */
+    find(text, { back = false, typing = false } = {}) {
+      if (!search || !term) return null;
+      if (!text) {
+        this.clearFind();
+        return null;
+      }
+      const o = { incremental: !!typing, decorations: { activeMatchColorOverrideColor: "#4fd1db", matchOverviewRuler: "#4fd1db" } };
+      try {
+        return !!(back ? search.findPrevious(text, o) : search.findNext(text, o));
+      } catch {
+        return null;
+      }
+    },
+    /** clearFind takes the marks of a search off the terminal. */
+    clearFind() {
+      if (search) { try { search.clearDecorations(); } catch { /* the addon is optional */ } }
+      if (opts.onMatches) opts.onMatches(null);
+    },
     /** setOptions changes xterm options on the open terminal (a font, the
      *  cursor, the scrollback), or on the one about to open. The box is measured
      *  again, since a font changes the size of a cell. It never sends a resize. */

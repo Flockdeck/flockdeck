@@ -8,10 +8,10 @@ It compares two lists the sources hold: the actions of the key table (`internal/
 
 | | Actions | Commands |
 | --- | --- | --- |
-| done | 26 | 29 |
+| done | 34 | 38 |
 | replaced | 0 | 3 |
 | cut | 14 | 11 |
-| planned | 18 | 113 |
+| planned | 10 | 104 |
 | unclassified | 0 | 0 |
 | total | 58 | 156 |
 
@@ -60,7 +60,6 @@ The old interface let a person tile, split, move and broadcast to panes. The new
 | T136 (L1, start flows and pane lifecycle) | `selectTab`, `closeFinishedPanes` | `agents`, `browse`, `closeFinishedPanes`, `focusPane`, `recents`, `refreshAgents`, `teamClose`, `toggleZoom` |
 | T137 (L2, settings) |  | `dismissTip`, `railExpanded`, `railWidth`, `resetKeybinding`, `resetKeybindings`, `setAgentAddress`, `setAgentDefault`, `setKeybinding`, `statusLine` |
 | T138 (L3, help) |  | `helpSeen` |
-| T139 (L4, history, find, pane info) | `recordPane`, `exportTranscript`, `revealTranscript`, `paneInfo`, `findInTerminal`, `findPane`, `history`, `openRecordings` | `conversations`, `exportTranscript`, `findPane`, `openRecordings`, `paneInfo`, `recordPane`, `resumeConversation`, `revealPane`, `revealTranscript` |
 | T140 (L5, API keys, remote, notifications) | `apiKeys`, `remote` | `keyClear`, `keySet`, `keys`, `notifications`, `presence`, `pushAnonymous`, `pushDelay`, `pushNotify`, `remoteDevices`, `remoteDisable`, `remoteEnable`, `remoteMove`, `remotePair`, `remoteReconnect`, `remoteRemove`, `remoteRename`, `remoteRevoke`, `remoteUnverify`, `remoteVerify`, `setDeviceRole` |
 | T141 (L6, helpers, baton, projects) | `makeBaton`, `helpers` | `addRepoToGroup`, `approveBaton`, `archiveProject`, `closeProject`, `groupProjects`, `helperInstall`, `helperOpen`, `helperPlan`, `helperStart`, `helperStop`, `helperUninstall`, `helpers`, `makeBaton`, `openProject`, `removeProject`, `removeRepoFromGroup`, `renameGroup`, `renameProject`, `reorderProjects`, `restartWithBaton`, `saveBaton`, `selectProject`, `selectRepo`, `startFromBaton` |
 | T143 (L8, remaining actions) | `agents`, `team` | `autoReview`, `clearRoutingLog`, `jevKey`, `jevStatus`, `msgList`, `msgSeen`, `msgSend`, `setRouting`, `setWeights`, `taskAdd`, `taskAssign`, `taskBranch`, `taskNote`, `taskPrune`, `taskStatus` |
@@ -91,10 +90,10 @@ These are safety and security controls. The new interface has no way to do them 
 | `zoomPane` | Zoom pane (Ctrl+Shift+Z) | done |  |
 | `restartPane` | Restart pane | done |  |
 | `lockPane` | Lock pane | done |  |
-| `recordPane` | Start recording | planned | T139 (L4, history, find, pane info). Recording a terminal pane; recording a structured pane is T145 (P1) |
-| `exportTranscript` | Export transcript | planned | T139 (L4, history, find, pane info) |
-| `revealTranscript` | Reveal transcript | planned | T139 (L4, history, find, pane info) |
-| `paneInfo` | Pane info (Ctrl+Shift+Y) | planned | T139 (L4, history, find, pane info) |
+| `recordPane` | Start recording | done |  |
+| `exportTranscript` | Export transcript | done |  |
+| `revealTranscript` | Reveal transcript | done |  |
+| `paneInfo` | Pane info (Ctrl+Shift+Y) | done |  |
 | `closePane` | Close pane (Ctrl+Shift+W) | done |  |
 | `newAgentTab` | New agent tab (Ctrl+Shift+T) | done |  |
 | `newAgentTabChoose` | New agent tab (choose agent)… | done |  |
@@ -119,9 +118,9 @@ These are safety and security controls. The new interface has no way to do them 
 | `palette` | Command palette (Ctrl+Shift+K) | done |  |
 | `nextRegion` | Move to the next part of the window (F6) | done |  |
 | `prevRegion` | Move to the previous part of the window (Shift+F6) | done |  |
-| `findInTerminal` | Find in terminal (Ctrl+Shift+F) | planned | T139 (L4, history, find, pane info) |
-| `findPane` | Find pane (Ctrl+Shift+L) | planned | T139 (L4, history, find, pane info) |
-| `history` | Resume — reopen a past conversation (Ctrl+Shift+R) | planned | T139 (L4, history, find, pane info) |
+| `findInTerminal` | Find in terminal (Ctrl+Shift+F) | done |  |
+| `findPane` | Find pane (Ctrl+Shift+L) | done |  |
+| `history` | Resume — reopen a past conversation (Ctrl+Shift+R) | done |  |
 | `projects` | Projects (Ctrl+Shift+O) | done |  |
 | `nextNeedsYou` | Next agent that needs you (Ctrl+Shift+U) | done |  |
 | `managerBar` | Message the manager (Ctrl+Shift+H) | done |  |
@@ -133,7 +132,7 @@ These are safety and security controls. The new interface has no way to do them 
 | `fontReset` | Reset font size (Ctrl+0) | done |  |
 | `remote` | Flockdeck Remote… | planned | T140 (L5, API keys, remote, notifications) |
 | `helpers` | Helper apps… | planned | T141 (L6, helpers, baton, projects) |
-| `openRecordings` | Open recordings folder | planned | T139 (L4, history, find, pane info) |
+| `openRecordings` | Open recordings folder | done |  |
 | `detach` | Detach — close the window, leave agents running | done |  |
 | `quit` | Quit — stop every agent in every project | done |  |
 
@@ -158,14 +157,14 @@ These are safety and security controls. The new interface has no way to do them 
 | `closeTab` | done |  |
 | `commit` | planned | T132 (C6, Changes) |
 | `conflictRadar` | planned | T133 (C7, worktrees) |
-| `conversations` | planned | T139 (L4, history, find, pane info) |
+| `conversations` | done |  |
 | `cursorBlink` | done |  |
 | `cursorStyle` | done |  |
 | `detach` | done |  |
 | `diff` | planned | T132 (C6, Changes) |
 | `dismissTip` | planned | T137 (L2, settings) |
-| `exportTranscript` | planned | T139 (L4, history, find, pane info) |
-| `findPane` | planned | T139 (L4, history, find, pane info) |
+| `exportTranscript` | done |  |
+| `findPane` | done |  |
 | `focusPane` | planned | T136 (L1, start flows and pane lifecycle) |
 | `fontFamily` | done |  |
 | `fontSize` | done |  |
@@ -218,8 +217,8 @@ These are safety and security controls. The new interface has no way to do them 
 | `nextTab` | done |  |
 | `notifications` | planned | T140 (L5, API keys, remote, notifications) |
 | `openProject` | planned | T141 (L6, helpers, baton, projects) |
-| `openRecordings` | planned | T139 (L4, history, find, pane info) |
-| `paneInfo` | planned | T139 (L4, history, find, pane info) |
+| `openRecordings` | done |  |
+| `paneInfo` | done |  |
 | `presence` | planned | T140 (L5, API keys, remote, notifications). Tells the desktop this window is in use, which notifications depend on |
 | `prevTab` | done |  |
 | `pushAnonymous` | planned | T140 (L5, API keys, remote, notifications) |
@@ -229,7 +228,7 @@ These are safety and security controls. The new interface has no way to do them 
 | `railExpanded` | planned | T137 (L2, settings) |
 | `railWidth` | planned | T137 (L2, settings) |
 | `recents` | planned | T136 (L1, start flows and pane lifecycle). Recent folders of the start flow |
-| `recordPane` | planned | T139 (L4, history, find, pane info) |
+| `recordPane` | done |  |
 | `refreshAgents` | planned | T136 (L1, start flows and pane lifecycle). The agent picker |
 | `remoteDevices` | planned | T140 (L5, API keys, remote, notifications) |
 | `remoteDisable` | planned | T140 (L5, API keys, remote, notifications) |
@@ -254,9 +253,9 @@ These are safety and security controls. The new interface has no way to do them 
 | `restart` | done |  |
 | `restartPane` | done |  |
 | `restartWithBaton` | planned | T141 (L6, helpers, baton, projects). Sent through a helper in the old interface |
-| `resumeConversation` | planned | T139 (L4, history, find, pane info) |
-| `revealPane` | planned | T139 (L4, history, find, pane info) |
-| `revealTranscript` | planned | T139 (L4, history, find, pane info) |
+| `resumeConversation` | done |  |
+| `revealPane` | done |  |
+| `revealTranscript` | done |  |
 | `save` | done |  |
 | `saveBaton` | planned | T141 (L6, helpers, baton, projects). Sent through a helper in the old interface |
 | `screenReader` | done |  |

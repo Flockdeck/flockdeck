@@ -514,7 +514,8 @@ func TestPageHoldsOnlyTheModuleAndTheLoaderNamesTheLibraries(t *testing.T) {
 		t.Fatal(err)
 	}
 	srcs := regexp.MustCompile(`src: "([^"]+)"`).FindAllStringSubmatch(string(loader), -1)
-	want := []string{"assets/vendor/xterm.js", "assets/vendor/addon-fit.js", "assets/e2e.js"}
+	// The last is not a terminal library: Find in terminal loads it on first use.
+	want := []string{"assets/vendor/xterm.js", "assets/vendor/addon-fit.js", "assets/e2e.js", "assets/vendor/addon-search.js"}
 	if len(srcs) != len(want) {
 		t.Fatalf("the loader names %d files, want %d", len(srcs), len(want))
 	}
