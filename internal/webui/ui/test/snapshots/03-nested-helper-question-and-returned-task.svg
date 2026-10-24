@@ -1,6 +1,6 @@
-<svg class="graph" viewBox="0 0 968 740" width="968" height="740" role="group" aria-label="Team graph of 03-nested-helper-question-and-returned-task">
+<svg class="graph" viewBox="0 0 968 804" width="968" height="804" role="group" aria-label="Team graph of 03-nested-helper-question-and-returned-task">
 <g class="gteam" data-team="6e7bb3af">
-<rect class="gteam-frame" x="0" y="0" width="968" height="740" rx="10">
+<rect class="gteam-frame" x="0" y="0" width="968" height="804" rx="10">
 </rect>
 <text class="gteam-title" x="16" y="24">Ship 03-nested-helper-question-and-returned-task</text>
 </g>
@@ -21,49 +21,49 @@
 <g class="gedges">
 <g class="gedge gedge--waiting" data-from="6e7bb3af" data-to="025b0446">
 <title>waiting on a helper: 3 helpers are busy</title>
-<path d="M376 184.8Q304 220 232 255.2" marker-end="url(#gedge-arrow-wait)">
+<path d="M376 197.6Q304 236 232 274.4" marker-end="url(#gedge-arrow-wait)">
 </path>
 <g class="gedge-label gedge-label--wait">
-<rect x="238" y="211" width="132" height="16" rx="4">
+<rect x="238" y="227" width="132" height="16" rx="4">
 </rect>
-<text x="304" y="223" text-anchor="middle">waiting on a helper</text>
+<text x="304" y="239" text-anchor="middle">waiting on a helper</text>
 </g>
 </g>
 <g class="gedge gedge--waiting" data-from="025b0446" data-to="21c76d4a">
 <title>waiting on a helper: 1 helper is busy</title>
-<path d="M124 372Q124 396 124 420" marker-end="url(#gedge-arrow-wait)">
+<path d="M124 404Q124 428 124 452" marker-end="url(#gedge-arrow-wait)">
 </path>
 <g class="gedge-label gedge-label--wait">
-<rect x="58" y="387" width="132" height="16" rx="4">
+<rect x="58" y="419" width="132" height="16" rx="4">
 </rect>
-<text x="124" y="399" text-anchor="middle">waiting on a helper</text>
+<text x="124" y="431" text-anchor="middle">waiting on a helper</text>
 </g>
 </g>
 <g class="gedge gedge--tag" data-tagged="839bba23" data-holder="user">
 <title>waiting on you: Boost exact title matches over body matches?</title>
-<path d="M268 372v8">
+<path d="M268 404v8">
 </path>
 <g class="gedge-label gedge-label--wait">
-<rect x="267.8" y="379" width="100" height="16" rx="4">
+<rect x="267.8" y="411" width="100" height="16" rx="4">
 </rect>
-<text x="317.8" y="391" text-anchor="middle">waiting on you</text>
+<text x="317.8" y="423" text-anchor="middle">waiting on you</text>
 </g>
 </g>
 <g class="gedge gedge--tag" data-tagged="ce2ebf6f" data-holder="reviewer">
 <title>waiting on a reviewer: T2 is in review by reviewer</title>
-<path d="M508 724v8">
+<path d="M508 788v8">
 </path>
 <g class="gedge-label gedge-label--wait">
-<rect x="508.20000000000005" y="731" width="144" height="16" rx="4">
+<rect x="508.20000000000005" y="795" width="144" height="16" rx="4">
 </rect>
-<text x="580.2" y="743" text-anchor="middle">waiting on a reviewer</text>
+<text x="580.2" y="807" text-anchor="middle">waiting on a reviewer</text>
 </g>
 </g>
 </g>
 <g class="gslot">
 <g class="gnode gnode--working gnode--manager" data-pane="6e7bb3af" transform="translate(376 68)" role="group" aria-label="manager, manager, working, branch main, $8.75">
 <title>manager, manager, working, branch main, $8.75</title>
-<rect class="gnode-box" x="0" y="0" width="216" height="128" rx="6">
+<rect class="gnode-box" x="0" y="0" width="216" height="144" rx="6">
 </rect>
 <circle class="gmark gmark--circle" cx="18" cy="22" r="6">
 </circle>
@@ -77,9 +77,9 @@
 </g>
 </g>
 <g class="gslot">
-<g class="gnode gnode--working" data-pane="025b0446" transform="translate(16 244)" role="group" aria-label="indexer, worker, working, Edit search/index.go, branch work/indexer">
+<g class="gnode gnode--working" data-pane="025b0446" transform="translate(16 260)" role="group" aria-label="indexer, worker, working, Edit search/index.go, branch work/indexer">
 <title>indexer, worker, working, Edit search/index.go, branch work/indexer</title>
-<rect class="gnode-box" x="0" y="0" width="216" height="128" rx="6">
+<rect class="gnode-box" x="0" y="0" width="216" height="144" rx="6">
 </rect>
 <circle class="gmark gmark--circle" cx="18" cy="22" r="6">
 </circle>
@@ -91,9 +91,9 @@
 </g>
 </g>
 <g class="gslot">
-<g class="gnode gnode--working" data-pane="21c76d4a" transform="translate(16 420)" role="group" aria-label="shards, worker, working, Bash go test ./search/shard, branch work/shards">
+<g class="gnode gnode--working" data-pane="21c76d4a" transform="translate(16 452)" role="group" aria-label="shards, worker, working, Bash go test ./search/shard, branch work/shards">
 <title>shards, worker, working, Bash go test ./search/shard, branch work/shards</title>
-<rect class="gnode-box" x="0" y="0" width="216" height="128" rx="6">
+<rect class="gnode-box" x="0" y="0" width="216" height="144" rx="6">
 </rect>
 <circle class="gmark gmark--circle" cx="18" cy="22" r="6">
 </circle>
@@ -105,9 +105,9 @@
 </g>
 </g>
 <g class="gslot">
-<g class="gnode gnode--waiting" data-pane="839bba23" transform="translate(256 244)" role="group" aria-label="ranking, worker, waiting, branch work/ranking">
+<g class="gnode gnode--waiting" data-pane="839bba23" transform="translate(256 260)" role="group" aria-label="ranking, worker, waiting, branch work/ranking">
 <title>ranking, worker, waiting, branch work/ranking</title>
-<rect class="gnode-box" x="0" y="0" width="216" height="128" rx="6">
+<rect class="gnode-box" x="0" y="0" width="216" height="144" rx="6">
 </rect>
 <polygon class="gmark gmark--diamond" points="18,15 25,22 18,29 11,22">
 </polygon>
@@ -118,7 +118,7 @@
 </text>
 <text class="gnode-branch" x="12" y="87">work/ranking</text>
 </g>
-<g class="gneed" data-pane="839bba23" transform="translate(256 244)">
+<g class="gneed" data-pane="839bba23" transform="translate(256 260)">
 <g class="gbadge gbadge--ask" data-kind="ask" role="img" aria-label="Needs you: asks a question">
 <rect class="gbadge-box" x="8" y="-36" width="200" height="34" rx="6">
 </rect>
@@ -134,9 +134,9 @@
 </g>
 </g>
 <g class="gslot">
-<g class="gnode gnode--working" data-pane="bf058d75" transform="translate(496 244)" role="group" aria-label="ui, worker, working, Reading the review note, branch work/ui, task T1 in-progress">
+<g class="gnode gnode--working" data-pane="bf058d75" transform="translate(496 260)" role="group" aria-label="ui, worker, working, Reading the review note, branch work/ui, task T1 in-progress">
 <title>ui, worker, working, Reading the review note, branch work/ui, task T1 in-progress</title>
-<rect class="gnode-box" x="0" y="0" width="216" height="128" rx="6">
+<rect class="gnode-box" x="0" y="0" width="216" height="144" rx="6">
 </rect>
 <circle class="gmark gmark--circle" cx="18" cy="22" r="6">
 </circle>
@@ -151,7 +151,7 @@
 <text x="8" y="11">T1 in-progress</text>
 </g>
 </g>
-<g class="gneed" data-pane="bf058d75" transform="translate(496 244)">
+<g class="gneed" data-pane="bf058d75" transform="translate(496 260)">
 <g class="gbadge gbadge--ask" data-kind="returned" role="img" aria-label="Needs you: task returned from review">
 <rect class="gbadge-box" x="8" y="-36" width="200" height="34" rx="6">
 </rect>
@@ -165,9 +165,9 @@
 </g>
 </g>
 <g class="gslot">
-<g class="gnode gnode--idle" data-pane="49e9335b" transform="translate(736 244)" role="group" aria-label="analytics, worker, idle, branch work/analytics">
+<g class="gnode gnode--idle" data-pane="49e9335b" transform="translate(736 260)" role="group" aria-label="analytics, worker, idle, branch work/analytics">
 <title>analytics, worker, idle, branch work/analytics</title>
-<rect class="gnode-box" x="0" y="0" width="216" height="128" rx="6">
+<rect class="gnode-box" x="0" y="0" width="216" height="144" rx="6">
 </rect>
 <circle class="gmark gmark--ring" cx="18" cy="22" r="5">
 </circle>
@@ -180,9 +180,9 @@
 </g>
 </g>
 <g class="gslot">
-<g class="gnode gnode--exited" data-pane="ef584c9e" transform="translate(256 596)" role="group" aria-label="synonyms, worker, down, branch work/synonyms">
+<g class="gnode gnode--exited" data-pane="ef584c9e" transform="translate(256 644)" role="group" aria-label="synonyms, worker, down, branch work/synonyms">
 <title>synonyms, worker, down, branch work/synonyms</title>
-<rect class="gnode-box" x="0" y="0" width="216" height="128" rx="6">
+<rect class="gnode-box" x="0" y="0" width="216" height="144" rx="6">
 </rect>
 <path class="gmark gmark--cross" d="M13 17 L23 27 M23 17 L13 27">
 </path>
@@ -195,9 +195,9 @@
 </g>
 </g>
 <g class="gslot">
-<g class="gnode gnode--idle" data-pane="ce2ebf6f" transform="translate(496 596)" role="group" aria-label="perf, worker, idle, branch work/perf, task T2 in-review">
+<g class="gnode gnode--idle" data-pane="ce2ebf6f" transform="translate(496 644)" role="group" aria-label="perf, worker, idle, branch work/perf, task T2 in-review">
 <title>perf, worker, idle, branch work/perf, task T2 in-review</title>
-<rect class="gnode-box" x="0" y="0" width="216" height="128" rx="6">
+<rect class="gnode-box" x="0" y="0" width="216" height="144" rx="6">
 </rect>
 <circle class="gmark gmark--ring" cx="18" cy="22" r="5">
 </circle>

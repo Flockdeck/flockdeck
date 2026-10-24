@@ -13,6 +13,8 @@
 
 .drawer-head {
   flex: 0 0 auto;
+  min-width: 0;
+  overflow: hidden;
   padding: 10px 12px 8px;
   border-bottom: 1px solid var(--line);
 }
@@ -27,7 +29,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.drawer-actions { display: flex; flex: 0 0 auto; gap: 6px; }
+.drawer-actions { display: flex; flex: 0 1 auto; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
 .drawer-btn {
   min-height: 28px;
   padding: 0 10px;
@@ -383,3 +385,7 @@
 .chg-warn-intro, .chg-warn-ask { margin: 0 0 4px; overflow-wrap: anywhere; }
 .chg-warn-items { margin: 4px 0; padding-left: 18px; overflow-wrap: anywhere; }
 .chg-more, .chg-repo { margin: 4px 0; }
+
+/* The pane's actions, behind the header's More button. */
+.drawer-more-panel { flex: 0 0 auto; border-bottom: 1px solid var(--line); }
+.drawer-btn.drawer-more[aria-expanded="true"] { background: var(--accent-subtle); border-color: var(--accent-line); }

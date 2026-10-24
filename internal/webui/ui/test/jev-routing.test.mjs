@@ -19,6 +19,13 @@ import { createDom, install, settle } from "./dom.mjs";
 import { FakeWebSocket, harness, hello } from "./fakes.mjs";
 import { PtySocket, FakeTerm, FakeFit, FakeObserver } from "./termfakes.mjs";
 
+// The pane's actions are behind the drawer header's More button: open it when the
+// button asked for is not there yet.
+const pickMore = async (m, sel) => {
+  if (!m.container.find(sel) && m.container.find(".drawer-more")) await m.click(m.container.find(".drawer-more"));
+  return m.container.find(sel);
+};
+
 const here = dirname(fileURLToPath(import.meta.url));
 const fixtureFile = join(here, "..", "..", "..", "server", "testdata", "graph-fixtures", "01-six-helpers-one-permission.json");
 const MARKUP = '<img src=x onerror="alert(1)">';
@@ -199,7 +206,7 @@ test("auto review: a pane's drawer shows its state, and the switch sends the opp
     const [a, b] = m.g.nodes.filter((n) => !n.shell).slice(0, 2).map((n) => n.pane);
     await m.connect(stateOf(m.g, { panes: { [a]: { autoReview: true } } }));
     await m.click(m.box(a));
-    const btn = m.container.find(".tools-review");
+    const btn = (await pickMore(m, ".tools-review"));
     assert.equal(btn.attributes["aria-pressed"], "true");
     assert.match(btn.textContent, /Auto-approve read-only: on/);
     assert.match(btn.attributes.title, /Only a command Flockdeck is confident is read-only/);
@@ -207,14 +214,14 @@ test("auto review: a pane's drawer shows its state, and the switch sends the opp
     await m.click(btn);
     assert.deepEqual(m.sent("autoReview"), [{ cmd: "autoReview", id: a, autoReview: false }]);
     await m.click(m.box(b));
-    const other = m.container.find(".tools-review");
+    const other = (await pickMore(m, ".tools-review"));
     assert.equal(other.attributes["aria-pressed"], "false");
     m.clear();
     await m.click(other);
     assert.deepEqual(m.sent("autoReview"), [{ cmd: "autoReview", id: b, autoReview: true }]);
     // The desktop's state says it changed.
     await m.push(stateOf(m.g, { panes: { [b]: { autoReview: true } } }));
-    assert.equal(m.container.find(".tools-review").attributes["aria-pressed"], "true");
+    assert.equal((await pickMore(m, ".tools-review")).attributes["aria-pressed"], "true");
   }));
 
 test("auto review: a relay window may switch it (the desktop decides), and a shell has none", () =>

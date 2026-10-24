@@ -22,9 +22,17 @@ import { createDom, install, settle } from "./dom.mjs";
 import { FakeWebSocket, harness, hello } from "./fakes.mjs";
 import { PtySocket, FakeTerm, FakeFit, FakeObserver } from "./termfakes.mjs";
 
+
 // openPlus opens the tab strip's "+" menu, where the tab actions are.
 const openPlus = async (m) => {
   if (!m.container.find(".tabs-menu")) await m.click(m.container.find(".tabs-plus"));
+};
+
+// The pane's actions are behind the drawer header's More button: open it when the
+// button asked for is not there yet.
+const pickMore = async (m, sel) => {
+  if (!m.container.find(sel) && m.container.find(".drawer-more")) await m.click(m.container.find(".drawer-more"));
+  return m.container.find(sel);
 };
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -640,7 +648,7 @@ test("next and previous tab, and a refusal from the desk is shown and can be dis
 
 const open = async (m, pane) => {
   await m.click(m.box(pane));
-  assert.ok(m.container.find(".life"), "no lifecycle row");
+  assert.ok(m.container.find(".drawer-more"), "no More button");
 };
 
 test("restart of a running terminal agent asks first, and one that has ended restarts at once", () =>
@@ -648,7 +656,7 @@ test("restart of a running terminal agent asks first, and one that has ended res
     await m.connect();
     await open(m, CART);
     m.clear();
-    await m.click(m.container.find(".life-restart"));
+    await m.click((await pickMore(m, ".life-restart")));
     assert.equal(m.sent("restartPane").length, 0);
     assert.match(m.container.find(".confirm").textContent, /stopped and started again/);
     await m.click(m.byText(".confirm .dialog-btn", /^Restart$/));
@@ -660,7 +668,7 @@ test("restart of an agent that has ended is sent at once", () =>
     await m.connect();
     await open(m, CART);
     m.clear();
-    await m.click(m.container.find(".life-restart"));
+    await m.click((await pickMore(m, ".life-restart")));
     assert.deepEqual(m.sent("restartPane"), [{ cmd: "restartPane", id: CART }]);
     assert.equal(m.container.find(".confirm"), null);
   }));
@@ -670,7 +678,7 @@ test("restart of a structured agent asks, and says the session starts fresh", ()
     await m.connect();
     await open(m, CART);
     m.clear();
-    await m.click(m.container.find(".life-restart"));
+    await m.click((await pickMore(m, ".life-restart")));
     assert.equal(m.sent("restartPane").length, 0);
     const text = m.container.find(".confirm").textContent;
     assert.match(text, /new session/);
@@ -685,13 +693,13 @@ test("close pane asks when the agent holds a request, and Cancel sends nothing",
     await m.connect();
     await open(m, TAX);
     m.clear();
-    await m.click(m.container.find(".life-close"));
+    await m.click((await pickMore(m, ".life-close")));
     assert.equal(m.sent("closePane").length, 0);
     assert.match(m.container.find(".confirm").textContent, /waiting for your answer/);
     await m.click(m.byText(".confirm .dialog-btn", /^Cancel$/));
     assert.equal(m.container.find(".confirm"), null);
     assert.equal(m.sent("closePane").length, 0);
-    await m.click(m.container.find(".life-close"));
+    await m.click((await pickMore(m, ".life-close")));
     await m.click(m.byText(".confirm .dialog-btn", /^Close pane$/));
     assert.deepEqual(m.sent("closePane"), [{ cmd: "closePane", id: TAX }]);
   }));
@@ -700,7 +708,7 @@ test("close pane with uncommitted files says so and that they stay on disk", () 
   withPage({ g: graph({ [CART]: { dirty: 4, untracked: 1 } }) }, async (m) => {
     await m.connect();
     await open(m, CART);
-    await m.click(m.container.find(".life-close"));
+    await m.click((await pickMore(m, ".life-close")));
     const text = m.container.find(".confirm").textContent;
     assert.match(text, /5 changed files/);
     assert.match(text, /stay on disk/);
@@ -711,7 +719,7 @@ test("a clean agent is closed at once", () =>
     await m.connect();
     await open(m, CART);
     m.clear();
-    await m.click(m.container.find(".life-close"));
+    await m.click((await pickMore(m, ".life-close")));
     assert.deepEqual(m.sent("closePane"), [{ cmd: "closePane", id: CART }]);
   }));
 
@@ -720,15 +728,15 @@ test("lock and unlock send lockPane, and a locked pane cannot be closed from the
     await m.connect();
     await open(m, CART);
     m.clear();
-    await m.click(m.container.find(".life-lock"));
+    await m.click((await pickMore(m, ".life-lock")));
     assert.deepEqual(m.sent("lockPane"), [{ cmd: "lockPane", id: CART, locked: true }]);
     await m.push(stateOf(graph(), { [CART]: { locked: true } }));
-    assert.equal(m.container.find(".life-lock").textContent.trim(), "Unlock");
-    const close = m.container.find(".life-close");
+    assert.equal((await pickMore(m, ".life-lock")).textContent.trim(), "Unlock");
+    const close = (await pickMore(m, ".life-close"));
     assert.equal(!!close.disabled || close.attributes.disabled !== undefined, true);
-    assert.ok(m.container.find(".life").textContent.includes(LOCKED_WORDS));
+    assert.ok((await pickMore(m, ".life")).textContent.includes(LOCKED_WORDS));
     m.clear();
-    await m.click(m.container.find(".life-lock"));
+    await m.click((await pickMore(m, ".life-lock")));
     assert.deepEqual(m.sent("lockPane"), [{ cmd: "lockPane", id: CART, locked: false }]);
   }));
 
@@ -736,7 +744,7 @@ test("a question for one pane does not follow the drawer to another", () =>
   withPage({ extra: { [TAX]: { permission: { tool: "Bash", options: [] } } } }, async (m) => {
     await m.connect();
     await open(m, TAX);
-    await m.click(m.container.find(".life-close"));
+    await m.click((await pickMore(m, ".life-close")));
     assert.ok(m.container.find(".confirm"));
     await m.click(m.box(CART));
     assert.equal(m.container.find(".confirm"), null);

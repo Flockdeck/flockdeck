@@ -8,7 +8,7 @@
 
 import { options } from "../assets/vendor/preact.mjs";
 
-const EVENT_PROPS = ["onclick", "ondblclick", "oninput", "onkeydown", "onpointerdown", "onmousedown", "onchange", "onfocus", "onblur", "onsubmit", "onscroll"];
+const EVENT_PROPS = ["onclick", "ondblclick", "oninput", "onkeydown", "onpointerdown", "onmousedown", "onchange", "onfocus", "onblur", "onmouseenter", "onmouseleave", "onsubmit", "onscroll"];
 
 // The links between nodes are not enumerable. A failing assert.equal on two
 // elements prints both, and node's assertion message does not honour a custom

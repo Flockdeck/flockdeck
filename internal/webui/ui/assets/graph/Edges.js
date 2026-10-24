@@ -157,6 +157,55 @@ export function edgesOf(model, layout, options = {}) {
   return out;
 }
 
+/** touches says an edge has the pane at one of its ends. */
+const touches = (x, pane) => x.from === pane || x.to === pane;
+
+/**
+ * focusOf is what the graph shows around one pane: the panes at the other end of
+ * its edges, which stay clear while the rest fade, and the pane it is waiting on,
+ * which gets a dashed outline. Without a pane there is nothing to show. The lines
+ * themselves are drawn by Edges, which marks the same ones.
+ */
+export function focusOf(edges, pane) {
+  const related = new Set();
+  let target = "";
+  if (!pane) return { related, target };
+  for (const list of [edges.waiting, edges.message, edges.sent]) {
+    for (const x of list) {
+      if (!touches(x, pane)) continue;
+      related.add(x.from);
+      related.add(x.to);
+    }
+  }
+  const w = edges.waiting.find((x) => x.from === pane);
+  if (w) target = w.to;
+  related.delete(pane);
+  return { related, target };
+}
+
+/**
+ * countsOf is, for each pane, how many messages came to it and went from it, and
+ * how many it sent have not been told to their pane yet. A pane with none has no
+ * entry.
+ */
+export function countsOf(model) {
+  const out = new Map();
+  const at = (id) => {
+    if (!out.has(id)) out.set(id, { in: 0, out: 0, undelivered: 0 });
+    return out.get(id);
+  };
+  for (const e of model.edges.message) {
+    if (e.from === e.to) continue;
+    if (model.byPane.has(e.to)) at(e.to).in++;
+    if (model.byPane.has(e.from)) {
+      const c = at(e.from);
+      c.out++;
+      if (e.delivery === "queued") c.undelivered++;
+    }
+  }
+  return out;
+}
+
 /** The marker shapes the edges' lines end in. Given once per graph. */
 export function EdgeDefs() {
   const arrow = (id, cls) => html`
@@ -184,17 +233,21 @@ function Label({ at, word, cls }) {
  * Edges draws what edgesOf worked out. It is drawn before the boxes, so a box
  * is never behind a line.
  */
-export function Edges({ e }) {
+export function Edges({ e, focus = "" }) {
+  // A line is drawn where the person looks: the ones that end at the pane the
+  // pointer or the keyboard is on, or whose drawer is open. The rest are in the
+  // page and out of sight, so a busy team does not fill the graph with lines.
+  const on = (x) => (focus && touches(x, focus) ? " gedge--on" : "");
   return html`<g class="gedges">
     ${e.sent.map(
-      (x) => html`<g class="gedge gedge--sent" data-from=${x.from} data-to=${x.to} key=${x.key}>
+      (x) => html`<g class=${"gedge gedge--sent" + on(x)} data-from=${x.from} data-to=${x.to} key=${x.key}>
         <title>${"Sent: " + x.from + " to " + x.to}</title>
         <path d=${x.d} marker-end="url(#gedge-arrow)" />
         <${Label} at=${x.mid} word=${x.word} cls="gedge-label--sent" />
       </g>`,
     )}
     ${e.waiting.map(
-      (x) => html`<g class="gedge gedge--waiting" data-from=${x.from} data-to=${x.to} key=${x.key}>
+      (x) => html`<g class=${"gedge gedge--waiting" + on(x)} data-from=${x.from} data-to=${x.to} key=${x.key}>
         <title>${x.detail ? x.word + ": " + x.detail : x.word}</title>
         <path d=${x.d} marker-end="url(#gedge-arrow-wait)" />
         <${Label} at=${x.mid} word=${x.word} cls="gedge-label--wait" />
@@ -203,7 +256,7 @@ export function Edges({ e }) {
     ${e.message.map((x) => {
       const undelivered = x.delivery === "queued";
       return html`<g
-        class=${"gedge gedge--message" + (undelivered ? " gedge--undelivered" : "") + (x.delivery === "notified" || x.delivery === "woken" ? " gedge--told" : "")}
+        class=${"gedge gedge--message" + on(x) + (undelivered ? " gedge--undelivered" : "") + (x.delivery === "notified" || x.delivery === "woken" ? " gedge--told" : "")}
         data-from=${x.from}
         data-to=${x.to}
         data-delivery=${x.delivery}

@@ -291,6 +291,37 @@
   font-size: 12px;
 }
 
+/* A line is drawn for the pane the pointer or the keyboard is on, and for the open
+ * pane. The others are in the page and not seen. A tag (waiting on a person) is
+ * the only line that is always there, because it says what the pane waits on. */
+.gedge:not(.gedge--tag) {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 140ms;
+}
+.gedge.gedge--on {
+  opacity: 1;
+}
+.gnode {
+  transition: opacity 140ms;
+}
+.gnode--dim {
+  opacity: 0.55;
+}
+.gnode-rel {
+  fill: none;
+  stroke: var(--line-strong);
+  stroke-width: 1.5;
+  stroke-dasharray: 5 3;
+}
+.gnode-msgs {
+  fill: var(--fg-faint);
+  font-size: 11px;
+}
+.gnode-und {
+  fill: var(--waiting);
+}
+
 /* Told (notified or woken) but not yet read: the same line, dimmer. */
 .gedge--told path {
   stroke-opacity: 0.6;

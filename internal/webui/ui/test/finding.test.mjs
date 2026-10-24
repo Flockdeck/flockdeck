@@ -23,9 +23,17 @@ import { createDom, install, settle } from "./dom.mjs";
 import { FakeWebSocket, harness, hello } from "./fakes.mjs";
 import { PtySocket, FakeTerm, FakeFit, FakeObserver, FakeHost, fakeStore, paneState, waitFor } from "./termfakes.mjs";
 
+
 // openPlus opens the tab strip's "+" menu, where the tab actions are.
 const openPlus = async (m) => {
   if (!m.container.find(".tabs-menu")) await m.click(m.container.find(".tabs-plus"));
+};
+
+// The pane's actions are behind the drawer header's More button: open it when the
+// button asked for is not there yet.
+const pickMore = async (m, sel) => {
+  if (!m.container.find(sel) && m.container.find(".drawer-more")) await m.click(m.container.find(".drawer-more"));
+  return m.container.find(sel);
 };
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -568,7 +576,7 @@ test("Pane info is a button in the drawer too", () =>
     await m.connect();
     await m.open(CART);
     m.clear();
-    await m.click(m.container.find(".tools-info"));
+    await m.click((await pickMore(m, ".tools-info")));
     assert.equal(m.sent("paneInfo").length, 1);
   }));
 
@@ -821,7 +829,7 @@ test("Find in terminal says a structured pane has no terminal to search", () =>
   withPage({ g: graph({ [TAX]: { kind: "structured", structured: true } }) }, async (m) => {
     await m.connect();
     await m.open(TAX);
-    assert.equal(m.container.find(".tools-find"), null, "no button for it");
+    assert.equal((await pickMore(m, ".tools-find")), null, "no button for it");
     await m.key("Ctrl+Shift+F");
     assert.ok(m.notice().includes(NO_TERMINAL_WORDS));
     assert.equal(finder(m), null);
@@ -834,7 +842,7 @@ test("the first recording ever is put to the person, and starts with confirmed o
     await m.connect();
     await m.open(CART);
     m.clear();
-    await m.click(m.container.find(".tools-record"));
+    await m.click((await pickMore(m, ".tools-record")));
     assert.equal(m.sent("recordPane").length, 0, "nothing is sent before the answer");
     const ask = m.container.find(".confirm");
     assert.match(ask.textContent, /Record this pane's agent interaction/);
@@ -842,7 +850,7 @@ test("the first recording ever is put to the person, and starts with confirmed o
     await m.click(m.byText(".confirm .dialog-btn", /^Cancel$/));
     assert.equal(m.sent("recordPane").length, 0);
     assert.equal(m.container.find(".confirm"), null);
-    await m.click(m.container.find(".tools-record"));
+    await m.click((await pickMore(m, ".tools-record")));
     await m.click(m.byText(".confirm .dialog-btn", /^Start recording$/));
     assert.deepEqual(m.sent("recordPane"), [{ cmd: "recordPane", id: CART, recording: true, confirmed: true }]);
   }));
@@ -852,11 +860,11 @@ test("once told, recording starts at once, and stopping never asks", () =>
     await m.connect();
     await m.open(CART);
     m.clear();
-    await m.click(m.container.find(".tools-record"));
+    await m.click((await pickMore(m, ".tools-record")));
     assert.deepEqual(m.sent("recordPane"), [{ cmd: "recordPane", id: CART, recording: true }]);
     assert.equal(m.container.find(".confirm"), null);
     await m.push(stateOf(graph(), { [CART]: { recording: true } }));
-    const stop = m.container.find(".tools-record");
+    const stop = (await pickMore(m, ".tools-record"));
     assert.equal(stop.textContent.trim(), "Stop recording");
     assert.equal(stop.attributes["aria-pressed"], "true");
     m.clear();
@@ -870,12 +878,12 @@ test("a first recording stopped never asks, and an acknowledgement that arrives 
     await m.push(stateOf(graph(), { [CART]: { recording: true } }));
     await m.open(CART);
     m.clear();
-    await m.click(m.container.find(".tools-record"));
+    await m.click((await pickMore(m, ".tools-record")));
     assert.deepEqual(m.sent("recordPane"), [{ cmd: "recordPane", id: CART, recording: false }]);
     await m.push(stateOf(graph(), { [CART]: { recording: false } }));
     await m.push({ type: "prefs", prefs: { recordingAcknowledged: true } });
     m.clear();
-    await m.click(m.container.find(".tools-record"));
+    await m.click((await pickMore(m, ".tools-record")));
     assert.deepEqual(m.sent("recordPane"), [{ cmd: "recordPane", id: CART, recording: true }]);
   }));
 
@@ -884,7 +892,7 @@ test("an export asks every time, even after recording was agreed to, and sends c
     await m.connect();
     await m.open(CART);
     m.clear();
-    await m.click(m.container.find(".tools-export"));
+    await m.click((await pickMore(m, ".tools-export")));
     const ask = m.container.find(".confirm");
     assert.match(ask.textContent, /Export this pane's transcript/);
     for (const w of EXPORT_WORDS) assert.ok(ask.textContent.includes(w));
@@ -892,7 +900,7 @@ test("an export asks every time, even after recording was agreed to, and sends c
     await m.click(m.byText(".confirm .dialog-btn", /^Export transcript$/));
     assert.deepEqual(m.sent("exportTranscript"), [{ cmd: "exportTranscript", id: CART, confirmed: true }]);
     m.clear();
-    await m.click(m.container.find(".tools-export"));
+    await m.click((await pickMore(m, ".tools-export")));
     assert.ok(m.container.find(".confirm"), "asked again");
     await m.click(m.byText(".confirm .dialog-btn", /^Cancel$/));
     assert.equal(m.sent("exportTranscript").length, 0);
@@ -902,7 +910,7 @@ test("a question belongs to the pane it was asked for", () =>
   withPage({}, async (m) => {
     await m.connect();
     await m.open(CART);
-    await m.click(m.container.find(".tools-export"));
+    await m.click((await pickMore(m, ".tools-export")));
     assert.ok(m.container.find(".confirm"));
     await m.click(m.box(TAX));
     assert.equal(m.container.find(".confirm"), null);
@@ -914,17 +922,17 @@ test("a shell has nothing to record or export, and a structured pane says why", 
   withPage({ g: graph({ [TAX]: { kind: "structured", structured: true } }), extra: { [DOCS]: { shell: true } } }, async (m) => {
     await m.connect();
     await m.open(DOCS);
-    assert.equal(m.container.find(".tools-record"), null);
-    assert.equal(m.container.find(".tools-export"), null);
-    assert.ok(m.container.find(".tools-info"), "a shell has pane info and a search");
-    assert.ok(m.container.find(".tools-find"));
+    assert.equal((await pickMore(m, ".tools-record")), null);
+    assert.equal((await pickMore(m, ".tools-export")), null);
+    assert.ok((await pickMore(m, ".tools-info")), "a shell has pane info and a search");
+    assert.ok((await pickMore(m, ".tools-find")));
     m.clear();
     await m.key("Ctrl+Alt+1");
     assert.ok(m.notice().includes(SHELL_RECORD_WORDS));
     assert.equal(m.sent("recordPane").length, 0);
     await m.open(TAX);
-    assert.equal(m.container.find(".tools-record"), null);
-    assert.ok(m.container.find(".tools").textContent.includes(STRUCTURED_RECORD_WORDS));
+    assert.equal((await pickMore(m, ".tools-record")), null);
+    assert.ok((await pickMore(m, ".tools")).textContent.includes(STRUCTURED_RECORD_WORDS));
     await m.key("Ctrl+Alt+2");
     assert.ok(m.notice().includes(STRUCTURED_RECORD_WORDS));
     assert.equal(m.sent("exportTranscript").length, 0);
