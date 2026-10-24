@@ -393,6 +393,9 @@ async function screenshot(page, file) {
     await page.eval(`(() => { const b = document.querySelector(".drawer-max"); if (b) b.click(); })()`);
   }
   await sleep(800);
+  // How far the page itself scrolls sideways, and the elements that reach past the window (inner scrollers do not count).
+  const wide = await page.eval(`(() => { const w = document.documentElement.clientWidth; const over = []; for (const e of document.querySelectorAll("body *")) { const r = e.getBoundingClientRect(); if (r.width > 0 && r.right > w + 1) { let p = e.parentElement, clipped = false; while (p && p !== document.body) { if (getComputedStyle(p).overflowX !== "visible") { clipped = true; break; } p = p.parentElement; } if (!clipped) over.push(e.tagName.toLowerCase() + "." + String(e.className && e.className.baseVal !== undefined ? e.className.baseVal : e.className).split(" ")[0] + " right=" + Math.round(r.right)); } } return { scroll: document.documentElement.scrollWidth, width: w, over: over.slice(0, 6) }; })()`);
+  console.log("page width " + (wide && wide.width) + ", scroll width " + (wide && wide.scroll) + (wide && wide.over.length ? ", reaching past: " + wide.over.join("; ") : ""));
   const { data } = await page.S("Page.captureScreenshot", { format: "png" });
   fs.writeFileSync(file, Buffer.from(data, "base64"));
   await page.S("Emulation.clearDeviceMetricsOverride");
