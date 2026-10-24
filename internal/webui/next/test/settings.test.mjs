@@ -58,7 +58,7 @@ test("a stored value in range is kept", () => {
   assert.deepEqual(p, {
     theme: "system", accent: "pink", fontSize: 20, fontFamily: "Fira Code", scrollback: 50000, cursorStyle: "underline",
     cursorSteady: true, screenReader: true, autoReviewDefault: true, dismissedTips: 0,
-    notificationsOff: false, push: { off: false, anonymous: false, delaySeconds: 30 },
+    notificationsOff: false, jevStatus: false, push: { off: false, anonymous: false, delaySeconds: 30 },
   });
   assert.equal(prefsOf({ theme: "light" }).theme, "light");
 });
@@ -295,7 +295,7 @@ test("the sections are tabs the arrow keys move between", () =>
     await m.connect();
     await m.openSettings();
     const tabs = () => m.container.findAll(".settings-tab");
-    assert.deepEqual(tabs().map((t) => t.attributes.tabindex), ["0", "-1", "-1", "-1", "-1", "-1"]);
+    assert.deepEqual(tabs().map((t) => t.attributes.tabindex), ["0", "-1", "-1", "-1", "-1", "-1", "-1", "-1"]);
     const ev = tabs()[0].keydown("ArrowDown");
     await settle();
     assert.equal(ev.defaultPrevented, true);
@@ -306,7 +306,7 @@ test("the sections are tabs the arrow keys move between", () =>
     assert.equal(activeTab(m).attributes["data-section"], "general");
     tabs()[0].keydown("ArrowUp");
     await settle();
-    assert.equal(activeTab(m).attributes["data-section"], "remote", "wraps round");
+    assert.equal(activeTab(m).attributes["data-section"], "routing", "wraps round");
   }));
 
 test("theme: choosing sends the command, shows at once, and the desktop's push confirms", () =>

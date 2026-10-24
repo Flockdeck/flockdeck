@@ -173,7 +173,7 @@ function DrawerBody({ store, snap = null, node, pane = null, now, maximised = fa
       <${Header} node=${node} pane=${pane} now=${now} maximised=${maximised} onClose=${onClose} onToggleMax=${onToggleMax} />
       ${life ? html`<${Lifecycle} node=${node} pane=${pane} life=${life} />` : null}
       ${tx
-        ? html`<${Tools} node=${node} pane=${pane} tx=${tx} remote=${!!state.remote} terminal=${terminal} finding=${finding}
+        ? html`<${Tools} node=${node} pane=${pane} tx=${tx} remote=${!!state.remote} terminal=${terminal} finding=${finding} send=${(c) => store.send(c)}
             onInfo=${onInfo} onFind=${() => { setTab("terminal"); setFinding(true); setAskSeq((n) => n + 1); }} />`
         : null}
       <${Prompt} node=${node} pane=${pane} snap=${state} store=${store} sendKeys=${sendKeys} terminal=${terminal} />

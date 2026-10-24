@@ -188,13 +188,8 @@ var cmdVerdicts = map[string]Verdict{
 	"msgSend":    task(tL8, "Team messages have no task"),
 	"msgSeen":    task(tL8, "Team messages have no task"),
 
-	// Routing and review, TypeSafe's Jev: docs are deferred until they ship.
-	"autoReview":      task(tL8, "Safety control: the new shell cannot turn auto review off"),
-	"setRouting":      task(tL8, "Routing has no task"),
-	"setWeights":      task(tL8, "Routing has no task"),
-	"clearRoutingLog": task(tL8, "Routing has no task"),
-	"jevKey":          task(tL8, "Security control: the Jev key is set and cleared here"),
-	"jevStatus":       task(tL8, "The Jev status has no task"),
+	// The widths of tiled panes.
+	"setWeights": cut(whyTiling),
 }
 
 // dynamicSites are the places the old interface builds the name of a command at
@@ -236,5 +231,5 @@ var notCommands = []string{
 // TestRetirementGateIsInTheDoc fails: that is the cue to remove it from this list.
 // autoReviewDefault left it that way: it is the default a new pane starts with,
 // not a control on a running pane, and junk in the file reads as off. autoReview
-// (a running pane's own switch) and jevKey stay.
-var blocksRetirement = []string{"autoReview", "jevKey"}
+// (a running pane's own switch) and jevKey have both been built, so the list is empty.
+var blocksRetirement = []string{}
