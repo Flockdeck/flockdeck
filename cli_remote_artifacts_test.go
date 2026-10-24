@@ -20,7 +20,7 @@ func runArtifacts(t *testing.T, stop func() (bool, error), args ...string) (stri
 func TestRemoteArtifactsOffSwitchesEveryKindOffAndTellsTheRunningInstance(t *testing.T) {
 	isolateKeys(t)
 	p := store.LoadPrefs()
-	p.HelpSeen = true
+	p.SetUIValue(store.UIHelpSeen, true)
 	p.RemoteArtifacts.SetAck("recordings", store.ArtifactAck{Version: 1, At: time.Now()})
 	p.RemoteArtifacts.SetKind("recordings", true)
 	p.RemoteArtifacts.AddDevice("d1")
@@ -37,7 +37,7 @@ func TestRemoteArtifactsOffSwitchesEveryKindOffAndTellsTheRunningInstance(t *tes
 	if got.RemoteArtifacts.KindOn("recordings") {
 		t.Error("recordings are still on")
 	}
-	if !got.HelpSeen || !got.RemoteArtifacts.HasDevice("d1") || !got.RemoteArtifacts.Acked("recordings", 1) {
+	if string(got.UI[store.UIHelpSeen]) != "true" || !got.RemoteArtifacts.HasDevice("d1") || !got.RemoteArtifacts.Acked("recordings", 1) {
 		t.Errorf("off changed more than the kinds: %+v", got)
 	}
 	if told != 1 || !strings.Contains(out, "switched off") || !strings.Contains(out, "closed") {
