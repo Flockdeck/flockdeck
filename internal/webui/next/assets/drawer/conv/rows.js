@@ -9,14 +9,17 @@
 //   MAX_REPLY characters the rest is left out and the row says how much.
 // - A thought is one line (how long it ran, or how long it was).
 // - A tool call is a row with an icon for its kind, its title and its status.
-//   Opening it (a click, or Enter on the row) shows its summary.
+//   Opening it (a click, or Enter on the row) shows its summary and its output or
+//   diff (Tool.js, Diff.js), and a helper agent's own entries one level down.
 // - Everything else is a short line.
 //
 // Everything on a row is what an agent, a tool or a person wrote. None of it is
 // put into the page as markup.
 import { html } from "../../html.js";
 import { clip } from "../../graph/Node.js";
+import { useState } from "../../vendor/hooks.mjs";
 import { Markdown } from "./markdown.js";
+import { ToolBody } from "./Tool.js";
 
 /** MAX_TEXT cuts a prompt, a notice or a title. */
 export const MAX_TEXT = 4000;
@@ -25,6 +28,8 @@ export const MAX_REPLY = 20000;
 /** MAX_SUMMARY cuts the summary an opened tool row shows. */
 export const MAX_SUMMARY = 2000;
 export const NO_SUMMARY_WORDS = "Nothing more is held for this call.";
+/** MAX_NESTED is how many of a helper agent's own entries are drawn. */
+export const MAX_NESTED = 200;
 
 /** toolKind is the kind of icon a tool's row gets, from its name. */
 export function toolKind(name) {
@@ -63,50 +68,68 @@ function thoughtWords(e) {
 /** statusClass is a status as a class suffix: letters only. */
 const statusClass = (status) => (status ? " conv-tool--" + status.replace(/[^a-z]/g, "") : "");
 
+// A helper agent's own entries, one level: the rows in it are given no detail, so a helper inside a helper opens to its summary and no list.
+function Nested({ entries }) {
+  const [opened, setOpened] = useState({});
+  const list = entries.filter((n) => n && typeof n === "object" && typeof n.id === "string" && n.id);
+  const toggle = (id) => setOpened((o) => ({ ...o, [id]: !o[id] }));
+  return html`<ol class="conv-nested" aria-label="The helper's steps">
+    ${list.slice(0, MAX_NESTED).map((n) => html`<${Row} key=${n.id} entry=${n} nested=${true} open=${!!opened[n.id]} onToggle=${toggle} />`)}
+    ${list.length > MAX_NESTED ? html`<li class="conv-cut">${(list.length - MAX_NESTED).toLocaleString("en-US")} more steps are not shown.</li>` : null}
+  </ol>`;
+}
+
 /** ToolRow is a tool call or a helper agent. open and onToggle are the list's, so
- *  the keyboard and the mouse change the same thing. */
-function ToolRow({ entry: e, label, kind, open, onToggle }) {
+ *  the keyboard and the mouse change the same thing. detail is the store's answer
+ *  for the entry. nested says the row is inside a helper's list. */
+function ToolRow({ entry: e, label, kind, open, onToggle, detail, nested }) {
   const status = text(e.status);
   const summary = text(e.summary);
-  return html`<li class=${"conv-row conv-tool" + statusClass(status) + (open ? " is-open" : "")} data-kind=${e.kind} data-entry=${e.id} tabindex="-1">
+  const inner = detail && detail.state === "ok" && detail.detail && Array.isArray(detail.detail.entries) ? detail.detail.entries : null;
+  return html`<li class=${"conv-row conv-tool" + statusClass(status) + (open ? " is-open" : "")} data-kind=${e.kind} data-entry=${nested ? null : e.id} data-nested=${nested ? "" : null} tabindex="-1">
     <button type="button" class="conv-tool-head" aria-expanded=${open ? "true" : "false"} onClick=${onToggle ? () => onToggle(e.id) : null}>
       <${Icon} kind=${kind} />
       <span class="conv-tool-title">${clip(label, 160)}</span>
       ${status ? html`<span class="conv-status">${status}</span>` : null}
     </button>
-    ${open ? html`<p class="conv-tool-summary">${summary ? clip(summary, MAX_SUMMARY) : NO_SUMMARY_WORDS}</p>` : null}
+    ${open
+      ? html`<p class="conv-tool-summary">${summary ? clip(summary, MAX_SUMMARY) : NO_SUMMARY_WORDS}</p>
+        ${e.kind === "subagent" && e.report ? html`<p class="conv-tool-report">${clip(text(e.report), MAX_TEXT)}</p>` : null}
+        <${ToolBody} entry=${nested ? { ...e, hasDetail: false } : e} detail=${detail} />
+        ${inner ? html`<${Nested} entries=${inner} />` : null}`
+      : null}
   </li>`;
 }
 
-/** Row is one entry. open and onToggle are for a tool or helper row. */
-export function Row({ entry: e, open = false, onToggle = null }) {
+/** Row is one entry. open, onToggle, detail and nested are for a tool or helper row. */
+export function Row({ entry: e, open = false, onToggle = null, detail = null, nested = false }) {
   const kind = text(e.kind);
   switch (kind) {
     case "prompt":
-      return html`<li class="conv-row conv-prompt" data-kind="prompt" data-entry=${e.id} tabindex="-1"><span class="conv-who">You</span><p class="conv-text">${clip(text(e.text), MAX_TEXT)}</p></li>`;
+      return html`<li class="conv-row conv-prompt" data-kind="prompt" data-entry=${nested ? null : e.id} tabindex="-1"><span class="conv-who">You</span><p class="conv-text">${clip(text(e.text), MAX_TEXT)}</p></li>`;
     case "reply": {
       const full = text(e.markdown || e.text);
       const cut = full.length > MAX_REPLY;
-      return html`<li class="conv-row conv-reply" data-kind="reply" data-entry=${e.id} tabindex="-1"><span class="conv-who">Agent</span>
+      return html`<li class="conv-row conv-reply" data-kind="reply" data-entry=${nested ? null : e.id} tabindex="-1"><span class="conv-who">Agent</span>
         <${Markdown} text=${cut ? full.slice(0, MAX_REPLY) : full} />
         ${cut ? html`<p class="conv-cut">${(full.length - MAX_REPLY).toLocaleString("en-US")} more characters are not shown.</p>` : null}
       </li>`;
     }
     case "thinking":
-      return html`<li class="conv-row conv-thought" data-kind="thinking" data-entry=${e.id} tabindex="-1">${thoughtWords(e)}</li>`;
+      return html`<li class="conv-row conv-thought" data-kind="thinking" data-entry=${nested ? null : e.id} tabindex="-1">${thoughtWords(e)}</li>`;
     case "tool":
-      return html`<${ToolRow} entry=${e} label=${text(e.label) || text(e.name) || "Tool"} kind=${toolKind(e.name)} open=${open} onToggle=${onToggle} />`;
+      return html`<${ToolRow} entry=${e} label=${text(e.label) || text(e.name) || "Tool"} kind=${toolKind(e.name)} open=${open} onToggle=${onToggle} detail=${detail} nested=${nested} />`;
     case "subagent":
-      return html`<${ToolRow} entry=${e} label=${"Helper: " + (text(e.description) || text(e.name) || "agent")} kind="other" open=${open} onToggle=${onToggle} />`;
+      return html`<${ToolRow} entry=${e} label=${"Helper: " + (text(e.description) || text(e.name) || "agent")} kind="other" open=${open} onToggle=${onToggle} detail=${detail} nested=${nested} />`;
     case "compaction":
-      return html`<li class="conv-row conv-note" data-kind="compaction" data-entry=${e.id} tabindex="-1">${typeof e.turns === "number" ? "Conversation compacted (" + e.turns + " turns)" : "Conversation compacted"}</li>`;
+      return html`<li class="conv-row conv-note" data-kind="compaction" data-entry=${nested ? null : e.id} tabindex="-1">${typeof e.turns === "number" ? "Conversation compacted (" + e.turns + " turns)" : "Conversation compacted"}</li>`;
     case "notice":
-      return html`<li class="conv-row conv-note" data-kind="notice" data-entry=${e.id} tabindex="-1">${clip(text(e.text), 400)}</li>`;
+      return html`<li class="conv-row conv-note" data-kind="notice" data-entry=${nested ? null : e.id} tabindex="-1">${clip(text(e.text), 400)}</li>`;
     case "image": {
       const size = e.width && e.height ? ", " + e.width + " by " + e.height : "";
-      return html`<li class="conv-row conv-note" data-kind="image" data-entry=${e.id} tabindex="-1">${"Image (" + text(e.mediaType || "unknown type") + size + ")"}</li>`;
+      return html`<li class="conv-row conv-note" data-kind="image" data-entry=${nested ? null : e.id} tabindex="-1">${"Image (" + text(e.mediaType || "unknown type") + size + ")"}</li>`;
     }
     default:
-      return html`<li class="conv-row conv-note conv-unknown" data-kind="other" data-entry=${e.id} tabindex="-1">${"Unknown entry" + (kind ? " (" + clip(kind, 80) + ")" : "")}</li>`;
+      return html`<li class="conv-row conv-note conv-unknown" data-kind="other" data-entry=${nested ? null : e.id} tabindex="-1">${"Unknown entry" + (kind ? " (" + clip(kind, 80) + ")" : "")}</li>`;
   }
 }

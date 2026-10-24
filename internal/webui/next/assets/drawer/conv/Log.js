@@ -15,6 +15,7 @@
 import { useEffect, useRef, useState } from "../../vendor/hooks.mjs";
 import { html } from "../../html.js";
 import { Row } from "./rows.js";
+import { pendingAfter } from "./Tool.js";
 import {
   startIndex, earlierStart, atBottom, anchored, moveTo, newBelow, MAX_ROWS, NEAR_TOP,
 } from "./scroll.js";
@@ -26,10 +27,13 @@ function rowsOf(el) {
   return el && el.querySelectorAll ? Array.from(el.querySelectorAll("[data-entry]")) : [];
 }
 
-/** Log draws entries. atStart says there is nothing before the first one;
+/** Log draws entries. details is the store's answers for opened rows and
+ *  onDetail asks for one (by entry id). pending is { node, card }: a card drawn
+ *  after the running tool it was asked for (pendingAfter), or at the end, such as
+ *  a permission waiting where it was asked. atStart says there is nothing before the first one;
  *  older is "loading" while the page before is asked for; onOlder asks for it.
  *  A log with atStart set has no Older button once all it holds is drawn. */
-export function Log({ entries, atStart = true, older = "idle", onOlder = null, label = "Conversation", className = "", children = null }) {
+export function Log({ entries, atStart = true, older = "idle", onOlder = null, details = null, onDetail = null, pending = null, label = "Conversation", className = "", children = null }) {
   const listRef = useRef(null);
   const following = useRef(true);
   const top = useRef("");
@@ -84,7 +88,15 @@ export function Log({ entries, atStart = true, older = "idle", onOlder = null, l
     if (el.scrollTop < NEAR_TOP && canEarlier && !atLimit && older !== "loading") earlier();
   };
 
-  const toggle = (id) => setOpened((o) => ({ ...o, [id]: !o[id] }));
+  // The card goes after its entry when that is drawn, and at the end otherwise.
+  const after = pending ? pendingAfter(entries, pending.card) : "";
+  const pendingAt = pending ? (after && shown.some((e) => e.id === after) ? after : "") : null;
+  const toggle = (id) => {
+    const e = entries.find((x) => x.id === id);
+    // Opening a row whose full body was not sent asks for it.
+    if (!opened[id] && e && e.hasDetail && onDetail && (e.kind === "tool" || e.kind === "subagent" || e.kind === "image")) onDetail(id);
+    setOpened((o) => ({ ...o, [id]: !o[id] }));
+  };
   const toBottom = () => {
     const el = listRef.current;
     following.current = true;
@@ -124,8 +136,11 @@ export function Log({ entries, atStart = true, older = "idle", onOlder = null, l
           ? html`<button type="button" class="conv-older" disabled=${older === "loading"} onClick=${earlier}>${older === "loading" ? "Loading…" : "Older"}</button>`
           : null}
       ${shown.length === 0
-        ? children
-        : html`<ol class="conv-list">${shown.map((e) => html`<${Row} key=${e.id} entry=${e} open=${!!opened[e.id]} onToggle=${toggle} />`)}</ol>`}
+        ? html`${children}${pending ? html`<ol class="conv-list"><li class="conv-row conv-pending" data-pending="">${pending.node}</li></ol>` : null}`
+        : html`<ol class="conv-list">${shown.flatMap((e) => [
+            html`<${Row} key=${e.id} entry=${e} open=${!!opened[e.id]} onToggle=${toggle} detail=${details ? details[e.id] : null} />`,
+            pending && pendingAt === e.id ? html`<li key=${"pending:" + e.id} class="conv-row conv-pending" data-pending="">${pending.node}</li>` : null,
+          ])}${pending && pendingAt === "" ? html`<li key="pending" class="conv-row conv-pending" data-pending="">${pending.node}</li>` : null}</ol>`}
       ${unseen > 0 ? html`<button type="button" class="conv-new" onClick=${toBottom}>${unseen === 1 ? "1 new below" : unseen + " new below"}</button>` : null}
     </div>
   `;

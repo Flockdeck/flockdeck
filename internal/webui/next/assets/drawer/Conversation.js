@@ -17,12 +17,13 @@ export const NO_ENTRIES_WORDS = "Nothing has been said yet.";
 export const LOADING_WORDS = "Loading the conversation.";
 
 /** Conversation is the tab's panel. conv is the store's conversation, onOlder asks
- *  for the page before. */
-export function Conversation({ conv, onOlder }) {
+ *  for the page before, details and onDetail are the store's entry details and the
+ *  ask for one, and pending is a card drawn where it was asked (Log.js). */
+export function Conversation({ conv, onOlder, details = null, onDetail = null, pending = null }) {
   if (!conv) return html`<p class="drawer-stub">${LOADING_WORDS}</p>`;
   if (conv.refused) return html`<p class="drawer-stub conv-refused" role="status">${conv.refused}</p>`;
   if (conv.supported !== true) return html`<p class="drawer-stub">${LOADING_WORDS}</p>`;
-  return html`<${Log} entries=${conv.entries} atStart=${conv.atStart} older=${conv.older} onOlder=${onOlder}>
+  return html`<${Log} entries=${conv.entries} atStart=${conv.atStart} older=${conv.older} onOlder=${onOlder} details=${details} onDetail=${onDetail} pending=${pending}>
     <p class="conv-empty">${NO_ENTRIES_WORDS}</p>
   <//>`;
 }
