@@ -1,7 +1,9 @@
 // The message box at the foot of a terminal pane's drawer: text for the agent
 // sent with paneSend by the pane's id, as a structured pane's box does. The desk
 // types it into the pane (or queues it while the agent is busy); a window through
-// the relay has no box, because paneSend is not sent there.
+// the relay has no box, because paneSend is not sent there. A shell has none
+// either: the desk refuses text into a shell unless allowShell is sent, and a
+// shell is typed into in its terminal.
 import { useState } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
 import { clip } from "../graph/Node.js";
