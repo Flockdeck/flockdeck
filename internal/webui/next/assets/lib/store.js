@@ -52,6 +52,23 @@
 //   versions      the latest listVersions answer as { items, error }, or null
 //                 before one (and again after the next listVersions is sent)
 //   detached      true once the desktop has detached this window
+//   helpers       the latest helpers message as { rows }, or null. The desktop sends
+//                 it when the list is asked for and whenever a helper changes.
+//   helperPlan    the latest helperPlan answer (what an install would do), or null;
+//                 cleared when a new helperPlan is sent
+//   recents       the latest recents answer as { items }, or null
+//   browse        the latest folder listing the desktop sent, or null
+//   approvals     the requests for an answer the desktop is waiting on, oldest first, as
+//                 { id, lead, text, label, token, seq }. Only a baton leaving its
+//                 provider is asked this way: the desktop sends a notice of kind
+//                 "approval" with a button that sends approveBaton and the token, and
+//                 withdraws it when the request ends. A token belongs to the connection
+//                 it came on, so the list is emptied when the connection drops. At most
+//                 MAX_APPROVALS are kept; the oldest is put away to make room.
+//   batonDraft    the latest makeBaton answer, or null; the dialog that asked matches
+//                 it by req. batonSaved and batonError are the answers to saveBaton,
+//                 startFromBaton and restartWithBaton, each with a seq that grows
+//                 with each one and the req the command carried.
 //   sent          the latest accepted paneSend as { seq, id, queued, shell,
 //                 waiting, routed }, or null. A refused one arrives as a notice
 //                 with error true. seq grows with each one.
@@ -119,6 +136,22 @@ export const VIEWER_REFUSED_PHRASE = "This device can only view";
  *  (internal/server/relayscrub.go, conversationsOnDesktop). A Go test pins it. */
 export const REMOTE_CONVERSATION_LINE = "Conversations are shown on the desktop only for now";
 
+/** MAX_APPROVALS is how many requests for an answer are kept at once. */
+export const MAX_APPROVALS = 6;
+
+/** LOST_APPROVAL_WORDS is what is said when the connection drops with a request
+ *  for an answer on screen: its token went with the connection. */
+export const LOST_APPROVAL_WORDS = "Connection lost: a baton request was waiting for you. Ask the agent again.";
+
+/** approvalOf reads a notice as a request for an answer, or null when it is not
+ *  one. Only an approveBaton button counts: no other command is ever sent because
+ *  a notice named it. */
+export function approvalOf(msg) {
+  const a = msg && msg.kind === "approval" && typeof msg.id === "string" && msg.id && msg.action;
+  if (!a || typeof a.label !== "string" || !a.label || !a.send || a.send.cmd !== "approveBaton" || typeof a.send.text !== "string" || !a.send.text) return null;
+  return { id: msg.id, lead: typeof msg.lead === "string" ? msg.lead : "", text: typeof msg.text === "string" ? msg.text : "", label: a.label, token: a.send.text };
+}
+
 /** MAX_ENTRIES bounds the entries held for one conversation. Past it the oldest
  *  are dropped, and the conversation no longer starts at the first of them. */
 export const MAX_ENTRIES = 500;
@@ -134,20 +167,26 @@ const MACHINE_ONLY = ["checkForUpdate", "listVersions", "installVersion", "resta
  *  machine only, so a remote window sends none of them. */
 const MACHINE_FILES = ["conversations", "resumeConversation", "paneInfo", "findPane", "revealPane", "exportTranscript", "revealTranscript", "openRecordings"];
 
+/** HELPER_COMMANDS install, run and open programs on the machine Flockdeck runs
+ *  on, and makeBaton reads a pane's work: the desktop refuses each of them from a
+ *  window reached through the relay, so the store does not send them. */
+const HELPER_COMMANDS = ["approveBaton", "helpers", "helperPlan", "helperInstall", "helperStart", "helperStop", "helperOpen", "helperUninstall", "makeBaton"];
+
 const GRAPH_OPS = new Set(["graphSnapshot", "graphWatch", "graphUnwatch"]);
 
 /** DESK_ONLY says a command is one a remote window may not send: the graph
- *  commands, the structured pane ones, permissionAnswer, paneSend, MACHINE_ONLY and
- *  MACHINE_FILES. The desktop refuses them there, so the store does not send them.
- *  paneSend is sent from two places, the manager bar and a structured pane's prompt
- *  box, and neither is drawn in a remote window. */
-const DESK_ONLY = (cmd) => typeof cmd === "string" && (cmd.startsWith("graph") || cmd.startsWith("structured") || cmd === "permissionAnswer" || cmd === "paneSend" || MACHINE_ONLY.includes(cmd) || MACHINE_FILES.includes(cmd));
+ *  commands, the structured pane ones, permissionAnswer, paneSend, MACHINE_ONLY,
+ *  MACHINE_FILES and HELPER_COMMANDS. The desktop refuses them there, so the store
+ *  does not send them. paneSend is sent from two places, the manager bar and a
+ *  structured pane's prompt box, and neither is drawn in a remote window. */
+const DESK_ONLY = (cmd) => typeof cmd === "string" && (cmd.startsWith("graph") || cmd.startsWith("structured") || cmd === "permissionAnswer" || cmd === "paneSend" || MACHINE_ONLY.includes(cmd) || MACHINE_FILES.includes(cmd) || HELPER_COMMANDS.includes(cmd));
 
 const initial = () => ({
   connection: "idle", retryInMs: 0,
   hello: null, remote: false, state: null,
   graph: null, graphGone: null, graphRefused: false, graphError: null,
-  notice: null, versions: null, detached: false, sent: null, started: null, structured: null, structuredError: null, cancelError: null, answer: null, conversation: null, history: null, paneInfo: null, paneMatches: null, dropped: 0,
+  notice: null, versions: null, helpers: null, helperPlan: null, recents: null, browse: null, batonDraft: null, batonSaved: null, batonError: null,
+  approvals: [], detached: false, sent: null, started: null, structured: null, structuredError: null, cancelError: null, answer: null, conversation: null, history: null, paneInfo: null, paneMatches: null, dropped: 0,
 });
 
 /** upsert returns entries with each of the new ones in place of the one with its
@@ -183,6 +222,8 @@ export function createStore(opts) {
   let historySeq = 0;
   let infoSeq = 0;
   let matchSeq = 0;
+  let batonSeq = 0;
+  let approvalSeq = 0;
   // The pane each structuredCancel in flight was for, by its req, so a refusal is
   // kept for that pane and shown only there.
   const cancelPanes = new Map();
@@ -211,6 +252,11 @@ export function createStore(opts) {
       if (phase !== "open") {
         patch.hello = null;
         patch.state = null;
+        // A request for an answer carries a token of the connection that has gone.
+        if (snap.approvals.length) {
+          patch.approvals = [];
+          patch.notice = { text: LOST_APPROVAL_WORDS, error: true, seq: ++noticeSeq };
+        }
       }
       set(patch);
     },
@@ -367,10 +413,47 @@ export function createStore(opts) {
       case "versions":
         set({ versions: { items: Array.isArray(msg.items) ? msg.items : [], error: typeof msg.error === "string" ? msg.error : "" } });
         break;
+      case "helpers":
+        set({ helpers: { rows: Array.isArray(msg.rows) ? msg.rows : [], error: typeof msg.error === "string" ? msg.error : "" } });
+        break;
+      case "helperPlan":
+        set({ helperPlan: msg });
+        break;
+      case "recents":
+        set({ recents: { items: Array.isArray(msg.items) ? msg.items : [] } });
+        break;
+      case "browse":
+        set({ browse: msg });
+        break;
+      case "batonDraft":
+        set({ batonDraft: msg });
+        break;
+      case "batonSaved":
+        set({ batonSaved: { ...msg, seq: ++batonSeq } });
+        break;
+      case "batonError":
+        set({ batonError: { ...msg, seq: ++batonSeq } });
+        break;
       case "detached":
         set({ detached: true });
         break;
-      case "notice":
+      case "noticeWithdraw":
+        if (typeof msg.id === "string" && snap.approvals.some((a) => a.id === msg.id)) set({ approvals: snap.approvals.filter((a) => a.id !== msg.id) });
+        break;
+      case "notice": {
+        // A request for an answer is its own thing, not the latest notice: it
+        // stays until the desktop withdraws it.
+        const ask = approvalOf(msg);
+        if (ask) {
+          const rest = snap.approvals.filter((a) => a.id !== ask.id);
+          const over = rest.length + 1 - MAX_APPROVALS;
+          const kept = over > 0 ? rest.slice(over) : rest;
+          set({
+            approvals: [...kept, { ...ask, seq: ++approvalSeq }],
+            ...(over > 0 ? { notice: { text: "Several baton requests are waiting for an answer; the oldest was put away and its agent will be told it timed out.", error: true, seq: ++noticeSeq } } : {}),
+          });
+          break;
+        }
         // The refusal of a conversation command is shown on the tab, once. The
         // notice is kept as well, like any other.
         if (watchingConv !== null && snap.conversation && snap.conversation.supported === null && msg.error && (String(msg.text || "").startsWith(VIEWER_REFUSED_PHRASE) || String(msg.text || "").startsWith(REMOTE_CONVERSATION_LINE))) {
@@ -379,6 +462,7 @@ export function createStore(opts) {
         }
         set({ notice: { ...msg, seq: ++noticeSeq } });
         break;
+      }
       default:
         break;
     }
@@ -410,6 +494,8 @@ export function createStore(opts) {
       if ((snap.remote || !snap.hello) && DESK_ONLY(cmd.cmd)) return false;
       const sent = socket.send(cmd);
       if (sent && cmd.cmd === "listVersions" && snap.versions) set({ versions: null });
+      if (sent && cmd.cmd === "helperPlan" && snap.helperPlan) set({ helperPlan: null });
+      if (sent && cmd.cmd === "makeBaton" && snap.batonDraft) set({ batonDraft: null });
       if (sent && cmd.cmd === "structuredCancel" && cmd.req) {
         if (cancelPanes.size >= 20) cancelPanes.delete(cancelPanes.keys().next().value);
         cancelPanes.set(cmd.req, String(cmd.id || ""));

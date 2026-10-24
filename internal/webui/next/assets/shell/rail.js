@@ -11,7 +11,7 @@ export function initialOf(name) {
  *  makes it the project the window watches. At phone width it is a bar along the
  *  top (the CSS lays it out; narrow only drops the collapse button, which has no
  *  use there). Project names are text. */
-export function Rail({ projects = [], active = "", collapsed = false, narrow = false, onSelect, onToggle, onSettings, railRef, foot = null }) {
+export function Rail({ projects = [], active = "", collapsed = false, narrow = false, onSelect, onToggle, onSettings, onProjects, railRef, foot = null }) {
   const cls = "rail" + (narrow ? " rail--bar" : "");
   return html`
     <nav class=${cls} aria-label="Projects" tabindex="-1" ref=${railRef}>
@@ -20,6 +20,7 @@ export function Rail({ projects = [], active = "", collapsed = false, narrow = f
           ? html`<li class="rail-empty">No projects open</li>`
           : projects.map((p) => html`<${RailItem} key=${p.root} project=${p} active=${p.root === active} onSelect=${onSelect} />`)}
       </ul>
+      ${onProjects ? html`<button type="button" class="rail-projects" onClick=${onProjects}>Manage projects</button>` : null}
       ${onSettings ? html`<button type="button" class="rail-settings" onClick=${onSettings}>Settings</button>` : null}
       ${foot}
       ${narrow

@@ -26,6 +26,10 @@ import { Settings } from "./Settings.js";
 import { History } from "./History.js";
 import { PaneInfo } from "./PaneInfo.js";
 import { FindPane } from "./FindPane.js";
+import { Helpers } from "./Helpers.js";
+import { Baton } from "./Baton.js";
+import { Projects } from "./Projects.js";
+import { Approvals } from "./Approvals.js";
 import { useLifecycle } from "../drawer/Lifecycle.js";
 import { useTranscripts } from "../drawer/Tools.js";
 import { HISTORY_REMOTE_WORDS } from "../lib/history.js";
@@ -33,6 +37,9 @@ import { DESK_FILES_WORDS, STRUCTURED_RECORD_WORDS, acknowledged, canTranscribe 
 import { FONT_DEFAULT, FONT_MAX, FONT_MIN, PATCH_WAIT_MS, applyLook, prefsOf, reducedMotion, addPending, latestOf, settledPending, setting, termOptionsOf } from "../lib/prefs.js";
 import { RELAY_WORDS, quitQuestion, updateOf } from "../lib/updates.js";
 import { catalogOf, closeTabWarnings, moveTabCommand, newTabCommand, tabsOf } from "../lib/lifecycle.js";
+import { RELAY_WORDS as HELPER_RELAY_WORDS } from "../lib/helpers.js";
+import { RELAY_WORDS as BATON_RELAY_WORDS, STILL_OUT_WORDS, createInflight, draftOf, makeCommand, savedWords } from "../lib/baton.js";
+import { openOf, selectCommand } from "../lib/projects.js";
 
 // What the shell is given before the first hello and state. Constants, so the
 // shell does not take them for a change on every render.
@@ -92,6 +99,18 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
   const [infoFor, setInfoFor] = useState(null);
   const [findingPane, setFindingPane] = useState(false);
   const [findAsk, setFindAsk] = useState(0);
+  // The helper apps and projects dialogs, and the baton being made: the pane it
+  // is for, the name to show, and the request that asked for its draft.
+  const [helpersOpen, setHelpersOpen] = useState(false);
+  const [projectsOpen, setProjectsOpen] = useState(false);
+  const [baton, setBaton] = useState(null);
+  // The requests for an answer put away in this window.
+  const [putAway, setPutAway] = useState(() => new Set());
+  // The baton commands sent and not answered. A command stays here after the
+  // dialog was closed, until the desktop answers or the connection drops, so the
+  // same one is not sent again meanwhile.
+  const inflight = useRef(null);
+  if (!inflight.current) inflight.current = createInflight();
   // The store empties its hello and state when the socket drops. The rail and
   // the project chosen in it are kept through that, so a reconnect does not clear
   // the choice and ask for the graph a second time.
@@ -103,6 +122,10 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
   const onWatch = (root) => {
     setSelected(root);
     store.watchGraph(root);
+    // A project chosen in the rail is the desk's active one too, so the old
+    // window and the next start agree. The desk's own choice is not sent back.
+    const deskRoot = kept.current.state.root;
+    if (deskRoot && root !== deskRoot && !store.getState().remote) store.send(selectCommand(root));
   };
   // A store that was stopped (the page went to the back-forward cache) and is
   // started again has no watch. The project already chosen is asked for once
@@ -282,6 +305,15 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
       if (el && el.focus) el.focus();
     },
     settings: () => setSettingsOpen(true),
+    helpers: () => (snap.remote ? say(HELPER_RELAY_WORDS) : setHelpersOpen(true)),
+    makeBaton: needPane(() => {
+      if (snap.remote) return say(BATON_RELAY_WORDS);
+      const req = inflight.current.next();
+      inflight.current.add(req, "makeBaton", drawer.pane);
+      if (store.send(makeCommand(drawer.pane, req)) === false) inflight.current.delete(req);
+      else setBaton({ pane: drawer.pane, name: node.name || drawer.pane, req });
+      return undefined;
+    }),
     fontUp: () => bumpFont(prefs.fontSize + 1),
     fontDown: () => bumpFont(prefs.fontSize - 1),
     fontReset: () => bumpFont(FONT_DEFAULT),
@@ -324,6 +356,46 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     closePane: needPane(() => (pane && pane.locked ? say("This pane is locked. Unlock it to close it.") : life.begin("close", node, pane))),
   }), [current, snap.graphGone, snap.remote, win, drawer.pane, node, pane, tabs, life.request, tx.request, prefs.fontSize, snap.paneInfo, noticeSeq]);
 
+  // The baton answers. A draft is for the dialog whose request it carries. A
+  // saved or refused command is taken off the list of those out, and a saved one
+  // is said; the dialog reads the same answer to close or to be given back.
+  const draft = useMemo(() => {
+    const d = snap.batonDraft ? draftOf(snap.batonDraft) : null;
+    return d && baton && d.req === baton.req ? d : null;
+  }, [snap.batonDraft, baton]);
+  const batonSeq = Math.max(snap.batonSaved ? snap.batonSaved.seq : 0, snap.batonError ? snap.batonError.seq : 0);
+  const batonAnswer = useMemo(() => {
+    const a = snap.batonSaved && snap.batonSaved.seq === batonSeq ? { ...snap.batonSaved, ok: true } : snap.batonError && snap.batonError.seq === batonSeq ? { ...snap.batonError, ok: false } : null;
+    return a && typeof a.req === "string" ? a : null;
+  }, [batonSeq]);
+  useEffect(() => {
+    if (!batonAnswer) return;
+    const was = inflight.current.get(batonAnswer.req);
+    if (!was) return;
+    inflight.current.delete(batonAnswer.req);
+    if (batonAnswer.ok) say(savedWords(batonAnswer));
+    // A draft that could not be made leaves nothing to edit.
+    else if (was.cmd === "makeBaton") setBaton((b) => (b && b.req === batonAnswer.req ? null : b));
+  }, [batonAnswer]);
+  // A command out when the connection went may or may not have been done, and its
+  // answer would have come down the connection that has gone.
+  useEffect(() => {
+    if (snap.connection === "open" || inflight.current.size() === 0) return;
+    inflight.current.clear();
+    say("The connection to Flockdeck dropped while a baton command was out. It may have finished; check flockdeck baton list before trying again.");
+  }, [snap.connection]);
+  const runBaton = (build) => {
+    const req = inflight.current.next();
+    const cmd = build(req);
+    if (inflight.current.same(cmd.cmd, cmd.id)) {
+      say(STILL_OUT_WORDS);
+      return "";
+    }
+    if (store.send(cmd) === false) return "";
+    inflight.current.add(req, cmd.cmd, cmd.id);
+    return req;
+  };
+
   return html`<${Shell}
     hello=${kept.current.hello}
     state=${kept.current.state}
@@ -335,11 +407,13 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     mainRef=${mainRef}
     actions=${actions}
     maximised=${drawer.maximised}
-    blocked=${!!starting || settingsOpen || updatesAt >= 0 || quitAsk || historyOpen || !!infoFor || findingPane}
+    blocked=${!!starting || settingsOpen || updatesAt >= 0 || quitAsk || historyOpen || !!infoFor || findingPane || helpersOpen || projectsOpen || !!baton}
     onSettings=${() => setSettingsOpen(true)}
+    onProjects=${() => setProjectsOpen(true)}
     railFoot=${snap.remote
       ? null
-      : html`<button type="button" class=${"rail-updates" + (update ? " has-update" : "")} onClick=${() => setUpdatesAt(noticeSeq)}>
+      : html`<button type="button" class="rail-helpers" onClick=${() => setHelpersOpen(true)}>Helper apps</button>
+        <button type="button" class=${"rail-updates" + (update ? " has-update" : "")} onClick=${() => setUpdatesAt(noticeSeq)}>
           ${update ? "Update " + update.version : "Updates"}
         </button>`}
     notice=${noticeText}
@@ -365,6 +439,14 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     ${updatesAt >= 0
       ? html`<${Updates} update=${update} versions=${snap.versions} updatesOff=${!!(kept.current.hello.prefs && kept.current.hello.prefs.updatesOff)}
           notice=${snap.notice && snap.notice.seq > updatesAt ? String(snap.notice.text || "") : ""} send=${send} onClose=${() => setUpdatesAt(-1)} />`
+      : null}
+    <${Approvals} approvals=${snap.approvals} dismissed=${putAway} send=${send} onDismiss=${(id) => setPutAway((s) => new Set(s).add(id))} />
+    ${helpersOpen ? html`<${Helpers} helpers=${snap.helpers} plan=${snap.helperPlan} send=${send} onClose=${() => setHelpersOpen(false)} />` : null}
+    ${projectsOpen
+      ? html`<${Projects} open=${openOf(snap.state || kept.current.state)} recents=${snap.recents} browse=${snap.browse} root=${state.root || ""} send=${send} onClose=${() => setProjectsOpen(false)} />`
+      : null}
+    ${baton
+      ? html`<${Baton} draft=${draft} pane=${baton.name} run=${runBaton} answer=${batonAnswer} onClose=${() => setBaton(null)} />`
       : null}
     ${quitAsk
       ? html`<div class="dialog-scrim" onKeyDown=${(e) => e.key === LIST.tab && trapTab(e, e.currentTarget)}>

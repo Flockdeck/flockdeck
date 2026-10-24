@@ -95,7 +95,6 @@ var keyVerdicts = map[string]Verdict{
 	"toggleBroadcast":       cut(whyBroadcast),
 	"toggleBroadcastMember": cut(whyBroadcast),
 	"promptAll":             cut(whyBroadcast + " It opens the prompt bar aimed at the focused pane, which the new prompt (paneSend) covers; with broadcast on it reached every member."),
-	"makeBaton":             task(tL6),
 	"agents":                task(tL8, "The list of agents across projects has no task; decide whether the graph's project switch is enough"),
 	"closeFinishedPanes":    task(tL1),
 	"team":                  task(tL8, "The graph is the roster; the task board and messages dialog has no task"),
@@ -106,8 +105,7 @@ var keyVerdicts = map[string]Verdict{
 	"changes":   task(tC6),
 
 	// The window.
-	"remote":  task(tL5),
-	"helpers": task(tL6),
+	"remote": task(tL5),
 }
 
 // cmdVerdicts classify every control-socket command the old interface sends
@@ -135,8 +133,6 @@ var cmdVerdicts = map[string]Verdict{
 	"closeFinishedPanes": task(tL1),
 	"toggleZoom":         task(tL1),
 	"focusPane":          task(tL1),
-	"browse":             task(tL1, "The folder picker of the start flow"),
-	"recents":            task(tL1, "Recent folders of the start flow"),
 	"agents":             task(tL1, "The agent picker"),
 	"refreshAgents":      task(tL1, "The agent picker"),
 	"teamClose":          task(tL1),
@@ -176,32 +172,6 @@ var cmdVerdicts = map[string]Verdict{
 	"pushDelay":       task(tL5),
 	"presence":        task(tL5, "Tells the desktop this window is in use, which notifications depend on"),
 	"notifications":   task(tL5),
-
-	// L6: helpers, baton, projects.
-	"helpers":             task(tL6),
-	"helperInstall":       task(tL6),
-	"helperOpen":          task(tL6),
-	"helperPlan":          task(tL6),
-	"helperStart":         task(tL6),
-	"helperStop":          task(tL6),
-	"helperUninstall":     task(tL6),
-	"makeBaton":           task(tL6),
-	"saveBaton":           task(tL6, "Sent through a helper in the old interface"),
-	"restartWithBaton":    task(tL6, "Sent through a helper in the old interface"),
-	"startFromBaton":      task(tL6, "Sent through a helper in the old interface"),
-	"approveBaton":        task(tL6, "Arrives from the desktop in a notice's action, not named in the old interface"),
-	"openProject":         task(tL6),
-	"closeProject":        task(tL6),
-	"removeProject":       task(tL6),
-	"archiveProject":      task(tL6),
-	"groupProjects":       task(tL6),
-	"addRepoToGroup":      task(tL6),
-	"removeRepoFromGroup": task(tL6),
-	"renameProject":       task(tL6),
-	"renameGroup":         task(tL6),
-	"reorderProjects":     task(tL6),
-	"selectProject":       task(tL6, "Tells the desktop which project is active"),
-	"selectRepo":          task(tL6),
 
 	// L7: updates, detach, quit.
 
