@@ -239,7 +239,7 @@ func TestSchemaPropertiesAreDescribed(t *testing.T) {
 
 var projectDir = regexp.MustCompile(`flockdeck-state-[0-9]+`)
 
-var timeInDoc = regexp.MustCompile(`"(since|started|time)":"[^"]*"`)
+var timeInDoc = regexp.MustCompile(`"(since|started|time|lastOutput)":"[^"]*"`)
 
 // enumOf reads the values of the enum of one property of a definition.
 func enumOf(t *testing.T, s schemacheck.Schema, def, prop string) []string {
