@@ -14,6 +14,7 @@ import {
   TEAM_RELAY_WORDS, addTaskCommand, assignCommand, boardOf, branchCommand, mergeTasks, noteCommand, pruneCommand, resultOf, resultWords, seenCommand,
   sendMessageCommand, statusCommand, taskGetCommand, taskOf, teamOf,
 } from "../assets/lib/team.js";
+import { filterLive, GROUPS } from "../assets/shell/palette.js";
 import { agentsOf, byProject, needsYou, revealAgentCommand } from "../assets/lib/agents.js";
 import { createDom, install, settle } from "./dom.mjs";
 import { FakeWebSocket, harness, hello } from "./fakes.mjs";
@@ -179,6 +180,7 @@ test("a refusal from the desktop is the same as a refused window", async () => {
 const KEYS = [
   { id: "team", keys: "Ctrl+Shift+M", label: "Team", section: "Agents" },
   { id: "agents", keys: "Ctrl+Shift+A", label: "Agents", section: "Agents" },
+  { id: "palette", keys: "Ctrl+Shift+K", label: "Command palette", section: "Window" },
 ];
 const graph = () => ({ ...JSON.parse(readFileSync(fixtureFile, "utf8")), root: "/work/a" });
 const projects = [{ root: "/work/a", name: "alpha", waiting: 0, working: 0, active: true }];
@@ -482,3 +484,48 @@ test("Views: the Changes view is the Changes tab as a view, for an agent that ha
     assert.ok(m.container.find(".view-select"), "an agent to pick");
     assert.deepEqual(m.sent("changes").map((c) => c.path), ["C:/work/a"], "it asks for that tree");
   }));
+
+test("Palette: live items sit under headings before the actions, find by name, open an agent, and nothing answers a prompt", () =>
+  withPage({}, async (m) => {
+    await m.connect();
+    await m.key("Ctrl+Shift+K");
+    const heads = () => m.container.findAll(".palette-group").map((h) => h.textContent);
+    assert.deepEqual(heads(), ["Needs you", "Agents", "Views", "Actions"]);
+    const names = () => m.container.findAll(".palette-row").map((r) => r.querySelector(".palette-name").textContent);
+    assert.ok(names().includes("Show Board"));
+    assert.ok(names().some((n) => /^Open tax: /.test(n)), "a needs-you row for the agent that waits");
+    assert.ok(names().includes("Open tax"), "an agent row");
+    assert.ok(!names().some((n) => /approve|deny/i.test(n.replace(/Auto-approve/i, ""))), "no row answers a permission");
+    await m.type(".palette-input", "board");
+    assert.equal(names()[0], "Show Board");
+    await m.type(".palette-input", "open tax");
+    const row = m.container.findAll(".palette-row").find((r) => r.querySelector(".palette-name").textContent === "Open tax");
+    await m.click(row);
+    assert.equal(m.container.find(".palette-scrim"), null, "the palette closes");
+    assert.ok(m.container.find(".drawer-head, .drawer h2, .drawer"), "the drawer");
+    assert.ok(!m.container.find(".drawer").attributes.hidden, "the drawer is shown");
+  }));
+
+test("Palette: choosing a view row switches the view", () =>
+  withPage({}, async (m) => {
+    await m.connect();
+    await m.key("Ctrl+Shift+K");
+    await m.type(".palette-input", "replay");
+    await m.click(m.container.findAll(".palette-row").find((r) => r.querySelector(".palette-name").textContent === "Show Replay"));
+    assert.ok(m.container.find(".view--replay"));
+  }));
+
+test("Palette: filterLive keeps the order of the groups, finds by name or detail and is capped", () => {
+  const items = [
+    { id: "a", group: "Agents", name: "Open api", detail: "worker · idle", run() {} },
+    { id: "n", group: "Needs you", name: "Open tax: asks a question", detail: "which one", run() {} },
+    { id: "v", group: "Views", name: "Show Board", detail: "", run() {} },
+  ];
+  assert.deepEqual(filterLive(items, "").map((r) => r.live.id), ["n", "a", "v"]);
+  assert.deepEqual(filterLive(items, "idle").map((r) => r.live.id), ["a"], "found in the detail");
+  assert.deepEqual(filterLive(items, "which").map((r) => r.live.id), ["n"]);
+  assert.equal(filterLive(items, "zzz").length, 0);
+  assert.deepEqual(GROUPS, ["Needs you", "Agents", "Views", "Actions"]);
+  const many = Array.from({ length: 100 }, (_, i) => ({ id: "x" + i, group: "Agents", name: "Open x" + i, run() {} }));
+  assert.equal(filterLive(many, "").length, 40);
+});

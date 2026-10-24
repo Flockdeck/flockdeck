@@ -158,7 +158,7 @@ export function useNarrow(matchMedia, override) {
  *  to a box in it. window is the page's, passed in for a test. helpLoad fetches
  *  the help pages (lib/help.js); the default asks the page's own address. blocked
  *  says a view's modal dialog is open, and no key then reaches an action. */
-export function Shell({ hello, state, notice, onDismissNotice, onWatch, narrow: narrowProp, matchMedia, top, children, drawer, maximised = false, mainRef, window: win, actions = NO_ACTIONS, blocked = false, onSettings, onProjects, helpLoad, railFoot = null, railExpanded, railWidth = RAIL_DEFAULT, onRailExpanded, onRailWidth, keysOff = false, welcome = false, onHelpOpened }) {
+export function Shell({ hello, state, notice, onDismissNotice, onWatch, narrow: narrowProp, matchMedia, top, children, drawer, maximised = false, mainRef, window: win, actions = NO_ACTIONS, blocked = false, onSettings, onProjects, helpLoad, railFoot = null, paletteItems = null, railExpanded, railWidth = RAIL_DEFAULT, onRailExpanded, onRailWidth, keysOff = false, welcome = false, onHelpOpened }) {
   const keys = keysOf(hello);
   const bindings = useMemo(() => bindingsFrom(keys), [keys]);
   const broken = useMemo(() => unreadable(keys), [keys]);
@@ -233,6 +233,15 @@ export function Shell({ hello, state, notice, onDismissNotice, onWatch, narrow: 
     afterPalette.current = "";
     if (own.current[id]) own.current[id]();
   }, [s.paletteOpen]);
+  // A live item chosen in the palette runs, like a view's action, once the palette
+  // has put the keyboard back.
+  const afterLive = useRef(null);
+  useEffect(() => {
+    const it = afterLive.current;
+    if (s.paletteOpen || !it) return;
+    afterLive.current = null;
+    it.run();
+  }, [s.paletteOpen]);
   const run = (id) => {
     dispatch({ type: "closePalette" });
     if (!implemented.includes(id)) return;
@@ -291,7 +300,8 @@ export function Shell({ hello, state, notice, onDismissNotice, onWatch, narrow: 
         ? html`<${Help} keys=${keys} implemented=${implemented} load=${load} onClose=${() => dispatch({ type: "closeHelp" })} />`
         : null}
       ${s.paletteOpen
-        ? html`<${Palette} keys=${keys} implemented=${implemented} onRun=${run} onClose=${() => dispatch({ type: "closePalette" })} />`
+        ? html`<${Palette} keys=${keys} implemented=${implemented} onRun=${run} live=${paletteItems} onRunLive=${(it) => { dispatch({ type: "closePalette" }); afterLive.current = it; }}
+          onClose=${() => dispatch({ type: "closePalette" })} />`
         : null}
     </div>
   `;
