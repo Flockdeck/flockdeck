@@ -138,6 +138,10 @@ type graphTeamView struct {
 	// structured agent: context use and perhaps a cost, no token split), so the
 	// total includes panes that report partly and a window should say so.
 	SpendIncludesPartial bool `json:"spendIncludesPartial,omitempty"`
+	// LimitUSD is the most the team's project may spend, set with the
+	// teamSpendLimit command; absent when there is none. At 80 percent of it the
+	// needs list has a spend item, and past it no helper is started.
+	LimitUSD float64 `json:"limitUSD,omitempty"`
 	// Caps are the helper cap use of the manager and of every pane with children.
 	Caps []graphCap `json:"caps"`
 	// Needs is the needs-you list of the team, most urgent first, and
@@ -460,7 +464,6 @@ func (s *Server) graphPayload(root string) (graphMsg, error) {
 	}
 
 	graph := team.BuildGraph(gp, st.tasks)
-	needs := team.NeedsYou(graph, gp, st.tasks, conflicts, st.moves, now)
 
 	gpByID := map[string]team.GraphPane{}
 	for _, g := range gp {
@@ -490,6 +493,20 @@ func (s *Server) graphPayload(root string) (graphMsg, error) {
 		}
 		figures[g.ID] = f
 	}
+	// A team's spend against its project's limit, which can add a needs item.
+	limit := s.prefs.SpendLimitFor(root)
+	var checks []team.SpendCheck
+	if limit > 0 {
+		for _, tm := range graph.Teams {
+			c := team.SpendCheck{Team: tm.ID, Manager: tm.Root, Limit: limit}
+			for _, id := range tm.Members {
+				c.Spent += figures[id].usd
+				c.Partial = c.Partial || figures[id].partial
+			}
+			checks = append(checks, c)
+		}
+	}
+	needs := team.NeedsYouWithSpend(graph, gp, st.tasks, conflicts, st.moves, checks, now)
 	stuck, below := graphRollup(graph, needs)
 	for _, n := range graph.Nodes {
 		p, g := byID[n.Pane], gpByID[n.Pane]
@@ -533,7 +550,7 @@ func (s *Server) graphPayload(root string) (graphMsg, error) {
 
 	for _, tm := range graph.Teams {
 		rootPane := byID[tm.Root]
-		tv := graphTeamView{ID: tm.ID, Manager: tm.Root, Members: tm.Members, Caps: []graphCap{}, Needs: []team.NeedsItem{}}
+		tv := graphTeamView{ID: tm.ID, Manager: tm.Root, Members: tm.Members, Caps: []graphCap{}, Needs: []team.NeedsItem{}, LimitUSD: limit}
 		tv.Goal = team.PlainText(rootPane.Task, graphGoalCut)
 		if at := rts[tm.Root].StartedAt(); !at.IsZero() {
 			tv.Started = at.Format(time.RFC3339)

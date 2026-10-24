@@ -35,6 +35,7 @@
         "spendUSD": { "type": "number", "minimum": 0, "description": "The estimated spend in dollars of the team's panes that reported a priced one (stored: the spend book). 0 when none did. Always written." },
         "spendPartial": { "const": true, "description": "Present, and true, when some pane of the team reported no priced spend, so spendUSD is a floor. Absent when every pane did." },
         "spendIncludesPartial": { "const": true, "description": "Present, and true, when some pane of the team reports its spend in part: a structured (ACP) agent gives how full its context is and perhaps a cost, with no split of tokens and no account windows. spendUSD then includes panes that report partly. Absent when none does." },
+        "limitUSD": { "type": "number", "exclusiveMinimum": 0, "description": "The most the team's project may spend, in dollars, set with the teamSpendLimit command (stored: the preferences). Absent when there is no limit. From 80 percent of it the needs list has a spend item, and once it is spent no new helper starts." },
         "caps": { "type": "array", "items": { "$ref": "#/$defs/cap" }, "description": "Helper cap use of the root and of every pane with children (derived). Always written." },
         "needs": { "type": "array", "items": { "$ref": "#/$defs/needsItem" }, "description": "What needs the person in this team, most urgent first, at most 50 (derived). Empty, never absent." },
         "needsHidden": { "type": "integer", "minimum": 1, "description": "How many items the bound of 50 cut. Absent when none were." }
@@ -141,7 +142,7 @@
       "description": "One thing that needs the person (derived by team.NeedsYou). Listed in this order: permission and ask by waiting time, longest first; returned, newest first; conflict; down; setup; stale-unread, oldest first.",
       "properties": {
         "id": { "type": "string", "minLength": 3, "description": "Stable while the item stands: the kind and the pane (returned: the task; conflict: the two panes in sorted order). A window can keep its selection by it. Always written." },
-        "kind": { "enum": ["permission", "ask", "returned", "conflict", "down", "setup", "stale-unread", "stuck"], "description": "Always written." },
+        "kind": { "enum": ["permission", "ask", "returned", "conflict", "down", "spend", "setup", "stale-unread", "stuck"], "description": "Always written." },
         "pane": { "type": "string", "minLength": 1, "description": "The pane concerned. For a conflict, the first of the pair in sorted order. Always written." },
         "other": { "type": "string", "minLength": 1, "description": "The second pane of a conflict. Written for conflicts only." },
         "task": { "type": "string", "pattern": "^T[0-9]+$", "description": "The task of a returned item. Written for returned items only." },
