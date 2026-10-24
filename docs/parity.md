@@ -8,10 +8,10 @@ It compares two lists the sources hold: the actions of the key table (`internal/
 
 | | Actions | Commands |
 | --- | --- | --- |
-| done | 42 | 114 |
+| done | 44 | 118 |
 | replaced | 0 | 1 |
-| cut | 14 | 12 |
-| planned | 2 | 29 |
+| cut | 14 | 13 |
+| planned | 0 | 24 |
 | unclassified | 0 | 0 |
 | total | 58 | 156 |
 
@@ -49,13 +49,13 @@ The old interface let a person tile, split, move and broadcast to panes. The new
 | command | `tilePanes` | Tiling and splitting panes is cut; the team is a graph. |
 | command | `toggleBroadcast` | Broadcasting to panes is cut; a manager sends to its team. |
 | command | `toggleBroadcastMember` | Broadcasting to panes is cut; a manager sends to its team. |
+| command | `toggleZoom` | Tiling and splitting panes is cut; the team is a graph. The drawer has its own maximise. |
 
 ## Planned, by task
 
 | Task | Actions | Commands |
 | --- | --- | --- |
 | T134 (C8, GitHub) |  | `ghChecks`, `ghInstall`, `ghIssue`, `ghIssueComment`, `ghIssueCreate`, `ghIssues`, `ghLogin`, `ghLoginCancel`, `ghLogout`, `ghPR`, `ghPRComment`, `ghPRCreate`, `ghPRs`, `ghStatus` |
-| T136 (L1, start flows and pane lifecycle) | `selectTab`, `closeFinishedPanes` | `closeFinishedPanes`, `focusPane`, `refreshAgents`, `teamClose`, `toggleZoom` |
 | T137 (L2, settings) |  | `dismissTip`, `railExpanded`, `railWidth`, `resetKeybinding`, `resetKeybindings`, `setAgentAddress`, `setAgentDefault`, `setKeybinding`, `statusLine` |
 | T138 (L3, help) |  | `helpSeen` |
 
@@ -93,7 +93,7 @@ These are safety and security controls. The new interface has no way to do them 
 | `newShellTab` | New shell tab (Ctrl+Shift+N) | done |  |
 | `nextTab` | Next tab (Ctrl+Tab) | done |  |
 | `prevTab` | Previous tab (Ctrl+Shift+Tab) | done |  |
-| `selectTab` | Select tab by number (Alt+1 … Alt+9) | planned | T136 (L1, start flows and pane lifecycle). The tab strip sends selectTab when a tab is pressed; the Alt+number key is not run |
+| `selectTab` | Select tab by number (Alt+1 … Alt+9) | done |  |
 | `mergeAllTabs` | Merge every tab into this one | cut | Moving and merging panes and tabs is cut; the team is a graph. |
 | `moveTabLeft` | Move tab left | done |  |
 | `moveTabRight` | Move tab right | done |  |
@@ -102,7 +102,7 @@ These are safety and security controls. The new interface has no way to do them 
 | `promptAll` | Prompt all panes (Ctrl+Shift+P) | cut | Broadcasting to panes is cut; a manager sends to its team. It opens the prompt bar aimed at the focused pane, which the new prompt (paneSend) covers; with broadcast on it reached every member. |
 | `makeBaton` | Make baton: hand this pane's work to another agent | done |  |
 | `agents` | All agents across projects (Ctrl+Shift+A) | done |  |
-| `closeFinishedPanes` | Close finished panes — idle agents and cleanly exited panes, in every open project | planned | T136 (L1, start flows and pane lifecycle) |
+| `closeFinishedPanes` | Close finished panes — idle agents and cleanly exited panes, in every open project | done |  |
 | `startTeam` | Start a team — a manager agent that starts the rest | done |  |
 | `team` | Team — this project's roster, task board and messages (Ctrl+Shift+M) | done |  |
 | `apiKeys` | API keys… | done |  |
@@ -144,7 +144,7 @@ These are safety and security controls. The new interface has no way to do them 
 | `changes` | done |  |
 | `checkForUpdate` | done |  |
 | `clearRoutingLog` | done |  |
-| `closeFinishedPanes` | planned | T136 (L1, start flows and pane lifecycle) |
+| `closeFinishedPanes` | done |  |
 | `closePane` | done |  |
 | `closeProject` | done |  |
 | `closeTab` | done |  |
@@ -158,7 +158,7 @@ These are safety and security controls. The new interface has no way to do them 
 | `dismissTip` | planned | T137 (L2, settings) |
 | `exportTranscript` | done |  |
 | `findPane` | done |  |
-| `focusPane` | planned | T136 (L1, start flows and pane lifecycle) |
+| `focusPane` | done |  |
 | `fontFamily` | done |  |
 | `fontSize` | done |  |
 | `ghChecks` | planned | T134 (C8, GitHub) |
@@ -222,7 +222,7 @@ These are safety and security controls. The new interface has no way to do them 
 | `railWidth` | planned | T137 (L2, settings) |
 | `recents` | done |  |
 | `recordPane` | done |  |
-| `refreshAgents` | planned | T136 (L1, start flows and pane lifecycle). The agent picker |
+| `refreshAgents` | done |  |
 | `remoteDevices` | done |  |
 | `remoteDisable` | done |  |
 | `remoteEnable` | done |  |
@@ -276,14 +276,14 @@ These are safety and security controls. The new interface has no way to do them 
 | `taskNote` | done |  |
 | `taskPrune` | done |  |
 | `taskStatus` | done |  |
-| `teamClose` | planned | T136 (L1, start flows and pane lifecycle) |
+| `teamClose` | done |  |
 | `teamUnwatch` | done |  |
 | `teamWatch` | done |  |
 | `theme` | done |  |
 | `tilePanes` | cut | Tiling and splitting panes is cut; the team is a graph. |
 | `toggleBroadcast` | cut | Broadcasting to panes is cut; a manager sends to its team. |
 | `toggleBroadcastMember` | cut | Broadcasting to panes is cut; a manager sends to its team. |
-| `toggleZoom` | planned | T136 (L1, start flows and pane lifecycle) |
+| `toggleZoom` | cut | Tiling and splitting panes is cut; the team is a graph. The drawer has its own maximise. |
 | `updates` | done |  |
 | `worktreeAdd` | done |  |
 | `worktreePrune` | done |  |

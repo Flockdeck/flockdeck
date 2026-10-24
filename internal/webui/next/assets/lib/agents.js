@@ -22,6 +22,16 @@ export function agentsOf(msg) {
   return items;
 }
 
+/** CLOSE_FINISHED_COMMAND closes every pane the desktop judges finished, in every
+ *  open project: idle with no background work, or exited cleanly, and not locked.
+ *  It judges each again as it closes it, and says what it closed in a notice. */
+export const CLOSE_FINISHED_COMMAND = { cmd: "closeFinishedPanes" };
+
+/** CLOSE_FINISHED_WORDS are the sentences before it is sent. */
+export const CLOSE_FINISHED_WORDS = [
+  "Every idle or exited pane in every open project is closed. A pane that is working or waiting, has background work, failed its last turn or is locked is left open.",
+];
+
 /** needsYou says a pane is waiting on, or blocked for, the person. */
 export const needsYou = (a) => a.activity === "waiting" || a.activity === "blocked";
 
