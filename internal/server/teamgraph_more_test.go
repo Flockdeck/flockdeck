@@ -333,7 +333,7 @@ func TestGraphIsLookedAtOnATick(t *testing.T) {
 }
 
 // What depends on the clock alone is pushed by the tick as the clock moves:
-// mail unread in an idle pane for more than five minutes, and a returned task
+// mail unread in an idle pane for more than half an hour, and a returned task
 // that ages out after 24 hours. The clock is the server's own, set here.
 func TestGraphTickPushesTimeDrivenItems(t *testing.T) {
 	e := newGraphEnv(t)
@@ -392,8 +392,8 @@ func TestGraphTickPushesTimeDrivenItems(t *testing.T) {
 	next("the returned task and no stale mail", func(g graphMsg) bool {
 		return has(g, team.NeedReturned) && !has(g, team.NeedStaleUnread)
 	})
-	offset.Store(int64(6 * time.Minute))
-	next("the mail stale after six minutes", func(g graphMsg) bool {
+	offset.Store(int64(35 * time.Minute))
+	next("the mail stale after 35 minutes", func(g graphMsg) bool {
 		return has(g, team.NeedStaleUnread) && has(g, team.NeedReturned)
 	})
 	offset.Store(int64(25 * time.Hour))

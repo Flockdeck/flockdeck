@@ -37,7 +37,7 @@
           "id": "stale-unread:c2beaec2",
           "kind": "stale-unread",
           "pane": "c2beaec2",
-          "time": "2026-10-21T08:53:00Z",
+          "time": "2026-10-21T08:15:00Z",
           "text": "1 unread"
         }
       ]
@@ -228,7 +228,7 @@
       "from": "2023df34",
       "to": "c2beaec2",
       "id": 1,
-      "time": "2026-10-21T08:53:00Z",
+      "time": "2026-10-21T08:15:00Z",
       "text": "The sign-up form submits twice on a slow connection. Needs a decision before I write the fix.",
       "delivery": "queued"
     }

@@ -12,7 +12,7 @@ import { buildGraphModel } from "../assets/graph/model.js";
 import { layoutGraph } from "../assets/graph/layout.js";
 import { GraphView } from "../assets/graph/Graph.js";
 import { reasonOf, firstLine, BADGE } from "../assets/graph/Badge.js";
-import { NeedsYou, rowOf } from "../assets/graph/NeedsYou.js";
+import { NeedsYou, rowOf, ageOf } from "../assets/graph/NeedsYou.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const dir = join(here, "..", "..", "..", "server", "testdata", "graph-fixtures");
@@ -406,4 +406,15 @@ test("a badge hangs inside its team's frame, below the team's title", () => {
       assert.ok(b.y - BADGE.lift >= frame.y + 30, `${name}: the badge on ${pane} is over the frame's title`);
     }
   }
+});
+
+test("ageOf says how long ago, and nothing for an unknown or future time", () => {
+  const now = Date.parse("2026-10-24T12:00:00Z");
+  assert.equal(ageOf("2026-10-24T11:59:30Z", now), "now");
+  assert.equal(ageOf("2026-10-24T11:51:00Z", now), "9m");
+  assert.equal(ageOf("2026-10-24T09:00:00Z", now), "3h");
+  assert.equal(ageOf("2026-10-21T12:00:00Z", now), "3d");
+  assert.equal(ageOf("0001-01-01T00:00:00Z", now), "", "an unknown time");
+  assert.equal(ageOf("2026-10-24T12:05:00Z", now), "", "a time ahead of the clock");
+  assert.equal(ageOf("", now), "");
 });

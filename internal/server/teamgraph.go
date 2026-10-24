@@ -230,6 +230,10 @@ type graphStatic struct {
 	moves       []team.TaskMove
 	chips       map[string]graphTaskChip
 	unreadSince map[string]time.Time
+	// unreadMail counts a pane's unread messages that an agent or the person
+	// wrote. Flockdeck's own notices (a helper finished its turn) are left out:
+	// they never make a pane need the person.
+	unreadMail map[string]int
 	// edges are the last maxGraphEdges messages between agents of the project.
 	edges      []graphEdge
 	boardError string
@@ -257,7 +261,7 @@ func (s *Server) graphStaticFor(root string, members []team.Member) *graphStatic
 		return c
 	}
 	s.graphBuilds++
-	st := &graphStatic{stamp: stamp, chips: map[string]graphTaskChip{}, unreadSince: map[string]time.Time{}}
+	st := &graphStatic{stamp: stamp, chips: map[string]graphTaskChip{}, unreadSince: map[string]time.Time{}, unreadMail: map[string]int{}}
 
 	var board2 []tasks.Task
 	if berr != nil {
@@ -313,7 +317,8 @@ func (s *Server) graphStaticFor(root string, members []team.Member) *graphStatic
 		agent[m.Pane] = true
 	}
 	for _, m := range msgs {
-		if !m.Read {
+		if !m.Read && !m.System() {
+			st.unreadMail[m.To]++
 			if t, ok := st.unreadSince[m.To]; !ok || m.Time.Before(t) {
 				st.unreadSince[m.To] = m.Time
 			}
@@ -383,7 +388,8 @@ func (s *Server) graphPayload(root string) (graphMsg, error) {
 			ID: p.ID, Parent: p.Parent, Role: p.Role, Name: p.Name, Peer: ws.PeerNameOf(p), Agent: p.Agent,
 			Shell: !p.IsAgent(), Status: stat.String(), Activity: string(rt.Activity()),
 			StatusSince: since, Unread: ws.Unread(p.ID), UnreadSince: st.unreadSince[p.ID],
-			Exited: stat == session.StatusExited,
+			UnreadMail: min(st.unreadMail[p.ID], ws.Unread(p.ID)),
+			Exited:     stat == session.StatusExited,
 		}
 		switch why, failed := p.Failed(); {
 		case p.Err != nil:
@@ -686,7 +692,7 @@ func (s *Server) dropUnwatchedStatics() {
 
 // graphTickInterval is how often a watched graph is looked at when nothing else
 // has woken the server. Some of what it shows depends on the clock alone: mail
-// that has waited five minutes in an idle pane, and a returned task that is
+// that has waited thirty minutes in an idle pane, and a returned task that is
 // older than a day. A server holds its own, graphTickEvery, which a test sets.
 const graphTickInterval = 30 * time.Second
 

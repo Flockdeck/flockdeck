@@ -10,7 +10,7 @@ import { html } from "../assets/html.js";
 import { useStore } from "../assets/lib/use-store.js";
 import { buildGraphModel } from "../assets/graph/model.js";
 import {
-  ManagerBar, managerOf, checkText, sentWords,
+  ManagerBar, managerOf, checkText, sentWords, SENT_SHOWN,
   MAX_BYTES, EMPTY_WORDS, TOO_LONG_WORDS, NO_MANAGER_WORDS, NOT_CONNECTED_WORDS,
 } from "../assets/graph/ManagerBar.js";
 import { createDom, install, settle } from "./dom.mjs";
@@ -41,9 +41,10 @@ const REFUSALS = [
   "That pane already has as many prompts waiting as it takes, so the text was not sent. Try again when it has worked through them",
 ];
 
+let shownFor = SENT_SHOWN;
 function App({ store, model }) {
   const snap = useStore(store);
-  return html`<${ManagerBar} snap=${snap} manager=${managerOf(model)} send=${(c) => store.send(c)} />`;
+  return html`<${ManagerBar} snap=${snap} manager=${managerOf(model)} send=${(c) => store.send(c)} shownFor=${shownFor} />`;
 }
 
 async function mount(graph = teamGraph(), { open = true, helloOver = {} } = {}) {
@@ -126,6 +127,26 @@ test("a queued send says the manager reads it when its turn ends, and the box is
     assert.equal(a.state(), "sent");
     assert.equal(a.input().value, "");
   }));
+
+test("the line about an accepted send goes after a few seconds", () =>
+  withBar(async (a) => {
+    shownFor = 120;
+    try {
+      await a.type("do the thing");
+      await a.submit();
+      await a.frame({ type: "paneSend", id: "p1", queued: true, shell: false });
+      assert.equal(a.state(), "sent");
+      await settle(400);
+      assert.equal(a.state(), "idle");
+      assert.equal(a.status(), "");
+    } finally {
+      shownFor = SENT_SHOWN;
+    }
+  }));
+
+test("a line about a send stays for SENT_SHOWN by default", () => {
+  assert.ok(SENT_SHOWN >= 3000 && SENT_SHOWN <= 10000);
+});
 
 test("the other answers: plain, waiting on a question, routed", () => {
   assert.equal(sentWords({ queued: false }), "Sent.");

@@ -248,7 +248,7 @@ their own (`soloNeeds`).
 | `conflict` | the conflict radar reports that two panes' work would conflict | when the radar first reported the pair, if known | up to 5 paths, each cut to 80 characters, and "and N more" for the rest |
 | `down` | a pane failed, or exited with a code other than 0, and was not closed by the person | when its status began | `failed` and the reason, or `exited with code N` |
 | `setup` | a structured pane could not start and needs something from the person: Node, a sign-in, or the agent's program | when its status began | the fix, cut to 200 characters |
-| `stale-unread` | a pane that is idle has had unread mail for more than 5 minutes | when the oldest unread message arrived | how many are unread |
+| `stale-unread` | a pane that is idle has had unread mail from an agent or the person for more than 30 minutes (Flockdeck's own notices do not count). One item per team: the pane with the oldest such mail, and when other panes qualify too, the count of panes and messages | when the oldest unread message arrived | how many are unread |
 
 - **Order.** Permission and ask first, by how long they have waited, longest first;
   then returned, newest first; then conflict; then down; then setup; then stale-unread, oldest
@@ -406,7 +406,7 @@ interface: continue, then remember or only this time; nothing runs until then.
 | --- | --- |
 | Pushes of a watched graph | At most one every 500 milliseconds. A change inside the gap is sent when it is up. The reply to `graphWatch` counts as a push. |
 | Pushes with no change | None: a graph identical to the last one sent to the window is not sent. A window whose queue was full is sent the graph again. |
-| Clock-driven looks | Every 30 seconds while any window watches, because two things depend on the clock alone: mail waiting 5 minutes in an idle pane, and a returned task passing 24 hours. |
+| Clock-driven looks | Every 30 seconds while any window watches, because two things depend on the clock alone: mail waiting 30 minutes in an idle pane, and a returned task passing 24 hours. |
 | Panes in a push | 500 nodes; `panesHidden` counts the rest. |
 | Edges | 100 `message` edges and 100 `sent` edges. |
 | `SendMessage` calls remembered | The last 200, in memory only. |

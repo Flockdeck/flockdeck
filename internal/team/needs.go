@@ -37,8 +37,9 @@ const (
 	// still counts as returned.
 	ReturnedWindow = 24 * time.Hour
 	// StaleUnreadAfter is how long unread mail may wait in an idle pane before
-	// it is listed.
-	StaleUnreadAfter = 5 * time.Minute
+	// it is listed. Mail younger than this is the ordinary lag of an agent that
+	// is between turns, not something for the person to chase.
+	StaleUnreadAfter = 30 * time.Minute
 )
 
 // PaneConflict is a pair of panes the radar reports as conflicting. The caller
@@ -88,7 +89,8 @@ type TeamNeeds struct {
 //
 // Order: permission and ask prompts, longest waiting first; then returned
 // tasks, newest first; then conflicts; then panes that are down; then stale
-// unread mail, oldest first. An item with an unknown time goes after the others
+// unread mail, which is one item for the team: the oldest pane's, with a count
+// when more than one pane has such mail. An item with an unknown time goes after the others
 // of its kind. Each list keeps at most MaxNeeds items and counts the rest.
 //
 // panes and tasks are the snapshot BuildGraph was given, and the caller fills
@@ -100,7 +102,7 @@ type TeamNeeds struct {
 // listed. A shell is listed only when it failed. A pane that is down is never
 // listed as waiting on a prompt, since it cannot be answered. Stale unread
 // needs UnreadSince: a pane with unread mail and a zero UnreadSince is never
-// listed.
+// listed. It counts UnreadMail, which leaves out the notices Flockdeck wrote.
 func NeedsYou(g Graph, panes []GraphPane, tasks []GraphTask, conflicts []PaneConflict, moves []TaskMove, now time.Time) map[string]TeamNeeds {
 	team := make(map[string]string, len(g.Nodes))
 	for _, n := range g.Nodes {
@@ -113,6 +115,13 @@ func NeedsYou(g Graph, panes []GraphPane, tasks []GraphTask, conflicts []PaneCon
 		}
 	}
 
+	// Stale unread mail is one item for a team, not one per pane.
+	type stale struct {
+		pane  string
+		since time.Time
+		n     int
+	}
+	staleBy := map[string][]stale{}
 	seen := map[string]bool{}
 	for _, p := range panes {
 		if seen[p.ID] {
@@ -140,9 +149,29 @@ func NeedsYou(g Graph, panes []GraphPane, tasks []GraphTask, conflicts []PaneCon
 			add(p.ID, NeedsItem{ID: kind + ":" + p.ID, Kind: kind, Pane: p.ID, Time: p.StatusSince, Text: PlainText(p.PromptText, MaxWaitText)})
 		case p.SetupText != "":
 			add(p.ID, NeedsItem{ID: NeedSetup + ":" + p.ID, Kind: NeedSetup, Pane: p.ID, Time: p.StatusSince, Text: PlainText(p.SetupText, MaxWaitText)})
-		case p.Activity == activityIdle && p.Unread > 0 && !p.UnreadSince.IsZero() && now.Sub(p.UnreadSince) > StaleUnreadAfter:
-			add(p.ID, NeedsItem{ID: NeedStaleUnread + ":" + p.ID, Kind: NeedStaleUnread, Pane: p.ID, Time: p.UnreadSince, Text: strconv.Itoa(p.Unread) + " unread"})
+		case p.Activity == activityIdle && p.UnreadMail > 0 && !p.UnreadSince.IsZero() && now.Sub(p.UnreadSince) > StaleUnreadAfter:
+			if t, ok := team[p.ID]; ok {
+				staleBy[t] = append(staleBy[t], stale{p.ID, p.UnreadSince, p.UnreadMail})
+			}
 		}
+	}
+	for t, list := range staleBy {
+		slices.SortFunc(list, func(a, b stale) int {
+			if c := a.since.Compare(b.since); c != 0 {
+				return c
+			}
+			return strings.Compare(a.pane, b.pane)
+		})
+		oldest := list[0]
+		it := NeedsItem{ID: NeedStaleUnread + ":" + oldest.pane, Kind: NeedStaleUnread, Pane: oldest.pane, Time: oldest.since, Text: strconv.Itoa(oldest.n) + " unread"}
+		if len(list) > 1 {
+			total := 0
+			for _, s := range list {
+				total += s.n
+			}
+			it.Text = strconv.Itoa(len(list)) + " agents, " + strconv.Itoa(total) + " unread"
+		}
+		lists[t] = append(lists[t], it)
 	}
 
 	latest := map[string]TaskMove{}

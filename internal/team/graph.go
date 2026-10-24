@@ -79,7 +79,12 @@ type GraphPane struct {
 	// fault. The caller sets it.
 	ClosedByUser bool
 	Unread       int
-	// UnreadSince is when the oldest unread message arrived, zero if unknown.
+	// UnreadMail is Unread without the messages Flockdeck wrote itself (a pane
+	// finishing its turn, exiting). Those are read by an agent when it next looks,
+	// and are never a reason to bother the person.
+	UnreadMail int
+	// UnreadSince is when the oldest unread message from an agent or the person
+	// arrived, zero if unknown.
 	UnreadSince time.Time
 }
 
