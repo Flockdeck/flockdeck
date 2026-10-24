@@ -23,7 +23,7 @@ export function TreeHead() {
 }
 
 /** TreeRow draws one pane. row is from rowsOf, doing the line for "Doing now". */
-export function TreeRow({ row, node, name: given = "", nameRole = "", needs, doing, chips = [], stop, selected, lit = false, roll = null, age, cost, onFocus, onOpen, onToggle = null, onLink = null, onLit = null }) {
+export function TreeRow({ row, node, name: given = "", nameRole = "", needs, doing, tip = "", chips = [], stop, selected, lit = false, roll = null, age, cost, onFocus, onOpen, onToggle = null, onLink = null, onLit = null }) {
   const state = stateOf(node);
   const tone = toneOf(node, needs);
   const name = given || node.name || node.pane;
@@ -51,7 +51,7 @@ export function TreeRow({ row, node, name: given = "", nameRole = "", needs, doi
     <span class="tree-c tree-c--role">${clip(node.role || (node.shell ? "shell" : ""), 12)}</span>
     <span class="tree-c tree-c--task">${node.task ? clip(node.task.id, 6) : ""}</span>
     <span class="tree-c tree-c--doing">
-      <span class="tree-doing-text" title=${doing}>${clip(doing, 160)}</span>
+      <span class="tree-doing-text" title=${tip || doing}>${clip(doing, 160)}</span>
       ${roll ? html`<span class="tree-roll">${roll.below} below${roll.needYou > 0 ? html`<span class="tree-need"> · ${roll.needYou} need you</span>` : null}</span>` : null}
     </span>
     ${chips.length > 0 ? html`<span class="tree-chips">${chips.map((c) => (c.to

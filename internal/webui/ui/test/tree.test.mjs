@@ -6,7 +6,7 @@ import { renderToString } from "./vendor/render-to-string.mjs";
 import { render } from "../assets/vendor/preact.mjs";
 import { html } from "../assets/html.js";
 import { buildGraphModel } from "../assets/graph/model.js";
-import { Tree, rowNameOf, foldOf, needsOf, rowsOf, stepOf, ageOf, rankOf, doingOf } from "../assets/graph/Tree.js";
+import { Tree, rowNameOf, foldOf, needsOf, rowsOf, stepOf, ageOf, rankOf, doingOf, tipOf } from "../assets/graph/Tree.js";
 import { createDom, install, settle } from "./dom.mjs";
 
 const n = (pane, over = {}) => ({ pane, kind: "terminal", depth: 0, team: "t", name: pane, role: "worker", status: "working", activity: "working", live: "go test", waitingOn: { kind: "none" }, children: [], ...over });
@@ -107,10 +107,33 @@ test("ageOf, rankOf and doingOf", () => {
   assert.equal(rankOf(m.byPane.get("down"), []), 1);
   assert.equal(rankOf(m.byPane.get("work"), []), 2);
   assert.equal(rankOf(m.byPane.get("idle"), []), 3);
-  assert.equal(doingOf(m.byPane.get("ask"), m.needsByPane.get("ask")), "go test", "the live line wins");
-  assert.ok(doingOf({ live: "", activity: "waiting", status: "waiting" }, m.needsByPane.get("ask")).includes("go test ./... -race"));
-  assert.equal(doingOf(m.byPane.get("work"), []), "go test");
-  assert.equal(doingOf(m.byPane.get("idle"), []), "idle");
+  assert.ok(doingOf(m.byPane.get("ask"), m.needsByPane.get("ask"), now).includes("go test ./... -race"), "a pane that asks shows what it asks");
+  assert.equal(doingOf(m.byPane.get("work"), [], now), "go test", "working shows the live line");
+});
+
+test("Doing now: idle is \"idle\" and its age, never the last thing it said, which is the tooltip; waiting says what on", () => {
+  const now = Date.parse("2026-10-24T10:00:00Z");
+  const said = "I replied to flockdeck-92 about the PR and am waiting for its answer";
+  const idle = { pane: "i", status: "idle", activity: "idle", live: said, since: "2026-10-24T09:57:00Z", waitingOn: { kind: "none" } };
+  assert.equal(doingOf(idle, [], now), "idle 3m");
+  assert.equal(doingOf({ ...idle, since: "" }, [], now), "idle");
+  assert.equal(tipOf(idle, doingOf(idle, [], now)), said);
+  const waits = { ...idle, status: "working", activity: "waiting", live: said, waitingOn: { kind: "helpers", text: "review of T3" } };
+  assert.equal(doingOf(waits, [], now), "review of T3");
+  assert.equal(tipOf({ live: "go test" }, "go test"), "go test");
+  const m = model(team());
+  const out = renderToString(html`<${Tree} model=${m} />`);
+  assert.ok(!out.includes(said));
+});
+
+test("a column with nothing in any row is hidden: Task and Cost", () => {
+  const g = team();
+  for (const x of g.nodes) { delete x.task; x.spendUSD = 0; }
+  const out = renderToString(html`<${Tree} model=${model(g)} />`);
+  assert.ok(out.includes("tree--no-task") && out.includes("tree--no-cost"));
+  const full = renderToString(html`<${Tree} model=${model(team())} />`);
+  assert.ok(full.includes("tree--no-cost") === !team().nodes.some((x) => x.spendUSD > 0));
+  assert.ok(!full.includes("tree--no-task"), "T4 is on a row");
 });
 
 // The keyboard on the fake page.
