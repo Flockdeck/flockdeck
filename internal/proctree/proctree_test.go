@@ -2,6 +2,7 @@ package proctree
 
 import (
 	"fmt"
+	"github.com/jmwri/flockdeck/internal/testiso/depth"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -21,6 +22,7 @@ const (
 )
 
 func init() {
+	depth.Guard()
 	switch os.Getenv(treeEnv) {
 	case "parent":
 		child := exec.Command(os.Args[0])

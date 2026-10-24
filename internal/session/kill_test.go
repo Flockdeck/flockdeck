@@ -2,6 +2,7 @@ package session
 
 import (
 	"fmt"
+	"github.com/jmwri/flockdeck/internal/testiso/depth"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -24,6 +25,7 @@ const (
 )
 
 func init() {
+	depth.Guard()
 	switch os.Getenv(treeEnv) {
 	case "parent":
 		exe := os.Getenv(treeChildEnv)

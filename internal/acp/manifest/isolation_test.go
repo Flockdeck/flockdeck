@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/jmwri/flockdeck/internal/testiso"
+	"github.com/jmwri/flockdeck/internal/testiso/depth"
 )
 
 const fakeEnv = "FLOCKDECK_MANIFEST_FAKE"
@@ -18,6 +19,7 @@ const fakeEnv = "FLOCKDECK_MANIFEST_FAKE"
 // keys and the real network (see docs/testing.md). The handshake tests start
 // a fake adapter, which is this test binary run again with fakeEnv set.
 func TestMain(m *testing.M) {
+	depth.Guard()
 	if mode := os.Getenv(fakeEnv); mode != "" {
 		runFake(mode)
 		return

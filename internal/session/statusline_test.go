@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"github.com/jmwri/flockdeck/internal/testiso/depth"
 	"io"
 	"os"
 	"os/exec"
@@ -19,6 +20,7 @@ import (
 const echoEnv = "FLOCKDECK_SESSION_TEST_ECHO"
 
 func init() {
+	depth.Guard()
 	if os.Getenv(echoEnv) == "" {
 		return
 	}
