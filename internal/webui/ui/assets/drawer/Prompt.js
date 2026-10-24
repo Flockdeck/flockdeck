@@ -185,7 +185,7 @@ export function StreamPermission({ node, card, snap, store }) {
 }
 
 // A question: its text and options, and the box that sends the answer.
-function Question({ node, ask, snap, store }) {
+export function Question({ node, ask, snap, store }) {
   return html`
     ${ask.questions.map((q) => html`<div class="prompt-question">
       ${q.header ? html`<p class="prompt-label">${q.header}</p>` : null}
