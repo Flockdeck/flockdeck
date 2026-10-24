@@ -8,8 +8,8 @@ It compares two lists the sources hold: the actions of the key table (`internal/
 
 | | Actions | Commands |
 | --- | --- | --- |
-| done | 45 | 127 |
-| replaced | 0 | 1 |
+| done | 45 | 122 |
+| replaced | 0 | 6 |
 | cut | 14 | 14 |
 | planned | 0 | 14 |
 | unclassified | 0 | 0 |
@@ -158,7 +158,7 @@ These are safety and security controls the new interface has to send. The list i
 | `closeFinishedPanes` | done |  |
 | `closePane` | done |  |
 | `closeProject` | done |  |
-| `closeTab` | done |  |
+| `closeTab` | replaced | sent as `uiPrefs`. Goal tabs are archived, not closed |
 | `commit` | done |  |
 | `conflictRadar` | done |  |
 | `conversations` | done |  |
@@ -218,13 +218,13 @@ These are safety and security controls the new interface has to send. The list i
 | `msgSeen` | done |  |
 | `msgSend` | done |  |
 | `newTab` | done |  |
-| `nextTab` | done |  |
+| `nextTab` | replaced | sent as `uiPrefs`. Goal tabs, stepped |
 | `notifications` | done |  |
 | `openProject` | done |  |
 | `openRecordings` | done |  |
 | `paneInfo` | done |  |
 | `presence` | done |  |
-| `prevTab` | done |  |
+| `prevTab` | replaced | sent as `uiPrefs`. Goal tabs, stepped |
 | `pushAnonymous` | done |  |
 | `pushDelay` | done |  |
 | `pushNotify` | done |  |
@@ -249,7 +249,7 @@ These are safety and security controls the new interface has to send. The list i
 | `removeRepoFromGroup` | done |  |
 | `renameGroup` | done |  |
 | `renameProject` | done |  |
-| `renameTab` | done |  |
+| `renameTab` | replaced | sent as `uiPrefs`. A goal tab's name |
 | `reorderProjects` | done |  |
 | `resetKeybinding` | done |  |
 | `resetKeybindings` | done |  |
@@ -266,7 +266,7 @@ These are safety and security controls the new interface has to send. The list i
 | `scrollback` | done |  |
 | `selectProject` | done |  |
 | `selectRepo` | done |  |
-| `selectTab` | done |  |
+| `selectTab` | replaced | sent as `uiPrefs`. Goal tabs, shown by number or step; the active one is kept |
 | `sendPrompt` | replaced | sent as `paneSend`. Prompting one pane; prompting all is cut |
 | `setAgentAddress` | done |  |
 | `setAgentDefault` | done |  |
