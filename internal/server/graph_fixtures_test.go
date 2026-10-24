@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"sort"
@@ -55,11 +56,20 @@ type fxHelper struct {
 	task string
 	// since is how many minutes ago the status began.
 	since int
+	// agent is the agent kind; empty means claude.
+	agent string
+	// usd is what the pane has spent, for a node's spend figure.
+	usd float64
+	// lastOut is how many minutes ago the terminal last wrote; zero leaves it unset.
+	lastOut int
 }
 
-// fxMessage is a message from a helper to the manager that has not been read.
+// fxMessage is a message from a helper to the manager, or to another helper
+// when to is set, that has not been read.
 type fxMessage struct {
 	from, text string
+	// to is the receiving helper; empty means the manager.
+	to         string
 	minutesAgo int
 }
 
@@ -185,6 +195,29 @@ var graphFixtureSpecs = []fxSpec{
 			{"manager", "stale-unread", "1 unread: the message from tests has waited forty-five minutes and the manager is idle"},
 		},
 	},
+	{
+		name:        "06-rate-limiting-tree-home",
+		description: "The prototype's team \"rate limiting\": a manager and an api lead with tests and bench nested under it, eight helpers in all (the cap). The lead asks to run a command, ci asks a question, api and cfg change the same file, and lint ended in error. cdx has written nothing for twelve minutes while working, which is a quiet stuck item. The nodes carry the per-node figures: spend, last output, undelivered messages and the rollups below and needYou. The prototype's docs helper is left out to stay at the cap, and its cdx is stuck at seven minutes where the real rule waits for ten.",
+		helpers: []fxHelper{
+			{name: "api", state: fxPerm, text: "go test ./... -race -count=1", since: 2, usd: 3.82},
+			{name: "tests", parent: "api", state: fxWorking, text: "Write limiter_test.go", since: 4, usd: 0.73, lastOut: 1},
+			{name: "bench", parent: "api", state: fxWorking, text: "Bash go test -bench Limiter ./mw", since: 1, usd: 0.3, lastOut: 1},
+			{name: "ci", state: fxAsk, text: "T2 came back with \"races on map\". Send it back a third time, or try a different approach?", since: 9, usd: 2.4},
+			{name: "cfg", state: fxInReview, task: "Config flags", since: 3, usd: 1.35},
+			{name: "rev", state: fxWorking, text: "Read diff, 2 files", since: 1, usd: 0.9, lastOut: 1},
+			{name: "cdx", state: fxWorking, text: "Bash go build ./store/...", since: 7, usd: 1.5, agent: "codex", lastOut: 12},
+			{name: "lint", state: fxCrashed, since: 6, usd: 0.4},
+		},
+		conflict: &fxConflict{a: "api", b: "cfg", paths: []string{"cfg/limits.yaml"}},
+		message:  &fxMessage{from: "tests", to: "api", text: "I need the signature of Allow before I can finish the table tests.", minutesAgo: 8},
+		expect: []fxExpect{
+			{"api", "permission", "asks to run go test ./... -race -count=1"},
+			{"ci", "ask", "asks: T2 came back with \"races on map\". Send it back a third time, or try a different approach?"},
+			{"api", "conflict", "api and cfg both change cfg/limits.yaml"},
+			{"lint", "down", "exited with code 2, so the helper ended in error"},
+			{"cdx", "stuck", "no output for 12m while working; a quiet item, it does not ask anything of the person"},
+		},
+	},
 }
 
 // buildGraphFixture is the graph push for one spec.
@@ -212,8 +245,15 @@ func buildGraphFixture(spec fxSpec) graphMsg {
 			parent = fxID(spec, h.parent)
 		}
 		since := fxNow.Add(-time.Duration(h.since) * time.Minute)
-		p := team.GraphPane{ID: id, Parent: parent, Role: "worker", Name: h.name, Agent: "claude",
+		agent := h.agent
+		if agent == "" {
+			agent = "claude"
+		}
+		p := team.GraphPane{ID: id, Parent: parent, Role: "worker", Name: h.name, Agent: agent,
 			Status: "idle", Activity: "idle", StatusSince: since}
+		if h.lastOut > 0 {
+			p.LastOutput = fxNow.Add(-time.Duration(h.lastOut) * time.Minute)
+		}
 		addTask := func(state string) {
 			taskN++
 			tid := fmt.Sprintf("T%d", taskN)
@@ -251,8 +291,12 @@ func buildGraphFixture(spec fxSpec) graphMsg {
 		panes = append(panes, p)
 	}
 	if m := spec.message; m != nil {
+		to := mgr
+		if m.to != "" {
+			to = fxID(spec, m.to)
+		}
 		for i := range panes {
-			if panes[i].ID == mgr {
+			if panes[i].ID == to {
 				panes[i].Unread, panes[i].UnreadMail = 1, 1
 				panes[i].UnreadSince = fxNow.Add(-time.Duration(m.minutesAgo) * time.Minute)
 			}
@@ -270,13 +314,24 @@ func buildGraphFixture(spec fxSpec) graphMsg {
 		pane[p.ID] = p
 	}
 
+	stuck, below := graphRollup(graph, needs)
+	usd := map[string]float64{}
+	priced := false
+	for _, h := range spec.helpers {
+		usd[fxID(spec, h.name)] = h.usd
+		priced = priced || h.usd > 0
+	}
 	out := graphMsg{Type: "graph", Root: "/work/" + spec.name, Project: spec.name, Teams: []graphTeamView{},
 		Nodes: []graphNodeView{}, Edges: []graphEdge{}, Solo: graph.Solo, SoloNeeds: []team.NeedsItem{}}
 	for _, n := range graph.Nodes {
 		g := pane[n.Pane]
 		nv := graphNodeView{GraphNode: n, Kind: graphKindTerminal, Name: g.Name, Role: g.Role, Agent: g.Agent,
 			Status: g.Status, Activity: g.Activity, Since: g.StatusSince.Format(time.RFC3339), Live: live[n.Pane],
-			Branch: "work/" + g.Name, Unread: g.Unread}
+			Branch: "work/" + g.Name, Unread: g.Unread, SpendUSD: usd[n.Pane], Stuck: stuck[n.Pane]}
+		nv.Below, nv.NeedYou = below(n.Pane)
+		if !g.LastOutput.IsZero() {
+			nv.LastOutput = g.LastOutput.Format(time.RFC3339)
+		}
 		if n.Pane == mgr {
 			nv.Branch = "main"
 			nv.Live = ""
@@ -294,7 +349,16 @@ func buildGraphFixture(spec fxSpec) graphMsg {
 		// The message is queued: it was not shown to the manager, woken or read.
 		// Stage 0a had no delivery field. The schema now requires one on a message
 		// edge, so the fixture says queued.
-		out.Edges = append(out.Edges, graphEdge{Kind: graphEdgeMessage, From: byName[m.from], To: mgr, ID: 1,
+		to := mgr
+		if m.to != "" {
+			to = byName[m.to]
+		}
+		for i := range out.Nodes {
+			if out.Nodes[i].Pane == byName[m.from] {
+				out.Nodes[i].Undelivered = 1
+			}
+		}
+		out.Edges = append(out.Edges, graphEdge{Kind: graphEdgeMessage, From: byName[m.from], To: to, ID: 1,
 			Time: fxNow.Add(-time.Duration(m.minutesAgo) * time.Minute).Format(time.RFC3339), Text: m.text, Delivery: "queued"})
 	}
 
@@ -305,6 +369,18 @@ func buildGraphFixture(spec fxSpec) graphMsg {
 	for _, n := range graph.Nodes {
 		if n.Pane != mgr && len(n.Children) > 0 {
 			tv.Caps = append(tv.Caps, graphCap{Pane: n.Pane, Used: len(n.Children), Max: workspace.MaxHelpers})
+		}
+	}
+	if priced {
+		tv.SpendUSD = 6.1
+		for _, v := range usd {
+			tv.SpendUSD += v
+		}
+		tv.SpendUSD = math.Round(tv.SpendUSD*100) / 100
+		for i := range out.Nodes {
+			if out.Nodes[i].Pane == mgr {
+				out.Nodes[i].SpendUSD = 6.1
+			}
 		}
 	}
 	if n, ok := needs[tm.ID]; ok {
@@ -342,6 +418,10 @@ func fxAnswerKey(spec fxSpec) string {
 		fmt.Fprintf(&b, "- %s (%s): %s\n", h.name, fxID(spec, h.name), fxOtherState(h))
 	}
 	if m := spec.message; m != nil {
+		if m.to != "" {
+			fmt.Fprintf(&b, "\n## The message\n\n%s sent %s a message %d minutes before the graph's time, and it is still queued. The sender's node counts it in `undelivered`. %s is not idle, so it is not a stale-unread item.\n", m.from, m.to, m.minutesAgo, m.to)
+			return b.String()
+		}
 		fmt.Fprintf(&b, "\n## The message\n\n%s sent the manager a message %d minutes before the graph's time, and it is still queued: the manager has not been shown it, woken for it or read it. The manager is idle and has not read it, so after thirty minutes it is a stale-unread item for the person. The message edge says `queued`; stage 0a had no delivery field, and the schema now requires one on a message edge.\n", m.from, m.minutesAgo)
 	}
 	return b.String()
@@ -510,8 +590,8 @@ func TestGraphFixturesMatchTheSchemaAndTheirAnswers(t *testing.T) {
 			t.Errorf("no fixture has %s", k)
 		}
 	}
-	if len(graphFixtureSpecs) != 5 {
-		t.Errorf("%d fixtures, want five", len(graphFixtureSpecs))
+	if len(graphFixtureSpecs) != 6 {
+		t.Errorf("%d fixtures, want six", len(graphFixtureSpecs))
 	}
 }
 
@@ -519,7 +599,7 @@ func sortFx(l []fxExpect) {
 	sort.Slice(l, func(i, j int) bool { return l[i].pane < l[j].pane })
 }
 
-// Exactly one fixture has a nested helper and exactly one an undelivered message.
+// Two fixtures have a nested helper and two an undelivered message.
 func TestGraphFixturesHaveOneNestedAndOneUndelivered(t *testing.T) {
 	nested, undelivered := 0, 0
 	for _, spec := range graphFixtureSpecs {
@@ -545,8 +625,8 @@ func TestGraphFixturesHaveOneNestedAndOneUndelivered(t *testing.T) {
 			}
 		}
 	}
-	if nested != 1 || undelivered != 1 {
-		t.Errorf("%d fixtures with a nested helper, %d with an undelivered message", nested, undelivered)
+	if nested != 2 || undelivered != 2 {
+		t.Errorf("%d fixtures with a nested helper, %d with an undelivered message, want two of each", nested, undelivered)
 	}
 }
 

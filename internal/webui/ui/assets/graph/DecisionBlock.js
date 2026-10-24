@@ -94,7 +94,7 @@ export function decisionOf(model, need, now = Date.now(), card = null) {
 }
 
 /** useAsk is a one-shot send to a pane: state is "", "sent" or "failed", and a second call before the redraw does nothing. */
-function useAsk(ctx) {
+export function useAsk(ctx) {
   const [state, setState] = useState("");
   const done = useRef(false);
   const send = (pane, text) => {
@@ -109,7 +109,7 @@ function useAsk(ctx) {
   return [state, send];
 }
 
-function Buttons({ children }) {
+export function Buttons({ children }) {
   return html`<div class="dec-actions" role="group" aria-label="Choices">${children}</div>`;
 }
 

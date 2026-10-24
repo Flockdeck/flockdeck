@@ -218,7 +218,7 @@ func TestGraphPageListsTheKindsInOrder(t *testing.T) {
 		}
 		last = i
 	}
-	needs := []string{team.NeedPermission, team.NeedAsk, team.NeedReturned, team.NeedConflict, team.NeedDown, team.NeedSetup, team.NeedStaleUnread}
+	needs := []string{team.NeedPermission, team.NeedAsk, team.NeedReturned, team.NeedConflict, team.NeedDown, team.NeedSetup, team.NeedStaleUnread, team.NeedStuck}
 	last = -1
 	for _, k := range needs {
 		i := strings.LastIndex(doc, "| `"+k+"` |")

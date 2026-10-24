@@ -490,44 +490,7 @@ func (s *Server) graphPayload(root string) (graphMsg, error) {
 		}
 		figures[g.ID] = f
 	}
-	// The panes waiting on the person, to count under each node. A quiet item (old
-	// unread mail, a pane gone quiet) does not ask anything of the person.
-	needers := map[string]bool{}
-	stuck := map[string]bool{}
-	for _, tn := range needs {
-		for _, it := range tn.Items {
-			if team.IsStuck(it.Kind) {
-				stuck[it.Pane] = true
-			}
-			if team.AsksPerson(it.Kind) {
-				needers[it.Pane] = true
-				if it.Other != "" {
-					needers[it.Other] = true
-				}
-			}
-		}
-	}
-	below := func(root string) (count, asking int) {
-		seen := map[string]bool{root: true}
-		stack := []string{root}
-		for len(stack) > 0 {
-			id := stack[len(stack)-1]
-			stack = stack[:len(stack)-1]
-			n, _ := graph.Node(id)
-			for _, c := range n.Children {
-				if seen[c] {
-					continue
-				}
-				seen[c] = true
-				count++
-				if needers[c] {
-					asking++
-				}
-				stack = append(stack, c)
-			}
-		}
-		return count, asking
-	}
+	stuck, below := graphRollup(graph, needs)
 	for _, n := range graph.Nodes {
 		p, g := byID[n.Pane], gpByID[n.Pane]
 		nv := graphNodeView{
@@ -590,6 +553,50 @@ func (s *Server) graphPayload(root string) (graphMsg, error) {
 		out.Teams = append(out.Teams, tv)
 	}
 	return out, nil
+}
+
+// graphRollup is the set of panes the stuck rule flags and a function that, for
+// a pane, counts the panes below it and how many of those are waiting on the
+// person. A quiet item (old unread mail, a pane gone quiet) does not ask
+// anything of the person.
+func graphRollup(graph team.Graph, needs map[string]team.TeamNeeds) (stuck map[string]bool, below func(root string) (count, asking int)) {
+	needers := map[string]bool{}
+	stuck = map[string]bool{}
+	for _, tn := range needs {
+		for _, it := range tn.Items {
+			if team.IsStuck(it.Kind) {
+				stuck[it.Pane] = true
+			}
+			if team.AsksPerson(it.Kind) {
+				needers[it.Pane] = true
+				if it.Other != "" {
+					needers[it.Other] = true
+				}
+			}
+		}
+	}
+	below = func(root string) (count, asking int) {
+		seen := map[string]bool{root: true}
+		stack := []string{root}
+		for len(stack) > 0 {
+			id := stack[len(stack)-1]
+			stack = stack[:len(stack)-1]
+			n, _ := graph.Node(id)
+			for _, c := range n.Children {
+				if seen[c] {
+					continue
+				}
+				seen[c] = true
+				count++
+				if needers[c] {
+					asking++
+				}
+				stack = append(stack, c)
+			}
+		}
+		return count, asking
+	}
+	return stuck, below
 }
 
 // chipRank orders the tasks of a pane for the one its node names: the one in
