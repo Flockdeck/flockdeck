@@ -107,7 +107,7 @@ func scrubForRemote(data []byte) []byte {
 // put here or given a scrub; TestEveryMessageTypeIsClassifiedForTheRelay holds
 // this list to what the server sends. The values say why each is safe.
 var relayPass = map[string]string{
-	"hello": "keys and settings", "prefs": "settings", "keys": "key table", "keyTable": "key table",
+	"hello": "keys and settings", "prefs": "settings", "keys": "API key status", "keyTable": "key table",
 	"artifacts": "whether the device may open the artifacts socket", "agentAddress": "settings", "radarSupport": "a flag", "jevKey": "a flag",
 	"remotePair": "pairing", "remoteOutcome": "relay result", "remoteDevices": "device list", "versions": "release list",
 	"helpers": "helper apps", "helperPlan": "helper apps",

@@ -40,6 +40,8 @@ import { catalogOf, closeTabWarnings, moveTabCommand, newTabCommand, tabsOf } fr
 import { RELAY_WORDS as HELPER_RELAY_WORDS } from "../lib/helpers.js";
 import { RELAY_WORDS as BATON_RELAY_WORDS, STILL_OUT_WORDS, createInflight, draftOf, makeCommand, savedWords } from "../lib/baton.js";
 import { openOf, selectCommand } from "../lib/projects.js";
+import { askPermission, noteOf, permissionOf, raise, waitsOf, watchPresence } from "../lib/attention.js";
+import { viewOf } from "../lib/remote.js";
 
 // What the shell is given before the first hello and state. Constants, so the
 // shell does not take them for a change on every render.
@@ -87,6 +89,8 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
   // The settings dialog, and the changes made in it that the desktop has not
   // answered yet (by preference, as the desktop will keep them).
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsSection, setSettingsSection] = useState("general");
+  const [settingsAt, setSettingsAt] = useState(0);
   const [patch, setPatch] = useState({});
   // The updates dialog (with the seq of the notice when it opened, so it shows
   // only newer ones) and the question before quit.
@@ -223,12 +227,66 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
   // change sends one setting and shows it now. It answers whether the value
   // was one the desktop would keep.
   const change = (name, value) => {
-    const s = setting(name, value);
+    const s = setting(name, value, { ...(kept_prefs || {}), ...latestOf(patch) });
     if (!s) return false;
     send(s.command);
     setPatch((p) => addPending(p, s.patch));
     return true;
   };
+  // The settings dialog opens on a section. What it says of a save or a refusal is
+  // the notice that came after it opened, or this page's own.
+  const openSettings = (section) => {
+    setSettingsSection(section);
+    setSettingsAt(noticeSeq);
+    setSettingsOpen(true);
+  };
+  // The browser's leave to raise notifications, asked for once when the person first
+  // does something (a browser answers a request made without a gesture with no),
+  // and again from the switch or the button in Notifications.
+  const [permission, setPermission] = useState(() => permissionOf(page));
+  const ask = () => askPermission(page).then(setPermission);
+  const wantNotes = !prefs.notificationsOff;
+  useEffect(() => {
+    const doc = page && page.document;
+    if (!wantNotes || permission !== "default" || !doc || !doc.addEventListener) return undefined;
+    const once = () => {
+      stop();
+      ask();
+    };
+    const stop = () => {
+      doc.removeEventListener("pointerdown", once, true);
+      doc.removeEventListener("keydown", once, true);
+    };
+    doc.addEventListener("pointerdown", once, true);
+    doc.addEventListener("keydown", once, true);
+    return stop;
+  }, [page, wantNotes, permission]);
+  // The desktop is told the person is at this computer, from real input, so a
+  // phone is not told of a wait the person can see. A window reached through the
+  // relay is not the desk, and says nothing.
+  useEffect(() => {
+    if (snap.remote || !snap.hello) return undefined;
+    return watchPresence(page, (c) => store.send(c));
+  }, [page, snap.remote, !!snap.hello]);
+  // A notification when an agent newly needs the person and this window is behind
+  // another. The first state seen is only remembered, never announced.
+  const waits = useRef(new Map());
+  const lastNote = useRef(null);
+  useEffect(() => {
+    const panes = kept.current.state.panes;
+    const { fresh, next } = waitsOf(waits.current, panes);
+    waits.current = next;
+    const nothing = ![...next.values()].some((v) => v === "waiting" || v === "blocked");
+    if (nothing && lastNote.current) {
+      // Answered from here or another window: the notification is stale.
+      try { lastNote.current.close(); } catch { /* already gone */ }
+      lastNote.current = null;
+    }
+    if (!fresh.length || prefs.notificationsOff) return;
+    const doc = page && page.document;
+    if (doc && (doc.hidden === false || doc.hidden === undefined) && typeof doc.hasFocus === "function" && doc.hasFocus()) return;
+    lastNote.current = raise(page, noteOf(fresh), (id) => drawer.open(id));
+  }, [statePanes]);
   const bumpFont = (to) => {
     if (to < FONT_MIN || to > FONT_MAX) return;
     if (change("fontSize", to)) say("Font size " + to + "px");
@@ -304,7 +362,9 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
       const el = barRef.current;
       if (el && el.focus) el.focus();
     },
-    settings: () => setSettingsOpen(true),
+    settings: () => openSettings("general"),
+    apiKeys: () => openSettings("keys"),
+    remote: () => openSettings("remote"),
     helpers: () => (snap.remote ? say(HELPER_RELAY_WORDS) : setHelpersOpen(true)),
     makeBaton: needPane(() => {
       if (snap.remote) return say(BATON_RELAY_WORDS);
@@ -396,6 +456,23 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     return req;
   };
 
+  const settingsCtx = {
+    send,
+    keys: snap.keys,
+    roster: snap.remoteDevices,
+    pair: snap.remotePair,
+    forgetPair: () => store.clearPair(),
+    outcome: snap.remoteOutcome,
+    status: kept.current.state.remote || null,
+    remote: snap.remote,
+    copy,
+    news: local || (snap.notice && snap.notice.seq > settingsAt ? String(snap.notice.text || "") : ""),
+    permission,
+    onAsk: ask,
+    machine: (viewOf(kept.current.state.remote) || { name: "" }).name,
+    pushError: (viewOf(kept.current.state.remote) || { pushError: "" }).pushError,
+  };
+
   return html`<${Shell}
     hello=${kept.current.hello}
     state=${kept.current.state}
@@ -408,7 +485,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     actions=${actions}
     maximised=${drawer.maximised}
     blocked=${!!starting || settingsOpen || updatesAt >= 0 || quitAsk || historyOpen || !!infoFor || findingPane || helpersOpen || projectsOpen || !!baton}
-    onSettings=${() => setSettingsOpen(true)}
+    onSettings=${() => openSettings("general")}
     onProjects=${() => setProjectsOpen(true)}
     railFoot=${snap.remote
       ? null
@@ -426,7 +503,9 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
   >${snap.state ? html`<${Tabs} tabs=${tabs} send=${send} show=${onDesk} warnFor=${(t) => closeTabWarnings(t, current ? current.byPane : null, statePanes)} onChoose=${() => setStarting("agent")}
       onHistory=${snap.remote ? null : () => setHistoryOpen(true)} onFind=${snap.remote ? null : () => setFindingPane(true)} />` : null}
     <${Home} snap=${snap} selected=${selected} onShown=${setShown} onOpen=${drawer.open} open=${drawer.pane} narrow=${narrow} />
-    ${settingsOpen ? html`<${Settings} prefs=${prefs} change=${change} onClose=${() => setSettingsOpen(false)} />` : null}
+    ${settingsOpen
+      ? html`<${Settings} prefs=${prefs} change=${change} section=${settingsSection} onClose=${() => setSettingsOpen(false)} ctx=${settingsCtx} />`
+      : null}
     ${historyOpen ? html`<${History} history=${snap.history} root=${selected} send=${send} onClose=${() => setHistoryOpen(false)} />` : null}
     ${infoFor
       ? html`<${PaneInfo} pane=${infoFor.pane} info=${snap.paneInfo} floor=${infoFor.floor} send=${send} copy=${copy} onClose=${() => setInfoFor(null)}

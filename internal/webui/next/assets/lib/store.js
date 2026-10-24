@@ -117,6 +117,12 @@
 //                 seq }, or null; paneMatches the latest findPane answer as
 //                 { query, items, seq }, or null. Both are for a window on the
 //                 desk: the desktop answers neither through the relay.
+//   keys          the latest API keys answer as { items, seq }, or null. An item
+//                 says whether an agent has a key and where it came from, never
+//                 the key.
+//   remoteDevices the latest roster of Flockdeck Remote, remotePair the latest
+//                 pairing link or join code, and remoteOutcome the latest answer
+//                 to turning it on or off, each with a seq like the ones above.
 //   dropped       how many frames were dropped as malformed
 //
 // The structured watch and permissionAnswer are for a window on the desk, as the
@@ -188,6 +194,15 @@ const MACHINE_FILES = ["conversations", "resumeConversation", "paneInfo", "findP
  *  window reached through the relay, so the store does not send them. */
 const HELPER_COMMANDS = ["approveBaton", "helpers", "helperPlan", "helperInstall", "helperStart", "helperStop", "helperOpen", "helperUninstall", "makeBaton"];
 
+/** DESK_SETTINGS are the commands that set a key, or change how this machine is
+ *  reached or who may reach it. Each is the desk's: a key typed in a relay window
+ *  passes through the relay, and a window that could turn remote access off or on,
+ *  or widen what a device may do, could cut or widen its own way in. The desktop
+ *  refuses them there; the store does not send them. The list of keys and of
+ *  devices, pairing a device, renaming and unpairing are not here: a relay window
+ *  may do those. A join code is held back by the check in send(). */
+const DESK_SETTINGS = ["keySet", "keyClear", "remoteEnable", "remoteDisable", "remoteRemove", "remoteMove", "remoteVerify", "remoteUnverify", "setDeviceRole"];
+
 const GRAPH_OPS = new Set(["graphSnapshot", "graphWatch", "graphUnwatch"]);
 
 /** DESK_ONLY says a command is one a remote window may not send: the graph
@@ -195,14 +210,14 @@ const GRAPH_OPS = new Set(["graphSnapshot", "graphWatch", "graphUnwatch"]);
  *  MACHINE_FILES and HELPER_COMMANDS. The desktop refuses them there, so the store
  *  does not send them. paneSend is sent from two places, the manager bar and a
  *  structured pane's prompt box, and neither is drawn in a remote window. */
-const DESK_ONLY = (cmd) => typeof cmd === "string" && (cmd.startsWith("graph") || cmd.startsWith("structured") || cmd === "permissionAnswer" || cmd === "paneSend" || MACHINE_ONLY.includes(cmd) || MACHINE_FILES.includes(cmd) || HELPER_COMMANDS.includes(cmd));
+const DESK_ONLY = (cmd) => typeof cmd === "string" && (cmd.startsWith("graph") || cmd.startsWith("structured") || cmd === "permissionAnswer" || cmd === "paneSend" || MACHINE_ONLY.includes(cmd) || MACHINE_FILES.includes(cmd) || HELPER_COMMANDS.includes(cmd) || DESK_SETTINGS.includes(cmd));
 
 const initial = () => ({
   connection: "idle", retryInMs: 0,
   hello: null, remote: false, state: null,
   graph: null, graphGone: null, graphRefused: false, graphError: null,
   notice: null, versions: null, helpers: null, helperPlan: null, recents: null, browse: null, batonDraft: null, batonSaved: null, batonError: null,
-  approvals: [], detached: false, sent: null, started: null, structured: null, structuredError: null, cancelError: null, answer: null, asking: null, conversation: null, details: {}, search: null, history: null, paneInfo: null, paneMatches: null, dropped: 0,
+  approvals: [], detached: false, sent: null, started: null, structured: null, structuredError: null, cancelError: null, answer: null, asking: null, conversation: null, details: {}, search: null, history: null, paneInfo: null, paneMatches: null, keys: null, remoteDevices: null, remotePair: null, remoteOutcome: null, dropped: 0,
 });
 
 /** upsert returns entries with each of the new ones in place of the one with its
@@ -239,6 +254,10 @@ export function createStore(opts) {
   let historySeq = 0;
   let infoSeq = 0;
   let matchSeq = 0;
+  let keysSeq = 0;
+  let rosterSeq = 0;
+  let pairSeq = 0;
+  let outcomeSeq = 0;
   let batonSeq = 0;
   let approvalSeq = 0;
   // The pane each structuredCancel in flight was for, by its req, so a refusal is
@@ -453,6 +472,18 @@ export function createStore(opts) {
       case "paneMatches":
         if (!snap.remote) set({ paneMatches: { ...msg, seq: ++matchSeq } });
         break;
+      case "keys":
+        set({ keys: { ...msg, seq: ++keysSeq } });
+        break;
+      case "remoteDevices":
+        set({ remoteDevices: { ...msg, seq: ++rosterSeq } });
+        break;
+      case "remotePair":
+        set({ remotePair: { ...msg, seq: ++pairSeq } });
+        break;
+      case "remoteOutcome":
+        set({ remoteOutcome: { ...msg, seq: ++outcomeSeq } });
+        break;
       case "versions":
         set({ versions: { items: Array.isArray(msg.items) ? msg.items : [], error: typeof msg.error === "string" ? msg.error : "" } });
         break;
@@ -525,6 +556,11 @@ export function createStore(opts) {
       notify();
     },
     getState() { return snap; },
+    /** clearPair lets go of the last pairing link and join code, which the page
+     *  would otherwise keep (url, QR, code) for its whole life. */
+    clearPair() {
+      if (snap.remotePair) set({ remotePair: null });
+    },
     subscribe(fn) {
       listeners.add(fn);
       return () => listeners.delete(fn);
@@ -535,6 +571,8 @@ export function createStore(opts) {
     send(cmd) {
       // Until the hello says otherwise a window may be remote, so a desk-only command waits for it.
       if ((snap.remote || !snap.hello) && DESK_ONLY(cmd.cmd)) return false;
+      // A code that takes another desktop into the account is made at the desk.
+      if ((snap.remote || !snap.hello) && cmd.cmd === "remotePair" && cmd.kind === "host") return false;
       if (cmd.cmd === "permissionAnswer" && askedCards.has(cardKey(cmd))) return true;
       const sent = socket.send(cmd);
       if (sent && cmd.cmd === "permissionAnswer") {

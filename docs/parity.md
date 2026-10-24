@@ -8,10 +8,10 @@ It compares two lists the sources hold: the actions of the key table (`internal/
 
 | | Actions | Commands |
 | --- | --- | --- |
-| done | 36 | 64 |
+| done | 38 | 84 |
 | replaced | 0 | 3 |
 | cut | 14 | 11 |
-| planned | 8 | 78 |
+| planned | 6 | 58 |
 | unclassified | 0 | 0 |
 | total | 58 | 156 |
 
@@ -60,7 +60,6 @@ The old interface let a person tile, split, move and broadcast to panes. The new
 | T136 (L1, start flows and pane lifecycle) | `selectTab`, `closeFinishedPanes` | `agents`, `closeFinishedPanes`, `focusPane`, `refreshAgents`, `teamClose`, `toggleZoom` |
 | T137 (L2, settings) |  | `dismissTip`, `railExpanded`, `railWidth`, `resetKeybinding`, `resetKeybindings`, `setAgentAddress`, `setAgentDefault`, `setKeybinding`, `statusLine` |
 | T138 (L3, help) |  | `helpSeen` |
-| T140 (L5, API keys, remote, notifications) | `apiKeys`, `remote` | `keyClear`, `keySet`, `keys`, `notifications`, `presence`, `pushAnonymous`, `pushDelay`, `pushNotify`, `remoteDevices`, `remoteDisable`, `remoteEnable`, `remoteMove`, `remotePair`, `remoteReconnect`, `remoteRemove`, `remoteRename`, `remoteRevoke`, `remoteUnverify`, `remoteVerify`, `setDeviceRole` |
 | T143 (L8, remaining actions) | `agents`, `team` | `autoReview`, `clearRoutingLog`, `jevKey`, `jevStatus`, `msgList`, `msgSeen`, `msgSend`, `setRouting`, `setWeights`, `taskAdd`, `taskAssign`, `taskBranch`, `taskNote`, `taskPrune`, `taskStatus` |
 
 ## Must exist before the old interface is retired
@@ -111,7 +110,7 @@ These are safety and security controls. The new interface has no way to do them 
 | `closeFinishedPanes` | Close finished panes — idle agents and cleanly exited panes, in every open project | planned | T136 (L1, start flows and pane lifecycle) |
 | `startTeam` | Start a team — a manager agent that starts the rest | done |  |
 | `team` | Team — this project's roster, task board and messages (Ctrl+Shift+M) | planned | T143 (L8, remaining actions). The graph is the roster; the task board and messages dialog has no task |
-| `apiKeys` | API keys… | planned | T140 (L5, API keys, remote, notifications) |
+| `apiKeys` | API keys… | done |  |
 | `worktrees` | Worktrees (Ctrl+Shift+G) | planned | T133 (C7, worktrees) |
 | `changes` | Review changes, commit and push (Ctrl+Shift+S) | planned | T132 (C6, Changes) |
 | `palette` | Command palette (Ctrl+Shift+K) | done |  |
@@ -129,7 +128,7 @@ These are safety and security controls. The new interface has no way to do them 
 | `fontUp` | Increase font size (Ctrl+=) | done |  |
 | `fontDown` | Decrease font size (Ctrl+-) | done |  |
 | `fontReset` | Reset font size (Ctrl+0) | done |  |
-| `remote` | Flockdeck Remote… | planned | T140 (L5, API keys, remote, notifications) |
+| `remote` | Flockdeck Remote… | done |  |
 | `helpers` | Helper apps… | done |  |
 | `openRecordings` | Open recordings folder | done |  |
 | `detach` | Detach — close the window, leave agents running | done |  |
@@ -196,9 +195,9 @@ These are safety and security controls. The new interface has no way to do them 
 | `installVersion` | done |  |
 | `jevKey` | planned | T143 (L8, remaining actions). Security control: the Jev key is set and cleared here |
 | `jevStatus` | planned | T143 (L8, remaining actions). The Jev status has no task |
-| `keyClear` | planned | T140 (L5, API keys, remote, notifications) |
-| `keySet` | planned | T140 (L5, API keys, remote, notifications) |
-| `keys` | planned | T140 (L5, API keys, remote, notifications). The API keys list |
+| `keyClear` | done |  |
+| `keySet` | done |  |
+| `keys` | done |  |
 | `listVersions` | done |  |
 | `lockPane` | done |  |
 | `makeBaton` | done |  |
@@ -214,32 +213,32 @@ These are safety and security controls. The new interface has no way to do them 
 | `msgSend` | planned | T143 (L8, remaining actions). Team messages have no task |
 | `newTab` | done |  |
 | `nextTab` | done |  |
-| `notifications` | planned | T140 (L5, API keys, remote, notifications) |
+| `notifications` | done |  |
 | `openProject` | done |  |
 | `openRecordings` | done |  |
 | `paneInfo` | done |  |
-| `presence` | planned | T140 (L5, API keys, remote, notifications). Tells the desktop this window is in use, which notifications depend on |
+| `presence` | done |  |
 | `prevTab` | done |  |
-| `pushAnonymous` | planned | T140 (L5, API keys, remote, notifications) |
-| `pushDelay` | planned | T140 (L5, API keys, remote, notifications) |
-| `pushNotify` | planned | T140 (L5, API keys, remote, notifications) |
+| `pushAnonymous` | done |  |
+| `pushDelay` | done |  |
+| `pushNotify` | done |  |
 | `quit` | done |  |
 | `railExpanded` | planned | T137 (L2, settings) |
 | `railWidth` | planned | T137 (L2, settings) |
 | `recents` | done |  |
 | `recordPane` | done |  |
 | `refreshAgents` | planned | T136 (L1, start flows and pane lifecycle). The agent picker |
-| `remoteDevices` | planned | T140 (L5, API keys, remote, notifications) |
-| `remoteDisable` | planned | T140 (L5, API keys, remote, notifications) |
-| `remoteEnable` | planned | T140 (L5, API keys, remote, notifications) |
-| `remoteMove` | planned | T140 (L5, API keys, remote, notifications) |
-| `remotePair` | planned | T140 (L5, API keys, remote, notifications) |
-| `remoteReconnect` | planned | T140 (L5, API keys, remote, notifications) |
-| `remoteRemove` | planned | T140 (L5, API keys, remote, notifications) |
-| `remoteRename` | planned | T140 (L5, API keys, remote, notifications) |
-| `remoteRevoke` | planned | T140 (L5, API keys, remote, notifications) |
-| `remoteUnverify` | planned | T140 (L5, API keys, remote, notifications) |
-| `remoteVerify` | planned | T140 (L5, API keys, remote, notifications) |
+| `remoteDevices` | done |  |
+| `remoteDisable` | done |  |
+| `remoteEnable` | done |  |
+| `remoteMove` | done |  |
+| `remotePair` | done |  |
+| `remoteReconnect` | done |  |
+| `remoteRemove` | done |  |
+| `remoteRename` | done |  |
+| `remoteRevoke` | done |  |
+| `remoteUnverify` | done |  |
+| `remoteVerify` | done |  |
 | `removeProject` | done |  |
 | `removeRepoFromGroup` | done |  |
 | `renameGroup` | done |  |
@@ -265,7 +264,7 @@ These are safety and security controls. The new interface has no way to do them 
 | `sendPrompt` | replaced | sent as `paneSend`. Prompting one pane; prompting all is cut |
 | `setAgentAddress` | planned | T137 (L2, settings) |
 | `setAgentDefault` | planned | T137 (L2, settings) |
-| `setDeviceRole` | planned | T140 (L5, API keys, remote, notifications) |
+| `setDeviceRole` | done |  |
 | `setKeybinding` | planned | T137 (L2, settings) |
 | `setRouting` | planned | T143 (L8, remaining actions). Routing has no task |
 | `setWeights` | planned | T143 (L8, remaining actions). Routing has no task |
