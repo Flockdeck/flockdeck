@@ -159,3 +159,19 @@ test("with teams named on the tasks, the view shows the open team's tasks and th
   const bare = renderToString(html`<${Deps} team=${push(list.map(({ team, ...t }) => t))} model=${model(plain)} />`);
   assert.ok(bare.includes("title X1"), "a push with no team named is not scoped");
 });
+
+test("a task another team runs is marked with that team's task, not its raw owner", () => {
+  const two = buildGraphModel({
+    type: "graph", root: "/r", project: "api", solo: [], soloNeeds: [], edges: [],
+    teams: [
+      { id: "mgr", manager: "mgr", goal: "Ship the API", members: ["mgr", "api"], needs: [] },
+      { id: "m2", manager: "m2", goal: "Docs", taskId: "T9", members: ["m2", "docs"], needs: [] },
+    ],
+    nodes: [node("mgr", { role: "manager" }), node("api"), node("m2", { role: "manager", name: "docs-lead", team: "m2", task: { id: "T9", title: "Write the docs", state: "doing" } }), node("docs", { team: "m2" })],
+  });
+  const scoped = { ...two, teams: [two.teams[0]] };
+  const list = [T("T1", "assigned", [], { team: "mgr", ownerPane: "api" }), T("T9", "assigned", ["T1"], { team: "m2", ownerPane: "docs", title: "Write the docs" })];
+  const out = renderToString(html`<${Deps} team=${push(list)} model=${scoped} whole=${two} />`);
+  assert.ok(out.includes("T9 · Write the docs"), "the other team is named by its task");
+  assert.ok(out.includes("title T1"));
+});

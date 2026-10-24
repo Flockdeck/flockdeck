@@ -109,3 +109,26 @@ test("the home column, not .main, is the container the layout asks about", async
   assert.match(graph, /\.home-col \{ container: main \/ inline-size;/);
   assert.match(graph, /@container main \(max-width: 560px\)/);
 });
+
+import { taskOfTeam, taskLabelOf } from "../assets/graph/model.js";
+
+test("a team started for a task says the task, with its title; else the goal text", () => {
+  const withTask = (extra = {}, nodeTask = { id: "T4", title: "Limiter middleware", state: "doing" }) => {
+    const g = msg({ taskId: "T4", ...extra });
+    g.nodes[0].task = nodeTask;
+    return buildGraphModel(g);
+  };
+  const m = withTask();
+  assert.deepEqual(taskOfTeam(m, m.teams[0]), { id: "T4", title: "Limiter middleware" });
+  assert.equal(taskLabelOf(taskOfTeam(m, m.teams[0])), "T4 · Limiter middleware");
+  assert.deepEqual(taskOfTeam(m, m.teams[0], [{ id: "T4", title: "From the card" }]), { id: "T4", title: "From the card" });
+  assert.match(renderToString(html`<${GoalLine} model=${m} now=${NOW} />`), /goalline-goal">T4 · Limiter middleware</);
+  const untitled = withTask({}, null);
+  assert.deepEqual(taskOfTeam(untitled, untitled.teams[0]), { id: "T4", title: "" });
+  assert.match(renderToString(html`<${GoalLine} model=${untitled} now=${NOW} />`), /goalline-goal">Add rate limiting</, "no title known: the goal text");
+  const bare = withTask({ goal: "" }, null);
+  assert.match(renderToString(html`<${GoalLine} model=${bare} now=${NOW} />`), /goalline-goal">T4</, "no goal text either: the id");
+  assert.equal(taskOfTeam(buildGraphModel(msg()), buildGraphModel(msg()).teams[0]), null);
+  assert.equal(taskOfTeam(null, {}), null);
+  assert.equal(taskLabelOf(null), "");
+});

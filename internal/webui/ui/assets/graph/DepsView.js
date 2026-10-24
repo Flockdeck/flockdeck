@@ -19,7 +19,7 @@ import { focusNode } from "../drawer/state.js";
 import { teamOf, TEAM_RELAY_WORDS, isFinished as stateFinished } from "../lib/team.js";
 import { clip, stateOf } from "./Node.js";
 import { managerOf } from "./ManagerBar.js";
-import { labelOf } from "./model.js";
+import { labelOf, taskOfTeam, taskLabelOf } from "./model.js";
 import { GOAL, IDLE, scopeTasks, teamOfTask, isReady, openBlockers, planOf, loopsOf, waitsOf, minutesWords } from "./deps.js";
 import { stepOf, foldOf, ageOf } from "./Tree.js";
 
@@ -162,7 +162,10 @@ export function Deps({ team: teamMsg, model = null, whole = null, remote = false
           ${sentOf(r.key, t.state) === "failed" ? html`<span class="view-note" role="status">Not connected, so the manager was not asked.</span>` : null}
         </div>`
       : null;
-    const ownerView = owner ? { name: nameOf(home, owner.pane), state: stateOf(owner).key } : null;
+    // A task another team runs is marked with that team's own task, not the raw owner.
+    const otherTeam = runner && scope && runner !== scope.manager ? home && home.ok && home.teams.find((x) => x.manager === runner) : null;
+    const otherTask = otherTeam ? taskOfTeam(home, otherTeam, team.tasks) : null;
+    const ownerView = owner ? { name: otherTask ? taskLabelOf(otherTask) : nameOf(home, owner.pane), state: stateOf(owner).key, other: !!otherTask } : null;
     const ownerWords = owner || stateFinished(t.state) ? "" : t.state === "planned" ? "no one yet" : t.owner || "";
     return html`<${Fragment} key=${r.key}>
       <${DepRow} r=${r} stop=${stop === r.key} cls=${cls} onFocus=${() => setFocus(r.key)} onToggle=${toggle} onLink=${go}
@@ -227,7 +230,7 @@ function DepRow({ r, stop, cls = "", onFocus, onToggle, onLink = null, glyph, id
     <span class="tree-c deps-tk">${id}</span>
     <span class="tree-c deps-ttl" title=${title}>${clip(title, 160)}${sub ? html` <span class="deps-sub">${sub}</span>` : null}</span>
     <span class="deps-more">
-      <span class="tree-c deps-own">${owner ? html`<span class=${"tree-glyph tree-glyph--" + owner.state} aria-hidden="true"></span> ${clip(owner.name, 14)}` : ownerWords ? html`<span class="deps-none">${ownerWords}</span>` : null}</span>
+      <span class="tree-c deps-own" title=${owner ? owner.name : undefined}>${owner ? html`<span class=${"tree-glyph tree-glyph--" + owner.state} aria-hidden="true"></span> ${clip(owner.name, 14)}` : ownerWords ? html`<span class="deps-none">${ownerWords}</span>` : null}</span>
       ${chips.length > 0 ? html`<span class="tree-chips">${chips.map((c) => html`<${Chip} key=${c.kind + c.text} c=${c} onLink=${onLink} />`)}</span>` : null}
     </span>
     ${est !== "" || fin !== "" ? html`<span class="tree-c deps-est">${est}</span><span class="tree-c deps-fin">${fin}</span>` : null}
