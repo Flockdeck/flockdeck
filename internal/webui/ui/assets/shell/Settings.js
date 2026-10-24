@@ -23,6 +23,7 @@ import { JevStatus } from "./Jev.js";
 import { Routing } from "./Routing.js";
 import { Keybindings } from "./Keybindings.js";
 import { AgentSettings } from "./AgentSettings.js";
+import { Wake } from "./Wake.js";
 import { SPONSOR_URL } from "./links.js";
 import {
   ACCENTS, CURSORS, FONT_DEFAULT, FONT_MAX, FONT_MIN, FONT_SUGGESTIONS, SCROLLBACK_COUNTS, SCROLLBACK_MAX, SCROLLBACK_MIN,
@@ -30,7 +31,7 @@ import {
 } from "../lib/prefs.js";
 
 /** SECTIONS are the parts of the dialog. */
-export const SECTIONS = [["general", "General"], ["appearance", "Appearance"], ["terminal", "Terminal"], ["notifications", "Notifications"], ["keys", "API keys"], ["remote", "Remote"], ["status", "Status detection"], ["agents", "Agents & models"], ["routing", "Routing"], ["keyboard", "Keyboard"]];
+export const SECTIONS = [["general", "General"], ["appearance", "Appearance"], ["terminal", "Terminal"], ["notifications", "Notifications"], ["wake", "Typed wake"], ["keys", "API keys"], ["remote", "Remote"], ["status", "Status detection"], ["agents", "Agents & models"], ["routing", "Routing"], ["keyboard", "Keyboard"]];
 
 /** Settings is the dialog. prefs are the values in use (prefsOf), change(name,
  *  value) sends one change (setting in lib/prefs.js), and onClose closes it. ctx is
@@ -99,6 +100,7 @@ export function Settings({ prefs, change, onClose, section: first = "general", c
             ${section === "status" ? html`<${JevStatus} prefs=${prefs} change=${change} remote=${!!ctx.remote} jev=${ctx.jev || null} send=${ctx.send} />` : null}
             ${section === "routing" ? html`<${Routing} agents=${ctx.agents || null} project=${ctx.project || ""} send=${ctx.send} />` : null}
             ${section === "agents" ? html`<${AgentSettings} agents=${ctx.agents || null} project=${ctx.project || ""} answer=${ctx.addressAnswer || null} remote=${!!ctx.remote} send=${ctx.send} />` : null}
+            ${section === "wake" ? html`<${Wake} wake=${prefs.wake} agents=${ctx.agents || null} panes=${ctx.panes || []} remote=${!!ctx.remote} send=${ctx.send} />` : null}
             ${section === "keyboard" ? html`<${Keybindings} keys=${ctx.table || null} send=${ctx.send} page=${ctx.page || null} onRecording=${ctx.onRecording} />` : null}
             ${section === "remote"
               ? html`<${Remote} status=${ctx.status || null} roster=${ctx.roster || null} pair=${ctx.pair || null} outcome=${ctx.outcome || null} remote=${!!ctx.remote}

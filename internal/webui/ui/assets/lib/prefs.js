@@ -9,6 +9,7 @@
 // why a value was not sent.
 
 import { PUSH_DELAY_MAX, PUSH_DELAY_MIN, pushOf, pushPrefs } from "./attention.js";
+import { wakeOf } from "./wake.js";
 
 /** DEFAULT_FONT is the terminals' font list when none is chosen. */
 export const DEFAULT_FONT = '"Cascadia Mono", "JetBrains Mono", Consolas, "SF Mono", Menlo, monospace';
@@ -79,6 +80,7 @@ export function prefsOf(raw) {
     statusLine: r.spend && (r.spend.statusLine === "on" || r.spend.statusLine === "off") ? r.spend.statusLine : "auto",
     railExpanded: r.railExpanded === true,
     railWidth: whole(r.railWidth) && r.railWidth >= RAIL_MIN && r.railWidth <= RAIL_MAX ? r.railWidth : RAIL_DEFAULT,
+    wake: wakeOf(r.wake),
     helpSeen: r.helpSeen === true,
     dismissedTips: Array.isArray(r.dismissedTips) ? r.dismissedTips.filter((t) => typeof t === "string").length : 0,
   };
