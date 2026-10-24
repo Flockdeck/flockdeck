@@ -19,6 +19,9 @@
 // - Times appear only when the desk sent an estimate for some task. Without one
 //   the critical path is still chosen, by the longest chain of work.
 
+import { stateOf } from "./Node.js";
+import { isLoud } from "./Badge.js";
+
 const FINISHED = new Set(["done", "cancelled"]);
 
 /** isFinished says a task needs nothing more of anyone. */
@@ -127,6 +130,23 @@ export function planOf(tasks, folded = new Set()) {
   const finish = (id) => fin.get(id) || 0;
   const order = (ids) => ids.slice().sort((a, b) => finish(b) - finish(a));
   const goalKids = order(sinksOf(idx).filter((id) => !isFinished(idx.byId.get(id))));
+  // A ring in the tasks has no end for the goal to wait on: hang the first task nothing above reaches.
+  const reached = new Set();
+  const reach = (from) => {
+    const todo = [from];
+    while (todo.length > 0) {
+      const id = todo.pop();
+      if (reached.has(id)) continue;
+      reached.add(id);
+      for (const b of openBlockers(idx, id)) todo.push(b.id);
+    }
+  };
+  goalKids.forEach(reach);
+  for (const [id, t] of idx.byId) {
+    if (reached.has(id) || isFinished(t)) continue;
+    goalKids.push(id);
+    reach(id);
+  }
   const total = goalKids.length > 0 ? finish(goalKids[0]) : 0;
 
   // The critical path: from the goal, the open blocker that finishes last, over and over.
@@ -166,4 +186,62 @@ export function minutesWords(m) {
   if (!(m > 0)) return "done";
   const h = Math.floor(m / 60);
   return "+" + (h > 0 ? h + "h " + (m % 60 ? (m % 60) + "m" : "") : m + "m").trim();
+}
+
+// A pane's wait on another pane, from the graph's own waitingOn: helpers with a ref.
+const waitRef = (model, n) => (n.waitingOn && n.waitingOn.kind === "helpers" && n.waitingOn.ref && model.byPane.has(n.waitingOn.ref) && n.waitingOn.ref !== n.pane ? n.waitingOn.ref : "");
+
+/**
+ * loopsOf are the rings of panes that wait on each other, each as the panes in
+ * order of who waits on whom. A pane waits on at most one other, so a ring is a
+ * cycle of that chain; a pane that only waits on a ring is not in it.
+ */
+export function loopsOf(model) {
+  const out = [];
+  if (!model || !model.ok) return out;
+  const state = new Map();
+  for (const start of model.nodes) {
+    if (state.has(start.pane)) continue;
+    const path = [];
+    let cur = start.pane;
+    while (cur && !state.has(cur)) {
+      state.set(cur, 1);
+      path.push(cur);
+      cur = waitRef(model, model.byPane.get(cur));
+    }
+    if (cur && state.get(cur) === 1) out.push(path.slice(path.indexOf(cur)));
+    for (const p of path) state.set(p, 2);
+  }
+  return out;
+}
+
+/**
+ * waitsOf are the waits between agents as rows: { key, kind, from, to, why }.
+ * kind is "loop" (a ring), "you" (the pane asks the person), "overlap" (two panes
+ * on the same file) or "agent" (a plain wait on another pane), in that order.
+ */
+export function waitsOf(model) {
+  if (!model || !model.ok) return [];
+  const ring = new Set();
+  const rows = { loop: [], you: [], overlap: [], agent: [] };
+  for (const r of loopsOf(model)) {
+    for (let i = 0; i < r.length; i++) {
+      ring.add(r[i]);
+      const n = model.byPane.get(r[i]);
+      rows.loop.push({ key: "w-" + r[i] + "-" + r[(i + 1) % r.length], kind: "loop", from: r[i], to: r[(i + 1) % r.length], why: n.waitingOn.text || "" });
+    }
+  }
+  const seen = new Set();
+  for (const n of model.nodes) {
+    const mine = (model.needsByPane.get(n.pane) || []).filter((x) => x.pane === n.pane);
+    if (isLoud(mine.filter((x) => x.kind !== "conflict")) || stateOf(n).key === "waiting") rows.you.push({ key: "w-" + n.pane + "-you", kind: "you", from: n.pane, to: "you", why: "" });
+    for (const x of mine) {
+      if (x.kind !== "conflict" || !x.other || seen.has(x.id)) continue;
+      seen.add(x.id);
+      rows.overlap.push({ key: "w-" + n.pane + "-" + x.other + "~o", kind: "overlap", from: n.pane, to: x.other, why: x.text || "" });
+    }
+    const to = waitRef(model, n);
+    if (to && !ring.has(n.pane)) rows.agent.push({ key: "w-" + n.pane + "-" + to, kind: "agent", from: n.pane, to, why: n.waitingOn.text || "" });
+  }
+  return [...rows.loop, ...rows.you, ...rows.overlap, ...rows.agent];
 }
