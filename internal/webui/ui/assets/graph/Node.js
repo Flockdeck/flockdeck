@@ -1,7 +1,7 @@
 // One pane drawn as a box in the graph's SVG. Everything the person needs to
 // tell the pane's state is in the box without hover: a mark and a word for its
-// status, its name and role, the task, the live line, what it waits on, a faint
-// count of its messages and, on a manager, the team's spend.
+// status, its name and role, the task, the live line, what it waits on, a note
+// of messages not told yet and, on a manager, the team's spend.
 //
 // A pane that asks something of the person is drawn loud: an amber bar and tint,
 // and the question or command in a block of its own (Badge.js), with no live
@@ -117,9 +117,9 @@ export function waitLine(node, byPane) {
   }
 }
 
-/** countsLine is the faint count of messages to and from a pane. */
-export function countsLine(c) {
-  return c.in + " in, " + c.out + " out";
+/** undeliveredLine is the amber note on a pane that sent messages not told to their pane yet. The plain count of messages in and out is not drawn. */
+export function undeliveredLine(c) {
+  return c.undelivered + " undelivered";
 }
 
 /** opener is the attributes and handlers that make a box open its pane. */
@@ -205,9 +205,7 @@ export function Node({ node, box, team = null, onOpen = null, open = false, loud
       ${!loud && node.live ? html`<text class="gnode-live" x=${PAD} y=${ROWS.live}>${clip(node.live, limitOf(w, "mono"))}</text>` : null}
       ${!loud && wait ? html`<text class="gnode-wait" x=${PAD} y=${ROWS.wait}>${"→ " + clip(wait, limitOf(w, "role") - 2)}</text>` : null}
       ${spend ? html`<text class="gnode-spend" x=${w - PAD} y=${box.h + ROWS.foot} text-anchor="end">${clip(spend, 16)}</text>` : null}
-      ${counts
-        ? html`<text class="gnode-msgs" x=${PAD} y=${box.h + ROWS.foot}>${countsLine(counts)}${counts.undelivered > 0 ? html`<tspan class="gnode-und" dx="8">${counts.undelivered} undelivered</tspan>` : null}</text>`
-        : null}
+      ${counts && counts.undelivered > 0 ? html`<text class="gnode-msgs gnode-und" x=${PAD} y=${box.h + ROWS.foot}>${undeliveredLine(counts)}</text>` : null}
     </g>
   `;
 }

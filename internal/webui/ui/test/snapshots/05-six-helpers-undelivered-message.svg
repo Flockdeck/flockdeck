@@ -52,7 +52,6 @@
 <text class="gnode-role" x="12" y="43">manager · claude</text>
 <text class="gnode-wait" x="12" y="94">→ waiting on forms</text>
 <text class="gnode-spend" x="204" y="110" text-anchor="end">$8.00</text>
-<text class="gnode-msgs" x="12" y="110">1 in, 0 out</text>
 </g>
 <g class="gneed" data-pane="c2beaec2" transform="translate(376 68)">
 <g class="gbadge gbadge--quiet" data-kind="stale-unread" role="img" aria-label="Needs you: has unread mail">
@@ -133,8 +132,7 @@
 <text class="gnode-name" x="32" y="24">tests</text>
 <text class="gnode-state" x="204" y="24" text-anchor="end">idle</text>
 <text class="gnode-role" x="12" y="43">worker · claude</text>
-<text class="gnode-msgs" x="12" y="110">0 in, 1 out<tspan class="gnode-und" dx="8">1 undelivered</tspan>
-</text>
+<text class="gnode-msgs gnode-und" x="12" y="110">1 undelivered</text>
 </g>
 </g>
 <g class="gslot">
