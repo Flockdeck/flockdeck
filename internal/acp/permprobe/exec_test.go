@@ -13,9 +13,19 @@ import (
 // The test binary stands in for the program Exec runs: when
 // FLOCKDECK_PERMPROBE_HELPER is set it does what the variable says and exits,
 // and otherwise the tests run as usual.
+//
+// A child that has FLOCKDECK_PERMPROBE_DEPTH but no helper mode has lost the
+// variable that makes it a helper, and would run the whole suite and start
+// another child without end. It exits at once instead. The depth variable is
+// set in the test process itself (so a child that inherits the parent's
+// environment carries it) and in every environment helper builds.
 func init() {
 	mode := os.Getenv("FLOCKDECK_PERMPROBE_HELPER")
 	if mode == "" {
+		if os.Getenv("FLOCKDECK_PERMPROBE_DEPTH") != "" {
+			os.Exit(2)
+		}
+		os.Setenv("FLOCKDECK_PERMPROBE_DEPTH", "1")
 		return
 	}
 	switch mode {
@@ -45,7 +55,7 @@ func helper(t *testing.T, mode string, more ...string) (string, []string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return exe, append([]string{"FLOCKDECK_PERMPROBE_HELPER=" + mode}, more...)
+	return exe, append([]string{"FLOCKDECK_PERMPROBE_HELPER=" + mode, "FLOCKDECK_PERMPROBE_DEPTH=1"}, more...)
 }
 
 func TestExecReturnsWhatTheProgramPrintedInTheGivenDirectoryWithOnlyTheGivenEnvironment(t *testing.T) {
