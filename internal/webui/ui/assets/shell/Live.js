@@ -19,7 +19,7 @@ import { feedStep } from "../graph/FeedDiff.js";
 import { nextNeedsYou, paneAt, prevNeedsYou } from "../graph/keys.js";
 import { Shell, useNarrow } from "./app.js";
 import { FootButton } from "./rail.js";
-import { Board, ChangesView, Replay, VIEWS } from "./Views.js";
+import { Board, ChangesView, Replay, firstViewOf, viewsOf } from "./Views.js";
 import { Home, sameProject, rosterOf } from "./Home.js";
 import { Start } from "./Start.js";
 import { Confirm } from "./Confirm.js";
@@ -117,7 +117,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
   const [findingPane, setFindingPane] = useState(false);
   const [findAsk, setFindAsk] = useState(0);
   // The view the strip's switch has chosen: graph, board, changes or replay.
-  const [view, setView] = useState("graph");
+  const [view, setView] = useState(firstViewOf());
   const [tabAsk, setTabAsk] = useState({ tab: "", n: 0 });
   // The helper apps and projects dialogs, and the baton being made: the pane it
   // is for, the name to show, and the request that asked for its draft.
@@ -442,7 +442,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
         items.push({ id: "agent-" + n.pane, group: "Agents", name: "Open " + (n.name || n.pane), detail: [n.role, n.status].filter(Boolean).join(" · "), run: () => drawer.open(n.pane) });
       }
     }
-    for (const [id, name] of VIEWS) items.push({ id: "view-" + id, group: "Views", name: "Show " + name, detail: "", run: () => chooseView(id) });
+    for (const [id, name] of viewsOf()) items.push({ id: "view-" + id, group: "Views", name: "Show " + name, detail: "", run: () => chooseView(id) });
     return items;
   }, [current, view]);
   // How many items need the person in each tab: from the graph's needs: the tab's
@@ -645,9 +645,11 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
       onHistory=${snap.remote ? null : () => setHistoryOpen(true)} onFind=${snap.remote ? null : () => setFindingPane(true)} />` : null}
     <div class="view-graph" hidden=${view !== "graph"}>
      <div class=${"home-split" + (showFeed ? " home-split--feed" : "")}>
+      <div class="home-col">
       <${Home} snap=${snap} selected=${selected} onShown=${setShown} onOpen=${drawer.open} open=${drawer.pane} narrow=${narrow} send=${snap.remote ? null : send}
         onStartTeam=${snap.remote ? null : () => setStarting("team")}
         onSeeChanges=${(p) => { drawer.open(p); setTabAsk((a) => ({ tab: "changes", n: a.n + 1, pane: p })); }} />
+      </div>
       ${showFeed ? html`<${Feed} feed=${feed} onFocus=${(p) => focusNode(mainRef.current, p)} />` : null}
      </div>
     </div>

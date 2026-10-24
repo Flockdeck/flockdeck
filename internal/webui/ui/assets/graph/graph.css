@@ -568,33 +568,33 @@
 }
 
 
-/* The goal line above the needs-you strip: the goal first, then the facts as small
- * chips that follow it on the same row when there is room and wrap under it, left
- * aligned, when there is not. */
-.goalline-box { margin: 0 0 8px; }
+/* The goal line: one unframed row. The label and the goal come first, and the facts
+ * follow at the right, set apart by thin rules. When the row is too narrow the facts
+ * wrap under the goal, at the left. */
+.goalline-box { margin: 0; }
 .goalline {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: baseline;
   gap: 6px 16px;
   margin: 0;
-  padding: 6px 0;
+  padding: 10px 16px;
   border-bottom: 1px solid var(--line-subtle);
   font-size: 13px;
 }
-.goalline-head { display: flex; align-items: baseline; gap: 8px; min-width: 0; max-width: 100%; }
-.goalline-label { flex: none; color: var(--fg-dim); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; }
-.goalline-goal { color: var(--fg); min-width: 0; overflow-wrap: anywhere; }
-.goalline-facts { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
-.goalline-fact {
-  padding: 1px 8px;
-  border: 1px solid var(--line-subtle);
-  border-radius: 999px;
-  font-size: 12px;
-  white-space: nowrap;
-  color: var(--fg-dim);
-}
-.goalline-needs, .goalline-helpers.is-capped { color: var(--waiting); border-color: var(--waiting); }
+.goalline-head { display: flex; align-items: baseline; gap: 10px; flex: 1 1 320px; min-width: 0; }
+.goalline-label { flex: none; color: var(--fg-dim); font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase; }
+.goalline-goal { color: var(--fg); font-weight: 500; min-width: 0; overflow-wrap: anywhere; }
+.goalline-facts { display: flex; flex-wrap: wrap; align-items: baseline; margin-left: auto; font-size: 12px; color: var(--fg-dim); }
+.goalline-fact { padding: 0 10px; white-space: nowrap; }
+.goalline-fact + .goalline-fact { border-left: 1px solid var(--line); }
+.goalline-fact:last-child { padding-right: 0; }
+.goalline-time, .goalline-cost { font-family: var(--mono); }
+.goalline-cost { color: var(--fg); }
+.goalline-needs { color: var(--waiting); font-weight: 600; }
+.goalline-helpers.is-capped { color: var(--waiting); }
+/* The main column's own width decides this, so an open drawer is counted. */
+@container main (max-width: 560px) { .goalline-facts { margin-left: 0; flex-basis: 100%; } .goalline-fact:first-child { padding-left: 0; } }
 .graph-empty p { margin: 0 0 8px; }
 .graph-empty-start { font: inherit; }
 
@@ -611,6 +611,7 @@
 /* The activity feed beside the team home. It sits right of the home at 360 px and
    under it below 1000 px. */
 .home-split { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; min-width: 0; }
+.home-col { container: main / inline-size; min-width: 0; }
 .home-split--feed { grid-template-columns: minmax(0, 1fr) 360px; }
 .feed {
   border-left: 1px solid var(--line);
