@@ -83,7 +83,7 @@ export function hasTerminal(node, pane) {
 /** Drawer is the component. store is the store of store.js; node and pane are the
  *  graph node and the state push's entry for it. terminalOptions reach the
  *  terminal, which is how a test gives it fakes for xterm and the socket. */
-function DrawerBody({ store, snap = null, node, pane = null, now, maximised = false, onClose, onToggleMax, onOpenPane = null, terminalOptions = null, life = null, tx = null, onInfo = null, findAsk = 0, tabAsk = null, order = [] }) {
+function DrawerBody({ store, snap = null, node, pane = null, now, maximised = false, onClose, onToggleMax, onOpenPane = null, terminalOptions = null, life = null, tx = null, onInfo = null, findAsk = 0, tabAsk = null, order = [], onStartTeam = null }) {
   const rootRef = useRef(null);
   const terminalRef = useRef(null);
   // The terminal's controller once it is made, for the search bar, and the search
@@ -222,7 +222,8 @@ function DrawerBody({ store, snap = null, node, pane = null, now, maximised = fa
   return html`
     <section class=${"drawer-body" + (maximised ? " drawer-body--max" : "")} data-drawer-pane=${node.pane} tabindex="-1" ref=${rootRef} onKeyDown=${onKeyDown}>
       <${Header} node=${node} pane=${pane} now=${now} maximised=${maximised} onClose=${onClose} onToggleMax=${onToggleMax}
-        taskOpen=${taskOpen} onTask=${() => setTaskOpen(!taskOpen)} onStep=${order.length > 1 ? step : null} moreOpen=${showMore} onMore=${life || tx ? () => setMore(!more) : null} />
+        taskOpen=${taskOpen} onTask=${() => setTaskOpen(!taskOpen)} onStep=${order.length > 1 ? step : null} moreOpen=${showMore} onMore=${life || tx ? () => setMore(!more) : null}
+        onStartTeam=${onStartTeam && !node.team && !node.shell ? onStartTeam : null} />
       ${taskOpen && node.task ? html`<${Task} key=${node.task.id} node=${node} snap=${state} store=${store} onOpenPane=${onOpenPane} onClose=${() => setTaskOpen(false)} />` : null}
       ${showMore
         ? html`<div class="drawer-more-panel" id="drawer-more">

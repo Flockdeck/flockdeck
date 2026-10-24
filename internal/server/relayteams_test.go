@@ -520,3 +520,26 @@ func TestRelayTeamsBuilderHoldsNoTextBeforeTheScrub(t *testing.T) {
 		}
 	}
 }
+
+// A stuck pane is a quiet item for the desk. A phone is told nothing of it: the
+// relay has no word for it, and it carries no text.
+func TestRelayTeamsLeaveOutAStuckPane(t *testing.T) {
+	g := graphMsg{
+		Type: "graph", Project: "p",
+		Teams: []graphTeamView{{ID: "m", Manager: "m", Members: []string{"m", "a"}, Needs: []team.NeedsItem{
+			{ID: "stuck:a", Kind: team.NeedStuck, Pane: "a", Text: "no output for 12m"},
+			{ID: "ask:a", Kind: team.NeedAsk, Pane: "a", Text: "question"},
+		}}},
+		Nodes: []graphNodeView{{Pane: "m", Team: "m", Activity: "working", Status: "working"}, {Pane: "a", Parent: "m", Team: "m", Activity: "working", Status: "working"}},
+	}
+	out, err := json.Marshal(relayProjectFromGraph(g))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(out, []byte("stuck")) || bytes.Contains(out, []byte("no output")) {
+		t.Errorf("the relay form says a pane is stuck:\n%s", out)
+	}
+	if !bytes.Contains(out, []byte(`"question"`)) {
+		t.Errorf("the relay form lost the question:\n%s", out)
+	}
+}

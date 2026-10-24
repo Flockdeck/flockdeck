@@ -249,10 +249,11 @@ their own (`soloNeeds`).
 | `down` | a pane failed, or exited with a code other than 0, and was not closed by the person | when its status began | `failed` and the reason, or `exited with code N` |
 | `setup` | a structured pane could not start and needs something from the person: Node, a sign-in, or the agent's program | when its status began | the fix, cut to 200 characters |
 | `stale-unread` | a pane that is idle has had unread mail from an agent or the person for more than 30 minutes (Flockdeck's own notices do not count). One item per team: the pane with the oldest such mail, and when other panes qualify too, the count of panes and messages | when the oldest unread message arrived | how many are unread |
+| `stuck` | a terminal pane is working and has written nothing to its terminal for 10 minutes. A quiet item: the agent may be thinking, so it asks nothing, it says where to look. A structured pane has no output stream and is never listed | when it last wrote | `no output for 12m` |
 
 - **Order.** Permission and ask first, by how long they have waited, longest first;
   then returned, newest first; then conflict; then down; then setup; then stale-unread, oldest
-  first. An item whose time is not known (`0001-01-01T00:00:00Z`) is listed after
+  first; then stuck, longest quiet first. An item whose time is not known (`0001-01-01T00:00:00Z`) is listed after
   the others of its kind.
 - **Down.** A shell is listed only when it failed. A pane that is down is never
   listed as waiting on a prompt, since it cannot be answered.

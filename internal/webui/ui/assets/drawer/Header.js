@@ -52,7 +52,7 @@ export function countsOf(node) {
 
 /** Header is the top of the drawer. node is the graph node; pane is the state
  *  push's entry for the same pane, or null; now is the time in milliseconds. */
-export function Header({ node, pane = null, now = Date.now(), maximised = false, onClose, onToggleMax, taskOpen = false, onTask = null, moreOpen = false, onMore = null, onStep = null }) {
+export function Header({ node, pane = null, now = Date.now(), maximised = false, onClose, onToggleMax, taskOpen = false, onTask = null, moreOpen = false, onMore = null, onStep = null, onStartTeam = null }) {
   const state = stateOf(node);
   const since = sinceOf(node.since, now);
   const spend = spendText(pane && pane.spend);
@@ -69,6 +69,9 @@ export function Header({ node, pane = null, now = Date.now(), maximised = false,
           ${onStep
             ? html`<button type="button" class="drawer-btn drawer-prev" aria-label="Previous agent" title="Previous agent ([)" onClick=${() => onStep(-1)}>‹</button>
               <button type="button" class="drawer-btn drawer-next" aria-label="Next agent" title="Next agent (])" onClick=${() => onStep(1)}>›</button>`
+            : null}
+          ${onStartTeam
+            ? html`<button type="button" class="drawer-btn drawer-team" title="Start a team: a new manager agent that starts the rest" onClick=${onStartTeam}>Start a team</button>`
             : null}
           ${onMore
             ? html`<button type="button" class="drawer-btn drawer-more" aria-expanded=${moreOpen ? "true" : "false"} aria-controls="drawer-more" title="Restart, lock, close, pane info, recording and more" onClick=${onMore}>More</button>`

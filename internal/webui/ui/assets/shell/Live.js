@@ -14,7 +14,7 @@ import { useStore } from "../lib/use-store.js";
 import { Drawer, hasTerminal, useDrawer } from "../drawer/Drawer.js";
 import { focusNode } from "../drawer/state.js";
 import { ManagerBar, managerOf } from "../graph/ManagerBar.js";
-import { nextNeedsYou, paneAt } from "../graph/keys.js";
+import { nextNeedsYou, paneAt, prevNeedsYou } from "../graph/keys.js";
 import { Shell, useNarrow } from "./app.js";
 import { FootButton } from "./rail.js";
 import { Board, ChangesView, Replay, VIEWS } from "./Views.js";
@@ -441,14 +441,20 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     }
     return out;
   }, [current, tabs]);
+  // step is nextNeedsYou or prevNeedsYou. The pane the keyboard is on, or the open drawer's, is where it starts.
+  const jumpNeedsYou = (step) => {
+    if (!current || snap.graphGone) return;
+    const doc = (win || (typeof window !== "undefined" ? window : null) || {}).document;
+    const at = (doc && paneAt(doc.activeElement)) || drawer.pane;
+    const to = step(current, at);
+    if (!to) return;
+    focusNode(mainRef.current, to);
+    drawer.open(to, "key");
+  };
   const actions = useMemo(() => ({
-    nextNeedsYou: () => {
-      if (!current || snap.graphGone) return;
-      const doc = (win || (typeof window !== "undefined" ? window : null) || {}).document;
-      const at = (doc && paneAt(doc.activeElement)) || drawer.pane;
-      const to = nextNeedsYou(current, at);
-      if (to) focusNode(mainRef.current, to);
-    },
+    // The jump lands on the agent's box and opens its drawer, where the prompt is.
+    nextNeedsYou: () => jumpNeedsYou(nextNeedsYou),
+    prevNeedsYou: () => jumpNeedsYou(prevNeedsYou),
     managerBar: () => {
       const el = barRef.current;
       if (el && el.focus) el.focus();
@@ -616,7 +622,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     drawer=${node
       ? html`<${Drawer} store=${store} snap=${snap} node=${node} pane=${pane} now=${Date.now()} maximised=${drawer.maximised}
           onClose=${drawer.close} onToggleMax=${drawer.toggleMax} terminalOptions=${termProps} life=${life}
-          tx=${tx} onInfo=${openInfo} findAsk=${findAsk} tabAsk=${tabAsk} onOpenPane=${drawer.open} order=${order} />`
+          tx=${tx} onInfo=${openInfo} findAsk=${findAsk} tabAsk=${tabAsk} onOpenPane=${drawer.open} order=${order} onStartTeam=${snap.remote ? null : () => setStarting("team")} />`
       : null}
   >${snap.state ? html`<${Tabs} tabs=${tabs} send=${send} show=${onDesk} warnFor=${(t) => closeTabWarnings(t, current ? current.byPane : null, statePanes)} onChoose=${() => setStarting("agent")} needs=${tabNeeds} view=${view} onView=${chooseView}
       onHistory=${snap.remote ? null : () => setHistoryOpen(true)} onFind=${snap.remote ? null : () => setFindingPane(true)} />` : null}
