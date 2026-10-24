@@ -27,7 +27,15 @@ changed owner before.
 `runsWithoutAsking` is set on an adapter whose agent may run shell commands and edits without
 sending a permission request. It is what was seen of the tested version. A structured pane of such an agent
 shows a standing warning in the drawer header. opencode is marked although Flockdeck starts it to ask
-(`launchEnv`, below): a repository's own agent permissions override that.
+(`launchEnv`, below): a repository's own agent permissions can override that. For an adapter with a
+`permissionProbe` the flag holds only until the launch check has run, and the check's answer replaces it.
+
+`permissionProbe` names a command that lists the agents and their resolved permissions (`args`, after the
+adapter's command), the agent whose rules the value is built from (`agent`), the `launchEnv` variable to put the
+value in (`setting`) and the tools that must ask (`tools`, up to four). Flockdeck runs it in the pane's directory
+without the setting, builds a value that keeps the denials and turns allows into asks, runs it again with the
+value, and flags the pane if a tool still allows in any agent it lists. The value falls
+back to the plain `launchEnv` one when the rules cannot be read or kept. `internal/acp/permprobe` has the rules.
 
 `launchEnv` is environment Flockdeck sets for the adapter when it starts it: up to four variables, with
 capital-letter names that are not Flockdeck's own and fixed values written in the manifest. It is added after

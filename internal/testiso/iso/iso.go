@@ -305,6 +305,7 @@ var keptEnv = map[string]bool{
 	"FLOCKDECK_RADAR_BENCH_EDITS":   true,
 	"FLOCKDECK_RADAR_BENCH_PANES":   true,
 	"FLOCKDECK_RADAR_BENCH_REPO":    true,
+	"FLOCKDECK_REAL_OPENCODE":       true,
 	"FLOCKDECK_RELEASE_BUILD":       true,
 	"FLOCKDECK_SLOW":                true,
 	"FLOCKDECK_STATUS_BUGS":         true,

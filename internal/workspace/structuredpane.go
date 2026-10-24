@@ -43,12 +43,9 @@ var ErrStructuredPane = errors.New("that pane is a structured agent pane and has
 
 // structuredRuntime is the PaneRuntime of a structured pane.
 type structuredRuntime struct {
-	w  *Workspace
-	p  *Pane
-	rt *structured.Runtime
-	// unasked is the manifest's word that the agent runs without asking.
-	unasked bool
-
+	w       *Workspace
+	p       *Pane
+	rt      *structured.Runtime
 	started time.Time
 	// prior is what the sessions before this one showed, oldest first. A restart
 	// starts a fresh session and keeps the earlier entries as history.
@@ -120,7 +117,7 @@ func (w *Workspace) startStructured(p *Pane, spec agent.Spec) {
 		return
 	}
 	p.history = nil
-	sr := &structuredRuntime{w: w, p: p, rt: rt, unasked: spec.RunsWithoutAsking(), started: time.Now(), prior: prior,
+	sr := &structuredRuntime{w: w, p: p, rt: rt, started: time.Now(), prior: prior,
 		status: session.StatusStarting, since: time.Now(), stop: make(chan struct{})}
 	w.mu.Lock()
 	p.Sess = nil
@@ -213,7 +210,7 @@ func (s *structuredRuntime) ReportedSpend() (spend.Context, bool) {
 }
 
 func (s *structuredRuntime) Caps() PaneCaps {
-	return PaneCaps{Structured: true, AnswerPermission: true, RunsUnasked: s.unasked}
+	return PaneCaps{Structured: true, AnswerPermission: true, RunsUnasked: s.rt.Unasked()}
 }
 
 func (s *structuredRuntime) Status() (session.Status, string) {

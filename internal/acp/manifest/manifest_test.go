@@ -288,3 +288,56 @@ func TestLaunchEnvIsChecked(t *testing.T) {
 		t.Errorf("LaunchEnvList = %v, want sorted by name", got)
 	}
 }
+
+// permissionProbe is how a pane checks, at launch, that opencode asks.
+func TestOnlyOpencodeHasAPermissionProbeAndItNamesTheLaunchSetting(t *testing.T) {
+	for _, a := range Default().Adapters {
+		if a.ID != "opencode" {
+			if a.PermissionProbe != nil {
+				t.Errorf("%s has a permissionProbe", a.ID)
+			}
+			continue
+		}
+		p := a.PermissionProbe
+		if p == nil {
+			t.Fatal("opencode has no permissionProbe")
+		}
+		if strings.Join(p.Args, " ") != "agent list" || p.Agent != "build" || p.Setting != "OPENCODE_CONFIG_CONTENT" ||
+			strings.Join(p.Tools, " ") != "bash edit" {
+			t.Errorf("probe = %+v", *p)
+		}
+	}
+}
+
+func TestABadPermissionProbeIsRefused(t *testing.T) {
+	oc, _ := Default().Lookup("opencode")
+	for name, mut := range map[string]func(*PermissionProbe){
+		"a setting that is not in launchEnv": func(p *PermissionProbe) { p.Setting = "OTHER" },
+		"no agent":                           func(p *PermissionProbe) { p.Agent = "" },
+		"an agent with a space":              func(p *PermissionProbe) { p.Agent = "build it" },
+		"no args":                            func(p *PermissionProbe) { p.Args = nil },
+		"seven args":                         func(p *PermissionProbe) { p.Args = make([]string, 7) },
+		"an arg with a space":                func(p *PermissionProbe) { p.Args = []string{"debug agent"} },
+		"an arg with a shell character":      func(p *PermissionProbe) { p.Args = []string{"debug;rm"} },
+		"no tools":                           func(p *PermissionProbe) { p.Tools = nil },
+		"five tools":                         func(p *PermissionProbe) { p.Tools = []string{"a", "b", "c", "d", "e"} },
+		"a tool that is not a name":          func(p *PermissionProbe) { p.Tools = []string{"bash edit"} },
+	} {
+		a := oc
+		p := *oc.PermissionProbe
+		mut(&p)
+		a.PermissionProbe = &p
+		if err := a.check(); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+	// A probe on an adapter that is not flagged has nothing to replace.
+	a := oc
+	a.RunsWithoutAsking = false
+	if err := a.check(); err == nil {
+		t.Error("a probe without runsWithoutAsking was accepted")
+	}
+	if err := oc.check(); err != nil {
+		t.Errorf("the opencode entry: %v", err)
+	}
+}

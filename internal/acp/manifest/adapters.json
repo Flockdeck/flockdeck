@@ -13,8 +13,9 @@
       "testedOn": "2026-10-19",
       "runsWithoutAsking": true,
       "launchEnv": {"OPENCODE_CONFIG_CONTENT": "{\"permission\":{\"bash\":\"ask\",\"edit\":\"ask\"}}"},
+      "permissionProbe": {"args": ["agent", "list"], "agent": "build", "setting": "OPENCODE_CONFIG_CONTENT", "tools": ["bash", "edit"]},
       "install": "Install opencode from https://opencode.ai and make sure `opencode` is on PATH.",
-      "note": "A single executable. It answered a full turn with no login, using its free model. By default it runs shell commands and edits without asking. Flockdeck starts it with OPENCODE_CONFIG_CONTENT set so that bash and edit ask, but a repository that sets permissions for an agent overrides that, so the warning stays."
+      "note": "A single executable. It answered a full turn with no login, using its free model. By default it runs shell commands and edits without asking. Flockdeck reads what every agent resolves in the pane directory, launches it so bash and edit ask (keeping denials), and warns only if one still allows."
     },
     {
       "id": "gemini",
