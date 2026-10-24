@@ -47,7 +47,8 @@ import { catalogOf, closeTabWarnings, moveTabCommand, newTabCommand, tabsOf } fr
 import { RELAY_WORDS as HELPER_RELAY_WORDS } from "../lib/helpers.js";
 import { RELAY_WORDS as BATON_RELAY_WORDS, STILL_OUT_WORDS, createInflight, draftOf, makeCommand, savedWords } from "../lib/baton.js";
 import { openOf, selectCommand } from "../lib/projects.js";
-import { askPermission, noteOf, permissionOf, raise, waitsOf, watchPresence } from "../lib/attention.js";
+import { askPermission, noteOf, permissionOf, raise, showAttention, waitingCount, waitsOf, watchPresence } from "../lib/attention.js";
+import { Toasts, addToasts, keepWaiting } from "./Toasts.js";
 import { viewOf } from "../lib/remote.js";
 
 // What the shell is given before the first hello and state. Constants, so the
@@ -294,10 +295,17 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
   // another. The first state seen is only remembered, never announced.
   const waits = useRef(new Map());
   const lastNote = useRef(null);
+  const [toasts, setToasts] = useState([]);
+  // The window title and the tab icon say how many agents wait, on every change.
+  useEffect(() => {
+    showAttention(page && page.document, waitingCount(kept.current.state.panes));
+  }, [statePanes]);
   useEffect(() => {
     const panes = kept.current.state.panes;
     const { fresh, next } = waitsOf(waits.current, panes);
     waits.current = next;
+    const waiting = new Set([...next].filter(([, v]) => v === "waiting" || v === "blocked").map(([id]) => id));
+    setToasts((cur) => keepWaiting(cur, waiting));
     const nothing = ![...next.values()].some((v) => v === "waiting" || v === "blocked");
     if (nothing && lastNote.current) {
       // Answered from here or another window: the notification is stale.
@@ -306,7 +314,11 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     }
     if (!fresh.length || prefs.notificationsOff) return;
     const doc = page && page.document;
-    if (doc && (doc.hidden === false || doc.hidden === undefined) && typeof doc.hasFocus === "function" && doc.hasFocus()) return;
+    if (doc && (doc.hidden === false || doc.hidden === undefined) && typeof doc.hasFocus === "function" && doc.hasFocus()) {
+      // In front: the browser raises nothing, so the page says it itself.
+      setToasts((cur) => addToasts(cur, fresh, drawer.pane));
+      return;
+    }
     lastNote.current = raise(page, noteOf(fresh), (id) => drawer.open(id));
   }, [statePanes]);
   const bumpFont = (to) => {
@@ -636,6 +648,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
       ? html`<${Updates} update=${update} versions=${snap.versions} updatesOff=${!!(kept.current.hello.prefs && kept.current.hello.prefs.updatesOff)}
           notice=${snap.notice && snap.notice.seq > updatesAt ? String(snap.notice.text || "") : ""} send=${send} onClose=${() => setUpdatesAt(-1)} />`
       : null}
+    <${Toasts} toasts=${toasts} onOpen=${(id) => { drawer.open(id); setToasts((cur) => cur.filter((t) => t.id !== id)); }} onDismiss=${(id) => setToasts((cur) => cur.filter((t) => t.id !== id))} />
     <${Approvals} approvals=${snap.approvals} dismissed=${putAway} send=${send} onDismiss=${(id) => setPutAway((s) => new Set(s).add(id))} />
     ${teamOpen
       ? html`<${Team} team=${snap.team} tasks=${snap.teamTasks} messages=${snap.teamMessages} result=${snap.teamResult} root=${selected}

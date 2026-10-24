@@ -590,6 +590,7 @@
 .graph-empty p { margin: 0 0 8px; }
 .graph-empty-start { font: inherit; }
 
+.gnode-cap { font-family: var(--mono); font-size: 12px; fill: var(--fg-dim); }
 .graph-goal {
   grid-column: 1 / -1;
   min-width: 0;
