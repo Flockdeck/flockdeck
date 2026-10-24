@@ -11,7 +11,7 @@ import { html } from "../assets/html.js";
 import { Live } from "../assets/shell/Live.js";
 import { LIST } from "../assets/shell/keys.js";
 import { buildGraphModel } from "../assets/graph/model.js";
-import { navOf, stepFrom, nextNeedsYou, onGraphKey, paneAt } from "../assets/graph/keys.js";
+import { navOf, stepFrom, nextNeedsYou, prevNeedsYou, onGraphKey, paneAt } from "../assets/graph/keys.js";
 import { createDom, install, settle } from "./dom.mjs";
 import { FakeWebSocket, harness, hello } from "./fakes.mjs";
 import { realKeys } from "./util.mjs";
@@ -142,6 +142,11 @@ test("the jump goes in the strip's order, not the picture's, and wraps", () => {
   assert.equal(nextNeedsYou(m, "160d47b0"), "e8c9aa4e");
   assert.equal(nextNeedsYou(m, "e8c9aa4e"), "262e0b2b");
   assert.equal(nextNeedsYou(m, "262e0b2b"), "160d47b0", "past the last is the first");
+  assert.equal(prevNeedsYou(m, ""), "262e0b2b", "from nowhere the previous is the last");
+  assert.equal(prevNeedsYou(m, "262e0b2b"), "e8c9aa4e");
+  assert.equal(prevNeedsYou(m, "e8c9aa4e"), "160d47b0");
+  assert.equal(prevNeedsYou(m, "160d47b0"), "262e0b2b", "before the first is the last");
+  assert.equal(prevNeedsYou(m, "not-a-pane"), "262e0b2b");
 });
 
 test("the jump starts at the first from a pane the strip does not hold", () => {
@@ -220,12 +225,13 @@ test("paneAt finds the pane of an element inside a box", () => {
 const FALLBACK = [
   { id: "palette", keys: "Ctrl+Shift+K", label: "Command palette", section: "Finding your way", noPalette: true },
   { id: "nextNeedsYou", keys: "Ctrl+Shift+U", label: "Next agent that needs you", section: "Finding your way" },
+  { id: "prevNeedsYou", keys: "Ctrl+Shift+J", label: "Previous agent that needs you", section: "Finding your way" },
   { id: "managerBar", keys: "Ctrl+Shift+H", label: "Message the manager", section: "Finding your way" },
 ];
 const keysFor = () => {
   const real = realKeys();
   if (!real) return FALLBACK;
-  for (const id of ["nextNeedsYou", "managerBar"]) assert.ok(real.some((k) => k.id === id && k.keys), id + " is in the key table with a binding");
+  for (const id of ["nextNeedsYou", "prevNeedsYou", "managerBar"]) assert.ok(real.some((k) => k.id === id && k.keys), id + " is in the key table with a binding");
   return real;
 };
 const press = (m, id) => {
@@ -273,6 +279,8 @@ async function mount(name, edit = (g) => g) {
     active: () => dom.document.activeElement,
     activePane: () => dom.document.activeElement.getAttribute("data-pane"),
     drawer: () => container.find("[data-drawer-pane]"),
+    // The pane whose drawer the jump opened.
+    landed: () => { const d = container.find("[data-drawer-pane]"); return d ? d.getAttribute("data-drawer-pane") : null; },
     done: () => { render(null, container); store.stop(); restore(); },
   };
 }
@@ -309,12 +317,12 @@ test("in the page the arrows move the keyboard from box to box, Enter opens the 
     assert.equal(m.activePane(), "ce2ebf6f", "and the keyboard is back on the box");
   }));
 
-test("in the page the next-needs-you key follows the strip", () =>
+test("in the page the next-needs-you key follows the strip and opens each agent's drawer", () =>
   withPage("04-eight-helpers-three-waiting", async (m) => {
     for (const want of ["160d47b0", "e8c9aa4e", "262e0b2b", "160d47b0"]) {
       assert.equal(press(m, "nextNeedsYou").defaultPrevented, true);
       await settle();
-      assert.equal(m.activePane(), want);
+      assert.equal(m.landed(), want);
     }
   }));
 
@@ -326,7 +334,16 @@ test("in the page the jump goes on from the open drawer's pane", () =>
     m.drawer().focus();
     press(m, "nextNeedsYou");
     await settle();
-    assert.equal(m.activePane(), "262e0b2b", "the next after build, the open pane");
+    assert.equal(m.landed(), "262e0b2b", "the next after build, the open pane");
+  }));
+
+test("in the page the previous key walks the strip the other way and wraps", () =>
+  withPage("04-eight-helpers-three-waiting", async (m) => {
+    for (const want of ["262e0b2b", "e8c9aa4e", "160d47b0", "262e0b2b"]) {
+      assert.equal(press(m, "prevNeedsYou").defaultPrevented, true);
+      await settle();
+      assert.equal(m.landed(), want);
+    }
   }));
 
 test("in the page the manager-bar key takes the keyboard to the bar's box", () =>
@@ -366,7 +383,7 @@ test("both graph actions are in the palette, and running one from it works", () 
     assert.equal(row("nextNeedsYou").getAttribute("aria-disabled"), null);
     row("nextNeedsYou").click();
     await settle();
-    assert.equal(m.activePane(), "160d47b0", "running it from the palette did not go to the first agent that needs you");
+    assert.equal(m.landed(), "160d47b0", "running it from the palette did not go to the first agent that needs you");
   }));
 
 test("an action chosen from the palette runs once: opening and closing the palette again does not run it again", () =>
@@ -376,7 +393,7 @@ test("an action chosen from the palette runs once: opening and closing the palet
     await settle();
     row("nextNeedsYou").click();
     await settle();
-    assert.equal(m.activePane(), "160d47b0");
+    assert.equal(m.landed(), "160d47b0");
     m.box("d1faf784").focus();
     press(m, "palette");
     await settle();
