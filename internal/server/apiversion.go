@@ -33,6 +33,39 @@ const (
 // apiCaps are the features of this version, in the order they were added.
 var apiCaps = []string{"clientHello", "unsupported", "apiMismatch", "uiPrefs"}
 
+// A deprecatedField is something the graph push still carries that a client
+// should stop reading. Nothing here is removed: the old Graph view reads most of
+// it for one more release, and a field goes only in a change that raises the
+// major version. Scope is "field" (the field is deprecated), "use" (the field
+// stays, one way of using it is deprecated) or "order" (the items stay, the order
+// the server puts them in is deprecated). api/catalog.json lists them, the schema
+// marks the fields, and docs/team-graph.md has the table.
+type deprecatedField struct {
+	Message string `json:"message"`
+	// Path is the field as a client reads it: [] is each element of an array.
+	Path  string `json:"path"`
+	Scope string `json:"scope"`
+	Since string `json:"since"`
+	// Use is what a client does instead.
+	Use string `json:"use"`
+}
+
+var deprecatedFields = []deprecatedField{
+	{"graph", "nodes[].stuck", "field", "1.1", "Work it out from status and since (working with nothing written for ten minutes). The `stuck` needs item stays."},
+	{"graph", "nodes[].lastOutput", "use", "1.1", "Do not use it to decide a pane is stuck; the field stays."},
+	{"graph", "nodes[].below", "field", "1.1", "Count the panes under a node from parent and children."},
+	{"graph", "nodes[].needYou", "field", "1.1", "Count the needs of the panes under a node."},
+	{"graph", "nodes[].depth", "field", "1.1", "Work it out from parent."},
+	{"graph", "nodes[].spendPartial", "field", "1.1", "Not shown by the new interface."},
+	{"graph", "nodes[].spendIncludesPartial", "field", "1.1", "Not shown by the new interface."},
+	{"graph", "teams[].spendUSD", "field", "1.1", "Sum the nodes' spendUSD."},
+	{"graph", "teams[].spendPartial", "field", "1.1", "Sum the nodes' spendUSD."},
+	{"graph", "teams[].spendIncludesPartial", "field", "1.1", "Sum the nodes' spendUSD."},
+	{"graph", "teams[].caps[].used", "field", "1.1", "Count the open panes under the pane; caps[].max stays."},
+	{"graph", "teams[].needs", "order", "1.1", "Order the items yourself; the items and their kind stay."},
+	{"graph", "soloNeeds", "order", "1.1", "Order the items yourself; the items and their kind stay."},
+}
+
 // clientFrames are the frames a window sends over /ws/control that are not
 // commands: a frame with a type and no cmd. Each is read in the socket's read
 // loop (see clientFrame) and has no handler in handleCommand. The value says what

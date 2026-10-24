@@ -436,6 +436,35 @@ interface: continue, then remember or only this time; nothing runs until then.
   schema, this page and the golden file the tests compare a two-team project
   against, so the change is on purpose.
 
+### Deprecated fields
+
+Marked deprecated since API 1.1. **Nothing here is removed.** The old Graph view reads
+most of it for one more release, and a field goes only in a change that raises the
+major version and updates the schema, this page and the golden file. `api/catalog.json`
+lists them under `deprecated`, and the schema marks a deprecated field with
+`"deprecated": true`. A client written now should not read them. The scope `field`
+says the field is deprecated; `use` says it stays and one way of using it is
+deprecated; `order` says the items stay and the order the server puts them in is
+deprecated (`kind` of a needs-you item stays).
+
+| Path | Scope | Since | Use instead |
+| --- | --- | --- | --- |
+| `nodes[].stuck` | field | 1.1 | Work it out from status and since (working with nothing written for ten minutes). The `stuck` needs item stays. |
+| `nodes[].lastOutput` | use | 1.1 | Do not use it to decide a pane is stuck; the field stays. |
+| `nodes[].below` | field | 1.1 | Count the panes under a node from parent and children. |
+| `nodes[].needYou` | field | 1.1 | Count the needs of the panes under a node. |
+| `nodes[].depth` | field | 1.1 | Work it out from parent. |
+| `nodes[].spendPartial` | field | 1.1 | Not shown by the new interface. |
+| `nodes[].spendIncludesPartial` | field | 1.1 | Not shown by the new interface. |
+| `teams[].spendUSD` | field | 1.1 | Sum the nodes' spendUSD. |
+| `teams[].spendPartial` | field | 1.1 | Sum the nodes' spendUSD. |
+| `teams[].spendIncludesPartial` | field | 1.1 | Sum the nodes' spendUSD. |
+| `teams[].caps[].used` | field | 1.1 | Count the open panes under the pane; caps[].max stays. |
+| `teams[].needs` | order | 1.1 | Order the items yourself; the items and their kind stay. |
+| `soloNeeds` | order | 1.1 | Order the items yourself; the items and their kind stay. |
+
+`api/deprecated.md` lists what has to change in the other clients before a field is removed.
+
 ## 9a. The relay form: relayTeams
 
 A window reached through the relay is never sent the graph message, and the graph
