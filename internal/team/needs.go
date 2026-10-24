@@ -232,6 +232,9 @@ func NeedsYou(g Graph, panes []GraphPane, tasks []GraphTask, conflicts []PaneCon
 	return out
 }
 
+// IsStuck says whether a needs item is the stuck rule's.
+func IsStuck(kind string) bool { return kind == NeedStuck }
+
 // AsksPerson says an item of this kind wants something from the person, as
 // opposed to the quiet kinds (old unread mail, a pane gone quiet), which only say
 // where to look.
