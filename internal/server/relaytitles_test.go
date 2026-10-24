@@ -162,10 +162,11 @@ func TestRelayPanicToEveryWindowIsFixedForTheRelay(t *testing.T) {
 	}
 }
 
-// Every message type the server sends is on one of three lists: scrubbed, passed as it is, or desk only. A
-// type added later is dropped for a relay window until it is classified. A type that carries
-// text must have a scrub; the others are said not to carry any.
-func TestEveryMessageTypeIsClassifiedForTheRelay(t *testing.T) {
+// sentMessageTypes is every message type the server writes, read from the
+// literals in its source (the scan the relay classification and the API catalog
+// both rest on).
+func sentMessageTypes(t *testing.T) map[string]bool {
+	t.Helper()
 	found := map[string]bool{}
 	fset := token.NewFileSet()
 	files, err := filepath.Glob("*.go")
@@ -217,6 +218,14 @@ func TestEveryMessageTypeIsClassifiedForTheRelay(t *testing.T) {
 	if len(found) < 40 {
 		t.Fatalf("found only %d message types: the scan is looking in the wrong place", len(found))
 	}
+	return found
+}
+
+// Every message type the server sends is on one of three lists: scrubbed, passed as it is, or desk only. A
+// type added later is dropped for a relay window until it is classified. A type that carries
+// text must have a scrub; the others are said not to carry any.
+func TestEveryMessageTypeIsClassifiedForTheRelay(t *testing.T) {
+	found := sentMessageTypes(t)
 	for typ := range found {
 		_, scrubbed := relayScrubs[typ]
 		_, clean := relayPass[typ]

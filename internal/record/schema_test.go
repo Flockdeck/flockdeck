@@ -13,7 +13,7 @@ import (
 	"github.com/jmwri/flockdeck/internal/session/transcript"
 )
 
-const schemaPath = "../../docs/recording-line.schema.json"
+const schemaPath = "../../api/schema/recording-line.schema.json"
 
 func loadSchema(t *testing.T) schemacheck.Schema {
 	t.Helper()

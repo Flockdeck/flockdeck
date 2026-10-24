@@ -7,7 +7,7 @@ is made from the conversation an agent stored. The two sit in the same folder
 and are kept under the same rules, but they are different files with different
 lines. There is no player for stream recordings yet.
 
-The definition is [`rpc-recording-line.schema.json`](rpc-recording-line.schema.json)
+The definition is [`rpc-recording-line.schema.json`](../api/schema/rpc-recording-line.schema.json)
 (JSON Schema, draft 2020-12). Tests check every line the recorder writes against
 it, and check that this page and the schema name the same fields.
 

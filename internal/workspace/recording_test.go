@@ -195,7 +195,7 @@ func TestRecordingFollowsTheStoredConversation(t *testing.T) {
 		t.Errorf("the first line does not say whose it is: %+v", es[0])
 	}
 	raw, _ := os.ReadFile(files[0])
-	schema, err := schemacheck.Load("../../docs/recording-line.schema.json")
+	schema, err := schemacheck.Load("../../api/schema/recording-line.schema.json")
 	if err != nil {
 		t.Fatal(err)
 	}

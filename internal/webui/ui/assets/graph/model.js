@@ -1,6 +1,6 @@
 // The view model of the team graph: pure functions from a graph message to what
 // the views draw. There is no DOM, no socket and no clock here. The message is
-// described by docs/team-graph.md and docs/team-graph.schema.json.
+// described by docs/team-graph.md and api/schema/team-graph.schema.json.
 //
 // Rules this file keeps:
 //

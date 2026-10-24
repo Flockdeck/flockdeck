@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	rpcSchemaPath = "../../docs/rpc-recording-line.schema.json"
+	rpcSchemaPath = "../../api/schema/rpc-recording-line.schema.json"
 	rpcDocPath    = "../../docs/rpc-recording-format.md"
 )
 

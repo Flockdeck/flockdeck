@@ -55,7 +55,7 @@ func listRecordings(args []string, out io.Writer, stateDir func() (string, error
 		fmt.Fprintf(os.Stderr, "its agent's stored conversation: see `flockdeck recordings export -h`.\n\n")
 		fmt.Fprintf(os.Stderr, "Each recording is a JSON Lines file. The format is documented in\n")
 		fmt.Fprintf(os.Stderr, "docs/recording-format.md in the Flockdeck repository, with a JSON Schema in\n")
-		fmt.Fprintf(os.Stderr, "docs/recording-line.schema.json.\n\nFlags:\n")
+		fmt.Fprintf(os.Stderr, "api/schema/recording-line.schema.json.\n\nFlags:\n")
 		fs.PrintDefaults()
 	}
 	if err := fs.Parse(args); err != nil {

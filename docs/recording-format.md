@@ -15,7 +15,7 @@ therefore the same bytes (section 8). Anything the agent only tells Flockdeck
 while it runs, such as a permission dialog opening or the pane's status, is not
 in the stored conversation and so is not in a transcript.
 
-The definition of the format is [`recording-line.schema.json`](recording-line.schema.json)
+The definition of the format is [`recording-line.schema.json`](../api/schema/recording-line.schema.json)
 (JSON Schema, draft 2020-12). It is strict: it names the fields each line type
 has and which are required, nothing else is allowed, and every field's
 description says where its value comes from and why it can be missing. This page

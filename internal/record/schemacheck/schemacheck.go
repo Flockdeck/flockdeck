@@ -1,5 +1,5 @@
 // Package schemacheck validates a JSON value against the small subset of JSON
-// Schema that docs/recording-line.schema.json uses, so that tests can check
+// Schema that api/schema/recording-line.schema.json uses, so that tests can check
 // real recording lines against the published schema without a dependency.
 //
 // The subset: type, const, enum, pattern, minimum, minLength, minItems, minProperties, required,

@@ -21,7 +21,7 @@ import (
 // agent (see internal/acp), one JSON object per line. It lives beside the
 // terminal recordings of the project, in a file whose name ends in
 // ".rpc.jsonl", and is counted in the same retention. The line format is in
-// docs/rpc-recording-format.md and docs/rpc-recording-line.schema.json.
+// docs/rpc-recording-format.md and api/schema/rpc-recording-line.schema.json.
 //
 // The lines are prompts, file contents and tool output, so the file is as
 // sensitive as a terminal recording: it is made owner-only, it passes through
