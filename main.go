@@ -1752,6 +1752,13 @@ func runSpawn(args []string) error {
 	fmt.Println(started...)
 	// The baton is saved before the helper starts, and where is worth saying
 	// back: the caller can read what the helper was told.
+	if res.TaskID != "" {
+		if res.TaskError != "" {
+			fmt.Println("task", res.TaskID, "was not given to the helper:", res.TaskError)
+		} else {
+			fmt.Println("task", res.TaskID, "given to the helper and its team")
+		}
+	}
 	if res.BatonID != "" {
 		fmt.Println("from baton", res.BatonID, "kept at", res.BatonPath+"; flockdeck baton show", res.BatonID, "prints it")
 	}
@@ -1789,7 +1796,7 @@ func parseSpawn(args []string) (hooks.SpawnRequest, error) {
 	}
 
 	task := strings.TrimSpace(strings.Join(fs.Args(), " "))
-	if task == "" && !f.shell && f.baton == "" {
+	if task == "" && !f.shell && f.baton == "" && f.task == "" {
 		fs.Usage()
 		return hooks.SpawnRequest{}, fmt.Errorf("a task is required")
 	}
@@ -1810,6 +1817,9 @@ func parseSpawn(args []string) (hooks.SpawnRequest, error) {
 	}
 	if f.shell && f.role != "" {
 		return hooks.SpawnRequest{}, fmt.Errorf("-shell starts a shell, which has no role, so it cannot also take -role")
+	}
+	if f.shell && f.task != "" {
+		return hooks.SpawnRequest{}, fmt.Errorf("-shell starts a shell, which cannot work a task, so it cannot also take -task")
 	}
 	tab, err := hooks.CleanTabName(f.tab)
 	if err != nil {
@@ -1832,6 +1842,7 @@ func parseSpawn(args []string) (hooks.SpawnRequest, error) {
 		Role:   f.role,
 		Record: f.record,
 		Baton:  batonRef(f.baton),
+		TaskID: strings.TrimSpace(f.task),
 
 		BatonElsewhere: f.batonElsewhere,
 	}, nil
@@ -1848,6 +1859,7 @@ type spawnFlags struct {
 	shell    bool
 	record   bool
 	baton    string
+	task     string
 	// batonElsewhere agrees to the baton going to an agent of another company.
 	batonElsewhere bool
 }
@@ -1870,6 +1882,7 @@ func spawnFlagSet(f *spawnFlags) *flag.FlagSet {
 	// not take the next word would be ambiguous with the first word of the
 	// task, which is the class of mistake orderSpawnArgs exists to prevent.
 	fs.StringVar(&f.baton, "baton", "", "start the helper from a handoff: `self` makes one from this conversation, or give a pane id of this project, a baton id (flockdeck baton list) or a notes file inside this project")
+	fs.StringVar(&f.task, "task", "", "start the helper for a task of this project's board, by `id` (flockdeck task list): the task is its opening prompt when none is given, and the task goes to the helper and its team")
 	fs.BoolVar(&f.batonElsewhere, "baton-send-elsewhere", false, "ask the user to let -baton go to an agent of a different company than the one it came from, or of one whose company is not known; refused without it, and sent only once the user allows it in a window. That stops a mistake, not a program running as the same user")
 	fs.Usage = func() {
 		fmt.Fprintf(os.Stderr, "Usage: flockdeck spawn [flags] <task>\n\n")

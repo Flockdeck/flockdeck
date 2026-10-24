@@ -106,7 +106,7 @@ func (w *Workspace) runTask(actor tasks.Actor, members []team.Member, board *tas
 	var id string
 	switch req.Op {
 	case hooks.TaskAdd, hooks.TaskList, hooks.TaskPrune:
-	case hooks.TaskShow, hooks.TaskAssign, hooks.TaskStatus, hooks.TaskNote, hooks.TaskBranch, hooks.TaskBaton, hooks.TaskDepends, hooks.TaskEstimate:
+	case hooks.TaskShow, hooks.TaskAssign, hooks.TaskStatus, hooks.TaskNote, hooks.TaskBranch, hooks.TaskBaton, hooks.TaskDepends, hooks.TaskEstimate, hooks.TaskTeam:
 		if id, err = tasks.ParseID(req.ID); err != nil {
 			return hooks.TaskResult{}, err
 		}
@@ -187,6 +187,22 @@ func (w *Workspace) runTask(actor tasks.Actor, members []team.Member, board *tas
 	case hooks.TaskEstimate:
 		ch, err = board.SetEstimate(actor, hasManager, id, req.Minutes)
 
+	case hooks.TaskTeam:
+		teamID := strings.TrimSpace(req.Team)
+		if teamID != "" {
+			if err := w.checkTeamRoot(members, teamID); err != nil {
+				return hooks.TaskResult{}, err
+			}
+		}
+		if ch, err = board.SetTeam(actor, hasManager, id, teamID); err == nil && teamID != "" && ch.Task.OwnerPane == "" && ch.Task.OwnerRole == "" {
+			// A task given a team and to nobody goes to the team's manager.
+			if as, aerr := tasks.ResolveAssignee(members, w.agents().RoleIDs(), teamID); aerr == nil {
+				if ach, aerr := board.Assign(actor, hasManager, id, as); aerr == nil {
+					ch = ach
+				}
+			}
+		}
+
 	case hooks.TaskBaton:
 		bid := strings.TrimSpace(req.Baton)
 		if !baton.ValidID(bid) {
@@ -220,4 +236,65 @@ func (w *Workspace) sendTaskNotices(ch tasks.Change, actor tasks.Actor, members 
 		}
 	}
 	return n
+}
+
+// checkTeamRoot checks that id names a running pane of the project that is the
+// root of a team: a pane no other agent started.
+func (w *Workspace) checkTeamRoot(members []team.Member, id string) error {
+	for _, m := range members {
+		if m.Pane != id {
+			continue
+		}
+		if m.Exited() {
+			return fmt.Errorf("pane %s has ended, so it cannot run a team", id)
+		}
+		if p := w.Pane(id); p == nil || p.Parent != "" {
+			return fmt.Errorf("pane %s was started by another agent; a task goes to the root of a team, the pane that started it", id)
+		}
+		return nil
+	}
+	return fmt.Errorf("no pane %s in this project; `flockdeck team` lists the panes", team.PlainLabel(id))
+}
+
+// TaskOpening is the opening prompt for a helper started for a task of the
+// board of the project pane parent is in, and the task's id as the board
+// spells it. It must run on the workspace goroutine.
+func (w *Workspace) TaskOpening(parent, taskID string) (prompt, id string, err error) {
+	if id, err = tasks.ParseID(taskID); err != nil {
+		return "", "", err
+	}
+	t, err := w.boardFor(parent).Get(id)
+	if err != nil {
+		return "", "", err
+	}
+	prompt = fmt.Sprintf("Work on task %s: %s", t.ID, t.Title)
+	if t.Body != "" {
+		prompt += "\n\n" + t.Body
+	}
+	prompt += fmt.Sprintf("\n\nRun `flockdeck task show %s` for the notes and history, and `flockdeck task status %s in-progress` when you start.", t.ID, t.ID)
+	return prompt, t.ID, nil
+}
+
+// GiveTaskToPane gives a task to a pane and to the team the pane is in, as the
+// pane parent that started it. The team is the root above the pane, the pane
+// itself when it has no parent. It must run on the workspace goroutine.
+func (w *Workspace) GiveTaskToPane(parent, taskID, pane string) error {
+	root := pane
+	for i := 0; i < 64; i++ {
+		p := w.Pane(root)
+		if p == nil || p.Parent == "" {
+			break
+		}
+		root = p.Parent
+	}
+	base := hooks.TaskRequest{Auth: hooks.Auth{Pane: parent}, ID: taskID}
+	assign := base
+	assign.Op, assign.Target = hooks.TaskAssign, pane
+	if _, err := w.Task(assign); err != nil {
+		return err
+	}
+	give := base
+	give.Op, give.Team = hooks.TaskTeam, root
+	_, err := w.Task(give)
+	return err
 }

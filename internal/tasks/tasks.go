@@ -179,6 +179,9 @@ type Task struct {
 	// a window draws a dependency tree from.
 	Depends     []string `json:"depends,omitempty"`
 	EstimateMin int      `json:"estimateMin,omitempty"`
+	// Team is the id of the team that works on the task: the pane id of the
+	// team's root, its manager. It is empty until a team is given the task.
+	Team string `json:"team,omitempty"`
 
 	Notes []Note `json:"notes,omitempty"`
 	// History is what was done to the task, oldest first: the window shows it

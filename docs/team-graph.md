@@ -129,6 +129,7 @@ root need not be a manager: any pane that started helpers is one.
 | `id`, `manager` | The root pane's id. `id` is stable while the root is open. |
 | `members` | The panes of the team, the root first and then breadth first. |
 | `goal` | The root pane's opening task as one line cut to 300 characters. Absent for a root started with no opening prompt. |
+| `taskId` | The board task the team works on: the first open task given to it with `taskTeam` or `flockdeck task team`, else the first open task its manager owns. Absent when there is none. |
 | `started` | When the root pane's process started (RFC 3339). Absent while the root has no session. |
 | `spendUSD` | The estimated spend in dollars of the team's panes that reported a priced figure. 0 when none did. |
 | `spendPartial` | `true` when some agent pane that has run reported no priced figure (a figure of zero counts as none), so `spendUSD` is a floor. A shell and an agent that has not started are not counted as missing. |

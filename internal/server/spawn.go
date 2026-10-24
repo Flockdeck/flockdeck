@@ -645,6 +645,16 @@ func (s *Server) installSpawnHandler() {
 			if err == nil && req.Record {
 				err = recordSpawnRefusal(req.Shell, store.LoadPrefs().RecordingAcknowledged)
 			}
+			if err == nil && req.TaskID != "" {
+				if req.Shell {
+					err = errors.New("a task is worked by an agent, and -shell starts a shell")
+				} else {
+					var prompt string
+					if prompt, req.TaskID, err = s.ws.TaskOpening(req.Parent, req.TaskID); err == nil && strings.TrimSpace(req.Task) == "" {
+						req.Task = prompt
+					}
+				}
+			}
 			return start{cwd, err}
 		})
 		// The agent's `flockdeck spawn` is blocked on this reply, so a
@@ -812,8 +822,18 @@ func (s *Server) installSpawnHandler() {
 		if r.err != nil {
 			return hooks.SpawnResult{}, cleanup(r.err)
 		}
-		s.Wake()
 		res := hooks.SpawnResult{PaneID: r.id, Cwd: cwd, Role: req.Role}
+		if req.TaskID != "" {
+			// The helper is running already, so a task that cannot be given to it
+			// (the caller may not edit it) is said, not undone.
+			res.TaskID = req.TaskID
+			if gr, ok := ask(s, func() error { return s.ws.GiveTaskToPane(req.Parent, req.TaskID, r.id) }); !ok {
+				return hooks.SpawnResult{}, errShuttingDown
+			} else if gr != nil {
+				res.TaskError = gr.Error()
+			}
+		}
+		s.Wake()
 		if prepared != nil {
 			res.BatonID, res.BatonPath = prepared.ID, workspace.BatonPath(prepared.ID)
 		}

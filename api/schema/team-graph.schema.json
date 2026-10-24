@@ -31,6 +31,7 @@
         "manager": { "type": "string", "minLength": 1, "description": "The root pane's id. The root need not be in the manager role: any pane that started helpers is one. Always written." },
         "members": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "The panes of the team, the root first and then by depth (derived). Always written." },
         "goal": { "type": "string", "minLength": 1, "description": "The root pane's opening task, as a single line cut to 300 characters (stored: Pane.Task). Absent for a root started with no opening prompt." },
+        "taskId": { "type": "string", "minLength": 1, "description": "The board task the team works on: the first open task given to it with taskTeam, else the first open task its manager owns (stored: the board). Absent when there is none." },
         "started": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$", "description": "When the root pane's process started, RFC 3339 (stored: the session). Absent while the root has no session." },
         "spendUSD": { "type": "number", "minimum": 0, "description": "The estimated spend in dollars of the team's panes that reported a priced one (stored: the spend book). 0 when none did. Always written." },
         "spendPartial": { "const": true, "description": "Present, and true, when some pane of the team reported no priced spend, so spendUSD is a floor. Absent when every pane did." },
