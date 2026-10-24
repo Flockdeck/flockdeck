@@ -418,3 +418,66 @@ test("a new ask for the Changes tab opens it, an old one does not, and a pane wi
     restore();
   }
 });
+
+// ------------------------------------------- the message box and stepping
+
+test("a terminal pane has a message box that sends paneSend by its id, and a structured pane keeps its own", async () => {
+  const dom = createDom();
+  const restore = install(dom);
+  try {
+    const box = dom.document.createElement("div");
+    dom.body.appendChild(box);
+    const st = fakeStore({ hello: { type: "hello" }, state: paneState({ p2: {} }) });
+    render(html`<${Drawer} store=${st} node=${node()} now=${NOW} />`, box);
+    await settle();
+    const ta = box.querySelector(".structured-input");
+    assert.ok(ta, "no message box on a terminal pane");
+    assert.match(ta.getAttribute("aria-label"), /shop-w1/);
+    const send = box.querySelector(".structured-send");
+    assert.equal(send.disabled, true, "an empty box can send");
+    ta.enter("  run the tests  ");
+    await settle();
+    box.querySelector(".drawer-message").dispatch("submit");
+    await settle();
+    assert.deepEqual(st.sent.filter((c) => c.cmd === "paneSend"), [{ cmd: "paneSend", id: "p2", text: "run the tests" }]);
+    assert.equal(box.querySelector(".structured-input").value, "", "the draft stayed after a send");
+    render(null, box);
+    const out = renderToString(html`<${Drawer} store=${store} node=${node({ pane: "p3", structured: true })} now=${NOW} />`);
+    assert.equal((out.match(/Message [^"]* directly/g) || []).length, 0, "a structured pane got a second box");
+  } finally {
+    restore();
+  }
+});
+
+test("a message box is not drawn through the relay", () => {
+  const remote = fakeStore({ hello: { type: "hello" }, remote: true, state: paneState({ p2: {} }) });
+  assert.ok(!renderToString(html`<${Drawer} store=${remote} node=${node()} now=${NOW} />`).includes("drawer-message"));
+});
+
+test("[ and ] open the previous and next agent of the order, wrapping, and a box that has the keyboard keeps them", async () => {
+  const dom = createDom();
+  const restore = install(dom);
+  try {
+    const box = dom.document.createElement("div");
+    dom.body.appendChild(box);
+    const opened = [];
+    const st = fakeStore({ hello: { type: "hello" }, state: paneState({ p2: {} }) });
+    render(html`<${Drawer} store=${st} node=${node()} now=${NOW} order=${["p1", "p2", "p3"]} onOpenPane=${(p) => opened.push(p)} />`, box);
+    await settle();
+    const body = box.querySelector("section");
+    body.keydown("]");
+    body.keydown("[");
+    assert.deepEqual(opened, ["p3", "p1"]);
+    box.querySelector(".drawer-next").click();
+    box.querySelector(".drawer-prev").click();
+    assert.deepEqual(opened, ["p3", "p1", "p3", "p1"]);
+    const ta = box.querySelector(".structured-input");
+    ta.keydown("]");
+    assert.equal(opened.length, 4, "a key typed in the message box stepped to another agent");
+    render(html`<${Drawer} store=${st} node=${node()} now=${NOW} order=${["p2"]} onOpenPane=${(p) => opened.push(p)} />`, box);
+    await settle();
+    assert.equal(box.querySelector(".drawer-next"), null, "a single agent has nothing to step to");
+  } finally {
+    restore();
+  }
+});

@@ -17,6 +17,7 @@ import { Header } from "./Header.js";
 import { Prompt, StreamPermission } from "./Prompt.js";
 import { Conversation } from "./Conversation.js";
 import { Structured } from "./Structured.js";
+import { Message } from "./Message.js";
 import { Lifecycle } from "./Lifecycle.js";
 import { Task } from "./Task.js";
 import { Changes } from "./Changes.js";
@@ -82,7 +83,7 @@ export function hasTerminal(node, pane) {
 /** Drawer is the component. store is the store of store.js; node and pane are the
  *  graph node and the state push's entry for it. terminalOptions reach the
  *  terminal, which is how a test gives it fakes for xterm and the socket. */
-function DrawerBody({ store, snap = null, node, pane = null, now, maximised = false, onClose, onToggleMax, onOpenPane = null, terminalOptions = null, life = null, tx = null, onInfo = null, findAsk = 0, tabAsk = null }) {
+function DrawerBody({ store, snap = null, node, pane = null, now, maximised = false, onClose, onToggleMax, onOpenPane = null, terminalOptions = null, life = null, tx = null, onInfo = null, findAsk = 0, tabAsk = null, order = [] }) {
   const rootRef = useRef(null);
   const terminalRef = useRef(null);
   // The terminal's controller once it is made, for the search bar, and the search
@@ -155,7 +156,20 @@ function DrawerBody({ store, snap = null, node, pane = null, now, maximised = fa
     seenTab.current = tabAsk.n;
     if (tabAsk.tab === "changes" && pane && pane.cwd) setTab("changes");
   }, [tabAsk && tabAsk.n]);
+  // [ and ] open the previous and next agent of the graph. They are keys of the
+  // drawer, so a box or the terminal that has the keyboard keeps them.
+  const at = order.indexOf(node.pane);
+  const step = (d) => {
+    if (!onOpenPane || order.length < 2) return;
+    onOpenPane(order[(Math.max(at, 0) + d + order.length) % order.length]);
+  };
+  const typing = (t) => !!t && (t.localName === "textarea" || t.localName === "input" || t.localName === "select" || t.isContentEditable === true);
   const onKeyDown = (e) => {
+    if ((e.key === "[" || e.key === "]") && !e.defaultPrevented && !e.ctrlKey && !e.altKey && !e.metaKey && !typing(e.target)) {
+      e.preventDefault();
+      step(e.key === "]" ? 1 : -1);
+      return;
+    }
     if (e.key !== LIST.cancel || e.defaultPrevented || inTerminal(e.target)) return;
     e.preventDefault();
     e.stopPropagation();
@@ -207,7 +221,7 @@ function DrawerBody({ store, snap = null, node, pane = null, now, maximised = fa
   return html`
     <section class=${"drawer-body" + (maximised ? " drawer-body--max" : "")} data-drawer-pane=${node.pane} tabindex="-1" ref=${rootRef} onKeyDown=${onKeyDown}>
       <${Header} node=${node} pane=${pane} now=${now} maximised=${maximised} onClose=${onClose} onToggleMax=${onToggleMax}
-        taskOpen=${taskOpen} onTask=${() => setTaskOpen(!taskOpen)} moreOpen=${showMore} onMore=${life || tx ? () => setMore(!more) : null} />
+        taskOpen=${taskOpen} onTask=${() => setTaskOpen(!taskOpen)} onStep=${order.length > 1 ? step : null} moreOpen=${showMore} onMore=${life || tx ? () => setMore(!more) : null} />
       ${taskOpen && node.task ? html`<${Task} key=${node.task.id} node=${node} snap=${state} store=${store} onOpenPane=${onOpenPane} onClose=${() => setTaskOpen(false)} />` : null}
       ${showMore
         ? html`<div class="drawer-more-panel" id="drawer-more">
@@ -248,6 +262,9 @@ function DrawerBody({ store, snap = null, node, pane = null, now, maximised = fa
         ? html`<div class="drawer-panel" role="tabpanel" id="drawer-panel-changes" aria-labelledby="drawer-tab-changes">
             <${Changes} key=${node.pane} cwd=${pane.cwd} git=${[pane.dirty, pane.untracked, pane.ahead, pane.behind].join("/")} snap=${state} store=${store} />
           </div>`
+        : null}
+      ${terminal && !state.remote
+        ? html`<${Message} key=${node.pane} pane=${node.pane} name=${node.name} store=${store} />`
         : null}
     </section>
   `;
