@@ -71,3 +71,45 @@ func TestEveryPackageThatRunsItsTestBinaryAgainGuardsAgainstRecursion(t *testing
 		}
 	}
 }
+
+// Linux cuts a process name (comm) to 15 characters, and the depth guard counts
+// ancestors by that name, so two test binaries sharing their first 15 characters
+// would be counted as one.
+func TestNoTwoTestBinariesShareTheirFirst15Characters(t *testing.T) {
+	root, err := filepath.Abs(filepath.Join("..", "..", ".."))
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]string{} // comm -> package directory
+	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() {
+			switch d.Name() {
+			case ".git", "node_modules", "testdata", "vendor":
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if !strings.HasSuffix(path, "_test.go") {
+			return nil
+		}
+		dir := filepath.Dir(path)
+		comm := filepath.Base(dir) + ".test"
+		if len(comm) > 15 {
+			comm = comm[:15]
+		}
+		if other, ok := seen[comm]; ok && other != dir {
+			t.Errorf("test binaries of %s and %s both show as %q on Linux", other, dir, comm)
+		}
+		seen[comm] = dir
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(seen) == 0 {
+		t.Fatal("no test packages found")
+	}
+}
