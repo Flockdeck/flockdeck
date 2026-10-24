@@ -18,7 +18,7 @@ Graph pushes (`type: "graph"`) written by a real server, for a client in another
 Made repeatable by the test, not by the server:
 
 - Pane ids are the ids of `internal/server/testdata/graph-fixtures` for the same scenario. The shell the server starts with is listed after the helpers.
-- Times are written as their age before 2026-10-21T09:00:00Z, rounded to the minute. A real server reads them from the clock the panes were set up on, so every status in a recording is five minutes old, where the built fixtures give each helper its own age.
+- Times are written as their age before 2026-10-21T09:00:00Z, rounded to five minutes, so a slow machine records the same file. A real server reads them from the clock the panes were set up on, so every status in a recording is five minutes old, where the built fixtures give each helper its own age.
 - The project is `project` at `/work/project`.
 
 ## Built fixtures
