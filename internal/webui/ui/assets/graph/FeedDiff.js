@@ -26,7 +26,7 @@ const NEED_LINES = {
   permission: (who, text) => (text ? who + " asks to run " + text : who + " asks to run something"),
   ask: (who, text) => (text ? who + " asks: " + text : who + " asks a question"),
   returned: (who) => "A task came back from review to " + who,
-  conflict: (who, text, other) => who + " and " + (other || "another pane") + " change the same file",
+  conflict: (who, text, other) => who + " and " + (other || "another pane") + " both change " + (text || "the same file"),
   down: (who) => who + " ended",
   setup: (who) => who + " needs setting up",
   "stale-unread": (who) => who + " has unread mail and is idle",
@@ -50,6 +50,10 @@ function cut(s, n = TEXT_CUT) {
   return t.length > n ? t.slice(0, n - 1) + "…" : t;
 }
 
+function stop(t) {
+  return /[.?!…]$/.test(t) ? t : t + ".";
+}
+
 function nameOf(model, prev, pane) {
   const n = (model && model.byPane.get(pane)) || (prev && prev.byPane.get(pane));
   return (n && (n.name || n.peer)) || pane;
@@ -68,7 +72,8 @@ function sameProject(a, b) {
 export function diffGraphs(prev, next, now) {
   if (!sameProject(prev, next)) return [];
   const out = [];
-  const add = (kind, pane, text, other = "") => out.push({ kind, pane, other, text: cut(text), at: now });
+  // Entries end with a full stop, as the brief writes them.
+  const add = (kind, pane, text, other = "") => out.push({ kind, pane, other, text: stop(cut(text)), at: now });
   const who = (pane) => nameOf(next, prev, pane);
 
   // Panes that came and went, and the helpers a manager started.

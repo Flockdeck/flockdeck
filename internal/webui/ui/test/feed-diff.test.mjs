@@ -14,7 +14,7 @@ const graph = ({ nodes = [node("m"), node("a"), node("b")], needs = [], edges = 
   });
 const need = (kind, pane, extra = {}) => ({ id: kind + ":" + pane, kind, pane, time: "2026-10-21T10:00:00Z", text: "", ...extra });
 const diff = (a, b) => diffGraphs(a, b, NOW);
-const texts = (es) => es.map((e) => e.text);
+const texts = (es) => es.map((e) => e.text.replace(/.$/, ""));
 
 test("the first push, and a push for another project, are a starting point and give nothing", () => {
   assert.deepEqual(diff(buildGraphModel(null), graph()), []);
@@ -44,12 +44,18 @@ test("status flips between working, idle and waiting are not entries", () => {
 
 test("a new need is an entry once, by kind, with the prompt when it was sent", () => {
   const was = graph();
-  const now = graph({ needs: [need("permission", "a", { text: "go test ./..." }), need("ask", "b", { text: "which store?" }), need("stuck", "b"), need("conflict", "a", { other: "b" })] });
+  const now = graph({ needs: [need("permission", "a", { text: "go test ./pkg" }), need("ask", "b", { text: "which store?" }), need("stuck", "b"), need("conflict", "a", { other: "b", text: "cfg/limits.yaml" })] });
   const es = diff(was, now);
-  assert.deepEqual(texts(es), ["a asks to run go test ./...", "b asks: which store?", "b is working but has written nothing for a while", "a and b change the same file"]);
+  assert.deepEqual(texts(es), ["a asks to run go test ./pkg", "b asks: which store?", "b is working but has written nothing for a while", "a and b both change cfg/limits.yaml"]);
   assert.deepEqual(es.map((e) => e.kind), ["need", "need", "warn", "need"]);
   assert.equal(es[3].other, "b");
   assert.deepEqual(diff(now, now), [], "a need that stands is not new again");
+});
+
+test("an entry ends with a full stop, and a conflict with no file says the same file", () => {
+  const es = diff(graph(), graph({ needs: [need("conflict", "a", { other: "b" }), need("ask", "b", { text: "which?" })] }));
+  assert.equal(es[0].text, "a and b both change the same file.");
+  assert.equal(es[1].text, "b asks: which?", "a text that ends in a mark gets no second one");
 });
 
 test("a prompt hidden for the relay is not said", () => {
