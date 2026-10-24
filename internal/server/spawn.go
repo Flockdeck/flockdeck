@@ -639,9 +639,6 @@ func (s *Server) installSpawnHandler() {
 			if err == nil {
 				err = s.ws.HelperRoom(req.Parent)
 			}
-			if err == nil {
-				err = s.spendRoom(req.Parent)
-			}
 			if err == nil && !req.Shell {
 				_, err = s.ws.AgentSpec(req.Agent)
 			}

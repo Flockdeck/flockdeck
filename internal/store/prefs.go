@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"math"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -115,10 +114,6 @@ type Prefs struct {
 	// A project with no entry gets the default, which depends on whether its
 	// repository is known to be private. Set by `flockdeck knowledge`.
 	Knowledge map[string]string `json:"knowledge,omitempty"`
-	// SpendLimits is, per project root (as MetaKey spells it), the most a team
-	// of that project should spend, in US dollars. A project with no entry has
-	// no limit. See SpendLimitFor and the team's spend check.
-	SpendLimits map[string]float64 `json:"spendLimits,omitempty"`
 	// Wake are the off switches for typed wake: global, per agent type and per
 	// pane. Left out of the file while everything is on. Set by `flockdeck wake`
 	// and the wakeSwitch command, and read each time the wake service looks at a
@@ -351,44 +346,6 @@ func (p *Prefs) SetKnowledge(root, state string) bool {
 	}
 	next[key] = state
 	p.Knowledge = next
-	return true
-}
-
-// MaxSpendLimit is the largest limit that may be set, in dollars. A figure past
-// it is a mistake, and keeps a total from overflowing.
-const MaxSpendLimit = 1_000_000
-
-// SpendLimitFor is the team spend limit of the project at root, in dollars, or
-// zero when it has none.
-func (p Prefs) SpendLimitFor(root string) float64 {
-	return p.SpendLimits[MetaKey(root)]
-}
-
-// SetSpendLimit records the limit for a project and reports whether that changed
-// anything. Zero clears it. A figure that is negative, not a number or past
-// MaxSpendLimit is refused. The map is replaced, as SetKnowledge does.
-func (p *Prefs) SetSpendLimit(root string, usd float64) bool {
-	if !(usd >= 0 && usd <= MaxSpendLimit) {
-		return false
-	}
-	usd = math.Round(usd*100) / 100
-	key := MetaKey(root)
-	if p.SpendLimits[key] == usd {
-		return false
-	}
-	next := make(map[string]float64, len(p.SpendLimits)+1)
-	for k, v := range p.SpendLimits {
-		next[k] = v
-	}
-	if usd == 0 {
-		delete(next, key)
-	} else {
-		next[key] = usd
-	}
-	if len(next) == 0 {
-		next = nil
-	}
-	p.SpendLimits = next
 	return true
 }
 

@@ -482,14 +482,3 @@ test("a stuck pane is a known, quiet kind with its own word", () => {
   assert.equal(r.detail, "no output for 12m");
   assert.ok(!draw(msg).includes("gnode--loud"), "a quiet pane was drawn loud");
 });
-
-test("a spend item has its word, and the team keeps its limit", () => {
-  assert.equal(reasonOf({ kind: "spend", text: "$9.00 of the $10.00 limit spent (90%)" }).word, "near its spend limit");
-  const msg = load(names[0]);
-  msg.teams[0].limitUSD = 10;
-  msg.teams[0].needs = [{ id: "spend:" + msg.teams[0].manager, kind: "spend", pane: msg.teams[0].manager, time: "0001-01-01T00:00:00Z", text: "$9.00 of the $10.00 limit spent (90%)" }];
-  const model = buildGraphModel(msg);
-  assert.equal(model.teams[0].limitUSD, 10);
-  const rows = rowsOf(draw(msg));
-  assert.deepEqual(rows.map((r) => [r[1], r[3]]), [["spend", "near its spend limit"]]);
-});
