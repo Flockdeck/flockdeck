@@ -28,7 +28,7 @@
 // With --shot DIR it also saves a dark screenshot (1440 by 900, or --shot-size WxH)
 // of each fixture's page, as DIR/fixture-NN.png, for a pull request to show before
 // and after. --shot-view NAME chooses a view of the tab strip's switch first, and
-// --shot-feed pushes changed graphs so the activity feed has entries. --shot-open opens the first agent's drawer first, --shot-widen widens the rail, --shot-palette opens the command palette, --shot-team opens the Start a team dialog, and --shot-settings SECTION opens Settings there.
+// --shot-feed pushes changed graphs so the activity feed has entries. --shot-open opens the first agent's drawer first, --shot-max opens the first outline row's drawer and maximises it, --shot-widen widens the rail, --shot-palette opens the command palette, --shot-team opens the Start a team dialog, and --shot-settings SECTION opens Settings there.
 //
 //   node scripts/realpage/check.mjs [--out result.json] [--slowdown 1,4] [--repeat 3] [--only N] [--shot DIR]
 //                                   [--allow-config-change] [--ceiling 20]
@@ -54,6 +54,7 @@ const only = opt("only", ""); // a fixture number, to run one
 const shotDir = opt("shot", "");
 const shotView = opt("shot-view", ""); // a view of the strip's switch to choose first: board, changes, replay
 const shotSize = opt("shot-size", "1440x900").split("x").map(Number);
+const shotMax = args.includes("--shot-max"); // open the first outline row's drawer and maximise it
 const shotOpen = args.includes("--shot-open"); // open the first agent's drawer first
 const shotWiden = args.includes("--shot-widen"); // widen the rail first
 const shotPalette = args.includes("--shot-palette"); // open the command palette first
@@ -380,6 +381,12 @@ async function screenshot(page, file) {
     await page.eval(`(() => { const t = document.querySelector('.settings-tab[data-section="${shotSettings}"]'); if (t) t.click(); })()`);
   }
   if (shotView) await page.eval(`(() => { const b = document.querySelector('.tabs-view[data-view="${shotView}"]'); if (b) b.click(); })()`);
+  if (shotMax) await sleep(400);
+  if (shotMax) {
+    await page.eval(`(() => { const r = document.querySelector(".tree-row"); if (r) r.click(); })()`);
+    await sleep(500);
+    await page.eval(`(() => { const b = document.querySelector(".drawer-max"); if (b) b.click(); })()`);
+  }
   await sleep(800);
   const { data } = await page.S("Page.captureScreenshot", { format: "png" });
   fs.writeFileSync(file, Buffer.from(data, "base64"));
