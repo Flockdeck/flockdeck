@@ -176,7 +176,6 @@ var cmdVerdicts = map[string]Verdict{
 	"ghStatus":       task(tC8),
 
 	// The task board and messages. C5 shows a task; changing one has no task.
-	"taskGet":    task(tC5),
 	"taskList":   task(tC5),
 	"taskAdd":    task(tL8, "Editing the task board has no task"),
 	"taskAssign": task(tL8, "Editing the task board has no task"),

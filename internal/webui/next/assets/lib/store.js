@@ -92,6 +92,10 @@
 //   details       the answers to requestDetail for the open conversation, by entry
 //                 id: { state: "loading" | "ok" | "gone", detail }. At most
 //                 MAX_DETAILS are held; the oldest asked for goes first.
+//   taskDetail    the answer to requestTask: { id, req, state, task, error }, or null.
+//                 state is "loading", "ok" (task is the desktop's task view: body,
+//                 notes, owner, branch) or "error". It is for a window on the desk;
+//                 a window through the relay is refused and sends none.
 //   search        the search of the open conversation, or null: { q, state, matches,
 //                 more }. state is "loading" until the desktop has answered, then
 //                 "done". matches are { entryId, kind, snippet, offset }, newest
@@ -219,7 +223,7 @@ const initial = () => ({
   hello: null, remote: false, state: null,
   graph: null, graphGone: null, graphRefused: false, graphError: null,
   notice: null, versions: null, helpers: null, helperPlan: null, recents: null, browse: null, batonDraft: null, batonSaved: null, batonError: null,
-  approvals: [], detached: false, sent: null, started: null, structured: null, structuredError: null, cancelError: null, answer: null, asking: null, conversation: null, details: {}, search: null, history: null, paneInfo: null, paneMatches: null, keys: null, jevKey: null, remoteDevices: null, remotePair: null, remoteOutcome: null, dropped: 0,
+  approvals: [], detached: false, sent: null, started: null, structured: null, structuredError: null, cancelError: null, answer: null, asking: null, conversation: null, details: {}, search: null, taskDetail: null, history: null, paneInfo: null, paneMatches: null, keys: null, jevKey: null, remoteDevices: null, remotePair: null, remoteOutcome: null, dropped: 0,
 });
 
 /** upsert returns entries with each of the new ones in place of the one with its
@@ -374,6 +378,10 @@ export function createStore(opts) {
         }
         break;
       case "teamResult":
+        if (msg.op === "taskGet" && snap.taskDetail && snap.taskDetail.req === msg.req) {
+          const t = msg.task && typeof msg.task === "object" ? msg.task : null;
+          set({ taskDetail: msg.ok && t && t.id === snap.taskDetail.id ? { ...snap.taskDetail, state: "ok", task: t, error: "" } : { ...snap.taskDetail, state: "error", task: null, error: String(msg.error || "That task could not be read") } });
+        }
         if (!msg.ok && msg.op === "structuredWatch" && watchingPane !== null) {
           set({ structuredError: { error: String(msg.error || "") } });
         }
@@ -667,6 +675,19 @@ export function createStore(opts) {
       items[entry] = { state: "loading", n: ++detailSeq };
       set({ details: items });
       return true;
+    },
+    /** requestTask asks the desktop for one task of the project on screen: its
+     *  text, owner, notes and branch. It returns false when nothing was asked
+     *  (a window through the relay, no hello, no project, or the socket is down). */
+    requestTask(id) {
+      if (!id || typeof id !== "string" || snap.remote || !snap.hello || !snap.graph) return false;
+      const req = "t" + ++reqSeq;
+      if (!socket.send({ cmd: "taskGet", id, root: snap.graph.root, req })) return false;
+      set({ taskDetail: { id, req, state: "loading", task: null, error: "" } });
+      return true;
+    },
+    clearTask() {
+      if (snap.taskDetail) set({ taskDetail: null });
     },
     /** searchConversation asks the desktop to search the open conversation for
      *  text. An empty query clears the search. It returns false when nothing was

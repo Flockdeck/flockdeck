@@ -8,10 +8,10 @@ It compares two lists the sources hold: the actions of the key table (`internal/
 
 | | Actions | Commands |
 | --- | --- | --- |
-| done | 38 | 89 |
+| done | 38 | 90 |
 | replaced | 0 | 3 |
 | cut | 14 | 12 |
-| planned | 6 | 52 |
+| planned | 6 | 51 |
 | unclassified | 0 | 0 |
 | total | 58 | 156 |
 
@@ -54,7 +54,7 @@ The old interface let a person tile, split, move and broadcast to panes. The new
 
 | Task | Actions | Commands |
 | --- | --- | --- |
-| T131 (C5, task detail) |  | `taskGet`, `taskList` |
+| T131 (C5, task detail) |  | `taskList` |
 | T132 (C6, Changes) | `changes` | `changes`, `commit`, `diff`, `gitFetch`, `gitPull`, `gitPush` |
 | T133 (C7, worktrees) | `worktrees` | `conflictRadar`, `worktreeAdd`, `worktreePrune`, `worktreeRemove`, `worktrees` |
 | T134 (C8, GitHub) |  | `ghChecks`, `ghInstall`, `ghIssue`, `ghIssueComment`, `ghIssueCreate`, `ghIssues`, `ghLogin`, `ghLoginCancel`, `ghLogout`, `ghPR`, `ghPRComment`, `ghPRCreate`, `ghPRs`, `ghStatus` |
@@ -275,7 +275,7 @@ These are safety and security controls. The new interface has no way to do them 
 | `taskAdd` | planned | T143 (L8, remaining actions). Editing the task board has no task |
 | `taskAssign` | planned | T143 (L8, remaining actions). Editing the task board has no task |
 | `taskBranch` | planned | T143 (L8, remaining actions). Editing the task board has no task |
-| `taskGet` | planned | T131 (C5, task detail) |
+| `taskGet` | done |  |
 | `taskList` | planned | T131 (C5, task detail) |
 | `taskNote` | planned | T143 (L8, remaining actions). Editing the task board has no task |
 | `taskPrune` | planned | T143 (L8, remaining actions). Editing the task board has no task |
