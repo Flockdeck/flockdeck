@@ -2,7 +2,7 @@
 
 This file is written by `go run ./cmd/parity -w`. Do not edit it: change `cmd/parity/classify.go` or the interface and write it again. A test in `cmd/parity` fails when this file is out of date, and when the old interface does something that is neither done, replaced, cut nor owned by a task.
 
-It compares two lists the sources hold: the actions of the key table (`internal/help/keys.go`) against what the new shell runs, and the control-socket commands the old interface sends (`internal/webui/assets/app.js`) against the ones the new interface sends. It does not look at the pane sockets or the pages the old interface fetches, and it cannot see an old feature that has no action or command of its own. See [what this does not cover](#what-this-does-not-cover).
+It compares two lists the sources hold: the actions of the key table (`internal/help/keys.go`) against what the new shell runs, and the control-socket commands the old interface sent (the frozen list in `cmd/parity/oldcommands.txt`; the old interface was deleted) against the ones the new interface sends. It does not look at the pane sockets or the pages the old interface fetches, and it cannot see an old feature that has no action or command of its own. See [what this does not cover](#what-this-does-not-cover).
 
 ## Summary
 
@@ -58,9 +58,21 @@ The old interface let a person tile, split, move and broadcast to panes. The new
 | --- | --- | --- |
 | T134 (C8, GitHub) |  | `ghChecks`, `ghInstall`, `ghIssue`, `ghIssueComment`, `ghIssueCreate`, `ghIssues`, `ghLogin`, `ghLoginCancel`, `ghLogout`, `ghPR`, `ghPRComment`, `ghPRCreate`, `ghPRs`, `ghStatus` |
 
-## Must exist before the old interface is retired
+## Known gaps
 
-These are safety and security controls. The new interface has no way to do them yet, and T162 (the flip) must not remove the old interface until it does.
+The old interface was deleted with these missing from the new one. They are chosen, not forgotten.
+
+- GitHub view: Pull requests, issues, check runs and the gh sign-in. The gh* commands still work on the server; nothing in the new interface sends them (T134).
+- Recording a structured pane: A structured pane has no terminal transcript to record, and the recorder for its protocol has no start, stop or privacy wording yet (T145).
+- Phone team view: The phone app still shows the roster. It does not read the relay form of the team (docs/team-graph.md, section 9a) yet.
+- Tips bar: The hint bar of tips is cut; help is under F1.
+- Tiling: Splitting, moving, tiling and broadcasting to panes is cut; the team is a graph.
+- Sponsor link in Settings: The old Settings page linked GitHub Sponsors. The README and the help page still do.
+- Not run on Linux, macOS or with -race: The new interface was tested on Windows only, and no real phone was paired through the relay.
+
+## Safety and security controls
+
+These are safety and security controls the new interface has to send. The list is empty: autoReview, autoReviewDefault and jevKey are built. A command added to blocksRetirement in classify.go appears here with its owner and the task that waits for it (T162 was the flip).
 
 | Command | Owner | Gate | What it is |
 | --- | --- | --- | --- |

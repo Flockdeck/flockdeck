@@ -72,9 +72,8 @@ vendor's list price.
 ## Structured agents (beta)
 
 A structured agent is one Flockdeck talks to over the Agent Client Protocol
-instead of in a terminal. Its pane has no screen: the new interface's drawer
-shows its conversation, a box to send it a prompt and a Stop button, and the
-current window shows a stub line and sends it nothing. Today the one offered is
+instead of in a terminal. Its pane has no screen: the drawer
+shows its conversation, a box to send it a prompt and a Stop button. Today the one offered is
 opencode (structured). There is none for Claude Code.
 
 It is off until you turn it on. Put `"structuredPanes": true` in `prefs.json`

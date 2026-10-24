@@ -1,4 +1,4 @@
-# First load of the new shell
+# First load of the shell
 
 This is step one of T77 (S6): how long the new shell takes to show on a phone's link, from a local run behind a throttling proxy. Step two, the same page through the real relay on a paired phone, is not done and needs the user.
 
@@ -48,6 +48,21 @@ The three scripts are no longer in `index.html`. The first terminal that opens l
 First paint falls by 1142 ms for the modules as shipped and by 1127 ms concatenated. The module graph is now under the 3 s budget on its own, including the finished-app stand-in (2.6 s), so the case for a concatenation tool is weaker than the first table made it. It is still 1.4 s faster, and the module graph is the case that grows with the stream cap, so step two on a phone still decides.
 
 The cost moves to the first terminal: it now waits for 131 KB (gzipped) fetched as three requests at once, which run in order. By arithmetic from the link (a first byte after 3 round trips, then 131 KB at 200 KB/s) that is about 1.1 to 1.3 s, with "Loading terminal" showing meanwhile; it was not measured, and the table measures the page before any terminal opens. A terminal waits for e2e.js as well as xterm, so a failed e2e.js load stops a local terminal too: that is the strict choice, since the hello that says whether the window is remote may not have arrived when the load starts.
+
+## Measured again when the old window was deleted (T162)
+
+Same tool and settings (five runs, median), on the shell as it is after the old window's deletion, branched from `0ecb8517`. The browser is Chrome 153 headless. Esbuild was not installed, so only the module cases ran; no concatenated figure was taken.
+
+| Case | Requests | Bytes sent | First meaningful paint | Interactive |
+| --- | --- | --- | --- | --- |
+| Modules as shipped | 105 | 326 KB | 9936 | 10026 |
+| Modules, finished-app stand-in | 106 | 326 KB | 9665 | 9766 |
+| Modules, libraries in the page (before T99) | 108 | 455 KB | 11179 | 11294 |
+| Modules as shipped, no gzip | 105 | 859 KB | 11665 | 12510 |
+
+The shell has grown from 17 files and 200 KB to 105 files and 326 KB, and on this model it shows in about 10 seconds against the 3 second budget. The cost is the round trips: 105 files go out in waves of six, each file waiting three round trips for its first byte, and a module graph finds its imports one level at a time. The finished-app stand-in no longer adds anything, since the shipped page already imports nearly everything. The earlier tables above are the history of the first, smaller page and are not comparable with this one.
+
+What this does not show: a real phone, the real relay's stream cap (still a guess), or how much a concatenated file would save now. The previous measurement put concatenation at about a third off; with six times the files the saving should be larger, but that is an expectation and not a number. The decision on a concatenation tool in the release build is still open and is now the main first-load item.
 
 ## Sensitivity
 

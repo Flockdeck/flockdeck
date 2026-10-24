@@ -4,8 +4,9 @@
 //
 //   - the actions of the key table (internal/help/keys.go), against the ones the
 //     new shell runs (IMPLEMENTED in shell/app.js and the actions Live.js adds);
-//   - the control-socket commands the old interface sends (internal/webui/assets/app.js),
-//     against the ones the new interface sends (internal/webui/next/assets).
+//   - the control-socket commands the old interface sent (the frozen list in
+//     oldcommands.txt; the old interface itself was deleted), against the ones the
+//     new interface sends (internal/webui/next/assets).
 //
 // Everything in either list that the new interface does not do yet must be
 // classified in classify.go: replaced by a command it sends, cut on purpose, or
@@ -27,7 +28,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"sort"
 	"strings"
 
@@ -35,7 +35,7 @@ import (
 )
 
 const (
-	oldApp    = "internal/webui/assets/app.js"
+	oldList   = "cmd/parity/oldcommands.txt"
 	nextShell = "internal/webui/next/assets/shell/app.js"
 	nextLive  = "internal/webui/next/assets/shell/Live.js"
 	nextDir   = "internal/webui/next/assets"
@@ -123,42 +123,11 @@ func readFile(root, name string) (string, error) {
 func gather(root string) (Facts, error) {
 	f := Facts{NewCommands: map[string]bool{}, Implemented: map[string]bool{}}
 
-	old, err := readFile(root, oldApp)
+	old, err := readFile(root, oldList)
 	if err != nil {
 		return f, err
 	}
-	var dyn []string
-	f.OldCommands, dyn = scanCommands(old)
-	f.DynamicSites = dyn
-	// The name a dynamic site can take is written in the site (a ternary) or in
-	// the table it reads (PREF_CMD); the sites that are neither are listed in
-	// classify.go with the names they can take.
-	for _, d := range dyn {
-		// In a ternary the names are the literals after the question mark; the
-		// test before it compares against other strings.
-		if i := strings.Index(d, "?"); i >= 0 {
-			d = d[i:]
-		} else {
-			continue
-		}
-		for _, m := range quoted.FindAllStringSubmatch(d, -1) {
-			if _, ok := f.OldCommands[m[1]]; !ok {
-				f.OldCommands[m[1]] = 0
-			}
-		}
-	}
-	for _, n := range append(slices.Clone(helperCommands), serverSuppliedCommands...) {
-		if _, ok := f.OldCommands[n]; !ok {
-			f.OldCommands[n] = 0
-		}
-	}
-	if m := prefCmdLine.FindStringSubmatch(old); m != nil {
-		for _, q := range quoted.FindAllStringSubmatch(m[1], -1) {
-			if _, ok := f.OldCommands[q[1]]; !ok {
-				f.OldCommands[q[1]] = 0
-			}
-		}
-	}
+	f.OldCommands, f.DynamicSites = parseOldList(old)
 
 	err = filepath.WalkDir(filepath.Join(root, filepath.FromSlash(nextDir)), func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -310,7 +279,7 @@ func generate(root string) (string, error) {
 	var b strings.Builder
 	b.WriteString("# Parity of the new interface with the old\n\n")
 	b.WriteString("This file is written by `go run ./cmd/parity -w`. Do not edit it: change `cmd/parity/classify.go` or the interface and write it again. A test in `cmd/parity` fails when this file is out of date, and when the old interface does something that is neither done, replaced, cut nor owned by a task.\n\n")
-	b.WriteString("It compares two lists the sources hold: the actions of the key table (`internal/help/keys.go`) against what the new shell runs, and the control-socket commands the old interface sends (`internal/webui/assets/app.js`) against the ones the new interface sends. It does not look at the pane sockets or the pages the old interface fetches, and it cannot see an old feature that has no action or command of its own. See [what this does not cover](#what-this-does-not-cover).\n\n")
+	b.WriteString("It compares two lists the sources hold: the actions of the key table (`internal/help/keys.go`) against what the new shell runs, and the control-socket commands the old interface sent (the frozen list in `cmd/parity/oldcommands.txt`; the old interface was deleted) against the ones the new interface sends. It does not look at the pane sockets or the pages the old interface fetches, and it cannot see an old feature that has no action or command of its own. See [what this does not cover](#what-this-does-not-cover).\n\n")
 
 	b.WriteString("## Summary\n\n")
 	b.WriteString("| | Actions | Commands |\n| --- | --- | --- |\n")
@@ -368,8 +337,13 @@ func generate(root string) (string, error) {
 	}
 	b.WriteString("\n")
 
-	b.WriteString("## Must exist before the old interface is retired\n\n")
-	b.WriteString("These are safety and security controls. The new interface has no way to do them yet, and T162 (the flip) must not remove the old interface until it does.\n\n")
+	b.WriteString("## Known gaps\n\nThe old interface was deleted with these missing from the new one. They are chosen, not forgotten.\n\n")
+	for _, g := range knownGaps {
+		fmt.Fprintf(&b, "- %s: %s\n", g.What, g.Detail)
+	}
+	b.WriteString("\n")
+	b.WriteString("## Safety and security controls\n\n")
+	b.WriteString("These are safety and security controls the new interface has to send. The list is empty: autoReview, autoReviewDefault and jevKey are built. A command added to blocksRetirement in classify.go appears here with its owner and the task that waits for it (T162 was the flip).\n\n")
 	b.WriteString("| Command | Owner | Gate | What it is |\n| --- | --- | --- | --- |\n")
 	for _, n := range blocksRetirement {
 		for _, r := range cmdRows {
@@ -417,4 +391,30 @@ func count(rs []Row, status string) int {
 		}
 	}
 	return n
+}
+
+// parseOldList reads oldcommands.txt: one "name count" line for each command the
+// old interface sent (count is how many places sent it, 0 for one reached only
+// through a dynamic site), then a line "#dynamic" and the dynamic sites as
+// written. The list was taken from the old interface's source when it was
+// deleted and is not regenerated.
+func parseOldList(src string) (map[string]int, []string) {
+	cmds := map[string]int{}
+	var dyn []string
+	inDyn := false
+	for _, line := range strings.Split(strings.ReplaceAll(src, "\r\n", "\n"), "\n") {
+		switch {
+		case line == "":
+		case line == "#dynamic":
+			inDyn = true
+		case inDyn:
+			dyn = append(dyn, line)
+		default:
+			name, n, _ := strings.Cut(line, " ")
+			count := 0
+			fmt.Sscanf(n, "%d", &count)
+			cmds[name] = count
+		}
+	}
+	return cmds, dyn
 }

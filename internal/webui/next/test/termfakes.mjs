@@ -162,7 +162,7 @@ const fakeIndexedDB = {
  *  script does, and returns FlockdeckE2E. */
 export function loadE2E() {
   if (globalThis.FlockdeckE2E) return globalThis.FlockdeckE2E;
-  const file = fileURLToPath(new URL("../../assets/e2e.js", import.meta.url));
+  const file = fileURLToPath(new URL("../assets/e2e.js", import.meta.url));
   globalThis.window = globalThis;
   globalThis.indexedDB = fakeIndexedDB;
   vm.runInThisContext(fs.readFileSync(file, "utf8"), { filename: file });

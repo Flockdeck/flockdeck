@@ -1,6 +1,6 @@
 # The real-page check
 
-This is the dry run of the week-10 test on the page users get (T98). It loads the tagged page (`go build -tags next`), served by `cmd/graphfixture` with no workspace and no configuration directory, in headless Chromium, once for each of the five fixtures in `internal/server/testdata/graph-fixtures`. It reads the page and nothing else. It does not replace the people-based test.
+This is the dry run of the week-10 test on the page users get (T98). It loads the page, served by `cmd/graphfixture` with no workspace and no configuration directory, in headless Chromium, once for each of the five fixtures in `internal/server/testdata/graph-fixtures`. It reads the page and nothing else. It does not replace the people-based test.
 
 Run it with `node scripts/realpage/check.mjs [--out result.json] [--slowdown 1,4] [--repeat 3] [--only N] [--allow-config-change] [--ceiling 20]`. It builds the server, starts one for each fixture with every home and configuration variable pointed at an empty temporary directory, and exits 1 when a check fails.
 
@@ -70,7 +70,6 @@ The check now also reads the card the strip click opened. For a permission it ne
 - The card of every item. The check reads the card of the first permission or question of each fixture only, so fixture 2's permission and fixture 4's permission are not opened. (Before #413 the fixture server had no permission or question view, so the first run's drawer showed the graph's text cut to 200 characters; that is the tree of the first run, not a gap now.)
 - The terminal body is empty: the fixture server has no `/ws/pty`.
 - A real remote window: the hello is made remote in the page, so the sealed socket, the key and `e2e.js` are not exercised, and the relay is not involved.
-- The old page. This check is of the new shell only.
 - Narrow (phone) width, dark and light themes, and a screen reader.
 - Whether a person finds who needs them and why in about five seconds. That is W3.
 

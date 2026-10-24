@@ -120,7 +120,7 @@ makes whenever the workspace changes.
 
 ## 5. The drawer view
 
-The new interface's drawer draws a structured pane from this watch and from its conversation
+The drawer draws a structured pane from this watch and from its conversation
 (`drawer/Structured.js`). The header carries a "structured" label beside the name. The panel shows the
 activity line, which is the tool still running (read from the conversation) with an icon for its kind
 and the first file its summary names, or the push's activity text, or "Idle". It shows the context used of
@@ -225,8 +225,7 @@ and a subagent (`general`, `explore`) with an allow. The five that are not flagg
 The drawer header of the pane says, while it is flagged, "This agent may run commands and edit files without asking you first: in this repository Flockdeck could not make it ask, or could not check. A project's opencode.json or .opencode folder can also load plugins and MCP servers that run code, so no permission setting makes an opencode pane safe in a repository you do not trust." The same sentence about plugins and MCP servers
 holds for every opencode pane, flagged or not; it is in the help page.
 
-A terminal opencode pane is not started this way and keeps its own configuration. The old window shows a stub
-for a structured pane and no warning.
+A terminal opencode pane is not started this way and keeps its own configuration.
 
 **What a structured pane loses against a terminal pane:**
 
@@ -240,7 +239,6 @@ for a structured pane and no warning.
   `conversationSearch` to it for every pane, and it is sent no `conversationAppend`,
   `conversationDetail` or `conversationSearch`, so a structured pane's conversation does not reach it
   by this path either (`TestARelayWindowGetsNothingOfAStructuredPanesConversation`).
-- The old window shows a stub line and sends it nothing; the pane is for the new interface's drawer.
 - No export, since the conversation is not stored where Flockdeck reads it. The conversation
   commands read it from memory (see the drawer section above).
   Flockdeck does not load or resume the agent's own session.

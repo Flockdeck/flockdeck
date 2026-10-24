@@ -1,7 +1,8 @@
 # Flockdeck
 
 Flockdeck is a desktop app for running several AI coding agents side by side. Each
-agent runs in a real terminal pane, in tabs and split panes. In a git repository
+agent runs in a real terminal pane, and the team of agents is shown as a graph of who is
+working with whom. In a git repository
 each agent can have its own worktree on its own branch, so agents do not edit each
 other's files. Each pane shows whether its agent is working, idle or waiting on
 you, so you can tell which one needs you without opening them all.
@@ -40,8 +41,7 @@ flockdeck -C ~/code/api   # open a project, in the running instance if there is 
 flockdeck agents          # the agents it can run, and which are installed here
 ```
 
-In the window, `Ctrl+Shift+T` opens a new agent tab and `Ctrl+Shift+D` splits the
-pane to the right. `Ctrl+Shift+K` opens the command palette, which lists every
+In the window, `Ctrl+Shift+T` opens a new agent tab. `Ctrl+Shift+K` opens the command palette, which lists every
 action. `Ctrl+Shift+X` turns an agent's plan into several agents, each in its own
 worktree when the project is a git repository. `Ctrl+Shift+S` reviews, commits and pushes what an agent changed. `F1`
 opens the help. All the shortcuts are in [docs/keys.md](docs/keys.md).
@@ -108,6 +108,19 @@ filled in from the key table when the page is shown.
   [keyboard shortcuts](internal/help/pages/shortcuts.md) and
   [the command line](internal/help/pages/cli.md)
 - [When something is wrong](internal/help/pages/troubleshooting.md)
+
+## Known gaps
+
+The window is the team-graph shell; the old tiled window was deleted. Missing from it, on purpose and for now:
+
+- The GitHub view (pull requests, issues, check runs). Use `gh` in a terminal pane.
+- Recording a structured pane. Terminal panes record as before.
+- A team view in the phone app. The phone still shows the roster.
+- The tips bar.
+- Tiling, splitting, moving and broadcasting to panes. A team is a graph.
+- The sponsor link in Settings. This section and the site link it.
+
+It was tested on Windows only: not on Linux or macOS, not with the race detector, and no real phone was paired through the relay. [`docs/parity.md`](docs/parity.md) is the full list.
 
 ## Sponsoring
 

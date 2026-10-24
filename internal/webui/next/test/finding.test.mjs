@@ -253,7 +253,7 @@ test("the search addon is a same-origin file of its own, not one of the terminal
   assert.equal(SEARCH_SCRIPT.src, "assets/vendor/addon-search.js");
   assert.equal(SEARCH_SCRIPT.global, "SearchAddon");
   assert.ok(!Object.values(SCRIPTS).some((d) => d.src === SEARCH_SCRIPT.src), "a terminal does not wait for it");
-  const file = join(here, "..", "..", "assets", "vendor", "addon-search.js");
+  const file = join(here, "..", "assets", "vendor", "addon-search.js");
   assert.ok(readFileSync(file, "utf8").includes("SearchAddon"), "the old window's vendored file is the one served");
 });
 

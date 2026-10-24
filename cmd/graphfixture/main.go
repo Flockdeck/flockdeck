@@ -2,8 +2,7 @@
 // that plays one of the five week-10 graph fixtures, so the page can be looked at
 // and tested without a workspace. Development aid, not part of the product.
 //
-// The front end is the one this binary was built with: the default build serves
-// the old one, a build with -tags next the new shell laid over it. The socket
+// The front end is the one the binary carries. The socket
 // greets a window with the key table, a state push built from the fixture's
 // panes, and answers graphWatch with the fixture's graph message. It answers
 // paneSend and the conversation commands with canned replies.
@@ -77,7 +76,7 @@ func run(args []string, stdout, stderr io.Writer) error {
 	}
 	s := &fixtureServer{fx: fx, files: webui.FS(), token: token}
 	srv := &http.Server{Handler: s.handler(), ReadHeaderTimeout: 10 * time.Second}
-	fmt.Fprintf(stdout, "front end: %s\nfixture: %s\nopen: http://%s/?t=%s\n", webui.Variant, fx.name, ln.Addr(), token)
+	fmt.Fprintf(stdout, "fixture: %s\nopen: http://%s/?t=%s\n", fx.name, ln.Addr(), token)
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()

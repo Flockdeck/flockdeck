@@ -25,7 +25,7 @@ func TestAcceptsGzipReadsARefusal(t *testing.T) {
 		{"gzip; q=0.000", false},
 		{"br, gzip;Q=0", false},
 	} {
-		r := httptest.NewRequest("GET", "/assets/app.js", nil)
+		r := httptest.NewRequest("GET", "/assets/main.js", nil)
 		if tc.header != "" {
 			r.Header.Set("Accept-Encoding", tc.header)
 		}

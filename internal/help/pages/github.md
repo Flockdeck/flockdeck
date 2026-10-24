@@ -1,5 +1,7 @@
 # GitHub
 
+> The current window has no GitHub panel yet (T134). The `gh` commands it used still exist in the desktop; until the panel is back, use `gh` in a terminal pane.
+
 The **GitHub** panel, from the command palette or **Settings › GitHub**, opens and reads pull requests and issues,
 and shows CI status, for the project on screen. It all goes through the `gh`
 command-line tool, without leaving Flockdeck.

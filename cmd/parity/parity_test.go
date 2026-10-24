@@ -243,12 +243,11 @@ func TestParityDocIsCurrent(t *testing.T) {
 	}
 }
 
-// The scan reads `cmd: "name"`, so a command the old interface sends through a
-// helper, in the shorthand { cmd, ... }, or by a name the desktop supplies is
-// invisible to it. The other direction finds them: a command the server handles
-// and the old interface quotes must be one the scan found, one listed as sent by
-// a helper or supplied by the server, or a string that is not a command at all.
-func TestNoServerCommandNamedInTheOldInterfaceIsMissed(t *testing.T) {
+// The old interface is deleted, so its commands are the frozen list in
+// oldcommands.txt. Every one stays a command the server handles, so the views the
+// new interface lacks can be built on them without a server change; and the
+// helper and server-supplied commands are on that list and handled too.
+func TestNoServerCommandOfTheOldInterfaceWasDropped(t *testing.T) {
 	f, err := gather(root)
 	if err != nil {
 		t.Fatal(err)
@@ -257,27 +256,14 @@ func TestNoServerCommandNamedInTheOldInterfaceIsMissed(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	app, err := readFile(root, oldApp)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for name := range known {
-		if !strings.Contains(app, `"`+name+`"`) {
-			continue
-		}
-		if _, ok := f.OldCommands[name]; ok || slices.Contains(notCommands, name) {
-			continue
-		}
-		t.Errorf("the server handles %q and the old interface quotes it, but the scan did not find it sent. If the old interface sends it (through a helper, or as { cmd, ... }), add it to helperCommands and classify it; if the string is not a command, add it to notCommands.", name)
-	}
-	for _, name := range notCommands {
-		if !strings.Contains(app, `"`+name+`"`) || !known[name] {
-			t.Errorf("notCommands lists %q, which is not both quoted in the old interface and a case in the server: remove it", name)
+	for name := range f.OldCommands {
+		if !known[name] {
+			t.Errorf("the old interface sent %q and the server no longer handles it. The missing views are meant to be added back on the server commands, so keep it; if it was removed on purpose, take it off oldcommands.txt and its verdict off classify.go and say why in the PR.", name)
 		}
 	}
 	for _, name := range helperCommands {
-		if !strings.Contains(app, `"`+name+`"`) {
-			t.Errorf("helperCommands lists %q, which the old interface does not name", name)
+		if _, ok := f.OldCommands[name]; !ok {
+			t.Errorf("helperCommands lists %q, which is not on the old interface's list", name)
 		}
 		if !known[name] {
 			t.Errorf("helperCommands lists %q, which the server does not handle", name)
@@ -302,9 +288,9 @@ func TestRetirementGateIsInTheDoc(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, section, ok := strings.Cut(out, "## Must exist before the old interface is retired")
+	_, section, ok := strings.Cut(out, "## Safety and security controls")
 	if !ok {
-		t.Fatal("the generated file has no section for what must exist before the old interface is retired")
+		t.Fatal("the generated file has no section for the safety and security controls")
 	}
 	section, _, _ = strings.Cut(section, "\n## ")
 	if !strings.Contains(section, "T162") {
@@ -319,6 +305,49 @@ func TestRetirementGateIsInTheDoc(t *testing.T) {
 		}
 		if line == "" || !strings.Contains(line, "T143") || !strings.Contains(line, "T162") {
 			t.Errorf("%s has no row naming its owner and T162: %q", n, line)
+		}
+	}
+}
+
+// The gaps the new interface ships with are pinned. A command that gets built
+// leaves the planned list and a new gap enters it, and either way this list is
+// changed in the same PR, so nobody is surprised by what is missing.
+func TestKnownGapsArePinned(t *testing.T) {
+	f, err := gather(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyRows, cmdRows, _ := rows(f)
+	var planned []string
+	for _, r := range append(keyRows, cmdRows...) {
+		if r.Status == "planned" {
+			planned = append(planned, r.Name)
+		}
+	}
+	slices.Sort(planned)
+	want := []string{
+		"ghChecks", "ghInstall", "ghIssue", "ghIssueComment", "ghIssueCreate", "ghIssues", "ghLogin", "ghLoginCancel", "ghLogout",
+		"ghPR", "ghPRComment", "ghPRCreate", "ghPRs", "ghStatus",
+	}
+	if !slices.Equal(planned, want) {
+		t.Errorf("planned (not yet in the new interface) is\n\t%q\nwant\n\t%q\nIf one was built, remove it here; if a gap was added, name it in knownGaps in classify.go too.", planned, want)
+	}
+	out, err := generate(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, g := range knownGaps {
+		if !strings.Contains(out, g.What) {
+			t.Errorf("the generated file does not name the gap %q", g.What)
+		}
+	}
+	for _, must := range []string{"GitHub view", "Recording a structured pane", "Phone team view", "Tips bar", "Tiling"} {
+		found := false
+		for _, g := range knownGaps {
+			found = found || g.What == must
+		}
+		if !found {
+			t.Errorf("knownGaps lacks %q", must)
 		}
 	}
 }

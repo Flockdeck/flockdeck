@@ -98,7 +98,7 @@ func TestChannelWindowLinkRunsOut(t *testing.T) {
 // Statuses come from a GET.
 var tcpGolden = map[string]string{
 	"/":                       "403 200",
-	"/assets/app.js":          "403 200",
+	"/assets/main.js":         "403 200",
 	"/assets/vendor/xterm.js": "403 200",
 	"/ws/control":             "403 426",
 	"/ws/pty?id=any":          "403 404",

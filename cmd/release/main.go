@@ -620,7 +620,7 @@ const releaseGOFLAGS = "-mod=readonly"
 
 // buildEnv is the environment of a release build: the runner's own, with the
 // target set. GOFLAGS is set to a fixed harmless value so that nothing ambient on
-// a runner, such as a tag for the new shell, reaches a release binary; a release
+// a runner, such as a build tag, reaches a release binary; a release
 // is built with no build tags. It is not left empty, because the go command
 // ignores an empty variable and reads GOFLAGS from its config file instead.
 func buildEnv(base []string, goos, goarch, cgo string) []string {

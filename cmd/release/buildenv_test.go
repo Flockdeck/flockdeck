@@ -6,11 +6,11 @@ import (
 )
 
 // A release is built with no build tags, so a GOFLAGS set on the runner, such as
-// -tags=next for the new shell, must not reach it. It is also not empty, since
+// -tags=something, must not reach it. It is also not empty, since
 // the go command ignores an empty one and reads its config file instead. The last GOFLAGS in the list
 // is the one the go command uses.
 func TestBuildEnvPinsGOFLAGS(t *testing.T) {
-	env := buildEnv([]string{"PATH=/bin", "GOFLAGS=-tags=next"}, "linux", "amd64", "1")
+	env := buildEnv([]string{"PATH=/bin", "GOFLAGS=-tags=something"}, "linux", "amd64", "1")
 	var last string
 	for _, kv := range env {
 		if strings.HasPrefix(kv, "GOFLAGS=") {

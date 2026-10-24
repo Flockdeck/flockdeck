@@ -15,7 +15,7 @@ below.
 
 ## Front end, compiled into the binary
 
-The files in `internal/webui/assets/vendor/` are builds of the `@xterm/xterm`,
+The files in `internal/webui/next/assets/vendor/` are builds of the `@xterm/xterm`,
 `@xterm/addon-fit`, `@xterm/addon-search` and `@xterm/addon-webgl` packages,
 vendored rather than fetched at build time. They are minified, and the minifier
 strips the banner comment the licence asks for, so it is restored at the top of
@@ -49,13 +49,12 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-The new front end in `internal/webui/next/assets/` (built with the `next` tag, see
-`docs/building.md`) vendors Preact 10.29.8 (with its hooks module) and htm 3.1.1 in
+The front end in `internal/webui/next/assets/` (see `docs/building.md`) also vendors Preact 10.29.8 (with its hooks module) and htm 3.1.1 in
 `internal/webui/next/assets/vendor/`. The versions, tarball checksums and the two
 changes made to the files are in `internal/webui/next/assets/vendor/LICENSES.md`.
 preact-render-to-string, which only the tests use, is not shipped and is not listed.
 
-### Preact — MIT
+### Preact ï¿½ MIT
 
 Copyright (c) 2015-present Jason Miller
 
@@ -83,7 +82,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-### htm — Apache 2.0
+### htm ï¿½ Apache 2.0
 
 Copyright 2018 Google Inc.
 
