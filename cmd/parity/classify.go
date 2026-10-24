@@ -69,6 +69,7 @@ const (
 	whyTiling    = "Tiling and splitting panes is cut; the team is a graph."
 	whyRearrange = "Moving and merging panes and tabs is cut; the team is a graph."
 	whyBroadcast = "Broadcasting to panes is cut; a manager sends to its team."
+	whyHints     = "The hint bar of tips is cut; help is under F1."
 )
 
 // keyVerdicts classify every action of the key table that the new shell does not
@@ -87,14 +88,12 @@ var keyVerdicts = map[string]Verdict{
 	"tilePanes":        cut(whyTiling),
 
 	// Tabs.
-	"selectTab":    task(tL1, "The tab strip sends selectTab when a tab is pressed; the Alt+number key is not run"),
 	"mergeAllTabs": cut(whyRearrange),
 
 	// Agents.
 	"toggleBroadcast":       cut(whyBroadcast),
 	"toggleBroadcastMember": cut(whyBroadcast),
 	"promptAll":             cut(whyBroadcast + " It opens the prompt bar aimed at the focused pane, which the new prompt (paneSend) covers; with broadcast on it reached every member."),
-	"closeFinishedPanes":    task(tL1),
 }
 
 // cmdVerdicts classify every control-socket command the old interface sends
@@ -116,15 +115,12 @@ var cmdVerdicts = map[string]Verdict{
 	"toggleBroadcast":       cut(whyBroadcast),
 	"toggleBroadcastMember": cut(whyBroadcast),
 
-	// L1: start flows and pane lifecycle.
-	"closeFinishedPanes": task(tL1),
-	"toggleZoom":         task(tL1),
-	"focusPane":          task(tL1),
-	"teamClose":          task(tL1),
+	// Zooming a tile of the desk's layout. The drawer's maximise (zoomPane) is the
+	// window's own and sends nothing.
+	"toggleZoom": cut(whyTiling + " The drawer has its own maximise."),
 
-	// The one-line hints under the tab bar. Whether the new interface has a hint bar
-	// is a decision for the plan; until it is made the hint's dismissal stays here.
-	"dismissTip": task(tL2, "The hint bar: the new interface has none yet, and whether it gets one is undecided"),
+	// The one-line hints under the tab bar.
+	"dismissTip": cut(whyHints),
 
 	// L7: updates, detach, quit.
 

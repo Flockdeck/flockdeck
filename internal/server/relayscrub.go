@@ -110,6 +110,9 @@ func scrubForRemote(data []byte) []byte {
 // below). A type added to the server is not sent to a relay window until it is
 // put here or given a scrub; TestEveryMessageTypeIsClassifiedForTheRelay holds
 // this list to what the server sends. The values say why each is safe.
+//
+// "keys" is here on purpose: it says which agents have an API key and where it
+// came from (the environment, a file, the key store), and carries no key value.
 var relayPass = map[string]string{
 	"hello": "keys and settings", "prefs": "settings", "keys": "API key status", "keyTable": "key table",
 	"artifacts": "whether the device may open the artifacts socket", "agentAddress": "settings", "radarSupport": "a flag", "jevKey": "a flag",

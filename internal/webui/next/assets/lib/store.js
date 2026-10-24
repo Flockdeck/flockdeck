@@ -206,6 +206,15 @@ export function approvalOf(msg) {
  *  are dropped, and the conversation no longer starts at the first of them. */
 export const MAX_ENTRIES = 500;
 
+/** nullMap is an object with no prototype holding the own properties of each
+ *  source: a table keyed by an id that came from a transcript or an agent, where
+ *  "__proto__", "toString" and "constructor" must be ordinary keys. */
+function nullMap(...sources) {
+  const m = Object.create(null);
+  for (const src of sources) for (const k of Object.keys(src || {})) Object.defineProperty(m, k, { value: src[k], enumerable: true, writable: true, configurable: true });
+  return m;
+}
+
 /** MAX_DETAILS bounds the entry details held: a tool's output and a diff can each be large. */
 export const MAX_DETAILS = 12;
 
@@ -254,7 +263,7 @@ const initial = () => ({
   hello: null, remote: false, state: null,
   graph: null, graphGone: null, graphRefused: false, graphError: null,
   notice: null, versions: null, helpers: null, helperPlan: null, recents: null, browse: null, batonDraft: null, batonSaved: null, batonError: null, agentAddress: null,
-  approvals: [], detached: false, sent: null, started: null, structured: null, structuredError: null, cancelError: null, answer: null, asking: null, conversation: null, details: {}, search: null, taskDetail: null, changes: null, diff: null, gitWarn: null, changesBusy: "", changesNote: null, history: null, paneInfo: null, paneMatches: null, keys: null, jevKey: null, radar: null, worktrees: null, agentsList: null, team: null, teamGone: null, teamTasks: null, teamMessages: null, teamResult: null, teamRefused: false, remoteDevices: null, remotePair: null, remoteOutcome: null, dropped: 0,
+  approvals: [], detached: false, sent: null, started: null, structured: null, structuredError: null, cancelError: null, answer: null, asking: null, conversation: null, details: nullMap(), search: null, taskDetail: null, changes: null, diff: null, gitWarn: null, changesBusy: "", changesNote: null, history: null, paneInfo: null, paneMatches: null, keys: null, jevKey: null, radar: null, worktrees: null, agentsList: null, team: null, teamGone: null, teamTasks: null, teamMessages: null, teamResult: null, teamRefused: false, remoteDevices: null, remotePair: null, remoteOutcome: null, dropped: 0,
 });
 
 /** upsert returns entries with each of the new ones in place of the one with its
@@ -285,6 +294,7 @@ export function createStore(opts) {
   let reqSeq = 0;
   let noticeSeq = 0;
   let pendingCommit = null;
+  let changesAsked = null;
   let sentSeq = 0;
   let startedSeq = 0;
   let answerSeq = 0;
@@ -507,7 +517,7 @@ export function createStore(opts) {
         if (watchingConv === null || msg.id !== watchingConv || typeof msg.entry !== "string" || !snap.details[msg.entry]) break;
         const n = snap.details[msg.entry].n;
         const d = msg.gone ? { state: "gone", n } : { state: "ok", n, detail: msg.detail && typeof msg.detail === "object" ? msg.detail : {} };
-        set({ details: { ...snap.details, [msg.entry]: d } });
+        set({ details: nullMap(snap.details, { [msg.entry]: d }) });
         break;
       }
       case "agentStarted":
@@ -537,7 +547,7 @@ export function createStore(opts) {
           entries = upsert(c.entries, page);
           atStart = c.atStart;
         }
-        set({ conversation: { ...c, supported: true, entries, atStart, older: "idle", refused: "" }, ...(msg.reset ? { details: {} } : {}) });
+        set({ conversation: { ...c, supported: true, entries, atStart, older: "idle", refused: "" }, ...(msg.reset ? { details: nullMap() } : {}) });
         break;
       }
       case "conversationAppend": {
@@ -611,7 +621,12 @@ export function createStore(opts) {
         if (typeof msg.id === "string" && snap.approvals.some((a) => a.id === msg.id)) set({ approvals: snap.approvals.filter((a) => a.id !== msg.id) });
         break;
       case "changes": {
-        const { type, ...rest } = msg;
+        // A reply for a directory other than the one last asked about is an
+        // answer to a question since replaced (the pane changed): not taken.
+        // The desktop echoes the directory it was asked about as path.
+        // The listing again after an action in the tree on screen is taken too.
+        if (typeof msg.path === "string" && msg.path !== changesAsked && !(snap.changes && msg.cwd === snap.changes.cwd)) break;
+        const { type, path, ...rest } = msg;
         set({ changes: rest, changesBusy: "", gitWarn: null });
         break;
       }
@@ -623,7 +638,8 @@ export function createStore(opts) {
         set({ gitWarn: { ...msg, seq: ++noticeSeq }, changesBusy: "" });
         break;
       case "notice": {
-        if (snap.changes && msg.error !== undefined && !approvalOf(msg)) set({ changesNote: { text: String(msg.text || ""), error: !!msg.error }, changesBusy: "" });
+        // Only while the panel has an action out is an error notice its own; an unrelated one is left to the notice bar.
+        if (snap.changes && snap.changesBusy && msg.error !== undefined && !approvalOf(msg)) set({ changesNote: { text: String(msg.text || ""), error: !!msg.error }, changesBusy: "" });
         // A request for an answer is its own thing, not the latest notice: it
         // stays until the desktop withdraws it.
         const ask = approvalOf(msg);
@@ -760,7 +776,7 @@ export function createStore(opts) {
       if (!id || watchingConv === id) return false;
       if (watchingConv !== null && snap.hello) socket.send({ cmd: "conversationClose", id: watchingConv });
       watchingConv = id;
-      set({ conversation: { id, supported: null, entries: [], atStart: false, older: "idle", refused: "" }, details: {}, search: null });
+      set({ conversation: { id, supported: null, entries: [], atStart: false, older: "idle", refused: "" }, details: nullMap(), search: null });
       if (snap.hello) sendConversationOpen();
       return true;
     },
@@ -782,12 +798,12 @@ export function createStore(opts) {
       const have = snap.details[entry];
       if (have && have.state !== "gone") return true;
       if (!socket.send({ cmd: "conversationDetail", id: watchingConv, entry })) return false;
-      const items = { ...snap.details };
+      const items = nullMap(snap.details);
       delete items[entry];
       // Oldest asked for first, by the number each was given (ids may be numbers, which JS orders itself).
       const keys = Object.keys(items).sort((a, b) => items[a].n - items[b].n);
       while (keys.length >= MAX_DETAILS) delete items[keys.shift()];
-      items[entry] = { state: "loading", n: ++detailSeq };
+      Object.defineProperty(items, entry, { value: { state: "loading", n: ++detailSeq }, enumerable: true, writable: true, configurable: true });
       set({ details: items });
       return true;
     },
@@ -808,7 +824,10 @@ export function createStore(opts) {
      *  path (a pane's directory). follow is a re-read the panel makes itself. */
     requestChanges(path, follow = false) {
       if (!snap.hello) return false;
-      return socket.send({ cmd: "changes", path: String(path || ""), follow: !!follow });
+      const asked = String(path || "");
+      if (!socket.send({ cmd: "changes", path: asked, follow: !!follow })) return false;
+      changesAsked = asked;
+      return true;
     },
     /** requestDiff asks for one file's diff in the tree last listed. */
     requestDiff(file) {
@@ -826,7 +845,7 @@ export function createStore(opts) {
       if (!ch || ch.error) return "There is no working tree to commit";
       if (!text) return "A commit message is required";
       if (snap.changesBusy) return "Wait for the last action to finish";
-      const stamps = {};
+      const stamps = nullMap();
       for (const f of ch.files || []) if (f.stamp) stamps[f.path] = f.stamp;
       const cmd = { cmd: "commit", path: ch.cwd, text, push: !!push, files: (ch.files || []).map((f) => f.path), omitted: ch.omitted || 0 };
       if (Object.keys(stamps).length) cmd.stamps = stamps;
@@ -888,7 +907,7 @@ export function createStore(opts) {
       const was = watchingConv;
       watchingConv = null;
       if (snap.hello) socket.send({ cmd: "conversationClose", id: was });
-      set({ conversation: null, details: {}, search: null });
+      set({ conversation: null, details: nullMap(), search: null });
     },
     unwatchGraph() {
       if (watching === null) return;

@@ -19,7 +19,7 @@ import { Confirm } from "./Confirm.js";
 import { ago } from "../lib/remote.js";
 import {
   actorWords, addTaskCommand, assignCommand, boardOf, branchCommand, fullMessageCommand, listAllCommand, mergeTasks, messageOf, noteCommand, pruneCommand,
-  resultOf, resultWords, seenCommand, sendMessageCommand, stateName, statusCommand, taskGetCommand, taskOf, teamOf,
+  finishedOf, resultOf, resultWords, seenCommand, sendMessageCommand, stateName, statusCommand, taskGetCommand, taskOf, teamCloseCommand, teamOf,
 } from "../lib/team.js";
 
 const NEW_TASK = { title: "", body: "", role: "", branch: "" };
@@ -40,6 +40,8 @@ export function Team({ team: teamMsg, tasks: tasksMsg, messages: messagesMsg, re
   const [target, setTarget] = useState("");
   const [days, setDays] = useState("30");
   const [asking, setAsking] = useState(false);
+  // The panes a close is being asked about, or null.
+  const [closing, setClosing] = useState(null);
   const [problem, setProblem] = useState("");
   const [said, setSaid] = useState("");
   const [detail, setDetail] = useState(null);
@@ -229,6 +231,33 @@ export function Team({ team: teamMsg, tasks: tasksMsg, messages: messagesMsg, re
     </ul>
     ${team.messagesHidden ? html`<p class="dialog-note">${team.messagesHidden} older messages are not listed.</p>` : null}`;
 
+  // Closing is the desk's to judge: it checks each pane again as it closes it, and
+  // the answer names any it left open.
+  const closePanes = (panes) => go(teamCloseCommand(at, panes.map((r) => r.pane), next()), "close");
+  const finished = team ? finishedOf(team.roster) : [];
+  const agentsTab = () => html`
+    <div class="team-row">
+      <button type="button" class="dialog-btn" id="team-close-finished" disabled=${finished.length === 0} onClick=${() => setClosing(finished)}
+        title="Close the idle or exited panes of this project. Panes that are working or waiting, have background work or are locked are left.">
+        Close finished${finished.length ? " (" + finished.length + ")" : ""}…</button>
+    </div>
+    ${team.roster.length === 0 ? html`<p class="dialog-note" id="team-no-agents">No agent is open in this project.</p>` : null}
+    <ul class="team-list" id="team-agents" aria-label=${team.roster.length === 1 ? "1 agent" : team.roster.length + " agents"}>
+      ${team.roster.map((r) => html`<li key=${r.pane} class="team-task" data-pane=${r.pane}>
+        <span class="team-title">${r.name || r.pane}</span>
+        <span class="team-meta">${[r.role, r.activity || r.status, r.unread ? r.unread + " unread" : "", r.locked ? "locked" : ""].filter(Boolean).join(" · ")}</span>
+        <button type="button" class="dialog-btn team-close" id=${"team-close-" + r.pane} disabled=${!r.finished || r.locked}
+          title=${r.locked ? "This pane is locked against closing." : r.finished ? "Close this pane. It is idle or has exited." : "Only an idle or exited pane can be closed here."}
+          onClick=${() => setClosing([r])}>Close</button>
+      </li>`)}
+    </ul>
+    ${closing
+      ? html`<${Confirm} title=${"Close " + closing.length + (closing.length === 1 ? " finished pane?" : " finished panes?")}
+          words=${[closing.map((r) => r.name || r.pane).join(", ") + ". Each is checked again as it closes, and one that has started working is left open."]}
+          label=${"Close " + closing.length + (closing.length === 1 ? " pane" : " panes")}
+          onConfirm=${() => { const ps = closing; setClosing(null); closePanes(ps); }} onCancel=${() => setClosing(null)} />`
+      : null}`;
+
   const unseen = team ? team.counts.unseen : 0;
   return html`
     <${Dialog} id="team" title=${"Team" + (team && team.project ? ", " + team.project : "")} onClose=${onClose} focus="#team-tab-tasks" wide>
@@ -237,6 +266,8 @@ export function Team({ team: teamMsg, tasks: tasksMsg, messages: messagesMsg, re
           Tasks${team && team.counts.open ? " (" + team.counts.open + " open)" : ""}</button>
         <button type="button" role="tab" class=${"team-tab" + (tab === "messages" ? " is-active" : "")} id="team-tab-messages" aria-selected=${tab === "messages" ? "true" : "false"} onClick=${() => setTab("messages")}>
           Messages${unseen ? " (" + unseen + " new)" : ""}</button>
+        <button type="button" role="tab" class=${"team-tab" + (tab === "agents" ? " is-active" : "")} id="team-tab-agents" aria-selected=${tab === "agents" ? "true" : "false"} onClick=${() => setTab("agents")}>
+          Agents${team && team.roster.length ? " (" + team.roster.length + ")" : ""}</button>
       </div>
       ${problem ? html`<p class="dialog-note dialog-note--error" id="team-problem" role="alert">${problem}</p>` : null}
       ${said ? html`<p class="dialog-note" id="team-said" role="status">${said}</p>` : null}
@@ -244,6 +275,7 @@ export function Team({ team: teamMsg, tasks: tasksMsg, messages: messagesMsg, re
       ${!team && !gone ? html`<p class="dialog-note" id="team-loading" role="status">Reading the team…</p>` : null}
       ${team && tab === "tasks" ? tasksTab() : null}
       ${team && tab === "messages" ? messagesTab() : null}
+      ${team && tab === "agents" ? agentsTab() : null}
       <datalist id="team-targets">${targets.map((t) => html`<option key=${t} value=${t}></option>`)}</datalist>
       <div class="dialog-foot">
         <button type="button" class="dialog-btn" onClick=${onClose}>Close</button>

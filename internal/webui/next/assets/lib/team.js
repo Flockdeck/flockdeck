@@ -67,6 +67,7 @@ export function teamOf(msg) {
     root: str(msg.root), project: str(msg.project), hasManager: msg.hasManager === true,
     roster: list(msg.roster).filter((r) => r && typeof r.pane === "string").map((r) => ({
       pane: r.pane, name: str(r.name), role: str(r.role), status: str(r.status), unread: num(r.unread), open: num(r.open),
+      activity: str(r.activity), finished: r.finished === true, locked: r.locked === true,
     })),
     counts: { open: num(c.open), messages: num(c.messages), unread: num(c.unread), unseen: num(c.unseen), tasks: obj(c.tasks) },
     tasks: list(msg.tasks).map(taskOf).filter((t) => t.id),
@@ -94,7 +95,8 @@ export function resultOf(msg) {
   const x = obj(msg);
   return {
     req: str(x.req), op: str(x.op), ok: x.ok === true, error: str(x.error), warning: str(x.warning),
-    told: num(x.told), pruned: num(x.pruned), sent: num(x.sent), task: x.task ? taskOf(x.task) : null,
+    told: num(x.told), pruned: num(x.pruned), sent: num(x.sent), closed: num(x.closed), skipped: list(x.skipped).filter((v) => typeof v === "string"),
+    task: x.task ? taskOf(x.task) : null,
   };
 }
 
@@ -104,6 +106,10 @@ export function resultWords(r) {
   const said = [];
   if (r.op === "msgSend") said.push(r.sent === 1 ? "Sent to 1 pane." : "Sent to " + r.sent + " panes.");
   if (r.op === "taskPrune") said.push(r.pruned === 1 ? "Removed 1 finished task." : "Removed " + r.pruned + " finished tasks.");
+  if (r.op === "teamClose") {
+    said.push(r.closed ? "Closed " + r.closed + (r.closed === 1 ? " pane." : " panes.") : "No pane was closed.");
+    if (r.skipped.length) said.push("Left open: " + r.skipped.join("; ") + ".");
+  }
   if (r.told && r.op !== "msgSend") said.push(r.told === 1 ? "1 pane was told." : r.told + " panes were told.");
   if (r.warning) said.push(r.warning);
   return said.join(" ");
@@ -166,3 +172,9 @@ export function sendMessageCommand(root, target, text, req) {
 
 /** seenCommand marks a message seen; id is the pane whose inbox it is in. */
 export const seenCommand = (root, m, req) => (m.id && m.to ? { cmd: "msgSeen", root, req, id: m.to, msgId: m.id } : null);
+
+/** finishedOf are the panes Close finished would close now, as the desktop last
+ *  judged them: idle or exited cleanly, and not locked. It judges each again as it
+ *  closes it. */
+export const finishedOf = (roster) => roster.filter((r) => r.finished && !r.locked);
+export const teamCloseCommand = (root, panes, req) => (panes.length ? { cmd: "teamClose", root, req, panes } : null);

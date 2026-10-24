@@ -314,6 +314,21 @@ const HTTP_URL = /^https?:[/][/]/i;
 
 const link = (href, kids) => h("a", { href, target: "_blank", rel: "noopener noreferrer" }, ...kids);
 
+/** disguisedHost is the target's host when the link's text is itself a web
+ *  address for another host, so the real destination is shown beside it; "" when
+ *  the text is not an address or names the same host. */
+function disguisedHost(text, target) {
+  const t = String(text || "").trim();
+  if (!HTTP_URL.test(t)) return "";
+  try {
+    const shown = new URL(t).host.toLowerCase();
+    const real = new URL(target).host.toLowerCase();
+    return shown === real ? "" : real;
+  } catch {
+    return "";
+  }
+}
+
 /** renderInline turns one run of text into nodes and strings, safely: every
  *  branch below builds a node with h() or pushes a plain string, so nothing is
  *  parsed as HTML. A fresh RegExp is used on every call because bold, italic,
@@ -341,7 +356,11 @@ export function renderInline(text, depth = 0) {
     else if (g.i1 !== undefined) out.push(h("em", null, ...inner(g.i1)));
     else if (g.i2 !== undefined) out.push(h("em", null, ...inner(g.i2)));
     else if (g.lurl !== undefined) {
-      if (HTTP_URL.test(g.lurl)) out.push(link(g.lurl, g.ltext ? inner(g.ltext) : [g.lurl]));
+      if (HTTP_URL.test(g.lurl)) {
+        out.push(link(g.lurl, g.ltext ? inner(g.ltext) : [g.lurl]));
+        const real = disguisedHost(g.ltext, g.lurl);
+        if (real) out.push(h("span", { class: "md-linkhost" }, " (" + real + ")"));
+      }
       else out.push(m[0]);
     } else if (g.auto !== undefined) {
       out.push(link(g.auto, [g.auto]));

@@ -199,3 +199,32 @@ test("a diff answer for another directory is not taken for the file asked about"
   ws.frame({ type: "diff", cwd: "C:/repo", file: "a.go", text: "right tree" });
   assert.equal(store.getState().diff.text, "right tree");
 });
+
+test("a changes reply for another directory than the one last asked about is not taken", async () => {
+  const { store, ws } = await up();
+  store.requestChanges("C:/repo", false);
+  store.requestChanges("C:/other", false);
+  ws.frame(listing({ cwd: "C:/repo", path: "C:/repo", branch: "stale" }));
+  assert.equal(store.getState().changes, null, "an answer to a replaced question was kept");
+  ws.frame(listing({ cwd: "C:/other", path: "C:/other", branch: "fresh" }));
+  assert.equal(store.getState().changes.branch, "fresh");
+  assert.equal(store.getState().changes.path, undefined);
+  // A folder inside the checkout is answered with the checkout's root.
+  store.requestChanges("C:/other/sub", true);
+  ws.frame(listing({ cwd: "C:/other", path: "C:/other/sub", branch: "sub" }));
+  assert.equal(store.getState().changes.branch, "sub");
+  // The listing again after an action in the tree on screen is taken.
+  ws.frame(listing({ cwd: "C:/other", path: "C:/other", branch: "after" }));
+  assert.equal(store.getState().changes.branch, "after");
+});
+
+test("an error notice leaves the panel alone unless it has an action out", async () => {
+  const { store, ws } = await up();
+  ws.frame(listing());
+  ws.frame({ type: "notice", text: "something else failed", error: true });
+  assert.equal(store.getState().changesNote, null);
+  assert.equal(store.remoteChanges("push"), true);
+  ws.frame({ type: "notice", text: "push failed", error: true });
+  assert.equal(store.getState().changesNote.text, "push failed");
+  assert.equal(store.getState().changesBusy, "");
+});
