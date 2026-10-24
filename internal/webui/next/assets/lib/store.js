@@ -79,6 +79,14 @@
 //                 refused is the desktop's text when it refused this device the
 //                 conversation, else "": it is shown once and not asked for again
 //                 until the next connection.
+//   history       the latest conversations answer (the stored conversations of a
+//                 project, for Resume) as { cwd, items, error, seq }, or null. seq
+//                 grows with each one, so a dialog that asked can tell its answer
+//                 from an older one.
+//   paneInfo      the latest paneInfo answer as { id, name, fields, transcriptOff,
+//                 seq }, or null; paneMatches the latest findPane answer as
+//                 { query, items, seq }, or null. Both are for a window on the
+//                 desk: the desktop answers neither through the relay.
 //   dropped       how many frames were dropped as malformed
 //
 // The structured watch and permissionAnswer are for a window on the desk, as the
@@ -120,20 +128,26 @@ export const MAX_ENTRIES = 500;
  *  desktop would refuse them if it did. */
 const MACHINE_ONLY = ["checkForUpdate", "listVersions", "installVersion", "restart", "updates", "detach", "quit"];
 
+/** MACHINE_FILES are the commands that read or show something on the machine
+ *  Flockdeck runs on: the stored conversations, a pane's ids and paths, the folder
+ *  a transcript or a recording is in. The desktop answers them to a window on that
+ *  machine only, so a remote window sends none of them. */
+const MACHINE_FILES = ["conversations", "resumeConversation", "paneInfo", "findPane", "revealPane", "exportTranscript", "revealTranscript", "openRecordings"];
+
 const GRAPH_OPS = new Set(["graphSnapshot", "graphWatch", "graphUnwatch"]);
 
 /** DESK_ONLY says a command is one a remote window may not send: the graph
- *  commands, the structured pane ones, permissionAnswer, paneSend and MACHINE_ONLY. The
- *  desktop refuses them there, so the store does not send them. paneSend is
- *  sent from two places, the manager bar and a structured pane's prompt box, and
- *  neither is drawn in a remote window. */
-const DESK_ONLY = (cmd) => typeof cmd === "string" && (cmd.startsWith("graph") || cmd.startsWith("structured") || cmd === "permissionAnswer" || cmd === "paneSend" || MACHINE_ONLY.includes(cmd));
+ *  commands, the structured pane ones, permissionAnswer, paneSend, MACHINE_ONLY and
+ *  MACHINE_FILES. The desktop refuses them there, so the store does not send them.
+ *  paneSend is sent from two places, the manager bar and a structured pane's prompt
+ *  box, and neither is drawn in a remote window. */
+const DESK_ONLY = (cmd) => typeof cmd === "string" && (cmd.startsWith("graph") || cmd.startsWith("structured") || cmd === "permissionAnswer" || cmd === "paneSend" || MACHINE_ONLY.includes(cmd) || MACHINE_FILES.includes(cmd));
 
 const initial = () => ({
   connection: "idle", retryInMs: 0,
   hello: null, remote: false, state: null,
   graph: null, graphGone: null, graphRefused: false, graphError: null,
-  notice: null, versions: null, detached: false, sent: null, started: null, structured: null, structuredError: null, cancelError: null, answer: null, conversation: null, dropped: 0,
+  notice: null, versions: null, detached: false, sent: null, started: null, structured: null, structuredError: null, cancelError: null, answer: null, conversation: null, history: null, paneInfo: null, paneMatches: null, dropped: 0,
 });
 
 /** upsert returns entries with each of the new ones in place of the one with its
@@ -166,6 +180,9 @@ export function createStore(opts) {
   let sentSeq = 0;
   let startedSeq = 0;
   let answerSeq = 0;
+  let historySeq = 0;
+  let infoSeq = 0;
+  let matchSeq = 0;
   // The pane each structuredCancel in flight was for, by its req, so a refusal is
   // kept for that pane and shown only there.
   const cancelPanes = new Map();
@@ -337,6 +354,16 @@ export function createStore(opts) {
         set({ conversation: { ...c, entries, atStart } });
         break;
       }
+      case "conversations":
+        // Nothing of a conversation reaches a remote window; one that did anyway is not kept.
+        if (!snap.remote) set({ history: { ...msg, seq: ++historySeq } });
+        break;
+      case "paneInfo":
+        if (!snap.remote) set({ paneInfo: { ...msg, seq: ++infoSeq } });
+        break;
+      case "paneMatches":
+        if (!snap.remote) set({ paneMatches: { ...msg, seq: ++matchSeq } });
+        break;
       case "versions":
         set({ versions: { items: Array.isArray(msg.items) ? msg.items : [], error: typeof msg.error === "string" ? msg.error : "" } });
         break;

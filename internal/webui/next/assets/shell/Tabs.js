@@ -29,7 +29,7 @@ export const CLOSE_WAITING_WORDS = "An agent in this tab is waiting for your ans
 /** Tabs draws the strip. tabs are from tabsOf; send is the store's; onChoose
  *  opens the start dialog for a tab on a chosen agent. With show false (the
  *  window is on a project that is not the desk's) there is only the note. */
-export function Tabs({ tabs, send, onChoose, warnFor, show = true }) {
+export function Tabs({ tabs, send, onChoose, onHistory = null, onFind = null, warnFor, show = true }) {
   const [renaming, setRenaming] = useState("");
   const [closing, setClosing] = useState(null);
   const [stop, setStop] = useState("");
@@ -105,6 +105,8 @@ export function Tabs({ tabs, send, onChoose, warnFor, show = true }) {
         <button type="button" class="tabs-btn" onClick=${() => send({ cmd: "newTab", kind: "agent" })}>New agent tab</button>
         <button type="button" class="tabs-btn" onClick=${() => onChoose && onChoose()}>Choose agent…</button>
         <button type="button" class="tabs-btn" onClick=${() => send({ cmd: "newTab", kind: "shell" })}>New shell tab</button>
+        ${onHistory ? html`<button type="button" class="tabs-btn tabs-history" onClick=${onHistory}>Resume…</button>` : null}
+        ${onFind ? html`<button type="button" class="tabs-btn tabs-find" onClick=${onFind}>Find pane…</button>` : null}
         ${current
           ? html`<button type="button" class="tabs-btn" onClick=${() => setRenaming(current.id)}>Rename</button>
               <button type="button" class="tabs-btn" onClick=${() => move(-1)} disabled=${!moveTabCommand(tabs, current.id, -1)}>Move left</button>

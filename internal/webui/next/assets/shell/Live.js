@@ -11,7 +11,7 @@
 import { useEffect, useMemo, useRef, useState } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
 import { useStore } from "../lib/use-store.js";
-import { Drawer, useDrawer } from "../drawer/Drawer.js";
+import { Drawer, hasTerminal, useDrawer } from "../drawer/Drawer.js";
 import { focusNode } from "../drawer/state.js";
 import { ManagerBar, managerOf } from "../graph/ManagerBar.js";
 import { nextNeedsYou, paneAt } from "../graph/keys.js";
@@ -23,7 +23,13 @@ import { LIST } from "./keys.js";
 import { Updates, trapTab } from "./Updates.js";
 import { Tabs } from "./Tabs.js";
 import { Settings } from "./Settings.js";
+import { History } from "./History.js";
+import { PaneInfo } from "./PaneInfo.js";
+import { FindPane } from "./FindPane.js";
 import { useLifecycle } from "../drawer/Lifecycle.js";
+import { useTranscripts } from "../drawer/Tools.js";
+import { HISTORY_REMOTE_WORDS } from "../lib/history.js";
+import { DESK_FILES_WORDS, STRUCTURED_RECORD_WORDS, acknowledged, canTranscribe } from "../lib/paneinfo.js";
 import { FONT_DEFAULT, FONT_MAX, FONT_MIN, PATCH_WAIT_MS, applyLook, prefsOf, reducedMotion, addPending, latestOf, settledPending, setting, termOptionsOf } from "../lib/prefs.js";
 import { RELAY_WORDS, quitQuestion, updateOf } from "../lib/updates.js";
 import { catalogOf, closeTabWarnings, moveTabCommand, newTabCommand, tabsOf } from "../lib/lifecycle.js";
@@ -37,6 +43,11 @@ const NO_PANES = new Set();
 /** OPEN_AN_AGENT_WORDS is what a key that acts on the agent in the drawer says
  *  when no agent is open. */
 export const OPEN_AN_AGENT_WORDS = "Open an agent first, then use this on it.";
+
+/** NO_TERMINAL_WORDS and SHELL_RECORD_WORDS say why an action does nothing for
+ *  the pane in the drawer. */
+export const NO_TERMINAL_WORDS = "This pane has no terminal to search. A structured pane keeps its output in the drawer.";
+export const SHELL_RECORD_WORDS = "A shell reports no agent events, so it has nothing to record or export.";
 
 /** nodeOfPane is a node for the drawer from the state push's entry for a pane, for
  *  a window with no graph: what the push says of the agent and nothing it does
@@ -74,6 +85,13 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
   // only newer ones) and the question before quit.
   const [updatesAt, setUpdatesAt] = useState(-1);
   const [quitAsk, setQuitAsk] = useState(false);
+  // The dialogs of L4: the stored conversations, one pane's info (with the answer
+  // and notice numbers it started after) and the search over every pane. findAsk
+  // grows each time Find in terminal is asked for.
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [infoFor, setInfoFor] = useState(null);
+  const [findingPane, setFindingPane] = useState(false);
+  const [findAsk, setFindAsk] = useState(0);
   // The store empties its hello and state when the socket drops. The rail and
   // the project chosen in it are kept through that, so a reconnect does not clear
   // the choice and ask for the graph a second time.
@@ -118,8 +136,10 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
   // close or restart belongs to the pane it was asked for.
   const send = (c) => store.send(c);
   const life = useLifecycle(send);
+  const tx = useTranscripts(send, acknowledged(kept.current.hello.prefs));
   useEffect(() => {
     life.cancel();
+    tx.cancel();
   }, [drawer.pane]);
 
   // An agent started from the dialog is opened in the drawer once the graph
@@ -190,6 +210,32 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     if (to < FONT_MIN || to > FONT_MAX) return;
     if (change("fontSize", to)) say("Font size " + to + "px");
   };
+  // copy puts a value on the clipboard and says what it copied.
+  const copy = (text, what) => {
+    const failed = () => say("The clipboard could not be reached, so nothing was copied");
+    try {
+      const clip = page && page.navigator && page.navigator.clipboard;
+      if (!clip || !clip.writeText) {
+        failed();
+        return;
+      }
+      clip.writeText(text).then(() => say("Copied " + what), failed);
+    } catch {
+      failed();
+    }
+  };
+  const openInfo = () => {
+    if (!drawer.pane) {
+      say(OPEN_AN_AGENT_WORDS);
+      return;
+    }
+    if (snap.remote) {
+      say(DESK_FILES_WORDS);
+      return;
+    }
+    setInfoFor({ pane: drawer.pane, floor: snap.paneInfo ? snap.paneInfo.seq : 0, noticeAt: noticeSeq });
+    send({ cmd: "paneInfo", id: drawer.pane });
+  };
   // Once the desktop has detached this window the page closes itself, or says it
   // can be closed when the browser will not let a script do it.
   useEffect(() => {
@@ -257,11 +303,26 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     },
     detach: () => (snap.remote ? say(RELAY_WORDS) : send({ cmd: "detach" })),
     quit: () => (snap.remote ? say(RELAY_WORDS) : setQuitAsk(true)),
+    history: () => (snap.remote ? say(HISTORY_REMOTE_WORDS) : setHistoryOpen(true)),
+    findPane: () => (snap.remote ? say(DESK_FILES_WORDS) : setFindingPane(true)),
+    paneInfo: openInfo,
+    findInTerminal: needPane(() => (hasTerminal(node, pane) ? setFindAsk((n) => n + 1) : say(NO_TERMINAL_WORDS))),
+    recordPane: needPane(() => {
+      if (canTranscribe(node, pane)) tx.record(node.pane, !(pane && pane.recording));
+      else say(node.shell || (pane && pane.shell) ? SHELL_RECORD_WORDS : STRUCTURED_RECORD_WORDS);
+    }),
+    exportTranscript: needPane(() => {
+      if (snap.remote) say(DESK_FILES_WORDS);
+      else if (canTranscribe(node, pane)) tx.exportTranscript(node.pane);
+      else say(node.shell || (pane && pane.shell) ? SHELL_RECORD_WORDS : STRUCTURED_RECORD_WORDS);
+    }),
+    revealTranscript: needPane(() => (snap.remote ? say(DESK_FILES_WORDS) : send({ cmd: "revealTranscript", id: node.pane }))),
+    openRecordings: () => (snap.remote ? say(DESK_FILES_WORDS) : send({ cmd: "openRecordings" })),
     zoomPane: needPane(() => drawer.toggleMax()),
     restartPane: needPane(() => life.begin("restart", node, pane)),
     lockPane: needPane(() => life.toggleLock(node.pane, !(pane && pane.locked))),
     closePane: needPane(() => (pane && pane.locked ? say("This pane is locked. Unlock it to close it.") : life.begin("close", node, pane))),
-  }), [current, snap.graphGone, snap.remote, win, drawer.pane, node, pane, tabs, life.request, prefs.fontSize]);
+  }), [current, snap.graphGone, snap.remote, win, drawer.pane, node, pane, tabs, life.request, tx.request, prefs.fontSize, snap.paneInfo, noticeSeq]);
 
   return html`<${Shell}
     hello=${kept.current.hello}
@@ -274,7 +335,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     mainRef=${mainRef}
     actions=${actions}
     maximised=${drawer.maximised}
-    blocked=${!!starting || settingsOpen || updatesAt >= 0 || quitAsk}
+    blocked=${!!starting || settingsOpen || updatesAt >= 0 || quitAsk || historyOpen || !!infoFor || findingPane}
     onSettings=${() => setSettingsOpen(true)}
     railFoot=${snap.remote
       ? null
@@ -285,11 +346,19 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     onDismissNotice=${() => { setLocal(""); setDismissed(noticeSeq); }}
     drawer=${node
       ? html`<${Drawer} store=${store} snap=${snap} node=${node} pane=${pane} now=${Date.now()} maximised=${drawer.maximised}
-          onClose=${drawer.close} onToggleMax=${drawer.toggleMax} terminalOptions=${termProps} life=${life} />`
+          onClose=${drawer.close} onToggleMax=${drawer.toggleMax} terminalOptions=${termProps} life=${life}
+          tx=${tx} onInfo=${openInfo} findAsk=${findAsk} />`
       : null}
-  >${snap.state ? html`<${Tabs} tabs=${tabs} send=${send} show=${onDesk} warnFor=${(t) => closeTabWarnings(t, current ? current.byPane : null, statePanes)} onChoose=${() => setStarting("agent")} />` : null}
+  >${snap.state ? html`<${Tabs} tabs=${tabs} send=${send} show=${onDesk} warnFor=${(t) => closeTabWarnings(t, current ? current.byPane : null, statePanes)} onChoose=${() => setStarting("agent")}
+      onHistory=${snap.remote ? null : () => setHistoryOpen(true)} onFind=${snap.remote ? null : () => setFindingPane(true)} />` : null}
     <${Home} snap=${snap} selected=${selected} onShown=${setShown} onOpen=${drawer.open} open=${drawer.pane} narrow=${narrow} />
     ${settingsOpen ? html`<${Settings} prefs=${prefs} change=${change} onClose=${() => setSettingsOpen(false)} />` : null}
+    ${historyOpen ? html`<${History} history=${snap.history} root=${selected} send=${send} onClose=${() => setHistoryOpen(false)} />` : null}
+    ${infoFor
+      ? html`<${PaneInfo} pane=${infoFor.pane} info=${snap.paneInfo} floor=${infoFor.floor} send=${send} copy=${copy} onClose=${() => setInfoFor(null)}
+          failure=${snap.notice && snap.notice.error && snap.notice.seq > infoFor.noticeAt ? String(snap.notice.text || "") : ""} />`
+      : null}
+    ${findingPane ? html`<${FindPane} found=${snap.paneMatches} send=${send} onChoose=${(r) => setOpening(r.paneId)} onClose=${() => setFindingPane(false)} />` : null}
     ${starting
       ? html`<${Start} mode=${starting} catalog=${catalog} project=${project} send=${send} onClose=${() => setStarting("")} />`
       : null}

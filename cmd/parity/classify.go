@@ -61,7 +61,6 @@ const (
 	tL1 = "T136 (L1, start flows and pane lifecycle)"
 	tL2 = "T137 (L2, settings)"
 	tL3 = "T138 (L3, help)"
-	tL4 = "T139 (L4, history, find, pane info)"
 	tL5 = "T140 (L5, API keys, remote, notifications)"
 	tL6 = "T141 (L6, helpers, baton, projects)"
 	tL8 = "T143 (L8, remaining actions)"
@@ -87,10 +86,6 @@ var keyVerdicts = map[string]Verdict{
 	"movePaneDown":     cut(whyRearrange),
 	"movePaneToNewTab": cut(whyRearrange),
 	"tilePanes":        cut(whyTiling),
-	"recordPane":       task(tL4, "Recording a terminal pane; recording a structured pane is T145 (P1)"),
-	"exportTranscript": task(tL4),
-	"revealTranscript": task(tL4),
-	"paneInfo":         task(tL4),
 
 	// Tabs.
 	"selectTab":    task(tL1, "The tab strip sends selectTab when a tab is pressed; the Alt+number key is not run"),
@@ -110,15 +105,9 @@ var keyVerdicts = map[string]Verdict{
 	"worktrees": task(tC7),
 	"changes":   task(tC6),
 
-	// Finding your way.
-	"findInTerminal": task(tL4),
-	"findPane":       task(tL4),
-	"history":        task(tL4),
-
 	// The window.
-	"remote":         task(tL5),
-	"helpers":        task(tL6),
-	"openRecordings": task(tL4),
+	"remote":  task(tL5),
+	"helpers": task(tL6),
 }
 
 // cmdVerdicts classify every control-socket command the old interface sends
@@ -165,17 +154,6 @@ var cmdVerdicts = map[string]Verdict{
 
 	// L3: help.
 	"helpSeen": task(tL3, "The first-run welcome"),
-
-	// L4: history, find, pane info, transcripts.
-	"conversations":      task(tL4),
-	"resumeConversation": task(tL4),
-	"findPane":           task(tL4),
-	"paneInfo":           task(tL4),
-	"exportTranscript":   task(tL4),
-	"revealTranscript":   task(tL4),
-	"revealPane":         task(tL4),
-	"recordPane":         task(tL4),
-	"openRecordings":     task(tL4),
 
 	// L5: API keys, remote, notifications.
 	"keys":            task(tL5, "The API keys list"),

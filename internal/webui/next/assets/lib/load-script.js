@@ -23,6 +23,10 @@ export const SCRIPTS = {
   e2e: { src: "assets/e2e.js", global: "FlockdeckE2E" },
 };
 
+/** SEARCH_SCRIPT is not one of the terminal's libraries: Find in terminal loads
+ *  it the first time it is used, and the terminal works without it. */
+export const SEARCH_SCRIPT = { src: "assets/vendor/addon-search.js", global: "SearchAddon" };
+
 // What has loaded or is loading, by document and then file. A WeakMap keyed on
 // the document keeps a test's own fake page from sharing state with another.
 const state = new WeakMap();
