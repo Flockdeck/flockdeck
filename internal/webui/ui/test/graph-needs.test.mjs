@@ -164,7 +164,7 @@ test("a badge shows the first line of the text, clipped, never the whole command
   };
   const out = draw(msg);
   const badge = out.slice(out.indexOf('<g class="gneed"'), out.indexOf("</g></g>", out.indexOf('<g class="gneed"')));
-  assert.ok(badge.includes("rm -rf /important-d…"), badge);
+  assert.ok(badge.includes("rm -rf /important-di…"), badge);
   assert.ok(!out.includes("curl"), "the second line is not drawn");
   assert.ok(!badge.includes("--force --verbose"), "the rest of the first line is not drawn in the badge");
   assert.ok(!out.includes("--force --verbose"), "nor in the strip, which cuts the line at 40 characters");
@@ -351,7 +351,7 @@ test("every text in a badge fits the badge and clears its neighbours", () => {
     assert.ok(mine.length >= 2);
     for (const r of mine) {
       assert.ok(r.x0 >= BADGE.x + 28 && r.x1 <= BADGE.x + BADGE.w - 4, `"${r.text}" runs from ${r.x0.toFixed(0)} to ${r.x1.toFixed(0)} in a badge from ${BADGE.x} to ${BADGE.x + BADGE.w}`);
-      assert.ok(r.y > -BADGE.lift && r.y < -BADGE.lift + BADGE.h, "the text is inside the badge");
+      assert.ok(r.y > BADGE.top && r.y < BADGE.top + BADGE.h, "the text is inside the badge");
     }
     for (let i = 0; i < mine.length; i++) {
       for (let j = i + 1; j < mine.length; j++) {
@@ -361,8 +361,8 @@ test("every text in a badge fits the badge and clears its neighbours", () => {
   }
 });
 
-// A badge is a rectangle hung above its box; none may cover any box.
-test("no badge covers a box, in a strip or an unlinked set of several rows", () => {
+// A badge is a block inside its box; it may not reach out of it, and so no box is covered.
+test("a badge lies inside its own box and covers no other, in a strip or an unlinked set of several rows", () => {
   const many = (n) => Array.from({ length: n }, (_, i) => ({ pane: "p" + i, depth: 0, name: "n" + i, status: "waiting", activity: "waiting" }));
   const solo = many(14);
   const team = many(14).map((n) => ({ ...n, pane: "t" + n.pane, team: "m" }));
@@ -386,8 +386,10 @@ test("no badge covers a box, in a strip or an unlinked set of several rows", () 
   for (const b of lay.nodes) {
     if (!model.needsByPane.has(b.pane)) continue;
     badges++;
-    const r = { x: b.x + BADGE.x, y: b.y - BADGE.lift, w: BADGE.w, h: BADGE.h };
+    const r = { x: b.x + BADGE.x, y: b.y + BADGE.top, w: BADGE.w, h: BADGE.h };
+    assert.ok(r.x >= b.x && r.x + r.w <= b.x + b.w && r.y >= b.y && r.y + r.h <= b.y + b.h, `the badge on ${b.pane} is not inside its box`);
     for (const o of lay.nodes) {
+      if (o.pane === b.pane) continue;
       const hit = r.x < o.x + o.w && o.x < r.x + r.w && r.y < o.y + o.h && o.y < r.y + r.h;
       assert.ok(!hit, `the badge on ${b.pane} covers the box of ${o.pane}`);
     }
@@ -395,7 +397,7 @@ test("no badge covers a box, in a strip or an unlinked set of several rows", () 
   assert.ok(badges >= 28, "badges: " + badges);
 });
 
-test("a badge hangs inside its team's frame, below the team's title", () => {
+test("a badge is inside its team's frame, below the team's title", () => {
   for (const name of names) {
     const model = buildGraphModel(load(name));
     const lay = layoutGraph(model);
@@ -403,7 +405,7 @@ test("a badge hangs inside its team's frame, below the team's title", () => {
       const b = lay.byPane.get(pane);
       if (!b) continue;
       const frame = b.team === "" ? lay.solo : lay.teams.find((f) => f.id === b.team);
-      assert.ok(b.y - BADGE.lift >= frame.y + 30, `${name}: the badge on ${pane} is over the frame's title`);
+      assert.ok(b.y + BADGE.top >= frame.y + 30, `${name}: the badge on ${pane} is over the frame's title`);
     }
   }
 });

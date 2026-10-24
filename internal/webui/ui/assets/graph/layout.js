@@ -22,7 +22,7 @@
 /** The sizes the views use, in SVG units. A caller may override any of them. */
 export const DEFAULTS = {
   nodeW: 216,
-  nodeH: 144,
+  nodeH: 152,
   gapX: 24,
   gapY: 48,
   pad: 16,
