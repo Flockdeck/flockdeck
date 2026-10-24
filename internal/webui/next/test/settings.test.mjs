@@ -59,6 +59,7 @@ test("a stored value in range is kept", () => {
     theme: "system", accent: "pink", fontSize: 20, fontFamily: "Fira Code", scrollback: 50000, cursorStyle: "underline",
     cursorSteady: true, screenReader: true, autoReviewDefault: true, dismissedTips: 0,
     notificationsOff: false, jevStatus: false, conflictRadar: false, push: { off: false, anonymous: false, delaySeconds: 30 },
+    statusLine: "auto", railExpanded: false, railWidth: 220, helpSeen: false,
   });
   assert.equal(prefsOf({ theme: "light" }).theme, "light");
 });
@@ -80,6 +81,13 @@ test("each setting round-trips: the command it sends and the value the desktop k
     ["cursorSteady", false, { cmd: "cursorBlink", kind: "on" }, (p) => p.cursorSteady === false],
     ["screenReader", true, { cmd: "screenReader", kind: "on" }, (p) => p.screenReader === true],
     ["autoReviewDefault", true, { cmd: "autoReviewDefault", kind: "on" }, (p) => p.autoReviewDefault === true],
+    ["statusLine", "on", { cmd: "statusLine", text: "on" }, (p) => p.statusLine === "on"],
+    ["statusLine", "off", { cmd: "statusLine", text: "off" }, (p) => p.statusLine === "off"],
+    ["statusLine", "auto", { cmd: "statusLine", text: "auto" }, (p) => p.statusLine === "auto"],
+    ["railExpanded", true, { cmd: "railExpanded", kind: "on" }, (p) => p.railExpanded === true],
+    ["railExpanded", false, { cmd: "railExpanded", kind: "off" }, (p) => p.railExpanded === false],
+    ["railWidth", 300, { cmd: "railWidth", size: 300 }, (p) => p.railWidth === 300],
+    ["helpSeen", true, { cmd: "helpSeen" }, (p) => p.helpSeen === true],
   ];
   for (const [name, value, command, ok] of cases) {
     const s = setting(name, value);
@@ -95,7 +103,7 @@ test("a value the desktop would refuse is not sent", () => {
   for (const [name, value] of [
     ["theme", "neon"], ["accent", "red"], ["accent", "teal"], ["fontSize", 7], ["fontSize", 29], ["fontSize", 13.5], ["fontSize", "13"],
     ["fontFamily", "x".repeat(201)], ["fontFamily", 4], ["scrollback", 999], ["scrollback", 200001], ["scrollback", 1000.5],
-    ["cursorStyle", "zigzag"], ["nothing", 1],
+    ["cursorStyle", "zigzag"], ["nothing", 1], ["statusLine", "sometimes"], ["railWidth", 179], ["railWidth", 481], ["railWidth", "300"],
   ]) assert.equal(setting(name, value), null, name + " " + value);
   assert.ok(setting("fontSize", 8) && setting("fontSize", 28) && setting("scrollback", 1000) && setting("scrollback", 200000));
   assert.ok(setting("fontFamily", "x".repeat(200)));
@@ -295,7 +303,7 @@ test("the sections are tabs the arrow keys move between", () =>
     await m.connect();
     await m.openSettings();
     const tabs = () => m.container.findAll(".settings-tab");
-    assert.deepEqual(tabs().map((t) => t.attributes.tabindex), ["0", "-1", "-1", "-1", "-1", "-1", "-1", "-1"]);
+    assert.deepEqual(tabs().map((t) => t.attributes.tabindex), ["0", "-1", "-1", "-1", "-1", "-1", "-1", "-1", "-1", "-1"]);
     const ev = tabs()[0].keydown("ArrowDown");
     await settle();
     assert.equal(ev.defaultPrevented, true);
@@ -306,7 +314,7 @@ test("the sections are tabs the arrow keys move between", () =>
     assert.equal(activeTab(m).attributes["data-section"], "general");
     tabs()[0].keydown("ArrowUp");
     await settle();
-    assert.equal(activeTab(m).attributes["data-section"], "routing", "wraps round");
+    assert.equal(activeTab(m).attributes["data-section"], "keyboard", "wraps round");
   }));
 
 test("theme: choosing sends the command, shows at once, and the desktop's push confirms", () =>

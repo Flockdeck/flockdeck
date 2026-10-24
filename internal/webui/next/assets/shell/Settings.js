@@ -21,13 +21,15 @@ import { Remote } from "./Remote.js";
 import { RADAR_WORDS } from "../lib/worktrees.js";
 import { JevStatus } from "./Jev.js";
 import { Routing } from "./Routing.js";
+import { Keybindings } from "./Keybindings.js";
+import { AgentSettings } from "./AgentSettings.js";
 import {
   ACCENTS, CURSORS, FONT_DEFAULT, FONT_MAX, FONT_MIN, FONT_SUGGESTIONS, SCROLLBACK_COUNTS, SCROLLBACK_MAX, SCROLLBACK_MIN,
-  THEMES, WHY, fontStack,
+  STATUS_LINES, THEMES, WHY, fontStack,
 } from "../lib/prefs.js";
 
 /** SECTIONS are the parts of the dialog. */
-export const SECTIONS = [["general", "General"], ["appearance", "Appearance"], ["terminal", "Terminal"], ["notifications", "Notifications"], ["keys", "API keys"], ["remote", "Remote"], ["status", "Status detection"], ["routing", "Routing"]];
+export const SECTIONS = [["general", "General"], ["appearance", "Appearance"], ["terminal", "Terminal"], ["notifications", "Notifications"], ["keys", "API keys"], ["remote", "Remote"], ["status", "Status detection"], ["agents", "Agents & models"], ["routing", "Routing"], ["keyboard", "Keyboard"]];
 
 /** Settings is the dialog. prefs are the values in use (prefsOf), change(name,
  *  value) sends one change (setting in lib/prefs.js), and onClose closes it. ctx is
@@ -85,7 +87,7 @@ export function Settings({ prefs, change, onClose, section: first = "general", c
                 onKeyDown=${onTabKey} onClick=${() => setSection(id)}>${label}</button>`)}
           </div>
           <div class="settings-panel" role="tabpanel" id="settings-panel" aria-labelledby=${"settings-tab-" + section}>
-            ${section === "general" ? html`<${General} prefs=${prefs} change=${change} radar=${ctx.radar || null} />` : null}
+            ${section === "general" ? html`<${General} prefs=${prefs} change=${change} radar=${ctx.radar || null} remote=${!!ctx.remote} />` : null}
             ${section === "appearance" ? html`<${Appearance} prefs=${prefs} change=${change} />` : null}
             ${section === "terminal" ? html`<${Terminal} prefs=${prefs} change=${change} />` : null}
             ${section === "notifications"
@@ -95,6 +97,8 @@ export function Settings({ prefs, change, onClose, section: first = "general", c
             ${section === "keys" ? html`<${Keys} keys=${ctx.keys || null} remote=${!!ctx.remote} send=${ctx.send} news=${ctx.news || ""} jev=${ctx.jev || null} />` : null}
             ${section === "status" ? html`<${JevStatus} prefs=${prefs} change=${change} remote=${!!ctx.remote} jev=${ctx.jev || null} send=${ctx.send} />` : null}
             ${section === "routing" ? html`<${Routing} agents=${ctx.agents || null} project=${ctx.project || ""} send=${ctx.send} />` : null}
+            ${section === "agents" ? html`<${AgentSettings} agents=${ctx.agents || null} project=${ctx.project || ""} answer=${ctx.addressAnswer || null} remote=${!!ctx.remote} send=${ctx.send} />` : null}
+            ${section === "keyboard" ? html`<${Keybindings} keys=${ctx.table || null} send=${ctx.send} page=${ctx.page || null} onRecording=${ctx.onRecording} />` : null}
             ${section === "remote"
               ? html`<${Remote} status=${ctx.status || null} roster=${ctx.roster || null} pair=${ctx.pair || null} outcome=${ctx.outcome || null} remote=${!!ctx.remote}
                   send=${ctx.send} copy=${ctx.copy || (() => {})} forget=${ctx.forgetPair || (() => {})} news=${ctx.news || ""} />`
@@ -136,7 +140,7 @@ function Choice({ id, label, options, value, onChoose, swatch = false }) {
   `;
 }
 
-function General({ prefs, change, radar }) {
+function General({ prefs, change, radar, remote }) {
   const n = prefs.dismissedTips;
   const why = radar && radar.unavailable ? "Not available on this machine: " + radar.unavailable + "." : radar && radar.checking ? "Checking the version of git." : "";
   return html`
@@ -148,6 +152,13 @@ function General({ prefs, change, radar }) {
     <//>
     <${Row} id="set-radar" label="Show when two panes' work would conflict" about=${why ? RADAR_WORDS + " " + why : RADAR_WORDS}>
       <${Switch} id="set-radar-switch" on=${prefs.conflictRadar && !why} labelledBy="set-radar-label" disabled=${!!why} onChange=${(on) => change("conflictRadar", on)} />
+    <//>
+    <${Row} id="set-status-line" label="Claude Code's usage limits"
+      about="Shows a Claude subscription's five-hour and weekly limits in the pane header, read from Claude Code's status line. Your own status line is kept and runs as before. With none of your own, Claude Code hides its footer's keyboard hints while any status line is set, so by default the limits are read only where you already have one. Applies to Claude panes started from now on.">
+      <select class="dialog-field" id="set-status-line-list" aria-labelledby="set-status-line-label" aria-describedby="set-status-line-about" disabled=${remote}
+        value=${prefs.statusLine} onChange=${(e) => change("statusLine", e.target.value)}>
+        ${STATUS_LINES.map(([v, name]) => html`<option key=${v} value=${v}>${name}</option>`)}
+      </select>
     <//>
     <${Row} id="set-hints" label="Hints"
       about=${"One line under the tab bar about something on screen or a feature worth knowing, each sent away for good with its ×. " +

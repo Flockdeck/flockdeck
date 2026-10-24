@@ -5,6 +5,7 @@ import { Palette } from "./palette.js";
 import { Help } from "./Help.js";
 import { loadHelp } from "../lib/help.js";
 import { bindingsFrom, keyAction, unreadable } from "./keys.js";
+import { RAIL_DEFAULT } from "../lib/prefs.js";
 
 /** NARROW_QUERY is the phone width. app.css repeats it in its narrow rules, and
  *  a test holds the two together. */
@@ -19,6 +20,9 @@ export const IMPLEMENTED = ["palette", "toggleRail", "projects", "nextRegion", "
 const REGIONS = ["rail", "main", "drawer"];
 
 const NONE = [];
+
+/** WELCOME_WORDS points a person who has never opened the help to it. */
+export const WELCOME_WORDS = (key) => "Press " + key + " for the help.";
 const NO_ACTIONS = Object.freeze({});
 
 /** NO_KEYS stands for a hello with no key table, so the bindings are not made
@@ -101,8 +105,9 @@ export function reduce(s, ev, ctx = {}) {
  *  window runs, and hands each to dispatch as an action. It returns what takes
  *  the listener off again. The table says what a keydown is; this only runs it,
  *  and leaves every other key alone. */
-export function attachKeys(target, bindings, implemented, dispatch) {
+export function attachKeys(target, bindings, implemented, dispatch, skip = null) {
   const onKey = (e) => {
+    if (skip && skip()) return;
     const id = keyAction(bindings, e, implemented);
     if (!id) return;
     e.preventDefault();
@@ -151,7 +156,7 @@ export function useNarrow(matchMedia, override) {
  *  to a box in it. window is the page's, passed in for a test. helpLoad fetches
  *  the help pages (lib/help.js); the default asks the page's own address. blocked
  *  says a view's modal dialog is open, and no key then reaches an action. */
-export function Shell({ hello, state, notice, onDismissNotice, onWatch, narrow: narrowProp, matchMedia, top, children, drawer, maximised = false, mainRef, window: win, actions = NO_ACTIONS, blocked = false, onSettings, onProjects, helpLoad, railFoot = null }) {
+export function Shell({ hello, state, notice, onDismissNotice, onWatch, narrow: narrowProp, matchMedia, top, children, drawer, maximised = false, mainRef, window: win, actions = NO_ACTIONS, blocked = false, onSettings, onProjects, helpLoad, railFoot = null, railExpanded, railWidth = RAIL_DEFAULT, onRailExpanded, onRailWidth, keysOff = false, welcome = false, onHelpOpened }) {
   const keys = keysOf(hello);
   const bindings = useMemo(() => bindingsFrom(keys), [keys]);
   const broken = useMemo(() => unreadable(keys), [keys]);
@@ -168,8 +173,19 @@ export function Shell({ hello, state, notice, onDismissNotice, onWatch, narrow: 
   // A view's modal dialog is open: no key reaches an action under it.
   const isBlocked = useRef(blocked);
   isBlocked.current = blocked;
+  // A binding is being recorded: the keys are its, not the shell's.
+  const off = useRef(keysOff);
+  off.current = keysOff;
+  // The rail's width and whether it is wide are the desktop's to keep when the
+  // page is given them; otherwise this shell keeps its own.
+  const rail = useRef({ expanded: railExpanded, set: onRailExpanded });
+  rail.current = { expanded: railExpanded, set: onRailExpanded };
   const act = (ev) => {
     if (isBlocked.current) return;
+    if (ev.type === "action" && ev.id === "toggleRail" && rail.current.set) {
+      rail.current.set(!rail.current.expanded);
+      return;
+    }
     const fn = ev.type === "action" ? own.current[ev.id] : null;
     if (fn) fn();
     else dispatch(ev);
@@ -186,7 +202,7 @@ export function Shell({ hello, state, notice, onDismissNotice, onWatch, narrow: 
 
   useEffect(() => {
     const target = win || (typeof window !== "undefined" ? window : null);
-    return target ? attachKeys(target, bindings, implemented, act) : undefined;
+    return target ? attachKeys(target, bindings, implemented, act, () => off.current) : undefined;
   }, [bindings, win, implemented]);
 
   useEffect(() => {
@@ -221,19 +237,33 @@ export function Shell({ hello, state, notice, onDismissNotice, onWatch, narrow: 
     else act({ type: "action", id });
   };
 
+  // Opening the help is what retires the welcome, so the desktop is told when it
+  // first opens. A person who has not seen it is pointed to it in the notice area.
+  useEffect(() => {
+    if (s.helpOpen && onHelpOpened) onHelpOpened();
+  }, [s.helpOpen]);
+  const helpKey = (keys.find((k) => k.id === "help") || {}).keys || "";
+
+  // The rail's width while the pointer is dragging it, before it is kept.
+  const [dragW, setDragW] = useState(null);
+  const wide = railExpanded === undefined ? !s.railCollapsed : !!railExpanded;
+  const width = dragW === null ? railWidth : dragW;
   const current = projects.find((p) => p.root === s.selected);
-  const cls = "shell" + (narrow ? " shell--narrow" : "") + (s.railCollapsed && !narrow ? " shell--rail-collapsed" : "") + (maximised && drawerOpen ? " shell--max" : "");
+  const cls = "shell" + (narrow ? " shell--narrow" : "") + (!wide && !narrow ? " shell--rail-collapsed" : "") + (maximised && drawerOpen ? " shell--max" : "");
   const said = notice || (broken.length ? "These key bindings could not be read, so they do nothing: " + broken.join(", ") : "");
 
   return html`
-    <div class=${cls}>
+    <div class=${cls} style=${wide && !narrow && onRailWidth ? "--rail-w:" + width + "px" : undefined}>
       <${Rail}
         projects=${projects}
         active=${s.selected}
-        collapsed=${s.railCollapsed}
+        collapsed=${!wide}
+        width=${onRailWidth ? width : null}
+        onWidth=${onRailWidth ? (px) => { setDragW(null); onRailWidth(px); } : null}
+        onDrag=${onRailWidth ? setDragW : null}
         narrow=${narrow}
         onSelect=${(r) => dispatch({ type: "select", root: r })}
-        onToggle=${() => dispatch({ type: "action", id: "toggleRail" })}
+        onToggle=${() => act({ type: "action", id: "toggleRail" })}
         onSettings=${onSettings}
         onProjects=${onProjects}
         railRef=${regions.rail}
@@ -249,7 +279,10 @@ export function Shell({ hello, state, notice, onDismissNotice, onWatch, narrow: 
           ? html`<p class="notice">${said}${notice && onDismissNotice
               ? html` <button type="button" class="notice-dismiss" onClick=${onDismissNotice}>Dismiss</button>`
               : null}</p>`
-          : null}
+          : welcome && helpKey
+            ? html`<p class="notice notice--welcome">New here? ${WELCOME_WORDS(helpKey)}
+                <button type="button" class="notice-dismiss" onClick=${onHelpOpened}>Got it</button></p>`
+            : null}
       </div>
       ${s.helpOpen
         ? html`<${Help} keys=${keys} implemented=${implemented} load=${load} onClose=${() => dispatch({ type: "closeHelp" })} />`

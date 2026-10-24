@@ -39,6 +39,14 @@ export const SCROLLBACK_MIN = 1000;
 export const SCROLLBACK_MAX = 200000;
 export const SCROLLBACK_DEFAULT = 10000;
 export const FONT_FAMILY_MAX = 200;
+/** RAIL_MIN, RAIL_MAX and RAIL_DEFAULT are the widths the rail is drawn at, in pixels. The
+ *  desktop keeps a width inside the same bounds. */
+export const RAIL_MIN = 180;
+export const RAIL_MAX = 480;
+export const RAIL_DEFAULT = 220;
+/** STATUS_LINES are the choices for Claude Code's usage limits: the stored value
+ *  (empty is "auto" to the desktop) and the words for it. */
+export const STATUS_LINES = [["auto", "Only where I have a status line"], ["on", "Always"], ["off", "Never"]];
 /** SCROLLBACK_COUNTS are the lines offered in the list. */
 export const SCROLLBACK_COUNTS = [1000, 5000, 10000, 25000, 50000, 100000, 200000];
 /** FONT_SUGGESTIONS are the names the font field offers. */
@@ -68,6 +76,10 @@ export function prefsOf(raw) {
     jevStatus: r.jevStatus === true,
     conflictRadar: r.conflictRadar === true,
     push: pushOf(r.push),
+    statusLine: r.spend && (r.spend.statusLine === "on" || r.spend.statusLine === "off") ? r.spend.statusLine : "auto",
+    railExpanded: r.railExpanded === true,
+    railWidth: whole(r.railWidth) && r.railWidth >= RAIL_MIN && r.railWidth <= RAIL_MAX ? r.railWidth : RAIL_DEFAULT,
+    helpSeen: r.helpSeen === true,
     dismissedTips: Array.isArray(r.dismissedTips) ? r.dismissedTips.filter((t) => typeof t === "string").length : 0,
   };
 }
@@ -220,6 +232,18 @@ export function setting(name, value, current = null) {
       if (name === "pushOff") return { command: { cmd: "pushNotify", kind: value ? "off" : "on" }, patch: { push: pushPrefs({ ...now, off: !!value }) } };
       return { command: { cmd: "pushAnonymous", kind: value ? "on" : "off" }, patch: { push: pushPrefs({ ...now, anonymous: !!value }) } };
     }
+    case "statusLine": {
+      if (!STATUS_LINES.some(([v]) => v === value)) return null;
+      const spend = current && current.spend && typeof current.spend === "object" ? current.spend : {};
+      return { command: { cmd: "statusLine", text: value }, patch: { spend: { ...spend, statusLine: value === "auto" ? "" : value } } };
+    }
+    case "railExpanded":
+      return { command: { cmd: "railExpanded", kind: value ? "on" : "off" }, patch: { railExpanded: !!value } };
+    case "railWidth":
+      if (!whole(value) || value < RAIL_MIN || value > RAIL_MAX) return null;
+      return { command: { cmd: "railWidth", size: value }, patch: { railWidth: value } };
+    case "helpSeen":
+      return { command: { cmd: "helpSeen" }, patch: { helpSeen: true } };
     case "resetTips":
       return { command: { cmd: "resetTips" }, patch: { dismissedTips: [] } };
     default:

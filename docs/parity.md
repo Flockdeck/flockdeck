@@ -8,10 +8,10 @@ It compares two lists the sources hold: the actions of the key table (`internal/
 
 | | Actions | Commands |
 | --- | --- | --- |
-| done | 42 | 114 |
+| done | 42 | 124 |
 | replaced | 0 | 1 |
 | cut | 14 | 12 |
-| planned | 2 | 29 |
+| planned | 2 | 19 |
 | unclassified | 0 | 0 |
 | total | 58 | 156 |
 
@@ -55,9 +55,8 @@ The old interface let a person tile, split, move and broadcast to panes. The new
 | Task | Actions | Commands |
 | --- | --- | --- |
 | T134 (C8, GitHub) |  | `ghChecks`, `ghInstall`, `ghIssue`, `ghIssueComment`, `ghIssueCreate`, `ghIssues`, `ghLogin`, `ghLoginCancel`, `ghLogout`, `ghPR`, `ghPRComment`, `ghPRCreate`, `ghPRs`, `ghStatus` |
-| T136 (L1, start flows and pane lifecycle) | `selectTab`, `closeFinishedPanes` | `closeFinishedPanes`, `focusPane`, `refreshAgents`, `teamClose`, `toggleZoom` |
-| T137 (L2, settings) |  | `dismissTip`, `railExpanded`, `railWidth`, `resetKeybinding`, `resetKeybindings`, `setAgentAddress`, `setAgentDefault`, `setKeybinding`, `statusLine` |
-| T138 (L3, help) |  | `helpSeen` |
+| T136 (L1, start flows and pane lifecycle) | `selectTab`, `closeFinishedPanes` | `closeFinishedPanes`, `focusPane`, `teamClose`, `toggleZoom` |
+| T137 (L2, settings) |  | `dismissTip` |
 
 ## Must exist before the old interface is retired
 
@@ -155,7 +154,7 @@ These are safety and security controls. The new interface has no way to do them 
 | `cursorStyle` | done |  |
 | `detach` | done |  |
 | `diff` | done |  |
-| `dismissTip` | planned | T137 (L2, settings) |
+| `dismissTip` | planned | T137 (L2, settings). The hint bar: the new interface has none yet, and whether it gets one is undecided |
 | `exportTranscript` | done |  |
 | `findPane` | done |  |
 | `focusPane` | planned | T136 (L1, start flows and pane lifecycle) |
@@ -179,7 +178,7 @@ These are safety and security controls. The new interface has no way to do them 
 | `gitPull` | done |  |
 | `gitPush` | done |  |
 | `groupProjects` | done |  |
-| `helpSeen` | planned | T138 (L3, help). The first-run welcome |
+| `helpSeen` | done |  |
 | `helperInstall` | done |  |
 | `helperOpen` | done |  |
 | `helperPlan` | done |  |
@@ -218,11 +217,11 @@ These are safety and security controls. The new interface has no way to do them 
 | `pushDelay` | done |  |
 | `pushNotify` | done |  |
 | `quit` | done |  |
-| `railExpanded` | planned | T137 (L2, settings) |
-| `railWidth` | planned | T137 (L2, settings) |
+| `railExpanded` | done |  |
+| `railWidth` | done |  |
 | `recents` | done |  |
 | `recordPane` | done |  |
-| `refreshAgents` | planned | T136 (L1, start flows and pane lifecycle). The agent picker |
+| `refreshAgents` | done |  |
 | `remoteDevices` | done |  |
 | `remoteDisable` | done |  |
 | `remoteEnable` | done |  |
@@ -240,8 +239,8 @@ These are safety and security controls. The new interface has no way to do them 
 | `renameProject` | done |  |
 | `renameTab` | done |  |
 | `reorderProjects` | done |  |
-| `resetKeybinding` | planned | T137 (L2, settings) |
-| `resetKeybindings` | planned | T137 (L2, settings) |
+| `resetKeybinding` | done |  |
+| `resetKeybindings` | done |  |
 | `resetTips` | done |  |
 | `restart` | done |  |
 | `restartPane` | done |  |
@@ -257,16 +256,16 @@ These are safety and security controls. The new interface has no way to do them 
 | `selectRepo` | done |  |
 | `selectTab` | done |  |
 | `sendPrompt` | replaced | sent as `paneSend`. Prompting one pane; prompting all is cut |
-| `setAgentAddress` | planned | T137 (L2, settings) |
-| `setAgentDefault` | planned | T137 (L2, settings) |
+| `setAgentAddress` | done |  |
+| `setAgentDefault` | done |  |
 | `setDeviceRole` | done |  |
-| `setKeybinding` | planned | T137 (L2, settings) |
+| `setKeybinding` | done |  |
 | `setRouting` | done |  |
 | `setWeights` | cut | Tiling and splitting panes is cut; the team is a graph. |
 | `splitPane` | cut | Tiling and splitting panes is cut; the team is a graph. |
 | `startAgent` | done |  |
 | `startFromBaton` | done |  |
-| `statusLine` | planned | T137 (L2, settings) |
+| `statusLine` | done |  |
 | `swapPanes` | cut | Moving and merging panes and tabs is cut; the team is a graph. |
 | `taskAdd` | done |  |
 | `taskAssign` | done |  |

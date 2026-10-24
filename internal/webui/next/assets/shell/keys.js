@@ -14,6 +14,14 @@ const MODIFIERS = ["ctrl", "shift", "alt"];
 /** On most layouts + is Shift and =, so Ctrl++ and Ctrl+= are one gesture. */
 const PLUS = "+";
 const EQUALS = "=";
+/** A key the table writes with a symbol or a word of its own, the keys a
+ *  recorded binding is not made of, and the ones a terminal leaves to the page. */
+const NAMED = { ArrowLeft: "←", ArrowRight: "→", ArrowUp: "↑", ArrowDown: "↓", " ": "Space", Escape: "Esc" };
+const MODIFIER_KEYS = ["Control", "Shift", "Alt", "Meta", "OS"];
+const FUNCTION_KEY = /^F([1-9]|1[0-9])$/;
+const PAGE_KEYS = ["Esc", "Tab"];
+/** CLEARS take a binding away while one is being recorded. */
+const CLEARS = ["Backspace", "Delete"];
 /** keyCode of a key pressed while an input method is composing. */
 const IME = 229;
 
@@ -98,6 +106,45 @@ export function keyAction(bindings, e, implemented) {
  *  range and an unbound action are fine. */
 export function unreadable(table) {
   return (table || []).filter((k) => k.keys && !k.keys.includes("…") && signatureOf(k.keys) === "").map((k) => k.id);
+}
+
+/** chordOf is the binding a keydown would be written as in the table, or null for
+ *  a modifier pressed alone (the key that goes with it is still to come). */
+export function chordOf(e) {
+  if (MODIFIER_KEYS.includes(e.key)) return null;
+  let name = e.key;
+  let shift = !!e.shiftKey;
+  // Ctrl++ and Ctrl+= are one gesture, as in signatureOfEvent.
+  if (name === PLUS) {
+    name = EQUALS;
+    shift = false;
+  }
+  if (NAMED[name]) name = NAMED[name];
+  else if (name.length === 1) name = name.toUpperCase();
+  return [e.ctrlKey ? "Ctrl" : "", shift ? "Shift" : "", e.altKey ? "Alt" : "", name].filter(Boolean).join("+");
+}
+
+/** isBareKey says a binding has no Ctrl or Alt and is not a function key, Escape or
+ *  Tab: it would still reach a terminal's program instead of the window, so it
+ *  is not offered. */
+export function isBareKey(chord) {
+  const parts = String(chord || "").split("+");
+  const name = parts[parts.length - 1];
+  if (parts.includes("Ctrl") || parts.includes("Alt")) return false;
+  return !(FUNCTION_KEY.test(name) || PAGE_KEYS.includes(name));
+}
+
+/** recorded says what a keydown means while a binding is being recorded: { kind:
+ *  "wait" } for a modifier alone or an input method, "cancel" (Escape, and Tab,
+ *  which also goes on moving the keyboard: pass), "clear" for the key that takes
+ *  the binding away, and "chord" with the binding. */
+export function recorded(e) {
+  if (composing(e)) return { kind: "wait" };
+  if (e.key === LIST.tab) return { kind: "cancel", pass: true };
+  if (e.key === LIST.cancel) return { kind: "cancel" };
+  if (CLEARS.includes(e.key)) return { kind: "clear" };
+  const chord = chordOf(e);
+  return chord === null ? { kind: "wait" } : { kind: "chord", chord };
 }
 
 /** keycaps splits a binding into the parts to draw as keys. */

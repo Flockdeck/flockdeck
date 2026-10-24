@@ -120,22 +120,11 @@ var cmdVerdicts = map[string]Verdict{
 	"closeFinishedPanes": task(tL1),
 	"toggleZoom":         task(tL1),
 	"focusPane":          task(tL1),
-	"refreshAgents":      task(tL1, "The agent picker"),
 	"teamClose":          task(tL1),
 
-	// L2: settings.
-	"statusLine":       task(tL2),
-	"railExpanded":     task(tL2),
-	"railWidth":        task(tL2),
-	"setKeybinding":    task(tL2),
-	"resetKeybinding":  task(tL2),
-	"resetKeybindings": task(tL2),
-	"dismissTip":       task(tL2),
-	"setAgentDefault":  task(tL2),
-	"setAgentAddress":  task(tL2),
-
-	// L3: help.
-	"helpSeen": task(tL3, "The first-run welcome"),
+	// The one-line hints under the tab bar. Whether the new interface has a hint bar
+	// is a decision for the plan; until it is made the hint's dismissal stays here.
+	"dismissTip": task(tL2, "The hint bar: the new interface has none yet, and whether it gets one is undecided"),
 
 	// L7: updates, detach, quit.
 
