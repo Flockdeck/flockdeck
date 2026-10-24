@@ -571,7 +571,7 @@ test("Team view: with no tree the switch has no Team and the page starts on the 
 test("Team view: with a tree the switch leads with Team, the page starts there, and the goal line, the tree and the feed share the home", () =>
   withPage({ treeView: StubTree }, async (m) => {
     await m.connect();
-    assert.deepEqual(viewButtons(m), ["tree", "graph", "board", "changes", "replay"]);
+    assert.deepEqual(viewButtons(m), ["tree", "deps", "graph", "board", "changes", "replay"]);
     const team = m.container.findAll(".tabs-view")[0];
     assert.equal(team.textContent, "Team");
     assert.equal(team.getAttribute("aria-pressed"), "true");

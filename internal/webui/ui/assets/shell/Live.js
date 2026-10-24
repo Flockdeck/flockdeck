@@ -20,6 +20,7 @@ import { nextNeedsYou, paneAt, prevNeedsYou } from "../graph/keys.js";
 import { Shell, useNarrow } from "./app.js";
 import { FootButton } from "./rail.js";
 import { Tree } from "../graph/Tree.js";
+import { Deps } from "../graph/DepsView.js";
 import { Board, ChangesView, Replay, firstViewOf, viewsOf } from "./Views.js";
 import { GoalLine } from "../graph/GoalLine.js";
 import { Home, sameProject, rosterOf } from "./Home.js";
@@ -421,10 +422,10 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
   };
   // The Team dialog keeps a watch on the project chosen in the rail while it is open.
   useEffect(() => {
-    if (!teamOpen && view !== "board") return undefined;
+    if (!teamOpen && view !== "board" && view !== "deps") return undefined;
     store.watchTeam(selected);
     return () => store.unwatchTeam();
-  }, [teamOpen, view === "board", selected]);
+  }, [teamOpen, view === "board" || view === "deps", selected]);
   // The desk keeps one focused pane in each tab. A pane opened in the drawer is
   // the one the person is working in, so the desk is told, and its own window and
   // the commands that act on the focused pane agree with this one.
@@ -682,6 +683,9 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
             ${showFeed ? html`<${Feed} feed=${feed} onFocus=${(p) => focusNode(mainRef.current, p)} />` : null}
           </div>
         </div>`
+      : null}
+    ${view === "deps"
+      ? html`<${Deps} team=${snap.team} model=${current} remote=${!!snap.remote} onOpen=${drawer.open} send=${snap.remote ? null : send} />`
       : null}
     ${view === "board"
       ? html`<${Board} team=${snap.team} remote=${!!snap.remote} gone=${snap.teamGone ? snap.teamGone.error || "This project can no longer be read." : ""}

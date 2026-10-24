@@ -191,7 +191,7 @@ func TestServedPageIsAFewFiles(t *testing.T) {
 		}
 	}
 	css, _ := get(t, srv.URL+"/assets/app.css")
-	for _, name := range []string{"vendor/xterm.css", "app.css", "graph/graph.css", "graph/tree.css", "drawer/drawer.css", "shell/start.css"} {
+	for _, name := range []string{"vendor/xterm.css", "app.css", "graph/graph.css", "graph/tree.css", "graph/deps.css", "drawer/drawer.css", "shell/start.css"} {
 		if !strings.Contains(css, "/* "+name+" */") {
 			t.Errorf("the joined stylesheet has no %s", name)
 		}

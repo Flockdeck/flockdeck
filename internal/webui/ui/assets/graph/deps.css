@@ -1,0 +1,42 @@
+/* The Dependencies view (graph/DepsView.js). Rows reuse the outline's (tree.css). */
+.view--deps { min-width: 0; padding: 12px 16px; }
+.view--deps .view-head { align-items: flex-start; display: flex; justify-content: space-between; margin-bottom: 10px; }
+.deps-path { align-items: center; border: 1px solid var(--line); border-radius: 6px; display: flex; flex-wrap: wrap; gap: 6px 8px; margin-bottom: 10px; padding: 8px 10px; }
+.deps-path-label { color: var(--fg-dim); font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; }
+.deps-path-note { color: var(--fg-dim); font-size: 12px; margin-left: auto; }
+.deps-arrow { color: var(--fg-dim); }
+.deps-deadlock, .deps-start { background: var(--exited-subtle); border: 1px solid var(--exited-line); border-radius: 6px; margin: 0 0 10px; padding: 8px 10px; }
+.deps-deadlock p, .deps-start p { margin: 2px 0; }
+.deps-deadlock-kind, .deps-start-kind { color: var(--exited); font-size: 10.5px; letter-spacing: .08em; text-transform: uppercase; }
+.deps-deadlock-acts { display: flex; gap: 8px; margin-top: 6px; }
+.deps-start { background: var(--ok-subtle); border-color: var(--ok); margin: 0 0 0 68px; }
+.deps-start-kind { color: var(--ok); }
+.deps-start-kind span { color: var(--fg-dim); letter-spacing: 0; margin-left: 6px; text-transform: none; }
+.deps-start-btn, .deps-open { background: none; border: 1px solid var(--line-strong); border-radius: 4px; color: var(--fg); cursor: pointer; font: inherit; font-size: 12px; padding: 2px 8px; }
+.deps-start-btn:disabled { cursor: default; opacity: .6; }
+.deps-tk { color: var(--fg-dim); flex: 0 0 40px; font-family: var(--mono, monospace); font-size: 11.5px; }
+.deps-ttl { flex: 1 1 0; font-size: 13px; font-weight: 600; }
+.deps-sub { color: var(--fg-dim); font-size: 12px; }
+.deps-own { align-items: center; color: var(--fg); display: flex; flex: 0 0 84px; font-size: 12px; gap: 6px; }
+.deps-own .tree-glyph { flex: 0 0 12px; height: 12px; width: 12px; }
+.deps-none { color: var(--fg-dim); font-style: italic; }
+.deps-est { color: var(--fg-dim); flex: 0 0 38px; font-family: var(--mono, monospace); font-size: 12px; text-align: right; }
+.deps-fin { flex: 0 0 58px; font-family: var(--mono, monospace); font-size: 12px; text-align: right; }
+.deps-row.is-blocked .deps-ttl, .deps-row.is-dup .deps-ttl { color: var(--fg-dim); font-weight: 400; }
+.deps-row.is-ready { background: var(--ok-subtle); }
+.deps-row.is-crit { border-left-color: var(--accent); }
+.deps-row.is-dup { opacity: .7; }
+.tree-glyph--done { border: 2px solid var(--ok); border-radius: 50%; }
+.tree-glyph--done::after { border: solid var(--ok); border-width: 0 2px 2px 0; content: ""; height: 6px; left: 3px; position: absolute; top: 0; transform: rotate(45deg); width: 3px; }
+.tree-chip--crit { border-color: var(--accent-line); color: var(--accent); }
+.tree-chip--ready { border-color: var(--ok); color: var(--ok); }
+.tree-chip--blocked, .tree-chip--dup { color: var(--fg-dim); }
+.tree-toggle { background: none; border: 0; font: inherit; padding: 0; }
+@container main (max-width: 680px) { .deps-own, .deps-est { display: none; } }
+@media (max-width: 560px) {
+  .deps-own, .deps-est, .deps-fin { display: none; }
+  .deps-row .tree-chips { flex: 1 0 100%; flex-wrap: wrap; order: 9; padding-left: 40px; }
+  .deps-ttl { flex: 1 1 0; white-space: normal; }
+  .deps-start { margin-left: 16px; }
+}
+.deps-head .tree-c { color: var(--fg-dim); font-weight: 400; }
