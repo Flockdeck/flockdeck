@@ -303,7 +303,7 @@ These are safety and security controls the new interface has to send. The list i
 
 ## Commands only the new interface sends
 
-`conversationClose`, `conversationDetail`, `conversationOlder`, `conversationOpen`, `conversationSearch`, `graphUnwatch`, `graphWatch`, `paneSend`, `permissionAnswer`, `structuredCancel`, `structuredUnwatch`, `structuredWatch`
+`conversationClose`, `conversationDetail`, `conversationOlder`, `conversationOpen`, `conversationSearch`, `graphUnwatch`, `graphWatch`, `paneSend`, `permissionAnswer`, `structuredCancel`, `structuredUnwatch`, `structuredWatch`, `wakeSwitch`
 
 ## What this does not cover
 

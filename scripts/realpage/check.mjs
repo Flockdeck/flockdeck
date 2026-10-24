@@ -28,7 +28,7 @@
 // With --shot DIR it also saves a dark screenshot (1440 by 900, or --shot-size WxH)
 // of each fixture's page, as DIR/fixture-NN.png, for a pull request to show before
 // and after. --shot-view NAME chooses a view of the tab strip's switch first, and
-// --shot-open opens the first agent's drawer first, --shot-widen widens the rail, --shot-palette opens the command palette, and --shot-team opens the Start a team dialog.
+// --shot-open opens the first agent's drawer first, --shot-widen widens the rail, --shot-palette opens the command palette, --shot-team opens the Start a team dialog, and --shot-settings SECTION opens Settings there.
 //
 //   node scripts/realpage/check.mjs [--out result.json] [--slowdown 1,4] [--repeat 3] [--only N] [--shot DIR]
 //                                   [--allow-config-change] [--ceiling 20]
@@ -58,6 +58,7 @@ const shotOpen = args.includes("--shot-open"); // open the first agent's drawer 
 const shotWiden = args.includes("--shot-widen"); // widen the rail first
 const shotPalette = args.includes("--shot-palette"); // open the command palette first
 const shotTeam = args.includes("--shot-team"); // open the Start a team dialog first
+const shotSettings = opt("shot-settings", ""); // open Settings on this section first
 const LIMIT_MS = 2000;
 const allowConfigChange = args.includes("--allow-config-change");
 const ceilingMin = Number(opt("ceiling", "20"));
@@ -345,6 +346,11 @@ async function screenshot(page, file) {
     await page.eval(`document.dispatchEvent(new KeyboardEvent("keydown", { key: "K", code: "KeyK", ctrlKey: true, shiftKey: true, bubbles: true }))`);
     await sleep(300);
     await page.eval(`(() => { const r = document.querySelector('.palette-row[data-action="startTeam"]'); if (r) r.click(); })()`);
+  }
+  if (shotSettings) {
+    await page.eval(`(() => { const b = document.querySelector(".rail-settings"); if (b) b.click(); })()`);
+    await sleep(300);
+    await page.eval(`(() => { const t = document.querySelector('.settings-tab[data-section="${shotSettings}"]'); if (t) t.click(); })()`);
   }
   if (shotView) await page.eval(`(() => { const b = document.querySelector('.tabs-view[data-view="${shotView}"]'); if (b) b.click(); })()`);
   await sleep(800);

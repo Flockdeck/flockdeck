@@ -571,6 +571,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     keys: snap.keys,
     jev: snap.jevKey,
     agents: kept.current.state.agents || null,
+    panes: current ? current.nodes.filter((n) => !n.shell).map((n) => ({ pane: n.pane, name: n.name || n.pane, agent: n.agent })) : [],
     project: ((kept.current.state.projects || []).find((p) => p.active) || {}).name || "",
     roster: snap.remoteDevices,
     pair: snap.remotePair,

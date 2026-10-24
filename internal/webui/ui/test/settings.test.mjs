@@ -57,7 +57,7 @@ test("a stored value in range is kept", () => {
   });
   assert.deepEqual(p, {
     theme: "system", accent: "pink", fontSize: 20, fontFamily: "Fira Code", scrollback: 50000, cursorStyle: "underline",
-    cursorSteady: true, screenReader: true, autoReviewDefault: true, dismissedTips: 0,
+    cursorSteady: true, screenReader: true, autoReviewDefault: true, dismissedTips: 0, wake: { off: false, agents: [], panes: [], textAgents: [] },
     notificationsOff: false, jevStatus: false, conflictRadar: false, push: { off: false, anonymous: false, delaySeconds: 30 },
     statusLine: "auto", railExpanded: false, railWidth: 220, helpSeen: false,
   });
@@ -303,7 +303,7 @@ test("the sections are tabs the arrow keys move between", () =>
     await m.connect();
     await m.openSettings();
     const tabs = () => m.container.findAll(".settings-tab");
-    assert.deepEqual(tabs().map((t) => t.attributes.tabindex), ["0", "-1", "-1", "-1", "-1", "-1", "-1", "-1", "-1", "-1"]);
+    assert.deepEqual(tabs().map((t) => t.attributes.tabindex), ["0", "-1", "-1", "-1", "-1", "-1", "-1", "-1", "-1", "-1", "-1"]);
     const ev = tabs()[0].keydown("ArrowDown");
     await settle();
     assert.equal(ev.defaultPrevented, true);
@@ -617,3 +617,53 @@ test("General links to GitHub Sponsors in a new tab and says it buys nothing", (
     assert.match(a.attributes.rel, /noopener/);
     assert.match(m.container.find("#set-sponsor").textContent, /buys nothing/);
   }));
+
+test("Typed wake: the switches show what the desktop keeps and each sends its own wakeSwitch", () =>
+  withPage({ wake: { off: false, agents: ["aider"], panes: ["gone-pane"], textAgents: ["aider"] } }, async (m) => {
+    await m.connect();
+    await m.push({ ...stateOf(graph()), agents: { items: [{ id: "claude", name: "Claude Code", available: true }, { id: "aider", name: "Aider", available: true }], default: {} } });
+    await m.openSettings("wake");
+    const sw = (id) => m.container.find("#" + id);
+    assert.equal(on(sw("wake-global-switch")), true);
+    assert.ok(m.container.find("#wake-agent-switch-claude"), "a kind of agent from the catalog");
+    assert.ok(sw("wake-pane-switch-gone-pane"), "a muted pane that is not open is still listed");
+    assert.equal(on(sw("wake-pane-switch-gone-pane")), false);
+    m.ws().sent.length = 0;
+    await m.click(sw("wake-global-switch"));
+    await m.click(sw("wake-agent-switch-claude"));
+    await m.click(sw("wake-pane-switch-gone-pane"));
+    assert.deepEqual(m.ws().commands("wakeSwitch"), [
+      { cmd: "wakeSwitch", kind: "global", text: "off" },
+      { cmd: "wakeSwitch", kind: "agent", id: "claude", text: "off" },
+      { cmd: "wakeSwitch", kind: "pane", id: "gone-pane", text: "on" },
+    ]);
+    // The desktop's push is what the switches then show.
+    await m.push({ type: "prefs", prefs: { wake: { off: true, agents: ["aider", "claude"], panes: [] } } });
+    assert.equal(on(sw("wake-global-switch")), false);
+    assert.equal(on(sw("wake-agent-switch-claude")), false);
+    assert.equal(sw("wake-pane-switch-gone-pane"), null, "an unmuted pane that is not open is no longer listed");
+  }));
+
+test("Typed wake: the text opt-in is its own switch", () =>
+  withPage({ wake: { textAgents: [] } }, async (m) => {
+    await m.connect();
+    await m.push({ ...stateOf(graph()), agents: { items: [{ id: "claude", name: "Claude Code", available: true }, { id: "aider", name: "Aider", available: true }], default: {} } });
+    await m.openSettings("wake");
+    m.ws().sent.length = 0;
+    await m.click(m.container.find("#wake-text-switch-claude"));
+    assert.deepEqual(m.ws().commands("wakeSwitch"), [{ cmd: "wakeSwitch", kind: "text", id: "claude", text: "on" }]);
+  }));
+
+test("lib/wake: commands, defaults and the order of switches", async () => {
+  const { wakeOf, wakeCommand, wakeEnabled } = await import("../assets/lib/wake.js");
+  assert.deepEqual(wakeOf(null), { off: false, agents: [], panes: [], textAgents: [] });
+  assert.deepEqual(wakeOf({ off: "yes", agents: ["a", 3, ""], panes: "x" }), { off: false, agents: ["a"], panes: [], textAgents: [] });
+  assert.equal(wakeCommand("agent", "", true), null, "an agent switch needs an id");
+  assert.equal(wakeCommand("team", "x", true), null, "only the four kinds");
+  assert.deepEqual(wakeCommand("global", "ignored", false), { cmd: "wakeSwitch", kind: "global", text: "off" });
+  const w = wakeOf({ agents: ["aider"], panes: ["p2"] });
+  assert.equal(wakeEnabled(w, "claude", "p1"), true);
+  assert.equal(wakeEnabled(w, "aider", "p1"), false);
+  assert.equal(wakeEnabled(w, "claude", "p2"), false);
+  assert.equal(wakeEnabled(wakeOf({ off: true }), "claude", "p1"), false);
+});
