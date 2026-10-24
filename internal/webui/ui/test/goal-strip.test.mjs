@@ -1,0 +1,238 @@
+// The goal strip on the page: a tab for each team of the graph and Solo, the view
+// switch on a row of its own, and what the person does to a tab (open, rename,
+// move, archive, restore), kept in the interface's preferences through uiPrefs.
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
+import { render } from "../assets/vendor/preact.mjs";
+import { html } from "../assets/html.js";
+import { Live } from "../assets/shell/Live.js";
+import { labelOf } from "../assets/graph/GoalTabs.js";
+import { createDom, install, settle } from "./dom.mjs";
+import { FakeWebSocket, harness, hello } from "./fakes.mjs";
+import { PtySocket, FakeTerm, FakeFit, FakeObserver } from "./termfakes.mjs";
+
+const here = dirname(fileURLToPath(import.meta.url));
+const fixtureFile = join(here, "..", "..", "..", "server", "testdata", "graph-fixtures", "01-six-helpers-one-permission.json");
+const ONE = "0c96cbe9";
+const TWO = "t-two";
+const MARKUP = '<img src=x onerror="alert(1)">';
+const KEYS = [
+  { id: "palette", keys: "Ctrl+Shift+K", label: "Command palette", section: "Window" },
+  { id: "selectTab", keys: "Alt+1 … Alt+9", label: "Select tab by number", section: "Tabs" },
+  { id: "nextTab", keys: "Ctrl+Tab", label: "Next tab", section: "Tabs", noPalette: true },
+  { id: "prevTab", keys: "Ctrl+Shift+Tab", label: "Previous tab", section: "Tabs", noPalette: true },
+  { id: "moveTabLeft", keys: "Ctrl+Shift+PageUp", label: "Move tab left", section: "Tabs" },
+  { id: "moveTabRight", keys: "Ctrl+Shift+PageDown", label: "Move tab right", section: "Tabs" },
+];
+const API = { major: 1, minor: 1, caps: ["clientHello", "unsupported", "apiMismatch", "uiPrefs"] };
+
+// The fixture has one goal. A second one, with one manager, makes two tabs.
+const graph = () => {
+  const g = { ...JSON.parse(readFileSync(fixtureFile, "utf8")), root: "/work/a" };
+  const base = g.nodes[0];
+  g.nodes = [...g.nodes, { ...base, pane: "m9", name: "tester", parent: "", children: [], depth: 0, activity: "idle", status: "idle", team: TWO }];
+  g.teams = [...g.teams, { id: TWO, manager: "m9", members: ["m9"], goal: "Fix " + MARKUP + " tests", started: g.teams[0].started, needs: [], caps: [] }];
+  return g;
+};
+const stateOf = (g) => ({
+  type: "state", root: "/work/a", projects: [{ root: "/work/a", name: "alpha", waiting: 0, working: 0 }], activeTab: "t1", tabs: [{ id: "t1", title: "Main" }],
+  panes: Object.fromEntries(g.nodes.map((n) => [n.pane, { id: n.pane, name: n.name }])),
+});
+
+async function mount({ caps = true, ui = null } = {}) {
+  PtySocket.reset();
+  FakeTerm.reset();
+  FakeObserver.instances.length = 0;
+  const dom = createDom();
+  const restore = install(dom);
+  const { store } = await harness();
+  const container = dom.document.createElement("div");
+  dom.body.appendChild(container);
+  store.start();
+  const terminalOptions = {
+    Terminal: FakeTerm, FitAddon: FakeFit, ResizeObserver: FakeObserver, WebSocket: PtySocket,
+    location: { href: "http://127.0.0.1:5000/", pathname: "/", protocol: "http:" }, isFocused: () => false,
+  };
+  render(html`<${Live} store=${store} window=${dom.window} terminalOptions=${terminalOptions} />`, container);
+  await settle();
+  const ws = () => FakeWebSocket.last;
+  const g = graph();
+  const m = {
+    dom, store, container, ws,
+    sent: (cmd) => ws().commands(cmd),
+    clear: () => { ws().sent.length = 0; },
+    push: async (msg) => { ws().frame(msg); await settle(); },
+    key: async (spec) => {
+      const parts = spec.split("+");
+      dom.window.dispatch("keydown", { key: parts[parts.length - 1], ctrlKey: parts.includes("Ctrl"), shiftKey: parts.includes("Shift"), altKey: parts.includes("Alt") });
+      await settle();
+    },
+    click: async (el) => { assert.ok(el, "no element to click"); el.click(); await settle(); },
+    connect: async () => {
+      ws().open();
+      ws().frame(hello({ keys: KEYS, api: caps ? API : undefined, prefs: ui ? { ui } : {} }));
+      await settle();
+      ws().frame(stateOf(g));
+      await settle();
+      ws().frame(g);
+      await settle();
+    },
+    tabs: () => container.findAll(".goaltab"),
+    ids: () => container.findAll(".goaltab").map((t) => t.getAttribute("data-tab")),
+    active: () => container.findAll(".goaltab").filter((t) => t.attributes.class.includes("is-active")).map((t) => t.getAttribute("data-tab")),
+    rows: () => container.findAll(".tree-row").map((r) => r.getAttribute("data-pane")),
+    plus: async () => { if (!container.find(".tabs-menu")) await m.click(container.find(".tabs-plus")); },
+    done: () => { render(null, container); store.stop(); restore(); },
+  };
+  return m;
+}
+
+async function withPage(opts, fn) {
+  const m = await mount(opts);
+  try {
+    await fn(m);
+  } finally {
+    m.done();
+  }
+}
+
+test("a tab for each goal, then Solo; labels are text, and the first goal that waits is open", () =>
+  withPage({}, async (m) => {
+    await m.connect();
+    assert.deepEqual(m.ids(), [ONE, TWO, "solo"]);
+    const labels = m.tabs().map((t) => t.find(".tab-title").textContent);
+    assert.equal(labels[0], labelOf("Ship 01-six-helpers-one-permission"));
+    assert.equal(labels[1], labelOf("Fix " + MARKUP + " tests"), "cut at a word, and still text");
+    assert.equal(labels[2], "Solo");
+    assert.equal(m.container.findAll("img").length, 0);
+    assert.deepEqual(m.active(), [ONE], "the goal with a pane waiting on the person");
+    assert.ok(m.tabs()[0].find(".tab-needs"), "its badge counts what waits");
+    assert.equal(m.tabs()[2].find(".tab-close"), null, "Solo cannot be archived");
+  }));
+
+test("choosing a tab shows that goal's outline only, and Solo a flat list; the desk is not asked", () =>
+  withPage({}, async (m) => {
+    await m.connect();
+    m.clear();
+    assert.equal(m.rows().includes("m9"), false);
+    assert.equal(m.rows().includes(ONE), true);
+    await m.click(m.tabs()[1].find(".tab-pick"));
+    assert.deepEqual(m.rows(), ["m9"]);
+    assert.deepEqual(m.active(), [TWO]);
+    await m.click(m.tabs()[2].find(".tab-pick"));
+    assert.deepEqual(m.rows(), []);
+    assert.equal(m.sent("selectTab").length, 0);
+  }));
+
+test("the views are on a row of their own, not inside the strip", () =>
+  withPage({}, async (m) => {
+    await m.connect();
+    const bar = m.container.find(".viewbar");
+    assert.ok(bar);
+    assert.deepEqual(bar.findAll(".tabs-view").map((b) => b.textContent.trim()), ["Team", "Graph", "Board", "Changes", "Replay"]);
+    assert.equal(m.container.find(".goaltabs").findAll(".tabs-view").length, 0);
+    assert.equal(m.container.find(".goaltabs").findAll(".viewbar").length, 0);
+    assert.equal(m.container.find(".tabs"), null, "the desk's tab strip is gone");
+  }));
+
+test("renaming is a double click; Enter keeps the name in the preferences, Escape does not, empty gives the goal's words back", () =>
+  withPage({}, async (m) => {
+    await m.connect();
+    m.clear();
+    m.tabs()[1].find(".tab-pick").dispatch("dblclick");
+    await settle();
+    const box = m.container.find(".tab-rename");
+    assert.ok(box, "the field opens");
+    box.value = "Tests";
+    box.dispatch("input");
+    await settle();
+    box.keydown("Escape");
+    await settle();
+    assert.equal(m.sent("uiPrefs").length, 0);
+    m.tabs()[1].find(".tab-pick").dispatch("dblclick");
+    await settle();
+    const again = m.container.find(".tab-rename");
+    again.value = "  Tests  ";
+    again.dispatch("input");
+    await settle();
+    again.keydown("Enter");
+    await settle();
+    assert.deepEqual(m.sent("uiPrefs"), [{ cmd: "uiPrefs", ui: { tabs: { names: { [TWO]: "Tests" } } } }]);
+    assert.equal(m.tabs()[1].find(".tab-title").textContent, "Tests", "shown at once, before the desk answers");
+    // Solo has no name to change.
+    m.clear();
+    m.tabs()[2].find(".tab-pick").dispatch("dblclick");
+    await settle();
+    assert.equal(m.container.find(".tab-rename"), null);
+  }));
+
+test("a name and an order kept in the preferences are used", () =>
+  withPage({ ui: { tabs: { names: { [TWO]: "Tests" }, order: [TWO, ONE] } } }, async (m) => {
+    await m.connect();
+    assert.deepEqual(m.ids(), [TWO, ONE, "solo"]);
+    assert.equal(m.tabs()[0].find(".tab-title").textContent, "Tests");
+  }));
+
+test("× archives a goal's tab; the + menu lists it and brings it back", () =>
+  withPage({}, async (m) => {
+    await m.connect();
+    m.clear();
+    await m.click(m.tabs()[1].find(".tab-close"));
+    assert.deepEqual(m.sent("uiPrefs"), [{ cmd: "uiPrefs", ui: { tabs: { archived: [TWO] } } }]);
+    assert.deepEqual(m.ids(), [ONE, "solo"]);
+    assert.equal(m.sent("closeTab").length, 0, "nothing is closed on the desk");
+    await m.plus();
+    const restore = m.container.findAll(".tabs-restore");
+    assert.equal(restore.length, 1);
+    assert.equal(restore[0].textContent.startsWith("Show Fix"), true);
+    m.clear();
+    await m.click(restore[0]);
+    assert.deepEqual(m.sent("uiPrefs"), [{ cmd: "uiPrefs", ui: { tabs: null } }], "nothing left to keep removes the key");
+    assert.deepEqual(m.ids(), [ONE, TWO, "solo"]);
+    assert.deepEqual(m.active(), [TWO], "the restored goal is the one open");
+  }));
+
+test("move left and right, and the keys, change the order of goals; Alt+number and Ctrl+Tab choose a tab", () =>
+  withPage({}, async (m) => {
+    await m.connect();
+    m.clear();
+    await m.click(m.tabs()[0].find(".tab-pick"));
+    await m.plus();
+    const names = m.container.findAll(".tabs-btn");
+    assert.equal(names.find((b) => b.textContent === "Move left").disabled, true, "first goal cannot go left");
+    await m.click(names.find((b) => b.textContent === "Move right"));
+    assert.deepEqual(m.sent("uiPrefs"), [{ cmd: "uiPrefs", ui: { tabs: { order: [TWO, ONE] } } }]);
+    assert.deepEqual(m.ids(), [TWO, ONE, "solo"]);
+    m.clear();
+    await m.key("Alt+3");
+    assert.deepEqual(m.active(), ["solo"]);
+    await m.key("Ctrl+Tab");
+    assert.deepEqual(m.active(), [TWO], "after Solo, the first");
+    await m.key("Ctrl+Shift+Tab");
+    assert.deepEqual(m.active(), ["solo"]);
+    assert.equal(m.sent("nextTab").length + m.sent("prevTab").length + m.sent("selectTab").length, 0);
+  }));
+
+test("the menu starts with Start a team, and keeps the ways to open an agent", () =>
+  withPage({}, async (m) => {
+    await m.connect();
+    await m.plus();
+    const names = m.container.findAll(".tabs-btn").map((b) => b.textContent.trim());
+    assert.equal(names[0], "Start a team…");
+    for (const want of ["New agent tab", "Choose agent…", "New shell tab", "Resume…", "Find pane…", "Rename this goal"]) assert.ok(names.includes(want), want);
+    m.clear();
+    await m.click(m.container.findAll(".tabs-btn").find((b) => b.textContent === "New shell tab"));
+    assert.deepEqual(m.sent("newTab").map((c) => c.kind), ["shell"]);
+  }));
+
+test("with a desktop that has no uiPrefs the choices still work, for the life of the page", () =>
+  withPage({ caps: false }, async (m) => {
+    await m.connect();
+    m.clear();
+    await m.click(m.tabs()[1].find(".tab-close"));
+    assert.equal(m.sent("uiPrefs").length, 0, "nothing the desktop would not understand is sent");
+    assert.deepEqual(m.ids(), [ONE, "solo"]);
+  }));

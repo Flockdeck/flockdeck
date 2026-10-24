@@ -70,16 +70,18 @@
 .confirm-line { margin: 0; font-size: 12px; color: var(--fg); overflow-wrap: anywhere; }
 .confirm-foot { display: flex; gap: 8px; margin-top: 4px; }
 
-.tabs {
+/* The goal strip: one row of tabs with the "+" after them. The tabs scroll
+   sideways when there are more than fit; the "+" stays in view beside them. */
+.goaltabs {
   display: flex;
   align-items: center;
-  gap: 4px 8px;
-  margin-bottom: 10px;
+  gap: 4px;
+  min-width: 0;
   border-bottom: 1px solid var(--line);
 }
-.tabs--off { padding-bottom: 4px; }
-.tabs-note { margin: 0; font-size: 12px; color: var(--fg-dim); }
-.tabs-list { display: flex; flex-wrap: wrap; gap: 2px; list-style: none; margin: 0; padding: 0; min-width: 0; }
+.goaltabs-list { display: flex; flex-wrap: nowrap; gap: 2px; list-style: none; margin: 0; padding: 0; min-width: 0; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; }
+.goaltab { flex: none; }
+.goaltab.is-dragging { opacity: 0.5; }
 .tab {
   display: flex;
   align-items: center;
@@ -90,6 +92,9 @@
 .tab:hover { color: var(--fg); }
 .tab.is-active { border-bottom-color: var(--accent); color: var(--fg); }
 .tab--waiting { border-bottom-color: var(--waiting); }
+.tab-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--fg-dim); flex: none; }
+.tab-dot--working { background: var(--accent); }
+.tab-dot--waiting { background: var(--waiting); }
 .tab-pick, .tab-close {
   font: inherit;
   color: inherit;
@@ -111,7 +116,7 @@
   padding: 3px 6px;
   min-width: 18ch;
 }
-.tabs-plus-box { position: relative; }
+.tabs-plus-box { position: relative; flex: none; }
 .tabs-plus {
   font: inherit;
   font-size: 16px;
@@ -138,6 +143,7 @@
   border-radius: var(--radius);
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
 }
+.tabs-menu-head { margin: 2px 8px; font-size: 11px; color: var(--fg-dim); }
 .tabs-sep { width: 100%; margin: 4px 0; border: 0; border-top: 1px solid var(--line-subtle); }
 .tabs-btn {
   font: inherit;
@@ -151,14 +157,29 @@
 }
 .tabs-btn:hover:not(:disabled), .tabs-btn:focus-visible { background: var(--bg-hover); }
 .tabs-btn:disabled { color: var(--fg-dim); cursor: default; }
-.tabs-views { display: flex; gap: 2px; margin-left: auto; }
+/* The view switch is a row of its own under the goal strip, drawn as a segmented
+   control, so it is not mistaken for more tabs. */
+.viewbar {
+  display: flex;
+  gap: 2px;
+  width: fit-content;
+  max-width: 100%;
+  margin: 8px 0 10px;
+  padding: 2px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  background: var(--bg-inset);
+  border: 1px solid var(--line-subtle);
+  border-radius: var(--radius);
+}
 .tabs-view {
+  flex: none;
   font: inherit;
   color: var(--fg-dim);
   background: transparent;
   border: 0;
   border-radius: var(--radius);
-  padding: 4px 10px;
+  padding: 3px 10px;
   cursor: pointer;
 }
 .tabs-view:hover { color: var(--fg); background: var(--bg-hover); }

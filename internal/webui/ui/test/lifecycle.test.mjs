@@ -12,7 +12,6 @@ import { html } from "../assets/html.js";
 import { Live } from "../assets/shell/Live.js";
 import { OPEN_AN_AGENT_WORDS } from "../assets/shell/Live.js";
 import { WORKTREE_WORDS } from "../assets/shell/Start.js";
-import { OTHER_PROJECT_WORDS, CLOSE_WAITING_WORDS } from "../assets/shell/Tabs.js";
 import { Header } from "../assets/drawer/Header.js";
 import { renderToString } from "./vendor/render-to-string.mjs";
 import { LOCKED_WORDS } from "../assets/drawer/Lifecycle.js";
@@ -269,7 +268,6 @@ async function withPage(opts, fn) {
   }
 }
 
-const pickOf = (m, id) => m.container.findAll("li").find((n) => n.attributes["data-tab"] === id).findAll("button").find((b) => b.attributes.role === "tab");
 const valueIn = (el) => (el.value !== undefined ? el.value : el.attributes.value);
 const fill = async (m, sel, value) => {
   const el = m.container.find(sel);
@@ -462,146 +460,6 @@ test("an agent the desktop started opens in the drawer once the graph has it", (
 
 // -------------------------------------------------------------------- tabs
 
-test("the strip draws the desk's tabs as text and chooses one", () =>
-  withPage({ over: { tabs: [{ id: "t1", title: "<img src=x onerror=alert(1)>" }, { id: "t2", title: "Second" }] } }, async (m) => {
-    await m.connect();
-    const items = m.container.findAll(".tab");
-    assert.equal(items.length, 2);
-    assert.equal(m.container.find(".tab-title").textContent, "<img src=x onerror=alert(1)>");
-    assert.equal(m.container.findAll("img").length, 0);
-    assert.equal(items.find((t) => t.attributes.class.includes("is-active")).attributes["data-tab"], "t2");
-    m.clear();
-    await m.click(items[0].find(".tab-pick"));
-    assert.deepEqual(m.sent("selectTab"), [{ cmd: "selectTab", id: "t1" }]);
-  }));
-
-test("rename: Enter sends the title, Escape leaves it, empty asks for the automatic one", () =>
-  withPage({}, async (m) => {
-    await m.connect();
-    m.clear();
-    await openPlus(m);
-    await m.click(m.byText(".tabs-btn", /^Rename$/));
-    assert.ok(m.container.find(".tab-rename"), "no field");
-    assert.equal(valueIn(m.container.find(".tab-rename")), "Second");
-    await fill(m, ".tab-rename", "  Release  ");
-    m.container.find(".tab-rename").keydown("Enter");
-    await settle();
-    assert.deepEqual(m.sent("renameTab"), [{ cmd: "renameTab", id: "t2", text: "Release" }]);
-    assert.equal(m.container.find(".tab-rename"), null);
-    assert.equal(m.dom.document.activeElement, pickOf(m, "t2"), "the keyboard goes back to the tab");
-
-    m.clear();
-    await openPlus(m);
-    await m.click(m.byText(".tabs-btn", /^Rename$/));
-    await fill(m, ".tab-rename", "Never sent");
-    m.container.find(".tab-rename").keydown("Escape");
-    await settle();
-    assert.equal(m.sent("renameTab").length, 0);
-    assert.equal(m.dom.document.activeElement, pickOf(m, "t2"), "Escape also gives the keyboard back");
-
-    // A double click on a tab opens the same field; an unchanged title sends nothing.
-    await m.click(m.container.findAll(".tab-pick")[0]);
-    m.container.findAll(".tab-pick")[0].dispatch("dblclick");
-    await settle();
-    m.clear();
-    m.container.find(".tab-rename").keydown("Enter");
-    await settle();
-    assert.equal(m.sent("renameTab").length, 0, "an unchanged title is not a rename");
-
-    // Empty on a tab with the automatic title changes nothing; on a named one it asks for the automatic title.
-    m.container.findAll(".tab-pick")[0].dispatch("dblclick");
-    await settle();
-    await fill(m, ".tab-rename", "");
-    m.container.find(".tab-rename").keydown("Enter");
-    await settle();
-    assert.equal(m.sent("renameTab").length, 0);
-    m.container.findAll(".tab-pick")[1].dispatch("dblclick");
-    await settle();
-    await fill(m, ".tab-rename", "");
-    m.container.find(".tab-rename").keydown("Enter");
-    await settle();
-    assert.deepEqual(m.sent("renameTab"), [{ cmd: "renameTab", id: "t2", text: "" }]);
-  }));
-
-test("move left and right send the tab it goes in front of, and are off at the ends", () =>
-  withPage({}, async (m) => {
-    await m.connect();
-    m.clear();
-    await openPlus(m);
-    await m.click(m.byText(".tabs-btn", /^Move left$/));
-    await openPlus(m);
-    await m.click(m.byText(".tabs-btn", /^Move right$/));
-    assert.deepEqual(m.sent("moveTab"), [{ cmd: "moveTab", id: "t2", target: "t1" }, { cmd: "moveTab", id: "t2", target: "" }]);
-    m.clear();
-    await m.key("Ctrl+Shift+K");
-    // The same through the actions a palette row runs.
-    const rows = m.container.findAll(".palette-row");
-    await m.click(rows.find((r) => r.attributes["data-action"] === "moveTabLeft"));
-    assert.deepEqual(m.sent("moveTab"), [{ cmd: "moveTab", id: "t2", target: "t1" }]);
-    // The first tab has nowhere to go left.
-    await m.push(stateOf(graph(), {}, { activeTab: "t1" }));
-    await openPlus(m);
-    assert.equal(!!m.byText(".tabs-btn", /^Move left$/).disabled || m.byText(".tabs-btn", /^Move left$/).attributes.disabled !== undefined, true);
-  }));
-
-test("a tab button that had the keyboard keeps it when the tabs are reordered", () =>
-  withPage({}, async (m) => {
-    await m.connect();
-    pickOf(m, "t2").focus();
-    assert.equal(m.dom.document.activeElement, pickOf(m, "t2"));
-    // The desk moves Second to the front. A browser drops the keyboard from a
-    // button when the list moves nodes around it, so the list does that here.
-    const list = m.container.find(".tabs-list");
-    const move = list.insertBefore.bind(list);
-    list.insertBefore = (n, ref) => {
-      m.dom.document._active = null;
-      return move(n, ref);
-    };
-    await m.push(stateOf(graph(), {}, { tabs: [TABS[1], TABS[0], TABS[2]] }));
-    assert.deepEqual(m.container.findAll(".tab").map((t) => t.attributes["data-tab"]), ["t2", "t1", "t3"]);
-    assert.equal(m.dom.document.activeElement, pickOf(m, "t2"));
-  }));
-
-test("closing a tab sends closeTab, and asks first when it is waiting on someone", () =>
-  withPage({}, async (m) => {
-    await m.connect();
-    m.clear();
-    await m.click(m.container.findAll(".tab-close")[0]);
-    assert.deepEqual(m.sent("closeTab"), [{ cmd: "closeTab", id: "t1" }]);
-    m.clear();
-    await m.click(m.container.findAll(".tab-close")[2]);
-    assert.equal(m.sent("closeTab").length, 0, "a waiting tab is not closed at once");
-    assert.ok(m.container.find(".confirm").textContent.includes(CLOSE_WAITING_WORDS));
-    await m.click(m.byText(".confirm .dialog-btn", /^Cancel$/));
-    assert.equal(m.container.find(".confirm"), null);
-    assert.equal(m.sent("closeTab").length, 0);
-    await m.click(m.container.findAll(".tab-close")[2]);
-    await m.click(m.byText(".confirm .dialog-btn", /^Close tab$/));
-    assert.deepEqual(m.sent("closeTab"), [{ cmd: "closeTab", id: "t3" }]);
-  }));
-
-test("closing a tab with a running agent in it asks, listing what it ends", () =>
-  withPage({
-    g: graph({ [CART]: { dirty: 2, untracked: 0 } }),
-    extra: { [CART]: { unread: 4 } },
-    over: { tabs: [{ id: "t1", title: "One", root: { id: "n", pane: CART } }, { id: "t2", title: "Two" }] },
-  }, async (m) => {
-    await m.connect();
-    m.clear();
-    await m.click(m.container.findAll(".tab-close")[0]);
-    assert.equal(m.sent("closeTab").length, 0, "a tab with a running agent is not closed at once");
-    const text = m.container.find(".confirm").textContent;
-    assert.match(text, /ends 1 running agent/);
-    assert.match(text, /2 changed files/);
-    assert.match(text, /4 unread messages/);
-    await m.click(m.byText(".confirm .dialog-btn", /^Close tab$/));
-    assert.deepEqual(m.sent("closeTab"), [{ cmd: "closeTab", id: "t1" }]);
-    // An empty tab goes at once.
-    m.clear();
-    await m.click(m.container.findAll(".tab-close")[1]);
-    assert.deepEqual(m.sent("closeTab"), [{ cmd: "closeTab", id: "t2" }]);
-  }));
-
 test("while the start dialog is open no key reaches an action under it", () =>
   withPage({ extra: { [TAX]: { permission: { tool: "Bash", options: [] } } } }, async (m) => {
     await m.connect();
@@ -619,31 +477,6 @@ test("while the start dialog is open no key reaches an action under it", () =>
     await settle();
     await m.key("Ctrl+Shift+K");
     assert.ok(m.container.find(".palette"), "the keys work again once it is closed");
-  }));
-
-test("tabs belong to the desk's project: another project gets a line and no tabs", () =>
-  withPage({}, async (m) => {
-    await m.connect();
-    assert.ok(m.container.find(".tab"));
-    await m.click(m.container.findAll(".rail-item").find((b) => b.attributes["data-root"] === "/work/b"));
-    assert.equal(m.container.find(".tab"), null);
-    assert.ok(m.container.find(".tabs").textContent.includes(OTHER_PROJECT_WORDS));
-  }));
-
-test("next and previous tab, and a refusal from the desk is shown and can be dismissed", () =>
-  withPage({}, async (m) => {
-    await m.connect();
-    m.clear();
-    await m.key("Ctrl+Tab");
-    await m.key("Ctrl+Shift+Tab");
-    assert.equal(m.sent("nextTab").length, 1);
-    assert.equal(m.sent("prevTab").length, 1);
-    await m.push({ type: "notice", text: "A pane in this tab is locked, so the tab was not closed", error: true });
-    assert.match(m.container.find(".notice").textContent, /is locked, so the tab was not closed/);
-    await m.click(m.container.find(".notice-dismiss"));
-    assert.equal(m.container.find(".notice"), null);
-    await m.push({ type: "notice", text: "Another", error: false });
-    assert.match(m.container.find(".notice").textContent, /Another/);
   }));
 
 // ------------------------------------------------------------- pane lifecycle
@@ -819,6 +652,7 @@ test("a window with no catalog says no agent can be started and sends nothing", 
 // ---------------------------------------------------------------- tablist keys
 
 const stopOf = (m) => m.container.findAll("li").filter((n) => n.attributes["data-tab"]).map((n) => n.findAll("button").find((b) => b.attributes.role === "tab").attributes.tabindex);
+<<<<<<< HEAD
 const arrow = (m, id, key, init = {}) => pickOf(m, id).keydown(key, init);
 
 test("one tab button is in the Tab order: the open tab, else the first", () =>
@@ -938,6 +772,8 @@ test("the tab strip is tabs, a \"+\" menu and a views switch: the actions are in
     const views = m.container.findAll(".tabs-view").map((b) => b.textContent.trim());
     assert.deepEqual(views, ["Team", "Dependencies", "Graph", "Board", "Changes", "Replay"]);
   }));
+=======
+>>>>>>> f1a910e3 (Replace the terminal tab strip with goal tabs and a separate view bar)
 
 test("the team dialog says what it will start, with the helper cap, and a preset fills the goal without discarding what was typed", () =>
   withPage({}, async (m) => {

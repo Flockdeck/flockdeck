@@ -59,7 +59,7 @@ test("a stored value in range is kept", () => {
     theme: "system", accent: "pink", fontSize: 20, fontFamily: "Fira Code", scrollback: 50000, cursorStyle: "underline",
     cursorSteady: true, screenReader: true, autoReviewDefault: true, dismissedTips: 0, wake: { off: false, agents: [], panes: [], textAgents: [] },
     notificationsOff: false, jevStatus: false, conflictRadar: false, push: { off: false, anonymous: false, delaySeconds: 30 },
-    statusLine: "auto", railExpanded: false, railWidth: 220, helpSeen: false,
+    statusLine: "auto", railExpanded: false, railWidth: 220, helpSeen: false, ui: {},
   });
   assert.equal(prefsOf({ theme: "light" }).theme, "light");
 });

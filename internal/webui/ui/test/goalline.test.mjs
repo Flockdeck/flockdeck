@@ -72,11 +72,14 @@ test("a goal is text, never markup", () => {
   assert.ok(out.includes("&lt;img"));
 });
 
-import { Tabs } from "../assets/shell/Tabs.js";
+import { GoalStrip, ViewBar } from "../assets/shell/GoalStrip.js";
 
-test("a tab shows how many items in it need you, in its badge and its name", () => {
-  const tabs = [{ id: "t1", title: "Team", activity: "waiting", active: true, panes: ["h1"] }, { id: "t2", title: "Other", activity: "", active: false, panes: [] }];
-  const out = renderToString(html`<${Tabs} tabs=${tabs} send=${() => {}} needs=${{ t1: 3 }} />`);
+test("a goal's tab shows how many panes in it need you, in its badge and its name", () => {
+  const tabs = [
+    { id: "g1", kind: "team", label: "Team", title: "Team goal", activity: "waiting", needs: 3 },
+    { id: "g2", kind: "team", label: "Other", title: "Other goal", activity: "", needs: 0 },
+  ];
+  const out = renderToString(html`<${GoalStrip} tabs=${tabs} active="g1" onSelect=${() => {}} canStep=${() => false} />`);
   assert.match(out, /badge badge--waiting tab-needs" aria-hidden="true">3</);
   assert.match(out, /aria-label="Team, waiting, 3 need you"/);
   assert.doesNotMatch(out, /aria-label="Other[^"]*need/);
@@ -92,8 +95,7 @@ test("the switch offers Tree first only when the page has it, and the page start
   assert.equal(firstViewOf(), TREE_VIEW[0]);
   assert.equal(firstViewOf(false), "graph");
   assert.equal(firstViewOf(true), TREE_VIEW[0]);
-  const tabs = [{ id: "t1", title: "Team", activity: "", active: true, panes: [] }];
-  const out = renderToString(html`<${Tabs} tabs=${tabs} send=${() => {}} view="tree" onView=${() => {}} views=${viewsOf(true)} />`);
+  const out = renderToString(html`<${ViewBar} view="tree" onView=${() => {}} views=${viewsOf(true)} />`);
   assert.match(out, /data-view="tree"[^>]*>Team</);
   assert.match(out, /tabs-view is-on" data-view="tree" aria-pressed="true"/);
   assert.ok(out.indexOf('data-view="tree"') < out.indexOf('data-view="graph"'));

@@ -146,19 +146,19 @@ const TABS = [
 const confirmBtn = (m, label) => m.container.findAll(".dialog-btn").find((b) => b.textContent === label);
 const isOff = (b) => !!b.disabled || b.attributes.disabled !== undefined;
 
-test("Alt+number chooses that tab, and says so when there is none", () =>
+const activeGoal = (m) => m.container.findAll(".goaltab").find((t) => t.attributes.class.includes("is-active")).getAttribute("data-tab");
+
+test("Alt+number chooses that goal's tab, and says so when there is none", () =>
   withPage({ tabs: TABS, activeTab: "t1" }, async (m) => {
     await m.connect();
     m.clear();
     await m.key("Alt+2");
-    assert.deepEqual(m.sent("selectTab"), [{ cmd: "selectTab", id: "t2" }]);
-    m.clear();
-    await m.key("Alt+3");
-    assert.deepEqual(m.sent("selectTab"), [{ cmd: "selectTab", id: "t3" }]);
-    m.clear();
+    assert.equal(m.sent("selectTab").length, 0, "the goal tabs are the window's own: the desk is not told");
+    assert.equal(activeGoal(m), "solo");
+    await m.key("Alt+1");
+    assert.notEqual(activeGoal(m), "solo");
     await m.key("Alt+7");
-    assert.equal(m.sent("selectTab").length, 0);
-    assert.match(m.notice(), /There is no tab 7\./);
+    assert.match(m.notice(), /There is no tab 7./);
     await m.key("Alt+0");
     assert.equal(m.sent("selectTab").length, 0, "0 is not in the run");
   }));

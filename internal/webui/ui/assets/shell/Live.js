@@ -29,7 +29,8 @@ import { Start } from "./Start.js";
 import { Confirm } from "./Confirm.js";
 import { LIST } from "./keys.js";
 import { Updates, trapTab } from "./Updates.js";
-import { OTHER_PROJECT_WORDS, Tabs } from "./Tabs.js";
+import { GoalStrip, ViewBar } from "./GoalStrip.js";
+import { TABS_KEY, activeTabOf, archiveTab, canStep, goalTabsOf, moveTab, renameTab, restoreTab, scopeFeed, scopeModel, stepTab, tabsStateOf, tabsValueOf } from "../graph/GoalTabs.js";
 import { Settings } from "./Settings.js";
 import { History } from "./History.js";
 import { PaneInfo } from "./PaneInfo.js";
@@ -50,7 +51,7 @@ import { capsOf } from "../lib/apiversion.js";
 import { DESK_FILES_WORDS, STRUCTURED_RECORD_WORDS, acknowledged, canTranscribe } from "../lib/paneinfo.js";
 import { FONT_DEFAULT, FONT_MAX, FONT_MIN, PATCH_WAIT_MS, applyLook, prefsOf, reducedMotion, addPending, latestOf, settledPending, setting, termOptionsOf } from "../lib/prefs.js";
 import { RELAY_WORDS, quitQuestion, updateOf } from "../lib/updates.js";
-import { catalogOf, closeTabWarnings, moveTabCommand, newTabCommand, tabsOf } from "../lib/lifecycle.js";
+import { catalogOf, newTabCommand, tabsOf } from "../lib/lifecycle.js";
 import { RELAY_WORDS as HELPER_RELAY_WORDS } from "../lib/helpers.js";
 import { RELAY_WORDS as BATON_RELAY_WORDS, STILL_OUT_WORDS, createInflight, draftOf, makeCommand, savedWords } from "../lib/baton.js";
 import { openOf, selectCommand } from "../lib/projects.js";
@@ -280,6 +281,29 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     setPatch((p) => addPending(p, s.patch));
     return true;
   };
+  // The goal tabs: one for each team of the graph, then Solo. What the person chose
+  // (names, order, archived goals) is kept in the interface's preferences. A window
+  // with nowhere to keep it (a relay window, a desktop without uiPrefs) holds it for
+  // the life of the page.
+  const [chosenTab, setChosenTab] = useState("");
+  const [localTabs, setLocalTabs] = useState(null);
+  const savedTabs = useMemo(() => localTabs || tabsStateOf(prefs.ui), [localTabs, prefs.ui]);
+  const goal = useMemo(() => goalTabsOf(current, savedTabs), [current, savedTabs]);
+  const activeTab = activeTabOf(goal.tabs, chosenTab);
+  const scoped = useMemo(() => scopeModel(current, activeTab), [current, activeTab]);
+  const scopedFeed = useMemo(() => scopeFeed(feed, scoped), [feed, scoped]);
+  const saveTabs = (next) => {
+    if (next === savedTabs) return;
+    if (!snap.remote && change(TABS_KEY, tabsValueOf(next, current))) setLocalTabs(null);
+    else setLocalTabs(next);
+  };
+  const tabDo = {
+    rename: (id, text) => saveTabs(renameTab(savedTabs, id, text)),
+    archive: (id) => saveTabs(archiveTab(savedTabs, id)),
+    restore: (id) => { saveTabs(restoreTab(savedTabs, id)); setChosenTab(id); },
+    move: (id, to) => saveTabs(moveTab(savedTabs, goal.tabs, id, to)),
+    step: (id, dir) => saveTabs(stepTab(savedTabs, goal.tabs, id, dir)),
+  };
   // The settings dialog opens on a section. What it says of a save or a refusal is
   // the notice that came after it opened, or this page's own.
   const openSettings = (section) => {
@@ -467,18 +491,6 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     for (const [id, name] of views) items.push({ id: "view-" + id, group: "Views", name: "Show " + name, detail: "", run: () => chooseView(id) });
     return items;
   }, [current, view]);
-  // How many items need the person in each tab: from the graph's needs: the tab's
-  // panes are the ones its items name.
-  const tabNeeds = useMemo(() => {
-    const out = {};
-    if (!current) return out;
-    for (const t of tabs) {
-      const seen = new Set();
-      for (const p of t.panes) for (const n of current.needsByPane.get(p) || []) seen.add(n.id);
-      if (seen.size) out[t.id] = seen.size;
-    }
-    return out;
-  }, [current, tabs]);
   // step is nextNeedsYou or prevNeedsYou. The pane the keyboard is on, or the open drawer's, is where it starts.
   const jumpNeedsYou = (step) => {
     if (!current || snap.graphGone) return;
@@ -521,25 +533,16 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     newShellTab: () => send(newTabCommand({ kind: "shell" })),
     startTeam: () => setStarting("team"),
     selectTab: (n) => {
-      if (!onDesk) return say(OTHER_PROJECT_WORDS);
-      const t = tabs[(n || 0) - 1];
+      const t = goal.tabs[(n || 0) - 1];
       if (!t) return say("There is no tab " + n + ".");
-      send({ cmd: "selectTab", id: t.id });
+      setChosenTab(t.id);
       return undefined;
     },
     closeFinishedPanes: () => setCloseAsk(true),
-    nextTab: () => send({ cmd: "nextTab" }),
-    prevTab: () => send({ cmd: "prevTab" }),
-    moveTabLeft: () => {
-      const cur = tabs.find((t) => t.active);
-      const cmd = cur ? moveTabCommand(tabs, cur.id, -1) : null;
-      if (cmd) send(cmd);
-    },
-    moveTabRight: () => {
-      const cur = tabs.find((t) => t.active);
-      const cmd = cur ? moveTabCommand(tabs, cur.id, 1) : null;
-      if (cmd) send(cmd);
-    },
+    nextTab: () => setChosenTab(goal.tabs[(goal.tabs.findIndex((t) => t.id === activeTab) + 1) % goal.tabs.length].id),
+    prevTab: () => setChosenTab(goal.tabs[(goal.tabs.findIndex((t) => t.id === activeTab) - 1 + goal.tabs.length) % goal.tabs.length].id),
+    moveTabLeft: () => tabDo.step(activeTab, -1),
+    moveTabRight: () => tabDo.step(activeTab, 1),
     detach: () => (snap.remote ? say(RELAY_WORDS) : send({ cmd: "detach" })),
     quit: () => (snap.remote ? say(RELAY_WORDS) : setQuitAsk(true)),
     history: () => (snap.remote ? say(HISTORY_REMOTE_WORDS) : setHistoryOpen(true)),
@@ -562,7 +565,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     restartPane: needPane(() => life.begin("restart", node, pane)),
     lockPane: needPane(() => life.toggleLock(node.pane, !(pane && pane.locked))),
     closePane: needPane(() => (pane && pane.locked ? say("This pane is locked. Unlock it to close it.") : life.begin("close", node, pane))),
-  }), [current, snap.graphGone, snap.remote, win, drawer.pane, node, pane, tabs, onDesk, life.request, tx.request, prefs.fontSize, snap.paneInfo, noticeSeq]);
+  }), [current, snap.graphGone, snap.remote, win, drawer.pane, node, pane, goal, activeTab, savedTabs, onDesk, life.request, tx.request, prefs.fontSize, snap.paneInfo, noticeSeq]);
 
   // The baton answers. A draft is for the dialog whose request it carries. A
   // saved or refused command is taken off the list of those out, and a saved one
@@ -664,8 +667,14 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
           onClose=${drawer.close} onToggleMax=${drawer.toggleMax} terminalOptions=${termProps} life=${life}
           tx=${tx} onInfo=${openInfo} findAsk=${findAsk} tabAsk=${tabAsk} onOpenPane=${drawer.open} order=${order} helpers=${helperNames} onStartTeam=${snap.remote ? null : () => setStarting("team")} />`
       : null}
-  >${snap.state ? html`<${Tabs} tabs=${tabs} send=${send} show=${onDesk} warnFor=${(t) => closeTabWarnings(t, current ? current.byPane : null, statePanes)} onChoose=${() => setStarting("agent")} needs=${tabNeeds} view=${view} views=${views} onView=${chooseView}
-      onHistory=${snap.remote ? null : () => setHistoryOpen(true)} onFind=${snap.remote ? null : () => setFindingPane(true)} />` : null}
+  >${snap.state
+      ? html`<${GoalStrip} tabs=${goal.tabs} archived=${goal.archived} active=${activeTab} onSelect=${setChosenTab}
+          onRename=${tabDo.rename} onArchive=${tabDo.archive} onRestore=${tabDo.restore} onMove=${tabDo.move} onStep=${tabDo.step} canStep=${(id, dir) => canStep(goal.tabs, id, dir)}
+          onStartTeam=${snap.remote ? null : () => setStarting("team")}
+          onNewAgent=${() => send(newTabCommand({ kind: "agent" }))} onChoose=${() => setStarting("agent")} onNewShell=${() => send(newTabCommand({ kind: "shell" }))}
+          onHistory=${snap.remote ? null : () => setHistoryOpen(true)} onFind=${snap.remote ? null : () => setFindingPane(true)} />
+        <${ViewBar} view=${view} views=${views} onView=${chooseView} />`
+      : null}
     <div class="view-graph" hidden=${view !== "graph"}>
      <div class=${"home-split" + (showFeed ? " home-split--feed" : "")}>
       <div class="home-col">
@@ -680,11 +689,11 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
       ? html`<div class="view-tree">
           <div class=${"home-split" + (showFeed ? " home-split--feed" : "")}>
             <div class="home-col">
-              ${current ? html`<${GoalLine} model=${current} />` : null}
-              ${current ? html`<${TreeNotes} model=${current} onOpen=${drawer.open} />` : null}
-              <${treeView} model=${current} open=${drawer.pane} onOpen=${drawer.open} send=${snap.remote ? null : send} decisions=${decisionCtx} />
+              ${scoped ? html`<${GoalLine} model=${scoped} />` : null}
+              ${scoped ? html`<${TreeNotes} model=${scoped} onOpen=${drawer.open} />` : null}
+              <${treeView} model=${scoped} open=${drawer.pane} onOpen=${drawer.open} send=${snap.remote ? null : send} decisions=${decisionCtx} />
             </div>
-            ${showFeed ? html`<${Feed} feed=${feed} onFocus=${(p) => focusNode(mainRef.current, p)} />` : null}
+            ${showFeed ? html`<${Feed} feed=${scopedFeed} onFocus=${(p) => focusNode(mainRef.current, p)} />` : null}
           </div>
         </div>`
       : null}

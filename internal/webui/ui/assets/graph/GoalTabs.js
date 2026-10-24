@@ -8,8 +8,6 @@
 // team goes on. All three are keyed by team id and are looked up in the graph, so
 // an entry for a team the push no longer lists does nothing, and is dropped the
 // next time the value is written.
-import { needsYouOf } from "./model.js";
-
 /** TABS_KEY is the key of the interface's preferences the tab choices are kept under. */
 export const TABS_KEY = "tabs";
 
@@ -68,22 +66,17 @@ export function tabsStateOf(ui) {
   return { names, order: unique(idList(raw.order)), archived: unique(idList(raw.archived)) };
 }
 
-// How busy a group of panes is, as the tab says it: waiting when any needs the
-// person, else working when any works.
-function activityOf(model, panes) {
+// How busy a group of panes is, as the tab says it: waiting when any waits on
+// the person, else working when any works.
+function activityOf(model, panes, needs) {
   let working = false;
   for (const p of panes) {
-    if (needsYouOf(model, p)) return "waiting";
     const n = model.byPane.get(p);
-    if (n && (n.activity || n.status) === "working") working = true;
+    const state = n ? n.activity || n.status : "";
+    if (state === "waiting") return "waiting";
+    if (state === "working") working = true;
   }
-  return working ? "working" : "";
-}
-
-function needCount(model, panes) {
-  let n = 0;
-  for (const p of panes) if (needsYouOf(model, p)) n++;
-  return n;
+  return needs > 0 ? "waiting" : working ? "working" : "";
 }
 
 /**
@@ -91,8 +84,8 @@ function needCount(model, panes) {
  *   tabs: the open ones, the goals in the person's order (a goal they have not
  *     placed goes after those, in the graph's order) and Solo last, each
  *     { id, kind: "team" | "solo", label, named, title, needs, activity }.
- *     needs is how many of its panes wait on the person, and activity "waiting",
- *     "working" or "".
+ *     needs is how many needs it has for the person (what the goal line counts),
+ *     and activity "waiting", "working" or "".
  *   archived: the goals the person put away, as the same objects.
  * Solo is always listed, even with no panes, so the strip does not change shape
  * when the last solo pane ends; it cannot be archived.
@@ -105,14 +98,16 @@ export function goalTabsOf(model, state) {
     if (!t.id || made.has(t.id)) continue;
     const named = typeof s.names[t.id] === "string";
     const label = named ? s.names[t.id] : labelOf(t.goal);
+    // The same count as the goal line's "need you", so the two agree.
+    const needs = t.needs.length + t.needsHidden;
     made.set(t.id, {
       id: t.id,
       kind: "team",
       label,
       named,
       title: t.goal || label,
-      needs: needCount(model, t.members),
-      activity: activityOf(model, t.members),
+      needs,
+      activity: activityOf(model, t.members, needs),
     });
   }
   const placed = s.order.filter((id) => made.has(id));
@@ -120,10 +115,11 @@ export function goalTabsOf(model, state) {
   const archived = new Set(s.archived);
   const all = [...placed, ...rest].map((id) => made.get(id));
   const solo = model && model.ok ? model.solo.map((n) => n.pane) : [];
+  const soloNeeds = model && model.ok ? model.soloNeeds.length + model.soloNeedsHidden : 0;
   return {
     tabs: [
       ...all.filter((t) => !archived.has(t.id)),
-      { id: SOLO, kind: "solo", label: "Solo", named: false, title: "Panes that are in no goal", needs: needCount(model, solo), activity: activityOf(model, solo) },
+      { id: SOLO, kind: "solo", label: "Solo", named: false, title: "Panes that are in no goal", needs: soloNeeds, activity: activityOf(model, solo, soloNeeds) },
     ],
     archived: all.filter((t) => archived.has(t.id)),
   };
@@ -219,4 +215,42 @@ export function tabsValueOf(state, model) {
   if (order.length > 0) value.order = order;
   if (archived.length > 0) value.archived = archived;
   return value;
+}
+
+/**
+ * scopeModel is the graph model as one tab shows it: for a goal, that team and
+ * the panes in it; for Solo, the panes in no team, as a flat list. It is made
+ * from the model by filtering, so the outline, the goal line and a roll-up read it
+ * as they read the whole. A tab that is not listed (a goal that ended while it was
+ * open) gives the whole model back.
+ */
+export function scopeModel(model, id) {
+  if (!model || !model.ok) return model;
+  const keep = (panes) => {
+    const set = new Set(panes);
+    const nodes = model.nodes.filter((n) => set.has(n.pane));
+    const byPane = new Map();
+    for (const n of nodes) byPane.set(n.pane, n);
+    const needs = model.needs.filter((n) => set.has(n.pane) || (n.other && set.has(n.other)));
+    const needsByPane = new Map();
+    for (const [p, list] of model.needsByPane) if (set.has(p)) needsByPane.set(p, list);
+    return { nodes, byPane, needs, needsByPane, set };
+  };
+  if (id === SOLO) {
+    const solo = model.solo.map((n) => n.pane);
+    const k = keep(solo);
+    return { ...model, teams: [], nodes: k.nodes, byPane: k.byPane, solo: k.nodes.slice(), needs: model.soloNeeds, needsByPane: k.needsByPane, scope: id };
+  }
+  const team = model.teams.find((t) => t.id === id);
+  if (!team) return model;
+  const k = keep(team.members);
+  return { ...model, teams: [team], nodes: k.nodes, byPane: k.byPane, solo: [], soloNeeds: [], soloNeedsHidden: 0, needs: team.needs, needsByPane: k.needsByPane, scope: id };
+}
+
+/** scopeFeed is the feed with only the entries about panes in the scoped model. An
+ *  entry about a pane that is gone (it was closed) has no tab to belong to and is
+ *  kept only on the whole feed. */
+export function scopeFeed(feed, scoped) {
+  if (!feed || !scoped || !scoped.scope) return feed;
+  return { ...feed, entries: feed.entries.filter((e) => scoped.byPane.has(e.pane) || (e.other && scoped.byPane.has(e.other))) };
 }
