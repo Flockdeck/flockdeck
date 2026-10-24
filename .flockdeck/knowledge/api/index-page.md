@@ -5,7 +5,7 @@ description: Serves the embedded index.html and turns a one-time link or token i
 resource: internal/server/server.go
 tags: [http, auth, frontend]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/server/server.go, internal/server/linkgone.go, internal/webui/webui.go]
+code_paths: [internal/server/server.go, internal/server/linkgone.go, ui/embed.go]
 ---
 Handler: `Server.handleIndex` in `internal/server/server.go`. Only the exact path `/` is served; other paths under the catch-all return 404.
 

@@ -552,7 +552,7 @@ func TestLicencesNameEveryLinkedModule(t *testing.T) {
 		out := goList([]string{"GOOS=" + p.OS, "GOARCH=" + p.Arch, "CGO_ENABLED=0"},
 			"-deps", "-f", "{{with .Module}}{{.Path}}{{end}}", ".")
 		for _, m := range strings.Fields(out) {
-			if m != self && !strings.Contains(licences, m) {
+			if m != self && !strings.HasPrefix(m, self+"/") && !strings.Contains(licences, m) {
 				t.Errorf("the desktop app links %s on %s/%s, which licences.html does not name", m, p.OS, p.Arch)
 			}
 		}
@@ -1193,26 +1193,26 @@ func TestInstallScriptsParse(t *testing.T) {
 // (main.go says why), so the two must stay the same picture. Line endings are
 // set aside: a Windows checkout holds either file with CRLF.
 func TestFaviconIsTheAppIcon(t *testing.T) {
-	app, err := os.ReadFile(filepath.Join("..", "..", "internal", "webui", "ui", "assets", "icon.svg"))
+	app, err := os.ReadFile(filepath.Join("..", "..", "ui", "src", "icon.svg"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if string(lf(icon)) != string(lf(app)) {
-		t.Error("cmd/sitegen/assets/favicon.svg differs from internal/webui/ui/assets/icon.svg; copy the app's icon over it")
+		t.Error("cmd/sitegen/assets/favicon.svg differs from ui/src/icon.svg; copy the app's icon over it")
 	}
-	ico, err := os.ReadFile(filepath.Join("..", "..", "internal", "webui", "ui", "assets", "icon.ico"))
+	ico, err := os.ReadFile(filepath.Join("..", "..", "ui", "src", "icon.ico"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(iconICO, ico) {
-		t.Error("cmd/sitegen/assets/favicon.ico differs from internal/webui/ui/assets/icon.ico; copy the app's icon over it")
+		t.Error("cmd/sitegen/assets/favicon.ico differs from ui/src/icon.ico; copy the app's icon over it")
 	}
-	touch, err := os.ReadFile(filepath.Join("..", "..", "internal", "webui", "ui", "assets", "icon-180.png"))
+	touch, err := os.ReadFile(filepath.Join("..", "..", "ui", "src", "icon-180.png"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(touchIcon, touch) {
-		t.Error("cmd/sitegen/assets/apple-touch-icon.png differs from internal/webui/ui/assets/icon-180.png; copy the app's icon over it")
+		t.Error("cmd/sitegen/assets/apple-touch-icon.png differs from ui/src/icon-180.png; copy the app's icon over it")
 	}
 }
 

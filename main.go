@@ -35,7 +35,7 @@ import (
 	"github.com/jmwri/flockdeck/internal/server"
 	"github.com/jmwri/flockdeck/internal/session"
 	"github.com/jmwri/flockdeck/internal/store"
-	"github.com/jmwri/flockdeck/internal/webui"
+	webui "github.com/jmwri/flockdeck/ui"
 	"github.com/jmwri/flockdeck/internal/workspace"
 )
 

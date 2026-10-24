@@ -13,7 +13,7 @@ import (
 // store.js, so they are read from there and checked against what the server
 // sends.
 func TestNewShellStoreMatchesTheDeskOnlyRefusal(t *testing.T) {
-	b, err := os.ReadFile("../webui/ui/assets/lib/store.js")
+	b, err := os.ReadFile("../../ui/src/lib/store.js")
 	if err != nil {
 		t.Fatal(err)
 	}

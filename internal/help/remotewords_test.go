@@ -12,7 +12,7 @@ import (
 const (
 	// uiDir is the front end. Its own scripts are read; the vendored libraries
 	// are not ours to word.
-	uiDir      = "../webui/ui/assets"
+	uiDir      = "../../ui/src"
 	readmePath = "../../README.md"
 	// docsDir holds the repository's own Markdown pages. Past release notes
 	// are under docs/releases and are not read here.

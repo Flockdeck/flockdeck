@@ -2,7 +2,7 @@
 // joined into main.js, the stylesheets joined into app.css and the page
 // rewritten to match. It exists to look at the result and to measure it
 // (scripts/firstload/measure.mjs --bundled); the server makes the same files
-// itself, in memory, with internal/webui/bundle.
+// itself, in memory, with ui/build.
 //
 // Usage: go run ./cmd/webbundle -o <empty folder>
 package main
@@ -13,7 +13,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/jmwri/flockdeck/internal/webui"
+	webui "github.com/jmwri/flockdeck/ui"
 )
 
 func main() {

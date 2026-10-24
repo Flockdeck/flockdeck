@@ -10,7 +10,7 @@ code_paths: [.github/workflows/flaky-soak.yml]
 
 Triggers: daily at 03:17 UTC (only in `Flockdeck/flockdeck`), manual dispatch, and pull requests touching `.github/flakysoak/**` or the soak and report workflows.
 
-Dispatch inputs: `packages` (default `./internal/server ./internal/session ./internal/workspace ./internal/webui ./internal/hooks ./internal/remote`), `count` (default 5, passed as `go test -count`), `dry-run`.
+Dispatch inputs: `packages` (default `./internal/server ./internal/session ./internal/workspace ./ui ./internal/hooks ./internal/remote`), `count` (default 5, passed as `go test -count`), `dry-run`.
 
 Jobs:
 

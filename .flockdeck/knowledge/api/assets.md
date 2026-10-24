@@ -5,7 +5,7 @@ description: Serves the embedded front-end files to authorised requests, gzipped
 resource: internal/server/server.go
 tags: [http, assets]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/server/server.go, internal/webui/webui.go]
+code_paths: [internal/server/server.go, ui/embed.go]
 ---
 Handler: `Server.authFiles(webui.FS())` behind `http.StripPrefix("/assets/")`.
 

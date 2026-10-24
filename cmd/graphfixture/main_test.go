@@ -19,7 +19,7 @@ import (
 	"github.com/coder/websocket"
 
 	"github.com/jmwri/flockdeck/internal/testiso"
-	"github.com/jmwri/flockdeck/internal/webui"
+	webui "github.com/jmwri/flockdeck/ui"
 	"github.com/jmwri/flockdeck/internal/workspace"
 )
 

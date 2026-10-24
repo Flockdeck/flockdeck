@@ -38,7 +38,7 @@ import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, "..", "..");
-const uiAssets = path.join(repo, "internal", "webui", "ui", "assets");
+const uiAssets = path.join(repo, "ui", "src");
 
 // ------------------------------------------------------------------ options
 

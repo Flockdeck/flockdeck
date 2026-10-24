@@ -1,0 +1,42 @@
+name: ui-module
+
+# The front end is its own Go module (ui/), so `go test ./...` at the root and
+# the sharded jobs in test.yml do not reach it. This runs its tests: the embed,
+# the joiner and the isolation of its own TestMain. The front end's content
+# tests (node, content policy) are cmd/uitests, which test.yml already runs.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ui/**"
+      - ".github/workflows/ui-module.yml"
+  pull_request:
+    paths:
+      - "ui/**"
+      - ".github/workflows/ui-module.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.event_name == 'pull_request' && format('ui-module-pr-{0}', github.ref) || format('ui-module-run-{0}-{1}', github.run_id, github.run_attempt) }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  ui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Vet and test the ui module
+        working-directory: ui
+        run: |
+          go vet ./...
+          go test -count=1 ./...

@@ -23,7 +23,7 @@ on:
       packages:
         description: "packages to soak, space-separated"
         type: string
-        default: "./internal/server ./internal/session ./internal/workspace ./internal/webui ./internal/hooks ./internal/remote"
+        default: "./internal/server ./internal/session ./internal/workspace ./internal/hooks ./internal/remote"
       count:
         description: "go test -count: how many times each test runs"
         type: string
@@ -92,7 +92,7 @@ jobs:
     env:
       # Inputs reach the shell only as environment variables, and are checked
       # before they are used.
-      SOAK_PACKAGES: ${{ inputs.packages || './internal/server ./internal/session ./internal/workspace ./internal/webui ./internal/hooks ./internal/remote' }}
+      SOAK_PACKAGES: ${{ inputs.packages || './internal/server ./internal/session ./internal/workspace ./internal/hooks ./internal/remote' }}
       SOAK_COUNT: ${{ inputs.count || '5' }}
       CGO_ENABLED: "1"
     steps:
