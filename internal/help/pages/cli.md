@@ -50,7 +50,7 @@ Run from inside a pane, this starts another agent:
 
 ```sh
 flockdeck spawn [-worktree <branch>] [-split] [-tab <title>] [-shell] [-record]
-                [-agent <id>] [-model <model>] [-role <id>] [-baton <ref>] [-baton-send-elsewhere] <task>
+                [-agent <id>] [-model <model>] [-role <id>] [-baton <ref>] [-baton-send-elsewhere] [-task <id>] <task>
 ```
 
 `-tab <title>` puts the helper in the tab with that title in the caller's project, and
@@ -86,6 +86,11 @@ role's own agent and model. An unknown role is refused and the roles there are a
 named. A pane started in a role may start only the roles its own role lists, and may
 start an agent with no role (no `-role`) only if its role has `plain` set. It
 cannot be combined with `-shell`.
+
+`-task <id>` starts the helper for a task of the project's board (`flockdeck task list`):
+the task is its opening prompt when you give no text, and the task is assigned to the helper
+and given to the team it is in. If you may not edit the task the helper still starts and the
+reply says why the task was not given.
 
 `-baton` starts the helper from a handoff instead of a blank conversation: `self`
 makes one from your own conversation, or give the id of a pane in your own project, a baton id (`flockdeck
@@ -369,6 +374,7 @@ flockdeck task branch <id> <branch>
 flockdeck task baton <id> <baton-id>
 flockdeck task depends <id> [<id>...]
 flockdeck task estimate <id> <minutes>
+flockdeck task team <id> <team-root-pane>
 flockdeck task prune [-days N]
 ```
 

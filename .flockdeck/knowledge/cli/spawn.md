@@ -26,6 +26,7 @@ Flags may come before or after the task: `orderSpawnArgs` moves them in front. E
 | `-model <model>` | none | One of that agent's models. |
 | `-role <id>` | none | Role to start as. Its agent and model apply where `-agent` and `-model` are unset. |
 | `-baton <ref>` | none | Start from a handoff: `self`, a pane id, a baton id ([baton](/cli/baton.md)) or a notes file. An existing file is sent as `path:<absolute path>`. |
+| `-task <id>` | none | Start the helper for a task of the project board: the task is the opening prompt when no text is given, and it is assigned to the helper and its team. |
 | `-baton-send-elsewhere` | false | Ask the user to allow the baton to go to an agent of a different or unknown company. Needs `-baton`. |
 
 ## Where it runs
