@@ -9,19 +9,18 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/jmwri/flockdeck/internal/session/transcript"
 	"github.com/jmwri/flockdeck/internal/structured"
 	"github.com/jmwri/flockdeck/internal/team"
 )
 
 // This file is what a window is told about a structured pane: structuredSnapshot,
-// structuredWatch, structuredUnwatch and structuredDetail, and what it may ask of
-// it: structuredCancel. They are the backend
-// of the minimal drawer. The conversation hub of stage 3 replaces them later, so
-// the entries keep the fields of transcript.Entry and add nothing to that
-// vocabulary but a flag that says text was cut.
+// structuredWatch and structuredUnwatch, and what it may ask of it:
+// structuredCancel. They carry the pane's state (phase, status, activity, plan,
+// usage, the permission card and setup problems) and no conversation: the
+// conversation is read with conversationOpen, conversationOlder and
+// conversationDetail, as for any pane.
 //
-// All four are for a window on this machine. A window reached through the relay
+// All of them are for a window on this machine. A window reached through the relay
 // is refused, a full device included, and a viewer is refused by the table of
 // commands (commandAccess), not let in as a watcher: the push carries tool
 // commands, file paths and reply text that are clipped but not scrubbed, and a
@@ -34,21 +33,8 @@ import (
 // Limits on what is sent. Every cut is made on a character boundary, never in
 // the middle of a UTF-8 sequence.
 const (
-	// structuredEntriesMax is how many entries a push lists, newest last.
-	structuredEntriesMax = 50
-	// structuredTextCut is how many bytes of a prompt, reply or notice an entry
-	// keeps. The rest is fetched with structuredDetail.
-	structuredTextCut = 4 << 10
-	// structuredLabelCut and structuredNoteCut are the cuts of one-line fields
-	// and of a subagent's description.
+	// structuredLabelCut bounds one-line fields such as the activity.
 	structuredLabelCut = 1 << 10
-	structuredNoteCut  = 1 << 10
-	// structuredPushCap is the most a push is, in bytes. Past it the oldest
-	// entries are left out whole and `older` says how many.
-	structuredPushCap = 128 << 10
-	// structuredDetailCut is the most of an entry's text, and of its diff, that
-	// structuredDetail sends.
-	structuredDetailCut = 64 << 10
 	// structuredPlanMax and structuredPlanCut bound the plan.
 	structuredPlanMax = 100
 	structuredPlanCut = 200
@@ -69,18 +55,9 @@ const (
 	structuredDeskOnly = "A structured pane is used on the machine Flockdeck runs on, not from a window reached through the relay"
 	structuredNotPane  = "That pane is not a structured pane"
 	structuredTooMany  = "Too many structured panes are being watched. Stop watching one first"
-	structuredNoEntry  = "That entry is not there"
 	// structuredIdle is what structuredCancel says when the pane has no turn to stop.
 	structuredIdle = "That pane has nothing running to stop"
 )
-
-// structuredEntry is a transcript entry cut down to what a push carries: no
-// diff, no report body and no long text. Clipped says something was cut or left
-// out, and the entry's detail has the rest.
-type structuredEntry struct {
-	transcript.Entry
-	Clipped bool `json:"clipped,omitempty"`
-}
 
 type structuredPlanRow struct {
 	Content  string `json:"content"`
@@ -135,24 +112,9 @@ type structuredMsg struct {
 	Queued   int                 `json:"queued,omitempty"`
 	Err      string              `json:"err,omitempty"`
 	Setup    *structuredSetup    `json:"setup,omitempty"`
-	Entries  []structuredEntry   `json:"entries"`
-	Older    int                 `json:"older,omitempty"`
 	Plan     []structuredPlanRow `json:"plan"`
 	Card     *structuredCard     `json:"card,omitempty"`
 	Usage    structuredUsage     `json:"usage"`
-}
-
-// structuredDetailMsg answers structuredDetail. Omitted says there was more
-// than this version sends: an image's bytes, or nested entries.
-type structuredDetailMsg struct {
-	Type    string `json:"type"`
-	Req     string `json:"req,omitempty"`
-	ID      string `json:"id"`
-	Entry   string `json:"entry"`
-	Text    string `json:"text,omitempty"`
-	Diff    string `json:"diff,omitempty"`
-	Clipped bool   `json:"clipped,omitempty"`
-	Omitted bool   `json:"omitted,omitempty"`
 }
 
 // clipStructured makes s fit for a window and cuts it to at most max bytes. It
@@ -188,52 +150,13 @@ func clipLine(s string, max int) (string, bool) {
 	return clipStructured(s, max)
 }
 
-// structuredEntryOf cuts one entry down to what a push carries.
-func structuredEntryOf(e transcript.Entry) structuredEntry {
-	out := structuredEntry{Entry: e}
-	cut := func(p *string, max int, line bool) {
-		var c bool
-		if line {
-			*p, c = clipLine(*p, max)
-		} else {
-			*p, c = clipStructured(*p, max)
-		}
-		out.Clipped = out.Clipped || c
-	}
-	cut(&out.ID, structuredLabelCut, true)
-	cut(&out.Kind, structuredLabelCut, true)
-	cut(&out.TS, structuredLabelCut, true)
-	// A prompt, reply or notice cut here is fetched whole (to its own cut) by
-	// structuredDetail, so it says so.
-	before := out.Clipped
-	out.Clipped = false
-	cut(&out.Text, structuredTextCut, false)
-	cut(&out.Markdown, structuredTextCut, false)
-	if out.Clipped {
-		out.HasDetail = true
-	}
-	out.Clipped = out.Clipped || before
-	cut(&out.Name, structuredLabelCut, true)
-	cut(&out.Label, structuredLabelCut, true)
-	cut(&out.Status, structuredLabelCut, true)
-	cut(&out.Summary, structuredLabelCut, true)
-	cut(&out.Description, structuredNoteCut, false)
-	cut(&out.MediaType, structuredLabelCut, true)
-	// A diff and a report are fetched, not pushed.
-	if out.Diff != "" || out.Report != "" {
-		out.Diff, out.Report = "", ""
-		out.HasDetail, out.Clipped = true, true
-	}
-	return out
-}
-
 // buildStructured is the message for one runtime's state. It reads nothing but
 // the snapshot it is given, which is that one pane's: no other pane's text, no
 // mail, and nothing of the agent's environment is in it.
 func buildStructured(id string, sn structured.Snapshot) structuredMsg {
 	m := structuredMsg{Type: "structured", ID: id, Kind: "structured",
 		Phase: string(sn.Phase), Status: string(sn.Status), Queued: sn.Queued,
-		Entries: []structuredEntry{}, Plan: []structuredPlanRow{},
+		Plan:  []structuredPlanRow{},
 		Usage: structuredUsage{Used: sn.Usage.Used, Size: sn.Usage.Size, Cost: sn.Usage.Cost, Currency: sn.Usage.Currency}}
 	m.Activity, _ = clipLine(sn.Activity, structuredLabelCut)
 	m.Err = team.CleanLine(sn.Err, structuredErrCut)
@@ -277,35 +200,6 @@ func buildStructured(id string, sn structured.Snapshot) structuredMsg {
 		m.Card = card
 	}
 
-	// The newest entries, whole ones left out from the oldest end when the push
-	// would pass its cap.
-	entries := sn.Entries
-	older := 0
-	if len(entries) > structuredEntriesMax {
-		older = len(entries) - structuredEntriesMax
-		entries = entries[older:]
-	}
-	cut := make([]structuredEntry, len(entries))
-	sizes := make([]int, len(entries))
-	total := 0
-	for i, e := range entries {
-		cut[i] = structuredEntryOf(e)
-		b, _ := json.Marshal(cut[i])
-		sizes[i] = len(b) + 1
-		total += sizes[i]
-	}
-	m.Entries = []structuredEntry{}
-	// Older is written last and may grow by the entries left out, so the base is
-	// measured with it at its largest.
-	m.Older = len(sn.Entries)
-	base, _ := json.Marshal(m)
-	drop := 0
-	for drop < len(cut) && len(base)+total > structuredPushCap {
-		total -= sizes[drop]
-		drop++
-	}
-	m.Entries = cut[drop:]
-	m.Older = older + drop
 	return m
 }
 
@@ -316,46 +210,6 @@ func buildStructured(id string, sn structured.Snapshot) structuredMsg {
 // earlier conversation at a restart. It must run on the workspace goroutine.
 func (s *Server) structuredSnapshotOf(id string) (structured.Snapshot, bool) {
 	return s.ws.StructuredSnapshot(id)
-}
-
-// structuredDetailOf is the answer for one entry of a runtime. entries are the
-// pane's entries as structuredSnapshotOf gives them. An entry of an earlier
-// session has only what its entry carried: the runtime holds the detail of the
-// current session alone.
-func structuredDetailOf(id, entry string, rt *structured.Runtime, entries []transcript.Entry) (structuredDetailMsg, bool) {
-	m := structuredDetailMsg{Type: "structuredDetail", ID: id, Entry: entry}
-	var inline *transcript.Entry
-	for _, e := range entries {
-		if e.ID == entry {
-			e := e
-			inline = &e
-			break
-		}
-	}
-	if inline == nil {
-		return m, false
-	}
-	text, diff := "", inline.Diff
-	switch inline.Kind {
-	case transcript.KindPrompt, transcript.KindNotice:
-		text = inline.Text
-	case transcript.KindReply:
-		text = inline.Markdown
-	}
-	if d, ok := rt.Detail(entry); ok {
-		if d.Text != "" {
-			text = d.Text
-		}
-		if d.Diff != "" {
-			diff = d.Diff
-		}
-		m.Omitted = d.Data != "" || len(d.Entries) > 0
-	}
-	var c1, c2 bool
-	m.Text, c1 = clipStructured(text, structuredDetailCut)
-	m.Diff, c2 = clipStructured(diff, structuredDetailCut)
-	m.Clipped = c1 || c2
-	return m, true
 }
 
 // structuredCommand answers the structured pane commands.
@@ -397,35 +251,6 @@ func (s *Server) structuredCommand(c *controlClient, cmd command) {
 		s.do(func() { s.structuredWatch(c, cmd) })
 	case "structuredUnwatch":
 		s.do(func() { c.structID, c.structSent = "", nil })
-	case "structuredDetail":
-		type out struct {
-			m  structuredDetailMsg
-			ok int
-		}
-		r, ok := ask(s, func() out {
-			rt := s.ws.StructuredRuntime(cmd.ID)
-			if rt == nil {
-				return out{ok: -1}
-			}
-			sn, _ := s.structuredSnapshotOf(cmd.ID)
-			m, found := structuredDetailOf(cmd.ID, cmd.Entry, rt, sn.Entries)
-			if !found {
-				return out{ok: 0}
-			}
-			return out{m, 1}
-		})
-		if !ok {
-			return
-		}
-		switch r.ok {
-		case -1:
-			refuse(c, cmd, errStructured(structuredNotPane))
-		case 0:
-			refuse(c, cmd, errStructured(structuredNoEntry))
-		default:
-			r.m.Req = cmd.Req
-			c.sendJSON(r.m)
-		}
 	}
 }
 
@@ -547,7 +372,7 @@ func (s *Server) pushStructured() {
 				data, _ = json.Marshal(buildStructured(id, sn))
 			} else {
 				data, _ = json.Marshal(structuredMsg{Type: "structured", ID: id, Kind: "structured", Gone: true,
-					Entries: []structuredEntry{}, Plan: []structuredPlanRow{}})
+					Plan: []structuredPlanRow{}})
 			}
 			cache[id] = data
 		}

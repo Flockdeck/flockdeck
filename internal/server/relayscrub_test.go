@@ -317,7 +317,7 @@ func TestRelayStatePushCarriesNoStructuredPaneContent(t *testing.T) {
 		}
 	}
 
-	for _, typ := range []string{"structured", "structuredDetail"} {
+	for _, typ := range []string{"structured"} {
 		if got := scrubForRemote([]byte(`{"type":"` + typ + `","id":"p"}`)); got != nil {
 			t.Errorf("%s was not dropped", typ)
 		}
@@ -372,9 +372,7 @@ func TestRelayScrubCoversEveryCarrier(t *testing.T) {
 	// (internal/server/structured.go). They are listed so that the day they are
 	// there they are covered; until then they are not a stale key.
 	optional := map[string]string{
-		"structuredMsg":       "structured",
-		"structuredEntry":     "structured",
-		"structuredDetailMsg": "structuredDetail",
+		"structuredMsg": "structured",
 	}
 	for k, v := range optional {
 		structs[k] = v

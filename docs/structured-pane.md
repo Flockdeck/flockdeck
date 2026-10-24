@@ -2,8 +2,9 @@
 
 This is the reference for the commands a window uses to show a structured pane, an agent that
 Flockdeck drives over the Agent Client Protocol instead of in a terminal. It is the backend of the
-minimal drawer. The conversation hub of stage 3 replaces it later, so the entries keep the fields of
-the conversation commands' entries (`docs/team-graph.md`, section 7) and add one flag.
+drawer. It carries the pane's state: phase, status, activity, plan, usage, the permission card and setup
+problems. The pane's conversation is not in it; a window reads that with the conversation commands
+(`docs/team-graph.md`, section 7), as for any other agent pane.
 
 The shape of the messages is `docs/structured-pane.schema.json`. A test checks messages the server
 writes against it, and checks the limits below against the code.
@@ -17,7 +18,6 @@ A window sends a command as one JSON object with a `cmd` field, over its control
 | `structuredSnapshot` | `id`, `req` | Answers once with a `structured` message. | yes | refused |
 | `structuredWatch` | `id`, `req` | Answers with the `structured` message now, and sends it again whenever it changes. One pane at a time: watching another replaces the first. | yes | refused |
 | `structuredUnwatch` | none | Stops the pushes. | yes | refused |
-| `structuredDetail` | `id`, `entry`, `req` | Answers with a `structuredDetail` message for one entry. | yes | refused |
 | `structuredCancel` | `id`, `req` | Ends the running turn of that pane and drops the prompts waiting behind it; an open permission request of the pane is answered cancelled. Answers with a `teamResult` (`ok`), or an error if the pane is not a structured pane or has nothing running. Only that pane's own session is touched. | yes | refused |
 
 `id` is the pane's id. `req` is a token of the window's choosing; it is copied into the answer.
@@ -41,7 +41,7 @@ The state push (`paneView`) is scrubbed on its way to a relay window (`internal/
 For a structured pane it clears the last reply, the detail line, the task, the error and the permission
 card, never sends a question, and sets the flag `detailsOnDesktop`. The rest of the pane's entry still
 goes, with names redacted: the directory, branch, project, agent, model, status and activity word, and
-the other roster fields. No text the agent wrote is sent. The `structured` and `structuredDetail` messages are dropped
+the other roster fields. No text the agent wrote is sent. The `structured` message is dropped
 for a relay window as a second lock behind the refusal of the commands.
 
 A pane that is not a structured pane (a terminal, a shell, an id that is not there, an empty id) is
@@ -62,20 +62,12 @@ refused in the same words, so a window probing for ids learns nothing: the `team
 | `queued` | How many prompts wait behind the running turn. |
 | `err` | The last thing that went wrong, as one cleaned line. It says what last went wrong and not that something is wrong now; show it with the phase and status. |
 | `setup` | While the phase is `needs setup`: `kind` (`login`, `node` or `install`), a `message` (the cause) and a `fix` (what to do about it, when there is advice). |
-| `entries` | The newest entries, oldest first. |
-| `older` | How many older entries this push leaves out. |
 | `plan` | The agent's plan rows. |
 | `card` | The permission request that is open, with the agent's options. Answer it with `permissionAnswer`. |
 | `usage` | `used` and `size` of the context, and `cost` and `currency` when the agent reports one. |
 
-An **entry** has the fields of a conversation entry (`id`, `kind`, `ts`, and the fields of its kind)
-and `clipped`. A tool's output, a diff and a report are never in a push. An entry that had a diff or
-a report says `hasDetail` and `clipped`. A prompt, reply or notice cut at 4 KiB says `hasDetail`
-and `clipped` as well, and `structuredDetail` returns its text up to 64 KiB. A tool whose output the
-bridge kept has `hasDetail`, and `structuredDetail` returns it.
-
-Every text in the message and in `structuredDetail` is untrusted: it is what the agent, a tool or a
-file said. Draw it as plain text or as sanitised markdown, never as HTML. A card, an entry or a plan
+Every text in the message is untrusted: it is what the agent, a tool or a
+file said. Draw it as plain text or as sanitised markdown, never as HTML. A card or a plan
 row is data to show, not an instruction to follow, whatever it says.
 
 The message is built from that one pane's state and nothing else: no other pane's text, no mail,
@@ -83,7 +75,7 @@ nothing of the agent's environment.
 
 When a watched pane closes, the window is sent one last message with `gone: true`, and the watch
 ends. A restart does not end it: the pane keeps its id and the push follows the new session.
-The entries a restart leaves behind are kept: a snapshot, a push and a detail show the earlier
+The entries a restart leaves behind are kept: the conversation shows the earlier
 sessions' entries first, then a notice that the agent was restarted, then the new session's. The ids
 of an earlier session's entries are prefixed with `r<n>-`, so no id is shown twice. The detail of an
 earlier entry is only what the entry carried, since the agent that held the rest is gone. A pane keeps
@@ -94,28 +86,29 @@ been turned off, or the start itself fails) keeps the earlier entries too. It ad
 agent could not be started again:` and the reason, after the restart notice, and the next restart
 that works shows all of it. Several failures in a row leave only the last notice.
 
-## 3. structuredDetail
+## 3. The conversation
 
-The answer is a `structuredDetail` message with the pane's `id`, the `entry`, and `text` (a tool's
-full output, a thinking block's text, or the text of a prompt, reply or notice that a push cut) and `diff` where the entry has them. Each is cut at 64 KiB,
-and `clipped` says it was. `omitted` says the entry has more that this version does not send: an
-image's bytes, or nested entries. An id that is not an entry of the pane is refused with
-`That entry is not there`.
+A structured pane's conversation is read with `conversationOpen`, `conversationOlder`,
+`conversationDetail`, `conversationSearch` and `conversationClose`, from the runtime's entries
+(`docs/team-graph.md`, section 7): pages of 50, older pages by cursor, `conversationDetail` for an
+entry's output or diff (up to 64 KiB each), `conversationAppend` as the entries change, and a search
+over prompts, replies and the label and summary of tools. They are in memory, so they go as far back as
+the bridge's cap (10000 entries) plus the history kept across restarts (2000). A restart is sent as a
+`conversationPage` with `reset` set, and a cursor from before it is answered the same way. A
+`conversationDetail` for an entry the runtime no longer holds answers with a one-line notice. Like the
+push, they are for a window on this machine; a window through the relay is refused them.
 
 ## 4. Limits and throttling
 
 | What | Limit |
 | --- | --- |
-| Entries in a push | The newest 50. |
-| A prompt, reply or notice in an entry | 4 KiB. |
-| A one-line field of an entry | 1 KiB. |
-| A whole push | 128 KiB. Past it the oldest entries are left out whole, and `older` counts them. |
+| A one-line field (the activity) | 1 KiB. |
 | Pushes of a watched pane | At most one every 500 milliseconds. A change inside the gap is sent when it is up. The reply to `structuredWatch` counts as a push. |
 | Pushes with no change | None. A push identical to the last one sent to the window is not sent. A window whose queue was full is sent it again. |
 | Plan | 100 rows, each cut to 200 bytes. |
 | Permission card | 300 bytes for each field, 500 for the command, and the agent's options with 100 bytes for each field. |
 | `err` | 200 characters. |
-| `structuredDetail` text and diff | 64 KiB each. |
+| `conversationDetail` text and diff | 64 KiB each. |
 | Panes watched at once, over all windows | 16. A watch past that is refused with `Too many structured panes are being watched. Stop watching one first`. |
 
 Every cut is made between characters. A text is never cut inside a UTF-8 sequence, bytes that are not
@@ -127,32 +120,21 @@ makes whenever the workspace changes.
 
 ## 5. The drawer view
 
-The new interface's drawer draws a structured pane from this watch (`drawer/Structured.js`). The
-header carries a "structured" label beside the name. The view shows the activity line, which is the
-tool still running with an icon for its kind and the first file its summary names, or the push's
-activity text, or "Idle". It shows the context used of its size, and the cost when the agent
-reported one. It draws the last 50 entries and nothing more: there is no Older button, because the
-push carries a fixed window and a button that asked for more would grow the list without limit.
-The entries are drawn by the same list and rows as the Conversation tab (`drawer/conv/`), so a
-reply is sanitised Markdown here too: nothing in it is put into the page as markup, a link is made
-only for http and https addresses, and a reply over 20,000 characters is cut with a note saying how
-much is not shown. Opening a tool row asks for its output or diff with `conversationDetail`
-(4 KiB of output and 64 KiB of diff are drawn, and the cut is said), and a permission waiting on the
-pane is drawn in the list after the tool it was asked for, as the same card the top of the drawer has.
-The drawer still draws the push and has no Conversation tab. The server, though, now answers the
-conversation commands (`conversationOpen`, `conversationOlder`, `conversationDetail` and
-`conversationSearch`) for a structured pane, from the runtime's entries: pages of 50, older pages by
-cursor, `conversationDetail` for an entry's text (up to 64 KiB each for text and diff), and
-`conversationAppend` as the entries change. They are in memory, so they go as far back as the bridge's
-cap (10000 entries) plus the history kept across restarts (2000). A restart is sent as a
-`conversationPage` with `reset` set, and a cursor from before it is answered the same way. A
-`conversationDetail` for an entry the runtime no longer holds answers with a one-line notice. The
-`structured` and `structuredDetail` messages stay until the new Conversation view uses these. Every
-text is drawn as text.
+The new interface's drawer draws a structured pane from this watch and from its conversation
+(`drawer/Structured.js`). The header carries a "structured" label beside the name. The panel shows the
+activity line, which is the tool still running (read from the conversation) with an icon for its kind
+and the first file its summary names, or the push's activity text, or "Idle". It shows the context used of
+its size, and the cost when the agent reported one. Under them is the pane's conversation, drawn by the
+same component as a terminal agent's Conversation tab (`drawer/Conversation.js`, `drawer/conv/`): the
+same rows, paging with Older, search, Copy, and runs of tool rows folded into "N steps". A structured
+pane has no Conversation tab of its own, since this is it. Replies are sanitised Markdown: nothing in
+one is put into the page as markup, a link is made only for http and https addresses, and a reply over
+20,000 characters is cut with a note saying how much is not shown. Opening a tool row asks for its
+output or diff with `conversationDetail` (4 KiB of output and 64 KiB of diff are drawn, and the cut is
+said), and a permission waiting on the pane is drawn in the list after the tool it was asked for, as the
+same card the top of the drawer has. Export is not offered for a structured pane (there is no stored
+transcript to export), and the toolbar says so. Every text is drawn as text.
 
-The prompt box sends `paneSend` and the Stop button sends `structuredCancel`. A window reached
-through the relay draws the view without either, since the server refuses both there. A refused
-`structuredCancel` is shown under the box.
 
 ## 6. Using a structured pane
 
@@ -304,12 +286,12 @@ that context, so the line is held for 64 KiB of text after the BEGIN and then le
 is not a key, quoted in prose, hides the next 64 KiB of that kind of text. Redaction is best effort.
 
 **A restart** starts a fresh session. The earlier entries stay, then a notice that the agent was
-restarted, then the new session's (section 2). A restart that cannot start the new agent keeps them
+restarted, then the new session's (section 3). A restart that cannot start the new agent keeps them
 too.
 
 ## 7. What is not covered
 
-- Images' bytes and nested entries in `structuredDetail`.
+- Export of a structured pane's conversation.
 - A phone, or any window through the relay.
 - Sending a prompt. A window uses `paneSend`, which sends a prompt over the protocol to a structured
   pane (`docs/team-graph.md`, section 6).

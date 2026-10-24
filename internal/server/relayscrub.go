@@ -81,8 +81,7 @@ var relayScrubs = map[string]func([]byte) []byte{
 	// A structured pane is for the desk until there is a sealed team socket.
 	// The commands are refused to a relay window already; this is the second
 	// lock if one is ever let through.
-	"structured":       dropForRelay,
-	"structuredDetail": dropForRelay,
+	"structured": dropForRelay,
 }
 
 func dropForRelay([]byte) []byte { return nil }

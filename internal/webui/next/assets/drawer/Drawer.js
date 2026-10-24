@@ -18,6 +18,7 @@ import { Prompt, StreamPermission } from "./Prompt.js";
 import { Conversation } from "./Conversation.js";
 import { Structured } from "./Structured.js";
 import { Lifecycle } from "./Lifecycle.js";
+import { canTranscribe } from "../lib/paneinfo.js";
 import { Tools } from "./Tools.js";
 import { FindBar } from "./FindBar.js";
 import { TerminalView } from "../lib/terminal.js";
@@ -147,7 +148,8 @@ function DrawerBody({ store, snap = null, node, pane = null, now, maximised = fa
   const conv = state.conversation && state.conversation.id === node.pane ? state.conversation : null;
   // The tab is there for a pane with a conversation, and for one the desktop
   // refused this device, so the refusal is said where the conversation would be.
-  const hasConv = !!conv && (conv.supported === true || !!conv.refused);
+  // A structured pane's conversation is the body of its own panel, so the tab is for the others.
+  const hasConv = terminal && !!conv && (conv.supported === true || !!conv.refused);
   const shown = tab === "conversation" && hasConv ? "conversation" : "terminal";
   const tabRefs = useRef({});
   const tabKeys = (e) => {
@@ -164,6 +166,10 @@ function DrawerBody({ store, snap = null, node, pane = null, now, maximised = fa
   const pending = card ? { card, node: html`<${StreamPermission} node=${node} card=${card} snap=${state} store=${store} />` } : null;
   const details = state.details || null;
   const onDetail = (id) => store.requestDetail(id);
+  const onOlder = () => store.olderConversation();
+  const onSearch = (q) => store.searchConversation(q);
+  const onClearSearch = () => store.clearSearch();
+  const canExport = !!tx && !state.remote && canTranscribe(node, pane);
   const sendKeys = (text, done) => {
     const send = keysFor(terminalRef, node.pane);
     return !!send && send(text, done);
@@ -190,11 +196,13 @@ function DrawerBody({ store, snap = null, node, pane = null, now, maximised = fa
           : null}
         ${terminal
           ? html`<${TerminalView} key=${node.pane} store=${store} paneId=${node.pane} onReady=${(c) => { terminalRef.current = { pane: node.pane, ctl: c }; setCtl(c); }} ...${terminalOptions || {}} onMatches=${setMatches} />`
-          : html`<${Structured} key=${node.pane} pane=${node.pane} st=${state.structured} error=${state.structuredError} cancelError=${state.cancelError} desk=${!state.remote} store=${store} details=${details} onDetail=${onDetail} pending=${pending} />`}
+          : html`<${Structured} key=${node.pane} pane=${node.pane} st=${state.structured} error=${state.structuredError} cancelError=${state.cancelError} desk=${!state.remote} store=${store} conv=${conv} onOlder=${onOlder} details=${details} onDetail=${onDetail} pending=${pending}
+              search=${state.search} onSearch=${onSearch} onClearSearch=${onClearSearch} />`}
       </div>
       ${hasConv
         ? html`<div class="drawer-panel" role="tabpanel" id="drawer-panel-conversation" aria-labelledby="drawer-tab-conversation" hidden=${shown !== "conversation"}>
-            <${Conversation} conv=${conv} onOlder=${() => store.olderConversation()} details=${details} onDetail=${onDetail} pending=${pending} />
+            <${Conversation} conv=${conv} onOlder=${onOlder} details=${details} onDetail=${onDetail} pending=${pending}
+              search=${state.search} onSearch=${onSearch} onClearSearch=${onClearSearch} canExport=${canExport} onExport=${() => tx.exportTranscript(node.pane)} />
           </div>`
         : null}
     </section>

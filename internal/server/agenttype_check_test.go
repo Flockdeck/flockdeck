@@ -169,11 +169,6 @@ var agentTypeAllowed = map[string]map[string]agentTypeAllow{
 		"Server.remoteRename | kind != remote.KindHost": {1, "a paired device's kind, not an agent type"},
 		"Server.remoteRename | kind == remote.KindHost": {1, "a paired device's kind, not an agent type"},
 	},
-	"internal/server/structured.go": {
-		"structuredDetailOf | transcript.KindNotice": {1, "a transcript entry's kind"},
-		"structuredDetailOf | transcript.KindPrompt": {1, "a transcript entry's kind"},
-		"structuredDetailOf | transcript.KindReply":  {1, "a transcript entry's kind"},
-	},
 	"internal/server/viewerrole.go": {
 		"controlClient.mayReceive | viewerMessageTypes[probe.Type]":  {1, "the message type of a push, not an agent type"},
 		"controlClient.mayReceive | watcherMessageTypes[probe.Type]": {1, "the message type of a push, not an agent type"},
