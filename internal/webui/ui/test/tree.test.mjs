@@ -6,7 +6,7 @@ import { renderToString } from "./vendor/render-to-string.mjs";
 import { render } from "../assets/vendor/preact.mjs";
 import { html } from "../assets/html.js";
 import { buildGraphModel } from "../assets/graph/model.js";
-import { Tree, foldOf, needsOf, rowsOf, stepOf, ageOf, rankOf, doingOf } from "../assets/graph/Tree.js";
+import { Tree, rowNameOf, foldOf, needsOf, rowsOf, stepOf, ageOf, rankOf, doingOf } from "../assets/graph/Tree.js";
 import { createDom, install, settle } from "./dom.mjs";
 
 const n = (pane, over = {}) => ({ pane, kind: "terminal", depth: 0, team: "t", name: pane, role: "worker", status: "working", activity: "working", live: "go test", waitingOn: { kind: "none" }, children: [], ...over });
@@ -430,4 +430,29 @@ test("the columns follow the main column and a phone gets two lines", async () =
   assert.ok(css.includes("@container main (max-width: 680px)"));
   assert.ok(/@container main[^{]*\{[^@]*\.tree-c--role, \.tree-c--task, \.tree-c--age \{ display: none; \}/.test(css));
   assert.ok(css.includes("@media (max-width: 560px)"));
+});
+
+import { labelOf } from "../assets/graph/model.js";
+
+test("panes that share a name read as role and what they are on, and stay apart when that is shared too", () => {
+  const g = team();
+  for (const p of ["idle", "work", "ask"]) g.nodes.find((x) => x.pane === p).name = "flockdeck";
+  g.nodes.find((x) => x.pane === "work").task = { id: "T4", title: "tabs per goal", state: "doing" };
+  g.nodes.find((x) => x.pane === "ask").live = "reading logs";
+  const m = model(g);
+  assert.equal(labelOf(m, "work"), "worker · tabs per goal");
+  assert.equal(labelOf(m, "ask"), "worker · reading logs");
+  assert.equal(labelOf(m, "m"), "m", "a name nobody else has is left alone");
+  const idleLabel = labelOf(m, "idle");
+  assert.equal(idleLabel, "worker", "no task and no live line: the role");
+  g.nodes.find((x) => x.pane === "ask").live = "";
+  assert.notEqual(labelOf(model(g), "ask"), labelOf(model(g), "idle"));
+  const out = renderToString(html`<${Tree} model=${m} />`);
+  assert.equal(rowNameOf(m, m.byPane.get("work")), "tabs per goal", "the role has its own column");
+  assert.ok(out.includes(">tabs per goal<"));
+  assert.ok(out.includes('aria-label="tabs per goal'));
+  assert.ok(out.includes("tree--shared-names"));
+  assert.ok(!renderToString(html`<${Tree} model=${model(team())} />`).includes("tree--shared-names"));
+  assert.equal(labelOf(m, "nobody"), "nobody");
+  assert.equal(labelOf(null, "x"), "x");
 });

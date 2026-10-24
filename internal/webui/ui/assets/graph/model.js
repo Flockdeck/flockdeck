@@ -505,3 +505,41 @@ export function rollupOf(model, pane) {
   if (below === 0 && node.below > 0) return { below: node.below, needYou: node.needYou };
   return { below, needYou };
 }
+
+const labelsOf = new WeakMap();
+
+/**
+ * labelOf is the name a row shows for a pane. It is the pane's name, unless
+ * another pane has the same one (helpers started from one project often do): then
+ * it is the role and what the pane is on, "worker · tabs per goal", from its task
+ * title, else its live line. A label that is still shared gets the start of the
+ * pane id so no two rows read the same.
+ */
+export function labelOf(model, pane) {
+  const n = model && model.byPane && model.byPane.get(pane);
+  if (!n) return pane;
+  let labels = labelsOf.get(model);
+  if (!labels) {
+    labels = new Map();
+    const count = new Map();
+    const nameOf = (x) => x.name || x.pane;
+    for (const x of model.nodes) count.set(nameOf(x), (count.get(nameOf(x)) || 0) + 1);
+    const made = new Map();
+    for (const x of model.nodes) {
+      if (count.get(nameOf(x)) < 2) {
+        labels.set(x.pane, nameOf(x));
+        continue;
+      }
+      const what = (x.task && x.task.title) || x.live || "";
+      const label = [x.role, what].filter(Boolean).join(" · ") || nameOf(x);
+      made.set(label, (made.get(label) || 0) + 1);
+      labels.set(x.pane, label);
+    }
+    for (const x of model.nodes) {
+      const l = labels.get(x.pane);
+      if (made.get(l) > 1) labels.set(x.pane, l + " · " + x.pane.slice(0, 4));
+    }
+    labelsOf.set(model, labels);
+  }
+  return labels.get(pane) || pane;
+}

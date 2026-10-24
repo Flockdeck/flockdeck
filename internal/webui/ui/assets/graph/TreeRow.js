@@ -23,10 +23,10 @@ export function TreeHead() {
 }
 
 /** TreeRow draws one pane. row is from rowsOf, doing the line for "Doing now". */
-export function TreeRow({ row, node, needs, doing, chips = [], stop, selected, lit = false, roll = null, age, cost, onFocus, onOpen, onToggle = null, onLink = null, onLit = null }) {
+export function TreeRow({ row, node, name: given = "", needs, doing, chips = [], stop, selected, lit = false, roll = null, age, cost, onFocus, onOpen, onToggle = null, onLink = null, onLit = null }) {
   const state = stateOf(node);
   const tone = toneOf(node, needs);
-  const name = node.name || node.pane;
+  const name = given || node.name || node.pane;
   const label = [name, node.role, state.word, doing, node.task ? "task " + node.task.id : "", ...chips.map((c) => c.text), roll ? roll.below + " below" + (roll.needYou > 0 ? ", " + roll.needYou + " need you" : "") : ""].filter(Boolean).join(", ");
   return html`<div
     class=${"tree-row" + (tone ? " tree-row--" + tone : "") + (selected ? " is-open" : "") + (lit ? " is-lit" : "")}

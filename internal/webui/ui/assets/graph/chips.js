@@ -6,16 +6,13 @@
 // Every text is an agent's or a person's and is drawn as text.
 import { clip } from "./Node.js";
 import { stateOf } from "./Node.js";
-import { QUIET_KINDS, stuckOf } from "./model.js";
+import { QUIET_KINDS, stuckOf, labelOf } from "./model.js";
 
 /** The words on the chip of each kind of need that asks something of the person. */
 const ASKS = { permission: "Permission", ask: "Question", returned: "Returned", setup: "Setup" };
 
 /** nameOf is the name a row shows for a pane, for a chip that names another. */
-const nameOf = (model, pane) => {
-  const n = model.byPane.get(pane);
-  return n ? n.name || n.pane : pane;
-};
+const nameOf = labelOf;
 
 /**
  * chipsOf lists the chips of one pane: { kind, text, to, title }. kind is ask,

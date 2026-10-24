@@ -61,3 +61,4 @@ button.tree-toggle { cursor: pointer; }
   .tree-chips { flex-wrap: wrap; }
   .tree-c--cost { margin-left: auto; }
 }
+.tree--shared-names .tree-c--name { flex-basis: max(64px, calc(176px - var(--depth, 0) * 24px)); }
