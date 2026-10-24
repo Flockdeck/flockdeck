@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/jmwri/flockdeck/internal/helpers"
+	"github.com/jmwri/flockdeck/internal/keytable"
 	"github.com/jmwri/flockdeck/internal/spend"
 	"github.com/jmwri/flockdeck/internal/store"
 	"github.com/jmwri/flockdeck/internal/workspace"
@@ -74,8 +75,10 @@ const askedInterval = 5 * time.Millisecond
 type Server struct {
 	// static is the front end the program gave in Config.
 	static fs.FS
-	ws     *workspace.Workspace
-	token  string
+	// keys is the key table the server was given (Config.Keys).
+	keys  keytable.Table
+	ws    *workspace.Workspace
+	token string
 
 	// structuredPane turns a pane id into a pane an agent drives over ACP, for
 	// permissionAnswer; nil until the workspace sets it, and then no pane is one.
@@ -379,6 +382,11 @@ type Config struct {
 	// the program embeds it (see ui) and a test can give it a
 	// directory. With none, the page answers that it has no front end.
 	Static fs.FS
+	// Keys is the key table: every action, its default binding and where it
+	// belongs. The front end owns it, so the program hands it over (the server
+	// does not import where it lives). With none, no action has a binding to
+	// send, remap or check against.
+	Keys keytable.Table
 }
 
 // New starts a server for the workspace on a free loopback port.
@@ -405,6 +413,7 @@ func New(ws *workspace.Workspace, cfg Config) (*Server, error) {
 	s := &Server{
 		ws:      ws,
 		static:  cfg.Static,
+		keys:    cfg.Keys,
 		prefs:   store.LoadPrefs(),
 		token:   hex.EncodeToString(raw),
 		hosts:   hosts,

@@ -1292,3 +1292,6 @@ func TestTheBriefingTellsAnAgentHowToBeWokenByMail(t *testing.T) {
 		}
 	}
 }
+
+// The program hands the workspace the key table (main.go); the tests do the same.
+func init() { SetKeys(help.Keys) }

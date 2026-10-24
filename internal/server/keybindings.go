@@ -15,7 +15,7 @@ func (s *Server) setKeybinding(c *controlClient, id, text string) {
 	if id == "" {
 		return
 	}
-	if _, err := keybindings.SetBinding(id, text); err != nil {
+	if _, err := keybindings.SetBinding(s.keys, id, text); err != nil {
 		var conflict *keybindings.ConflictError
 		if errors.As(err, &conflict) {
 			c.notify(text+" is already "+conflict.With.Name(), true)
@@ -32,7 +32,7 @@ func (s *Server) resetKeybinding(c *controlClient, id string) {
 	if id == "" {
 		return
 	}
-	if _, err := keybindings.ResetBinding(id); err != nil {
+	if _, err := keybindings.ResetBinding(s.keys, id); err != nil {
 		c.notify("Could not reset the binding: "+err.Error(), true)
 		return
 	}

@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/jmwri/flockdeck/internal/agent"
-	"github.com/jmwri/flockdeck/internal/help"
+	"github.com/jmwri/flockdeck/internal/keytable"
 	"github.com/jmwri/flockdeck/internal/session"
 	"github.com/jmwri/flockdeck/internal/tasks"
 	"github.com/jmwri/flockdeck/internal/team"
@@ -538,10 +538,18 @@ func (c PaneContext) writeRole(b *strings.Builder) {
 	}
 }
 
+// keys is the key table the program handed over (SetKeys). With none, every
+// action reads as its bare id.
+var keys keytable.Table
+
+// SetKeys gives the workspace the key table its prose names actions from. The
+// program calls it once, before any workspace is made.
+func SetKeys(t keytable.Table) { keys = t }
+
 // how names an action as prose calls it and says how it is reached, from the
 // same table the palette and the help pages read.
 func how(id string) string {
-	k, ok := help.Lookup(id)
+	k, ok := keys.Lookup(id)
 	if !ok {
 		// An id that has been renamed out from under this text should read as
 		// the gap it is, rather than quietly leaving a sentence describing a
