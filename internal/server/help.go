@@ -640,7 +640,7 @@ func (s *Server) setStatusLine(c *controlClient, mode string) {
 
 // helpBody and treeBody are what /help.json answers with, and with ?form=tree,
 // encoded the first time each is asked for from Config.HelpJSON. The pages are
-// compiled into the program and rendered once already; encoding them afresh for
+// rendered once already and never change while the program runs; encoding them afresh for
 // every request cost half a millisecond and half a megabyte each time, for the
 // same bytes.
 func (s *Server) helpBody() ([]byte, error) { return s.helpOnce(false) }
