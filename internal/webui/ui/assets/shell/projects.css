@@ -133,7 +133,7 @@
 
 /* The views other than the graph: the board, changes and replay (Views.js). */
 .view { padding: 16px; display: flex; flex-direction: column; gap: 12px; min-width: 0; overflow: auto; }
-.view-graph:not([hidden]) { display: contents; }
+.view-graph:not([hidden]), .view-tree { display: contents; }
 .view-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 .view-title { margin: 0; font-size: 15px; font-weight: 600; }
 .view-count { margin-left: 6px; color: var(--fg-dim); font-weight: 400; font-size: 12px; }

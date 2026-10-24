@@ -19,7 +19,8 @@ import { feedStep } from "../graph/FeedDiff.js";
 import { nextNeedsYou, paneAt, prevNeedsYou } from "../graph/keys.js";
 import { Shell, useNarrow } from "./app.js";
 import { FootButton } from "./rail.js";
-import { Board, ChangesView, Replay, firstViewOf, viewsOf } from "./Views.js";
+import { Board, ChangesView, HAS_TREE, Replay, firstViewOf, viewsOf } from "./Views.js";
+import { GoalLine } from "../graph/GoalLine.js";
 import { Home, sameProject, rosterOf } from "./Home.js";
 import { Start } from "./Start.js";
 import { Confirm } from "./Confirm.js";
@@ -86,7 +87,12 @@ function nodeOfPane(p) {
 /** Live draws the shell for a store. matchMedia and window are the page's,
  *  passed for a test, and terminalOptions reach the drawer's terminal (a test
  *  gives it fakes for xterm and the socket). */
-export function Live({ store, matchMedia, window: win, terminalOptions = null, patchWaitMs = PATCH_WAIT_MS }) {
+export function Live({ store, matchMedia, window: win, terminalOptions = null, patchWaitMs = PATCH_WAIT_MS, treeView = null }) {
+  // The Team view is the outline, a component given here: it is drawn with { model,
+  // open, onOpen, send } in the home column, beside the activity feed. With none
+  // (and HAS_TREE off) the switch has no Team view and the page starts on the graph.
+  const hasTree = HAS_TREE || !!treeView;
+  const views = viewsOf(hasTree);
   const narrow = useNarrow(matchMedia);
   const snap = useStore(store);
   const [selected, setSelected] = useState("");
@@ -117,7 +123,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
   const [findingPane, setFindingPane] = useState(false);
   const [findAsk, setFindAsk] = useState(0);
   // The view the strip's switch has chosen: graph, board, changes or replay.
-  const [view, setView] = useState(firstViewOf());
+  const [view, setView] = useState(firstViewOf(hasTree));
   const [tabAsk, setTabAsk] = useState({ tab: "", n: 0 });
   // The helper apps and projects dialogs, and the baton being made: the pane it
   // is for, the name to show, and the request that asked for its draft.
@@ -385,7 +391,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
   // the graph is still being read.
   const barRef = useRef(null);
   // The feed is for a team with a manager, and gives its place to the drawer while that is open.
-  const showFeed = !!current && !snap.graphGone && !node && current.teams.length > 0 && !narrow;
+  const showFeed = !!current && !snap.graphGone && !node && current.teams.length > 0;
   const bar = current && !snap.graphGone
     ? html`<${ManagerBar} snap=${snap} manager=${managerOf(current)} send=${(c) => store.send(c)} inputRef=${barRef} />`
     : null;
@@ -442,7 +448,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
         items.push({ id: "agent-" + n.pane, group: "Agents", name: "Open " + (n.name || n.pane), detail: [n.role, n.status].filter(Boolean).join(" · "), run: () => drawer.open(n.pane) });
       }
     }
-    for (const [id, name] of viewsOf()) items.push({ id: "view-" + id, group: "Views", name: "Show " + name, detail: "", run: () => chooseView(id) });
+    for (const [id, name] of views) items.push({ id: "view-" + id, group: "Views", name: "Show " + name, detail: "", run: () => chooseView(id) });
     return items;
   }, [current, view]);
   // How many items need the person in each tab: from the graph's needs: the tab's
@@ -641,7 +647,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
           onClose=${drawer.close} onToggleMax=${drawer.toggleMax} terminalOptions=${termProps} life=${life}
           tx=${tx} onInfo=${openInfo} findAsk=${findAsk} tabAsk=${tabAsk} onOpenPane=${drawer.open} order=${order} helpers=${helperNames} onStartTeam=${snap.remote ? null : () => setStarting("team")} />`
       : null}
-  >${snap.state ? html`<${Tabs} tabs=${tabs} send=${send} show=${onDesk} warnFor=${(t) => closeTabWarnings(t, current ? current.byPane : null, statePanes)} onChoose=${() => setStarting("agent")} needs=${tabNeeds} view=${view} onView=${chooseView}
+  >${snap.state ? html`<${Tabs} tabs=${tabs} send=${send} show=${onDesk} warnFor=${(t) => closeTabWarnings(t, current ? current.byPane : null, statePanes)} onChoose=${() => setStarting("agent")} needs=${tabNeeds} view=${view} views=${views} onView=${chooseView}
       onHistory=${snap.remote ? null : () => setHistoryOpen(true)} onFind=${snap.remote ? null : () => setFindingPane(true)} />` : null}
     <div class="view-graph" hidden=${view !== "graph"}>
      <div class=${"home-split" + (showFeed ? " home-split--feed" : "")}>
@@ -653,6 +659,17 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
       ${showFeed ? html`<${Feed} feed=${feed} onFocus=${(p) => focusNode(mainRef.current, p)} />` : null}
      </div>
     </div>
+    ${hasTree && treeView && view === "tree"
+      ? html`<div class="view-tree">
+          <div class=${"home-split" + (showFeed ? " home-split--feed" : "")}>
+            <div class="home-col">
+              ${current ? html`<${GoalLine} model=${current} />` : null}
+              <${treeView} model=${current} open=${drawer.pane} onOpen=${drawer.open} send=${snap.remote ? null : send} />
+            </div>
+            ${showFeed ? html`<${Feed} feed=${feed} onFocus=${(p) => focusNode(mainRef.current, p)} />` : null}
+          </div>
+        </div>`
+      : null}
     ${view === "board"
       ? html`<${Board} team=${snap.team} remote=${!!snap.remote} gone=${snap.teamGone ? snap.teamGone.error || "This project can no longer be read." : ""}
           onOpenPane=${drawer.open} onTeam=${() => setTeamOpen(true)} />`
