@@ -41,7 +41,17 @@ var recordedFixtures = []string{
 
 const recordingAge = 5 * time.Minute
 
+// recordingRound is what ages are rounded to, so a machine that stalls for a
+// minute or two between setting a status and reading the push (ages of five
+// minutes and a little) records the same file.
+const recordingRound = 5 * time.Minute
+
 var rfc3339 = regexp.MustCompile(`^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9:.]+(Z|[+-][0-9:]+)$`)
+
+// recordingStall is a hook for proving the recording does not depend on how long
+// the machine takes: a test of it sleeps here, after the panes are set up and
+// before the startup shell's status is set and the push is read.
+var recordingStall = func() {}
 
 // recordGraphFixture runs a spec against a real server and returns the push.
 func recordGraphFixture(t *testing.T, spec fxSpec) []byte {
@@ -50,6 +60,15 @@ func recordGraphFixture(t *testing.T, spec fxSpec) []byte {
 	hookSrv := ws.HookServer()
 	api, token := hookSrv.BaseURL(), hookSrv.Token()
 	root := ws.ActiveRoot()
+
+	// The shell the server starts with settles from starting to idle by itself
+	// after three quiet seconds (session.quietBeforeIdle), which a loaded machine
+	// can pass before the push is read. Setting its status is what stops that
+	// timer, so it is set again just before the read.
+	var startup []string
+	if tab := ws.CurrentTab(); tab != nil {
+		startup = tab.Tree.Panes()
+	}
 
 	ids := map[string]string{fxManagerID: agentPane(t, srv, ws, "manager", "manager")}
 	for _, h := range spec.helpers {
@@ -141,6 +160,15 @@ func recordGraphFixture(t *testing.T, spec fxSpec) []byte {
 		}
 	}
 
+	recordingStall()
+	ask(srv, func() bool {
+		for _, id := range startup {
+			if p := ws.Pane(id); p != nil {
+				p.Sess.SetStatus(session.StatusStarting, "")
+			}
+		}
+		return true
+	})
 	at := time.Now().Add(recordingAge)
 	ask(srv, func() bool { srv.graphNow = func() time.Time { return at }; return true })
 	c := &controlClient{out: make(chan []byte, 8)}
@@ -156,7 +184,7 @@ func recordGraphFixture(t *testing.T, spec fxSpec) []byte {
 
 // normalizeRecording makes a recording the same on every run: pane ids become
 // the fixture's ids, times become their age before fxNow, and the project
-// becomes a fixed path. Ages are rounded to the minute, and a real server reads
+// becomes a fixed path. Ages are rounded to five minutes, and a real server reads
 // them from the clock the panes were set up on, so every recording's statuses are
 // recordingAge old.
 func normalizeRecording(t *testing.T, spec fxSpec, raw []byte, ids map[string]string, root string, at time.Time) []byte {
@@ -211,7 +239,7 @@ func normalizeRecording(t *testing.T, spec fxSpec, raw []byte, ids map[string]st
 			}
 			if rfc3339.MatchString(x) {
 				if when, err := time.Parse(time.RFC3339Nano, x); err == nil {
-					return fxNow.Add(-at.Sub(when).Round(time.Minute)).Format(time.RFC3339)
+					return fxNow.Add(-at.Sub(when).Round(recordingRound)).Format(time.RFC3339)
 				}
 			}
 		}
@@ -262,5 +290,22 @@ func TestAPIFixturesAreCurrent(t *testing.T) {
 				t.Errorf("%s differs from what the server writes; API_FIXTURES_UPDATE=1 go test -run TestAPIFixturesAreCurrent ./internal/server writes it again", path)
 			}
 		})
+	}
+}
+
+// A machine that stalls between setting the panes up and reading the push, for
+// longer than the startup shell takes to settle to idle, records the same file.
+func TestAPIFixtureSurvivesAStall(t *testing.T) {
+	old := recordingStall
+	t.Cleanup(func() { recordingStall = old })
+	recordingStall = func() { time.Sleep(4 * time.Second) }
+	spec := graphFixtureSpecs[0]
+	got := recordGraphFixture(t, spec)
+	want, err := os.ReadFile(filepath.Join("..", "..", "api", "fixtures", spec.name+".json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(got, want) {
+		t.Errorf("a recording made after a 4 s stall differs from %s", spec.name)
 	}
 }
