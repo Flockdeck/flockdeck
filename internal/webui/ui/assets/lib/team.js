@@ -44,6 +44,8 @@ export function taskOf(t) {
     moves: list(x.moves).filter((m) => m && typeof m.to === "string").map((m) => ({ to: m.to, needNote: m.needNote === true })),
     canAssign: x.canAssign === true, canEdit: x.canEdit === true,
     body: str(x.body), baton: str(x.baton), created: str(x.created),
+    // The ids of the tasks that must be done first, and the desk's estimate in minutes (0 when it sent none).
+    depends: list(x.depends).filter((d) => typeof d === "string" && d !== ""), estimateMin: num(x.estimateMin),
     noteList: list(x.noteList).map((n) => ({ author: actorOf(obj(n).author), time: str(obj(n).time), text: str(obj(n).text) })),
     historyList: list(x.historyList).map((e) => ({ actor: actorOf(obj(e).actor), time: str(obj(e).time), what: str(obj(e).what) })),
   };
