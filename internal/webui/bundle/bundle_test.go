@@ -16,7 +16,7 @@ func files(m map[string]string) fstest.MapFS {
 }
 
 func TestTheFrontEndJoinsIntoOneScript(t *testing.T) {
-	out, err := Modules(os.DirFS("../next/assets"), "main.js")
+	out, err := Modules(os.DirFS("../ui/assets"), "main.js")
 	if err != nil {
 		t.Fatal(err)
 	}
