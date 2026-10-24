@@ -65,7 +65,7 @@ export function Deadlock({ model, loop, ctx = {} }) {
       <span class="dec-kind">Deadlock</span>
       ${ctx.age ? html`<span class="dec-age">${ctx.age}</span>` : null}
     </header>
-    <p class="dec-line">${parts.map((p, i) => html`<b>${p.who}</b> waits on <b>${p.on}</b>${p.why ? " for " + clip(p.why, 80) : ""}${i < parts.length - 1 ? ", and " : ". "}`)}Neither can move.</p>
+    <p class="dec-line">${parts.map((p, i) => html`<b>${p.who}</b> waits on <b>${p.on}</b>${p.why ? " for " + clip(p.why, 80) : ""}${i < parts.length - 1 ? ", and " : ". "}`)}${loop.length === 2 ? "Neither can move." : "None of them can move."}</p>
     <${Buttons}>
       <button type="button" class="dec-btn dec-btn--primary" disabled=${!manager || state === "sent"} title=${manager ? "" : NO_MANAGER_WORDS}
         onClick=${() => manager && send(manager.pane, "These agents wait on each other and none can move: " + loop.map((s) => s.name).join(", ") + ". Please break the loop.")}>${state === "sent" ? "Manager asked" : "Ask mgr to break the loop"}</button>

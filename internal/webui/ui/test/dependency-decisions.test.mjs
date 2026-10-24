@@ -54,6 +54,16 @@ test("the deadlock block names the loop and sends once to the manager, and once 
   }
 });
 
+test("a loop of three says none of them can move", async () => {
+  const m = model([node("a", { waitingOn: wait("b") }), node("b", { waitingOn: wait("c") }), node("c", { waitingOn: wait("a") })]);
+  const a = await mount(html`<${Deadlock} model=${m} loop=${loopOf(m)} ctx=${{}} />`);
+  try {
+    assert.match(a.container.find(".dec-line").textContent, /None of them can move.$/);
+  } finally {
+    await a.done();
+  }
+});
+
 test("the ready block asks the manager to start the task, once, and is off with no manager", async () => {
   const sent = [];
   const ctx = { manager: { pane: "m", name: "mgr" }, store: { send: (c) => { sent.push(c); return true; } } };
