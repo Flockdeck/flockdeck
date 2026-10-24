@@ -69,6 +69,7 @@ export function prefsOf(raw) {
   const accent = ACCENTS.some(([v]) => v && v === r.accentColor) ? r.accentColor : "";
   const family = typeof r.fontFamily === "string" ? r.fontFamily.trim() : "";
   return {
+    ui,
     theme: r.theme === "light" || r.theme === "system" ? r.theme : "dark",
     accent,
     fontSize: whole(r.fontSize) && r.fontSize >= FONT_MIN && r.fontSize <= FONT_MAX ? r.fontSize : FONT_DEFAULT,
@@ -272,6 +273,10 @@ export function setting(name, value, current = null, caps = null) {
       return { command: { cmd: "railWidth", size: value }, patch: { railWidth: value } };
     case "helpSeen":
       return uiSetting("helpSeen", true, current, caps, { command: { cmd: "helpSeen" }, patch: { helpSeen: true } });
+    case "tabs":
+      // The goal tabs' choices: an object, or null for none. With no uiPrefs there is nowhere to keep them.
+      if (value !== null && (typeof value !== "object" || Array.isArray(value))) return null;
+      return uiSetting("tabs", value, current, caps, null);
     case "resetTips":
       return { command: { cmd: "resetTips" }, patch: { dismissedTips: [] } };
     default:

@@ -29,7 +29,8 @@ import { Start } from "./Start.js";
 import { Confirm } from "./Confirm.js";
 import { LIST } from "./keys.js";
 import { Updates, trapTab } from "./Updates.js";
-import { OTHER_PROJECT_WORDS, Tabs } from "./Tabs.js";
+import { GoalStrip, ViewBar } from "./GoalStrip.js";
+import { SOLO, TABS_KEY, activeTabOf, archiveTab, canStep, goalTabsOf, moveTab, renameTab, restoreTab, scopeFeed, scopeModel, stepTab, tabsStateOf, tabsValueOf } from "../graph/GoalTabs.js";
 import { Settings } from "./Settings.js";
 import { History } from "./History.js";
 import { PaneInfo } from "./PaneInfo.js";
@@ -50,7 +51,7 @@ import { capsOf } from "../lib/apiversion.js";
 import { DESK_FILES_WORDS, STRUCTURED_RECORD_WORDS, acknowledged, canTranscribe } from "../lib/paneinfo.js";
 import { FONT_DEFAULT, FONT_MAX, FONT_MIN, PATCH_WAIT_MS, applyLook, prefsOf, reducedMotion, addPending, latestOf, settledPending, setting, termOptionsOf } from "../lib/prefs.js";
 import { RELAY_WORDS, quitQuestion, updateOf } from "../lib/updates.js";
-import { catalogOf, closeTabWarnings, moveTabCommand, newTabCommand, tabsOf } from "../lib/lifecycle.js";
+import { catalogOf, newTabCommand, tabsOf } from "../lib/lifecycle.js";
 import { RELAY_WORDS as HELPER_RELAY_WORDS } from "../lib/helpers.js";
 import { RELAY_WORDS as BATON_RELAY_WORDS, STILL_OUT_WORDS, createInflight, draftOf, makeCommand, savedWords } from "../lib/baton.js";
 import { openOf, selectCommand } from "../lib/projects.js";
@@ -224,6 +225,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
   }, [startedSeq]);
   useEffect(() => {
     if (opening && paneIds.has(opening)) {
+      reveal(opening);
       drawer.open(opening);
       setOpening("");
     }
@@ -279,6 +281,82 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     send(s.command);
     setPatch((p) => addPending(p, s.patch));
     return true;
+  };
+  // The goal tabs: one for each team of the graph, then Solo. What the person chose
+  // (names, order, archived goals) is kept in the interface's preferences. A window
+  // with nowhere to keep it (a relay window, a desktop without uiPrefs) holds it for
+  // the life of the page.
+  const [chosenTab, setChosenTab] = useState("");
+  const [localTabs, setLocalTabs] = useState(null);
+  const savedTabs = useMemo(() => localTabs || tabsStateOf(prefs.ui), [localTabs, prefs.ui]);
+  const goal = useMemo(() => goalTabsOf(current, savedTabs), [current, savedTabs]);
+  const activeTab = activeTabOf(goal.tabs, chosenTab);
+  const scoped = useMemo(() => scopeModel(current, activeTab), [current, activeTab]);
+  const scopedFeed = useMemo(() => scopeFeed(feed, scoped), [feed, scoped]);
+  const saveTabs = (next) => {
+    if (next === savedTabs) return;
+    if (!snap.remote && change(TABS_KEY, tabsValueOf(next, current))) setLocalTabs(null);
+    else setLocalTabs(next);
+  };
+  // Choosing a goal tab shows that goal's Team view, unless the page is on a view that
+  // follows the tab (the outline and Dependencies): the others are project-wide, so a
+  // click there would change nothing the person can see.
+  const showTab = (id) => {
+    setChosenTab(id);
+    if (view !== "tree" && view !== "deps") setView("tree");
+  };
+  // The tab that holds a pane: its goal, else Solo; "" for a pane the graph does not have.
+  const paneTab = (pane) => {
+    if (!current || !current.byPane.has(pane)) return "";
+    const team = current.teams.find((t) => t.members.includes(pane));
+    return team ? team.id : SOLO;
+  };
+  // reveal opens the tab that holds a pane (bringing an archived goal back) so that
+  // what is done to the pane can be seen.
+  const reveal = (pane) => {
+    const id = paneTab(pane);
+    if (!id) return;
+    if (goal.tabs.some((t) => t.id === id)) showTab(id);
+    else tabDo.restore(id);
+  };
+  // goTo moves the keyboard to a pane's row or box, once the tab that holds it is drawn.
+  const [focusAsk, setFocusAsk] = useState("");
+  const goTo = (pane) => {
+    reveal(pane);
+    setFocusAsk(pane);
+  };
+  useEffect(() => {
+    if (focusAsk && scoped && scoped.byPane.has(focusAsk) && (view === "tree" || view === "graph")) {
+      focusNode(mainRef.current, focusAsk);
+      setFocusAsk("");
+    }
+  }, [focusAsk, scoped, view]);
+  // A tab or a shell the "+" menu or a key opens has no answer of its own: the next
+  // pane the desktop lists is the one, and it is opened in the drawer.
+  const newWatch = useRef(null);
+  const startTab = (cmd) => {
+    newWatch.current = new Set(Object.keys(kept.current.state.panes || {}));
+    setTimeout(() => { newWatch.current = null; }, 15000);
+    send(cmd);
+  };
+  useEffect(() => {
+    const seen = newWatch.current;
+    if (!seen || !statePanes) return;
+    const fresh = Object.keys(statePanes).find((id) => !seen.has(id));
+    if (fresh) {
+      newWatch.current = null;
+      setOpening(fresh);
+    }
+  }, [statePanes]);
+  const tabDo = {
+    rename: (id, text) => saveTabs(renameTab(savedTabs, id, text)),
+    archive: (id) => {
+      saveTabs(archiveTab(savedTabs, id));
+      say("Archived. Show it again from the + menu.");
+    },
+    restore: (id) => { saveTabs(restoreTab(savedTabs, id)); showTab(id); },
+    move: (id, to) => saveTabs(moveTab(savedTabs, goal.tabs, id, to)),
+    step: (id, dir) => saveTabs(stepTab(savedTabs, goal.tabs, id, dir)),
   };
   // The settings dialog opens on a section. What it says of a save or a refusal is
   // the notice that came after it opened, or this page's own.
@@ -458,27 +536,15 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
       const nameOf = (id) => (current.byPane.get(id) && current.byPane.get(id).name) || id;
       for (const n of current.needs) {
         if (!n.pane || !current.byPane.has(n.pane)) continue;
-        items.push({ id: "need-" + n.id, group: "Needs you", name: "Open " + nameOf(n.pane) + ": " + n.label, detail: (n.text || "").split("\n")[0].slice(0, 40), run: () => drawer.open(n.pane) });
+        items.push({ id: "need-" + n.id, group: "Needs you", name: "Open " + nameOf(n.pane) + ": " + n.label, detail: (n.text || "").split("\n")[0].slice(0, 40), run: () => { reveal(n.pane); drawer.open(n.pane); } });
       }
       for (const n of current.nodes) {
-        items.push({ id: "agent-" + n.pane, group: "Agents", name: "Open " + (n.name || n.pane), detail: [n.role, n.status].filter(Boolean).join(" · "), run: () => drawer.open(n.pane) });
+        items.push({ id: "agent-" + n.pane, group: "Agents", name: "Open " + (n.name || n.pane), detail: [n.role, n.status].filter(Boolean).join(" · "), run: () => { reveal(n.pane); drawer.open(n.pane); } });
       }
     }
     for (const [id, name] of views) items.push({ id: "view-" + id, group: "Views", name: "Show " + name, detail: "", run: () => chooseView(id) });
     return items;
   }, [current, view]);
-  // How many items need the person in each tab: from the graph's needs: the tab's
-  // panes are the ones its items name.
-  const tabNeeds = useMemo(() => {
-    const out = {};
-    if (!current) return out;
-    for (const t of tabs) {
-      const seen = new Set();
-      for (const p of t.panes) for (const n of current.needsByPane.get(p) || []) seen.add(n.id);
-      if (seen.size) out[t.id] = seen.size;
-    }
-    return out;
-  }, [current, tabs]);
   // step is nextNeedsYou or prevNeedsYou. The pane the keyboard is on, or the open drawer's, is where it starts.
   const jumpNeedsYou = (step) => {
     if (!current || snap.graphGone) return;
@@ -486,7 +552,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     const at = (doc && paneAt(doc.activeElement)) || drawer.pane;
     const to = step(current, at);
     if (!to) return;
-    focusNode(mainRef.current, to);
+    goTo(to);
     drawer.open(to, "key");
   };
   const helperNames = useMemo(() => (current ? current.nodes.map((n) => ({ pane: n.pane, name: n.name })) : []), [current]);
@@ -516,30 +582,21 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     fontUp: () => bumpFont(prefs.fontSize + 1),
     fontDown: () => bumpFont(prefs.fontSize - 1),
     fontReset: () => bumpFont(FONT_DEFAULT),
-    newAgentTab: () => send(newTabCommand({ kind: "agent" })),
+    newAgentTab: () => startTab(newTabCommand({ kind: "agent" })),
     newAgentTabChoose: () => setStarting("agent"),
-    newShellTab: () => send(newTabCommand({ kind: "shell" })),
+    newShellTab: () => startTab(newTabCommand({ kind: "shell" })),
     startTeam: () => setStarting("team"),
     selectTab: (n) => {
-      if (!onDesk) return say(OTHER_PROJECT_WORDS);
-      const t = tabs[(n || 0) - 1];
+      const t = goal.tabs[(n || 0) - 1];
       if (!t) return say("There is no tab " + n + ".");
-      send({ cmd: "selectTab", id: t.id });
+      showTab(t.id);
       return undefined;
     },
     closeFinishedPanes: () => setCloseAsk(true),
-    nextTab: () => send({ cmd: "nextTab" }),
-    prevTab: () => send({ cmd: "prevTab" }),
-    moveTabLeft: () => {
-      const cur = tabs.find((t) => t.active);
-      const cmd = cur ? moveTabCommand(tabs, cur.id, -1) : null;
-      if (cmd) send(cmd);
-    },
-    moveTabRight: () => {
-      const cur = tabs.find((t) => t.active);
-      const cmd = cur ? moveTabCommand(tabs, cur.id, 1) : null;
-      if (cmd) send(cmd);
-    },
+    nextTab: () => showTab(goal.tabs[(goal.tabs.findIndex((t) => t.id === activeTab) + 1) % goal.tabs.length].id),
+    prevTab: () => showTab(goal.tabs[(goal.tabs.findIndex((t) => t.id === activeTab) - 1 + goal.tabs.length) % goal.tabs.length].id),
+    moveTabLeft: () => tabDo.step(activeTab, -1),
+    moveTabRight: () => tabDo.step(activeTab, 1),
     detach: () => (snap.remote ? say(RELAY_WORDS) : send({ cmd: "detach" })),
     quit: () => (snap.remote ? say(RELAY_WORDS) : setQuitAsk(true)),
     history: () => (snap.remote ? say(HISTORY_REMOTE_WORDS) : setHistoryOpen(true)),
@@ -562,7 +619,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     restartPane: needPane(() => life.begin("restart", node, pane)),
     lockPane: needPane(() => life.toggleLock(node.pane, !(pane && pane.locked))),
     closePane: needPane(() => (pane && pane.locked ? say("This pane is locked. Unlock it to close it.") : life.begin("close", node, pane))),
-  }), [current, snap.graphGone, snap.remote, win, drawer.pane, node, pane, tabs, onDesk, life.request, tx.request, prefs.fontSize, snap.paneInfo, noticeSeq]);
+  }), [current, snap.graphGone, snap.remote, win, drawer.pane, node, pane, goal, activeTab, savedTabs, view, current, onDesk, life.request, tx.request, prefs.fontSize, snap.paneInfo, noticeSeq]);
 
   // The baton answers. A draft is for the dialog whose request it carries. A
   // saved or refused command is taken off the list of those out, and a saved one
@@ -664,8 +721,14 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
           onClose=${drawer.close} onToggleMax=${drawer.toggleMax} terminalOptions=${termProps} life=${life}
           tx=${tx} onInfo=${openInfo} findAsk=${findAsk} tabAsk=${tabAsk} onOpenPane=${drawer.open} order=${order} helpers=${helperNames} onStartTeam=${snap.remote ? null : () => setStarting("team")} />`
       : null}
-  >${snap.state ? html`<${Tabs} tabs=${tabs} send=${send} show=${onDesk} warnFor=${(t) => closeTabWarnings(t, current ? current.byPane : null, statePanes)} onChoose=${() => setStarting("agent")} needs=${tabNeeds} view=${view} views=${views} onView=${chooseView}
-      onHistory=${snap.remote ? null : () => setHistoryOpen(true)} onFind=${snap.remote ? null : () => setFindingPane(true)} />` : null}
+  >${snap.state
+      ? html`<${GoalStrip} tabs=${goal.tabs} archived=${goal.archived} active=${activeTab} onSelect=${showTab}
+          onRename=${tabDo.rename} onArchive=${tabDo.archive} onRestore=${tabDo.restore} onMove=${tabDo.move} onStep=${tabDo.step} canStep=${(id, dir) => canStep(goal.tabs, id, dir)}
+          onStartTeam=${snap.remote ? null : () => setStarting("team")}
+          onNewAgent=${() => startTab(newTabCommand({ kind: "agent" }))} onChoose=${() => setStarting("agent")} onNewShell=${() => startTab(newTabCommand({ kind: "shell" }))}
+          onHistory=${snap.remote ? null : () => setHistoryOpen(true)} onFind=${snap.remote ? null : () => setFindingPane(true)} />
+        <${ViewBar} view=${view} views=${views} onView=${chooseView} />`
+      : null}
     <div class="view-graph" hidden=${view !== "graph"}>
      <div class=${"home-split" + (showFeed ? " home-split--feed" : "")}>
       <div class="home-col">
@@ -673,23 +736,24 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
         onStartTeam=${snap.remote ? null : () => setStarting("team")}
         onSeeChanges=${(p) => { drawer.open(p); setTabAsk((a) => ({ tab: "changes", n: a.n + 1, pane: p })); }} />
       </div>
-      ${showFeed ? html`<${Feed} feed=${feed} onFocus=${(p) => focusNode(mainRef.current, p)} />` : null}
+      ${showFeed ? html`<${Feed} feed=${feed} onFocus=${goTo} />` : null}
      </div>
     </div>
     ${hasTree && treeView && view === "tree"
       ? html`<div class="view-tree">
           <div class=${"home-split" + (showFeed ? " home-split--feed" : "")}>
             <div class="home-col">
-              ${current ? html`<${GoalLine} model=${current} />` : null}
-              ${current ? html`<${TreeNotes} model=${current} onOpen=${drawer.open} />` : null}
-              <${treeView} model=${current} open=${drawer.pane} onOpen=${drawer.open} send=${snap.remote ? null : send} decisions=${decisionCtx} />
+              ${scoped ? html`<${GoalLine} model=${scoped} />` : null}
+              ${scoped ? html`<${TreeNotes} model=${scoped} onOpen=${drawer.open} />` : null}
+              ${activeTab === SOLO && scoped && scoped.ok && scoped.nodes.length === 0 ? html`<p class="solo-empty">No panes outside a goal.</p>` : null}
+              <${treeView} model=${scoped} open=${drawer.pane} onOpen=${drawer.open} send=${snap.remote ? null : send} decisions=${decisionCtx} />
             </div>
-            ${showFeed ? html`<${Feed} feed=${feed} onFocus=${(p) => focusNode(mainRef.current, p)} />` : null}
+            ${showFeed ? html`<${Feed} feed=${scopedFeed} onFocus=${goTo} />` : null}
           </div>
         </div>`
       : null}
     ${view === "deps"
-      ? html`<${Deps} team=${snap.team} model=${current} remote=${!!snap.remote} onOpen=${drawer.open} send=${snap.remote ? null : send} />`
+      ? html`<${Deps} team=${snap.team} model=${scoped} remote=${!!snap.remote} onOpen=${drawer.open} send=${snap.remote ? null : send} />`
       : null}
     ${view === "board"
       ? html`<${Board} team=${snap.team} remote=${!!snap.remote} gone=${snap.teamGone ? snap.teamGone.error || "This project can no longer be read." : ""}

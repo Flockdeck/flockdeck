@@ -16,7 +16,7 @@ const graph = () =>
       node("m2"), node("s1"), node("s2", { activity: "waiting", status: "waiting" }),
     ],
     teams: [
-      { id: "t1", manager: "m1", members: ["m1", "w1"], goal: "Goal: Ship the billing page for the new plans before Friday\nsecond line" },
+      { id: "t1", manager: "m1", members: ["m1", "w1"], goal: "Goal: Ship the billing page for the new plans before Friday\nsecond line", needs: [{ id: "n1", kind: "permission", pane: "w1" }] },
       { id: "t2", manager: "m2", members: ["m2"], goal: "Fix flaky tests" },
     ],
     solo: ["s1", "s2"],
@@ -40,7 +40,7 @@ test("there is a tab for each goal and Solo last, with what each waits on", () =
   assert.deepEqual(ids(r), ["t1", "t2", SOLO]);
   assert.equal(r.tabs[0].label, "Ship the billing page…");
   assert.equal(r.tabs[0].title.startsWith("Goal: Ship"), true, "the full goal is the tooltip");
-  assert.deepEqual(r.tabs.map((t) => [t.needs, t.activity]), [[0, "working"], [0, ""], [1, "waiting"]]);
+  assert.deepEqual(r.tabs.map((t) => [t.needs, t.activity]), [[1, "waiting"], [0, ""], [0, "waiting"]]);
   assert.equal(r.tabs[2].kind, "solo");
   assert.deepEqual(r.archived, []);
 });
