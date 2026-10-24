@@ -27,11 +27,11 @@ import (
 // APIMajor and APIMinor are the version of the control socket's API.
 const (
 	APIMajor = 1
-	APIMinor = 0
+	APIMinor = 1
 )
 
 // apiCaps are the features of this version, in the order they were added.
-var apiCaps = []string{"clientHello", "unsupported", "apiMismatch"}
+var apiCaps = []string{"clientHello", "unsupported", "apiMismatch", "uiPrefs"}
 
 // apiVersion is a version as it travels: in the hello for the server's own and
 // in clientHello for the window's.

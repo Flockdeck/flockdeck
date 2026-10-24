@@ -357,11 +357,10 @@ func (s *Server) broadcastPrefs() {
 // does not come back.
 func (s *Server) markHelpSeen(c *controlClient) {
 	s.updatePrefs(c, func(p *store.Prefs) bool {
-		if p.HelpSeen {
+		if h, ok := p.UI["helpSeen"]; ok && string(h) == "true" {
 			return false
 		}
-		p.HelpSeen = true
-		return true
+		return p.SetUIValue(store.UIHelpSeen, true)
 	})
 }
 
@@ -376,7 +375,7 @@ func (s *Server) setFontSize(c *controlClient, size int) {
 	if size < 8 || size > 28 {
 		return
 	}
-	s.updatePrefs(c, func(p *store.Prefs) bool { return setPref(&p.FontSize, size) })
+	s.updatePrefs(c, func(p *store.Prefs) bool { return p.SetUIValue(store.UIFontSize, size) })
 }
 
 // setPref sets one preference and reports whether that changed it.
@@ -401,7 +400,7 @@ func (s *Server) setScrollback(c *controlClient, lines int) {
 	if lines < 1000 || lines > 200000 {
 		return
 	}
-	s.updatePrefs(c, func(p *store.Prefs) bool { return setPref(&p.Scrollback, lines) })
+	s.updatePrefs(c, func(p *store.Prefs) bool { return p.SetUIValue(store.UIScrollback, lines) })
 }
 
 // setUpdates records whether the application checks for new releases, which
@@ -470,7 +469,36 @@ func (s *Server) setFontFamily(c *controlClient, family string) {
 	if len(family) > 200 {
 		return
 	}
-	s.updatePrefs(c, func(p *store.Prefs) bool { return setPref(&p.FontFamily, family) })
+	s.updatePrefs(c, func(p *store.Prefs) bool {
+		if family == "" {
+			// The default is kept as nothing.
+			changed, _ := p.PatchUI(map[string]json.RawMessage{store.UIFontFamily: json.RawMessage("null")})
+			return changed
+		}
+		return p.SetUIValue(store.UIFontFamily, family)
+	})
+}
+
+// setUIPrefs merges a patch into the interface's own preferences (store.Prefs.UI).
+// The server does not read what is in them. A patch outside the limits is refused,
+// and the window that sent it is told why.
+func (s *Server) setUIPrefs(c *controlClient, patch map[string]json.RawMessage) {
+	if len(patch) == 0 {
+		return
+	}
+	var refused error
+	s.updatePrefsThen(c, func(p *store.Prefs) bool {
+		changed, err := p.PatchUI(patch)
+		if err != nil {
+			refused = err
+			return false
+		}
+		return changed
+	}, func(prefsResult) {
+		if refused != nil {
+			c.notify("That setting was not kept: "+refused.Error(), true)
+		}
+	})
 }
 
 // railWidthMin and railWidthMax bound how wide the rail may be dragged or

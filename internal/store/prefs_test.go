@@ -25,7 +25,7 @@ func TestPrefsRoundTrip(t *testing.T) {
 		t.Fatalf("SavePrefs: %v", err)
 	}
 
-	back := LoadPrefs()
+	back := LoadPrefs().withLegacyUI()
 	if !back.HelpSeen {
 		t.Error("HelpSeen did not survive the round trip")
 	}

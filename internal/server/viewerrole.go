@@ -126,7 +126,7 @@ var commandAccess = map[string]cmdAccess{
 	"remoteEnable": accessFull, "remoteDisable": accessFull, "remoteRemove": accessFull, "remoteMove": accessFull,
 	"remoteReconnect": accessFull, "setDeviceRole": accessFull,
 	"remoteVerify": accessFull, "remoteUnverify": accessFull,
-	"helpSeen": accessFull, "dismissTip": accessFull, "fontSize": accessFull, "notifications": accessFull,
+	"helpSeen": accessFull, "dismissTip": accessFull, "fontSize": accessFull, "uiPrefs": accessFull, "notifications": accessFull,
 	"scrollback": accessFull, "updates": accessFull, "checkForUpdate": accessFull,
 	"helpers": accessFull, "helperPlan": accessFull, "helperInstall": accessFull, "helperStart": accessFull,
 	"helperStop": accessFull, "helperOpen": accessFull, "helperUninstall": accessFull,

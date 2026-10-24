@@ -135,7 +135,8 @@ func TestPrefsArePersistedAndBroadcast(t *testing.T) {
 		t.Fatalf("prefs were not applied: %+v", got)
 	}
 
-	if saved := store.LoadPrefs(); !saved.HelpSeen || !saved.Dismissed("welcome") {
+	// helpSeen is in the interface's blob on disk now (store.Prefs.UI).
+	if saved := store.LoadPrefs(); string(saved.UI["helpSeen"]) != "true" || !saved.Dismissed("welcome") {
 		t.Errorf("prefs did not reach the disk: %+v", saved)
 	}
 }

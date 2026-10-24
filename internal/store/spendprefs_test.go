@@ -21,7 +21,7 @@ func TestSpendPrefsAreLeftOutWhileTheyAreDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 	p := LoadPrefs()
-	if !p.HelpSeen || p.FontSize != 15 || p.Spend.StatusLine != "" {
+	if l := p.withLegacyUI(); !l.HelpSeen || l.FontSize != 15 || p.Spend.StatusLine != "" {
 		t.Fatalf("an earlier prefs.json read as %+v", p)
 	}
 	if err := SavePrefs(p); err != nil {

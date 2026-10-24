@@ -33,7 +33,8 @@ func TestSettingsAndDataFromFanOutAndTodoAreLeftAlone(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read prefs: %v", err)
 	}
-	if !p.HelpSeen || p.FontSize != 17 {
+	// The font size and the help seen are in the interface's blob now (prefs_ui.go).
+	if l := p.withLegacyUI(); !l.HelpSeen || l.FontSize != 17 {
 		t.Errorf("the preferences next to the old section were not read: %+v", p)
 	}
 	p.Dismiss("palette")
