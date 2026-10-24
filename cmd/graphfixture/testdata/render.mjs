@@ -1,13 +1,13 @@
 // Draws the new page over the frames graphfixture sent (the file named on the
 // command line: hello, state and graph, in the order the fake socket sent them)
 // and prints what is on the screen. Run by the Go test, from the node harness of
-// internal/webui/next. Nothing here opens a network connection.
+// internal/webui/ui. Nothing here opens a network connection.
 import { readFileSync } from "node:fs";
-import { render } from "../../../internal/webui/next/assets/vendor/preact.mjs";
-import { html } from "../../../internal/webui/next/assets/html.js";
-import { Live } from "../../../internal/webui/next/assets/shell/Live.js";
-import { createDom, install, settle } from "../../../internal/webui/next/test/dom.mjs";
-import { FakeWebSocket, harness } from "../../../internal/webui/next/test/fakes.mjs";
+import { render } from "../../../internal/webui/ui/assets/vendor/preact.mjs";
+import { html } from "../../../internal/webui/ui/assets/html.js";
+import { Live } from "../../../internal/webui/ui/assets/shell/Live.js";
+import { createDom, install, settle } from "../../../internal/webui/ui/test/dom.mjs";
+import { FakeWebSocket, harness } from "../../../internal/webui/ui/test/fakes.mjs";
 
 const frames = JSON.parse(readFileSync(process.argv[2], "utf8"));
 const dom = createDom();

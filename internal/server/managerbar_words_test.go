@@ -12,7 +12,7 @@ import (
 // desk's words. The words are written in ManagerBar.js, so they are read from
 // there and checked against what the workspace says.
 func TestManagerBarUsesTheDesksWords(t *testing.T) {
-	b, err := os.ReadFile("../webui/next/assets/graph/ManagerBar.js")
+	b, err := os.ReadFile("../webui/ui/assets/graph/ManagerBar.js")
 	if err != nil {
 		t.Fatal(err)
 	}

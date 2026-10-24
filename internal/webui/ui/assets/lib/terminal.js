@@ -31,13 +31,13 @@ import { createPty, ptyUrl } from "./pty.js";
 import { DEFAULT_FONT } from "./prefs.js";
 import { SEARCH_SCRIPT, loadScript, loadTerminalLibs } from "./load-script.js";
 
-/** STRUCTURED_STUB is what a structured pane's terminal says, as the old
- *  window does. */
+/** STRUCTURED_STUB is what a structured pane's terminal says if one is ever drawn for it;
+ *  its conversation is in the drawer. */
 /** NO_KEY_REASON is said of a terminal refused under the desktop's key when
  *  the desktop then stops offering one. */
 export const NO_KEY_REASON = "The desktop no longer offers an encrypted terminal.";
 
-export const STRUCTURED_STUB = "Structured pane, open in the new interface";
+export const STRUCTURED_STUB = "Structured pane: its conversation is in the drawer";
 
 /** The smallest and largest sizes taken from the server for a terminal: a
  *  terminal of thousands of columns costs every window showing it. */

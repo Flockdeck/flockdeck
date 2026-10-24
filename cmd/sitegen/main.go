@@ -86,7 +86,7 @@ var assets embed.FS
 
 // icon is the application's own mark, which becomes the site's favicon.
 //
-// It is copied from internal/webui/next/assets rather than drawn again here: the
+// It is copied from internal/webui/ui/assets rather than drawn again here: the
 // five agents flying in formation is the same picture in the tab
 // strip, in the taskbar and on the page, and a second copy would be a second
 // thing to keep in step.
@@ -97,7 +97,7 @@ var icon []byte
 // iconICO is the same icon for whatever asks for /favicon.ico on its own, as
 // browsers, feed readers and bookmark tools do whether or not a page names it,
 // and for a browser that shows no SVG in its tabs. It too is the application's
-// own, internal/webui/next/assets/icon.ico, copied — a multi-resolution ICO (16
+// own, internal/webui/ui/assets/icon.ico, copied — a multi-resolution ICO (16
 // through 256px) so Windows never has to stretch one small bitmap to a size
 // it does not have.
 //
@@ -105,7 +105,7 @@ var icon []byte
 var iconICO []byte
 
 // touchIcon is the icon a phone puts on its home screen: the application's
-// own internal/webui/next/assets/icon-180.png, copied, like the other two — 180px
+// own internal/webui/ui/assets/icon-180.png, copied, like the other two — 180px
 // is what iOS actually asks an apple-touch-icon for.
 //
 //go:embed assets/apple-touch-icon.png

@@ -11,7 +11,7 @@ import (
 // start of the notice the desk sends a viewer. The phrase is written in store.js,
 // so it is read from there and checked against what the server sends.
 func TestNewShellStoreMatchesTheViewerRefusal(t *testing.T) {
-	b, err := os.ReadFile("../webui/next/assets/lib/store.js")
+	b, err := os.ReadFile("../webui/ui/assets/lib/store.js")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,7 +41,7 @@ func TestConversationTabCommandsAreForWatchers(t *testing.T) {
 
 // The new shell says the same line the server's refusal starts with.
 func TestNewShellStoreMatchesTheRemoteConversationLine(t *testing.T) {
-	b, err := os.ReadFile("../webui/next/assets/lib/store.js")
+	b, err := os.ReadFile("../webui/ui/assets/lib/store.js")
 	if err != nil {
 		t.Fatal(err)
 	}

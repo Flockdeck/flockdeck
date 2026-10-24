@@ -1,4 +1,4 @@
-package next
+package ui
 
 import (
 	"context"
@@ -175,7 +175,7 @@ func TestNextAssetsKeepToTheContentPolicy(t *testing.T) {
 				}
 				target := path.Join(path.Dir(name), ref)
 				if _, err := os.Stat(filepath.Join("assets", filepath.FromSlash(target))); err != nil {
-					t.Errorf("%s imports %s, which is not in next/assets", name, ref)
+					t.Errorf("%s imports %s, which is not in ui/assets", name, ref)
 				}
 			}
 		}
@@ -487,10 +487,10 @@ func TestE2EIsTheOldWindowsFileByteForByte(t *testing.T) {
 	}
 	own, err := os.ReadFile(filepath.Join("assets", "e2e.js"))
 	if err != nil {
-		t.Fatalf("next/assets has no e2e.js: %v", err)
+		t.Fatalf("ui/assets has no e2e.js: %v", err)
 	}
 	if string(served) != string(own) {
-		t.Error("the e2e.js served is not next/assets/e2e.js")
+		t.Error("the e2e.js served is not ui/assets/e2e.js")
 	}
 }
 

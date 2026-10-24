@@ -189,7 +189,7 @@ func TestSponsorshipGoesToOneAccount(t *testing.T) {
 		t.Errorf("the site links %s, but FUNDING.yml names %s", sponsorURL, want)
 	}
 	for _, f := range []struct{ what, text, want string }{
-		{"the app's Settings", read("internal", "webui", "next", "assets", "shell", "links.js"), `export const SPONSOR_URL = "` + sponsorURL + `";`},
+		{"the app's Settings", read("internal", "webui", "ui", "assets", "shell", "links.js"), `export const SPONSOR_URL = "` + sponsorURL + `";`},
 		{"the README", read("README.md"), "(" + sponsorURL + ")"},
 		{"the help's Settings page", read("internal", "help", "pages", "settings.md"), "(" + sponsorURL + ")"},
 	} {

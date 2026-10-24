@@ -14,7 +14,7 @@ SHA-256 of every file here and of the test-only copy, and a Go test fails when o
 
 htm is Apache 2.0 and not MIT. Its licence text is below with the others and in
 `THIRD-PARTY-NOTICES.md`. The render-to-string copy is for the tests only: it sits outside
-`next/assets`, so it is never embedded in a binary.
+`ui/assets`, so it is never embedded in a binary.
 
 ## Where the files came from
 
