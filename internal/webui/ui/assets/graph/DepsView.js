@@ -19,6 +19,7 @@ import { focusNode } from "../drawer/state.js";
 import { teamOf, TEAM_RELAY_WORDS, isFinished as stateFinished } from "../lib/team.js";
 import { clip, stateOf } from "./Node.js";
 import { managerOf } from "./ManagerBar.js";
+import { labelOf } from "./model.js";
 import { GOAL, isReady, openBlockers, planOf, loopsOf, waitsOf, minutesWords } from "./deps.js";
 import { stepOf, foldOf, ageOf } from "./Tree.js";
 
@@ -33,10 +34,7 @@ export function glyphOf(task) {
   return "working";
 }
 
-const nameOf = (model, pane) => {
-  const n = model && model.byPane.get(pane);
-  return n ? n.name || n.pane : pane;
-};
+const nameOf = labelOf;
 
 /** startText is the line the manager is sent to start a task nobody has. */
 export function startText(task) {
@@ -221,8 +219,10 @@ function DepRow({ r, stop, cls = "", onFocus, onToggle, onLink = null, glyph, id
     <span class=${"tree-glyph tree-glyph--" + glyph} aria-hidden="true"></span>
     <span class="tree-c deps-tk">${id}</span>
     <span class="tree-c deps-ttl" title=${title}>${clip(title, 160)}${sub ? html` <span class="deps-sub">${sub}</span>` : null}</span>
-    <span class="tree-c deps-own">${owner ? html`<span class=${"tree-glyph tree-glyph--" + owner.state} aria-hidden="true"></span> ${clip(owner.name, 14)}` : ownerWords ? html`<span class="deps-none">${ownerWords}</span>` : null}</span>
-    ${chips.length > 0 ? html`<span class="tree-chips">${chips.map((c) => html`<${Chip} key=${c.kind + c.text} c=${c} onLink=${onLink} />`)}</span>` : null}
+    <span class="deps-more">
+      <span class="tree-c deps-own">${owner ? html`<span class=${"tree-glyph tree-glyph--" + owner.state} aria-hidden="true"></span> ${clip(owner.name, 14)}` : ownerWords ? html`<span class="deps-none">${ownerWords}</span>` : null}</span>
+      ${chips.length > 0 ? html`<span class="tree-chips">${chips.map((c) => html`<${Chip} key=${c.kind + c.text} c=${c} onLink=${onLink} />`)}</span>` : null}
+    </span>
     ${est !== "" || fin !== "" ? html`<span class="tree-c deps-est">${est}</span><span class="tree-c deps-fin">${fin}</span>` : null}
   </div>`;
 }

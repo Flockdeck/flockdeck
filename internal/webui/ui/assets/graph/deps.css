@@ -1,4 +1,5 @@
 /* The Dependencies view (graph/DepsView.js). Rows reuse the outline's (tree.css). */
+.deps-more { display: contents; }
 .view--deps { container: deps / inline-size; min-width: 0; padding: 12px 16px; }
 .view--deps .view-head { align-items: flex-start; display: flex; justify-content: space-between; margin-bottom: 10px; }
 .deps-path { background: var(--accent-subtle); align-items: center; border: 1px solid var(--line); border-radius: 6px; display: flex; flex-wrap: wrap; gap: 6px 8px; margin-bottom: 10px; padding: 8px 10px; }
@@ -37,9 +38,12 @@
 .tree-chip--blocked, .tree-chip--dup { color: var(--fg-dim); }
 .tree-toggle { background: none; border: 0; font: inherit; padding: 0; }
 @container deps (max-width: 680px) {
-  .deps-own, .deps-est { display: none; }
+  .deps-est, .deps-head .deps-own { display: none; }
+  .deps-row .deps-own { flex: 0 0 auto; }
+  .deps-row .deps-own:empty { display: none; }
   .deps-row { flex-wrap: wrap; padding-bottom: 6px; padding-top: 6px; row-gap: 2px; }
-  .deps-row .tree-chips { flex: 1 0 100%; flex-wrap: wrap; order: 9; padding-left: 40px; }
+  .deps-more { align-items: center; display: flex; flex: 1 0 100%; gap: 8px; order: 9; padding-left: 40px; }
+  .deps-row .tree-chips { flex: 1 1 0; flex-wrap: wrap; }
   .deps-ttl { flex: 1 1 12ch; min-width: 12ch; }
   .deps-start { margin-left: 16px; }
 }

@@ -24,6 +24,7 @@ import { Icon, firstLine } from "./Badge.js";
 import { ageOf } from "./NeedsYou.js";
 import { askText } from "./OverlapBar.js";
 import { PermissionCard, NOT_CONNECTED_WORDS, DETAILS_ON_DESKTOP_WORDS, DESK_WORDS } from "../drawer/Prompt.js";
+import { labelOf } from "./model.js";
 
 export const KINDS = ["permission", "ask", "conflict", "down"];
 export const NO_MANAGER_WORDS = "This team has no manager to ask.";
@@ -34,10 +35,7 @@ export const tabOf = (ctx) => (ctx && ctx.tab === false ? -1 : 0);
 
 const TERMINAL_WORDS = "Answer in its drawer, where the terminal is.";
 
-const nameOf = (model, id) => {
-  const n = model.byPane.get(id);
-  return n && n.name ? n.name : id;
-};
+const nameOf = labelOf;
 
 /** isDecision says whether the item is one of the four kinds a block draws. */
 export function isDecision(need) {

@@ -14,11 +14,9 @@ import { clip } from "./Node.js";
 import { Icon } from "./Badge.js";
 import { Buttons, useAsk, tabOf, NO_MANAGER_WORDS } from "./DecisionBlock.js";
 import { NOT_CONNECTED_WORDS, DESK_WORDS } from "../drawer/Prompt.js";
+import { labelOf } from "./model.js";
 
-const nameOf = (model, id) => {
-  const n = model.byPane.get(id);
-  return n && n.name ? n.name : id;
-};
+const nameOf = labelOf;
 
 /** loopOf is the first loop of waits in the model, as [{ pane, name, on, onName, why }] in the order they wait on each other, or null. A pane waiting on itself or on a pane that is not a node is no edge. */
 export function loopOf(model) {
