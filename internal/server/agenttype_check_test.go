@@ -219,7 +219,6 @@ var agentTypeAllowed = map[string]map[string]agentTypeAllow{
 		"needRank | NeedSetup":                  {1, "a needs item's kind, not a pane's"},
 		"needRank | NeedStaleUnread":            {1, "a needs item's kind, not a pane's"},
 		"compareNeeds | a.Kind == NeedReturned": {1, "a needs item's kind, not a pane's"},
-		"needRank | NeedSpend":                  {1, "a needs item's kind, not a pane's"},
 		"needRank | NeedStuck":                  {1, "a needs item's kind, not a pane's"},
 		"IsStuck | kind == NeedStuck":           {1, "a needs item's kind, not a pane's"},
 		"AsksPerson | kind != NeedStuck":        {1, "a needs item's kind, not a pane's"},

@@ -273,7 +273,7 @@ func TestSchemaEnumsAreTheGoConstants(t *testing.T) {
 		def, prop string
 		want      []string
 	}{
-		{"needsItem", "kind", []string{team.NeedPermission, team.NeedAsk, team.NeedReturned, team.NeedConflict, team.NeedDown, team.NeedSpend, team.NeedSetup, team.NeedStaleUnread, team.NeedStuck}},
+		{"needsItem", "kind", []string{team.NeedPermission, team.NeedAsk, team.NeedReturned, team.NeedConflict, team.NeedDown, team.NeedSetup, team.NeedStaleUnread, team.NeedStuck}},
 		{"waitingOn", "kind", []string{team.WaitUser, team.WaitDown, team.WaitReviewer, team.WaitTask, team.WaitHelpers, team.WaitNone}},
 		{"taskChip", "state", states},
 		{"edge", "kind", []string{graphEdgeSpawn, graphEdgeMessage, graphEdgeSent}},

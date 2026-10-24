@@ -133,7 +133,6 @@ root need not be a manager: any pane that started helpers is one.
 | `spendUSD` | The estimated spend in dollars of the team's panes that reported a priced figure. 0 when none did. |
 | `spendPartial` | `true` when some agent pane that has run reported no priced figure (a figure of zero counts as none), so `spendUSD` is a floor. A shell and an agent that has not started are not counted as missing. |
 | `spendIncludesPartial` | `true` when some pane of the team is a structured (ACP) agent that has reported through `usage_update`. That gives the context used, the context size and, if the agent chooses, a cost; it gives no split of tokens into read, written and cached, and no account windows. The total then includes panes that report partly, and a window should say so. A cost of zero (opencode's free tier) adds nothing. A cost with no currency, one that is not a finite number, one above 1,000,000 or one that rounds to nothing in dollars is taken as not reported. A cost in a currency other than dollars is shown on the pane and added to nothing. Spend is not carried across a restart of a pane: the new process reports from zero, so the total can fall, and the partial flags keep it a floor. Absent when no pane does. |
-| `limitUSD` | The most the team's project may spend, in dollars, set by the person with the `teamSpendLimit` command. Absent when there is none. From 80 percent of it the needs list has a `spend` item, and once the team has spent all of it a start of another helper is refused (agents already running are never stopped). |
 | `caps` | The helper cap use of the root and of every pane with children: `pane`, `used` (open panes below it, nested ones included and exited ones until closed) and `max` (`workspace.MaxHelpers`, 8). The count is the workspace's own, the one that refuses a ninth helper. |
 | `needs`, `needsHidden` | The needs-you list for the team (section 5), at most 50, and how many the bound cut. |
 
@@ -252,13 +251,12 @@ their own (`soloNeeds`).
 | `returned` | a task went from in review back to in progress in the last 24 hours and is still in progress | when it came back | the note it came back with; absent when it had none |
 | `conflict` | the conflict radar reports that two panes' work would conflict | when the radar first reported the pair, if known | up to 5 paths, each cut to 80 characters, and "and N more" for the rest |
 | `down` | a pane failed, or exited with a code other than 0, and was not closed by the person | when its status began | `failed` and the reason, or `exited with code N` |
-| `spend` | the team has spent 80 percent or more of its spend limit (`limitUSD`). Put on the manager. The text says how much, and from 100 percent that no new helper will start | no time |
 | `setup` | a structured pane could not start and needs something from the person: Node, a sign-in, or the agent's program | when its status began | the fix, cut to 200 characters |
 | `stale-unread` | a pane that is idle has had unread mail from an agent or the person for more than 30 minutes (Flockdeck's own notices do not count). One item per team: the pane with the oldest such mail, and when other panes qualify too, the count of panes and messages | when the oldest unread message arrived | how many are unread |
 | `stuck` | a terminal pane is working and has written nothing to its terminal for 10 minutes. A quiet item: the agent may be thinking, so it asks nothing, it says where to look. A structured pane has no output stream and is never listed | when it last wrote | `no output for 12m` |
 
 - **Order.** Permission and ask first, by how long they have waited, longest first;
-  then returned, newest first; then conflict; then down; then spend; then setup; then stale-unread, oldest
+  then returned, newest first; then conflict; then down; then setup; then stale-unread, oldest
   first; then stuck, longest quiet first. An item whose time is not known (`0001-01-01T00:00:00Z`) is listed after
   the others of its kind.
 - **Down.** A shell is listed only when it failed. A pane that is down is never

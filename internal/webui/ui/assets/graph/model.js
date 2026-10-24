@@ -27,7 +27,7 @@
 export const DETAILS_ON_DESKTOP = "details on the desktop";
 
 /** The kinds of needs-you item the graph can carry, in the order the schema lists them. */
-export const NEED_KINDS = ["permission", "ask", "returned", "conflict", "down", "spend", "setup", "stale-unread", "stuck"];
+export const NEED_KINDS = ["permission", "ask", "returned", "conflict", "down", "setup", "stale-unread", "stuck"];
 
 const NEED_LABELS = {
   permission: "Wants to run something",
@@ -35,7 +35,6 @@ const NEED_LABELS = {
   returned: "Task came back from review",
   conflict: "Changes the same file as another pane",
   down: "Ended",
-  spend: "The team is near or over its spend limit",
   setup: "Needs setting up",
   "stale-unread": "Has unread mail and is idle",
   stuck: "Is working but has written nothing for a while",
@@ -178,7 +177,6 @@ function teamOf(raw, byPane) {
     spendUSD: num(t.spendUSD),
     spendPartial: t.spendPartial === true,
     spendIncludesPartial: t.spendIncludesPartial === true,
-    limitUSD: num(t.limitUSD),
     caps: list(t.caps)
       .filter(isObject)
       .map((c) => ({ pane: str(c.pane), used: num(c.used), max: num(c.max) })),

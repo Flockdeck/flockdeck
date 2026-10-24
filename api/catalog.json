@@ -1019,12 +1019,6 @@
       "status": "stable"
     },
     {
-      "name": "teamSpendLimit",
-      "access": "full",
-      "since": "1.0",
-      "status": "stable"
-    },
-    {
       "name": "teamUnwatch",
       "access": "full",
       "since": "1.0",
