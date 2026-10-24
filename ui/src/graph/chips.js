@@ -7,6 +7,7 @@
 import { clip } from "./Node.js";
 import { stateOf } from "./Node.js";
 import { QUIET_KINDS, stuckOf, labelOf } from "./model.js";
+import { depsOf, openBlockers, isFinished } from "./deps.js";
 
 /** The words on the chip of each kind of need that asks something of the person. */
 const ASKS = { permission: "Permission", ask: "Question", returned: "Returned", setup: "Setup" };
@@ -46,3 +47,23 @@ export function chipsOf(model, node, needs, now) {
 
 /** quietNeed says a need is one the chips do not name (a quiet one). */
 export const quietNeed = (n) => QUIET_KINDS.includes(n.kind);
+
+/**
+ * dependencyChipsOf lists the chips a row has from the task board: "blocked by
+ * T3, T5" while tasks it depends on are open, and its estimate while it is not
+ * finished. tasks is the team push's list (none on the relay, so none here).
+ */
+export function dependencyChipsOf(tasks, node) {
+  if (!node || !node.task || !Array.isArray(tasks) || tasks.length === 0) return [];
+  const idx = depsOf(tasks);
+  const mine = idx.byId.get(node.task.id);
+  if (!mine || isFinished(mine)) return [];
+  const out = [];
+  const open = openBlockers(idx, mine.id);
+  if (open.length > 0) {
+    const shown = open.slice(0, 2).map((b) => clip(b.id, 8)).join(", ");
+    out.push({ kind: "blocked", text: "blocked by " + shown + (open.length > 2 ? " +" + (open.length - 2) : ""), to: "", title: open.map((b) => b.id + (b.title ? " " + b.title : "") + " (" + b.state + ")").join("\n") });
+  }
+  if (mine.estimateMin > 0) out.push({ kind: "est", text: "est " + mine.estimateMin + "m", to: "", title: "" });
+  return out;
+}
