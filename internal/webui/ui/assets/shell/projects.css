@@ -130,3 +130,44 @@
 .proj-places { display: flex; flex-wrap: wrap; gap: 4px; }
 .proj-dir { display: flex; align-items: center; gap: 8px; }
 .proj-dir-into { flex: 1 1 auto; }
+
+/* The views other than the graph: the board, changes and replay (Views.js). */
+.view { padding: 16px; display: flex; flex-direction: column; gap: 12px; min-width: 0; overflow: auto; }
+.view-graph:not([hidden]) { display: contents; }
+.view-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.view-title { margin: 0; font-size: 15px; font-weight: 600; }
+.view-count { margin-left: 6px; color: var(--fg-dim); font-weight: 400; font-size: 12px; }
+.view-note { margin: 0; color: var(--fg-dim); font-size: 13px; overflow-wrap: anywhere; }
+.view-btn, .view-select {
+  font: inherit;
+  color: var(--fg);
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 4px 10px;
+  cursor: pointer;
+}
+.view-btn:hover { background: var(--bg-hover); }
+.view-pick { display: flex; align-items: center; gap: 8px; color: var(--fg-dim); font-size: 12px; }
+.board { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 12px; align-items: start; }
+.board-col { min-width: 0; padding: 8px; background: var(--bg-inset); border: 1px solid var(--line-subtle); border-radius: var(--radius); }
+.board-col-head { margin: 0 0 8px; font-size: 12px; font-weight: 600; color: var(--fg-dim); }
+.board-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.board-card {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  padding: 8px;
+  text-align: left;
+  font: inherit;
+  color: var(--fg);
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+.board-card:hover { background: var(--bg-hover); }
+.board-id { font-size: 11px; color: var(--fg-dim); }
+.board-title { overflow-wrap: anywhere; }
+.board-meta { font-size: 11px; color: var(--fg-dim); overflow-wrap: anywhere; }

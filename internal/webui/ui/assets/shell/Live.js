@@ -17,6 +17,7 @@ import { ManagerBar, managerOf } from "../graph/ManagerBar.js";
 import { nextNeedsYou, paneAt } from "../graph/keys.js";
 import { Shell, useNarrow } from "./app.js";
 import { FootButton } from "./rail.js";
+import { Board, ChangesView, Replay } from "./Views.js";
 import { Home, sameProject, rosterOf } from "./Home.js";
 import { Start } from "./Start.js";
 import { Confirm } from "./Confirm.js";
@@ -112,6 +113,8 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
   const [infoFor, setInfoFor] = useState(null);
   const [findingPane, setFindingPane] = useState(false);
   const [findAsk, setFindAsk] = useState(0);
+  // The view the strip's switch has chosen: graph, board, changes or replay.
+  const [view, setView] = useState("graph");
   const [tabAsk, setTabAsk] = useState({ tab: "", n: 0 });
   // The helper apps and projects dialogs, and the baton being made: the pane it
   // is for, the name to show, and the request that asked for its draft.
@@ -371,10 +374,10 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
   };
   // The Team dialog keeps a watch on the project chosen in the rail while it is open.
   useEffect(() => {
-    if (!teamOpen) return undefined;
+    if (!teamOpen && view !== "board") return undefined;
     store.watchTeam(selected);
     return () => store.unwatchTeam();
-  }, [teamOpen, selected]);
+  }, [teamOpen, view === "board", selected]);
   // The desk keeps one focused pane in each tab. A pane opened in the drawer is
   // the one the person is working in, so the desk is told, and its own window and
   // the commands that act on the focused pane agree with this one.
@@ -567,10 +570,20 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
           onClose=${drawer.close} onToggleMax=${drawer.toggleMax} terminalOptions=${termProps} life=${life}
           tx=${tx} onInfo=${openInfo} findAsk=${findAsk} tabAsk=${tabAsk} onOpenPane=${drawer.open} order=${order} />`
       : null}
-  >${snap.state ? html`<${Tabs} tabs=${tabs} send=${send} show=${onDesk} warnFor=${(t) => closeTabWarnings(t, current ? current.byPane : null, statePanes)} onChoose=${() => setStarting("agent")} onGraph=${drawer.close} onChanges=${actions.changes}
+  >${snap.state ? html`<${Tabs} tabs=${tabs} send=${send} show=${onDesk} warnFor=${(t) => closeTabWarnings(t, current ? current.byPane : null, statePanes)} onChoose=${() => setStarting("agent")} view=${view} onView=${(v) => { if (v === "graph") drawer.close(); setView(v); }}
       onHistory=${snap.remote ? null : () => setHistoryOpen(true)} onFind=${snap.remote ? null : () => setFindingPane(true)} />` : null}
-    <${Home} snap=${snap} selected=${selected} onShown=${setShown} onOpen=${drawer.open} open=${drawer.pane} narrow=${narrow} send=${snap.remote ? null : send}
-      onSeeChanges=${(p) => { drawer.open(p); setTabAsk((a) => ({ tab: "changes", n: a.n + 1, pane: p })); }} />
+    <div class="view-graph" hidden=${view !== "graph"}>
+      <${Home} snap=${snap} selected=${selected} onShown=${setShown} onOpen=${drawer.open} open=${drawer.pane} narrow=${narrow} send=${snap.remote ? null : send}
+        onSeeChanges=${(p) => { drawer.open(p); setTabAsk((a) => ({ tab: "changes", n: a.n + 1, pane: p })); }} />
+    </div>
+    ${view === "board"
+      ? html`<${Board} team=${snap.team} remote=${!!snap.remote} gone=${snap.teamGone ? snap.teamGone.error || "This project can no longer be read." : ""}
+          onOpenPane=${drawer.open} onTeam=${() => setTeamOpen(true)} />`
+      : null}
+    ${view === "changes"
+      ? html`<${ChangesView} nodes=${current ? current.nodes : []} statePanes=${statePanes} openPane=${drawer.pane} snap=${snap} store=${store} />`
+      : null}
+    ${view === "replay" ? html`<${Replay} />` : null}
     ${settingsOpen
       ? html`<${Settings} prefs=${prefs} change=${change} section=${settingsSection} onClose=${() => setSettingsOpen(false)} ctx=${settingsCtx} />`
       : null}

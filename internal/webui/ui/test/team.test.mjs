@@ -436,3 +436,49 @@ test("Agents: a relay window has the list too", () =>
     await m.push({ type: "agents", items: [] });
     assert.ok(m.container.find("#agents-empty"));
   }));
+
+const viewButton = (m, id) => m.container.findAll(".tabs-view").find((b) => b.attributes["data-view"] === id);
+
+test("Views: the Board view watches the team, draws the tasks in columns as text, opens the owner or the Team dialog, and lets go when left", () =>
+  withPage({}, async (m) => {
+    await m.connect();
+    m.clear();
+    await m.click(viewButton(m, "board"));
+    assert.deepEqual(m.sent("teamWatch").map((c) => c.root), ["/work/a"]);
+    assert.equal(viewButton(m, "board").attributes["aria-pressed"], "true");
+    assert.equal(viewButton(m, "graph").attributes["aria-pressed"], "false");
+    await m.push(teamPush({ tasks: [task({ title: MARKUP }), task({ id: "T2", title: "Review", state: "in-review", owner: "", ownerOpen: false, ownerPane: "", branch: "", notes: 0 })] }));
+    assert.equal(m.container.findAll(".board-col").length, 7 - 1, "every state but cancelled has a column");
+    assert.ok(m.container.findAll(".board-col").find((c) => c.attributes["data-state"] === "assigned").textContent.includes(MARKUP));
+    assert.equal(m.container.findAll("img").length, 0, "nothing an agent wrote is markup");
+    // A card of an agent that is open opens it; one with no open owner opens the Team dialog.
+    await m.click(m.container.findAll(".board-card").find((c) => c.attributes["data-task"] === "T2"));
+    assert.ok(m.container.find("#team-title"), "the Team dialog");
+    await m.click(closeBtn(m));
+    m.clear();
+    await m.click(viewButton(m, "graph"));
+    assert.equal(m.sent("teamUnwatch").length, 1);
+    assert.equal(m.container.find(".board"), null);
+  }));
+
+test("Views: Replay says what it will show and that there is nothing to replay yet", () =>
+  withPage({}, async (m) => {
+    await m.connect();
+    await m.click(viewButton(m, "replay"));
+    assert.match(m.container.find(".view--replay").textContent, /lane for each agent/);
+    assert.match(m.container.find(".view--replay").textContent, /does not record that history yet/);
+  }));
+
+test("Views: the Changes view is the Changes tab as a view, for an agent that has a directory", () =>
+  withPage({}, async (m) => {
+    await m.connect();
+    await m.click(viewButton(m, "changes"));
+    assert.match(m.container.find(".view-note").textContent, /no directory/, "no agent has one yet");
+    const st = stateOf(m.g);
+    const first = m.g.nodes[0].pane;
+    st.panes[first].cwd = "C:/work/a";
+    m.clear();
+    await m.push(st);
+    assert.ok(m.container.find(".view-select"), "an agent to pick");
+    assert.deepEqual(m.sent("changes").map((c) => c.path), ["C:/work/a"], "it asks for that tree");
+  }));

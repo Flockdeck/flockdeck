@@ -15,6 +15,7 @@ import { html } from "../html.js";
 import { composing, LIST } from "./keys.js";
 import { Confirm } from "./Confirm.js";
 import { moveTabCommand } from "../lib/lifecycle.js";
+import { VIEWS } from "./Views.js";
 
 /** TITLE_MAX is the most characters of a title the desk keeps. */
 export const TITLE_MAX = 80;
@@ -30,7 +31,7 @@ export const CLOSE_WAITING_WORDS = "An agent in this tab is waiting for your ans
 /** Tabs draws the strip. tabs are from tabsOf; send is the store's; onChoose
  *  opens the start dialog for a tab on a chosen agent. With show false (the
  *  window is on a project that is not the desk's) there is only the note. */
-export function Tabs({ tabs, send, onChoose, onHistory = null, onFind = null, onGraph = null, onChanges = null, warnFor, show = true }) {
+export function Tabs({ tabs, send, onChoose, onHistory = null, onFind = null, view = "graph", onView = null, warnFor, show = true }) {
   const [renaming, setRenaming] = useState("");
   const [closing, setClosing] = useState(null);
   const [stop, setStop] = useState("");
@@ -114,10 +115,9 @@ export function Tabs({ tabs, send, onChoose, onHistory = null, onFind = null, on
               <button type="button" role="menuitem" class="tabs-btn" onClick=${act(() => move(-1))} disabled=${!moveTabCommand(tabs, current.id, -1)}>Move left</button>
               <button type="button" role="menuitem" class="tabs-btn" onClick=${act(() => move(1))} disabled=${!moveTabCommand(tabs, current.id, 1)}>Move right</button>`
           : null}`}<//>
-      ${onGraph || onChanges
+      ${onView
         ? html`<div class="tabs-views" role="group" aria-label="Views">
-            ${onGraph ? html`<button type="button" class="tabs-view is-on" aria-pressed="true" onClick=${onGraph}>Graph</button>` : null}
-            ${onChanges ? html`<button type="button" class="tabs-view" aria-pressed="false" onClick=${onChanges}>Changes</button>` : null}
+            ${VIEWS.map(([id, name]) => html`<button type="button" key=${id} class=${"tabs-view" + (view === id ? " is-on" : "")} data-view=${id} aria-pressed=${view === id ? "true" : "false"} onClick=${() => onView(id)}>${name}</button>`)}
           </div>`
         : null}
       ${closing
