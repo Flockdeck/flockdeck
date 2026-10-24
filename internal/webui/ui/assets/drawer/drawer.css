@@ -13,6 +13,8 @@
 
 .drawer-head {
   flex: 0 0 auto;
+  min-width: 0;
+  overflow: hidden;
   padding: 10px 12px 8px;
   border-bottom: 1px solid var(--line);
 }
@@ -27,7 +29,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.drawer-actions { display: flex; flex: 0 0 auto; gap: 6px; }
+.drawer-actions { display: flex; flex: 0 1 auto; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
 .drawer-btn {
   min-height: 28px;
   padding: 0 10px;

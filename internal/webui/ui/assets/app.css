@@ -663,7 +663,12 @@ button { font: inherit; color: inherit; }
 .pane-error-text { color: var(--fg); font-weight: 600; }
 .pane-error-text.error { color: var(--exited); font-weight: 400; }
 .home { padding: 16px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
-.home--graph { padding: 0; gap: 0; overflow: auto; }
+.home--graph { padding: 0; gap: 0; overflow-x: hidden; overflow-y: auto; }
+/* Only the graph scrolls sideways, inside its own box. Left to the page's
+ * column, a graph wider than the column made the whole column scrollable, and
+ * anything that took focus scrolled the needs list, the tabs and the heading off
+ * its left edge. */
+.graph-view { min-width: 0; max-width: 100%; overflow-x: auto; }
 /* The tag under a box hangs below the last frame. */
 .home--graph .graph { margin-bottom: 24px; }
 .home-line { margin: 0; color: var(--fg-dim); font-size: 14px; }
