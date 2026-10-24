@@ -189,7 +189,7 @@ const stateOf = (g) => ({
   panes: Object.fromEntries(g.nodes.map((n) => [n.pane, { id: n.pane, name: n.name, structured: n.kind === "structured", status: "working" }])),
 });
 
-async function mount({ helloOver = {} } = {}) {
+async function mount({ helloOver = {}, treeView = null } = {}) {
   PtySocket.reset();
   FakeTerm.reset();
   FakeObserver.instances.length = 0;
@@ -203,7 +203,7 @@ async function mount({ helloOver = {} } = {}) {
     Terminal: FakeTerm, FitAddon: FakeFit, ResizeObserver: FakeObserver, WebSocket: PtySocket,
     location: { href: "http://127.0.0.1:5000/", pathname: "/", protocol: "http:" }, isFocused: () => false,
   };
-  render(html`<${Live} store=${store} window=${dom.window} terminalOptions=${terminalOptions} />`, container);
+  render(html`<${Live} store=${store} window=${dom.window} terminalOptions=${terminalOptions} treeView=${treeView} />`, container);
   await settle();
   const ws = () => FakeWebSocket.last;
   const g = graph();
@@ -550,3 +550,60 @@ test("Feed: it starts empty, adds an entry when a later push brings news, goes w
     await m.click(open);
     assert.equal(feed(), null, "no feed while the drawer is open");
   }));
+
+// ------------------------------------------------------- the Team view, on a stub tree
+
+// A stand-in for the outline: one button per node, the model it was given, and the
+// pane that is open. The real tree takes its place with the same props.
+const StubTree = ({ model, open, onOpen }) => html`<ul class="stub-tree" data-open=${open || ""}>
+  ${(model ? model.nodes : []).map((n) => html`<li key=${n.pane}><button type="button" class="stub-row" data-pane=${n.pane} onClick=${() => onOpen(n.pane)}>${n.name}</button></li>`)}
+</ul>`;
+const viewButtons = (m) => m.container.findAll(".tabs-view").map((b) => b.getAttribute("data-view"));
+
+test("Team view: with no tree the switch has no Team and the page starts on the graph", () =>
+  withPage({}, async (m) => {
+    await m.connect();
+    assert.deepEqual(viewButtons(m), ["graph", "board", "changes", "replay"]);
+    assert.equal(m.container.find(".stub-tree"), null);
+    assert.ok(m.container.find(".graph-view"), "the graph is drawn");
+  }));
+
+test("Team view: with a tree the switch leads with Team, the page starts there, and the goal line, the tree and the feed share the home", () =>
+  withPage({ treeView: StubTree }, async (m) => {
+    await m.connect();
+    assert.deepEqual(viewButtons(m), ["tree", "graph", "board", "changes", "replay"]);
+    const team = m.container.findAll(".tabs-view")[0];
+    assert.equal(team.textContent, "Team");
+    assert.equal(team.getAttribute("aria-pressed"), "true");
+    const rows = m.container.findAll(".stub-row");
+    assert.equal(rows.length, m.g.nodes.length, "the tree was given the model");
+    const tree = m.container.find(".view-tree");
+    assert.ok(tree.find(".home-col").find(".goalline"), "the goal line is at the top of the column");
+    assert.ok(tree.find(".feed"), "the feed is beside it");
+    assert.ok(m.container.find(".view-graph").getAttribute("hidden") !== null, "the graph is not shown");
+  }));
+
+test("Team view: choosing Graph and back, a row opening the drawer (which takes the feed's place), and the palette", () =>
+  withPage({ treeView: StubTree }, async (m) => {
+    await m.connect();
+    const choose = async (id) => m.click(m.container.findAll(".tabs-view").find((b) => b.getAttribute("data-view") === id));
+    await choose("graph");
+    assert.equal(m.container.find(".stub-tree"), null, "the tree is not drawn under another view");
+    assert.equal(m.container.find(".view-graph").getAttribute("hidden"), null);
+    await choose("tree");
+    assert.ok(m.container.find(".stub-tree"));
+    await m.click(m.container.findAll(".stub-row")[1]);
+    assert.equal(m.container.find(".view-tree").find(".feed"), null, "no feed while the drawer is open");
+    assert.ok(m.container.find(".stub-tree").getAttribute("data-open"), "the tree is told which pane is open");
+    await m.key("Ctrl+Shift+K");
+    const names = m.container.findAll(".palette-row").map((r) => r.textContent);
+    assert.ok(names.some((t) => t.includes("Show Team")), names.join("|"));
+  }));
+
+test("Feed: eleven entries show and the rest scroll, and it stacks under the home on a narrow window", async () => {
+  const { readFileSync } = await import("node:fs");
+  const css = readFileSync(join(here, "..", "assets", "graph", "graph.css"), "utf8");
+  assert.ok(css.includes("max-height: calc(11 * var(--feed-row)); overflow-y: auto;"));
+  const app = readFileSync(join(here, "..", "assets", "app.css"), "utf8");
+  assert.ok(app.includes("  .home-split--feed { grid-template-columns: minmax(0, 1fr); }"), "below 1000 px the feed stacks under the home");
+});
