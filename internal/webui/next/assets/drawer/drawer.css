@@ -357,3 +357,29 @@
 .task-note { padding: 4px 0; border-top: 1px solid var(--line); }
 .task-note-head { margin: 0; font-size: 11px; color: var(--fg-muted); }
 .task-goto, .task-more { margin: 4px 0; }
+
+.chg { padding: 8px 12px; overflow: auto; font-size: 12px; }
+.chg-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.chg-branch { font-weight: 600; overflow-wrap: anywhere; }
+.chg-sync { color: var(--fg-muted); }
+.chg-actions, .chg-row { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
+.chg-row { margin-left: 0; margin-top: 6px; }
+.chg-busy, .chg-note, .chg-omitted, .chg-empty { margin: 6px 0; color: var(--fg-muted); }
+.chg-error { color: var(--danger, var(--fg)); white-space: pre-wrap; overflow-wrap: anywhere; }
+.chg-note { white-space: pre-wrap; overflow-wrap: anywhere; }
+.chg-files { margin: 8px 0 0; padding: 0; list-style: none; }
+.chg-file-btn { display: flex; width: 100%; gap: 8px; align-items: baseline; padding: 3px 4px; border: 0; border-radius: var(--radius); background: transparent; color: var(--fg); font: inherit; text-align: left; cursor: pointer; }
+.chg-file-btn:hover { background: var(--bg-hover); }
+.chg-file-btn.is-selected { background: var(--accent-subtle); }
+.chg-file-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.chg-status { flex: 0 0 auto; min-width: 7ch; color: var(--fg-muted); }
+.chg-path { flex: 1 1 auto; overflow-wrap: anywhere; }
+.chg-counts { flex: 0 0 auto; color: var(--fg-muted); }
+.chg-diff { margin-top: 8px; }
+.chg-commit { margin-top: 10px; }
+.chg-label { display: block; margin-bottom: 2px; color: var(--fg-muted); }
+.chg-message { box-sizing: border-box; width: 100%; font: inherit; color: var(--fg); background: var(--bg-overlay); border: 1px solid var(--line-strong); border-radius: var(--radius); padding: 4px 6px; }
+.chg-warn { margin: 8px 0; padding: 8px; border: 1px solid var(--accent-line); border-radius: var(--radius); }
+.chg-warn-intro, .chg-warn-ask { margin: 0 0 4px; overflow-wrap: anywhere; }
+.chg-warn-items { margin: 4px 0; padding-left: 18px; overflow-wrap: anywhere; }
+.chg-more, .chg-repo { margin: 4px 0; }

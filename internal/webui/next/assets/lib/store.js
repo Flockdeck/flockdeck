@@ -92,6 +92,14 @@
 //   details       the answers to requestDetail for the open conversation, by entry
 //                 id: { state: "loading" | "ok" | "gone", detail }. At most
 //                 MAX_DETAILS are held; the oldest asked for goes first.
+//   changes       the latest listing of a working tree (the desktop's "changes"
+//                 message without its type), or null: cwd, branch, ahead, behind,
+//                 files [{ path, status, label, added, removed, untracked, stamp }],
+//                 omitted, error. diff is the latest "diff" answer: { cwd, file,
+//                 text, error } or { file, loading: true }. gitWarn is a question
+//                 the desktop put before a commit, push or pull, and changesBusy
+//                 the action in flight ("commit", "push", "pull", "fetch") or "".
+//                 changesNote is the last notice that came while the panel was open.
 //   taskDetail    the answer to requestTask: { id, req, state, task, error }, or null.
 //                 state is "loading", "ok" (task is the desktop's task view: body,
 //                 notes, owner, branch) or "error". It is for a window on the desk;
@@ -223,7 +231,7 @@ const initial = () => ({
   hello: null, remote: false, state: null,
   graph: null, graphGone: null, graphRefused: false, graphError: null,
   notice: null, versions: null, helpers: null, helperPlan: null, recents: null, browse: null, batonDraft: null, batonSaved: null, batonError: null,
-  approvals: [], detached: false, sent: null, started: null, structured: null, structuredError: null, cancelError: null, answer: null, asking: null, conversation: null, details: {}, search: null, taskDetail: null, history: null, paneInfo: null, paneMatches: null, keys: null, jevKey: null, remoteDevices: null, remotePair: null, remoteOutcome: null, dropped: 0,
+  approvals: [], detached: false, sent: null, started: null, structured: null, structuredError: null, cancelError: null, answer: null, asking: null, conversation: null, details: {}, search: null, taskDetail: null, changes: null, diff: null, gitWarn: null, changesBusy: "", changesNote: null, history: null, paneInfo: null, paneMatches: null, keys: null, jevKey: null, remoteDevices: null, remotePair: null, remoteOutcome: null, dropped: 0,
 });
 
 /** upsert returns entries with each of the new ones in place of the one with its
@@ -253,6 +261,7 @@ export function createStore(opts) {
   let watching = null;
   let reqSeq = 0;
   let noticeSeq = 0;
+  let pendingCommit = null;
   let sentSeq = 0;
   let startedSeq = 0;
   let answerSeq = 0;
@@ -528,7 +537,20 @@ export function createStore(opts) {
       case "noticeWithdraw":
         if (typeof msg.id === "string" && snap.approvals.some((a) => a.id === msg.id)) set({ approvals: snap.approvals.filter((a) => a.id !== msg.id) });
         break;
+      case "changes": {
+        const { type, ...rest } = msg;
+        set({ changes: rest, changesBusy: "", gitWarn: null });
+        break;
+      }
+      case "diff": {
+        if (snap.diff && snap.diff.file === msg.file) set({ diff: { cwd: String(msg.cwd || ""), file: msg.file, text: String(msg.text || ""), error: String(msg.error || "") } });
+        break;
+      }
+      case "gitWarn":
+        set({ gitWarn: { ...msg, seq: ++noticeSeq }, changesBusy: "" });
+        break;
       case "notice": {
+        if (snap.changes && msg.error !== undefined && !approvalOf(msg)) set({ changesNote: { text: String(msg.text || ""), error: !!msg.error }, changesBusy: "" });
         // A request for an answer is its own thing, not the latest notice: it
         // stays until the desktop withdraws it.
         const ask = approvalOf(msg);
@@ -688,6 +710,69 @@ export function createStore(opts) {
     },
     clearTask() {
       if (snap.taskDetail) set({ taskDetail: null });
+    },
+    /** requestChanges asks the desktop what has changed in the working tree at
+     *  path (a pane's directory). follow is a re-read the panel makes itself. */
+    requestChanges(path, follow = false) {
+      if (!snap.hello) return false;
+      return socket.send({ cmd: "changes", path: String(path || ""), follow: !!follow });
+    },
+    /** requestDiff asks for one file's diff in the tree last listed. */
+    requestDiff(file) {
+      if (!snap.changes || typeof file !== "string" || !file) return false;
+      if (!socket.send({ cmd: "diff", path: snap.changes.cwd, text: file })) return false;
+      set({ diff: { cwd: snap.changes.cwd, file, text: "", error: "", loading: true } });
+      return true;
+    },
+    /** commitChanges commits the listing as it was last drawn. It sends the files
+     *  and their stamps, so the desktop refuses a tree that has moved since. It
+     *  returns "" when asked and otherwise the reason nothing was sent. */
+    commitChanges(message, push = false) {
+      const ch = snap.changes;
+      const text = String(message || "").trim();
+      if (!ch || ch.error) return "There is no working tree to commit";
+      if (!text) return "A commit message is required";
+      if (snap.changesBusy) return "Wait for the last action to finish";
+      const stamps = {};
+      for (const f of ch.files || []) if (f.stamp) stamps[f.path] = f.stamp;
+      const cmd = { cmd: "commit", path: ch.cwd, text, push: !!push, files: (ch.files || []).map((f) => f.path), omitted: ch.omitted || 0 };
+      if (Object.keys(stamps).length) cmd.stamps = stamps;
+      if (!socket.send(cmd)) return "Not connected to Flockdeck";
+      pendingCommit = cmd;
+      set({ changesBusy: push ? "commit and push" : "commit", changesNote: null });
+      return "";
+    },
+    /** remoteChanges runs a push, pull or fetch in the tree last listed. */
+    remoteChanges(action) {
+      const ch = snap.changes;
+      if (!ch || ch.error || snap.changesBusy) return false;
+      let cmd;
+      if (action === "push") cmd = { cmd: "gitPush", path: ch.cwd };
+      else if (action === "pull") cmd = { cmd: "gitPull", path: ch.cwd };
+      else if (action === "fetch") cmd = { cmd: "gitFetch", path: ch.cwd };
+      else return false;
+      if (!socket.send(cmd)) return false;
+      set({ changesBusy: action, changesNote: null });
+      return true;
+    },
+    /** answerGitWarn answers the desktop's question about a repository's programs:
+     *  "once", "remember", or anything else to stop. The command is sent again
+     *  with the answer and the scan that was shown, as the desktop asked. */
+    answerGitWarn(accept) {
+      const w = snap.gitWarn;
+      if (!w) return false;
+      set({ gitWarn: null });
+      if (accept !== "once" && accept !== "remember") return false;
+      const cmd = w.resend === "commit" && pendingCommit ? { ...pendingCommit } : { cmd: w.resend, path: w.path };
+      cmd.gitAccept = accept;
+      cmd.gitSeen = w.seen;
+      if (!socket.send(cmd)) return false;
+      set({ changesBusy: w.resend === "commit" ? "commit" : String(w.action || "") });
+      return true;
+    },
+    clearChanges() {
+      pendingCommit = null;
+      if (snap.changes || snap.diff || snap.gitWarn || snap.changesBusy || snap.changesNote) set({ changes: null, diff: null, gitWarn: null, changesBusy: "", changesNote: null });
     },
     /** searchConversation asks the desktop to search the open conversation for
      *  text. An empty query clears the search. It returns false when nothing was

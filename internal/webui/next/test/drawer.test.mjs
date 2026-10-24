@@ -385,3 +385,11 @@ test("keys are typed into the terminal of the pane asked for and no other", () =
   assert.equal(keysFor({ current: { pane: "p1", ctl: null } }, "p1"), null);
   assert.equal(keysFor(null, "p1"), null);
 });
+
+test("the Changes tab is there for a pane with a directory and not for one without", () => {
+  const withDir = renderToString(html`<${Drawer} store=${store} node=${node()} pane=${{ cwd: "/work/b" }} now=${NOW} />`);
+  assert.match(withDir, /role="tab"[^>]*id="drawer-tab-changes"[^>]*>Changes</);
+  const without = renderToString(html`<${Drawer} store=${store} node=${node()} pane=${{}} now=${NOW} />`);
+  assert.ok(!without.includes("drawer-tab-changes"));
+  assert.ok(!renderToString(html`<${Drawer} store=${store} node=${node()} now=${NOW} />`).includes("drawer-tab-changes"));
+});
