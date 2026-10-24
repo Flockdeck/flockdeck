@@ -1,0 +1,301 @@
+{
+  "edges": [
+    {
+      "from": "b206ac1a",
+      "kind": "spawn",
+      "to": "af5f14f7"
+    },
+    {
+      "from": "b206ac1a",
+      "kind": "spawn",
+      "to": "48211787"
+    },
+    {
+      "from": "b206ac1a",
+      "kind": "spawn",
+      "to": "f5b8f95d"
+    },
+    {
+      "from": "b206ac1a",
+      "kind": "spawn",
+      "to": "3ecf0128"
+    },
+    {
+      "from": "b206ac1a",
+      "kind": "spawn",
+      "to": "04ed9ffa"
+    },
+    {
+      "from": "b206ac1a",
+      "kind": "spawn",
+      "to": "2a5c9085"
+    },
+    {
+      "from": "b206ac1a",
+      "kind": "spawn",
+      "to": "476ff4dc"
+    },
+    {
+      "from": "b206ac1a",
+      "kind": "spawn",
+      "to": "ea5e3f24"
+    }
+  ],
+  "nodes": [
+    {
+      "activity": "starting",
+      "depth": 0,
+      "kind": "terminal",
+      "lastOutput": "2026-10-21T08:55:00Z",
+      "name": "project",
+      "pane": "2efaeaea",
+      "shell": true,
+      "since": "2026-10-21T08:55:00Z",
+      "status": "starting",
+      "waitingOn": {
+        "kind": "none"
+      }
+    },
+    {
+      "activity": "idle",
+      "below": 8,
+      "children": [
+        "af5f14f7",
+        "48211787",
+        "f5b8f95d",
+        "3ecf0128",
+        "04ed9ffa",
+        "2a5c9085",
+        "476ff4dc",
+        "ea5e3f24"
+      ],
+      "depth": 0,
+      "kind": "terminal",
+      "lastOutput": "2026-10-21T08:55:00Z",
+      "name": "manager",
+      "needYou": 2,
+      "pane": "b206ac1a",
+      "role": "manager",
+      "since": "2026-10-21T08:55:00Z",
+      "spendPartial": true,
+      "status": "idle",
+      "team": "b206ac1a",
+      "unread": 3,
+      "waitingOn": {
+        "kind": "helpers",
+        "ref": "af5f14f7",
+        "text": "4 helpers are busy"
+      }
+    },
+    {
+      "activity": "waiting",
+      "depth": 1,
+      "kind": "terminal",
+      "lastOutput": "2026-10-21T08:55:00Z",
+      "live": "Bash",
+      "name": "schema",
+      "pane": "af5f14f7",
+      "parent": "b206ac1a",
+      "role": "worker",
+      "since": "2026-10-21T08:55:00Z",
+      "spendPartial": true,
+      "status": "waiting",
+      "team": "b206ac1a",
+      "waitingOn": {
+        "kind": "user",
+        "text": "psql -f migrations/0042_invoices.sql"
+      }
+    },
+    {
+      "activity": "waiting",
+      "depth": 1,
+      "kind": "terminal",
+      "lastOutput": "2026-10-21T08:55:00Z",
+      "live": "AskUserQuestion",
+      "name": "backfill",
+      "pane": "48211787",
+      "parent": "b206ac1a",
+      "role": "worker",
+      "since": "2026-10-21T08:55:00Z",
+      "spendPartial": true,
+      "status": "waiting",
+      "team": "b206ac1a",
+      "waitingOn": {
+        "kind": "user",
+        "text": "Backfill invoices older than 2024, or leave them as they are?"
+      }
+    },
+    {
+      "activity": "working",
+      "depth": 1,
+      "kind": "terminal",
+      "lastOutput": "2026-10-21T08:55:00Z",
+      "live": "Edit ledger/post.go",
+      "name": "ledger",
+      "pane": "f5b8f95d",
+      "parent": "b206ac1a",
+      "role": "worker",
+      "since": "2026-10-21T08:55:00Z",
+      "spendPartial": true,
+      "status": "working",
+      "team": "b206ac1a",
+      "waitingOn": {
+        "kind": "none"
+      }
+    },
+    {
+      "activity": "working",
+      "depth": 1,
+      "kind": "terminal",
+      "lastOutput": "2026-10-21T08:55:00Z",
+      "live": "Bash go build ./...",
+      "name": "reports",
+      "pane": "3ecf0128",
+      "parent": "b206ac1a",
+      "role": "worker",
+      "since": "2026-10-21T08:55:00Z",
+      "spendPartial": true,
+      "status": "working",
+      "team": "b206ac1a",
+      "waitingOn": {
+        "kind": "none"
+      }
+    },
+    {
+      "activity": "idle",
+      "depth": 1,
+      "kind": "terminal",
+      "lastOutput": "2026-10-21T08:55:00Z",
+      "name": "webhooks",
+      "pane": "04ed9ffa",
+      "parent": "b206ac1a",
+      "role": "worker",
+      "since": "2026-10-21T08:55:00Z",
+      "spendPartial": true,
+      "status": "idle",
+      "team": "b206ac1a",
+      "waitingOn": {
+        "kind": "none"
+      }
+    },
+    {
+      "activity": "exited",
+      "depth": 1,
+      "kind": "terminal",
+      "lastOutput": "2026-10-21T08:55:00Z",
+      "name": "fixtures",
+      "pane": "2a5c9085",
+      "parent": "b206ac1a",
+      "role": "worker",
+      "since": "2026-10-21T08:55:00Z",
+      "spendPartial": true,
+      "status": "exited",
+      "team": "b206ac1a",
+      "waitingOn": {
+        "kind": "down",
+        "ref": "2a5c9085",
+        "text": "exited"
+      }
+    },
+    {
+      "activity": "idle",
+      "depth": 1,
+      "kind": "terminal",
+      "lastOutput": "2026-10-21T08:55:00Z",
+      "name": "emails",
+      "pane": "476ff4dc",
+      "parent": "b206ac1a",
+      "role": "worker",
+      "since": "2026-10-21T08:55:00Z",
+      "spendPartial": true,
+      "status": "idle",
+      "task": {
+        "id": "T1",
+        "state": "in-review",
+        "title": "Receipt email copy"
+      },
+      "team": "b206ac1a",
+      "unread": 1,
+      "waitingOn": {
+        "kind": "reviewer",
+        "ref": "T1",
+        "text": "T1 is in review, and nobody is set to review it"
+      }
+    },
+    {
+      "activity": "idle",
+      "depth": 1,
+      "kind": "terminal",
+      "lastOutput": "2026-10-21T08:55:00Z",
+      "name": "retries",
+      "pane": "ea5e3f24",
+      "parent": "b206ac1a",
+      "role": "worker",
+      "since": "2026-10-21T08:55:00Z",
+      "spendPartial": true,
+      "status": "idle",
+      "task": {
+        "id": "T2",
+        "state": "blocked",
+        "title": "Retry failed charges"
+      },
+      "team": "b206ac1a",
+      "unread": 1,
+      "waitingOn": {
+        "kind": "task",
+        "ref": "T2",
+        "text": "waiting on the payment sandbox keys"
+      }
+    }
+  ],
+  "project": "project",
+  "root": "/work/project",
+  "solo": [
+    "2efaeaea"
+  ],
+  "soloNeeds": [],
+  "teams": [
+    {
+      "caps": [
+        {
+          "max": 8,
+          "pane": "b206ac1a",
+          "used": 8
+        }
+      ],
+      "id": "b206ac1a",
+      "manager": "b206ac1a",
+      "members": [
+        "b206ac1a",
+        "af5f14f7",
+        "48211787",
+        "f5b8f95d",
+        "3ecf0128",
+        "04ed9ffa",
+        "2a5c9085",
+        "476ff4dc",
+        "ea5e3f24"
+      ],
+      "needs": [
+        {
+          "id": "ask:48211787",
+          "kind": "ask",
+          "pane": "48211787",
+          "text": "Backfill invoices older than 2024, or leave them as they are?",
+          "time": "2026-10-21T08:55:00Z"
+        },
+        {
+          "id": "permission:af5f14f7",
+          "kind": "permission",
+          "pane": "af5f14f7",
+          "text": "psql -f migrations/0042_invoices.sql",
+          "time": "2026-10-21T08:55:00Z"
+        }
+      ],
+      "spendPartial": true,
+      "spendUSD": 0,
+      "started": "2026-10-21T08:55:00Z"
+    }
+  ],
+  "type": "graph"
+}

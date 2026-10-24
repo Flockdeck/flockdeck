@@ -1,0 +1,243 @@
+{
+  "edges": [
+    {
+      "from": "0c96cbe9",
+      "kind": "spawn",
+      "to": "6fb40971"
+    },
+    {
+      "from": "0c96cbe9",
+      "kind": "spawn",
+      "to": "366c9143"
+    },
+    {
+      "from": "0c96cbe9",
+      "kind": "spawn",
+      "to": "ec776492"
+    },
+    {
+      "from": "0c96cbe9",
+      "kind": "spawn",
+      "to": "dccc34a5"
+    },
+    {
+      "from": "0c96cbe9",
+      "kind": "spawn",
+      "to": "5dc771c1"
+    },
+    {
+      "from": "0c96cbe9",
+      "kind": "spawn",
+      "to": "1ce36fdc"
+    }
+  ],
+  "nodes": [
+    {
+      "activity": "starting",
+      "depth": 0,
+      "kind": "terminal",
+      "lastOutput": "2026-10-21T08:55:00Z",
+      "name": "project",
+      "pane": "ef23df51",
+      "shell": true,
+      "since": "2026-10-21T08:55:00Z",
+      "status": "starting",
+      "waitingOn": {
+        "kind": "none"
+      }
+    },
+    {
+      "activity": "idle",
+      "below": 6,
+      "children": [
+        "6fb40971",
+        "366c9143",
+        "ec776492",
+        "dccc34a5",
+        "5dc771c1",
+        "1ce36fdc"
+      ],
+      "depth": 0,
+      "kind": "terminal",
+      "lastOutput": "2026-10-21T08:55:00Z",
+      "name": "manager",
+      "needYou": 1,
+      "pane": "0c96cbe9",
+      "role": "manager",
+      "since": "2026-10-21T08:55:00Z",
+      "spendPartial": true,
+      "status": "idle",
+      "team": "0c96cbe9",
+      "unread": 3,
+      "waitingOn": {
+        "kind": "helpers",
+        "ref": "6fb40971",
+        "text": "2 helpers are busy"
+      }
+    },
+    {
+      "activity": "working",
+      "depth": 1,
+      "kind": "terminal",
+      "lastOutput": "2026-10-21T08:55:00Z",
+      "live": "Edit cart/total.go",
+      "name": "cart",
+      "pane": "6fb40971",
+      "parent": "0c96cbe9",
+      "role": "worker",
+      "since": "2026-10-21T08:55:00Z",
+      "spendPartial": true,
+      "status": "working",
+      "team": "0c96cbe9",
+      "waitingOn": {
+        "kind": "none"
+      }
+    },
+    {
+      "activity": "waiting",
+      "depth": 1,
+      "kind": "terminal",
+      "lastOutput": "2026-10-21T08:55:00Z",
+      "live": "Bash",
+      "name": "tax",
+      "pane": "366c9143",
+      "parent": "0c96cbe9",
+      "role": "worker",
+      "since": "2026-10-21T08:55:00Z",
+      "spendPartial": true,
+      "status": "waiting",
+      "team": "0c96cbe9",
+      "waitingOn": {
+        "kind": "user",
+        "text": "go test ./tax/... -run TestRounding -count=1"
+      }
+    },
+    {
+      "activity": "idle",
+      "depth": 1,
+      "kind": "terminal",
+      "lastOutput": "2026-10-21T08:55:00Z",
+      "name": "docs",
+      "pane": "ec776492",
+      "parent": "0c96cbe9",
+      "role": "worker",
+      "since": "2026-10-21T08:55:00Z",
+      "spendPartial": true,
+      "status": "idle",
+      "team": "0c96cbe9",
+      "waitingOn": {
+        "kind": "none"
+      }
+    },
+    {
+      "activity": "exited",
+      "depth": 1,
+      "kind": "terminal",
+      "lastOutput": "2026-10-21T08:55:00Z",
+      "name": "migrate",
+      "pane": "dccc34a5",
+      "parent": "0c96cbe9",
+      "role": "worker",
+      "since": "2026-10-21T08:55:00Z",
+      "spendPartial": true,
+      "status": "exited",
+      "team": "0c96cbe9",
+      "waitingOn": {
+        "kind": "down",
+        "ref": "dccc34a5",
+        "text": "exited"
+      }
+    },
+    {
+      "activity": "idle",
+      "depth": 1,
+      "kind": "terminal",
+      "lastOutput": "2026-10-21T08:55:00Z",
+      "name": "api",
+      "pane": "5dc771c1",
+      "parent": "0c96cbe9",
+      "role": "worker",
+      "since": "2026-10-21T08:55:00Z",
+      "spendPartial": true,
+      "status": "idle",
+      "task": {
+        "id": "T1",
+        "state": "in-review",
+        "title": "Add the totals endpoint"
+      },
+      "team": "0c96cbe9",
+      "unread": 1,
+      "waitingOn": {
+        "kind": "reviewer",
+        "ref": "T1",
+        "text": "T1 is in review, and nobody is set to review it"
+      }
+    },
+    {
+      "activity": "idle",
+      "depth": 1,
+      "kind": "terminal",
+      "lastOutput": "2026-10-21T08:55:00Z",
+      "name": "search",
+      "pane": "1ce36fdc",
+      "parent": "0c96cbe9",
+      "role": "worker",
+      "since": "2026-10-21T08:55:00Z",
+      "spendPartial": true,
+      "status": "idle",
+      "task": {
+        "id": "T2",
+        "state": "blocked",
+        "title": "Index the new fields"
+      },
+      "team": "0c96cbe9",
+      "unread": 1,
+      "waitingOn": {
+        "kind": "task",
+        "ref": "T2",
+        "text": "needs the staging index, which only the person can create"
+      }
+    }
+  ],
+  "project": "project",
+  "root": "/work/project",
+  "solo": [
+    "ef23df51"
+  ],
+  "soloNeeds": [],
+  "teams": [
+    {
+      "caps": [
+        {
+          "max": 8,
+          "pane": "0c96cbe9",
+          "used": 6
+        }
+      ],
+      "id": "0c96cbe9",
+      "manager": "0c96cbe9",
+      "members": [
+        "0c96cbe9",
+        "6fb40971",
+        "366c9143",
+        "ec776492",
+        "dccc34a5",
+        "5dc771c1",
+        "1ce36fdc"
+      ],
+      "needs": [
+        {
+          "id": "permission:366c9143",
+          "kind": "permission",
+          "pane": "366c9143",
+          "text": "go test ./tax/... -run TestRounding -count=1",
+          "time": "2026-10-21T08:55:00Z"
+        }
+      ],
+      "spendPartial": true,
+      "spendUSD": 0,
+      "started": "2026-10-21T08:55:00Z"
+    }
+  ],
+  "type": "graph"
+}

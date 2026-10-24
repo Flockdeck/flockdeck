@@ -1,0 +1,308 @@
+{
+  "edges": [
+    {
+      "from": "0c501ed4",
+      "kind": "spawn",
+      "to": "e8c9aa4e"
+    },
+    {
+      "from": "0c501ed4",
+      "kind": "spawn",
+      "to": "160d47b0"
+    },
+    {
+      "from": "0c501ed4",
+      "kind": "spawn",
+      "to": "262e0b2b"
+    },
+    {
+      "from": "0c501ed4",
+      "kind": "spawn",
+      "to": "d1faf784"
+    },
+    {
+      "from": "0c501ed4",
+      "kind": "spawn",
+      "to": "73f13b59"
+    },
+    {
+      "from": "0c501ed4",
+      "kind": "spawn",
+      "to": "0aa92d92"
+    },
+    {
+      "from": "0c501ed4",
+      "kind": "spawn",
+      "to": "ee480bbd"
+    },
+    {
+      "from": "0c501ed4",
+      "kind": "spawn",
+      "to": "ad682fde"
+    }
+  ],
+  "nodes": [
+    {
+      "activity": "starting",
+      "depth": 0,
+      "kind": "terminal",
+      "lastOutput": "2026-10-21T08:55:00Z",
+      "name": "project",
+      "pane": "b7f324ab",
+      "shell": true,
+      "since": "2026-10-21T08:55:00Z",
+      "status": "starting",
+      "waitingOn": {
+        "kind": "none"
+      }
+    },
+    {
+      "activity": "idle",
+      "below": 8,
+      "children": [
+        "e8c9aa4e",
+        "160d47b0",
+        "262e0b2b",
+        "d1faf784",
+        "73f13b59",
+        "0aa92d92",
+        "ee480bbd",
+        "ad682fde"
+      ],
+      "depth": 0,
+      "kind": "terminal",
+      "lastOutput": "2026-10-21T08:55:00Z",
+      "name": "manager",
+      "needYou": 3,
+      "pane": "0c501ed4",
+      "role": "manager",
+      "since": "2026-10-21T08:55:00Z",
+      "spendPartial": true,
+      "status": "idle",
+      "team": "0c501ed4",
+      "unread": 3,
+      "waitingOn": {
+        "kind": "helpers",
+        "ref": "e8c9aa4e",
+        "text": "5 helpers are busy"
+      }
+    },
+    {
+      "activity": "waiting",
+      "depth": 1,
+      "kind": "terminal",
+      "lastOutput": "2026-10-21T08:55:00Z",
+      "live": "Bash",
+      "name": "build",
+      "pane": "e8c9aa4e",
+      "parent": "0c501ed4",
+      "role": "worker",
+      "since": "2026-10-21T08:55:00Z",
+      "spendPartial": true,
+      "status": "waiting",
+      "team": "0c501ed4",
+      "waitingOn": {
+        "kind": "user",
+        "text": "git push origin release/2.4"
+      }
+    },
+    {
+      "activity": "waiting",
+      "depth": 1,
+      "kind": "terminal",
+      "lastOutput": "2026-10-21T08:55:00Z",
+      "live": "AskUserQuestion",
+      "name": "notes",
+      "pane": "160d47b0",
+      "parent": "0c501ed4",
+      "role": "worker",
+      "since": "2026-10-21T08:55:00Z",
+      "spendPartial": true,
+      "status": "waiting",
+      "team": "0c501ed4",
+      "waitingOn": {
+        "kind": "user",
+        "text": "Name the breaking change in the headline?"
+      }
+    },
+    {
+      "activity": "working",
+      "depth": 1,
+      "kind": "terminal",
+      "lastOutput": "2026-10-21T08:55:00Z",
+      "live": "Reading the review note",
+      "name": "qa",
+      "pane": "262e0b2b",
+      "parent": "0c501ed4",
+      "role": "worker",
+      "since": "2026-10-21T08:55:00Z",
+      "spendPartial": true,
+      "status": "working",
+      "task": {
+        "id": "T1",
+        "state": "in-progress",
+        "title": "Smoke test the installer"
+      },
+      "team": "0c501ed4",
+      "unread": 3,
+      "waitingOn": {
+        "kind": "none"
+      }
+    },
+    {
+      "activity": "working",
+      "depth": 1,
+      "kind": "terminal",
+      "lastOutput": "2026-10-21T08:55:00Z",
+      "live": "Edit go.mod",
+      "name": "deps",
+      "pane": "d1faf784",
+      "parent": "0c501ed4",
+      "role": "worker",
+      "since": "2026-10-21T08:55:00Z",
+      "spendPartial": true,
+      "status": "working",
+      "team": "0c501ed4",
+      "waitingOn": {
+        "kind": "none"
+      }
+    },
+    {
+      "activity": "working",
+      "depth": 1,
+      "kind": "terminal",
+      "lastOutput": "2026-10-21T08:55:00Z",
+      "live": "Edit docs/download.md",
+      "name": "site",
+      "pane": "73f13b59",
+      "parent": "0c501ed4",
+      "role": "worker",
+      "since": "2026-10-21T08:55:00Z",
+      "spendPartial": true,
+      "status": "working",
+      "team": "0c501ed4",
+      "waitingOn": {
+        "kind": "none"
+      }
+    },
+    {
+      "activity": "idle",
+      "depth": 1,
+      "kind": "terminal",
+      "lastOutput": "2026-10-21T08:55:00Z",
+      "name": "signing",
+      "pane": "0aa92d92",
+      "parent": "0c501ed4",
+      "role": "worker",
+      "since": "2026-10-21T08:55:00Z",
+      "spendPartial": true,
+      "status": "idle",
+      "task": {
+        "id": "T2",
+        "state": "blocked",
+        "title": "Sign the Windows build"
+      },
+      "team": "0c501ed4",
+      "unread": 1,
+      "waitingOn": {
+        "kind": "task",
+        "ref": "T2",
+        "text": "the signing certificate has not arrived"
+      }
+    },
+    {
+      "activity": "idle",
+      "depth": 1,
+      "kind": "terminal",
+      "lastOutput": "2026-10-21T08:55:00Z",
+      "name": "changelog",
+      "pane": "ee480bbd",
+      "parent": "0c501ed4",
+      "role": "worker",
+      "since": "2026-10-21T08:55:00Z",
+      "spendPartial": true,
+      "status": "idle",
+      "team": "0c501ed4",
+      "waitingOn": {
+        "kind": "none"
+      }
+    },
+    {
+      "activity": "exited",
+      "depth": 1,
+      "kind": "terminal",
+      "lastOutput": "2026-10-21T08:55:00Z",
+      "name": "old-branch",
+      "pane": "ad682fde",
+      "parent": "0c501ed4",
+      "role": "worker",
+      "since": "2026-10-21T08:55:00Z",
+      "spendPartial": true,
+      "status": "exited",
+      "team": "0c501ed4",
+      "waitingOn": {
+        "kind": "down",
+        "ref": "ad682fde",
+        "text": "exited"
+      }
+    }
+  ],
+  "project": "project",
+  "root": "/work/project",
+  "solo": [
+    "b7f324ab"
+  ],
+  "soloNeeds": [],
+  "teams": [
+    {
+      "caps": [
+        {
+          "max": 8,
+          "pane": "0c501ed4",
+          "used": 8
+        }
+      ],
+      "id": "0c501ed4",
+      "manager": "0c501ed4",
+      "members": [
+        "0c501ed4",
+        "e8c9aa4e",
+        "160d47b0",
+        "262e0b2b",
+        "d1faf784",
+        "73f13b59",
+        "0aa92d92",
+        "ee480bbd",
+        "ad682fde"
+      ],
+      "needs": [
+        {
+          "id": "ask:160d47b0",
+          "kind": "ask",
+          "pane": "160d47b0",
+          "text": "Name the breaking change in the headline?",
+          "time": "2026-10-21T08:55:00Z"
+        },
+        {
+          "id": "permission:e8c9aa4e",
+          "kind": "permission",
+          "pane": "e8c9aa4e",
+          "text": "git push origin release/2.4",
+          "time": "2026-10-21T08:55:00Z"
+        },
+        {
+          "id": "returned:T1",
+          "kind": "returned",
+          "pane": "262e0b2b",
+          "task": "T1",
+          "text": "The installer fails on a path with a space. Reproduce and fix.",
+          "time": "2026-10-21T08:55:00Z"
+        }
+      ],
+      "spendPartial": true,
+      "spendUSD": 0,
+      "started": "2026-10-21T08:55:00Z"
+    }
+  ],
+  "type": "graph"
+}

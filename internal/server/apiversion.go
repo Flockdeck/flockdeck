@@ -33,6 +33,22 @@ const (
 // apiCaps are the features of this version, in the order they were added.
 var apiCaps = []string{"clientHello", "unsupported", "apiMismatch", "uiPrefs"}
 
+// clientFrames are the frames a window sends over /ws/control that are not
+// commands: a frame with a type and no cmd. Each is read in the socket's read
+// loop (see clientFrame) and has no handler in handleCommand. The value says what
+// the frame is for, and api/catalog.json lists them.
+var clientFrames = map[string]string{
+	"clientHello": "A window says once, after the hello, which API version it was built for and what it calls itself. A different major version is answered with apiMismatch; the same one is only noted.",
+}
+
+// clientFrame handles a frame of clientFrames.
+func (s *Server) clientFrame(c *controlClient, typ string, data []byte) {
+	switch typ {
+	case "clientHello":
+		s.clientHello(c, data)
+	}
+}
+
 // apiVersion is a version as it travels: in the hello for the server's own and
 // in clientHello for the window's.
 type apiVersion struct {
