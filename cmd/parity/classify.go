@@ -87,14 +87,12 @@ var keyVerdicts = map[string]Verdict{
 	"tilePanes":        cut(whyTiling),
 
 	// Tabs.
-	"selectTab":    task(tL1, "The tab strip sends selectTab when a tab is pressed; the Alt+number key is not run"),
 	"mergeAllTabs": cut(whyRearrange),
 
 	// Agents.
 	"toggleBroadcast":       cut(whyBroadcast),
 	"toggleBroadcastMember": cut(whyBroadcast),
 	"promptAll":             cut(whyBroadcast + " It opens the prompt bar aimed at the focused pane, which the new prompt (paneSend) covers; with broadcast on it reached every member."),
-	"closeFinishedPanes":    task(tL1),
 
 	// Git.
 	"worktrees": task(tC7),
@@ -120,12 +118,9 @@ var cmdVerdicts = map[string]Verdict{
 	"toggleBroadcast":       cut(whyBroadcast),
 	"toggleBroadcastMember": cut(whyBroadcast),
 
-	// L1: start flows and pane lifecycle.
-	"closeFinishedPanes": task(tL1),
-	"toggleZoom":         task(tL1),
-	"focusPane":          task(tL1),
-	"refreshAgents":      task(tL1, "The agent picker"),
-	"teamClose":          task(tL1),
+	// Zooming a tile of the desk's layout. The drawer's maximise (zoomPane) is the
+	// window's own and sends nothing.
+	"toggleZoom": cut(whyTiling + " The drawer has its own maximise."),
 
 	// L2: settings.
 	"statusLine":       task(tL2),

@@ -212,7 +212,8 @@ function paneIdsOf(node, out = []) {
 }
 
 /** tabsOf is the tabs of a state push: id, title, whether the title was chosen by
- *  hand, what the tab is doing and whether it is the one on the desk. */
+ *  hand, what the tab is doing, whether it is the one on the desk and the pane the
+ *  desk has focused in it. */
 export function tabsOf(state) {
   const tabs = state && Array.isArray(state.tabs) ? state.tabs : [];
   const active = state && state.activeTab ? String(state.activeTab) : "";
@@ -224,6 +225,7 @@ export function tabsOf(state) {
       named: !!t.named,
       activity: String(t.activity || ""),
       active: String(t.id) === active,
+      focus: String(t.focus || ""),
       panes: paneIdsOf(t.root),
     }));
 }

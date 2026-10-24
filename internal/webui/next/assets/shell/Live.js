@@ -21,7 +21,7 @@ import { Start } from "./Start.js";
 import { Confirm } from "./Confirm.js";
 import { LIST } from "./keys.js";
 import { Updates, trapTab } from "./Updates.js";
-import { Tabs } from "./Tabs.js";
+import { OTHER_PROJECT_WORDS, Tabs } from "./Tabs.js";
 import { Settings } from "./Settings.js";
 import { History } from "./History.js";
 import { PaneInfo } from "./PaneInfo.js";
@@ -30,6 +30,7 @@ import { Helpers } from "./Helpers.js";
 import { Team } from "./Team.js";
 import { Agents } from "./Agents.js";
 import { TEAM_RELAY_WORDS } from "../lib/team.js";
+import { CLOSE_FINISHED_COMMAND, CLOSE_FINISHED_WORDS } from "../lib/agents.js";
 import { Baton } from "./Baton.js";
 import { Projects } from "./Projects.js";
 import { Approvals } from "./Approvals.js";
@@ -115,6 +116,8 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
   // in every open project).
   const [teamOpen, setTeamOpen] = useState(false);
   const [agentsOpen, setAgentsOpen] = useState(false);
+  // The question before every finished pane is closed.
+  const [closeAsk, setCloseAsk] = useState(false);
   // The requests for an answer put away in this window.
   const [putAway, setPutAway] = useState(() => new Set());
   // The baton commands sent and not answered. A command stays here after the
@@ -363,6 +366,23 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     store.watchTeam(selected);
     return () => store.unwatchTeam();
   }, [teamOpen, selected]);
+  // The desk keeps one focused pane in each tab. A pane opened in the drawer is
+  // the one the person is working in, so the desk is told, and its own window and
+  // the commands that act on the focused pane agree with this one.
+  useEffect(() => {
+    if (!drawer.pane || snap.remote || !onDesk) return;
+    const t = tabs.find((x) => x.active);
+    if (t && t.focus !== drawer.pane && t.panes.includes(drawer.pane)) send({ cmd: "focusPane", id: drawer.pane });
+  }, [drawer.pane]);
+  // The agent lists are asked for again when the person opens something that
+  // chooses from them: a program installed while this window was open is what they
+  // are about to look for.
+  useEffect(() => {
+    if (starting && !snap.remote) send({ cmd: "refreshAgents" });
+  }, [starting]);
+  useEffect(() => {
+    if (settingsOpen && (settingsSection === "routing") && !snap.remote) send({ cmd: "refreshAgents" });
+  }, [settingsOpen, settingsSection]);
   const actions = useMemo(() => ({
     nextNeedsYou: () => {
       if (!current || snap.graphGone) return;
@@ -396,6 +416,14 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     newAgentTabChoose: () => setStarting("agent"),
     newShellTab: () => send(newTabCommand({ kind: "shell" })),
     startTeam: () => setStarting("team"),
+    selectTab: (n) => {
+      if (!onDesk) return say(OTHER_PROJECT_WORDS);
+      const t = tabs[(n || 0) - 1];
+      if (!t) return say("There is no tab " + n + ".");
+      send({ cmd: "selectTab", id: t.id });
+      return undefined;
+    },
+    closeFinishedPanes: () => setCloseAsk(true),
     nextTab: () => send({ cmd: "nextTab" }),
     prevTab: () => send({ cmd: "prevTab" }),
     moveTabLeft: () => {
@@ -429,7 +457,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     restartPane: needPane(() => life.begin("restart", node, pane)),
     lockPane: needPane(() => life.toggleLock(node.pane, !(pane && pane.locked))),
     closePane: needPane(() => (pane && pane.locked ? say("This pane is locked. Unlock it to close it.") : life.begin("close", node, pane))),
-  }), [current, snap.graphGone, snap.remote, win, drawer.pane, node, pane, tabs, life.request, tx.request, prefs.fontSize, snap.paneInfo, noticeSeq]);
+  }), [current, snap.graphGone, snap.remote, win, drawer.pane, node, pane, tabs, onDesk, life.request, tx.request, prefs.fontSize, snap.paneInfo, noticeSeq]);
 
   // The baton answers. A draft is for the dialog whose request it carries. A
   // saved or refused command is taken off the list of those out, and a saved one
@@ -502,7 +530,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     mainRef=${mainRef}
     actions=${actions}
     maximised=${drawer.maximised}
-    blocked=${!!starting || settingsOpen || updatesAt >= 0 || quitAsk || historyOpen || !!infoFor || findingPane || helpersOpen || projectsOpen || !!baton || teamOpen || agentsOpen}
+    blocked=${!!starting || settingsOpen || updatesAt >= 0 || quitAsk || historyOpen || !!infoFor || findingPane || helpersOpen || projectsOpen || !!baton || teamOpen || agentsOpen || closeAsk}
     onSettings=${() => openSettings("general")}
     onProjects=${() => setProjectsOpen(true)}
     railFoot=${snap.remote
@@ -544,7 +572,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
           send=${send} onClose=${() => setTeamOpen(false)} />`
       : null}
     ${agentsOpen
-      ? html`<${Agents} list=${snap.agentsList} send=${send} onChoose=${(a) => { if (a.root && a.root !== selected) onWatch(a.root); setOpening(a.paneId); }} onClose=${() => setAgentsOpen(false)} />`
+      ? html`<${Agents} list=${snap.agentsList} send=${send} onChoose=${(a) => { if (a.root && a.root !== selected) onWatch(a.root); setOpening(a.paneId); }} onClose=${() => setAgentsOpen(false)} onCloseFinished=${() => setCloseAsk(true)} />`
       : null}
     ${helpersOpen ? html`<${Helpers} helpers=${snap.helpers} plan=${snap.helperPlan} send=${send} onClose=${() => setHelpersOpen(false)} />` : null}
     ${projectsOpen
@@ -552,6 +580,12 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
       : null}
     ${baton
       ? html`<${Baton} draft=${draft} pane=${baton.name} run=${runBaton} answer=${batonAnswer} onClose=${() => setBaton(null)} />`
+      : null}
+    ${closeAsk
+      ? html`<div class="dialog-scrim" onKeyDown=${(e) => e.key === LIST.tab && trapTab(e, e.currentTarget)}>
+          <${Confirm} title="Close every finished pane?" words=${CLOSE_FINISHED_WORDS} label="Close finished panes"
+            onConfirm=${() => { setCloseAsk(false); send(CLOSE_FINISHED_COMMAND); }} onCancel=${() => setCloseAsk(false)} />
+        </div>`
       : null}
     ${quitAsk
       ? html`<div class="dialog-scrim" onKeyDown=${(e) => e.key === LIST.tab && trapTab(e, e.currentTarget)}>

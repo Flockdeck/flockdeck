@@ -4,7 +4,7 @@ import { Rail } from "./rail.js";
 import { Palette } from "./palette.js";
 import { Help } from "./Help.js";
 import { loadHelp } from "../lib/help.js";
-import { bindingsFrom, keyAction, unreadable } from "./keys.js";
+import { bindingsFrom, keyAction, rangeAction, rangesFrom, unreadable } from "./keys.js";
 
 /** NARROW_QUERY is the phone width. app.css repeats it in its narrow rules, and
  *  a test holds the two together. */
@@ -100,14 +100,16 @@ export function reduce(s, ev, ctx = {}) {
 /** attachKeys listens on target for the keys the table binds to an action this
  *  window runs, and hands each to dispatch as an action. It returns what takes
  *  the listener off again. The table says what a keydown is; this only runs it,
- *  and leaves every other key alone. */
-export function attachKeys(target, bindings, implemented, dispatch) {
+ *  and leaves every other key alone. A key of a run in the table (Alt+1 … Alt+9)
+ *  is an action with the number of the key in the run. */
+export function attachKeys(target, bindings, implemented, dispatch, ranges = NONE) {
   const onKey = (e) => {
     const id = keyAction(bindings, e, implemented);
-    if (!id) return;
+    const run = id ? null : rangeAction(ranges, e, implemented);
+    if (!id && !run) return;
     e.preventDefault();
     e.stopPropagation();
-    dispatch({ type: "action", id });
+    dispatch(run ? { type: "action", id: run.id, n: run.n } : { type: "action", id });
   };
   target.addEventListener("keydown", onKey, true);
   return () => target.removeEventListener("keydown", onKey, true);
@@ -155,6 +157,7 @@ export function Shell({ hello, state, notice, onDismissNotice, onWatch, narrow: 
   const keys = keysOf(hello);
   const bindings = useMemo(() => bindingsFrom(keys), [keys]);
   const broken = useMemo(() => unreadable(keys), [keys]);
+  const ranges = useMemo(() => rangesFrom(keys), [keys]);
   const narrow = useNarrow(matchMedia, narrowProp);
   const drawerOpen = !!drawer;
   const [s, dispatch] = useReducer((cur, ev) => reduce(cur, ev, { drawerOpen }), { state }, initial);
@@ -171,7 +174,7 @@ export function Shell({ hello, state, notice, onDismissNotice, onWatch, narrow: 
   const act = (ev) => {
     if (isBlocked.current) return;
     const fn = ev.type === "action" ? own.current[ev.id] : null;
-    if (fn) fn();
+    if (fn) fn(ev.n);
     else dispatch(ev);
   };
 
@@ -186,8 +189,8 @@ export function Shell({ hello, state, notice, onDismissNotice, onWatch, narrow: 
 
   useEffect(() => {
     const target = win || (typeof window !== "undefined" ? window : null);
-    return target ? attachKeys(target, bindings, implemented, act) : undefined;
-  }, [bindings, win, implemented]);
+    return target ? attachKeys(target, bindings, implemented, act, ranges) : undefined;
+  }, [bindings, win, implemented, ranges]);
 
   useEffect(() => {
     if (s.focusSeq > 0) focusRegion(regions, s.focus);

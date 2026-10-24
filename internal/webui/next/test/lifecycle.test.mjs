@@ -313,7 +313,7 @@ test("a role with no task is refused in the dialog and nothing is sent", () =>
     await choose(m, "#start-role", "worker");
     await m.click(m.byText(".dialog-btn", /^Start$/));
     assert.match(m.container.find(".dialog-note--error").textContent, /needs a task/);
-    assert.equal(m.ws().sent.length, 0);
+    assert.deepEqual(m.ws().sent.filter((c) => c.cmd !== "refreshAgents"), []); // opening the dialog asks for the agent lists again
     assert.ok(m.container.find(".dialog"), "the dialog stays open");
   }));
 
@@ -379,7 +379,7 @@ test("Escape closes the dialog, other keys are left alone, and nothing is sent",
     dialog.dispatch("keydown", { key: "Escape", shiftKey: false, ctrlKey: false, altKey: false });
     await settle();
     assert.equal(m.container.find(".dialog"), null);
-    assert.equal(m.ws().sent.length, 0);
+    assert.deepEqual(m.ws().sent.filter((c) => c.cmd !== "refreshAgents"), []); // opening the dialog asks for the agent lists again
   }));
 
 test("the key table's team and choose actions open their dialogs from the palette", () =>
@@ -768,7 +768,7 @@ test("a window with no catalog says no agent can be started and sends nothing", 
     await m.click(m.byText(".tabs-btn", /Choose agent/));
     assert.match(m.container.find(".dialog").textContent, /has not sent the list of agents/);
     await m.click(m.byText(".dialog-btn", /^Start$/));
-    assert.equal(m.ws().sent.length, 0);
+    assert.deepEqual(m.ws().sent.filter((c) => c.cmd !== "refreshAgents"), []); // opening the dialog asks for the agent lists again
   }));
 
 // ---------------------------------------------------------------- tablist keys

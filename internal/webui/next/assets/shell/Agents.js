@@ -13,9 +13,10 @@ import { Dialog } from "./Dialog.js";
 import { AGENTS_COMMAND, activityWords, agentsOf, byProject, needsYou, revealAgentCommand } from "../lib/agents.js";
 
 /** Agents is the dialog. list is the store's agents answer ({ items, seq } or
- *  null), send the store's send, onChoose(item) is told the pane chosen (after the
+ *  null), send the store's send, onCloseFinished (when given) asks to close every
+ *  finished pane, onChoose(item) is told the pane chosen (after the
  *  reveal is sent) and onClose closes the dialog. */
-export function Agents({ list, send, onChoose, onClose }) {
+export function Agents({ list, send, onChoose, onClose, onCloseFinished = null }) {
   const [grouped, setGrouped] = useState(false);
   const [failed, setFailed] = useState(false);
   // An answer from before the dialog opened is for panes that may have gone.
@@ -56,6 +57,7 @@ export function Agents({ list, send, onChoose, onClose }) {
             <h4 class="team-group-head">${g.project}</h4><ul class="ag-list">${g.panes.map(row)}</ul></section>`)
         : null}
       <div class="dialog-foot">
+        ${onCloseFinished ? html`<button type="button" class="dialog-btn" id="ag-close-finished" onClick=${onCloseFinished}>Close finished panes…</button>` : null}
         <button type="button" class="dialog-btn" onClick=${onClose}>Close</button>
       </div>
     <//>

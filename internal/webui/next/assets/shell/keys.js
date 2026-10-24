@@ -78,6 +78,35 @@ export function bindingsFrom(table) {
   return out;
 }
 
+/** rangesFrom reads the bindings of the table that name a run of keys ("Alt+1 …
+ *  Alt+9") into { id, prefix, first, last }: the modifiers both ends share and the
+ *  two keys. A run whose ends differ in modifiers, or are not one character each,
+ *  is not read. */
+export function rangesFrom(table) {
+  const out = [];
+  for (const k of table || []) {
+    if (!k.keys || !k.keys.includes("…")) continue;
+    const [from, to] = k.keys.split("…").map((p) => signatureOf(p.trim()));
+    const a = from && from.split(":");
+    const b = to && to.split(":");
+    if (!a || !b || a.length !== 2 || b.length !== 2 || a[0] !== b[0] || a[1].length !== 1 || b[1].length !== 1 || a[1] > b[1]) continue;
+    out.push({ id: k.id, prefix: a[0], first: a[1], last: b[1] });
+  }
+  return out;
+}
+
+/** rangeAction is { id, n } when a keydown is one key of a run, with n counting
+ *  from 1 at the first key, or null. */
+export function rangeAction(ranges, e, implemented) {
+  if (!ranges.length || composing(e)) return null;
+  const [prefix, key] = signatureOfEvent(e).split(":");
+  if (key === undefined || key.length !== 1) return null;
+  for (const r of ranges) {
+    if (r.prefix === prefix && key >= r.first && key <= r.last && implemented.includes(r.id)) return { id: r.id, n: key.charCodeAt(0) - r.first.charCodeAt(0) + 1 };
+  }
+  return null;
+}
+
 /** actionFor is the id of the action a keydown is, or "". A key pressed while
  *  an input method is composing belongs to it. */
 export function actionFor(bindings, e) {
