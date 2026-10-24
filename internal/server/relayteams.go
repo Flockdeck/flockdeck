@@ -124,7 +124,7 @@ var (
 	// relayNeedKinds maps the kinds of team.NeedsItem to the words a phone is told.
 	relayNeedKinds = map[string]string{
 		team.NeedPermission: "permission", team.NeedAsk: "question", team.NeedReturned: "returned",
-		team.NeedConflict: "conflict", team.NeedDown: "down", team.NeedSetup: "setup", team.NeedStaleUnread: "unread", team.NeedStuck: "stuck",
+		team.NeedConflict: "conflict", team.NeedDown: "down", team.NeedSetup: "setup", team.NeedStaleUnread: "unread",
 	}
 	// relayIDRe is what an id Flockdeck made looks like. A pane id that is not
 	// this, whatever made it, is not sent.
