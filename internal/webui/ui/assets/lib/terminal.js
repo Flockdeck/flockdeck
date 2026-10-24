@@ -7,12 +7,18 @@
 // hello says the window is reached through the relay and carries the
 // desktop's key.
 //
-// The size rule, which the drawer depends on: nothing here sends a resize when
-// the terminal opens, closes, or its box changes. The pty is resized only by
-// fitToBox(), which the caller runs when the person drags a divider or
-// maximises. The server tells this window the size of the pty (the socket asks
-// for size=1) and the terminal takes that size; a box of another size shows
-// the pane cropped or with room over, and says so (sizeNote in the state).
+// The size rule, which the drawer depends on: the terminal is the size of the
+// pty, and the server tells this window that size (the socket asks for size=1).
+// A window on the desk says what its box measures, when the socket opens and
+// whenever the box changes (the drawer opening, maximising, a window resize, the
+// tab being shown); that is a measurement, not a demand: the server sizes the
+// pane for the window last used, or, while none has been, for the least of the
+// windows' boxes, so a pane another window is using is not taken from it. A box
+// of another size than the pty shows the pane cropped or with room over, and
+// says so (sizeNote in the state); takeOver() is the button that makes this
+// window the one the pane is sized for. A device reached through the relay says
+// nothing until asked (a glance from a phone must not shrink the desk's terminal),
+// and neither does a viewer.
 //
 // A pane that is structured has no terminal: the terminal shows a one-line
 // stub and nothing is opened. A viewer that may not watch panes does not open
@@ -244,7 +250,7 @@ export function createTerminal(opts) {
     host.addEventListener("pointerdown", focus);
     hostListeners.push(["pointerdown", focus, false]);
     // The box changing (the drawer opening, the window resized) measures the
-    // box and updates the note. It never sends a resize.
+    // box, updates the note and reports the measurement (see report).
     const RO = opts.ResizeObserver || G.ResizeObserver;
     if (RO) {
       observer = new RO(() => measure());
@@ -283,6 +289,32 @@ export function createTerminal(opts) {
     box = d && d.cols && d.rows ? { cols: d.cols, rows: d.rows } : null;
     updateNote();
     matchPtySize();
+    scheduleReport();
+  }
+
+  // What this window last told the server its box measures on this socket.
+  let reported = null;
+  let reportTimer = null;
+  const REPORT_MS = 120;
+
+  /** reports says this window may tell the server its box: it is on the desk, not reached through the relay, and not a viewer. */
+  function mayReport() {
+    const h = store.getState().hello;
+    return !!h && !h.remote && h.role !== "viewer";
+  }
+
+  function scheduleReport() {
+    if (reportTimer !== null || !pty) return;
+    // The drawer settling, a window dragged: one measurement for the burst.
+    reportTimer = setTimeout(() => { reportTimer = null; report(); }, REPORT_MS);
+  }
+
+  /** report sends the box's size when it is one a terminal can be and is not the last one sent. */
+  function report() {
+    if (!term || !pty || !box || !mayReport()) return;
+    if (box.cols < MIN_COLS || box.rows < MIN_ROWS) return;
+    if (reported && reported.cols === box.cols && reported.rows === box.rows) return;
+    if (pty.sendResize(box.cols, box.rows)) reported = { cols: box.cols, rows: box.rows };
   }
 
   function updateNote() {
@@ -432,6 +464,9 @@ export function createTerminal(opts) {
         term.write(bytes);
       },
       onOpen() {
+        // A new socket is a new window to the server: it has said nothing yet.
+        reported = null;
+        measure();
         if (focused() && pty) pty.sendFocus();
       },
       onState(st) {
@@ -507,16 +542,19 @@ export function createTerminal(opts) {
       stopPty();
       search = null;
       searchLoad = null;
+      if (reportTimer !== null) { clearTimeout(reportTimer); reportTimer = null; }
       if (term) { term.dispose(); term = null; }
     },
     /** fitToBox makes the pty the size of this terminal's box and tells the
-     *  server. It is the only thing here that sends a resize, and is for the
-     *  person dragging a divider or maximising. */
+     *  server, whatever the relay or a window used last. It is for the person
+     *  dragging a divider or maximising. */
     fitToBox() {
       if (!term || !fit || !pty) return false;
       measure();
       if (!box) return false;
-      return pty.sendResize(box.cols, box.rows);
+      const sent = pty.sendResize(box.cols, box.rows);
+      if (sent) reported = { cols: box.cols, rows: box.rows };
+      return sent;
     },
     /** takeOver is the size note's button: size the pane for this window. */
     takeOver() {
