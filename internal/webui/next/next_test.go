@@ -16,6 +16,7 @@ import (
 	"regexp"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -85,7 +86,11 @@ var (
 
 // The page loads: index.html names a module, the module and everything it
 // imports is served as JavaScript, and the hello component is among them.
+//
+// This follows the files as they are written, so it asks for them separately;
+// the page the server sends joins them (TestServedPageIsAFewFiles).
 func TestPageLoadsTheLiveShell(t *testing.T) {
+	t.Setenv(webui.UnbundledEnv, "1")
 	srv := serve(t)
 	page, ct := get(t, srv.URL+"/")
 	if !strings.HasPrefix(ct, "text/html") {
@@ -136,6 +141,59 @@ func TestPageLoadsTheLiveShell(t *testing.T) {
 	for _, want := range []string{"lib/store.js", "lib/socket.js", "lib/e2e-boot.js", "shell/Live.js", "shell/Home.js", "graph/Graph.js", "graph/Edges.js", "graph/ManagerBar.js", "drawer/Conversation.js", "drawer/Structured.js"} {
 		if !seen[srv.URL+"/assets/"+want] {
 			t.Errorf("%s is not reached from the entry module; reached %v", want, got)
+		}
+	}
+}
+
+// The server sends the front end as a few files: the page, one script that holds
+// every module the written graph reaches, one stylesheet and the fonts. A first
+// load is round trips, and a hundred files were about ten seconds of them on a
+// phone's link (docs/first-load.md).
+func TestServedPageIsAFewFiles(t *testing.T) {
+	srv := serve(t)
+	page, _ := get(t, srv.URL+"/")
+	var refs []string
+	for _, m := range regexp.MustCompile(`(?i)<(?:script|link)\b[^>]*\b(?:src|href)="([^"]+)"`).FindAllStringSubmatch(page, -1) {
+		refs = append(refs, m[1])
+	}
+	if want := []string{"assets/app.css", "assets/main.js"}; !slices.Equal(refs, want) {
+		t.Fatalf("the served page names %v, want %v", refs, want)
+	}
+	script, ct := get(t, srv.URL+"/assets/main.js")
+	if !strings.Contains(ct, "javascript") {
+		t.Errorf("main.js is served as %q", ct)
+	}
+	if regexp.MustCompile(`(?m)^\s*(import|export)\b`).MatchString(script) {
+		t.Error("the joined script still has an import or export")
+	}
+	// Every module the written graph holds is in it.
+	t.Setenv(webui.UnbundledEnv, "1")
+	written := serve(t)
+	seen := map[string]bool{}
+	var visit func(name string)
+	visit = func(name string) {
+		if seen[name] {
+			return
+		}
+		seen[name] = true
+		src, _ := get(t, written.URL+"/assets/"+name)
+		for _, sm := range importSpec.FindAllStringSubmatch(src, -1) {
+			visit(path.Join(path.Dir(name), sm[1]))
+		}
+	}
+	visit("main.js")
+	if len(seen) < 50 {
+		t.Fatalf("the written graph has only %d modules", len(seen))
+	}
+	for name := range seen {
+		if !strings.Contains(script, "__defs["+strconv.Quote(name)+"]") {
+			t.Errorf("the joined script has no %s", name)
+		}
+	}
+	css, _ := get(t, srv.URL+"/assets/app.css")
+	for _, name := range []string{"vendor/xterm.css", "app.css", "graph/graph.css", "drawer/drawer.css", "shell/start.css"} {
+		if !strings.Contains(css, "/* "+name+" */") {
+			t.Errorf("the joined stylesheet has no %s", name)
 		}
 	}
 }
@@ -441,6 +499,15 @@ func TestNodeTests(t *testing.T) {
 	if err := os.WriteFile(helpFile, helpJSON, 0o600); err != nil {
 		t.Fatal(err)
 	}
+	// The modules joined as the server sends them, for the test that runs them.
+	joined, err := webui.Bundled()
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundleFile := filepath.Join(t.TempDir(), "main.mjs")
+	if err := os.WriteFile(bundleFile, joined["main.js"], 0o600); err != nil {
+		t.Fatal(err)
+	}
 	slots := make(chan struct{}, nodeTestProcesses)
 	for _, file := range files {
 		t.Run(filepath.Base(file), func(t *testing.T) {
@@ -453,7 +520,7 @@ func TestNodeTests(t *testing.T) {
 			cmd := exec.CommandContext(ctx, node, "--test", "--test-timeout="+nodeTestLimitMS, file)
 			// testiso.Main has already pointed the home and config variables at a
 			// throwaway directory and cleared the credentials; node inherits that.
-			cmd.Env = append(os.Environ(), "NEXT_KEYS_JSON="+keysFile, "NEXT_HELP_JSON="+helpFile)
+			cmd.Env = append(os.Environ(), "NEXT_KEYS_JSON="+keysFile, "NEXT_HELP_JSON="+helpFile, "NEXT_BUNDLE_JS="+bundleFile)
 			cmd.WaitDelay = 5 * time.Second
 			start := time.Now()
 			out, err := cmd.CombinedOutput()
