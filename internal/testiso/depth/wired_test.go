@@ -15,7 +15,8 @@ import (
 // the code it shares. Otherwise a lost variable makes the child run the whole
 // suite and start the next one, which is how a machine was once brought down.
 var (
-	runsItself = regexp.MustCompile(`os\.Executable\(\)|os\.Args\[0\]`)
+	// acptest.Command uses os.Executable in a file that is not a test.
+	runsItself = regexp.MustCompile(`os\.Executable\(\)|os\.Args\[0\]|acptest\.Command\(`)
 	guarded    = regexp.MustCompile(`depth\.Guard\(\)|iso\.Main\(|testiso\.Main\(|RunIfAgent\(\)|os\.Exit\(Main\(m\)\)`)
 )
 
@@ -24,12 +25,13 @@ func TestEveryPackageThatRunsItsTestBinaryAgainGuardsAgainstRecursion(t *testing
 	uses := map[string][]string{} // package directory -> files that run the binary again
 	guard := map[string]bool{}    // package directory -> has a guard
 	walked := 0
-	err := filepath.WalkDir(filepath.Join(root, "internal"), func(path string, d fs.DirEntry, err error) error {
+	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if d.IsDir() {
-			if d.Name() == "node_modules" || d.Name() == "testdata" {
+			switch d.Name() {
+			case ".git", "node_modules", "testdata", "vendor":
 				return filepath.SkipDir
 			}
 			return nil

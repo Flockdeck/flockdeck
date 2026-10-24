@@ -89,9 +89,12 @@ non-zero and lists what was refused.
   fails open: where the process table cannot be read (an unsupported system, or
   a failed snapshot or `/proc` read) it does nothing, so it is a second line of
   defence and does not replace passing the child what it needs. A test in
-  `internal/testiso/depth` fails if a package's tests run their own binary
-  (`os.Executable()` or `os.Args[0]`) and none of its test files calls
-  `depth.Guard`, `iso.Main`, `testiso.Main` or `acptest.RunIfAgent`.
+  `internal/testiso/depth` walks every `*_test.go` in the repository (the root
+  package, `cmd/` and `internal/`; not `.git`, `node_modules`, `testdata` or
+  `vendor`) and fails if a package's tests run their own binary
+  (`os.Executable()`, `os.Args[0]` or `acptest.Command`) and none of its test
+  files calls `depth.Guard`, `iso.Main`, `testiso.Main` or `acptest.RunIfAgent`.
+  It checks that a call is there, not that it comes first.
 
 If a guard trips, the message names what was reached; fix the test rather than
 the guard. `internal/testiso/testiso_test.go` holds the regression tests that
