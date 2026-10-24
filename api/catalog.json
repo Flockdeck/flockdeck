@@ -965,6 +965,18 @@
       "status": "stable"
     },
     {
+      "name": "taskDepends",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "taskEstimate",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
       "name": "taskGet",
       "access": "full",
       "since": "1.0",

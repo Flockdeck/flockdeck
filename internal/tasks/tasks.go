@@ -40,6 +40,10 @@ const (
 	MaxNote = 4 * 1024
 	// MaxBranch is the most a branch name may have, in bytes.
 	MaxBranch = 200
+	// MaxDepends is how many tasks one task may wait on.
+	MaxDepends = 20
+	// MaxEstimateMin is the largest estimate, in minutes: a week.
+	MaxEstimateMin = 7 * 24 * 60
 	// MaxTasks is how many tasks a board holds. A board that is full drops its
 	// oldest done or cancelled task to make room for a new one, and refuses the
 	// new one only when every task is open.
@@ -168,6 +172,13 @@ type Task struct {
 	// Baton is the id of a baton that gives the task its context. The baton
 	// stays what it is, a handoff that is not changed; the task only points at it.
 	Baton string `json:"baton,omitempty"`
+	// Depends is the ids of the tasks that must be finished (done or
+	// cancelled) before this one can start. EstimateMin is how long the work
+	// is thought to take, in minutes; zero is no estimate. Both are the
+	// manager's or the owner's to set, and neither is enforced: they are what
+	// a window draws a dependency tree from.
+	Depends     []string `json:"depends,omitempty"`
+	EstimateMin int      `json:"estimateMin,omitempty"`
 
 	Notes []Note `json:"notes,omitempty"`
 	// History is what was done to the task, oldest first: the window shows it

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/jmwri/flockdeck/internal/hooks"
@@ -41,6 +42,8 @@ func taskUsage() {
 		"       flockdeck task note <id> <text...>\n"+
 		"       flockdeck task branch <id> <branch>\n"+
 		"       flockdeck task baton <id> <baton-id>\n"+
+		"       flockdeck task depends <id> [<id>...]\n"+
+		"       flockdeck task estimate <id> <minutes>\n"+
 		"       flockdeck task prune [-days N]\n\n"+
 		"The task board of this project, shared by every agent in it whatever worktree\n"+
 		"it is in. States: planned, assigned, in-progress, in-review, done, blocked,\n"+
@@ -78,6 +81,10 @@ func runTaskWith(call taskCall, args []string, stdin io.Reader, out io.Writer) e
 		err = taskTwoArgs(call, hooks.TaskBranch, "branch", "<id> <branch>", rest, out)
 	case "baton":
 		err = taskTwoArgs(call, hooks.TaskBaton, "baton", "<id> <baton-id>", rest, out)
+	case "depends":
+		err = taskDepends(call, rest, out)
+	case "estimate":
+		err = taskEstimate(call, rest, out)
 	case "prune":
 		err = taskPrune(call, rest, out)
 	default:
@@ -286,6 +293,57 @@ func taskTwoArgs(call taskCall, op, name, shape string, args []string, out io.Wr
 		return err
 	}
 	return printChange(out, map[string]string{hooks.TaskAssign: "assigned", hooks.TaskBranch: "branch set on", hooks.TaskBaton: "baton set on"}[op], res)
+}
+
+// taskDepends sets the tasks a task waits on; with no ids it clears them.
+func taskDepends(call taskCall, args []string, out io.Writer) error {
+	fs := taskFlagSet("depends")
+	fs.Usage = func() {
+		fmt.Fprint(os.Stderr, "Usage: flockdeck task depends <id> [<id>...]\n\n"+
+			"Sets the tasks that must be done or cancelled before this one can start,\n"+
+			"replacing the list. With no ids it clears the list. A task cannot wait on\n"+
+			"itself, and a list that would make a loop is refused.\n")
+	}
+	pos, err := parseInterspersed(fs, args)
+	if err != nil {
+		return err
+	}
+	if len(pos) < 1 {
+		fs.Usage()
+		return errReported
+	}
+	res, err := call(hooks.TaskRequest{Op: hooks.TaskDepends, ID: pos[0], Depends: pos[1:]})
+	if err != nil {
+		return err
+	}
+	return printChange(out, "dependencies set on", res)
+}
+
+// taskEstimate sets how long a task is thought to take, in minutes.
+func taskEstimate(call taskCall, args []string, out io.Writer) error {
+	fs := taskFlagSet("estimate")
+	fs.Usage = func() {
+		fmt.Fprint(os.Stderr, "Usage: flockdeck task estimate <id> <minutes>\n\n"+
+			"Records how long the task is thought to take, in minutes (at most one week).\n"+
+			"Zero clears the estimate.\n")
+	}
+	pos, err := parseInterspersed(fs, args)
+	if err != nil {
+		return err
+	}
+	if len(pos) != 2 {
+		fs.Usage()
+		return errReported
+	}
+	n, err := strconv.Atoi(pos[1])
+	if err != nil {
+		return fmt.Errorf("%q is not a number of minutes", team.PlainLabel(pos[1]))
+	}
+	res, err := call(hooks.TaskRequest{Op: hooks.TaskEstimate, ID: pos[0], Minutes: n})
+	if err != nil {
+		return err
+	}
+	return printChange(out, "estimate set on", res)
 }
 
 func taskPruneFlagSet(days *int) *flag.FlagSet {

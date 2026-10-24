@@ -216,6 +216,8 @@ const (
 	NoteKind Kind = "noted"
 	Branch   Kind = "branch"
 	Baton    Kind = "baton"
+	Depends  Kind = "depends"
+	Estimate Kind = "estimate"
 )
 
 // Change is what one operation did to a task.
@@ -521,6 +523,123 @@ func (b *Board) SetBranch(a Actor, hasManager bool, id, branch string) (Change, 
 		t.Updated = b.now()
 		t.addEvent(a, t.Updated, "set the branch to "+branch)
 		ch = Change{Kind: Branch, Task: *t}
+		return nil
+	})
+	return ch, err
+}
+
+// CleanDepends checks the ids a task is to wait on against the board: each must
+// be a task there other than the task itself, none twice, at most MaxDepends,
+// and the new edges must not close a loop. It returns the ids as the board
+// spells them, in the order given. No ids clears the list.
+func CleanDepends(f []Task, id string, ids []string) ([]string, error) {
+	if len(ids) > MaxDepends {
+		return nil, fmt.Errorf("%s may wait on at most %d tasks, %d were given", id, MaxDepends, len(ids))
+	}
+	byID := map[string]Task{}
+	for _, t := range f {
+		byID[t.ID] = t
+	}
+	seen := map[string]bool{}
+	out := make([]string, 0, len(ids))
+	for _, raw := range ids {
+		dep, err := ParseID(raw)
+		if err != nil {
+			return nil, err
+		}
+		switch {
+		case dep == id:
+			return nil, fmt.Errorf("%s cannot wait on itself", id)
+		case seen[dep]:
+			return nil, fmt.Errorf("%s is listed twice", dep)
+		}
+		if _, ok := byID[dep]; !ok {
+			return nil, fmt.Errorf("no task %s on this project's board to wait on; `flockdeck task list -state all` lists them", dep)
+		}
+		seen[dep] = true
+		out = append(out, dep)
+	}
+	// A loop is a path from a dependency back to this task through the tasks'
+	// own lists, so walk from each new dependency and see whether id is reached.
+	visited := map[string]bool{}
+	var reaches func(from string) bool
+	reaches = func(from string) bool {
+		if from == id {
+			return true
+		}
+		if visited[from] {
+			return false
+		}
+		visited[from] = true
+		for _, next := range byID[from].Depends {
+			if reaches(next) {
+				return true
+			}
+		}
+		return false
+	}
+	for _, dep := range out {
+		if reaches(dep) {
+			return nil, fmt.Errorf("%s waiting on %s would make a loop: %s already waits on %s, directly or through other tasks", id, dep, dep, id)
+		}
+	}
+	return out, nil
+}
+
+// SetDepends records which tasks a task waits on. An empty list clears it.
+func (b *Board) SetDepends(a Actor, hasManager bool, id string, ids []string) (Change, error) {
+	var ch Change
+	err := b.update(func(f *file) error {
+		t, err := find(f, id)
+		if err != nil {
+			return err
+		}
+		if err := CheckEdit(*t, a, hasManager); err != nil {
+			return err
+		}
+		deps, err := CleanDepends(f.Tasks, t.ID, ids)
+		if err != nil {
+			return err
+		}
+		if len(deps) == 0 {
+			deps = nil
+		}
+		t.Depends = deps
+		t.Updated = b.now()
+		what := "cleared what the task waits on"
+		if len(deps) > 0 {
+			what = "set the task to wait on " + strings.Join(deps, ", ")
+		}
+		t.addEvent(a, t.Updated, what)
+		ch = Change{Kind: Depends, Task: *t}
+		return nil
+	})
+	return ch, err
+}
+
+// SetEstimate records how long a task is thought to take, in minutes. Zero
+// clears it.
+func (b *Board) SetEstimate(a Actor, hasManager bool, id string, minutes int) (Change, error) {
+	if minutes < 0 || minutes > MaxEstimateMin {
+		return Change{}, fmt.Errorf("an estimate is between 0 and %d minutes, %d was given", MaxEstimateMin, minutes)
+	}
+	var ch Change
+	err := b.update(func(f *file) error {
+		t, err := find(f, id)
+		if err != nil {
+			return err
+		}
+		if err := CheckEdit(*t, a, hasManager); err != nil {
+			return err
+		}
+		t.EstimateMin = minutes
+		t.Updated = b.now()
+		what := "cleared the estimate"
+		if minutes > 0 {
+			what = fmt.Sprintf("estimated the task at %d minutes", minutes)
+		}
+		t.addEvent(a, t.Updated, what)
+		ch = Change{Kind: Estimate, Task: *t}
 		return nil
 	})
 	return ch, err

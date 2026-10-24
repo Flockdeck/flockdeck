@@ -63,6 +63,16 @@ func Detail(t Task) string {
 	if t.Baton != "" {
 		fmt.Fprintf(&b, "baton: %s (flockdeck baton show %s)\n", team.PlainLabel(t.Baton), team.PlainLabel(t.Baton))
 	}
+	if len(t.Depends) > 0 {
+		ids := make([]string, len(t.Depends))
+		for i, d := range t.Depends {
+			ids[i] = team.PlainLabel(d)
+		}
+		fmt.Fprintf(&b, "waits on: %s\n", strings.Join(ids, ", "))
+	}
+	if t.EstimateMin > 0 {
+		fmt.Fprintf(&b, "estimate: %d minutes\n", t.EstimateMin)
+	}
 	fmt.Fprintf(&b, "created: %s, updated: %s\n", t.Created.Local().Format("2006-01-02 15:04"), t.Updated.Local().Format("2006-01-02 15:04"))
 	if t.Body != "" {
 		b.WriteString("body:\n" + team.Block(t.Body, "  ") + "\n")
