@@ -1,0 +1,31 @@
+/* The team as an outline (graph/Tree.js, TreeRow.js): one dense row per agent. */
+.tree-view { display: flex; flex-direction: column; min-width: 0; width: 100%; }
+.tree-goal { border-bottom: 1px solid var(--line-subtle); padding: 10px 16px; }
+.tree { min-width: 0; }
+.tree-head, .tree-row { align-items: center; display: flex; gap: 8px; min-height: 34px; padding-right: 8px; }
+.tree-head { color: var(--fg-dim); font-size: 10.5px; letter-spacing: .08em; min-height: 26px; padding-left: 2px; text-transform: uppercase; }
+.tree-row { background: none; border-bottom: 1px solid var(--line-subtle); border-left: 2px solid transparent; cursor: pointer; }
+.tree-row:hover { background: var(--bg-hover); }
+.tree-row:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; }
+.tree-row--ask { background: var(--waiting-subtle); border-left-color: var(--waiting); }
+.tree-row--down { background: var(--exited-subtle); border-left-color: var(--exited); }
+.tree-row.is-open { background: var(--accent-subtle); border-left-color: var(--accent); }
+.tree-indent { align-self: stretch; border-left: 1px solid var(--line); box-sizing: border-box; flex: 0 0 16px; }
+.tree-lead { flex: 0 0 40px; }
+.tree-head .tree-c { font: inherit; overflow: visible; }
+.tree-toggle { color: var(--fg-dim); flex: 0 0 18px; text-align: center; }
+.tree-glyph { box-sizing: border-box; flex: 0 0 14px; height: 14px; position: relative; width: 14px; }
+.tree-glyph--working, .tree-glyph--idle, .tree-glyph--starting, .tree-glyph--unknown { border: 2px solid var(--fg-dim); border-radius: 50%; }
+.tree-glyph--working { border-color: var(--working); }
+.tree-glyph--working::after { background: var(--working); border-radius: 50%; content: ""; inset: 2px; position: absolute; }
+.tree-glyph--waiting::before, .tree-glyph--blocked::before { background: var(--waiting); content: ""; height: 10px; left: 2px; position: absolute; top: 2px; transform: rotate(45deg); width: 10px; }
+.tree-glyph--exited, .tree-glyph--failed { color: var(--exited); }
+.tree-glyph--exited::before, .tree-glyph--failed::before { content: "\00d7"; font-size: 17px; left: 0; line-height: 14px; position: absolute; top: -1px; }
+.tree-c { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tree-c--name { flex: 0 0 calc(112px - var(--depth, 0) * 24px); font-size: 13px; font-weight: 600; }
+.tree-c--role { color: var(--fg-dim); flex: 0 0 64px; font-size: 12px; }
+.tree-c--task { color: var(--fg-dim); flex: 0 0 30px; font-family: var(--mono, monospace); font-size: 11.5px; }
+.tree-c--doing { color: var(--fg-dim); flex: 1 1 0; font-family: var(--mono, monospace); font-size: 12px; }
+.tree-row--ask .tree-c--doing, .tree-row--down .tree-c--doing { color: var(--fg); }
+.tree-c--age { color: var(--fg-dim); flex: 0 0 34px; font-family: var(--mono, monospace); font-size: 12px; text-align: right; }
+.tree-c--cost { flex: 0 0 46px; font-family: var(--mono, monospace); font-size: 12px; text-align: right; }

@@ -605,5 +605,5 @@ test("Feed: eleven entries show and the rest scroll, and it stacks under the hom
   const css = readFileSync(join(here, "..", "assets", "graph", "graph.css"), "utf8");
   assert.ok(css.includes("max-height: calc(11 * var(--feed-row)); overflow-y: auto;"));
   const app = readFileSync(join(here, "..", "assets", "app.css"), "utf8");
-  assert.ok(app.includes("  .home-split--feed { grid-template-columns: minmax(0, 1fr); }"), "below 1000 px the feed stacks under the home");
+  assert.ok(app.includes("  .home-split.home-split--feed { grid-template-columns: minmax(0, 1fr); }"), "below 1000 px the feed stacks under the home");
 });

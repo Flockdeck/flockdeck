@@ -85,10 +85,12 @@ test("a tab shows how many items in it need you, in its badge and its name", () 
 import { HAS_TREE, TREE_VIEW, firstViewOf, viewsOf } from "../assets/shell/Views.js";
 
 test("the switch offers Tree first only when the page has it, and the page starts there then", () => {
-  assert.equal(HAS_TREE, false, "the outline is not built in yet");
-  assert.deepEqual(viewsOf().map(([id]) => id), ["graph", "board", "changes", "replay"]);
+  assert.equal(HAS_TREE, true, "the outline is built in");
+  assert.deepEqual(viewsOf().map(([id]) => id), ["tree", "graph", "board", "changes", "replay"]);
+  assert.deepEqual(viewsOf(false).map(([id]) => id), ["graph", "board", "changes", "replay"]);
   assert.deepEqual(viewsOf(true).map(([id]) => id), ["tree", "graph", "board", "changes", "replay"]);
-  assert.equal(firstViewOf(), "graph");
+  assert.equal(firstViewOf(), TREE_VIEW[0]);
+  assert.equal(firstViewOf(false), "graph");
   assert.equal(firstViewOf(true), TREE_VIEW[0]);
   const tabs = [{ id: "t1", title: "Team", activity: "", active: true, panes: [] }];
   const out = renderToString(html`<${Tabs} tabs=${tabs} send=${() => {}} view="tree" onView=${() => {}} views=${viewsOf(true)} />`);

@@ -138,6 +138,16 @@ function nodeOf(raw) {
     unread: num(n.unread),
     autoReview: n.autoReview === true,
     autoApproved: num(n.autoApproved),
+    spendUSD: num(n.spendUSD),
+    spendPartial: n.spendPartial === true,
+    // Messages this pane sent that are still only queued (the push counts them all).
+    undelivered: num(n.undelivered),
+    lastOutput: str(n.lastOutput),
+    // The desk's own figures. stuckOf and rollupOf work these out from the tree
+    // and the times and use these only when that is not possible.
+    stuck: n.stuck === true,
+    below: num(n.below),
+    needYou: num(n.needYou),
   };
 }
 
@@ -410,4 +420,75 @@ export function promptOf(pane) {
     return { kind: str(p.status) === "waiting" ? "waiting" : "none", hidden, tool: "", summary: "", options: [], canAnswerHere: false };
   }
   return { kind: "none", hidden: false, tool: "", summary: "", options: [], canAnswerHere: false };
+}
+
+/** STUCK_MS is how long a working terminal pane may write nothing before it is called stuck. */
+export const STUCK_MS = 10 * 60 * 1000;
+
+function timeOf(iso) {
+  const t = Date.parse(iso);
+  return Number.isFinite(t) && t >= Date.UTC(2000, 0, 1) ? t : NaN;
+}
+
+/**
+ * stuckOf says a pane is working and has written nothing to its terminal for
+ * STUCK_MS: { minutes } (how long it has been quiet), or null. A structured pane
+ * has no output stream and is never stuck. A pane with no last-output time is
+ * stuck only when the desk said so, and then its minutes are 0 ("" is drawn).
+ */
+export function stuckOf(node, now) {
+  if (!node || node.structured || stateKey(node) !== "working") return null;
+  const t = timeOf(node.lastOutput);
+  if (Number.isNaN(t)) return node.stuck ? { minutes: 0 } : null;
+  const quiet = now - t;
+  return quiet >= STUCK_MS ? { minutes: Math.floor(quiet / 60000) } : null;
+}
+
+// What a pane is doing, as the outline ranks it: its activity, else its status.
+function stateKey(node) {
+  return node.activity && node.activity !== "unknown" ? node.activity : node.status;
+}
+
+/**
+ * rollupOf counts the panes below one: { below, needYou }. needYou is how many of
+ * them wait on the person or ended (a pane's non-quiet needs, or a waiting or
+ * blocked or ended state). It walks the model's own tree of the pane, so a chain
+ * of any length is counted. With no helpers known here it is the desk's figures.
+ */
+export function rollupOf(model, pane) {
+  const node = model.byPane.get(pane);
+  if (!node) return { below: 0, needYou: 0 };
+  const seen = new Set([pane]);
+  const stack = [pane];
+  let below = 0;
+  let needYou = 0;
+  const index = childIndexOf(model);
+  while (stack.length > 0) {
+    const id = stack.pop();
+    const n = model.byPane.get(id);
+    const out = n ? n.children.slice() : [];
+    for (const c of index.get(id) || []) if (!out.includes(c)) out.push(c);
+    for (const c of out) {
+      if (seen.has(c) || !model.byPane.has(c)) continue;
+      seen.add(c);
+      below++;
+      const k = model.byPane.get(c);
+      const needs = model.needsByPane.get(c) || [];
+      const state = stateKey(k);
+      if (needs.some((x) => !QUIET_KINDS.includes(x.kind)) || state === "waiting" || state === "blocked" || state === "exited" || state === "failed") needYou++;
+      stack.push(c);
+    }
+  }
+  if (below === 0 && node.below > 0) return { below: node.below, needYou: node.needYou };
+  return { below, needYou };
+}
+
+function childIndexOf(model) {
+  const index = new Map();
+  for (const m of model.nodes) {
+    if (!m.parent) continue;
+    if (!index.has(m.parent)) index.set(m.parent, []);
+    index.get(m.parent).push(m.pane);
+  }
+  return index;
 }
