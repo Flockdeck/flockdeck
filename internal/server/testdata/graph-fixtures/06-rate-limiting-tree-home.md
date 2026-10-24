@@ -1,6 +1,6 @@
 # 06-rate-limiting-tree-home
 
-The prototype's team "rate limiting": a manager and an api lead with tests and bench nested under it, eight helpers in all (the cap). The lead asks to run a command, ci asks a question, api and cfg change the same file, and lint ended in error. cdx has written nothing for twelve minutes while working, which is a quiet stuck item. The nodes carry the per-node figures: spend, last output, undelivered messages and the rollups below and needYou. The prototype's docs helper is left out to stay at the cap, and its cdx is stuck at seven minutes where the real rule waits for ten."
+The prototype's team "rate limiting": a manager and an api lead with tests and bench nested under it, eight helpers in all (the cap). The lead asks to run a command, ci asks a question, api and cfg change the same file, and lint ended in error. cdx has written nothing for twelve minutes while working, which is a quiet stuck item. The nodes carry the per-node figures: spend, last output, undelivered messages and the rollups below and needYou. The prototype's docs helper is left out to stay at the cap, and its cdx is stuck at seven minutes where the real rule waits for ten.
 
 The team is a manager and 8 helpers, of which tests is a helper of api, of which bench is a helper of api. The graph is judged at 2026-10-21T09:00:00Z.
 

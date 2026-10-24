@@ -197,7 +197,7 @@ var graphFixtureSpecs = []fxSpec{
 	},
 	{
 		name:        "06-rate-limiting-tree-home",
-		description: "The prototype's team \"rate limiting\": a manager and an api lead with tests and bench nested under it, eight helpers in all (the cap). The lead asks to run a command, ci asks a question, api and cfg change the same file, and lint ended in error. cdx has written nothing for twelve minutes while working, which is a quiet stuck item. The nodes carry the per-node figures: spend, last output, undelivered messages and the rollups below and needYou. The prototype's docs helper is left out to stay at the cap, and its cdx is stuck at seven minutes where the real rule waits for ten.\"",
+		description: "The prototype's team \"rate limiting\": a manager and an api lead with tests and bench nested under it, eight helpers in all (the cap). The lead asks to run a command, ci asks a question, api and cfg change the same file, and lint ended in error. cdx has written nothing for twelve minutes while working, which is a quiet stuck item. The nodes carry the per-node figures: spend, last output, undelivered messages and the rollups below and needYou. The prototype's docs helper is left out to stay at the cap, and its cdx is stuck at seven minutes where the real rule waits for ten.",
 		helpers: []fxHelper{
 			{name: "api", state: fxPerm, text: "go test ./... -race -count=1", since: 2, usd: 3.82},
 			{name: "tests", parent: "api", state: fxWorking, text: "Write limiter_test.go", since: 4, usd: 0.73, lastOut: 1},
