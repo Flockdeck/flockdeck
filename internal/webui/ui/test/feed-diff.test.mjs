@@ -14,7 +14,7 @@ const graph = ({ nodes = [node("m"), node("a"), node("b")], needs = [], edges = 
   });
 const need = (kind, pane, extra = {}) => ({ id: kind + ":" + pane, kind, pane, time: "2026-10-21T10:00:00Z", text: "", ...extra });
 const diff = (a, b) => diffGraphs(a, b, NOW);
-const texts = (es) => es.map((e) => e.text.replace(/.$/, ""));
+const texts = (es) => es.map((e) => e.text.replace(/[.]$/, ""));
 
 test("the first push, and a push for another project, are a starting point and give nothing", () => {
   assert.deepEqual(diff(buildGraphModel(null), graph()), []);
