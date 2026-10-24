@@ -15,7 +15,7 @@ import { html } from "../html.js";
 import { composing, LIST } from "./keys.js";
 import { Confirm } from "./Confirm.js";
 import { moveTabCommand } from "../lib/lifecycle.js";
-import { viewsOf } from "./Views.js";
+import { viewsOf, firstViewOf } from "./Views.js";
 
 /** TITLE_MAX is the most characters of a title the desk keeps. */
 export const TITLE_MAX = 80;
@@ -31,7 +31,7 @@ export const CLOSE_WAITING_WORDS = "An agent in this tab is waiting for your ans
 /** Tabs draws the strip. tabs are from tabsOf; send is the store's; onChoose
  *  opens the start dialog for a tab on a chosen agent. With show false (the
  *  window is on a project that is not the desk's) there is only the note. */
-export function Tabs({ tabs, send, onChoose, onHistory = null, onFind = null, view = "graph", onView = null, views = null, needs = null, warnFor, show = true }) {
+export function Tabs({ tabs, send, onChoose, onHistory = null, onFind = null, view = firstViewOf(), onView = null, views = null, needs = null, warnFor, show = true }) {
   const [renaming, setRenaming] = useState("");
   const [closing, setClosing] = useState(null);
   const [stop, setStop] = useState("");

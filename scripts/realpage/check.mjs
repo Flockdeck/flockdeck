@@ -345,6 +345,9 @@ async function load(browser, url, boxesExpected, rate) {
     });
   }
   await page.S("Page.navigate", { url });
+  // The page starts on the Team outline; the canvas is under "Graph".
+  await page.until(`!!document.querySelector('[data-view="graph"]')`);
+  await page.eval(`document.querySelector('[data-view="graph"]').click()`);
   const ok = await page.until(`document.querySelectorAll("g.gnode").length >= ${boxesExpected}`);
   return { page, ok };
 }
