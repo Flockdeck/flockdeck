@@ -8,10 +8,10 @@ It compares two lists the sources hold: the actions of the key table (`internal/
 
 | | Actions | Commands |
 | --- | --- | --- |
-| done | 38 | 90 |
-| replaced | 0 | 3 |
+| done | 40 | 103 |
+| replaced | 0 | 1 |
 | cut | 14 | 12 |
-| planned | 6 | 51 |
+| planned | 4 | 40 |
 | unclassified | 0 | 0 |
 | total | 58 | 156 |
 
@@ -54,14 +54,12 @@ The old interface let a person tile, split, move and broadcast to panes. The new
 
 | Task | Actions | Commands |
 | --- | --- | --- |
-| T131 (C5, task detail) |  | `taskList` |
 | T132 (C6, Changes) | `changes` | `changes`, `commit`, `diff`, `gitFetch`, `gitPull`, `gitPush` |
 | T133 (C7, worktrees) | `worktrees` | `conflictRadar`, `worktreeAdd`, `worktreePrune`, `worktreeRemove`, `worktrees` |
 | T134 (C8, GitHub) |  | `ghChecks`, `ghInstall`, `ghIssue`, `ghIssueComment`, `ghIssueCreate`, `ghIssues`, `ghLogin`, `ghLoginCancel`, `ghLogout`, `ghPR`, `ghPRComment`, `ghPRCreate`, `ghPRs`, `ghStatus` |
-| T136 (L1, start flows and pane lifecycle) | `selectTab`, `closeFinishedPanes` | `agents`, `closeFinishedPanes`, `focusPane`, `refreshAgents`, `teamClose`, `toggleZoom` |
+| T136 (L1, start flows and pane lifecycle) | `selectTab`, `closeFinishedPanes` | `closeFinishedPanes`, `focusPane`, `refreshAgents`, `teamClose`, `toggleZoom` |
 | T137 (L2, settings) |  | `dismissTip`, `railExpanded`, `railWidth`, `resetKeybinding`, `resetKeybindings`, `setAgentAddress`, `setAgentDefault`, `setKeybinding`, `statusLine` |
 | T138 (L3, help) |  | `helpSeen` |
-| T143 (L8, remaining actions) | `agents`, `team` | `msgList`, `msgSeen`, `msgSend`, `taskAdd`, `taskAssign`, `taskBranch`, `taskNote`, `taskPrune`, `taskStatus` |
 
 ## Must exist before the old interface is retired
 
@@ -105,10 +103,10 @@ These are safety and security controls. The new interface has no way to do them 
 | `toggleBroadcastMember` | Add this pane to broadcast, or take it out | cut | Broadcasting to panes is cut; a manager sends to its team. |
 | `promptAll` | Prompt all panes (Ctrl+Shift+P) | cut | Broadcasting to panes is cut; a manager sends to its team. It opens the prompt bar aimed at the focused pane, which the new prompt (paneSend) covers; with broadcast on it reached every member. |
 | `makeBaton` | Make baton: hand this pane's work to another agent | done |  |
-| `agents` | All agents across projects (Ctrl+Shift+A) | planned | T143 (L8, remaining actions). The list of agents across projects has no task; decide whether the graph's project switch is enough |
+| `agents` | All agents across projects (Ctrl+Shift+A) | done |  |
 | `closeFinishedPanes` | Close finished panes — idle agents and cleanly exited panes, in every open project | planned | T136 (L1, start flows and pane lifecycle) |
 | `startTeam` | Start a team — a manager agent that starts the rest | done |  |
-| `team` | Team — this project's roster, task board and messages (Ctrl+Shift+M) | planned | T143 (L8, remaining actions). The graph is the roster; the task board and messages dialog has no task |
+| `team` | Team — this project's roster, task board and messages (Ctrl+Shift+M) | done |  |
 | `apiKeys` | API keys… | done |  |
 | `worktrees` | Worktrees (Ctrl+Shift+G) | planned | T133 (C7, worktrees) |
 | `changes` | Review changes, commit and push (Ctrl+Shift+S) | planned | T132 (C6, Changes) |
@@ -139,7 +137,7 @@ These are safety and security controls. The new interface has no way to do them 
 | --- | --- | --- |
 | `accentColor` | done |  |
 | `addRepoToGroup` | done |  |
-| `agents` | planned | T136 (L1, start flows and pane lifecycle). The agent picker |
+| `agents` | done |  |
 | `approveBaton` | done |  |
 | `archiveProject` | done |  |
 | `autoReview` | done |  |
@@ -207,9 +205,9 @@ These are safety and security controls. The new interface has no way to do them 
 | `movePaneToNewTab` | cut | Moving and merging panes and tabs is cut; the team is a graph. |
 | `movePaneToTab` | cut | Moving and merging panes and tabs is cut; the team is a graph. |
 | `moveTab` | done |  |
-| `msgList` | planned | T143 (L8, remaining actions). Team messages have no task |
-| `msgSeen` | planned | T143 (L8, remaining actions). Team messages have no task |
-| `msgSend` | planned | T143 (L8, remaining actions). Team messages have no task |
+| `msgList` | done |  |
+| `msgSeen` | done |  |
+| `msgSend` | done |  |
 | `newTab` | done |  |
 | `nextTab` | done |  |
 | `notifications` | done |  |
@@ -272,17 +270,17 @@ These are safety and security controls. The new interface has no way to do them 
 | `startFromBaton` | done |  |
 | `statusLine` | planned | T137 (L2, settings) |
 | `swapPanes` | cut | Moving and merging panes and tabs is cut; the team is a graph. |
-| `taskAdd` | planned | T143 (L8, remaining actions). Editing the task board has no task |
-| `taskAssign` | planned | T143 (L8, remaining actions). Editing the task board has no task |
-| `taskBranch` | planned | T143 (L8, remaining actions). Editing the task board has no task |
+| `taskAdd` | done |  |
+| `taskAssign` | done |  |
+| `taskBranch` | done |  |
 | `taskGet` | done |  |
-| `taskList` | planned | T131 (C5, task detail) |
-| `taskNote` | planned | T143 (L8, remaining actions). Editing the task board has no task |
-| `taskPrune` | planned | T143 (L8, remaining actions). Editing the task board has no task |
-| `taskStatus` | planned | T143 (L8, remaining actions). Editing the task board has no task |
+| `taskList` | done |  |
+| `taskNote` | done |  |
+| `taskPrune` | done |  |
+| `taskStatus` | done |  |
 | `teamClose` | planned | T136 (L1, start flows and pane lifecycle) |
-| `teamUnwatch` | replaced | sent as `graphUnwatch` |
-| `teamWatch` | replaced | sent as `graphWatch` |
+| `teamUnwatch` | done |  |
+| `teamWatch` | done |  |
 | `theme` | done |  |
 | `tilePanes` | cut | Tiling and splitting panes is cut; the team is a graph. |
 | `toggleBroadcast` | cut | Broadcasting to panes is cut; a manager sends to its team. |
