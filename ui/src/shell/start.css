@@ -218,3 +218,12 @@
 .upd-versions { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; max-height: 30vh; overflow-y: auto; }
 .upd-version { display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px; }
 .upd-name { font-weight: 600; }
+
+/* Phone width: the view switch wraps to a second line instead of scrolling, and the
+   goal tabs keep scrolling without a bar of their own. Neither makes the page wider. */
+@media (max-width: 640px) {
+  .viewbar { flex-wrap: wrap; width: auto; overflow-x: visible; }
+  .tabs-view { flex: 1 1 auto; text-align: center; }
+  .goaltabs-list { scrollbar-width: none; }
+  .goaltabs-list::-webkit-scrollbar { display: none; }
+}
