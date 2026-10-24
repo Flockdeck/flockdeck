@@ -22,7 +22,7 @@ func TestTheScrollbackIsRemembered(t *testing.T) {
 	if got.Scrollback != 50000 {
 		t.Fatalf("the scrollback pushed to the windows is %d, want 50000", got.Scrollback)
 	}
-	if saved := store.LoadPrefs(); saved.Scrollback != 50000 {
+	if saved := store.LoadPrefs(); string(saved.UI["scrollback"]) != "50000" {
 		t.Errorf("the scrollback did not reach the disk: %+v", saved)
 	}
 }
