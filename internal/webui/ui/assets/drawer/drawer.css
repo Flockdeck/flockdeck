@@ -92,7 +92,7 @@
  * while it does. It is still kept up to date, so it is current when restored. */
 /* The manager bar (composer) keeps its row: an area left out of the template is placed in an
    implicit column and squeezes the drawer. */
-.shell--max { grid-template-columns: var(--rail-w) minmax(0, 1fr); grid-template-areas: "rail top" "rail drawer" "rail composer" "rail notices"; }
+.shell--max { grid-template-rows: auto minmax(0, 1fr) auto auto; grid-template-columns: var(--rail-w) minmax(0, 1fr); grid-template-areas: "rail top" "rail drawer" "rail composer" "rail notices"; }
 .shell--max .main { display: none; }
 .shell--max .drawer { width: auto; }
 

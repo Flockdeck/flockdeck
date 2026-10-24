@@ -49,6 +49,17 @@ export const DRAWER_DEFAULT = 420;
 export const CENTRE_MIN = 360;
 export const DRAWER_KEY = "layout.drawerW";
 
+/** The drawer stacked below the main area has a height instead of a width: DRAWER_H_MIN, DRAWER_H_MAX
+ *  and DRAWER_H_DEFAULT, with MAIN_H_MIN left to the main area. ORIENT_KEY is "auto" (stacked
+ *  when the window is taller than it is wide), "side" or "stack". */
+export const DRAWER_H_MIN = 240;
+export const DRAWER_H_MAX = 1600;
+export const DRAWER_H_DEFAULT = 360;
+export const MAIN_H_MIN = 240;
+export const DRAWER_H_KEY = "layout.drawerH";
+export const ORIENT_KEY = "layout.orient";
+export const ORIENTS = ["auto", "side", "stack"];
+
 /** RAIL_MIN, RAIL_MAX and RAIL_DEFAULT are the widths the rail is drawn at, in pixels. The
  *  desktop keeps a width inside the same bounds. */
 export const RAIL_MIN = 180;
@@ -95,6 +106,8 @@ export function prefsOf(raw) {
     statusLine: r.spend && (r.spend.statusLine === "on" || r.spend.statusLine === "off") ? r.spend.statusLine : "auto",
     railExpanded: r.railExpanded === true,
     drawerW: whole(ui[DRAWER_KEY]) && ui[DRAWER_KEY] >= DRAWER_MIN && ui[DRAWER_KEY] <= DRAWER_MAX ? ui[DRAWER_KEY] : DRAWER_DEFAULT,
+    drawerH: whole(ui[DRAWER_H_KEY]) && ui[DRAWER_H_KEY] >= DRAWER_H_MIN && ui[DRAWER_H_KEY] <= DRAWER_H_MAX ? ui[DRAWER_H_KEY] : DRAWER_H_DEFAULT,
+    orient: ORIENTS.includes(ui[ORIENT_KEY]) ? ui[ORIENT_KEY] : "auto",
     railWidth: whole(r.railWidth) && r.railWidth >= RAIL_MIN && r.railWidth <= RAIL_MAX ? r.railWidth : RAIL_DEFAULT,
     wake: wakeOf(r.wake),
     helpSeen: r.helpSeen === true,
@@ -282,6 +295,12 @@ export function setting(name, value, current = null, caps = null) {
       // The default is kept as nothing, so that it is the default of the day.
       if (!whole(value) || value < DRAWER_MIN || value > DRAWER_MAX) return null;
       return uiSetting(DRAWER_KEY, value === DRAWER_DEFAULT ? null : value, current, caps, null);
+    case "drawerH":
+      if (!whole(value) || value < DRAWER_H_MIN || value > DRAWER_H_MAX) return null;
+      return uiSetting(DRAWER_H_KEY, value === DRAWER_H_DEFAULT ? null : value, current, caps, null);
+    case "orient":
+      if (!ORIENTS.includes(value)) return null;
+      return uiSetting(ORIENT_KEY, value === "auto" ? null : value, current, caps, null);
     case "railWidth":
       if (!whole(value) || value < RAIL_MIN || value > RAIL_MAX) return null;
       return { command: { cmd: "railWidth", size: value }, patch: { railWidth: value } };

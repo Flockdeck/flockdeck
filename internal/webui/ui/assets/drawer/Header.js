@@ -52,7 +52,7 @@ export function countsOf(node) {
 
 /** Header is the top of the drawer. node is the graph node; pane is the state
  *  push's entry for the same pane, or null; now is the time in milliseconds. */
-export function Header({ node, pane = null, now = Date.now(), maximised = false, onClose, onToggleMax, taskOpen = false, onTask = null, moreOpen = false, onMore = null, onStep = null, onStartTeam = null }) {
+export function Header({ node, pane = null, now = Date.now(), maximised = false, onClose, onToggleMax, taskOpen = false, onTask = null, moreOpen = false, onMore = null, onStep = null, onStartTeam = null, layout = "side", onLayout = null }) {
   const state = stateOf(node);
   const since = sinceOf(node.since, now);
   const spend = spendText(pane && pane.spend);
@@ -75,6 +75,9 @@ export function Header({ node, pane = null, now = Date.now(), maximised = false,
             : null}
           ${onMore
             ? html`<button type="button" class="drawer-btn drawer-more" aria-expanded=${moreOpen ? "true" : "false"} aria-controls="drawer-more" title="Restart, lock, close, pane info, recording and more" onClick=${onMore}>More</button>`
+            : null}
+          ${onLayout && !maximised
+            ? html`<button type="button" class="drawer-btn drawer-layout" title=${layout === "stack" ? "Put the drawer beside the main area" : "Put the drawer below the main area"} onClick=${onLayout}>${layout === "stack" ? "Side by side" : "Stack"}</button>`
             : null}
           <button type="button" class="drawer-btn drawer-max" aria-pressed=${maximised ? "true" : "false"} onClick=${onToggleMax}>
             ${maximised ? "Restore" : "Maximise"}

@@ -13,14 +13,14 @@ import { Live } from "../assets/shell/Live.js";
 import { createDom, install, settle } from "./dom.mjs";
 import { FakeWebSocket, harness, hello } from "./fakes.mjs";
 import { PtySocket, FakeTerm, FakeFit, FakeObserver } from "./termfakes.mjs";
-import { DRAWER_MIN, DRAWER_MAX, prefsOf, setting } from "../assets/lib/prefs.js";
+import { DRAWER_H_MIN, DRAWER_MIN, DRAWER_MAX, ORIENT_KEY, prefsOf, setting } from "../assets/lib/prefs.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixtureFile = join(here, "..", "..", "..", "server", "testdata", "graph-fixtures", "01-six-helpers-one-permission.json");
 const KEY = "layout.drawerW";
 const API = { major: 1, minor: 1, caps: ["clientHello", "unsupported", "apiMismatch", "uiPrefs"] };
 
-async function mount({ caps = true, ui = null } = {}) {
+async function mount({ caps = true, ui = null, portrait = false } = {}) {
   PtySocket.reset();
   FakeTerm.reset();
   FakeObserver.instances.length = 0;
@@ -34,7 +34,8 @@ async function mount({ caps = true, ui = null } = {}) {
     Terminal: FakeTerm, FitAddon: FakeFit, ResizeObserver: FakeObserver, WebSocket: PtySocket,
     location: { href: "http://127.0.0.1:5000/", pathname: "/", protocol: "http:" }, isFocused: () => false,
   };
-  render(html`<${Live} store=${store} window=${dom.window} terminalOptions=${terminalOptions} />`, container);
+  const matchMedia = (q) => ({ media: q, matches: portrait && q.includes("portrait"), addEventListener() {}, removeEventListener() {} });
+  render(html`<${Live} store=${store} window=${dom.window} matchMedia=${matchMedia} terminalOptions=${terminalOptions} />`, container);
   await settle();
   const ws = () => FakeWebSocket.last;
   const g = { ...JSON.parse(readFileSync(fixtureFile, "utf8")), root: "/work/a" };
@@ -46,12 +47,17 @@ async function mount({ caps = true, ui = null } = {}) {
     container, ws,
     sent: (cmd) => ws().commands(cmd),
     clear: () => { ws().sent.length = 0; },
+    key: async (spec) => {
+      const parts = spec.split("+");
+      dom.window.dispatch("keydown", { key: parts[parts.length - 1], ctrlKey: parts.includes("Ctrl"), shiftKey: parts.includes("Shift"), altKey: parts.includes("Alt") });
+      await settle();
+    },
     click: async (el) => { assert.ok(el, "no element to click"); el.click(); await settle(); },
     shell: () => container.find(".shell"),
     handle: () => container.find(".drawer-resize"),
     connect: async () => {
       ws().open();
-      ws().frame(hello({ keys: [], api: caps ? API : undefined, prefs: ui ? { ui } : {} }));
+      ws().frame(hello({ keys: [{ id: "palette", keys: "Ctrl+Shift+K", label: "Command palette", section: "Window" }], api: caps ? API : undefined, prefs: ui ? { ui } : {} }));
       await settle();
       ws().frame(state);
       await settle();
@@ -180,3 +186,97 @@ test("with no uiPrefs on the desktop the width still changes, for the life of th
     assert.equal(m.sent("uiPrefs").length, 0);
     assert.match(m.shell().style.cssText, /--drawer-w:436px/);
   }));
+
+const stacked = (m) => m.shell().attributes.class.includes("shell--stack");
+const layoutBtn = (m) => m.container.find(".drawer-layout");
+
+test("a window taller than wide stacks the drawer below until the person chooses; a wide one puts it beside", () =>
+  withPage({ portrait: true }, async (m) => {
+    await m.connect();
+    assert.equal(stacked(m), true);
+    await m.openDrawer();
+    assert.equal(layoutBtn(m).textContent, "Side by side");
+    m.clear();
+    await m.click(layoutBtn(m));
+    assert.deepEqual(uiSent(m), [{ [ORIENT_KEY]: "side" }]);
+    assert.equal(stacked(m), false);
+    assert.equal(layoutBtn(m).textContent, "Stack");
+  }).then(() => withPage({}, async (m) => {
+    await m.connect();
+    assert.equal(stacked(m), false);
+    await m.openDrawer();
+    m.clear();
+    await m.click(layoutBtn(m));
+    assert.deepEqual(uiSent(m), [{ [ORIENT_KEY]: "stack" }]);
+    assert.equal(stacked(m), true);
+  })));
+
+test("a kept choice wins over the window's shape, and the palette can flip it", () =>
+  withPage({ portrait: true, ui: { [ORIENT_KEY]: "side" } }, async (m) => {
+    await m.connect();
+    assert.equal(stacked(m), false, "the person chose side by side");
+    m.clear();
+    await m.key("Ctrl+Shift+K");
+    const row = m.container.findAll(".palette-row").find((r) => r.textContent.includes("Layout: stack / side by side"));
+    assert.ok(row, "the palette lists it");
+    await m.click(row);
+    assert.deepEqual(uiSent(m), [{ [ORIENT_KEY]: "stack" }]);
+    assert.equal(stacked(m), true);
+  }));
+
+test("below the main area the handle is horizontal: Up grows the drawer, Down shrinks it, within 240 px", () =>
+  withPage({ ui: { [ORIENT_KEY]: "stack" } }, async (m) => {
+    await m.connect();
+    await m.openDrawer();
+    const h = () => m.handle();
+    assert.equal(h().attributes["aria-orientation"], "horizontal");
+    assert.equal(h().attributes["aria-label"], "Drawer height");
+    assert.equal(h().attributes["aria-valuenow"], "360");
+    m.clear();
+    h().keydown("ArrowUp");
+    await settle();
+    assert.deepEqual(uiSent(m), [{ "layout.drawerH": 376 }]);
+    assert.match(m.shell().style.cssText, /--drawer-h:376px/);
+    h().keydown("ArrowDown", { shiftKey: true });
+    await settle();
+    assert.deepEqual(uiSent(m).pop(), { "layout.drawerH": 312 });
+    for (let i = 0; i < 4; i++) {
+      h().keydown("ArrowDown", { shiftKey: true });
+      await settle();
+    }
+    assert.equal(h().attributes["aria-valuenow"], String(DRAWER_H_MIN));
+    h().keydown("ArrowLeft");
+    await settle();
+    assert.equal(h().attributes["aria-valuenow"], String(DRAWER_H_MIN), "Left and Right are for the side handle");
+    h().keydown("Home");
+    await settle();
+    assert.deepEqual(uiSent(m).pop(), { "layout.drawerH": null });
+    h().dispatch("pointerdown", { button: 0, clientY: 500, pointerId: 1 });
+    h().dispatch("pointermove", { clientY: 400 });
+    await settle();
+    assert.match(m.shell().style.cssText, /--drawer-h:460px/);
+    h().dispatch("pointerup", {});
+    await settle();
+    assert.deepEqual(uiSent(m).pop(), { "layout.drawerH": 460 });
+  }));
+
+test("maximised, stacked or not, the drawer has no handle and no stacked layout", () =>
+  withPage({ ui: { [ORIENT_KEY]: "stack" } }, async (m) => {
+    await m.connect();
+    await m.openDrawer();
+    await m.click(m.container.find(".drawer-max"));
+    assert.equal(m.handle(), null);
+    assert.equal(layoutBtn(m), null, "nothing to move while it fills the area");
+    assert.match(m.shell().attributes.class, /shell--max/);
+  }));
+
+test("the layout settings are read defensively and kept as nothing at the default", () => {
+  assert.equal(prefsOf({ ui: { [ORIENT_KEY]: "sideways" } }).orient, "auto");
+  assert.equal(prefsOf({ ui: { [ORIENT_KEY]: "stack" } }).orient, "stack");
+  assert.equal(prefsOf({ ui: { "layout.drawerH": 10 } }).drawerH, 360);
+  assert.equal(prefsOf({ ui: { "layout.drawerH": 500 } }).drawerH, 500);
+  assert.equal(setting("orient", "sideways", {}, ["uiPrefs"]), null);
+  assert.deepEqual(setting("orient", "auto", {}, ["uiPrefs"]).command, { cmd: "uiPrefs", ui: { [ORIENT_KEY]: null } });
+  assert.equal(setting("drawerH", 100, {}, ["uiPrefs"]), null);
+  assert.equal(setting("drawerH", 500, {}, []), null);
+});

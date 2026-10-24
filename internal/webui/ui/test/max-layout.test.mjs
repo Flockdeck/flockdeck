@@ -22,6 +22,21 @@ test("the maximised template names every area the shell uses", () => {
   assert.ok(areas.has("composer") && inMax.has("composer"));
 });
 
+test("the stacked template names the same areas, so maximising it from either orientation loses none", () => {
+  const app = read("app.css");
+  const drawer = read("drawer/drawer.css");
+  const stack = app.match(/\.shell--stack:not\(\.shell--max\) \{[^}]*grid-template-areas:([^;]*);/);
+  const maxRule = drawer.match(/\.shell--max \{[^}]*\}/)[0];
+  const max = maxRule.match(/grid-template-areas:([^;]*);/);
+  assert.ok(stack && max);
+  const named = (s) => new Set(s.match(/[a-z]+/g));
+  for (const a of named(stack[1])) if (a !== "main") assert.ok(named(max[1]).has(a), a + " is in the stacked template but not the maximised one");
+  // The maximised template has as many rows as it names, so none is left to be made implicitly.
+  const areaRows = max[1].match(/"[^"]*"/g).length;
+  const rowSizes = maxRule.match(/grid-template-rows:([^;]*);/)[1].match(/minmax\([^)]*\)|auto/g).length;
+  assert.equal(rowSizes, areaRows);
+});
+
 test("the drawer's title row can wrap, so the name keeps room and the buttons stay whole", () => {
   const css = read("drawer/drawer.css");
   assert.match(css, /\.drawer-title \{[^}]*flex-wrap: wrap/);
