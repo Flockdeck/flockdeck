@@ -13,6 +13,7 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io/fs"
 	"mime"
@@ -76,9 +77,11 @@ type Server struct {
 	// static is the front end the program gave in Config.
 	static fs.FS
 	// keys is the key table the server was given (Config.Keys).
-	keys  keytable.Table
-	ws    *workspace.Workspace
-	token string
+	keys keytable.Table
+	// helpOnce is Config.HelpJSON, encoded once for each form.
+	helpOnce func(tree bool) ([]byte, error)
+	ws       *workspace.Workspace
+	token    string
 
 	// structuredPane turns a pane id into a pane an agent drives over ACP, for
 	// permissionAnswer; nil until the workspace sets it, and then no pane is one.
@@ -387,6 +390,11 @@ type Config struct {
 	// does not import where it lives). With none, no action has a binding to
 	// send, remap or check against.
 	Keys keytable.Table
+	// HelpJSON is what /help.json answers with: every help page, as HTML text, or
+	// with tree true as nodes. The front end owns the pages, so the program
+	// hands over the function. With none, the address answers that the pages
+	// could not be rendered.
+	HelpJSON func(tree bool) ([]byte, error)
 }
 
 // New starts a server for the workspace on a free loopback port.
@@ -411,22 +419,23 @@ func New(ws *workspace.Workspace, cfg Config) (*Server, error) {
 	}
 
 	s := &Server{
-		ws:      ws,
-		static:  cfg.Static,
-		keys:    cfg.Keys,
-		prefs:   store.LoadPrefs(),
-		token:   hex.EncodeToString(raw),
-		hosts:   hosts,
-		links:   map[string]linkEntry{},
-		spent:   map[string]linkFateEntry{},
-		ln:      ln,
-		clients: map[*controlClient]bool{},
-		cmds:    make(chan func(), 64),
-		dirty:   make(chan struct{}, 1),
-		asked:   make(chan struct{}, 1),
-		gitNow:  make(chan struct{}, 1),
-		closed:  make(chan struct{}),
-		rp:      defaultRepaintHooks(),
+		ws:       ws,
+		static:   cfg.Static,
+		keys:     cfg.Keys,
+		helpOnce: onceByForm(cfg.HelpJSON),
+		prefs:    store.LoadPrefs(),
+		token:    hex.EncodeToString(raw),
+		hosts:    hosts,
+		links:    map[string]linkEntry{},
+		spent:    map[string]linkFateEntry{},
+		ln:       ln,
+		clients:  map[*controlClient]bool{},
+		cmds:     make(chan func(), 64),
+		dirty:    make(chan struct{}, 1),
+		asked:    make(chan struct{}, 1),
+		gitNow:   make(chan struct{}, 1),
+		closed:   make(chan struct{}),
+		rp:       defaultRepaintHooks(),
 
 		linkLife:       windowLinkLife,
 		loopDone:       make(chan struct{}),
@@ -1115,4 +1124,19 @@ func (s *Server) ClientCount() int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return len(s.clients)
+}
+
+// onceByForm calls f the first time each form is asked for and keeps the
+// answer, or says the pages could not be had when there is no f.
+func onceByForm(f func(tree bool) ([]byte, error)) func(bool) ([]byte, error) {
+	if f == nil {
+		return func(bool) ([]byte, error) { return nil, errors.New("no help pages were given") }
+	}
+	html, tree := sync.OnceValues(func() ([]byte, error) { return f(false) }), sync.OnceValues(func() ([]byte, error) { return f(true) })
+	return func(t bool) ([]byte, error) {
+		if t {
+			return tree()
+		}
+		return html()
+	}
 }

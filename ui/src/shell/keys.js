@@ -1,5 +1,5 @@
 // Key handling for the new shell, driven by the key table the server sends in
-// its hello. A binding is written once, in internal/help/keys.go, and this
+// its hello. A binding is written once, in ui/help/keys.go, and this
 // file only reads it: the shell asks "which action is this keydown" and never
 // names a key of its own. A test holds it to that.
 //

@@ -1,6 +1,6 @@
 // The help pages of the new interface: where they are fetched from, what shape
 // is accepted, and how a search finds them. The pages come from the desktop as
-// nodes (see internal/help/tree.go), never as markup, and this file checks the
+// nodes (see ui/help/tree.go), never as markup, and this file checks the
 // shape again before anything is drawn: a desktop that is older, newer or
 // damaged gives a page that says so, not a page that breaks.
 
@@ -14,7 +14,7 @@ export function helpUrl(loc) {
   return new URL(HELP_PATH, new URL(loc.pathname.replace(/[^/]*$/, ""), loc.href)).href;
 }
 
-/** TAGS are the tags a page may use. internal/help/tree.go has the same list,
+/** TAGS are the tags a page may use. ui/help/tree.go has the same list,
  *  and a test holds the two together. */
 export const TAGS = [
   "p", "h1", "h2", "h3", "h4", "ul", "ol", "li", "a", "code", "pre", "em", "strong", "kbd", "del",

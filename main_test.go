@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/jmwri/flockdeck/internal/agent"
-	"github.com/jmwri/flockdeck/internal/help"
+	"github.com/jmwri/flockdeck/ui/help"
 	"github.com/jmwri/flockdeck/internal/hooks"
 	"github.com/jmwri/flockdeck/internal/store"
 )

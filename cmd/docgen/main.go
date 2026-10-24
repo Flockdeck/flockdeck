@@ -1,5 +1,5 @@
 // Command docgen writes docs.flockdeck.ai: the "using Flockdeck" section is
-// rendered straight from internal/help, the same Markdown and the same
+// rendered straight from ui/help, the same Markdown and the same
 // key-table placeholders that render behind F1 in the app, so a web copy of
 // it cannot say anything the app itself does not — the one thing
 // flockdeck-site's own sitegen deliberately declined to do, because a second
@@ -29,7 +29,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/jmwri/flockdeck/internal/help"
+	"github.com/jmwri/flockdeck/ui/help"
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/extension"
 	"github.com/yuin/goldmark/parser"
@@ -45,7 +45,7 @@ const (
 )
 
 // selfHostOrder is the sequence the self-hosting pages are written in, for
-// the same reason internal/help/help.go writes one out for the app pages: a
+// the same reason ui/help/help.go writes one out for the app pages: a
 // table of contents has an argument to make, and the file system's own order
 // does not make it.
 var selfHostOrder = []string{
@@ -342,7 +342,7 @@ func contains(xs []string, x string) bool {
 }
 
 // titleAndSummary reads a page's own first heading and first paragraph, the
-// way internal/help does for the app pages, so every page's nav title and
+// way ui/help does for the app pages, so every page's nav title and
 // meta description come from the page rather than beside it.
 func titleAndSummary(src string) (string, string) {
 	var title string

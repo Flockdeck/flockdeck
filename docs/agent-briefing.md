@@ -7,8 +7,8 @@ it was given came from another agent's plan. So Flockdeck briefs it when it
 starts.
 
 This page covers how the briefing is delivered and why it is shaped as it is. What
-the commands do is in the [command line page](../internal/help/pages/cli.md); roles
-and the team are in [Agents and models](../internal/help/pages/agents.md). The
+the commands do is in the [command line page](../ui/help/pages/cli.md); roles
+and the team are in [Agents and models](../ui/help/pages/agents.md). The
 text itself is built in `internal/workspace/briefing.go` and `context.go`.
 
 ## What the briefing holds

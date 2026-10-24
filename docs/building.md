@@ -55,15 +55,15 @@ capabilities still runs as a terminal with a program in it.
 
 ## Adding a help page, or changing a shortcut
 
-To add a help page, write `internal/help/pages/<slug>.md`, starting with an `#`
+To add a help page, write `ui/help/pages/<slug>.md`, starting with an `#`
 heading and a paragraph of summary (the contents list takes it), and add its slug to
-`order` in `internal/help/help.go`.
+`order` in `ui/help/help.go`.
 
-To change a shortcut, edit `internal/help/keys.go` and regenerate the table in
+To change a shortcut, edit `ui/help/keys.go` and regenerate the table in
 [docs/keys.md](keys.md):
 
 ```sh
-go test ./internal/help -run TestKeysDocShortcuts -update
+go test ./ui/help -run TestKeysDocShortcuts -update
 ```
 
 ## Programs under cmd/
@@ -73,7 +73,7 @@ These make what is published, not the application:
 - `cmd/release` builds every platform and writes the archives and `checksums.txt`
   a release is made of. `make package` runs it.
 - `cmd/docgen` writes docs.flockdeck.ai, rendering the using-Flockdeck pages from
-  `internal/help`.
+  `ui/help`.
 - `cmd/portproxy` is the sidecar the Helm chart runs beside the server, in the same
   image.
 - `cmd/deploydrift` is a CI check, run daily by `deploy-drift.yml`. It reports
@@ -138,7 +138,7 @@ relay's `script-src 'self'`. Preact, its hooks and htm are vendored in
 `ui/src/vendor/` (versions, licences and hashes in `LICENSES.md` beside them and in
 `next/checksums.txt`). A component is written with htm: html`<${Hello} />`.
 
-The page frame is in `ui/src/shell/`: `app.js` (the shell: a rail of the open projects, a top strip for the manager bar, the main area, a region for the drawer and a notice area), `rail.js`, `palette.js` and `keys.js`. Key handling is driven by the key table in the server's hello, which comes from `internal/help/keys.go`, so a binding is changed there and nowhere in the new code; a test fails if the shell names a key of its own (key names are allowed only in the marked vocabulary block of `keys.js`). The palette lists every action of the table, runs the ones listed in `IMPLEMENTED` in `shell/app.js`, and marks the rest "not in this window yet". `ui/src/app.css` begins with the typefaces and tokens copied unchanged from `assets/app.css` and a test holds the copy equal; the layout under it uses the tokens and writes no colour or typeface. The key table is read when the hello's `keys` change and not on each render. A binding in it that the reader cannot turn into a key (an unknown modifier in a remap, say) does nothing, and the shell says so in its notice area and names the action, so a key that has stopped working is not a silent failure. The palette is a modal dialog: the keyboard goes to its field when it opens and back to where it was when it closes, Tab stays inside it, Escape closes it from the field or a row, and the region and projects keys close it. The page passes each project the rail chooses, and each active project the state names, to `onWatch`. Below 641px wide the rail becomes a bar along the top and the main area a list; `NARROW_QUERY` in `app.js` and the media rule in the stylesheet are held together by a test.
+The page frame is in `ui/src/shell/`: `app.js` (the shell: a rail of the open projects, a top strip for the manager bar, the main area, a region for the drawer and a notice area), `rail.js`, `palette.js` and `keys.js`. Key handling is driven by the key table in the server's hello, which comes from `ui/help/keys.go`, so a binding is changed there and nowhere in the new code; a test fails if the shell names a key of its own (key names are allowed only in the marked vocabulary block of `keys.js`). The palette lists every action of the table, runs the ones listed in `IMPLEMENTED` in `shell/app.js`, and marks the rest "not in this window yet". `ui/src/app.css` begins with the typefaces and tokens copied unchanged from `assets/app.css` and a test holds the copy equal; the layout under it uses the tokens and writes no colour or typeface. The key table is read when the hello's `keys` change and not on each render. A binding in it that the reader cannot turn into a key (an unknown modifier in a remap, say) does nothing, and the shell says so in its notice area and names the action, so a key that has stopped working is not a silent failure. The palette is a modal dialog: the keyboard goes to its field when it opens and back to where it was when it closes, Tab stays inside it, Escape closes it from the field or a row, and the region and projects keys close it. The page passes each project the rail chooses, and each active project the state names, to `onWatch`. Below 641px wide the rail becomes a bar along the top and the main area a list; `NARROW_QUERY` in `app.js` and the media rule in the stylesheet are held together by a test.
 
 Its tests are Node's own `node:test`, in `ui/test/`, run from
 `next_test.go` under the tag. Components are drawn with Preact to a string, so no browser

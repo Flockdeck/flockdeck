@@ -8,7 +8,7 @@ import (
 
 	"github.com/coder/websocket"
 
-	"github.com/jmwri/flockdeck/internal/help"
+	"github.com/jmwri/flockdeck/ui/help"
 	"github.com/jmwri/flockdeck/internal/keybindings"
 	"github.com/jmwri/flockdeck/internal/keytable"
 )

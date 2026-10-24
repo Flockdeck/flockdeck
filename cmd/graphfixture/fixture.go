@@ -10,7 +10,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/jmwri/flockdeck/internal/help"
+	"github.com/jmwri/flockdeck/ui/help"
 )
 
 // fixtureSubdir is where the graph fixtures live, from the root of

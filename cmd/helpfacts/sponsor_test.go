@@ -1,6 +1,8 @@
-package help
+package helpfacts
 
 import (
+	. "github.com/jmwri/flockdeck/ui/help"
+
 	"os"
 	"strings"
 	"testing"

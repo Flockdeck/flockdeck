@@ -5,11 +5,9 @@ import (
 	"errors"
 	"net/http"
 	"strings"
-	"sync"
 
 	"github.com/jmwri/flockdeck/internal/agent"
 	"github.com/jmwri/flockdeck/internal/gitx"
-	"github.com/jmwri/flockdeck/internal/help"
 	"github.com/jmwri/flockdeck/internal/keybindings"
 	"github.com/jmwri/flockdeck/internal/keytable"
 	"github.com/jmwri/flockdeck/internal/store"
@@ -640,27 +638,13 @@ func (s *Server) setStatusLine(c *controlClient, mode string) {
 	s.updatePrefs(c, func(p *store.Prefs) bool { return setPref(&p.Spend.StatusLine, mode) })
 }
 
-// helpBody is what /help.json answers with, encoded the first time it is
-// asked for. The pages are compiled in and rendered once already (help.Pages);
-// encoding them afresh for every request cost half a millisecond and half a
-// megabyte each time, for the same bytes.
-var helpBody = sync.OnceValues(func() ([]byte, error) {
-	pages, err := help.Pages()
-	if err != nil {
-		return nil, err
-	}
-	return json.Marshal(map[string]any{"pages": pages})
-})
-
-// treeBody is what /help.json?form=tree answers with: the same pages as nodes
-// the new interface builds elements from, with no HTML in them.
-var treeBody = sync.OnceValues(func() ([]byte, error) {
-	pages, err := help.TreePages()
-	if err != nil {
-		return nil, err
-	}
-	return json.Marshal(map[string]any{"pages": pages})
-})
+// helpBody and treeBody are what /help.json answers with, and with ?form=tree,
+// encoded the first time each is asked for from Config.HelpJSON. The pages are
+// compiled into the program and rendered once already; encoding them afresh for
+// every request cost half a millisecond and half a megabyte each time, for the
+// same bytes.
+func (s *Server) helpBody() ([]byte, error) { return s.helpOnce(false) }
+func (s *Server) treeBody() ([]byte, error) { return s.helpOnce(true) }
 
 // handleHelp serves the rendered help pages to an authorised window.
 func (s *Server) handleHelp(w http.ResponseWriter, r *http.Request) {
@@ -670,9 +654,9 @@ func (s *Server) handleHelp(w http.ResponseWriter, r *http.Request) {
 	}
 	// One address for both interfaces: through the relay a new path would have
 	// to be allowed there first, and a query is not a new path.
-	body, packKey := helpBody, "/help.json"
+	body, packKey := s.helpBody, "/help.json"
 	if r.URL.Query().Get("form") == "tree" {
-		body, packKey = treeBody, "/help.json?form=tree"
+		body, packKey = s.treeBody, "/help.json?form=tree"
 	}
 	data, err := body()
 	if err != nil {

@@ -1,6 +1,8 @@
-package help
+package helpfacts
 
 import (
+	. "github.com/jmwri/flockdeck/ui/help"
+
 	"io/fs"
 	"os"
 	"path/filepath"

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jmwri/flockdeck/internal/help"
 	"github.com/jmwri/flockdeck/internal/testiso"
+	"github.com/jmwri/flockdeck/ui/help"
 )
 
 func TestMain(m *testing.M) { os.Exit(testiso.Main(m)) }
