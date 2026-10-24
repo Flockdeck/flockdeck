@@ -1593,7 +1593,7 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 	case "graphSnapshot", "graphWatch", "graphUnwatch":
 		s.graphCommand(c, cmd)
 		return
-	case "structuredSnapshot", "structuredWatch", "structuredUnwatch", "structuredDetail", "structuredCancel":
+	case "structuredSnapshot", "structuredWatch", "structuredUnwatch", "structuredCancel":
 		s.structuredCommand(c, cmd)
 		return
 	case "worktrees":

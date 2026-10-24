@@ -516,7 +516,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     drawer=${node
       ? html`<${Drawer} store=${store} snap=${snap} node=${node} pane=${pane} now=${Date.now()} maximised=${drawer.maximised}
           onClose=${drawer.close} onToggleMax=${drawer.toggleMax} terminalOptions=${termProps} life=${life}
-          tx=${tx} onInfo=${openInfo} findAsk=${findAsk} />`
+          tx=${tx} onInfo=${openInfo} findAsk=${findAsk} onOpenPane=${drawer.open} />`
       : null}
   >${snap.state ? html`<${Tabs} tabs=${tabs} send=${send} show=${onDesk} warnFor=${(t) => closeTabWarnings(t, current ? current.byPane : null, statePanes)} onChoose=${() => setStarting("agent")}
       onHistory=${snap.remote ? null : () => setHistoryOpen(true)} onFind=${snap.remote ? null : () => setFindingPane(true)} />` : null}

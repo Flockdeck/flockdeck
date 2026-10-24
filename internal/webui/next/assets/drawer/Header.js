@@ -52,7 +52,7 @@ export function countsOf(node) {
 
 /** Header is the top of the drawer. node is the graph node; pane is the state
  *  push's entry for the same pane, or null; now is the time in milliseconds. */
-export function Header({ node, pane = null, now = Date.now(), maximised = false, onClose, onToggleMax }) {
+export function Header({ node, pane = null, now = Date.now(), maximised = false, onClose, onToggleMax, taskOpen = false, onTask = null }) {
   const state = stateOf(node);
   const since = sinceOf(node.since, now);
   const spend = spendText(pane && pane.spend);
@@ -82,6 +82,9 @@ export function Header({ node, pane = null, now = Date.now(), maximised = false,
         ${node.branch ? html`<div class="fact fact--branch"><dt>Branch</dt><dd>${node.branch}${counts ? " · " + counts : ""}</dd></div>` : null}
         ${model ? html`<div class="fact fact--model"><dt>Model</dt><dd>${model}</dd></div>` : null}
         ${spend ? html`<div class="fact fact--spend"><dt>Spend</dt><dd>${spend}</dd></div>` : null}
+        ${node.task && onTask
+          ? html`<div class="fact fact--task"><dt>Task</dt><dd><button type="button" class="drawer-task-chip" aria-expanded=${taskOpen ? "true" : "false"} onClick=${onTask}>${node.task.id + " " + node.task.state}</button></dd></div>`
+          : null}
         ${recording ? html`<div class="fact fact--recording"><dt>Recording</dt><dd>on</dd></div>` : null}
       </dl>
     </header>

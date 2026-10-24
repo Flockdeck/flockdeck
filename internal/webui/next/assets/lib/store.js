@@ -94,6 +94,16 @@
 //   details       the answers to requestDetail for the open conversation, by entry
 //                 id: { state: "loading" | "ok" | "gone", detail }. At most
 //                 MAX_DETAILS are held; the oldest asked for goes first.
+//   taskDetail    the answer to requestTask: { id, req, state, task, error }, or null.
+//                 state is "loading", "ok" (task is the desktop's task view: body,
+//                 notes, owner, branch) or "error". It is for a window on the desk;
+//                 a window through the relay is refused and sends none.
+//   search        the search of the open conversation, or null: { q, state, matches,
+//                 more }. state is "loading" until the desktop has answered, then
+//                 "done". matches are { entryId, kind, snippet, offset }, newest
+//                 first; more says there were more than were sent. Asked for with
+//                 searchConversation and dropped by clearSearch, or when the
+//                 conversation closes or changes.
 //   conversation  the conversation of the pane watchConversation named, or null:
 //                 { id, supported, entries, atStart, older, refused }. supported is
 //                 null until the desktop has answered, then true, or false for a
@@ -230,7 +240,7 @@ const initial = () => ({
   hello: null, remote: false, state: null,
   graph: null, graphGone: null, graphRefused: false, graphError: null,
   notice: null, versions: null, helpers: null, helperPlan: null, recents: null, browse: null, batonDraft: null, batonSaved: null, batonError: null,
-  approvals: [], detached: false, sent: null, started: null, structured: null, structuredError: null, cancelError: null, answer: null, asking: null, conversation: null, details: {}, history: null, paneInfo: null, paneMatches: null, keys: null, jevKey: null, agentsList: null, team: null, teamGone: null, teamTasks: null, teamMessages: null, teamResult: null, teamRefused: false, remoteDevices: null, remotePair: null, remoteOutcome: null, dropped: 0,
+  approvals: [], detached: false, sent: null, started: null, structured: null, structuredError: null, cancelError: null, answer: null, asking: null, conversation: null, details: {}, search: null, taskDetail: null, history: null, paneInfo: null, paneMatches: null, keys: null, jevKey: null, agentsList: null, team: null, teamGone: null, teamTasks: null, teamMessages: null, teamResult: null, teamRefused: false, remoteDevices: null, remotePair: null, remoteOutcome: null, dropped: 0,
 });
 
 /** upsert returns entries with each of the new ones in place of the one with its
@@ -423,6 +433,10 @@ export function createStore(opts) {
             set({ teamResult: { ...msg, seq: ++teamResultSeq } });
           }
         }
+        if (msg.op === "taskGet" && snap.taskDetail && snap.taskDetail.req === msg.req) {
+          const t = msg.task && typeof msg.task === "object" ? msg.task : null;
+          set({ taskDetail: msg.ok && t && t.id === snap.taskDetail.id ? { ...snap.taskDetail, state: "ok", task: t, error: "" } : { ...snap.taskDetail, state: "error", task: null, error: String(msg.error || "That task could not be read") } });
+        }
         if (!msg.ok && msg.op === "structuredWatch" && watchingPane !== null) {
           set({ structuredError: { error: String(msg.error || "") } });
         }
@@ -454,6 +468,15 @@ export function createStore(opts) {
           patch.asking = null;
         }
         set(patch);
+        break;
+      }
+      case "conversationSearch": {
+        const q = snap.search;
+        if (watchingConv === null || msg.id !== watchingConv || !q || Array.from(q.q.trim()).slice(0, 200).join("") !== String(msg.q || "")) break;
+        const matches = (Array.isArray(msg.matches) ? msg.matches : [])
+          .filter((m) => m && typeof m.entryId === "string" && m.entryId)
+          .map((m) => ({ entryId: m.entryId, kind: String(m.kind || ""), snippet: String(m.snippet || ""), offset: Number.isInteger(m.offset) && m.offset >= 0 ? m.offset : 0 }));
+        set({ search: { q: q.q, state: "done", matches, more: !!msg.more } });
         break;
       }
       case "conversationDetail": {
@@ -697,7 +720,7 @@ export function createStore(opts) {
       if (!id || watchingConv === id) return false;
       if (watchingConv !== null && snap.hello) socket.send({ cmd: "conversationClose", id: watchingConv });
       watchingConv = id;
-      set({ conversation: { id, supported: null, entries: [], atStart: false, older: "idle", refused: "" }, details: {} });
+      set({ conversation: { id, supported: null, entries: [], atStart: false, older: "idle", refused: "" }, details: {}, search: null });
       if (snap.hello) sendConversationOpen();
       return true;
     },
@@ -728,12 +751,41 @@ export function createStore(opts) {
       set({ details: items });
       return true;
     },
+    /** requestTask asks the desktop for one task of the project on screen: its
+     *  text, owner, notes and branch. It returns false when nothing was asked
+     *  (a window through the relay, no hello, no project, or the socket is down). */
+    requestTask(id) {
+      if (!id || typeof id !== "string" || snap.remote || !snap.hello || !snap.graph) return false;
+      const req = "t" + ++reqSeq;
+      if (!socket.send({ cmd: "taskGet", id, root: snap.graph.root, req })) return false;
+      set({ taskDetail: { id, req, state: "loading", task: null, error: "" } });
+      return true;
+    },
+    clearTask() {
+      if (snap.taskDetail) set({ taskDetail: null });
+    },
+    /** searchConversation asks the desktop to search the open conversation for
+     *  text. An empty query clears the search. It returns false when nothing was
+     *  asked. */
+    searchConversation(q) {
+      const text = String(q || "");
+      if (text.trim() === "") {
+        if (snap.search) set({ search: null });
+        return false;
+      }
+      if (watchingConv === null || snap.remote || !socket.send({ cmd: "conversationSearch", id: watchingConv, q: text })) return false;
+      set({ search: { q: text, state: "loading", matches: [], more: false } });
+      return true;
+    },
+    clearSearch() {
+      if (snap.search) set({ search: null });
+    },
     unwatchConversation() {
       if (watchingConv === null) return;
       const was = watchingConv;
       watchingConv = null;
       if (snap.hello) socket.send({ cmd: "conversationClose", id: was });
-      set({ conversation: null, details: {} });
+      set({ conversation: null, details: {}, search: null });
     },
     unwatchGraph() {
       if (watching === null) return;

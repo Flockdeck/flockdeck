@@ -18,6 +18,8 @@ import { Prompt, StreamPermission } from "./Prompt.js";
 import { Conversation } from "./Conversation.js";
 import { Structured } from "./Structured.js";
 import { Lifecycle } from "./Lifecycle.js";
+import { Task } from "./Task.js";
+import { canTranscribe } from "../lib/paneinfo.js";
 import { Tools } from "./Tools.js";
 import { FindBar } from "./FindBar.js";
 import { TerminalView } from "../lib/terminal.js";
@@ -79,7 +81,7 @@ export function hasTerminal(node, pane) {
 /** Drawer is the component. store is the store of store.js; node and pane are the
  *  graph node and the state push's entry for it. terminalOptions reach the
  *  terminal, which is how a test gives it fakes for xterm and the socket. */
-function DrawerBody({ store, snap = null, node, pane = null, now, maximised = false, onClose, onToggleMax, terminalOptions = null, life = null, tx = null, onInfo = null, findAsk = 0 }) {
+function DrawerBody({ store, snap = null, node, pane = null, now, maximised = false, onClose, onToggleMax, onOpenPane = null, terminalOptions = null, life = null, tx = null, onInfo = null, findAsk = 0 }) {
   const rootRef = useRef(null);
   const terminalRef = useRef(null);
   // The terminal's controller once it is made, for the search bar, and the search
@@ -119,8 +121,10 @@ function DrawerBody({ store, snap = null, node, pane = null, now, maximised = fa
     return () => store.unwatchConversation();
   }, [store, node.pane]);
   const [tab, setTab] = useState("terminal");
+  const [taskOpen, setTaskOpen] = useState(false);
   useEffect(() => {
     setTab("terminal");
+    setTaskOpen(false);
     setFinding(false);
     setMatches(null);
   }, [node.pane]);
@@ -147,7 +151,8 @@ function DrawerBody({ store, snap = null, node, pane = null, now, maximised = fa
   const conv = state.conversation && state.conversation.id === node.pane ? state.conversation : null;
   // The tab is there for a pane with a conversation, and for one the desktop
   // refused this device, so the refusal is said where the conversation would be.
-  const hasConv = !!conv && (conv.supported === true || !!conv.refused);
+  // A structured pane's conversation is the body of its own panel, so the tab is for the others.
+  const hasConv = terminal && !!conv && (conv.supported === true || !!conv.refused);
   const shown = tab === "conversation" && hasConv ? "conversation" : "terminal";
   const tabRefs = useRef({});
   const tabKeys = (e) => {
@@ -164,13 +169,19 @@ function DrawerBody({ store, snap = null, node, pane = null, now, maximised = fa
   const pending = card ? { card, node: html`<${StreamPermission} node=${node} card=${card} snap=${state} store=${store} />` } : null;
   const details = state.details || null;
   const onDetail = (id) => store.requestDetail(id);
+  const onOlder = () => store.olderConversation();
+  const onSearch = (q) => store.searchConversation(q);
+  const onClearSearch = () => store.clearSearch();
+  const canExport = !!tx && !state.remote && canTranscribe(node, pane);
   const sendKeys = (text, done) => {
     const send = keysFor(terminalRef, node.pane);
     return !!send && send(text, done);
   };
   return html`
     <section class=${"drawer-body" + (maximised ? " drawer-body--max" : "")} data-drawer-pane=${node.pane} tabindex="-1" ref=${rootRef} onKeyDown=${onKeyDown}>
-      <${Header} node=${node} pane=${pane} now=${now} maximised=${maximised} onClose=${onClose} onToggleMax=${onToggleMax} />
+      <${Header} node=${node} pane=${pane} now=${now} maximised=${maximised} onClose=${onClose} onToggleMax=${onToggleMax}
+        taskOpen=${taskOpen} onTask=${() => setTaskOpen(!taskOpen)} />
+      ${taskOpen && node.task ? html`<${Task} key=${node.task.id} node=${node} snap=${state} store=${store} onOpenPane=${onOpenPane} onClose=${() => setTaskOpen(false)} />` : null}
       ${life ? html`<${Lifecycle} node=${node} pane=${pane} life=${life} />` : null}
       ${tx
         ? html`<${Tools} node=${node} pane=${pane} tx=${tx} remote=${!!state.remote} terminal=${terminal} finding=${finding} send=${(c) => store.send(c)}
@@ -190,11 +201,13 @@ function DrawerBody({ store, snap = null, node, pane = null, now, maximised = fa
           : null}
         ${terminal
           ? html`<${TerminalView} key=${node.pane} store=${store} paneId=${node.pane} onReady=${(c) => { terminalRef.current = { pane: node.pane, ctl: c }; setCtl(c); }} ...${terminalOptions || {}} onMatches=${setMatches} />`
-          : html`<${Structured} key=${node.pane} pane=${node.pane} st=${state.structured} error=${state.structuredError} cancelError=${state.cancelError} desk=${!state.remote} store=${store} details=${details} onDetail=${onDetail} pending=${pending} />`}
+          : html`<${Structured} key=${node.pane} pane=${node.pane} st=${state.structured} error=${state.structuredError} cancelError=${state.cancelError} desk=${!state.remote} store=${store} conv=${conv} onOlder=${onOlder} details=${details} onDetail=${onDetail} pending=${pending}
+              search=${state.search} onSearch=${onSearch} onClearSearch=${onClearSearch} />`}
       </div>
       ${hasConv
         ? html`<div class="drawer-panel" role="tabpanel" id="drawer-panel-conversation" aria-labelledby="drawer-tab-conversation" hidden=${shown !== "conversation"}>
-            <${Conversation} conv=${conv} onOlder=${() => store.olderConversation()} details=${details} onDetail=${onDetail} pending=${pending} />
+            <${Conversation} conv=${conv} onOlder=${onOlder} details=${details} onDetail=${onDetail} pending=${pending}
+              search=${state.search} onSearch=${onSearch} onClearSearch=${onClearSearch} canExport=${canExport} onExport=${() => tx.exportTranscript(node.pane)} />
           </div>`
         : null}
     </section>

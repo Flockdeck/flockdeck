@@ -20,6 +20,8 @@ import { clip } from "../../graph/Node.js";
 import { useState } from "../../vendor/hooks.mjs";
 import { Markdown } from "./markdown.js";
 import { ToolBody } from "./Tool.js";
+import { ImageBody, imageWords } from "./Image.js";
+import { stepsWords } from "./steps.js";
 
 /** MAX_TEXT cuts a prompt, a notice or a title. */
 export const MAX_TEXT = 4000;
@@ -125,11 +127,25 @@ export function Row({ entry: e, open = false, onToggle = null, detail = null, ne
       return html`<li class="conv-row conv-note" data-kind="compaction" data-entry=${nested ? null : e.id} tabindex="-1">${typeof e.turns === "number" ? "Conversation compacted (" + e.turns + " turns)" : "Conversation compacted"}</li>`;
     case "notice":
       return html`<li class="conv-row conv-note" data-kind="notice" data-entry=${nested ? null : e.id} tabindex="-1">${clip(text(e.text), 400)}</li>`;
-    case "image": {
-      const size = e.width && e.height ? ", " + e.width + " by " + e.height : "";
-      return html`<li class="conv-row conv-note" data-kind="image" data-entry=${nested ? null : e.id} tabindex="-1">${"Image (" + text(e.mediaType || "unknown type") + size + ")"}</li>`;
-    }
+    case "image":
+      return html`<li class=${"conv-row conv-image-row" + (open ? " is-open" : "")} data-kind="image" data-entry=${nested ? null : e.id} data-nested=${nested ? "" : null} tabindex="-1">
+        ${e.hasDetail && onToggle
+          ? html`<button type="button" class="conv-tool-head" aria-expanded=${open ? "true" : "false"} onClick=${() => onToggle(e.id)}>${imageWords(e)}</button>`
+          : html`<span class="conv-note">${imageWords(e)}</span>`}
+        ${open ? html`<${ImageBody} entry=${e} detail=${detail} />` : null}
+      </li>`;
     default:
       return html`<li class="conv-row conv-note conv-unknown" data-kind="other" data-entry=${nested ? null : e.id} tabindex="-1">${"Unknown entry" + (kind ? " (" + clip(kind, 80) + ")" : "")}</li>`;
   }
+}
+
+/** StepsRow is the header of a run of tool rows: "N steps", open or closed. The
+ *  rows themselves are drawn by the list after it when it is open. */
+export function StepsRow({ id, steps, open, onToggle }) {
+  return html`<li class=${"conv-row conv-steps" + (open ? " is-open" : "")} data-kind="steps" data-entry=${id} tabindex="-1">
+    <button type="button" class="conv-tool-head conv-steps-head" aria-expanded=${open ? "true" : "false"} onClick=${() => onToggle(id)}>
+      <span class="conv-steps-caret" aria-hidden="true">${open ? "▾" : "▸"}</span>
+      <span class="conv-tool-title">${stepsWords(steps)}</span>
+    </button>
+  </li>`;
 }

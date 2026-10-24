@@ -46,7 +46,7 @@ fields these commands use are:
 | `paneSend` | Types text into one pane and presses Enter (section 6). | yes | refused |
 | `conversationOpen`, `conversationOlder`, `conversationDetail`, `conversationClose`, `conversationSearch` | Read a pane's conversation (section 7). | yes | yes, for a full device; for a viewer only if the desk has let that device watch panes |
 | `permissionAnswer` | Answers a structured agent's permission request with one of the options on its card. | yes | refused |
-| `structuredSnapshot`, `structuredWatch`, `structuredUnwatch`, `structuredDetail`, `structuredCancel` | Show a structured pane to a window on the desk, and stop its running turn (`docs/structured-pane.md`). | yes | refused |
+| `structuredSnapshot`, `structuredWatch`, `structuredUnwatch`, `structuredCancel` | Show a structured pane to a window on the desk, and stop its running turn (`docs/structured-pane.md`). | yes | refused |
 
 The structured pane commands, their message and their limits are in
 [`structured-pane.md`](structured-pane.md).
@@ -373,6 +373,17 @@ session.
   in characters, and `more: true` when there were more. It searches only a
   conversation that some window has already opened; for any other pane it returns
   no matches.
+
+### The task panel
+
+The drawer's task chip opens a panel that shows the task a pane works on. On the
+desktop window it sends `taskGet` (see section 1) and draws the title, state,
+owner, branch, creator, last change, text and notes of the `teamResult` that
+answers it. The notes are drawn 20 at a time. All of it is drawn as text. The
+panel's "Go to pane" button opens the owner's pane when it is open and is not the
+pane already shown. A window reached through the relay sends no `taskGet`, since
+task text is not sent there, and shows only the chip's id, title and state. The
+task data has no dependencies, so the panel shows none.
 
 ## 8. Limits and throttling
 

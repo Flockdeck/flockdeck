@@ -18,10 +18,10 @@ import (
 	"github.com/jmwri/flockdeck/internal/workspace"
 )
 
-// These tests read a structured pane through structuredSnapshot, structuredWatch,
-// structuredUnwatch and structuredDetail. The pane is the fake agent's.
+// These tests read a structured pane through structuredSnapshot, structuredWatch
+// and structuredUnwatch. The pane is the fake agent's.
 
-var structuredCommands = []string{"structuredSnapshot", "structuredWatch", "structuredUnwatch", "structuredDetail", "structuredCancel"}
+var structuredCommands = []string{"structuredSnapshot", "structuredWatch", "structuredUnwatch", "structuredCancel"}
 
 // structuredReply sends a command from c and returns the first message of a type.
 func structuredReply(t *testing.T, srv *Server, c *controlClient, cmd command, types ...string) []byte {
@@ -40,6 +40,20 @@ func structuredReply(t *testing.T, srv *Server, c *controlClient, cmd command, t
 			t.Fatalf("%s was not answered with %v", cmd.Cmd, types)
 		}
 	}
+}
+
+// entries are the pane's conversation as the workspace holds it, which is what
+// the conversation commands page. A push carries none of it.
+func (e *structuredEnv) entries(t *testing.T) []transcript.Entry {
+	t.Helper()
+	got, ok := ask(e.srv, func() []transcript.Entry {
+		sn, _ := e.srv.structuredSnapshotOf(e.child)
+		return sn.Entries
+	})
+	if !ok {
+		t.Fatal("the server stopped")
+	}
+	return got
 }
 
 func (e *structuredEnv) snapshotOf(t *testing.T, id string) structuredMsg {
@@ -68,7 +82,7 @@ func drain(c *controlClient) (out [][]byte) {
 	}
 }
 
-// A snapshot has the pane's phase, status, entries and usage, and a request for
+// A snapshot has the pane's phase, status and usage, and a request for
 // anything that is not a structured pane is refused in the same words.
 func TestStructuredSnapshotOfAPane(t *testing.T) {
 	e := newStructuredEnv(t, "plain")
@@ -78,12 +92,15 @@ func TestStructuredSnapshotOfAPane(t *testing.T) {
 		t.Errorf("message = %+v", m)
 	}
 	var prompt, reply bool
-	for _, en := range m.Entries {
+	for _, en := range e.entries(t) {
 		prompt = prompt || en.Kind == "prompt"
 		reply = reply || (en.Kind == "reply" && strings.Contains(en.Markdown, "Hello world"))
 	}
-	if !prompt || !reply || m.Older != 0 || m.Card != nil {
-		t.Errorf("prompt %v reply %v older %d card %+v", prompt, reply, m.Older, m.Card)
+	if !prompt || !reply || m.Card != nil {
+		t.Errorf("prompt %v reply %v card %+v", prompt, reply, m.Card)
+	}
+	if raw := structuredReply(t, e.srv, e.c, command{Cmd: "structuredSnapshot", ID: e.child, Req: "r1"}, "structured"); strings.Contains(string(raw), "Hello world") || strings.Contains(string(raw), "\"entries\"") {
+		t.Errorf("the snapshot carries the conversation: %.300s", raw)
 	}
 
 	// A terminal pane, a pane that is not there and an empty id look the same.
@@ -137,14 +154,14 @@ func TestStructuredWatchPushesOnChangeAndIsThrottled(t *testing.T) {
 		t.Fatalf("%d messages with nothing changed", len(got))
 	}
 
-	// The agent works: the next push has the new entries and no req.
-	if err, _ := ask(e.srv, func() error { _, err := e.ws.SendToPane(e.child, "plain again", false); return err }); err != nil {
+	// The agent works: the next push has what changed (a plan here) and no req.
+	if err, _ := ask(e.srv, func() error { _, err := e.ws.SendToPane(e.child, "plan the work", false); return err }); err != nil {
 		t.Fatal(err)
 	}
 	e.status(t, session.StatusIdle)
 	deadline := time.Now().Add(20 * time.Second)
 	var last structuredMsg
-	for last.Older == 0 && len(last.Entries) <= len(first.Entries) && time.Now().Before(deadline) {
+	for len(last.Plan) <= len(first.Plan) && time.Now().Before(deadline) {
 		e.push()
 		for _, raw := range drain(c) {
 			last = structuredMsg{}
@@ -152,14 +169,15 @@ func TestStructuredWatchPushesOnChangeAndIsThrottled(t *testing.T) {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	if len(last.Entries) <= len(first.Entries) || last.Req != "" {
-		t.Fatalf("no push with new entries: %d entries then %d, req %q", len(first.Entries), len(last.Entries), last.Req)
+	if len(last.Plan) <= len(first.Plan) || last.Req != "" {
+		t.Fatalf("no push with the new plan: %d rows then %d, req %q", len(first.Plan), len(last.Plan), last.Req)
 	}
 
 	// A flood inside the interval makes no push now, and one when it is up.
 	ask(e.srv, func() bool { e.srv.structAt = time.Now(); return true })
-	e.ws.SendToPane(e.child, "plain flood", false)
-	e.status(t, session.StatusIdle)
+	// A turn that stays running changes the pane's status, which a push carries.
+	e.ws.SendToPane(e.child, "slow flood", false)
+	e.status(t, session.StatusWorking)
 	for i := 0; i < 50; i++ {
 		ask(e.srv, func() bool { e.srv.pushStructured(); return true })
 	}
@@ -264,7 +282,7 @@ func TestStructuredCommandsAreForTheDeskOnly(t *testing.T) {
 	e.status(t, session.StatusIdle)
 	remote := &controlClient{out: make(chan []byte, 32), remote: true, device: "full-dev"}
 	for _, name := range structuredCommands {
-		raw := structuredReply(t, e.srv, remote, command{Cmd: name, ID: e.child, Entry: "x", Req: "r"}, "teamResult", "structured", "structuredDetail")
+		raw := structuredReply(t, e.srv, remote, command{Cmd: name, ID: e.child, Entry: "x", Req: "r"}, "teamResult", "structured")
 		var res teamResultMsg
 		if err := json.Unmarshal(raw, &res); err != nil || res.Type != "teamResult" || res.OK || res.Op != name || res.Error != structuredDeskOnly {
 			t.Errorf("%s: %s", name, raw)
@@ -286,45 +304,49 @@ func TestStructuredCommandsAreForTheDeskOnly(t *testing.T) {
 		}
 	}
 	viewer.accessOf = func() store.DeviceAccess { return e.srv.deviceAccess("viewer-dev") }
-	for _, ty := range []string{"structured", "structuredDetail"} {
+	for _, ty := range []string{"structured"} {
 		if viewer.mayReceive([]byte(`{"type":"` + ty + `"}`)) {
 			t.Errorf("a viewer was sent %s", ty)
 		}
 	}
 }
 
-// A tool's output is not in a push: the entry says it has detail, and
-// structuredDetail has the text, cut.
+// A tool's output is not in a push: the conversation's entry says it has
+// detail, and conversationDetail has the text, cut.
 func TestStructuredOutputIsFetchedAndNotPushed(t *testing.T) {
 	e := newStructuredEnv(t, "big")
 	e.status(t, session.StatusIdle)
-	m := e.snapshotOf(t, e.child)
 	var id string
-	for _, en := range m.Entries {
+	for _, en := range e.entries(t) {
 		if en.Kind == "tool" && en.HasDetail {
 			id = en.ID
 		}
 	}
 	if id == "" {
-		t.Fatalf("no tool entry with detail: %+v", m.Entries)
+		t.Fatalf("no tool entry with detail: %+v", e.entries(t))
 	}
-	raw, _ := json.Marshal(m)
-	if strings.Contains(string(raw), strings.Repeat("x", 1000)) || len(raw) > structuredPushCap {
+	raw := structuredReply(t, e.srv, e.c, command{Cmd: "structuredSnapshot", ID: e.child, Req: "r"}, "structured")
+	if strings.Contains(string(raw), strings.Repeat("x", 1000)) || len(raw) > 16<<10 {
 		t.Errorf("the push is %d bytes and carries the output", len(raw))
 	}
 
-	var d structuredDetailMsg
-	b := structuredReply(t, e.srv, e.c, command{Cmd: "structuredDetail", ID: e.child, Entry: id, Req: "d1"}, "structuredDetail")
-	_ = json.Unmarshal(b, &d)
-	if d.Req != "d1" || d.Entry != id || !d.Clipped || len(d.Text) != structuredDetailCut || !strings.HasPrefix(d.Text, "xxx") {
-		t.Errorf("detail: req %q entry %q clipped %v text %d bytes", d.Req, d.Entry, d.Clipped, len(d.Text))
+	c := &controlClient{out: make(chan []byte, 16)}
+	structuredPage(t, e, c, "")
+	e.srv.conversationDetailReq(c, e.child, id)
+	var d conversationDetailMsg
+	if err := json.Unmarshal(nextRaw(t, c), &d); err != nil || d.Entry != id || d.Gone || len(d.Detail.Text) != 64<<10 || !strings.HasPrefix(d.Detail.Text, "xxx") {
+		t.Errorf("detail: %+v (%v), %d bytes", d.Entry, err, len(d.Detail.Text))
 	}
 
-	e.srv.handleCommand(e.c, command{Cmd: "structuredDetail", ID: e.child, Entry: "no-such-entry"})
-	var res teamResultMsg
-	e.next(t, "teamResult", &res)
-	if res.Error != structuredNoEntry {
-		t.Errorf("an entry that is not there: %+v", res)
+	// structuredDetail is gone: nothing sends it and a window that asks is refused as for any unknown command.
+	if _, there := commandAccess["structuredDetail"]; there {
+		t.Error("structuredDetail is still in the table of commands")
+	}
+	e.srv.handleCommand(e.c, command{Cmd: "structuredDetail", ID: e.child, Entry: id, Req: "d"})
+	for _, raw := range drain(e.c) {
+		if typeOf(raw) == "structuredDetail" {
+			t.Errorf("the server still answers structuredDetail: %.200s", raw)
+		}
 	}
 }
 
@@ -399,39 +421,7 @@ func TestClipStructuredNeverCutsACharacter(t *testing.T) {
 	}
 }
 
-// A push over its cap leaves out whole entries from the oldest, and every text
-// that is left is the start of the original, whole characters only.
-func TestStructuredPushCapDropsWholeEntriesAndKeepsCharacters(t *testing.T) {
-	for _, unit := range []string{"日", "é", "😀"} {
-		original := strings.Repeat(unit, 5000)
-		var entries []transcript.Entry
-		for i := 0; i < 60; i++ {
-			entries = append(entries, transcript.Entry{ID: "e" + string(rune('A'+i%26)) + string(rune('a'+i/26)), Kind: transcript.KindReply, Markdown: original})
-		}
-		m := buildStructured("p", structured.Snapshot{Phase: structured.PhaseReady, Status: bridge.StatusIdle, Entries: entries})
-		raw, err := json.Marshal(m)
-		if err != nil || !utf8.Valid(raw) {
-			t.Fatalf("%q: %v", unit, err)
-		}
-		if len(raw) > structuredPushCap {
-			t.Errorf("%q: the push is %d bytes, the cap is %d", unit, len(raw), structuredPushCap)
-		}
-		if m.Older == 0 || m.Older+len(m.Entries) != len(entries) {
-			t.Errorf("%q: older %d, entries %d of %d", unit, m.Older, len(m.Entries), len(entries))
-		}
-		for _, en := range m.Entries {
-			if !en.Clipped || en.Markdown == "" || !utf8.ValidString(en.Markdown) || !strings.HasPrefix(original, en.Markdown) || strings.ContainsRune(en.Markdown, utf8.RuneError) || len(en.Markdown) > structuredTextCut {
-				t.Fatalf("%q: entry %s: clipped %v, %d bytes", unit, en.ID, en.Clipped, len(en.Markdown))
-			}
-		}
-		if last := m.Entries[len(m.Entries)-1]; last.ID != entries[len(entries)-1].ID {
-			t.Errorf("the newest entry is not last: %s", last.ID)
-		}
-	}
-}
-
-// The plan, the card and an entry's other fields are cut the same way, and a
-// diff and a report are left for structuredDetail.
+// The plan, the card and the other fields are cut the same way.
 func TestStructuredFieldsAreBounded(t *testing.T) {
 	long := strings.Repeat("日本語", 400)
 	sn := structured.Snapshot{
@@ -439,8 +429,7 @@ func TestStructuredFieldsAreBounded(t *testing.T) {
 		Plan: make([]acp.PlanEntry, 150),
 		Pending: &bridge.Card{Seq: 3, RequestID: "r", Tool: long, Command: long, Summary: long, File: long,
 			Options: []acp.PermissionOption{{OptionID: long, Name: long, Kind: long}}},
-		Entries: []transcript.Entry{{ID: "t1", Kind: transcript.KindTool, Name: long, Label: long, Summary: long, Diff: long, Report: long, Description: long}},
-		Setup:   &structured.Setup{Kind: structured.SetupInstall, Message: long + "\nmore", Login: "Install Node\nthen restart " + strings.Repeat("x", 1000)},
+		Setup: &structured.Setup{Kind: structured.SetupInstall, Message: long + "\nmore", Login: "Install Node\nthen restart " + strings.Repeat("x", 1000)},
 	}
 	for i := range sn.Plan {
 		sn.Plan[i] = acp.PlanEntry{Content: long, Status: "pending"}
@@ -455,10 +444,6 @@ func TestStructuredFieldsAreBounded(t *testing.T) {
 	}
 	if s := m.Setup; s == nil || s.Fix == "" || len(s.Fix) > structuredCardCut || len(s.Message) > structuredCardCut || strings.ContainsAny(s.Fix+s.Message, "\n") || !strings.HasPrefix(s.Fix, "Install Node then restart ") {
 		t.Errorf("setup = %+v", s)
-	}
-	en := m.Entries[0]
-	if en.Diff != "" || en.Report != "" || !en.HasDetail || !en.Clipped || len(en.Label) > structuredLabelCut || len(en.Description) > structuredNoteCut {
-		t.Errorf("entry = %+v", en)
 	}
 	if !m.Card.Clipped || len(m.Card.Command) > structuredCommandCut || len(m.Card.Tool) > structuredCardCut || len(m.Card.Options[0].Name) > 100 {
 		t.Errorf("card = %+v", m.Card)
@@ -508,90 +493,27 @@ func (e *structuredEnv) waitFor(t *testing.T, id, text string) {
 	t.Fatalf("pane %s never showed %q", id, text)
 }
 
-// A prompt cut in a push is fetched whole, to the detail cut, by structuredDetail.
-func TestStructuredDetailReturnsACutPrompt(t *testing.T) {
-	e := newStructuredEnv(t, "plain")
-	e.status(t, session.StatusIdle)
-	long := strings.Repeat("p", 12000)
-	if err, _ := ask(e.srv, func() error { _, err := e.ws.SendToPane(e.child, long, false); return err }); err != nil {
-		t.Fatal(err)
-	}
-	e.status(t, session.StatusIdle)
-	var en structuredEntry
-	deadline := time.Now().Add(20 * time.Second)
-	for en.ID == "" && time.Now().Before(deadline) {
-		for _, x := range e.snapshotOf(t, e.child).Entries {
-			if x.Kind == "prompt" && x.Clipped {
-				en = x
-			}
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	if en.ID == "" || !en.HasDetail || len(en.Text) != structuredTextCut {
-		t.Fatalf("entry = %d bytes, hasDetail %v", len(en.Text), en.HasDetail)
-	}
-	var d structuredDetailMsg
-	raw := structuredReply(t, e.srv, e.c, command{Cmd: "structuredDetail", ID: e.child, Entry: en.ID, Req: "d"}, "structuredDetail")
-	if err := json.Unmarshal(raw, &d); err != nil {
-		t.Fatal(err)
-	}
-	if len(d.Text) != 12000 || d.Clipped {
-		t.Errorf("detail text %d bytes, clipped %v", len(d.Text), d.Clipped)
-	}
-}
-
-// A push never passes its cap, whatever the size and characters of the entries.
-func TestStructuredPushCapHoldsForEverySize(t *testing.T) {
-	for _, ch := range []string{"a", "<", "é", "日"} {
-		step := 11
-		if ch == "a" {
-			step = 1
-		}
-		for size := 100; size <= 4200; size += step {
-			var entries []transcript.Entry
-			for i := 0; i < 80; i++ {
-				entries = append(entries, transcript.Entry{ID: "e" + string(rune('A'+i%26)) + strings.Repeat("0", i%7),
-					Kind: transcript.KindReply, TS: "2026-10-20T12:00:00Z",
-					Markdown: strings.Repeat(ch, size/len(ch)+1)})
-			}
-			raw, err := json.Marshal(buildStructured("p1", structured.Snapshot{Phase: structured.PhaseReady, Entries: entries}))
-			if err != nil {
-				t.Fatal(err)
-			}
-			if len(raw) > structuredPushCap {
-				t.Fatalf("%q at %d bytes: push is %d, cap %d", ch, size, len(raw), structuredPushCap)
-			}
-		}
-	}
-}
-
-// A reply cut in a push is fetched whole as well.
-func TestStructuredDetailReturnsACutReply(t *testing.T) {
+// A long reply is read whole through the conversation commands: the push that
+// used to cut it carries no text.
+func TestStructuredLongReplyIsReadThroughTheConversation(t *testing.T) {
 	e := newStructuredEnv(t, "plain")
 	e.status(t, session.StatusIdle)
 	if err, _ := ask(e.srv, func() error { _, err := e.ws.SendToPane(e.child, "long", false); return err }); err != nil {
 		t.Fatal(err)
 	}
 	e.status(t, session.StatusIdle)
-	var en structuredEntry
+	c := &controlClient{out: make(chan []byte, 16)}
+	var got string
 	deadline := time.Now().Add(20 * time.Second)
-	for en.ID == "" && time.Now().Before(deadline) {
-		for _, x := range e.snapshotOf(t, e.child).Entries {
-			if x.Kind == "reply" && x.Clipped {
-				en = x
+	for got == "" && time.Now().Before(deadline) {
+		for _, x := range structuredPage(t, e, c, "").Entries {
+			if x.Kind == "reply" && len(x.Markdown) >= 12000 {
+				got = x.Markdown
 			}
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	if en.ID == "" || !en.HasDetail || len(en.Markdown) != structuredTextCut {
-		t.Fatalf("entry = %d bytes, hasDetail %v", len(en.Markdown), en.HasDetail)
-	}
-	var d structuredDetailMsg
-	raw := structuredReply(t, e.srv, e.c, command{Cmd: "structuredDetail", ID: e.child, Entry: en.ID, Req: "d"}, "structuredDetail")
-	if err := json.Unmarshal(raw, &d); err != nil {
-		t.Fatal(err)
-	}
-	if len(d.Text) != 12000 || d.Clipped {
-		t.Errorf("detail text %d bytes, clipped %v", len(d.Text), d.Clipped)
+	if len(got) != 12000 {
+		t.Fatalf("the reply is %d bytes through the conversation, want 12000", len(got))
 	}
 }

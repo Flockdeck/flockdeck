@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/jmwri/flockdeck/internal/acp/acptest"
+	"github.com/jmwri/flockdeck/internal/session/transcript"
 	"github.com/jmwri/flockdeck/internal/testiso/iso"
 )
 
@@ -55,12 +56,20 @@ type observed struct {
 
 // until polls the pane through structuredSnapshot, as a window does, until done
 // says so.
-func (e *structuredEnv) until(t *testing.T, what string, d time.Duration, done func(m structuredMsg) bool) structuredMsg {
+// convView is what a window sees of a structured pane: the pane's state, from
+// structuredSnapshot, and its conversation, which a window reads with the
+// conversation commands and the workspace holds as these entries.
+type convView struct {
+	structuredMsg
+	Entries []transcript.Entry
+}
+
+func (e *structuredEnv) until(t *testing.T, what string, d time.Duration, done func(m convView) bool) convView {
 	t.Helper()
 	deadline := time.Now().Add(d)
-	var m structuredMsg
+	var m convView
 	for {
-		m = e.snapshotOf(t, e.child)
+		m = convView{e.snapshotOf(t, e.child), e.entries(t)}
 		if done(m) {
 			return m
 		}
@@ -71,7 +80,7 @@ func (e *structuredEnv) until(t *testing.T, what string, d time.Duration, done f
 	}
 }
 
-func lastReply(m structuredMsg) string {
+func lastReply(m convView) string {
 	for i := len(m.Entries) - 1; i >= 0; i-- {
 		if m.Entries[i].Kind == "reply" {
 			return m.Entries[i].Markdown
@@ -108,7 +117,7 @@ func insideDir(path, dir string) bool {
 	return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator))
 }
 
-func cardOf(m structuredMsg) map[string]any {
+func cardOf(m convView) map[string]any {
 	if m.Card == nil {
 		return nil
 	}
@@ -120,7 +129,7 @@ func cardOf(m structuredMsg) map[string]any {
 		"commandPresent": m.Card.Command != "", "command": m.Card.Command, "options": opts}
 }
 
-func allowOnce(m structuredMsg) string {
+func allowOnce(m convView) string {
 	for _, o := range m.Card.Options {
 		if o.Kind == "allow_once" {
 			return o.ID
@@ -222,7 +231,7 @@ func TestRealOpencodeEndToEnd(t *testing.T) {
 	defer write()
 
 	// 1. Start, and the first prompt (the pane's task).
-	m := e.until(t, "the first turn", 150*time.Second, func(m structuredMsg) bool {
+	m := e.until(t, "the first turn", 150*time.Second, func(m convView) bool {
 		return m.Status == "idle" && lastReply(m) != "" || m.Phase == "exited" || m.Phase == "setup"
 	})
 	if m.Phase == "exited" || m.Phase == "setup" {
@@ -236,7 +245,7 @@ func TestRealOpencodeEndToEnd(t *testing.T) {
 	// 2. A tool that needs permission. The relay's answer is refused, the desk's
 	// is taken.
 	e.prompt(t, "Use your shell tool to run exactly this command and nothing else: echo e2e-ok . Then reply with the output only.")
-	m = e.until(t, "a permission request", 150*time.Second, func(m structuredMsg) bool { return m.Card != nil })
+	m = e.until(t, "a permission request", 150*time.Second, func(m convView) bool { return m.Card != nil })
 	card := cardOf(m)
 	step("permissionCard", card)
 	if m.Card.Command != "echo e2e-ok" {
@@ -270,7 +279,7 @@ func TestRealOpencodeEndToEnd(t *testing.T) {
 	if !reply.OK {
 		t.Fatalf("the desk's answer: %+v %q", reply, notice)
 	}
-	m = e.until(t, "the tool's turn to end", 150*time.Second, func(m structuredMsg) bool {
+	m = e.until(t, "the tool's turn to end", 150*time.Second, func(m convView) bool {
 		return m.Status == "idle" && m.Card == nil && strings.Contains(lastReply(m), "e2e-ok")
 	})
 	tools := []map[string]string{}
@@ -285,7 +294,7 @@ func TestRealOpencodeEndToEnd(t *testing.T) {
 	// marker in its command line, so it can be found afterwards.
 	marker := fmt.Sprintf("e2e-sleep-%d", time.Now().UnixNano())
 	e.prompt(t, "Use your shell tool to run exactly this command and wait for it: node -e \"setTimeout(function(){},60000)\" "+marker)
-	m = e.until(t, "the second permission request", 150*time.Second, func(m structuredMsg) bool { return m.Card != nil })
+	m = e.until(t, "the second permission request", 150*time.Second, func(m convView) bool { return m.Card != nil })
 	step("cancelCard", cardOf(m))
 	if !strings.Contains(m.Card.Command, marker) {
 		t.Errorf("the second request's rawInput.command did not reach the card: %q", m.Card.Command)
@@ -293,7 +302,7 @@ func TestRealOpencodeEndToEnd(t *testing.T) {
 	if r, n := send(t, e.srv, e.c, answerCmd(e.child, m.Card.Seq, m.Card.RequestID, allowOnce(m))); !r.OK {
 		t.Fatalf("answer: %+v %q", r, n)
 	}
-	m = e.until(t, "the command to be running", 90*time.Second, func(m structuredMsg) bool {
+	m = e.until(t, "the command to be running", 90*time.Second, func(m convView) bool {
 		for _, en := range m.Entries {
 			if en.Kind == "tool" && en.Status == "running" {
 				return true
@@ -307,7 +316,7 @@ func TestRealOpencodeEndToEnd(t *testing.T) {
 	if !res.OK {
 		t.Errorf("cancel: %+v", res)
 	}
-	m = e.until(t, "the turn to end after the cancel", 60*time.Second, func(m structuredMsg) bool { return m.Status == "idle" })
+	m = e.until(t, "the turn to end after the cancel", 60*time.Second, func(m convView) bool { return m.Status == "idle" })
 	time.Sleep(3 * time.Second)
 	left := procs(t, marker, false)
 	step("afterCancel", map[string]any{"status": m.Status, "markerProcessesLeft": left, "lastReply": lastReply(m)})
@@ -331,9 +340,9 @@ func TestRealOpencodeEndToEnd(t *testing.T) {
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	m = e.until(t, "the restarted agent", 150*time.Second, func(m structuredMsg) bool { return m.Phase == "ready" && m.Status == "idle" })
+	m = e.until(t, "the restarted agent", 150*time.Second, func(m convView) bool { return m.Phase == "ready" && m.Status == "idle" })
 	e.prompt(t, "Reply with the single word pong2")
-	m = e.until(t, "the reply after a restart", 150*time.Second, func(m structuredMsg) bool {
+	m = e.until(t, "the reply after a restart", 150*time.Second, func(m convView) bool {
 		return m.Status == "idle" && strings.Contains(strings.ToLower(lastReply(m)), "pong2")
 	})
 	// The workspace keeps the earlier sessions' entries and a notice ahead of the
@@ -370,7 +379,7 @@ func TestRealOpencodeEndToEnd(t *testing.T) {
 
 	// 5. Close with a request open: the pane goes and so does the agent.
 	e.prompt(t, "Use your shell tool to run exactly this command and nothing else: echo close-test")
-	m = e.until(t, "a request to leave open", 150*time.Second, func(m structuredMsg) bool { return m.Card != nil })
+	m = e.until(t, "a request to leave open", 150*time.Second, func(m convView) bool { return m.Card != nil })
 	e.srv.handleCommand(e.c, command{Cmd: "closePane", ID: e.child})
 	gone := false
 	deadline := time.Now().Add(30 * time.Second)
@@ -413,7 +422,7 @@ func TestTheRecordingProxyRelaysAndRecordsATurn(t *testing.T) {
 	testExe, _ := os.Executable()
 	rawLog := filepath.Join(t.TempDir(), "proxy.log")
 	e := newStructuredEnvWith(t, "plain", structuredEnvOpts{Program: testExe, ProgramArgs: []string{acptest.ArgTee, rawLog, testExe, acptest.ArgAgent}})
-	m := e.until(t, "a turn through the proxy", 60*time.Second, func(m structuredMsg) bool { return m.Status == "idle" && lastReply(m) != "" })
+	m := e.until(t, "a turn through the proxy", 60*time.Second, func(m convView) bool { return m.Status == "idle" && lastReply(m) != "" })
 	if !strings.Contains(lastReply(m), "Hello world") {
 		t.Errorf("reply = %q", lastReply(m))
 	}
