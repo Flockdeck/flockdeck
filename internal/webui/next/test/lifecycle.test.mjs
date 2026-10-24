@@ -337,17 +337,45 @@ test("an agent that is not installed cannot be picked, and its option says so", 
     assert.equal(disabled.length, 1);
   }));
 
-test("Escape closes the dialog, Tab stays inside it, and nothing is sent", () =>
+// The walk of Tab through the start dialog as the real selector finds it. The fake
+// DOM matches the selector list itself, so a control dropped from the list in
+// Start.js drops out of the walk here.
+async function walk(m, from, shiftKey, steps) {
+  const doc = m.dom.document;
+  doc.activeElement === from || from.focus();
+  const seen = [];
+  for (let i = 0; i < steps; i++) {
+    const ev = doc.activeElement.dispatch("keydown", { key: "Tab", shiftKey, ctrlKey: false, altKey: false });
+    assert.ok(ev.defaultPrevented, "Tab was left to the browser");
+    seen.push(doc.activeElement.attributes.id || doc.activeElement.textContent);
+  }
+  return seen;
+}
+
+test("Tab walks the start dialog's controls in order and wraps, Shift+Tab walks back", () =>
+  withPage({}, async (m) => {
+    await m.connect();
+    await m.click(m.byText(".tabs-btn", /Choose agent/));
+    const dialog = m.container.find(".dialog");
+    const agent = dialog.find("#start-agent");
+    // Select, select, textarea, then the buttons, then round to the first.
+    assert.deepEqual(await walk(m, agent, false, 6), ["start-role", "start-task", "Start", "Cancel", "start-agent", "start-role"]);
+    assert.deepEqual(await walk(m, dialog.find("#start-role"), true, 3), ["start-agent", "Cancel", "Start"]);
+  }));
+
+test("Escape closes the dialog, other keys are left alone, and nothing is sent", () =>
   withPage({}, async (m) => {
     await m.connect();
     m.clear();
     await m.click(m.byText(".tabs-btn", /Choose agent/));
     const dialog = m.container.find(".dialog");
-    const all = ["select", "textarea", "button"].flatMap((t) => dialog.findAll(t)).filter((e) => !(e.disabled || e.attributes.disabled !== undefined));
-    dialog.querySelectorAll = () => all; // the fake DOM has no selector lists
-    all[all.length - 1].focus();
-    dialog.dispatch("keydown", { key: "Tab", shiftKey: false, ctrlKey: false, altKey: false });
-    assert.equal(m.dom.document.activeElement, all[0], "Tab from the last control wraps to the first");
+    const cancel = m.byText(".dialog-btn", /^Cancel$/);
+    cancel.focus();
+    for (const key of ["Enter", " ", "a"]) {
+      const ev = cancel.dispatch("keydown", { key, shiftKey: false, ctrlKey: false, altKey: false });
+      assert.ok(!ev.defaultPrevented, JSON.stringify(key) + " was taken");
+      assert.equal(m.dom.document.activeElement, cancel);
+    }
     dialog.dispatch("keydown", { key: "Escape", shiftKey: false, ctrlKey: false, altKey: false });
     await settle();
     assert.equal(m.container.find(".dialog"), null);

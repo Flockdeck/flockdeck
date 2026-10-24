@@ -110,7 +110,16 @@ class Element_ extends Node_ {
   }
   // Only what a browser lets take the keyboard: a control, or an element with
   // a tabindex. Anything else ignores focus().
+  // disabled is a property that reads and writes the attribute, as on a control.
+  get disabled() {
+    return "disabled" in this.attributes;
+  }
+  set disabled(v) {
+    if (v) this.attributes.disabled = "";
+    else delete this.attributes.disabled;
+  }
   get focusable() {
+    if (this.disabled) return false;
     return "tabindex" in this.attributes || ["button", "input", "a", "select", "textarea"].includes(this.localName);
   }
   focus() {
