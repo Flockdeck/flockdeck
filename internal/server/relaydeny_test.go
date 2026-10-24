@@ -78,7 +78,7 @@ func TestRelayPassListHoldsWhatAPhoneNeeds(t *testing.T) {
 		"hello", "prefs", "keys", "keyTable", "artifacts", "agentAddress", "radarSupport", "jevKey",
 		"remotePair", "remoteOutcome", "remoteDevices", "versions", "helpers", "helperPlan",
 		"batonSaved", "attachImageResult", "browse", "recents", "worktrees",
-		"ghProgress", "ghStatus", "agentStarted", "detached",
+		"ghProgress", "ghStatus", "agentStarted", "detached", "apiMismatch", "unsupported",
 		"changes", "diff", "ghPR", "ghPRs", "ghIssue", "ghIssues", "ghChecks",
 	}
 	for _, typ := range pinned {
