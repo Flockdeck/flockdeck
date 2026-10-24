@@ -20,14 +20,17 @@ import { navOf, onGraphKey } from "./keys.js";
  * given, is called with a pane id when its box is clicked or opened from the
  * keyboard; open is the pane whose drawer is open.
  */
-export function Graph({ model, layout = null, onOpen = null, open = "" }) {
+export function Graph({ model, layout = null, onOpen = null, open = "", onStartTeam = null }) {
   // The pane the pointer or the keyboard is on. Its lines are drawn, the panes it
   // has no line to fade, and the one it waits on is outlined; with nothing under
   // the pointer the open pane's lines are the ones shown.
   const [hot, setHot] = useState("");
   const lay = layout || layoutGraph(model);
   if (!lay.ok || lay.nodes.length === 0) {
-    return html`<p class="graph-empty">No agents in this project yet.</p>`;
+    return html`<div class="graph-empty">
+      <p>No agents in this project yet.</p>
+      ${onStartTeam ? html`<button type="button" class="graph-empty-start" onClick=${onStartTeam}>Start a team</button>` : null}
+    </div>`;
   }
   const edges = edgesOf(model, lay);
   const focus = hot && model.byPane.has(hot) ? hot : open;
@@ -94,11 +97,11 @@ export function Graph({ model, layout = null, onOpen = null, open = "" }) {
 }
 
 /** GraphView is the strip of what needs the person above the graph, drawn from one model, so that a new model changes both in the same frame. */
-export function GraphView({ model, layout = null, onSelect, onOpen = null, open = "" }) {
+export function GraphView({ model, layout = null, onSelect, onOpen = null, open = "", onStartTeam = null }) {
   return html`
     <div class="graph-view">
       <${NeedsYou} model=${model} onSelect=${onSelect} />
-      <${Graph} model=${model} layout=${layout} onOpen=${onOpen} open=${open} />
+      <${Graph} model=${model} layout=${layout} onOpen=${onOpen} open=${open} onStartTeam=${onStartTeam} />
     </div>
   `;
 }

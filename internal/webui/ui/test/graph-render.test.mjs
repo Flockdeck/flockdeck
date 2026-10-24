@@ -158,6 +158,13 @@ test("a model with nothing to draw says so", () => {
   assert.match(out, /No agents in this project yet\./);
 });
 
+test("an empty project offers one action, Start a team, when the window can start one", () => {
+  const empty = buildGraphModel({ type: "graph", teams: [], nodes: [], solo: [] });
+  assert.ok(!renderToString(html`<${Graph} model=${empty} />`).includes("Start a team"), "a window that cannot start one offered it");
+  const out = renderToString(html`<${Graph} model=${empty} onStartTeam=${() => {}} />`);
+  assert.match(out, /<button[^>]*graph-empty-start[^>]*>Start a team<\/button>/);
+});
+
 // The marks are drawn in the node's own coordinates; a number made into a string
 // would put a shape far from its box.
 test("every mark stays inside the corner of its box", () => {

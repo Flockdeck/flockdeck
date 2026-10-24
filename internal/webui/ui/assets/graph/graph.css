@@ -435,3 +435,6 @@
 .overlap-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .overlap-note { flex: 1 1 100%; margin: 0; color: var(--waiting); font-size: 12px; }
 .overlap-resolved { margin: 0; padding: 6px 10px; border: 1px solid var(--working, var(--accent)); border-radius: 6px; font-size: 13px; }
+
+.graph-empty p { margin: 0 0 8px; }
+.graph-empty-start { font: inherit; }
