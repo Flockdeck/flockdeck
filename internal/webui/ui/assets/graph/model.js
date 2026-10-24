@@ -511,8 +511,8 @@ const labelsOf = new WeakMap();
 /**
  * labelOf is the name a row shows for a pane. It is the pane's name, unless
  * another pane has the same one (helpers started from one project often do): then
- * it is the role and what the pane is on, "worker · tabs per goal", from its task
- * title, else its live line. A label that is still shared gets the start of the
+ * it is the role and a short stable name, "worker · tabs per goal": the task
+ * title if the pane has one, else the pane's name. Never the live line or a message. A label that is still shared gets the start of the
  * pane id so no two rows read the same.
  */
 export function labelOf(model, pane) {
@@ -530,7 +530,8 @@ export function labelOf(model, pane) {
         labels.set(x.pane, nameOf(x));
         continue;
       }
-      const what = (x.task && x.task.title) || x.live || "";
+      // Stable text only: never the live line or a message, which change under the row and repeat the Doing column.
+      const what = (x.task && x.task.title) || x.name || "";
       const label = [x.role, what].filter(Boolean).join(" · ") || nameOf(x);
       made.set(label, (made.get(label) || 0) + 1);
       labels.set(x.pane, label);

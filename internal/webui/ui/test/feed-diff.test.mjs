@@ -126,9 +126,9 @@ test("ago is a few characters and never negative", () => {
   assert.equal(agoOf(NaN, NOW), "now");
 });
 
-test("entries name panes that share a name by what they are on, and a pane that left by the push it left", () => {
+test("entries name panes that share a name by role and a stable name, and a pane that left by the push it left", () => {
   const dup = (extra = {}) => [node("m"), node("a", { name: "flockdeck", live: "reading logs", ...extra }), node("b", { name: "flockdeck", live: "writing tests" })];
   const es = diff(graph({ nodes: dup() }), graph({ nodes: dup({ status: "exited" }), needs: [need("down", "a")] }));
-  assert.deepEqual(texts(es), ["worker · reading logs exited"]);
-  assert.deepEqual(texts(diff(graph({ nodes: dup() }), graph({ nodes: [node("m"), node("b", { name: "flockdeck", live: "writing tests" })] }))), ["worker · reading logs was closed"]);
+  assert.deepEqual(texts(es), ["worker · flockdeck · a exited"]);
+  assert.deepEqual(texts(diff(graph({ nodes: dup() }), graph({ nodes: [node("m"), node("b", { name: "flockdeck", live: "writing tests" })] }))), ["worker · flockdeck · a was closed"]);
 });
