@@ -385,6 +385,21 @@ pane already shown. A window reached through the relay sends no `taskGet`, since
 task text is not sent there, and shows only the chip's id, title and state. The
 task data has no dependencies, so the panel shows none.
 
+### The Changes tab
+
+A pane that has a directory gets a Changes tab in its drawer. It reuses the
+commands the old interface sends and adds none: `changes` (on opening and on
+Refresh), `diff` for the file picked, `commit` with the listed files, their
+stamps and the count left out, and `gitPush`, `gitPull` and `gitFetch`. The
+desktop already sends `changes` and `diff` to a relay window as they are, so the
+tab works there too. File names, diffs, git's messages and the desktop's question
+about a repository's programs (`gitWarn`) are all drawn as text. A file name goes
+to the desktop only as a field of a command. The list is drawn 200 rows at a
+time; the desktop lists at most 2000 files and the tab says how many more it left
+out and that a commit includes them. A commit with no message is refused in the
+tab with the reason and sends nothing. A `gitWarn` is answered as in the old
+interface: continue, then remember or only this time; nothing runs until then.
+
 ## 8. Limits and throttling
 
 | What | Limit |

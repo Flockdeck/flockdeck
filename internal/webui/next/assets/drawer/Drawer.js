@@ -19,6 +19,7 @@ import { Conversation } from "./Conversation.js";
 import { Structured } from "./Structured.js";
 import { Lifecycle } from "./Lifecycle.js";
 import { Task } from "./Task.js";
+import { Changes } from "./Changes.js";
 import { canTranscribe } from "../lib/paneinfo.js";
 import { Tools } from "./Tools.js";
 import { FindBar } from "./FindBar.js";
@@ -153,12 +154,16 @@ function DrawerBody({ store, snap = null, node, pane = null, now, maximised = fa
   // refused this device, so the refusal is said where the conversation would be.
   // A structured pane's conversation is the body of its own panel, so the tab is for the others.
   const hasConv = terminal && !!conv && (conv.supported === true || !!conv.refused);
-  const shown = tab === "conversation" && hasConv ? "conversation" : "terminal";
+  // The Changes tab is for a pane that has a directory to look at.
+  const hasChanges = !!(pane && pane.cwd);
+  const tabs = ["terminal"].concat(hasConv ? ["conversation"] : [], hasChanges ? ["changes"] : []);
+  const shown = tabs.includes(tab) ? tab : "terminal";
   const tabRefs = useRef({});
   const tabKeys = (e) => {
-    if (!hasConv || (e.key !== "ArrowLeft" && e.key !== "ArrowRight") || e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return;
+    if (tabs.length < 2 || (e.key !== "ArrowLeft" && e.key !== "ArrowRight") || e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return;
     e.preventDefault();
-    const next = shown === "terminal" ? "conversation" : "terminal";
+    const step = e.key === "ArrowRight" ? 1 : -1;
+    const next = tabs[(tabs.indexOf(shown) + step + tabs.length) % tabs.length];
     setTab(next);
     const el = tabRefs.current[next];
     if (el && el.focus) el.focus();
@@ -193,6 +198,9 @@ function DrawerBody({ store, snap = null, node, pane = null, now, maximised = fa
         ${hasConv
           ? html`<button type="button" role="tab" id="drawer-tab-conversation" aria-selected=${shown === "conversation" ? "true" : "false"} aria-controls="drawer-panel-conversation" tabindex=${shown === "conversation" ? 0 : -1} ref=${(el) => { tabRefs.current.conversation = el; }} class=${"drawer-tab" + (shown === "conversation" ? " is-active" : "")} onClick=${() => setTab("conversation")}>Conversation</button>`
           : null}
+        ${hasChanges
+          ? html`<button type="button" role="tab" id="drawer-tab-changes" aria-selected=${shown === "changes" ? "true" : "false"} aria-controls="drawer-panel-changes" tabindex=${shown === "changes" ? 0 : -1} ref=${(el) => { tabRefs.current.changes = el; }} class=${"drawer-tab" + (shown === "changes" ? " is-active" : "")} onClick=${() => setTab("changes")}>Changes</button>`
+          : null}
       </div>
       <div class="drawer-panel" role="tabpanel" id="drawer-panel-terminal" aria-labelledby="drawer-tab-terminal" hidden=${shown !== "terminal"}>
         ${terminal && finding && ctl
@@ -208,6 +216,11 @@ function DrawerBody({ store, snap = null, node, pane = null, now, maximised = fa
         ? html`<div class="drawer-panel" role="tabpanel" id="drawer-panel-conversation" aria-labelledby="drawer-tab-conversation" hidden=${shown !== "conversation"}>
             <${Conversation} conv=${conv} onOlder=${onOlder} details=${details} onDetail=${onDetail} pending=${pending}
               search=${state.search} onSearch=${onSearch} onClearSearch=${onClearSearch} canExport=${canExport} onExport=${() => tx.exportTranscript(node.pane)} />
+          </div>`
+        : null}
+      ${hasChanges && shown === "changes"
+        ? html`<div class="drawer-panel" role="tabpanel" id="drawer-panel-changes" aria-labelledby="drawer-tab-changes">
+            <${Changes} key=${node.pane} cwd=${pane.cwd} snap=${state} store=${store} />
           </div>`
         : null}
     </section>

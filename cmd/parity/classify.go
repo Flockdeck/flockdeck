@@ -144,12 +144,6 @@ var cmdVerdicts = map[string]Verdict{
 	// L7: updates, detach, quit.
 
 	// Git, worktrees, GitHub.
-	"changes":        task(tC6),
-	"commit":         task(tC6),
-	"diff":           task(tC6),
-	"gitFetch":       task(tC6),
-	"gitPull":        task(tC6),
-	"gitPush":        task(tC6),
 	"worktrees":      task(tC7),
 	"worktreeAdd":    task(tC7),
 	"worktreePrune":  task(tC7),
