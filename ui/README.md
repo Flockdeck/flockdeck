@@ -13,4 +13,6 @@ Set `FLOCKDECK_UI_DIR` to the `src` folder and start Flockdeck. The server serve
 
 Windows reached through the relay are always served the files built into the program, so the folder never goes to a phone and the relay's compressed copies stay those of the built-in files.
 
+The folder is read with `os.DirFS`, which follows symlinks inside it, so a link in the folder to a file elsewhere is served. That is fine for a folder you chose to develop in and is why this is not for anything else.
+
 `FLOCKDECK_UNBUNDLED` (any value) serves the built-in files unjoined.
