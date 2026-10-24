@@ -449,6 +449,10 @@ test("a terminal pane has a message box that sends paneSend by its id, and a str
   }
 });
 
+test("a shell has no message box: the desk refuses text into a shell", () => {
+  assert.ok(!renderToString(html`<${Drawer} store=${store} node=${node({ shell: true })} now=${NOW} />`).includes("drawer-message"));
+});
+
 test("a message box is not drawn through the relay", () => {
   const remote = fakeStore({ hello: { type: "hello" }, remote: true, state: paneState({ p2: {} }) });
   assert.ok(!renderToString(html`<${Drawer} store=${remote} node=${node()} now=${NOW} />`).includes("drawer-message"));

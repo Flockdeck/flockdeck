@@ -64,7 +64,7 @@ function Line({ children, kind }) {
  * the page can open a drawer for a node of it; onOpen and open are the graph's
  * (a click or key on a box, and the pane whose drawer is open).
  */
-export function Home({ snap, selected, onShown, onOpen = null, open = "", narrow = false, send = null, onSeeChanges = null }) {
+export function Home({ snap, selected, onShown, onOpen = null, open = "", narrow = false, send = null, onSeeChanges = null, onStartTeam = null }) {
   const last = useRef(null); // { root, model } of the last graph push that could be drawn
   const g = snap.graph;
   const model = useMemo(() => (usable(g) ? buildGraphModel(g) : null), [g]);
@@ -122,6 +122,6 @@ export function Home({ snap, selected, onShown, onOpen = null, open = "", narrow
     ${send ? html`<${OverlapBar} model=${shown} manager=${managerOf(shown)} send=${send} onSee=${onSeeChanges} />` : null}
     ${narrow
       ? html`<${GraphList} model=${shown} onOpen=${onOpen} open=${open} />`
-      : html`<${GraphView} model=${shown} onOpen=${onOpen} onSelect=${onOpen ? (pane) => onOpen(pane, "strip") : undefined} open=${open} />`}
+      : html`<${GraphView} model=${shown} onOpen=${onOpen} onSelect=${onOpen ? (pane) => onOpen(pane, "strip") : undefined} open=${open} onStartTeam=${onStartTeam} />`}
   </div>`;
 }
