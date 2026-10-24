@@ -65,3 +65,28 @@
   padding: 6px 12px;
   border-bottom: 1px solid var(--line-subtle);
 }
+
+/* The Team and Agents dialogs. */
+.team-tabs { display: flex; gap: 4px; margin-bottom: 8px; }
+.team-tab { padding: 4px 10px; border: 1px solid var(--line-subtle); border-radius: 4px; background: transparent; color: var(--fg); cursor: pointer; }
+.team-tab.is-active { background: var(--bg-hover); border-color: var(--accent); }
+.team-board, .team-form, .team-messages { display: flex; flex-direction: column; gap: 8px; max-height: 46vh; overflow-y: auto; }
+.team-form { max-height: none; margin-bottom: 8px; }
+.team-group-head { margin: 8px 0 4px; font-size: 12px; text-transform: none; color: var(--fg-dim); }
+.team-list, .team-messages, .ag-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.team-task-head, .ag-row { width: 100%; display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 10px; padding: 6px 10px; text-align: left; color: var(--fg); background: transparent; border: 1px solid var(--line-subtle); border-radius: 4px; cursor: pointer; }
+.team-task-head:hover, .ag-row:hover { background: var(--bg-hover); }
+.team-task-head:focus-visible, .ag-row:focus-visible, .team-tab:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.team-id { font-family: var(--mono, monospace); color: var(--fg-dim); }
+.team-title, .ag-name { overflow-wrap: anywhere; }
+.team-meta, .ag-where, .ag-state, .team-who { font-size: 11px; color: var(--fg-dim); overflow-wrap: anywhere; }
+.ag-row { flex-direction: column; align-items: flex-start; }
+.ag-row.needs-you { border-color: var(--waiting); }
+.team-detail { display: flex; flex-direction: column; gap: 6px; padding: 8px 10px; border-left: 2px solid var(--line-subtle); margin-left: 8px; }
+.team-body { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+.team-notes, .team-history { margin: 0; padding-left: 16px; font-size: 12px; overflow-wrap: anywhere; }
+.team-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.team-row .dialog-field { flex: 1 1 160px; }
+.team-days { flex: 0 0 80px !important; }
+.team-message { padding: 6px 8px; border: 1px solid var(--line-subtle); border-radius: 4px; }
+.team-message.is-unseen { border-color: var(--accent); }

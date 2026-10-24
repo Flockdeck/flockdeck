@@ -94,9 +94,7 @@ var keyVerdicts = map[string]Verdict{
 	"toggleBroadcast":       cut(whyBroadcast),
 	"toggleBroadcastMember": cut(whyBroadcast),
 	"promptAll":             cut(whyBroadcast + " It opens the prompt bar aimed at the focused pane, which the new prompt (paneSend) covers; with broadcast on it reached every member."),
-	"agents":                task(tL8, "The list of agents across projects has no task; decide whether the graph's project switch is enough"),
 	"closeFinishedPanes":    task(tL1),
-	"team":                  task(tL8, "The graph is the roster; the task board and messages dialog has no task"),
 
 	// Git.
 	"worktrees": task(tC7),
@@ -107,9 +105,7 @@ var keyVerdicts = map[string]Verdict{
 // that the new one does not. The new interface's own commands are not here.
 var cmdVerdicts = map[string]Verdict{
 	// Replaced by what the new interface sends.
-	"sendPrompt":  replaced("paneSend", "Prompting one pane; prompting all is cut"),
-	"teamWatch":   replaced("graphWatch", ""),
-	"teamUnwatch": replaced("graphUnwatch", ""),
+	"sendPrompt": replaced("paneSend", "Prompting one pane; prompting all is cut"),
 
 	// Cut.
 	"splitPane":             cut(whyTiling),
@@ -128,7 +124,6 @@ var cmdVerdicts = map[string]Verdict{
 	"closeFinishedPanes": task(tL1),
 	"toggleZoom":         task(tL1),
 	"focusPane":          task(tL1),
-	"agents":             task(tL1, "The agent picker"),
 	"refreshAgents":      task(tL1, "The agent picker"),
 	"teamClose":          task(tL1),
 
@@ -174,19 +169,6 @@ var cmdVerdicts = map[string]Verdict{
 	"ghPRCreate":     task(tC8),
 	"ghPRs":          task(tC8),
 	"ghStatus":       task(tC8),
-
-	// The task board and messages. C5 shows a task; changing one has no task.
-	"taskGet":    task(tC5),
-	"taskList":   task(tC5),
-	"taskAdd":    task(tL8, "Editing the task board has no task"),
-	"taskAssign": task(tL8, "Editing the task board has no task"),
-	"taskBranch": task(tL8, "Editing the task board has no task"),
-	"taskNote":   task(tL8, "Editing the task board has no task"),
-	"taskPrune":  task(tL8, "Editing the task board has no task"),
-	"taskStatus": task(tL8, "Editing the task board has no task"),
-	"msgList":    task(tL8, "Team messages have no task"),
-	"msgSend":    task(tL8, "Team messages have no task"),
-	"msgSeen":    task(tL8, "Team messages have no task"),
 
 	// The widths of tiled panes.
 	"setWeights": cut(whyTiling),

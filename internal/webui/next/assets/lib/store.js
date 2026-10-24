@@ -15,6 +15,8 @@
 //   store.send(cmd)                          // a command object; false if not sent
 //   store.watchGraph(root)                   // "" is the project on screen
 //   store.unwatchGraph()
+//   store.watchTeam(root)                    // the Team panel's board and messages
+//   store.unwatchTeam()
 //   store.watchStructured(id)                // one structured pane, local window only
 //   store.unwatchStructured()
 //   store.watchConversation(id)              // one pane's conversation, for the drawer's tab
@@ -119,6 +121,15 @@
 //   remoteDevices the latest roster of Flockdeck Remote, remotePair the latest
 //                 pairing link or join code, and remoteOutcome the latest answer
 //                 to turning it on or off, each with a seq like the ones above.
+//   agentsList    the latest agents answer (every pane in every open project) as
+//                 { items, seq }, or null. A remote window is sent it scrubbed.
+//   team          the picture of the project watchTeam asked for (roster, task
+//                 board, messages) as the desktop sent it plus seq, or null.
+//                 teamGone is { root, error } when that project can no longer be
+//                 read, teamTasks and teamMessages the latest taskList and
+//                 msgList answers, teamResult the latest answer to a command that
+//                 changed something, and teamRefused is true in a remote window,
+//                 which is never sent any of it.
 //   dropped       how many frames were dropped as malformed
 //
 // The structured watch and permissionAnswer are for a window on the desk, as the
@@ -201,19 +212,25 @@ const DESK_SETTINGS = ["keySet", "keyClear", "jevKey", "remoteEnable", "remoteDi
 
 const GRAPH_OPS = new Set(["graphSnapshot", "graphWatch", "graphUnwatch"]);
 
+/** TEAM_COMMANDS are the Team panel's: the board, the messages and the watch that
+ *  keeps them current. The desktop refuses them all to a window reached through the
+ *  relay (internal/server/teamui.go), so the store does not send them from one. */
+const TEAM_COMMANDS = ["teamSnapshot", "teamWatch", "teamUnwatch", "taskList", "taskGet", "taskAdd", "taskAssign", "taskStatus", "taskNote", "taskBranch", "taskPrune", "msgList", "msgSend", "msgSeen", "teamClose"];
+const TEAM_OPS = new Set(TEAM_COMMANDS.filter((c) => c !== "teamWatch" && c !== "teamUnwatch"));
+
 /** DESK_ONLY says a command is one a remote window may not send: the graph
  *  commands, the structured pane ones, permissionAnswer, paneSend, MACHINE_ONLY,
  *  MACHINE_FILES and HELPER_COMMANDS. The desktop refuses them there, so the store
  *  does not send them. paneSend is sent from two places, the manager bar and a
  *  structured pane's prompt box, and neither is drawn in a remote window. */
-const DESK_ONLY = (cmd) => typeof cmd === "string" && (cmd.startsWith("graph") || cmd.startsWith("structured") || cmd === "permissionAnswer" || cmd === "paneSend" || MACHINE_ONLY.includes(cmd) || MACHINE_FILES.includes(cmd) || HELPER_COMMANDS.includes(cmd) || DESK_SETTINGS.includes(cmd));
+const DESK_ONLY = (cmd) => typeof cmd === "string" && (cmd.startsWith("graph") || cmd.startsWith("structured") || cmd === "permissionAnswer" || cmd === "paneSend" || MACHINE_ONLY.includes(cmd) || MACHINE_FILES.includes(cmd) || HELPER_COMMANDS.includes(cmd) || DESK_SETTINGS.includes(cmd) || TEAM_COMMANDS.includes(cmd));
 
 const initial = () => ({
   connection: "idle", retryInMs: 0,
   hello: null, remote: false, state: null,
   graph: null, graphGone: null, graphRefused: false, graphError: null,
   notice: null, versions: null, helpers: null, helperPlan: null, recents: null, browse: null, batonDraft: null, batonSaved: null, batonError: null,
-  approvals: [], detached: false, sent: null, started: null, structured: null, structuredError: null, cancelError: null, answer: null, asking: null, conversation: null, details: {}, history: null, paneInfo: null, paneMatches: null, keys: null, jevKey: null, remoteDevices: null, remotePair: null, remoteOutcome: null, dropped: 0,
+  approvals: [], detached: false, sent: null, started: null, structured: null, structuredError: null, cancelError: null, answer: null, asking: null, conversation: null, details: {}, history: null, paneInfo: null, paneMatches: null, keys: null, jevKey: null, agentsList: null, team: null, teamGone: null, teamTasks: null, teamMessages: null, teamResult: null, teamRefused: false, remoteDevices: null, remotePair: null, remoteOutcome: null, dropped: 0,
 });
 
 /** upsert returns entries with each of the new ones in place of the one with its
@@ -254,6 +271,11 @@ export function createStore(opts) {
   let jevSeq = 0;
   let rosterSeq = 0;
   let pairSeq = 0;
+  let agentsSeq = 0;
+  let teamSeq = 0;
+  let teamResultSeq = 0;
+  // The project last asked for with watchTeam, or null when none.
+  let watchingTeam = null;
   let outcomeSeq = 0;
   let batonSeq = 0;
   let approvalSeq = 0;
@@ -304,6 +326,10 @@ export function createStore(opts) {
     return socket.send({ cmd: "graphWatch", root: watching, req: "g" + ++reqSeq });
   }
 
+  function sendTeamWatch() {
+    return socket.send({ cmd: "teamWatch", root: watchingTeam, req: "t" + ++reqSeq });
+  }
+
   function sendStructuredWatch() {
     return socket.send({ cmd: "structuredWatch", id: watchingPane, req: "s" + ++reqSeq });
   }
@@ -334,9 +360,10 @@ export function createStore(opts) {
         // refused before is tried again unless this window is remote.
         set({ hello: msg, remote, graphRefused: remote, graphError: null });
         // A watch asked for before this hello was known is dropped in a remote window, so stop() sends nothing for it.
-        if (remote) { watching = null; watchingPane = null; }
+        if (remote) { watching = null; watchingPane = null; watchingTeam = null; }
         if (!remote && watching !== null) sendGraphWatch();
         if (!remote && watchingPane !== null) sendStructuredWatch();
+        if (!remote && watchingTeam !== null) sendTeamWatch();
         if (watchingConv !== null) {
           if (snap.conversation && snap.conversation.refused) set({ conversation: { ...snap.conversation, refused: "" } });
           sendConversationOpen();
@@ -356,7 +383,24 @@ export function createStore(opts) {
         // A push that was in flight when the watch was dropped is not wanted.
         if (watching !== null && !snap.remote) set({ graph: msg, graphGone: null, graphError: null });
         break;
+      case "agents":
+        set({ agentsList: { ...msg, seq: ++agentsSeq } });
+        break;
+      case "team":
+        if (watchingTeam !== null && !snap.remote) set({ team: { ...msg, seq: ++teamSeq }, teamGone: null });
+        break;
+      case "tasks":
+        if (!snap.remote) set({ teamTasks: { ...msg, seq: ++teamSeq } });
+        break;
+      case "messages":
+        if (!snap.remote) set({ teamMessages: { ...msg, seq: ++teamSeq } });
+        break;
       case "teamGone":
+        // The same for the Team panel's project: it is shown as gone, not as it was.
+        if (watchingTeam !== null && (snap.team === null || msg.root === snap.team.root)) {
+          watchingTeam = null;
+          set({ team: null, teamGone: { root: String(msg.root || ""), error: String(msg.error || "") } });
+        }
         // Only the project that is shown. With no graph yet its root cannot be
         // compared (the server spells it its own way), so the message is taken
         // for the watch that is open, and ignored when none is. The watch is
@@ -368,6 +412,17 @@ export function createStore(opts) {
         }
         break;
       case "teamResult":
+        if (TEAM_OPS.has(msg.op) || msg.op === "teamWatch") {
+          const error = String(msg.error || "");
+          if (msg.code === DESK_ONLY_CODE || error.includes(DESK_ONLY_PHRASE)) {
+            watchingTeam = null;
+            set({ team: null, teamRefused: true });
+          } else if (msg.op === "teamWatch") {
+            if (!msg.ok) set({ teamGone: { root: "", error } });
+          } else {
+            set({ teamResult: { ...msg, seq: ++teamResultSeq } });
+          }
+        }
         if (!msg.ok && msg.op === "structuredWatch" && watchingPane !== null) {
           set({ structuredError: { error: String(msg.error || "") } });
         }
@@ -540,6 +595,8 @@ export function createStore(opts) {
       if (watchingPane !== null && watchSent()) socket.send({ cmd: "structuredUnwatch", id: watchingPane });
       watching = null;
       watchingPane = null;
+      if (watchingTeam !== null && watchSent()) socket.send({ cmd: "teamUnwatch" });
+      watchingTeam = null;
       if (watchingConv !== null && snap.hello) socket.send({ cmd: "conversationClose", id: watchingConv });
       watchingConv = null;
       socket.stop();
@@ -594,6 +651,24 @@ export function createStore(opts) {
       set({ graphGone: null, graphError: null });
       if (snap.hello) sendGraphWatch();
       return true;
+    },
+    /** watchTeam asks for the task board and messages of a project, now and whenever
+     *  they change. It replaces the project watched before, and returns false, asking
+     *  for nothing, in a remote window. */
+    watchTeam(root) {
+      if (snap.remote) {
+        set({ teamRefused: true });
+        return false;
+      }
+      watchingTeam = String(root || "");
+      set({ teamGone: null, teamRefused: false });
+      if (snap.hello) sendTeamWatch();
+      return true;
+    },
+    unwatchTeam() {
+      if (watchingTeam !== null && watchSent()) socket.send({ cmd: "teamUnwatch" });
+      watchingTeam = null;
+      if (snap.team || snap.teamTasks || snap.teamMessages) set({ team: null, teamTasks: null, teamMessages: null });
     },
     /** watchStructured asks for the structured messages of one pane, now and
      *  whenever it changes, for its permission card. It replaces the pane watched
