@@ -5,8 +5,8 @@
 //
 // - A waiting-on edge goes from a pane to the pane that holds it up, when the
 //   graph names one that is in the graph (a helper). When the holder is not a
-//   pane (the person, a task, a review) a short tag hangs from the bottom edge of
-//   the box instead, with the same words.
+//   pane (the person, a task, a review) there is no line: the box says it in its
+//   own words (Node.js).
 // - A message edge is solid, from the sender to the pane whose inbox it went to,
 //   with the delivery state written on it: queued, told, woken or read. A
 //   message that is only queued has not been told to the pane yet, and is drawn
@@ -29,8 +29,6 @@ export const GRAPH_EDGE_CAP = 100;
 export const MAX_DRAWN = 40;
 
 const LANE = 14;
-
-const round = (n) => Math.round(n * 10) / 10;
 
 const DELIVERY_WORDS = {
   queued: "not told yet",
@@ -73,32 +71,23 @@ function curve(a, b, offset) {
   return { d: `M${f(s.x)} ${f(s.y)}Q${f(ctrl.x)} ${f(ctrl.y)} ${f(e.x)} ${f(e.y)}`, mid: { x: f(mid.x), y: f(mid.y) } };
 }
 
-// The words of a waiting-on edge or tag, from the node's waitingOn.
+// The pane a waiting-on edge goes to, or "" when the node waits on nothing that
+// is a pane of the graph: the person, a reviewer, a task, none, down, and a kind
+// this file does not know.
 function holderOf(node, model) {
   const w = node.waitingOn;
-  switch (w.kind) {
-    case "helpers":
-      return { pane: w.ref && w.ref !== node.pane && model.byPane.has(w.ref) ? w.ref : "", word: "waiting on a helper" };
-    case "user":
-      return { pane: "", word: "waiting on you" };
-    case "reviewer":
-      return { pane: "", word: "waiting on a reviewer" };
-    case "task":
-      return { pane: "", word: "waiting on a task" };
-    default:
-      return null; // none, down, and a kind this file does not know
-  }
+  if (w.kind !== "helpers") return "";
+  return w.ref && w.ref !== node.pane && model.byPane.has(w.ref) ? w.ref : "";
 }
 
 /**
- * edgesOf works out what to draw: { waiting, tags, message, sent, notices }.
+ * edgesOf works out what to draw: { waiting, message, sent, notices }.
  * Each waiting, message and sent entry has its path d, the label place and the
- * words; tags are the holders that are not panes. Pure: the same model and
- * layout always give the same result.
+ * words. Pure: the same model and layout always give the same result.
  */
 export function edgesOf(model, layout, options = {}) {
   const maxDrawn = options.maxDrawn || MAX_DRAWN;
-  const out = { waiting: [], tags: [], message: [], sent: [], notices: [] };
+  const out = { waiting: [], message: [], sent: [], notices: [] };
   if (!model || !model.ok || !layout || !layout.ok) return out;
   const box = (pane) => (model.byPane.has(pane) ? layout.byPane.get(pane) : undefined);
 
@@ -114,15 +103,9 @@ export function edgesOf(model, layout, options = {}) {
   const pending = [];
 
   for (const node of model.nodes) {
-    const h = holderOf(node, model);
-    if (!h) continue;
-    const from = box(node.pane);
-    if (!from) continue;
-    if (h.pane && box(h.pane)) {
-      pending.push({ list: "waiting", kind: "waiting", from: node.pane, to: h.pane, word: h.word, detail: clip(node.waitingOn.text, 120), key: "w:" + node.pane });
-    } else {
-      out.tags.push({ pane: node.pane, x: round(from.x + 12), y: round(from.y + from.h), word: h.word, holder: node.waitingOn.kind, detail: clip(node.waitingOn.text, 120) });
-    }
+    const to = holderOf(node, model);
+    if (!to || !box(node.pane) || !box(to)) continue;
+    pending.push({ list: "waiting", kind: "waiting", from: node.pane, to, word: "waiting on a helper", detail: clip(node.waitingOn.text, 120), key: "w:" + node.pane });
   }
 
   for (const kind of ["message", "sent"]) {
@@ -267,13 +250,6 @@ export function Edges({ e, focus = "" }) {
         <${Label} at=${x.mid} word=${x.word} cls=${undelivered ? "gedge-label--amber" : "gedge-label--msg"} />
       </g>`;
     })}
-    ${e.tags.map(
-      (t) => html`<g class="gedge gedge--tag" data-tagged=${t.pane} data-holder=${t.holder} key=${"t:" + t.pane}>
-        <title>${t.detail ? t.word + ": " + t.detail : t.word}</title>
-        <path d=${`M${t.x} ${t.y}v8`} />
-        <${Label} at=${{ x: t.x + t.word.length * 3.2 + 5, y: t.y + 16 }} word=${t.word} cls="gedge-label--wait" />
-      </g>`,
-    )}
   </g>`;
 }
 
