@@ -12,10 +12,22 @@ name: test
 # with no pull request is therefore not tested until it has one.
 #
 # Tags are left to the release workflow, which runs these tests itself.
+#
+# Minutes are paid for, and a minute on macOS costs ten and one on Windows two,
+# so a pull request is tested on Linux alone until it carries the label
+# ready-to-merge. Windows and macOS are then run as well, on that push and on
+# each later one. Until the label is on, the "test (windows-latest)" and "test
+# (macos-latest)" checks fail with a line saying so, which keeps the branch
+# protection from letting a change through that was not tried there. A push to
+# main runs Linux only; the whole matrix runs for a release, once a week
+# (Sunday), and by hand.
 on:
   push:
     branches: [main]
   pull_request:
+    types: [opened, synchronize, reopened, labeled]
+  schedule:
+    - cron: "17 4 * * 0"
   workflow_call:
     inputs:
       ref:
@@ -65,6 +77,7 @@ jobs:
       contents: read
     outputs:
       docs_only: ${{ steps.diff.outputs.docs_only }}
+      oses: ${{ steps.diff.outputs.oses }}
       counts: ${{ steps.diff.outputs.counts }}
       shard: ${{ steps.diff.outputs.shard }}
       race: ${{ steps.diff.outputs.race }}
@@ -79,6 +92,9 @@ jobs:
       - id: diff
         env:
           EVENT: ${{ github.event_name }}
+          LABELS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          REF: ${{ github.ref }}
+          RELEASE: ${{ inputs.release }}
         run: |
           docs_only=false
           if [ "$EVENT" = pull_request ] && files=$(git diff --name-only --no-renames HEAD^1 HEAD) && [ -n "$files" ]; then
@@ -95,16 +111,33 @@ jobs:
           # shard and race jobs and the count the test job checks the shares
           # against all come from it.
           counts='{"ubuntu-latest":4,"windows-latest":4,"macos-latest":2}'
-          # Where the race detector runs: macOS only outside pull requests.
-          if [ "$EVENT" = pull_request ]; then
-            race_os='["ubuntu-latest"]'
+          # Which platforms are run. A pull request is run on Linux until it
+          # carries the label ready-to-merge; a push to main is run on Linux
+          # only. Everything else (a release, which calls this file with the
+          # event of its tag, the weekly run, a run by hand) is run on all three.
+          all='["ubuntu-latest","windows-latest","macos-latest"]'
+          if [ "$RELEASE" = true ]; then
+            oses=$all
+          elif [ "$EVENT" = pull_request ]; then
+            if jq -e 'index("ready-to-merge")' <<< "$LABELS" > /dev/null; then oses=$all; else oses='["ubuntu-latest"]'; fi
+          elif [ "$EVENT" = push ] && [ "$REF" = refs/heads/main ]; then
+            oses='["ubuntu-latest"]'
           else
+            oses=$all
+          fi
+          echo "oses=$(jq -c . <<< "$oses")" >> "$GITHUB_OUTPUT"
+          echo "oses=$oses"
+          # Where the race detector runs: macOS only where it is run and outside
+          # pull requests.
+          if [ "$EVENT" != pull_request ] && jq -e 'index("macos-latest")' <<< "$oses" > /dev/null; then
             race_os='["ubuntu-latest","macos-latest"]'
+          else
+            race_os='["ubuntu-latest"]'
           fi
           matrix='{include: [$oses[] | . as $os | range(1; $c[$os] + 1) | {os: $os, shard: ., of: $c[$os]}]}'
           {
             echo "counts=$counts"
-            echo "shard=$(jq -c --argjson c "$counts" --argjson oses '["ubuntu-latest","windows-latest","macos-latest"]' "$matrix" <<< null)"
+            echo "shard=$(jq -c --argjson c "$counts" --argjson oses "$oses" "$matrix" <<< null)"
             echo "race=$(jq -c --argjson c "$counts" --argjson oses "$race_os" "$matrix" <<< null)"
             echo "race_os=$(jq -r 'join(" ")' <<< "$race_os")"
           } >> "$GITHUB_OUTPUT"
@@ -116,7 +149,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
+        os: ${{ fromJSON(needs.changes.outputs.oses) }}
     needs: changes
     if: ${{ !cancelled() && needs.changes.outputs.docs_only != 'true' }}
     runs-on: ${{ matrix.os }}
@@ -434,6 +467,21 @@ jobs:
           ref: ${{ inputs.ref }}
           persist-credentials: false
 
+      # A platform that is not run in this run (see the changes job). In a pull
+      # request that is a failure, so that the branch protection waits for the
+      # label ready-to-merge and the run it starts; on main it is not.
+      - name: Say that this platform was not run
+        if: needs.changes.outputs.docs_only != 'true' && !contains(fromJSON(needs.changes.outputs.oses), matrix.os)
+        env:
+          EVENT: ${{ github.event_name }}
+          OS: ${{ matrix.os }}
+        run: |
+          if [ "$EVENT" = pull_request ]; then
+            echo "::error title=Tests on $OS::Not run yet. Add the label ready-to-merge to this pull request to run the tests on Windows and macOS."
+            exit 1
+          fi
+          echo "::notice title=Tests on $OS::Not run for this push. The release, the weekly run and a run by hand cover it."
+
       - uses: actions/setup-go@v7
         if: needs.changes.outputs.docs_only == 'true' && matrix.os == 'ubuntu-latest'
         with:
@@ -452,7 +500,7 @@ jobs:
           go test -count=1 -timeout 10m -run TestRecordingFollowsTheStoredConversation ./internal/workspace
 
       - uses: actions/download-artifact@v4
-        if: needs.changes.outputs.docs_only != 'true'
+        if: needs.changes.outputs.docs_only != 'true' && contains(fromJSON(needs.changes.outputs.oses), matrix.os)
         continue-on-error: true
         with:
           pattern: result-*-${{ matrix.os }}-*
@@ -460,7 +508,7 @@ jobs:
           merge-multiple: true
 
       - name: Check the results
-        if: needs.changes.outputs.docs_only != 'true'
+        if: needs.changes.outputs.docs_only != 'true' && contains(fromJSON(needs.changes.outputs.oses), matrix.os)
         timeout-minutes: 5
         env:
           RACE_OSES: ${{ needs.changes.outputs.race_os }}
