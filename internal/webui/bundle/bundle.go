@@ -10,7 +10,7 @@
 // export of a function, class or const, export of a list, and re-export of a
 // list. It refuses a bare import, import() and import.meta, export of a let or
 // var (a binding that changes would be copied, not shared), and an import
-// cycle. The sources are never changed; the node tests run on them.
+// cycle. It also strips comments and spaces (Strip). The sources are never changed; the node tests run on them.
 //
 // Each module becomes a function of its own, so two modules that both have a
 // top-level name such as str do not meet, and the function runs the first time
@@ -236,6 +236,10 @@ func transform(name, src string) (*module, error) {
 	if loc := leftover.FindStringIndex(body); loc != nil {
 		return nil, fmt.Errorf("bundle: %s has an import or export it cannot read: %q", name, strings.TrimSpace(body[loc[0]:loc[1]]))
 	}
-	m.body = body + "\n" + strings.Join(exports, "\n")
+	small, err := Strip([]byte(body + "\n" + strings.Join(exports, "\n")))
+	if err != nil {
+		return nil, fmt.Errorf("bundle: %s: %w", name, err)
+	}
+	m.body = string(small)
 	return m, nil
 }

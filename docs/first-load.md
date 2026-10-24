@@ -118,3 +118,17 @@ Same tool and settings as above (`measure.mjs --bundled <folder> --only modules,
 | Joined, no gzip | 4 | 881 KB | 7993 | 8224 |
 
 The four requests are the page, `app.css`, `main.js` and the first font. First paint falls by 6.5 s but is still over the 3 s budget, and the five runs ranged from 2954 to 5268. What is left is bytes and parsing: `main.js` is 756 KB, 218 KB gzipped, and the stylesheet is 16 KB gzipped. The next steps are in that order: leave out what the first screen does not use (dialogs, the conversation view and the help pages could load on first use, as the terminal's libraries do), and take out the comments and whitespace, which this change does not do.
+
+## Comments and whitespace stripped (T170, second pass)
+
+The joined `main.js` now has its comments, blank lines, indentation and runs of spaces taken out (`bundle.Strip`). It keeps every line break, since a break can end a statement, and never touches a string, a template or a regular expression. It refuses what it cannot tell apart (a `/` after a `}`, a string or regular expression left open). `main.js` goes from 756 KB to 524 KB raw and from 218 KB to 143 KB gzipped. The stylesheet is not stripped.
+
+Same tool and settings, five runs, median, on main `86501760` with this change:
+
+| Case | Requests | Bytes sent | First meaningful paint | Interactive |
+| --- | --- | --- | --- | --- |
+| Joined (T170) | 4 | 283 KB | 3577 | 4738 |
+| Joined and stripped | 4 | 208 KB | 2373 | 2452 |
+| Joined and stripped, no gzip | 4 | 649 KB | 5778 | 5859 |
+
+The five stripped runs ranged from 2341 to 2378 ms, so the spread the unstripped runs had (2954 to 5268) is gone: it was transfer and parse time. First paint is under the 3 s budget with 0.6 s to spare. Loading dialogs, the conversation view and the help pages on first use would take more off, but it needs the source changed (a dialog opens a frame later) and tests for the first open of each, so it is not done; the budget is met without it. Without gzip the page is still 5.8 s, as it was.
