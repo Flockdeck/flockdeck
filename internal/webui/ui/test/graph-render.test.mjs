@@ -198,9 +198,10 @@ const RUNS = {
   "gnode-live": { size: 12, face: "mono" },
   "gnode-branch": { size: 12, face: "mono" },
   "gnode-spend": { size: 12, face: "mono" },
+  "gnode-msgs": { size: 11, face: "sans" },
 };
 const BOX_W = 216;
-const BOX_H = 128;
+const BOX_H = 144;
 const unescape = (s) => s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&amp;/g, "&");
 
 // The runs of every node drawn: { pane, kind, x0, x1, y }, and each chip.

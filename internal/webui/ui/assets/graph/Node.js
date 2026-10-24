@@ -113,6 +113,16 @@ function opener(onOpen, pane, open) {
   };
 }
 
+/** hover is the handlers that tell the graph which pane the pointer or the keyboard is on. */
+function hover(onHot, pane) {
+  return { onMouseEnter: () => onHot(pane), onMouseLeave: () => onHot(""), onFocus: () => onHot(pane), onBlur: () => onHot("") };
+}
+
+/** countsLine is the faint count of messages to and from a pane. */
+export function countsLine(c) {
+  return c.in + " in, " + c.out + " out";
+}
+
 function Mark({ shape, x, y }) {
   const cls = "gmark gmark--" + shape;
   switch (shape) {
@@ -140,7 +150,7 @@ function Mark({ shape, x, y }) {
  * button that opens the pane's drawer, by a click or Enter or Space; open says
  * this pane's drawer is the one open.
  */
-export function Node({ node, box, team = null, onOpen = null, open = false }) {
+export function Node({ node, box, team = null, onOpen = null, open = false, counts = null, dim = false, rel = false, onHot = null }) {
   const state = stateOf(node);
   const isManager = team !== null && team.manager === node.pane;
   const spend = isManager ? spendOf(team) : "";
@@ -148,7 +158,7 @@ export function Node({ node, box, team = null, onOpen = null, open = false }) {
   const w = box.w;
   const label = describe(node, state, spend);
   const chip = node.task ? chipOf(node.task) : null;
-  const cls = ["gnode", "gnode--" + state.key, node.structured ? "gnode--structured" : "", node.shell ? "gnode--shell" : "", isManager ? "gnode--manager" : "", open ? "gnode--open" : ""]
+  const cls = ["gnode", "gnode--" + state.key, node.structured ? "gnode--structured" : "", node.shell ? "gnode--shell" : "", isManager ? "gnode--manager" : "", open ? "gnode--open" : "", dim ? "gnode--dim" : ""]
     .filter(Boolean)
     .join(" ");
   return html`
@@ -159,8 +169,10 @@ export function Node({ node, box, team = null, onOpen = null, open = false }) {
       role=${onOpen ? "button" : "group"}
       aria-label=${label}
       ...${onOpen ? opener(onOpen, node.pane, open) : {}}
+      ...${onHot ? hover(onHot, node.pane) : {}}
     >
       <title>${label}</title>
+      ${rel ? html`<rect class="gnode-rel" x="-4" y="-4" width=${w + 8} height=${box.h + 8} rx="9" />` : null}
       <rect class="gnode-box" x="0" y="0" width=${w} height=${box.h} rx="6" />
       <${Mark} shape=${state.shape} x=${18} y=${22} />
       <text class="gnode-name" x=${NAME_X} y="27">${clip(node.name || node.pane, nameLimit(state.word, w))}</text>
@@ -175,6 +187,9 @@ export function Node({ node, box, team = null, onOpen = null, open = false }) {
           </g>`
         : null}
       ${spend ? html`<text class="gnode-spend" x=${PAD} y="123">${clip(spend, limitOf(w, "mono"))}</text>` : null}
+      ${counts
+        ? html`<text class="gnode-msgs" x=${PAD} y=${box.h - 6}>${countsLine(counts)}${counts.undelivered > 0 ? html`<tspan class="gnode-und" dx="8">${counts.undelivered} undelivered</tspan>` : null}</text>`
+        : null}
     </g>
   `;
 }

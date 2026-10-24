@@ -5,12 +5,13 @@
 // over the same layout.
 //
 // Team goals, names and every other text are untrusted and are drawn as text.
+import { useState } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
 import { layoutGraph } from "./layout.js";
 import { Node, clip } from "./Node.js";
 import { Badge } from "./Badge.js";
 import { NeedsYou } from "./NeedsYou.js";
-import { Edges, EdgeDefs, EdgeNotice, edgesOf } from "./Edges.js";
+import { Edges, EdgeDefs, EdgeNotice, countsOf, edgesOf, focusOf } from "./Edges.js";
 import { navOf, onGraphKey } from "./keys.js";
 
 /**
@@ -20,11 +21,18 @@ import { navOf, onGraphKey } from "./keys.js";
  * keyboard; open is the pane whose drawer is open.
  */
 export function Graph({ model, layout = null, onOpen = null, open = "" }) {
+  // The pane the pointer or the keyboard is on. Its lines are drawn, the panes it
+  // has no line to fade, and the one it waits on is outlined; with nothing under
+  // the pointer the open pane's lines are the ones shown.
+  const [hot, setHot] = useState("");
   const lay = layout || layoutGraph(model);
   if (!lay.ok || lay.nodes.length === 0) {
     return html`<p class="graph-empty">No agents in this project yet.</p>`;
   }
   const edges = edgesOf(model, lay);
+  const focus = hot && model.byPane.has(hot) ? hot : open;
+  const near = focusOf(edges, focus);
+  const counts = countsOf(model);
   const nav = navOf(model);
   const teamOf = new Map(model.teams.map((t) => [t.id, t]));
   return html`
@@ -56,14 +64,24 @@ export function Graph({ model, layout = null, onOpen = null, open = "" }) {
           `
         : null}
       <${EdgeDefs} />
-      <${Edges} e=${edges} />
+      <${Edges} e=${edges} focus=${focus} />
       ${lay.nodes.map((b) => {
         const node = model.byPane.get(b.pane);
         if (!node) return null;
         const needs = model.needsByPane.get(b.pane);
         return html`
           <g class="gslot" key=${b.pane}>
-            <${Node} node=${node} box=${b} team=${teamOf.get(b.team) || null} onOpen=${onOpen} open=${open === b.pane} />
+            <${Node}
+              node=${node}
+              box=${b}
+              team=${teamOf.get(b.team) || null}
+              onOpen=${onOpen}
+              open=${open === b.pane}
+              counts=${counts.get(b.pane) || null}
+              dim=${!!focus && b.pane !== focus && !near.related.has(b.pane)}
+              rel=${b.pane === near.target}
+              onHot=${setHot}
+            />
             ${needs && needs.length > 0
               ? html`<g class="gneed" data-pane=${b.pane} transform=${`translate(${b.x} ${b.y})`}><${Badge} needs=${needs} /></g>`
               : null}
