@@ -459,6 +459,9 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
   const settingsCtx = {
     send,
     keys: snap.keys,
+    jev: snap.jevKey,
+    agents: kept.current.state.agents || null,
+    project: ((kept.current.state.projects || []).find((p) => p.active) || {}).name || "",
     roster: snap.remoteDevices,
     pair: snap.remotePair,
     outcome: snap.remoteOutcome,

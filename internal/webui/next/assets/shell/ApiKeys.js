@@ -15,13 +15,14 @@ import { useEffect, useRef, useState } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
 import { composing, LIST } from "./keys.js";
 import { Confirm } from "./Confirm.js";
+import { JevKey } from "./Jev.js";
 import { KEYS_INTRO, KEYS_NONE_WORDS, KEYS_RELAY_WORDS, canClear, clearKeyCommand, keyNotes, keyStatus, keysOf, setKeyCommand } from "../lib/apikeys.js";
 
 /** Keys is the section. keys is the store's latest keys answer (or null), remote
  *  says this window was reached through the relay, send is the store's send, and
  *  news is the latest notice since the dialog opened (the desktop says what was
  *  saved or why not). */
-export function Keys({ keys, remote, send, news = "" }) {
+export function Keys({ keys, remote, send, news = "", jev = null }) {
   const [editing, setEditing] = useState("");
   const [failed, setFailed] = useState(false);
   const [asking, setAsking] = useState("");
@@ -110,6 +111,7 @@ export function Keys({ keys, remote, send, news = "" }) {
           </li>`)}
         </ul>`
       : null}
+    <${JevKey} jev=${jev} remote=${remote} send=${send} />
     ${remote ? html`<p class="set-intro" id="keys-relay">${KEYS_RELAY_WORDS}</p>` : null}
   `;
 }

@@ -8,10 +8,10 @@ It compares two lists the sources hold: the actions of the key table (`internal/
 
 | | Actions | Commands |
 | --- | --- | --- |
-| done | 38 | 84 |
+| done | 38 | 89 |
 | replaced | 0 | 3 |
-| cut | 14 | 11 |
-| planned | 6 | 58 |
+| cut | 14 | 12 |
+| planned | 6 | 52 |
 | unclassified | 0 | 0 |
 | total | 58 | 156 |
 
@@ -43,6 +43,7 @@ The old interface let a person tile, split, move and broadcast to panes. The new
 | command | `movePaneDir` | Moving and merging panes and tabs is cut; the team is a graph. |
 | command | `movePaneToNewTab` | Moving and merging panes and tabs is cut; the team is a graph. |
 | command | `movePaneToTab` | Moving and merging panes and tabs is cut; the team is a graph. |
+| command | `setWeights` | Tiling and splitting panes is cut; the team is a graph. |
 | command | `splitPane` | Tiling and splitting panes is cut; the team is a graph. |
 | command | `swapPanes` | Moving and merging panes and tabs is cut; the team is a graph. |
 | command | `tilePanes` | Tiling and splitting panes is cut; the team is a graph. |
@@ -60,7 +61,7 @@ The old interface let a person tile, split, move and broadcast to panes. The new
 | T136 (L1, start flows and pane lifecycle) | `selectTab`, `closeFinishedPanes` | `agents`, `closeFinishedPanes`, `focusPane`, `refreshAgents`, `teamClose`, `toggleZoom` |
 | T137 (L2, settings) |  | `dismissTip`, `railExpanded`, `railWidth`, `resetKeybinding`, `resetKeybindings`, `setAgentAddress`, `setAgentDefault`, `setKeybinding`, `statusLine` |
 | T138 (L3, help) |  | `helpSeen` |
-| T143 (L8, remaining actions) | `agents`, `team` | `autoReview`, `clearRoutingLog`, `jevKey`, `jevStatus`, `msgList`, `msgSeen`, `msgSend`, `setRouting`, `setWeights`, `taskAdd`, `taskAssign`, `taskBranch`, `taskNote`, `taskPrune`, `taskStatus` |
+| T143 (L8, remaining actions) | `agents`, `team` | `msgList`, `msgSeen`, `msgSend`, `taskAdd`, `taskAssign`, `taskBranch`, `taskNote`, `taskPrune`, `taskStatus` |
 
 ## Must exist before the old interface is retired
 
@@ -68,8 +69,6 @@ These are safety and security controls. The new interface has no way to do them 
 
 | Command | Owner | Gate | What it is |
 | --- | --- | --- | --- |
-| `autoReview` | T143 (L8, remaining actions) | T162 | Safety control: the new shell cannot turn auto review off |
-| `jevKey` | T143 (L8, remaining actions) | T162 | Security control: the Jev key is set and cleared here |
 
 ## Actions of the key table
 
@@ -143,12 +142,12 @@ These are safety and security controls. The new interface has no way to do them 
 | `agents` | planned | T136 (L1, start flows and pane lifecycle). The agent picker |
 | `approveBaton` | done |  |
 | `archiveProject` | done |  |
-| `autoReview` | planned | T143 (L8, remaining actions). Safety control: the new shell cannot turn auto review off |
+| `autoReview` | done |  |
 | `autoReviewDefault` | done |  |
 | `browse` | done |  |
 | `changes` | planned | T132 (C6, Changes) |
 | `checkForUpdate` | done |  |
-| `clearRoutingLog` | planned | T143 (L8, remaining actions). Routing has no task |
+| `clearRoutingLog` | done |  |
 | `closeFinishedPanes` | planned | T136 (L1, start flows and pane lifecycle) |
 | `closePane` | done |  |
 | `closeProject` | done |  |
@@ -193,8 +192,8 @@ These are safety and security controls. The new interface has no way to do them 
 | `helperUninstall` | done |  |
 | `helpers` | done |  |
 | `installVersion` | done |  |
-| `jevKey` | planned | T143 (L8, remaining actions). Security control: the Jev key is set and cleared here |
-| `jevStatus` | planned | T143 (L8, remaining actions). The Jev status has no task |
+| `jevKey` | done |  |
+| `jevStatus` | done |  |
 | `keyClear` | done |  |
 | `keySet` | done |  |
 | `keys` | done |  |
@@ -266,8 +265,8 @@ These are safety and security controls. The new interface has no way to do them 
 | `setAgentDefault` | planned | T137 (L2, settings) |
 | `setDeviceRole` | done |  |
 | `setKeybinding` | planned | T137 (L2, settings) |
-| `setRouting` | planned | T143 (L8, remaining actions). Routing has no task |
-| `setWeights` | planned | T143 (L8, remaining actions). Routing has no task |
+| `setRouting` | done |  |
+| `setWeights` | cut | Tiling and splitting panes is cut; the team is a graph. |
 | `splitPane` | cut | Tiling and splitting panes is cut; the team is a graph. |
 | `startAgent` | done |  |
 | `startFromBaton` | done |  |

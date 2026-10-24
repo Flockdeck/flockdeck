@@ -18,13 +18,15 @@ import { Row, Switch } from "./Controls.js";
 import { Notify } from "./Notify.js";
 import { Keys } from "./ApiKeys.js";
 import { Remote } from "./Remote.js";
+import { JevStatus } from "./Jev.js";
+import { Routing } from "./Routing.js";
 import {
   ACCENTS, CURSORS, FONT_DEFAULT, FONT_MAX, FONT_MIN, FONT_SUGGESTIONS, SCROLLBACK_COUNTS, SCROLLBACK_MAX, SCROLLBACK_MIN,
   THEMES, WHY, fontStack,
 } from "../lib/prefs.js";
 
 /** SECTIONS are the parts of the dialog. */
-export const SECTIONS = [["general", "General"], ["appearance", "Appearance"], ["terminal", "Terminal"], ["notifications", "Notifications"], ["keys", "API keys"], ["remote", "Remote"]];
+export const SECTIONS = [["general", "General"], ["appearance", "Appearance"], ["terminal", "Terminal"], ["notifications", "Notifications"], ["keys", "API keys"], ["remote", "Remote"], ["status", "Status detection"], ["routing", "Routing"]];
 
 /** Settings is the dialog. prefs are the values in use (prefsOf), change(name,
  *  value) sends one change (setting in lib/prefs.js), and onClose closes it. ctx is
@@ -89,7 +91,9 @@ export function Settings({ prefs, change, onClose, section: first = "general", c
               ? html`<${Notify} prefs=${prefs} change=${change} permission=${ctx.permission || "unsupported"} machine=${ctx.machine || ""} pushError=${ctx.pushError || ""}
                   onAsk=${ctx.onAsk || (() => {})} />`
               : null}
-            ${section === "keys" ? html`<${Keys} keys=${ctx.keys || null} remote=${!!ctx.remote} send=${ctx.send} news=${ctx.news || ""} />` : null}
+            ${section === "keys" ? html`<${Keys} keys=${ctx.keys || null} remote=${!!ctx.remote} send=${ctx.send} news=${ctx.news || ""} jev=${ctx.jev || null} />` : null}
+            ${section === "status" ? html`<${JevStatus} prefs=${prefs} change=${change} remote=${!!ctx.remote} jev=${ctx.jev || null} send=${ctx.send} />` : null}
+            ${section === "routing" ? html`<${Routing} agents=${ctx.agents || null} project=${ctx.project || ""} send=${ctx.send} />` : null}
             ${section === "remote"
               ? html`<${Remote} status=${ctx.status || null} roster=${ctx.roster || null} pair=${ctx.pair || null} outcome=${ctx.outcome || null} remote=${!!ctx.remote}
                   send=${ctx.send} copy=${ctx.copy || (() => {})} news=${ctx.news || ""} />`
