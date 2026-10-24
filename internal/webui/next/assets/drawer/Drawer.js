@@ -81,6 +81,14 @@ function DrawerBody({ store, snap = null, node, pane = null, now, maximised = fa
   const rootRef = useRef(null);
   const terminalRef = useRef(null);
   const terminal = hasTerminal(node, pane);
+  // The settings that reach the terminal (font, cursor, scrollback) follow the
+  // window's settings while it is open.
+  const termSettings = (terminalOptions && terminalOptions.termOptions) || null;
+  const termKey = JSON.stringify(termSettings || {});
+  useEffect(() => {
+    const t = terminalRef.current;
+    if (termSettings && t && t.ctl && t.pane === node.pane && t.ctl.setOptions) t.ctl.setOptions(termSettings);
+  }, [termKey]);
   // Opening, or opening another pane, takes the keyboard into the drawer.
   useEffect(() => {
     if (rootRef.current && rootRef.current.focus) rootRef.current.focus();

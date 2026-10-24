@@ -22,7 +22,9 @@ import { Confirm } from "./Confirm.js";
 import { LIST } from "./keys.js";
 import { Updates, trapTab } from "./Updates.js";
 import { Tabs } from "./Tabs.js";
+import { Settings } from "./Settings.js";
 import { useLifecycle } from "../drawer/Lifecycle.js";
+import { FONT_DEFAULT, FONT_MAX, FONT_MIN, PATCH_WAIT_MS, applyLook, prefsOf, reducedMotion, addPending, latestOf, settledPending, setting, termOptionsOf } from "../lib/prefs.js";
 import { RELAY_WORDS, quitQuestion, updateOf } from "../lib/updates.js";
 import { catalogOf, closeTabWarnings, moveTabCommand, newTabCommand, tabsOf } from "../lib/lifecycle.js";
 
@@ -53,7 +55,7 @@ function nodeOfPane(p) {
 /** Live draws the shell for a store. matchMedia and window are the page's,
  *  passed for a test, and terminalOptions reach the drawer's terminal (a test
  *  gives it fakes for xterm and the socket). */
-export function Live({ store, matchMedia, window: win, terminalOptions = null }) {
+export function Live({ store, matchMedia, window: win, terminalOptions = null, patchWaitMs = PATCH_WAIT_MS }) {
   const narrow = useNarrow(matchMedia);
   const snap = useStore(store);
   const [selected, setSelected] = useState("");
@@ -64,6 +66,10 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null })
   const [local, setLocal] = useState("");
   const [dismissed, setDismissed] = useState(0);
   const [opening, setOpening] = useState("");
+  // The settings dialog, and the changes made in it that the desktop has not
+  // answered yet (by preference, as the desktop will keep them).
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [patch, setPatch] = useState({});
   // The updates dialog (with the seq of the notice when it opened, so it shows
   // only newer ones) and the question before quit.
   const [updatesAt, setUpdatesAt] = useState(-1);
@@ -137,6 +143,53 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null })
   const noticeSeq = snap.notice ? snap.notice.seq : 0;
   const noticeText = local || (snap.notice && noticeSeq > dismissed ? String(snap.notice.text || "") : "");
   const say = (text) => setLocal(text);
+
+  // The settings: the desktop's, with this window's own changes over them until
+  // the desktop answers. A change it refuses (a viewer's) is answered with a
+  // notice, which ends the wait and puts the window back to what is kept.
+  const page = win || (typeof window !== "undefined" ? window : null);
+  const kept_prefs = kept.current.hello.prefs;
+  const lastPrefs = useRef(kept_prefs);
+  useEffect(() => {
+    const before = lastPrefs.current;
+    lastPrefs.current = kept_prefs;
+    setPatch((p) => settledPending(p, kept_prefs, before));
+  }, [kept_prefs]);
+  // Only a refusal ends the wait: any other notice ("Agent finished") is about
+  // something else, and the change goes on waiting for its answer.
+  useEffect(() => {
+    if (snap.notice && snap.notice.error) setPatch({});
+  }, [noticeSeq]);
+  // A change nothing ever answers (another window set the same setting to
+  // something else) does not stay on screen for good.
+  useEffect(() => {
+    if (Object.keys(patch).length === 0) return undefined;
+    const t = setTimeout(() => setPatch({}), patchWaitMs);
+    return () => clearTimeout(t);
+  }, [patch]);
+  const prefs = useMemo(() => prefsOf({ ...(kept_prefs || {}), ...latestOf(patch) }), [kept_prefs, patch]);
+  useEffect(() => {
+    applyLook(page, prefs);
+  }, [page, prefs.theme, prefs.accent]);
+  const reduced = reducedMotion(page);
+  const look = useMemo(() => termOptionsOf(prefs, reduced), [prefs, reduced]);
+  const termProps = useMemo(
+    () => ({ ...(terminalOptions || {}), termOptions: { ...look, ...((terminalOptions && terminalOptions.termOptions) || {}) } }),
+    [terminalOptions, look],
+  );
+  // change sends one setting and shows it now. It answers whether the value
+  // was one the desktop would keep.
+  const change = (name, value) => {
+    const s = setting(name, value);
+    if (!s) return false;
+    send(s.command);
+    setPatch((p) => addPending(p, s.patch));
+    return true;
+  };
+  const bumpFont = (to) => {
+    if (to < FONT_MIN || to > FONT_MAX) return;
+    if (change("fontSize", to)) say("Font size " + to + "px");
+  };
   // Once the desktop has detached this window the page closes itself, or says it
   // can be closed when the browser will not let a script do it.
   useEffect(() => {
@@ -182,6 +235,10 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null })
       const el = barRef.current;
       if (el && el.focus) el.focus();
     },
+    settings: () => setSettingsOpen(true),
+    fontUp: () => bumpFont(prefs.fontSize + 1),
+    fontDown: () => bumpFont(prefs.fontSize - 1),
+    fontReset: () => bumpFont(FONT_DEFAULT),
     newAgentTab: () => send(newTabCommand({ kind: "agent" })),
     newAgentTabChoose: () => setStarting("agent"),
     newShellTab: () => send(newTabCommand({ kind: "shell" })),
@@ -204,7 +261,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null })
     restartPane: needPane(() => life.begin("restart", node, pane)),
     lockPane: needPane(() => life.toggleLock(node.pane, !(pane && pane.locked))),
     closePane: needPane(() => (pane && pane.locked ? say("This pane is locked. Unlock it to close it.") : life.begin("close", node, pane))),
-  }), [current, snap.graphGone, snap.remote, win, drawer.pane, node, pane, tabs, life.request]);
+  }), [current, snap.graphGone, snap.remote, win, drawer.pane, node, pane, tabs, life.request, prefs.fontSize]);
 
   return html`<${Shell}
     hello=${kept.current.hello}
@@ -217,7 +274,8 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null })
     mainRef=${mainRef}
     actions=${actions}
     maximised=${drawer.maximised}
-    blocked=${!!starting || updatesAt >= 0 || quitAsk}
+    blocked=${!!starting || settingsOpen || updatesAt >= 0 || quitAsk}
+    onSettings=${() => setSettingsOpen(true)}
     railFoot=${snap.remote
       ? null
       : html`<button type="button" class=${"rail-updates" + (update ? " has-update" : "")} onClick=${() => setUpdatesAt(noticeSeq)}>
@@ -227,10 +285,11 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null })
     onDismissNotice=${() => { setLocal(""); setDismissed(noticeSeq); }}
     drawer=${node
       ? html`<${Drawer} store=${store} snap=${snap} node=${node} pane=${pane} now=${Date.now()} maximised=${drawer.maximised}
-          onClose=${drawer.close} onToggleMax=${drawer.toggleMax} terminalOptions=${terminalOptions} life=${life} />`
+          onClose=${drawer.close} onToggleMax=${drawer.toggleMax} terminalOptions=${termProps} life=${life} />`
       : null}
   >${snap.state ? html`<${Tabs} tabs=${tabs} send=${send} show=${onDesk} warnFor=${(t) => closeTabWarnings(t, current ? current.byPane : null, statePanes)} onChoose=${() => setStarting("agent")} />` : null}
     <${Home} snap=${snap} selected=${selected} onShown=${setShown} onOpen=${drawer.open} open=${drawer.pane} narrow=${narrow} />
+    ${settingsOpen ? html`<${Settings} prefs=${prefs} change=${change} onClose=${() => setSettingsOpen(false)} />` : null}
     ${starting
       ? html`<${Start} mode=${starting} catalog=${catalog} project=${project} send=${send} onClose=${() => setStarting("")} />`
       : null}

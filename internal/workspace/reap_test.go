@@ -11,6 +11,7 @@ import (
 	"github.com/jmwri/flockdeck/internal/layout"
 	"github.com/jmwri/flockdeck/internal/session"
 	"github.com/jmwri/flockdeck/internal/store"
+	"github.com/jmwri/flockdeck/internal/testiso/depth"
 )
 
 // waitProcessGone polls until pid is no longer running, or fails the test.
@@ -281,6 +282,7 @@ func TestNewLeavesAnotherRunningInstancesProcessesAlone(t *testing.T) {
 const reapSleepEnv = "FLOCKDECK_WORKSPACE_TEST_REAP_SLEEP"
 
 func init() {
+	depth.Guard()
 	if os.Getenv(reapSleepEnv) != "" {
 		time.Sleep(time.Hour)
 		os.Exit(0)

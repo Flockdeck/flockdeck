@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/jmwri/flockdeck/internal/testiso"
+	"github.com/jmwri/flockdeck/internal/testiso/depth"
 )
 
 // TestMain keeps these tests off the real config directory, the stored API
@@ -15,6 +16,7 @@ import (
 // fakehelper_test.go) writes out its environment, before testiso adds
 // variables of its own, so a test can see exactly what the supervisor passed.
 func TestMain(m *testing.M) {
+	depth.Guard()
 	if args := fakeArgs(); args != nil {
 		for i, a := range args {
 			if a == "--dump-env" && i+1 < len(args) {
