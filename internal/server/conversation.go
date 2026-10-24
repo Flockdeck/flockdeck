@@ -167,6 +167,9 @@ type conversationDetailMsg struct {
 	ID     string            `json:"id"`
 	Entry  string            `json:"entry"`
 	Detail transcript.Detail `json:"detail"`
+	// Gone says the stream no longer holds the entry (it was evicted, or the
+	// conversation started over), so a window that is waiting stops waiting.
+	Gone bool `json:"gone,omitempty"`
 }
 
 // ---------------------------------------------------------------------------
@@ -413,6 +416,7 @@ func (s *Server) conversationDetailReq(c *controlClient, paneID, entryID string)
 	}
 	detail, ok := pc.stream.Detail(entryID)
 	if !ok {
+		c.sendJSON(conversationDetailMsg{Type: "conversationDetail", ID: paneID, Entry: entryID, Gone: true})
 		return
 	}
 	c.sendJSON(conversationDetailMsg{Type: "conversationDetail", ID: paneID, Entry: entryID, Detail: detail})

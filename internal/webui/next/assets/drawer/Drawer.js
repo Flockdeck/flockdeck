@@ -14,7 +14,7 @@
 import { useEffect, useReducer, useRef, useState } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
 import { Header } from "./Header.js";
-import { Prompt } from "./Prompt.js";
+import { Prompt, StreamPermission } from "./Prompt.js";
 import { Conversation } from "./Conversation.js";
 import { Structured } from "./Structured.js";
 import { Lifecycle } from "./Lifecycle.js";
@@ -158,6 +158,12 @@ function DrawerBody({ store, snap = null, node, pane = null, now, maximised = fa
     const el = tabRefs.current[next];
     if (el && el.focus) el.focus();
   };
+  // A structured pane's permission is drawn in the conversation too, where it was
+  // asked, as the same card the strip has. Only the desk has the card to answer.
+  const card = !terminal && !state.remote && state.structured && state.structured.id === node.pane && state.structured.card ? state.structured.card : null;
+  const pending = card ? { card, node: html`<${StreamPermission} node=${node} card=${card} snap=${state} store=${store} />` } : null;
+  const details = state.details || null;
+  const onDetail = (id) => store.requestDetail(id);
   const sendKeys = (text, done) => {
     const send = keysFor(terminalRef, node.pane);
     return !!send && send(text, done);
@@ -184,11 +190,11 @@ function DrawerBody({ store, snap = null, node, pane = null, now, maximised = fa
           : null}
         ${terminal
           ? html`<${TerminalView} key=${node.pane} store=${store} paneId=${node.pane} onReady=${(c) => { terminalRef.current = { pane: node.pane, ctl: c }; setCtl(c); }} ...${terminalOptions || {}} onMatches=${setMatches} />`
-          : html`<${Structured} key=${node.pane} pane=${node.pane} st=${state.structured} error=${state.structuredError} cancelError=${state.cancelError} desk=${!state.remote} store=${store} />`}
+          : html`<${Structured} key=${node.pane} pane=${node.pane} st=${state.structured} error=${state.structuredError} cancelError=${state.cancelError} desk=${!state.remote} store=${store} details=${details} onDetail=${onDetail} pending=${pending} />`}
       </div>
       ${hasConv
         ? html`<div class="drawer-panel" role="tabpanel" id="drawer-panel-conversation" aria-labelledby="drawer-tab-conversation" hidden=${shown !== "conversation"}>
-            <${Conversation} conv=${conv} onOlder=${() => store.olderConversation()} />
+            <${Conversation} conv=${conv} onOlder=${() => store.olderConversation()} details=${details} onDetail=${onDetail} pending=${pending} />
           </div>`
         : null}
     </section>

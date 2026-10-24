@@ -136,7 +136,9 @@ push carries a fixed window and a button that asked for more would grow the list
 The entries are drawn by the same list and rows as the Conversation tab (`drawer/conv/`), so a
 reply is sanitised Markdown here too: nothing in it is put into the page as markup, a link is made
 only for http and https addresses, and a reply over 20,000 characters is cut with a note saying how
-much is not shown.
+much is not shown. Opening a tool row asks for its output or diff with `conversationDetail`
+(4 KiB of output and 64 KiB of diff are drawn, and the cut is said), and a permission waiting on the
+pane is drawn in the list after the tool it was asked for, as the same card the top of the drawer has.
 The drawer still draws the push and has no Conversation tab. The server, though, now answers the
 conversation commands (`conversationOpen`, `conversationOlder`, `conversationDetail` and
 `conversationSearch`) for a structured pane, from the runtime's entries: pages of 50, older pages by

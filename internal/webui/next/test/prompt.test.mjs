@@ -60,8 +60,9 @@ async function mount({ g = graph(), extra = {}, hello: helloOver = {} } = {}) {
     dom, store, container, ws,
     box: (pane) => container.findAll("[data-pane]").find((e) => e.localName === "g" && e.getAttribute("data-pane") === pane && e.getAttribute("role") === "button"),
     card: () => container.find(".prompt"),
-    choices: () => container.findAll(".prompt-choice"),
-    choice: (id) => container.findAll(".prompt-choice").find((b) => b.getAttribute("data-option") === id),
+    // The strip's card is the first; a structured pane's permission is drawn again in the conversation (see conv-tool.test.mjs).
+    choices: () => (container.find(".prompt") ? container.find(".prompt").findAll(".prompt-choice") : []),
+    choice: (id) => (container.find(".prompt") ? container.find(".prompt").findAll(".prompt-choice") : []).find((b) => b.getAttribute("data-option") === id),
     status: () => (container.find(".prompt-status") || { textContent: "" }).textContent,
     active: () => dom.document.activeElement,
     push: async (msg) => { ws().frame(msg); await settle(); },

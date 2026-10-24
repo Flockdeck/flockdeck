@@ -137,14 +137,20 @@ function TerminalPermission({ permission, sendKeys }) {
   `;
 }
 
-// A structured pane's permission card, answered with permissionAnswer in a window
-// on the desk.
-function StructuredPermission({ node, card, snap, store }) {
-  const [asked, setAsked] = useState(null); // { after } the answer seq when it was sent
+/** PermissionCard is a structured pane's permission card, answered with
+ *  permissionAnswer in a window on the desk. The strip's card and the one drawn in
+ *  the conversation are this same component. What was answered is in the store's
+ *  asking, which every copy of the card reads and the store keeps to one answer
+ *  for each card, so the card is answered once whichever copy is pressed, or
+ *  pressed twice. */
+export function PermissionCard({ node, card, snap, store }) {
   const [note, setNote] = useState("");
   const remote = !!snap.remote;
   const a = snap.answer;
-  const reply = asked && a && a.seq > asked.after && a.id === node.pane && a.cardSeq === card.seq && a.requestId === card.requestId ? a : null;
+  const k = snap.asking;
+  const asked = k && k.id === node.pane && k.cardSeq === card.seq && k.requestId === card.requestId ? k : null;
+  const mine = a && a.id === node.pane && a.cardSeq === card.seq && a.requestId === card.requestId ? a : null;
+  const reply = mine && (!asked || mine.seq > asked.after) ? mine : null;
   const refused = reply && !reply.ok && reply.error ? String(reply.error) : "";
   const done = !!asked && !refused;
   const options = Array.isArray(card.options) ? card.options.filter((o) => o && typeof o.id === "string") : [];
@@ -152,7 +158,6 @@ function StructuredPermission({ node, card, snap, store }) {
     if (remote || done) return;
     const sent = store.send({ cmd: "permissionAnswer", id: node.pane, cardSeq: card.seq, requestId: card.requestId, optionId: opt.id });
     if (sent) {
-      setAsked({ after: snap.answer ? snap.answer.seq : 0 });
       setNote("");
     } else {
       setNote(NOT_ANSWERED_WORDS);
@@ -168,6 +173,15 @@ function StructuredPermission({ node, card, snap, store }) {
         </div>`}
     <p class=${"prompt-status" + (refused || note ? " prompt-status--error" : "")} role=${refused || note ? "alert" : "status"}>${says}</p>
   `;
+}
+
+/** StreamPermission is the card drawn in the conversation where the permission
+ *  was asked: the strip's card, the same component, under its own heading. */
+export function StreamPermission({ node, card, snap, store }) {
+  return html`<section class="prompt prompt--stream" role="region" aria-label="Permission asked here" data-prompt="permission">
+    <h3 class="prompt-title">${"Permission: " + clip(card.tool || "tool", 80)}</h3>
+    <${PermissionCard} node=${node} card=${card} snap=${snap} store=${store} />
+  </section>`;
 }
 
 // A question: its text and options, and the box that sends the answer.
@@ -206,7 +220,7 @@ export function Prompt({ node, pane = null, snap, store, sendKeys, terminal = tr
     if (card) {
       id = idOf("s", card.seq, card.requestId);
       title = "Permission: " + (card.tool || "tool");
-      body = html`<${StructuredPermission} key=${id} node=${node} card=${card} snap=${snap} store=${store} />`;
+      body = html`<${PermissionCard} key=${id} node=${node} card=${card} snap=${snap} store=${store} />`;
     } else if (pane && pane.permission) {
       id = idOf("sp", pane.permission.tool, pane.permission.command, pane.permission.file);
       title = "Permission: " + (pane.permission.tool || "tool");

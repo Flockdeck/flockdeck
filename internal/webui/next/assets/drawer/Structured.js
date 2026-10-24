@@ -85,7 +85,7 @@ export function lastEntries(st) {
 /** Structured is the panel. st is the store's structured push, or null before the
  *  first one; error is the store's structuredError; desk is false in a window
  *  reached through the relay. */
-export function Structured({ pane, st, error = null, cancelError = null, desk = true, store }) {
+export function Structured({ pane, st, error = null, cancelError = null, desk = true, store, details = null, onDetail = null, pending = null }) {
   const [draft, setDraft] = useState("");
   // The pane a Stop that was not sent was pressed for, so the words do not follow the drawer to another pane.
   const [stopFailed, setStopFailed] = useState("");
@@ -122,7 +122,7 @@ export function Structured({ pane, st, error = null, cancelError = null, desk = 
           ? html`<p class="structured-usage">${ctx ? html`<span class="structured-context">${ctx}</span>` : null}${cost ? html`<span class="structured-cost">${cost}</span>` : null}</p>`
           : null}
       </div>
-      <${Log} entries=${entries} atStart=${true} className="structured-log"><p class="conv-empty">${NO_ENTRIES_WORDS}</p><//>
+      <${Log} entries=${entries} atStart=${true} details=${details} onDetail=${onDetail} pending=${pending} className="structured-log"><p class="conv-empty">${NO_ENTRIES_WORDS}</p><//>
       ${desk
         ? html`<form class="structured-prompt" onSubmit=${submit}>
             <textarea class="structured-input" aria-label="Message to the agent" rows="2" value=${draft} onInput=${(e) => setDraft(e.target.value)}></textarea>

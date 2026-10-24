@@ -124,11 +124,17 @@ func TestConversationOpenOnAPaneWithNoStoredConversation(t *testing.T) {
 		t.Fatalf("page = %+v, want a supported, empty page at the start", page)
 	}
 
-	// The older, detail and close requests of a window that is showing the
-	// empty state are not failures either: they are ignored.
+	// The older request of a window that is showing the empty state is not a
+	// failure either: it is ignored. A detail request is answered with gone, so
+	// the window stops waiting for an entry that is not held.
 	srv.handleCommand(c, command{Cmd: "conversationOlder", ID: paneID, Before: "x"})
-	srv.handleCommand(c, command{Cmd: "conversationDetail", ID: paneID, Entry: "x"})
 	expectNoMessage(t, c, 300*time.Millisecond)
+	srv.handleCommand(c, command{Cmd: "conversationDetail", ID: paneID, Entry: "x"})
+	var gone conversationDetailMsg
+	if err := json.Unmarshal(nextRaw(t, c), &gone); err != nil || !gone.Gone || gone.Entry != "x" || gone.ID != paneID {
+		t.Fatalf("an unknown entry gave %+v, %v; want gone", gone, err)
+	}
+	expectNoMessage(t, c, 100*time.Millisecond)
 
 	writeClaudeJSONL(t, path, `{"type":"user","uuid":"u1","message":{"role":"user","content":"first words"}}`)
 	srv.ConversationHookEvent(paneID)
