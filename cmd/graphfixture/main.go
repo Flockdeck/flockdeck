@@ -1,5 +1,5 @@
 // Command graphfixture serves a front end of Flockdeck and a fake control socket
-// that plays one of the five week-10 graph fixtures, so the page can be looked at
+// that plays one of the graph fixtures, so the page can be looked at
 // and tested without a workspace. Development aid, not part of the product.
 //
 // The front end is the one the binary carries. The socket
@@ -35,7 +35,7 @@ func main() {
 func run(args []string, stdout, stderr io.Writer) error {
 	fl := flag.NewFlagSet("graphfixture", flag.ContinueOnError)
 	fl.SetOutput(stderr)
-	which := fl.String("fixture", "1", "the fixture to play: 1 to 5, or its file name")
+	which := fl.String("fixture", "1", "the fixture to play: 1 to 6, or its file name")
 	dir := fl.String("fixtures", "", "the directory of the fixtures; found above the working directory by default")
 	list := fl.Bool("list", false, "list the fixtures and stop")
 	if err := fl.Parse(args); err != nil {

@@ -44,13 +44,14 @@ function expectedNeeds(name) {
     else if (/ both change /.test(line)) kind = "conflict";
     else if (/^exited with /.test(reason)) kind = "down";
     else if (/ unread: /.test(reason)) kind = "stale-unread";
+    else if (/^no output for /.test(reason)) kind = "stuck";
     out.push({ kind, panes, line });
   }
   return out;
 }
 
-test("there are five fixtures", () => {
-  assert.equal(names.length, 5);
+test("there are six fixtures", () => {
+  assert.equal(names.length, 6);
 });
 
 for (const name of names) {

@@ -69,7 +69,9 @@
       "activity": "idle",
       "since": "2026-10-21T08:20:00Z",
       "branch": "main",
-      "unread": 1
+      "unread": 1,
+      "below": 6,
+      "needYou": 1
     },
     {
       "pane": "c2e39f87",
@@ -146,7 +148,8 @@
       "status": "idle",
       "activity": "idle",
       "since": "2026-10-21T08:51:00Z",
-      "branch": "work/tests"
+      "branch": "work/tests",
+      "undelivered": 1
     },
     {
       "pane": "77843dc7",
