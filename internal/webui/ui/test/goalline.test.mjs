@@ -132,3 +132,14 @@ test("a team started for a task says the task, with its title; else the goal tex
   assert.equal(taskOfTeam(null, {}), null);
   assert.equal(taskLabelOf(null), "");
 });
+
+test("the goal line says who runs the team", () => {
+  const model = buildGraphModel({
+    type: "graph",
+    nodes: [{ pane: "m1", name: "flockdeck-29", kind: "terminal", children: [], depth: 0, status: "idle", activity: "idle" }],
+    teams: [{ id: "t1", manager: "m1", members: ["m1"], goal: "Ship it" }],
+    solo: [],
+  });
+  assert.equal(summaryOf(model, model.teams[0], Date.now()).manager, "flockdeck-29");
+  assert.match(renderToString(html`<${GoalLine} model=${model} now=${Date.now()} />`), /run by flockdeck-29/);
+});

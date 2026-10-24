@@ -59,6 +59,13 @@ function goalOf(model, team) {
   return task && task.title ? taskLabelOf(task) : team.goal || taskLabelOf(task);
 }
 
+/** managerOf is the name of the pane that runs the team, or "" when the team has none. */
+function managerOf(model, team) {
+  if (!team.manager) return "";
+  const n = model.byPane.get(team.manager);
+  return (n && n.name) || team.manager;
+}
+
 export function summaryOf(model, team, now) {
   let working = 0;
   for (const id of team.members) {
@@ -67,6 +74,7 @@ export function summaryOf(model, team, now) {
   }
   return {
     goal: goalOf(model, team),
+    manager: managerOf(model, team),
     elapsed: elapsedOf(team.started, now),
     working,
     helpers: helpersOf(team),
@@ -94,6 +102,7 @@ export function GoalLine({ model, now = null }) {
         <span class="goalline-head">
           <span class="goalline-label">Goal</span>
           <span class="goalline-goal">${clip(s.goal, 120)}</span>
+          ${s.manager ? html`<span class="goalline-manager">run by ${clip(s.manager, 40)}</span>` : null}
         </span>
         <span class="goalline-facts">
           ${s.elapsed ? html`<span class="goalline-fact goalline-time">${s.elapsed}</span>` : null}
