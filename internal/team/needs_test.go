@@ -454,3 +454,33 @@ func TestASetupPaneWaitsOnTheUser(t *testing.T) {
 		}
 	}
 }
+
+func TestNeedsStuck(t *testing.T) {
+	ps := team2()
+	ps = append(ps, pane("c", "m", "worker", "working"), pane("d", "m", "worker", "working"), pane("e", "m", "worker", "working"), pane("f", "m", "worker", "waiting"))
+	ps[3].LastOutput = t0.Add(-11 * time.Minute) // quiet for over ten minutes
+	ps[4].LastOutput = t0.Add(-9 * time.Minute)  // not yet
+	// ps[5] has no output time, as a structured pane has none: never stuck.
+	ps[6].LastOutput = t0.Add(-time.Hour) // not working, so it is a wait the person already sees
+	ps[1].LastOutput = t0.Add(-time.Hour) // idle: finished, not stuck
+	got := needsFor(ps, nil, nil, nil)["m"]
+	if len(got) != 1 || got[0].ID != "stuck:c" || got[0].Text != "no output for 11m" {
+		t.Errorf("items = %+v, want only the working pane quiet for over ten minutes", got)
+	}
+	if got[0].Time != ps[3].LastOutput {
+		t.Errorf("time = %v, want when it last wrote", got[0].Time)
+	}
+	// A stuck pane sorts after the items that ask something of the person.
+	ps[2].Unread, ps[2].UnreadMail, ps[2].UnreadSince = 1, 1, t0.Add(-time.Hour)
+	if k := kinds(needsFor(ps, nil, nil, nil)["m"]); !reflect.DeepEqual(k, []string{"stale-unread:b", "stuck:c"}) {
+		t.Errorf("order = %v", k)
+	}
+}
+
+func TestQuietFor(t *testing.T) {
+	for d, want := range map[time.Duration]string{11 * time.Minute: "11m", 60 * time.Minute: "1h", 125 * time.Minute: "2h 5m"} {
+		if got := quietFor(d); got != want {
+			t.Errorf("quietFor(%v) = %q, want %q", d, got, want)
+		}
+	}
+}

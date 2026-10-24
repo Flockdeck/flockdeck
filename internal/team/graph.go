@@ -56,6 +56,10 @@ type GraphPane struct {
 	Activity string
 	// StatusSince is when Status began, zero if unknown.
 	StatusSince time.Time
+	// LastOutput is when the pane's process last wrote to its terminal, zero if
+	// unknown or for a pane with no terminal. A working pane that has been quiet
+	// for StuckAfter is listed as stuck.
+	LastOutput time.Time
 	// HasPrompt says the pane has an ask or permission view, and PromptText is
 	// the question or the command it shows.
 	HasPrompt  bool

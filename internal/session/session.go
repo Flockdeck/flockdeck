@@ -1367,6 +1367,14 @@ func (s *Session) StatusSince() time.Time {
 	return s.statusSince
 }
 
+// LastOutput is when the process last wrote to its terminal, the zero time for
+// one that has not.
+func (s *Session) LastOutput() time.Time {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.lastOutput
+}
+
 // Name returns the pane's display name.
 func (s *Session) Name() string {
 	s.mu.RLock()
