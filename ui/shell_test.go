@@ -1,4 +1,4 @@
-package ui
+package webui
 
 import (
 	"os"
@@ -37,7 +37,7 @@ var (
 )
 
 func TestShellNamesNoKeysOfItsOwn(t *testing.T) {
-	files, err := filepath.Glob(filepath.Join("../../ui/src", "shell", "*.js"))
+	files, err := filepath.Glob(filepath.Join("src", "shell", "*.js"))
 	if err != nil || len(files) < 4 {
 		t.Fatalf("shell files %v, %v", files, err)
 	}
@@ -56,7 +56,7 @@ func TestShellNamesNoKeysOfItsOwn(t *testing.T) {
 			}
 		}
 	}
-	keys, err := os.ReadFile(filepath.Join("../../ui/src", "shell", "keys.js"))
+	keys, err := os.ReadFile(filepath.Join("src", "shell", "keys.js"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +119,7 @@ func TestKeyScanCatchesWhatItIsFor(t *testing.T) {
 const layoutMarker = "/* ==== The new shell's layout"
 
 func TestStylesheetHoldsTheTokens(t *testing.T) {
-	next, err := os.ReadFile(filepath.Join("../../ui/src", "app.css"))
+	next, err := os.ReadFile(filepath.Join("src", "app.css"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,7 +143,7 @@ var (
 )
 
 func TestStylesheetLayoutUsesTokensOnly(t *testing.T) {
-	next, err := os.ReadFile(filepath.Join("../../ui/src", "app.css"))
+	next, err := os.ReadFile(filepath.Join("src", "app.css"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -177,7 +177,7 @@ func TestStylesheetLayoutUsesTokensOnly(t *testing.T) {
 // app.js and app.css name the phone width separately; they are held together
 // here.
 func TestNarrowQueryMatchesTheStylesheet(t *testing.T) {
-	js, err := os.ReadFile(filepath.Join("../../ui/src", "shell", "app.js"))
+	js, err := os.ReadFile(filepath.Join("src", "shell", "app.js"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +185,7 @@ func TestNarrowQueryMatchesTheStylesheet(t *testing.T) {
 	if m == nil {
 		t.Fatal("NARROW_QUERY is not in shell/app.js")
 	}
-	css, err := os.ReadFile(filepath.Join("../../ui/src", "app.css"))
+	css, err := os.ReadFile(filepath.Join("src", "app.css"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -199,7 +199,7 @@ func TestNarrowQueryMatchesTheStylesheet(t *testing.T) {
 // covers the window there; its field is 16px so iOS does not zoom in when it
 // takes the keyboard; and a rail row is a target a thumb can hit.
 func TestPhoneRulesKeepThePaletteUsable(t *testing.T) {
-	css, err := os.ReadFile(filepath.Join("../../ui/src", "app.css"))
+	css, err := os.ReadFile(filepath.Join("src", "app.css"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -236,7 +236,7 @@ func TestPhoneRulesKeepThePaletteUsable(t *testing.T) {
 // The active project is marked by more than a tint, which some people cannot
 // tell from the rest, and a collapsed rail still shows what each project is.
 func TestRailMarksTheActiveProjectAndShowsInitials(t *testing.T) {
-	css, err := os.ReadFile(filepath.Join("../../ui/src", "app.css"))
+	css, err := os.ReadFile(filepath.Join("src", "app.css"))
 	if err != nil {
 		t.Fatal(err)
 	}

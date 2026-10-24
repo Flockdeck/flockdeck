@@ -1,4 +1,4 @@
-package ui
+package webui
 
 import (
 	"os"
@@ -22,7 +22,7 @@ func rule(t *testing.T, css, sel string) string {
 // needs list, the tabs and the heading off the column's left edge. With the graph
 // scrolling inside its own box, the column has nothing to scroll sideways.
 func TestOnlyTheGraphScrollsSideways(t *testing.T) {
-	b, err := os.ReadFile("../../ui/src/app.css")
+	b, err := os.ReadFile("src/app.css")
 	if err != nil {
 		t.Fatal(err)
 	}
