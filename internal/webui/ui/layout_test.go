@@ -27,8 +27,11 @@ func TestOnlyTheGraphScrollsSideways(t *testing.T) {
 		t.Fatal(err)
 	}
 	css := string(b)
-	if got := rule(t, css, ".graph-view"); !strings.Contains(got, "overflow-x: auto") || !strings.Contains(got, "min-width: 0") {
-		t.Errorf(".graph-view = %q, want it to scroll sideways inside itself", got)
+	if got := rule(t, css, ".graph-view"); strings.Contains(got, "overflow-x: auto") || !strings.Contains(got, "min-width: 0") {
+		t.Errorf(".graph-view = %q, want it to hold the column and the graph without scrolling itself", got)
+	}
+	if got := rule(t, css, ".graph-main"); !strings.Contains(got, "overflow-x: auto") || !strings.Contains(got, "min-width: 0") {
+		t.Errorf(".graph-main = %q, want the graph to scroll sideways inside itself", got)
 	}
 	if got := rule(t, css, ".home--graph"); !strings.Contains(got, "overflow-x: hidden") {
 		t.Errorf(".home--graph = %q, want no sideways scroll", got)

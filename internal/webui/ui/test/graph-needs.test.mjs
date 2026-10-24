@@ -13,6 +13,8 @@ import { layoutGraph } from "../assets/graph/layout.js";
 import { GraphView } from "../assets/graph/Graph.js";
 import { reasonOf, firstLine, BADGE } from "../assets/graph/Badge.js";
 import { NeedsYou, rowOf, ageOf } from "../assets/graph/NeedsYou.js";
+import { Teams, summaryOf } from "../assets/graph/Teams.js";
+import { MAX_CARDS } from "../assets/graph/Graph.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const dir = join(here, "..", "..", "..", "server", "testdata", "graph-fixtures");
@@ -417,4 +419,37 @@ test("ageOf says how long ago, and nothing for an unknown or future time", () =>
   assert.equal(ageOf("0001-01-01T00:00:00Z", now), "", "an unknown time");
   assert.equal(ageOf("2026-10-24T12:05:00Z", now), "", "a time ahead of the clock");
   assert.equal(ageOf("", now), "");
+});
+
+test("the left column draws at most three cards, loud first, counts the rest and keeps old unread mail quiet", () => {
+  const msg = load("04-eight-helpers-three-waiting");
+  const model = buildGraphModel(msg);
+  const mk = (kind, i) => ({ id: kind + ":x" + i, kind, pane: model.nodes[0].pane, time: "2026-10-24T11:00:00Z", text: "t" + i });
+  model.needs = [mk("stale-unread", 0), mk("ask", 1), mk("permission", 2), mk("down", 3), mk("ask", 4), mk("conflict", 5)];
+  const out = renderToString(html`<${NeedsYou} model=${model} max=${MAX_CARDS} />`);
+  const kinds = [...out.matchAll(/data-kind="([^"]*)"/g)].map((m) => m[1]);
+  assert.deepEqual(kinds, ["ask", "permission", "down", "stale-unread"], "three loud cards in the graph's order, then the quiet row");
+  assert.match(out, /needs-row--stale-unread needs-row--quiet/);
+  assert.match(out, /and 2 more, marked on the graph/);
+  assert.match(out, /Needs you \(6\)/);
+});
+
+test("the teams list has a line per team and one for panes in no team, and nothing for a lone team", () => {
+  const model = buildGraphModel(load("04-eight-helpers-three-waiting"));
+  assert.equal(renderToString(html`<${Teams} model=${model} />`), "", "one team and no solo panes");
+  const lines = summaryOf(model);
+  assert.equal(lines.length, 1);
+  assert.ok(lines[0].agents > 1);
+  model.solo = [model.teams[0].members[0]];
+  const out = renderToString(html`<${Teams} model=${model} onSelect=${() => {}} />`);
+  assert.match(out, /Teams and solo/);
+  assert.match(out, /Not in a team/);
+  assert.match(out, /<button type="button" class="teams-pick"/, "the team with a manager is a button");
+});
+
+test("the graph view has the column and the graph side by side", () => {
+  const out = renderToString(html`<${GraphView} model=${buildGraphModel(load("04-eight-helpers-three-waiting"))} />`);
+  assert.match(out, /<aside class="graph-side"/);
+  assert.match(out, /<div class="graph-main"><svg class="graph"/);
+  assert.match(out, /Esc closes the drawer/);
 });
