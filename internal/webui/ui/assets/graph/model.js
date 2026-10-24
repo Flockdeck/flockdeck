@@ -449,46 +449,59 @@ function stateKey(node) {
   return node.activity && node.activity !== "unknown" ? node.activity : node.status;
 }
 
+/** needsYou says a pane waits on the person or ended: a need that is not quiet, or a waiting, blocked or ended state. */
+export function needsYouOf(model, pane) {
+  const n = model.byPane.get(pane);
+  if (!n) return false;
+  const state = stateKey(n);
+  return (model.needsByPane.get(pane) || []).some((x) => !QUIET_KINDS.includes(x.kind)) || state === "waiting" || state === "blocked" || state === "exited" || state === "failed";
+}
+
+// The frames of every team's tree by pane, built once per model. The outline's rows
+// (Tree.js rowsOf) walk the same frames, so a roll-up counts exactly the rows it hides.
+const FRAMES = new WeakMap();
+function framesOf(model) {
+  let m = FRAMES.get(model);
+  if (m) return m;
+  m = new Map();
+  for (const t of model.teams) {
+    if (!t.tree) continue;
+    const stack = [t.tree];
+    while (stack.length > 0) {
+      const f = stack.pop();
+      if (m.has(f.pane)) continue;
+      m.set(f.pane, f);
+      for (const c of f.children) stack.push(c);
+    }
+  }
+  FRAMES.set(model, m);
+  return m;
+}
+
 /**
- * rollupOf counts the panes below one: { below, needYou }. needYou is how many of
- * them wait on the person or ended (a pane's non-quiet needs, or a waiting or
- * blocked or ended state). It walks the model's own tree of the pane, so a chain
- * of any length is counted. With no helpers known here it is the desk's figures.
+ * rollupOf counts the panes below one: { below, needYou }, over the team's tree
+ * (the same panes the outline lists under it). It walks with a stack, so a chain
+ * of any length is counted. A pane the tree does not hold, or with no helpers in
+ * it, is the desk's figures when it sent some.
  */
 export function rollupOf(model, pane) {
   const node = model.byPane.get(pane);
   if (!node) return { below: 0, needYou: 0 };
-  const seen = new Set([pane]);
-  const stack = [pane];
+  const frame = framesOf(model).get(pane);
   let below = 0;
   let needYou = 0;
-  const index = childIndexOf(model);
-  while (stack.length > 0) {
-    const id = stack.pop();
-    const n = model.byPane.get(id);
-    const out = n ? n.children.slice() : [];
-    for (const c of index.get(id) || []) if (!out.includes(c)) out.push(c);
-    for (const c of out) {
-      if (seen.has(c) || !model.byPane.has(c)) continue;
-      seen.add(c);
+  if (frame) {
+    const seen = new Set([pane]);
+    const stack = frame.children.slice();
+    while (stack.length > 0) {
+      const f = stack.pop();
+      if (seen.has(f.pane) || !model.byPane.has(f.pane)) continue;
+      seen.add(f.pane);
       below++;
-      const k = model.byPane.get(c);
-      const needs = model.needsByPane.get(c) || [];
-      const state = stateKey(k);
-      if (needs.some((x) => !QUIET_KINDS.includes(x.kind)) || state === "waiting" || state === "blocked" || state === "exited" || state === "failed") needYou++;
-      stack.push(c);
+      if (needsYouOf(model, f.pane)) needYou++;
+      for (const c of f.children) stack.push(c);
     }
   }
   if (below === 0 && node.below > 0) return { below: node.below, needYou: node.needYou };
   return { below, needYou };
-}
-
-function childIndexOf(model) {
-  const index = new Map();
-  for (const m of model.nodes) {
-    if (!m.parent) continue;
-    if (!index.has(m.parent)) index.set(m.parent, []);
-    index.get(m.parent).push(m.pane);
-  }
-  return index;
 }
