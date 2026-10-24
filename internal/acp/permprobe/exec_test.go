@@ -8,11 +8,14 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/jmwri/flockdeck/internal/testiso/depth"
 )
 
 // The test binary stands in for the program Exec runs: when
 // FLOCKDECK_PERMPROBE_HELPER is set it does what the variable says and exits,
-// and otherwise the tests run as usual.
+// and otherwise the tests run as usual. depth.Guard comes first: it stops a
+// test binary that is its own descendant three deep, whatever the variables say.
 //
 // A child that has FLOCKDECK_PERMPROBE_DEPTH but no helper mode has lost the
 // variable that makes it a helper, and would run the whole suite and start
@@ -20,6 +23,7 @@ import (
 // set in the test process itself (so a child that inherits the parent's
 // environment carries it) and in every environment helper builds.
 func init() {
+	depth.Guard()
 	mode := os.Getenv("FLOCKDECK_PERMPROBE_HELPER")
 	if mode == "" {
 		if os.Getenv("FLOCKDECK_PERMPROBE_DEPTH") != "" {
