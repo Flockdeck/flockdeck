@@ -212,3 +212,75 @@ test("a conflict is a row's need only under the pane it names first", () => {
   assert.equal(m.needsByPane.get("idle").length, 1, "the model still has it under both");
   assert.ok(rowsOf(m).findIndex((r) => r.pane === "idle") > 0);
 });
+
+import { chipsOf } from "../assets/graph/chips.js";
+
+// The chips of the api-service team of prototype C.
+function proto() {
+  const g = team([
+    { id: "p", kind: "permission", pane: "ask", time: "2026-10-24T08:20:00Z", text: "go test" },
+    { id: "c", kind: "conflict", pane: "ask", other: "idle", time: "2026-10-24T08:21:00Z", text: "cfg/limits.yaml" },
+    { id: "d", kind: "down", pane: "down", time: "2026-10-24T08:30:00Z", text: "exited with code 2" },
+  ]);
+  const by = (p) => g.nodes.find((x) => x.pane === p);
+  by("w1").waitingOn = { kind: "helpers", text: "Limiter interface", ref: "work" };
+  by("w1").undelivered = 1;
+  by("idle").waitingOn = { kind: "reviewer", text: "" };
+  by("work").lastOutput = "2026-10-24T09:00:00Z";
+  by("work").waitingOn = { kind: "task", text: "" };
+  return g;
+}
+const NOW = Date.parse("2026-10-24T09:12:00Z");
+const chips = (p) => { const m = model(proto()); return chipsOf(m, m.byPane.get(p), needsOf(m, p), NOW); };
+const texts = (p) => chips(p).map((c) => c.text);
+
+test("chips: the ask kind, the overlap on both panes, waiting on, undelivered and stuck, in that order", () => {
+  assert.deepEqual(texts("ask"), ["Permission", "overlaps idle"]);
+  assert.deepEqual(texts("idle"), ["overlaps ask", "waiting on a reviewer"]);
+  assert.deepEqual(texts("w1"), ["waiting on work", "1 undelivered"]);
+  assert.deepEqual(texts("work"), ["waiting on a task", "stuck 12m"]);
+  assert.deepEqual(texts("down"), ["Down"]);
+  assert.deepEqual(texts("m"), []);
+  assert.equal(chips("ask")[1].to, "idle");
+  assert.equal(chips("idle")[0].to, "ask");
+  assert.equal(chips("w1")[0].to, "work");
+  assert.equal(chips("idle")[1].to, "", "waiting on a reviewer names no row");
+  assert.deepEqual(chips("ask").map((c) => c.kind), ["ask", "overlap"]);
+});
+
+test("chips: a pane that waits on a helper that is not a row has a plain chip, and a quiet need makes none", () => {
+  const g = proto();
+  g.nodes.find((x) => x.pane === "w1").waitingOn = { kind: "helpers", text: "x", ref: "gone" };
+  g.teams[0].needs.push({ id: "s", kind: "stale-unread", pane: "w1", time: "2026-10-24T08:20:00Z", text: "" });
+  const m = model(g);
+  const out = chipsOf(m, m.byPane.get("w1"), needsOf(m, "w1"), NOW);
+  assert.deepEqual(out.map((c) => c.text), ["waiting on a helper", "1 undelivered"]);
+  assert.equal(out[0].to, "");
+});
+
+test("link chips are buttons that name their row, plain chips are not", () => {
+  const out = renderToString(html`<${Tree} model=${model(proto())} />`);
+  assert.equal((out.match(/<button[^>]*tree-chip/g) || []).length, 3, "overlaps x2 and waiting on work");
+  assert.ok(out.includes("tree-chip--ask") && out.includes("tree-chip--down"));
+  assert.ok(out.includes("1 undelivered"));
+});
+
+test("hovering a link chip lights both rows, leaving it clears them, and a click goes to the row without opening the drawer", async () => {
+  const m = await mount({ model: model(proto()) });
+  try {
+    const chip = m.row("ask").findAll(".tree-chip").find((c) => c.textContent.startsWith("overlaps"));
+    assert.ok(chip, "the chip");
+    chip.dispatch("mouseenter", {});
+    await settle();
+    assert.ok((m.row("ask").attributes.class || "").includes("is-lit"));
+    assert.ok((m.row("m").attributes.class || "").includes("is-lit") === false);
+    chip.dispatch("mouseleave", {});
+    await settle();
+    assert.ok(!(m.row("ask").attributes.class || "").includes("is-lit"));
+    chip.dispatch("click");
+    await settle();
+    assert.deepEqual(m.opened, []);
+  } finally {
+    m.done();
+  }
+});

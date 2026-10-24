@@ -9,13 +9,14 @@
 // puts the keyboard back on the row.
 //
 // Every text here came from an agent, a task or a person and is drawn as text.
-import { useEffect, useState } from "../vendor/hooks.mjs";
+import { useEffect, useRef, useState } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
 import { composing } from "../shell/keys.js";
 import { focusNode } from "../drawer/state.js";
 import { stateOf } from "./Node.js";
 import { reasonOf, isLoud } from "./Badge.js";
 import { TreeRow, TreeHead } from "./TreeRow.js";
+import { chipsOf } from "./chips.js";
 
 /** TICK_MS is how often the ages are worked out again. */
 export const TICK_MS = 30000;
@@ -141,6 +142,9 @@ export function doingOf(node, needs) {
 export function Tree({ model, onOpen = null, open = "" }) {
   const [now, setNow] = useState(() => Date.now());
   const [focus, setFocus] = useState("");
+  // The two rows a link chip lights while it is hovered or focused.
+  const [lit, setLit] = useState(["", ""]);
+  const ref = useRef(null);
   const rows = rowsOf(model);
   // The ages move only while there is a row to show them on.
   const any = rows.length > 0;
@@ -172,13 +176,18 @@ export function Tree({ model, onOpen = null, open = "" }) {
     setFocus(to);
     focusNode(e.currentTarget, to);
   };
+  // A link chip takes the keyboard to the row it names; focusing scrolls it into view.
+  const go = (pane) => {
+    setFocus(pane);
+    focusNode(ref.current, pane);
+  };
   if (rows.length === 0) return null;
   return html`<div class="tree">
     <${TreeHead} />
-    <div class="tree-rows" role="tree" aria-label="Agents" onKeyDown=${onKeyDown}>
+    <div class="tree-rows" role="tree" aria-label="Agents" ref=${ref} onKeyDown=${onKeyDown}>
       ${rows.map((r) => {
         const node = model.byPane.get(r.pane);
-        return html`<${TreeRow} key=${r.pane} row=${r} node=${node} needs=${needsOf(model, r.pane)} doing=${doingOf(node, needsOf(model, r.pane))} stop=${stop === r.pane}
+        return html`<${TreeRow} key=${r.pane} row=${r} node=${node} needs=${needsOf(model, r.pane)} doing=${doingOf(node, needsOf(model, r.pane))} chips=${chipsOf(model, node, needsOf(model, r.pane), now)} lit=${lit[0] === r.pane || lit[1] === r.pane} onLink=${go} onLit=${(a, b) => setLit([a, b])} stop=${stop === r.pane}
           selected=${open === r.pane} age=${ageOf(node.since, now)} cost=${costOf(node, r.team)}
           onFocus=${() => setFocus(r.pane)} onOpen=${onOpen} />`;
       })}
