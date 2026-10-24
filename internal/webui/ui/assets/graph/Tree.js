@@ -168,11 +168,11 @@ export function doingOf(node, needs) {
   return stateOf(node).word;
 }
 
-/** rowNameOf is the label of a row: the pane's name or, when panes share one, labelOf's, less the role the next column already shows. */
+/** rowNameOf is the label of a row split in two: { role, name }. The role part ("worker · ") is only there when panes share a name; the page shows it where the Role column is gone. */
 export function rowNameOf(model, node) {
   const l = labelOf(model, node.pane);
   const lead = node.role ? node.role + " · " : "";
-  return lead && l.startsWith(lead) && l.length > lead.length ? l.slice(lead.length) : l;
+  return lead && l.startsWith(lead) && l.length > lead.length ? { role: lead, name: l.slice(lead.length) } : { role: "", name: l };
 }
 
 /** Tree draws a graph model as an outline. onOpen and open are the graph's: a row's drawer is opened by Enter, Space or a click, and open is the pane whose drawer is open. */
@@ -254,7 +254,7 @@ export function Tree({ model, onOpen = null, open = "", decisions = null }) {
     <div class="tree-rows" role="tree" aria-label="Agents" ref=${ref} onKeyDown=${onKeyDown}>
       ${rows.map((r) => {
         const node = model.byPane.get(r.pane);
-        return html`<${Fragment} key=${r.pane}><${TreeRow} row=${r} node=${node} name=${rowNameOf(model, node)} needs=${needsOf(model, r.pane)} doing=${doingOf(node, needsOf(model, r.pane))} chips=${chipsOf(model, node, needsOf(model, r.pane), now)} roll=${r.collapsed ? rollupOf(model, r.pane) : null} onToggle=${toggle} lit=${lit[0] === r.pane || lit[1] === r.pane} onLink=${go} onLit=${(a, b) => setLit([a, b])} stop=${stop === r.pane}
+        return html`<${Fragment} key=${r.pane}><${TreeRow} row=${r} node=${node} name=${rowNameOf(model, node).name} nameRole=${rowNameOf(model, node).role} needs=${needsOf(model, r.pane)} doing=${doingOf(node, needsOf(model, r.pane))} chips=${chipsOf(model, node, needsOf(model, r.pane), now)} roll=${r.collapsed ? rollupOf(model, r.pane) : null} onToggle=${toggle} lit=${lit[0] === r.pane || lit[1] === r.pane} onLink=${go} onLit=${(a, b) => setLit([a, b])} stop=${stop === r.pane}
           selected=${open === r.pane} age=${ageOf(node.since, now)} cost=${costOf(node)}
           onFocus=${() => setFocus(r.pane)} onOpen=${onOpen} />
           ${r.team && r.kids === 0 ? html`<div class="tree-note" role="treeitem" aria-disabled="true" aria-level=${r.depth + 2}>No helpers yet. The manager starts them as it plans.</div>` : null}

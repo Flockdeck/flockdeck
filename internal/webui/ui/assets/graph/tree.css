@@ -21,6 +21,7 @@
 .tree-glyph--exited::before, .tree-glyph--failed::before, .tree-glyph--exited::after, .tree-glyph--failed::after { background: var(--exited); content: ""; height: 2px; left: 0; position: absolute; top: 6px; transform: rotate(45deg); width: 14px; }
 .tree-glyph--exited::after, .tree-glyph--failed::after { transform: rotate(-45deg); }
 .tree-c { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tree-name-role { color: var(--fg-dim); display: none; font-weight: 400; }
 .tree-c--name { flex: 0 0 max(48px, calc(112px - var(--depth, 0) * 24px)); font-size: 13px; font-weight: 600; }
 .tree-c--role { color: var(--fg-dim); flex: 0 0 64px; font-size: 12px; }
 .tree-c--task { color: var(--fg-dim); flex: 0 0 30px; font-family: var(--mono, monospace); font-size: 11.5px; }
@@ -48,6 +49,7 @@ button.tree-toggle { cursor: pointer; }
 @container main (max-width: 680px) {
   .tree-head { display: none; }
   .tree-c--role, .tree-c--task, .tree-c--age { display: none; }
+  .tree-name-role { display: inline; }
   .tree-indent { flex-basis: 5px; }
   .tree-c--name { flex-basis: max(48px, calc(80px - var(--depth, 0) * 13px)); }
 }

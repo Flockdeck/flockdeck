@@ -433,23 +433,28 @@ test("the columns follow the main column and a phone gets two lines", async () =
 
 import { labelOf } from "../assets/graph/model.js";
 
-test("panes that share a name read as role and what they are on, and stay apart when that is shared too", () => {
+test("panes that share a name read as role and a stable name, never the live line, and stay apart when that is shared too", () => {
   const g = team();
-  for (const p of ["idle", "work", "ask"]) g.nodes.find((x) => x.pane === p).name = "flockdeck";
+  const live = {
+    work: "The test-fix commit is ready, running go vet ./... before I push it",
+    ask: "I replied to flockdeck-92 about the PR and am waiting for its answer",
+    idle: "Bash",
+  };
+  for (const p of ["idle", "work", "ask"]) {
+    const x = g.nodes.find((y) => y.pane === p);
+    x.name = "Bash";
+    x.live = live[p];
+  }
   g.nodes.find((x) => x.pane === "work").task = { id: "T4", title: "tabs per goal", state: "doing" };
-  g.nodes.find((x) => x.pane === "ask").live = "reading logs";
   const m = model(g);
-  assert.equal(labelOf(m, "work"), "worker · tabs per goal");
-  assert.equal(labelOf(m, "ask"), "worker · reading logs");
+  assert.equal(labelOf(m, "work"), "worker · tabs per goal", "the task title");
+  assert.match(labelOf(m, "ask"), /^worker · Bash · [0-9a-z]{3,4}$/, "the pane's name, then the start of its id because the two collide");
+  assert.notEqual(labelOf(m, "ask"), labelOf(m, "idle"));
+  for (const p of ["idle", "work", "ask"]) assert.ok(!labelOf(m, p).includes("commit") && !labelOf(m, p).includes("replied"), "no live line in " + p);
   assert.equal(labelOf(m, "m"), "m", "a name nobody else has is left alone");
-  const idleLabel = labelOf(m, "idle");
-  assert.equal(idleLabel, "worker", "no task and no live line: the role");
-  g.nodes.find((x) => x.pane === "ask").live = "";
-  assert.notEqual(labelOf(model(g), "ask"), labelOf(model(g), "idle"));
+  assert.deepEqual(rowNameOf(m, m.byPane.get("work")), { role: "worker · ", name: "tabs per goal" });
   const out = renderToString(html`<${Tree} model=${m} />`);
-  assert.equal(rowNameOf(m, m.byPane.get("work")), "tabs per goal", "the role has its own column");
-  assert.ok(out.includes(">tabs per goal<"));
-  assert.ok(out.includes('aria-label="tabs per goal'));
+  assert.ok(out.includes(">tabs per goal<") && out.includes('class="tree-name-role">worker · <'), "the role is in the name cell, shown where the Role column is gone");
   assert.ok(out.includes("tree--shared-names"));
   assert.ok(!renderToString(html`<${Tree} model=${model(team())} />`).includes("tree--shared-names"));
   assert.equal(labelOf(m, "nobody"), "nobody");
@@ -460,13 +465,13 @@ import { decisionOf } from "../assets/graph/DecisionBlock.js";
 import { loopOf } from "../assets/graph/DependencyDecisions.js";
 import { overlapsOf } from "../assets/graph/OverlapBar.js";
 
-test("decision blocks, the overlap bar and the loop block name panes that share a name by what they are on", () => {
+test("decision blocks, the overlap bar and the loop block name panes that share a name by role and a stable name", () => {
   const g = team([ask, { id: "c", kind: "conflict", pane: "ask", other: "work", time: "2026-10-24T08:21:00Z", text: "a.go" }]);
   for (const p of ["ask", "work"]) g.nodes.find((x) => x.pane === p).name = "flockdeck";
   g.nodes.find((x) => x.pane === "ask").live = "reading logs";
   const m = model(g);
-  assert.equal(decisionOf(m, ask).who, "worker · reading logs");
-  assert.ok(overlapsOf(m)[0].who.includes("worker · reading logs and worker · Limiter"));
+  assert.equal(decisionOf(m, ask).who, "worker · flockdeck");
+  assert.ok(overlapsOf(m)[0].who.includes("worker · flockdeck and worker · Limiter"));
   const lp = model(team());
   assert.equal(loopOf(lp), null);
 });
