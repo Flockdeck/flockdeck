@@ -395,6 +395,18 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
   useEffect(() => {
     if (settingsOpen && (settingsSection === "routing") && !snap.remote) send({ cmd: "refreshAgents" });
   }, [settingsOpen, settingsSection]);
+  // How many items need the person in each tab, from the graph's needs: the tab's
+  // panes are the ones its items name.
+  const tabNeeds = useMemo(() => {
+    const out = {};
+    if (!current) return out;
+    for (const t of tabs) {
+      const seen = new Set();
+      for (const p of t.panes) for (const n of current.needsByPane.get(p) || []) seen.add(n.id);
+      if (seen.size) out[t.id] = seen.size;
+    }
+    return out;
+  }, [current, tabs]);
   const actions = useMemo(() => ({
     nextNeedsYou: () => {
       if (!current || snap.graphGone) return;
@@ -570,7 +582,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
           onClose=${drawer.close} onToggleMax=${drawer.toggleMax} terminalOptions=${termProps} life=${life}
           tx=${tx} onInfo=${openInfo} findAsk=${findAsk} tabAsk=${tabAsk} onOpenPane=${drawer.open} order=${order} />`
       : null}
-  >${snap.state ? html`<${Tabs} tabs=${tabs} send=${send} show=${onDesk} warnFor=${(t) => closeTabWarnings(t, current ? current.byPane : null, statePanes)} onChoose=${() => setStarting("agent")} view=${view} onView=${(v) => { if (v === "graph") drawer.close(); setView(v); }}
+  >${snap.state ? html`<${Tabs} tabs=${tabs} send=${send} show=${onDesk} warnFor=${(t) => closeTabWarnings(t, current ? current.byPane : null, statePanes)} onChoose=${() => setStarting("agent")} needs=${tabNeeds} view=${view} onView=${(v) => { if (v === "graph") drawer.close(); setView(v); }}
       onHistory=${snap.remote ? null : () => setHistoryOpen(true)} onFind=${snap.remote ? null : () => setFindingPane(true)} />` : null}
     <div class="view-graph" hidden=${view !== "graph"}>
       <${Home} snap=${snap} selected=${selected} onShown=${setShown} onOpen=${drawer.open} open=${drawer.pane} narrow=${narrow} send=${snap.remote ? null : send}

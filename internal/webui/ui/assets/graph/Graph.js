@@ -7,6 +7,7 @@
 // Team goals, names and every other text are untrusted and are drawn as text.
 import { useState } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
+import { GoalLine } from "./GoalLine.js";
 import { layoutGraph } from "./layout.js";
 import { Node, clip } from "./Node.js";
 import { Badge } from "./Badge.js";
@@ -97,6 +98,7 @@ export function Graph({ model, layout = null, onOpen = null, open = "" }) {
 export function GraphView({ model, layout = null, onSelect, onOpen = null, open = "" }) {
   return html`
     <div class="graph-view">
+      <${GoalLine} model=${model} />
       <${NeedsYou} model=${model} onSelect=${onSelect} />
       <${Graph} model=${model} layout=${layout} onOpen=${onOpen} open=${open} />
     </div>

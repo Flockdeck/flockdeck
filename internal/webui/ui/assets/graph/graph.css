@@ -435,3 +435,21 @@
 .overlap-actions { display: flex; flex-wrap: wrap; gap: 6px; }
 .overlap-note { flex: 1 1 100%; margin: 0; color: var(--waiting); font-size: 12px; }
 .overlap-resolved { margin: 0; padding: 6px 10px; border: 1px solid var(--working, var(--accent)); border-radius: 6px; font-size: 13px; }
+
+/* The goal line above the needs-you strip. */
+.goalline-box { margin: 0 0 8px; }
+.goalline {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
+  margin: 0;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--line-subtle);
+  font-size: 13px;
+}
+.goalline-label { color: var(--fg-dim); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; }
+.goalline-goal { color: var(--fg); min-width: 0; overflow-wrap: anywhere; }
+.goalline-facts { display: flex; flex-wrap: wrap; gap: 2px 14px; margin-left: auto; font-family: var(--mono); font-size: 12px; color: var(--fg-dim); }
+.goalline-needs { color: var(--waiting); }
+.goalline-helpers.is-capped { color: var(--waiting); }

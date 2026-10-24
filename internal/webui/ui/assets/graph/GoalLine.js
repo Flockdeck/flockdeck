@@ -1,0 +1,93 @@
+// The goal line above the graph: for each team, its goal and what it has cost and
+// taken so far, in one row (the mockup's "GOAL ... 2h 14m $18.40 Working: 4
+// 8 of 8 helpers, at the cap 3 need you").
+//
+// Everything is from the graph push: the team's goal, started time, spend
+// (spendOf, with its "partial" mark), helper caps and needs, and each member's
+// status. Nothing here asks the desktop for anything. What the push does not have
+// is not drawn: there is no "merged" word, because nothing says a team is done.
+//
+// The elapsed time is worked out from the started time and the clock, and the row
+// is drawn again every half minute so that it moves. Every text is untrusted and
+// is drawn as text.
+import { useEffect, useState } from "../vendor/hooks.mjs";
+import { html } from "../html.js";
+import { clip, spendOf } from "./Node.js";
+
+/** TICK_MS is how often the elapsed time is looked at again. */
+export const TICK_MS = 30000;
+
+/** elapsedOf is how long since a time, as "2h 14m", "14m" or "under a minute", or
+ *  "" when the time is not known (the graph writes year 1 for that) or is ahead of
+ *  now. */
+export function elapsedOf(started, now) {
+  const t = Date.parse(started);
+  if (!Number.isFinite(t) || t < Date.UTC(2000, 0, 1)) return "";
+  const m = Math.floor((now - t) / 60000);
+  if (m < 0) return "";
+  if (m < 1) return "under a minute";
+  if (m < 60) return m + "m";
+  const h = Math.floor(m / 60);
+  if (h < 48) return h + "h " + (m % 60) + "m";
+  return Math.floor(h / 24) + "d " + (h % 24) + "h";
+}
+
+/** helpersOf is the helper cap of a team as a sentence, or "" when no cap is
+ *  known: "6 of 8 helpers", with ", at the cap" when it is reached. */
+export function helpersOf(team) {
+  let used = 0;
+  let max = 0;
+  for (const c of team.caps) {
+    used += c.used;
+    max += c.max;
+  }
+  if (max <= 0) return "";
+  return used + " of " + max + " helpers" + (used >= max ? ", at the cap" : "");
+}
+
+/** summaryOf is the numbers of one team's line. now is the clock. */
+export function summaryOf(model, team, now) {
+  let working = 0;
+  for (const id of team.members) {
+    const n = model.byPane.get(id);
+    if (n && n.status === "working") working++;
+  }
+  return {
+    goal: team.goal,
+    elapsed: elapsedOf(team.started, now),
+    spend: team.spendUSD > 0 || team.spendPartial ? spendOf(team) : "",
+    working,
+    helpers: helpersOf(team),
+    needs: team.needs.length + team.needsHidden,
+  };
+}
+
+/** GoalLine draws one row for each team that has a goal. now is the clock, for a
+ *  test; by default it is read each time the row is drawn. */
+export function GoalLine({ model, now = null }) {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    if (now !== null) return undefined;
+    const id = setInterval(() => tick((n) => n + 1), TICK_MS);
+    return () => clearInterval(id);
+  }, [now]);
+  const clock = now !== null ? now : Date.now();
+  const rows = model.teams.filter((t) => t.goal);
+  if (rows.length === 0) return null;
+  return html`<div class="goalline-box">
+    ${rows.map((team) => {
+      const s = summaryOf(model, team, clock);
+      return html`<p key=${team.id} class="goalline" data-team=${team.id}>
+        <span class="goalline-label">Goal</span>
+        <span class="goalline-goal">${clip(s.goal, 120)}</span>
+        <span class="goalline-facts">
+          ${s.elapsed ? html`<span class="goalline-fact goalline-time">${s.elapsed}</span>` : null}
+          ${s.spend ? html`<span class="goalline-fact goalline-cost">${s.spend}</span>` : null}
+          <span class="goalline-fact goalline-working">Working: ${s.working}</span>
+          ${s.helpers ? html`<span class=${"goalline-fact goalline-helpers" + (s.helpers.endsWith("cap") ? " is-capped" : "")}>${s.helpers}</span>` : null}
+          ${s.needs > 0 ? html`<span class="goalline-fact goalline-needs">${s.needs} ${s.needs === 1 ? "needs" : "need"} you</span>` : null}
+        </span>
+      </p>`;
+    })}
+  </div>`;
+}
