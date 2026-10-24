@@ -38,7 +38,7 @@ test("the line has the goal, time, cost, working count, helper cap and what need
   const out = draw();
   assert.match(out, /goalline-goal">Add rate limiting</);
   assert.match(out, /goalline-time">2h 14m</);
-  assert.match(out, /goalline-cost">\$18\.40</);
+  assert.doesNotMatch(out, /goalline-cost|\$18/, "no spend on the goal line");
   assert.match(out, /Working: 2</);
   assert.match(out, /goalline-helpers is-capped">8 of 8 helpers</);
   assert.match(out, /goalline-needs">1 needs you</);
@@ -52,10 +52,10 @@ test("what the push does not have is not drawn", () => {
   assert.equal(draw({ goal: "" }), "", "a team with no goal has no line");
 });
 
-test("a partial cost says so, the cap below its limit is not marked, and several needs are counted", () => {
+test("the cap below its limit is not marked, and several needs are counted", () => {
   const model = buildGraphModel(msg({ spendPartial: true, caps: [{ pane: "m", used: 3, max: 8 }], needsHidden: 2 }));
   const s = summaryOf(model, model.teams[0], NOW);
-  assert.equal(s.spend, "$18.40 partial");
+  assert.equal(s.spend, undefined);
   assert.equal(s.helpers, "3 of 8 helpers");
   assert.equal(s.needs, 3);
   assert.equal(s.capped, false);
