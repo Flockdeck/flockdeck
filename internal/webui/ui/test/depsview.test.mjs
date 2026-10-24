@@ -56,6 +56,21 @@ test("a ring of agents gets the deadlock block", () => {
   assert.ok(out.includes("Ask mgr to break the loop"));
   assert.ok(out.includes("the other half"));
   assert.ok(breakText(["a", "b"]).includes("a, b"));
+  assert.ok(/class="tree-c deps-age">\d+[mh]|class="tree-c deps-age">now/.test(out), "the wait rows carry an age");
+});
+
+test("an ask is ready again when what it was about changes", async () => {
+  const m = await mount();
+  try {
+    m.box.findAll(".deps-start-btn")[0].click();
+    await settle();
+    assert.ok(m.box.textContent.includes("Manager asked"));
+    render(html`<${Deps} team=${push(tasks().map((t) => (t.id === "T11" ? { ...t, state: "assigned", ownerPane: "api" } : t)))} model=${model(plain)} send=${() => true} />`, m.box);
+    await settle();
+    assert.ok(!m.box.textContent.includes("Manager asked"));
+  } finally {
+    m.done();
+  }
 });
 
 test("glyphOf follows the task's state", () => {

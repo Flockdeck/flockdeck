@@ -20,7 +20,7 @@ import { teamOf, TEAM_RELAY_WORDS, isFinished as stateFinished } from "../lib/te
 import { clip, stateOf } from "./Node.js";
 import { managerOf } from "./ManagerBar.js";
 import { GOAL, isReady, openBlockers, planOf, loopsOf, waitsOf, minutesWords } from "./deps.js";
-import { stepOf, foldOf } from "./Tree.js";
+import { stepOf, foldOf, ageOf } from "./Tree.js";
 
 export const NO_TASKS_WORDS = "No tasks have been planned yet. The manager adds them as it plans.";
 export const READING_WORDS = "Reading the tasks…";
@@ -88,9 +88,11 @@ export function Deps({ team: teamMsg, model = null, remote = false, onOpen = nul
     setFocus(key);
     focusNode(ref.current, key);
   };
-  const askManager = (id, text) => {
+  // An ask is remembered with what it was about (a task's state, a ring's panes); when that changes the button is ready again.
+  const sentOf = (id, stamp) => (asked[id] && asked[id].stamp === stamp ? (asked[id].ok ? "sent" : "failed") : "");
+  const askManager = (id, stamp, text) => {
     if (!manager || !send) return;
-    setAsked((a) => ({ ...a, [id]: send({ cmd: "paneSend", id: manager.pane, text }) ? "sent" : "failed" }));
+    setAsked((a) => ({ ...a, [id]: { stamp, ok: send({ cmd: "paneSend", id: manager.pane, text }) } }));
   };
   const onKeyDown = (e) => {
     if (e.defaultPrevented || composing(e) || e.ctrlKey || e.altKey || e.shiftKey || e.metaKey) return;
@@ -137,6 +139,7 @@ export function Deps({ team: teamMsg, model = null, remote = false, onOpen = nul
     const ready = isReady(plan.idx, r.id);
     const owner = t.ownerPane && model && model.byPane.get(t.ownerPane) ? model.byPane.get(t.ownerPane) : null;
     const ownerWaits = !!owner && stateOf(owner).key === "waiting";
+    const ownerDown = !!owner && (stateOf(owner).key === "exited" || stateOf(owner).key === "failed");
     const chips = [];
     if (r.dup) chips.push({ kind: "dup", text: "see above", to: r.id });
     else {
@@ -145,13 +148,13 @@ export function Deps({ team: teamMsg, model = null, remote = false, onOpen = nul
       for (const b of blockers.slice(0, 2)) chips.push({ kind: "blocked", text: "blocked by " + b.id, to: b.id });
       if (ownerWaits) chips.push({ kind: "ask", text: nameOf(model, owner.pane) + " waits on you", to: "" });
     }
-    const cls = [blockers.length > 0 && !stateFinished(t.state) ? "is-blocked" : "", ready ? "is-ready" : "", critical.has(r.id) && !r.dup ? "is-crit" : "", r.dup ? "is-dup" : "", ownerWaits ? "is-waiting" : ""].filter(Boolean).join(" ");
+    const cls = [blockers.length > 0 && !stateFinished(t.state) ? "is-blocked" : "", ready ? "is-ready" : "", critical.has(r.id) && !r.dup ? "is-crit" : "", r.dup ? "is-dup" : "", ownerWaits ? "is-waiting" : "", ownerDown ? "is-down" : ""].filter(Boolean).join(" ");
     const start = ready && !r.dup
-      ? html`<div class="deps-start" role="group" aria-label=${"Ready to start " + t.id}>
+      ? html`<div class="deps-start" style=${"--depth:" + Math.min(r.depth, 12)} role="group" aria-label=${"Ready to start " + t.id}>
           <p class="deps-start-kind">Ready to start <span>all blockers merged</span></p>
           <p><b>${t.id}</b> ${clip(t.title, 120)} has no open blockers and nobody on it.</p>
-          <button type="button" class="deps-start-btn" disabled=${!manager || !send || asked[r.key] === "sent"} onClick=${() => askManager(r.key, startText(t))}>${asked[r.key] === "sent" ? "Manager asked" : manager ? "Ask " + manager.name + " to start it" : "No manager to ask"}</button>
-          ${asked[r.key] === "failed" ? html`<span class="view-note" role="status">Not connected, so the manager was not asked.</span>` : null}
+          <button type="button" class="deps-start-btn deps-start-btn--main" disabled=${!manager || !send || sentOf(r.key, t.state) === "sent"} onClick=${() => askManager(r.key, t.state, startText(t))}>${sentOf(r.key, t.state) === "sent" ? "Manager asked" : manager ? "Ask " + manager.name + " to start it" : "No manager to ask"}</button>
+          ${sentOf(r.key, t.state) === "failed" ? html`<span class="view-note" role="status">Not connected, so the manager was not asked.</span>` : null}
         </div>`
       : null;
     const ownerView = owner ? { name: owner.name || owner.pane, state: stateOf(owner).key } : null;
@@ -167,6 +170,7 @@ export function Deps({ team: teamMsg, model = null, remote = false, onOpen = nul
   const waitHead = waits.length > 0
     ? html`<${DepRow} key="W" r=${{ key: "W", depth: 0, kids: waits.length, folded: folded.has("W") }} stop=${stop === "W"} onFocus=${() => setFocus("W")} onToggle=${toggle} glyph="idle" id="" title="Who waits on whom" sub="agents, not tasks" />`
     : null;
+  const now = Date.now();
   const ringNames = (ring) => ring.map((p) => nameOf(model, p));
   return html`<div class="view view--deps">
     <div class="view-head">
@@ -188,7 +192,7 @@ export function Deps({ team: teamMsg, model = null, remote = false, onOpen = nul
       <p class="deps-deadlock-kind">Deadlock</p>
       <p>${ringNames(ring).map((n) => n + " waits on ").join("")}${ringNames(ring)[0]}. None of them can move.</p>
       <div class="deps-deadlock-acts">
-        <button type="button" class="deps-start-btn" disabled=${!manager || !send || asked["ring" + i] === "sent"} onClick=${() => askManager("ring" + i, breakText(ringNames(ring)))}>${asked["ring" + i] === "sent" ? "Manager asked" : manager ? "Ask " + manager.name + " to break the loop" : "No manager to ask"}</button>
+        <button type="button" class="deps-start-btn deps-start-btn--main" disabled=${!manager || !send || sentOf("ring" + i, ring.join()) === "sent"} onClick=${() => askManager("ring" + i, ring.join(), breakText(ringNames(ring)))}>${sentOf("ring" + i, ring.join()) === "sent" ? "Manager asked" : manager ? "Ask " + manager.name + " to break the loop" : "No manager to ask"}</button>
         ${onOpen ? html`<button type="button" class="deps-open" onClick=${() => onOpen(ring[0])}>Open ${nameOf(model, ring[0])}</button>` : null}
       </div>
     </div>`)}
@@ -199,7 +203,7 @@ export function Deps({ team: teamMsg, model = null, remote = false, onOpen = nul
       <div class="tree-rows" role="tree" aria-label="Dependencies" ref=${ref} onKeyDown=${onKeyDown}>
         ${plan.rows.map(taskRow)}
         ${waitHead}
-        ${folded.has("W") ? null : waits.map((w) => html`<${WaitRow} key=${w.key} w=${w} model=${model} stop=${stop === w.key} onFocus=${() => setFocus(w.key)} onOpen=${onOpen} onLink=${go} />`)}
+        ${folded.has("W") ? null : waits.map((w) => html`<${WaitRow} key=${w.key} now=${now} w=${w} model=${model} stop=${stop === w.key} onFocus=${() => setFocus(w.key)} onOpen=${onOpen} onLink=${go} />`)}
       </div>
     </div>
   </div>`;
@@ -223,7 +227,7 @@ function DepRow({ r, stop, cls = "", onFocus, onToggle, onLink = null, glyph, id
   </div>`;
 }
 
-function WaitRow({ w, model, stop, onFocus, onOpen, onLink }) {
+function WaitRow({ w, now, model, stop, onFocus, onOpen, onLink }) {
   const from = nameOf(model, w.from);
   const to = w.to === "you" ? "you" : nameOf(model, w.to);
   const word = w.kind === "overlap" ? "and" : "waits on";
@@ -243,5 +247,6 @@ function WaitRow({ w, model, stop, onFocus, onOpen, onLink }) {
     <span class="tree-c deps-tk">${w.kind === "you" ? "you" : w.kind === "overlap" ? "files" : "wait"}</span>
     <span class="tree-c deps-ttl"><b>${clip(from, 24)}</b> <span class="deps-sub">${word}</span> <b>${clip(to, 24)}</b>${w.why ? html` <span class="deps-sub">for ${clip(w.why, 120)}</span>` : null}</span>
     ${chips.length > 0 ? html`<span class="tree-chips">${chips.map((c) => html`<${Chip} key=${c.kind + c.text} c=${c} onLink=${onLink} />`)}</span>` : null}
+    <span class="tree-c deps-age">${ageOf(w.since, now)}</span>
   </div>`;
 }

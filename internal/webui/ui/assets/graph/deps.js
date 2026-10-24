@@ -228,20 +228,20 @@ export function waitsOf(model) {
     for (let i = 0; i < r.length; i++) {
       ring.add(r[i]);
       const n = model.byPane.get(r[i]);
-      rows.loop.push({ key: "w-" + r[i] + "-" + r[(i + 1) % r.length], kind: "loop", from: r[i], to: r[(i + 1) % r.length], why: n.waitingOn.text || "" });
+      rows.loop.push({ key: "w-" + r[i] + "-" + r[(i + 1) % r.length], kind: "loop", from: r[i], to: r[(i + 1) % r.length], why: n.waitingOn.text || "", since: n.since });
     }
   }
   const seen = new Set();
   for (const n of model.nodes) {
     const mine = (model.needsByPane.get(n.pane) || []).filter((x) => x.pane === n.pane);
-    if (isLoud(mine.filter((x) => x.kind !== "conflict")) || stateOf(n).key === "waiting") rows.you.push({ key: "w-" + n.pane + "-you", kind: "you", from: n.pane, to: "you", why: "" });
+    if (isLoud(mine.filter((x) => x.kind !== "conflict")) || stateOf(n).key === "waiting") rows.you.push({ key: "w-" + n.pane + "-you", kind: "you", from: n.pane, to: "you", why: "", since: n.since });
     for (const x of mine) {
       if (x.kind !== "conflict" || !x.other || seen.has(x.id)) continue;
       seen.add(x.id);
-      rows.overlap.push({ key: "w-" + n.pane + "-" + x.other + "~o", kind: "overlap", from: n.pane, to: x.other, why: x.text || "" });
+      rows.overlap.push({ key: "w-" + n.pane + "-" + x.other + "~o", kind: "overlap", from: n.pane, to: x.other, why: x.text || "", since: x.time || n.since });
     }
     const to = waitRef(model, n);
-    if (to && !ring.has(n.pane)) rows.agent.push({ key: "w-" + n.pane + "-" + to, kind: "agent", from: n.pane, to, why: n.waitingOn.text || "" });
+    if (to && !ring.has(n.pane)) rows.agent.push({ key: "w-" + n.pane + "-" + to, kind: "agent", from: n.pane, to, why: n.waitingOn.text || "", since: n.since });
   }
   return [...rows.loop, ...rows.you, ...rows.overlap, ...rows.agent];
 }
