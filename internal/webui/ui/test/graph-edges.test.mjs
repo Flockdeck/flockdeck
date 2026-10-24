@@ -291,7 +291,7 @@ export function braceProblems(text, { maxDepth = 1, topLevelComments = true } = 
 }
 
 test("the graph's stylesheet and the shell's are well formed: braces balance and no rule sits inside another", () => {
-  for (const file of ["graph/graph.css", "app.css"]) {
+  for (const file of ["graph/graph.css", "graph/tree.css", "app.css"]) {
     const text = readFileSync(join(here, "..", "assets", file), "utf8");
     // app.css has @media blocks and graph.css an @container one, which hold rules one level down.
     // graph.css keeps its comments between rules; app.css also has some inside.

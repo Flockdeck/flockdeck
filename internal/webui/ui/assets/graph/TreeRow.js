@@ -23,11 +23,11 @@ export function TreeHead() {
 }
 
 /** TreeRow draws one pane. row is from rowsOf, doing the line for "Doing now". */
-export function TreeRow({ row, node, needs, doing, chips = [], stop, selected, lit = false, age, cost, onFocus, onOpen, onLink = null, onLit = null }) {
+export function TreeRow({ row, node, needs, doing, chips = [], stop, selected, lit = false, roll = null, age, cost, onFocus, onOpen, onToggle = null, onLink = null, onLit = null }) {
   const state = stateOf(node);
   const tone = toneOf(node, needs);
   const name = node.name || node.pane;
-  const label = [name, node.role, state.word, doing, node.task ? "task " + node.task.id : "", ...chips.map((c) => c.text)].filter(Boolean).join(", ");
+  const label = [name, node.role, state.word, doing, node.task ? "task " + node.task.id : "", ...chips.map((c) => c.text), roll ? roll.below + " below" + (roll.needYou > 0 ? ", " + roll.needYou + " need you" : "") : ""].filter(Boolean).join(", ");
   return html`<div
     class=${"tree-row" + (tone ? " tree-row--" + tone : "") + (selected ? " is-open" : "") + (lit ? " is-lit" : "")}
     role="treeitem"
@@ -42,12 +42,12 @@ export function TreeRow({ row, node, needs, doing, chips = [], stop, selected, l
     onClick=${onOpen ? () => onOpen(node.pane) : undefined}
   >
     ${Array.from({ length: Math.min(row.depth, 12) }, (_, i) => html`<span class="tree-indent" key=${i} aria-hidden="true"></span>`)}
-    <span class="tree-toggle" aria-hidden="true">${row.kids > 0 ? (row.collapsed ? "▸" : "▾") : ""}</span>
+    <span class="tree-toggle" aria-hidden="true" onClick=${row.kids > 0 && onToggle ? (e) => { e.stopPropagation(); onToggle(node.pane); } : undefined}>${row.kids > 0 ? (row.collapsed ? "▸" : "▾") : ""}</span>
     <span class=${"tree-glyph tree-glyph--" + state.key} aria-hidden="true"></span>
     <span class="tree-c tree-c--name" title=${name}>${clip(name, 40)}</span>
     <span class="tree-c tree-c--role">${clip(node.role || (node.shell ? "shell" : ""), 12)}</span>
     <span class="tree-c tree-c--task">${node.task ? clip(node.task.id, 6) : ""}</span>
-    <span class="tree-c tree-c--doing" title=${doing}>${clip(doing, 160)}</span>
+    <span class="tree-c tree-c--doing" title=${doing}>${clip(doing, 160)}${roll ? html`<span class="tree-roll"> ${roll.below} below${roll.needYou > 0 ? html`<span class="tree-need"> · ${roll.needYou} need you</span>` : null}</span>` : null}</span>
     ${chips.length > 0 ? html`<span class="tree-chips">${chips.map((c) => (c.to
       ? html`<button type="button" class=${"tree-chip tree-chip--" + c.kind + " is-link"} key=${c.kind + c.to} title=${c.title || undefined} aria-label=${c.text + ", go to " + (c.toName || c.to)} tabindex=${stop ? "0" : "-1"}
           onClick=${(e) => { e.stopPropagation(); if (onLink) onLink(c.to); }}
