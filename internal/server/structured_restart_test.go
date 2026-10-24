@@ -7,12 +7,12 @@ import (
 	"time"
 
 	"github.com/jmwri/flockdeck/internal/session"
+	"github.com/jmwri/flockdeck/internal/session/transcript"
 )
 
 // A restart starts a fresh agent session. The pane keeps its earlier
 // conversation and a notice that says where it was restarted, and a window that
-// reads the pane through structuredSnapshot, structuredWatch or structuredDetail
-// sees all of it, not only the new session.
+// reads the pane's conversation sees all of it, not only the new session.
 
 // restart restarts the structured pane and waits for the new session to be idle.
 func (e *structuredEnv) restart(t *testing.T) {
@@ -40,8 +40,9 @@ func (e *structuredEnv) promptAndWait(t *testing.T, text string) {
 	deadline := time.Now().Add(30 * time.Second)
 	for {
 		m := e.snapshotOf(t, e.child)
+		entries := e.entries(t)
 		replies := 0
-		for _, en := range m.Entries {
+		for _, en := range entries {
 			if en.Kind == "reply" {
 				replies++
 			}
@@ -50,23 +51,23 @@ func (e *structuredEnv) promptAndWait(t *testing.T, text string) {
 			return
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("no second reply: status %q, %d entries", m.Status, len(m.Entries))
+			t.Fatalf("no second reply: status %q, %d entries", m.Status, len(entries))
 		}
 		time.Sleep(25 * time.Millisecond)
 	}
 }
 
-func kindsOf(m structuredMsg) []string {
+func kindsOf(entries []transcript.Entry) []string {
 	var out []string
-	for _, en := range m.Entries {
+	for _, en := range entries {
 		out = append(out, en.Kind)
 	}
 	return out
 }
 
-func idsUnique(m structuredMsg) (string, bool) {
+func idsUnique(entries []transcript.Entry) (string, bool) {
 	seen := map[string]bool{}
-	for _, en := range m.Entries {
+	for _, en := range entries {
 		if seen[en.ID] {
 			return en.ID, false
 		}
@@ -75,17 +76,17 @@ func idsUnique(m structuredMsg) (string, bool) {
 	return "", true
 }
 
-// After a restart the snapshot holds the first session's prompt and reply, the
+// After a restart the conversation holds the first session's prompt and reply, the
 // restart notice, and the second session's prompt and reply, in that order, each
 // with an id of its own.
-func TestStructuredSnapshotKeepsTheEarlierSessionAfterARestart(t *testing.T) {
+func TestStructuredConversationKeepsTheEarlierSessionAfterARestart(t *testing.T) {
 	e := newStructuredEnv(t, "plain")
 	e.status(t, session.StatusIdle)
-	before := e.snapshotOf(t, e.child)
+	before := e.entries(t)
 	e.restart(t)
 	e.promptAndWait(t, "plain")
 
-	m := e.snapshotOf(t, e.child)
+	m := e.entries(t)
 	want := []string{"prompt", "reply", "notice", "prompt", "reply"}
 	if got := kindsOf(m); strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("entries after a restart = %v, want %v", got, want)
@@ -93,79 +94,44 @@ func TestStructuredSnapshotKeepsTheEarlierSessionAfterARestart(t *testing.T) {
 	if id, ok := idsUnique(m); !ok {
 		t.Errorf("entry id %q appears twice, so a window keying rows by id would mix them up", id)
 	}
-	if !strings.Contains(m.Entries[2].Text, "restarted") {
-		t.Errorf("the notice says %q", m.Entries[2].Text)
+	if !strings.Contains(m[2].Text, "restarted") {
+		t.Errorf("the notice says %q", m[2].Text)
 	}
-	if len(before.Entries) != 2 || m.Entries[1].Markdown != before.Entries[1].Markdown {
-		t.Errorf("the first session's reply changed: %+v then %+v", before.Entries, m.Entries[:2])
-	}
-	if m.Older != 0 {
-		t.Errorf("older = %d for a short conversation", m.Older)
+	if len(before) != 2 || m[1].Markdown != before[1].Markdown {
+		t.Errorf("the first session's reply changed: %+v then %+v", before, m[:2])
 	}
 }
 
-// A watching window is pushed the earlier session too, and the push and the
-// snapshot say the same.
-func TestStructuredWatchKeepsTheEarlierSessionAfterARestart(t *testing.T) {
+// An entry of the earlier session can still be opened through conversationDetail:
+// its detail is what the entry carried, and the current session's entries keep
+// their own detail.
+func TestConversationDetailOfAnEarlierSessionsEntryAfterARestart(t *testing.T) {
 	e := newStructuredEnv(t, "plain")
 	e.status(t, session.StatusIdle)
-	c := e.watcher(t, 64)
-	structuredReply(t, e.srv, c, command{Cmd: "structuredWatch", ID: e.child, Req: "w1"}, "structured")
+	first := e.entries(t)[1]
 	e.restart(t)
 	e.promptAndWait(t, "plain")
-	e.push()
+	entries := e.entries(t)
 
-	var last structuredMsg
-	deadline := time.Now().Add(10 * time.Second)
-	for time.Now().Before(deadline) && len(last.Entries) < 5 {
-		for _, raw := range drain(c) {
-			if typeOf(raw) == "structured" {
-				_ = json.Unmarshal(raw, &last)
-			}
-		}
-		if len(last.Entries) < 5 {
-			e.push()
-			time.Sleep(50 * time.Millisecond)
-		}
-	}
-	snap := e.snapshotOf(t, e.child)
-	if strings.Join(kindsOf(last), ",") != strings.Join(kindsOf(snap), ",") || len(last.Entries) != 5 {
-		t.Fatalf("the push has %v, the snapshot %v", kindsOf(last), kindsOf(snap))
-	}
-	for i := range snap.Entries {
-		if last.Entries[i].ID != snap.Entries[i].ID {
-			t.Errorf("entry %d: push id %q, snapshot id %q", i, last.Entries[i].ID, snap.Entries[i].ID)
-		}
-	}
-}
-
-// An entry of the earlier session can still be opened: its detail is what the
-// entry carried, and the current session's entries keep their own detail.
-func TestStructuredDetailOfAnEarlierSessionsEntryAfterARestart(t *testing.T) {
-	e := newStructuredEnv(t, "plain")
-	e.status(t, session.StatusIdle)
-	first := e.snapshotOf(t, e.child).Entries[1]
-	e.restart(t)
-	e.promptAndWait(t, "plain")
-	snap := e.snapshotOf(t, e.child)
-
-	detail := func(entry string) (structuredDetailMsg, bool) {
-		raw := structuredReply(t, e.srv, e.c, command{Cmd: "structuredDetail", ID: e.child, Entry: entry, Req: "d"}, "structuredDetail", "teamResult")
-		var m structuredDetailMsg
-		if typeOf(raw) != "structuredDetail" || json.Unmarshal(raw, &m) != nil {
+	c := &controlClient{out: make(chan []byte, 32)}
+	structuredPage(t, e, c, "")
+	detail := func(entry string) (conversationDetailMsg, bool) {
+		e.srv.conversationDetailReq(c, e.child, entry)
+		var m conversationDetailMsg
+		if json.Unmarshal(nextRaw(t, c), &m) != nil || m.Gone {
 			return m, false
 		}
 		return m, true
 	}
-	old := snap.Entries[1]
+	old := entries[1]
 	if old.Markdown != first.Markdown {
 		t.Fatalf("setup: %q vs %q", old.Markdown, first.Markdown)
 	}
-	if m, ok := detail(old.ID); !ok || !strings.Contains(m.Text, "Hello world") {
+	if m, ok := detail(old.ID); !ok || !strings.Contains(m.Detail.Text, "Hello world") {
 		t.Errorf("detail of the earlier reply %q = %+v (found %v)", old.ID, m, ok)
 	}
-	cur := snap.Entries[4]
-	if m, ok := detail(cur.ID); !ok || !strings.Contains(m.Text, "Hello world") {
+	cur := entries[4]
+	if m, ok := detail(cur.ID); !ok || !strings.Contains(m.Detail.Text, "Hello world") {
 		t.Errorf("detail of the current reply %q = %+v (found %v)", cur.ID, m, ok)
 	}
 }

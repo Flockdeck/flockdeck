@@ -140,7 +140,7 @@ async function mount(props, wrap = null) {
 
 test("opening a tool row asks for its detail once, and a row with nothing held asks for nothing", async () => {
   const asked = [];
-  const entries = [tool({ id: "t1" }), tool({ id: "t2", hasDetail: false }), { id: "p1", kind: "prompt", text: "hi" }];
+  const entries = [{ id: "p1", kind: "prompt", text: "hi" }, tool({ id: "t1" }), tool({ id: "t2", hasDetail: false })];
   const m = await mount({ entries, atStart: true, onDetail: (id) => asked.push(id), details: {} });
   try {
     const head = (id) => m.container.findAll(".conv-tool").find((r) => r.getAttribute("data-entry") === id).find(".conv-tool-head");

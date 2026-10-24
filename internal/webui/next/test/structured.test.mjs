@@ -1,12 +1,13 @@
 // The drawer's view of a structured pane: the activity line, the usage, the
-// last 50 entries, the prompt box and Stop, and what a relay window is not given.
+// conversation (the same list a terminal agent's drawer has), the prompt box and
+// Stop, and what a relay window is not given.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { render } from "../assets/vendor/preact.mjs";
 import { html } from "../assets/html.js";
 import { Drawer } from "../assets/drawer/Drawer.js";
 import { Header } from "../assets/drawer/Header.js";
-import { MAX_ENTRIES, STOP_NOT_SENT_WORDS, SEND_NOT_SENT_WORDS, contextText, costText, fileOf, activityOf, lastEntries } from "../assets/drawer/Structured.js";
+import { STOP_NOT_SENT_WORDS, SEND_NOT_SENT_WORDS, contextText, costText, fileOf, activityOf } from "../assets/drawer/Structured.js";
 import { createDom, install, settle } from "./dom.mjs";
 import { fakeStore, paneState } from "./termfakes.mjs";
 import { FakeWebSocket, harness, hello } from "./fakes.mjs";
@@ -16,14 +17,15 @@ import { UNASKED_WORDS } from "../assets/drawer/Header.js";
 const NOW = Date.parse("2026-10-21T09:20:00Z");
 const node = { pane: "p3", kind: "structured", structured: true, name: "shop-w2", role: "worker", agent: "gemini", status: "working", activity: "working", since: "2026-10-21T09:14:02Z" };
 const entry = (i, over = {}) => ({ id: "e" + i, kind: "reply", ts: "2026-10-21T09:00:00Z", markdown: "reply " + i, ...over });
-const push = (over = {}) => ({ type: "structured", id: "p3", kind: "structured", entries: [], plan: [], usage: { used: 0, size: 0 }, ...over });
+const push = (over = {}) => ({ type: "structured", id: "p3", kind: "structured", plan: [], usage: { used: 0, size: 0 }, ...over });
+const convOf = (entries) => (entries ? { id: "p3", supported: true, entries, atStart: true, older: "idle", refused: "" } : null);
 
-async function mount(st, { remote = false, pane = null } = {}) {
+async function mount(st, { remote = false, pane = null, entries = null } = {}) {
   const dom = createDom();
   const restore = install(dom);
   const container = dom.document.createElement("div");
   dom.body.appendChild(container);
-  const store = fakeStore({ hello: { type: "hello" }, state: paneState({ p3: { structured: true } }), remote, structured: st, structuredError: null, cancelError: null, conversation: null });
+  const store = fakeStore({ hello: { type: "hello" }, state: paneState({ p3: { structured: true } }), remote, structured: st, structuredError: null, cancelError: null, conversation: convOf(entries), details: {}, search: null });
   let shown = node;
   const draw = () => render(html`<${Drawer} store=${store} snap=${store.getState()} node=${shown} pane=${pane} now=${NOW} />`, container);
   draw();
@@ -70,21 +72,18 @@ test("usage reads as used of size, with the cost only when one was reported", ()
 
 test("the activity line is the running tool with its kind and first file, else the push's own text", () => {
   const tool = (i, over) => entry(i, { kind: "tool", name: "Edit", label: "Edit main.go", status: "running", summary: "changing the handler in internal/x/main.go now", ...over });
-  const a = activityOf(push({ activity: "Edit main.go", entries: [entry(1), tool(2)] }));
+  const a = activityOf(push({ activity: "Edit main.go" }), [entry(1), tool(2)]);
   assert.deepEqual(a, { title: "Edit main.go", kind: "edit", file: "internal/x/main.go" });
-  assert.deepEqual(activityOf(push({ activity: "thinking about it", entries: [] })), { title: "thinking about it", kind: "other", file: "" });
-  assert.equal(activityOf(push({ entries: [tool(1, { status: "done" })] })), null, "a finished tool was shown as the activity");
+  assert.deepEqual(activityOf(push({ activity: "thinking about it" }), []), { title: "thinking about it", kind: "other", file: "" });
+  assert.equal(activityOf(push(), [tool(1, { status: "done" })]), null, "a finished tool was shown as the activity");
   assert.equal(fileOf("nothing here"), "");
   assert.equal(fileOf("open a.txt"), "a.txt");
 });
 
-test("a structured pane's drawer draws the activity, usage and entries from the push", () =>
+test("a structured pane's drawer draws the activity and usage from the push and the entries from the conversation", () =>
   with_(
-    push({
-      activity: "Run go test", usage: { used: 1000, size: 8000, cost: 1.25, currency: "USD" },
-      entries: [entry(1, { kind: "prompt", text: "fix it" }), entry(2), entry(3, { kind: "tool", name: "Bash", label: "Run go test", status: "running", summary: "go test ./internal/x/y_test.go" })],
-    }),
-    {},
+    push({ activity: "Run go test", usage: { used: 1000, size: 8000, cost: 1.25, currency: "USD" } }),
+    { entries: [entry(1, { kind: "prompt", text: "fix it" }), entry(2), entry(3, { kind: "tool", name: "Bash", label: "Run go test", status: "running", summary: "go test ./internal/x/y_test.go" })] },
     async (m) => {
       assert.equal(m.container.find(".structured-title").textContent, "Run go test");
       assert.equal(m.container.find(".structured-file").textContent, "./internal/x/y_test.go");
@@ -97,28 +96,31 @@ test("a structured pane's drawer draws the activity, usage and entries from the 
   ));
 
 test("an idle pane with no usage says Idle and draws no usage line", () =>
-  with_(push(), {}, async (m) => {
+  with_(push(), { entries: [] }, async (m) => {
     assert.equal(m.container.find(".structured-title").textContent, "Idle");
     assert.equal(m.container.find(".structured-usage"), null);
     assert.ok(m.container.find(".conv-empty"));
   }));
 
-test("500 entries draw as the last 50, and nothing grows the list", () =>
-  with_(push({ entries: Array.from({ length: 500 }, (_, i) => entry(i)) }), {}, async (m) => {
+test("a long conversation draws as the newest rows with Older, the list a terminal agent's drawer has", () =>
+  with_(push(), { entries: Array.from({ length: 500 }, (_, i) => entry(i)) }, async (m) => {
     const rows = m.container.findAll(".conv-row");
-    assert.equal(rows.length, MAX_ENTRIES);
-    assert.equal(rows[0].getAttribute("data-entry"), "e450");
+    assert.equal(rows.length, 200);
     assert.equal(rows[rows.length - 1].getAttribute("data-entry"), "e499");
-    assert.equal(m.container.find(".conv-older"), null, "an Older button that could grow the list");
-    assert.equal(lastEntries(push({ entries: [entry(1)] })).length, 1);
-    await m.set({ structured: push({ entries: Array.from({ length: 501 }, (_, i) => entry(i)) }) });
-    assert.equal(m.container.findAll(".conv-row").length, MAX_ENTRIES);
+    assert.ok(m.container.find(".conv-older"), "no Older button");
+    assert.ok(m.container.find(".conv-toolbar"), "no search and copy row");
+  }));
+
+test("before the conversation has arrived the panel says it is loading, and the push draws no entries of its own", () =>
+  with_(push({ entries: [entry(1)] }), {}, async (m) => {
+    assert.equal(m.container.findAll(".conv-row").length, 0, "entries of the push were drawn");
+    assert.match(m.container.find(".drawer-stub").textContent, /Loading the conversation/);
   }));
 
 test("hostile reply markup renders as text", () =>
   with_(
-    push({ entries: [entry(1, { markdown: '<img src=x onerror="alert(1)"><script>alert(2)</script>' }), entry(2, { kind: "prompt", text: "<b>hi</b>" })], activity: "<i>go</i>" }),
-    {},
+    push({ activity: "<i>go</i>" }),
+    { entries: [entry(1, { markdown: '<img src=x onerror="alert(1)"><script>alert(2)</script>' }), entry(2, { kind: "prompt", text: "<b>hi</b>" })] },
     async (m) => {
       assert.equal(m.container.findAll("img").length, 0);
       assert.equal(m.container.findAll("script").length, 0);
@@ -258,8 +260,9 @@ test("the words and the draft stay with their pane: p3, p4, p3 shows nothing tha
   }));
 
 test("a relay window draws the view but no prompt box and no Stop", () =>
-  with_(push({ entries: [entry(1)] }), { remote: true }, async (m) => {
-    assert.equal(m.container.findAll(".conv-row").length, 1);
+  with_(push(), { remote: true }, async (m) => {
+    // The conversation is not given to a relay window (the store says so in its refusal).
+    assert.equal(m.container.findAll(".conv-row").length, 0);
     assert.equal(m.container.find(".structured-prompt"), null);
     assert.equal(m.container.find(".structured-stop"), null);
     assert.equal(m.container.find(".structured-input"), null);
@@ -282,29 +285,28 @@ test("a cancel refusal is shown for its own pane and not for another one opened 
     assert.equal(m.container.find(".structured-note"), null, "pane p3's refusal was shown on pane p9");
   }));
 
-test("rows keep their DOM elements when the oldest entry drops off the 50-entry window", () =>
-  with_(push({ entries: Array.from({ length: 50 }, (_, i) => entry(i)) }), {}, async (m) => {
+test("rows keep their DOM elements when entries come in below", () =>
+  with_(push(), { entries: Array.from({ length: 50 }, (_, i) => entry(i)) }, async (m) => {
     const byId = () => new Map(m.container.findAll(".conv-row").map((r) => [r.getAttribute("data-entry"), r]));
     const before = byId();
     assert.equal(before.size, 50);
-    await m.set({ structured: push({ entries: Array.from({ length: 50 }, (_, i) => entry(i + 1)) }) });
+    await m.set({ conversation: convOf(Array.from({ length: 51 }, (_, i) => entry(i))) });
     const after = byId();
-    assert.equal(after.size, 50);
-    assert.ok(!after.has("e0"), "the oldest entry stayed");
-    for (let i = 1; i < 50; i++) {
+    assert.equal(after.size, 51);
+    for (let i = 0; i < 50; i++) {
       assert.equal(after.get("e" + i), before.get("e" + i), "row e" + i + " was made again");
     }
   }));
 
 test("an agent the manifest records as running without asking carries a standing warning in the header, at the desk and through the relay", async () => {
   for (const remote of [false, true]) {
-    await with_(push({ entries: [entry(1)] }), { remote, pane: { id: "p3", structured: true, runsUnasked: true } }, async (m) => {
+    await with_(push(), { entries: [entry(1)], remote, pane: { id: "p3", structured: true, runsUnasked: true } }, async (m) => {
       const warn = m.container.find(".drawer-warn");
       assert.ok(warn, "no warning in the " + (remote ? "relay" : "desk") + " window");
       assert.equal(warn.textContent, UNASKED_WORDS);
       assert.equal(UNASKED_WORDS, "This agent may run commands and edit files without asking you first: in this repository Flockdeck could not make it ask, or could not check. A project's opencode.json or .opencode folder can also load plugins and MCP servers that run code, so no permission setting makes an opencode pane safe in a repository you do not trust.");
       // It stays while the pane is open, whatever the pane does.
-      await m.set({ structured: push({ entries: [entry(1), entry(2)], card: null }) });
+      await m.set({ structured: push({ card: null }), conversation: convOf([entry(1), entry(2)]) });
       assert.ok(m.container.find(".drawer-warn"), "the warning went away");
     });
   }
@@ -319,3 +321,10 @@ test("no warning for an agent the manifest does not flag, or for a flag that is 
   }
 });
 
+
+test("a structured pane has no Conversation tab: the conversation is the body of its own panel", () =>
+  with_(push(), { entries: [entry(1)] }, async (m) => {
+    assert.equal(m.container.findAll(".drawer-tab").length, 1);
+    assert.equal(m.container.findAll(".conv").length, 1, "a second list");
+    assert.equal(m.container.findAll(".conv-row").length, 1);
+  }));
