@@ -12,7 +12,7 @@
 // is drawn as text.
 import { useEffect, useState } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
-import { clip, spendOf } from "./Node.js";
+import { clip } from "./Node.js";
 
 /** TICK_MS is how often the elapsed time is looked at again. */
 export const TICK_MS = 30000;
@@ -61,7 +61,6 @@ export function summaryOf(model, team, now) {
   return {
     goal: team.goal,
     elapsed: elapsedOf(team.started, now),
-    spend: team.spendUSD > 0 || team.spendPartial ? spendOf(team) : "",
     working,
     helpers: helpersOf(team),
     capped: capOf(team).max > 0 && capOf(team).used >= capOf(team).max,
@@ -91,7 +90,6 @@ export function GoalLine({ model, now = null }) {
         </span>
         <span class="goalline-facts">
           ${s.elapsed ? html`<span class="goalline-fact goalline-time">${s.elapsed}</span>` : null}
-          ${s.spend ? html`<span class="goalline-fact goalline-cost">${s.spend}</span>` : null}
           <span class="goalline-fact goalline-working">Working: ${s.working}</span>
           ${s.helpers ? html`<span class=${"goalline-fact goalline-helpers" + (s.capped ? " is-capped" : "")}>${s.helpers.replace(", at the cap", "")}</span>` : null}
           ${s.needs > 0

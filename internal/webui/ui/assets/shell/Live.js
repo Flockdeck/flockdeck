@@ -19,7 +19,7 @@ import { feedStep } from "../graph/FeedDiff.js";
 import { nextNeedsYou, paneAt, prevNeedsYou } from "../graph/keys.js";
 import { Shell, useNarrow } from "./app.js";
 import { FootButton } from "./rail.js";
-import { Tree } from "../graph/Tree.js";
+import { Tree, totalOf } from "../graph/Tree.js";
 import { Deps } from "../graph/DepsView.js";
 import { Board, ChangesView, Replay, firstViewOf, viewsOf } from "./Views.js";
 import { GoalLine } from "../graph/GoalLine.js";
@@ -634,6 +634,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     state=${kept.current.state}
     onWatch=${onWatch}
     bottom=${bar}
+    total=${totalOf(current)}
     narrow=${narrow}
     matchMedia=${matchMedia}
     window=${win}

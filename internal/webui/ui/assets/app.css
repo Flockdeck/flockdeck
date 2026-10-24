@@ -430,6 +430,7 @@ button { font: inherit; color: inherit; }
   border-bottom: 1px solid var(--line);
 }
 .top-title { font-weight: 600; }
+.top-total { color: var(--fg-dim); font-family: var(--mono, monospace); font-size: 12px; margin-left: auto; }
 
 /* The bar along the bottom holds the manager bar. */
 .composer { grid-area: composer; padding: 8px 12px; display: flex; background: var(--bg-raised); border-top: 1px solid var(--line); }

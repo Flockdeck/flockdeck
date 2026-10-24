@@ -75,7 +75,7 @@ test("stepOf moves by row, to the ends, to the first helper and to the parent", 
   assert.equal(stepOf(rows, "m", "x"), "");
 });
 
-test("a row has its level, the one tab stop on the first row, the task and the manager's spend", () => {
+test("a row has its level, the one tab stop on the first row, the task and no team spend", () => {
   const html_ = renderToString(html`<${Tree} model=${model(team([ask]))} />`);
   assert.ok(html_.includes('role="tree"'));
   assert.equal(html_.match(/role="treeitem"/g).length, 7);
@@ -83,7 +83,7 @@ test("a row has its level, the one tab stop on the first row, the task and the m
   assert.ok(/data-pane="m"[^>]*tabindex="0"|tabindex="0"[^>]*data-pane="m"/.test(html_));
   assert.ok(html_.includes('aria-level="3"'));
   assert.ok(html_.includes("T4"));
-  assert.ok(html_.includes("$6.10"));
+  assert.ok(!html_.includes("$6.10"), "the team's spend is not on the manager row");
   assert.ok(html_.includes("tree-row--ask") && html_.includes("tree-row--down"));
   assert.ok(html_.includes("go test"), "the live line is the doing line");
 });
@@ -164,10 +164,9 @@ test("a key with a modifier, an unknown key and Esc are left to the page", async
 import { stuckOf, rollupOf, STUCK_MS } from "../assets/graph/model.js";
 import { costOf } from "../assets/graph/Tree.js";
 
-test("a pane's own spend is its cost, and a manager with none shows the team's", () => {
-  assert.equal(costOf({ spendUSD: 3.824 }, null), "$3.82");
-  assert.equal(costOf({ spendUSD: 0 }, { spendUSD: 6.1 }), "$6.10");
-  assert.equal(costOf({ spendUSD: 0 }, null), "");
+test("a pane's own spend is its cost, and a manager does not show the team's", () => {
+  assert.equal(costOf({ spendUSD: 3.824 }), "$3.82");
+  assert.equal(costOf({ spendUSD: 0 }), "", "a team's spend is not put on its manager");
 });
 
 test("stuckOf: working, terminal, no output for ten minutes, with the desk's flag as the fallback", () => {
@@ -470,4 +469,15 @@ test("decision blocks, the overlap bar and the loop block name panes that share 
   assert.ok(overlapsOf(m)[0].who.includes("worker · reading logs and worker · Limiter"));
   const lp = model(team());
   assert.equal(loopOf(lp), null);
+});
+
+import { totalOf } from "../assets/graph/Tree.js";
+
+test("totalOf is the plain sum of what every pane spent, and nothing when nothing was", () => {
+  assert.equal(totalOf(buildGraphModel(team())), "");
+  const g = team();
+  g.nodes[0].spendUSD = 1.5;
+  g.nodes[1].spendUSD = 0.25;
+  assert.equal(totalOf(buildGraphModel(g)), "$1.75");
+  assert.equal(totalOf(null), "");
 });

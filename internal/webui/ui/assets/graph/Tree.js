@@ -139,10 +139,17 @@ export function foldOf(rows, pane, key) {
   return "";
 }
 
-/** costOf is a pane's own spend, or the team's on its manager when the push has none of the pane's, as "$3.82"; "" when there is none. */
-export function costOf(node, team) {
+/** costOf is a pane's own spend as "$3.82"; "" when there is none. A team's spend is not shown on its manager's row. */
+export function costOf(node) {
   if (node.spendUSD > 0) return "$" + node.spendUSD.toFixed(2);
-  return team && team.spendUSD > 0 ? "$" + team.spendUSD.toFixed(2) : "";
+  return "";
+}
+
+/** totalOf is the spend of every pane of a model, as one plain "$18.70" for the header; "" when nothing is spent. */
+export function totalOf(model) {
+  if (!model || !model.ok) return "";
+  const sum = model.nodes.reduce((t, n) => t + (n.spendUSD > 0 ? n.spendUSD : 0), 0);
+  return sum > 0 ? "$" + sum.toFixed(2) : "";
 }
 
 /** needsOf is the needs a row is drawn for: those that name the pane first. A conflict is under both of its panes in the model, and the row of the other pane carries a chip, not the block and the tint. */
@@ -248,7 +255,7 @@ export function Tree({ model, onOpen = null, open = "", decisions = null }) {
       ${rows.map((r) => {
         const node = model.byPane.get(r.pane);
         return html`<${Fragment} key=${r.pane}><${TreeRow} row=${r} node=${node} name=${rowNameOf(model, node)} needs=${needsOf(model, r.pane)} doing=${doingOf(node, needsOf(model, r.pane))} chips=${chipsOf(model, node, needsOf(model, r.pane), now)} roll=${r.collapsed ? rollupOf(model, r.pane) : null} onToggle=${toggle} lit=${lit[0] === r.pane || lit[1] === r.pane} onLink=${go} onLit=${(a, b) => setLit([a, b])} stop=${stop === r.pane}
-          selected=${open === r.pane} age=${ageOf(node.since, now)} cost=${costOf(node, r.team)}
+          selected=${open === r.pane} age=${ageOf(node.since, now)} cost=${costOf(node)}
           onFocus=${() => setFocus(r.pane)} onOpen=${onOpen} />
           ${r.team && r.kids === 0 ? html`<div class="tree-note" role="treeitem" aria-disabled="true" aria-level=${r.depth + 2}>No helpers yet. The manager starts them as it plans.</div>` : null}
           ${decisions ? html`<${TreeDecisions} model=${model} pane=${r.pane} open=${open} stop=${stop === r.pane} onGone=${go} ctx=${decisions} />` : null}
