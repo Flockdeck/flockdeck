@@ -27,7 +27,7 @@
 export const DETAILS_ON_DESKTOP = "details on the desktop";
 
 /** The kinds of needs-you item the graph can carry, in the order the schema lists them. */
-export const NEED_KINDS = ["permission", "ask", "returned", "conflict", "down", "setup", "stale-unread"];
+export const NEED_KINDS = ["permission", "ask", "returned", "conflict", "down", "setup", "stale-unread", "stuck"];
 
 const NEED_LABELS = {
   permission: "Wants to run something",
@@ -37,6 +37,7 @@ const NEED_LABELS = {
   down: "Ended",
   setup: "Needs setting up",
   "stale-unread": "Has unread mail and is idle",
+  stuck: "Is working but has written nothing for a while",
 };
 
 /** A short reason for a kind of need. A kind this file does not know is shown as it is. */

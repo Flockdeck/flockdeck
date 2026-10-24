@@ -257,6 +257,15 @@ func (t terminalRuntime) StatusSince() time.Time {
 	return t.p.Sess.StatusSince()
 }
 
+// LastOutput is when the pane's process last wrote to its terminal. Only a
+// terminal pane has it: a structured pane has no byte stream to be quiet.
+func (t terminalRuntime) LastOutput() time.Time {
+	if t.p.Sess == nil || t.p.Err != nil {
+		return time.Time{}
+	}
+	return t.p.Sess.LastOutput()
+}
+
 func (t terminalRuntime) StartedAt() time.Time {
 	if t.p.Sess == nil {
 		return time.Time{}
