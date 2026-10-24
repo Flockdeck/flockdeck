@@ -29,14 +29,15 @@ import (
 
 	"github.com/jmwri/flockdeck/internal/agent"
 	"github.com/jmwri/flockdeck/internal/appwindow"
+	"github.com/jmwri/flockdeck/internal/help"
 	"github.com/jmwri/flockdeck/internal/hooks"
 	"github.com/jmwri/flockdeck/internal/legacyenv"
 	"github.com/jmwri/flockdeck/internal/remote"
 	"github.com/jmwri/flockdeck/internal/server"
 	"github.com/jmwri/flockdeck/internal/session"
 	"github.com/jmwri/flockdeck/internal/store"
-	webui "github.com/jmwri/flockdeck/ui"
 	"github.com/jmwri/flockdeck/internal/workspace"
+	webui "github.com/jmwri/flockdeck/ui"
 )
 
 // appName and appDescription identify Flockdeck to Wails: the window's
@@ -1146,7 +1147,7 @@ func run(opts options) error {
 		fmt.Fprintln(os.Stderr, "flockdeck: -shell has no effect, since this project's saved layout was restored (use -new -shell to start from a single shell)")
 	}
 
-	srv, err := server.New(ws, server.Config{Static: webui.FS()})
+	srv, err := server.New(ws, server.Config{Static: webui.FS(), Keys: help.Keys})
 	if err != nil {
 		return err
 	}
@@ -2507,3 +2508,7 @@ type hookSpecificOutput struct {
 	PermissionDecision       string `json:"permissionDecision,omitempty"`
 	PermissionDecisionReason string `json:"permissionDecisionReason,omitempty"`
 }
+
+// The key table is the front end's data; the workspace names actions in the
+// briefings it writes from it, so it is handed over before anything runs.
+func init() { workspace.SetKeys(help.Keys) }

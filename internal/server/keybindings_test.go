@@ -10,6 +10,7 @@ import (
 
 	"github.com/jmwri/flockdeck/internal/help"
 	"github.com/jmwri/flockdeck/internal/keybindings"
+	"github.com/jmwri/flockdeck/internal/keytable"
 )
 
 // nextKeyTable reads control messages until a keyTable push satisfies cond.
@@ -149,5 +150,23 @@ func TestResetKeybindingsPutsEverythingBack(t *testing.T) {
 	}
 	if len(f.Overrides) != 0 {
 		t.Errorf("overrides left on disk after resetKeybindings: %+v", f.Overrides)
+	}
+}
+
+// The key table a window is sent is the one the server was given, not a
+// compiled-in one: a server given two actions sends two, and one given none
+// sends none.
+func TestTheKeyTableIsTheOneTheServerWasGiven(t *testing.T) {
+	given := keytable.Table{
+		{ID: "alpha", Keys: "Ctrl+Alt+A", Label: "Alpha", Section: "Panes"},
+		{ID: "beta", Keys: "", Label: "Beta", Section: "Panes"},
+	}
+	s := &Server{keys: given}
+	got := s.effectiveKeys(false)
+	if len(got) != 2 || got[0].ID != "alpha" || got[1].ID != "beta" {
+		t.Fatalf("sent %+v, want the two given actions", got)
+	}
+	if n := len((&Server{}).effectiveKeys(false)); n != 0 {
+		t.Errorf("a server given no table sent %d actions", n)
 	}
 }

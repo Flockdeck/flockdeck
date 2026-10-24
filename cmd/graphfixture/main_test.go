@@ -19,8 +19,8 @@ import (
 	"github.com/coder/websocket"
 
 	"github.com/jmwri/flockdeck/internal/testiso"
-	webui "github.com/jmwri/flockdeck/ui"
 	"github.com/jmwri/flockdeck/internal/workspace"
+	webui "github.com/jmwri/flockdeck/ui"
 )
 
 // TestMain keeps these tests off the real config directory, the stored API

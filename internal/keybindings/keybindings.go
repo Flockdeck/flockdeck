@@ -8,7 +8,7 @@
 // this one is read by the window around it, for the chords the window
 // intercepts before a pane ever sees them.
 //
-// help.Keys stays the source of defaults and metadata -- label, section, help
+// The key table stays the source of defaults and metadata -- label, section, help
 // page, palette eligibility. This package holds only the overrides: a map of
 // action id to a binding, absent meaning "use the built-in default." A future
 // release that adds an action, or changes a default nobody has touched, needs
@@ -24,7 +24,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/jmwri/flockdeck/internal/help"
+	"github.com/jmwri/flockdeck/internal/keytable"
 	"github.com/jmwri/flockdeck/internal/store"
 )
 
@@ -42,7 +42,7 @@ const Version = 1
 // File is keybindings.json as it is written on disk.
 type File struct {
 	Version int `json:"version"`
-	// Overrides maps an action's id (help.Key.ID) to the binding it has been
+	// Overrides maps an action's id (keytable.Key.ID) to the binding it has been
 	// given instead of its built-in default. An id mapped to "" has
 	// deliberately been given no binding at all -- reachable from the command
 	// palette alone -- which is different from the id being absent, which
@@ -125,22 +125,22 @@ type ConflictError struct {
 	// Keys is the binding that was asked for.
 	Keys string
 	// With is the action that already has it.
-	With help.Key
+	With keytable.Key
 }
 
 func (e *ConflictError) Error() string {
 	return fmt.Sprintf("%s is already %s", e.Keys, e.With.Name())
 }
 
-// Effective returns help.Keys with every override applied: each entry's Keys
-// replaced by what overrides gives its ID, when it gives one. help.Keys itself
+// Effective returns the table t with every override applied: each entry's Keys
+// replaced by what overrides gives its ID, when it gives one. t itself
 // is never modified.
-func Effective(overrides map[string]string) []help.Key {
+func Effective(t keytable.Table, overrides map[string]string) []keytable.Key {
 	if len(overrides) == 0 {
-		return help.Keys
+		return t
 	}
-	out := make([]help.Key, len(help.Keys))
-	copy(out, help.Keys)
+	out := make([]keytable.Key, len(t))
+	copy(out, t)
 	for i, k := range out {
 		if v, ok := overrides[k.ID]; ok {
 			out[i].Keys = v
@@ -152,12 +152,12 @@ func Effective(overrides map[string]string) []help.Key {
 // conflict reports the action, other than id itself, that overrides already
 // gives keys -- by its own override or, absent one, its built-in default --
 // or false when there is none.
-func conflict(id, keys string, overrides map[string]string) (help.Key, bool) {
+func conflict(t keytable.Table, id, keys string, overrides map[string]string) (keytable.Key, bool) {
 	sig := signatureOf(keys)
 	if sig == "" {
-		return help.Key{}, false
+		return keytable.Key{}, false
 	}
-	for _, k := range help.Keys {
+	for _, k := range t {
 		if k.ID == id {
 			continue
 		}
@@ -169,14 +169,14 @@ func conflict(id, keys string, overrides map[string]string) (help.Key, bool) {
 			return k, true
 		}
 	}
-	return help.Key{}, false
+	return keytable.Key{}, false
 }
 
 // SetBinding gives action id the binding keys, or takes its binding away for
 // keys == "" -- reachable from the command palette alone, like the actions
 // that have always had no binding. It refuses a binding already given to
 // another action, and one that cannot be expressed as a single chord (what
-// help.Key.Keys marks with "…", for selectTab's Alt+1 … Alt+9 range, which is
+// keytable.Key.Keys marks with "…", for selectTab's Alt+1 … Alt+9 range, which is
 // not remappable).
 //
 // A binding set back to exactly the built-in default is not kept as an
@@ -184,8 +184,8 @@ func conflict(id, keys string, overrides map[string]string) (help.Key, bool) {
 // never touched this action, the same way an absent field in prefs.json
 // means the default rather than freezing whatever the default happened to be
 // when the file was written.
-func SetBinding(id, keys string) (*File, error) {
-	k, ok := help.Lookup(id)
+func SetBinding(t keytable.Table, id, keys string) (*File, error) {
+	k, ok := t.Lookup(id)
 	if !ok {
 		return nil, fmt.Errorf("no such action: %s", id)
 	}
@@ -203,7 +203,7 @@ func SetBinding(id, keys string) (*File, error) {
 		return nil, err
 	}
 	if keys != "" {
-		if with, has := conflict(id, keys, f.Overrides); has {
+		if with, has := conflict(t, id, keys, f.Overrides); has {
 			return nil, &ConflictError{Keys: keys, With: with}
 		}
 	}
@@ -226,8 +226,8 @@ func SetBinding(id, keys string) (*File, error) {
 
 // ResetBinding takes id back to its built-in default, removing whatever
 // override it had -- including one that deliberately gave it no binding.
-func ResetBinding(id string) (*File, error) {
-	if _, ok := help.Lookup(id); !ok {
+func ResetBinding(t keytable.Table, id string) (*File, error) {
+	if _, ok := t.Lookup(id); !ok {
 		return nil, fmt.Errorf("no such action: %s", id)
 	}
 	mu.Lock()

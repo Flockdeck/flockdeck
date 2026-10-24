@@ -11,6 +11,7 @@ import (
 	"github.com/jmwri/flockdeck/internal/gitx"
 	"github.com/jmwri/flockdeck/internal/help"
 	"github.com/jmwri/flockdeck/internal/keybindings"
+	"github.com/jmwri/flockdeck/internal/keytable"
 	"github.com/jmwri/flockdeck/internal/store"
 )
 
@@ -112,14 +113,14 @@ func (s *Server) announceRadarSupport() {
 // rides on every hello and every keyTableMsg alike, the same as every other
 // field here, rather than being asked for on its own.
 type keyView struct {
-	help.Key
+	keytable.Key
 	Overridden bool `json:"overridden,omitempty"`
 }
 
 // sendHello gives a freshly connected window the key table and the prefs. It
 // runs on the workspace goroutine, which is what owns s.prefs.
 func (s *Server) sendHello(c *controlClient) {
-	msg := helloMsg{Type: "hello", Keys: effectiveKeys(c.remote), Prefs: prefsFor(c, s.prefs), Remote: c.remote, API: currentAPI()}
+	msg := helloMsg{Type: "hello", Keys: s.effectiveKeys(c.remote), Prefs: prefsFor(c, s.prefs), Remote: c.remote, API: currentAPI()}
 	// A viewer is told what it is, so its window can say so, and is sent none of
 	// the desk's preferences.
 	if a := s.accessOf(c); a.EffectiveRole() != store.RoleFull {
@@ -152,7 +153,7 @@ func (s *Server) sendHello(c *controlClient) {
 	c.send(data)
 }
 
-// effectiveKeys is the key table a window is sent: help.Keys with every
+// effectiveKeys is the key table a window is sent: the table the server was given (Config.Keys) with every
 // remapping in keybindings.json applied, and -- for a window reached through
 // the relay -- without what only the desk may do.
 //
@@ -160,13 +161,13 @@ func (s *Server) sendHello(c *controlClient) {
 // saved from one window has to reach every other window's palette and
 // keydown handling, and it does, through keyTableMsg, but a window connecting
 // for the first time has no earlier keyTableMsg to have caught.
-func effectiveKeys(remote bool) []keyView {
+func (s *Server) effectiveKeys(remote bool) []keyView {
 	f, err := keybindings.Load()
 	var overrides map[string]string
 	if err == nil {
 		overrides = f.Overrides
 	}
-	eff := keybindings.Effective(overrides)
+	eff := keybindings.Effective(s.keys, overrides)
 	views := make([]keyView, len(eff))
 	for i, k := range eff {
 		_, overridden := overrides[k.ID]
@@ -215,7 +216,7 @@ type keyTableMsg struct {
 // window since a window reached through the relay is sent fewer actions.
 func (s *Server) broadcastKeys() {
 	for _, cl := range s.clientList() {
-		data, err := json.Marshal(keyTableMsg{Type: "keyTable", Keys: effectiveKeys(cl.remote)})
+		data, err := json.Marshal(keyTableMsg{Type: "keyTable", Keys: s.effectiveKeys(cl.remote)})
 		if err != nil {
 			return
 		}

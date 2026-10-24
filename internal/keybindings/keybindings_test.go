@@ -28,7 +28,7 @@ func TestLoadWithNoFileIsAllDefaults(t *testing.T) {
 	if len(f.Overrides) != 0 {
 		t.Errorf("a fresh install should have no overrides, got %+v", f.Overrides)
 	}
-	eff := Effective(f.Overrides)
+	eff := Effective(help.Keys, f.Overrides)
 	if len(eff) != len(help.Keys) {
 		t.Fatalf("Effective returned %d keys, want %d", len(eff), len(help.Keys))
 	}
@@ -42,7 +42,7 @@ func TestLoadWithNoFileIsAllDefaults(t *testing.T) {
 func TestSetBindingRoundTrips(t *testing.T) {
 	isolateConfig(t)
 	// closePane defaults to Ctrl+Shift+W; give it something nothing else has.
-	if _, err := SetBinding("closePane", "Ctrl+Alt+W"); err != nil {
+	if _, err := SetBinding(help.Keys, "closePane", "Ctrl+Alt+W"); err != nil {
 		t.Fatalf("SetBinding: %v", err)
 	}
 	f, err := Load()
@@ -52,7 +52,7 @@ func TestSetBindingRoundTrips(t *testing.T) {
 	if f.Overrides["closePane"] != "Ctrl+Alt+W" {
 		t.Fatalf("override did not save, got %+v", f.Overrides)
 	}
-	eff := Effective(f.Overrides)
+	eff := Effective(help.Keys, f.Overrides)
 	k, ok := help.Lookup("closePane")
 	if !ok {
 		t.Fatal("closePane missing from help.Keys")
@@ -76,7 +76,7 @@ func TestSetBindingRefusesAConflict(t *testing.T) {
 	isolateConfig(t)
 	// worktrees defaults to Ctrl+Shift+G; ask changes (Ctrl+Shift+S) for it.
 	worktrees, _ := help.Lookup("worktrees")
-	_, err := SetBinding("changes", worktrees.Keys)
+	_, err := SetBinding(help.Keys, "changes", worktrees.Keys)
 	if err == nil {
 		t.Fatal("SetBinding accepted a chord another action already has")
 	}
@@ -96,10 +96,10 @@ func TestSetBindingRefusesAConflict(t *testing.T) {
 func TestSetBindingBackToDefaultDropsTheOverride(t *testing.T) {
 	isolateConfig(t)
 	def, _ := help.Lookup("closePane")
-	if _, err := SetBinding("closePane", "Ctrl+Alt+W"); err != nil {
+	if _, err := SetBinding(help.Keys, "closePane", "Ctrl+Alt+W"); err != nil {
 		t.Fatalf("SetBinding: %v", err)
 	}
-	if _, err := SetBinding("closePane", def.Keys); err != nil {
+	if _, err := SetBinding(help.Keys, "closePane", def.Keys); err != nil {
 		t.Fatalf("SetBinding back to default: %v", err)
 	}
 	f, _ := Load()
@@ -110,15 +110,15 @@ func TestSetBindingBackToDefaultDropsTheOverride(t *testing.T) {
 
 func TestSetBindingCanClearTheBinding(t *testing.T) {
 	isolateConfig(t)
-	if _, err := SetBinding("closePane", ""); err != nil {
-		t.Fatalf("SetBinding(\"\"): %v", err)
+	if _, err := SetBinding(help.Keys, "closePane", ""); err != nil {
+		t.Fatalf("SetBinding(help.Keys, \"\"): %v", err)
 	}
 	f, _ := Load()
 	v, has := f.Overrides["closePane"]
 	if !has || v != "" {
 		t.Errorf("clearing a binding should leave an explicit empty override, got %+v", f.Overrides)
 	}
-	eff := Effective(f.Overrides)
+	eff := Effective(help.Keys, f.Overrides)
 	for _, k := range eff {
 		if k.ID == "closePane" && k.Keys != "" {
 			t.Errorf("Effective still gives closePane a binding: %q", k.Keys)
@@ -128,13 +128,13 @@ func TestSetBindingCanClearTheBinding(t *testing.T) {
 
 func TestResetBindingAndResetAll(t *testing.T) {
 	isolateConfig(t)
-	if _, err := SetBinding("closePane", "Ctrl+Alt+W"); err != nil {
+	if _, err := SetBinding(help.Keys, "closePane", "Ctrl+Alt+W"); err != nil {
 		t.Fatalf("SetBinding: %v", err)
 	}
-	if _, err := SetBinding("zoomPane", ""); err != nil {
+	if _, err := SetBinding(help.Keys, "zoomPane", ""); err != nil {
 		t.Fatalf("SetBinding: %v", err)
 	}
-	if _, err := ResetBinding("closePane"); err != nil {
+	if _, err := ResetBinding(help.Keys, "closePane"); err != nil {
 		t.Fatalf("ResetBinding: %v", err)
 	}
 	f, _ := Load()
@@ -155,7 +155,7 @@ func TestResetBindingAndResetAll(t *testing.T) {
 
 func TestSetBindingRefusesARange(t *testing.T) {
 	isolateConfig(t)
-	if _, err := SetBinding("selectTab", "Ctrl+Alt+1"); err == nil {
+	if _, err := SetBinding(help.Keys, "selectTab", "Ctrl+Alt+1"); err == nil {
 		t.Fatal("SetBinding accepted a single chord for selectTab, which is a range")
 	}
 }
@@ -196,7 +196,7 @@ func TestBindingsForRemovedActionsAreIgnored(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	eff := Effective(f.Overrides)
+	eff := Effective(help.Keys, f.Overrides)
 	if len(eff) != len(help.Keys) {
 		t.Fatalf("Effective returned %d keys, want %d", len(eff), len(help.Keys))
 	}
@@ -212,7 +212,7 @@ func TestBindingsForRemovedActionsAreIgnored(t *testing.T) {
 	}
 	// A removed action's stale entry holds a chord, and it does not keep
 	// another action off it.
-	if _, err := SetBinding("agents", "Ctrl+Alt+J"); err != nil {
+	if _, err := SetBinding(help.Keys, "agents", "Ctrl+Alt+J"); err != nil {
 		t.Errorf("a removed action's stale binding blocks its chord: %v", err)
 	}
 }

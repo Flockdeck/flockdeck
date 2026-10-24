@@ -5,13 +5,14 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jmwri/flockdeck/internal/help"
 	webui "github.com/jmwri/flockdeck/ui"
 )
 
 // testConfig is the server's configuration in tests: the front end the program
 // embeds. internal/server itself does not import it (see
 // TestServerDoesNotImportTheFrontEnd), so only the tests do.
-func testConfig() Config { return Config{Static: webui.FS()} }
+func testConfig() Config { return Config{Static: webui.FS(), Keys: help.Keys} }
 
 // The server is given its front end and does not import it, so the UI can move
 // out of the module without the server changing.
