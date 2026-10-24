@@ -934,5 +934,5 @@ test("the tab strip is tabs, a \"+\" menu and a views switch: the actions are in
     assert.equal(m.container.find(".tabs-menu"), null);
     assert.equal(m.dom.document.activeElement, m.container.find(".tabs-plus"), "the keyboard is back on the +");
     const views = m.container.findAll(".tabs-view").map((b) => b.textContent.trim());
-    assert.deepEqual(views, ["Graph", "Changes"]);
+    assert.deepEqual(views, ["Graph", "Board", "Changes", "Replay"]);
   }));
