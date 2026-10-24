@@ -13,7 +13,7 @@ workspace, the task board or the inboxes) or derived by it (by `team.BuildGraph`
 and `team.NeedsYou` in `internal/team`, which read nothing but what they are
 given).
 
-The definition of the message is [`team-graph.schema.json`](team-graph.schema.json)
+The definition of the message is [`team-graph.schema.json`](../api/schema/team-graph.schema.json)
 (JSON Schema, draft 2020-12). It names the fields each shape has and which are
 always written, and every field's description says where its value comes from and
 why it can be absent. This page explains it. Tests validate a realistic graph and

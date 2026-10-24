@@ -6,7 +6,7 @@ drawer. It carries the pane's state: phase, status, activity, plan, usage, the p
 problems. The pane's conversation is not in it; a window reads that with the conversation commands
 (`docs/team-graph.md`, section 7), as for any other agent pane.
 
-The shape of the messages is `docs/structured-pane.schema.json`. A test checks messages the server
+The shape of the messages is `api/schema/structured-pane.schema.json`. A test checks messages the server
 writes against it, and checks the limits below against the code.
 
 ## 1. Commands and who may send them

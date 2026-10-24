@@ -1,0 +1,1452 @@
+{
+  "api": {
+    "major": 1,
+    "minor": 0
+  },
+  "commands": [
+    {
+      "name": "accentColor",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "addRepoToGroup",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "agents",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "approveBaton",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "archiveProject",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "attachImage",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "autoReview",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "autoReviewDefault",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "browse",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "changes",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "checkForUpdate",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "clearRoutingLog",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "closeFinishedPanes",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "closePane",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "closeProject",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "closeTab",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "commit",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "conflictRadar",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "conversationClose",
+      "access": "watcher",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "conversationDetail",
+      "access": "watcher",
+      "relayRefused": true,
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "conversationOlder",
+      "access": "watcher",
+      "relayRefused": true,
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "conversationOpen",
+      "access": "watcher",
+      "relayRefused": true,
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "conversationSearch",
+      "access": "watcher",
+      "relayRefused": true,
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "conversations",
+      "access": "full",
+      "relayRefused": true,
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "cursorBlink",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "cursorStyle",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "detach",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "diff",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "dismissTip",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "exportTranscript",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "findPane",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "focusPane",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "fontFamily",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "fontSize",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "forgetRecent",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "ghChecks",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "ghInstall",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "ghIssue",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "ghIssueComment",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "ghIssueCreate",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "ghIssues",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "ghLogin",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "ghLoginCancel",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "ghLogout",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "ghPR",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "ghPRComment",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "ghPRCreate",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "ghPRs",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "ghStatus",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "gitFetch",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "gitPull",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "gitPush",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "graphSnapshot",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "graphUnwatch",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "graphWatch",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "groupProjects",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "helpSeen",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "helperInstall",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "helperOpen",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "helperPlan",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "helperStart",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "helperStop",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "helperUninstall",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "helpers",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "installVersion",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "jevKey",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "jevStatus",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "keyClear",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "keySet",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "keys",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "listVersions",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "lockPane",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "makeBaton",
+      "access": "full",
+      "relayRefused": true,
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "mergeAllTabs",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "mergeTab",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "movePane",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "movePaneDir",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "movePaneToNewTab",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "movePaneToTab",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "moveTab",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "msgList",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "msgSeen",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "msgSend",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "mutePane",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "newTab",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "nextTab",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "notifications",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "openProject",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "openRecordings",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "paneInfo",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "paneSend",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "permissionAnswer",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "presence",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "prevTab",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "pushAnonymous",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "pushDelay",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "pushNotify",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "quit",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "railExpanded",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "railWidth",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "recents",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "recordPane",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "refreshAgents",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "remoteDevices",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "remoteDisable",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "remoteEnable",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "remoteMove",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "remotePair",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "remoteReconnect",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "remoteRemove",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "remoteRename",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "remoteRevoke",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "remoteUnverify",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "remoteVerify",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "removeProject",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "removeRepoFromGroup",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "renameGroup",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "renameProject",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "renameTab",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "reorderProjects",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "resetKeybinding",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "resetKeybindings",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "resetTips",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "resize",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "restart",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "restartPane",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "restartWithBaton",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "resumeConversation",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "revealPane",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "revealTranscript",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "revokeArtifactDevice",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "save",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "saveBaton",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "screenReader",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "scrollback",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "selectProject",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "selectRepo",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "selectTab",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "sendPrompt",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "setAgentAddress",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "setAgentDefault",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "setDeviceRole",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "setKeybinding",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "setRemoteArtifacts",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "setRouting",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "setWeights",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "splitPane",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "startAgent",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "startFromBaton",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "statusLine",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "stopRemoteArtifacts",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "structuredCancel",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "structuredSnapshot",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "structuredUnwatch",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "structuredWatch",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "swapPanes",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "taskAdd",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "taskAssign",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "taskBranch",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "taskGet",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "taskList",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "taskNote",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "taskPrune",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "taskStatus",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "teamClose",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "teamSnapshot",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "teamUnwatch",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "teamWatch",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "theme",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "tilePanes",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "toggleBroadcast",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "toggleBroadcastMember",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "toggleZoom",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "updates",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "wakeSwitch",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "worktreeAdd",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "worktreePrune",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "worktreeRemove",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "worktrees",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    }
+  ],
+  "messages": [
+    {
+      "name": "agentAddress",
+      "relay": "pass",
+      "why": "settings",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "agentStarted",
+      "relay": "pass",
+      "why": "ids",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "agents",
+      "relay": "scrub",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "artifacts",
+      "relay": "pass",
+      "why": "whether the device may open the artifacts socket",
+      "viewers": "viewer",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "attachImageResult",
+      "relay": "pass",
+      "why": "a path or a reason",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "batonDraft",
+      "relay": "scrub",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "batonError",
+      "relay": "scrub",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "batonSaved",
+      "relay": "pass",
+      "why": "ids, a path and a count",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "browse",
+      "relay": "pass",
+      "why": "folder names",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "changes",
+      "relay": "pass",
+      "why": "git status",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "conversationAppend",
+      "relay": "scrub",
+      "viewers": "watcher",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "conversationDetail",
+      "relay": "scrub",
+      "viewers": "watcher",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "conversationPage",
+      "relay": "scrub",
+      "viewers": "watcher",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "conversationSearch",
+      "relay": "scrub",
+      "viewers": "watcher",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "conversations",
+      "relay": "scrub",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "detached",
+      "relay": "pass",
+      "why": "a flag",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "diff",
+      "relay": "pass",
+      "why": "a diff",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "ghChecks",
+      "relay": "pass",
+      "why": "check runs",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "ghIssue",
+      "relay": "pass",
+      "why": "an issue",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "ghIssues",
+      "relay": "pass",
+      "why": "issues",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "ghPR",
+      "relay": "pass",
+      "why": "a pull request",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "ghPRs",
+      "relay": "pass",
+      "why": "pull requests",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "ghProgress",
+      "relay": "pass",
+      "why": "progress",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "ghStatus",
+      "relay": "pass",
+      "why": "gh install state",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "gitWarn",
+      "relay": "scrub",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "graph",
+      "relay": "scrub",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "hello",
+      "relay": "pass",
+      "why": "keys and settings",
+      "viewers": "viewer",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "helperPlan",
+      "relay": "pass",
+      "why": "helper apps",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "helpers",
+      "relay": "pass",
+      "why": "helper apps",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "jevKey",
+      "relay": "pass",
+      "why": "a flag",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "keyTable",
+      "relay": "pass",
+      "why": "key table",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "keys",
+      "relay": "pass",
+      "why": "API key status",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "messages",
+      "relay": "deskOnly",
+      "why": "mail is refused to a relay window",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "notice",
+      "relay": "scrub",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "noticeWithdraw",
+      "relay": "deskOnly",
+      "why": "an approval for windows on this machine only",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "paneInfo",
+      "relay": "deskOnly",
+      "why": "refused to a relay window",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "paneMatches",
+      "relay": "deskOnly",
+      "why": "refused to a relay window",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "paneSend",
+      "relay": "deskOnly",
+      "why": "refused to a relay window",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "permissionAnswer",
+      "relay": "scrub",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "prefs",
+      "relay": "pass",
+      "why": "settings",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "radarSupport",
+      "relay": "pass",
+      "why": "a flag",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "recents",
+      "relay": "pass",
+      "why": "project paths",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "relayTeams",
+      "relay": "scrub",
+      "viewers": "watcher",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "remoteDevices",
+      "relay": "pass",
+      "why": "device list",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "remoteOutcome",
+      "relay": "pass",
+      "why": "relay result",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "remotePair",
+      "relay": "pass",
+      "why": "pairing",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "state",
+      "relay": "scrub",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "structured",
+      "relay": "scrub",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "tasks",
+      "relay": "deskOnly",
+      "why": "the board is refused to a relay window",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "team",
+      "relay": "deskOnly",
+      "why": "the team panel is refused to a relay window",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "teamResult",
+      "relay": "scrub",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "versions",
+      "relay": "pass",
+      "why": "release list",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "worktrees",
+      "relay": "pass",
+      "why": "branches and paths",
+      "since": "1.0",
+      "status": "stable"
+    }
+  ]
+}

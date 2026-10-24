@@ -14,12 +14,12 @@ import (
 	"github.com/jmwri/flockdeck/internal/structured"
 )
 
-// docs/structured-pane.schema.json is the definition of the structured pane
+// api/schema/structured-pane.schema.json is the definition of the structured pane
 // messages. These tests hold the messages the server writes, the schema and
 // docs/structured-pane.md together.
 
 const (
-	structuredSchemaPath = "../../docs/structured-pane.schema.json"
+	structuredSchemaPath = "../../api/schema/structured-pane.schema.json"
 	structuredDocPath    = "../../docs/structured-pane.md"
 )
 

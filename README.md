@@ -77,7 +77,7 @@ Guides in `docs/`:
 - [How Flockdeck is built](docs/architecture.md)
 - [How each agent learns where it is running](docs/agent-briefing.md)
 - [The recording file format](docs/recording-format.md), with its
-  [JSON Schema](docs/recording-line.schema.json)
+  [JSON Schema](api/schema/recording-line.schema.json)
 - [The pane status matrix](docs/status-matrix.md)
 - [Writing tests that stay isolated](docs/testing.md)
 

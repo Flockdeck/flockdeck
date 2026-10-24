@@ -19,10 +19,10 @@ import (
 	"github.com/jmwri/flockdeck/internal/team"
 )
 
-// docs/team-graph.schema.json is the definition of the graph push. These tests
+// api/schema/team-graph.schema.json is the definition of the graph push. These tests
 // hold the Go structs, the messages the server writes and the schema together.
 
-const graphSchemaPath = "../../docs/team-graph.schema.json"
+const graphSchemaPath = "../../api/schema/team-graph.schema.json"
 
 func loadGraphSchema(t *testing.T) schemacheck.Schema {
 	t.Helper()

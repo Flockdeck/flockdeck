@@ -28,7 +28,7 @@ import (
 // refusals are one place each, marked as the place to lift when that changes.
 //
 // The reference is docs/structured-pane.md and the shapes are in
-// docs/structured-pane.schema.json.
+// api/schema/structured-pane.schema.json.
 
 // Limits on what is sent. Every cut is made on a character boundary, never in
 // the middle of a UTF-8 sequence.
