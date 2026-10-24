@@ -1107,6 +1107,14 @@
       "status": "stable"
     },
     {
+      "name": "apiMismatch",
+      "relay": "pass",
+      "why": "two versions and a sentence",
+      "viewers": "viewer",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
       "name": "artifacts",
       "relay": "pass",
       "why": "whether the device may open the artifacts socket",
@@ -1431,6 +1439,14 @@
     {
       "name": "teamResult",
       "relay": "scrub",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "unsupported",
+      "relay": "pass",
+      "why": "the window's own command name, clamped",
+      "viewers": "viewer",
       "since": "1.0",
       "status": "stable"
     },
