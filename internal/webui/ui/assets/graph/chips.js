@@ -33,12 +33,12 @@ export function chipsOf(model, node, needs, now) {
   for (const n of model.needsByPane.get(node.pane) || []) {
     if (n.kind !== "conflict") continue;
     const other = n.pane === node.pane ? n.other : n.pane;
-    if (other && other !== node.pane && model.byPane.has(other)) out.push({ kind: "overlap", text: "overlaps " + clip(nameOf(model, other), 14), to: other, title: n.text });
+    if (other && other !== node.pane && model.byPane.has(other)) out.push({ kind: "overlap", text: "overlaps " + clip(nameOf(model, other), 14), to: other, toName: nameOf(model, other), title: n.text });
   }
   const w = node.waitingOn;
   if (w.kind === "helpers") {
     const to = w.ref && w.ref !== node.pane && model.byPane.has(w.ref) ? w.ref : "";
-    out.push({ kind: "wait", text: to ? "waiting on " + clip(nameOf(model, to), 14) : "waiting on a helper", to, title: w.text });
+    out.push({ kind: "wait", text: to ? "waiting on " + clip(nameOf(model, to), 14) : "waiting on a helper", to, toName: to ? nameOf(model, to) : "", title: w.text });
   } else if (w.kind === "reviewer") out.push({ kind: "wait", text: "waiting on a reviewer", to: "", title: w.text });
   else if (w.kind === "task") out.push({ kind: "wait", text: "waiting on a task", to: "", title: w.text });
   if (node.undelivered > 0) out.push({ kind: "undelivered", text: node.undelivered + " undelivered", to: "", title: "" });

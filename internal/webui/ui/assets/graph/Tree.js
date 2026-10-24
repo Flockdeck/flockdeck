@@ -158,9 +158,18 @@ export function Tree({ model, onOpen = null, open = "" }) {
   const stop = rows.some((r) => r.pane === focus) ? focus : rows.length > 0 ? rows[0].pane : "";
   const onKeyDown = (e) => {
     if (e.defaultPrevented || composing(e) || e.ctrlKey || e.altKey || e.shiftKey || e.metaKey) return;
-    const el = e.target && e.target.getAttribute && e.target.getAttribute("role") === "treeitem" ? e.target : null;
+    // The row the key is on: the row itself, or the row a chip of it sits in.
+    let el = null;
+    for (let n = e.target; n && n !== e.currentTarget; n = n.parentNode) {
+      if (n.getAttribute && n.getAttribute("role") === "treeitem") {
+        el = n;
+        break;
+      }
+    }
     if (!el) return;
     const pane = el.getAttribute("data-pane");
+    // Enter and Space on a chip are the chip's own.
+    if ((e.key === "Enter" || e.key === " ") && el !== e.target) return;
     if (e.key === "Enter" || e.key === " ") {
       if (onOpen) {
         e.preventDefault();
@@ -193,7 +202,7 @@ export function Tree({ model, onOpen = null, open = "" }) {
         return html`<${Fragment} key=${r.pane}><${TreeRow} row=${r} node=${node} needs=${needsOf(model, r.pane)} doing=${doingOf(node, needsOf(model, r.pane))} chips=${chipsOf(model, node, needsOf(model, r.pane), now)} lit=${lit[0] === r.pane || lit[1] === r.pane} onLink=${go} onLit=${(a, b) => setLit([a, b])} stop=${stop === r.pane}
           selected=${open === r.pane} age=${ageOf(node.since, now)} cost=${costOf(node, r.team)}
           onFocus=${() => setFocus(r.pane)} onOpen=${onOpen} />
-          ${r.team && r.kids === 0 ? html`<div class="tree-note" role="presentation">No helpers yet. The manager starts them as it plans.</div>` : null}
+          ${r.team && r.kids === 0 ? html`<div class="tree-note" role="treeitem" aria-disabled="true" aria-level=${r.depth + 2}>No helpers yet. The manager starts them as it plans.</div>` : null}
         <//>`;
       })}
     </div>

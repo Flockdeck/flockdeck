@@ -28,8 +28,8 @@
 .tree-c--age { color: var(--fg-dim); flex: 0 0 34px; font-family: var(--mono, monospace); font-size: 12px; text-align: right; }
 .tree-c--cost { flex: 0 0 46px; font-family: var(--mono, monospace); font-size: 12px; text-align: right; }
 .tree-row.is-lit { background: var(--accent-subtle); box-shadow: inset 0 0 0 1px var(--accent-line); }
-.tree-chips { align-items: center; display: flex; flex: 0 0 auto; gap: 6px; }
-.tree-chip { background: none; border: 1px solid var(--line); border-radius: 999px; box-sizing: border-box; color: var(--fg-dim); font: inherit; font-family: var(--mono, monospace); font-size: 11px; line-height: 14px; padding: 0 6px; white-space: nowrap; }
+.tree-chips { align-items: center; display: flex; flex: 0 1 auto; gap: 6px; min-width: 0; overflow: hidden; }
+.tree-chip { flex: 0 0 auto; background: none; border: 1px solid var(--line); border-radius: 999px; box-sizing: border-box; color: var(--fg-dim); font: inherit; font-family: var(--mono, monospace); font-size: 11px; line-height: 14px; padding: 0 6px; white-space: nowrap; }
 .tree-chip--ask, .tree-chip--overlap, .tree-chip--undelivered { border-color: var(--waiting-line); color: var(--waiting); }
 .tree-chip--down { border-color: var(--exited-line); color: var(--exited); }
 .tree-chip--wait { background: var(--bg-inset); border-color: var(--line-strong); color: var(--fg); }

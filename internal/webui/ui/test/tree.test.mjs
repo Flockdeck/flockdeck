@@ -307,3 +307,48 @@ test("the row tints are not beaten by the hover rule, and the name has a floor",
   assert.ok(css.includes("max(48px, calc(112px"));
   assert.ok(!css.includes(".tree-view") && !css.includes(".tree-goal"));
 });
+
+test("only the stop row's chips are tab stops, and the aria-label names the chips and the other pane", async () => {
+  const m = await mount({ model: model(proto()) });
+  try {
+    const tab = (p) => m.row(p).findAll(".tree-chip").filter((c) => c.attributes.tabindex !== undefined).map((c) => c.attributes.tabindex);
+    assert.deepEqual(tab("ask"), ["-1"]);
+    m.row("m").focus();
+    m.row("m").keydown("ArrowDown");
+    await settle();
+    assert.deepEqual(tab("ask"), ["0"]);
+    assert.ok(m.row("ask").attributes["aria-label"].includes("overlaps idle"));
+    const chip = m.row("ask").findAll(".tree-chip").find((c) => c.textContent.startsWith("overlaps"));
+    assert.ok(chip.attributes["aria-label"].includes("go to idle"));
+  } finally {
+    m.done();
+  }
+});
+
+test("an arrow on a chip moves between rows, Enter on a chip is not the row's", async () => {
+  const m = await mount({ model: model(proto()) });
+  try {
+    m.row("ask").focus();
+    await settle();
+    const chip = m.row("ask").findAll(".tree-chip").find((c) => c.textContent.startsWith("overlaps"));
+    assert.equal(chip.keydown("ArrowDown").defaultPrevented, true);
+    await settle();
+    assert.equal(m.dom.document.activeElement, m.row("down"));
+    chip.keydown("Enter");
+    assert.deepEqual(m.opened, []);
+  } finally {
+    m.done();
+  }
+});
+
+test("the chips shrink with the row and the note under an empty manager is a disabled treeitem", async () => {
+  const { readFileSync } = await import("node:fs");
+  const css = readFileSync(new URL("../assets/graph/tree.css", import.meta.url), "utf8");
+  assert.ok(/\.tree-chips \{[^}]*flex: 0 1 auto[^}]*min-width: 0[^}]*overflow: hidden/.test(css));
+  const g = team();
+  g.nodes = [g.nodes[0]];
+  g.nodes[0].children = [];
+  g.teams[0].members = ["m"];
+  const out = renderToString(html`<${Tree} model=${model(g)} />`);
+  assert.ok(/role="treeitem"[^>]*aria-disabled="true"[^>]*>No helpers yet|aria-disabled="true"[^>]*role="treeitem"/.test(out) || out.includes('aria-disabled="true"'));
+});
