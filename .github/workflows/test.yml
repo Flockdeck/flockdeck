@@ -477,7 +477,7 @@ jobs:
         env:
           CGO_ENABLED: "0"
         run: |
-          go test -count=1 -timeout 10m ./internal/help ./internal/record ./internal/acp/manifest ./cmd/docgen ./cmd/sitegen ./cmd/deploydrift
+          go test -count=1 -timeout 10m ./cmd/helpfacts ./internal/record ./internal/acp/manifest ./cmd/docgen ./cmd/sitegen ./cmd/deploydrift
           go test -count=1 -timeout 10m -run TestNoticesNameEveryLinkedModule ./cmd/release
           go test -count=1 -timeout 10m -run 'Schema|TestGraph|TestTwoTeamGraph|TestStructuredDocQuotes' ./internal/server
           go test -count=1 -timeout 10m -run TestRecordingFollowsTheStoredConversation ./internal/workspace

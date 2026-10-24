@@ -191,7 +191,7 @@ func TestSponsorshipGoesToOneAccount(t *testing.T) {
 	for _, f := range []struct{ what, text, want string }{
 		{"the app's Settings", read("ui", "src", "shell", "links.js"), `export const SPONSOR_URL = "` + sponsorURL + `";`},
 		{"the README", read("README.md"), "(" + sponsorURL + ")"},
-		{"the help's Settings page", read("internal", "help", "pages", "settings.md"), "(" + sponsorURL + ")"},
+		{"the help's Settings page", read("ui", "help", "pages", "settings.md"), "(" + sponsorURL + ")"},
 	} {
 		if !strings.Contains(f.text, f.want) {
 			t.Errorf("%s does not link %s", f.what, sponsorURL)

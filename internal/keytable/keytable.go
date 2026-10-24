@@ -4,7 +4,10 @@
 // them imports where it lives.
 package keytable
 
-import "strings"
+import (
+	"encoding/json"
+	"strings"
+)
 
 // Key is one action, its binding if it has one, and where it belongs in the
 // shortcut tables.
@@ -57,4 +60,20 @@ func (t Table) Lookup(id string) (Key, bool) {
 		}
 	}
 	return Key{}, false
+}
+
+// From turns a table written in another package's own Key type into a Table,
+// through the JSON both share. The program uses it to hand the server the
+// front end's table; it panics if the shapes have drifted apart, which the
+// first run shows.
+func From(v any) Table {
+	b, err := json.Marshal(v)
+	if err != nil {
+		panic("keytable: " + err.Error())
+	}
+	var t Table
+	if err := json.Unmarshal(b, &t); err != nil {
+		panic("keytable: " + err.Error())
+	}
+	return t
 }

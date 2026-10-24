@@ -9,7 +9,7 @@ import (
 )
 
 // The shell's key handling reads the hello's key table and names no key of its
-// own, so a binding is changed in one place, internal/help/keys.go. Every file
+// own, so a binding is changed in one place, ui/help/keys.go. Every file
 // in shell/ is read; key names may appear only between the vocabulary markers in
 // keys.js, which hold the words the table uses for arrows and the keys that move
 // through a list.

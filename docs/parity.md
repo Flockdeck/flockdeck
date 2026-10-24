@@ -2,7 +2,7 @@
 
 This file is written by `go run ./cmd/parity -w`. Do not edit it: change `cmd/parity/classify.go` or the interface and write it again. A test in `cmd/parity` fails when this file is out of date, and when the old interface does something that is neither done, replaced, cut nor owned by a task.
 
-It compares two lists the sources hold: the actions of the key table (`internal/help/keys.go`) against what the new shell runs, and the control-socket commands the old interface sent (the frozen list in `cmd/parity/oldcommands.txt`; the old interface was deleted) against the ones the new interface sends. It does not look at the pane sockets or the pages the old interface fetches, and it cannot see an old feature that has no action or command of its own. See [what this does not cover](#what-this-does-not-cover).
+It compares two lists the sources hold: the actions of the key table (`ui/help/keys.go`) against what the new shell runs, and the control-socket commands the old interface sent (the frozen list in `cmd/parity/oldcommands.txt`; the old interface was deleted) against the ones the new interface sends. It does not look at the pane sockets or the pages the old interface fetches, and it cannot see an old feature that has no action or command of its own. See [what this does not cover](#what-this-does-not-cover).
 
 ## Summary
 

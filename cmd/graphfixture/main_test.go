@@ -549,13 +549,20 @@ func TestToolLinksNoPackageThatKeepsConfiguration(t *testing.T) {
 	}
 	const mod = "github.com/jmwri/flockdeck/internal/"
 	var deps []string
+	own := 0
 	for _, p := range strings.Fields(string(out)) {
+		if strings.HasPrefix(p, "github.com/jmwri/flockdeck/") {
+			own++
+		}
 		if strings.HasPrefix(p, mod) {
 			deps = append(deps, strings.TrimPrefix(p, mod))
 		}
 	}
-	if len(deps) == 0 {
-		t.Fatalf("no internal package in the list, so the check proves nothing: %s", out)
+	// The tool links the front end's own packages (the embed and the help pages)
+	// and may link no internal one; the list has to hold the repository's
+	// packages at all, or its being read wrong would pass the check.
+	if own == 0 {
+		t.Fatalf("no package of this repository in the list, so the check proves nothing: %s", out)
 	}
 	for _, d := range deps {
 		for _, bad := range []string{"store", "record", "session", "agent", "workspace", "server", "keybindings"} {

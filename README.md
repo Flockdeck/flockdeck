@@ -60,7 +60,7 @@ flockdeck remote delete-account  # erase the account, its machines and devices
 ```
 
 This machine connects out to the relay and listens for nothing from the network.
-The [Flockdeck Remote page](internal/help/pages/remote.md) says what the relay can
+The [Flockdeck Remote page](ui/help/pages/remote.md) says what the relay can
 see and how pairing, notifications, unpairing and deleting an account work. A
 relay that checks email prints a confirmation code that `flockdeck remote enable`
 asks you to enter on the page opened from the emailed link.
@@ -82,32 +82,32 @@ Guides in `docs/`:
 - [Writing tests that stay isolated](docs/testing.md)
 
 The in-app help, which `F1` opens and docs.flockdeck.ai publishes, is Markdown in
-`internal/help/pages`. Placeholders such as `[[key:splitRight]]` in those files are
+`ui/help/pages`. Placeholders such as `[[key:splitRight]]` in those files are
 filled in from the key table when the page is shown.
 
-- [Getting started](internal/help/pages/getting-started.md)
-- [Panes and tabs](internal/help/pages/panes.md) and
-  [rearranging what is already running](internal/help/pages/rearranging.md)
-- [Agents and models](internal/help/pages/agents.md), including routing and API keys
-- [Running Ornith models](internal/help/pages/ornith.md)
-- [Knowing who needs you](internal/help/pages/status.md), including
-  [auto-approve read-only](internal/help/pages/auto-approve.md)
-- [Spend and limits](internal/help/pages/spend.md)
-- [Broadcast and the prompt bar](internal/help/pages/broadcast.md)
-- [Git worktrees](internal/help/pages/worktrees.md),
-  [review, commit and push](internal/help/pages/changes.md) and
-  [GitHub](internal/help/pages/github.md)
-- [Resume](internal/help/pages/history.md) and
-  [recording a pane](internal/help/pages/recording.md)
-- [Handing work to another agent](internal/help/pages/baton.md) and its
-  [details](internal/help/pages/baton-details.md)
-- [Projects](internal/help/pages/projects.md) and
-  [what comes back, and what keeps running](internal/help/pages/persistence.md)
-- [Flockdeck Remote](internal/help/pages/remote.md)
-- [Settings](internal/help/pages/settings.md),
-  [keyboard shortcuts](internal/help/pages/shortcuts.md) and
-  [the command line](internal/help/pages/cli.md)
-- [When something is wrong](internal/help/pages/troubleshooting.md)
+- [Getting started](ui/help/pages/getting-started.md)
+- [Panes and tabs](ui/help/pages/panes.md) and
+  [rearranging what is already running](ui/help/pages/rearranging.md)
+- [Agents and models](ui/help/pages/agents.md), including routing and API keys
+- [Running Ornith models](ui/help/pages/ornith.md)
+- [Knowing who needs you](ui/help/pages/status.md), including
+  [auto-approve read-only](ui/help/pages/auto-approve.md)
+- [Spend and limits](ui/help/pages/spend.md)
+- [Broadcast and the prompt bar](ui/help/pages/broadcast.md)
+- [Git worktrees](ui/help/pages/worktrees.md),
+  [review, commit and push](ui/help/pages/changes.md) and
+  [GitHub](ui/help/pages/github.md)
+- [Resume](ui/help/pages/history.md) and
+  [recording a pane](ui/help/pages/recording.md)
+- [Handing work to another agent](ui/help/pages/baton.md) and its
+  [details](ui/help/pages/baton-details.md)
+- [Projects](ui/help/pages/projects.md) and
+  [what comes back, and what keeps running](ui/help/pages/persistence.md)
+- [Flockdeck Remote](ui/help/pages/remote.md)
+- [Settings](ui/help/pages/settings.md),
+  [keyboard shortcuts](ui/help/pages/shortcuts.md) and
+  [the command line](ui/help/pages/cli.md)
+- [When something is wrong](ui/help/pages/troubleshooting.md)
 
 ## Known gaps
 

@@ -31,7 +31,6 @@ internal/creds 0.045 1.587 0.212 1.089
 internal/e2e 0.011 0.041 0.024 1.028
 internal/ghcli 0.020 0.049 0.019 1.018
 internal/gitx 46.609 366.917 106.182 51.308
-internal/help 0.083 0.150 0.109 1.992
 internal/helpers 10.698 42.705 11.897 51.260
 internal/hooks 5.185 5.267 5.260 8.379
 internal/idle 0.002 0.032 0.009 1.021

@@ -1,6 +1,8 @@
-package help
+package helpfacts
 
 import (
+	. "github.com/jmwri/flockdeck/ui/help"
+
 	"flag"
 	"os"
 	"strings"
@@ -11,7 +13,7 @@ import (
 // run time, so it is the one that can drift. This test compares it against the
 // table and, with -update, rewrites it.
 //
-//	go test ./internal/help -run TestKeysDocShortcuts -update
+//	go test ./cmd/helpfacts -run TestKeysDocShortcuts -update
 var update = flag.Bool("update", false, "rewrite docs/keys.md's shortcut table from the key table")
 
 const (
@@ -55,7 +57,7 @@ func TestKeysDocShortcuts(t *testing.T) {
 		return
 	}
 	t.Errorf("the shortcut table in docs/keys.md does not match the key table.\n"+
-		"Run: go test ./internal/help -run TestKeysDocShortcuts -update\n\ngot:\n%s\nwant:\n%s", got, want)
+		"Run: go test ./cmd/helpfacts -run TestKeysDocShortcuts -update\n\ngot:\n%s\nwant:\n%s", got, want)
 }
 
 // unixLines drops the carriage returns of a CRLF checkout.

@@ -2,12 +2,12 @@
 
 Everything not listed here goes to the focused agent, which needs the rest of the
 keyboard for itself. Press `F1` in the window for the same list, alongside the rest
-of the help. The [shortcuts help page](../internal/help/pages/shortcuts.md) explains
+of the help. The [shortcuts help page](../ui/help/pages/shortcuts.md) explains
 the choices behind it and how to change a binding.
 
-This table is generated from the one key table in `internal/help/keys.go`, which
+This table is generated from the one key table in `ui/help/keys.go`, which
 the command palette and the in-app help are also drawn from. After changing that
-table, run `go test ./internal/help -run TestKeysDocShortcuts -update`.
+table, run `go test ./ui/help -run TestKeysDocShortcuts -update`.
 
 <!-- shortcuts:start -->
 

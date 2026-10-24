@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"github.com/jmwri/flockdeck/internal/keytable"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,9 +12,9 @@ import (
 	"unicode/utf8"
 
 	"github.com/jmwri/flockdeck/internal/agent"
-	"github.com/jmwri/flockdeck/internal/help"
 	"github.com/jmwri/flockdeck/internal/layout"
 	"github.com/jmwri/flockdeck/internal/session"
+	"github.com/jmwri/flockdeck/ui/help"
 )
 
 // TestPaneContextIdentifiesThePane checks the basics an agent cannot work out
@@ -1294,4 +1295,4 @@ func TestTheBriefingTellsAnAgentHowToBeWokenByMail(t *testing.T) {
 }
 
 // The program hands the workspace the key table (main.go); the tests do the same.
-func init() { SetKeys(help.Keys) }
+func init() { SetKeys(keytable.From(help.Keys)) }

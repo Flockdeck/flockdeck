@@ -22,8 +22,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jmwri/flockdeck/internal/help"
 	webui "github.com/jmwri/flockdeck/ui"
+	"github.com/jmwri/flockdeck/ui/help"
 )
 
 const nextShellMarker = `<meta name="flockdeck-shell" content="next">`

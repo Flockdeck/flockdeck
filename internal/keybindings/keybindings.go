@@ -1,5 +1,5 @@
 // Package keybindings lets a person remap Flockdeck's own window shortcuts --
-// the ones internal/help/keys.go compiles in as ID, Keys, Label and Section --
+// the ones ui/help/keys.go compiles in as ID, Keys, Label and Section --
 // without touching the binary.
 //
 // This is a different layer from the Claude Code CLI's own keybindings.json

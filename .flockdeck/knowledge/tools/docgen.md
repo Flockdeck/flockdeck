@@ -5,9 +5,9 @@ description: Generates the documentation site from the in-app help plus hand-wri
 resource: cmd/docgen
 tags: [docs, generator]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [cmd/docgen/main.go, internal/help/help.go, internal/help/render.go]
+code_paths: [cmd/docgen/main.go, ui/help/help.go, ui/help/render.go]
 ---
-The "using Flockdeck" pages are rendered from `internal/help`, the same Markdown and key-table placeholders as the in-app F1 help, so the web copy cannot say more than the app does. Self-hosting pages are ordinary Markdown in the docs repository (`content/self-hosting`), which docgen only reads.
+The "using Flockdeck" pages are rendered from `ui/help`, the same Markdown and key-table placeholders as the in-app F1 help, so the web copy cannot say more than the app does. Self-hosting pages are ordinary Markdown in the docs repository (`content/self-hosting`), which docgen only reads.
 
 | Flag | Default | Meaning |
 |---|---|---|

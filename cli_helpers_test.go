@@ -22,7 +22,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jmwri/flockdeck/internal/help"
+	"github.com/jmwri/flockdeck/ui/help"
 	"github.com/jmwri/flockdeck/internal/helpers"
 	"github.com/jmwri/flockdeck/internal/selfupdate"
 )

@@ -17,7 +17,7 @@ server keeps running and prints a URL on its own loopback address, which only
 that machine can open. To the
 relay and to a paired device a server is a desktop like any other, so tabs,
 panes, and chat on a phone all work on it. The [Flockdeck Remote
-page](../internal/help/pages/remote.md) has the details, including the short
+page](../ui/help/pages/remote.md) has the details, including the short
 list of actions a paired device is refused for its own safety (quitting,
 updating, setting API keys and a few more). Do those from a terminal on the
 server, over SSH.

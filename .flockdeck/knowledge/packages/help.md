@@ -2,10 +2,10 @@
 type: Package
 title: help
 description: Embedded help pages and the single table of UI actions and shortcuts that the palette and help pages render from.
-resource: internal/help/help.go
+resource: ui/help/help.go
 tags: [help, keybindings, package]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/help/help.go, internal/help/keys.go, internal/help/render.go]
+code_paths: [ui/help/help.go, ui/help/keys.go, ui/help/render.go]
 ---
 ## Pages
 

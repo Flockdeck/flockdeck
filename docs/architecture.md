@@ -40,7 +40,7 @@ the machine could read.
 Flockdeck Remote listens for nothing from the network either. It is a connection
 the machine makes outward, and what arrives through it is let in because the relay
 has already checked the device, not because of the token. The
-[Flockdeck Remote page](../internal/help/pages/remote.md) describes what the relay
+[Flockdeck Remote page](../ui/help/pages/remote.md) describes what the relay
 can and cannot see.
 
 ## One instance
@@ -115,11 +115,11 @@ The one key the generated file can take over is `statusLine`, because Claude Cod
 hands a subscription's usage limits to its status line command and nowhere else.
 Where you have a status line of your own, the pane's runs the binary in a hidden
 `statusline` mode, which passes the figures to the app and then runs your command
-with the same input. The [Spend and limits page](../internal/help/pages/spend.md)
+with the same input. The [Spend and limits page](../ui/help/pages/spend.md)
 says when this is done.
 
 The user-facing description of each state is in the
-[status page](../internal/help/pages/status.md). An agent that reports nothing is
+[status page](../ui/help/pages/status.md). An agent that reports nothing is
 read from its terminal instead (the bell, a quiet timer and optional patterns),
 and a reported event always wins over that guess.
 [docs/status-matrix.md](status-matrix.md) lists every situation a pane can be in
@@ -171,7 +171,7 @@ The limits of this today:
   skip prompts does not have.
 
 The conditions, the switches and what happens when the Enter is not sent are on
-the [command line page](../internal/help/pages/cli.md), under "The typed wake
+the [command line page](../ui/help/pages/cli.md), under "The typed wake
 line" and "wake".
 
 ## Structured panes
@@ -258,7 +258,7 @@ The answer is asked once per run and does not hold up the first briefing, so the
 first pane in a private repository may start without the line.
 `flockdeck knowledge on|off` records the person's own answer. The lookup trusts
 the checkout's remotes, which the [command line
-page](../internal/help/pages/cli.md) spells out, and the [agent
+page](../ui/help/pages/cli.md) spells out, and the [agent
 briefing](agent-briefing.md) describes the line that is written.
 
 ## The team graph
@@ -301,10 +301,10 @@ page cannot be handed a real directory path.
 
 ## Help and the key table
 
-The help pages are Markdown under `internal/help/pages`, compiled into the binary
+The help pages are Markdown under `ui/help/pages`, compiled into the binary
 and rendered on the Go side. They never write shortcuts out by hand. A page says
 `[[key:splitRight]]` or `{{keys:Panes}}`, and both are expanded from the key table
-in `internal/help/keys.go`. The command palette, the keyboard dispatch, the
+in `ui/help/keys.go`. The command palette, the keyboard dispatch, the
 briefing each agent receives (for the dozen actions it names) and the [shortcut table](keys.md) are drawn from the
 same table, so a binding changes in one place, and a page that names an action that
 no longer exists fails its test. `cmd/docgen` renders the same pages to
