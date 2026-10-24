@@ -14,6 +14,8 @@ import { useStore } from "../lib/use-store.js";
 import { Drawer, hasTerminal, useDrawer } from "../drawer/Drawer.js";
 import { focusNode } from "../drawer/state.js";
 import { ManagerBar, managerOf } from "../graph/ManagerBar.js";
+import { Feed } from "../graph/Feed.js";
+import { feedStep } from "../graph/FeedDiff.js";
 import { nextNeedsYou, paneAt, prevNeedsYou } from "../graph/keys.js";
 import { Shell, useNarrow } from "./app.js";
 import { FootButton } from "./rail.js";
@@ -180,6 +182,18 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
   const drawer = useDrawer({ mainRef, paneIds });
   const pane = drawer.pane ? (statePanes || {})[drawer.pane] || null : null;
   let node = drawer.pane && current ? current.byPane.get(drawer.pane) : null;
+  // The activity feed: what changed between one graph push and the next, kept in
+  // this page only. A push for another project starts it again.
+  const [feed, setFeed] = useState(null);
+  const feedFrom = useRef(null);
+  useEffect(() => {
+    if (!shown) return;
+    const was = feedFrom.current;
+    feedFrom.current = shown;
+    if (was === shown) return;
+    if (was && was.root !== shown.root) setFeed(null);
+    else setFeed((f) => feedStep(f, was, shown, Date.now()));
+  }, [shown]);
   if (!node && rosterOnly && pane) node = nodeOfPane(pane);
 
   // Restart, lock and close, for the agent in the drawer. The question before a
@@ -370,6 +384,8 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
   // count. Before any graph there is no bar, so "no manager" is not said while
   // the graph is still being read.
   const barRef = useRef(null);
+  // The feed is for a team with a manager, and gives its place to the drawer while that is open.
+  const showFeed = !!current && !snap.graphGone && !node && current.teams.length > 0 && !narrow;
   const bar = current && !snap.graphGone
     ? html`<${ManagerBar} snap=${snap} manager=${managerOf(current)} send=${(c) => store.send(c)} inputRef=${barRef} />`
     : null;
@@ -628,9 +644,12 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
   >${snap.state ? html`<${Tabs} tabs=${tabs} send=${send} show=${onDesk} warnFor=${(t) => closeTabWarnings(t, current ? current.byPane : null, statePanes)} onChoose=${() => setStarting("agent")} needs=${tabNeeds} view=${view} onView=${chooseView}
       onHistory=${snap.remote ? null : () => setHistoryOpen(true)} onFind=${snap.remote ? null : () => setFindingPane(true)} />` : null}
     <div class="view-graph" hidden=${view !== "graph"}>
+     <div class=${"home-split" + (showFeed ? " home-split--feed" : "")}>
       <${Home} snap=${snap} selected=${selected} onShown=${setShown} onOpen=${drawer.open} open=${drawer.pane} narrow=${narrow} send=${snap.remote ? null : send}
         onStartTeam=${snap.remote ? null : () => setStarting("team")}
         onSeeChanges=${(p) => { drawer.open(p); setTabAsk((a) => ({ tab: "changes", n: a.n + 1, pane: p })); }} />
+      ${showFeed ? html`<${Feed} feed=${feed} onFocus=${(p) => focusNode(mainRef.current, p)} />` : null}
+     </div>
     </div>
     ${view === "board"
       ? html`<${Board} team=${snap.team} remote=${!!snap.remote} gone=${snap.teamGone ? snap.teamGone.error || "This project can no longer be read." : ""}

@@ -529,3 +529,24 @@ test("Palette: filterLive keeps the order of the groups, finds by name or detail
   const many = Array.from({ length: 100 }, (_, i) => ({ id: "x" + i, group: "Agents", name: "Open x" + i, run() {} }));
   assert.equal(filterLive(many, "").length, 40);
 });
+
+test("Feed: it starts empty, adds an entry when a later push brings news, goes while the drawer is open, and comes back", () =>
+  withPage({}, async (m) => {
+    await m.connect();
+    const feed = () => m.container.find(".feed");
+    assert.ok(feed(), "a team with a manager has the feed");
+    assert.match(feed().textContent, /Nothing has happened yet/);
+    const g2 = JSON.parse(JSON.stringify(m.g));
+    const helper = g2.nodes.find((n) => n.parent);
+    g2.teams[0].needs = [...g2.teams[0].needs, { id: "ask:" + helper.pane, kind: "ask", pane: helper.pane, time: iso(NOW), text: "which flag store?" }];
+    await m.push(g2);
+    assert.match(feed().textContent, /asks: which flag store\?/);
+    const entry = m.container.findAll(".feed-btn").find((b) => b.getAttribute("data-feed-pane") === helper.pane);
+    assert.ok(entry, "the entry names the pane to focus");
+    await m.push(g2);
+    assert.equal(m.container.findAll(".feed-btn").length, 1, "the same push again adds nothing");
+    // The drawer takes the place of the feed.
+    const open = m.container.findAll("[data-pane]").find((el) => el.getAttribute("data-pane") === helper.pane && el.getAttribute("tabindex") !== null);
+    await m.click(open);
+    assert.equal(feed(), null, "no feed while the drawer is open");
+  }));
