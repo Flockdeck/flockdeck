@@ -683,3 +683,5 @@
 .dec .prompt-choice--allow_once { border-color: var(--ok-line); background: var(--ok-subtle); color: var(--ok); }
 .dec .prompt-choice--reject_once, .dec .prompt-choice--reject_always { border-color: var(--exited-line); background: transparent; color: var(--exited); }
 @container (max-width: 680px) { .decs { margin-left: 0; max-width: none; } }
+.ask.dec--ok { border-color: var(--ok-line); border-left-color: var(--ok); background: var(--ok-subtle); }
+.dec--ok .dec-head { color: var(--ok); }
