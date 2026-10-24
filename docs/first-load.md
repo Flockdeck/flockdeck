@@ -99,3 +99,22 @@ node scripts/firstload/measure.mjs --esbuild <scratch>/node_modules/@esbuild/win
 The esbuild path above is the Windows x64 build; use the matching `@esbuild/<platform>` package elsewhere. The browser search in `findBrowser` lists mostly Windows paths (a Playwright Chromium, Chrome, Edge) and a few Linux and macOS ones, so on another system pass `--browser`.
 
 The cases are the module graph and the concatenated one, each for the shipped page, for the finished-app stand-in, and for the old page with the three libraries in it (`-eager`), which the first table's figures came from before T99. Without `--esbuild` only the module cases run. The tool needs Node 22 or later and a Chromium (`--browser` names one). Options for the link speed, round trip, setup round trips, stream cap and CPU slowdown are listed at the top of the script. It reads only the source tree, writes only to a temporary folder that it removes at the end, and does not start Flockdeck.
+
+## After the flip, and the modules joined (T170)
+
+Making the new shell the only one (T162) put the whole finished app on the first load: 105 files, 326 KB gzipped, and about 10.1 s to first paint on the model above, against the 3 s budget. The cost is round trips, as the first section found.
+
+The server now sends the front end joined (`internal/webui/bundle`, no third-party code). `main.js` is every module the entry reaches in one file, each module in a function of its own so equal top-level names do not meet. `app.css` is the eight stylesheets in the page's order, and `index.html` names that one. The files they are made from are unchanged and still served under their own names; the node tests run on them. The joining happens once, in memory, when the first request asks for the front end, and the existing gzip path compresses it once. `FLOCKDECK_UNBUNDLED=1` turns it off, for reading the separate files in a browser's tools. `go run ./cmd/webbundle -o <folder>` writes the joined files out.
+
+The joiner reads only the syntax the shell uses and refuses the rest (bare imports, `import()`, `import.meta`, an exported `let`, an import cycle), so a new style fails `go test ./internal/webui/bundle` and not a page. A node test runs the joined script in the fake DOM, and `TestServedPageIsAFewFiles` holds the page to one script and one stylesheet and the script to every module of the written graph.
+
+Same tool and settings as above (`measure.mjs --bundled <folder> --only modules,joined`), five runs, median, on main after #497 (`9f66ab8c`) with this change:
+
+| Case | Requests | Bytes sent | First meaningful paint | Interactive |
+| --- | --- | --- | --- | --- |
+| Separate modules (before) | 105 | 326 KB | 10110 | 10834 |
+| Joined (after) | 4 | 283 KB | 3577 | 4738 |
+| Separate modules, no gzip | 105 | 859 KB | 11730 | 11870 |
+| Joined, no gzip | 4 | 881 KB | 7993 | 8224 |
+
+The four requests are the page, `app.css`, `main.js` and the first font. First paint falls by 6.5 s but is still over the 3 s budget, and the five runs ranged from 2954 to 5268. What is left is bytes and parsing: `main.js` is 756 KB, 218 KB gzipped, and the stylesheet is 16 KB gzipped. The next steps are in that order: leave out what the first screen does not use (dialogs, the conversation view and the help pages could load on first use, as the terminal's libraries do), and take out the comments and whitespace, which this change does not do.

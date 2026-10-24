@@ -22,6 +22,8 @@
 //   --no-slow-start      send at the link speed from the first byte
 //   --out <file>         write the raw results as JSON
 //   --only <name,...>    run only the named cases
+//   --bundled <folder>   add the case "joined": the files `go run ./cmd/webbundle -o <folder>`
+//                        writes, which are what the server sends
 //
 // esbuild is used only to concatenate, for the measurement. Nothing here is a
 // build step: the tool that would make a release build is a separate task.
@@ -55,6 +57,7 @@ const STREAMS = Number(opt("streams", 6));
 const CPU = Number(opt("cpu", 4));
 const SLOW_START = !argv.includes("--no-slow-start");
 const ESBUILD = opt("esbuild", "");
+const BUNDLED = opt("bundled", "");
 const ONLY = opt("only", "") ? String(opt("only", "")).split(",") : null;
 
 function findBrowser() {
@@ -145,6 +148,15 @@ globalThis.__keep = [store, socket, pty, terminal, useStore, model];
       { name: "concat-eager", index: eager, override: { "assets/main.js": one } },
       { name: "concat-full-eager", index: fullEager, override: { "assets/main-full.js": two } },
     );
+  }
+  if (BUNDLED && BUNDLED !== true) {
+    // What the server sends: the module graph in main.js, the stylesheets in
+    // app.css, and a page that names them.
+    const made = (f) => fs.readFileSync(path.join(BUNDLED, f));
+    cases.push({
+      name: "joined", index: made("index.html").toString(),
+      override: { "assets/main.js": made("main.js"), "assets/app.css": made("app.css") },
+    });
   }
   return cases;
 }
@@ -415,7 +427,7 @@ async function main() {
   const results = [];
   for (const gzipOn of [true, false]) {
     for (const c of cases) {
-      if (!gzipOn && !["modules", "concat"].includes(c.name)) continue;
+      if (!gzipOn && !["modules", "concat", "joined"].includes(c.name)) continue;
       const proxy = await startProxy(makeOrigin(c, gzipOn));
       const runs = [];
       let reqs = 0, wire = 0, raw = 0, files = [];
