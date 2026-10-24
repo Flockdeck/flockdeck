@@ -1,5 +1,8 @@
 // The bar above the graph for two agents that changed the same files.
 import { test } from "node:test";
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 import assert from "node:assert/strict";
 import { render } from "../assets/vendor/preact.mjs";
 import { renderToString } from "./vendor/render-to-string.mjs";
@@ -100,4 +103,21 @@ test("when the overlap ends the bar says it is resolved, for a while", async () 
   } finally {
     restore();
   }
+});
+
+// Fixture 01 has two helpers on the same file (cart and tax, cart/total.go): the
+// bar drawn for it is kept as a snapshot, UPDATE_SNAPSHOTS=1 to write it again.
+test("fixture 01: the overlap bar is the snapshot", () => {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const msg = JSON.parse(readFileSync(join(here, "../../../server/testdata/graph-fixtures/01-six-helpers-one-permission.json"), "utf8"));
+  const model = buildGraphModel(msg);
+  const out = renderToString(html`<${OverlapBar} model=${model} manager=${managerOf(model)} send=${() => true} onSee=${() => {}} />`).replace(/></g, ">\n<") + "\n";
+  const file = join(here, "snapshots", "01-overlap-bar.html");
+  if (process.env.UPDATE_SNAPSHOTS === "1") {
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, out);
+  }
+  assert.ok(existsSync(file), `no snapshot ${file}; run with UPDATE_SNAPSHOTS=1`);
+  assert.equal(out, readFileSync(file, "utf8").replace(/\r\n/g, "\n"));
+  assert.match(out, /tax and cart/);
 });

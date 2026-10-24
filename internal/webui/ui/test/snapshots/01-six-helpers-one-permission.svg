@@ -41,6 +41,7 @@
 <text class="gnode-state" x="204" y="24" text-anchor="end">working</text>
 <text class="gnode-role" x="12" y="43">manager · claude</text>
 <text class="gnode-wait" x="12" y="94">→ waiting on cart</text>
+<text class="gnode-cap" x="12" y="77">6 of 8 helpers</text>
 <text class="gnode-spend" x="204" y="146" text-anchor="end">$8.00</text>
 </g>
 </g>
