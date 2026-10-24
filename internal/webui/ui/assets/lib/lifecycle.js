@@ -83,6 +83,30 @@ export const roleOptions = (catalog) => catalog.roles.map((r) => ({ id: r.id, na
 
 /** The manager role is the one a team starts with. */
 export const MANAGER_ROLE = "manager";
+
+/** TEAM_HELPER_CAP is the most helpers one agent may have open below it, as the
+ *  desktop enforces it (workspace.MaxHelpers). The graph's own caps say the live
+ *  number once a team exists. */
+export const TEAM_HELPER_CAP = 8;
+
+/** TEAM_PRESETS are the starting briefs of the team dialog. The desktop starts a
+ *  team as one manager with a goal, so a preset is only the first words of that
+ *  goal, which the person goes on to write; it changes nothing else. */
+export const TEAM_PRESETS = [
+  { id: "feature", name: "Feature team", brief: "Build this feature. Split it into tasks, have helpers build, test and review them, and report when it is done:\n\n" },
+  { id: "bug", name: "Bug hunt", brief: "Find and fix this bug. Reproduce it first, then fix it, add a test that fails without the fix, and report what you found:\n\n" },
+  { id: "docs", name: "Docs sweep", brief: "Bring the documentation up to date with the code. Check each claim against the code and fix the ones that are wrong:\n\n" },
+  { id: "manager", name: "Manager only", brief: "" },
+];
+
+/** presetTaskFor is the goal after a preset is chosen: the preset's brief when the
+ *  goal is empty or is still only another preset's brief, otherwise what the
+ *  person wrote, so choosing a preset never discards their words. */
+export function presetTaskFor(task, preset) {
+  const text = String(task || "");
+  const bare = TEAM_PRESETS.some((p) => p.brief.trim() === text.trim());
+  return !text.trim() || bare ? preset.brief : text;
+}
 export const managerRole = (catalog) => catalog.roles.find((r) => r.id === MANAGER_ROLE) || null;
 
 /** newTabCommand is the command that opens a tab: an agent tab on the agent and

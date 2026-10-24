@@ -13,6 +13,8 @@ import { Live } from "../assets/shell/Live.js";
 import { OPEN_AN_AGENT_WORDS } from "../assets/shell/Live.js";
 import { WORKTREE_WORDS } from "../assets/shell/Start.js";
 import { OTHER_PROJECT_WORDS, CLOSE_WAITING_WORDS } from "../assets/shell/Tabs.js";
+import { Header } from "../assets/drawer/Header.js";
+import { renderToString } from "./vendor/render-to-string.mjs";
 import { LOCKED_WORDS } from "../assets/drawer/Lifecycle.js";
 import {
   catalogOf, closeTabWarnings, closeWarnings, defaultValue, moveTabCommand, newTabCommand, optionsOf, restartWarnings, splitValue, startAgentCommand,
@@ -936,3 +938,30 @@ test("the tab strip is tabs, a \"+\" menu and a views switch: the actions are in
     const views = m.container.findAll(".tabs-view").map((b) => b.textContent.trim());
     assert.deepEqual(views, ["Graph", "Board", "Changes", "Replay"]);
   }));
+
+test("the team dialog says what it will start, with the helper cap, and a preset fills the goal without discarding what was typed", () =>
+  withPage({}, async (m) => {
+    await m.connect();
+    await m.key("Ctrl+Shift+K");
+    await m.click(m.container.findAll(".palette-row").find((r) => r.attributes["data-action"] === "startTeam"));
+    const note = m.container.find("#start-explain").textContent;
+    assert.match(note, /This will start: one agent, a Manager \(claude · opus\)/);
+    assert.match(note, /at most 8 open at a time/);
+    await choose(m, "#start-preset", "bug");
+    assert.match(valueIn(m.container.find("#start-task")), /^Find and fix this bug/);
+    await choose(m, "#start-preset", "docs");
+    assert.match(valueIn(m.container.find("#start-task")), /^Bring the documentation/, "a bare brief is replaced by the next");
+    await fill(m, "#start-task", "Bring the docs up to date for the new rail");
+    await choose(m, "#start-preset", "feature");
+    assert.equal(valueIn(m.container.find("#start-task")), "Bring the docs up to date for the new rail", "typed words are kept");
+    await m.click(m.byText(".dialog-btn", /^Start$/));
+    assert.equal(m.sent("startAgent").length, 1);
+    assert.equal(m.sent("startAgent")[0].role, "manager");
+  }));
+
+test("a solo agent's header offers Start a team, and an agent in a team does not", () => {
+  const solo = renderToString(html`<${Header} node=${{ pane: "p", name: "solo", team: "" }} onClose=${() => {}} onToggleMax=${() => {}} onStartTeam=${() => {}} />`);
+  assert.match(solo, /drawer-team[^>]*>Start a team</);
+  const none = renderToString(html`<${Header} node=${{ pane: "p", name: "solo", team: "" }} onClose=${() => {}} onToggleMax=${() => {}} />`);
+  assert.doesNotMatch(none, /Start a team/);
+});
