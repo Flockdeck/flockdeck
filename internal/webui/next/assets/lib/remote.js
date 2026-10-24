@@ -1,0 +1,338 @@
+// Flockdeck Remote: whether this machine is reachable through the relay, the
+// devices paired with the account, the pairing link, and the words for each.
+//
+// Everything here reads what the desktop sent defensively: a field of the wrong
+// type is left out, never trusted. Every string that came from the relay or a
+// person (device and machine names, the relay's own sentences, error text) is
+// drawn as text by the dialog and is never used as markup. The pairing picture is
+// an SVG the desktop drew, and is only ever the source of an image, which does
+// not run what is in it.
+//
+// A window reached through the relay may list the devices, pair a device, rename
+// and unpair. It may not turn remote access on or off, move it to another relay,
+// remove the machine, ask for a join code, verify a device or limit one: the
+// desktop refuses those, the store does not send them from such a window, and the
+// dialog says which are the desk's.
+
+/** The words for what a relay window is not offered. */
+export const DESK_ONLY_REMOTE =
+  "Flockdeck Remote is turned on, turned off and moved to another relay on the machine Flockdeck runs on, not from a window reached through the relay.";
+export const DESK_ONLY_VERIFY =
+  "A device is marked verified on the machine Flockdeck runs on, not from a window reached through the relay.";
+export const DESK_ONLY_ACCESS =
+  "What a device may do is set on the machine Flockdeck runs on, not from a window reached through the relay.";
+export const DESK_ONLY_JOIN =
+  "A code for another desktop to join this account is made on the machine Flockdeck runs on, not from a window reached through the relay.";
+
+export const INTRO_WORDS =
+  "Flockdeck Remote opens this window from a paired phone, tablet or browser, through Flockdeck's optional relay. " +
+  "A paired device gets the full window with full control, terminals included. This machine connects out to the relay and listens for nothing from the network.";
+
+export const PAIR_WORDS = "A pairing link works once and expires in a few minutes. The device that opens it can open this window until you unpair it.";
+export const LINK_WARNING =
+  "Whoever opens it can drive every agent on every machine on this account, and open a shell on any of them, so treat it like a password until then.";
+export const VERIFY_HELP =
+  "Press Verify and compare the code with what the device shows (its own Devices page, or this page's code in a window it opened from here). " +
+  "If they differ, unpair it: the relay may have handed it the wrong key. Press Mark verified once they match.";
+export const VERIFY_HELP_RELAY = "Press Verify to see the codes. " + DESK_ONLY_VERIFY;
+export const PLAN_WORDS =
+  "Flockdeck Remote through the relay is paid for from Devices on a paired phone or browser. The desktop app is free, and works the same whatever the plan.";
+export const KEPT_WORDS =
+  "The account is kept while anything on it is in use, and deleted if nothing on it is used for 90 days and it has no subscription.";
+export const ENTERPRISE_WORDS = "Coming soon, for companies: Enterprise, a licence to run the relay on your own infrastructure, with SSO and support.";
+
+const str = (v) => (typeof v === "string" ? v : "");
+const time = (v) => {
+  const t = Date.parse(typeof v === "string" ? v : "");
+  return t > 0 ? t : 0;
+};
+
+/** bare is a relay address without its scheme, for a sentence. */
+export function bare(url, fallback = "the relay") {
+  return (str(url) || fallback).replace(/^https?:\/\//, "");
+}
+
+/** viewing is the tunnel state to a draw: null while remote access is off. */
+export function viewOf(r) {
+  if (!r || typeof r !== "object") return null;
+  return {
+    state: str(r.state),
+    detail: str(r.detail),
+    relay: str(r.relay),
+    name: str(r.name),
+    viewers: Number.isInteger(r.viewers) && r.viewers > 0 ? r.viewers : 0,
+    retryAt: str(r.retryAt),
+    pushError: str(r.pushError),
+  };
+}
+
+/** inTrouble says the tunnel has stopped and needs somebody. */
+export function inTrouble(r) {
+  return !!r && (r.state === "error" || r.state === "revoked" || r.state === "replaced" || r.state === "lapsed");
+}
+
+const two = (n) => String(n).padStart(2, "0");
+
+/** clock is a time of day as hours, minutes and seconds. */
+export function clock(ms) {
+  const d = new Date(ms);
+  return two(d.getHours()) + ":" + two(d.getMinutes()) + ":" + two(d.getSeconds());
+}
+
+/** retryClock is " Trying again at 14:32:07." for the tunnel's wait, or " Trying
+ *  again shortly." once that time is at hand, so the line never claims a moment
+ *  already past. Empty when nothing waits. A clock time reads true until the next
+ *  push, where a countdown would sit still between pushes. */
+export function retryClock(retryAt, now = Date.now()) {
+  const t = time(retryAt);
+  if (!t) return "";
+  if (t <= now) return " Trying again shortly.";
+  return " Trying again at " + clock(t) + ".";
+}
+
+/** summaryOf says in a sentence where the tunnel stands. */
+export function summaryOf(r, now = Date.now()) {
+  const where = bare(r.relay);
+  switch (r.state) {
+    case "connected":
+      return "Reachable through " + where + (r.viewers ? " — " + r.viewers + (r.viewers === 1 ? " window is" : " windows are") + " open from another device" : "");
+    case "connecting":
+      return r.retryAt ? "Reconnecting to " + where + "." + retryClock(r.retryAt, now) : "Connecting to " + where + "…";
+    case "error":
+      return "Cannot reach " + where + (r.detail ? ": " + r.detail : "") + "." + retryClock(r.retryAt, now);
+    case "disabled":
+      return "Flockdeck Remote is off on this machine. Its account is kept: paired devices see this machine as offline, and turning it on again reconnects to the same account.";
+    case "revoked":
+    case "replaced":
+      return r.detail || "Flockdeck Remote has stopped.";
+    case "lapsed":
+      return r.detail || "The relay has stopped Flockdeck Remote for this account.";
+    default:
+      return "Not connected to " + where + ".";
+  }
+}
+
+/** shortNote is the tunnel in a few words, for the Settings tab and the rail. */
+export function shortNote(r) {
+  if (!r) return "";
+  if (inTrouble(r)) return "needs you";
+  if (r.state === "connected") return r.viewers ? r.viewers + (r.viewers === 1 ? " viewer" : " viewers") : "connected";
+  if (r.state === "connecting") return "connecting";
+  return "";
+}
+
+/** ago says how long since a time the relay reported, roughly. A time it never
+ *  had arrives as Go's zero time, which is long before anything. */
+export function ago(when, now = Date.now()) {
+  const t = time(when);
+  if (!t) return "never";
+  const s = Math.max(0, (now - t) / 1000);
+  if (s < 60) return "just now";
+  const unit = (n, one) => n + " " + one + (n === 1 ? "" : "s") + " ago";
+  if (s < 3600) return unit(Math.floor(s / 60), "minute");
+  if (s < 172800) return unit(Math.floor(s / 3600), "hour");
+  return unit(Math.floor(s / 86400), "day");
+}
+
+/** day is a day as people write it: 12 October 2026. */
+export function day(when) {
+  return new Date(time(when)).toLocaleDateString("en-GB", { day: "numeric", month: "long", year: "numeric" });
+}
+
+/** daysLeft is the days until a time the relay reported, a part of one counting as one. */
+export function daysLeft(when, now = Date.now()) {
+  const t = time(when);
+  return t ? Math.max(0, Math.ceil((t - now) / 86400000)) : 0;
+}
+
+/** planOf reads the account's plan, or null when the relay reports none. */
+export function planOf(p) {
+  if (!p || typeof p !== "object") return null;
+  return {
+    plan: str(p.plan),
+    name: str(p.name),
+    active: p.active !== false,
+    ends: str(p.ends),
+    deleteAt: str(p.deleteAt),
+    message: str(p.message),
+  };
+}
+
+/** planText says the plan in a sentence. The relay decides anything by a plan;
+ *  the app only shows it, and every part of it works the same whatever it says. */
+export function planText(p, now = Date.now()) {
+  if (!p.active) {
+    let s = p.message || "The relay has stopped Flockdeck Remote for this account.";
+    if (time(p.deleteAt)) s += " The account and its paired devices are kept until " + day(p.deleteAt) + ", then deleted.";
+    return s;
+  }
+  if (p.plan === "trial") {
+    const n = daysLeft(p.ends, now);
+    return (p.name || "Free trial") + ": " + n + (n === 1 ? " day" : " days") + " left, until " + day(p.ends) + ".";
+  }
+  return (p.name || "Subscription") + (time(p.ends) ? ", paid until " + day(p.ends) : "") + ".";
+}
+
+/** rosterOf reads the desktop's remoteDevices answer. */
+export function rosterOf(msg) {
+  const m = msg && typeof msg === "object" ? msg : {};
+  const devices = (Array.isArray(m.devices) ? m.devices : [])
+    .filter((d) => d && typeof d === "object" && typeof d.id === "string" && d.id !== "")
+    .map((d) => ({
+      id: d.id,
+      name: str(d.name),
+      created: str(d.created),
+      lastSeen: str(d.lastSeen),
+      fingerprint: str(d.fingerprint),
+      deskFingerprint: str(d.deskFingerprint),
+      verify: str(d.verify),
+      deskVerify: str(d.deskVerify),
+      role: d.role === "viewer" ? "viewer" : "full",
+      watchPanes: d.watchPanes === true,
+    }));
+  const hosts = (Array.isArray(m.hosts) ? m.hosts : [])
+    .filter((h) => h && typeof h === "object")
+    .map((h) => ({ id: str(h.id), name: str(h.name), online: h.online === true, lastSeen: str(h.lastSeen), self: h.self === true }));
+  return {
+    enabled: m.enabled === true,
+    devices,
+    hosts,
+    current: str(m.current),
+    error: str(m.error),
+    plan: planOf(m.plan),
+  };
+}
+
+/** deviceCodes lists the codes a device row can show: one for each of the
+ *  device's two keys the roster has a code for. */
+export function deviceCodes(d) {
+  const out = [];
+  if (d.fingerprint) out.push({ origin: "usual", label: "Remote app", code: d.fingerprint, state: d.verify });
+  if (d.deskFingerprint) out.push({ origin: "desk", label: "This desktop's page", code: d.deskFingerprint, state: d.deskVerify });
+  return out;
+}
+
+/** verifyText says in words what a verify state is. */
+export function verifyText(state) {
+  if (state === "verified") return "Verified on the desktop";
+  if (state === "changed") return "The key changed since it was verified. Compare the code again";
+  return "Not verified";
+}
+
+/** ACCESS are what a device may be allowed, in the order Access steps through. */
+export const ACCESS = [
+  { role: "full", watch: false, label: "Full access" },
+  { role: "viewer", watch: false, label: "View artifacts only" },
+  { role: "viewer", watch: true, label: "View artifacts and watch panes" },
+];
+
+export function accessIndex(d) {
+  return Math.max(0, ACCESS.findIndex((l) => l.role === d.role && l.watch === d.watchPanes));
+}
+
+/** pairOf reads the desktop's remotePair answer. */
+export function pairOf(msg) {
+  const m = msg && typeof msg === "object" ? msg : {};
+  return {
+    kind: m.kind === "host" ? "host" : "device",
+    code: str(m.code),
+    url: str(m.url),
+    expiresAt: str(m.expiresAt),
+    qr: str(m.qr),
+    error: str(m.error),
+  };
+}
+
+/** pairLive says a pairing link is still good to scan: it has a link and has not
+ *  run out. A link with no expiry is taken as live. */
+export function pairLive(p, now = Date.now()) {
+  if (!p || !p.url) return false;
+  const t = time(p.expiresAt);
+  return !t || t > now;
+}
+
+/** untilText is ", until 14:05" for a pairing link's expiry. */
+export function untilText(when) {
+  const t = time(when);
+  if (!t) return "";
+  const d = new Date(t);
+  return ", until " + two(d.getHours()) + ":" + two(d.getMinutes());
+}
+
+/** leftText says how long a pairing link has left: "4 minutes 12 seconds left",
+ *  or that it has run out. */
+export function leftText(when, now = Date.now()) {
+  const t = time(when);
+  if (!t) return "";
+  const s = Math.ceil((t - now) / 1000);
+  if (s <= 0) return "expired";
+  const m = Math.floor(s / 60);
+  const sec = s % 60;
+  const minutes = m ? m + (m === 1 ? " minute" : " minutes") : "";
+  const seconds = sec || !m ? sec + (sec === 1 ? " second" : " seconds") : "";
+  return [minutes, seconds].filter(Boolean).join(" ") + " left";
+}
+
+/** qrSource is the address an image takes the picture from. */
+export function qrSource(svg) {
+  return svg ? "data:image/svg+xml;charset=utf-8," + encodeURIComponent(svg) : "";
+}
+
+/** outcomeOf reads the desktop's remoteOutcome answer. */
+export function outcomeOf(msg) {
+  const m = msg && typeof msg === "object" ? msg : {};
+  return { action: str(m.action), error: str(m.error), untold: m.untold === true, warning: str(m.warning) };
+}
+
+// The commands. Each returns null for what would not be accepted, so the dialog
+// can say why instead of sending it.
+
+export const POLL_MS = 4000;
+
+export function devicesCommand() {
+  return { cmd: "remoteDevices" };
+}
+
+export function pairCommand(kind) {
+  return { cmd: "remotePair", kind: kind === "host" ? "host" : "device" };
+}
+
+export function enableCommand(d) {
+  const more = !!d.more;
+  return { cmd: "remoteEnable", relay: str(d.relay).trim(), name: str(d.name).trim(), join: more ? str(d.join).trim() : "", invite: more ? str(d.invite).trim() : "" };
+}
+
+/** resumeCommand turns a machine that was turned off back on, to the same account. */
+export function resumeCommand() {
+  return { cmd: "remoteEnable", relay: "", name: "", join: "", invite: "" };
+}
+
+export function moveCommand(d) {
+  const relay = str(d.relay).trim();
+  if (!relay) return null;
+  return { cmd: "remoteMove", relay, invite: str(d.invite).trim(), join: str(d.join).trim() };
+}
+
+export function renameCommand(kind, id, name) {
+  const next = str(name).trim();
+  if (kind === "host") return { cmd: "remoteRename", kind: "host", name: next };
+  return id ? { cmd: "remoteRename", kind: "device", id, name: next } : null;
+}
+
+export function revokeCommand(id) {
+  return id ? { cmd: "remoteRevoke", id } : null;
+}
+
+/** verifyCommand sends the code that was on screen, which the desktop checks
+ *  against the key as it is now, so a key replaced since is not verified by mistake. */
+export function verifyCommand(id, origin, code) {
+  return id && code ? { cmd: "remoteVerify", id, kind: origin === "desk" ? "desk" : "usual", text: code } : null;
+}
+
+export function unverifyCommand(id, origin) {
+  return id ? { cmd: "remoteUnverify", id, kind: origin === "desk" ? "desk" : "usual" } : null;
+}
+
+export function roleCommand(id, level) {
+  return id && level ? { cmd: "setDeviceRole", id, kind: level.role, watch: level.watch } : null;
+}

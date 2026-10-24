@@ -8,6 +8,8 @@
 // ranges before it keeps a value; they are repeated here so the dialog can say
 // why a value was not sent.
 
+import { PUSH_DELAY_MAX, PUSH_DELAY_MIN, pushOf, pushPrefs } from "./attention.js";
+
 /** DEFAULT_FONT is the terminals' font list when none is chosen. */
 export const DEFAULT_FONT = '"Cascadia Mono", "JetBrains Mono", Consolas, "SF Mono", Menlo, monospace';
 
@@ -62,6 +64,8 @@ export function prefsOf(raw) {
     cursorSteady: r.cursorSteady === true,
     screenReader: r.screenReader === true,
     autoReviewDefault: r.autoReviewDefault === true,
+    notificationsOff: r.notificationsOff === true,
+    push: pushOf(r.push),
     dismissedTips: Array.isArray(r.dismissedTips) ? r.dismissedTips.filter((t) => typeof t === "string").length : 0,
   };
 }
@@ -166,7 +170,7 @@ export const WHY = {
  *  the preference as the desktop will keep it, which the window shows at once
  *  and until the desktop's own push arrives. It is null for a value that would
  *  not be kept. */
-export function setting(name, value) {
+export function setting(name, value, current = null) {
   switch (name) {
     case "theme":
       if (!THEMES.some(([v]) => v === value)) return null;
@@ -195,6 +199,21 @@ export function setting(name, value) {
       return { command: { cmd: "screenReader", kind: value ? "on" : "off" }, patch: { screenReader: !!value } };
     case "autoReviewDefault":
       return { command: { cmd: "autoReviewDefault", kind: value ? "on" : "off" }, patch: { autoReviewDefault: !!value } };
+    case "notificationsOff":
+      return { command: { cmd: "notifications", kind: value ? "off" : "on" }, patch: { notificationsOff: !!value } };
+    case "pushOff":
+    case "pushAnonymous":
+    case "pushDelay": {
+      // The push preference is one object on the desktop. The change is made on
+      // what is shown now, and is kept as the desktop will keep it.
+      const now = pushOf(current && current.push);
+      if (name === "pushDelay") {
+        if (!whole(value) || value < PUSH_DELAY_MIN || value > PUSH_DELAY_MAX) return null;
+        return { command: { cmd: "pushDelay", size: value }, patch: { push: pushPrefs({ ...now, delaySeconds: value }) } };
+      }
+      if (name === "pushOff") return { command: { cmd: "pushNotify", kind: value ? "off" : "on" }, patch: { push: pushPrefs({ ...now, off: !!value }) } };
+      return { command: { cmd: "pushAnonymous", kind: value ? "on" : "off" }, patch: { push: pushPrefs({ ...now, anonymous: !!value }) } };
+    }
     case "resetTips":
       return { command: { cmd: "resetTips" }, patch: { dismissedTips: [] } };
     default:

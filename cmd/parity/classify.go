@@ -61,7 +61,6 @@ const (
 	tL1 = "T136 (L1, start flows and pane lifecycle)"
 	tL2 = "T137 (L2, settings)"
 	tL3 = "T138 (L3, help)"
-	tL5 = "T140 (L5, API keys, remote, notifications)"
 	tL6 = "T141 (L6, helpers, baton, projects)"
 	tL8 = "T143 (L8, remaining actions)"
 )
@@ -98,14 +97,10 @@ var keyVerdicts = map[string]Verdict{
 	"agents":                task(tL8, "The list of agents across projects has no task; decide whether the graph's project switch is enough"),
 	"closeFinishedPanes":    task(tL1),
 	"team":                  task(tL8, "The graph is the roster; the task board and messages dialog has no task"),
-	"apiKeys":               task(tL5),
 
 	// Git.
 	"worktrees": task(tC7),
 	"changes":   task(tC6),
-
-	// The window.
-	"remote": task(tL5),
 }
 
 // cmdVerdicts classify every control-socket command the old interface sends
@@ -150,28 +145,6 @@ var cmdVerdicts = map[string]Verdict{
 
 	// L3: help.
 	"helpSeen": task(tL3, "The first-run welcome"),
-
-	// L5: API keys, remote, notifications.
-	"keys":            task(tL5, "The API keys list"),
-	"keySet":          task(tL5),
-	"keyClear":        task(tL5),
-	"remoteDevices":   task(tL5),
-	"remoteEnable":    task(tL5),
-	"remoteDisable":   task(tL5),
-	"remotePair":      task(tL5),
-	"remoteReconnect": task(tL5),
-	"remoteRemove":    task(tL5),
-	"remoteRename":    task(tL5),
-	"remoteRevoke":    task(tL5),
-	"remoteUnverify":  task(tL5),
-	"remoteVerify":    task(tL5),
-	"remoteMove":      task(tL5),
-	"setDeviceRole":   task(tL5),
-	"pushNotify":      task(tL5),
-	"pushAnonymous":   task(tL5),
-	"pushDelay":       task(tL5),
-	"presence":        task(tL5, "Tells the desktop this window is in use, which notifications depend on"),
-	"notifications":   task(tL5),
 
 	// L7: updates, detach, quit.
 

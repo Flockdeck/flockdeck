@@ -2,9 +2,10 @@
 // change to the desktop at once and shows it at once; the desktop keeps it and
 // every window follows.
 //
-// The other sections of the old settings page (the keyboard, API keys, Remote,
-// GitHub, updates and the rest) belong to the tasks that port those features, and
-// are not here.
+// Notifications, API keys and Remote each have a file of their own (Notify.js,
+// ApiKeys.js, Remote.js) and are given what they need in ctx. The other sections of
+// the old settings page (the keyboard, GitHub, updates and the rest) belong to the
+// tasks that port those features, and are not here.
 //
 // The dialog is modal. The keyboard goes to the first section tab when it opens
 // and back to where it was when it closes, Tab stays inside it, and Escape
@@ -13,17 +14,25 @@ import { useEffect, useRef, useState } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
 import { composing, LIST } from "./keys.js";
 import { trapTab } from "./Start.js";
+import { Row, Switch } from "./Controls.js";
+import { Notify } from "./Notify.js";
+import { Keys } from "./ApiKeys.js";
+import { Remote } from "./Remote.js";
 import {
   ACCENTS, CURSORS, FONT_DEFAULT, FONT_MAX, FONT_MIN, FONT_SUGGESTIONS, SCROLLBACK_COUNTS, SCROLLBACK_MAX, SCROLLBACK_MIN,
   THEMES, WHY, fontStack,
 } from "../lib/prefs.js";
 
 /** SECTIONS are the parts of the dialog. */
-export const SECTIONS = [["general", "General"], ["appearance", "Appearance"], ["terminal", "Terminal"]];
+export const SECTIONS = [["general", "General"], ["appearance", "Appearance"], ["terminal", "Terminal"], ["notifications", "Notifications"], ["keys", "API keys"], ["remote", "Remote"]];
 
 /** Settings is the dialog. prefs are the values in use (prefsOf), change(name,
- *  value) sends one change (setting in lib/prefs.js), and onClose closes it. */
-export function Settings({ prefs, change, onClose, section: first = "general" }) {
+ *  value) sends one change (setting in lib/prefs.js), and onClose closes it. ctx is
+ *  what the sections that talk to the desktop need: send, the latest keys, roster,
+ *  pair and outcome answers, the tunnel's status, remote (this window came through
+ *  the relay), copy, news (a notice since the dialog opened) and the notification
+ *  permission with onAsk and the machine's name. */
+export function Settings({ prefs, change, onClose, section: first = "general", ctx = {} }) {
   const [section, setSection] = useState(SECTIONS.some(([id]) => id === first) ? first : "general");
   const rootRef = useRef(null);
   const tabRef = useRef(null);
@@ -76,6 +85,15 @@ export function Settings({ prefs, change, onClose, section: first = "general" })
             ${section === "general" ? html`<${General} prefs=${prefs} change=${change} />` : null}
             ${section === "appearance" ? html`<${Appearance} prefs=${prefs} change=${change} />` : null}
             ${section === "terminal" ? html`<${Terminal} prefs=${prefs} change=${change} />` : null}
+            ${section === "notifications"
+              ? html`<${Notify} prefs=${prefs} change=${change} permission=${ctx.permission || "unsupported"} machine=${ctx.machine || ""} pushError=${ctx.pushError || ""}
+                  onAsk=${ctx.onAsk || (() => {})} />`
+              : null}
+            ${section === "keys" ? html`<${Keys} keys=${ctx.keys || null} remote=${!!ctx.remote} send=${ctx.send} news=${ctx.news || ""} />` : null}
+            ${section === "remote"
+              ? html`<${Remote} status=${ctx.status || null} roster=${ctx.roster || null} pair=${ctx.pair || null} outcome=${ctx.outcome || null} remote=${!!ctx.remote}
+                  send=${ctx.send} copy=${ctx.copy || (() => {})} news=${ctx.news || ""} />`
+              : null}
           </div>
         </div>
         <div class="dialog-foot">
@@ -84,26 +102,6 @@ export function Settings({ prefs, change, onClose, section: first = "general" })
       </div>
     </div>
   `;
-}
-
-/** Row is a setting's name, a line about it, and its control. */
-function Row({ id, label, about, children, error }) {
-  return html`
-    <div class="set-row">
-      <div class="set-text">
-        <div class="set-label" id=${id + "-label"}>${label}</div>
-        ${about ? html`<div class="set-about" id=${id + "-about"}>${about}</div>` : null}
-        ${error ? html`<div class="set-error" role="alert">${error}</div>` : null}
-      </div>
-      <div class="set-control">${children}</div>
-    </div>
-  `;
-}
-
-/** Switch is an on/off control. */
-function Switch({ id, on, onChange, labelledBy }) {
-  return html`<button type="button" role="switch" class=${"set-switch" + (on ? " is-on" : "")} id=${id}
-    aria-checked=${on ? "true" : "false"} aria-labelledby=${labelledBy} onClick=${() => onChange(!on)}><span class="set-knob"></span></button>`;
 }
 
 /** Choice is a row of exclusive options, one in the tab order, moved with the
