@@ -13,11 +13,11 @@ import (
 	"github.com/jmwri/flockdeck/internal/help"
 )
 
-// fixtureSubdir is where the five week-10 graph fixtures live, from the root of
+// fixtureSubdir is where the graph fixtures live, from the root of
 // the repository.
 var fixtureSubdir = filepath.Join("internal", "server", "testdata", "graph-fixtures")
 
-// fixture is one of the five graph messages. raw is the file as it was written,
+// fixture is one of the graph messages. raw is the file as it was written,
 // and is what a graph command is answered with.
 type fixture struct {
 	name string

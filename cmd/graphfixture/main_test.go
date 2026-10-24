@@ -105,7 +105,7 @@ func (c *sock) send(v any) {
 
 func allFixtures(t *testing.T) []string {
 	names, err := fixtureNames(fixtureDir(t))
-	if err != nil || len(names) != 5 {
+	if err != nil || len(names) != 6 {
 		t.Fatalf("fixtures %v, %v", names, err)
 	}
 	return names

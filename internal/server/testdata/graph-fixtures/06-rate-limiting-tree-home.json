@@ -1,0 +1,330 @@
+{
+  "type": "graph",
+  "root": "/work/06-rate-limiting-tree-home",
+  "project": "06-rate-limiting-tree-home",
+  "teams": [
+    {
+      "id": "683601e3",
+      "manager": "683601e3",
+      "members": [
+        "683601e3",
+        "dc608d0f",
+        "4a6766e4",
+        "a45592cb",
+        "9a1d60ea",
+        "02f43567",
+        "5caf410e",
+        "b5377bc4",
+        "d7fa6ec5"
+      ],
+      "goal": "Ship 06-rate-limiting-tree-home",
+      "started": "2026-10-21T07:00:00Z",
+      "spendUSD": 17.5,
+      "caps": [
+        {
+          "pane": "683601e3",
+          "used": 8,
+          "max": 8
+        },
+        {
+          "pane": "dc608d0f",
+          "used": 2,
+          "max": 8
+        }
+      ],
+      "needs": [
+        {
+          "id": "ask:4a6766e4",
+          "kind": "ask",
+          "pane": "4a6766e4",
+          "time": "2026-10-21T08:51:00Z",
+          "text": "T2 came back with \"races on map\". Send it back a third time, or try a different approach?"
+        },
+        {
+          "id": "permission:dc608d0f",
+          "kind": "permission",
+          "pane": "dc608d0f",
+          "time": "2026-10-21T08:58:00Z",
+          "text": "go test ./... -race -count=1"
+        },
+        {
+          "id": "conflict:a45592cb:dc608d0f",
+          "kind": "conflict",
+          "pane": "a45592cb",
+          "other": "dc608d0f",
+          "time": "2026-10-21T08:48:00Z",
+          "text": "cfg/limits.yaml"
+        },
+        {
+          "id": "down:5caf410e",
+          "kind": "down",
+          "pane": "5caf410e",
+          "time": "2026-10-21T08:54:00Z",
+          "text": "exited with code 2"
+        },
+        {
+          "id": "stuck:02f43567",
+          "kind": "stuck",
+          "pane": "02f43567",
+          "time": "2026-10-21T08:48:00Z",
+          "text": "no output for 12m"
+        }
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "pane": "683601e3",
+      "children": [
+        "dc608d0f",
+        "4a6766e4",
+        "a45592cb",
+        "9a1d60ea",
+        "02f43567",
+        "5caf410e"
+      ],
+      "depth": 0,
+      "team": "683601e3",
+      "waitingOn": {
+        "kind": "helpers",
+        "text": "4 helpers are busy",
+        "ref": "dc608d0f"
+      },
+      "kind": "terminal",
+      "name": "manager",
+      "role": "manager",
+      "agent": "claude",
+      "status": "working",
+      "activity": "working",
+      "since": "2026-10-21T08:20:00Z",
+      "branch": "main",
+      "spendUSD": 6.1,
+      "below": 8,
+      "needYou": 4
+    },
+    {
+      "pane": "dc608d0f",
+      "parent": "683601e3",
+      "children": [
+        "b5377bc4",
+        "d7fa6ec5"
+      ],
+      "depth": 1,
+      "team": "683601e3",
+      "waitingOn": {
+        "kind": "user",
+        "text": "go test ./... -race -count=1"
+      },
+      "kind": "terminal",
+      "name": "api",
+      "role": "worker",
+      "agent": "claude",
+      "status": "waiting",
+      "activity": "waiting",
+      "since": "2026-10-21T08:58:00Z",
+      "branch": "work/api",
+      "unread": 1,
+      "spendUSD": 3.82,
+      "below": 2
+    },
+    {
+      "pane": "b5377bc4",
+      "parent": "dc608d0f",
+      "depth": 2,
+      "team": "683601e3",
+      "waitingOn": {
+        "kind": "none"
+      },
+      "kind": "terminal",
+      "name": "tests",
+      "role": "worker",
+      "agent": "claude",
+      "status": "working",
+      "activity": "working",
+      "since": "2026-10-21T08:56:00Z",
+      "live": "Write limiter_test.go",
+      "branch": "work/tests",
+      "spendUSD": 0.73,
+      "undelivered": 1,
+      "lastOutput": "2026-10-21T08:59:00Z"
+    },
+    {
+      "pane": "d7fa6ec5",
+      "parent": "dc608d0f",
+      "depth": 2,
+      "team": "683601e3",
+      "waitingOn": {
+        "kind": "none"
+      },
+      "kind": "terminal",
+      "name": "bench",
+      "role": "worker",
+      "agent": "claude",
+      "status": "working",
+      "activity": "working",
+      "since": "2026-10-21T08:59:00Z",
+      "live": "Bash go test -bench Limiter ./mw",
+      "branch": "work/bench",
+      "spendUSD": 0.3,
+      "lastOutput": "2026-10-21T08:59:00Z"
+    },
+    {
+      "pane": "4a6766e4",
+      "parent": "683601e3",
+      "depth": 1,
+      "team": "683601e3",
+      "waitingOn": {
+        "kind": "user",
+        "text": "T2 came back with \"races on map\". Send it back a third time, or try a different approach?"
+      },
+      "kind": "terminal",
+      "name": "ci",
+      "role": "worker",
+      "agent": "claude",
+      "status": "waiting",
+      "activity": "waiting",
+      "since": "2026-10-21T08:51:00Z",
+      "branch": "work/ci",
+      "spendUSD": 2.4
+    },
+    {
+      "pane": "a45592cb",
+      "parent": "683601e3",
+      "depth": 1,
+      "team": "683601e3",
+      "waitingOn": {
+        "kind": "reviewer",
+        "text": "T1 is in review by reviewer",
+        "ref": "T1"
+      },
+      "kind": "terminal",
+      "name": "cfg",
+      "role": "worker",
+      "agent": "claude",
+      "status": "idle",
+      "activity": "idle",
+      "since": "2026-10-21T08:57:00Z",
+      "branch": "work/cfg",
+      "task": {
+        "id": "T1",
+        "title": "Config flags",
+        "state": "in-review"
+      },
+      "spendUSD": 1.35
+    },
+    {
+      "pane": "9a1d60ea",
+      "parent": "683601e3",
+      "depth": 1,
+      "team": "683601e3",
+      "waitingOn": {
+        "kind": "none"
+      },
+      "kind": "terminal",
+      "name": "rev",
+      "role": "worker",
+      "agent": "claude",
+      "status": "working",
+      "activity": "working",
+      "since": "2026-10-21T08:59:00Z",
+      "live": "Read diff, 2 files",
+      "branch": "work/rev",
+      "spendUSD": 0.9,
+      "lastOutput": "2026-10-21T08:59:00Z"
+    },
+    {
+      "pane": "02f43567",
+      "parent": "683601e3",
+      "depth": 1,
+      "team": "683601e3",
+      "waitingOn": {
+        "kind": "none"
+      },
+      "kind": "terminal",
+      "name": "cdx",
+      "role": "worker",
+      "agent": "codex",
+      "status": "working",
+      "activity": "working",
+      "since": "2026-10-21T08:53:00Z",
+      "live": "Bash go build ./store/...",
+      "branch": "work/cdx",
+      "spendUSD": 1.5,
+      "lastOutput": "2026-10-21T08:48:00Z",
+      "stuck": true
+    },
+    {
+      "pane": "5caf410e",
+      "parent": "683601e3",
+      "depth": 1,
+      "team": "683601e3",
+      "waitingOn": {
+        "kind": "down",
+        "text": "exited",
+        "ref": "5caf410e"
+      },
+      "kind": "terminal",
+      "name": "lint",
+      "role": "worker",
+      "agent": "claude",
+      "status": "exited",
+      "activity": "exited",
+      "since": "2026-10-21T08:54:00Z",
+      "branch": "work/lint",
+      "spendUSD": 0.4
+    }
+  ],
+  "edges": [
+    {
+      "kind": "spawn",
+      "from": "683601e3",
+      "to": "dc608d0f"
+    },
+    {
+      "kind": "spawn",
+      "from": "dc608d0f",
+      "to": "b5377bc4"
+    },
+    {
+      "kind": "spawn",
+      "from": "dc608d0f",
+      "to": "d7fa6ec5"
+    },
+    {
+      "kind": "spawn",
+      "from": "683601e3",
+      "to": "4a6766e4"
+    },
+    {
+      "kind": "spawn",
+      "from": "683601e3",
+      "to": "a45592cb"
+    },
+    {
+      "kind": "spawn",
+      "from": "683601e3",
+      "to": "9a1d60ea"
+    },
+    {
+      "kind": "spawn",
+      "from": "683601e3",
+      "to": "02f43567"
+    },
+    {
+      "kind": "spawn",
+      "from": "683601e3",
+      "to": "5caf410e"
+    },
+    {
+      "kind": "message",
+      "from": "b5377bc4",
+      "to": "dc608d0f",
+      "id": 1,
+      "time": "2026-10-21T08:52:00Z",
+      "text": "I need the signature of Allow before I can finish the table tests.",
+      "delivery": "queued"
+    }
+  ],
+  "solo": [],
+  "soloNeeds": []
+}

@@ -69,7 +69,9 @@
       "status": "working",
       "activity": "working",
       "since": "2026-10-21T08:20:00Z",
-      "branch": "main"
+      "branch": "main",
+      "below": 6,
+      "needYou": 2
     },
     {
       "pane": "6fb40971",

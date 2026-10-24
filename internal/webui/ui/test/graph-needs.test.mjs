@@ -41,6 +41,7 @@ function expectedNeeds(name) {
     else if (/ both change /.test(line)) kind = "conflict";
     else if (/^exited with /.test(reason)) kind = "down";
     else if (/ unread: /.test(reason)) kind = "stale-unread";
+    else if (/^no output for /.test(reason)) kind = "stuck";
     out.push({ kind, panes, reason });
   }
   return out;
@@ -52,6 +53,7 @@ const WORDS = {
   returned: "task returned from review",
   conflict: "files overlap",
   "stale-unread": "has unread mail",
+  stuck: "has gone quiet",
   setup: "needs setting up",
 };
 
@@ -91,17 +93,21 @@ for (const name of names) {
     assert.deepEqual(new Set(badges.map((b) => b[0])), wantPanes, "badges are on exactly the panes that need the person");
     assert.equal(badges.length, wantPanes.size, "one badge per pane");
 
-    assert.equal(rows.length, expected.length, "one row per item");
+    // The strip draws at most MAX_CARDS loud rows and counts the rest; old unread
+    // mail follows them.
+    const quiet = expected.filter((e) => e.kind === "stale-unread").length;
+    const drawn = Math.min(expected.length - quiet, MAX_CARDS) + quiet;
+    assert.equal(rows.length, drawn, "one row per item, up to the cap");
     // The .md lists the needs by their importance to a reader and the graph in its
     // own order, so the rows are matched to the items here, and the order is
     // tested apart, against the message.
     const used = new Set();
     for (const e of expected) {
       const at = rows.findIndex((r, i) => !used.has(i) && r[1] === e.kind && e.panes.includes(r[0]));
-      assert.ok(at >= 0, `no row for ${e.kind} on ${e.panes}`);
-      used.add(at);
-      if (e.kind === "down") assert.match(rows[at][3], /^exited with code \d+$/, "word");
-      else assert.equal(rows[at][3], WORDS[e.kind], "word");
+      if (at < 0) assert.ok(expected.length - quiet > MAX_CARDS, `no row for ${e.kind} on ${e.panes}`);
+      else used.add(at);
+      if (at >= 0 && e.kind === "down") assert.match(rows[at][3], /^exited with code \d+$/, "word");
+      else if (at >= 0) assert.equal(rows[at][3], WORDS[e.kind], "word");
       for (const p of e.panes) {
         const b = badges.find((x) => x[0] === p);
         assert.ok(b, `no badge on ${p}`);
@@ -118,17 +124,19 @@ for (const name of names) {
     const msg = load(name);
     const model = buildGraphModel(msg);
     const rows = rowsOf(draw(msg));
+    // The strip draws the first MAX_CARDS loud items and then the quiet ones.
+    const inStrip = (list) => list.filter((n) => n.kind !== "stale-unread").slice(0, MAX_CARDS).concat(list.filter((n) => n.kind === "stale-unread"));
     assert.deepEqual(
       rows.map((r) => r[0]),
-      model.needs.map((n) => n.pane),
+      inStrip(model.needs).map((n) => n.pane),
     );
     // The graph's order is the message's own lists, in the teams' order and then the solo list.
     const fromMessage = [];
-    for (const t of msg.teams) for (const n of t.needs || []) fromMessage.push(n.pane);
-    for (const n of msg.soloNeeds || []) fromMessage.push(n.pane);
+    for (const t of msg.teams) for (const n of t.needs || []) fromMessage.push(n);
+    for (const n of msg.soloNeeds || []) fromMessage.push(n);
     assert.deepEqual(
       rows.map((r) => r[0]),
-      fromMessage,
+      inStrip(fromMessage).map((n) => n.pane),
     );
   });
 }
