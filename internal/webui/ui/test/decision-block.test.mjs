@@ -218,3 +218,19 @@ test("the block's buttons are not tab stops unless the row is", async () => {
     await a.done();
   }
 });
+
+test("when a block that was pressed goes, the row it was under takes the keyboard", async () => {
+  const gone = [];
+  const a = await mount({ onGone: (p) => gone.push(p), onOpen() {} }, "lint");
+  try {
+    a.container.findAll(".dec-btn")[0].click();
+    assert.deepEqual(gone, []);
+  } finally {
+    await a.done();
+  }
+  assert.deepEqual(gone, ["lint"]);
+  const idle = [];
+  const b = await mount({ onGone: (p) => idle.push(p), onOpen() {} }, "lint");
+  await b.done();
+  assert.deepEqual(idle, [], "a block nobody pressed goes without moving the keyboard");
+});

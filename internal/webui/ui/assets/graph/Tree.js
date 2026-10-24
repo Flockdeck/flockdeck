@@ -9,7 +9,8 @@
 // puts the keyboard back on the row.
 //
 // Every text here came from an agent, a task or a person and is drawn as text.
-import { useEffect, useState } from "../vendor/hooks.mjs";
+import { useEffect, useRef, useState } from "../vendor/hooks.mjs";
+import { Fragment } from "../vendor/preact.mjs";
 import { html } from "../html.js";
 import { composing } from "../shell/keys.js";
 import { focusNode } from "../drawer/state.js";
@@ -17,6 +18,7 @@ import { stateOf } from "./Node.js";
 import { reasonOf, isLoud } from "./Badge.js";
 import { TreeRow, TreeHead } from "./TreeRow.js";
 import { TreeDecisions } from "./TreeDecisions.js";
+import { chipsOf } from "./chips.js";
 
 /** TICK_MS is how often the ages are worked out again. */
 export const TICK_MS = 30000;
@@ -142,6 +144,9 @@ export function doingOf(node, needs) {
 export function Tree({ model, onOpen = null, open = "", decisions = null }) {
   const [now, setNow] = useState(() => Date.now());
   const [focus, setFocus] = useState("");
+  // The two rows a link chip lights while it is hovered or focused.
+  const [lit, setLit] = useState(["", ""]);
+  const ref = useRef(null);
   const rows = rowsOf(model);
   // The ages move only while there is a row to show them on.
   const any = rows.length > 0;
@@ -154,9 +159,18 @@ export function Tree({ model, onOpen = null, open = "", decisions = null }) {
   const stop = rows.some((r) => r.pane === focus) ? focus : rows.length > 0 ? rows[0].pane : "";
   const onKeyDown = (e) => {
     if (e.defaultPrevented || composing(e) || e.ctrlKey || e.altKey || e.shiftKey || e.metaKey) return;
-    const el = e.target && e.target.getAttribute && e.target.getAttribute("role") === "treeitem" ? e.target : null;
+    // The row the key is on: the row itself, or the row a chip of it sits in.
+    let el = null;
+    for (let n = e.target; n && n !== e.currentTarget; n = n.parentNode) {
+      if (n.getAttribute && n.getAttribute("role") === "treeitem") {
+        el = n;
+        break;
+      }
+    }
     if (!el) return;
     const pane = el.getAttribute("data-pane");
+    // Enter and Space on a chip are the chip's own.
+    if ((e.key === "Enter" || e.key === " ") && el !== e.target) return;
     if (e.key === "Enter" || e.key === " ") {
       if (onOpen) {
         e.preventDefault();
@@ -173,16 +187,25 @@ export function Tree({ model, onOpen = null, open = "", decisions = null }) {
     setFocus(to);
     focusNode(e.currentTarget, to);
   };
+  // A link chip takes the keyboard to the row it names; focusing scrolls it into view.
+  const go = (pane) => {
+    setFocus(pane);
+    focusNode(ref.current, pane);
+  };
   if (rows.length === 0) return null;
+  // One agent that leads no team is a lone agent: no header, nothing to fold.
+  const solo = rows.length === 1 && !rows[0].team;
   return html`<div class="tree">
-    <${TreeHead} />
-    <div class="tree-rows" role="tree" aria-label="Agents" onKeyDown=${onKeyDown}>
+    ${solo ? null : html`<${TreeHead} />`}
+    <div class="tree-rows" role="tree" aria-label="Agents" ref=${ref} onKeyDown=${onKeyDown}>
       ${rows.map((r) => {
         const node = model.byPane.get(r.pane);
-        return html`<${TreeRow} key=${r.pane} row=${r} node=${node} needs=${needsOf(model, r.pane)} doing=${doingOf(node, needsOf(model, r.pane))} stop=${stop === r.pane}
+        return html`<${Fragment} key=${r.pane}><${TreeRow} row=${r} node=${node} needs=${needsOf(model, r.pane)} doing=${doingOf(node, needsOf(model, r.pane))} chips=${chipsOf(model, node, needsOf(model, r.pane), now)} lit=${lit[0] === r.pane || lit[1] === r.pane} onLink=${go} onLit=${(a, b) => setLit([a, b])} stop=${stop === r.pane}
           selected=${open === r.pane} age=${ageOf(node.since, now)} cost=${costOf(node, r.team)}
           onFocus=${() => setFocus(r.pane)} onOpen=${onOpen} />
-          ${decisions ? html`<${TreeDecisions} model=${model} pane=${r.pane} open=${open} ctx=${decisions} />` : null}`;
+          ${r.team && r.kids === 0 ? html`<div class="tree-note" role="treeitem" aria-disabled="true" aria-level=${r.depth + 2}>No helpers yet. The manager starts them as it plans.</div>` : null}
+          ${decisions ? html`<${TreeDecisions} model=${model} pane=${r.pane} open=${open} stop=${stop === r.pane} onGone=${go} ctx=${decisions} />` : null}
+        <//>`;
       })}
     </div>
   </div>`;
