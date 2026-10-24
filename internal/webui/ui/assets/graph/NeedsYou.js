@@ -52,18 +52,24 @@ export function rowOf(model, need, now = Date.now()) {
 /**
  * NeedsYou is the strip. model is a graph model. onSelect, when given, is called
  * with a pane id when its row is chosen, so that a window can open that pane; a
- * row for a pane the graph has no node for is not a button.
+ * row for a pane the graph has no node for is not a button. At most max loud
+ * rows (everything but old unread mail) are drawn, in the graph's order, and the
+ * rest are counted; the quiet rows, old unread mail, follow them.
  */
-export function NeedsYou({ model, onSelect }) {
+export function NeedsYou({ model, onSelect, max = Infinity }) {
   const now = Date.now();
-  const rows = model.needs.map((n) => rowOf(model, n, now));
+  const all = model.needs.map((n) => rowOf(model, n, now));
+  const loud = all.filter((r) => r.kind !== "stale-unread");
+  const quiet = all.filter((r) => r.kind === "stale-unread");
+  const rows = loud.slice(0, max).concat(quiet);
   const hidden = model.teams.reduce((sum, t) => sum + t.needsHidden, 0) + model.soloNeedsHidden;
-  if (rows.length === 0 && hidden === 0) {
+  const capped = Math.max(0, loud.length - max);
+  if (all.length === 0 && hidden === 0) {
     return html`<section class="needs" aria-label="Needs you"><p class="needs-none">Nothing needs you.</p></section>`;
   }
   return html`
     <section class="needs" aria-label="Needs you">
-      <h2 class="needs-head">Needs you (${rows.length})</h2>
+      <h2 class="needs-head">Needs you (${all.length + hidden})</h2>
       <ol class="needs-list">
         ${rows.map((r, i) => {
           const body = html`
@@ -76,7 +82,7 @@ export function NeedsYou({ model, onSelect }) {
             </span>
           `;
           return html`
-            <li class=${"needs-row needs-row--" + r.kind} data-pane=${r.pane} data-kind=${r.kind} key=${r.id || i}>
+            <li class=${"needs-row needs-row--" + r.kind + (r.kind === "stale-unread" ? " needs-row--quiet" : "")} data-pane=${r.pane} data-kind=${r.kind} key=${r.id || i}>
               ${onSelect && r.shown
                 ? html`<button type="button" class="needs-pick" onClick=${() => onSelect(r.pane)}>${body}</button>`
                 : html`<div class="needs-pick">${body}</div>`}
@@ -84,6 +90,7 @@ export function NeedsYou({ model, onSelect }) {
           `;
         })}
       </ol>
+      ${capped > 0 ? html`<p class="needs-more">and ${capped} more, marked on the graph</p>` : null}
       ${hidden > 0 ? html`<p class="needs-more">and ${hidden} more not shown</p>` : null}
     </section>
   `;

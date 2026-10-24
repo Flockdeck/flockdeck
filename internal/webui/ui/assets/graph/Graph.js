@@ -12,6 +12,7 @@ import { layoutGraph } from "./layout.js";
 import { Node, clip, waitLine } from "./Node.js";
 import { Badge, isLoud } from "./Badge.js";
 import { NeedsYou } from "./NeedsYou.js";
+import { Teams } from "./Teams.js";
 import { Edges, EdgeDefs, EdgeNotice, countsOf, edgesOf, focusOf } from "./Edges.js";
 import { navOf, onGraphKey } from "./keys.js";
 
@@ -99,13 +100,22 @@ export function Graph({ model, layout = null, onOpen = null, open = "", onStartT
   `;
 }
 
-/** GraphView is the strip of what needs the person above the graph, drawn from one model, so that a new model changes both in the same frame. */
+/** The most Needs you cards in the left column. The rest are counted and marked on the graph. */
+export const MAX_CARDS = 3;
+
+/** GraphView is the left column (what needs the person, the teams) and the graph beside it, drawn from one model, so that a new model changes both in the same frame. */
 export function GraphView({ model, layout = null, onSelect, onOpen = null, open = "", onStartTeam = null }) {
   return html`
     <div class="graph-view">
-      <${GoalLine} model=${model} />
-      <${NeedsYou} model=${model} onSelect=${onSelect} />
-      <${Graph} model=${model} layout=${layout} onOpen=${onOpen} open=${open} onStartTeam=${onStartTeam} />
+      <div class="graph-goal"><${GoalLine} model=${model} /></div>
+      <aside class="graph-side" aria-label="Needs you and teams">
+        <${NeedsYou} model=${model} onSelect=${onSelect} max=${MAX_CARDS} />
+        <${Teams} model=${model} onSelect=${onSelect} />
+        <p class="graph-hint">Esc closes the drawer. Arrow keys move between agents.</p>
+      </aside>
+      <div class="graph-main">
+        <${Graph} model=${model} layout=${layout} onOpen=${onOpen} open=${open} onStartTeam=${onStartTeam} />
+      </div>
     </div>
   `;
 }
