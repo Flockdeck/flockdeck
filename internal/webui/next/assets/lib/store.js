@@ -120,6 +120,8 @@
 //   keys          the latest API keys answer as { items, seq }, or null. An item
 //                 says whether an agent has a key and where it came from, never
 //                 the key.
+//   jevKey        the latest answer about the TypeSafe key as { set, env, seq }:
+//                 whether one is set, never the key.
 //   remoteDevices the latest roster of Flockdeck Remote, remotePair the latest
 //                 pairing link or join code, and remoteOutcome the latest answer
 //                 to turning it on or off, each with a seq like the ones above.
@@ -201,7 +203,7 @@ const HELPER_COMMANDS = ["approveBaton", "helpers", "helperPlan", "helperInstall
  *  refuses them there; the store does not send them. The list of keys and of
  *  devices, pairing a device, renaming and unpairing are not here: a relay window
  *  may do those. A join code is held back by the check in send(). */
-const DESK_SETTINGS = ["keySet", "keyClear", "remoteEnable", "remoteDisable", "remoteRemove", "remoteMove", "remoteVerify", "remoteUnverify", "setDeviceRole"];
+const DESK_SETTINGS = ["keySet", "keyClear", "jevKey", "remoteEnable", "remoteDisable", "remoteRemove", "remoteMove", "remoteVerify", "remoteUnverify", "setDeviceRole"];
 
 const GRAPH_OPS = new Set(["graphSnapshot", "graphWatch", "graphUnwatch"]);
 
@@ -217,7 +219,7 @@ const initial = () => ({
   hello: null, remote: false, state: null,
   graph: null, graphGone: null, graphRefused: false, graphError: null,
   notice: null, versions: null, helpers: null, helperPlan: null, recents: null, browse: null, batonDraft: null, batonSaved: null, batonError: null,
-  approvals: [], detached: false, sent: null, started: null, structured: null, structuredError: null, cancelError: null, answer: null, asking: null, conversation: null, details: {}, search: null, history: null, paneInfo: null, paneMatches: null, keys: null, remoteDevices: null, remotePair: null, remoteOutcome: null, dropped: 0,
+  approvals: [], detached: false, sent: null, started: null, structured: null, structuredError: null, cancelError: null, answer: null, asking: null, conversation: null, details: {}, search: null, history: null, paneInfo: null, paneMatches: null, keys: null, jevKey: null, remoteDevices: null, remotePair: null, remoteOutcome: null, dropped: 0,
 });
 
 /** upsert returns entries with each of the new ones in place of the one with its
@@ -255,6 +257,7 @@ export function createStore(opts) {
   let infoSeq = 0;
   let matchSeq = 0;
   let keysSeq = 0;
+  let jevSeq = 0;
   let rosterSeq = 0;
   let pairSeq = 0;
   let outcomeSeq = 0;
@@ -475,6 +478,9 @@ export function createStore(opts) {
       case "keys":
         set({ keys: { ...msg, seq: ++keysSeq } });
         break;
+      case "jevKey":
+        set({ jevKey: { ...msg, seq: ++jevSeq } });
+        break;
       case "remoteDevices":
         set({ remoteDevices: { ...msg, seq: ++rosterSeq } });
         break;
@@ -573,6 +579,8 @@ export function createStore(opts) {
       if ((snap.remote || !snap.hello) && DESK_ONLY(cmd.cmd)) return false;
       // A code that takes another desktop into the account is made at the desk.
       if ((snap.remote || !snap.hello) && cmd.cmd === "remotePair" && cmd.kind === "host") return false;
+      // Sending terminal output to TypeSafe is switched on at the desk; a relay window may switch it off.
+      if ((snap.remote || !snap.hello) && cmd.cmd === "jevStatus" && cmd.kind === "on") return false;
       if (cmd.cmd === "permissionAnswer" && askedCards.has(cardKey(cmd))) return true;
       const sent = socket.send(cmd);
       if (sent && cmd.cmd === "permissionAnswer") {

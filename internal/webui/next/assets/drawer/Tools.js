@@ -50,13 +50,26 @@ export function useTranscripts(send, ack) {
 /** Tools is the row of buttons and, under them, the question for a request waiting
  *  on an answer. tx is useTranscripts; remote says the window is reached through
  *  the relay; terminal says the pane has a terminal to search. */
-export function Tools({ node, pane = null, tx, remote = false, terminal = true, finding = false, onInfo, onFind }) {
+/** AUTO_REVIEW_WORDS says what the switch does, as its tooltip and its description. */
+export const AUTO_REVIEW_WORDS = "Only a command Flockdeck is confident is read-only is let through without asking; anything else still asks.";
+export const AUTO_REVIEW_SHELL_WORDS = "A shell asks no permission, so there is nothing to auto-approve.";
+
+/** autoReviewCommand turns auto-approval of read-only commands on or off for one pane. */
+export const autoReviewCommand = (id, on) => ({ cmd: "autoReview", id, autoReview: !!on });
+
+export function Tools({ node, pane = null, tx, remote = false, terminal = true, finding = false, onInfo, onFind, send = null }) {
   const can = canTranscribe(node, pane);
   const recording = !!(pane && pane.recording);
   const ask = tx.request && tx.request.pane === node.pane ? tx.request.ask : null;
+  const shell = !!(node.shell || (pane && pane.shell));
+  const review = !!((pane && pane.autoReview) || node.autoReview);
   return html`
     <div class="tools" role="group" aria-label="Find and record">
       ${remote ? null : html`<button type="button" class="drawer-btn tools-info" onClick=${onInfo}>Pane info</button>`}
+      ${send && !shell
+        ? html`<button type="button" class="drawer-btn tools-review" aria-pressed=${review ? "true" : "false"} title=${AUTO_REVIEW_WORDS}
+            onClick=${() => send(autoReviewCommand(node.pane, !review))}>Auto-approve read-only: ${review ? "on" : "off"}</button>`
+        : null}
       ${terminal ? html`<button type="button" class="drawer-btn tools-find" aria-pressed=${finding ? "true" : "false"} onClick=${onFind}>Find in terminal</button>` : null}
       ${can
         ? html`<button type="button" class="drawer-btn tools-record" aria-pressed=${recording ? "true" : "false"} onClick=${() => tx.record(node.pane, !recording)}>
