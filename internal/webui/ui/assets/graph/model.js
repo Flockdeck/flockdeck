@@ -173,6 +173,8 @@ function teamOf(raw, byPane) {
     manager: str(t.manager),
     members: ids(t.members),
     goal: str(t.goal),
+    // The task this team was started for, "" when none.
+    taskId: str(t.taskId),
     started: str(t.started),
     spendUSD: num(t.spendUSD),
     spendPartial: t.spendPartial === true,

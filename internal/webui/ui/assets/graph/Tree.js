@@ -157,15 +157,30 @@ export function needsOf(model, pane) {
   return (model.needsByPane.get(pane) || []).filter((n) => n.pane === pane);
 }
 
-/** doingOf is the line a row shows in "Doing now": the pane's live line, else, for a pane that asks or ended, the reason, else its state. */
-export function doingOf(node, needs) {
-  if (node.live) return node.live;
+/**
+ * doingOf is the line a row shows in "Doing now". A working pane shows its live
+ * line (the tool or activity it is in). A pane that waits shows what it waits on,
+ * one that ended why. An idle pane shows "idle" and how long, never the last thing
+ * it said: that is the row's tooltip (tipOf).
+ */
+export function doingOf(node, needs, now = Date.now()) {
+  const key = stateOf(node).key;
   const ask = (needs || []).find((n) => n.kind !== "stale-unread" && n.kind !== "stuck");
-  if (ask) {
+  if (ask && key !== "working") {
     const r = reasonOf(ask);
     return r.detail ? r.word + ": " + r.detail : r.word;
   }
-  return stateOf(node).word;
+  if (key === "idle") {
+    const age = ageOf(node.since, now);
+    return age && age !== "now" ? "idle " + age : "idle";
+  }
+  if (key === "waiting" || key === "blocked") return (node.waitingOn && node.waitingOn.text) || stateOf(node).word;
+  return (key === "working" && node.live) || stateOf(node).word;
+}
+
+/** tipOf is the row's tooltip for "Doing now": the pane's last line when the column shows something else. */
+export function tipOf(node, doing) {
+  return node.live && node.live !== doing ? node.live : doing;
 }
 
 /** rowNameOf is the label of a row split in two: { role, name }. The role part ("worker · ") is only there when panes share a name; the page shows it where the Role column is gone. */
@@ -249,12 +264,14 @@ export function Tree({ model, onOpen = null, open = "", decisions = null }) {
   const solo = rows.length === 1 && !rows[0].team;
   // With panes that share a name the names are longer (what the pane is on), so the column is wider.
   const shared = rows.some((r) => labelOf(model, r.pane) !== (model.byPane.get(r.pane).name || r.pane));
-  return html`<div class=${"tree" + (shared ? " tree--shared-names" : "")}>
+  const noTask = !rows.some((r) => model.byPane.get(r.pane).task);
+  const noCost = !rows.some((r) => costOf(model.byPane.get(r.pane)));
+  return html`<div class=${"tree" + (shared ? " tree--shared-names" : "") + (noTask ? " tree--no-task" : "") + (noCost ? " tree--no-cost" : "")}>
     ${solo ? null : html`<${TreeHead} />`}
     <div class="tree-rows" role="tree" aria-label="Agents" ref=${ref} onKeyDown=${onKeyDown}>
       ${rows.map((r) => {
         const node = model.byPane.get(r.pane);
-        return html`<${Fragment} key=${r.pane}><${TreeRow} row=${r} node=${node} name=${rowNameOf(model, node).name} nameRole=${rowNameOf(model, node).role} needs=${needsOf(model, r.pane)} doing=${doingOf(node, needsOf(model, r.pane))} chips=${chipsOf(model, node, needsOf(model, r.pane), now)} roll=${r.collapsed ? rollupOf(model, r.pane) : null} onToggle=${toggle} lit=${lit[0] === r.pane || lit[1] === r.pane} onLink=${go} onLit=${(a, b) => setLit([a, b])} stop=${stop === r.pane}
+        return html`<${Fragment} key=${r.pane}><${TreeRow} row=${r} node=${node} name=${rowNameOf(model, node).name} nameRole=${rowNameOf(model, node).role} needs=${needsOf(model, r.pane)} doing=${doingOf(node, needsOf(model, r.pane), now)} tip=${tipOf(node, doingOf(node, needsOf(model, r.pane), now))} chips=${chipsOf(model, node, needsOf(model, r.pane), now)} roll=${r.collapsed ? rollupOf(model, r.pane) : null} onToggle=${toggle} lit=${lit[0] === r.pane || lit[1] === r.pane} onLink=${go} onLit=${(a, b) => setLit([a, b])} stop=${stop === r.pane}
           selected=${open === r.pane} age=${ageOf(node.since, now)} cost=${costOf(node)}
           onFocus=${() => setFocus(r.pane)} onOpen=${onOpen} />
           ${r.team && r.kids === 0 ? html`<div class="tree-note" role="treeitem" aria-disabled="true" aria-level=${r.depth + 2}>No helpers yet. The manager starts them as it plans.</div>` : null}
