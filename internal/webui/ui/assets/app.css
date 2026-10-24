@@ -735,3 +735,9 @@ button { font: inherit; color: inherit; }
 .toast-text { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
 .toast-btn { font: inherit; font-size: 12px; flex: none; }
 .toast-btn--quiet { color: var(--fg-dim); }
+
+/* The activity feed stacks under the team home below 1000 px (see graph/graph.css). */
+@media (max-width: 1000px) {
+  .home-split--feed { grid-template-columns: minmax(0, 1fr); }
+  .feed { border-left: 0; border-top: 1px solid var(--line); min-height: 0; }
+}

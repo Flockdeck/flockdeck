@@ -28,7 +28,7 @@
 // With --shot DIR it also saves a dark screenshot (1440 by 900, or --shot-size WxH)
 // of each fixture's page, as DIR/fixture-NN.png, for a pull request to show before
 // and after. --shot-view NAME chooses a view of the tab strip's switch first, and
-// --shot-open opens the first agent's drawer first, --shot-widen widens the rail, --shot-palette opens the command palette, --shot-team opens the Start a team dialog, and --shot-settings SECTION opens Settings there.
+// --shot-feed pushes changed graphs so the activity feed has entries. --shot-open opens the first agent's drawer first, --shot-widen widens the rail, --shot-palette opens the command palette, --shot-team opens the Start a team dialog, and --shot-settings SECTION opens Settings there.
 //
 //   node scripts/realpage/check.mjs [--out result.json] [--slowdown 1,4] [--repeat 3] [--only N] [--shot DIR]
 //                                   [--allow-config-change] [--ceiling 20]
@@ -58,6 +58,7 @@ const shotOpen = args.includes("--shot-open"); // open the first agent's drawer 
 const shotWiden = args.includes("--shot-widen"); // widen the rail first
 const shotPalette = args.includes("--shot-palette"); // open the command palette first
 const shotTeam = args.includes("--shot-team"); // open the Start a team dialog first
+const shotFeed = args.includes("--shot-feed"); // give the activity feed entries first, by pushing changed graphs
 const shotSettings = opt("shot-settings", ""); // open Settings on this section first
 const LIMIT_MS = 2000;
 const allowConfigChange = args.includes("--allow-config-change");
@@ -328,6 +329,21 @@ const READ = `(() => {
 async function load(browser, url, boxesExpected, rate) {
   const page = await browser.page();
   await page.S("Emulation.setCPUThrottlingRate", { rate });
+  if (shotFeed) {
+    await page.S("Page.addScriptToEvaluateOnNewDocument", {
+      source: `(() => {
+        const Real = window.WebSocket;
+        window.WebSocket = function (url, p) {
+          const ws = new Real(url, p);
+          window.__ws = ws;
+          ws.addEventListener("message", (ev) => { try { const m = JSON.parse(ev.data); if (m.type === "graph") window.__graph = m; } catch { /* not JSON */ } });
+          return ws;
+        };
+        window.WebSocket.prototype = Real.prototype;
+        for (const k of ["CONNECTING", "OPEN", "CLOSING", "CLOSED"]) window.WebSocket[k] = Real[k];
+      })()`,
+    });
+  }
   await page.S("Page.navigate", { url });
   const ok = await page.until(`document.querySelectorAll("g.gnode").length >= ${boxesExpected}`);
   return { page, ok };
@@ -339,6 +355,14 @@ async function screenshot(page, file) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   await page.S("Emulation.setDeviceMetricsOverride", { width: shotSize[0], height: shotSize[1], deviceScaleFactor: 1, mobile: false });
   await page.S("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: "dark" }] });
+  if (shotFeed) {
+    // Three pushes after the first: a question, a helper that ended and a message, then the message read.
+    const push = (edit) => page.eval(`(() => { const g = JSON.parse(JSON.stringify(window.__graph)); (${edit})(g); window.__graph = g; window.__ws.dispatchEvent(new MessageEvent("message", { data: JSON.stringify(g) })); })()`);
+    await push(`(g) => { const h = g.nodes.filter((n) => n.parent); const t = g.teams[0]; if (h[0]) t.needs = (t.needs || []).concat([{ id: "ask:" + h[0].pane, kind: "ask", pane: h[0].pane, time: new Date().toISOString(), text: "which flag store should T2 use?" }]); if (h[1]) h[1].status = "exited"; if (h[1] && h[2]) g.edges.push({ kind: "message", from: h[1].pane, to: h[2].pane, id: 9001, time: new Date().toISOString(), text: "T3 is ready for review", delivery: "queued" }); }`);
+    await sleep(100);
+    await push(`(g) => { for (const e of g.edges) if (e.id === 9001) e.delivery = "read"; const h = g.nodes.filter((n) => n.parent); if (h[3]) h[3].task = { id: "T9", title: "x", state: "in-review" }; }`);
+    await sleep(200);
+  }
   if (shotOpen) await page.eval(`(() => { const g = document.querySelector("g.gnode"); if (g) g.dispatchEvent(new MouseEvent("click", { bubbles: true })); })()`);
   if (shotWiden) await page.eval(`(() => { const b = document.querySelector(".rail-toggle"); if (b) b.click(); })()`);
   if (shotPalette) await page.eval(`document.dispatchEvent(new KeyboardEvent("keydown", { key: "K", code: "KeyK", ctrlKey: true, shiftKey: true, bubbles: true }))`);
