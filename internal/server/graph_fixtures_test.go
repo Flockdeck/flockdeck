@@ -169,7 +169,7 @@ var graphFixtureSpecs = []fxSpec{
 	},
 	{
 		name:        "05-six-helpers-undelivered-message",
-		description: "Six helpers on an onboarding flow. One asks a question. The manager is idle with an unread message from a helper that has waited seven minutes.",
+		description: "Six helpers on an onboarding flow. One asks a question. The manager is idle with an unread message from a helper that has waited forty-five minutes.",
 		helpers: []fxHelper{
 			{name: "forms", state: fxAsk, text: "Make the phone number optional?", since: 6},
 			{name: "copy", state: fxWorking, text: "Edit onboarding/welcome.md", since: 2},
@@ -178,11 +178,11 @@ var graphFixtureSpecs = []fxSpec{
 			{name: "icons", state: fxExited, since: 35},
 			{name: "i18n", state: fxBlocked, task: "Extract the new strings", text: "waiting on the translation vendor's key format", since: 25},
 		},
-		message:     &fxMessage{from: "tests", text: "The sign-up form submits twice on a slow connection. Needs a decision before I write the fix.", minutesAgo: 7},
+		message:     &fxMessage{from: "tests", text: "The sign-up form submits twice on a slow connection. Needs a decision before I write the fix.", minutesAgo: 45},
 		managerIdle: true,
 		expect: []fxExpect{
 			{"forms", "ask", "asks: Make the phone number optional?"},
-			{"manager", "stale-unread", "1 unread: the message from tests has waited seven minutes and the manager is idle"},
+			{"manager", "stale-unread", "1 unread: the message from tests has waited forty-five minutes and the manager is idle"},
 		},
 	},
 }
@@ -253,7 +253,7 @@ func buildGraphFixture(spec fxSpec) graphMsg {
 	if m := spec.message; m != nil {
 		for i := range panes {
 			if panes[i].ID == mgr {
-				panes[i].Unread = 1
+				panes[i].Unread, panes[i].UnreadMail = 1, 1
 				panes[i].UnreadSince = fxNow.Add(-time.Duration(m.minutesAgo) * time.Minute)
 			}
 		}
@@ -342,7 +342,7 @@ func fxAnswerKey(spec fxSpec) string {
 		fmt.Fprintf(&b, "- %s (%s): %s\n", h.name, fxID(spec, h.name), fxOtherState(h))
 	}
 	if m := spec.message; m != nil {
-		fmt.Fprintf(&b, "\n## The message\n\n%s sent the manager a message %d minutes before the graph's time, and it is still queued: the manager has not been shown it, woken for it or read it. The manager is idle and has not read it, so after five minutes it is a stale-unread item for the person. The message edge says `queued`; stage 0a had no delivery field, and the schema now requires one on a message edge.\n", m.from, m.minutesAgo)
+		fmt.Fprintf(&b, "\n## The message\n\n%s sent the manager a message %d minutes before the graph's time, and it is still queued: the manager has not been shown it, woken for it or read it. The manager is idle and has not read it, so after thirty minutes it is a stale-unread item for the person. The message edge says `queued`; stage 0a had no delivery field, and the schema now requires one on a message edge.\n", m.from, m.minutesAgo)
 	}
 	return b.String()
 }
