@@ -133,11 +133,6 @@ var agentTypeAllowed = map[string]map[string]agentTypeAllow{
 		"matchEntryText | transcript.KindReply":  {1, "a transcript entry's kind"},
 		"matchEntryText | transcript.KindTool":   {1, "a transcript entry's kind"},
 	},
-	"internal/server/help.go": {
-		"remoteFiltered | \"detach\"":  {1, "a command word, not an agent type"},
-		"remoteFiltered | \"helpers\"": {1, "a command word, not an agent type"},
-		"remoteFiltered | \"quit\"":    {1, "a command word, not an agent type"},
-	},
 	"internal/server/jevkey.go": {
 		"Server.jevKey | \"clear\"": {1, "the subcommand word of jevKey, not an agent type"},
 		"Server.jevKey | \"set\"":   {1, "the subcommand word of jevKey, not an agent type"},
