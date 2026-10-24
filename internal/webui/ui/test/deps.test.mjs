@@ -130,3 +130,25 @@ test("tasks nobody has, nothing waits on and nothing blocks are one folded group
   assert.deepEqual(open.ready, [], "an idle task is in the group, not counted as ready");
   assert.equal(planOf([T("only", "planned")]).rows.length, 3, "a lone idle task is a group of one");
 });
+
+import { scopeTasks, teamOfTask } from "../assets/graph/deps.js";
+
+test("scopeTasks keeps a team's tasks, what blocks them and what waits on them directly", () => {
+  const list = [
+    T("A", "planned", [], { team: "m1" }), T("B", "planned", ["A"], { team: "m1" }), T("C", "planned", ["B"], { team: "m2" }),
+    T("D", "planned", ["C"], { team: "m2" }), T("E", "planned", [], { team: "m2" }), T("F", "planned", ["E"], { team: "m1" }),
+  ];
+  assert.deepEqual(scopeTasks(list, "m1").map((t) => t.id), ["A", "B", "C", "E", "F"], "own A B F, blocker E of F, dependent C of B; D is two away");
+  assert.deepEqual(scopeTasks(list, "m3"), [], "a team with no tasks has none");
+  assert.equal(scopeTasks(list, ""), list, "no team: everything");
+  const bare = [T("A", "planned"), T("B", "planned", ["A"])];
+  assert.equal(scopeTasks(bare, "m1"), bare, "a push that names no team is not scoped");
+});
+
+test("a task's team is its own field, else the graph team started for it", () => {
+  const m = { ok: true, teams: [{ taskId: "T9", manager: "mgr9" }] };
+  assert.equal(teamOfTask({ id: "T9", team: "" }, m), "mgr9");
+  assert.equal(teamOfTask({ id: "T9", team: "x" }, m), "x");
+  assert.equal(teamOfTask({ id: "T1", team: "" }, m), "");
+  assert.equal(teamOfTask({ id: "T9", team: "" }, null), "");
+});

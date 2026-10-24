@@ -30,6 +30,33 @@ export const isFinished = (t) => FINISHED.has(t.state);
 /** The id of the root of the tree: what the team set out to do. */
 export const GOAL = "GOAL";
 
+/** teamOfTask is the team (its manager's pane id) that runs a task: the task's own `team`, else the graph team whose `taskId` is the task's. "" when none. */
+export function teamOfTask(task, model) {
+  if (task.team) return task.team;
+  const t = model && model.ok ? model.teams.find((x) => x.taskId === task.id) : null;
+  return t ? t.manager : "";
+}
+
+/**
+ * scopeTasks is the tasks of one team: those it runs, every task that blocks one
+ * of them (so the tree is whole) and the tasks that wait on one of them directly.
+ * With no team to scope to, or when the push does not say which team runs any
+ * task, the list is returned as it is.
+ */
+export function scopeTasks(tasks, teamId, model = null) {
+  const list = Array.isArray(tasks) ? tasks : [];
+  if (!teamId || !list.some((t) => teamOfTask(t, model))) return list;
+  const idx = depsOf(list);
+  const keep = new Set(list.filter((t) => teamOfTask(t, model) === teamId).map((t) => t.id));
+  const todo = [...keep];
+  while (todo.length > 0) {
+    for (const d of idx.dep.get(todo.pop()) || []) if (!keep.has(d)) { keep.add(d); todo.push(d); }
+  }
+  const own = new Set(keep);
+  for (const [id, deps] of idx.dep) if (deps.some((d) => own.has(d))) keep.add(id);
+  return list.filter((t) => keep.has(t.id));
+}
+
 /** The id of the group of tasks nothing waits on, nothing blocks and nobody has: one row, folded until asked for. */
 export const IDLE = "IDLE";
 

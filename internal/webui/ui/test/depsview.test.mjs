@@ -148,3 +148,14 @@ test("sixty tasks: the idle ones are one row until opened, and a chain of one ha
     m.done();
   }
 });
+
+test("with teams named on the tasks, the view shows the open team's tasks and the manager as owner", () => {
+  const list = [T("T1", "assigned", [], { team: "mgr", ownerPane: "api" }), T("T2", "planned", ["T1"], { team: "mgr" }), T("X1", "assigned", [], { team: "other", ownerPane: "ci" })];
+  const out = renderToString(html`<${Deps} team=${push(list)} model=${model(plain)} />`);
+  assert.ok(out.includes("title T1") && out.includes("title T2"));
+  assert.ok(!out.includes("title X1"), "another team's task is not in the tree");
+  assert.ok(out.includes('data-open="mgr"'), "the manager of the team is the owner of its tasks");
+  assert.ok(!out.includes('data-open="api"'), "not the pane the task was given to");
+  const bare = renderToString(html`<${Deps} team=${push(list.map(({ team, ...t }) => t))} model=${model(plain)} />`);
+  assert.ok(bare.includes("title X1"), "a push with no team named is not scoped");
+});
