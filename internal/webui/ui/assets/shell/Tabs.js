@@ -31,7 +31,7 @@ export const CLOSE_WAITING_WORDS = "An agent in this tab is waiting for your ans
 /** Tabs draws the strip. tabs are from tabsOf; send is the store's; onChoose
  *  opens the start dialog for a tab on a chosen agent. With show false (the
  *  window is on a project that is not the desk's) there is only the note. */
-export function Tabs({ tabs, send, onChoose, onHistory = null, onFind = null, view = "graph", onView = null, warnFor, show = true }) {
+export function Tabs({ tabs, send, onChoose, onHistory = null, onFind = null, view = "graph", onView = null, needs = null, warnFor, show = true }) {
   const [renaming, setRenaming] = useState("");
   const [closing, setClosing] = useState(null);
   const [stop, setStop] = useState("");
@@ -99,7 +99,7 @@ export function Tabs({ tabs, send, onChoose, onHistory = null, onFind = null, vi
                 refocus.current = t.id;
                 setRenaming("");
               }} />`
-            : html`<${TabItem} key=${t.id} tab=${t} stop=${t.id === stopId} onFocus=${() => setStop(t.id)} onSelect=${() => send({ cmd: "selectTab", id: t.id })}
+            : html`<${TabItem} key=${t.id} tab=${t} stop=${t.id === stopId} needs=${needs ? needs[t.id] || 0 : 0} onFocus=${() => setStop(t.id)} onSelect=${() => send({ cmd: "selectTab", id: t.id })}
                 onRename=${() => setRenaming(t.id)}
                 onClose=${() => askClose(t)} />`)}
       </ul>
@@ -183,15 +183,16 @@ function PlusMenu({ children }) {
   `;
 }
 
-function TabItem({ tab, stop, onFocus, onSelect, onRename, onClose }) {
+function TabItem({ tab, stop, needs = 0, onFocus, onSelect, onRename, onClose }) {
   const cls = "tab" + (tab.active ? " is-active" : "") + (tab.activity ? " tab--" + tab.activity : "");
-  const label = (tab.title || "Untitled") + (tab.activity ? ", " + tab.activity : "");
+  const label = (tab.title || "Untitled") + (tab.activity ? ", " + tab.activity : "") + (needs > 0 ? ", " + needs + (needs === 1 ? " needs" : " need") + " you" : "");
   return html`
     <li class=${cls} role="presentation" data-tab=${tab.id}>
       <button type="button" class="tab-pick" role="tab" aria-selected=${tab.active ? "true" : "false"} aria-label=${label} title=${tab.title}
         tabindex=${stop ? "0" : "-1"} onFocus=${onFocus} onClick=${onSelect} onDblClick=${onRename}>
         <span class="tab-title">${tab.title || "Untitled"}</span>
         ${tab.activity ? html`<span class=${"badge badge--" + tab.activity} aria-hidden="true">${tab.activity}</span>` : null}
+        ${needs > 0 ? html`<span class="badge badge--waiting tab-needs" aria-hidden="true">${needs}</span>` : null}
       </button>
       <button type="button" class="tab-close" aria-label=${"Close tab " + (tab.title || "Untitled")} onClick=${onClose}>×</button>
     </li>

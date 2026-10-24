@@ -72,7 +72,7 @@ test("a sent edge is dotted, says sent, and is never drawn as read", () => {
   assert.ok(!svg.includes("gedge--undelivered"));
 });
 
-test("waiting-on: to a helper that is a pane, a tag where the holder is not a pane, none for none or down", () => {
+test("waiting-on: a line to a helper that is a pane, none for a person, a reviewer, a task, none or down", () => {
   const m = graph([
     node("m", { waitingOn: { kind: "helpers", text: "1 helper is busy", ref: "h" } }),
     node("h"),
@@ -85,16 +85,8 @@ test("waiting-on: to a helper that is a pane, a tag where the holder is not a pa
   ]);
   const e = edges(m);
   assert.deepEqual(e.waiting.map((x) => [x.from, x.to]), [["m", "h"]]);
-  assert.deepEqual(
-    e.tags.map((t) => [t.pane, t.word]),
-    [
-      ["u", "waiting on you"],
-      ["r", "waiting on a reviewer"],
-      ["t", "waiting on a task"],
-      ["lost", "waiting on a helper"],
-    ],
-  );
-  assert.equal(e.waiting.length + e.tags.length, 5, "down, none and an unknown kind draw nothing");
+  assert.equal(e.waiting.length, 1, "only a holder that is a pane of the graph has a line; the box says the rest");
+  assert.equal(Object.prototype.hasOwnProperty.call(e, "tags"), false);
 });
 
 test("no edge is drawn to or from a pane that is not a node, and none from a pane to itself", () => {
@@ -132,15 +124,6 @@ test("edges follow the boxes when the layout changes", () => {
     };
     assert.ok(onEdge(a, sx, sy), `starts on a's box (${sx},${sy})`);
     assert.ok(onEdge(b, ex, ey), `ends on b's box (${ex},${ey})`);
-  }
-  // A tag hangs from the bottom of its box, wherever the box is.
-  const t = graph([node("a", { waitingOn: { kind: "user", text: "q" } })]);
-  const tm = buildGraphModel(t);
-  for (const opts of [{}, { nodeH: 200 }]) {
-    const lay = layoutGraph(tm, opts);
-    const tag = edgesOf(tm, lay).tags[0];
-    const box = lay.byPane.get("a");
-    assert.equal(tag.y, box.y + box.h);
   }
 });
 
@@ -205,7 +188,7 @@ test("text from an agent is drawn as text on an edge", () => {
 });
 
 test("an empty or unreadable model has no edges", () => {
-  assert.deepEqual(edgesOf(null, null), { waiting: [], tags: [], message: [], sent: [], notices: [] });
+  assert.deepEqual(edgesOf(null, null), { waiting: [], message: [], sent: [], notices: [] });
   const model = buildGraphModel({});
   assert.equal(edgesOf(model, layoutGraph(model)).message.length, 0);
 });
@@ -241,7 +224,7 @@ test("the graph's cap is the server's, and the default draws 40", () => {
 test("the line styles: sent dotted, waiting-on dashed, a queued message amber", () => {
   assert.match(rule(".gedge--sent path"), /stroke-dasharray:\s*1 5/);
   assert.match(rule(".gedge--sent path"), /stroke-linecap:\s*round/);
-  assert.match(rule(".gedge--waiting path,\n.gedge--tag path"), /stroke-dasharray:\s*6 3/);
+  assert.match(rule(".gedge--waiting path"), /stroke-dasharray:\s*6 3/);
   assert.match(rule(".gedge--undelivered path"), /stroke:\s*var\(--waiting\)/);
   assert.match(rule(".gedge-head--amber"), /fill:\s*var\(--waiting\)/);
   // A message edge by itself is solid.
@@ -268,14 +251,6 @@ test("the waiting-on edge's title carries the graph's own text", () => {
   const m = graph([node("m", { waitingOn: { kind: "helpers", text: "3 helpers are busy", ref: "h" } }), node("h")]);
   const svg = draw(m);
   assert.match(svg, /<title>waiting on a helper: 3 helpers are busy<\/title>/);
-});
-
-test("a tag's position is rounded", () => {
-  const model = buildGraphModel(graph([node("a", { waitingOn: { kind: "user", text: "q" } })]));
-  const lay = layoutGraph(model, { nodeW: 200.123456, pad: 16.987654 });
-  const t = edgesOf(model, lay).tags[0];
-  assert.equal(t.x, Math.round(t.x * 10) / 10);
-  assert.equal(t.y, Math.round(t.y * 10) / 10);
 });
 
 // ------------------------------------------------------------ the stylesheets are well formed
