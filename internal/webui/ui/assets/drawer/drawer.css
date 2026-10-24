@@ -396,3 +396,8 @@
 .drawer-btn.drawer-more[aria-expanded="true"] { background: var(--accent-subtle); border-color: var(--accent-line); }
 
 .drawer-message { padding: 8px 12px; border-top: 1px solid var(--line); }
+
+/* A helper's name in a reply: a chip that opens that agent. */
+.conv-chip { font: inherit; font-size: 0.95em; padding: 0 6px; border: 1px solid var(--accent-line); border-radius: 10px; background: var(--accent-subtle); color: var(--fg); cursor: pointer; }
+.conv-chip:hover { border-color: var(--accent); }
+.conv-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
