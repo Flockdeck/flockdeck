@@ -486,7 +486,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
         onRestart: snap.remote ? null : (p) => { const n = current.byPane.get(p); if (n) life.begin("restart", n, (statePanes || {})[p] || null); },
       }
     : null;
-  const bar = current && !snap.graphGone
+  const bar = current && !snap.graphGone && managerOf(current)
     ? html`<${ManagerBar} snap=${snap} manager=${managerOf(current)} send=${(c) => store.send(c)} inputRef=${barRef} lead=${true} />`
     : null;
 
