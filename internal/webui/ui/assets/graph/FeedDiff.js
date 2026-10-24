@@ -29,11 +29,12 @@ const NEED_LINES = {
   conflict: (who, text, other) => who + " and " + (other || "another pane") + " both change " + (text || "the same file"),
   down: (who) => who + " ended",
   setup: (who) => who + " needs setting up",
+  spend: (who, text) => "The team is near its spend limit" + (text ? ": " + text : ""),
   "stale-unread": (who) => who + " has unread mail and is idle",
   stuck: (who) => who + " is working but has written nothing for a while",
 };
 
-const NEED_FEED_KIND = { permission: "need", ask: "need", returned: "need", conflict: "need", setup: "need", down: "down", stuck: "warn", "stale-unread": "warn" };
+const NEED_FEED_KIND = { permission: "need", ask: "need", returned: "need", conflict: "need", setup: "need", spend: "warn", down: "down", stuck: "warn", "stale-unread": "warn" };
 
 // How far a message has got, as the feed says it. Only a step forward is news.
 const DELIVERY_LINES = {
