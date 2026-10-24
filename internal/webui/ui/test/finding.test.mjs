@@ -23,6 +23,11 @@ import { createDom, install, settle } from "./dom.mjs";
 import { FakeWebSocket, harness, hello } from "./fakes.mjs";
 import { PtySocket, FakeTerm, FakeFit, FakeObserver, FakeHost, fakeStore, paneState, waitFor } from "./termfakes.mjs";
 
+// openPlus opens the tab strip's "+" menu, where the tab actions are.
+const openPlus = async (m) => {
+  if (!m.container.find(".tabs-menu")) await m.click(m.container.find(".tabs-plus"));
+};
+
 const here = dirname(fileURLToPath(import.meta.url));
 const fixtureFile = join(here, "..", "..", "..", "server", "testdata", "graph-fixtures", "01-six-helpers-one-permission.json");
 
@@ -402,6 +407,7 @@ test("Resume is also a button on the tab strip", () =>
   withPage({}, async (m) => {
     await m.connect();
     m.clear();
+    await openPlus(m);
     await m.click(m.byText(".tabs-btn", /^Resume…$/));
     assert.ok(dialog(m));
     assert.equal(m.sent("conversations").length, 1);
@@ -421,9 +427,9 @@ test("a listing read before the dialog opened is not drawn in it", () =>
 test("the field narrows the list to the words typed, Escape empties it first and then closes, and the keyboard goes back", () =>
   withPage({}, async (m) => {
     await m.connect();
-    const opener = m.container.find(".tabs-history");
-    opener.focus();
-    await m.click(opener);
+    await openPlus(m);
+    const opener = m.container.find(".tabs-plus");
+    await m.click(m.container.find(".tabs-history"));
     await m.push(CONVERSATIONS);
     const field = m.container.find("#history-filter");
     assert.equal(m.dom.document.activeElement, field, "the keyboard starts in the field");
@@ -648,6 +654,7 @@ test("Find pane asks as the words change, shows only the answer to what is in th
 test("choosing a found pane reveals it on the desktop and opens it in the drawer", () =>
   withPage({}, async (m) => {
     await m.connect();
+    await openPlus(m);
     await m.click(m.byText(".tabs-btn", /^Find pane…$/));
     await m.push(FOUND(""));
     m.clear();
