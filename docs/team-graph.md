@@ -374,6 +374,17 @@ session.
   conversation that some window has already opened; for any other pane it returns
   no matches.
 
+### The task panel
+
+The drawer's task chip opens a panel that shows the task a pane works on. On the
+desktop window it sends `taskGet` (see section 1) and draws the title, state,
+owner, branch, creator, last change, text and notes of the `teamResult` that
+answers it. The notes are drawn 20 at a time. All of it is drawn as text. The
+panel's "Go to pane" button opens the owner's pane when it is open and is not the
+pane already shown. A window reached through the relay sends no `taskGet`, since
+task text is not sent there, and shows only the chip's id, title and state. The
+task data has no dependencies, so the panel shows none.
+
 ## 8. Limits and throttling
 
 | What | Limit |
