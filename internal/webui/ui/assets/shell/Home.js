@@ -20,6 +20,8 @@ import { buildGraphModel } from "../graph/model.js";
 import { GraphView } from "../graph/Graph.js";
 import { GraphList, RosterList } from "../graph/List.js";
 import { clip } from "../graph/Node.js";
+import { OverlapBar } from "../graph/OverlapBar.js";
+import { managerOf } from "../graph/ManagerBar.js";
 
 /** usable says a graph push can be drawn: it is a graph, and its lists are lists. */
 export function usable(g) {
@@ -62,7 +64,7 @@ function Line({ children, kind }) {
  * the page can open a drawer for a node of it; onOpen and open are the graph's
  * (a click or key on a box, and the pane whose drawer is open).
  */
-export function Home({ snap, selected, onShown, onOpen = null, open = "", narrow = false }) {
+export function Home({ snap, selected, onShown, onOpen = null, open = "", narrow = false, send = null, onSeeChanges = null }) {
   const last = useRef(null); // { root, model } of the last graph push that could be drawn
   const g = snap.graph;
   const model = useMemo(() => (usable(g) ? buildGraphModel(g) : null), [g]);
@@ -117,6 +119,7 @@ export function Home({ snap, selected, onShown, onOpen = null, open = "", narrow
   return html`<div class="home home--graph">
     ${snap.connection !== "open" ? html`<${Line} kind="stale">Out of date. Reconnecting.<//>` : null}
     ${snap.graphError ? html`<${Line} kind="error">The team graph could not be updated: ${clip(snap.graphError.error || "the desktop gave no reason", 200)}<//>` : null}
+    ${send ? html`<${OverlapBar} model=${shown} manager=${managerOf(shown)} send=${send} onSee=${onSeeChanges} />` : null}
     ${narrow
       ? html`<${GraphList} model=${shown} onOpen=${onOpen} open=${open} />`
       : html`<${GraphView} model=${shown} onOpen=${onOpen} onSelect=${onOpen ? (pane) => onOpen(pane, "strip") : undefined} open=${open} />`}
