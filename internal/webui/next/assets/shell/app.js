@@ -151,7 +151,7 @@ export function useNarrow(matchMedia, override) {
  *  to a box in it. window is the page's, passed in for a test. helpLoad fetches
  *  the help pages (lib/help.js); the default asks the page's own address. blocked
  *  says a view's modal dialog is open, and no key then reaches an action. */
-export function Shell({ hello, state, notice, onDismissNotice, onWatch, narrow: narrowProp, matchMedia, top, children, drawer, maximised = false, mainRef, window: win, actions = NO_ACTIONS, blocked = false, onSettings, helpLoad }) {
+export function Shell({ hello, state, notice, onDismissNotice, onWatch, narrow: narrowProp, matchMedia, top, children, drawer, maximised = false, mainRef, window: win, actions = NO_ACTIONS, blocked = false, onSettings, helpLoad, railFoot = null }) {
   const keys = keysOf(hello);
   const bindings = useMemo(() => bindingsFrom(keys), [keys]);
   const broken = useMemo(() => unreadable(keys), [keys]);
@@ -236,6 +236,7 @@ export function Shell({ hello, state, notice, onDismissNotice, onWatch, narrow: 
         onToggle=${() => dispatch({ type: "action", id: "toggleRail" })}
         onSettings=${onSettings}
         railRef=${regions.rail}
+        foot=${railFoot}
       />
       <header class="top" aria-label="Manager">
         ${top || html`<span class="top-title">${current ? current.name : "Flockdeck"}</span>`}
