@@ -61,7 +61,7 @@ export function questionOptions(pane) {
  * command), both "" when there is nothing to say. A text that was replaced
  * before it left the desk is not shown, and the block says it is on the desktop.
  */
-export function decisionOf(model, need, now = Date.now()) {
+export function decisionOf(model, need, now = Date.now(), card = null) {
   const who = nameOf(model, need.pane);
   const other = need.other ? nameOf(model, need.other) : "";
   const text = need.textHidden ? "" : String(need.text || "");
@@ -77,17 +77,36 @@ export function decisionOf(model, need, now = Date.now()) {
     tone: need.kind === "down" ? "down" : "waiting",
   };
   if (need.kind === "permission") {
-    out.line = "asks to run";
-    out.command = text;
+    // A structured card can be a file edit with no command: say "run" only for a command.
+    const command = card ? String(card.command || "") : text;
+    out.command = command;
+    out.line = command ? "asks to run" : (card && firstLine(card.summary)) || "asks permission";
   } else if (need.kind === "ask") {
     out.line = firstLine(text) || "asks a question";
   } else if (need.kind === "conflict") {
-    out.line = who + (other ? " and " + other : "") + " both change " + (firstLine(text) || "the same files") + ". They are on separate worktrees, so the clash shows up at merge.";
+    out.who2 = other;
+    out.line = " both change " + (firstLine(text) || "the same files") + ". They are on separate worktrees, so the clash shows up at merge.";
   } else if (need.kind === "down") {
     out.line = firstLine(text) || "is down";
   }
   if (need.textHidden) out.line = need.kind === "conflict" ? out.line : DETAILS_ON_DESKTOP_WORDS;
   return out;
+}
+
+/** useAsk is a one-shot send to a pane: state is "", "sent" or "failed", and a second call before the redraw does nothing. */
+function useAsk(ctx) {
+  const [state, setState] = useState("");
+  const done = useRef(false);
+  const send = (pane, text) => {
+    if (done.current) return;
+    if (ctx.store && ctx.store.send({ cmd: "paneSend", id: pane, text })) {
+      done.current = true;
+      setState("sent");
+    } else {
+      setState("failed");
+    }
+  };
+  return [state, send];
 }
 
 function Buttons({ children }) {
@@ -104,7 +123,7 @@ function Permission({ model, need, ctx }) {
   return null;
 }
 
-function Question({ need, ctx, options }) {
+function Question({ need, ctx, options, tail }) {
   const [sent, setSent] = useState("");
   const [note, setNote] = useState("");
   // Set at the click: a second click before the card is drawn again finds it answered.
@@ -121,22 +140,35 @@ function Question({ need, ctx, options }) {
   };
   if (options.length === 0) return null;
   return html`<${Buttons}>
-      ${options.map((label, i) => html`<button type="button" class=${"dec-btn" + (i === 0 ? " dec-btn--primary" : "")} data-option=${label} disabled=${!!sent} onClick=${() => pick(label)}>${clip(label, 60)}</button>`)}
+      ${options.map((label, i) => html`<button type="button" class=${"dec-btn" + (i === 0 ? " dec-btn--primary" : "")} data-option=${label} disabled=${!!sent} onClick=${() => pick(label)}>${clip(label, 60)}</button>`)}${tail}
     <//>
     <p class=${"dec-status" + (note ? " dec-status--error" : "")} role=${note ? "alert" : "status"}>${sent ? "Sent “" + clip(sent, 60) + "”. Waiting for the agent." : note}</p>`;
 }
 
 function Conflict({ model, need, ctx }) {
-  const [state, setState] = useState("");
+  const [state, send] = useAsk(ctx);
   const manager = ctx.manager || null;
   const ask = () => {
-    if (!manager || state === "sent") return;
-    const text = askText({ who: nameOf(model, need.pane) + " and " + nameOf(model, need.other), files: String(need.text || "") });
-    setState(ctx.store && ctx.store.send({ cmd: "paneSend", id: manager.pane, text }) ? "sent" : "failed");
+    if (!manager) return;
+    send(manager.pane, askText({ who: nameOf(model, need.pane) + " and " + nameOf(model, need.other), files: String(need.text || "") }));
   };
   return html`<${Buttons}>
       <button type="button" class="dec-btn dec-btn--primary" disabled=${!manager || state === "sent"} title=${manager ? "" : NO_MANAGER_WORDS} onClick=${ask}>${state === "sent" ? "Manager asked" : "Ask mgr to sort it out"}</button>
       ${ctx.onSee ? html`<button type="button" class="dec-btn" onClick=${() => ctx.onSee(need.pane)}>See in Review</button>` : null}
+    <//>
+    ${state === "failed" ? html`<p class="dec-status dec-status--error" role="alert">${NOT_CONNECTED_WORDS}</p>` : null}`;
+}
+
+function Down({ need, who, ctx }) {
+  const [state, send] = useAsk(ctx);
+  const manager = ctx.manager || null;
+  const reassign = manager && need.task
+    ? html`<button type="button" class="dec-btn" disabled=${state === "sent"} onClick=${() => send(manager.pane, "Please reassign " + need.task + ": " + who + " is down.")}>${state === "sent" ? "Manager asked" : "Ask mgr to reassign " + need.task}</button>`
+    : null;
+  const terminal = ctx.onOpen ? html`<button type="button" class="dec-btn dec-btn--ghost" onClick=${() => ctx.onOpen(need.pane)}>See terminal</button>` : null;
+  return html`<${Buttons}>
+      ${ctx.onRestart ? html`<button type="button" class="dec-btn dec-btn--primary" onClick=${() => ctx.onRestart(need.pane)}>Restart</button>` : null}
+      ${reassign}${terminal}
     <//>
     ${state === "failed" ? html`<p class="dec-status dec-status--error" role="alert">${NOT_CONNECTED_WORDS}</p>` : null}`;
 }
@@ -146,28 +178,29 @@ function Conflict({ model, need, ctx }) {
  * (see decisionsOf), ctx as in the head of this file.
  */
 export function DecisionBlock({ model, need, ctx = {} }) {
-  const d = decisionOf(model, need, ctx.now || Date.now());
-  const open = ctx.onOpen && need.kind !== "conflict" ? html`<button type="button" class="dec-btn dec-btn--ghost" onClick=${() => ctx.onOpen(need.pane)}>Open ${clip(d.who, 20)}</button>` : null;
-  const reassign = ctx.manager && need.task ? html`<button type="button" class="dec-btn" onClick=${() => ctx.store && ctx.store.send({ cmd: "paneSend", id: ctx.manager.pane, text: "Please reassign " + need.task + ": " + d.who + " is down." })}>Ask mgr to reassign ${need.task}</button>` : null;
-  const terminal = ctx.onOpen ? html`<button type="button" class="dec-btn dec-btn--ghost" onClick=${() => ctx.onOpen(need.pane)}>See terminal</button>` : null;
+  const structuredCard = need.kind === "permission" && ctx.snap && ctx.snap.structured && ctx.snap.structured.id === need.pane && ctx.snap.structured.card;
+  const d = decisionOf(model, need, ctx.now || Date.now(), structuredCard || null);
+  const open = ctx.onOpen && need.kind !== "conflict" && need.kind !== "down" ? html`<button type="button" class="dec-btn dec-btn--ghost" onClick=${() => ctx.onOpen(need.pane)}>Open ${clip(d.who, 20)}</button>` : null;
+  const hasOptions = questionOptions(ctx.panes && ctx.panes.get(need.pane)).length > 0;
   let body = null;
   if (need.kind === "permission") body = html`<${Permission} model=${model} need=${need} ctx=${ctx} />`;
-  else if (need.kind === "ask") body = html`<${Question} need=${need} ctx=${ctx} options=${questionOptions(ctx.panes && ctx.panes.get(need.pane))} />`;
+  else if (need.kind === "ask") body = html`<${Question} need=${need} ctx=${ctx} options=${questionOptions(ctx.panes && ctx.panes.get(need.pane))} tail=${open} />`;
   else if (need.kind === "conflict") body = html`<${Conflict} model=${model} need=${need} ctx=${ctx} />`;
-  const structuredCard = need.kind === "permission" && ctx.snap && ctx.snap.structured && ctx.snap.structured.id === need.pane && ctx.snap.structured.card;
+  else if (need.kind === "down") body = html`<${Down} need=${need} who=${d.who} ctx=${ctx} />`;
+  const age = need.kind === "down" ? d.age + " ago" : need.kind === "conflict" ? d.age : "waiting " + d.age;
   return html`<section class=${"ask dec dec--" + d.tone} role="group" aria-label=${d.head + " for " + d.who} data-decision=${need.kind} data-pane=${need.pane}>
     <header class="dec-head">
       <svg class="dec-icon" width="16" height="16" viewBox="-10 -10 20 20" aria-hidden="true"><${Icon} kind=${need.kind} x=${0} y=${0} /></svg>
       <span class="dec-kind">${d.head}</span>
-      ${d.age ? html`<span class="dec-age">${need.kind === "down" ? d.age + " ago" : "waiting " + d.age}</span>` : null}
+      ${d.age ? html`<span class="dec-age">${age}</span>` : null}
     </header>
-    <p class="dec-line">${need.kind === "conflict" ? null : html`<span class="dec-who">${d.who}</span>${d.task ? html` <span class="dec-task">${d.task}</span>` : null} `}${d.line}</p>
+    <p class="dec-line">${need.kind === "conflict"
+      ? html`<b>${d.who}</b>${d.who2 ? html` and <b>${d.who2}</b>` : null}`
+      : html`<span class="dec-who">${d.who}</span>${d.task ? html` <span class="dec-task">${d.task}</span>` : null} `}${d.line}</p>
     ${d.command && !structuredCard ? html`<pre class="dec-command" aria-label="Command">${clip(d.command, 600)}</pre>` : null}
     ${need.kind === "permission" && !structuredCard ? html`<p class="dec-more">${TERMINAL_WORDS}</p>` : null}
     ${body}
-    ${need.kind === "down" && ctx.onRestart
-      ? html`<${Buttons}><button type="button" class="dec-btn dec-btn--primary" onClick=${() => ctx.onRestart(need.pane)}>Restart</button>${reassign}${terminal}<//>`
-      : open ? html`<${Buttons}>${open}<//>` : null}
+    ${(need.kind === "permission" || (need.kind === "ask" && !hasOptions)) && open ? html`<${Buttons}>${open}<//>` : null}
   </section>`;
 }
 
@@ -175,5 +208,5 @@ export function DecisionBlock({ model, need, ctx = {} }) {
 export function Decisions({ model, pane, ctx = {}, skip = [] }) {
   const items = decisionsOf(model, pane).filter((n) => !skip.includes(n.kind));
   if (items.length === 0) return null;
-  return html`<div class="decs">${items.map((n) => html`<${DecisionBlock} key=${n.id || n.kind + n.pane} model=${model} need=${n} ctx=${ctx} />`)}</div>`;
+  return html`<div class="decs-box"><div class="decs">${items.map((n) => html`<${DecisionBlock} key=${n.id || n.kind + n.pane} model=${model} need=${n} ctx=${ctx} />`)}</div></div>`;
 }

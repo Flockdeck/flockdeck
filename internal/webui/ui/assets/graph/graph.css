@@ -609,6 +609,7 @@
 }
 
 /* Decision blocks: what a row of the outline puts under itself when its agent needs the person. */
+.decs-box { container-type: inline-size; }
 .decs { display: flex; flex-direction: column; gap: 8px; margin: 4px 0 8px 30px; max-width: 700px; }
 .ask.dec { display: grid; gap: 6px; border: 1px solid var(--waiting-line); border-left: 2px solid var(--waiting); border-radius: 6px; padding: 8px 10px; background: var(--waiting-subtle); }
 .ask.dec--down { border-color: var(--exited-line); border-left-color: var(--exited); background: var(--exited-subtle); }
@@ -634,4 +635,4 @@
 .dec-btn--ghost { border-color: transparent; background: transparent; color: var(--fg-dim); }
 .dec .prompt-choice--allow_once { border-color: var(--ok-line); background: var(--ok-subtle); color: var(--ok); }
 .dec .prompt-choice--reject_once, .dec .prompt-choice--reject_always { border-color: var(--exited-line); background: transparent; color: var(--exited); }
-@media (max-width: 560px) { .decs { margin-left: 0; max-width: none; } }
+@container (max-width: 680px) { .decs { margin-left: 0; max-width: none; } }

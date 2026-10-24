@@ -57,7 +57,8 @@ test("decisionOf words each kind and hides a text that was replaced for the rela
   const [perm, , conflict, down] = model.needs.length ? items.map((n) => decisionOf(model, model.needs.find((m) => m.id === n.id) || n)) : [];
   assert.equal(perm.command, "go test ./... -race");
   assert.equal(perm.task, "T4");
-  assert.match(conflict.line, /^api and cfg both change cfg\/limits\.yaml\./);
+  assert.match(conflict.line, /^ both change cfg\/limits\.yaml\./);
+  assert.equal(conflict.who2, "cfg");
   assert.match(down.line, /exited with code 2/);
   assert.equal(down.tone, "down");
   const hidden = decisionOf(model, { ...model.needs[0], textHidden: true, text: "secret" });
@@ -121,7 +122,7 @@ test("a down block restarts through the row's handler and opens the drawer; no h
   }
   const bare = await mount({}, "lint");
   try {
-    assert.equal(bare.container.findAll(".dec-btn").length, 0);
+    assert.deepEqual(bare.container.findAll(".dec-btn").map((b) => b.textContent), ["Ask mgr to reassign T10"], "no Restart without its handler");
   } finally {
     await bare.done();
   }
@@ -150,5 +151,48 @@ test("no block listens for a bare key", async () => {
     assert.equal(a.ws.commands("permissionAnswer").length, 0);
   } finally {
     await a.done();
+  }
+});
+
+test("a permission says it asks to run only when there is a command", () => {
+  const model = buildGraphModel(graph(items));
+  const p = model.needs.find((n) => n.kind === "permission");
+  assert.equal(decisionOf(model, p).line, "asks to run");
+  assert.equal(decisionOf(model, p, Date.now(), { summary: "Edit mw/limiter.go" }).line, "Edit mw/limiter.go");
+  assert.equal(decisionOf(model, p, Date.now(), {}).line, "asks permission");
+  assert.equal(decisionOf(model, { ...p, text: "" }).line, "asks permission");
+});
+
+test("Ask mgr to reassign sends once, then says the manager was asked", async () => {
+  const a = await mount({ onRestart() {} }, "lint");
+  try {
+    const btn = () => a.container.findAll(".dec-btn").find((b) => /reassign|Manager asked/.test(b.textContent));
+    btn().click();
+    btn().click();
+    await settle();
+    const sent = a.ws.commands("paneSend");
+    assert.equal(sent.length, 1);
+    assert.equal(sent[0].id, "m");
+    assert.equal(btn().textContent, "Manager asked");
+  } finally {
+    await a.done();
+  }
+});
+
+test("Open sits last in the answer row of a question, and a conflict names both agents in bold", async () => {
+  const panes = new Map([["cfg", { ask: { questions: [{ question: "which?", options: [{ label: "a" }, { label: "b" }] }] } }]]);
+  const a = await mount({ panes, onOpen() {} }, "cfg");
+  try {
+    assert.deepEqual(a.container.findAll(".dec-btn").map((b) => b.textContent), ["a", "b", "Open cfg"]);
+    assert.equal(a.container.findAll(".dec-actions").length, 1);
+  } finally {
+    await a.done();
+  }
+  const c = await mount({}, "api", ["permission"]);
+  try {
+    assert.deepEqual(c.container.find(".dec-line").findAll("b").map((b) => b.textContent), ["api", "cfg"]);
+    assert.ok(!/waiting/.test(c.container.find(".dec-age").textContent));
+  } finally {
+    await c.done();
   }
 });
