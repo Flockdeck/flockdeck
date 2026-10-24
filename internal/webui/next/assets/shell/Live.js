@@ -61,6 +61,7 @@ export const OPEN_AN_AGENT_WORDS = "Open an agent first, then use this on it.";
 /** NO_TERMINAL_WORDS and SHELL_RECORD_WORDS say why an action does nothing for
  *  the pane in the drawer. */
 export const NO_TERMINAL_WORDS = "This pane has no terminal to search. A structured pane keeps its output in the drawer.";
+export const NO_TREE_WORDS = "This pane has no working folder, so it has no changes to show.";
 export const SHELL_RECORD_WORDS = "A shell reports no agent events, so it has nothing to record or export.";
 
 /** nodeOfPane is a node for the drawer from the state push's entry for a pane, for
@@ -108,6 +109,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
   const [infoFor, setInfoFor] = useState(null);
   const [findingPane, setFindingPane] = useState(false);
   const [findAsk, setFindAsk] = useState(0);
+  const [tabAsk, setTabAsk] = useState({ tab: "", n: 0 });
   // The helper apps and projects dialogs, and the baton being made: the pane it
   // is for, the name to show, and the request that asked for its draft.
   const [helpersOpen, setHelpersOpen] = useState(false);
@@ -444,6 +446,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     history: () => (snap.remote ? say(HISTORY_REMOTE_WORDS) : setHistoryOpen(true)),
     findPane: () => (snap.remote ? say(DESK_FILES_WORDS) : setFindingPane(true)),
     paneInfo: openInfo,
+    changes: needPane(() => (pane && pane.cwd ? setTabAsk((a) => ({ tab: "changes", n: a.n + 1 })) : say(NO_TREE_WORDS))),
     findInTerminal: needPane(() => (hasTerminal(node, pane) ? setFindAsk((n) => n + 1) : say(NO_TERMINAL_WORDS))),
     recordPane: needPane(() => {
       if (canTranscribe(node, pane)) tx.record(node.pane, !(pane && pane.recording));
@@ -548,7 +551,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     drawer=${node
       ? html`<${Drawer} store=${store} snap=${snap} node=${node} pane=${pane} now=${Date.now()} maximised=${drawer.maximised}
           onClose=${drawer.close} onToggleMax=${drawer.toggleMax} terminalOptions=${termProps} life=${life}
-          tx=${tx} onInfo=${openInfo} findAsk=${findAsk} onOpenPane=${drawer.open} />`
+          tx=${tx} onInfo=${openInfo} findAsk=${findAsk} tabAsk=${tabAsk} onOpenPane=${drawer.open} />`
       : null}
   >${snap.state ? html`<${Tabs} tabs=${tabs} send=${send} show=${onDesk} warnFor=${(t) => closeTabWarnings(t, current ? current.byPane : null, statePanes)} onChoose=${() => setStarting("agent")}
       onHistory=${snap.remote ? null : () => setHistoryOpen(true)} onFind=${snap.remote ? null : () => setFindingPane(true)} />` : null}

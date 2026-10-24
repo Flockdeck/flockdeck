@@ -393,3 +393,26 @@ test("the Changes tab is there for a pane with a directory and not for one witho
   assert.ok(!without.includes("drawer-tab-changes"));
   assert.ok(!renderToString(html`<${Drawer} store=${store} node=${node()} now=${NOW} />`).includes("drawer-tab-changes"));
 });
+
+test("a new ask for the Changes tab opens it, an old one does not, and a pane with no directory ignores it", async () => {
+  const dom = createDom();
+  const restore = install(dom);
+  try {
+    const box = dom.document.createElement("div");
+    dom.body.appendChild(box);
+    const quiet = { ...store, requestChanges() { return true; }, clearChanges() {} };
+    const draw = (ask, pane) => render(html`<${Drawer} store=${quiet} node=${node()} pane=${pane} tabAsk=${ask} now=${NOW} />`, box);
+    const selected = () => box.querySelector("#drawer-tab-changes").getAttribute("aria-selected");
+    draw({ tab: "", n: 0 }, { cwd: "/work/b" });
+    await settle();
+    assert.notEqual(selected(), "true");
+    draw({ tab: "changes", n: 1 }, { cwd: "/work/b" });
+    await settle();
+    assert.equal(selected(), "true");
+    draw({ tab: "changes", n: 1 }, {});
+    await settle();
+    assert.equal(box.querySelector("#drawer-tab-changes"), null);
+  } finally {
+    restore();
+  }
+});

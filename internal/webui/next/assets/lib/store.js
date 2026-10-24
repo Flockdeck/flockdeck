@@ -612,7 +612,7 @@ export function createStore(opts) {
         break;
       }
       case "diff": {
-        if (snap.diff && snap.diff.file === msg.file) set({ diff: { cwd: String(msg.cwd || ""), file: msg.file, text: String(msg.text || ""), error: String(msg.error || "") } });
+        if (snap.diff && snap.diff.file === msg.file && snap.diff.cwd === String(msg.cwd || "")) set({ diff: { cwd: String(msg.cwd || ""), file: msg.file, text: String(msg.text || ""), error: String(msg.error || "") } });
         break;
       }
       case "gitWarn":

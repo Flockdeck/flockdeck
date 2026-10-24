@@ -93,9 +93,6 @@ var keyVerdicts = map[string]Verdict{
 	"toggleBroadcast":       cut(whyBroadcast),
 	"toggleBroadcastMember": cut(whyBroadcast),
 	"promptAll":             cut(whyBroadcast + " It opens the prompt bar aimed at the focused pane, which the new prompt (paneSend) covers; with broadcast on it reached every member."),
-
-	// Git.
-	"changes": task(tC6),
 }
 
 // cmdVerdicts classify every control-socket command the old interface sends

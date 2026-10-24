@@ -188,3 +188,14 @@ test("clearChanges lets go of the listing, the diff, the question and the note",
   const s = store.getState();
   assert.deepEqual([s.changes, s.diff, s.gitWarn, s.changesBusy, s.changesNote], [null, null, null, "", null]);
 });
+
+test("a diff answer for another directory is not taken for the file asked about", async () => {
+  const { store, ws } = await up();
+  ws.frame(listing());
+  store.requestDiff("a.go");
+  ws.frame({ type: "diff", cwd: "C:/other", file: "a.go", text: "wrong tree" });
+  assert.equal(store.getState().diff.loading, true);
+  assert.equal(store.getState().diff.text, "");
+  ws.frame({ type: "diff", cwd: "C:/repo", file: "a.go", text: "right tree" });
+  assert.equal(store.getState().diff.text, "right tree");
+});
