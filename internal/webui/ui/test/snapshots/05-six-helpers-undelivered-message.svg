@@ -1,9 +1,9 @@
-<svg class="graph" viewBox="0 0 968 636" width="968" height="636" role="group" aria-label="Team graph of 05-six-helpers-undelivered-message">
-<g class="gteam" data-team="c2beaec2">
-<rect class="gteam-frame" x="0" y="0" width="968" height="636" rx="10">
-</rect>
+<svg class="graph" viewBox="0 0 968 542" width="968" height="542" role="group" aria-label="Team graph of 05-six-helpers-undelivered-message">
+<g class="gteam gteam--bare" data-team="c2beaec2">
 <text class="gteam-title" x="16" y="24">Ship 05-six-helpers-undelivered-message</text>
 </g>
+<path class="gtree" d="M484 184V194H7V398M7 220H844M7 398H604M124 220V232M364 220V232M604 220V232M844 220V232M364 398V410M604 398V410">
+</path>
 <defs>
 <marker id="gedge-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
 <path class="gedge-head" d="M0 0L10 5L0 10z">
@@ -21,29 +21,29 @@
 <g class="gedges">
 <g class="gedge gedge--waiting" data-from="c2beaec2" data-to="c2e39f87">
 <title>waiting on a helper: 2 helpers are busy</title>
-<path d="M376 204Q304 244 232 284" marker-end="url(#gedge-arrow-wait)">
+<path d="M376 177.3Q304 211.5 232 245.7" marker-end="url(#gedge-arrow-wait)">
 </path>
 <g class="gedge-label gedge-label--wait">
-<rect x="238" y="235" width="132" height="16" rx="4">
+<rect x="238" y="202.5" width="132" height="16" rx="4">
 </rect>
-<text x="304" y="247" text-anchor="middle">waiting on a helper</text>
+<text x="304" y="214.5" text-anchor="middle">waiting on a helper</text>
 </g>
 </g>
 <g class="gedge gedge--message gedge--undelivered" data-from="2023df34" data-to="c2beaec2" data-delivery="queued">
 <title>The sign-up form submits twice on a slow connection. Needs a decision before I write the fix. (not told yet)</title>
-<path d="M736 284Q664 244 592 204" marker-end="url(#gedge-arrow-amber)">
+<path d="M736 240.8Q664 208 592 175.2" marker-end="url(#gedge-arrow-amber)">
 </path>
 <g class="gedge-label gedge-label--amber">
-<rect x="620.5" y="235" width="87" height="16" rx="4">
+<rect x="620.5" y="199" width="87" height="16" rx="4">
 </rect>
-<text x="664" y="247" text-anchor="middle">not told yet</text>
+<text x="664" y="211" text-anchor="middle">not told yet</text>
 </g>
 </g>
 </g>
 <g class="gslot">
 <g class="gnode gnode--idle gnode--manager" data-pane="c2beaec2" transform="translate(376 68)" role="group" aria-label="manager, manager, idle, branch main, $8.00">
 <title>manager, manager, idle, branch main, $8.00</title>
-<rect class="gnode-box" x="0" y="0" width="216" height="152" rx="6">
+<rect class="gnode-box" x="0" y="0" width="216" height="116" rx="6">
 </rect>
 <circle class="gmark gmark--ring" cx="18" cy="19" r="5">
 </circle>
@@ -51,8 +51,8 @@
 <text class="gnode-state" x="204" y="24" text-anchor="end">idle</text>
 <text class="gnode-role" x="12" y="43">manager · claude</text>
 <text class="gnode-wait" x="12" y="94">→ waiting on forms</text>
-<text class="gnode-spend" x="204" y="146" text-anchor="end">$8.00</text>
-<text class="gnode-msgs" x="12" y="146">1 in, 0 out</text>
+<text class="gnode-spend" x="204" y="110" text-anchor="end">$8.00</text>
+<text class="gnode-msgs" x="12" y="110">1 in, 0 out</text>
 </g>
 <g class="gneed" data-pane="c2beaec2" transform="translate(376 68)">
 <g class="gbadge gbadge--quiet" data-kind="stale-unread" role="img" aria-label="Needs you: has unread mail">
@@ -68,11 +68,11 @@
 </g>
 </g>
 <g class="gslot">
-<g class="gnode gnode--waiting gnode--loud" data-pane="c2e39f87" transform="translate(16 268)" role="group" aria-label="forms, worker, waiting, branch work/forms">
+<g class="gnode gnode--waiting gnode--loud" data-pane="c2e39f87" transform="translate(16 232)" role="group" aria-label="forms, worker, waiting, branch work/forms">
 <title>forms, worker, waiting, branch work/forms</title>
-<rect class="gnode-box" x="0" y="0" width="216" height="152" rx="6">
+<rect class="gnode-box" x="0" y="0" width="216" height="130" rx="6">
 </rect>
-<rect class="gnode-bar" x="0" y="6" width="4" height="140">
+<rect class="gnode-bar" x="0" y="6" width="4" height="118">
 </rect>
 <polygon class="gmark gmark--diamond" points="18,12 25,19 18,26 11,19">
 </polygon>
@@ -80,7 +80,7 @@
 <text class="gnode-state" x="204" y="24" text-anchor="end">waiting</text>
 <text class="gnode-role" x="12" y="43">worker · claude</text>
 </g>
-<g class="gneed" data-pane="c2e39f87" transform="translate(16 268)">
+<g class="gneed" data-pane="c2e39f87" transform="translate(16 232)">
 <g class="gbadge gbadge--ask" data-kind="ask" role="img" aria-label="Needs you: asks a question">
 <rect class="gbadge-box" x="8" y="66" width="200" height="46" rx="4">
 </rect>
@@ -96,9 +96,9 @@
 </g>
 </g>
 <g class="gslot">
-<g class="gnode gnode--working" data-pane="bcaec151" transform="translate(256 268)" role="group" aria-label="copy, worker, working, Edit onboarding/welcome.md, branch work/copy">
+<g class="gnode gnode--working" data-pane="bcaec151" transform="translate(256 232)" role="group" aria-label="copy, worker, working, Edit onboarding/welcome.md, branch work/copy">
 <title>copy, worker, working, Edit onboarding/welcome.md, branch work/copy</title>
-<rect class="gnode-box" x="0" y="0" width="216" height="152" rx="6">
+<rect class="gnode-box" x="0" y="0" width="216" height="116" rx="6">
 </rect>
 <circle class="gmark gmark--circle" cx="18" cy="19" r="6">
 </circle>
@@ -109,9 +109,9 @@
 </g>
 </g>
 <g class="gslot">
-<g class="gnode gnode--idle" data-pane="e8918e34" transform="translate(496 268)" role="group" aria-label="auth, worker, idle, branch work/auth, task T1 Magic link sign-in in-review">
+<g class="gnode gnode--idle" data-pane="e8918e34" transform="translate(496 232)" role="group" aria-label="auth, worker, idle, branch work/auth, task T1 Magic link sign-in in-review">
 <title>auth, worker, idle, branch work/auth, task T1 Magic link sign-in in-review</title>
-<rect class="gnode-box" x="0" y="0" width="216" height="152" rx="6">
+<rect class="gnode-box" x="0" y="0" width="216" height="116" rx="6">
 </rect>
 <circle class="gmark gmark--ring" cx="18" cy="19" r="5">
 </circle>
@@ -124,23 +124,23 @@
 </g>
 </g>
 <g class="gslot">
-<g class="gnode gnode--idle" data-pane="2023df34" transform="translate(736 268)" role="group" aria-label="tests, worker, idle, branch work/tests">
+<g class="gnode gnode--idle" data-pane="2023df34" transform="translate(736 232)" role="group" aria-label="tests, worker, idle, branch work/tests">
 <title>tests, worker, idle, branch work/tests</title>
-<rect class="gnode-box" x="0" y="0" width="216" height="152" rx="6">
+<rect class="gnode-box" x="0" y="0" width="216" height="116" rx="6">
 </rect>
 <circle class="gmark gmark--ring" cx="18" cy="19" r="5">
 </circle>
 <text class="gnode-name" x="32" y="24">tests</text>
 <text class="gnode-state" x="204" y="24" text-anchor="end">idle</text>
 <text class="gnode-role" x="12" y="43">worker · claude</text>
-<text class="gnode-msgs" x="12" y="146">0 in, 1 out<tspan class="gnode-und" dx="8">1 undelivered</tspan>
+<text class="gnode-msgs" x="12" y="110">0 in, 1 out<tspan class="gnode-und" dx="8">1 undelivered</tspan>
 </text>
 </g>
 </g>
 <g class="gslot">
-<g class="gnode gnode--exited" data-pane="77843dc7" transform="translate(256 468)" role="group" aria-label="icons, worker, down, branch work/icons">
+<g class="gnode gnode--exited" data-pane="77843dc7" transform="translate(256 410)" role="group" aria-label="icons, worker, down, branch work/icons">
 <title>icons, worker, down, branch work/icons</title>
-<rect class="gnode-box" x="0" y="0" width="216" height="152" rx="6">
+<rect class="gnode-box" x="0" y="0" width="216" height="116" rx="6">
 </rect>
 <path class="gmark gmark--cross" d="M13 14 L23 24 M23 14 L13 24">
 </path>
@@ -150,9 +150,9 @@
 </g>
 </g>
 <g class="gslot">
-<g class="gnode gnode--idle" data-pane="a2153c58" transform="translate(496 468)" role="group" aria-label="i18n, worker, idle, branch work/i18n, task T2 Extract the new strings blocked">
+<g class="gnode gnode--idle" data-pane="a2153c58" transform="translate(496 410)" role="group" aria-label="i18n, worker, idle, branch work/i18n, task T2 Extract the new strings blocked">
 <title>i18n, worker, idle, branch work/i18n, task T2 Extract the new strings blocked</title>
-<rect class="gnode-box" x="0" y="0" width="216" height="152" rx="6">
+<rect class="gnode-box" x="0" y="0" width="216" height="116" rx="6">
 </rect>
 <circle class="gmark gmark--ring" cx="18" cy="19" r="5">
 </circle>

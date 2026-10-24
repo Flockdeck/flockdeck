@@ -5,15 +5,15 @@
 // over the same layout.
 //
 // Team goals, names and every other text are untrusted and are drawn as text.
-import { useState } from "../vendor/hooks.mjs";
+import { useEffect, useRef, useState } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
 import { GoalLine } from "./GoalLine.js";
-import { layoutGraph } from "./layout.js";
+import { fitLayout } from "./layout.js";
 import { Node, clip, waitLine } from "./Node.js";
 import { Badge, isLoud } from "./Badge.js";
 import { NeedsYou } from "./NeedsYou.js";
 import { Teams } from "./Teams.js";
-import { Edges, EdgeDefs, EdgeNotice, countsOf, edgesOf, focusOf } from "./Edges.js";
+import { Edges, EdgeDefs, EdgeNotice, countsOf, edgesOf, focusOf, linksOf } from "./Edges.js";
 import { navOf, onGraphKey } from "./keys.js";
 
 /**
@@ -22,12 +22,12 @@ import { navOf, onGraphKey } from "./keys.js";
  * given, is called with a pane id when its box is clicked or opened from the
  * keyboard; open is the pane whose drawer is open.
  */
-export function Graph({ model, layout = null, onOpen = null, open = "", onStartTeam = null }) {
+export function Graph({ model, layout = null, onOpen = null, open = "", onStartTeam = null, width = 0 }) {
   // The pane the pointer or the keyboard is on. Its lines are drawn, the panes it
   // has no line to fade, and the one it waits on is outlined; with nothing under
   // the pointer the open pane's lines are the ones shown.
   const [hot, setHot] = useState("");
-  const lay = layout || layoutGraph(model);
+  const lay = layout || fitLayout(model, width);
   if (!lay.ok || lay.nodes.length === 0) {
     return html`<div class="graph-empty">
       <p>No agents in this project yet.</p>
@@ -40,6 +40,9 @@ export function Graph({ model, layout = null, onOpen = null, open = "", onStartT
   const counts = countsOf(model);
   const nav = navOf(model);
   const teamOf = new Map(model.teams.map((t) => [t.id, t]));
+  // One team and nothing outside it needs no frame: the page is the team.
+  const bare = lay.teams.length === 1 && !lay.solo;
+  const links = linksOf(model, lay);
   return html`
     <svg
       class="graph"
@@ -54,8 +57,8 @@ export function Graph({ model, layout = null, onOpen = null, open = "", onStartT
         const team = teamOf.get(f.id);
         const title = clip((team && team.goal) || "Team", 60);
         return html`
-          <g class="gteam" data-team=${f.id} key=${f.id}>
-            <rect class="gteam-frame" x=${f.x} y=${f.y} width=${f.w} height=${f.h} rx="10" />
+          <g class=${bare ? "gteam gteam--bare" : "gteam"} data-team=${f.id} key=${f.id}>
+            ${bare ? null : html`<rect class="gteam-frame" x=${f.x} y=${f.y} width=${f.w} height=${f.h} rx="10" />`}
             <text class="gteam-title" x=${f.x + 16} y=${f.y + 24}>${title}</text>
           </g>
         `;
@@ -68,6 +71,7 @@ export function Graph({ model, layout = null, onOpen = null, open = "", onStartT
             </g>
           `
         : null}
+      ${links ? html`<path class="gtree" d=${links} />` : null}
       <${EdgeDefs} />
       <${Edges} e=${edges} focus=${focus} />
       ${lay.nodes.map((b) => {
@@ -105,6 +109,20 @@ export const MAX_CARDS = 3;
 
 /** GraphView is the left column (what needs the person, the teams) and the graph beside it, drawn from one model, so that a new model changes both in the same frame. */
 export function GraphView({ model, layout = null, onSelect, onOpen = null, open = "", onStartTeam = null }) {
+  // How wide the graph may be: the width of this box, which follows the window and
+  // the drawer. The layout puts as many boxes in a row as fit in it.
+  const ref = useRef(null);
+  const [width, setWidth] = useState(0);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return undefined;
+    const read = () => setWidth(el.clientWidth || 0);
+    read();
+    if (typeof ResizeObserver === "undefined") return undefined;
+    const ro = new ResizeObserver(read);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   return html`
     <div class="graph-view">
       <div class="graph-goal"><${GoalLine} model=${model} /></div>
@@ -113,8 +131,8 @@ export function GraphView({ model, layout = null, onSelect, onOpen = null, open 
         <${Teams} model=${model} onSelect=${onSelect} />
         <p class="graph-hint">Esc closes the drawer. Arrow keys move between agents.</p>
       </aside>
-      <div class="graph-main">
-        <${Graph} model=${model} layout=${layout} onOpen=${onOpen} open=${open} onStartTeam=${onStartTeam} />
+      <div class="graph-main" ref=${ref}>
+        <${Graph} model=${model} layout=${layout} onOpen=${onOpen} open=${open} onStartTeam=${onStartTeam} width=${width} />
       </div>
     </div>
   `;

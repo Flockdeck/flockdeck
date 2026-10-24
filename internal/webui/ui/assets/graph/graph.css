@@ -18,6 +18,14 @@
   stroke-width: 1;
 }
 
+/* The lines from a pane to its helpers: who belongs to whom, always there, and quieter than a message. */
+.gtree {
+  fill: none;
+  stroke: var(--line-strong);
+  stroke-width: 1;
+  opacity: 0.6;
+}
+
 .gteam-title {
   fill: var(--fg-dim);
   font-size: 13px;
