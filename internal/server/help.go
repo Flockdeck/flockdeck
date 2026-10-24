@@ -54,6 +54,8 @@ type helloMsg struct {
 	// full device and for a window on this machine.
 	Role       string `json:"role,omitempty"`
 	WatchPanes bool   `json:"watchPanes,omitempty"`
+	// API is the version of this socket's API and the features it has (apiversion.go).
+	API *apiInfo `json:"api"`
 }
 
 // radarSupport and radarWatch are gitx's answers about merge-tree, as variables
@@ -117,7 +119,7 @@ type keyView struct {
 // sendHello gives a freshly connected window the key table and the prefs. It
 // runs on the workspace goroutine, which is what owns s.prefs.
 func (s *Server) sendHello(c *controlClient) {
-	msg := helloMsg{Type: "hello", Keys: effectiveKeys(c.remote), Prefs: prefsFor(c, s.prefs), Remote: c.remote}
+	msg := helloMsg{Type: "hello", Keys: effectiveKeys(c.remote), Prefs: prefsFor(c, s.prefs), Remote: c.remote, API: currentAPI()}
 	// A viewer is told what it is, so its window can say so, and is sent none of
 	// the desk's preferences.
 	if a := s.accessOf(c); a.EffectiveRole() != store.RoleFull {

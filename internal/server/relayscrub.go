@@ -122,6 +122,9 @@ var relayPass = map[string]string{
 	"attachImageResult": "a path or a reason", "browse": "folder names", "recents": "project paths", "worktrees": "branches and paths",
 	"ghProgress": "progress", "ghStatus": "gh install state",
 	"agentStarted": "ids", "detached": "a flag",
+	// The answers to a window's own version and to a command it sent that this server
+	// does not know. Each holds only the two versions or the window's own clamped text.
+	"apiMismatch": "two versions and a sentence", "unsupported": "the window's own command name, clamped",
 	// Repository content, not conversation text: whether a phone is sent a diff
 	// or an issue is a separate decision from T112.
 	"changes": "git status", "diff": "a diff", "ghPR": "a pull request", "ghPRs": "pull requests", "ghIssue": "an issue", "ghIssues": "issues", "ghChecks": "check runs",

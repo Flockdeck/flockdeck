@@ -79,10 +79,17 @@ test("the ready block asks the manager to start the task, once, and is off with 
   } finally {
     await a.done();
   }
-  const off = await mount(html`<${ReadyToStart} task=${{ id: "T7", title: "x" }} ctx=${{}} />`);
+  const nomgr = await mount(html`<${ReadyToStart} task=${{ id: "T7", title: "x" }} ctx=${{ store: { send: () => true } }} />`);
   try {
-    assert.ok(off.container.find(".dec-btn").disabled || off.container.find(".dec-btn").getAttribute("disabled") !== null);
+    assert.ok(nomgr.container.find(".dec-btn").disabled || nomgr.container.find(".dec-btn").getAttribute("disabled") !== null, "off with no manager");
   } finally {
-    await off.done();
+    await nomgr.done();
+  }
+  const relayed = await mount(html`<${ReadyToStart} task=${{ id: "T7", title: "x" }} ctx=${{ manager: { pane: "m" } }} />`);
+  try {
+    assert.equal(relayed.container.findAll(".dec-btn").length, 0, "no answering button without a store");
+    assert.match(relayed.container.textContent, /Answer this on the desktop/);
+  } finally {
+    await relayed.done();
   }
 });

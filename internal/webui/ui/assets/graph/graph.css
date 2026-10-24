@@ -688,3 +688,4 @@
 @container (max-width: 680px) { .decs { margin-left: 0; max-width: none; } }
 .ask.dec--ok { border-color: var(--ok-line); border-left-color: var(--ok); background: var(--ok-subtle); }
 .dec--ok .dec-head { color: var(--ok); }
+.tree-decs { padding: 0 8px 0 0; }

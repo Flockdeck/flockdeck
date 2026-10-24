@@ -23,13 +23,13 @@ export function TreeHead() {
 }
 
 /** TreeRow draws one pane. row is from rowsOf, doing the line for "Doing now". */
-export function TreeRow({ row, node, needs, doing, stop, selected, age, cost, onFocus, onOpen }) {
+export function TreeRow({ row, node, needs, doing, chips = [], stop, selected, lit = false, age, cost, onFocus, onOpen, onLink = null, onLit = null }) {
   const state = stateOf(node);
   const tone = toneOf(node, needs);
   const name = node.name || node.pane;
-  const label = [name, node.role, state.word, doing, node.task ? "task " + node.task.id : ""].filter(Boolean).join(", ");
+  const label = [name, node.role, state.word, doing, node.task ? "task " + node.task.id : "", ...chips.map((c) => c.text)].filter(Boolean).join(", ");
   return html`<div
-    class=${"tree-row" + (tone ? " tree-row--" + tone : "") + (selected ? " is-open" : "")}
+    class=${"tree-row" + (tone ? " tree-row--" + tone : "") + (selected ? " is-open" : "") + (lit ? " is-lit" : "")}
     role="treeitem"
     data-pane=${node.pane}
     aria-level=${row.depth + 1}
@@ -48,6 +48,12 @@ export function TreeRow({ row, node, needs, doing, stop, selected, age, cost, on
     <span class="tree-c tree-c--role">${clip(node.role || (node.shell ? "shell" : ""), 12)}</span>
     <span class="tree-c tree-c--task">${node.task ? clip(node.task.id, 6) : ""}</span>
     <span class="tree-c tree-c--doing" title=${doing}>${clip(doing, 160)}</span>
+    ${chips.length > 0 ? html`<span class="tree-chips">${chips.map((c) => (c.to
+      ? html`<button type="button" class=${"tree-chip tree-chip--" + c.kind + " is-link"} key=${c.kind + c.to} title=${c.title || undefined} aria-label=${c.text + ", go to " + (c.toName || c.to)} tabindex=${stop ? "0" : "-1"}
+          onClick=${(e) => { e.stopPropagation(); if (onLink) onLink(c.to); }}
+          onMouseEnter=${() => onLit && onLit(node.pane, c.to)} onMouseLeave=${() => onLit && onLit("", "")}
+          onFocus=${(e) => { e.stopPropagation(); if (onFocus) onFocus(); if (onLit) onLit(node.pane, c.to); }} onBlur=${() => onLit && onLit("", "")}>${c.text}</button>`
+      : html`<span class=${"tree-chip tree-chip--" + c.kind} key=${c.kind + c.text} title=${c.title || undefined}>${c.text}</span>`))}</span>` : null}
     <span class="tree-c tree-c--age">${age}</span>
     <span class="tree-c tree-c--cost">${cost}</span>
   </div>`;

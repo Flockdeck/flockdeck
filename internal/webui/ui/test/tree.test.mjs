@@ -212,3 +212,143 @@ test("a conflict is a row's need only under the pane it names first", () => {
   assert.equal(m.needsByPane.get("idle").length, 1, "the model still has it under both");
   assert.ok(rowsOf(m).findIndex((r) => r.pane === "idle") > 0);
 });
+
+import { chipsOf } from "../assets/graph/chips.js";
+
+// The chips of the api-service team of prototype C.
+function proto() {
+  const g = team([
+    { id: "p", kind: "permission", pane: "ask", time: "2026-10-24T08:20:00Z", text: "go test" },
+    { id: "c", kind: "conflict", pane: "ask", other: "idle", time: "2026-10-24T08:21:00Z", text: "cfg/limits.yaml" },
+    { id: "d", kind: "down", pane: "down", time: "2026-10-24T08:30:00Z", text: "exited with code 2" },
+  ]);
+  const by = (p) => g.nodes.find((x) => x.pane === p);
+  by("w1").waitingOn = { kind: "helpers", text: "Limiter interface", ref: "work" };
+  by("w1").undelivered = 1;
+  by("idle").waitingOn = { kind: "reviewer", text: "" };
+  by("work").lastOutput = "2026-10-24T09:00:00Z";
+  by("work").waitingOn = { kind: "task", text: "" };
+  return g;
+}
+const NOW = Date.parse("2026-10-24T09:12:00Z");
+const chips = (p) => { const m = model(proto()); return chipsOf(m, m.byPane.get(p), needsOf(m, p), NOW); };
+const texts = (p) => chips(p).map((c) => c.text);
+
+test("chips: the ask kind, the overlap on both panes, waiting on, undelivered and stuck, in that order", () => {
+  assert.deepEqual(texts("ask"), ["Permission", "overlaps idle"]);
+  assert.deepEqual(texts("idle"), ["overlaps ask", "waiting on a reviewer"]);
+  assert.deepEqual(texts("w1"), ["waiting on work", "1 undelivered"]);
+  assert.deepEqual(texts("work"), ["waiting on a task", "stuck 12m"]);
+  assert.deepEqual(texts("down"), ["Down"]);
+  assert.deepEqual(texts("m"), []);
+  assert.equal(chips("ask")[1].to, "idle");
+  assert.equal(chips("idle")[0].to, "ask");
+  assert.equal(chips("w1")[0].to, "work");
+  assert.equal(chips("idle")[1].to, "", "waiting on a reviewer names no row");
+  assert.deepEqual(chips("ask").map((c) => c.kind), ["ask", "overlap"]);
+});
+
+test("chips: a pane that waits on a helper that is not a row has a plain chip, and a quiet need makes none", () => {
+  const g = proto();
+  g.nodes.find((x) => x.pane === "w1").waitingOn = { kind: "helpers", text: "x", ref: "gone" };
+  g.teams[0].needs.push({ id: "s", kind: "stale-unread", pane: "w1", time: "2026-10-24T08:20:00Z", text: "" });
+  const m = model(g);
+  const out = chipsOf(m, m.byPane.get("w1"), needsOf(m, "w1"), NOW);
+  assert.deepEqual(out.map((c) => c.text), ["waiting on a helper", "1 undelivered"]);
+  assert.equal(out[0].to, "");
+});
+
+test("link chips are buttons that name their row, plain chips are not", () => {
+  const out = renderToString(html`<${Tree} model=${model(proto())} />`);
+  assert.equal((out.match(/<button[^>]*tree-chip/g) || []).length, 3, "overlaps x2 and waiting on work");
+  assert.ok(out.includes("tree-chip--ask") && out.includes("tree-chip--down"));
+  assert.ok(out.includes("1 undelivered"));
+});
+
+test("hovering a link chip lights both rows, leaving it clears them, and a click goes to the row without opening the drawer", async () => {
+  const m = await mount({ model: model(proto()) });
+  try {
+    const chip = m.row("ask").findAll(".tree-chip").find((c) => c.textContent.startsWith("overlaps"));
+    assert.ok(chip, "the chip");
+    chip.dispatch("mouseenter", {});
+    await settle();
+    assert.ok((m.row("ask").attributes.class || "").includes("is-lit"));
+    assert.ok((m.row("m").attributes.class || "").includes("is-lit") === false);
+    chip.dispatch("mouseleave", {});
+    await settle();
+    assert.ok(!(m.row("ask").attributes.class || "").includes("is-lit"));
+    chip.dispatch("click");
+    await settle();
+    assert.deepEqual(m.opened, []);
+  } finally {
+    m.done();
+  }
+});
+
+test("a lone agent has no header and no chevron; a manager with no helpers says so, once", () => {
+  const solo = { type: "graph", root: "/r", project: "p", teams: [], nodes: [n("s", { team: "" })], edges: [], solo: ["s"], soloNeeds: [] };
+  const a = renderToString(html`<${Tree} model=${model(solo)} />`);
+  assert.ok(!a.includes("tree-head") && !a.includes("tree-note") && a.includes("treeitem"));
+  const g = team();
+  g.nodes = [g.nodes[0]];
+  g.nodes[0].children = [];
+  g.teams[0].members = ["m"];
+  const b = renderToString(html`<${Tree} model=${model(g)} />`);
+  assert.ok(b.includes("tree-head"));
+  assert.equal((b.match(/No helpers yet\. The manager starts them as it plans\./g) || []).length, 1);
+  assert.ok(!renderToString(html`<${Tree} model=${model(team())} />`).includes("No helpers yet"));
+});
+
+test("the row tints are not beaten by the hover rule, and the name has a floor", async () => {
+  const { readFileSync } = await import("node:fs");
+  const css = readFileSync(new URL("../assets/graph/tree.css", import.meta.url), "utf8");
+  assert.ok(css.includes(".tree-row:where(:hover)"));
+  assert.ok(css.indexOf(".tree-row:where(:hover)") < css.indexOf(".tree-row--ask"));
+  assert.ok(css.includes("max(48px, calc(112px"));
+  assert.ok(!css.includes(".tree-view") && !css.includes(".tree-goal"));
+});
+
+test("only the stop row's chips are tab stops, and the aria-label names the chips and the other pane", async () => {
+  const m = await mount({ model: model(proto()) });
+  try {
+    const tab = (p) => m.row(p).findAll(".tree-chip").filter((c) => c.attributes.tabindex !== undefined).map((c) => c.attributes.tabindex);
+    assert.deepEqual(tab("ask"), ["-1"]);
+    m.row("m").focus();
+    m.row("m").keydown("ArrowDown");
+    await settle();
+    assert.deepEqual(tab("ask"), ["0"]);
+    assert.ok(m.row("ask").attributes["aria-label"].includes("overlaps idle"));
+    const chip = m.row("ask").findAll(".tree-chip").find((c) => c.textContent.startsWith("overlaps"));
+    assert.ok(chip.attributes["aria-label"].includes("go to idle"));
+  } finally {
+    m.done();
+  }
+});
+
+test("an arrow on a chip moves between rows, Enter on a chip is not the row's", async () => {
+  const m = await mount({ model: model(proto()) });
+  try {
+    m.row("ask").focus();
+    await settle();
+    const chip = m.row("ask").findAll(".tree-chip").find((c) => c.textContent.startsWith("overlaps"));
+    assert.equal(chip.keydown("ArrowDown").defaultPrevented, true);
+    await settle();
+    assert.equal(m.dom.document.activeElement, m.row("down"));
+    chip.keydown("Enter");
+    assert.deepEqual(m.opened, []);
+  } finally {
+    m.done();
+  }
+});
+
+test("the chips shrink with the row and the note under an empty manager is a disabled treeitem", async () => {
+  const { readFileSync } = await import("node:fs");
+  const css = readFileSync(new URL("../assets/graph/tree.css", import.meta.url), "utf8");
+  assert.ok(/\.tree-chips \{[^}]*flex: 0 1 auto[^}]*min-width: 0[^}]*overflow: hidden/.test(css));
+  const g = team();
+  g.nodes = [g.nodes[0]];
+  g.nodes[0].children = [];
+  g.teams[0].members = ["m"];
+  const out = renderToString(html`<${Tree} model=${model(g)} />`);
+  assert.ok(/role="treeitem"[^>]*aria-disabled="true"[^>]*>No helpers yet|aria-disabled="true"[^>]*role="treeitem"/.test(out) || out.includes('aria-disabled="true"'));
+});

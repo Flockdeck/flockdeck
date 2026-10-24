@@ -498,7 +498,7 @@ func TestBadAllowedHostsStopsTheServer(t *testing.T) {
 	}
 	t.Cleanup(ws.Close)
 	t.Setenv(AllowedHostsEnv, "*.example.com")
-	srv, err := New(ws)
+	srv, err := New(ws, testConfig())
 	if err == nil {
 		srv.Close()
 		t.Fatal("New accepted a wildcard in " + AllowedHostsEnv)
