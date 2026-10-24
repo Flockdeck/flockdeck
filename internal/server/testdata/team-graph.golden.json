@@ -35,6 +35,7 @@
       "activity": "idle",
       "depth": 0,
       "kind": "terminal",
+      "lastOutput": "2026-10-24T17:58:41+01:00",
       "name": "other1",
       "pane": "other1",
       "shell": true,
@@ -46,16 +47,20 @@
     },
     {
       "activity": "idle",
+      "below": 3,
       "children": [
         "dev",
         "eyes"
       ],
       "depth": 0,
       "kind": "terminal",
+      "lastOutput": "2026-10-24T17:58:41+01:00",
       "name": "boss",
+      "needYou": 1,
       "pane": "boss",
       "role": "manager",
       "since": "<time>",
+      "spendPartial": true,
       "status": "idle",
       "team": "boss",
       "waitingOn": {
@@ -66,17 +71,20 @@
     },
     {
       "activity": "working",
+      "below": 1,
       "children": [
         "nested"
       ],
       "depth": 1,
       "kind": "terminal",
+      "lastOutput": "2026-10-24T17:58:41+01:00",
       "live": "Edit main.go",
       "name": "dev",
       "pane": "dev",
       "parent": "boss",
       "role": "worker",
       "since": "<time>",
+      "spendPartial": true,
       "status": "working",
       "team": "boss",
       "waitingOn": {
@@ -87,12 +95,14 @@
       "activity": "waiting",
       "depth": 1,
       "kind": "terminal",
+      "lastOutput": "2026-10-24T17:58:41+01:00",
       "live": "Bash",
       "name": "eyes",
       "pane": "eyes",
       "parent": "boss",
       "role": "reviewer",
       "since": "<time>",
+      "spendPartial": true,
       "status": "waiting",
       "team": "boss",
       "waitingOn": {
@@ -104,10 +114,12 @@
       "activity": "idle",
       "depth": 2,
       "kind": "terminal",
+      "lastOutput": "2026-10-24T17:58:41+01:00",
       "name": "nested",
       "pane": "nested",
       "parent": "dev",
       "since": "<time>",
+      "spendPartial": true,
       "status": "idle",
       "team": "boss",
       "waitingOn": {
@@ -118,9 +130,11 @@
       "activity": "idle",
       "depth": 0,
       "kind": "terminal",
+      "lastOutput": "2026-10-24T17:58:41+01:00",
       "name": "lone",
       "pane": "lone",
       "since": "<time>",
+      "spendPartial": true,
       "status": "idle",
       "waitingOn": {
         "kind": "none"
@@ -128,15 +142,18 @@
     },
     {
       "activity": "idle",
+      "below": 1,
       "children": [
         "helper2"
       ],
       "depth": 0,
       "kind": "terminal",
+      "lastOutput": "2026-10-24T17:58:41+01:00",
       "name": "boss2",
       "pane": "boss2",
       "role": "manager",
       "since": "<time>",
+      "spendPartial": true,
       "status": "idle",
       "team": "boss2",
       "unread": 1,
@@ -148,13 +165,16 @@
       "activity": "idle",
       "depth": 1,
       "kind": "terminal",
+      "lastOutput": "2026-10-24T17:58:41+01:00",
       "name": "helper2",
       "pane": "helper2",
       "parent": "boss2",
       "role": "worker",
       "since": "<time>",
+      "spendPartial": true,
       "status": "idle",
       "team": "boss2",
+      "undelivered": 1,
       "waitingOn": {
         "kind": "none"
       }

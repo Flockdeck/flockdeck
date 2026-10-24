@@ -543,3 +543,26 @@ func TestRelayTeamsLeaveOutAStuckPane(t *testing.T) {
 		t.Errorf("the relay form lost the question:\n%s", out)
 	}
 }
+
+// The per-node figures of the graph (spend, undelivered mail, last output, the
+// rollup) stay on the desk: the relay form is built from the fields it names, so
+// none of them can reach a phone. This pins it with a graph that has all of them.
+func TestRelayTeamsLeaveOutTheNodeFigures(t *testing.T) {
+	g := graphMsg{
+		Type: "graph", Project: "p",
+		Teams: []graphTeamView{{ID: "m", Manager: "m", Members: []string{"m", "a"}}},
+		Nodes: []graphNodeView{
+			{Pane: "m", Team: "m", Activity: "working", Status: "working", Below: 1, NeedYou: 1, SpendUSD: 12.34, SpendPartial: true, Undelivered: 7, LastOutput: "2026-10-24T10:00:00Z", Stuck: true},
+			{Pane: "a", Parent: "m", Team: "m", Activity: "working", Status: "working", SpendUSD: 5.5, SpendIncludesPartial: true, Undelivered: 3, LastOutput: "2026-10-24T09:00:00Z", Stuck: true},
+		},
+	}
+	out, err := json.Marshal(relayProjectFromGraph(g))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, leak := range []string{"spend", "12.34", "5.5", "undelivered", "lastOutput", "2026-10-24", "stuck", "below", "needYou"} {
+		if bytes.Contains(out, []byte(leak)) {
+			t.Errorf("the relay form has %q:\n%s", leak, out)
+		}
+	}
+}

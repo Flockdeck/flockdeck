@@ -104,7 +104,15 @@
         "task": { "$ref": "#/$defs/taskChip" },
         "unread": { "type": "integer", "minimum": 1, "description": "Messages waiting unread in the pane's inbox (stored). Absent at 0." },
         "autoReview": { "const": true, "description": "Present, and true, when the pane's tool calls are put to auto-review (stored). Absent otherwise." },
-        "autoApproved": { "type": "integer", "minimum": 1, "description": "How many calls auto-review has let through unasked (stored). Absent at 0." }
+        "autoApproved": { "type": "integer", "minimum": 1, "description": "How many calls auto-review has let through unasked (stored). Absent at 0." },
+        "spendUSD": { "type": "number", "exclusiveMinimum": 0, "description": "This pane's own estimated spend in US dollars (stored: the pane's usage). Absent when it reported no priced figure." },
+        "spendPartial": { "const": true, "description": "Present, and true, when the pane has run and reported no priced figure, so a total that includes it is a floor." },
+        "spendIncludesPartial": { "const": true, "description": "Present, and true, when the pane reports its spend in part (a structured agent: context use and perhaps a cost, no token split)." },
+        "undelivered": { "type": "integer", "minimum": 1, "description": "How many messages this pane sent to another pane of the project that have not been told to their pane yet (derived from the inboxes). Counts every such message, not only the newest 100 the edges list. Absent at 0." },
+        "lastOutput": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$", "description": "When a terminal pane's process last wrote to its terminal, RFC 3339 (stored: the session). Absent for a structured pane and for a pane that has not written." },
+        "stuck": { "const": true, "description": "Present, and true, when the pane is working and has written nothing to its terminal for 10 minutes (derived). The same fact as its `stuck` needs item, as a flag on the node." },
+        "below": { "type": "integer", "minimum": 1, "description": "How many panes are under this one: its children, theirs and so on (derived). Absent at 0." },
+        "needYou": { "type": "integer", "minimum": 1, "description": "How many of those panes are waiting on the person: a prompt, a returned task, a conflict, a pane that is down, a setup. Old unread mail and a pane gone quiet do not count (derived). Absent at 0." }
       }
     },
     "edge": {

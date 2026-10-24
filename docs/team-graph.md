@@ -158,6 +158,10 @@ root need not be a manager: any pane that started helpers is one.
 | `task` | The pane's current task: its `id`, its `title` cut to 120 characters, and its `state` (`planned`, `assigned`, `in-progress`, `in-review`, `done`, `blocked` or `cancelled`). It is the pane's own open task, in progress first, else in review, else assigned, else blocked. |
 | `unread` | Messages waiting unread in the pane's inbox. Absent at 0. |
 | `autoReview`, `autoApproved` | `true` when the pane's tool calls are put to auto-review, and how many calls auto-review has let through unasked. |
+| `spendUSD`, `spendPartial`, `spendIncludesPartial` | The pane's own estimated spend, with the same marks as a team's: `spendPartial` when it has run and has no priced figure, `spendIncludesPartial` when it reports its spend in part. Each is absent when it does not apply. |
+| `undelivered` | How many messages the pane sent to another pane that are still only queued. Counts all of them, not only the newest 100 the edges list. |
+| `lastOutput`, `stuck` | When a terminal pane last wrote to its terminal (absent for a structured pane), and `true` when it is working and has written nothing for 10 minutes. |
+| `below`, `needYou` | How many panes are under this one, and how many of those are waiting on the person. Quiet items (stale unread mail, a pane gone quiet) do not count. |
 
 ### Edges
 

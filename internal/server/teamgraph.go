@@ -90,6 +90,27 @@ type graphNodeView struct {
 	// AutoApproved how many that let through unasked.
 	AutoReview   bool `json:"autoReview,omitempty"`
 	AutoApproved int  `json:"autoApproved,omitempty"`
+	// SpendUSD is this pane's own estimated spend, and SpendPartial says it has
+	// run and reported no priced figure, so the number is a floor. SpendIncludes
+	// Partial says it reports its spend in part (see graphTeamView).
+	SpendUSD             float64 `json:"spendUSD,omitempty"`
+	SpendPartial         bool    `json:"spendPartial,omitempty"`
+	SpendIncludesPartial bool    `json:"spendIncludesPartial,omitempty"`
+	// Undelivered is how many messages this pane sent to another pane of the
+	// project that have not been told to their pane yet. It counts every such
+	// message, not only the newest maxGraphEdges the edges list.
+	Undelivered int `json:"undelivered,omitempty"`
+	// LastOutput is when a terminal pane's process last wrote to its terminal,
+	// RFC 3339. Absent for a structured pane, which has no byte stream, and for a
+	// pane that has not written.
+	LastOutput string `json:"lastOutput,omitempty"`
+	// Stuck says the pane is working and has written nothing for team.StuckAfter:
+	// the pane's own flag for the quiet item of that kind.
+	Stuck bool `json:"stuck,omitempty"`
+	// Below counts the panes under this one (children, their children and so on),
+	// and NeedYou how many of them are waiting on the person. Absent at 0.
+	Below   int `json:"below,omitempty"`
+	NeedYou int `json:"needYou,omitempty"`
 }
 
 // graphCap is the helper cap use of one pane: how many panes are open below it
@@ -234,6 +255,9 @@ type graphStatic struct {
 	// wrote. Flockdeck's own notices (a helper finished its turn) are left out:
 	// they never make a pane need the person.
 	unreadMail map[string]int
+	// undelivered counts, for each sending pane, the messages to another agent of
+	// the project that are still only queued. It is not bounded like edges.
+	undelivered map[string]int
 	// edges are the last maxGraphEdges messages between agents of the project.
 	edges      []graphEdge
 	boardError string
@@ -261,7 +285,7 @@ func (s *Server) graphStaticFor(root string, members []team.Member) *graphStatic
 		return c
 	}
 	s.graphBuilds++
-	st := &graphStatic{stamp: stamp, chips: map[string]graphTaskChip{}, unreadSince: map[string]time.Time{}, unreadMail: map[string]int{}}
+	st := &graphStatic{stamp: stamp, chips: map[string]graphTaskChip{}, unreadSince: map[string]time.Time{}, unreadMail: map[string]int{}, undelivered: map[string]int{}}
 
 	var board2 []tasks.Task
 	if berr != nil {
@@ -322,6 +346,11 @@ func (s *Server) graphStaticFor(root string, members []team.Member) *graphStatic
 			if t, ok := st.unreadSince[m.To]; !ok || m.Time.Before(t) {
 				st.unreadSince[m.To] = m.Time
 			}
+		}
+	}
+	for _, m := range msgs {
+		if m.From.Pane != "" && m.From.Pane != m.To && agent[m.From.Pane] && agent[m.To] && m.Delivery() == "queued" {
+			st.undelivered[m.From.Pane]++
 		}
 	}
 	// The last messages between panes, newest first. A message from the person
@@ -437,6 +466,68 @@ func (s *Server) graphPayload(root string) (graphMsg, error) {
 	for _, g := range gp {
 		gpByID[g.ID] = g
 	}
+	// Each pane's spend, read once for its node and for its team's total.
+	type paneSpendFigure struct {
+		usd               float64
+		partial, includes bool
+	}
+	figures := map[string]paneSpendFigure{}
+	for _, g := range gp {
+		var f paneSpendFigure
+		v := s.paneSpend(g.ID, rts[g.ID], now)
+		if v != nil && v.Partial {
+			f.includes = true
+		}
+		// A figure that is not finite or is past what a session can cost is
+		// not added, so no pane can make a total overflow.
+		if v != nil && v.USD > 0 && v.USD <= spend.MaxSessionCost && !v.Unpriced {
+			f.usd = v.USD
+		} else if rts[g.ID].HasRun() && g.Status != session.StatusStarting.String() {
+			// An agent that has run and has no priced figure makes a total a
+			// floor. A shell, and an agent that has not started, report none by
+			// nature.
+			f.partial = true
+		}
+		figures[g.ID] = f
+	}
+	// The panes waiting on the person, to count under each node. A quiet item (old
+	// unread mail, a pane gone quiet) does not ask anything of the person.
+	needers := map[string]bool{}
+	stuck := map[string]bool{}
+	for _, tn := range needs {
+		for _, it := range tn.Items {
+			if it.Kind == team.NeedStuck {
+				stuck[it.Pane] = true
+			}
+			if team.AsksPerson(it.Kind) {
+				needers[it.Pane] = true
+				if it.Other != "" {
+					needers[it.Other] = true
+				}
+			}
+		}
+	}
+	below := func(root string) (count, asking int) {
+		seen := map[string]bool{root: true}
+		stack := []string{root}
+		for len(stack) > 0 {
+			id := stack[len(stack)-1]
+			stack = stack[:len(stack)-1]
+			n, _ := graph.Node(id)
+			for _, c := range n.Children {
+				if seen[c] {
+					continue
+				}
+				seen[c] = true
+				count++
+				if needers[c] {
+					asking++
+				}
+				stack = append(stack, c)
+			}
+		}
+		return count, asking
+	}
 	for _, n := range graph.Nodes {
 		p, g := byID[n.Pane], gpByID[n.Pane]
 		nv := graphNodeView{
@@ -448,6 +539,14 @@ func (s *Server) graphPayload(root string) (graphMsg, error) {
 		if !g.StatusSince.IsZero() {
 			nv.Since = g.StatusSince.Format(time.RFC3339)
 		}
+		f := figures[n.Pane]
+		nv.SpendUSD, nv.SpendPartial, nv.SpendIncludesPartial = f.usd, f.partial, f.includes
+		nv.Undelivered = st.undelivered[n.Pane]
+		if !g.LastOutput.IsZero() {
+			nv.LastOutput = g.LastOutput.Format(time.RFC3339)
+		}
+		nv.Stuck = stuck[n.Pane]
+		nv.Below, nv.NeedYou = below(n.Pane)
 		if nv.Live == "" && !g.Shell {
 			if last, ok := rts[p.ID].LastReply(); ok {
 				nv.Live = graphLine(last.Text, graphLiveCut)
@@ -477,21 +576,10 @@ func (s *Server) graphPayload(root string) (graphMsg, error) {
 			tv.Started = at.Format(time.RFC3339)
 		}
 		for _, id := range tm.Members {
-			g := gpByID[id]
-			v := s.paneSpend(id, rts[id], now)
-			if v != nil && v.Partial {
-				tv.SpendIncludesPartial = true
-			}
-			// A figure that is not finite or is past what a session can cost is
-			// not added, so no pane can make the total overflow.
-			if v != nil && v.USD > 0 && v.USD <= spend.MaxSessionCost && !v.Unpriced {
-				tv.SpendUSD += v.USD
-			} else if rts[id].HasRun() && g.Status != session.StatusStarting.String() {
-				// An agent that has run and has no priced figure makes the total a
-				// floor. A shell, and an agent that has not started, report none by
-				// nature.
-				tv.SpendPartial = true
-			}
+			f := figures[id]
+			tv.SpendIncludesPartial = tv.SpendIncludesPartial || f.includes
+			tv.SpendUSD += f.usd
+			tv.SpendPartial = tv.SpendPartial || f.partial
 			if n, _ := graph.Node(id); id == tm.Root || len(n.Children) > 0 {
 				tv.Caps = append(tv.Caps, graphCap{Pane: id, Used: ws.HelpersBelow(id), Max: workspace.MaxHelpers})
 			}
