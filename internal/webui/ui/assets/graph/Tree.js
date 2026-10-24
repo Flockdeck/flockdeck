@@ -10,6 +10,7 @@
 //
 // Every text here came from an agent, a task or a person and is drawn as text.
 import { useEffect, useRef, useState } from "../vendor/hooks.mjs";
+import { Fragment } from "../vendor/preact.mjs";
 import { html } from "../html.js";
 import { composing } from "../shell/keys.js";
 import { focusNode } from "../drawer/state.js";
@@ -182,14 +183,18 @@ export function Tree({ model, onOpen = null, open = "" }) {
     focusNode(ref.current, pane);
   };
   if (rows.length === 0) return null;
+  // One agent that leads no team is a lone agent: no header, nothing to fold.
+  const solo = rows.length === 1 && !rows[0].team;
   return html`<div class="tree">
-    <${TreeHead} />
+    ${solo ? null : html`<${TreeHead} />`}
     <div class="tree-rows" role="tree" aria-label="Agents" ref=${ref} onKeyDown=${onKeyDown}>
       ${rows.map((r) => {
         const node = model.byPane.get(r.pane);
-        return html`<${TreeRow} key=${r.pane} row=${r} node=${node} needs=${needsOf(model, r.pane)} doing=${doingOf(node, needsOf(model, r.pane))} chips=${chipsOf(model, node, needsOf(model, r.pane), now)} lit=${lit[0] === r.pane || lit[1] === r.pane} onLink=${go} onLit=${(a, b) => setLit([a, b])} stop=${stop === r.pane}
+        return html`<${Fragment} key=${r.pane}><${TreeRow} row=${r} node=${node} needs=${needsOf(model, r.pane)} doing=${doingOf(node, needsOf(model, r.pane))} chips=${chipsOf(model, node, needsOf(model, r.pane), now)} lit=${lit[0] === r.pane || lit[1] === r.pane} onLink=${go} onLit=${(a, b) => setLit([a, b])} stop=${stop === r.pane}
           selected=${open === r.pane} age=${ageOf(node.since, now)} cost=${costOf(node, r.team)}
-          onFocus=${() => setFocus(r.pane)} onOpen=${onOpen} />`;
+          onFocus=${() => setFocus(r.pane)} onOpen=${onOpen} />
+          ${r.team && r.kids === 0 ? html`<div class="tree-note" role="presentation">No helpers yet. The manager starts them as it plans.</div>` : null}
+        <//>`;
       })}
     </div>
   </div>`;

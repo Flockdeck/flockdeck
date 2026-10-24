@@ -284,3 +284,26 @@ test("hovering a link chip lights both rows, leaving it clears them, and a click
     m.done();
   }
 });
+
+test("a lone agent has no header and no chevron; a manager with no helpers says so, once", () => {
+  const solo = { type: "graph", root: "/r", project: "p", teams: [], nodes: [n("s", { team: "" })], edges: [], solo: ["s"], soloNeeds: [] };
+  const a = renderToString(html`<${Tree} model=${model(solo)} />`);
+  assert.ok(!a.includes("tree-head") && !a.includes("tree-note") && a.includes("treeitem"));
+  const g = team();
+  g.nodes = [g.nodes[0]];
+  g.nodes[0].children = [];
+  g.teams[0].members = ["m"];
+  const b = renderToString(html`<${Tree} model=${model(g)} />`);
+  assert.ok(b.includes("tree-head"));
+  assert.equal((b.match(/No helpers yet\. The manager starts them as it plans\./g) || []).length, 1);
+  assert.ok(!renderToString(html`<${Tree} model=${model(team())} />`).includes("No helpers yet"));
+});
+
+test("the row tints are not beaten by the hover rule, and the name has a floor", async () => {
+  const { readFileSync } = await import("node:fs");
+  const css = readFileSync(new URL("../assets/graph/tree.css", import.meta.url), "utf8");
+  assert.ok(css.includes(".tree-row:where(:hover)"));
+  assert.ok(css.indexOf(".tree-row:where(:hover)") < css.indexOf(".tree-row--ask"));
+  assert.ok(css.includes("max(48px, calc(112px"));
+  assert.ok(!css.includes(".tree-view") && !css.includes(".tree-goal"));
+});

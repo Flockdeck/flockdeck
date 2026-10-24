@@ -422,7 +422,7 @@ export function promptOf(pane) {
   return { kind: "none", hidden: false, tool: "", summary: "", options: [], canAnswerHere: false };
 }
 
-/** STUCK_MS is how long a working terminal pane may write nothing before it is called stuck. */
+/** STUCK_MS is how long a working terminal pane may write nothing before it is called stuck. It is the desk's own rule (team.StuckAfter, internal/team/graph.go); keep the two equal. */
 export const STUCK_MS = 10 * 60 * 1000;
 
 function timeOf(iso) {
