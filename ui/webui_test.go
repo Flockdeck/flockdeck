@@ -5,6 +5,8 @@ import (
 	"go/build"
 	"io/fs"
 	"mime"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -59,5 +61,27 @@ func TestOnlyTheAssetTreeIsEmbedded(t *testing.T) {
 	}
 	if !slices.Equal(pkg.EmbedPatterns, []string{"src"}) {
 		t.Errorf("embedded: %v", pkg.EmbedPatterns)
+	}
+}
+
+func TestDirFSIsOffUnlessAFolderWithAPageIsNamed(t *testing.T) {
+	t.Setenv(DirEnv, "")
+	if _, ok := DirFS(); ok {
+		t.Fatal("DirFS is on with nothing set")
+	}
+	dir := t.TempDir()
+	t.Setenv(DirEnv, dir)
+	if _, ok := DirFS(); ok {
+		t.Fatal("DirFS is on for a folder with no index.html")
+	}
+	if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte("<p>dev</p>"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fsys, ok := DirFS()
+	if !ok {
+		t.Fatal("DirFS is off for a folder with an index.html")
+	}
+	if b, err := fs.ReadFile(fsys, "index.html"); err != nil || string(b) != "<p>dev</p>" {
+		t.Fatalf("index.html = %q, %v", b, err)
 	}
 }
