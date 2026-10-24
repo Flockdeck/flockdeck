@@ -3,6 +3,15 @@
     "major": 1,
     "minor": 1
   },
+  "frames": [
+    {
+      "name": "clientHello",
+      "direction": "client",
+      "does": "A window says once, after the hello, which API version it was built for and what it calls itself. A different major version is answered with apiMismatch; the same one is only noted.",
+      "since": "1.0",
+      "status": "stable"
+    }
+  ],
   "commands": [
     {
       "name": "accentColor",

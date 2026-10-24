@@ -1490,9 +1490,11 @@ func (s *Server) handleControl(w http.ResponseWriter, r *http.Request) {
 		if json.Unmarshal(data, &cmd) != nil {
 			continue
 		}
-		if cmd.Cmd == "" && messageType(data) == "clientHello" {
-			s.clientHello(c, data)
-			continue
+		if cmd.Cmd == "" {
+			if typ := messageType(data); clientFrames[typ] != "" {
+				s.clientFrame(c, typ, data)
+				continue
+			}
 		}
 		s.guardFor(c, "handling "+cmdName(cmd.Cmd), func() { s.handleCommand(c, cmd) })
 	}

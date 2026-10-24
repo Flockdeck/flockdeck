@@ -1,0 +1,253 @@
+{
+  "edges": [
+    {
+      "from": "c2beaec2",
+      "kind": "spawn",
+      "to": "c2e39f87"
+    },
+    {
+      "from": "c2beaec2",
+      "kind": "spawn",
+      "to": "bcaec151"
+    },
+    {
+      "from": "c2beaec2",
+      "kind": "spawn",
+      "to": "e8918e34"
+    },
+    {
+      "from": "c2beaec2",
+      "kind": "spawn",
+      "to": "2023df34"
+    },
+    {
+      "from": "c2beaec2",
+      "kind": "spawn",
+      "to": "77843dc7"
+    },
+    {
+      "from": "c2beaec2",
+      "kind": "spawn",
+      "to": "a2153c58"
+    },
+    {
+      "delivery": "queued",
+      "from": "2023df34",
+      "id": 6,
+      "kind": "message",
+      "text": "The sign-up form submits twice on a slow connection. Needs a decision before I write the fix.",
+      "time": "2026-10-21T08:55:00Z",
+      "to": "c2beaec2"
+    }
+  ],
+  "nodes": [
+    {
+      "activity": "starting",
+      "depth": 0,
+      "kind": "terminal",
+      "lastOutput": "2026-10-21T08:55:00Z",
+      "name": "project",
+      "pane": "c6a55982",
+      "shell": true,
+      "since": "2026-10-21T08:55:00Z",
+      "status": "starting",
+      "waitingOn": {
+        "kind": "none"
+      }
+    },
+    {
+      "activity": "idle",
+      "below": 6,
+      "children": [
+        "c2e39f87",
+        "bcaec151",
+        "e8918e34",
+        "2023df34",
+        "77843dc7",
+        "a2153c58"
+      ],
+      "depth": 0,
+      "kind": "terminal",
+      "lastOutput": "2026-10-21T08:55:00Z",
+      "name": "manager",
+      "needYou": 1,
+      "pane": "c2beaec2",
+      "role": "manager",
+      "since": "2026-10-21T08:55:00Z",
+      "spendPartial": true,
+      "status": "idle",
+      "team": "c2beaec2",
+      "unread": 4,
+      "waitingOn": {
+        "kind": "helpers",
+        "ref": "c2e39f87",
+        "text": "2 helpers are busy"
+      }
+    },
+    {
+      "activity": "waiting",
+      "depth": 1,
+      "kind": "terminal",
+      "lastOutput": "2026-10-21T08:55:00Z",
+      "live": "AskUserQuestion",
+      "name": "forms",
+      "pane": "c2e39f87",
+      "parent": "c2beaec2",
+      "role": "worker",
+      "since": "2026-10-21T08:55:00Z",
+      "spendPartial": true,
+      "status": "waiting",
+      "team": "c2beaec2",
+      "waitingOn": {
+        "kind": "user",
+        "text": "Make the phone number optional?"
+      }
+    },
+    {
+      "activity": "working",
+      "depth": 1,
+      "kind": "terminal",
+      "lastOutput": "2026-10-21T08:55:00Z",
+      "live": "Edit onboarding/welcome.md",
+      "name": "copy",
+      "pane": "bcaec151",
+      "parent": "c2beaec2",
+      "role": "worker",
+      "since": "2026-10-21T08:55:00Z",
+      "spendPartial": true,
+      "status": "working",
+      "team": "c2beaec2",
+      "waitingOn": {
+        "kind": "none"
+      }
+    },
+    {
+      "activity": "idle",
+      "depth": 1,
+      "kind": "terminal",
+      "lastOutput": "2026-10-21T08:55:00Z",
+      "name": "auth",
+      "pane": "e8918e34",
+      "parent": "c2beaec2",
+      "role": "worker",
+      "since": "2026-10-21T08:55:00Z",
+      "spendPartial": true,
+      "status": "idle",
+      "task": {
+        "id": "T1",
+        "state": "in-review",
+        "title": "Magic link sign-in"
+      },
+      "team": "c2beaec2",
+      "unread": 1,
+      "waitingOn": {
+        "kind": "reviewer",
+        "ref": "T1",
+        "text": "T1 is in review, and nobody is set to review it"
+      }
+    },
+    {
+      "activity": "idle",
+      "depth": 1,
+      "kind": "terminal",
+      "lastOutput": "2026-10-21T08:55:00Z",
+      "name": "tests",
+      "pane": "2023df34",
+      "parent": "c2beaec2",
+      "role": "worker",
+      "since": "2026-10-21T08:55:00Z",
+      "spendPartial": true,
+      "status": "idle",
+      "team": "c2beaec2",
+      "undelivered": 1,
+      "waitingOn": {
+        "kind": "none"
+      }
+    },
+    {
+      "activity": "exited",
+      "depth": 1,
+      "kind": "terminal",
+      "lastOutput": "2026-10-21T08:55:00Z",
+      "name": "icons",
+      "pane": "77843dc7",
+      "parent": "c2beaec2",
+      "role": "worker",
+      "since": "2026-10-21T08:55:00Z",
+      "spendPartial": true,
+      "status": "exited",
+      "team": "c2beaec2",
+      "waitingOn": {
+        "kind": "down",
+        "ref": "77843dc7",
+        "text": "exited"
+      }
+    },
+    {
+      "activity": "idle",
+      "depth": 1,
+      "kind": "terminal",
+      "lastOutput": "2026-10-21T08:55:00Z",
+      "name": "i18n",
+      "pane": "a2153c58",
+      "parent": "c2beaec2",
+      "role": "worker",
+      "since": "2026-10-21T08:55:00Z",
+      "spendPartial": true,
+      "status": "idle",
+      "task": {
+        "id": "T2",
+        "state": "blocked",
+        "title": "Extract the new strings"
+      },
+      "team": "c2beaec2",
+      "unread": 1,
+      "waitingOn": {
+        "kind": "task",
+        "ref": "T2",
+        "text": "waiting on the translation vendor's key format"
+      }
+    }
+  ],
+  "project": "project",
+  "root": "/work/project",
+  "solo": [
+    "c6a55982"
+  ],
+  "soloNeeds": [],
+  "teams": [
+    {
+      "caps": [
+        {
+          "max": 8,
+          "pane": "c2beaec2",
+          "used": 6
+        }
+      ],
+      "id": "c2beaec2",
+      "manager": "c2beaec2",
+      "members": [
+        "c2beaec2",
+        "c2e39f87",
+        "bcaec151",
+        "e8918e34",
+        "2023df34",
+        "77843dc7",
+        "a2153c58"
+      ],
+      "needs": [
+        {
+          "id": "ask:c2e39f87",
+          "kind": "ask",
+          "pane": "c2e39f87",
+          "text": "Make the phone number optional?",
+          "time": "2026-10-21T08:55:00Z"
+        }
+      ],
+      "spendPartial": true,
+      "spendUSD": 0,
+      "started": "2026-10-21T08:55:00Z"
+    }
+  ],
+  "type": "graph"
+}

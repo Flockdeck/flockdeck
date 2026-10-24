@@ -67,11 +67,23 @@ type catalogMessage struct {
 	Status  string `json:"status"`
 }
 
+// catalogFrame is a frame a window sends that is not a command (clientFrames).
+type catalogFrame struct {
+	Name string `json:"name"`
+	// Direction is who sends it: always "client" today.
+	Direction string `json:"direction"`
+	// Does says what the frame is for.
+	Does   string `json:"does"`
+	Since  string `json:"since"`
+	Status string `json:"status"`
+}
+
 type catalogFile struct {
 	API struct {
 		Major int `json:"major"`
 		Minor int `json:"minor"`
 	} `json:"api"`
+	Frames   []catalogFrame   `json:"frames"`
 	Commands []catalogCommand `json:"commands"`
 	Messages []catalogMessage `json:"messages"`
 }
@@ -81,6 +93,14 @@ func buildAPICatalog(t *testing.T) catalogFile {
 	t.Helper()
 	var c catalogFile
 	c.API.Major, c.API.Minor = apiMajor, apiMinor
+	var frames []string
+	for name := range clientFrames {
+		frames = append(frames, name)
+	}
+	sort.Strings(frames)
+	for _, name := range frames {
+		c.Frames = append(c.Frames, catalogFrame{Name: name, Direction: "client", Does: clientFrames[name], Since: sinceOf(name), Status: "stable"})
+	}
 	access := map[cmdAccess]string{accessFull: "full", accessWatcher: "watcher", accessViewer: "viewer"}
 	names := handleCommandCases(t)
 	sort.Strings(names)
@@ -154,6 +174,14 @@ func TestAPICatalogAgreesWithTheServer(t *testing.T) {
 	}
 	if len(c.Commands) < 150 {
 		t.Fatalf("%d commands in the catalog; the file is probably wrong", len(c.Commands))
+	}
+	for _, f := range c.Frames {
+		if clientFrames[f.Name] == "" {
+			t.Errorf("the catalog has the frame %q, which the server does not read", f.Name)
+		}
+	}
+	if len(c.Frames) != len(clientFrames) {
+		t.Errorf("the catalog has %d frames, the server reads %d", len(c.Frames), len(clientFrames))
 	}
 	cases := handleCommandCases(t)
 	var inFile []string
