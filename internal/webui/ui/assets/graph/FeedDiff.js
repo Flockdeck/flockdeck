@@ -13,7 +13,7 @@
 //
 // Every text in an entry is made from names and words the graph model already
 // holds as strings. Nothing is read as markup.
-import { needLabel } from "./model.js";
+import { needLabel, labelOf } from "./model.js";
 
 /** FEED_CAP is how many entries the feed keeps, newest first. */
 export const FEED_CAP = 200;
@@ -55,8 +55,11 @@ function stop(t) {
 }
 
 function nameOf(model, prev, pane) {
-  const n = (model && model.byPane.get(pane)) || (prev && prev.byPane.get(pane));
-  return (n && (n.name || n.peer)) || pane;
+  // The model the pane is in names it (a pane that left is named by the one it left); panes that share a name read as what they are on.
+  const src = model && model.byPane.has(pane) ? model : prev && prev.byPane.has(pane) ? prev : null;
+  if (!src) return pane;
+  const n = src.byPane.get(pane);
+  return !n.name && n.peer ? n.peer : labelOf(src, pane);
 }
 
 function sameProject(a, b) {
