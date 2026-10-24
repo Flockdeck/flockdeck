@@ -19,7 +19,7 @@ import { reasonOf, isLoud } from "./Badge.js";
 import { TreeRow, TreeHead } from "./TreeRow.js";
 import { TreeDecisions } from "./TreeDecisions.js";
 import { chipsOf } from "./chips.js";
-import { rollupOf } from "./model.js";
+import { rollupOf, labelOf } from "./model.js";
 
 /** TICK_MS is how often the ages are worked out again. */
 export const TICK_MS = 30000;
@@ -161,6 +161,13 @@ export function doingOf(node, needs) {
   return stateOf(node).word;
 }
 
+/** rowNameOf is the label of a row: the pane's name or, when panes share one, labelOf's, less the role the next column already shows. */
+export function rowNameOf(model, node) {
+  const l = labelOf(model, node.pane);
+  const lead = node.role ? node.role + " · " : "";
+  return lead && l.startsWith(lead) && l.length > lead.length ? l.slice(lead.length) : l;
+}
+
 /** Tree draws a graph model as an outline. onOpen and open are the graph's: a row's drawer is opened by Enter, Space or a click, and open is the pane whose drawer is open. */
 export function Tree({ model, onOpen = null, open = "", decisions = null }) {
   const [now, setNow] = useState(() => Date.now());
@@ -233,12 +240,14 @@ export function Tree({ model, onOpen = null, open = "", decisions = null }) {
   if (rows.length === 0) return null;
   // One agent that leads no team is a lone agent: no header, nothing to fold.
   const solo = rows.length === 1 && !rows[0].team;
-  return html`<div class="tree">
+  // With panes that share a name the names are longer (what the pane is on), so the column is wider.
+  const shared = rows.some((r) => labelOf(model, r.pane) !== (model.byPane.get(r.pane).name || r.pane));
+  return html`<div class=${"tree" + (shared ? " tree--shared-names" : "")}>
     ${solo ? null : html`<${TreeHead} />`}
     <div class="tree-rows" role="tree" aria-label="Agents" ref=${ref} onKeyDown=${onKeyDown}>
       ${rows.map((r) => {
         const node = model.byPane.get(r.pane);
-        return html`<${Fragment} key=${r.pane}><${TreeRow} row=${r} node=${node} needs=${needsOf(model, r.pane)} doing=${doingOf(node, needsOf(model, r.pane))} chips=${chipsOf(model, node, needsOf(model, r.pane), now)} roll=${r.collapsed ? rollupOf(model, r.pane) : null} onToggle=${toggle} lit=${lit[0] === r.pane || lit[1] === r.pane} onLink=${go} onLit=${(a, b) => setLit([a, b])} stop=${stop === r.pane}
+        return html`<${Fragment} key=${r.pane}><${TreeRow} row=${r} node=${node} name=${rowNameOf(model, node)} needs=${needsOf(model, r.pane)} doing=${doingOf(node, needsOf(model, r.pane))} chips=${chipsOf(model, node, needsOf(model, r.pane), now)} roll=${r.collapsed ? rollupOf(model, r.pane) : null} onToggle=${toggle} lit=${lit[0] === r.pane || lit[1] === r.pane} onLink=${go} onLit=${(a, b) => setLit([a, b])} stop=${stop === r.pane}
           selected=${open === r.pane} age=${ageOf(node.since, now)} cost=${costOf(node, r.team)}
           onFocus=${() => setFocus(r.pane)} onOpen=${onOpen} />
           ${r.team && r.kids === 0 ? html`<div class="tree-note" role="treeitem" aria-disabled="true" aria-level=${r.depth + 2}>No helpers yet. The manager starts them as it plans.</div>` : null}
