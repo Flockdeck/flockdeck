@@ -303,16 +303,3 @@ test("archiving says how to get the tab back, and a dot on the + says an archive
     assert.ok(m.container.find(".tabs-plus-dot"), "the first goal has a pane waiting on the person");
     assert.match(m.container.find(".tabs-plus").getAttribute("aria-label"), /an archived goal needs you/);
   }));
-
-test("F2 renames the tab that has the keyboard, and is left alone on Solo", () =>
-  withPage({}, async (m) => {
-    await m.connect();
-    m.tabs()[1].find(".tab-pick").keydown("F2");
-    await settle();
-    assert.ok(m.container.find(".tab-rename"));
-    m.container.find(".tab-rename").keydown("Escape");
-    await settle();
-    m.tabs()[2].find(".tab-pick").keydown("F2");
-    await settle();
-    assert.equal(m.container.find(".tab-rename"), null);
-  }));

@@ -45,14 +45,6 @@ export function GoalStrip({
     const li = e.target && e.target.getAttribute && e.target.getAttribute("role") === "tab" ? e.target.closest("li") : null;
     const at = li ? tabs.findIndex((t) => t.id === li.getAttribute("data-tab")) : -1;
     if (at < 0) return;
-    if (e.key === "F2") {
-      if (tabs[at].kind === "team" && onRename) {
-        e.preventDefault();
-        e.stopPropagation();
-        setRenaming(tabs[at].id);
-      }
-      return;
-    }
     let to = -1;
     if (e.key === LIST.right) to = (at + 1) % tabs.length;
     else if (e.key === LIST.left) to = (at - 1 + tabs.length) % tabs.length;
