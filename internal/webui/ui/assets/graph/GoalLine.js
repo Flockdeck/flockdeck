@@ -86,8 +86,10 @@ export function GoalLine({ model, now = null }) {
           ${s.elapsed ? html`<span class="goalline-fact goalline-time">${s.elapsed}</span>` : null}
           ${s.spend ? html`<span class="goalline-fact goalline-cost">${s.spend}</span>` : null}
           <span class="goalline-fact goalline-working">Working: ${s.working}</span>
-          ${s.helpers ? html`<span class=${"goalline-fact goalline-helpers" + (s.helpers.endsWith("cap") ? " is-capped" : "")}>${s.helpers}</span>` : null}
-          ${s.needs > 0 ? html`<span class="goalline-fact goalline-needs">${s.needs} ${s.needs === 1 ? "needs" : "need"} you</span>` : null}
+          ${s.helpers ? html`<span class=${"goalline-fact goalline-helpers" + (s.helpers.endsWith("cap") ? " is-capped" : "")}>${s.helpers.replace(", at the cap", "")}</span>` : null}
+          ${s.needs > 0
+            ? html`<span class="goalline-fact goalline-needs">${s.needs} ${s.needs === 1 ? "needs" : "need"} you</span>`
+            : html`<span class="goalline-fact goalline-none">Nothing waits on you</span>`}
         </span>
       </p>`;
     })}

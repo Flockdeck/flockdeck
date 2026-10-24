@@ -15,6 +15,25 @@ import { STATES, teamOf, TEAM_RELAY_WORDS } from "../lib/team.js";
 /** VIEWS are the views of the switch, in the order it shows them. */
 export const VIEWS = [["graph", "Graph"], ["board", "Board"], ["changes", "Changes"], ["replay", "Replay"]];
 
+/** TREE_VIEW is the outline of the team (rows with the activity feed beside it). It
+ *  leads the switch and is the page's first view once HAS_TREE is true. */
+export const TREE_VIEW = ["tree", "Tree"];
+
+/** HAS_TREE says the outline is built into this page. It is false until the
+ *  outline's own change turns it on, so the switch does not offer a view that
+ *  draws nothing. */
+export const HAS_TREE = false;
+
+/** viewsOf is the views of the switch in order, with the Tree first when the page has it. */
+export function viewsOf(hasTree = HAS_TREE) {
+  return hasTree ? [TREE_VIEW, ...VIEWS] : VIEWS;
+}
+
+/** firstViewOf is the view the page starts on. */
+export function firstViewOf(hasTree = HAS_TREE) {
+  return hasTree ? TREE_VIEW[0] : "graph";
+}
+
 /** REPLAY_WORDS is what the Replay view says: it has nothing to draw yet. */
 export const REPLAY_WORDS = "Replay will show a lane for each agent over time, with its status, the messages between agents and the files that overlapped, and a slider to move back along it.";
 export const REPLAY_NO_DATA_WORDS = "Flockdeck does not record that history yet, so there is nothing to replay. It will appear here when it does.";
