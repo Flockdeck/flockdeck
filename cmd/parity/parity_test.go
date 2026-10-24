@@ -166,7 +166,7 @@ func TestTheScanFindsWhatIsThere(t *testing.T) {
 		"palette", "toggleRail", "projects", "nextRegion", "prevRegion", "help",
 		// The actions block of shell/Live.js, written as `name: () => {`,
 		// `name: () => send(...)` and `name: needPane(...)`.
-		"nextNeedsYou", "managerBar", "newAgentTab", "newAgentTabChoose", "newShellTab", "startTeam",
+		"nextNeedsYou", "prevNeedsYou", "managerBar", "newAgentTab", "newAgentTabChoose", "newShellTab", "startTeam",
 		"nextTab", "prevTab", "moveTabLeft", "moveTabRight", "zoomPane", "restartPane", "lockPane", "closePane",
 	} {
 		if !f.Implemented[want] {

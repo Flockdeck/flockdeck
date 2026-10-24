@@ -81,6 +81,7 @@ table, run `go test ./internal/help -run TestKeysDocShortcuts -update`.
 | `Ctrl+Shift+R` | Resume — reopen a past conversation |
 | `Ctrl+Shift+O` | Projects |
 | `Ctrl+Shift+U` | Next agent that needs you |
+| `Ctrl+Shift+J` | Previous agent that needs you |
 | `Ctrl+Shift+H` | Message the manager |
 | `F1` | Help |
 
