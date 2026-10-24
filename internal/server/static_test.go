@@ -21,7 +21,7 @@ func TestServerDoesNotImportTheFrontEnd(t *testing.T) {
 		t.Fatalf("go list: %v", err)
 	}
 	for _, pkg := range strings.Fields(string(out)) {
-		if strings.HasSuffix(pkg, "/ui") || strings.Contains(pkg, "/ui/") {
+		if pkg == "github.com/jmwri/flockdeck/ui" || strings.HasPrefix(pkg, "github.com/jmwri/flockdeck/ui/") {
 			t.Errorf("internal/server depends on %s", pkg)
 		}
 	}

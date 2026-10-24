@@ -3,8 +3,7 @@
 //
 // The front end is the team-graph shell in src: ES modules on a
 // vendored Preact, with the terminal library, the end-to-end script, the fonts
-// and the icons beside them. The directory is still called next; it is the only
-// front end there is.
+// and the icons beside them. It is the only front end there is.
 package webui
 
 import (

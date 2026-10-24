@@ -18,7 +18,7 @@ import { stateOf } from "./Node.js";
 import { reasonOf, isLoud } from "./Badge.js";
 import { TreeRow, TreeHead } from "./TreeRow.js";
 import { TreeDecisions } from "./TreeDecisions.js";
-import { chipsOf } from "./chips.js";
+import { chipsOf, dependencyChipsOf } from "./chips.js";
 import { rollupOf, labelOf } from "./model.js";
 
 /** TICK_MS is how often the ages are worked out again. */
@@ -191,7 +191,7 @@ export function rowNameOf(model, node) {
 }
 
 /** Tree draws a graph model as an outline. onOpen and open are the graph's: a row's drawer is opened by Enter, Space or a click, and open is the pane whose drawer is open. */
-export function Tree({ model, onOpen = null, open = "", decisions = null }) {
+export function Tree({ model, onOpen = null, open = "", decisions = null, tasks = null }) {
   const [now, setNow] = useState(() => Date.now());
   const [focus, setFocus] = useState("");
   // The two rows a link chip lights while it is hovered or focused.
@@ -271,7 +271,7 @@ export function Tree({ model, onOpen = null, open = "", decisions = null }) {
     <div class="tree-rows" role="tree" aria-label="Agents" ref=${ref} onKeyDown=${onKeyDown}>
       ${rows.map((r) => {
         const node = model.byPane.get(r.pane);
-        return html`<${Fragment} key=${r.pane}><${TreeRow} row=${r} node=${node} name=${rowNameOf(model, node).name} nameRole=${rowNameOf(model, node).role} needs=${needsOf(model, r.pane)} doing=${doingOf(node, needsOf(model, r.pane), now)} tip=${tipOf(node, doingOf(node, needsOf(model, r.pane), now))} chips=${chipsOf(model, node, needsOf(model, r.pane), now)} roll=${r.collapsed ? rollupOf(model, r.pane) : null} onToggle=${toggle} lit=${lit[0] === r.pane || lit[1] === r.pane} onLink=${go} onLit=${(a, b) => setLit([a, b])} stop=${stop === r.pane}
+        return html`<${Fragment} key=${r.pane}><${TreeRow} row=${r} node=${node} name=${rowNameOf(model, node).name} nameRole=${rowNameOf(model, node).role} needs=${needsOf(model, r.pane)} doing=${doingOf(node, needsOf(model, r.pane), now)} tip=${tipOf(node, doingOf(node, needsOf(model, r.pane), now))} chips=${[...chipsOf(model, node, needsOf(model, r.pane), now), ...dependencyChipsOf(tasks, node)]} roll=${r.collapsed ? rollupOf(model, r.pane) : null} onToggle=${toggle} lit=${lit[0] === r.pane || lit[1] === r.pane} onLink=${go} onLit=${(a, b) => setLit([a, b])} stop=${stop === r.pane}
           selected=${open === r.pane} age=${ageOf(node.since, now)} cost=${costOf(node)}
           onFocus=${() => setFocus(r.pane)} onOpen=${onOpen} />
           ${r.team && r.kids === 0 ? html`<div class="tree-note" role="treeitem" aria-disabled="true" aria-level=${r.depth + 2}>No helpers yet. The manager starts them as it plans.</div>` : null}
