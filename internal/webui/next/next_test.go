@@ -490,8 +490,12 @@ func TestE2EIsTheOldWindowsFileByteForByte(t *testing.T) {
 	if string(served) != string(old) {
 		t.Error("the e2e.js the new shell is served is not the old window's file")
 	}
-	if _, err := os.Stat(filepath.Join("assets", "e2e.js")); err == nil {
-		t.Error("next/assets has an e2e.js of its own; the shell is to use the shared one")
+	own, err := os.ReadFile(filepath.Join("assets", "e2e.js"))
+	if err != nil {
+		t.Fatalf("next/assets has no e2e.js: %v", err)
+	}
+	if string(own) != string(old) {
+		t.Error("next/assets/e2e.js is not the old window's file byte for byte")
 	}
 }
 
