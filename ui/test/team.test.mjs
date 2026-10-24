@@ -579,7 +579,8 @@ test("Team view: with a tree the switch leads with Team, the page starts there, 
     assert.equal(rows.length, m.g.nodes.length, "the tree was given the model");
     const tree = m.container.find(".view-tree");
     assert.ok(tree.find(".home-col").find(".goalline"), "the goal line is at the top of the column");
-    assert.ok(tree.find(".feed"), "the feed is beside it");
+    assert.equal(tree.find(".feed"), null, "an empty feed takes no column");
+    assert.match(tree.find(".feed-none").textContent, /No activity yet/);
     assert.ok(m.container.find(".view-graph").getAttribute("hidden") !== null, "the graph is not shown");
   }));
 
