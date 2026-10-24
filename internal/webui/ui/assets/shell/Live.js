@@ -17,7 +17,7 @@ import { ManagerBar, managerOf } from "../graph/ManagerBar.js";
 import { nextNeedsYou, paneAt } from "../graph/keys.js";
 import { Shell, useNarrow } from "./app.js";
 import { FootButton } from "./rail.js";
-import { Board, ChangesView, Replay } from "./Views.js";
+import { Board, ChangesView, Replay, VIEWS } from "./Views.js";
 import { Home, sameProject, rosterOf } from "./Home.js";
 import { Start } from "./Start.js";
 import { Confirm } from "./Confirm.js";
@@ -395,7 +395,29 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
   useEffect(() => {
     if (settingsOpen && (settingsSection === "routing") && !snap.remote) send({ cmd: "refreshAgents" });
   }, [settingsOpen, settingsSection]);
-  // How many items need the person in each tab, from the graph's needs: the tab's
+  const chooseView = (v) => {
+    if (v === "graph") drawer.close();
+    setView(v);
+  };
+  // What the command palette lists besides the key table's actions: what needs the
+  // person (choosing one opens that agent), every agent of the graph, and the views.
+  // None of them answers anything: a permission is answered on its card.
+  const paletteItems = useMemo(() => {
+    const items = [];
+    if (current) {
+      const nameOf = (id) => (current.byPane.get(id) && current.byPane.get(id).name) || id;
+      for (const n of current.needs) {
+        if (!n.pane || !current.byPane.has(n.pane)) continue;
+        items.push({ id: "need-" + n.id, group: "Needs you", name: "Open " + nameOf(n.pane) + ": " + n.label, detail: (n.text || "").split("\n")[0].slice(0, 40), run: () => drawer.open(n.pane) });
+      }
+      for (const n of current.nodes) {
+        items.push({ id: "agent-" + n.pane, group: "Agents", name: "Open " + (n.name || n.pane), detail: [n.role, n.status].filter(Boolean).join(" · "), run: () => drawer.open(n.pane) });
+      }
+    }
+    for (const [id, name] of VIEWS) items.push({ id: "view-" + id, group: "Views", name: "Show " + name, detail: "", run: () => chooseView(id) });
+    return items;
+  }, [current, view]);
+  // How many items need the person in each tab: from the graph's needs: the tab's
   // panes are the ones its items name.
   const tabNeeds = useMemo(() => {
     const out = {};
@@ -571,6 +593,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     blocked=${!!starting || settingsOpen || updatesAt >= 0 || quitAsk || historyOpen || !!infoFor || findingPane || helpersOpen || projectsOpen || !!baton || teamOpen || agentsOpen || worktreesOpen || closeAsk}
     onSettings=${() => openSettings("general")}
     onProjects=${() => setProjectsOpen(true)}
+    paletteItems=${paletteItems}
     railFoot=${snap.remote
       ? null
       : html`<${FootButton} cls="rail-helpers" glyph="▤" label="Helper apps" onClick=${() => setHelpersOpen(true)} />
@@ -582,7 +605,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
           onClose=${drawer.close} onToggleMax=${drawer.toggleMax} terminalOptions=${termProps} life=${life}
           tx=${tx} onInfo=${openInfo} findAsk=${findAsk} tabAsk=${tabAsk} onOpenPane=${drawer.open} order=${order} />`
       : null}
-  >${snap.state ? html`<${Tabs} tabs=${tabs} send=${send} show=${onDesk} warnFor=${(t) => closeTabWarnings(t, current ? current.byPane : null, statePanes)} onChoose=${() => setStarting("agent")} needs=${tabNeeds} view=${view} onView=${(v) => { if (v === "graph") drawer.close(); setView(v); }}
+  >${snap.state ? html`<${Tabs} tabs=${tabs} send=${send} show=${onDesk} warnFor=${(t) => closeTabWarnings(t, current ? current.byPane : null, statePanes)} onChoose=${() => setStarting("agent")} needs=${tabNeeds} view=${view} onView=${chooseView}
       onHistory=${snap.remote ? null : () => setHistoryOpen(true)} onFind=${snap.remote ? null : () => setFindingPane(true)} />` : null}
     <div class="view-graph" hidden=${view !== "graph"}>
       <${Home} snap=${snap} selected=${selected} onShown=${setShown} onOpen=${drawer.open} open=${drawer.pane} narrow=${narrow} send=${snap.remote ? null : send}
