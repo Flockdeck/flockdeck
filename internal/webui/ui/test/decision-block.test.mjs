@@ -158,7 +158,7 @@ test("a permission says it asks to run only when there is a command", () => {
   const model = buildGraphModel(graph(items));
   const p = model.needs.find((n) => n.kind === "permission");
   assert.equal(decisionOf(model, p).line, "asks to run");
-  assert.equal(decisionOf(model, p, Date.now(), { summary: "Edit mw/limiter.go" }).line, "Edit mw/limiter.go");
+  assert.equal(decisionOf(model, p, Date.now(), { summary: "Edit mw/limiter.go" }).line, "asks permission", "the card body has the summary");
   assert.equal(decisionOf(model, p, Date.now(), {}).line, "asks permission");
   assert.equal(decisionOf(model, { ...p, text: "" }).line, "asks permission");
 });
