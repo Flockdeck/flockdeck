@@ -7,7 +7,7 @@
 // Team goals, names and every other text are untrusted and are drawn as text.
 import { useEffect, useRef, useState } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
-import { GoalLine } from "./GoalLine.js";
+import { GoalLine, helpersOf } from "./GoalLine.js";
 import { fitLayout } from "./layout.js";
 import { Node, clip, waitLine } from "./Node.js";
 import { Badge, isLoud } from "./Badge.js";
@@ -88,6 +88,7 @@ export function Graph({ model, layout = null, onOpen = null, open = "", onStartT
               open=${open === b.pane}
               loud=${isLoud(model.needsByPane.get(b.pane))}
               wait=${waitLine(node, model.byPane)}
+              cap=${teamOf.get(b.team) && teamOf.get(b.team).manager === b.pane ? helpersOf(teamOf.get(b.team)).replace(" helpers, at", ", at") : ""}
               counts=${counts.get(b.pane) || null}
               dim=${!!focus && b.pane !== focus && !near.related.has(b.pane)}
               rel=${b.pane === near.target}

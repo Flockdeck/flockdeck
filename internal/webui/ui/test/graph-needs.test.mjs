@@ -455,3 +455,22 @@ test("the graph view has the column and the graph side by side", () => {
   assert.match(out, /<div class="graph-main"><svg class="graph"/);
   assert.match(out, /Esc closes the drawer/);
 });
+
+test("a stuck pane is a known, quiet kind with its own word", () => {
+  const msg = {
+    type: "graph",
+    teams: [{ id: "m", manager: "m", members: ["m", "a"], needs: [{ id: "stuck:a", kind: "stuck", pane: "a", text: "no output for 12m" }] }],
+    nodes: [
+      { pane: "m", depth: 0, team: "m", children: ["a"], name: "boss", status: "idle", activity: "idle" },
+      { pane: "a", parent: "m", depth: 1, team: "m", name: "alpha", status: "working", activity: "working" },
+    ],
+    edges: [],
+    solo: [],
+  };
+  const model = buildGraphModel(msg);
+  assert.equal(model.needs[0].known, true);
+  const r = reasonOf(model.needs[0]);
+  assert.equal(r.word, "has gone quiet");
+  assert.equal(r.detail, "no output for 12m");
+  assert.ok(!draw(msg).includes("gnode--loud"), "a quiet pane was drawn loud");
+});

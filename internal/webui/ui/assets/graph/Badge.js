@@ -22,6 +22,7 @@ const PHRASES = {
   returned: "task returned from review",
   conflict: "files overlap",
   "stale-unread": "has unread mail",
+  stuck: "has gone quiet",
   setup: "needs setting up",
 };
 
@@ -63,6 +64,7 @@ const ICONS = {
   conflict: "M-6 -6 H2 V2 H-6 Z M-2 -2 H6 V6 H-2 Z",
   down: "M-3 -3 L3 3 M3 -3 L-3 3",
   "stale-unread": "M-6 -4 H6 V4 H-6 Z M-6 -4 L0 1 L6 -4",
+  stuck: "M0 -6 V0 L4 3 M-6 0 A6 6 0 1 0 6 0 A6 6 0 1 0 -6 0",
   setup: "M0 -6 L6.5 5 H-6.5 Z M0 -2 V1.5 M0 3.5 V4",
 };
 

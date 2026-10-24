@@ -8,12 +8,12 @@ It compares two lists the sources hold: the actions of the key table (`internal/
 
 | | Actions | Commands |
 | --- | --- | --- |
-| done | 44 | 127 |
+| done | 45 | 127 |
 | replaced | 0 | 1 |
 | cut | 14 | 14 |
 | planned | 0 | 14 |
 | unclassified | 0 | 0 |
-| total | 58 | 156 |
+| total | 59 | 156 |
 
 Done means the new interface runs the action or sends the command under that name. Replaced means it sends another command for it. Cut is on purpose. Planned names the task on the board that owns it.
 
@@ -126,6 +126,7 @@ These are safety and security controls the new interface has to send. The list i
 | `history` | Resume — reopen a past conversation (Ctrl+Shift+R) | done |  |
 | `projects` | Projects (Ctrl+Shift+O) | done |  |
 | `nextNeedsYou` | Next agent that needs you (Ctrl+Shift+U) | done |  |
+| `prevNeedsYou` | Previous agent that needs you (Ctrl+Shift+J) | done |  |
 | `managerBar` | Message the manager (Ctrl+Shift+H) | done |  |
 | `help` | Help (F1) | done |  |
 | `settings` | Settings (Ctrl+,) | done |  |
@@ -302,7 +303,7 @@ These are safety and security controls the new interface has to send. The list i
 
 ## Commands only the new interface sends
 
-`conversationClose`, `conversationDetail`, `conversationOlder`, `conversationOpen`, `conversationSearch`, `graphUnwatch`, `graphWatch`, `paneSend`, `permissionAnswer`, `structuredCancel`, `structuredUnwatch`, `structuredWatch`
+`conversationClose`, `conversationDetail`, `conversationOlder`, `conversationOpen`, `conversationSearch`, `graphUnwatch`, `graphWatch`, `paneSend`, `permissionAnswer`, `structuredCancel`, `structuredUnwatch`, `structuredWatch`, `wakeSwitch`
 
 ## What this does not cover
 

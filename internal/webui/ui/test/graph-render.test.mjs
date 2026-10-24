@@ -206,6 +206,7 @@ const RUNS = {
   "gnode-live": { size: 11, face: "mono" },
   "gnode-wait": { size: 11, face: "sans" },
   "gnode-spend": { size: 11, face: "mono" },
+  "gnode-cap": { size: 12, face: "mono" },
   "gnode-msgs": { size: 11, face: "sans" },
 };
 const BOX_W = 216;
@@ -332,4 +333,12 @@ test("the estimate in this test fails for a line that is too long", () => {
   // The same estimate applied to an uncut 31-character mono line, which the first version drew.
   const out = '<g class="gnode x" data-pane="q"><text class="gnode-live" x="12" y="67">' + "e".repeat(31) + "</text></g>";
   assert.throws(() => assertFits(runsOf(out), "uncut"));
+});
+
+test("a manager's box says how many helpers it has against its cap", () => {
+  const out = draw(load("02-eight-helpers-permission-and-question"));
+  assert.match(out, /<text class="gnode-cap"[^>]*>8 of 8, at the cap<\/text>/);
+  const six = draw(load("01-six-helpers-one-permission"));
+  assert.match(six, /<text class="gnode-cap"[^>]*>6 of 8 helpers<\/text>/);
+  assertFits(runsOf(out), "capped");
 });

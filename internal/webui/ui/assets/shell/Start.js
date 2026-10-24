@@ -20,7 +20,7 @@ import { useEffect, useMemo, useRef, useState } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
 import { composing, LIST } from "./keys.js";
 import {
-  defaultValue, managerRole, newTabCommand, optionsOf, roleOptions, splitValue, startAgentCommand, startProblem,
+  defaultValue, managerRole, newTabCommand, optionsOf, presetTaskFor, roleOptions, splitValue, startAgentCommand, startProblem, TEAM_HELPER_CAP, TEAM_PRESETS,
 } from "../lib/lifecycle.js";
 
 /** WORKTREE_WORDS is what the option says. */
@@ -54,6 +54,7 @@ export function Start({ mode, catalog, project, send, onClose }) {
   const options = useMemo(() => optionsOf(catalog), [catalog]);
   const [pick, setPick] = useState(() => defaultValue(catalog));
   const [roleId, setRoleId] = useState("");
+  const [preset, setPreset] = useState("");
   const [task, setTask] = useState("");
   const [tree, setTree] = useState(false);
   const [problem, setProblem] = useState("");
@@ -108,9 +109,11 @@ export function Start({ mode, catalog, project, send, onClose }) {
     if (!g) groups.push((g = { name: o.group, items: [] }));
     g.items.push(o);
   }
+  const [mAgent, mModel] = splitValue(pick);
+  const managerWords = (role ? role.name || role.id : "manager") + (mAgent ? " (" + mAgent + (mModel ? " · " + mModel : "") + ")" : "");
   const explain = team
-    ? "Starts one agent, " + (role ? "a " + (role.name || role.id) : "a manager") + ", in " + (project ? project.name : "this project") +
-      " with your goal as its task. It then starts the agents it needs. Nothing else starts now."
+    ? "This will start: one agent, a " + managerWords + ", in " + (project ? project.name : "this project") +
+      ", with your goal as its task. Nothing else starts now. The manager then starts the helpers it needs, at most " + TEAM_HELPER_CAP + " open at a time."
     : "Opens an agent tab on the agent you choose. Write a task, or choose a role, to start the agent in " +
       (project ? project.name : "the project") + " with that task instead.";
 
@@ -128,7 +131,15 @@ export function Start({ mode, catalog, project, send, onClose }) {
           </optgroup>`)}
         </select>
         ${team
-          ? null
+          ? html`<label class="dialog-label" for="start-preset">Start from</label>
+              <select id="start-preset" class="dialog-field" value=${preset} onChange=${(e) => {
+                const p = TEAM_PRESETS.find((x) => x.id === e.target.value);
+                setPreset(e.target.value);
+                if (p) setTask((t) => presetTaskFor(t, p));
+              }}>
+                <option value="">A blank goal</option>
+                ${TEAM_PRESETS.map((p) => html`<option key=${p.id} value=${p.id}>${p.name}</option>`)}
+              </select>`
           : html`<label class="dialog-label" for="start-role">Role</label>
               <select id="start-role" class="dialog-field" value=${roleId} onChange=${(e) => setRoleId(e.target.value)}>
                 <option value="">No role</option>

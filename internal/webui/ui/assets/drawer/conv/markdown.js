@@ -25,7 +25,8 @@
 // table (thead, tbody, tr, th, td) in a div, pre, code, strong, em, del, a, br,
 // span, div, button.
 import { h } from "../../vendor/preact.mjs";
-import { useState } from "../../vendor/hooks.mjs";
+import { useContext, useState } from "../../vendor/hooks.mjs";
+import { ChipsContext, chipify } from "./chips.js";
 
 /** MAX_INLINE is the longest run of inline text that is parsed. Longer is text. */
 export const MAX_INLINE = 5000;
@@ -602,5 +603,7 @@ export function renderMarkdown(text) {
 
 /** Markdown is the component: a div holding the text as Markdown. */
 export function Markdown({ text }) {
-  return h("div", { class: "md" }, ...renderMarkdown(text));
+  const chips = useContext(ChipsContext);
+  const nodes = renderMarkdown(text);
+  return h("div", { class: "md" }, ...(chips ? chipify(nodes, chips) : nodes));
 }

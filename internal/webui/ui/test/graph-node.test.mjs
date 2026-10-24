@@ -24,6 +24,8 @@ test("isLoud is true for a request of the person and false for unread mail, an e
   assert.equal(isLoud([need("stale-unread", "a"), need("ask", "a")]), true);
   assert.equal(isLoud([need("stale-unread", "a")]), false);
   assert.equal(isLoud([need("down", "a")]), false);
+  assert.equal(isLoud([need("stuck", "a")]), false, "a pane gone quiet asks nothing");
+  assert.equal(isLoud([need("stuck", "a"), need("ask", "a")]), true);
   assert.equal(isLoud([]), false);
   assert.equal(isLoud(undefined), false);
 });

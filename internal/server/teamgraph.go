@@ -391,6 +391,9 @@ func (s *Server) graphPayload(root string) (graphMsg, error) {
 			UnreadMail: min(st.unreadMail[p.ID], ws.Unread(p.ID)),
 			Exited:     stat == session.StatusExited,
 		}
+		if q, ok := rt.(interface{ LastOutput() time.Time }); ok {
+			g.LastOutput = q.LastOutput()
+		}
 		switch why, failed := p.Failed(); {
 		case p.Err != nil:
 			// A pane that could not start has no session and nothing to run.

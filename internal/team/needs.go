@@ -16,6 +16,7 @@ const (
 	NeedDown        = "down"
 	NeedSetup       = "setup"
 	NeedStaleUnread = "stale-unread"
+	NeedStuck       = "stuck"
 )
 
 // Values of GraphPane.PromptKind.
@@ -40,6 +41,10 @@ const (
 	// it is listed. Mail younger than this is the ordinary lag of an agent that
 	// is between turns, not something for the person to chase.
 	StaleUnreadAfter = 30 * time.Minute
+	// StuckAfter is how long a pane may be working without writing anything to
+	// its terminal before it is listed as stuck. It is a quiet item: the agent may
+	// be thinking, so it asks nothing of the person, it only says where to look.
+	StuckAfter = 10 * time.Minute
 )
 
 // PaneConflict is a pair of panes the radar reports as conflicting. The caller
@@ -149,6 +154,8 @@ func NeedsYou(g Graph, panes []GraphPane, tasks []GraphTask, conflicts []PaneCon
 			add(p.ID, NeedsItem{ID: kind + ":" + p.ID, Kind: kind, Pane: p.ID, Time: p.StatusSince, Text: PlainText(p.PromptText, MaxWaitText)})
 		case p.SetupText != "":
 			add(p.ID, NeedsItem{ID: NeedSetup + ":" + p.ID, Kind: NeedSetup, Pane: p.ID, Time: p.StatusSince, Text: PlainText(p.SetupText, MaxWaitText)})
+		case p.Activity == activityWorking && !p.LastOutput.IsZero() && now.Sub(p.LastOutput) > StuckAfter:
+			add(p.ID, NeedsItem{ID: NeedStuck + ":" + p.ID, Kind: NeedStuck, Pane: p.ID, Time: p.LastOutput, Text: "no output for " + quietFor(now.Sub(p.LastOutput))})
 		case p.Activity == activityIdle && p.UnreadMail > 0 && !p.UnreadSince.IsZero() && now.Sub(p.UnreadSince) > StaleUnreadAfter:
 			if t, ok := team[p.ID]; ok {
 				staleBy[t] = append(staleBy[t], stale{p.ID, p.UnreadSince, p.UnreadMail})
@@ -225,6 +232,18 @@ func NeedsYou(g Graph, panes []GraphPane, tasks []GraphTask, conflicts []PaneCon
 	return out
 }
 
+// quietFor is a quiet time as "12m" or "2h 5m".
+func quietFor(d time.Duration) string {
+	m := int(d / time.Minute)
+	if m < 60 {
+		return strconv.Itoa(m) + "m"
+	}
+	if m%60 == 0 {
+		return strconv.Itoa(m/60) + "h"
+	}
+	return strconv.Itoa(m/60) + "h " + strconv.Itoa(m%60) + "m"
+}
+
 // conflictText names at most MaxConflictPaths paths, each cut on its own, and
 // counts the rest, so the count is never cut off.
 func conflictText(paths []string) string {
@@ -259,8 +278,10 @@ func needRank(kind string) int {
 		return 4
 	case NeedStaleUnread:
 		return 5
+	case NeedStuck:
+		return 6
 	}
-	return 6
+	return 7
 }
 
 func compareNeeds(a, b NeedsItem) int {

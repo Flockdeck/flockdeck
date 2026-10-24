@@ -27,7 +27,7 @@
 export const DETAILS_ON_DESKTOP = "details on the desktop";
 
 /** The kinds of needs-you item the graph can carry, in the order the schema lists them. */
-export const NEED_KINDS = ["permission", "ask", "returned", "conflict", "down", "setup", "stale-unread"];
+export const NEED_KINDS = ["permission", "ask", "returned", "conflict", "down", "setup", "stale-unread", "stuck"];
 
 const NEED_LABELS = {
   permission: "Wants to run something",
@@ -37,10 +37,11 @@ const NEED_LABELS = {
   down: "Ended",
   setup: "Needs setting up",
   "stale-unread": "Has unread mail and is idle",
+  stuck: "Is working but has written nothing for a while",
 };
 
-/** The kinds drawn without the amber: mail left unread by a pane that is idle. They are in the box's block and do not make the box loud. */
-export const QUIET_KINDS = ["stale-unread"];
+/** The kinds drawn without the amber: mail left unread by a pane that is idle, and a pane gone quiet. They are in the box's block and do not make the box loud. */
+export const QUIET_KINDS = ["stale-unread", "stuck"];
 
 /** isLoud says a list of needs holds one that asks something of the person now. A pane that ended has its block in red and its box is not drawn loud. */
 export function isLoud(needs) {

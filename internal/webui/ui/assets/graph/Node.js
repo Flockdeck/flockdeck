@@ -171,12 +171,14 @@ function Mark({ shape, x, y }) {
  * for what it waits on, counts its messages, and dim and rel are the fade and
  * the dashed outline of the graph's focus.
  */
-export function Node({ node, box, team = null, onOpen = null, open = false, loud = false, wait = "", counts = null, dim = false, rel = false, onHot = null }) {
+export function Node({ node, box, team = null, onOpen = null, open = false, loud = false, wait = "", cap = "", counts = null, dim = false, rel = false, onHot = null }) {
   const state = stateOf(node);
   const isManager = team !== null && team.manager === node.pane;
   const spend = isManager ? spendOf(team) : "";
   const w = box.w;
   const label = describe(node, state, spend);
+  // The manager's helper cap goes on a row the box leaves free: the live line's, or the task's.
+  const capY = !cap ? 0 : !node.live || loud ? ROWS.live : !node.task ? ROWS.task : 0;
   const task = node.task ? taskLine(node.task, limitOf(w, "task")) : null;
   const cls = ["gnode", "gnode--" + state.key, loud ? "gnode--loud" : "", node.structured ? "gnode--structured" : "", node.shell ? "gnode--shell" : "", isManager ? "gnode--manager" : "", open ? "gnode--open" : "", dim ? "gnode--dim" : ""]
     .filter(Boolean)
@@ -204,6 +206,7 @@ export function Node({ node, box, team = null, onOpen = null, open = false, loud
         : null}
       ${!loud && node.live ? html`<text class="gnode-live" x=${PAD} y=${ROWS.live}>${clip(node.live, limitOf(w, "mono"))}</text>` : null}
       ${!loud && wait ? html`<text class="gnode-wait" x=${PAD} y=${ROWS.wait}>${"→ " + clip(wait, limitOf(w, "role") - 2)}</text>` : null}
+      ${cap && capY ? html`<text class="gnode-cap" x=${PAD} y=${capY}>${clip(cap, limitOf(w, "mono"))}</text>` : null}
       ${spend ? html`<text class="gnode-spend" x=${w - PAD} y=${box.h + ROWS.foot} text-anchor="end">${clip(spend, 16)}</text>` : null}
       ${counts && counts.undelivered > 0 ? html`<text class="gnode-msgs gnode-und" x=${PAD} y=${box.h + ROWS.foot}>${undeliveredLine(counts)}</text>` : null}
     </g>

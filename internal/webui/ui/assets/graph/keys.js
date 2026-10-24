@@ -93,6 +93,16 @@ export function nextNeedsYou(model, from) {
   return list[at < 0 ? 0 : (at + 1) % list.length];
 }
 
+/** prevNeedsYou is the same walk the other way: the one before in the strip's
+ *  order, wrapping from the first to the last. From a pane the strip does not
+ *  hold (or none) it is the last. */
+export function prevNeedsYou(model, from) {
+  const list = panesNeedingYou(model).filter((p) => model.byPane.has(p));
+  if (list.length === 0) return "";
+  const at = list.indexOf(from);
+  return list[at < 0 ? list.length - 1 : (at + list.length - 1) % list.length];
+}
+
 /** paneAt is the pane id of an element in the graph, or of the nearest one
  *  holding it, or "". */
 export function paneAt(el) {

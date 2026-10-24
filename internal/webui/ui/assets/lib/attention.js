@@ -170,3 +170,39 @@ export function watchPresence(win, send, now = () => Date.now()) {
     for (const [name, fn] of events) doc.removeEventListener(name, fn, true);
   };
 }
+
+/** waitingCount is how many panes wait on the person or are blocked: what the tab title counts. */
+export function waitingCount(panes) {
+  let n = 0;
+  for (const v of Object.values(panes && typeof panes === "object" ? panes : {})) {
+    if (v && typeof v === "object" && (v.status === "waiting" || v.status === "blocked")) n++;
+  }
+  return n;
+}
+
+/** titleOf is the window title: with agents waiting, the count leads it. */
+export function titleOf(count) {
+  return count > 0 ? "(" + count + ") Flockdeck" : "Flockdeck";
+}
+
+export const ICON_DEFAULT = "assets/icon.svg";
+export const ICON_WAITING = "assets/icon-waiting.svg";
+
+/** showAttention sets the window title and the tab icon for count agents waiting. It touches nothing it cannot reach. */
+export function showAttention(doc, count) {
+  try {
+    if (!doc) return;
+    doc.title = titleOf(count);
+    let link = doc.getElementById ? doc.getElementById("flockdeck-icon") : null;
+    if (!link && doc.createElement && doc.head) {
+      link = doc.createElement("link");
+      link.id = "flockdeck-icon";
+      link.rel = "icon";
+      link.type = "image/svg+xml";
+      doc.head.appendChild(link);
+    }
+    if (link) link.href = count > 0 ? ICON_WAITING : ICON_DEFAULT;
+  } catch {
+    /* a page without a head has nothing to change */
+  }
+}

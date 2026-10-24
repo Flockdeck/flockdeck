@@ -534,6 +534,7 @@ button { font: inherit; color: inherit; }
 .palette-name { flex: 1 1 auto; min-width: 0; }
 .palette-note { font-size: 11px; color: var(--fg-faint); }
 .palette-keys { font: 11px/1.4 var(--mono); color: var(--fg-dim); }
+.palette-group { padding: 8px 12px 2px; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--fg-faint); list-style: none; }
 .palette-empty { padding: 10px 12px; color: var(--fg-dim); }
 
 /* The help. */
@@ -727,3 +728,10 @@ button { font: inherit; color: inherit; }
   font-size: 13px;
 }
 .pane-error-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+
+/* Notices for agents that newly need the person while this window is in front. */
+.toasts { position: fixed; right: 16px; bottom: 16px; z-index: 30; display: flex; flex-direction: column; gap: 8px; max-width: min(420px, calc(100vw - 32px)); }
+.toast { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: var(--bg-raised); border: 1px solid var(--waiting); border-left-width: 3px; border-radius: 6px; box-shadow: 0 4px 16px color-mix(in srgb, var(--bg) 80%, transparent); font-size: 13px; }
+.toast-text { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+.toast-btn { font: inherit; font-size: 12px; flex: none; }
+.toast-btn--quiet { color: var(--fg-dim); }

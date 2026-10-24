@@ -54,6 +54,43 @@ export function filterActions(table, query, implemented) {
   return rows;
 }
 
+/** GROUPS are the headings the palette's rows sit under, in order, when the window
+ *  has live things to offer: what needs the person, the agents, the views, and the
+ *  actions of the key table. */
+export const GROUPS = ["Needs you", "Agents", "Views", "Actions"];
+
+/** LIVE_MAX is the most live rows the palette lists, so a project with very many
+ *  agents does not push the actions out of sight. */
+export const LIVE_MAX = 40;
+
+/** filterLive is the rows for the live items (id, group, name, detail, run) a
+ *  window offers: the ones the query finds in their name or their detail, in the
+ *  order of GROUPS and then best match first. Every one of them can be run. */
+export function filterLive(items, query) {
+  const q = (query || "").trim().toLowerCase();
+  const rows = [];
+  (items || []).forEach((it, order) => {
+    const name = String(it.name || "").toLowerCase();
+    const detail = String(it.detail || "").toLowerCase();
+    let s = 0;
+    if (q) {
+      if (name === q) s = 0;
+      else if (name.startsWith(q)) s = 1;
+      else if (name.includes(q)) s = 2;
+      else if (detail.includes(q)) s = 3;
+      else if (subsequence(q, name)) s = 4;
+      else return;
+    }
+    rows.push({ live: it, name: it.name, detail: it.detail || "", implemented: true, score: s, order, group: it.group });
+  });
+  const rank = (g) => (GROUPS.indexOf(g) < 0 ? GROUPS.length - 1 : GROUPS.indexOf(g));
+  rows.sort((a, b) => rank(a.group) - rank(b.group) || a.score - b.score || a.order - b.order);
+  return rows.slice(0, LIVE_MAX);
+}
+
+/** rowKey is the id of a row's action or live item. */
+const rowKey = (r) => (r.live ? r.live.id : r.key.id);
+
 /** optionId is the id of a row, which the field names as the current one. */
 export const optionId = (actionId) => "palette-opt-" + actionId;
 
@@ -65,11 +102,15 @@ export const optionId = (actionId) => "palette-opt-" + actionId;
  *  to where it was when it closes; Tab stays inside it; Escape closes it from
  *  the field or from a row; and the field names the current row for a screen
  *  reader without leaving the field. */
-export function Palette({ keys, implemented, onRun, onClose }) {
+export function Palette({ keys, implemented, onRun, onClose, live = null, onRunLive = null }) {
   const [query, setQuery] = useState("");
   const [index, setIndex] = useState(0);
   const input = useRef(null);
-  const rows = useMemo(() => filterActions(keys, query, implemented), [keys, query, implemented]);
+  const rows = useMemo(() => {
+    const actions = filterActions(keys, query, implemented).map((r) => ({ ...r, group: "Actions" }));
+    return live && live.length ? filterLive(live, query).concat(actions) : actions;
+  }, [keys, query, implemented, live]);
+  const grouped = !!(live && live.length);
   const at = Math.min(index, Math.max(rows.length - 1, 0));
 
   useEffect(() => {
@@ -83,7 +124,10 @@ export function Palette({ keys, implemented, onRun, onClose }) {
   }, []);
 
   const run = (row) => {
-    if (row && row.implemented && onRun) onRun(row.key.id);
+    if (!row || !row.implemented) return;
+    if (row.live) {
+      if (onRunLive) onRunLive(row.live);
+    } else if (onRun) onRun(row.key.id);
   };
   const onKeyDown = (e) => {
     // A key pressed while an input method is composing belongs to it.
@@ -107,7 +151,7 @@ export function Palette({ keys, implemented, onRun, onClose }) {
           role="combobox"
           aria-expanded="true"
           aria-controls="palette-list"
-          aria-activedescendant=${rows[at] ? optionId(rows[at].key.id) : undefined}
+          aria-activedescendant=${rows[at] ? optionId(rowKey(rows[at])) : undefined}
           aria-label="Find an action"
           placeholder="Find an action"
           autocomplete="off"
@@ -121,7 +165,7 @@ export function Palette({ keys, implemented, onRun, onClose }) {
         ${rows.length === 0
           ? html`<p class="palette-empty">Nothing matches.</p>`
           : html`<ul id="palette-list" class="palette-list" role="listbox">
-              ${rows.map((r, i) => html`<${Row} key=${r.key.id} row=${r} current=${i === at} onRun=${() => run(r)} />`)}
+              ${rows.map((r, i) => html`${grouped && (i === 0 || rows[i - 1].group !== r.group) ? html`<li key=${"group-" + r.group} class="palette-group" role="presentation">${r.group}</li>` : null}<${Row} key=${rowKey(r)} row=${r} current=${i === at} onRun=${() => run(r)} />`)}
             </ul>`}
       </div>
     </div>
@@ -135,10 +179,11 @@ const keepFocus = (e) => e.preventDefault();
 function Row({ row, current, onRun }) {
   const cls = "palette-row" + (current ? " is-current" : "") + (row.implemented ? "" : " palette-row--off");
   return html`
-    <li id=${optionId(row.key.id)} class=${cls} role="option" aria-selected=${current ? "true" : "false"} aria-disabled=${row.implemented ? undefined : "true"} data-action=${row.key.id} onMouseDown=${keepFocus} onClick=${onRun}>
+    <li id=${optionId(rowKey(row))} class=${cls} role="option" aria-selected=${current ? "true" : "false"} aria-disabled=${row.implemented ? undefined : "true"} data-action=${rowKey(row)} onMouseDown=${keepFocus} onClick=${onRun}>
       <span class="palette-name">${row.name}</span>
+      ${row.live && row.detail ? html`<span class="palette-note">${row.detail}</span>` : null}
       ${row.implemented ? null : html`<span class="palette-note">${NOT_YET}</span>`}
-      ${row.key.keys ? html`<span class="palette-keys">${keycaps(row.key.keys).join("+")}</span>` : null}
+      ${row.key && row.key.keys ? html`<span class="palette-keys">${keycaps(row.key.keys).join("+")}</span>` : null}
     </li>
   `;
 }

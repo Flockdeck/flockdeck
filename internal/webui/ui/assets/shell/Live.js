@@ -14,10 +14,10 @@ import { useStore } from "../lib/use-store.js";
 import { Drawer, hasTerminal, useDrawer } from "../drawer/Drawer.js";
 import { focusNode } from "../drawer/state.js";
 import { ManagerBar, managerOf } from "../graph/ManagerBar.js";
-import { nextNeedsYou, paneAt } from "../graph/keys.js";
+import { nextNeedsYou, paneAt, prevNeedsYou } from "../graph/keys.js";
 import { Shell, useNarrow } from "./app.js";
 import { FootButton } from "./rail.js";
-import { Board, ChangesView, Replay } from "./Views.js";
+import { Board, ChangesView, Replay, VIEWS } from "./Views.js";
 import { Home, sameProject, rosterOf } from "./Home.js";
 import { Start } from "./Start.js";
 import { Confirm } from "./Confirm.js";
@@ -47,7 +47,8 @@ import { catalogOf, closeTabWarnings, moveTabCommand, newTabCommand, tabsOf } fr
 import { RELAY_WORDS as HELPER_RELAY_WORDS } from "../lib/helpers.js";
 import { RELAY_WORDS as BATON_RELAY_WORDS, STILL_OUT_WORDS, createInflight, draftOf, makeCommand, savedWords } from "../lib/baton.js";
 import { openOf, selectCommand } from "../lib/projects.js";
-import { askPermission, noteOf, permissionOf, raise, waitsOf, watchPresence } from "../lib/attention.js";
+import { askPermission, noteOf, permissionOf, raise, showAttention, waitingCount, waitsOf, watchPresence } from "../lib/attention.js";
+import { Toasts, addToasts, keepWaiting } from "./Toasts.js";
 import { viewOf } from "../lib/remote.js";
 
 // What the shell is given before the first hello and state. Constants, so the
@@ -294,10 +295,17 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
   // another. The first state seen is only remembered, never announced.
   const waits = useRef(new Map());
   const lastNote = useRef(null);
+  const [toasts, setToasts] = useState([]);
+  // The window title and the tab icon say how many agents wait, on every change.
+  useEffect(() => {
+    showAttention(page && page.document, waitingCount(kept.current.state.panes));
+  }, [statePanes]);
   useEffect(() => {
     const panes = kept.current.state.panes;
     const { fresh, next } = waitsOf(waits.current, panes);
     waits.current = next;
+    const waiting = new Set([...next].filter(([, v]) => v === "waiting" || v === "blocked").map(([id]) => id));
+    setToasts((cur) => keepWaiting(cur, waiting));
     const nothing = ![...next.values()].some((v) => v === "waiting" || v === "blocked");
     if (nothing && lastNote.current) {
       // Answered from here or another window: the notification is stale.
@@ -306,7 +314,11 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     }
     if (!fresh.length || prefs.notificationsOff) return;
     const doc = page && page.document;
-    if (doc && (doc.hidden === false || doc.hidden === undefined) && typeof doc.hasFocus === "function" && doc.hasFocus()) return;
+    if (doc && (doc.hidden === false || doc.hidden === undefined) && typeof doc.hasFocus === "function" && doc.hasFocus()) {
+      // In front: the browser raises nothing, so the page says it itself.
+      setToasts((cur) => addToasts(cur, fresh, drawer.pane));
+      return;
+    }
     lastNote.current = raise(page, noteOf(fresh), (id) => drawer.open(id));
   }, [statePanes]);
   const bumpFont = (to) => {
@@ -395,7 +407,29 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
   useEffect(() => {
     if (settingsOpen && (settingsSection === "routing") && !snap.remote) send({ cmd: "refreshAgents" });
   }, [settingsOpen, settingsSection]);
-  // How many items need the person in each tab, from the graph's needs: the tab's
+  const chooseView = (v) => {
+    if (v === "graph") drawer.close();
+    setView(v);
+  };
+  // What the command palette lists besides the key table's actions: what needs the
+  // person (choosing one opens that agent), every agent of the graph, and the views.
+  // None of them answers anything: a permission is answered on its card.
+  const paletteItems = useMemo(() => {
+    const items = [];
+    if (current) {
+      const nameOf = (id) => (current.byPane.get(id) && current.byPane.get(id).name) || id;
+      for (const n of current.needs) {
+        if (!n.pane || !current.byPane.has(n.pane)) continue;
+        items.push({ id: "need-" + n.id, group: "Needs you", name: "Open " + nameOf(n.pane) + ": " + n.label, detail: (n.text || "").split("\n")[0].slice(0, 40), run: () => drawer.open(n.pane) });
+      }
+      for (const n of current.nodes) {
+        items.push({ id: "agent-" + n.pane, group: "Agents", name: "Open " + (n.name || n.pane), detail: [n.role, n.status].filter(Boolean).join(" · "), run: () => drawer.open(n.pane) });
+      }
+    }
+    for (const [id, name] of VIEWS) items.push({ id: "view-" + id, group: "Views", name: "Show " + name, detail: "", run: () => chooseView(id) });
+    return items;
+  }, [current, view]);
+  // How many items need the person in each tab: from the graph's needs: the tab's
   // panes are the ones its items name.
   const tabNeeds = useMemo(() => {
     const out = {};
@@ -407,14 +441,21 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     }
     return out;
   }, [current, tabs]);
+  // step is nextNeedsYou or prevNeedsYou. The pane the keyboard is on, or the open drawer's, is where it starts.
+  const jumpNeedsYou = (step) => {
+    if (!current || snap.graphGone) return;
+    const doc = (win || (typeof window !== "undefined" ? window : null) || {}).document;
+    const at = (doc && paneAt(doc.activeElement)) || drawer.pane;
+    const to = step(current, at);
+    if (!to) return;
+    focusNode(mainRef.current, to);
+    drawer.open(to, "key");
+  };
+  const helperNames = useMemo(() => (current ? current.nodes.map((n) => ({ pane: n.pane, name: n.name })) : []), [current]);
   const actions = useMemo(() => ({
-    nextNeedsYou: () => {
-      if (!current || snap.graphGone) return;
-      const doc = (win || (typeof window !== "undefined" ? window : null) || {}).document;
-      const at = (doc && paneAt(doc.activeElement)) || drawer.pane;
-      const to = nextNeedsYou(current, at);
-      if (to) focusNode(mainRef.current, to);
-    },
+    // The jump lands on the agent's box and opens its drawer, where the prompt is.
+    nextNeedsYou: () => jumpNeedsYou(nextNeedsYou),
+    prevNeedsYou: () => jumpNeedsYou(prevNeedsYou),
     managerBar: () => {
       const el = barRef.current;
       if (el && el.focus) el.focus();
@@ -530,6 +571,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     keys: snap.keys,
     jev: snap.jevKey,
     agents: kept.current.state.agents || null,
+    panes: current ? current.nodes.filter((n) => !n.shell).map((n) => ({ pane: n.pane, name: n.name || n.pane, agent: n.agent })) : [],
     project: ((kept.current.state.projects || []).find((p) => p.active) || {}).name || "",
     roster: snap.remoteDevices,
     pair: snap.remotePair,
@@ -571,6 +613,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     blocked=${!!starting || settingsOpen || updatesAt >= 0 || quitAsk || historyOpen || !!infoFor || findingPane || helpersOpen || projectsOpen || !!baton || teamOpen || agentsOpen || worktreesOpen || closeAsk}
     onSettings=${() => openSettings("general")}
     onProjects=${() => setProjectsOpen(true)}
+    paletteItems=${paletteItems}
     railFoot=${snap.remote
       ? null
       : html`<${FootButton} cls="rail-helpers" glyph="▤" label="Helper apps" onClick=${() => setHelpersOpen(true)} />
@@ -580,9 +623,9 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     drawer=${node
       ? html`<${Drawer} store=${store} snap=${snap} node=${node} pane=${pane} now=${Date.now()} maximised=${drawer.maximised}
           onClose=${drawer.close} onToggleMax=${drawer.toggleMax} terminalOptions=${termProps} life=${life}
-          tx=${tx} onInfo=${openInfo} findAsk=${findAsk} tabAsk=${tabAsk} onOpenPane=${drawer.open} order=${order} />`
+          tx=${tx} onInfo=${openInfo} findAsk=${findAsk} tabAsk=${tabAsk} onOpenPane=${drawer.open} order=${order} helpers=${helperNames} onStartTeam=${snap.remote ? null : () => setStarting("team")} />`
       : null}
-  >${snap.state ? html`<${Tabs} tabs=${tabs} send=${send} show=${onDesk} warnFor=${(t) => closeTabWarnings(t, current ? current.byPane : null, statePanes)} onChoose=${() => setStarting("agent")} needs=${tabNeeds} view=${view} onView=${(v) => { if (v === "graph") drawer.close(); setView(v); }}
+  >${snap.state ? html`<${Tabs} tabs=${tabs} send=${send} show=${onDesk} warnFor=${(t) => closeTabWarnings(t, current ? current.byPane : null, statePanes)} onChoose=${() => setStarting("agent")} needs=${tabNeeds} view=${view} onView=${chooseView}
       onHistory=${snap.remote ? null : () => setHistoryOpen(true)} onFind=${snap.remote ? null : () => setFindingPane(true)} />` : null}
     <div class="view-graph" hidden=${view !== "graph"}>
       <${Home} snap=${snap} selected=${selected} onShown=${setShown} onOpen=${drawer.open} open=${drawer.pane} narrow=${narrow} send=${snap.remote ? null : send}
@@ -613,6 +656,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
       ? html`<${Updates} update=${update} versions=${snap.versions} updatesOff=${!!(kept.current.hello.prefs && kept.current.hello.prefs.updatesOff)}
           notice=${snap.notice && snap.notice.seq > updatesAt ? String(snap.notice.text || "") : ""} send=${send} onClose=${() => setUpdatesAt(-1)} />`
       : null}
+    <${Toasts} toasts=${toasts} onOpen=${(id) => { drawer.open(id); setToasts((cur) => cur.filter((t) => t.id !== id)); }} onDismiss=${(id) => setToasts((cur) => cur.filter((t) => t.id !== id))} />
     <${Approvals} approvals=${snap.approvals} dismissed=${putAway} send=${send} onDismiss=${(id) => setPutAway((s) => new Set(s).add(id))} />
     ${teamOpen
       ? html`<${Team} team=${snap.team} tasks=${snap.teamTasks} messages=${snap.teamMessages} result=${snap.teamResult} root=${selected}
