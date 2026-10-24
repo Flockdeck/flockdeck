@@ -95,8 +95,7 @@ var keyVerdicts = map[string]Verdict{
 	"promptAll":             cut(whyBroadcast + " It opens the prompt bar aimed at the focused pane, which the new prompt (paneSend) covers; with broadcast on it reached every member."),
 
 	// Git.
-	"worktrees": task(tC7),
-	"changes":   task(tC6),
+	"changes": task(tC6),
 }
 
 // cmdVerdicts classify every control-socket command the old interface sends
@@ -139,17 +138,6 @@ var cmdVerdicts = map[string]Verdict{
 	// L7: updates, detach, quit.
 
 	// Git, worktrees, GitHub.
-	"changes":        task(tC6),
-	"commit":         task(tC6),
-	"diff":           task(tC6),
-	"gitFetch":       task(tC6),
-	"gitPull":        task(tC6),
-	"gitPush":        task(tC6),
-	"worktrees":      task(tC7),
-	"worktreeAdd":    task(tC7),
-	"worktreePrune":  task(tC7),
-	"worktreeRemove": task(tC7),
-	"conflictRadar":  task(tC7),
 	"ghChecks":       task(tC8),
 	"ghInstall":      task(tC8),
 	"ghIssue":        task(tC8),

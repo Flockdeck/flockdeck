@@ -18,6 +18,7 @@ import { Row, Switch } from "./Controls.js";
 import { Notify } from "./Notify.js";
 import { Keys } from "./ApiKeys.js";
 import { Remote } from "./Remote.js";
+import { RADAR_WORDS } from "../lib/worktrees.js";
 import { JevStatus } from "./Jev.js";
 import { Routing } from "./Routing.js";
 import {
@@ -84,7 +85,7 @@ export function Settings({ prefs, change, onClose, section: first = "general", c
                 onKeyDown=${onTabKey} onClick=${() => setSection(id)}>${label}</button>`)}
           </div>
           <div class="settings-panel" role="tabpanel" id="settings-panel" aria-labelledby=${"settings-tab-" + section}>
-            ${section === "general" ? html`<${General} prefs=${prefs} change=${change} />` : null}
+            ${section === "general" ? html`<${General} prefs=${prefs} change=${change} radar=${ctx.radar || null} />` : null}
             ${section === "appearance" ? html`<${Appearance} prefs=${prefs} change=${change} />` : null}
             ${section === "terminal" ? html`<${Terminal} prefs=${prefs} change=${change} />` : null}
             ${section === "notifications"
@@ -135,14 +136,18 @@ function Choice({ id, label, options, value, onChoose, swatch = false }) {
   `;
 }
 
-function General({ prefs, change }) {
+function General({ prefs, change, radar }) {
   const n = prefs.dismissedTips;
+  const why = radar && radar.unavailable ? "Not available on this machine: " + radar.unavailable + "." : radar && radar.checking ? "Checking the version of git." : "";
   return html`
     <h3 class="set-head">General</h3>
     <p class="set-intro">How new panes start, and the hints.</p>
     <${Row} id="set-auto-review" label="Auto-approve read-only in new panes"
       about="Only a command it is confident is read-only is let through without asking; anything else still asks. A pane opened by hand starts with this setting; a pane started from another one starts the way that pane is set.">
       <${Switch} id="set-auto-review-default" on=${prefs.autoReviewDefault} labelledBy="set-auto-review-label" onChange=${(on) => change("autoReviewDefault", on)} />
+    <//>
+    <${Row} id="set-radar" label="Show when two panes' work would conflict" about=${why ? RADAR_WORDS + " " + why : RADAR_WORDS}>
+      <${Switch} id="set-radar-switch" on=${prefs.conflictRadar && !why} labelledBy="set-radar-label" disabled=${!!why} onChange=${(on) => change("conflictRadar", on)} />
     <//>
     <${Row} id="set-hints" label="Hints"
       about=${"One line under the tab bar about something on screen or a feature worth knowing, each sent away for good with its ×. " +

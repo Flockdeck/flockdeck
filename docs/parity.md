@@ -8,10 +8,10 @@ It compares two lists the sources hold: the actions of the key table (`internal/
 
 | | Actions | Commands |
 | --- | --- | --- |
-| done | 42 | 107 |
+| done | 43 | 118 |
 | replaced | 0 | 1 |
 | cut | 14 | 13 |
-| planned | 2 | 35 |
+| planned | 1 | 24 |
 | unclassified | 0 | 0 |
 | total | 58 | 156 |
 
@@ -55,8 +55,7 @@ The old interface let a person tile, split, move and broadcast to panes. The new
 
 | Task | Actions | Commands |
 | --- | --- | --- |
-| T132 (C6, Changes) | `changes` | `changes`, `commit`, `diff`, `gitFetch`, `gitPull`, `gitPush` |
-| T133 (C7, worktrees) | `worktrees` | `conflictRadar`, `worktreeAdd`, `worktreePrune`, `worktreeRemove`, `worktrees` |
+| T132 (C6, Changes) | `changes` |  |
 | T134 (C8, GitHub) |  | `ghChecks`, `ghInstall`, `ghIssue`, `ghIssueComment`, `ghIssueCreate`, `ghIssues`, `ghLogin`, `ghLoginCancel`, `ghLogout`, `ghPR`, `ghPRComment`, `ghPRCreate`, `ghPRs`, `ghStatus` |
 | T137 (L2, settings) |  | `dismissTip`, `railExpanded`, `railWidth`, `resetKeybinding`, `resetKeybindings`, `setAgentAddress`, `setAgentDefault`, `setKeybinding`, `statusLine` |
 | T138 (L3, help) |  | `helpSeen` |
@@ -108,7 +107,7 @@ These are safety and security controls. The new interface has no way to do them 
 | `startTeam` | Start a team — a manager agent that starts the rest | done |  |
 | `team` | Team — this project's roster, task board and messages (Ctrl+Shift+M) | done |  |
 | `apiKeys` | API keys… | done |  |
-| `worktrees` | Worktrees (Ctrl+Shift+G) | planned | T133 (C7, worktrees) |
+| `worktrees` | Worktrees (Ctrl+Shift+G) | done |  |
 | `changes` | Review changes, commit and push (Ctrl+Shift+S) | planned | T132 (C6, Changes) |
 | `palette` | Command palette (Ctrl+Shift+K) | done |  |
 | `nextRegion` | Move to the next part of the window (F6) | done |  |
@@ -143,20 +142,20 @@ These are safety and security controls. The new interface has no way to do them 
 | `autoReview` | done |  |
 | `autoReviewDefault` | done |  |
 | `browse` | done |  |
-| `changes` | planned | T132 (C6, Changes) |
+| `changes` | done |  |
 | `checkForUpdate` | done |  |
 | `clearRoutingLog` | done |  |
 | `closeFinishedPanes` | done |  |
 | `closePane` | done |  |
 | `closeProject` | done |  |
 | `closeTab` | done |  |
-| `commit` | planned | T132 (C6, Changes) |
-| `conflictRadar` | planned | T133 (C7, worktrees) |
+| `commit` | done |  |
+| `conflictRadar` | done |  |
 | `conversations` | done |  |
 | `cursorBlink` | done |  |
 | `cursorStyle` | done |  |
 | `detach` | done |  |
-| `diff` | planned | T132 (C6, Changes) |
+| `diff` | done |  |
 | `dismissTip` | planned | T137 (L2, settings) |
 | `exportTranscript` | done |  |
 | `findPane` | done |  |
@@ -177,9 +176,9 @@ These are safety and security controls. The new interface has no way to do them 
 | `ghPRCreate` | planned | T134 (C8, GitHub) |
 | `ghPRs` | planned | T134 (C8, GitHub) |
 | `ghStatus` | planned | T134 (C8, GitHub) |
-| `gitFetch` | planned | T132 (C6, Changes) |
-| `gitPull` | planned | T132 (C6, Changes) |
-| `gitPush` | planned | T132 (C6, Changes) |
+| `gitFetch` | done |  |
+| `gitPull` | done |  |
+| `gitPush` | done |  |
 | `groupProjects` | done |  |
 | `helpSeen` | planned | T138 (L3, help). The first-run welcome |
 | `helperInstall` | done |  |
@@ -287,10 +286,10 @@ These are safety and security controls. The new interface has no way to do them 
 | `toggleBroadcastMember` | cut | Broadcasting to panes is cut; a manager sends to its team. |
 | `toggleZoom` | cut | Tiling and splitting panes is cut; the team is a graph. The drawer has its own maximise. |
 | `updates` | done |  |
-| `worktreeAdd` | planned | T133 (C7, worktrees) |
-| `worktreePrune` | planned | T133 (C7, worktrees) |
-| `worktreeRemove` | planned | T133 (C7, worktrees) |
-| `worktrees` | planned | T133 (C7, worktrees) |
+| `worktreeAdd` | done |  |
+| `worktreePrune` | done |  |
+| `worktreeRemove` | done |  |
+| `worktrees` | done |  |
 
 ## Commands only the new interface sends
 

@@ -28,6 +28,7 @@ import { PaneInfo } from "./PaneInfo.js";
 import { FindPane } from "./FindPane.js";
 import { Helpers } from "./Helpers.js";
 import { Team } from "./Team.js";
+import { Worktrees } from "./Worktrees.js";
 import { Agents } from "./Agents.js";
 import { TEAM_RELAY_WORDS } from "../lib/team.js";
 import { CLOSE_FINISHED_COMMAND, CLOSE_FINISHED_WORDS } from "../lib/agents.js";
@@ -118,6 +119,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
   const [agentsOpen, setAgentsOpen] = useState(false);
   // The question before every finished pane is closed.
   const [closeAsk, setCloseAsk] = useState(false);
+  const [worktreesOpen, setWorktreesOpen] = useState(false);
   // The requests for an answer put away in this window.
   const [putAway, setPutAway] = useState(() => new Set());
   // The baton commands sent and not answered. A command stays here after the
@@ -401,6 +403,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     helpers: () => (snap.remote ? say(HELPER_RELAY_WORDS) : setHelpersOpen(true)),
     team: () => (snap.remote ? say(TEAM_RELAY_WORDS) : setTeamOpen(true)),
     agents: () => setAgentsOpen(true),
+    worktrees: () => setWorktreesOpen(true),
     makeBaton: needPane(() => {
       if (snap.remote) return say(BATON_RELAY_WORDS);
       const req = inflight.current.next();
@@ -508,6 +511,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     roster: snap.remoteDevices,
     pair: snap.remotePair,
     forgetPair: () => store.clearPair(),
+    radar: snap.radar || { unavailable: kept.current.hello.radarUnavailable || "", checking: !!kept.current.hello.radarChecking },
     outcome: snap.remoteOutcome,
     status: kept.current.state.remote || null,
     remote: snap.remote,
@@ -530,7 +534,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     mainRef=${mainRef}
     actions=${actions}
     maximised=${drawer.maximised}
-    blocked=${!!starting || settingsOpen || updatesAt >= 0 || quitAsk || historyOpen || !!infoFor || findingPane || helpersOpen || projectsOpen || !!baton || teamOpen || agentsOpen || closeAsk}
+    blocked=${!!starting || settingsOpen || updatesAt >= 0 || quitAsk || historyOpen || !!infoFor || findingPane || helpersOpen || projectsOpen || !!baton || teamOpen || agentsOpen || worktreesOpen || closeAsk}
     onSettings=${() => openSettings("general")}
     onProjects=${() => setProjectsOpen(true)}
     railFoot=${snap.remote
@@ -574,6 +578,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     ${agentsOpen
       ? html`<${Agents} list=${snap.agentsList} send=${send} onChoose=${(a) => { if (a.root && a.root !== selected) onWatch(a.root); setOpening(a.paneId); }} onClose=${() => setAgentsOpen(false)} onCloseFinished=${() => setCloseAsk(true)} />`
       : null}
+    ${worktreesOpen ? html`<${Worktrees} listing=${snap.worktrees} send=${send} onClose=${() => setWorktreesOpen(false)} />` : null}
     ${helpersOpen ? html`<${Helpers} helpers=${snap.helpers} plan=${snap.helperPlan} send=${send} onClose=${() => setHelpersOpen(false)} />` : null}
     ${projectsOpen
       ? html`<${Projects} open=${openOf(snap.state || kept.current.state)} recents=${snap.recents} browse=${snap.browse} root=${state.root || ""} send=${send} onClose=${() => setProjectsOpen(false)} />`

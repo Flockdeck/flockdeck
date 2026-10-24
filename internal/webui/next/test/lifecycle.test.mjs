@@ -65,12 +65,15 @@ test("the picker starts on the project's choice, then the overall one, then the 
   assert.deepEqual(splitValue(valueOf("a", "m")), ["a", "m"]);
 });
 
-test("the commands carry what was chosen, and a worktree is never asked for", () => {
+test("the commands carry what was chosen, and a worktree only when it is asked for", () => {
   assert.deepEqual(newTabCommand({ kind: "shell", agent: "claude" }), { cmd: "newTab", kind: "shell" });
   assert.deepEqual(newTabCommand({ agent: "claude", model: "opus" }), { cmd: "newTab", kind: "agent", agent: "claude", model: "opus" });
   assert.deepEqual(newTabCommand({}), { cmd: "newTab", kind: "agent" });
-  const c = startAgentCommand({ root: "/r", agent: "claude", model: "", task: "do it", role: "worker", worktree: true });
+  assert.deepEqual(newTabCommand({ kind: "shell", path: "/wt/x", title: "x" }), { cmd: "newTab", kind: "shell", text: "x", path: "/wt/x" });
+  const c = startAgentCommand({ root: "/r", agent: "claude", model: "", task: "do it", role: "worker" });
   assert.deepEqual(c, { cmd: "startAgent", root: "/r", task: "do it", worktree: false, agent: "claude", role: "worker" });
+  assert.equal(startAgentCommand({ root: "/r", task: "do it", worktree: true }).worktree, true);
+  assert.equal(startAgentCommand({ root: "/r", task: "do it", worktree: "yes" }).worktree, false);
 });
 
 test("a start that cannot go says why", () => {
@@ -293,7 +296,7 @@ test("the start dialog opens an agent tab on the agent chosen when there is no t
     assert.equal(m.sent("startAgent").length, 0);
   }));
 
-test("a task, or a role, starts the agent in the project through startAgent, never in a worktree", () =>
+test("a task, or a role, starts the agent in the project itself through startAgent unless a worktree is asked for", () =>
   withPage({}, async (m) => {
     await m.connect();
     m.clear();
@@ -317,14 +320,25 @@ test("a role with no task is refused in the dialog and nothing is sent", () =>
     assert.ok(m.container.find(".dialog"), "the dialog stays open");
   }));
 
-test("the worktree option is drawn and switched off, with the reason", () =>
+test("the worktree option is drawn, says what it does, needs a task, and starts the agent in a fresh worktree", () =>
   withPage({}, async (m) => {
     await m.connect();
     await m.click(m.byText(".tabs-btn", /Choose agent/));
-    const box = m.container.findAll("input").find((i) => i.attributes.type === "checkbox");
+    const box = m.container.find("#start-worktree");
     assert.ok(box, "no checkbox");
-    assert.equal(!!box.disabled || box.attributes.disabled !== undefined, true);
+    assert.equal(!!box.disabled || box.attributes.disabled !== undefined, false);
     assert.ok(m.container.find(".dialog").textContent.includes(WORKTREE_WORDS));
+    box.checked = true;
+    box.dispatch("change");
+    await settle();
+    m.clear();
+    await m.click(m.byText(".dialog-btn", /^Start$/));
+    assert.match(m.container.find(".dialog-note--error").textContent, /Write the task first/);
+    assert.equal(m.ws().sent.length, 0, "no worktree without a task");
+    await fill(m, "#start-task", "fix the login");
+    await m.click(m.byText(".dialog-btn", /^Start$/));
+    assert.deepEqual(m.sent("startAgent"), [{ cmd: "startAgent", root: "/work/a", task: "fix the login", worktree: true, agent: "claude", model: "opus" }]);
+    assert.equal(m.sent("newTab").length, 0);
   }));
 
 test("an agent that is not installed cannot be picked, and its option says so", () =>
@@ -358,8 +372,8 @@ test("Tab walks the start dialog's controls in order and wraps, Shift+Tab walks 
     await m.click(m.byText(".tabs-btn", /Choose agent/));
     const dialog = m.container.find(".dialog");
     const agent = dialog.find("#start-agent");
-    // Select, select, textarea, then the buttons, then round to the first.
-    assert.deepEqual(await walk(m, agent, false, 6), ["start-role", "start-task", "Start", "Cancel", "start-agent", "start-role"]);
+    // Select, select, textarea, the worktree box, then the buttons, then round to the first.
+    assert.deepEqual(await walk(m, agent, false, 7), ["start-role", "start-task", "start-worktree", "Start", "Cancel", "start-agent", "start-role"]);
     assert.deepEqual(await walk(m, dialog.find("#start-role"), true, 3), ["start-agent", "Cancel", "Start"]);
   }));
 

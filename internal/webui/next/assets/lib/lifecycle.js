@@ -87,21 +87,21 @@ export const managerRole = (catalog) => catalog.roles.find((r) => r.id === MANAG
 
 /** newTabCommand is the command that opens a tab: an agent tab on the agent and
  *  model chosen, or on the project's default when none is, or a shell tab. */
-export function newTabCommand({ kind = "agent", agent = "", model = "", title = "" } = {}) {
+export function newTabCommand({ kind = "agent", agent = "", model = "", title = "", path = "" } = {}) {
   const cmd = { cmd: "newTab", kind: kind === "shell" ? "shell" : "agent" };
   if (cmd.kind === "agent" && agent) {
     cmd.agent = agent;
     if (model) cmd.model = model;
   }
   if (title) cmd.text = title;
+  if (path) cmd.path = path;
   return cmd;
 }
 
 /** startAgentCommand is the command that starts one agent with a task in the
- *  project at root. worktree is always false here: the option is drawn, switched
- *  off, until the worktree view can make one. */
-export function startAgentCommand({ root, agent = "", model = "", task, role = "", id = "" }) {
-  const cmd = { cmd: "startAgent", root: String(root || ""), task: String(task || ""), worktree: false };
+ *  project at root, or in a fresh worktree cut from it when worktree is true. */
+export function startAgentCommand({ root, agent = "", model = "", task, role = "", id = "", worktree = false }) {
+  const cmd = { cmd: "startAgent", root: String(root || ""), task: String(task || ""), worktree: worktree === true };
   if (agent) cmd.agent = agent;
   if (model) cmd.model = model;
   if (role) cmd.role = role;
@@ -111,7 +111,7 @@ export function startAgentCommand({ root, agent = "", model = "", task, role = "
 
 /** startProblem is why a start cannot be sent yet, or "". A task is needed for
  *  anything that goes through startAgent, which is what a role and a team use. */
-export function startProblem({ mode, task, role, root, picked }) {
+export function startProblem({ mode, task, role, root, picked, worktree = false }) {
   if (mode === "team") {
     if (!String(task || "").trim()) return "Write the goal first.";
     if (!root) return "There is no project open to start a team in.";
@@ -119,7 +119,8 @@ export function startProblem({ mode, task, role, root, picked }) {
     return "";
   }
   if (!picked) return "There is no agent that can be started.";
-  if ((role || String(task || "").trim()) && !root) return "There is no project open to start an agent in.";
+  if (worktree && !String(task || "").trim()) return "A worktree is made for a task. Write the task first.";
+  if ((role || String(task || "").trim() || worktree) && !root) return "There is no project open to start an agent in.";
   if (role && !String(task || "").trim()) return "An agent started in a role needs a task.";
   return "";
 }
