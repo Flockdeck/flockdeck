@@ -11,7 +11,7 @@ import { renderToString } from "./vendor/render-to-string.mjs";
 import { html } from "../assets/html.js";
 import { buildGraphModel } from "../assets/graph/model.js";
 import { Graph } from "../assets/graph/Graph.js";
-import { clip, stateOf, spendOf } from "../assets/graph/Node.js";
+import { clip, stateOf, spendOf, capOf } from "../assets/graph/Node.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const dir = join(here, "..", "..", "..", "server", "testdata", "graph-fixtures");
@@ -205,6 +205,7 @@ const RUNS = {
   "gnode-live": { size: 12, face: "mono" },
   "gnode-branch": { size: 12, face: "mono" },
   "gnode-spend": { size: 12, face: "mono" },
+  "gnode-cap": { size: 12, face: "mono" },
   "gnode-msgs": { size: 11, face: "sans" },
 };
 const BOX_W = 216;
@@ -337,4 +338,15 @@ test("the estimate in this test fails for a line that is too long", () => {
   // The same estimate applied to an uncut 31-character mono line, which the first version drew.
   const out = '<g class="gnode x" data-pane="q"><text class="gnode-live" x="12" y="67">' + "e".repeat(31) + "</text></g>";
   assert.throws(() => assertFits(runsOf(out), "uncut"));
+});
+
+test("a team's helper cap is said on its manager and in its header, and at the cap says so", () => {
+  const msg = load("02-eight-helpers-permission-and-question");
+  const out = draw(msg);
+  assert.match(out, /<text class="gnode-cap"[^>]*>8 of 8, at the cap<\/text>/);
+  assert.match(out, /<text class="gteam-cap"[^>]*>8 of 8 helpers, at the cap<\/text>/);
+  assert.equal(capOf({ manager: "m", caps: [{ pane: "m", used: 5, max: 8 }] }), "5 of 8 helpers");
+  assert.equal(capOf({ manager: "m", caps: [] }), "");
+  assert.equal(capOf({ manager: "m", caps: [{ pane: "m", used: 0, max: 0 }] }), "");
+  assertFits(runsOf(out), "capped");
 });

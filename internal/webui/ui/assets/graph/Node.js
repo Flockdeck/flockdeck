@@ -42,6 +42,19 @@ export function spendOf(team) {
   return team.spendPartial || team.spendIncludesPartial ? money + " partial" : money;
 }
 
+/** capOf is how many helpers a team's manager has against the most it may have, as
+ *  words: "5 of 8 helpers", and "8 of 8 helpers, at the cap" when it is full. The
+ *  cap limits the manager's helpers, not what the person may start. An empty
+ *  string when the graph names no cap for the team. */
+export function capOf(team, short = false) {
+  if (!team || !Array.isArray(team.caps)) return "";
+  const c = team.caps.find((x) => x.pane === team.manager) || team.caps[0];
+  if (!c || !(c.max > 0)) return "";
+  const full = c.used >= c.max;
+  // The short form is for the box, which is narrower: "8 of 8, at the cap".
+  return c.used + " of " + c.max + (short && full ? "" : " helpers") + (full ? ", at the cap" : "");
+}
+
 /** dirtyOf is the changed-file part of the branch line, or an empty string. */
 export function dirtyOf(node) {
   const parts = [];
@@ -154,9 +167,10 @@ export function Node({ node, box, team = null, onOpen = null, open = false, coun
   const state = stateOf(node);
   const isManager = team !== null && team.manager === node.pane;
   const spend = isManager ? spendOf(team) : "";
+  const cap = isManager ? capOf(team, true) : "";
   const dirty = dirtyOf(node);
   const w = box.w;
-  const label = describe(node, state, spend);
+  const label = describe(node, state, [spend, cap].filter(Boolean).join(", "));
   const chip = node.task ? chipOf(node.task) : null;
   const cls = ["gnode", "gnode--" + state.key, node.structured ? "gnode--structured" : "", node.shell ? "gnode--shell" : "", isManager ? "gnode--manager" : "", open ? "gnode--open" : "", dim ? "gnode--dim" : ""]
     .filter(Boolean)
@@ -186,6 +200,7 @@ export function Node({ node, box, team = null, onOpen = null, open = false, coun
             <text x="8" y="11">${chip.text}</text>
           </g>`
         : null}
+      ${cap && !chip ? html`<text class="gnode-cap" x=${PAD} y="108">${clip(cap, limitOf(w, "mono"))}</text>` : null}
       ${spend ? html`<text class="gnode-spend" x=${PAD} y="123">${clip(spend, limitOf(w, "mono"))}</text>` : null}
       ${counts
         ? html`<text class="gnode-msgs" x=${PAD} y=${box.h - 6}>${countsLine(counts)}${counts.undelivered > 0 ? html`<tspan class="gnode-und" dx="8">${counts.undelivered} undelivered</tspan>` : null}</text>`

@@ -8,7 +8,7 @@
 import { useState } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
 import { layoutGraph } from "./layout.js";
-import { Node, clip } from "./Node.js";
+import { Node, clip, capOf } from "./Node.js";
 import { Badge } from "./Badge.js";
 import { NeedsYou } from "./NeedsYou.js";
 import { Edges, EdgeDefs, EdgeNotice, countsOf, edgesOf, focusOf } from "./Edges.js";
@@ -50,11 +50,14 @@ export function Graph({ model, layout = null, onOpen = null, open = "", onStartT
     >
       ${lay.teams.map((f) => {
         const team = teamOf.get(f.id);
-        const title = clip((team && team.goal) || "Team", 60);
+        const cap = capOf(team);
+        // The title gives way to the cap, which is the shorter and says more.
+        const title = clip((team && team.goal) || "Team", cap ? Math.max(8, Math.min(60, Math.floor((f.w - 48 - cap.length * 7.5) / 8))) : 60);
         return html`
           <g class="gteam" data-team=${f.id} key=${f.id}>
             <rect class="gteam-frame" x=${f.x} y=${f.y} width=${f.w} height=${f.h} rx="10" />
             <text class="gteam-title" x=${f.x + 16} y=${f.y + 24}>${title}</text>
+            ${cap ? html`<text class="gteam-cap" x=${f.x + f.w - 16} y=${f.y + 24} text-anchor="end">${cap}</text>` : null}
           </g>
         `;
       })}

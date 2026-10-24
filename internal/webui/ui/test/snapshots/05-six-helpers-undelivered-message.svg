@@ -3,6 +3,7 @@
 <rect class="gteam-frame" x="0" y="0" width="968" height="612" rx="10">
 </rect>
 <text class="gteam-title" x="16" y="24">Ship 05-six-helpers-undelivered-message</text>
+<text class="gteam-cap" x="952" y="24" text-anchor="end">6 of 8 helpers</text>
 </g>
 <defs>
 <marker id="gedge-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
@@ -71,8 +72,8 @@
 </g>
 </g>
 <g class="gslot">
-<g class="gnode gnode--idle gnode--manager" data-pane="c2beaec2" transform="translate(376 68)" role="group" aria-label="manager, manager, idle, branch main, $8.00">
-<title>manager, manager, idle, branch main, $8.00</title>
+<g class="gnode gnode--idle gnode--manager" data-pane="c2beaec2" transform="translate(376 68)" role="group" aria-label="manager, manager, idle, branch main, $8.00, 6 of 8 helpers">
+<title>manager, manager, idle, branch main, $8.00, 6 of 8 helpers</title>
 <rect class="gnode-box" x="0" y="0" width="216" height="144" rx="6">
 </rect>
 <circle class="gmark gmark--ring" cx="18" cy="22" r="5">
@@ -83,6 +84,7 @@
 <text class="gnode-live" x="12" y="67">
 </text>
 <text class="gnode-branch" x="12" y="87">main</text>
+<text class="gnode-cap" x="12" y="108">6 of 8 helpers</text>
 <text class="gnode-spend" x="12" y="123">$8.00</text>
 <text class="gnode-msgs" x="12" y="138">1 in, 0 out</text>
 </g>
