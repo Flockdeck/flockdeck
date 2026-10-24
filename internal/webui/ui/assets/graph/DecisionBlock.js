@@ -17,18 +17,21 @@
 // asks to restart (the drawer's confirm); manager is { pane, name } or null.
 //
 // Every text here is from an agent and is drawn as text.
-import { useRef, useState } from "../vendor/hooks.mjs";
+import { useEffect, useRef, useState } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
 import { clip } from "./Node.js";
 import { Icon, firstLine } from "./Badge.js";
 import { ageOf } from "./NeedsYou.js";
 import { askText } from "./OverlapBar.js";
-import { PermissionCard, NOT_CONNECTED_WORDS, DETAILS_ON_DESKTOP_WORDS } from "../drawer/Prompt.js";
+import { PermissionCard, NOT_CONNECTED_WORDS, DETAILS_ON_DESKTOP_WORDS, DESK_WORDS } from "../drawer/Prompt.js";
 
 export const KINDS = ["permission", "ask", "conflict", "down"];
 export const NO_MANAGER_WORDS = "This team has no manager to ask.";
 const HEADS = { permission: "Permission", ask: "Question", conflict: "Files overlap", down: "Down" };
 const MAX_OPTIONS = 6;
+/** tabOf is the tabindex of a block's button: not a tab stop unless the row above it is (ctx.tab false), as the chips on a row. */
+export const tabOf = (ctx) => (ctx && ctx.tab === false ? -1 : 0);
+
 const TERMINAL_WORDS = "Answer in its drawer, where the terminal is.";
 
 const nameOf = (model, id) => {
@@ -118,7 +121,7 @@ function Permission({ model, need, ctx, tail }) {
   const card = s && s.card ? s.card : null;
   const node = model.byPane.get(need.pane);
   if (card && node && ctx.store) {
-    return html`<${PermissionCard} node=${node} card=${card} snap=${ctx.snap} store=${ctx.store} tail=${tail} />`;
+    return html`<${PermissionCard} node=${node} card=${card} snap=${ctx.snap} store=${ctx.store} tail=${tail} tabIndex=${tabOf(ctx)} />`;
   }
   return null;
 }
@@ -139,8 +142,9 @@ function Question({ need, ctx, options, tail }) {
     }
   };
   if (options.length === 0) return null;
+  if (!ctx.store) return html`<${Buttons}>${tail}<//><p class="dec-more">${DESK_WORDS}</p>`;
   return html`<${Buttons}>
-      ${options.map((label, i) => html`<button type="button" class=${"dec-btn" + (i === 0 ? " dec-btn--primary" : "")} data-option=${label} disabled=${!!sent} onClick=${() => pick(label)}>${clip(label, 60)}</button>`)}${tail}
+      ${options.map((label, i) => html`<button type="button" tabindex=${tabOf(ctx)} class=${"dec-btn" + (i === 0 ? " dec-btn--primary" : "")} data-option=${label} disabled=${!!sent} onClick=${() => pick(label)}>${clip(label, 60)}</button>`)}${tail}
     <//>
     <p class=${"dec-status" + (note ? " dec-status--error" : "")} role=${note ? "alert" : "status"}>${sent ? "Sent “" + clip(sent, 60) + "”. Waiting for the agent." : note}</p>`;
 }
@@ -152,9 +156,11 @@ function Conflict({ model, need, ctx }) {
     if (!manager) return;
     send(manager.pane, askText({ who: nameOf(model, need.pane) + " and " + nameOf(model, need.other), files: String(need.text || "") }));
   };
+  const see = ctx.onSee ? html`<button type="button" tabindex=${tabOf(ctx)} class="dec-btn" onClick=${() => ctx.onSee(need.pane)}>See in Review</button>` : null;
+  if (!ctx.store) return html`<${Buttons}>${see}<//><p class="dec-more">${DESK_WORDS}</p>`;
   return html`<${Buttons}>
-      <button type="button" class="dec-btn dec-btn--primary" disabled=${!manager || state === "sent"} title=${manager ? "" : NO_MANAGER_WORDS} onClick=${ask}>${state === "sent" ? "Manager asked" : "Ask mgr to sort it out"}</button>
-      ${ctx.onSee ? html`<button type="button" class="dec-btn" onClick=${() => ctx.onSee(need.pane)}>See in Review</button>` : null}
+      <button type="button" tabindex=${tabOf(ctx)} class="dec-btn dec-btn--primary" disabled=${!manager || state === "sent"} title=${manager ? "" : NO_MANAGER_WORDS} onClick=${ask}>${state === "sent" ? "Manager asked" : "Ask mgr to sort it out"}</button>
+      ${see}
     <//>
     ${state === "failed" ? html`<p class="dec-status dec-status--error" role="alert">${NOT_CONNECTED_WORDS}</p>` : null}`;
 }
@@ -162,14 +168,15 @@ function Conflict({ model, need, ctx }) {
 function Down({ need, who, ctx }) {
   const [state, send] = useAsk(ctx);
   const manager = ctx.manager || null;
-  const reassign = manager && need.task
-    ? html`<button type="button" class="dec-btn" disabled=${state === "sent"} onClick=${() => send(manager.pane, "Please reassign " + need.task + ": " + who + " is down.")}>${state === "sent" ? "Manager asked" : "Ask mgr to reassign " + need.task}</button>`
+  const reassign = manager && need.task && ctx.store
+    ? html`<button type="button" tabindex=${tabOf(ctx)} class="dec-btn" disabled=${state === "sent"} onClick=${() => send(manager.pane, "Please reassign " + need.task + ": " + who + " is down.")}>${state === "sent" ? "Manager asked" : "Ask mgr to reassign " + need.task}</button>`
     : null;
-  const terminal = ctx.onOpen ? html`<button type="button" class="dec-btn dec-btn--ghost" onClick=${() => ctx.onOpen(need.pane)}>See terminal</button>` : null;
+  const terminal = ctx.onOpen ? html`<button type="button" tabindex=${tabOf(ctx)} class="dec-btn dec-btn--ghost" onClick=${() => ctx.onOpen(need.pane)}>See terminal</button>` : null;
   return html`<${Buttons}>
-      ${ctx.onRestart ? html`<button type="button" class="dec-btn dec-btn--primary" onClick=${() => ctx.onRestart(need.pane)}>Restart</button>` : null}
+      ${ctx.onRestart && ctx.store ? html`<button type="button" tabindex=${tabOf(ctx)} class="dec-btn dec-btn--primary" onClick=${() => ctx.onRestart(need.pane)}>Restart</button>` : null}
       ${reassign}${terminal}
     <//>
+    ${ctx.store ? null : html`<p class="dec-more">${DESK_WORDS}</p>`}
     ${state === "failed" ? html`<p class="dec-status dec-status--error" role="alert">${NOT_CONNECTED_WORDS}</p>` : null}`;
 }
 
@@ -178,9 +185,14 @@ function Down({ need, who, ctx }) {
  * (see decisionsOf), ctx as in the head of this file.
  */
 export function DecisionBlock({ model, need, ctx = {} }) {
-  const structuredCard = need.kind === "permission" && ctx.snap && ctx.snap.structured && ctx.snap.structured.id === need.pane && ctx.snap.structured.card;
+  const structuredCard = need.kind === "permission" && ctx.store && ctx.snap && ctx.snap.structured && ctx.snap.structured.id === need.pane && ctx.snap.structured.card;
   const d = decisionOf(model, need, ctx.now || Date.now(), structuredCard || null);
-  const open = ctx.onOpen && need.kind !== "conflict" && need.kind !== "down" ? html`<button type="button" class="dec-btn dec-btn--ghost" onClick=${() => ctx.onOpen(need.pane)}>Open ${clip(d.who, 20)}</button>` : null;
+  const open = ctx.onOpen && need.kind !== "conflict" && need.kind !== "down" ? html`<button type="button" tabindex=${tabOf(ctx)} class="dec-btn dec-btn--ghost" onClick=${() => ctx.onOpen(need.pane)}>Open ${clip(d.who, 20)}</button>` : null;
+  // When a button of the block is pressed and the block goes (the answer came), the row it was under takes the keyboard.
+  const pressed = useRef(false);
+  const latest = useRef(ctx);
+  latest.current = ctx;
+  useEffect(() => () => { if (pressed.current && latest.current.onGone) latest.current.onGone(need.pane); }, []);
   const hasOptions = questionOptions(ctx.panes && ctx.panes.get(need.pane)).length > 0;
   let body = null;
   if (need.kind === "permission") body = html`<${Permission} model=${model} need=${need} ctx=${ctx} tail=${open} />`;
@@ -188,7 +200,7 @@ export function DecisionBlock({ model, need, ctx = {} }) {
   else if (need.kind === "conflict") body = html`<${Conflict} model=${model} need=${need} ctx=${ctx} />`;
   else if (need.kind === "down") body = html`<${Down} need=${need} who=${d.who} ctx=${ctx} />`;
   const age = need.kind === "down" ? d.age + " ago" : need.kind === "conflict" ? d.age : "waiting " + d.age;
-  return html`<section class=${"ask dec dec--" + d.tone} role="group" aria-label=${d.head + " for " + d.who} data-decision=${need.kind} data-pane=${need.pane}>
+  return html`<section class=${"ask dec dec--" + d.tone} role="group" aria-label=${d.head + " for " + d.who} data-decision=${need.kind} data-pane=${need.pane} onClick=${() => { pressed.current = true; }}>
     <header class="dec-head">
       <svg class="dec-icon" width="16" height="16" viewBox="-10 -10 20 20" aria-hidden="true"><${Icon} kind=${need.kind} x=${0} y=${0} /></svg>
       <span class="dec-kind">${d.head}</span>
@@ -198,7 +210,7 @@ export function DecisionBlock({ model, need, ctx = {} }) {
       ? html`<b>${d.who}</b>${d.who2 ? html` and <b>${d.who2}</b>` : null}`
       : html`<span class="dec-who">${d.who}</span>${d.task ? html` <span class="dec-task">${d.task}</span>` : null} `}${d.line}</p>
     ${d.command && !structuredCard ? html`<pre class="dec-command" aria-label="Command">${clip(d.command, 600)}</pre>` : null}
-    ${need.kind === "permission" && !structuredCard ? html`<p class="dec-more">${TERMINAL_WORDS}</p>` : null}
+    ${need.kind === "permission" && !structuredCard ? html`<p class="dec-more">${ctx.store ? TERMINAL_WORDS : DESK_WORDS}</p>` : null}
     ${body}
     ${((need.kind === "permission" && !structuredCard) || (need.kind === "ask" && !hasOptions)) && open ? html`<${Buttons}>${open}<//>` : null}
   </section>`;
