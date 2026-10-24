@@ -11,11 +11,12 @@
 // Maximise fills the main area with the drawer and Restore puts it back. Neither
 // touches the terminal's size: the pty is resized only by fitToBox, which
 // nothing here calls.
-import { useEffect, useReducer, useRef, useState } from "../vendor/hooks.mjs";
+import { useEffect, useMemo, useReducer, useRef, useState } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
 import { Header } from "./Header.js";
 import { Prompt, StreamPermission } from "./Prompt.js";
 import { Conversation } from "./Conversation.js";
+import { ChipsContext } from "./conv/chips.js";
 import { Structured } from "./Structured.js";
 import { Message } from "./Message.js";
 import { Lifecycle } from "./Lifecycle.js";
@@ -83,7 +84,7 @@ export function hasTerminal(node, pane) {
 /** Drawer is the component. store is the store of store.js; node and pane are the
  *  graph node and the state push's entry for it. terminalOptions reach the
  *  terminal, which is how a test gives it fakes for xterm and the socket. */
-function DrawerBody({ store, snap = null, node, pane = null, now, maximised = false, onClose, onToggleMax, onOpenPane = null, terminalOptions = null, life = null, tx = null, onInfo = null, findAsk = 0, tabAsk = null, order = [], onStartTeam = null }) {
+function DrawerBody({ store, snap = null, node, pane = null, now, maximised = false, onClose, onToggleMax, onOpenPane = null, terminalOptions = null, life = null, tx = null, onInfo = null, findAsk = 0, tabAsk = null, order = [], onStartTeam = null, helpers = [] }) {
   const rootRef = useRef(null);
   const terminalRef = useRef(null);
   // The terminal's controller once it is made, for the search bar, and the search
@@ -215,11 +216,14 @@ function DrawerBody({ store, snap = null, node, pane = null, now, maximised = fa
   // open, so a confirmation cannot be hidden by closing the button's panel.
   const asking = (life && life.request && life.request.pane === node.pane) || (tx && tx.request && tx.request.pane === node.pane);
   const showMore = more || !!asking;
+  // The names of the other agents, so a reply that names one gets a chip that opens it.
+  const chips = useMemo(() => (onOpenPane ? { names: helpers.filter((n) => n.pane !== node.pane), open: onOpenPane } : null), [helpers, node.pane, onOpenPane]);
   const sendKeys = (text, done) => {
     const send = keysFor(terminalRef, node.pane);
     return !!send && send(text, done);
   };
   return html`
+    <${ChipsContext.Provider} value=${chips}>
     <section class=${"drawer-body" + (maximised ? " drawer-body--max" : "")} data-drawer-pane=${node.pane} tabindex="-1" ref=${rootRef} onKeyDown=${onKeyDown}>
       <${Header} node=${node} pane=${pane} now=${now} maximised=${maximised} onClose=${onClose} onToggleMax=${onToggleMax}
         taskOpen=${taskOpen} onTask=${() => setTaskOpen(!taskOpen)} onStep=${order.length > 1 ? step : null} moreOpen=${showMore} onMore=${life || tx ? () => setMore(!more) : null}
@@ -269,6 +273,7 @@ function DrawerBody({ store, snap = null, node, pane = null, now, maximised = fa
         ? html`<${Message} key=${node.pane} pane=${node.pane} name=${node.name} store=${store} />`
         : null}
     </section>
+    <//>
   `;
 }
 
