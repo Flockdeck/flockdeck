@@ -389,3 +389,5 @@
 /* The pane's actions, behind the header's More button. */
 .drawer-more-panel { flex: 0 0 auto; border-bottom: 1px solid var(--line); }
 .drawer-btn.drawer-more[aria-expanded="true"] { background: var(--accent-subtle); border-color: var(--accent-line); }
+
+.drawer-message { padding: 8px 12px; border-top: 1px solid var(--line); }

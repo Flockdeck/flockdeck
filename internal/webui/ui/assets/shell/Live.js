@@ -171,6 +171,8 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     if (rosterOnly) return new Set(rosterOf(kept.current.state).map((r) => r.id));
     return shown ? new Set(shown.nodes.map((n) => n.pane)) : NO_PANES;
   }, [shown, rosterOnly, statePanes]);
+  // The graph's agents in the order it lists them, for [ and ] in the drawer.
+  const order = useMemo(() => (rosterOnly ? rosterOf(kept.current.state).map((r) => r.id) : shown ? shown.nodes.map((n) => n.pane) : []), [shown, rosterOnly, statePanes]);
   const drawer = useDrawer({ mainRef, paneIds });
   const pane = drawer.pane ? (statePanes || {})[drawer.pane] || null : null;
   let node = drawer.pane && current ? current.byPane.get(drawer.pane) : null;
@@ -563,7 +565,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     drawer=${node
       ? html`<${Drawer} store=${store} snap=${snap} node=${node} pane=${pane} now=${Date.now()} maximised=${drawer.maximised}
           onClose=${drawer.close} onToggleMax=${drawer.toggleMax} terminalOptions=${termProps} life=${life}
-          tx=${tx} onInfo=${openInfo} findAsk=${findAsk} tabAsk=${tabAsk} onOpenPane=${drawer.open} />`
+          tx=${tx} onInfo=${openInfo} findAsk=${findAsk} tabAsk=${tabAsk} onOpenPane=${drawer.open} order=${order} />`
       : null}
   >${snap.state ? html`<${Tabs} tabs=${tabs} send=${send} show=${onDesk} warnFor=${(t) => closeTabWarnings(t, current ? current.byPane : null, statePanes)} onChoose=${() => setStarting("agent")}
       onHistory=${snap.remote ? null : () => setHistoryOpen(true)} onFind=${snap.remote ? null : () => setFindingPane(true)} />` : null}
