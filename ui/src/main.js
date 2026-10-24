@@ -9,11 +9,12 @@ import { render } from "./vendor/preact.mjs";
 import { html } from "./html.js";
 import { createStore } from "./lib/store.js";
 import { controlUrl } from "./lib/socket.js";
+import { loadKeyDefaults } from "./lib/keytable.js";
 import { watchRemoteHello } from "./lib/e2e-boot.js";
 import { watchPageLifecycle } from "./lib/page-lifecycle.js";
 import { Live } from "./shell/Live.js";
 
-const store = createStore({ url: controlUrl(window.location) });
+const store = createStore({ url: controlUrl(window.location), keyDefaults: () => loadKeyDefaults(window.fetch.bind(window), window.location) });
 watchRemoteHello(store);
 store.start();
 watchPageLifecycle(window, store);

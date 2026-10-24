@@ -27,11 +27,11 @@ import (
 // APIMajor and APIMinor are the version of the control socket's API.
 const (
 	APIMajor = 1
-	APIMinor = 1
+	APIMinor = 2
 )
 
 // apiCaps are the features of this version, in the order they were added.
-var apiCaps = []string{"clientHello", "unsupported", "apiMismatch", "uiPrefs"}
+var apiCaps = []string{"clientHello", "unsupported", "apiMismatch", "uiPrefs", "keyOverrides"}
 
 // A deprecatedField is something the graph push still carries that a client
 // should stop reading. Nothing here is removed: the old Graph view reads most of

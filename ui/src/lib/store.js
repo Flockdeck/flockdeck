@@ -169,6 +169,7 @@
 
 import { createSocket } from "./socket.js";
 import { clientHello, mismatchNotice, unsupportedNotice } from "./apiversion.js";
+import { mergeKeys, readsKeyFiles } from "./keytable.js";
 
 /** DESK_ONLY_CODE is the code the desktop puts on the refusal it gives a window
  *  reached through the relay (internal/server/teamui.go, teamDeskOnlyCode).
@@ -390,6 +391,25 @@ export function createStore(opts) {
   // is sent only when the hello is in and says this window is not remote.
   const watchSent = () => !!snap.hello && !snap.remote;
 
+  // The defaults of the key table (keys.json), once they have been read. They are
+  // asked for on the first hello that offers the table as files, and again on the
+  // next one if the answer was not usable; until they are here the window works
+  // from the keys the hello carries, if it carries any.
+  let keyDefaults = null;
+  let keyDefaultsAsked = null;
+  function keysFromFiles() {
+    if (!opts.keyDefaults) return;
+    if (keyDefaults) return applyKeyFiles();
+    if (!keyDefaultsAsked) {
+      keyDefaultsAsked = Promise.resolve(opts.keyDefaults()).then((d) => { keyDefaults = d; keyDefaultsAsked = null; if (d) applyKeyFiles(); }, () => { keyDefaultsAsked = null; });
+    }
+  }
+  function applyKeyFiles() {
+    const h = snap.hello;
+    if (!h || !keyDefaults || !readsKeyFiles(h)) return;
+    set({ hello: { ...h, keys: mergeKeys(keyDefaults, h.keyOverrides, h.keysHidden) } });
+  }
+
   function handle(msg) {
     switch (msg.type) {
       case "hello": {
@@ -397,6 +417,8 @@ export function createStore(opts) {
         // A new hello starts the connection over. What a graph command
         // refused before is tried again unless this window is remote.
         set({ hello: msg, remote, graphRefused: remote, graphError: null, radar: null });
+        // A server that offers the key table as keys.json plus changes is read that way.
+        if (readsKeyFiles(msg)) keysFromFiles();
         // Tell the desktop which API this page speaks; it answers only if they do not match.
         socket.send(clientHello());
         // A watch asked for before this hello was known is dropped in a remote window, so stop() sends nothing for it.
@@ -424,7 +446,10 @@ export function createStore(opts) {
         set({ worktrees: { ...msg, seq: ++worktreesSeq } });
         break;
       case "keyTable":
-        if (snap.hello && Array.isArray(msg.keys)) set({ hello: { ...snap.hello, keys: msg.keys } });
+        if (snap.hello && (Array.isArray(msg.keys) || readsKeyFiles(snap.hello))) {
+          set({ hello: { ...snap.hello, keys: Array.isArray(msg.keys) ? msg.keys : snap.hello.keys, keyOverrides: msg.keyOverrides, keysHidden: msg.keysHidden } });
+          if (readsKeyFiles(snap.hello)) keysFromFiles();
+        }
         break;
       case "graph":
         // A push that was in flight when the watch was dropped is not wanted.
