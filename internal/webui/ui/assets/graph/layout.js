@@ -18,11 +18,15 @@
 //   holds) are the strip along the bottom.
 //
 // Nothing is recursive, so a chain of any length is laid out.
+import { isLoud } from "./model.js";
 
 /** The sizes the views use, in SVG units. A caller may override any of them. */
 export const DEFAULTS = {
   nodeW: 216,
-  nodeH: 152,
+  // A box is as tall as what it holds: a quiet one is nodeH, one that asks something
+  // of the person (a block inside it) is loudH.
+  nodeH: 116,
+  loudH: 130,
   gapX: 24,
   gapY: 48,
   pad: 16,
@@ -33,6 +37,9 @@ export const DEFAULTS = {
   // The widest a row of blocks gets before the next block starts a new row.
   rowWidth: 4 * 216 + 3 * 24,
 };
+
+/** The most boxes in a row that fitLayout tries. */
+export const MAX_COLUMNS = 6;
 
 /** An empty layout, for a model that has nothing to draw. */
 export function emptyLayout(opts = DEFAULTS) {
@@ -86,7 +93,7 @@ function layoutTree(tree, o) {
   for (let i = flat.length - 1; i >= 0; i--) {
     const f = flat[i];
     if (f.kids.length === 0) {
-      f.size = { w: o.nodeW, h: o.nodeH };
+      f.size = { w: o.nodeW, h: o.hOf(f.t.pane) };
       continue;
     }
     f.pack = packRows(
@@ -95,7 +102,7 @@ function layoutTree(tree, o) {
       o.gapX,
       o.gapY,
     );
-    f.size = { w: Math.max(o.nodeW, f.pack.w), h: o.nodeH + o.gapY + f.pack.h };
+    f.size = { w: Math.max(o.nodeW, f.pack.w), h: o.hOf(f.t.pane) + o.gapY + f.pack.h };
   }
   // Top down: a block's origin is set by its parent's rows.
   flat[0].x = 0;
@@ -105,7 +112,7 @@ function layoutTree(tree, o) {
     const f = flat[i];
     boxes.push({ pane: f.t.pane, x: f.x + (f.size.w - o.nodeW) / 2, y: f.y, depth: f.t.depth });
     if (f.pack === null) continue;
-    let rowY = f.y + o.nodeH + o.gapY;
+    let rowY = f.y + o.hOf(f.t.pane) + o.gapY;
     for (const row of f.pack.rows) {
       const left = f.x + (f.size.w - row.w) / 2;
       for (const it of row.items) {
@@ -124,7 +131,7 @@ function layoutTree(tree, o) {
 // above its box and needs the room, or it would cover the row above.
 function layoutRows(panes, limit, o) {
   const pack = packRows(
-    panes.map(() => ({ w: o.nodeW, h: o.nodeH })),
+    panes.map((p) => ({ w: o.nodeW, h: o.hOf(p) })),
     limit,
     o.gapX,
     o.gapY,
@@ -150,12 +157,16 @@ function layoutRows(panes, limit, o) {
  */
 export function layoutGraph(model, options = {}) {
   const o = { ...DEFAULTS, ...options };
+  // columns is how many boxes a row may hold; it sets rowWidth.
+  if (options.columns) o.rowWidth = options.columns * o.nodeW + (options.columns - 1) * o.gapX;
   if (!model || !model.ok) return emptyLayout(o);
+  // Not an enumerable option, so that two layouts of one model compare equal.
+  Object.defineProperty(o, "hOf", { value: options.heightOf || ((pane) => (isLoud(model.needsByPane.get(pane)) ? o.loudH : o.nodeH)), enumerable: false });
 
   const nodes = [];
   const byPane = new Map();
   const place = (box, team) => {
-    const b = { pane: box.pane, x: box.x, y: box.y, w: o.nodeW, h: o.nodeH, team, depth: box.depth };
+    const b = { pane: box.pane, x: box.x, y: box.y, w: o.nodeW, h: o.hOf(box.pane), team, depth: box.depth };
     nodes.push(b);
     byPane.set(b.pane, b);
   };
@@ -225,4 +236,20 @@ export function layoutGraph(model, options = {}) {
     width = Math.max(width, frameW);
   }
   return { ok: true, opts: o, width, height, teams, nodes, byPane, solo };
+}
+
+/**
+ * fitLayout is layoutGraph with as many boxes in a row as the width allows: the
+ * most, up to MAX_COLUMNS, that keep the whole graph within width, or one in a row
+ * when not even that fits. With no width (it is not measured yet) it is the
+ * default layout.
+ */
+export function fitLayout(model, width, options = {}) {
+  if (!width || width <= 0) return layoutGraph(model, options);
+  let lay = null;
+  for (let k = MAX_COLUMNS; k >= 1; k--) {
+    lay = layoutGraph(model, { ...options, columns: k });
+    if (lay.width <= width) return lay;
+  }
+  return lay;
 }

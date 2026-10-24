@@ -11,6 +11,9 @@
 // Every text here is untrusted and is drawn as text.
 import { html } from "../html.js";
 import { clip } from "./Node.js";
+import { QUIET_KINDS } from "./model.js";
+
+export { QUIET_KINDS, isLoud } from "./model.js";
 
 /** The phrases for the kinds the graph has. A down item's phrase is taken from its text, below. */
 const PHRASES = {
@@ -25,14 +28,6 @@ const PHRASES = {
 
 /** The block a pane's request is drawn in, in the box's own coordinates (the box is 216 wide and the live line is not drawn under it), and the characters its detail line holds. */
 export const BADGE = { w: 200, h: 46, x: 8, top: 66, detailMax: 21 };
-
-/** The kinds drawn without the amber: mail left unread by a pane that is idle. They are in the block and do not make the box loud. */
-export const QUIET_KINDS = ["stale-unread", "stuck"];
-
-/** isLoud says a list of needs holds one that asks something of the person now. A pane that ended has its block in red and its box is not drawn loud. */
-export function isLoud(needs) {
-  return !!needs && needs.some((n) => !QUIET_KINDS.includes(n.kind) && n.kind !== "down");
-}
 
 /** firstLine is the first non-empty line of a text, trimmed. */
 export function firstLine(text) {

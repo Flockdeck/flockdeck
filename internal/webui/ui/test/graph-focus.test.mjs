@@ -7,7 +7,7 @@ import { html } from "../assets/html.js";
 import { buildGraphModel } from "../assets/graph/model.js";
 import { layoutGraph } from "../assets/graph/layout.js";
 import { Graph } from "../assets/graph/Graph.js";
-import { countsLine } from "../assets/graph/Node.js";
+import { undeliveredLine } from "../assets/graph/Node.js";
 import { Edges, countsOf, edgesOf, focusOf } from "../assets/graph/Edges.js";
 
 const node = (pane, over = {}) => ({ pane, kind: "terminal", depth: 0, name: pane, status: "idle", activity: "idle", waitingOn: { kind: "none" }, ...over });
@@ -64,7 +64,7 @@ test("countsOf counts what came to a pane and what it sent, and the sent ones no
   assert.deepEqual(c.get("b"), { in: 1, out: 0, undelivered: 0 });
   assert.deepEqual(c.get("c"), { in: 0, out: 1, undelivered: 1 });
   assert.equal(c.has("e"), false);
-  assert.equal(countsLine(c.get("a")), "1 in, 1 out");
+  assert.equal(undeliveredLine(c.get("c")), "1 undelivered");
 });
 
 test("a message a pane sent to itself is not counted, nor one to a pane that is not a node", () => {
@@ -73,10 +73,11 @@ test("a message a pane sent to itself is not counted, nor one to a pane that is 
   assert.deepEqual(c.get("a"), { in: 0, out: 1, undelivered: 0 });
 });
 
-test("the drawn graph has the count on a box with messages and not on one without", () => {
+test("the drawn graph has the undelivered note on the one box that has some, and no plain counts", () => {
   const svg = renderToString(html`<${Graph} model=${buildGraphModel(M)} />`);
-  assert.equal((svg.match(/class="gnode-msgs"/g) || []).length, 3);
+  assert.equal((svg.match(/class="gnode-msgs gnode-und"/g) || []).length, 1);
   assert.match(svg, /1 undelivered/);
+  assert.ok(!/\d+ in, \d+ out/.test(svg));
 });
 
 test("the open pane's lines are the ones drawn, and the others fade", () => {

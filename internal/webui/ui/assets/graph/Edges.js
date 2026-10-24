@@ -140,6 +140,49 @@ export function edgesOf(model, layout, options = {}) {
   return out;
 }
 
+/**
+ * linksOf is the lines that join a pane to its helpers, as one path's data: from
+ * the pane's foot to a bar above each row of its helpers, and down from the bar to
+ * each helper. With helpers in more than one row the lines run down a trunk at the
+ * left of them, so none crosses a box. They show who belongs to whom and are always
+ * drawn; they are not messages.
+ */
+export function linksOf(model, layout) {
+  const f = (n) => Math.round(n * 10) / 10;
+  const parts = [];
+  if (!model || !model.ok || !layout || !layout.ok) return "";
+  for (const team of model.teams) {
+    if (team.tree === null) continue;
+    const stack = [team.tree];
+    while (stack.length > 0) {
+      const t = stack.pop();
+      for (const c of t.children) stack.push(c);
+      const p = layout.byPane.get(t.pane);
+      const kids = t.children.map((c) => layout.byPane.get(c.pane)).filter(Boolean);
+      if (!p || kids.length === 0) continue;
+      const rows = [];
+      for (const k of kids) {
+        let row = rows.find((r) => Math.abs(r.y - k.y) < 4);
+        if (!row) rows.push((row = { y: k.y, kids: [] }));
+        row.kids.push(k);
+      }
+      const cx = (b) => b.x + b.w / 2;
+      const foot = p.y + p.h;
+      const bar = (row) => row.y - 12;
+      if (rows.length === 1) {
+        const xs = rows[0].kids.map(cx);
+        parts.push(`M${f(cx(p))} ${f(foot)}V${f(bar(rows[0]))}M${f(Math.min(cx(p), ...xs))} ${f(bar(rows[0]))}H${f(Math.max(cx(p), ...xs))}`);
+      } else {
+        const trunk = Math.min(...kids.map((k) => k.x)) - 9;
+        parts.push(`M${f(cx(p))} ${f(foot)}V${f(foot + 10)}H${f(trunk)}V${f(bar(rows[rows.length - 1]))}`);
+        for (const row of rows) parts.push(`M${f(trunk)} ${f(bar(row))}H${f(Math.max(...row.kids.map(cx)))}`);
+      }
+      for (const row of rows) for (const k of row.kids) parts.push(`M${f(cx(k))} ${f(bar(row))}V${f(k.y)}`);
+    }
+  }
+  return parts.join("");
+}
+
 /** touches says an edge has the pane at one of its ends. */
 const touches = (x, pane) => x.from === pane || x.to === pane;
 

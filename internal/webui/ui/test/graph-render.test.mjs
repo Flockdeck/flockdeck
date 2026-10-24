@@ -11,6 +11,7 @@ import { renderToString } from "./vendor/render-to-string.mjs";
 import { html } from "../assets/html.js";
 import { buildGraphModel } from "../assets/graph/model.js";
 import { Graph } from "../assets/graph/Graph.js";
+import { DEFAULTS } from "../assets/graph/layout.js";
 import { clip, stateOf, spendOf } from "../assets/graph/Node.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -315,7 +316,7 @@ test("a partial spend is on the foot line, at the right edge, clear of the messa
   const runs = runsOf(draw(msg)).filter((r) => r.pane === "m");
   const spend = runs.find((r) => r.kind === "gnode-spend");
   assert.ok(spend, "no spend run");
-  assert.equal(spend.y, BOX_H - 6);
+  assert.equal(spend.y, DEFAULTS.nodeH - 6, "the manager has nothing waiting on the person, so its box is the quiet height");
   assert.ok(spend.x1 <= BOX_W - 12 + 0.01);
 });
 test("a long name is cut so that it stops before the state word", () => {

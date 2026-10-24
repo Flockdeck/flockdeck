@@ -40,6 +40,14 @@ const NEED_LABELS = {
   stuck: "Is working but has written nothing for a while",
 };
 
+/** The kinds drawn without the amber: mail left unread by a pane that is idle, and a pane gone quiet. They are in the box's block and do not make the box loud. */
+export const QUIET_KINDS = ["stale-unread", "stuck"];
+
+/** isLoud says a list of needs holds one that asks something of the person now. A pane that ended has its block in red and its box is not drawn loud. */
+export function isLoud(needs) {
+  return !!needs && needs.some((n) => !QUIET_KINDS.includes(n.kind) && n.kind !== "down");
+}
+
 /** A short reason for a kind of need. A kind this file does not know is shown as it is. */
 export function needLabel(kind) {
   return Object.prototype.hasOwnProperty.call(NEED_LABELS, kind) ? NEED_LABELS[kind] : str(kind);
