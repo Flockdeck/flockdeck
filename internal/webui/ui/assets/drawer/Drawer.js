@@ -9,8 +9,9 @@
 // The Close button and the region keys work from there.
 //
 // Maximise fills the main area with the drawer and Restore puts it back. Neither
-// touches the terminal's size: the pty is resized only by fitToBox, which
-// nothing here calls.
+// touches the terminal's size itself: the terminal measures its box when it
+// changes and tells the server (lib/terminal.js), which sizes the pane for the
+// window last used.
 import { useEffect, useMemo, useReducer, useRef, useState } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
 import { Header } from "./Header.js";

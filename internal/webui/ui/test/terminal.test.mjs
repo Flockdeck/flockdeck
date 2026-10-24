@@ -99,28 +99,89 @@ test("keystrokes are sent as the old window sends them", () => {
 
 // ------------------------------------------------------------ the size rule
 
-test("opening, a box that changes, and closing never send a resize; fitToBox sends one", () => {
+const settle = (ms = 200) => new Promise((r) => setTimeout(r, ms));
+
+test("the box is reported when the socket opens and when it changes, once for each size, and closing sends nothing", async () => {
   const h = build();
   h.ctl.start();
   const ws = PtySocket.last;
   ws.open();
   ws.text(JSON.stringify({ size: { cols: 120, rows: 40 } }));
   assert.deepEqual([h.term().cols, h.term().rows], [120, 40], "the terminal did not take the pty's size");
-  // The drawer opens and closes: the box is measured again and again.
+  await settle();
+  assert.deepEqual(resizesSent(ws), [{ resize: { cols: 100, rows: 30 } }], "the box was not reported on opening");
+  // The drawer opens, closes, settles: a burst of measurements is one report, of the last size.
   FakeFit.box = { cols: 60, rows: 20 };
   for (const o of FakeObserver.instances) o.fire();
   FakeFit.box = { cols: 140, rows: 50 };
   for (const o of FakeObserver.instances) o.fire();
-  assert.deepEqual(resizesSent(ws), [], "a resize went out on a change of the box");
-  assert.deepEqual([h.term().cols, h.term().rows], [120, 40], "the terminal followed the box and not the pty");
-  // The person maximises.
+  await settle();
+  assert.deepEqual(resizesSent(ws).slice(1), [{ resize: { cols: 140, rows: 50 } }]);
+  // The same size again says nothing.
+  for (const o of FakeObserver.instances) o.fire();
+  await settle();
+  assert.equal(resizesSent(ws).length, 2);
+  // The terminal follows the pty, not the box, until the server resizes the pty.
+  assert.deepEqual([h.term().cols, h.term().rows], [120, 40]);
+  ws.text(JSON.stringify({ size: { cols: 140, rows: 50 } }));
+  assert.deepEqual([h.term().cols, h.term().rows], [140, 50]);
+  // The person maximises: fitToBox sends at once and is not repeated.
   FakeFit.box = { cols: 200, rows: 55 };
   assert.equal(h.ctl.fitToBox(), true);
-  assert.deepEqual(resizesSent(ws), [{ resize: { cols: 200, rows: 55 } }]);
+  await settle();
+  assert.deepEqual(resizesSent(ws).slice(2), [{ resize: { cols: 200, rows: 55 } }]);
   h.ctl.dispose();
-  assert.equal(resizesSent(ws).length, 1, "closing sent a resize");
+  assert.equal(resizesSent(ws).length, 3, "closing sent a resize");
   assert.equal(h.term().disposed, true);
   assert.equal(FakeObserver.instances[0].disconnected, true);
+});
+
+test("a box laid out while hidden is reported when it is shown", async () => {
+  const h = build();
+  FakeFit.box = null;
+  h.ctl.start();
+  const ws = PtySocket.last;
+  ws.open();
+  await settle();
+  assert.deepEqual(resizesSent(ws), [], "an unmeasured box was reported");
+  FakeFit.box = { cols: 100, rows: 30 };
+  for (const o of FakeObserver.instances) o.fire();
+  await settle();
+  assert.deepEqual(resizesSent(ws), [{ resize: { cols: 100, rows: 30 } }]);
+  FakeFit.box = { cols: 10, rows: 3 };
+  for (const o of FakeObserver.instances) o.fire();
+  await settle();
+  assert.equal(resizesSent(ws).length, 1, "a box too small to be a terminal was reported");
+});
+
+test("a window reached through the relay, and a viewer, report nothing; a new socket reports again", async () => {
+  FakeFit.box = { cols: 80, rows: 24 };
+  for (const over of [{ remote: true }, { role: "viewer", watchPanes: true }]) {
+    const h = build({ snap: { hello: hello(over), state: paneState({ p1: {} }) } });
+    h.ctl.start();
+    PtySocket.last.open();
+    await settle();
+    assert.deepEqual(resizesSent(PtySocket.last), [], JSON.stringify(over));
+    h.ctl.dispose();
+  }
+  const h = build();
+  h.ctl.start();
+  PtySocket.last.open();
+  await settle();
+  assert.equal(resizesSent(PtySocket.last).length, 1);
+  PtySocket.last.close ? PtySocket.last.close() : null;
+  h.ctl.dispose();
+});
+
+test("dispose cancels a report not yet sent", async () => {
+  FakeFit.box = { cols: 80, rows: 24 };
+  const h = build();
+  h.ctl.start();
+  const ws = PtySocket.last;
+  ws.open();
+  h.ctl.dispose();
+  await settle();
+  assert.deepEqual(resizesSent(ws), []);
 });
 
 test("a box smaller than the pty says so, and the note goes when the box fits", () => {
