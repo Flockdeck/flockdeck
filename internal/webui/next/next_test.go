@@ -182,6 +182,10 @@ func TestNextAssetsKeepToTheContentPolicy(t *testing.T) {
 		// A library's own strings hold namespace URLs; the files written here
 		// must hold none.
 		if !strings.HasPrefix(name, "vendor/") {
+			// shell/links.js may hold the sponsor address and nothing else.
+			if name == "shell/links.js" {
+				src = strings.ReplaceAll(src, "https://github.com/sponsors/jmwri", "")
+			}
 			if absolute.MatchString(src) {
 				t.Errorf("%s holds an absolute URL", name)
 			}

@@ -67,7 +67,6 @@ The old interface was deleted with these missing from the new one. They are chos
 - Phone team view: The phone app still shows the roster. It does not read the relay form of the team (docs/team-graph.md, section 9a) yet.
 - Tips bar: The hint bar of tips is cut; help is under F1.
 - Tiling: Splitting, moving, tiling and broadcasting to panes is cut; the team is a graph.
-- Sponsor link in Settings: The old Settings page linked GitHub Sponsors. The README and the help page still do.
 - Not run on Linux, macOS or with -race: The new interface was tested on Windows only, and no real phone was paired through the relay.
 
 ## Safety and security controls

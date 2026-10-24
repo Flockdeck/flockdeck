@@ -606,3 +606,14 @@ test("an open terminal takes the settings at once, and a new one starts with the
     assert.equal(term.options.screenReaderMode, true);
     assert.equal(FakeTerm.instances.filter((t) => !t.disposed).length, 1, "the terminal was not remade");
   }));
+
+test("General links to GitHub Sponsors in a new tab and says it buys nothing", () =>
+  withPage({}, async (m) => {
+    await m.connect();
+    await m.openSettings("general");
+    const a = m.container.find("#set-sponsor-link");
+    assert.equal(a.attributes.href, "https://github.com/sponsors/jmwri");
+    assert.equal(a.attributes.target, "_blank");
+    assert.match(a.attributes.rel, /noopener/);
+    assert.match(m.container.find("#set-sponsor").textContent, /buys nothing/);
+  }));
