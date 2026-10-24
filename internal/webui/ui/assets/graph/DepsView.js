@@ -249,7 +249,7 @@ function WaitRow({ w, now, model, stop, onFocus, onOpen, onLink }) {
     <span class=${"tree-glyph tree-glyph--" + (w.kind === "loop" ? "exited" : w.kind === "you" ? "waiting" : "idle")} aria-hidden="true"></span>
     <span class="tree-c deps-tk">${w.kind === "you" ? "you" : w.kind === "overlap" ? "files" : "wait"}</span>
     <span class="tree-c deps-ttl"><b>${clip(from, 24)}</b> <span class="deps-sub">${word}</span> <b>${clip(to, 24)}</b>${w.why ? html` <span class="deps-sub">for ${clip(w.why, 120)}</span>` : null}</span>
-    ${chips.length > 0 ? html`<span class="tree-chips">${chips.map((c) => html`<${Chip} key=${c.kind + c.text} c=${c} onLink=${onLink} />`)}</span>` : null}
+    <span class="deps-more">${chips.length > 0 ? html`<span class="tree-chips">${chips.map((c) => html`<${Chip} key=${c.kind + c.text} c=${c} onLink=${onLink} />`)}</span>` : null}</span>
     <span class="tree-c deps-age">${ageOf(w.since, now)}</span>
   </div>`;
 }
