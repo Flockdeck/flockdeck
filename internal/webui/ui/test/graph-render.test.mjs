@@ -74,7 +74,7 @@ test("each state has its own shape and word", () => {
   assert.equal(stateOf({ activity: "dreaming", status: "dreaming" }).shape, "unknown");
 });
 
-test("a node shows the live line, branch, changed files, task and spend", () => {
+test("a node shows the live line, task and spend, and its title has the branch and the changed files", () => {
   const msg = {
     type: "graph",
     teams: [{ id: "m", manager: "m", members: ["m"], spendUSD: 3.5, spendPartial: true, goal: "Ship it" }],
@@ -99,7 +99,7 @@ test("a node shows the live line, branch, changed files, task and spend", () => 
     solo: [],
   };
   const out = draw(msg);
-  for (const want of ["boss", "manager · claude", "Reading basket.go", "main  3 changed, 1 new", "T4 in-progress", "$3.50 partial", "Ship it"]) {
+  for (const want of ["boss", "manager · claude", "Reading basket.go", "T4", "Basket", "$3.50 partial", "Ship it", "branch main, 3 changed, 1 new", "task T4 Basket in-progress"]) {
     assert.ok(out.includes(want), `missing ${want}\n${out}`);
   }
 });
@@ -192,16 +192,16 @@ test("each state is drawn with its own word", () => {
 // box with a margin, and runs on one line must not meet.
 const EM = { mono: 0.6, sans: 0.56, bold: 0.58 };
 const RUNS = {
-  "gnode-name": { size: 14, face: "bold" },
-  "gnode-state": { size: 12, face: "bold" },
-  "gnode-role": { size: 12, face: "sans" },
-  "gnode-live": { size: 12, face: "mono" },
-  "gnode-branch": { size: 12, face: "mono" },
-  "gnode-spend": { size: 12, face: "mono" },
+  "gnode-name": { size: 12.5, face: "mono" },
+  "gnode-state": { size: 11, face: "bold" },
+  "gnode-role": { size: 11, face: "sans" },
+  "gnode-live": { size: 11, face: "mono" },
+  "gnode-wait": { size: 11, face: "sans" },
+  "gnode-spend": { size: 11, face: "mono" },
   "gnode-msgs": { size: 11, face: "sans" },
 };
 const BOX_W = 216;
-const BOX_H = 144;
+const BOX_H = 152;
 const unescape = (s) => s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&amp;/g, "&");
 
 // The runs of every node drawn: { pane, kind, x0, x1, y }, and each chip.
@@ -209,7 +209,7 @@ function runsOf(out) {
   const found = [];
   for (const g of out.split('<g class="gnode ').slice(1)) {
     const pane = /data-pane="([^"]*)"/.exec(g)[1];
-    const box = g.slice(0, g.indexOf("</g></g>") >= 0 && g.includes('class="gchip"') ? g.indexOf("</g></g>") + 8 : g.length);
+    const box = g;
     for (const m of box.matchAll(/<text class="(gnode-[a-z]+)" x="(-?[\d.]+)" y="([\d.]+)"( text-anchor="end")?>([^<]*)<\/text>/g)) {
       const spec = RUNS[m[1]];
       const text = unescape(m[5]);
@@ -217,12 +217,6 @@ function runsOf(out) {
       const x = Number(m[2]);
       const anchoredEnd = m[4] !== undefined;
       found.push({ pane, kind: m[1], y: Number(m[3]), text, x0: anchoredEnd ? x - width : x, x1: anchoredEnd ? x : x + width });
-    }
-    const chip = /<g class="gchip" transform="translate\((\d+) (\d+)\)"><rect x="0" y="0" width="(\d+)" height="(\d+)"[^>]*><\/rect><text x="(\d+)" y="(\d+)">([^<]*)<\/text>/.exec(g);
-    if (chip) {
-      const text = unescape(chip[7]);
-      const textW = Array.from(text).length * EM.mono * 11;
-      found.push({ pane, kind: "chip", y: Number(chip[2]), text, x0: Number(chip[1]), x1: Number(chip[1]) + Number(chip[3]), textFits: Number(chip[5]) + textW <= Number(chip[3]) });
     }
   }
   return found;
@@ -307,15 +301,15 @@ test("every text in the fixtures fits its box", () => {
   for (const name of names) assertFits(runsOf(draw(load(name))), name);
 });
 
-test("a partial spend does not meet the task chip", () => {
+test("a partial spend is on the foot line, at the right edge, clear of the message count", () => {
   const msg = crowded();
+  msg.edges = [{ kind: "message", from: "w0", to: "m", id: 1, time: "2026-10-21T08:00:00Z", text: "x", delivery: "read" }];
   const runs = runsOf(draw(msg)).filter((r) => r.pane === "m");
   const spend = runs.find((r) => r.kind === "gnode-spend");
-  const chip = runs.find((r) => r.kind === "chip");
-  assert.ok(spend && chip);
-  assert.ok(spend.y - 12 > chip.y + 14, "the spend is on a line of its own, below the chip");
+  assert.ok(spend, "no spend run");
+  assert.equal(spend.y, BOX_H - 6);
+  assert.ok(spend.x1 <= BOX_W - 12 + 0.01);
 });
-
 test("a long name is cut so that it stops before the state word", () => {
   const runs = runsOf(draw(crowded()));
   for (const w of ["w0", "w1"]) {

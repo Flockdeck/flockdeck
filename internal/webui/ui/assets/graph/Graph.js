@@ -8,8 +8,8 @@
 import { useState } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
 import { layoutGraph } from "./layout.js";
-import { Node, clip } from "./Node.js";
-import { Badge } from "./Badge.js";
+import { Node, clip, waitLine } from "./Node.js";
+import { Badge, isLoud } from "./Badge.js";
 import { NeedsYou } from "./NeedsYou.js";
 import { Edges, EdgeDefs, EdgeNotice, countsOf, edgesOf, focusOf } from "./Edges.js";
 import { navOf, onGraphKey } from "./keys.js";
@@ -77,6 +77,8 @@ export function Graph({ model, layout = null, onOpen = null, open = "" }) {
               team=${teamOf.get(b.team) || null}
               onOpen=${onOpen}
               open=${open === b.pane}
+              loud=${isLoud(model.needsByPane.get(b.pane))}
+              wait=${waitLine(node, model.byPane)}
               counts=${counts.get(b.pane) || null}
               dim=${!!focus && b.pane !== focus && !near.related.has(b.pane)}
               rel=${b.pane === near.target}

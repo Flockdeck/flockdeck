@@ -22,8 +22,16 @@ const PHRASES = {
   setup: "needs setting up",
 };
 
-/** The words a badge is drawn within, in characters, and the room above a box that a badge takes. */
-export const BADGE = { w: 200, h: 34, x: 8, lift: 36, detailMax: 20 };
+/** The block a pane's request is drawn in, in the box's own coordinates (the box is 216 wide and the live line is not drawn under it), and the characters its detail line holds. */
+export const BADGE = { w: 200, h: 46, x: 8, top: 66, detailMax: 21 };
+
+/** The kinds drawn without the amber: mail left unread by a pane that is idle. They are in the block and do not make the box loud. */
+export const QUIET_KINDS = ["stale-unread"];
+
+/** isLoud says a list of needs holds one that asks something of the person now. A pane that ended has its block in red and its box is not drawn loud. */
+export function isLoud(needs) {
+  return !!needs && needs.some((n) => !QUIET_KINDS.includes(n.kind) && n.kind !== "down");
+}
 
 /** firstLine is the first non-empty line of a text, trimmed. */
 export function firstLine(text) {
@@ -76,9 +84,9 @@ export function Icon({ kind, x, y }) {
 }
 
 /**
- * Badge is drawn on a node, in the node's own coordinates, hung above its top
- * edge. needs are the pane's items; the first one is shown, and a count of the
- * others when there are more.
+ * Badge is drawn on a node, in the node's own coordinates, as a block inside the
+ * box. needs are the pane's items; the first one is shown, and a count of the
+ * others when there are more. A quiet kind is drawn without the amber.
  */
 export function Badge({ needs }) {
   if (!needs || needs.length === 0) return null;
@@ -86,12 +94,12 @@ export function Badge({ needs }) {
   const more = needs.length - 1;
   const detail = r.detail === "" ? "" : clip(r.detail, BADGE.detailMax);
   return html`
-    <g class=${"gbadge gbadge--" + (r.kind === "down" ? "down" : "ask")} data-kind=${r.kind} role="img" aria-label=${"Needs you: " + r.word}>
-      <rect class="gbadge-box" x=${BADGE.x} y=${-BADGE.lift} width=${BADGE.w} height=${BADGE.h} rx="6" />
-      <${Icon} kind=${r.kind} x=${BADGE.x + 16} y=${-BADGE.lift + 14} />
-      <text class="gbadge-word" x=${BADGE.x + 32} y=${-BADGE.lift + 16}>${r.word}</text>
-      ${more > 0 ? html`<text class="gbadge-more" x=${BADGE.x + BADGE.w - 8} y=${-BADGE.lift + 28} text-anchor="end">+${more}</text>` : null}
-      ${detail !== "" ? html`<text class="gbadge-detail" x=${BADGE.x + 32} y=${-BADGE.lift + 28}>${detail}</text>` : null}
+    <g class=${"gbadge gbadge--" + (r.kind === "down" ? "down" : QUIET_KINDS.includes(r.kind) ? "quiet" : "ask")} data-kind=${r.kind} role="img" aria-label=${"Needs you: " + r.word}>
+      <rect class="gbadge-box" x=${BADGE.x} y=${BADGE.top} width=${BADGE.w} height=${BADGE.h} rx="4" />
+      <${Icon} kind=${r.kind} x=${BADGE.x + 16} y=${BADGE.top + 14} />
+      <text class="gbadge-word" x=${BADGE.x + 32} y=${BADGE.top + 18}>${r.word}</text>
+      ${more > 0 ? html`<text class="gbadge-more" x=${BADGE.x + BADGE.w - 8} y=${BADGE.top + 36} text-anchor="end">+${more}</text>` : null}
+      ${detail !== "" ? html`<text class="gbadge-detail" x=${BADGE.x + 32} y=${BADGE.top + 36}>${detail}</text>` : null}
     </g>
   `;
 }
