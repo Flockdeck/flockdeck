@@ -110,12 +110,12 @@ go run ./cmd/ctl "ws://127.0.0.1:PORT/ws/control?t=TOKEN" '{"cmd":"splitPane","d
 ## The front end
 
 The front end is vendored, not fetched at build time. To update it, replace the files
-in `internal/webui/next/assets/vendor/` from the `@xterm/xterm`, `@xterm/addon-fit`,
+in `internal/webui/ui/assets/vendor/` from the `@xterm/xterm`, `@xterm/addon-fit`,
 `@xterm/addon-search` and `@xterm/addon-webgl` packages.
 
 ### The shell
 
-The front end is the team-graph shell in `internal/webui/next/assets/`. The directory
+The front end is the team-graph shell in `internal/webui/ui/assets/`. The directory
 keeps the name it had while the old front end existed; it is the only one now, and a
 plain `go build` embeds it. There is no build tag and no runtime flag. The old front end
 was deleted in T162; its history is in git, and `docs/old-ui-fix-ledger.md` is a record of
@@ -127,28 +127,28 @@ go test ./internal/webui/...
 ```
 
 `e2e.js` (the end-to-end script the relay window uses), `vendor/` (the terminal library
-and Preact), the fonts and the icons are all in `next/assets`.
+and Preact), the fonts and the icons are all in `ui/assets`.
 
 `index.html` names its module by the relative path `assets/main.js`, so the page works only when it is served from `/`, where `assets/` is the server's `/assets/`. A module must be served as JavaScript: `internal/webui/webui.go` registers the type for `.mjs`, because on Windows Go takes it from the registry, which has none, and the file server would send `text/plain`.
 
-The new shell is plain ES modules that the browser loads as they are: no bundler and
+The shell is plain ES modules that the browser loads as they are: no bundler and
 no build step. `index.html` loads `assets/main.js` with `<script type="module">`, every
 import is a relative path, and nothing is inline or evaluated, so the page runs under the
 relay's `script-src 'self'`. Preact, its hooks and htm are vendored in
-`next/assets/vendor/` (versions, licences and hashes in `LICENSES.md` beside them and in
+`ui/assets/vendor/` (versions, licences and hashes in `LICENSES.md` beside them and in
 `next/checksums.txt`). A component is written with htm: html`<${Hello} />`.
 
-The page frame is in `next/assets/shell/`: `app.js` (the shell: a rail of the open projects, a top strip for the manager bar, the main area, a region for the drawer and a notice area), `rail.js`, `palette.js` and `keys.js`. Key handling is driven by the key table in the server's hello, which comes from `internal/help/keys.go`, so a binding is changed there and nowhere in the new code; a test fails if the shell names a key of its own (key names are allowed only in the marked vocabulary block of `keys.js`). The palette lists every action of the table, runs the ones listed in `IMPLEMENTED` in `shell/app.js`, and marks the rest "not in this window yet". `next/assets/app.css` begins with the typefaces and tokens copied unchanged from `assets/app.css` and a test holds the copy equal; the layout under it uses the tokens and writes no colour or typeface. The key table is read when the hello's `keys` change and not on each render. A binding in it that the reader cannot turn into a key (an unknown modifier in a remap, say) does nothing, and the shell says so in its notice area and names the action, so a key that has stopped working is not a silent failure. The palette is a modal dialog: the keyboard goes to its field when it opens and back to where it was when it closes, Tab stays inside it, Escape closes it from the field or a row, and the region and projects keys close it. The page passes each project the rail chooses, and each active project the state names, to `onWatch`. Below 641px wide the rail becomes a bar along the top and the main area a list; `NARROW_QUERY` in `app.js` and the media rule in the stylesheet are held together by a test.
+The page frame is in `ui/assets/shell/`: `app.js` (the shell: a rail of the open projects, a top strip for the manager bar, the main area, a region for the drawer and a notice area), `rail.js`, `palette.js` and `keys.js`. Key handling is driven by the key table in the server's hello, which comes from `internal/help/keys.go`, so a binding is changed there and nowhere in the new code; a test fails if the shell names a key of its own (key names are allowed only in the marked vocabulary block of `keys.js`). The palette lists every action of the table, runs the ones listed in `IMPLEMENTED` in `shell/app.js`, and marks the rest "not in this window yet". `ui/assets/app.css` begins with the typefaces and tokens copied unchanged from `assets/app.css` and a test holds the copy equal; the layout under it uses the tokens and writes no colour or typeface. The key table is read when the hello's `keys` change and not on each render. A binding in it that the reader cannot turn into a key (an unknown modifier in a remap, say) does nothing, and the shell says so in its notice area and names the action, so a key that has stopped working is not a silent failure. The palette is a modal dialog: the keyboard goes to its field when it opens and back to where it was when it closes, Tab stays inside it, Escape closes it from the field or a row, and the region and projects keys close it. The page passes each project the rail chooses, and each active project the state names, to `onWatch`. Below 641px wide the rail becomes a bar along the top and the main area a list; `NARROW_QUERY` in `app.js` and the media rule in the stylesheet are held together by a test.
 
-Its tests are Node's own `node:test`, in `internal/webui/next/test/`, run from
+Its tests are Node's own `node:test`, in `internal/webui/ui/test/`, run from
 `next_test.go` under the tag. Components are drawn with Preact to a string, so no browser
-or DOM is needed; `preact-render-to-string` is in `next/test/vendor/` and is never
+or DOM is needed; `preact-render-to-string` is in `ui/test/vendor/` and is never
 embedded. Node is a development and CI tool only and is not part of a release. Without
 node on PATH the Go test skips, and fails when `CI` is set. Other Go tests there check
-that no file under `next/assets` has an inline script or style, `eval`, `new Function`, an
+that no file under `ui/assets` has an inline script or style, `eval`, `new Function`, an
 absolute URL or a bare import, and that the vendored files match `checksums.txt`.
 
-The new shell reaches the running Flockdeck through `assets/lib/`. `socket.js` is the client of
+The shell reaches the running Flockdeck through `assets/lib/`. `socket.js` is the client of
 `/ws/control`: it drops a frame that is not a JSON object with a string `type`, and reconnects after
 1 s, 2 s, 4 s and so on up to 30 s, starting over at the next `hello`. `store.js` is a plain store
 with `getState`, `subscribe`, `send`, `watchGraph` and `unwatchGraph`; its header comment lists

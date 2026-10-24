@@ -15,7 +15,6 @@ These are things the old window did that the new one does not, and they are chos
 - A team view in the phone app. The phone still shows the roster.
 - The tips bar.
 - Tiling, splitting, moving and broadcasting to panes. A team is a graph, and a manager sends to its team.
-- The sponsor link in Settings. The README and the site still link it.
 
 Every control-socket command the old window used is still in the desktop, so these views can be added back without a server change.
 

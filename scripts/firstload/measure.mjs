@@ -38,7 +38,7 @@ import { fileURLToPath } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, "..", "..");
-const nextAssets = path.join(repo, "internal", "webui", "next", "assets");
+const uiAssets = path.join(repo, "internal", "webui", "ui", "assets");
 
 // ------------------------------------------------------------------ options
 
@@ -86,7 +86,7 @@ function findBrowser() {
 /** A case is the files the page is served and which classic scripts it has. */
 function readTree(rel) {
   // The shell's files, as the server embeds them.
-  for (const root of [nextAssets]) {
+  for (const root of [uiAssets]) {
     const p = path.join(root, rel);
     if (fs.existsSync(p) && fs.statSync(p).isFile()) return fs.readFileSync(p);
   }
@@ -121,7 +121,7 @@ globalThis.__keep = [store, socket, pty, terminal, useStore, model];
   // Served from memory for the module case; written to the scratch folder, with
   // absolute imports, for the bundler.
   const fullFile = path.join(scratch, "main-full.js");
-  const abs = (p) => JSON.stringify(path.join(nextAssets, p).replaceAll("\\", "/"));
+  const abs = (p) => JSON.stringify(path.join(uiAssets, p).replaceAll("\\", "/"));
   fs.writeFileSync(fullFile, full.replace(/from "\.\/([^"]+)"/g, (_, p) => "from " + abs(p)).replace('import "./main.js"', "import " + abs("main.js")));
   const fullIndex = index.replace(`src="assets/main.js"`, `src="assets/main-full.js"`);
   const fullEager = eager.replace(`src="assets/main.js"`, `src="assets/main-full.js"`);
@@ -135,7 +135,7 @@ globalThis.__keep = [store, socket, pty, terminal, useStore, model];
     const bundle = (entry, outName) => {
       const out = path.join(scratch, outName);
       execFileSync(ESBUILD, [
-        entry === "main.js" ? path.join(nextAssets, entry) : fullFile, "--bundle", "--format=esm", "--tree-shaking=false",
+        entry === "main.js" ? path.join(uiAssets, entry) : fullFile, "--bundle", "--format=esm", "--tree-shaking=false",
         "--outfile=" + out, "--log-level=warning",
       ], { stdio: "inherit" });
       return fs.readFileSync(out);

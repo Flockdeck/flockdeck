@@ -1,4 +1,4 @@
-package next
+package ui
 
 import (
 	"os"

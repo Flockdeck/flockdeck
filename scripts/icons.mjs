@@ -29,7 +29,7 @@ import { fileURLToPath } from "node:url";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(process.argv[2] || path.join(HERE, ".."));
-const A = path.join(ROOT, "internal/webui/next/assets");
+const A = path.join(ROOT, "internal/webui/ui/assets");
 
 const TILE = "#151B20";
 const INK = {
