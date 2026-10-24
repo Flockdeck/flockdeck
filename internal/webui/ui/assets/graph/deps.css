@@ -49,3 +49,5 @@
 }
 @media (max-width: 560px) { .deps-fin, .deps-age { display: none; } .deps-ttl { white-space: normal; } }
 .deps-head .tree-c { color: var(--fg-dim); font-weight: 400; }
+.deps-note { font-size: 12px; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.view--deps .view-title { font-size: 14px; margin: 0 0 2px; }
