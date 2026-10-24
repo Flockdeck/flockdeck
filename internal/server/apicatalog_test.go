@@ -27,8 +27,18 @@ const apiCatalogPath = "../../api/catalog.json"
 // command or message raises the major; one that adds raises the minor.
 const (
 	apiMajor = 1
-	apiMinor = 0
+	apiMinor = 1
 )
+
+// addedIn names the minor version a command arrived in; any other is 1.0.
+var addedIn = map[string]string{"uiPrefs": "1.1"}
+
+func sinceOf(name string) string {
+	if v, ok := addedIn[name]; ok {
+		return v
+	}
+	return "1.0"
+}
 
 type catalogCommand struct {
 	Name string `json:"name"`
@@ -76,7 +86,7 @@ func buildAPICatalog(t *testing.T) catalogFile {
 	sort.Strings(names)
 	for _, name := range names {
 		c.Commands = append(c.Commands, catalogCommand{Name: name, Access: access[commandAccess[name]],
-			RelayRefused: remoteTextCommands[name], Since: "1.0", Status: "stable"})
+			RelayRefused: remoteTextCommands[name], Since: sinceOf(name), Status: "stable"})
 	}
 	sent := sentMessageTypes(t)
 	var types []string

@@ -1,7 +1,7 @@
 {
   "api": {
     "major": 1,
-    "minor": 0
+    "minor": 1
   },
   "commands": [
     {
@@ -1046,6 +1046,12 @@
       "name": "toggleZoom",
       "access": "full",
       "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "uiPrefs",
+      "access": "full",
+      "since": "1.1",
       "status": "stable"
     },
     {
