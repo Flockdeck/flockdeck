@@ -8,10 +8,10 @@ It compares two lists the sources hold: the actions of the key table (`internal/
 
 | | Actions | Commands |
 | --- | --- | --- |
-| done | 40 | 109 |
+| done | 41 | 114 |
 | replaced | 0 | 1 |
 | cut | 14 | 12 |
-| planned | 4 | 34 |
+| planned | 3 | 29 |
 | unclassified | 0 | 0 |
 | total | 58 | 156 |
 
@@ -55,7 +55,6 @@ The old interface let a person tile, split, move and broadcast to panes. The new
 | Task | Actions | Commands |
 | --- | --- | --- |
 | T132 (C6, Changes) | `changes` |  |
-| T133 (C7, worktrees) | `worktrees` | `conflictRadar`, `worktreeAdd`, `worktreePrune`, `worktreeRemove`, `worktrees` |
 | T134 (C8, GitHub) |  | `ghChecks`, `ghInstall`, `ghIssue`, `ghIssueComment`, `ghIssueCreate`, `ghIssues`, `ghLogin`, `ghLoginCancel`, `ghLogout`, `ghPR`, `ghPRComment`, `ghPRCreate`, `ghPRs`, `ghStatus` |
 | T136 (L1, start flows and pane lifecycle) | `selectTab`, `closeFinishedPanes` | `closeFinishedPanes`, `focusPane`, `refreshAgents`, `teamClose`, `toggleZoom` |
 | T137 (L2, settings) |  | `dismissTip`, `railExpanded`, `railWidth`, `resetKeybinding`, `resetKeybindings`, `setAgentAddress`, `setAgentDefault`, `setKeybinding`, `statusLine` |
@@ -108,7 +107,7 @@ These are safety and security controls. The new interface has no way to do them 
 | `startTeam` | Start a team — a manager agent that starts the rest | done |  |
 | `team` | Team — this project's roster, task board and messages (Ctrl+Shift+M) | done |  |
 | `apiKeys` | API keys… | done |  |
-| `worktrees` | Worktrees (Ctrl+Shift+G) | planned | T133 (C7, worktrees) |
+| `worktrees` | Worktrees (Ctrl+Shift+G) | done |  |
 | `changes` | Review changes, commit and push (Ctrl+Shift+S) | planned | T132 (C6, Changes) |
 | `palette` | Command palette (Ctrl+Shift+K) | done |  |
 | `nextRegion` | Move to the next part of the window (F6) | done |  |
@@ -151,7 +150,7 @@ These are safety and security controls. The new interface has no way to do them 
 | `closeProject` | done |  |
 | `closeTab` | done |  |
 | `commit` | done |  |
-| `conflictRadar` | planned | T133 (C7, worktrees) |
+| `conflictRadar` | done |  |
 | `conversations` | done |  |
 | `cursorBlink` | done |  |
 | `cursorStyle` | done |  |
@@ -287,10 +286,10 @@ These are safety and security controls. The new interface has no way to do them 
 | `toggleBroadcastMember` | cut | Broadcasting to panes is cut; a manager sends to its team. |
 | `toggleZoom` | planned | T136 (L1, start flows and pane lifecycle) |
 | `updates` | done |  |
-| `worktreeAdd` | planned | T133 (C7, worktrees) |
-| `worktreePrune` | planned | T133 (C7, worktrees) |
-| `worktreeRemove` | planned | T133 (C7, worktrees) |
-| `worktrees` | planned | T133 (C7, worktrees) |
+| `worktreeAdd` | done |  |
+| `worktreePrune` | done |  |
+| `worktreeRemove` | done |  |
+| `worktrees` | done |  |
 
 ## Commands only the new interface sends
 

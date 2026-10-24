@@ -148,6 +148,12 @@
 //                 msgList answers, teamResult the latest answer to a command that
 //                 changed something, and teamRefused is true in a remote window,
 //                 which is never sent any of it.
+//   radar         what the version of git came to for the conflict radar, as
+//                 { unavailable } ("" when it can run), or null until the desktop
+//                 says after the hello; the hello carries the first answer.
+//   worktrees     the latest worktrees answer (the listing of the project's
+//                 worktrees and branches) plus seq, or null. The desktop sends
+//                 it again after every add, remove and prune.
 //   dropped       how many frames were dropped as malformed
 //
 // The structured watch and permissionAnswer are for a window on the desk, as the
@@ -248,7 +254,7 @@ const initial = () => ({
   hello: null, remote: false, state: null,
   graph: null, graphGone: null, graphRefused: false, graphError: null,
   notice: null, versions: null, helpers: null, helperPlan: null, recents: null, browse: null, batonDraft: null, batonSaved: null, batonError: null,
-  approvals: [], detached: false, sent: null, started: null, structured: null, structuredError: null, cancelError: null, answer: null, asking: null, conversation: null, details: {}, search: null, taskDetail: null, changes: null, diff: null, gitWarn: null, changesBusy: "", changesNote: null, history: null, paneInfo: null, paneMatches: null, keys: null, jevKey: null, agentsList: null, team: null, teamGone: null, teamTasks: null, teamMessages: null, teamResult: null, teamRefused: false, remoteDevices: null, remotePair: null, remoteOutcome: null, dropped: 0,
+  approvals: [], detached: false, sent: null, started: null, structured: null, structuredError: null, cancelError: null, answer: null, asking: null, conversation: null, details: {}, search: null, taskDetail: null, changes: null, diff: null, gitWarn: null, changesBusy: "", changesNote: null, history: null, paneInfo: null, paneMatches: null, keys: null, jevKey: null, radar: null, worktrees: null, agentsList: null, team: null, teamGone: null, teamTasks: null, teamMessages: null, teamResult: null, teamRefused: false, remoteDevices: null, remotePair: null, remoteOutcome: null, dropped: 0,
 });
 
 /** upsert returns entries with each of the new ones in place of the one with its
@@ -291,6 +297,7 @@ export function createStore(opts) {
   let rosterSeq = 0;
   let pairSeq = 0;
   let agentsSeq = 0;
+  let worktreesSeq = 0;
   let teamSeq = 0;
   let teamResultSeq = 0;
   // The project last asked for with watchTeam, or null when none.
@@ -377,7 +384,7 @@ export function createStore(opts) {
         const remote = !!msg.remote;
         // A new hello starts the connection over. What a graph command
         // refused before is tried again unless this window is remote.
-        set({ hello: msg, remote, graphRefused: remote, graphError: null });
+        set({ hello: msg, remote, graphRefused: remote, graphError: null, radar: null });
         // A watch asked for before this hello was known is dropped in a remote window, so stop() sends nothing for it.
         if (remote) { watching = null; watchingPane = null; watchingTeam = null; }
         if (!remote && watching !== null) sendGraphWatch();
@@ -394,6 +401,13 @@ export function createStore(opts) {
         break;
       case "prefs":
         if (snap.hello && msg.prefs) set({ hello: { ...snap.hello, prefs: msg.prefs } });
+        break;
+      case "radarSupport":
+        // What the version of git came to, for a hello that came before it was read.
+        set({ radar: { unavailable: typeof msg.unavailable === "string" ? msg.unavailable : "" } });
+        break;
+      case "worktrees":
+        set({ worktrees: { ...msg, seq: ++worktreesSeq } });
         break;
       case "keyTable":
         if (snap.hello && Array.isArray(msg.keys)) set({ hello: { ...snap.hello, keys: msg.keys } });

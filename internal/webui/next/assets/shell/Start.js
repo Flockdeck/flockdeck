@@ -8,8 +8,9 @@
 //   manager role with the goal as its task, as `flockdeck spawn -role manager`
 //   would; that agent starts the rest.
 //
-// "Start in a worktree" is drawn and switched off. The worktree view will turn
-// it on; until then nothing here can cut one.
+// "Start in a worktree" cuts a fresh worktree and branch from the project for the
+// agent, so two agents do not edit the same files; it needs a task, which names
+// the branch.
 //
 // The dialog is modal. The keyboard goes to its first field when it opens and
 // back to where it was when it closes, Tab stays inside it, and Escape closes
@@ -22,8 +23,8 @@ import {
   defaultValue, managerRole, newTabCommand, optionsOf, roleOptions, splitValue, startAgentCommand, startProblem,
 } from "../lib/lifecycle.js";
 
-/** WORKTREE_WORDS is what the switched-off option says. */
-export const WORKTREE_WORDS = "Start in a worktree is not available in this window yet. The agent starts in the project's own directory.";
+/** WORKTREE_WORDS is what the option says. */
+export const WORKTREE_WORDS = "Cuts a new worktree and branch from the project for this agent, so it cannot edit the files another agent is working on. It needs a task. The branch is kept when the worktree is removed.";
 
 /** TITLES are the dialog's names. */
 export const TITLES = { agent: "Start an agent", team: "Start a team" };
@@ -54,6 +55,7 @@ export function Start({ mode, catalog, project, send, onClose }) {
   const [pick, setPick] = useState(() => defaultValue(catalog));
   const [roleId, setRoleId] = useState("");
   const [task, setTask] = useState("");
+  const [tree, setTree] = useState(false);
   const [problem, setProblem] = useState("");
   const rootRef = useRef(null);
   const first = useRef(null);
@@ -72,15 +74,16 @@ export function Start({ mode, catalog, project, send, onClose }) {
   const roles = useMemo(() => roleOptions(catalog), [catalog]);
   const submit = () => {
     const [agent, model] = splitValue(pick);
-    const why = startProblem({ mode, task, role: team ? "manager" : roleId, root, picked: !!agent });
+    const inTree = !team && tree;
+    const why = startProblem({ mode, task, role: team ? "manager" : roleId, root, picked: !!agent, worktree: inTree });
     if (why || (team && !role)) {
       setProblem(why || "There is no manager role in the catalog, so there is nothing to start a team with.");
       return;
     }
-    if (!team && !roleId && !task.trim()) {
+    if (!team && !roleId && !task.trim() && !inTree) {
       send(newTabCommand({ kind: "agent", agent, model }));
     } else {
-      send(startAgentCommand({ root, agent, model, task: task.trim(), role: team ? "manager" : roleId }));
+      send(startAgentCommand({ root, agent, model, task: task.trim(), role: team ? "manager" : roleId, worktree: inTree }));
     }
     onClose();
   };
@@ -137,8 +140,8 @@ export function Start({ mode, catalog, project, send, onClose }) {
           value=${task} onInput=${(e) => setTask(e.target.value)}></textarea>
         ${team
           ? null
-          : html`<label class="dialog-check dialog-check--off">
-              <input type="checkbox" disabled checked=${false} aria-describedby="start-worktree-note" />
+          : html`<label class="dialog-check">
+              <input type="checkbox" id="start-worktree" checked=${tree} aria-describedby="start-worktree-note" onChange=${(e) => setTree(e.target.checked)} />
               <span>Start in a worktree</span>
             </label>
             <p class="dialog-note" id="start-worktree-note">${WORKTREE_WORDS}</p>`}

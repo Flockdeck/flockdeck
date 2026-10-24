@@ -97,8 +97,7 @@ var keyVerdicts = map[string]Verdict{
 	"closeFinishedPanes":    task(tL1),
 
 	// Git.
-	"worktrees": task(tC7),
-	"changes":   task(tC6),
+	"changes": task(tC6),
 }
 
 // cmdVerdicts classify every control-socket command the old interface sends
@@ -144,11 +143,6 @@ var cmdVerdicts = map[string]Verdict{
 	// L7: updates, detach, quit.
 
 	// Git, worktrees, GitHub.
-	"worktrees":      task(tC7),
-	"worktreeAdd":    task(tC7),
-	"worktreePrune":  task(tC7),
-	"worktreeRemove": task(tC7),
-	"conflictRadar":  task(tC7),
 	"ghChecks":       task(tC8),
 	"ghInstall":      task(tC8),
 	"ghIssue":        task(tC8),

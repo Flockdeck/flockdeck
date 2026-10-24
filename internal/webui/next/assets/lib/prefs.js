@@ -66,6 +66,7 @@ export function prefsOf(raw) {
     autoReviewDefault: r.autoReviewDefault === true,
     notificationsOff: r.notificationsOff === true,
     jevStatus: r.jevStatus === true,
+    conflictRadar: r.conflictRadar === true,
     push: pushOf(r.push),
     dismissedTips: Array.isArray(r.dismissedTips) ? r.dismissedTips.filter((t) => typeof t === "string").length : 0,
   };
@@ -200,6 +201,8 @@ export function setting(name, value, current = null) {
       return { command: { cmd: "screenReader", kind: value ? "on" : "off" }, patch: { screenReader: !!value } };
     case "autoReviewDefault":
       return { command: { cmd: "autoReviewDefault", kind: value ? "on" : "off" }, patch: { autoReviewDefault: !!value } };
+    case "conflictRadar":
+      return { command: { cmd: "conflictRadar", kind: value ? "on" : "off" }, patch: { conflictRadar: !!value } };
     case "jevStatus":
       return { command: { cmd: "jevStatus", kind: value ? "on" : "off" }, patch: { jevStatus: !!value } };
     case "notificationsOff":
