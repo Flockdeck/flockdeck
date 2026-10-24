@@ -481,3 +481,24 @@ test("[ and ] open the previous and next agent of the order, wrapping, and a box
     restore();
   }
 });
+
+test("a drawer opened by the ask for its own Changes tab opens on it; another pane's ask is old", async () => {
+  const dom = createDom();
+  const restore = install(dom);
+  try {
+    const quiet = { ...store, requestChanges() { return true; }, clearChanges() {} };
+    const selected = (box) => box.querySelector("#drawer-tab-changes").getAttribute("aria-selected");
+    const a = dom.document.createElement("div");
+    dom.body.appendChild(a);
+    render(html`<${Drawer} store=${quiet} node=${node()} pane=${{ cwd: "/work/b" }} tabAsk=${{ tab: "changes", n: 3, pane: "p2" }} now=${NOW} />`, a);
+    await settle();
+    assert.equal(selected(a), "true");
+    const b = dom.document.createElement("div");
+    dom.body.appendChild(b);
+    render(html`<${Drawer} store=${quiet} node=${node()} pane=${{ cwd: "/work/b" }} tabAsk=${{ tab: "changes", n: 3, pane: "p9" }} now=${NOW} />`, b);
+    await settle();
+    assert.notEqual(selected(b), "true");
+  } finally {
+    restore();
+  }
+});

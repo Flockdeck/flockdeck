@@ -150,7 +150,8 @@ function DrawerBody({ store, snap = null, node, pane = null, now, maximised = fa
   }, [findAsk]);
   // A tab asked for from a key (Changes): only a new ask counts, and only a tab
   // this pane has.
-  const seenTab = useRef(tabAsk ? tabAsk.n : 0);
+  // A drawer opened by the ask itself (tabAsk.pane is its pane) acts on it once.
+  const seenTab = useRef(tabAsk ? (tabAsk.pane && tabAsk.pane === node.pane ? tabAsk.n - 1 : tabAsk.n) : 0);
   useEffect(() => {
     if (!tabAsk || tabAsk.n === seenTab.current) return;
     seenTab.current = tabAsk.n;

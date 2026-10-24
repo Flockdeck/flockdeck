@@ -427,3 +427,11 @@
 .list--roster .home-roster { gap: 0; }
 .list--roster .home-agent { background: none; border: 0; border-radius: 0; padding: 0; }
 .list--roster .home-agent + .home-agent { border-top: 1px solid var(--line-subtle); }
+
+/* The overlap bar above the graph. */
+.overlap { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
+.overlap-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 8px 10px; border: 1px solid var(--waiting); border-radius: 6px; background: color-mix(in srgb, var(--waiting) 12%, transparent); }
+.overlap-text { margin: 0; flex: 1 1 240px; min-width: 0; overflow-wrap: anywhere; }
+.overlap-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.overlap-note { flex: 1 1 100%; margin: 0; color: var(--waiting); font-size: 12px; }
+.overlap-resolved { margin: 0; padding: 6px 10px; border: 1px solid var(--working, var(--accent)); border-radius: 6px; font-size: 13px; }
