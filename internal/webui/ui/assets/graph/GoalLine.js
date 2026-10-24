@@ -17,7 +17,7 @@ import { clip, spendOf } from "./Node.js";
 /** TICK_MS is how often the elapsed time is looked at again. */
 export const TICK_MS = 30000;
 
-/** elapsedOf is how long since a time, as "2h 14m", "14m" or "under a minute", or
+/** elapsedOf is how long since a time, as "2h 14m", "14m" or "under 1m", or
  *  "" when the time is not known (the graph writes year 1 for that) or is ahead of
  *  now. */
 export function elapsedOf(started, now) {
@@ -25,7 +25,7 @@ export function elapsedOf(started, now) {
   if (!Number.isFinite(t) || t < Date.UTC(2000, 0, 1)) return "";
   const m = Math.floor((now - t) / 60000);
   if (m < 0) return "";
-  if (m < 1) return "under a minute";
+  if (m < 1) return "under 1m";
   if (m < 60) return m + "m";
   const h = Math.floor(m / 60);
   if (h < 48) return h + "h " + (m % 60) + "m";
@@ -78,8 +78,10 @@ export function GoalLine({ model, now = null }) {
     ${rows.map((team) => {
       const s = summaryOf(model, team, clock);
       return html`<p key=${team.id} class="goalline" data-team=${team.id}>
-        <span class="goalline-label">Goal</span>
-        <span class="goalline-goal">${clip(s.goal, 120)}</span>
+        <span class="goalline-head">
+          <span class="goalline-label">Goal</span>
+          <span class="goalline-goal">${clip(s.goal, 120)}</span>
+        </span>
         <span class="goalline-facts">
           ${s.elapsed ? html`<span class="goalline-fact goalline-time">${s.elapsed}</span>` : null}
           ${s.spend ? html`<span class="goalline-fact goalline-cost">${s.spend}</span>` : null}

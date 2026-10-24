@@ -27,7 +27,7 @@ const draw = (team) => renderToString(html`<${GoalLine} model=${buildGraphModel(
 test("elapsed time is hours and minutes, and nothing for a time that is not known", () => {
   assert.equal(elapsedOf("2026-10-21T08:00:00Z", NOW), "2h 14m");
   assert.equal(elapsedOf("2026-10-21T10:00:00Z", NOW), "14m");
-  assert.equal(elapsedOf("2026-10-21T10:13:50Z", NOW), "under a minute");
+  assert.equal(elapsedOf("2026-10-21T10:13:50Z", NOW), "under 1m");
   assert.equal(elapsedOf("2026-10-18T10:14:00Z", NOW), "3d 0h");
   assert.equal(elapsedOf("0001-01-01T00:00:00Z", NOW), "");
   assert.equal(elapsedOf("2026-10-21T11:00:00Z", NOW), "", "a time ahead of now");
