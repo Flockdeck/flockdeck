@@ -148,7 +148,7 @@ func (s *Server) baseURL() string { return "http://" + s.Addr() }
 // them here is what makes that visible when one is.
 var everyRoute = []string{
 	"/",
-	"/assets/app.js",
+	"/assets/main.js",
 	"/assets/vendor/xterm.js",
 	"/ws/control",
 	"/ws/pty?id=any",
@@ -260,7 +260,7 @@ func TestIndexSetsCookieAndServesAssets(t *testing.T) {
 	}
 
 	// The vendored terminal front end must actually be embedded.
-	for _, asset := range []string{"/assets/app.js", "/assets/app.css", "/assets/vendor/xterm.js"} {
+	for _, asset := range []string{"/assets/main.js", "/assets/app.css", "/assets/vendor/xterm.js"} {
 		req, _ := http.NewRequest(http.MethodGet, srv.baseURL()+asset, nil)
 		req.AddCookie(cookie)
 		r, err := http.DefaultClient.Do(req)
@@ -530,7 +530,7 @@ func TestTwoInstancesKeepTheirOwnCookies(t *testing.T) {
 	get(first.URL())
 	get(second.URL())
 	for _, srv := range []*Server{first, second} {
-		if code := get(srv.baseURL() + "/assets/app.js"); code != http.StatusOK {
+		if code := get(srv.baseURL() + "/assets/main.js"); code != http.StatusOK {
 			t.Errorf("a window of the instance on %s was refused its own asset: %d", srv.Addr(), code)
 		}
 	}

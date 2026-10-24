@@ -1,24 +1,37 @@
 // Package webui holds the browser front end, compiled into the binary so the
 // application ships as a single file with no assets to install alongside it.
 //
-// There are two front ends. The default is the one in assets. The other, in
-// next/assets, is the new shell under construction, and is built only with
-// `-tags next`; see fs_default.go and fs_next.go. A release is never built with
-// the tag.
+// The front end is the team-graph shell in next/assets: ES modules on a
+// vendored Preact, with the terminal library, the end-to-end script, the fonts
+// and the icons beside them. The directory is still called next; it is the only
+// front end there is.
 package webui
 
 import (
 	"embed"
 	"io/fs"
+	"mime"
 )
 
-//go:embed assets
+// The shell is ES modules, and a browser refuses a module served with a type
+// other than JavaScript. Go takes the type of an extension from the system
+// first, and Windows' registry has none for .mjs, so the file server answers
+// text/plain there. The server's file handler and its gzip path both ask the
+// mime package, so this one registration covers them. It overrides the
+// system's answer.
+func init() {
+	if err := mime.AddExtensionType(".mjs", "text/javascript; charset=utf-8"); err != nil {
+		panic(err)
+	}
+}
+
+//go:embed next/assets
 var embedded embed.FS
 
-// assets is the old front end's files rooted at the assets directory. Both
-// variants of FS read from it.
-func assets() fs.FS {
-	sub, err := fs.Sub(embedded, "assets")
+// FS returns the front end's files rooted at the assets directory: index.html at
+// the top, served at /, and the rest under /assets/.
+func FS() fs.FS {
+	sub, err := fs.Sub(embedded, "next/assets")
 	if err != nil {
 		// The path is a compile-time constant, so this cannot happen.
 		panic(err)
@@ -30,10 +43,9 @@ func assets() fs.FS {
 // display without being wasteful to decode. It is what the desktop window is
 // given as its own icon -- see internal/appwindow -- rather than one read
 // from a platform-specific resource, so every platform's window carries the
-// same source image the Windows .syso and the PWA manifest already do. It is
-// read from the old tree in both variants.
+// same source image the Windows .syso and the PWA manifest already do.
 func Icon() []byte {
-	data, err := fs.ReadFile(embedded, "assets/icon-256.png")
+	data, err := fs.ReadFile(embedded, "next/assets/icon-256.png")
 	if err != nil {
 		// The path is a compile-time constant naming a file this module
 		// ships, so this cannot happen.

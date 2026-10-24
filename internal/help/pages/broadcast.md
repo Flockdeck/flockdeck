@@ -1,5 +1,7 @@
 # Broadcast and the prompt bar
 
+> This page describes the old window. The current window has no prompt bar for all panes and no broadcast: a team is a graph, and a manager sends to its team with the box under the graph or `flockdeck msg send`. The commands still exist in the desktop, so they can come back.
+
 Some instructions are for every agent at once: "run the tests and fix what
 breaks", across five worktrees. The prompt bar is how you say a thing once,
 and broadcast decides who hears it.

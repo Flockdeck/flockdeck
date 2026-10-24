@@ -1,5 +1,3 @@
-//go:build next
-
 package next
 
 import (
@@ -483,19 +481,12 @@ func TestE2EIsTheOldWindowsFileByteForByte(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	old, err := os.ReadFile(filepath.Join("..", "assets", "e2e.js"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(served) != string(old) {
-		t.Error("the e2e.js the new shell is served is not the old window's file")
-	}
 	own, err := os.ReadFile(filepath.Join("assets", "e2e.js"))
 	if err != nil {
 		t.Fatalf("next/assets has no e2e.js: %v", err)
 	}
-	if string(own) != string(old) {
-		t.Error("next/assets/e2e.js is not the old window's file byte for byte")
+	if string(served) != string(own) {
+		t.Error("the e2e.js served is not next/assets/e2e.js")
 	}
 }
 

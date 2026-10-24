@@ -1,5 +1,7 @@
 # Old UI fix ledger
 
+The old window was deleted in T162 and this page is now a record. The behaviours below are the ones to check the current window for when a gap is filled; the code they refer to is in git history.
+
 The current window (`internal/webui`) is frozen for features from 19 October 2026,
 the date of the team graph rebuild plan. It still gets bug fixes while the new
 interface is built. This page lists each of them and the behaviour it protects,

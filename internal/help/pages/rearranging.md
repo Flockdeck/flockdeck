@@ -1,5 +1,7 @@
 # Rearranging what is already running
 
+> This page describes the old window. The current window shows a team as a graph and has no splitting, moving, tiling or merging of panes. Tabs can still be reordered, and every pane can be opened in the drawer.
+
 A layout is rarely right first time. The agent you thought was a side errand
 turns out to be the one you are watching, and it is in the wrong corner.
 

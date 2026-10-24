@@ -1,6 +1,7 @@
 package help
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -9,7 +10,9 @@ import (
 )
 
 const (
-	appJSPath  = "../webui/assets/app.js"
+	// uiDir is the front end. Its own scripts are read; the vendored libraries
+	// are not ours to word.
+	uiDir      = "../webui/next/assets"
 	readmePath = "../../README.md"
 	// docsDir holds the repository's own Markdown pages. Past release notes
 	// are under docs/releases and are not read here.
@@ -87,20 +90,35 @@ func TestRemoteIsNotNamedOrDescribedAsAccessOrATunnel(t *testing.T) {
 		check(name, text)
 	}
 
-	js, err := os.ReadFile(appJSPath)
+	err = filepath.WalkDir(uiDir, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		if d.IsDir() && d.Name() == "vendor" {
+			return filepath.SkipDir
+		}
+		if d.IsDir() || d.Name() == "e2e.js" || !strings.HasSuffix(path, ".js") && !strings.HasSuffix(path, ".mjs") {
+			return nil
+		}
+		js, err := os.ReadFile(path)
+		if err != nil {
+			return err
+		}
+		for i, line := range strings.Split(string(js), "\n") {
+			s := strings.TrimSpace(line)
+			if strings.HasPrefix(s, "//") || strings.HasPrefix(s, "*") || strings.HasPrefix(s, "/*") {
+				continue // comments are not shown to anyone
+			}
+			// The palette's search words keep the old name findable. They are
+			// typed into a box, never displayed.
+			if strings.Contains(s, "words: \"") || strings.HasPrefix(s, "const also =") {
+				continue
+			}
+			check(filepath.ToSlash(path)+" line "+strconv.Itoa(i+1), line)
+		}
+		return nil
+	})
 	if err != nil {
-		t.Fatalf("read app.js: %v", err)
-	}
-	for i, line := range strings.Split(string(js), "\n") {
-		s := strings.TrimSpace(line)
-		if strings.HasPrefix(s, "//") || strings.HasPrefix(s, "*") || strings.HasPrefix(s, "/*") {
-			continue // comments are not shown to anyone
-		}
-		// The palette's search words keep the old name findable. They are
-		// typed into a box, never displayed.
-		if strings.Contains(s, "words: \"") || strings.HasPrefix(s, "const also =") {
-			continue
-		}
-		check("app.js line "+strconv.Itoa(i+1), line)
+		t.Fatalf("read the front end: %v", err)
 	}
 }

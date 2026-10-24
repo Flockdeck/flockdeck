@@ -1,6 +1,6 @@
 // The real-page check (T98, M4): the five week-10 fixtures on the page users get.
 //
-// It builds cmd/graphfixture with -tags next, serves each fixture with it (no
+// It builds cmd/graphfixture, serves each fixture with it (no
 // workspace, no configuration directory), loads the page in headless Chromium
 // over the Chrome DevTools protocol, and checks from the page alone:
 //
@@ -170,7 +170,7 @@ function listDir(dir) {
 
 function buildServer(tmp) {
   const exe = path.join(tmp, process.platform === "win32" ? "graphfixture.exe" : "graphfixture");
-  execFileSync("go", ["build", "-tags", "next", "-o", exe, "./cmd/graphfixture"], { cwd: repo, stdio: "inherit", timeout: BUILD_MS });
+  execFileSync("go", ["build", "-o", exe, "./cmd/graphfixture"], { cwd: repo, stdio: "inherit", timeout: BUILD_MS });
   return exe;
 }
 

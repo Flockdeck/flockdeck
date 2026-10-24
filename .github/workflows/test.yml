@@ -147,8 +147,8 @@ jobs:
             echo "race_os=$(jq -r 'join(" ")' <<< "$race_os")"
           } >> "$GITHUB_OUTPUT"
 
-  # The checks that are not tests, on each platform: formatting, vet, the build
-  # of the next shell and the tests of the scripts the workflow relies on.
+  # The checks that are not tests, on each platform: formatting, vet
+  # and the tests of the scripts the workflow relies on.
   static:
     name: static (${{ matrix.os }})
     strategy:
@@ -209,28 +209,6 @@ jobs:
       - name: Vet
         timeout-minutes: 15
         run: go vet ./...
-
-      # The new shell is built with the next tag and is never in a release. Only
-      # the packages it touches are built, vetted and tested under the tag, not
-      # the whole suite a second time.
-      - name: Build the next shell
-        timeout-minutes: 15
-        run: go build -tags next ./...
-
-      - name: Vet the next shell
-        timeout-minutes: 15
-        run: go vet -tags next ./internal/webui/... ./internal/server/...
-
-      # The old window's tests in internal/webui run once, in the shares of the
-      # test jobs, and are not run a second time here: under the tag only the
-      # new shell's package and the tests that differ with the tag are run.
-      - name: Test the next shell
-        timeout-minutes: 20
-        run: go test -count=1 -tags next ./internal/webui/next/...
-
-      - name: Test what the tag changes in the window package
-        timeout-minutes: 10
-        run: go test -count=1 -tags next -run 'TestNextFS|TestMjsIsServedAsJavaScript|TestOnlyTheAssetTreesAreEmbedded|TestServedE2EScriptIsTheOldOne|TestIconIsTheOldOne' ./internal/webui
 
       # The retry script, run against small packages that fail in the ways
       # that matter to it (docs/testing.md, "When a test fails once").

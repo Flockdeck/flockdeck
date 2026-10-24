@@ -67,7 +67,7 @@ func TestTheWindowIsOpenedWithoutTheToken(t *testing.T) {
 	}
 	// The page is then the window's own, by its cookie, for its assets and a
 	// reload at the same address alike.
-	if code := getStatus(t, window, srv.baseURL()+"/assets/app.js"); code != http.StatusOK {
+	if code := getStatus(t, window, srv.baseURL()+"/assets/main.js"); code != http.StatusOK {
 		t.Errorf("the window's own asset = %d, want 200", code)
 	}
 	if code := getStatus(t, window, link); code != http.StatusOK {

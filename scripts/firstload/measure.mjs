@@ -37,7 +37,6 @@ import { fileURLToPath } from "node:url";
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, "..", "..");
 const nextAssets = path.join(repo, "internal", "webui", "next", "assets");
-const oldAssets = path.join(repo, "internal", "webui", "assets");
 
 // ------------------------------------------------------------------ options
 
@@ -83,8 +82,8 @@ function findBrowser() {
 
 /** A case is the files the page is served and which classic scripts it has. */
 function readTree(rel) {
-  // The new shell's file wins over the old tree's, as the server's overlay does.
-  for (const root of [nextAssets, oldAssets]) {
+  // The shell's files, as the server embeds them.
+  for (const root of [nextAssets]) {
     const p = path.join(root, rel);
     if (fs.existsSync(p) && fs.statSync(p).isFile()) return fs.readFileSync(p);
   }

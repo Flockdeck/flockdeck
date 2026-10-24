@@ -237,9 +237,8 @@ The pieces, each its own package:
   have added children to: a job object on Windows, a session on Unix. The same
   package ends a terminal pane's process.
 
-The default window shows a stub line for a structured pane. The new shell, built
-with `-tags next`, shows its conversation, a prompt box and its permission card
-in the drawer. The adapters Flockdeck is tested with, and the Node requirement,
+The window shows a structured pane's conversation, a prompt box and its permission
+card in the drawer. The adapters Flockdeck is tested with, and the Node requirement,
 are in [ACP adapters](acp-adapters.md), and the commands a window uses are in
 the [structured pane reference](structured-pane.md).
 
@@ -278,10 +277,8 @@ window reached through the relay. The conversation commands are not. Today a rel
 device with watch access can read a terminal pane's conversation. The decision is
 to stop that (T112, in progress). A structured pane's conversation is not stored
 in a file: the conversation commands read it from the runtime's memory through
-`workspace.StructuredStream`, and its own commands are refused to the relay. The default
-window calls none of these, so the window described above is unchanged. The page
-built with `-tags next` (`webui.Variant` says which a binary carries) is a new shell laid
-over it, and that one calls them. The messages are in the
+`workspace.StructuredStream`, and its own commands are refused to the relay. The window
+calls them. The messages are in the
 [team graph reference](team-graph.md).
 
 ## Conversation history

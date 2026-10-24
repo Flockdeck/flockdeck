@@ -1,5 +1,3 @@
-//go:build next
-
 package next
 
 import (
@@ -116,26 +114,18 @@ func TestKeyScanCatchesWhatItIsFor(t *testing.T) {
 	}
 }
 
-// The stylesheet's typefaces and tokens are copied from the old app.css, so the
-// two interfaces match, and everything the shell adds uses them. The copy is the
-// text above the marker, and the old sheet must begin with the same text.
+// The stylesheet's typefaces and tokens are the text above the marker, and
+// everything the shell adds below it uses them.
 const layoutMarker = "/* ==== The new shell's layout"
 
-func TestStylesheetTokensAreTheOldOnes(t *testing.T) {
+func TestStylesheetHoldsTheTokens(t *testing.T) {
 	next, err := os.ReadFile(filepath.Join("assets", "app.css"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	old, err := os.ReadFile(filepath.Join("..", "assets", "app.css"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	head, _, ok := strings.Cut(string(next), layoutMarker)
 	if !ok {
 		t.Fatal("app.css has no layout marker")
-	}
-	if !strings.HasPrefix(string(old), head) {
-		t.Error("the tokens at the top of next/assets/app.css are not the start of the old app.css; copy them again")
 	}
 	if !strings.Contains(head, "--accent:") || !strings.Contains(head, "--sans:") || !strings.Contains(head, "@font-face") {
 		t.Error("the copied head holds no tokens")
@@ -202,15 +192,6 @@ func TestNarrowQueryMatchesTheStylesheet(t *testing.T) {
 	_, layout, _ := strings.Cut(string(css), layoutMarker)
 	if !strings.Contains(layout, "@media "+m[1]) {
 		t.Errorf("the layout has no rule for %s", m[1])
-	}
-	// The old sheet's own phone width is the same, so the two interfaces change
-	// shape together.
-	old, err := os.ReadFile(filepath.Join("..", "assets", "app.css"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(old), "@media "+m[1]) {
-		t.Errorf("the old stylesheet has no %s rule, so the two interfaces would narrow at different widths", m[1])
 	}
 }
 

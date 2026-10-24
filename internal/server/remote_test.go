@@ -294,7 +294,7 @@ func remoteServer(t *testing.T, srv *Server) *httptest.Server {
 func TestRemoteRequestsNeedNoToken(t *testing.T) {
 	srv, _ := newTestServer(t)
 	ts := remoteServer(t, srv)
-	for _, path := range []string{"/", "/assets/app.js", "/assets/vendor/xterm.js", "/help.json"} {
+	for _, path := range []string{"/", "/assets/main.js", "/assets/vendor/xterm.js", "/help.json"} {
 		resp, err := http.Get(ts.URL + path)
 		if err != nil {
 			t.Fatalf("GET %s: %v", path, err)
@@ -337,7 +337,7 @@ func TestRemoteIndexRefusesFraming(t *testing.T) {
 func TestRemoteAssetsAreNotCached(t *testing.T) {
 	srv, _ := newTestServer(t)
 	ts := remoteServer(t, srv)
-	for _, path := range []string{"/", "/assets/app.js", "/assets/app.css", "/assets/vendor/xterm.js", "/assets/icon-32.png"} {
+	for _, path := range []string{"/", "/assets/main.js", "/assets/app.css", "/assets/vendor/xterm.js", "/assets/icon-32.png"} {
 		resp, err := http.Get(ts.URL + path)
 		if err != nil {
 			t.Fatalf("GET %s: %v", path, err)
@@ -558,9 +558,9 @@ func TestRemoteAssetsAreSentCompressed(t *testing.T) {
 		return resp, body
 	}
 
-	resp, packed := get(ts.URL + "/assets/app.js")
+	resp, packed := get(ts.URL + "/assets/app.css")
 	if resp.Header.Get("Content-Encoding") != "gzip" {
-		t.Fatalf("app.js through the relay came as %q, want gzip", resp.Header.Get("Content-Encoding"))
+		t.Fatalf("app.css through the relay came as %q, want gzip", resp.Header.Get("Content-Encoding"))
 	}
 	zr, err := gzip.NewReader(bytes.NewReader(packed))
 	if err != nil {
@@ -568,15 +568,15 @@ func TestRemoteAssetsAreSentCompressed(t *testing.T) {
 	}
 	plain, _ := io.ReadAll(zr)
 
-	resp, local := get(srv.baseURL() + "/assets/app.js?t=" + srv.Token())
+	resp, local := get(srv.baseURL() + "/assets/app.css?t=" + srv.Token())
 	if enc := resp.Header.Get("Content-Encoding"); enc != "" {
-		t.Errorf("app.js on this machine came as %q", enc)
+		t.Errorf("app.css on this machine came as %q", enc)
 	}
 	if !bytes.Equal(plain, local) {
-		t.Fatalf("the compressed app.js is not the file: %d bytes against %d", len(plain), len(local))
+		t.Fatalf("the compressed app.css is not the file: %d bytes against %d", len(plain), len(local))
 	}
 	if 2*len(packed) > len(plain) {
-		t.Errorf("app.js compressed to %d of %d bytes", len(packed), len(plain))
+		t.Errorf("app.css compressed to %d of %d bytes", len(packed), len(plain))
 	}
 
 	// The help pages, which the first window on a phone opens unasked.

@@ -110,26 +110,26 @@ go run ./cmd/ctl "ws://127.0.0.1:PORT/ws/control?t=TOKEN" '{"cmd":"splitPane","d
 ## The front end
 
 The front end is vendored, not fetched at build time. To update it, replace the files
-in `internal/webui/assets/vendor/` from the `@xterm/xterm`, `@xterm/addon-fit`,
+in `internal/webui/next/assets/vendor/` from the `@xterm/xterm`, `@xterm/addon-fit`,
 `@xterm/addon-search` and `@xterm/addon-webgl` packages.
 
-### The next shell
+### The shell
 
-A second front end, the new shell, is built alongside the old one under the Go build
-tag `next`. It lives in `internal/webui/next/assets/`. The old front end in
-`internal/webui/assets/` is frozen and is what every default build embeds and serves.
+The front end is the team-graph shell in `internal/webui/next/assets/`. The directory
+keeps the name it had while the old front end existed; it is the only one now, and a
+plain `go build` embeds it. There is no build tag and no runtime flag. The old front end
+was deleted in T162; its history is in git, and `docs/old-ui-fix-ledger.md` is a record of
+what was fixed in it while it was frozen.
 
 ```sh
-go build -tags next -o flockdeck-next.exe .
-go test -tags next ./internal/webui/...
+go build -o flockdeck.exe .
+go test ./internal/webui/...
 ```
 
-A tagged build serves a file from `next/assets` when it has one and otherwise the
-same file from the old tree, so `e2e.js`, `vendor/`, the fonts and the icons are
-shared and not copied. There is no runtime flag: which front end a binary has is
-decided when it is built. A default build embeds nothing from `next/`.
+`e2e.js` (the end-to-end script the relay window uses), `vendor/` (the terminal library
+and Preact), the fonts and the icons are all in `next/assets`.
 
-`index.html` names its module by the relative path `assets/main.js`, so the page works only when it is served from `/`, where `assets/` is the server's `/assets/`. A module must be served as JavaScript: `internal/webui/fs_next.go` registers the type for `.mjs`, because on Windows Go takes it from the registry, which has none, and the file server would send `text/plain`.
+`index.html` names its module by the relative path `assets/main.js`, so the page works only when it is served from `/`, where `assets/` is the server's `/assets/`. A module must be served as JavaScript: `internal/webui/webui.go` registers the type for `.mjs`, because on Windows Go takes it from the registry, which has none, and the file server would send `text/plain`.
 
 The new shell is plain ES modules that the browser loads as they are: no bundler and
 no build step. `index.html` loads `assets/main.js` with `<script type="module">`, every
@@ -160,8 +160,8 @@ hook. The tests drive them with a fake socket and a fake clock (`test/fakes.mjs`
 `assets/lib/terminal.js` and `pty.js` show one pane's terminal. `pty.js` is the client of `/ws/pty`: it
 asks only for the output the terminal is missing, reconnects with a backoff, sends input in frames of at
 most 1 MiB, and, when the hello says the window is reached through the relay and carries the desktop's key,
-seals every frame with the shared `e2e.js` (the old window's file, served as it is) and closes rather than
-fall back to plain. `terminal.js` puts xterm on it and keeps the old window's size rule: the terminal takes
+seals every frame with `e2e.js` (served as it is) and closes rather than
+fall back to plain. `terminal.js` puts xterm on it and keeps the size rule the old window had: the terminal takes
 the size of the pty, and nothing sends a resize when it opens, closes or its box changes. Only
 `fitToBox()` does, for a drag or a maximise. A structured pane gets a one-line stub and no socket, and a
 viewer that may not watch panes gets no socket. The page has to load `assets/vendor/xterm.js`,

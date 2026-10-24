@@ -185,3 +185,17 @@ var notCommands = []string{
 // not a control on a running pane, and junk in the file reads as off. autoReview
 // (a running pane's own switch) and jevKey have both been built, so the list is empty.
 var blocksRetirement = []string{}
+
+// knownGaps are what the user chose to ship the new interface without, when the
+// old interface was deleted. They are not hidden: the docs and the release notes
+// say them, and a test holds this list to the generated file. The commands of
+// the first two still exist on the server, so the views can be added back.
+var knownGaps = []struct{ What, Detail string }{
+	{"GitHub view", "Pull requests, issues, check runs and the gh sign-in. The gh* commands still work on the server; nothing in the new interface sends them (T134)."},
+	{"Recording a structured pane", "A structured pane has no terminal transcript to record, and the recorder for its protocol has no start, stop or privacy wording yet (T145)."},
+	{"Phone team view", "The phone app still shows the roster. It does not read the relay form of the team (docs/team-graph.md, section 9a) yet."},
+	{"Tips bar", "The hint bar of tips is cut; help is under F1."},
+	{"Tiling", "Splitting, moving, tiling and broadcasting to panes is cut; the team is a graph."},
+	{"Sponsor link in Settings", "The old Settings page linked GitHub Sponsors. The README and the help page still do."},
+	{"Not run on Linux, macOS or with -race", "The new interface was tested on Windows only, and no real phone was paired through the relay."},
+}

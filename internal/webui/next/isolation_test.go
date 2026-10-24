@@ -1,5 +1,3 @@
-//go:build next
-
 package next
 
 import (

@@ -275,9 +275,8 @@ func TestTokenAndHost(t *testing.T) {
 	}
 }
 
-// The page is the build's front end: the index names the new shell's entry in a
-// build with -tags next and the old one's otherwise, and the cookie the index
-// sets opens the assets.
+// The page is the front end: the index names the shell's entry, and the cookie
+// the index sets opens the assets.
 func TestServesTheFrontEndOfTheBuild(t *testing.T) {
 	s, base := start(t, "1")
 	jar := &http.Client{}
@@ -287,12 +286,9 @@ func TestServesTheFrontEndOfTheBuild(t *testing.T) {
 	}
 	body, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
-	entry := "assets/app.js"
-	if webui.Variant == "next" {
-		entry = "assets/main.js"
-	}
+	entry := "assets/main.js"
 	if !strings.Contains(string(body), entry) {
-		t.Errorf("variant %s: the index does not name %s", webui.Variant, entry)
+		t.Errorf("the index does not name %s", entry)
 	}
 	var cookie *http.Cookie
 	for _, c := range resp.Cookies() {

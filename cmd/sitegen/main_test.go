@@ -1193,26 +1193,26 @@ func TestInstallScriptsParse(t *testing.T) {
 // (main.go says why), so the two must stay the same picture. Line endings are
 // set aside: a Windows checkout holds either file with CRLF.
 func TestFaviconIsTheAppIcon(t *testing.T) {
-	app, err := os.ReadFile(filepath.Join("..", "..", "internal", "webui", "assets", "icon.svg"))
+	app, err := os.ReadFile(filepath.Join("..", "..", "internal", "webui", "next", "assets", "icon.svg"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if string(lf(icon)) != string(lf(app)) {
-		t.Error("cmd/sitegen/assets/favicon.svg differs from internal/webui/assets/icon.svg; copy the app's icon over it")
+		t.Error("cmd/sitegen/assets/favicon.svg differs from internal/webui/next/assets/icon.svg; copy the app's icon over it")
 	}
-	ico, err := os.ReadFile(filepath.Join("..", "..", "internal", "webui", "assets", "icon.ico"))
+	ico, err := os.ReadFile(filepath.Join("..", "..", "internal", "webui", "next", "assets", "icon.ico"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(iconICO, ico) {
-		t.Error("cmd/sitegen/assets/favicon.ico differs from internal/webui/assets/icon.ico; copy the app's icon over it")
+		t.Error("cmd/sitegen/assets/favicon.ico differs from internal/webui/next/assets/icon.ico; copy the app's icon over it")
 	}
-	touch, err := os.ReadFile(filepath.Join("..", "..", "internal", "webui", "assets", "icon-180.png"))
+	touch, err := os.ReadFile(filepath.Join("..", "..", "internal", "webui", "next", "assets", "icon-180.png"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(touchIcon, touch) {
-		t.Error("cmd/sitegen/assets/apple-touch-icon.png differs from internal/webui/assets/icon-180.png; copy the app's icon over it")
+		t.Error("cmd/sitegen/assets/apple-touch-icon.png differs from internal/webui/next/assets/icon-180.png; copy the app's icon over it")
 	}
 }
 

@@ -110,13 +110,13 @@ no-break or ideographic spaces inside, or in full-width letters.
 - Some lines of source code that mention `key`, `pass`, `pw` or `pwd` are marked though
   they are code. Counted against every line, per line, the scrubber changes 0.3% (405 of
   163,613) of the non-test Go source of net and crypto in the Go 1.27 standard library and
-  0.9% (134 of 15,243) of this repository's `internal/webui/assets/app.js`; some of those are
+  0.9% (134 of 15,243) of this repository's old front end, `internal/webui/assets/app.js` (deleted since, still in git history); some of those are
   other things it takes, such as long random-looking identifiers. The larger figures that
   follow are a different measure: the share of lines that contain the letters `key`, `pass`, `pw`
   or `pwd` anywhere in the line, in any case (a substring match, so `monkey`, `passport` and
   `power` count) that Flockdeck changes: 2.6% (157 of 5958) of the lines of the non-test Go
   source of net and crypto in the Go 1.27 standard library, and 14.2% (119 of 839) of this
-  repository's `internal/webui/assets/app.js`. Counting only lines where one of the four is a
+  repository's old front end. Counting only lines where one of the four is a
   word of its own (not next to another letter) it is 5.6% (110 of 1954) and 34.9% (117 of
   335). That is deliberate: a password with brackets
   or dots in it looks like code, and under the names `key`, `pass`, `pw` and `pwd` nothing is
