@@ -276,6 +276,52 @@ button { font: inherit; color: inherit; }
   outline-offset: -2px;
 }
 
+/* ==== Type, space and interaction states ====================================
+ * One scale for the whole window. Sizes are 11, 12, 13 (the body), 15 and 18:
+ * 11 is for labels and counts only, 12 for notes, facts and table cells, 13 for
+ * everything read, 15 for a pane or dialog title, 18 for a settings page. Mono
+ * is for what is measured or typed by a machine (ids, branches, costs, paths).
+ * Spacing runs on a 4 px step. */
+:root {
+  --fs-label: 11px;
+  --fs-note: 12px;
+  --fs-body: 13px;
+  --fs-title: 15px;
+  --fs-page: 18px;
+  --track-label: .06em;
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 24px;
+}
+
+/* Digits line up wherever they are measured: costs, ages, counts, ports. */
+.badge, code, kbd, samp, pre { font-variant-numeric: tabular-nums; }
+p, .set-about, .dialog-note { text-wrap: pretty; }
+
+/* Scrollbars are thin and take the line colour instead of the system's bright
+ * track, which on this ground was the loudest thing on the screen. */
+* { scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
+
+/* A pressed control moves one pixel in, and colour changes ease over 80 ms, so a
+ * click is acknowledged on the frame it lands. Nothing here moves under
+ * prefers-reduced-motion, which keeps the colour change and drops the rest. */
+button, select, input, textarea {
+  transition: background-color var(--dur-1) var(--ease-out), border-color var(--dur-1) var(--ease-out),
+    color var(--dur-1) var(--ease-out), box-shadow var(--dur-1) var(--ease-out), transform var(--dur-1) var(--ease-out);
+}
+button:not(:disabled):active { transform: translateY(1px); }
+button:disabled { cursor: default; }
+/* A ring outside the edge of a button is easier to see than one inside it. */
+button:focus-visible, select:focus-visible, .dialog-field:focus-visible { outline-offset: 2px; }
+::selection { background: var(--accent-line); color: var(--fg); }
+
+@media (prefers-reduced-motion: reduce) {
+  button, select, input, textarea { transition: none; }
+  button:not(:disabled):active { transform: none; }
+}
+
 .shell {
   --rail-w: 220px;
   --rail-w-collapsed: 44px;
@@ -532,7 +578,7 @@ button { font: inherit; color: inherit; }
 .palette-row.is-current { background: var(--accent-subtle); }
 .palette-row--off { color: var(--fg-dim); cursor: default; }
 .palette-name { flex: 1 1 auto; min-width: 0; }
-.palette-note { font-size: 11px; color: var(--fg-faint); }
+.palette-note { font-size: 11px; color: var(--fg-dim); }
 .palette-keys { font: 11px/1.4 var(--mono); color: var(--fg-dim); }
 .palette-empty { padding: 10px 12px; color: var(--fg-dim); }
 

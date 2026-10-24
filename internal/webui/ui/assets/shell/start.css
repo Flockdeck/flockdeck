@@ -52,9 +52,22 @@
   padding: 5px 12px;
   cursor: pointer;
 }
-.dialog-btn:disabled { color: var(--fg-dim); cursor: default; }
-.dialog-btn--primary { color: var(--on-accent); background: var(--accent); border-color: var(--accent); }
+.dialog-btn:hover:not(:disabled) { background: var(--bg-active); }
+.dialog-btn:disabled { color: var(--fg-dim); cursor: default; opacity: .7; }
+.dialog-btn--primary { color: var(--on-accent); background: var(--accent); border-color: var(--accent); font-weight: 600; }
+.dialog-btn--primary:hover:not(:disabled) { background: var(--accent-strong); border-color: var(--accent-strong); }
+.dialog-btn--primary:disabled { color: var(--on-accent); }
 .dialog-btn--danger { color: var(--exited); background: var(--exited-subtle); border-color: var(--exited-line); }
+.dialog-btn--danger:hover:not(:disabled) { background: var(--exited-subtle); border-color: var(--exited); }
+
+/* A dialog arrives in 220 ms: the scrim fades, the box rises 6 px. Nothing
+ * moves for a person who has asked for less motion. */
+@media (prefers-reduced-motion: no-preference) {
+  .dialog-scrim { animation: dialog-fade var(--dur-3) var(--ease-out); }
+  .dialog { animation: dialog-rise var(--dur-3) var(--ease-out); }
+}
+@keyframes dialog-fade { from { opacity: 0; } }
+@keyframes dialog-rise { from { opacity: 0; transform: translateY(6px); } }
 
 .confirm {
   flex-basis: 100%;

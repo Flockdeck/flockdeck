@@ -56,6 +56,7 @@ const shotView = opt("shot-view", ""); // a view of the strip's switch to choose
 const shotSize = opt("shot-size", "1440x900").split("x").map(Number);
 const shotOpen = args.includes("--shot-open"); // open the first agent's drawer first
 const shotWiden = args.includes("--shot-widen"); // widen the rail first
+const shotEval = opt("shot-eval", ""); // a script to run in the page before the shot, to open Settings, say
 const LIMIT_MS = 2000;
 const allowConfigChange = args.includes("--allow-config-change");
 const ceilingMin = Number(opt("ceiling", "20"));
@@ -338,6 +339,7 @@ async function screenshot(page, file) {
   await page.S("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: "dark" }] });
   if (shotOpen) await page.eval(`(() => { const g = document.querySelector("g.gnode"); if (g) g.dispatchEvent(new MouseEvent("click", { bubbles: true })); })()`);
   if (shotWiden) await page.eval(`(() => { const b = document.querySelector(".rail-toggle"); if (b) b.click(); })()`);
+  if (shotEval) await page.eval(shotEval);
   if (shotView) await page.eval(`(() => { const b = document.querySelector('.tabs-view[data-view="${shotView}"]'); if (b) b.click(); })()`);
   await sleep(800);
   const { data } = await page.S("Page.captureScreenshot", { format: "png" });
