@@ -74,15 +74,13 @@ async function withPage(opts, fn) {
 }
 
 for (const name of names) {
-  test(`fixture ${name}: the list has the same needs-you order as the graph`, async () => {
-    let wide;
+  test(`fixture ${name}: the list's strip is in the graph's order`, async () => {
     await withPage({ narrow: false }, async (m) => {
       await m.connect();
       await m.push(stateMsg());
       await m.push(fixture(name));
       assert.ok(m.container.find(".graph"), "the wide window has no graph");
       assert.ok(m.container.find(".list") === null, "the wide window drew the list");
-      wide = m.strip();
     });
     await withPage({ narrow: true }, async (m) => {
       await m.connect();
@@ -90,10 +88,11 @@ for (const name of names) {
       await m.push(fixture(name));
       assert.ok(m.container.find(".graph") === null, "the narrow window drew the graph");
       assert.ok(m.container.find(".list"), "the narrow window has no list");
-      // The graph's strip stops at MAX_CARDS loud rows; the list's does not.
-      const capped = m.strip().filter((r) => r[1] !== "stale-unread").slice(0, 3).concat(m.strip().filter((r) => r[1] === "stale-unread"));
-      assert.deepEqual(capped, wide, "the strip differs from the graph's");
-      assert.ok(wide.length > 0, "the fixture has nothing that needs the person");
+      // The strip lists every item, the loud ones first and old unread mail after.
+      const needs = buildGraphModel(fixture(name)).needs;
+      const want = needs.filter((n) => n.kind !== "stale-unread").concat(needs.filter((n) => n.kind === "stale-unread")).map((n) => [n.pane, n.kind]);
+      assert.deepEqual(m.strip(), want, "the strip is not in the graph's order");
+      assert.ok(want.length > 0, "the fixture has nothing that needs the person");
       // The strip is above the teams.
       const list = m.container.find(".list");
       assert.ok(list.childNodes.findIndex((c) => c.localName === "section" && c.getAttribute("aria-label") === "Needs you") < list.childNodes.findIndex((c) => c.getAttribute && c.getAttribute("data-team") !== null), "the strip is not first");

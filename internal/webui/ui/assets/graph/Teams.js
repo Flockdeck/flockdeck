@@ -29,7 +29,7 @@ export function summaryOf(model) {
   return out;
 }
 
-function words(s) {
+export function words(s) {
   if (s.needs > 0) return s.needs + " need you";
   if (s.working > 0) return s.working + " working";
   return s.agents + (s.agents === 1 ? " agent" : " agents");
