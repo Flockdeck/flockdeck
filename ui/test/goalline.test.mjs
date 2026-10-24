@@ -143,3 +143,10 @@ test("the goal line says who runs the team", () => {
   assert.equal(summaryOf(model, model.teams[0], Date.now()).manager, "flockdeck-29");
   assert.match(renderToString(html`<${GoalLine} model=${model} now=${Date.now()} />`), /run by flockdeck-29/);
 });
+
+test("the goal line leaves out the goal text when the tab already shows all of it", () => {
+  const model = buildGraphModel({ type: "graph", nodes: [{ pane: "m1", kind: "terminal", children: [], depth: 0, status: "idle", activity: "idle" }], teams: [{ id: "t1", manager: "m1", members: ["m1"], goal: "Fix flaky tests" }], solo: [] });
+  const same = renderToString(html`<${GoalLine} model=${model} now=${Date.now()} shownAs="Fix flaky tests" />`);
+  assert.doesNotMatch(same, /goalline-goal/);
+  assert.match(renderToString(html`<${GoalLine} model=${model} now=${Date.now()} shownAs="Fix flak…" />`), /Fix flaky tests/);
+});

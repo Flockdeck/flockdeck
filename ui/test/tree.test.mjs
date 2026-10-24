@@ -111,11 +111,11 @@ test("ageOf, rankOf and doingOf", () => {
   assert.equal(doingOf(m.byPane.get("work"), [], now), "go test", "working shows the live line");
 });
 
-test("Doing now: idle is \"idle\" and its age, never the last thing it said, which is the tooltip; waiting says what on", () => {
+test("Doing now: idle is just \"idle\" (the Age column has how long), never the last thing it said, which is the tooltip; waiting says what on", () => {
   const now = Date.parse("2026-10-24T10:00:00Z");
   const said = "I replied to flockdeck-92 about the PR and am waiting for its answer";
   const idle = { pane: "i", status: "idle", activity: "idle", live: said, since: "2026-10-24T09:57:00Z", waitingOn: { kind: "none" } };
-  assert.equal(doingOf(idle, [], now), "idle 3m");
+  assert.equal(doingOf(idle, [], now), "idle");
   assert.equal(doingOf({ ...idle, since: "" }, [], now), "idle");
   assert.equal(tipOf(idle, doingOf(idle, [], now)), said);
   const waits = { ...idle, status: "working", activity: "waiting", live: said, waitingOn: { kind: "helpers", text: "review of T3" } };
@@ -508,4 +508,9 @@ test("totalOf is the plain sum of what every pane spent, and nothing when nothin
   g.nodes[1].spendUSD = 0.25;
   assert.equal(totalOf(buildGraphModel(g)), "$1.75");
   assert.equal(totalOf(null), "");
+});
+
+test("an idle row says only idle: how long is the Age column's", () => {
+  const out = renderToString(html`<${Tree} model=${model(team())} />`);
+  assert.doesNotMatch(out, /idle \d+[smhd]/);
 });

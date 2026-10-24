@@ -160,7 +160,7 @@ export function needsOf(model, pane) {
 /**
  * doingOf is the line a row shows in "Doing now". A working pane shows its live
  * line (the tool or activity it is in). A pane that waits shows what it waits on,
- * one that ended why. An idle pane shows "idle" and how long, never the last thing
+ * one that ended why. An idle pane shows "idle" (how long is the Age column), never the last thing
  * it said: that is the row's tooltip (tipOf).
  */
 export function doingOf(node, needs, now = Date.now()) {
@@ -170,10 +170,7 @@ export function doingOf(node, needs, now = Date.now()) {
     const r = reasonOf(ask);
     return r.detail ? r.word + ": " + r.detail : r.word;
   }
-  if (key === "idle") {
-    const age = ageOf(node.since, now);
-    return age && age !== "now" ? "idle " + age : "idle";
-  }
+  if (key === "idle") return "idle";
   if (key === "waiting" || key === "blocked") return (node.waitingOn && node.waitingOn.text) || stateOf(node).word;
   return (key === "working" && node.live) || stateOf(node).word;
 }

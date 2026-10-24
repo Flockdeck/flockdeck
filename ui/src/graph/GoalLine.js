@@ -85,7 +85,7 @@ export function summaryOf(model, team, now) {
 
 /** GoalLine draws one row for each team that has a goal. now is the clock, for a
  *  test; by default it is read each time the row is drawn. */
-export function GoalLine({ model, now = null }) {
+export function GoalLine({ model, now = null, shownAs = "" }) {
   const [, tick] = useState(0);
   useEffect(() => {
     if (now !== null) return undefined;
@@ -100,8 +100,8 @@ export function GoalLine({ model, now = null }) {
       const s = summaryOf(model, team, clock);
       return html`<p key=${team.id} class="goalline" data-team=${team.id}>
         <span class="goalline-head">
-          <span class="goalline-label">Goal</span>
-          <span class="goalline-goal">${clip(s.goal, 120)}</span>
+          ${s.goal.trim() === String(shownAs).trim() ? null : html`<span class="goalline-label">Goal</span>
+          <span class="goalline-goal">${clip(s.goal, 120)}</span>`}
           ${s.manager ? html`<span class="goalline-manager">run by ${clip(s.manager, 40)}</span>` : null}
         </span>
         <span class="goalline-facts">

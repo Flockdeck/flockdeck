@@ -55,6 +55,7 @@ const shotDir = opt("shot", "");
 const shotView = opt("shot-view", ""); // a view of the strip's switch to choose first: board, changes, replay
 const shotSize = opt("shot-size", "1440x900").split("x").map(Number);
 const shotResize = Number(args[args.indexOf("--shot-resize") + 1]) || 0; // with --shot-open: press Shift+Left on the drawer's border this many times
+const shotClick = args.includes("--shot-click"); // open the first outline row's drawer with a real mouse click, not a script's click
 const shotMax = args.includes("--shot-max"); // open the first outline row's drawer and maximise it
 const shotOpen = args.includes("--shot-open"); // open the first agent's drawer first
 const shotWiden = args.includes("--shot-widen"); // widen the rail first
@@ -382,6 +383,17 @@ async function screenshot(page, file) {
     await page.eval(`(() => { const t = document.querySelector('.settings-tab[data-section="${shotSettings}"]'); if (t) t.click(); })()`);
   }
   if (shotView) await page.eval(`(() => { const b = document.querySelector('.tabs-view[data-view="${shotView}"]'); if (b) b.click(); })()`);
+  await sleep(300);
+  if (shotClick) {
+    const at = await page.eval(`(() => { const r = document.querySelector(".tree-row"); if (!r) return null; const b = r.getBoundingClientRect(); return { x: b.left + 160, y: b.top + b.height / 2, n: document.querySelectorAll('.tree-row').length }; })()`);
+    console.log('click at ' + JSON.stringify(at));
+    if (at) {
+      await page.S("Input.dispatchMouseEvent", { type: "mouseMoved", x: at.x, y: at.y });
+      await page.S("Input.dispatchMouseEvent", { type: "mousePressed", x: at.x, y: at.y, button: "left", clickCount: 1 });
+      await page.S("Input.dispatchMouseEvent", { type: "mouseReleased", x: at.x, y: at.y, button: "left", clickCount: 1 });
+      await sleep(600);
+    }
+  }
   if (shotResize) {
     await sleep(500);
     await page.eval(`(() => { const h = document.querySelector(".drawer-resize"); if (!h) return; for (let i = 0; i < ${shotResize}; i++) h.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowLeft", shiftKey: true, bubbles: true })); })()`);
