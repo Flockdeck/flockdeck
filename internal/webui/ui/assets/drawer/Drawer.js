@@ -207,7 +207,7 @@ function DrawerBody({ store, snap = null, node, pane = null, now, maximised = fa
   const asked = terminal && !state.remote && waitingOn(node, pane) === "ask";
   const pending = card
     ? { card, node: html`<${StreamPermission} node=${node} card=${card} snap=${state} store=${store} />` }
-    : asked ? { card: {}, node: html`<${StreamDecision} node=${node} pane=${pane} snap=${state} store=${store} now=${now} />` } : null;
+    : asked ? { card: {}, node: html`<${StreamDecision} key=${"ask" + (pane && pane.statusSince) + "|" + pane.ask.questions.map((q) => q.question).join("")} node=${node} pane=${pane} snap=${state} store=${store} now=${now} />` } : null;
   // While the transcript is showing, the permission is asked there, in the flow, and
   // not a second time above the tabs. Another tab, or a transcript not loaded yet, has none to carry it.
   const inFlow = !!pending && !!conv && conv.supported === true && !conv.refused && shown === (asked ? "conversation" : "terminal");

@@ -1,4 +1,7 @@
 // The decision card in the conversation: what it shows of a question and what its
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 // buttons send. The store runs on a fake socket.
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -74,4 +77,9 @@ test("a question with no single set of choices keeps the answer box, and a remot
   } finally {
     await remote.done();
   }
+});
+
+test("the card is keyed by its question in the drawer, so a new question has live buttons", () => {
+  const src = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "assets", "drawer", "Drawer.js"), "utf8");
+  assert.match(src, /<\$\{StreamDecision\} key=\$\{[^}]*statusSince[^}]*questions/);
 });

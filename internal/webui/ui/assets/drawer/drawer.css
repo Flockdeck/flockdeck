@@ -403,6 +403,6 @@
 .conv-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
 /* The decision card in the conversation: the first choice is the main one. */
-.prompt--decision { border: 1px solid var(--waiting-line); border-radius: 6px; }
+.prompt--decision { border: 1px solid var(--waiting-line); border-left: 2px solid var(--waiting); border-radius: 6px; }
 .prompt-choice--primary { border-color: var(--accent); background: var(--accent); color: var(--on-accent); font-weight: 600; }
 .prompt-choice--primary:hover:not(:disabled) { background: var(--accent-strong); }
