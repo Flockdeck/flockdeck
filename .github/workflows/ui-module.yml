@@ -9,10 +9,16 @@ on:
     branches: [main]
     paths:
       - "ui/**"
+      - "go.mod"
+      - "go.sum"
+      - "Dockerfile"
       - ".github/workflows/ui-module.yml"
   pull_request:
     paths:
       - "ui/**"
+      - "go.mod"
+      - "go.sum"
+      - "Dockerfile"
       - ".github/workflows/ui-module.yml"
 
 permissions:
