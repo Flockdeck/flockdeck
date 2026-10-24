@@ -14,7 +14,7 @@
     "nodes": { "type": "array", "items": { "$ref": "#/$defs/node" }, "description": "One entry for each pane of the project, shells included, in the order the tabs show them (derived). A pane id appears once." },
     "edges": { "type": "array", "items": { "$ref": "#/$defs/edge" }, "description": "A spawn edge for each pane whose parent is open, then the last 100 messages between two panes of the project, newest first (stored: the inboxes), then the last 100 SendMessage calls seen between two of its panes, newest first (stored: in memory). Messages from the person or from Flockdeck have no sending pane and are not edges." },
     "solo": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "The ids of the panes in no team: a lone agent, a shell, a pane the person opened (derived). Empty, never absent." },
-    "soloNeeds": { "type": "array", "items": { "$ref": "#/$defs/needsItem" }, "description": "What needs the person among the solo panes, most urgent first, at most 50 (derived). Empty, never absent." },
+    "soloNeeds": { "type": "array", "items": { "$ref": "#/$defs/needsItem" }, "description": "Its order is deprecated since 1.1: a window orders the items itself; the items and their `kind` stay. What needs the person among the solo panes, most urgent first, at most 50 (derived). Empty, never absent." },
     "soloNeedsHidden": { "type": "integer", "minimum": 1, "description": "How many solo items the bound of 50 cut. Absent when none were." },
     "panesHidden": { "type": "integer", "minimum": 1, "description": "How many panes the bound of 500 nodes cut (derived). Absent when none were." },
     "sendMessageUnread": { "type": "integer", "minimum": 1, "description": "How many SendMessage calls of the project's panes were seen and not understood (stored: the last 200 calls seen, in memory), so their arrows are missing. Absent when none were." },
@@ -33,11 +33,11 @@
         "goal": { "type": "string", "minLength": 1, "description": "The root pane's opening task, as a single line cut to 300 characters (stored: Pane.Task). Absent for a root started with no opening prompt." },
         "taskId": { "type": "string", "minLength": 1, "description": "The board task the team works on: the first open task given to it with taskTeam, else the first open task its manager owns (stored: the board). Absent when there is none." },
         "started": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$", "description": "When the root pane's process started, RFC 3339 (stored: the session). Absent while the root has no session." },
-        "spendUSD": { "type": "number", "minimum": 0, "description": "The estimated spend in dollars of the team's panes that reported a priced one (stored: the spend book). 0 when none did. Always written." },
-        "spendPartial": { "const": true, "description": "Present, and true, when some pane of the team reported no priced spend, so spendUSD is a floor. Absent when every pane did." },
-        "spendIncludesPartial": { "const": true, "description": "Present, and true, when some pane of the team reports its spend in part: a structured (ACP) agent gives how full its context is and perhaps a cost, with no split of tokens and no account windows. spendUSD then includes panes that report partly. Absent when none does." },
+        "spendUSD": { "type": "number", "minimum": 0, "deprecated": true, "description": "Deprecated since 1.1: the new interface sums the nodes' spendUSD. Still written. The estimated spend in dollars of the team's panes that reported a priced one (stored: the spend book). 0 when none did. Always written." },
+        "spendPartial": { "const": true, "deprecated": true, "description": "Deprecated since 1.1: the new interface sums the nodes' spendUSD. Still written. Present, and true, when some pane of the team reported no priced spend, so spendUSD is a floor. Absent when every pane did." },
+        "spendIncludesPartial": { "const": true, "deprecated": true, "description": "Deprecated since 1.1: the new interface sums the nodes' spendUSD. Still written. Present, and true, when some pane of the team reports its spend in part: a structured (ACP) agent gives how full its context is and perhaps a cost, with no split of tokens and no account windows. spendUSD then includes panes that report partly. Absent when none does." },
         "caps": { "type": "array", "items": { "$ref": "#/$defs/cap" }, "description": "Helper cap use of the root and of every pane with children (derived). Always written." },
-        "needs": { "type": "array", "items": { "$ref": "#/$defs/needsItem" }, "description": "What needs the person in this team, most urgent first, at most 50 (derived). Empty, never absent." },
+        "needs": { "type": "array", "items": { "$ref": "#/$defs/needsItem" }, "description": "Its order is deprecated since 1.1: a window orders the items itself; the items and their `kind` stay. What needs the person in this team, most urgent first, at most 50 (derived). Empty, never absent." },
         "needsHidden": { "type": "integer", "minimum": 1, "description": "How many items the bound of 50 cut. Absent when none were." }
       }
     },
@@ -48,7 +48,7 @@
       "description": "How much of the helper cap a pane uses.",
       "properties": {
         "pane": { "type": "string", "minLength": 1, "description": "The pane's id. Always written." },
-        "used": { "type": "integer", "minimum": 0, "description": "Open panes below it, nested ones included and exited ones until closed (stored: the workspace's own count). Always written." },
+        "used": { "type": "integer", "minimum": 0, "deprecated": true, "description": "Deprecated since 1.1: a window counts the open panes under the pane; `max` stays. Still written. Open panes below it, nested ones included and exited ones until closed (stored: the workspace's own count). Always written." },
         "max": { "type": "integer", "minimum": 1, "description": "The most it may have: workspace.MaxHelpers. Always written." }
       }
     },
@@ -84,7 +84,7 @@
         "kind": { "enum": ["terminal", "structured"], "description": "How the pane is run (known to Flockdeck). terminal for every pane today, shells included. structured is reserved for panes an agent drives over a protocol and is not written yet. Always written." },
         "parent": { "type": "string", "minLength": 1, "description": "The id of the pane that started this one (stored: Pane.Parent), only while that pane is open and not where a parent loop was cut (derived). Absent for a root." },
         "children": { "type": "array", "items": { "type": "string", "minLength": 1 }, "minItems": 1, "description": "The panes this one started that are open (derived). Absent when there are none." },
-        "depth": { "type": "integer", "minimum": 0, "description": "0 for a root and for a pane in no team (derived). Always written." },
+        "depth": { "type": "integer", "minimum": 0, "deprecated": true, "description": "Deprecated since 1.1: a window works it out from parent. Still written. 0 for a root and for a pane in no team (derived). Always written." },
         "team": { "type": "string", "minLength": 1, "description": "The id of the team the pane is in (derived). Absent for a solo pane." },
         "orphaned": { "const": true, "description": "Present, and true, when the pane named a parent that is not open, or is where a parent loop was cut (derived). It is then treated as a root. Absent otherwise." },
         "waitingOn": { "$ref": "#/$defs/waitingOn" },
@@ -107,13 +107,13 @@
         "autoReview": { "const": true, "description": "Present, and true, when the pane's tool calls are put to auto-review (stored). Absent otherwise." },
         "autoApproved": { "type": "integer", "minimum": 1, "description": "How many calls auto-review has let through unasked (stored). Absent at 0." },
         "spendUSD": { "type": "number", "exclusiveMinimum": 0, "description": "This pane's own estimated spend in US dollars (stored: the pane's usage). Absent when it reported no priced figure." },
-        "spendPartial": { "const": true, "description": "Present, and true, when the pane has run and reported no priced figure, so a total that includes it is a floor." },
-        "spendIncludesPartial": { "const": true, "description": "Present, and true, when the pane reports its spend in part (a structured agent: context use and perhaps a cost, no token split)." },
+        "spendPartial": { "const": true, "deprecated": true, "description": "Deprecated since 1.1: the new interface does not show it. Still written. Present, and true, when the pane has run and reported no priced figure, so a total that includes it is a floor." },
+        "spendIncludesPartial": { "const": true, "deprecated": true, "description": "Deprecated since 1.1: the new interface does not show it. Still written. Present, and true, when the pane reports its spend in part (a structured agent: context use and perhaps a cost, no token split)." },
         "undelivered": { "type": "integer", "minimum": 1, "description": "How many messages this pane sent to another pane of the project that have not been told to their pane yet (derived from the inboxes). Counts every such message, not only the newest 100 the edges list. Absent at 0." },
-        "lastOutput": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$", "description": "When a terminal pane's process last wrote to its terminal, RFC 3339 (stored: the session). Absent for a structured pane and for a pane that has not written." },
-        "stuck": { "const": true, "description": "Present, and true, when the pane is working and has written nothing to its terminal for 10 minutes (derived). The same fact as its `stuck` needs item, as a flag on the node." },
-        "below": { "type": "integer", "minimum": 1, "description": "How many panes are under this one: its children, theirs and so on (derived). Absent at 0." },
-        "needYou": { "type": "integer", "minimum": 1, "description": "How many of those panes are waiting on the person: a prompt, a returned task, a conflict, a pane that is down, a setup. Old unread mail and a pane gone quiet do not count (derived). Absent at 0." }
+        "lastOutput": { "type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$", "description": "Deprecated since 1.1 for one use: as the basis for working out that a pane is stuck: a window uses status and since; the field stays. When a terminal pane's process last wrote to its terminal, RFC 3339 (stored: the session). Absent for a structured pane and for a pane that has not written." },
+        "stuck": { "const": true, "deprecated": true, "description": "Deprecated since 1.1: a window works it out from the pane's status and since; the `stuck` needs item stays. Still written. Present, and true, when the pane is working and has written nothing to its terminal for 10 minutes (derived). The same fact as its `stuck` needs item, as a flag on the node." },
+        "below": { "type": "integer", "minimum": 1, "deprecated": true, "description": "Deprecated since 1.1: a window counts the panes under a node from the tree. Still written. How many panes are under this one: its children, theirs and so on (derived). Absent at 0." },
+        "needYou": { "type": "integer", "minimum": 1, "deprecated": true, "description": "Deprecated since 1.1: a window counts the needs of the panes under a node. Still written. How many of those panes are waiting on the person: a prompt, a returned task, a conflict, a pane that is down, a setup. Old unread mail and a pane gone quiet do not count (derived). Absent at 0." }
       }
     },
     "edge": {

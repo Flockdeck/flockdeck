@@ -83,9 +83,10 @@ type catalogFile struct {
 		Major int `json:"major"`
 		Minor int `json:"minor"`
 	} `json:"api"`
-	Frames   []catalogFrame   `json:"frames"`
-	Commands []catalogCommand `json:"commands"`
-	Messages []catalogMessage `json:"messages"`
+	Frames     []catalogFrame    `json:"frames"`
+	Deprecated []deprecatedField `json:"deprecated"`
+	Commands   []catalogCommand  `json:"commands"`
+	Messages   []catalogMessage  `json:"messages"`
 }
 
 // buildAPICatalog is the catalog as the tables say it.
@@ -93,6 +94,7 @@ func buildAPICatalog(t *testing.T) catalogFile {
 	t.Helper()
 	var c catalogFile
 	c.API.Major, c.API.Minor = apiMajor, apiMinor
+	c.Deprecated = deprecatedFields
 	var frames []string
 	for name := range clientFrames {
 		frames = append(frames, name)

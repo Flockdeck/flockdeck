@@ -12,6 +12,99 @@
       "status": "stable"
     }
   ],
+  "deprecated": [
+    {
+      "message": "graph",
+      "path": "nodes[].stuck",
+      "scope": "field",
+      "since": "1.1",
+      "use": "Work it out from status and since (working with nothing written for ten minutes). The `stuck` needs item stays."
+    },
+    {
+      "message": "graph",
+      "path": "nodes[].lastOutput",
+      "scope": "use",
+      "since": "1.1",
+      "use": "Do not use it to decide a pane is stuck; the field stays."
+    },
+    {
+      "message": "graph",
+      "path": "nodes[].below",
+      "scope": "field",
+      "since": "1.1",
+      "use": "Count the panes under a node from parent and children."
+    },
+    {
+      "message": "graph",
+      "path": "nodes[].needYou",
+      "scope": "field",
+      "since": "1.1",
+      "use": "Count the needs of the panes under a node."
+    },
+    {
+      "message": "graph",
+      "path": "nodes[].depth",
+      "scope": "field",
+      "since": "1.1",
+      "use": "Work it out from parent."
+    },
+    {
+      "message": "graph",
+      "path": "nodes[].spendPartial",
+      "scope": "field",
+      "since": "1.1",
+      "use": "Not shown by the new interface."
+    },
+    {
+      "message": "graph",
+      "path": "nodes[].spendIncludesPartial",
+      "scope": "field",
+      "since": "1.1",
+      "use": "Not shown by the new interface."
+    },
+    {
+      "message": "graph",
+      "path": "teams[].spendUSD",
+      "scope": "field",
+      "since": "1.1",
+      "use": "Sum the nodes' spendUSD."
+    },
+    {
+      "message": "graph",
+      "path": "teams[].spendPartial",
+      "scope": "field",
+      "since": "1.1",
+      "use": "Sum the nodes' spendUSD."
+    },
+    {
+      "message": "graph",
+      "path": "teams[].spendIncludesPartial",
+      "scope": "field",
+      "since": "1.1",
+      "use": "Sum the nodes' spendUSD."
+    },
+    {
+      "message": "graph",
+      "path": "teams[].caps[].used",
+      "scope": "field",
+      "since": "1.1",
+      "use": "Count the open panes under the pane; caps[].max stays."
+    },
+    {
+      "message": "graph",
+      "path": "teams[].needs",
+      "scope": "order",
+      "since": "1.1",
+      "use": "Order the items yourself; the items and their kind stay."
+    },
+    {
+      "message": "graph",
+      "path": "soloNeeds",
+      "scope": "order",
+      "since": "1.1",
+      "use": "Order the items yourself; the items and their kind stay."
+    }
+  ],
   "commands": [
     {
       "name": "accentColor",
