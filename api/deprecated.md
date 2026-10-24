@@ -11,12 +11,13 @@ The fields marked deprecated in `catalog.json` (`deprecated`) and the schema sta
 
 ## flockdeck-remote and the phone app
 
-Checked against flockdeck-remote `origin/main` (`b94f37b`): nothing in it reads the graph push or any of these fields (no match for `graph`, `stuck`, `needYou`, `below`, `depth`, `spendPartial`, `lastOutput`, `caps` or `soloNeeds`). A relay window is never sent the graph: `graph` is `dropForRelay` in `internal/server/relayscrub.go`, and the team and tasks messages are desk-only. So nothing there has to change for these fields.
+The phone app is the web app in flockdeck-remote (`web/app`); it is not a separate repository. Checked against flockdeck-remote `origin/main` (`b94f37b`), Go, JavaScript and the chat preview tool:
 
-Two things to confirm before removal, because they were not checked here:
+- It reads these control messages and no others: `agentStarted`, `agents`, `attachImageResult`, `conversationAppend`, `conversationDetail`, `conversationPage`, `conversationSearch`, `desktop`, `devices`, `group`, `home`, `notice`, `open`, `pane`, `state` and `waiting`. It does not read `graph`, `team`, `tasks` or `teamSnapshot`.
+- No file in it reads `stuck`, `needYou`, `below`, `depth`, `spendUSD`, `spendPartial`, `spendIncludesPartial`, `lastOutput`, `caps`, `needs` or `soloNeeds` as a field of a message. The matches for `below` and `stuck` are in comments and CSS.
+- A relay window is never sent the graph: `graph` is `dropForRelay` in `internal/server/relayscrub.go`, and the team and tasks messages are desk-only.
 
-- The phone app is not in the flockdeck-remote repository. If it is built from another repository, search that for the paths in the table.
-- A relay window cannot read the graph today. If a future change sends a scrubbed graph to the relay (`relayTeams` in `docs/team-graph.md` is the relay form of the team message), it starts from the fields that remain, not these.
+So nothing in flockdeck-remote has to change before these fields are removed. The other private repositories (`flockdeck-relay`, `flockdeck-site`, `flockdeck-billing`) were not searched. Check them before a removal.
 
 ## Removal
 
