@@ -1,33 +1,38 @@
 name: test
 
-# The tests every change is held to, on every platform a release is built for.
+# The tests every change is held to, and the whole matrix a release is held to.
 # They run on each pull request and on each push to main, so a failure is found
 # where it was made rather than when a release is cut: five tags in a row once
 # stopped on a macOS or Windows test that no earlier run had reached. The
 # release workflow calls this same file before it builds anything, so what a
 # change is held to and what a release is held to cannot drift apart.
 #
+# Minutes are paid for, and a minute on macOS costs ten and one on Windows two,
+# so not every run covers every platform:
+#
+#   pull request, no label   Linux only
+#   pull request, labeled    Linux, Windows and macOS, on that push and each
+#     ready-to-merge         later one while the label stays on
+#   push to main             Linux only
+#   release, weekly run      Linux, Windows and macOS (weekly-full.yml calls
+#     (Sunday), by hand      this file on Sunday and opens an issue if it fails)
+#
+# Until the label is on, the "test (windows-latest)" and "test (macos-latest)"
+# checks of a pull request fail with a line saying so, which keeps the branch
+# protection from letting a change through that was not tried there. On a
+# push to main the same two checks pass with a notice: they did not test it.
+#
 # A push to a branch is not tested on its own: the pull request for it is, and
-# running both put every change through all three platforms twice. A branch
-# with no pull request is therefore not tested until it has one.
+# running both put every change through the platforms twice. A branch with no
+# pull request is therefore not tested until it has one.
 #
 # Tags are left to the release workflow, which runs these tests itself.
-#
-# Minutes are paid for, and a minute on macOS costs ten and one on Windows two,
-# so a pull request is tested on Linux alone until it carries the label
-# ready-to-merge. Windows and macOS are then run as well, on that push and on
-# each later one. Until the label is on, the "test (windows-latest)" and "test
-# (macos-latest)" checks fail with a line saying so, which keeps the branch
-# protection from letting a change through that was not tried there. A push to
-# main runs Linux only; the whole matrix runs for a release, once a week
-# (Sunday), and by hand.
 on:
   push:
     branches: [main]
   pull_request:
     types: [opened, synchronize, reopened, labeled]
-  schedule:
-    - cron: "17 4 * * 0"
+  workflow_dispatch:
   workflow_call:
     inputs:
       ref:
