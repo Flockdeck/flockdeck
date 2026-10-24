@@ -85,7 +85,13 @@ non-zero and lists what was refused.
   unless `testiso.Main` or `acptest.RunIfAgent` already runs first. If the
   variable or argument that says what the child is gets lost, the child runs
   the whole suite and starts the next one. The guard counts ancestors running
-  the same program and exits with status 2 at three, which no suite needs.
+  the same program and exits with status 2 at three, which no suite needs. It
+  fails open: where the process table cannot be read (an unsupported system, or
+  a failed snapshot or `/proc` read) it does nothing, so it is a second line of
+  defence and does not replace passing the child what it needs. A test in
+  `internal/testiso/depth` fails if a package's tests run their own binary
+  (`os.Executable()` or `os.Args[0]`) and none of its test files calls
+  `depth.Guard`, `iso.Main`, `testiso.Main` or `acptest.RunIfAgent`.
 
 If a guard trips, the message names what was reached; fix the test rather than
 the guard. `internal/testiso/testiso_test.go` holds the regression tests that
