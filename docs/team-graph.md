@@ -358,6 +358,13 @@ session.
   4 KiB, a diff over 64 KiB and a thinking block's text are not sent inline: the entry
   has `hasDetail`, and `conversationDetail` returns them in `detail`, as `text`,
   `diff`, nested `entries` or base64 `data`.
+  An entry the stream no longer holds (evicted, or the conversation started over)
+  is answered with `gone: true` and an empty `detail`, so the window stops waiting;
+  the drawer then says "No longer available." The drawer draws at most 4 KiB of a
+  tool's output and 64 KiB of a diff, and says "Output truncated: N bytes more are not
+  shown." (or "Diff truncated: ...") when it cuts. A structured pane's permission is drawn in the conversation, after the
+  running tool it was asked for, as the same card the strip has (the desk answers
+  it once, whichever copy is pressed); a window through the relay gets neither.
 - **Search** is a plain, case-insensitive substring search, never a regular
   expression. The query is cut to 200 characters. It looks at prompts, replies, and
   the label and summary of tools; never at thinking, a tool's full output, or

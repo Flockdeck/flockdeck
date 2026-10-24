@@ -85,6 +85,13 @@
 //   answer        the latest permissionAnswer reply as { seq, ok, error, id,
 //                 cardSeq, requestId, req }, or null. A view matches it to the
 //                 card it answered by id, cardSeq and requestId.
+//   asking        the card a permissionAnswer was last sent for, as { id, cardSeq,
+//                 requestId, after }, or null. Every view of that card reads it, so
+//                 a card drawn in the strip and again in the stream is answered
+//                 once; a refusal clears it and the card can be answered again.
+//   details       the answers to requestDetail for the open conversation, by entry
+//                 id: { state: "loading" | "ok" | "gone", detail }. At most
+//                 MAX_DETAILS are held; the oldest asked for goes first.
 //   conversation  the conversation of the pane watchConversation named, or null:
 //                 { id, supported, entries, atStart, older, refused }. supported is
 //                 null until the desktop has answered, then true, or false for a
@@ -156,6 +163,9 @@ export function approvalOf(msg) {
  *  are dropped, and the conversation no longer starts at the first of them. */
 export const MAX_ENTRIES = 500;
 
+/** MAX_DETAILS bounds the entry details held: a tool's output and a diff can each be large. */
+export const MAX_DETAILS = 12;
+
 /** MACHINE_ONLY are the commands that change what the machine runs: updating,
  *  restarting, detaching, quitting. A remote window sends none of them, and the
  *  desktop would refuse them if it did. */
@@ -186,7 +196,7 @@ const initial = () => ({
   hello: null, remote: false, state: null,
   graph: null, graphGone: null, graphRefused: false, graphError: null,
   notice: null, versions: null, helpers: null, helperPlan: null, recents: null, browse: null, batonDraft: null, batonSaved: null, batonError: null,
-  approvals: [], detached: false, sent: null, started: null, structured: null, structuredError: null, cancelError: null, answer: null, conversation: null, history: null, paneInfo: null, paneMatches: null, dropped: 0,
+  approvals: [], detached: false, sent: null, started: null, structured: null, structuredError: null, cancelError: null, answer: null, asking: null, conversation: null, details: {}, history: null, paneInfo: null, paneMatches: null, dropped: 0,
 });
 
 /** upsert returns entries with each of the new ones in place of the one with its
@@ -219,6 +229,7 @@ export function createStore(opts) {
   let sentSeq = 0;
   let startedSeq = 0;
   let answerSeq = 0;
+  let detailSeq = 0;
   let historySeq = 0;
   let infoSeq = 0;
   let matchSeq = 0;
@@ -231,6 +242,9 @@ export function createStore(opts) {
   let watchingPane = null;
   // The pane whose conversation is open, or null.
   let watchingConv = null;
+  // The permission cards an answer was sent for, so a second view of one cannot send another.
+  const askedCards = new Set();
+  const cardKey = (c) => [c.id, c.cardSeq, c.requestId].map((p) => String(p == null ? "" : p)).join("");
 
   const notify = () => {
     for (const fn of [...listeners]) {
@@ -355,9 +369,23 @@ export function createStore(opts) {
           set(msg.gone ? { structured: null, structuredError: null } : { structured: msg, structuredError: null });
         }
         break;
-      case "permissionAnswer":
-        set({ answer: { ...msg, seq: ++answerSeq } });
+      case "permissionAnswer": {
+        const patch = { answer: { ...msg, seq: ++answerSeq } };
+        // A refused answer can be given again.
+        if (msg.ok === false) {
+          askedCards.delete(cardKey(msg));
+          patch.asking = null;
+        }
+        set(patch);
         break;
+      }
+      case "conversationDetail": {
+        if (watchingConv === null || msg.id !== watchingConv || typeof msg.entry !== "string" || !snap.details[msg.entry]) break;
+        const n = snap.details[msg.entry].n;
+        const d = msg.gone ? { state: "gone", n } : { state: "ok", n, detail: msg.detail && typeof msg.detail === "object" ? msg.detail : {} };
+        set({ details: { ...snap.details, [msg.entry]: d } });
+        break;
+      }
       case "agentStarted":
         set({ started: { paneId: String(msg.paneId || ""), id: String(msg.id || ""), seq: ++startedSeq } });
         break;
@@ -385,7 +413,7 @@ export function createStore(opts) {
           entries = upsert(c.entries, page);
           atStart = c.atStart;
         }
-        set({ conversation: { ...c, supported: true, entries, atStart, older: "idle", refused: "" } });
+        set({ conversation: { ...c, supported: true, entries, atStart, older: "idle", refused: "" }, ...(msg.reset ? { details: {} } : {}) });
         break;
       }
       case "conversationAppend": {
@@ -492,7 +520,13 @@ export function createStore(opts) {
     send(cmd) {
       // Until the hello says otherwise a window may be remote, so a desk-only command waits for it.
       if ((snap.remote || !snap.hello) && DESK_ONLY(cmd.cmd)) return false;
+      if (cmd.cmd === "permissionAnswer" && askedCards.has(cardKey(cmd))) return true;
       const sent = socket.send(cmd);
+      if (sent && cmd.cmd === "permissionAnswer") {
+        if (askedCards.size >= 50) askedCards.delete(askedCards.values().next().value);
+        askedCards.add(cardKey(cmd));
+        set({ asking: { id: cmd.id, cardSeq: cmd.cardSeq, requestId: cmd.requestId, after: answerSeq } });
+      }
       if (sent && cmd.cmd === "listVersions" && snap.versions) set({ versions: null });
       if (sent && cmd.cmd === "helperPlan" && snap.helperPlan) set({ helperPlan: null });
       if (sent && cmd.cmd === "makeBaton" && snap.batonDraft) set({ batonDraft: null });
@@ -542,7 +576,7 @@ export function createStore(opts) {
       if (!id || watchingConv === id) return false;
       if (watchingConv !== null && snap.hello) socket.send({ cmd: "conversationClose", id: watchingConv });
       watchingConv = id;
-      set({ conversation: { id, supported: null, entries: [], atStart: false, older: "idle", refused: "" } });
+      set({ conversation: { id, supported: null, entries: [], atStart: false, older: "idle", refused: "" }, details: {} });
       if (snap.hello) sendConversationOpen();
       return true;
     },
@@ -555,12 +589,30 @@ export function createStore(opts) {
       set({ conversation: { ...c, older: "loading" } });
       return true;
     },
+    /** requestDetail asks for the full body of one entry of the open conversation:
+     *  a tool's output or diff, a helper's own entries. It asks once for an entry
+     *  already asked for (the answer, or "loading"), and again after "gone". It
+     *  returns false when nothing was asked. */
+    requestDetail(entry) {
+      if (watchingConv === null || snap.remote || !entry || typeof entry !== "string") return false;
+      const have = snap.details[entry];
+      if (have && have.state !== "gone") return true;
+      if (!socket.send({ cmd: "conversationDetail", id: watchingConv, entry })) return false;
+      const items = { ...snap.details };
+      delete items[entry];
+      // Oldest asked for first, by the number each was given (ids may be numbers, which JS orders itself).
+      const keys = Object.keys(items).sort((a, b) => items[a].n - items[b].n);
+      while (keys.length >= MAX_DETAILS) delete items[keys.shift()];
+      items[entry] = { state: "loading", n: ++detailSeq };
+      set({ details: items });
+      return true;
+    },
     unwatchConversation() {
       if (watchingConv === null) return;
       const was = watchingConv;
       watchingConv = null;
       if (snap.hello) socket.send({ cmd: "conversationClose", id: was });
-      set({ conversation: null });
+      set({ conversation: null, details: {} });
     },
     unwatchGraph() {
       if (watching === null) return;
