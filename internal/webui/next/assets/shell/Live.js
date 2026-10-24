@@ -461,6 +461,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     keys: snap.keys,
     roster: snap.remoteDevices,
     pair: snap.remotePair,
+    forgetPair: () => store.clearPair(),
     outcome: snap.remoteOutcome,
     status: kept.current.state.remote || null,
     remote: snap.remote,

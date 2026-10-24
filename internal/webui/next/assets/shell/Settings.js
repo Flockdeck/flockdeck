@@ -92,7 +92,7 @@ export function Settings({ prefs, change, onClose, section: first = "general", c
             ${section === "keys" ? html`<${Keys} keys=${ctx.keys || null} remote=${!!ctx.remote} send=${ctx.send} news=${ctx.news || ""} />` : null}
             ${section === "remote"
               ? html`<${Remote} status=${ctx.status || null} roster=${ctx.roster || null} pair=${ctx.pair || null} outcome=${ctx.outcome || null} remote=${!!ctx.remote}
-                  send=${ctx.send} copy=${ctx.copy || (() => {})} news=${ctx.news || ""} />`
+                  send=${ctx.send} copy=${ctx.copy || (() => {})} forget=${ctx.forgetPair || (() => {})} news=${ctx.news || ""} />`
               : null}
           </div>
         </div>

