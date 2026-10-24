@@ -13,15 +13,13 @@
 import { useEffect, useRef, useState } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
 import { clip } from "./Node.js";
+import { labelOf } from "./model.js";
 
 export const RESOLVED_MS = 14000;
 export const NO_MANAGER_WORDS = "This team has no manager to ask.";
 export const NOT_SENT_WORDS = "Not connected to Flockdeck, so the manager was not asked.";
 
-const nameOf = (model, id) => {
-  const n = model.byPane.get(id);
-  return n && n.name ? n.name : id;
-};
+const nameOf = labelOf;
 
 /** overlapsOf is the conflict items of a model as the bar shows them. */
 export function overlapsOf(model) {

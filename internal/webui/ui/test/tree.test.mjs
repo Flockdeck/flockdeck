@@ -456,3 +456,18 @@ test("panes that share a name read as role and what they are on, and stay apart 
   assert.equal(labelOf(m, "nobody"), "nobody");
   assert.equal(labelOf(null, "x"), "x");
 });
+
+import { decisionOf } from "../assets/graph/DecisionBlock.js";
+import { loopOf } from "../assets/graph/DependencyDecisions.js";
+import { overlapsOf } from "../assets/graph/OverlapBar.js";
+
+test("decision blocks, the overlap bar and the loop block name panes that share a name by what they are on", () => {
+  const g = team([ask, { id: "c", kind: "conflict", pane: "ask", other: "work", time: "2026-10-24T08:21:00Z", text: "a.go" }]);
+  for (const p of ["ask", "work"]) g.nodes.find((x) => x.pane === p).name = "flockdeck";
+  g.nodes.find((x) => x.pane === "ask").live = "reading logs";
+  const m = model(g);
+  assert.equal(decisionOf(m, ask).who, "worker · reading logs");
+  assert.ok(overlapsOf(m)[0].who.includes("worker · reading logs and worker · Limiter"));
+  const lp = model(team());
+  assert.equal(loopOf(lp), null);
+});
