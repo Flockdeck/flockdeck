@@ -140,14 +140,13 @@ test("the region keys still move the keyboard from the bar to the rail and the m
   m.done();
 });
 
-test("a project with no manager gets the bar off, with its line", async () => {
+test("a project with no manager has no bottom bar at all", async () => {
   const m = await mount();
   await m.connect();
   await m.push(stateMsg());
   await m.push(solo("/work/a"));
-  assert.equal(m.status(), NO_MANAGER_WORDS);
-  m.input().keydown("Enter");
-  await settle();
+  assert.equal(m.container.find(".mbar"), null);
+  assert.equal(m.container.find(".composer"), null, "no empty strip either");
   assert.equal(m.sends().length, 0);
   m.done();
 });
