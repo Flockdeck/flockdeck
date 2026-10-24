@@ -104,11 +104,18 @@ type teamTaskView struct {
 	OwnerRole string `json:"ownerRole,omitempty"`
 	OwnerPane string `json:"ownerPane,omitempty"`
 	// OwnerOpen says the owner pane is on the roster, so a click can go to it.
-	OwnerOpen bool          `json:"ownerOpen,omitempty"`
-	Branch    string        `json:"branch,omitempty"`
-	Notes     int           `json:"notes"`
-	Creator   teamActorView `json:"creator"`
-	Updated   string        `json:"updated"`
+	OwnerOpen bool   `json:"ownerOpen,omitempty"`
+	Branch    string `json:"branch,omitempty"`
+	// Depends is the ids of the tasks this one waits on, and EstimateMin how
+	// long it is thought to take; both are left out when the board has none. The
+	// window works out blocked, ready and the critical path from them. They are
+	// facts of the board and are not sent to a relay window (the team push is
+	// refused to one).
+	Depends     []string      `json:"depends,omitempty"`
+	EstimateMin int           `json:"estimateMin,omitempty"`
+	Notes       int           `json:"notes"`
+	Creator     teamActorView `json:"creator"`
+	Updated     string        `json:"updated"`
 	// Moves are the moves the person may make now, by the rules table.
 	Moves []teamMoveView `json:"moves"`
 	// CanAssign and CanEdit say the person may assign the task and change its
@@ -274,7 +281,7 @@ func taskViewOf(t tasks.Task, members []team.Member, hasManager, full bool) team
 	v := teamTaskView{
 		ID: t.ID, Title: t.Title, State: string(t.State),
 		Owner: tasks.OwnerLabel(t), OwnerRole: t.OwnerRole, OwnerPane: t.OwnerPane,
-		Branch: t.Branch, Notes: len(t.Notes), Creator: actorView(t.Creator),
+		Branch: t.Branch, Depends: t.Depends, EstimateMin: t.EstimateMin, Notes: len(t.Notes), Creator: actorView(t.Creator),
 		Updated: t.Updated.Format(time.RFC3339),
 		Moves:   []teamMoveView{},
 	}
@@ -579,6 +586,10 @@ func (s *Server) teamCommand(c *controlClient, cmd command) {
 		s.teamTask(c, cmd, hooks.TaskRequest{Op: hooks.TaskNote, ID: cmd.ID, Text: cmd.Text})
 	case "taskBranch":
 		s.teamTask(c, cmd, hooks.TaskRequest{Op: hooks.TaskBranch, ID: cmd.ID, Branch: cmd.Branch})
+	case "taskDepends":
+		s.teamTask(c, cmd, hooks.TaskRequest{Op: hooks.TaskDepends, ID: cmd.ID, Depends: cmd.Depends})
+	case "taskEstimate":
+		s.teamTask(c, cmd, hooks.TaskRequest{Op: hooks.TaskEstimate, ID: cmd.ID, Minutes: cmd.Size})
 	case "taskPrune":
 		s.teamTask(c, cmd, hooks.TaskRequest{Op: hooks.TaskPrune, Days: cmd.Size})
 	case "msgList":

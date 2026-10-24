@@ -707,6 +707,9 @@ type command struct {
 	// the pane whose inbox the message is in. See teamui.go.
 	State string `json:"state,omitempty"`
 	MsgID int    `json:"msgId,omitempty"`
+	// Depends is the task ids taskDepends sets the task ID to wait on (none
+	// clears), and taskEstimate takes the minutes as Size.
+	Depends []string `json:"depends,omitempty"`
 	// Panes are the panes teamClose is asked to close.
 	Panes []string `json:"panes,omitempty"`
 }
@@ -1602,7 +1605,7 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		s.setDeviceRole(c, cmd)
 		return
 	case "teamSnapshot", "teamWatch", "teamUnwatch", "taskList", "taskGet", "taskAdd", "taskAssign",
-		"taskStatus", "taskNote", "taskBranch", "taskPrune", "msgList", "msgSend", "msgSeen", "teamClose":
+		"taskStatus", "taskNote", "taskBranch", "taskDepends", "taskEstimate", "taskPrune", "msgList", "msgSend", "msgSeen", "teamClose":
 		s.teamCommand(c, cmd)
 		return
 	case "graphSnapshot", "graphWatch", "graphUnwatch":

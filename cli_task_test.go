@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -139,7 +140,7 @@ func TestTaskSubcommandsSendTheRightRequests(t *testing.T) {
 			t.Errorf("%q: %v", c.args, err)
 			continue
 		}
-		if len(r.reqs) != 1 || r.reqs[0] != c.want {
+		if len(r.reqs) != 1 || !reflect.DeepEqual(r.reqs[0], c.want) {
 			t.Errorf("%q: requests = %+v, want %+v", c.args, r.reqs, c.want)
 		}
 	}
@@ -291,5 +292,33 @@ func TestTaskPruneSendsTheAgeAndSaysHowManyWereRemoved(t *testing.T) {
 	r = &recorder{err: errors.New("only the manager role prunes the board")}
 	if _, err := runTaskArgs(t, r, "", "prune"); err == nil || !strings.Contains(err.Error(), "only the manager") {
 		t.Errorf("err = %v", err)
+	}
+}
+
+func TestTaskDependsAndEstimateSendTheirArguments(t *testing.T) {
+	r := &recorder{res: hooks.TaskResult{Task: ptr(sampleTask())}}
+	if _, err := runTaskArgs(t, r, "", "depends", "T3", "T1", "T2"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runTaskArgs(t, r, "", "depends", "T3"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runTaskArgs(t, r, "", "estimate", "T3", "90"); err != nil {
+		t.Fatal(err)
+	}
+	if len(r.reqs) != 3 {
+		t.Fatalf("%d requests", len(r.reqs))
+	}
+	if g := r.reqs[0]; g.Op != hooks.TaskDepends || g.ID != "T3" || strings.Join(g.Depends, ",") != "T1,T2" {
+		t.Errorf("depends request = %+v", g)
+	}
+	if g := r.reqs[1]; g.Op != hooks.TaskDepends || len(g.Depends) != 0 {
+		t.Errorf("clearing request = %+v", g)
+	}
+	if g := r.reqs[2]; g.Op != hooks.TaskEstimate || g.ID != "T3" || g.Minutes != 90 {
+		t.Errorf("estimate request = %+v", g)
+	}
+	if _, err := runTaskArgs(t, r, "", "estimate", "T3", "soon"); err == nil || !strings.Contains(err.Error(), "not a number") {
+		t.Errorf("estimate soon: %v", err)
 	}
 }

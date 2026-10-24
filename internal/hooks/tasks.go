@@ -24,6 +24,10 @@ const (
 	TaskBranch = "branch"
 	TaskBaton  = "baton"
 	TaskPrune  = "prune"
+	// TaskDepends sets the tasks a task waits on (Depends; none clears), and
+	// TaskEstimate its estimate in minutes (Minutes; zero clears).
+	TaskDepends  = "depends"
+	TaskEstimate = "estimate"
 )
 
 // TaskRequest is one operation on the caller's project's board. Which of the
@@ -56,6 +60,10 @@ type TaskRequest struct {
 	Text string `json:"text,omitempty"`
 	// Baton is the id of the baton to point the task at.
 	Baton string `json:"baton,omitempty"`
+	// Depends and Minutes are the arguments of the depends and estimate
+	// operations.
+	Depends []string `json:"depends,omitempty"`
+	Minutes int      `json:"minutes,omitempty"`
 }
 
 // TaskResult is the answer: the task an operation changed or showed, or the tasks

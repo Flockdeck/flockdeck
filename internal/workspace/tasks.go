@@ -106,7 +106,7 @@ func (w *Workspace) runTask(actor tasks.Actor, members []team.Member, board *tas
 	var id string
 	switch req.Op {
 	case hooks.TaskAdd, hooks.TaskList, hooks.TaskPrune:
-	case hooks.TaskShow, hooks.TaskAssign, hooks.TaskStatus, hooks.TaskNote, hooks.TaskBranch, hooks.TaskBaton:
+	case hooks.TaskShow, hooks.TaskAssign, hooks.TaskStatus, hooks.TaskNote, hooks.TaskBranch, hooks.TaskBaton, hooks.TaskDepends, hooks.TaskEstimate:
 		if id, err = tasks.ParseID(req.ID); err != nil {
 			return hooks.TaskResult{}, err
 		}
@@ -180,6 +180,12 @@ func (w *Workspace) runTask(actor tasks.Actor, members []team.Member, board *tas
 
 	case hooks.TaskBranch:
 		ch, err = board.SetBranch(actor, hasManager, id, req.Branch)
+
+	case hooks.TaskDepends:
+		ch, err = board.SetDepends(actor, hasManager, id, req.Depends)
+
+	case hooks.TaskEstimate:
+		ch, err = board.SetEstimate(actor, hasManager, id, req.Minutes)
 
 	case hooks.TaskBaton:
 		bid := strings.TrimSpace(req.Baton)

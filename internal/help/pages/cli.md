@@ -367,6 +367,8 @@ flockdeck task status <id> <state> [-note text]
 flockdeck task note <id> <text...>
 flockdeck task branch <id> <branch>
 flockdeck task baton <id> <baton-id>
+flockdeck task depends <id> [<id>...]
+flockdeck task estimate <id> <minutes>
 flockdeck task prune [-days N]
 ```
 
