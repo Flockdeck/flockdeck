@@ -118,7 +118,6 @@ The window is the team-graph shell; the old tiled window was deleted. Missing fr
 - A team view in the phone app. The phone still shows the roster.
 - The tips bar.
 - Tiling, splitting, moving and broadcasting to panes. A team is a graph.
-- The sponsor link in Settings. This section and the site link it.
 
 It was tested on Windows only: not on Linux or macOS, not with the race detector, and no real phone was paired through the relay. [`docs/parity.md`](docs/parity.md) is the full list.
 

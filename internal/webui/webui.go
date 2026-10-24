@@ -1,7 +1,7 @@
 // Package webui holds the browser front end, compiled into the binary so the
 // application ships as a single file with no assets to install alongside it.
 //
-// The front end is the team-graph shell in next/assets: ES modules on a
+// The front end is the team-graph shell in ui/assets: ES modules on a
 // vendored Preact, with the terminal library, the end-to-end script, the fonts
 // and the icons beside them. The directory is still called next; it is the only
 // front end there is.
@@ -25,13 +25,13 @@ func init() {
 	}
 }
 
-//go:embed next/assets
+//go:embed ui/assets
 var embedded embed.FS
 
 // FS returns the front end's files rooted at the assets directory: index.html at
 // the top, served at /, and the rest under /assets/.
 func FS() fs.FS {
-	sub, err := fs.Sub(embedded, "next/assets")
+	sub, err := fs.Sub(embedded, "ui/assets")
 	if err != nil {
 		// The path is a compile-time constant, so this cannot happen.
 		panic(err)
@@ -45,7 +45,7 @@ func FS() fs.FS {
 // from a platform-specific resource, so every platform's window carries the
 // same source image the Windows .syso and the PWA manifest already do.
 func Icon() []byte {
-	data, err := fs.ReadFile(embedded, "next/assets/icon-256.png")
+	data, err := fs.ReadFile(embedded, "ui/assets/icon-256.png")
 	if err != nil {
 		// The path is a compile-time constant naming a file this module
 		// ships, so this cannot happen.

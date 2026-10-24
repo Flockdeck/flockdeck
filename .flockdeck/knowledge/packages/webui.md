@@ -7,12 +7,12 @@ tags: [webui, frontend, embed]
 timestamp: 2026-10-19T00:00:00Z
 code_paths: [internal/webui/webui.go]
 ---
-`internal/webui` is a `//go:embed next/assets` wrapper. It has two exported functions:
+`internal/webui` is a `//go:embed ui/assets` wrapper. It has two exported functions:
 
-- `FS()` returns the `next/assets` directory as an `fs.FS` (via `fs.Sub`).
+- `FS()` returns the `ui/assets` directory as an `fs.FS` (via `fs.Sub`).
 - `Icon()` returns `icon-256.png` bytes, used as the native window icon by [appwindow](/packages/appwindow.md).
 
-It also registers the JavaScript type for `.mjs`, since on Windows Go reads it from the registry, which has none. Everything else in the directory is tests; the shell's own tests are the node tests in `next/test`, run by `next/next_test.go`. The directory is called `next` for history: it is the only front end (the old one was deleted in T162).
+It also registers the JavaScript type for `.mjs`, since on Windows Go reads it from the registry, which has none. Everything else in the directory is tests; the shell's own tests are the node tests in `ui/test`, run by `next/next_test.go`. The directory is called `next` for history: it is the only front end (the old one was deleted in T162).
 
 ## Embedded assets
 

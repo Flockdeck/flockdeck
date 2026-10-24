@@ -50,14 +50,14 @@ func TestMjsIsServedAsJavaScript(t *testing.T) {
 	}
 }
 
-// Only the asset tree is embedded: nothing from next/test, where the test-only
+// Only the asset tree is embedded: nothing from ui/test, where the test-only
 // render-to-string library and the node tests are.
 func TestOnlyTheAssetTreeIsEmbedded(t *testing.T) {
 	pkg, err := build.Default.ImportDir(".", 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Equal(pkg.EmbedPatterns, []string{"next/assets"}) {
+	if !slices.Equal(pkg.EmbedPatterns, []string{"ui/assets"}) {
 		t.Errorf("embedded: %v", pkg.EmbedPatterns)
 	}
 }

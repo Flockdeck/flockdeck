@@ -23,6 +23,7 @@ import { JevStatus } from "./Jev.js";
 import { Routing } from "./Routing.js";
 import { Keybindings } from "./Keybindings.js";
 import { AgentSettings } from "./AgentSettings.js";
+import { SPONSOR_URL } from "./links.js";
 import {
   ACCENTS, CURSORS, FONT_DEFAULT, FONT_MAX, FONT_MIN, FONT_SUGGESTIONS, SCROLLBACK_COUNTS, SCROLLBACK_MAX, SCROLLBACK_MIN,
   STATUS_LINES, THEMES, WHY, fontStack,
@@ -165,6 +166,10 @@ function General({ prefs, change, radar, remote }) {
         (n ? (n === 1 ? "One has" : n + " have") + " been sent away." : "None has been sent away.")}>
       <button type="button" class="dialog-btn" id="set-tips" disabled=${!n} onClick=${() => change("resetTips", true)}>Show them again</button>
     <//>
+    <p class="set-intro" id="set-sponsor">
+      <a id="set-sponsor-link" href=${SPONSOR_URL} target="_blank" rel="noreferrer noopener">Sponsor Flockdeck</a>
+      on GitHub, if it is useful to you. Sponsoring is a thank-you, and buys nothing.
+    </p>
   `;
 }
 

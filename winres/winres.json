@@ -2,16 +2,16 @@
   "RT_GROUP_ICON": {
     "APP": {
       "0000": [
-        "../internal/webui/next/assets/icon-256.png",
-        "../internal/webui/next/assets/icon-128.png",
-        "../internal/webui/next/assets/icon-96.png",
-        "../internal/webui/next/assets/icon-64.png",
-        "../internal/webui/next/assets/icon-48.png",
-        "../internal/webui/next/assets/icon-40.png",
-        "../internal/webui/next/assets/icon-32.png",
-        "../internal/webui/next/assets/icon-24.png",
-        "../internal/webui/next/assets/icon-20.png",
-        "../internal/webui/next/assets/icon-16.png"
+        "../internal/webui/ui/assets/icon-256.png",
+        "../internal/webui/ui/assets/icon-128.png",
+        "../internal/webui/ui/assets/icon-96.png",
+        "../internal/webui/ui/assets/icon-64.png",
+        "../internal/webui/ui/assets/icon-48.png",
+        "../internal/webui/ui/assets/icon-40.png",
+        "../internal/webui/ui/assets/icon-32.png",
+        "../internal/webui/ui/assets/icon-24.png",
+        "../internal/webui/ui/assets/icon-20.png",
+        "../internal/webui/ui/assets/icon-16.png"
       ]
     }
   },

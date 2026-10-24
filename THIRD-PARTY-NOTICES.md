@@ -15,7 +15,7 @@ below.
 
 ## Front end, compiled into the binary
 
-The files in `internal/webui/next/assets/vendor/` are builds of the `@xterm/xterm`,
+The files in `internal/webui/ui/assets/vendor/` are builds of the `@xterm/xterm`,
 `@xterm/addon-fit`, `@xterm/addon-search` and `@xterm/addon-webgl` packages,
 vendored rather than fetched at build time. They are minified, and the minifier
 strips the banner comment the licence asks for, so it is restored at the top of
@@ -49,9 +49,9 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
-The front end in `internal/webui/next/assets/` (see `docs/building.md`) also vendors Preact 10.29.8 (with its hooks module) and htm 3.1.1 in
-`internal/webui/next/assets/vendor/`. The versions, tarball checksums and the two
-changes made to the files are in `internal/webui/next/assets/vendor/LICENSES.md`.
+The front end in `internal/webui/ui/assets/` (see `docs/building.md`) also vendors Preact 10.29.8 (with its hooks module) and htm 3.1.1 in
+`internal/webui/ui/assets/vendor/`. The versions, tarball checksums and the two
+changes made to the files are in `internal/webui/ui/assets/vendor/LICENSES.md`.
 preact-render-to-string, which only the tests use, is not shipped and is not listed.
 
 ### Preact � MIT
