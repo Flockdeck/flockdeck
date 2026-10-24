@@ -16,6 +16,7 @@ import { focusNode } from "../drawer/state.js";
 import { stateOf } from "./Node.js";
 import { reasonOf, isLoud } from "./Badge.js";
 import { TreeRow, TreeHead } from "./TreeRow.js";
+import { TreeDecisions } from "./TreeDecisions.js";
 
 /** TICK_MS is how often the ages are worked out again. */
 export const TICK_MS = 30000;
@@ -138,7 +139,7 @@ export function doingOf(node, needs) {
 }
 
 /** Tree draws a graph model as an outline. onOpen and open are the graph's: a row's drawer is opened by Enter, Space or a click, and open is the pane whose drawer is open. */
-export function Tree({ model, onOpen = null, open = "" }) {
+export function Tree({ model, onOpen = null, open = "", decisions = null }) {
   const [now, setNow] = useState(() => Date.now());
   const [focus, setFocus] = useState("");
   const rows = rowsOf(model);
@@ -180,7 +181,8 @@ export function Tree({ model, onOpen = null, open = "" }) {
         const node = model.byPane.get(r.pane);
         return html`<${TreeRow} key=${r.pane} row=${r} node=${node} needs=${needsOf(model, r.pane)} doing=${doingOf(node, needsOf(model, r.pane))} stop=${stop === r.pane}
           selected=${open === r.pane} age=${ageOf(node.since, now)} cost=${costOf(node, r.team)}
-          onFocus=${() => setFocus(r.pane)} onOpen=${onOpen} />`;
+          onFocus=${() => setFocus(r.pane)} onOpen=${onOpen} />
+          ${decisions ? html`<${TreeDecisions} model=${model} pane=${r.pane} open=${open} ctx=${decisions} />` : null}`;
       })}
     </div>
   </div>`;

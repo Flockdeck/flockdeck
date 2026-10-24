@@ -517,8 +517,9 @@ test("what is in a summary is drawn as text", () =>
     await m.push({ ...CONVERSATIONS, items: [{ ...ROWS[0], summary: "<img src=x onerror=alert(1)><b>bold</b>" }] });
     const row = m.container.findAll(".hist-row")[0];
     assert.ok(row.textContent.includes("<img src=x onerror=alert(1)><b>bold</b>"));
-    assert.equal(m.container.find("img"), null);
-    assert.equal(m.container.find("b"), null);
+    // In the dialog: the page behind it has bold names of its own (a decision block).
+    assert.equal(dialog(m).find("img"), null);
+    assert.equal(dialog(m).find("b"), null);
   }));
 
 test("no key reaches an action while a dialog of L4 is open", () =>
