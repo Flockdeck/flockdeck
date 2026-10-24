@@ -1148,7 +1148,11 @@ func run(opts options) error {
 		fmt.Fprintln(os.Stderr, "flockdeck: -shell has no effect, since this project's saved layout was restored (use -new -shell to start from a single shell)")
 	}
 
-	srv, err := server.New(ws, server.Config{Static: webui.FS(), Keys: keytable.From(help.Keys), HelpJSON: help.JSON})
+	cfg := server.Config{Static: webui.FS(), Keys: keytable.From(help.Keys), HelpJSON: help.JSON}
+	if dir, ok := webui.DirFS(); ok {
+		cfg.Static, cfg.StaticRemote = dir, cfg.Static
+	}
+	srv, err := server.New(ws, cfg)
 	if err != nil {
 		return err
 	}

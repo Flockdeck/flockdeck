@@ -74,8 +74,10 @@ const askedInterval = 5 * time.Millisecond
 
 // Server serves the front end and the live connections behind it.
 type Server struct {
-	// static is the front end the program gave in Config.
-	static fs.FS
+	// static is the front end the program gave in Config, and staticRemote the
+	// one for windows reached through the relay, when it gave another.
+	static       fs.FS
+	staticRemote fs.FS
 	// keys is the key table the server was given (Config.Keys).
 	keys keytable.Table
 	// helpOnce is Config.HelpJSON, encoded once for each form.
@@ -385,6 +387,13 @@ type Config struct {
 	// the program embeds it (see ui) and a test can give it a
 	// directory. With none, the page answers that it has no front end.
 	Static fs.FS
+	// StaticRemote, when set, is what a window reached through the relay is
+	// served in place of Static. The program sets it when Static is a folder
+	// being developed in (FLOCKDECK_UI_DIR): files that change under a running
+	// server are for the desk's own windows, and the relay's rules for what it
+	// sends, and the compressed copies it keeps, stay those of the built-in
+	// files.
+	StaticRemote fs.FS
 	// Keys is the key table: every action, its default binding and where it
 	// belongs. The front end owns it, so the program hands it over (the server
 	// does not import where it lives). With none, no action has a binding to
@@ -419,23 +428,24 @@ func New(ws *workspace.Workspace, cfg Config) (*Server, error) {
 	}
 
 	s := &Server{
-		ws:       ws,
-		static:   cfg.Static,
-		keys:     cfg.Keys,
-		helpOnce: onceByForm(cfg.HelpJSON),
-		prefs:    store.LoadPrefs(),
-		token:    hex.EncodeToString(raw),
-		hosts:    hosts,
-		links:    map[string]linkEntry{},
-		spent:    map[string]linkFateEntry{},
-		ln:       ln,
-		clients:  map[*controlClient]bool{},
-		cmds:     make(chan func(), 64),
-		dirty:    make(chan struct{}, 1),
-		asked:    make(chan struct{}, 1),
-		gitNow:   make(chan struct{}, 1),
-		closed:   make(chan struct{}),
-		rp:       defaultRepaintHooks(),
+		ws:           ws,
+		static:       cfg.Static,
+		staticRemote: cfg.StaticRemote,
+		keys:         cfg.Keys,
+		helpOnce:     onceByForm(cfg.HelpJSON),
+		prefs:        store.LoadPrefs(),
+		token:        hex.EncodeToString(raw),
+		hosts:        hosts,
+		links:        map[string]linkEntry{},
+		spent:        map[string]linkFateEntry{},
+		ln:           ln,
+		clients:      map[*controlClient]bool{},
+		cmds:         make(chan func(), 64),
+		dirty:        make(chan struct{}, 1),
+		asked:        make(chan struct{}, 1),
+		gitNow:       make(chan struct{}, 1),
+		closed:       make(chan struct{}),
+		rp:           defaultRepaintHooks(),
 
 		linkLife:       windowLinkLife,
 		loopDone:       make(chan struct{}),
@@ -463,7 +473,7 @@ func New(ws *workspace.Workspace, cfg Config) (*Server, error) {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", s.handleIndex)
-	mux.Handle("/assets/", http.StripPrefix("/assets/", s.authFiles(s.staticFS())))
+	mux.Handle("/assets/", http.StripPrefix("/assets/", s.authFiles(s.staticFS(), s.staticRemoteFS())))
 	mux.HandleFunc("/ws/control", s.handleControl)
 	mux.HandleFunc("/ws/pty", s.handlePTY)
 	mux.HandleFunc("/help.json", s.handleHelp)
@@ -946,7 +956,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	data, err := fs.ReadFile(s.staticFS(), "index.html")
+	data, err := fs.ReadFile(s.staticFor(r), "index.html")
 	if err != nil {
 		http.Error(w, "missing front end", http.StatusInternalServerError)
 		return
@@ -977,6 +987,22 @@ func (s *Server) staticFS() fs.FS {
 	return s.static
 }
 
+// staticRemoteFS is the front end for windows reached through the relay.
+func (s *Server) staticRemoteFS() fs.FS {
+	if s.staticRemote != nil {
+		return s.staticRemote
+	}
+	return s.staticFS()
+}
+
+// staticFor is the front end the request is served.
+func (s *Server) staticFor(r *http.Request) fs.FS {
+	if fromRemote(r) {
+		return s.staticRemoteFS()
+	}
+	return s.staticFS()
+}
+
 // emptyStatic has no files.
 type emptyStatic struct{}
 
@@ -985,8 +1011,8 @@ func (emptyStatic) Open(name string) (fs.File, error) {
 }
 
 // authFiles serves embedded assets to authorised requests.
-func (s *Server) authFiles(fsys fs.FS) http.Handler {
-	files := http.FileServer(http.FS(fsys))
+func (s *Server) authFiles(local, remote fs.FS) http.Handler {
+	localFiles, remoteFiles := http.FileServer(http.FS(local)), http.FileServer(http.FS(remote))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !s.authorised(r) {
 			http.Error(w, "forbidden", http.StatusForbidden)
@@ -1006,7 +1032,7 @@ func (s *Server) authFiles(fsys fs.FS) http.Handler {
 		// browser says it can take it. Over loopback it would buy nothing.
 		if fromRemote(r) && acceptsGzip(r) && compressible(r.URL.Path) {
 			name := r.URL.Path
-			if data, ok := gzipped(name, func() ([]byte, error) { return fs.ReadFile(fsys, name) }); ok {
+			if data, ok := gzipped(name, func() ([]byte, error) { return fs.ReadFile(remote, name) }); ok {
 				if ct := mime.TypeByExtension(path.Ext(name)); ct != "" {
 					w.Header().Set("Content-Type", ct)
 				}
@@ -1016,7 +1042,11 @@ func (s *Server) authFiles(fsys fs.FS) http.Handler {
 				return
 			}
 		}
-		files.ServeHTTP(w, r)
+		if fromRemote(r) {
+			remoteFiles.ServeHTTP(w, r)
+			return
+		}
+		localFiles.ServeHTTP(w, r)
 	})
 }
 

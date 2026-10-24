@@ -14,6 +14,7 @@ import (
 	"log"
 	"mime"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -65,6 +66,28 @@ func FS() fs.FS {
 
 // UnbundledEnv is the environment variable that turns the joining off.
 const UnbundledEnv = "FLOCKDECK_UNBUNDLED"
+
+// DirEnv names a folder to serve the front end from instead of the files built
+// into the program, so a change to ui/src shows on a reload without a build.
+// It is for development and is off unless set.
+const DirEnv = "FLOCKDECK_UI_DIR"
+
+// DirFS is the folder named by FLOCKDECK_UI_DIR, as a file system laid out like
+// FS: index.html at the top. It says so in the log when it is used, and when the
+// folder cannot be used it says why and returns false, so the program starts
+// with the files built into it. The files are sent as they are, not joined.
+func DirFS() (fs.FS, bool) {
+	dir := os.Getenv(DirEnv)
+	if dir == "" {
+		return nil, false
+	}
+	if _, err := os.Stat(filepath.Join(dir, "index.html")); err != nil {
+		log.Printf("webui: %s=%q is ignored, there is no index.html in it (%v); serving the front end built into this program", DirEnv, dir, err)
+		return nil, false
+	}
+	log.Printf("webui: serving the front end from %s (%s), not the one built into this program; windows reached through the relay still get the built-in one", dir, DirEnv)
+	return os.DirFS(dir), true
+}
 
 var (
 	joinOnce sync.Once
