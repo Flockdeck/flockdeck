@@ -478,22 +478,32 @@
 .overlap-note { flex: 1 1 100%; margin: 0; color: var(--waiting); font-size: 12px; }
 .overlap-resolved { margin: 0; padding: 6px 10px; border: 1px solid var(--working, var(--accent)); border-radius: 6px; font-size: 13px; }
 
-/* The goal line above the needs-you strip. */
+/* The goal line above the needs-you strip: the goal first, then the facts as small
+ * chips that follow it on the same row when there is room and wrap under it, left
+ * aligned, when there is not. */
 .goalline-box { margin: 0 0 8px; }
 .goalline {
   display: flex;
   flex-wrap: wrap;
-  align-items: baseline;
-  gap: 4px 12px;
+  align-items: center;
+  gap: 6px 16px;
   margin: 0;
   padding: 6px 0;
   border-bottom: 1px solid var(--line-subtle);
   font-size: 13px;
 }
-.goalline-label { color: var(--fg-dim); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; }
+.goalline-head { display: flex; align-items: baseline; gap: 8px; min-width: 0; max-width: 100%; }
+.goalline-label { flex: none; color: var(--fg-dim); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; }
 .goalline-goal { color: var(--fg); min-width: 0; overflow-wrap: anywhere; }
-.goalline-facts { display: flex; flex-wrap: wrap; gap: 2px 14px; margin-left: auto; font-family: var(--mono); font-size: 12px; color: var(--fg-dim); }
-.goalline-needs { color: var(--waiting); }
-.goalline-helpers.is-capped { color: var(--waiting); }
+.goalline-facts { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 6px; }
+.goalline-fact {
+  padding: 1px 8px;
+  border: 1px solid var(--line-subtle);
+  border-radius: 999px;
+  font-size: 12px;
+  white-space: nowrap;
+  color: var(--fg-dim);
+}
+.goalline-needs, .goalline-helpers.is-capped { color: var(--waiting); border-color: var(--waiting); }
 .graph-empty p { margin: 0 0 8px; }
 .graph-empty-start { font: inherit; }
