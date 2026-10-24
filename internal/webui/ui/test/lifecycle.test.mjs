@@ -22,6 +22,12 @@ import { createDom, install, settle } from "./dom.mjs";
 import { FakeWebSocket, harness, hello } from "./fakes.mjs";
 import { PtySocket, FakeTerm, FakeFit, FakeObserver } from "./termfakes.mjs";
 
+
+// openPlus opens the tab strip's "+" menu, where the tab actions are.
+const openPlus = async (m) => {
+  if (!m.container.find(".tabs-menu")) await m.click(m.container.find(".tabs-plus"));
+};
+
 // The pane's actions are behind the drawer header's More button: open it when the
 // button asked for is not there yet.
 const pickMore = async (m, sel) => {
@@ -281,7 +287,9 @@ test("a new agent tab and a new shell tab are one press from the strip and from 
   withPage({}, async (m) => {
     await m.connect();
     m.clear();
+    await openPlus(m);
     await m.click(m.byText(".tabs-btn", /^New agent tab$/));
+    await openPlus(m);
     await m.click(m.byText(".tabs-btn", /^New shell tab$/));
     await m.key("Ctrl+Shift+T");
     await m.key("Ctrl+Shift+N");
@@ -293,6 +301,7 @@ test("the start dialog opens an agent tab on the agent chosen when there is no t
   withPage({}, async (m) => {
     await m.connect();
     m.clear();
+    await openPlus(m);
     await m.click(m.byText(".tabs-btn", /Choose agent/));
     assert.ok(m.container.find(".dialog"), "no dialog");
     assert.equal(valueIn(m.container.find("#start-agent")), valueOf("claude", "opus"), "starts on the default");
@@ -307,6 +316,7 @@ test("a task, or a role, starts the agent in the project itself through startAge
   withPage({}, async (m) => {
     await m.connect();
     m.clear();
+    await openPlus(m);
     await m.click(m.byText(".tabs-btn", /Choose agent/));
     await fill(m, "#start-task", "  write the tests  ");
     await choose(m, "#start-role", "worker");
@@ -319,6 +329,7 @@ test("a role with no task is refused in the dialog and nothing is sent", () =>
   withPage({}, async (m) => {
     await m.connect();
     m.clear();
+    await openPlus(m);
     await m.click(m.byText(".tabs-btn", /Choose agent/));
     await choose(m, "#start-role", "worker");
     await m.click(m.byText(".dialog-btn", /^Start$/));
@@ -330,6 +341,7 @@ test("a role with no task is refused in the dialog and nothing is sent", () =>
 test("the worktree option is drawn, says what it does, needs a task, and starts the agent in a fresh worktree", () =>
   withPage({}, async (m) => {
     await m.connect();
+    await openPlus(m);
     await m.click(m.byText(".tabs-btn", /Choose agent/));
     const box = m.container.find("#start-worktree");
     assert.ok(box, "no checkbox");
@@ -351,6 +363,7 @@ test("the worktree option is drawn, says what it does, needs a task, and starts 
 test("an agent that is not installed cannot be picked, and its option says so", () =>
   withPage({}, async (m) => {
     await m.connect();
+    await openPlus(m);
     await m.click(m.byText(".tabs-btn", /Choose agent/));
     const groups = m.container.findAll("optgroup").map((g) => g.attributes.label);
     assert.ok(groups.some((l) => /Codex \(not installed, see npm i -g codex\)/.test(l)), JSON.stringify(groups));
@@ -376,6 +389,7 @@ async function walk(m, from, shiftKey, steps) {
 test("Tab walks the start dialog's controls in order and wraps, Shift+Tab walks back", () =>
   withPage({}, async (m) => {
     await m.connect();
+    await openPlus(m);
     await m.click(m.byText(".tabs-btn", /Choose agent/));
     const dialog = m.container.find(".dialog");
     const agent = dialog.find("#start-agent");
@@ -388,6 +402,7 @@ test("Escape closes the dialog, other keys are left alone, and nothing is sent",
   withPage({}, async (m) => {
     await m.connect();
     m.clear();
+    await openPlus(m);
     await m.click(m.byText(".tabs-btn", /Choose agent/));
     const dialog = m.container.find(".dialog");
     const cancel = m.byText(".dialog-btn", /^Cancel$/);
@@ -462,6 +477,7 @@ test("rename: Enter sends the title, Escape leaves it, empty asks for the automa
   withPage({}, async (m) => {
     await m.connect();
     m.clear();
+    await openPlus(m);
     await m.click(m.byText(".tabs-btn", /^Rename$/));
     assert.ok(m.container.find(".tab-rename"), "no field");
     assert.equal(valueIn(m.container.find(".tab-rename")), "Second");
@@ -473,6 +489,7 @@ test("rename: Enter sends the title, Escape leaves it, empty asks for the automa
     assert.equal(m.dom.document.activeElement, pickOf(m, "t2"), "the keyboard goes back to the tab");
 
     m.clear();
+    await openPlus(m);
     await m.click(m.byText(".tabs-btn", /^Rename$/));
     await fill(m, ".tab-rename", "Never sent");
     m.container.find(".tab-rename").keydown("Escape");
@@ -508,7 +525,9 @@ test("move left and right send the tab it goes in front of, and are off at the e
   withPage({}, async (m) => {
     await m.connect();
     m.clear();
+    await openPlus(m);
     await m.click(m.byText(".tabs-btn", /^Move left$/));
+    await openPlus(m);
     await m.click(m.byText(".tabs-btn", /^Move right$/));
     assert.deepEqual(m.sent("moveTab"), [{ cmd: "moveTab", id: "t2", target: "t1" }, { cmd: "moveTab", id: "t2", target: "" }]);
     m.clear();
@@ -519,6 +538,7 @@ test("move left and right send the tab it goes in front of, and are off at the e
     assert.deepEqual(m.sent("moveTab"), [{ cmd: "moveTab", id: "t2", target: "t1" }]);
     // The first tab has nowhere to go left.
     await m.push(stateOf(graph(), {}, { activeTab: "t1" }));
+    await openPlus(m);
     assert.equal(!!m.byText(".tabs-btn", /^Move left$/).disabled || m.byText(".tabs-btn", /^Move left$/).attributes.disabled !== undefined, true);
   }));
 
@@ -584,6 +604,7 @@ test("while the start dialog is open no key reaches an action under it", () =>
   withPage({ extra: { [TAX]: { permission: { tool: "Bash", options: [] } } } }, async (m) => {
     await m.connect();
     await open(m, TAX);
+    await openPlus(m);
     await m.click(m.byText(".tabs-btn", /Choose agent/));
     m.clear();
     await m.key("Ctrl+Shift+W");
@@ -786,6 +807,7 @@ test("a window with no catalog says no agent can be started and sends nothing", 
   withPage({ over: { agents: undefined } }, async (m) => {
     await m.connect();
     m.clear();
+    await openPlus(m);
     await m.click(m.byText(".tabs-btn", /Choose agent/));
     assert.match(m.container.find(".dialog").textContent, /has not sent the list of agents/);
     await m.click(m.byText(".dialog-btn", /^Start$/));
@@ -838,6 +860,7 @@ test("arrow keys with a modifier, or from anywhere but a tab button, are left al
     }
     assert.equal(m.dom.document.activeElement, pickOf(m, "t2"));
     // The rename field is in the list; its arrows move its caret.
+    await openPlus(m);
     await m.click(m.byText(".tabs-btn", /^Rename$/));
     assert.equal(m.container.find(".tab-rename").keydown("ArrowRight").defaultPrevented, false);
     // The close button is not a tab.
@@ -891,4 +914,25 @@ test("a tab the keyboard reaches by a click or by Tab becomes the tab stop", () 
     pickOf(m, "t1").dispatch("focus");
     await settle();
     assert.deepEqual(stopOf(m), ["0", "-1", "-1"]);
+  }));
+
+test("the tab strip is tabs, a \"+\" menu and a views switch: the actions are in the menu, which Escape closes", () =>
+  withPage({}, async (m) => {
+    await m.connect();
+    assert.equal(m.container.find(".tabs-menu"), null, "closed to begin with");
+    assert.equal(m.container.findAll(".tabs-btn").length, 0, "no action buttons on the strip");
+    const plus = m.container.find(".tabs-plus");
+    await m.click(plus);
+    assert.equal(plus.attributes["aria-expanded"], "true");
+    const names = m.container.findAll(".tabs-btn").map((b) => b.textContent.trim());
+    for (const want of ["New agent tab", "Choose agent…", "New shell tab", "Resume…", "Find pane…", "Rename", "Move left", "Move right"]) {
+      assert.ok(names.includes(want), want + " is in the menu");
+    }
+    const menu = m.container.find(".tabs-menu");
+    menu.keydown("Escape");
+    await settle();
+    assert.equal(m.container.find(".tabs-menu"), null);
+    assert.equal(m.dom.document.activeElement, m.container.find(".tabs-plus"), "the keyboard is back on the +");
+    const views = m.container.findAll(".tabs-view").map((b) => b.textContent.trim());
+    assert.deepEqual(views, ["Graph", "Changes"]);
   }));

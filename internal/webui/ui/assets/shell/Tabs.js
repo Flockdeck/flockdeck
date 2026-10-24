@@ -1,6 +1,7 @@
 // The tab strip: the desk's tabs for the project on screen, as the state push
 // lists them. A tab is chosen, renamed, moved left or right, or closed here, and
-// a new agent tab or shell tab is opened from the buttons at its end. The desk
+// a new agent tab or shell tab is opened from the "+" menu at its end, which also
+// holds Choose agent, Resume, Find pane, Rename and the two moves. The desk
 // decides everything: this sends a command and draws what the next state says,
 // so a refusal (a tab with a locked pane cannot be closed) arrives as a notice.
 //
@@ -29,7 +30,7 @@ export const CLOSE_WAITING_WORDS = "An agent in this tab is waiting for your ans
 /** Tabs draws the strip. tabs are from tabsOf; send is the store's; onChoose
  *  opens the start dialog for a tab on a chosen agent. With show false (the
  *  window is on a project that is not the desk's) there is only the note. */
-export function Tabs({ tabs, send, onChoose, onHistory = null, onFind = null, warnFor, show = true }) {
+export function Tabs({ tabs, send, onChoose, onHistory = null, onFind = null, onGraph = null, onChanges = null, warnFor, show = true }) {
   const [renaming, setRenaming] = useState("");
   const [closing, setClosing] = useState(null);
   const [stop, setStop] = useState("");
@@ -101,22 +102,83 @@ export function Tabs({ tabs, send, onChoose, onHistory = null, onFind = null, wa
                 onRename=${() => setRenaming(t.id)}
                 onClose=${() => askClose(t)} />`)}
       </ul>
-      <div class="tabs-actions">
-        <button type="button" class="tabs-btn" onClick=${() => send({ cmd: "newTab", kind: "agent" })}>New agent tab</button>
-        <button type="button" class="tabs-btn" onClick=${() => onChoose && onChoose()}>Choose agent…</button>
-        <button type="button" class="tabs-btn" onClick=${() => send({ cmd: "newTab", kind: "shell" })}>New shell tab</button>
-        ${onHistory ? html`<button type="button" class="tabs-btn tabs-history" onClick=${onHistory}>Resume…</button>` : null}
-        ${onFind ? html`<button type="button" class="tabs-btn tabs-find" onClick=${onFind}>Find pane…</button>` : null}
+      <${PlusMenu}>${(act) => html`
+        <button type="button" role="menuitem" class="tabs-btn" onClick=${act(() => send({ cmd: "newTab", kind: "agent" }))}>New agent tab</button>
+        <button type="button" role="menuitem" class="tabs-btn" onClick=${act(() => onChoose && onChoose())}>Choose agent…</button>
+        <button type="button" role="menuitem" class="tabs-btn" onClick=${act(() => send({ cmd: "newTab", kind: "shell" }))}>New shell tab</button>
+        ${onHistory ? html`<button type="button" role="menuitem" class="tabs-btn tabs-history" onClick=${act(onHistory)}>Resume…</button>` : null}
+        ${onFind ? html`<button type="button" role="menuitem" class="tabs-btn tabs-find" onClick=${act(onFind)}>Find pane…</button>` : null}
         ${current
-          ? html`<button type="button" class="tabs-btn" onClick=${() => setRenaming(current.id)}>Rename</button>
-              <button type="button" class="tabs-btn" onClick=${() => move(-1)} disabled=${!moveTabCommand(tabs, current.id, -1)}>Move left</button>
-              <button type="button" class="tabs-btn" onClick=${() => move(1)} disabled=${!moveTabCommand(tabs, current.id, 1)}>Move right</button>`
-          : null}
-      </div>
+          ? html`<hr class="tabs-sep" />
+              <button type="button" role="menuitem" class="tabs-btn" onClick=${act(() => setRenaming(current.id))}>Rename</button>
+              <button type="button" role="menuitem" class="tabs-btn" onClick=${act(() => move(-1))} disabled=${!moveTabCommand(tabs, current.id, -1)}>Move left</button>
+              <button type="button" role="menuitem" class="tabs-btn" onClick=${act(() => move(1))} disabled=${!moveTabCommand(tabs, current.id, 1)}>Move right</button>`
+          : null}`}<//>
+      ${onGraph || onChanges
+        ? html`<div class="tabs-views" role="group" aria-label="Views">
+            ${onGraph ? html`<button type="button" class="tabs-view is-on" aria-pressed="true" onClick=${onGraph}>Graph</button>` : null}
+            ${onChanges ? html`<button type="button" class="tabs-view" aria-pressed="false" onClick=${onChanges}>Changes</button>` : null}
+          </div>`
+        : null}
       ${closing
         ? html`<${Confirm} title="Close this tab?" words=${closing.words} label="Close tab"
             onConfirm=${() => { send({ cmd: "closeTab", id: closing.id }); setClosing(null); }} onCancel=${() => setClosing(null)} />`
         : null}
+    </div>
+  `;
+}
+
+/** PlusMenu is the "+" at the end of the tabs and the menu it opens. Its child is a
+ *  function that is given `act`, which wraps an item's action so that choosing the
+ *  item gives the keyboard back to the "+" and closes the menu before the action
+ *  runs (a dialog the action opens then takes the "+" as where to return to); Escape closes it and gives the keyboard back to the "+";
+ *  Up and Down move along the items; a press outside closes it. */
+function PlusMenu({ children }) {
+  const [open, setOpen] = useState(false);
+  const box = useRef(null);
+  const items = () => (box.current ? [...box.current.querySelectorAll('[role="menuitem"]')].filter((b) => !b.disabled) : []);
+  useEffect(() => {
+    if (!open) return undefined;
+    const first = items()[0];
+    if (first && first.focus) first.focus();
+    const doc = box.current && box.current.ownerDocument;
+    const away = (e) => { if (box.current && !box.current.contains(e.target)) setOpen(false); };
+    if (doc && doc.addEventListener) doc.addEventListener("mousedown", away);
+    return () => { if (doc && doc.removeEventListener) doc.removeEventListener("mousedown", away); };
+  }, [open]);
+  const close = (refocus) => {
+    setOpen(false);
+    if (refocus && box.current) {
+      const plus = box.current.querySelector(".tabs-plus");
+      if (plus && plus.focus) plus.focus();
+    }
+  };
+  const act = (fn) => () => {
+    close(true);
+    if (fn) fn();
+  };
+  const onKeyDown = (e) => {
+    if (!open || composing(e) || e.ctrlKey || e.altKey || e.metaKey) return;
+    if (e.key === LIST.cancel) {
+      e.preventDefault();
+      e.stopPropagation();
+      close(true);
+      return;
+    }
+    const down = e.key === LIST.down, up = e.key === LIST.up;
+    if (!down && !up) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const list = items();
+    const at = list.indexOf(e.target);
+    const to = down ? (at + 1) % list.length : (at - 1 + list.length) % list.length;
+    if (list[to]) list[to].focus();
+  };
+  return html`
+    <div class="tabs-plus-box" ref=${box} onKeyDown=${onKeyDown}>
+      <button type="button" class="tabs-plus" aria-label="New tab and tab actions" title="New tab and tab actions" aria-haspopup="menu" aria-expanded=${open ? "true" : "false"}
+        onClick=${() => setOpen(!open)}>+</button>
+      ${open ? html`<div class="tabs-menu" role="menu" aria-label="Tab actions">${children(act)}</div>` : null}
     </div>
   `;
 }
