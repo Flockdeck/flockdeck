@@ -289,7 +289,7 @@ async function withPage(opts, fn) {
       el.dispatch("change");
       await settle();
     },
-    pane: async (pane) => { await m.click(m.box(pane)); assert.ok(m.container.find(".life"), "no drawer"); },
+    pane: async (pane) => { await m.click(m.box(pane)); assert.ok(m.container.find(".drawer-more"), "no drawer"); },
     palette: async (re) => {
       await m.key("k", { ctrlKey: true, shiftKey: true });
       const row = container.findAll("li").concat(container.findAll("button")).find((e) => re.test(e.textContent) && e.closest && e.closest("li"));

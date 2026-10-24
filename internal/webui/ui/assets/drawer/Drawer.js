@@ -123,8 +123,13 @@ function DrawerBody({ store, snap = null, node, pane = null, now, maximised = fa
   }, [store, node.pane]);
   const [tab, setTab] = useState("terminal");
   const [taskOpen, setTaskOpen] = useState(false);
+  // The pane's actions (restart, lock, close, info, find, recording, export) are
+  // behind one button in the header: eight buttons in three rows were 130 px of
+  // the drawer before any of its content.
+  const [more, setMore] = useState(false);
   useEffect(() => {
     setTab("terminal");
+    setMore(false);
     setTaskOpen(false);
     setFinding(false);
     setMatches(null);
@@ -186,6 +191,10 @@ function DrawerBody({ store, snap = null, node, pane = null, now, maximised = fa
   const onSearch = (q) => store.searchConversation(q);
   const onClearSearch = () => store.clearSearch();
   const canExport = !!tx && !state.remote && canTranscribe(node, pane);
+  // The actions show when asked for, and stay while a question about one of them is
+  // open, so a confirmation cannot be hidden by closing the button's panel.
+  const asking = (life && life.request && life.request.pane === node.pane) || (tx && tx.request && tx.request.pane === node.pane);
+  const showMore = more || !!asking;
   const sendKeys = (text, done) => {
     const send = keysFor(terminalRef, node.pane);
     return !!send && send(text, done);
@@ -193,12 +202,16 @@ function DrawerBody({ store, snap = null, node, pane = null, now, maximised = fa
   return html`
     <section class=${"drawer-body" + (maximised ? " drawer-body--max" : "")} data-drawer-pane=${node.pane} tabindex="-1" ref=${rootRef} onKeyDown=${onKeyDown}>
       <${Header} node=${node} pane=${pane} now=${now} maximised=${maximised} onClose=${onClose} onToggleMax=${onToggleMax}
-        taskOpen=${taskOpen} onTask=${() => setTaskOpen(!taskOpen)} />
+        taskOpen=${taskOpen} onTask=${() => setTaskOpen(!taskOpen)} moreOpen=${showMore} onMore=${life || tx ? () => setMore(!more) : null} />
       ${taskOpen && node.task ? html`<${Task} key=${node.task.id} node=${node} snap=${state} store=${store} onOpenPane=${onOpenPane} onClose=${() => setTaskOpen(false)} />` : null}
-      ${life ? html`<${Lifecycle} node=${node} pane=${pane} life=${life} />` : null}
-      ${tx
-        ? html`<${Tools} node=${node} pane=${pane} tx=${tx} remote=${!!state.remote} terminal=${terminal} finding=${finding} send=${(c) => store.send(c)}
-            onInfo=${onInfo} onFind=${() => { setTab("terminal"); setFinding(true); setAskSeq((n) => n + 1); }} />`
+      ${showMore
+        ? html`<div class="drawer-more-panel" id="drawer-more">
+            ${life ? html`<${Lifecycle} node=${node} pane=${pane} life=${life} />` : null}
+            ${tx
+              ? html`<${Tools} node=${node} pane=${pane} tx=${tx} remote=${!!state.remote} terminal=${terminal} finding=${finding} send=${(c) => store.send(c)}
+                  onInfo=${onInfo} onFind=${() => { setTab("terminal"); setFinding(true); setAskSeq((n) => n + 1); }} />`
+              : null}
+          </div>`
         : null}
       <${Prompt} node=${node} pane=${pane} snap=${state} store=${store} sendKeys=${sendKeys} terminal=${terminal} />
       <div class="drawer-tabs" role="tablist" aria-label="Views of this agent" onKeyDown=${tabKeys}>
