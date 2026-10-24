@@ -18,9 +18,9 @@
   padding: 10px 12px 8px;
   border-bottom: 1px solid var(--line);
 }
-.drawer-title { display: flex; align-items: center; gap: 8px; }
+.drawer-title { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
 .drawer-name {
-  flex: 1 1 auto;
+  flex: 1 1 12ch;
   min-width: 0;
   margin: 0;
   font-size: 15px;
@@ -29,7 +29,7 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.drawer-actions { display: flex; flex: 0 1 auto; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.drawer-actions { display: flex; flex: 1 1 auto; flex-wrap: nowrap; justify-content: flex-end; gap: 6px; }
 .drawer-btn {
   min-height: 28px;
   padding: 0 10px;
@@ -90,7 +90,9 @@
 
 /* Maximised: the drawer takes the main area as well, and the graph is not drawn
  * while it does. It is still kept up to date, so it is current when restored. */
-.shell--max { grid-template-columns: var(--rail-w) minmax(0, 1fr); grid-template-areas: "rail top" "rail drawer" "rail notices"; }
+/* The manager bar (composer) keeps its row: an area left out of the template is placed in an
+   implicit column and squeezes the drawer. */
+.shell--max { grid-template-columns: var(--rail-w) minmax(0, 1fr); grid-template-areas: "rail top" "rail drawer" "rail composer" "rail notices"; }
 .shell--max .main { display: none; }
 .shell--max .drawer { width: auto; }
 
