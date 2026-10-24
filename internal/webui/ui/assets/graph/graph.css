@@ -453,3 +453,5 @@
 .goalline-facts { display: flex; flex-wrap: wrap; gap: 2px 14px; margin-left: auto; font-family: var(--mono); font-size: 12px; color: var(--fg-dim); }
 .goalline-needs { color: var(--waiting); }
 .goalline-helpers.is-capped { color: var(--waiting); }
+.graph-empty p { margin: 0 0 8px; }
+.graph-empty-start { font: inherit; }
