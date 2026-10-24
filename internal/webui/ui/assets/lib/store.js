@@ -168,6 +168,7 @@
 // another project replaces the first.
 
 import { createSocket } from "./socket.js";
+import { clientHello, mismatchNotice, unsupportedNotice } from "./apiversion.js";
 
 /** DESK_ONLY_CODE is the code the desktop puts on the refusal it gives a window
  *  reached through the relay (internal/server/teamui.go, teamDeskOnlyCode).
@@ -396,6 +397,8 @@ export function createStore(opts) {
         // A new hello starts the connection over. What a graph command
         // refused before is tried again unless this window is remote.
         set({ hello: msg, remote, graphRefused: remote, graphError: null, radar: null });
+        // Tell the desktop which API this page speaks; it answers only if they do not match.
+        socket.send(clientHello());
         // A watch asked for before this hello was known is dropped in a remote window, so stop() sends nothing for it.
         if (remote) { watching = null; watchingPane = null; watchingTeam = null; }
         if (!remote && watching !== null) sendGraphWatch();
@@ -617,6 +620,12 @@ export function createStore(opts) {
       case "detached":
         set({ detached: true });
         break;
+      case "apiMismatch":
+      case "unsupported": {
+        const n = msg.type === "apiMismatch" ? mismatchNotice(msg) : unsupportedNotice(msg);
+        if (n) set({ notice: { ...n, seq: ++noticeSeq } });
+        break;
+      }
       case "noticeWithdraw":
         if (typeof msg.id === "string" && snap.approvals.some((a) => a.id === msg.id)) set({ approvals: snap.approvals.filter((a) => a.id !== msg.id) });
         break;

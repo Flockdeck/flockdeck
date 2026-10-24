@@ -206,6 +206,9 @@ func (c *controlClient) refuseViewer() {
 var viewerMessageTypes = map[string]bool{
 	"hello":     true,
 	"artifacts": true,
+	// A viewer is told when its version or one of its commands is not understood.
+	"apiMismatch": true,
+	"unsupported": true,
 }
 
 var watcherMessageTypes = map[string]bool{

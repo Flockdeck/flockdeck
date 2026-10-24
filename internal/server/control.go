@@ -1136,6 +1136,9 @@ type controlClient struct {
 	// artifactsTold is what the window has been told about artifacts: 0 not
 	// yet, else artifactsTellYes or artifactsTellNo.
 	artifactsTold atomic.Int32
+	// api is the version the window said it was built for in its clientHello,
+	// nil until it has (apiversion.go).
+	api atomic.Pointer[apiVersion]
 	// accessOf says what the desk allows this window, looked up each time it is
 	// asked rather than kept: the desk can change it while the socket is open.
 	// Nil for a window on this machine, which is not a device and is not limited.
@@ -1480,6 +1483,10 @@ func (s *Server) handleControl(w http.ResponseWriter, r *http.Request) {
 		if json.Unmarshal(data, &cmd) != nil {
 			continue
 		}
+		if cmd.Cmd == "" && messageType(data) == "clientHello" {
+			s.clientHello(c, data)
+			continue
+		}
 		s.guardFor(c, "handling "+cmdName(cmd.Cmd), func() { s.handleCommand(c, cmd) })
 	}
 }
@@ -1575,6 +1582,11 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 	// A viewer's commands are refused before anything below looks at them.
 	if !s.allowCommand(c, cmd.Cmd) {
 		c.refuseViewer()
+		return
+	}
+	// A command this server has no handler for is told so. A viewer was refused
+	// above, as for every command it may not send, and is not told which exist.
+	if c.refuseUnknown(cmd.Cmd) {
 		return
 	}
 	// No conversation text goes to a window reached through the relay until
