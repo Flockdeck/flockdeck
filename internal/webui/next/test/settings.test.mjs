@@ -58,7 +58,7 @@ test("a stored value in range is kept", () => {
   assert.deepEqual(p, {
     theme: "system", accent: "pink", fontSize: 20, fontFamily: "Fira Code", scrollback: 50000, cursorStyle: "underline",
     cursorSteady: true, screenReader: true, autoReviewDefault: true, dismissedTips: 0,
-    notificationsOff: false, jevStatus: false, push: { off: false, anonymous: false, delaySeconds: 30 },
+    notificationsOff: false, jevStatus: false, conflictRadar: false, push: { off: false, anonymous: false, delaySeconds: 30 },
   });
   assert.equal(prefsOf({ theme: "light" }).theme, "light");
 });
