@@ -493,3 +493,10 @@ test("scrolling to the top steps up, and asks the desktop only when all that is 
     m.done();
   }
 });
+
+test("a link whose text is a web address for another host shows the real host beside it", () => {
+  const out = md("[https://github.com/x](https://evil.example/p) and [https://ok.test/a](https://ok.test/b) and [label](https://evil.example)");
+  assert.ok(out.includes('href="https://evil.example/p"'));
+  assert.ok(out.includes("(evil.example)"), "the real host was not shown: " + out);
+  assert.equal(out.split("md-linkhost").length - 1, 1, "a same-host link or a plain label got a host");
+});

@@ -327,13 +327,13 @@ test("details go when the conversation is closed, changed, or started over", asy
   store.watchConversation("p1");
   store.requestDetail("t1");
   ws.frame({ type: "conversationPage", id: "p1", supported: true, entries: [{ id: "x", kind: "prompt", text: "a" }], atStart: true, reset: true });
-  assert.deepEqual(store.getState().details, {});
+  assert.deepEqual(Object.keys(store.getState().details), []);
   store.requestDetail("t1");
   store.watchConversation("p2");
-  assert.deepEqual(store.getState().details, {});
+  assert.deepEqual(Object.keys(store.getState().details), []);
   store.requestDetail("t1");
   store.unwatchConversation();
-  assert.deepEqual(store.getState().details, {});
+  assert.deepEqual(Object.keys(store.getState().details), []);
   assert.equal(store.requestDetail("t1"), false, "asked with no conversation open");
 });
 
@@ -421,4 +421,18 @@ test("the card in the strip and the card in the stream give one answer, once, wh
 test("a card made for the relay draws no details in the stream either", () => {
   const out = draw(html`<${StreamPermission} node=${{ pane: "p1" }} card=${{ seq: 1, requestId: "r", tool: "Bash", redacted: true, command: "SECRET-COMMAND", options: [] }} snap=${{ remote: false, answer: null, asking: null }} store=${{ send() { return false; } }} />`);
   assert.ok(!out.includes("SECRET-COMMAND"), out);
+});
+
+test("an entry id of __proto__, toString or constructor is an ordinary key of the details", async () => {
+  const { store, ws } = await up();
+  store.watchConversation("p1");
+  for (const id of ["__proto__", "toString", "constructor"]) {
+    assert.equal(store.getState().details[id], undefined, id + " was there before it was asked for");
+    assert.equal(store.requestDetail(id), true);
+    assert.equal(store.getState().details[id].state, "loading", id);
+    ws.frame({ type: "conversationDetail", id: "p1", entry: id, detail: { text: "out " + id } });
+    assert.equal(store.getState().details[id].detail.text, "out " + id);
+  }
+  assert.equal(Object.getPrototypeOf(store.getState().details), null);
+  assert.equal(ws.commands("conversationDetail").length, 3);
 });
