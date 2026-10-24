@@ -28,8 +28,12 @@ type changeView struct {
 }
 
 type changesMsg struct {
-	Type      string       `json:"type"`
-	Cwd       string       `json:"cwd"`
+	Type string `json:"type"`
+	Cwd  string `json:"cwd"`
+	// Path is the directory the listing was asked about, which is not Cwd
+	// when it was a folder inside the checkout. The window uses it to drop
+	// an answer to a question it has since replaced.
+	Path      string       `json:"path,omitempty"`
 	Branch    string       `json:"branch"`
 	Upstream  string       `json:"upstream"`
 	Ahead     int          `json:"ahead"`
@@ -186,7 +190,7 @@ func collectChanges(dir string) changesMsg { return collectChangesUpTo(dir, maxP
 // collectChangesUpTo is collectChanges with the limit given, so a test can
 // reach it without a working tree full of thousands of files.
 func collectChangesUpTo(dir string, limit int) changesMsg {
-	msg := changesMsg{Type: "changes", Cwd: dir}
+	msg := changesMsg{Type: "changes", Cwd: dir, Path: dir}
 	if !gitx.Available() {
 		msg.Error = "git is not installed"
 		return msg
