@@ -46,6 +46,7 @@
     },
     {
       "activity": "idle",
+      "below": 3,
       "children": [
         "dev",
         "eyes"
@@ -53,9 +54,11 @@
       "depth": 0,
       "kind": "terminal",
       "name": "boss",
+      "needYou": 1,
       "pane": "boss",
       "role": "manager",
       "since": "<time>",
+      "spendPartial": true,
       "status": "idle",
       "team": "boss",
       "waitingOn": {
@@ -66,6 +69,7 @@
     },
     {
       "activity": "working",
+      "below": 1,
       "children": [
         "nested"
       ],
@@ -77,6 +81,7 @@
       "parent": "boss",
       "role": "worker",
       "since": "<time>",
+      "spendPartial": true,
       "status": "working",
       "team": "boss",
       "waitingOn": {
@@ -93,6 +98,7 @@
       "parent": "boss",
       "role": "reviewer",
       "since": "<time>",
+      "spendPartial": true,
       "status": "waiting",
       "team": "boss",
       "waitingOn": {
@@ -108,6 +114,7 @@
       "pane": "nested",
       "parent": "dev",
       "since": "<time>",
+      "spendPartial": true,
       "status": "idle",
       "team": "boss",
       "waitingOn": {
@@ -121,6 +128,7 @@
       "name": "lone",
       "pane": "lone",
       "since": "<time>",
+      "spendPartial": true,
       "status": "idle",
       "waitingOn": {
         "kind": "none"
@@ -128,6 +136,7 @@
     },
     {
       "activity": "idle",
+      "below": 1,
       "children": [
         "helper2"
       ],
@@ -137,6 +146,7 @@
       "pane": "boss2",
       "role": "manager",
       "since": "<time>",
+      "spendPartial": true,
       "status": "idle",
       "team": "boss2",
       "unread": 1,
@@ -153,8 +163,10 @@
       "parent": "boss2",
       "role": "worker",
       "since": "<time>",
+      "spendPartial": true,
       "status": "idle",
       "team": "boss2",
+      "undelivered": 1,
       "waitingOn": {
         "kind": "none"
       }

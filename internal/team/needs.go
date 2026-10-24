@@ -232,6 +232,13 @@ func NeedsYou(g Graph, panes []GraphPane, tasks []GraphTask, conflicts []PaneCon
 	return out
 }
 
+// AsksPerson says an item of this kind wants something from the person, as
+// opposed to the quiet kinds (old unread mail, a pane gone quiet), which only say
+// where to look.
+func AsksPerson(kind string) bool {
+	return kind != NeedStaleUnread && kind != NeedStuck
+}
+
 // quietFor is a quiet time as "12m" or "2h 5m".
 func quietFor(d time.Duration) string {
 	m := int(d / time.Minute)

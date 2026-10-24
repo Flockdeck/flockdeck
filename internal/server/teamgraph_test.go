@@ -275,3 +275,64 @@ func TestGraphAndTeamSubscriptionsAreIndependent(t *testing.T) {
 		t.Error("unwatching the graph changed the Team subscription")
 	}
 }
+
+// Each node carries its own rollup: how many panes are below it, how many of
+// those wait on the person, and how many messages it sent that were not told yet.
+// The message count is exact, past the newest maxGraphEdges the edges list.
+func TestGraphNodesCarryTheirRollupAndAnExactUndeliveredCount(t *testing.T) {
+	e := newGraphEnv(t)
+	hookSrv := e.ws.HookServer()
+	api, token := hookSrv.BaseURL(), hookSrv.Token()
+	// A pane's inbox holds 100 unread messages, so the last five go to another.
+	for i := 0; i < maxGraphEdges+5; i++ {
+		to := "manager"
+		if i >= maxGraphEdges {
+			to = e.eyes
+		}
+		if _, err := hooks.Msg(api, token, e.dev, to, "question"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	g := e.snapshotGraph(t)
+	below := map[string]int{e.boss: 3, e.dev: 1, e.eyes: 0, e.nested: 0}
+	for id, want := range below {
+		if n, _ := g.node(id); n.Below != want {
+			t.Errorf("%s: below = %d, want %d", id, n.Below, want)
+		}
+	}
+	if n, _ := g.node(e.boss); n.NeedYou != 0 {
+		t.Errorf("needYou = %d with nobody waiting", n.NeedYou)
+	}
+	var queued int
+	for _, ed := range g.Edges {
+		if ed.Kind == "message" && ed.From == e.dev && ed.Delivery == "queued" {
+			queued++
+		}
+	}
+	if queued != maxGraphEdges {
+		t.Fatalf("the edges list %d queued messages, want the bound %d", queued, maxGraphEdges)
+	}
+	if n, _ := g.node(e.dev); n.Undelivered != maxGraphEdges+5 {
+		t.Errorf("undelivered = %d, want the exact %d", n.Undelivered, maxGraphEdges+5)
+	}
+	if n, _ := g.node(e.boss); n.Undelivered != 0 {
+		t.Errorf("the boss sent nothing, undelivered = %d", n.Undelivered)
+	}
+	// A shell that has written has a time, in RFC 3339; a pane's spend is absent
+	// when it reported none.
+	for _, n := range g.Nodes {
+		if n.LastOutput != "" {
+			if _, err := time.Parse(time.RFC3339, n.LastOutput); err != nil {
+				t.Errorf("%s: lastOutput %q: %v", n.Pane, n.LastOutput, err)
+			}
+		}
+		if n.SpendUSD < 0 {
+			t.Errorf("%s: spend %v", n.Pane, n.SpendUSD)
+		}
+	}
+	// The same push still validates against the schema.
+	raw, _ := json.Marshal(g)
+	if errs := loadGraphSchema(t).Validate(raw); len(errs) != 0 {
+		t.Errorf("does not match the schema: %v", errs)
+	}
+}

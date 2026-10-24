@@ -239,6 +239,7 @@ func TestSchemaPropertiesAreDescribed(t *testing.T) {
 
 var projectDir = regexp.MustCompile(`flockdeck-state-[0-9]+`)
 
+var lastOutputInDoc = regexp.MustCompile(`,"lastOutput":"[^"]*"`)
 var timeInDoc = regexp.MustCompile(`"(since|started|time)":"[^"]*"`)
 
 // enumOf reads the values of the enum of one property of a definition.
@@ -336,7 +337,10 @@ func TestTwoTeamGraphMatchesTheGoldenFile(t *testing.T) {
 		return true
 	})
 	raw = rawGraph(t, e)
-	out := string(timeInDoc.ReplaceAll(raw, []byte(`"$1":"<time>"`)))
+	// lastOutput is whether a shell had written yet when the graph was read, so the
+	// golden file leaves it out.
+	out := string(lastOutputInDoc.ReplaceAll(raw, nil))
+	out = timeInDoc.ReplaceAllString(out, `"$1":"<time>"`)
 	out = projectDir.ReplaceAllString(out, "<project>")
 	for id, n := range names {
 		out = strings.ReplaceAll(out, id, n)
