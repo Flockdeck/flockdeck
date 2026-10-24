@@ -10,7 +10,7 @@ import { dirname, join } from "node:path";
 import { render } from "../assets/vendor/preact.mjs";
 import { renderToString } from "./vendor/render-to-string.mjs";
 import { html } from "../assets/html.js";
-import { Conversation, Row, toolKind, NO_ENTRIES_WORDS, MAX_TEXT } from "../assets/drawer/Conversation.js";
+import { Conversation, Row, toolKind, NO_ENTRIES_WORDS, MAX_TEXT, MAX_REPLY } from "../assets/drawer/Conversation.js";
 import { Live } from "../assets/shell/Live.js";
 import { VIEWER_REFUSED_PHRASE, REMOTE_CONVERSATION_LINE, MAX_ENTRIES } from "../assets/lib/store.js";
 import { createDom, install, settle } from "./dom.mjs";
@@ -387,9 +387,10 @@ test("a refusal after the conversation was shown does not replace it", async () 
 
 test("long reply text is cut, from the markdown field and from the text field", () => {
   for (const field of ["markdown", "text"]) {
-    const out = renderToString(html`<${Row} entry=${entry(1, { kind: "reply", text: "", markdown: "", [field]: "b".repeat(MAX_TEXT + 500) })} />`);
+    const out = renderToString(html`<${Row} entry=${entry(1, { kind: "reply", text: "", markdown: "", [field]: "b".repeat(MAX_REPLY + 500) })} />`);
     assert.ok(out.includes("b".repeat(100)), field + " was not drawn");
-    assert.ok(!out.includes("b".repeat(MAX_TEXT + 1)), "the whole " + field + " was drawn");
+    assert.ok(!out.includes("b".repeat(MAX_REPLY + 1)), "the whole " + field + " was drawn");
+    assert.ok(out.includes("500 more characters are not shown."), field + " did not say it was cut");
   }
 });
 
