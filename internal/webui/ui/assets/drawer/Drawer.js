@@ -14,7 +14,8 @@
 import { useEffect, useMemo, useReducer, useRef, useState } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
 import { Header } from "./Header.js";
-import { Prompt, StreamPermission } from "./Prompt.js";
+import { Prompt, StreamPermission, waitingOn } from "./Prompt.js";
+import { StreamDecision } from "./StreamDecision.js";
 import { Conversation } from "./Conversation.js";
 import { ChipsContext } from "./conv/chips.js";
 import { Structured } from "./Structured.js";
@@ -202,10 +203,14 @@ function DrawerBody({ store, snap = null, node, pane = null, now, maximised = fa
   // A structured pane's permission is drawn in the conversation too, where it was
   // asked, as the same card the strip has. Only the desk has the card to answer.
   const card = !terminal && !state.remote && state.structured && state.structured.id === node.pane && state.structured.card ? state.structured.card : null;
-  const pending = card ? { card, node: html`<${StreamPermission} node=${node} card=${card} snap=${state} store=${store} />` } : null;
+  // A terminal pane's question is drawn at the end of its conversation, as a decision for the person.
+  const asked = terminal && !state.remote && waitingOn(node, pane) === "ask";
+  const pending = card
+    ? { card, node: html`<${StreamPermission} node=${node} card=${card} snap=${state} store=${store} />` }
+    : asked ? { card: {}, node: html`<${StreamDecision} node=${node} pane=${pane} snap=${state} store=${store} now=${now} />` } : null;
   // While the transcript is showing, the permission is asked there, in the flow, and
   // not a second time above the tabs. Another tab, or a transcript not loaded yet, has none to carry it.
-  const inFlow = !!pending && !!conv && conv.supported === true && !conv.refused && shown === "terminal";
+  const inFlow = !!pending && !!conv && conv.supported === true && !conv.refused && shown === (asked ? "conversation" : "terminal");
   const details = state.details || null;
   const onDetail = (id) => store.requestDetail(id);
   const onOlder = () => store.olderConversation();
