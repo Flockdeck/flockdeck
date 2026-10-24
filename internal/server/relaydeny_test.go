@@ -48,6 +48,25 @@ func TestRelayScrubIsDefaultDeny(t *testing.T) {
 	}
 }
 
+// A gitWarn is the question a repository's programs raise for the window that ran
+// the git command. It is not on the pass list and a relay window is sent nothing
+// for it, whatever it holds.
+func TestGitWarnIsNeverSentToARelayWindow(t *testing.T) {
+	if _, ok := relayPass["gitWarn"]; ok {
+		t.Error("gitWarn is on the pass list")
+	}
+	if _, ok := relayScrubs["gitWarn"]; !ok {
+		t.Error("gitWarn has no scrub that drops it")
+	}
+	raw, err := json.Marshal(gitWarnMsg{Type: "gitWarn", Cwd: "/work/repo", Path: "/work/repo", Action: "commit"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := scrubForRemote(raw); got != nil {
+		t.Errorf("a relay window was sent a gitWarn: %s", got)
+	}
+}
+
 // The pass list is what the phone needs: the roster messages are scrubbed, and
 // the settings, device and helper messages pass.
 func TestRelayPassListHoldsWhatAPhoneNeeds(t *testing.T) {
@@ -59,7 +78,7 @@ func TestRelayPassListHoldsWhatAPhoneNeeds(t *testing.T) {
 		"hello", "prefs", "keys", "keyTable", "artifacts", "agentAddress", "radarSupport", "jevKey",
 		"remotePair", "remoteOutcome", "remoteDevices", "versions", "helpers", "helperPlan",
 		"batonSaved", "attachImageResult", "browse", "recents", "worktrees",
-		"ghProgress", "ghStatus", "gitWarn", "agentStarted", "detached",
+		"ghProgress", "ghStatus", "agentStarted", "detached",
 		"changes", "diff", "ghPR", "ghPRs", "ghIssue", "ghIssues", "ghChecks",
 	}
 	for _, typ := range pinned {

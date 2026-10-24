@@ -75,7 +75,7 @@ opencode 1.19.3, from npm (`opencode-ai`, the Windows x64 program).
    writes no file: Flockdeck's own launch sets `OPENCODE_CONFIG_CONTENT` (the manifest's `launchEnv`), and the
    same run, with opencode 1.19.3, got the permission cards for both commands and passed. The real home
    directories were listed before and after and no opencode directory was made there.
-3. **After a restart, `structuredSnapshot` and the watch push held only the new session's entries. Fixed by #431.**
+3. **After a restart, `structuredSnapshot` and the watch push (then) held only the new session's entries. Fixed by #431.**
    The workspace's own list (`StructuredEntries`) holds the earlier sessions and the notice, and in
    this run `structuredSnapshot` returned two entries (the new prompt and its reply) against 12 in
    the workspace list. A drawer that followed the watch lost the earlier conversation at a restart.

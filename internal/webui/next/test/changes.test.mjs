@@ -102,10 +102,10 @@ test("picking a file asks for its diff and draws it, and picking it again hides 
     await settle();
     assert.deepEqual(st.calls.at(-1), ["diff", "a.go"]);
     assert.ok(box.textContent.includes("Reading the diff"));
-    redraw({ ...snap, diff: { file: "a.go", text: "@@ -1 +1 @@\n-a\n+b\n", error: "" } });
+    redraw({ ...snap, diff: { cwd: "/r", file: "a.go", text: "@@ -1 +1 @@\n-a\n+b\n", error: "" } });
     await settle();
     assert.ok(box.querySelector("[data-diff]"));
-    redraw({ ...snap, diff: { file: "a.go", text: "", error: "git failed" } });
+    redraw({ ...snap, diff: { cwd: "/r", file: "a.go", text: "", error: "git failed" } });
     await settle();
     assert.ok(box.textContent.includes("git failed"));
     box.querySelector(".chg-file-btn").click();
@@ -162,4 +162,41 @@ test("a question about the repository's programs lists them and asks twice befor
     box.querySelector(".chg-warn-stop").click();
     assert.deepEqual(st.calls.at(-1), ["warn", ""]);
   });
+});
+
+test("a diff kept for another directory is not drawn under this tree's file of the same name", async () => {
+  const snap = { changes: ch() };
+  await mount(snap, async (box, st, redraw) => {
+    box.querySelector(".chg-file-btn").click();
+    await settle();
+    redraw({ ...snap, diff: { cwd: "/other", file: "a.go", text: "@@ -1 +1 @@\n-x\n+y\n", error: "" } });
+    await settle();
+    assert.equal(box.querySelector("[data-diff]"), null);
+  });
+});
+
+test("the list is read again, as a follow, when the pane's git counts change, and not on the first draw", async () => {
+  const st = fakeStore();
+  const dom = createDom();
+  const restore = install(dom);
+  try {
+    const box = dom.document.createElement("div");
+    dom.body.appendChild(box);
+    const snap = { changes: ch() };
+    const again = (git, s = snap) => render(html`<${Changes} cwd="/r" git=${git} snap=${s} store=${st} />`, box);
+    again("1/0/0/0");
+    await settle();
+    assert.deepEqual(st.calls, [["changes", "/r", false]]);
+    again("1/0/0/0");
+    await settle();
+    assert.equal(st.calls.length, 1, "the same counts asked again");
+    again("2/0/0/0");
+    await settle();
+    assert.deepEqual(st.calls.at(-1), ["changes", "/r", true]);
+    again("3/0/0/0", { ...snap, changesBusy: "commit" });
+    await settle();
+    assert.equal(st.calls.length, 2, "asked while an action was out");
+  } finally {
+    restore();
+  }
 });

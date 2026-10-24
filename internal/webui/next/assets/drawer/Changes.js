@@ -17,7 +17,7 @@
 // - When the desktop asks about a repository's git settings or hooks (gitWarn)
 //   the tab shows what would run and asks twice, as the old interface did: go on,
 //   then remember or only this time. Nothing runs until it is answered.
-import { useEffect, useState } from "../vendor/hooks.mjs";
+import { useEffect, useRef, useState } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
 import { clip } from "../graph/Node.js";
 import { Diff } from "./conv/Diff.js";
@@ -65,8 +65,10 @@ function Files({ files, selected, onPick }) {
     ${left > 0 ? html`<button type="button" class="drawer-btn chg-more" onClick=${() => setShown((n) => n + LIST_MORE)}>${"Show " + Math.min(LIST_MORE, left).toLocaleString("en-US") + " more files (" + left.toLocaleString("en-US") + " not drawn yet)"}</button>` : null}`;
 }
 
-/** Changes is the tab. cwd is the pane's directory; snap and store are the store's. */
-export function Changes({ cwd, snap, store }) {
+/** Changes is the tab. cwd is the pane's directory; snap and store are the store's.
+ *  git is a string that changes when the pane's git counts do (changed, new, ahead,
+ *  behind): the tree has moved, so the list is read again, as a follow. */
+export function Changes({ cwd, git = "", snap, store }) {
   const [draft, setDraft] = useState("");
   const [problem, setProblem] = useState("");
   const [picked, setPicked] = useState("");
@@ -76,6 +78,15 @@ export function Changes({ cwd, snap, store }) {
     store.requestChanges(cwd, false);
     return () => store.clearChanges();
   }, [store, cwd]);
+  // The tree moved under the tab (the pane's git counts changed): read it again,
+  // quietly. Not while an action is out, and not for the first draw, which asked.
+  const drawn = useRef(git);
+  useEffect(() => {
+    if (drawn.current === git) return;
+    drawn.current = git;
+    const ch = snap.changes;
+    if (cwd && ch && !ch.error && !snap.changesBusy) store.requestChanges(ch.cwd || cwd, true);
+  }, [git]);
   // The draft goes when the commit is made, not when it is sent: a commit the
   // desktop refuses (the tree moved) keeps the words that were typed.
   useEffect(() => {
@@ -85,7 +96,7 @@ export function Changes({ cwd, snap, store }) {
   const ch = snap.changes;
   const busy = snap.changesBusy || "";
   const note = snap.changesNote;
-  const diff = snap.diff && picked && snap.diff.file === picked ? snap.diff : null;
+  const diff = snap.diff && picked && snap.diff.file === picked && snap.diff.cwd === ch.cwd ? snap.diff : null;
   const pick = (path) => {
     if (path === picked) { setPicked(""); return; }
     setPicked(path);

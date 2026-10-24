@@ -8,10 +8,10 @@ It compares two lists the sources hold: the actions of the key table (`internal/
 
 | | Actions | Commands |
 | --- | --- | --- |
-| done | 41 | 114 |
+| done | 42 | 114 |
 | replaced | 0 | 1 |
 | cut | 14 | 12 |
-| planned | 3 | 29 |
+| planned | 2 | 29 |
 | unclassified | 0 | 0 |
 | total | 58 | 156 |
 
@@ -54,7 +54,6 @@ The old interface let a person tile, split, move and broadcast to panes. The new
 
 | Task | Actions | Commands |
 | --- | --- | --- |
-| T132 (C6, Changes) | `changes` |  |
 | T134 (C8, GitHub) |  | `ghChecks`, `ghInstall`, `ghIssue`, `ghIssueComment`, `ghIssueCreate`, `ghIssues`, `ghLogin`, `ghLoginCancel`, `ghLogout`, `ghPR`, `ghPRComment`, `ghPRCreate`, `ghPRs`, `ghStatus` |
 | T136 (L1, start flows and pane lifecycle) | `selectTab`, `closeFinishedPanes` | `closeFinishedPanes`, `focusPane`, `refreshAgents`, `teamClose`, `toggleZoom` |
 | T137 (L2, settings) |  | `dismissTip`, `railExpanded`, `railWidth`, `resetKeybinding`, `resetKeybindings`, `setAgentAddress`, `setAgentDefault`, `setKeybinding`, `statusLine` |
@@ -108,7 +107,7 @@ These are safety and security controls. The new interface has no way to do them 
 | `team` | Team — this project's roster, task board and messages (Ctrl+Shift+M) | done |  |
 | `apiKeys` | API keys… | done |  |
 | `worktrees` | Worktrees (Ctrl+Shift+G) | done |  |
-| `changes` | Review changes, commit and push (Ctrl+Shift+S) | planned | T132 (C6, Changes) |
+| `changes` | Review changes, commit and push (Ctrl+Shift+S) | done |  |
 | `palette` | Command palette (Ctrl+Shift+K) | done |  |
 | `nextRegion` | Move to the next part of the window (F6) | done |  |
 | `prevRegion` | Move to the previous part of the window (Shift+F6) | done |  |

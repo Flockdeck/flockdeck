@@ -82,6 +82,10 @@ var relayScrubs = map[string]func([]byte) []byte{
 	// The commands are refused to a relay window already; this is the second
 	// lock if one is ever let through.
 	"structured": dropForRelay,
+	// A gitWarn names the programs a repository would run (hooks, filters, its
+	// own git settings) and is the question the window that asked a git command
+	// must answer. It is never sent to a relay window; this is the second lock.
+	"gitWarn": dropForRelay,
 }
 
 func dropForRelay([]byte) []byte { return nil }
@@ -113,7 +117,7 @@ var relayPass = map[string]string{
 	"helpers": "helper apps", "helperPlan": "helper apps",
 	"batonSaved":        "ids, a path and a count",
 	"attachImageResult": "a path or a reason", "browse": "folder names", "recents": "project paths", "worktrees": "branches and paths",
-	"ghProgress": "progress", "ghStatus": "gh install state", "gitWarn": "a warning",
+	"ghProgress": "progress", "ghStatus": "gh install state",
 	"agentStarted": "ids", "detached": "a flag",
 	// Repository content, not conversation text: whether a phone is sent a diff
 	// or an issue is a separate decision from T112.
