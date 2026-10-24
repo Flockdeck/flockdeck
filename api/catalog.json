@@ -575,6 +575,12 @@
       "status": "stable"
     },
     {
+      "name": "promote",
+      "access": "full",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
       "name": "pushAnonymous",
       "access": "full",
       "since": "1.0",

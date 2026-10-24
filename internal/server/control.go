@@ -2222,6 +2222,20 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 				return
 			}
 			s.wakeAsked()
+		case "promote":
+			// The person's own act on their machine: what an agent is told it is
+			// decides what it may do, so a window reached through the relay does
+			// not make one.
+			if c.remote {
+				c.notify("Making an agent the manager is done on the machine Flockdeck runs on, not from a window reached through the relay", true)
+				return
+			}
+			if err := ws.PromotePane(paneIDFor(ws, cmd.ID), cmd.Role); err != nil {
+				c.notify(err.Error(), true)
+				return
+			}
+			s.saveLayouts()
+			s.wakeAsked()
 		case "autoReview":
 			if p := ws.Pane(cmd.ID); p != nil && !p.IsAgent() {
 				c.notify(autoReviewShellNotice, true)
