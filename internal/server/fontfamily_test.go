@@ -20,7 +20,7 @@ func TestTheTerminalFontIsRemembered(t *testing.T) {
 	if got := nextPrefs(t, conn, func(p store.Prefs) bool { return p.FontFamily != "" }); got.FontFamily != "Fira Code" {
 		t.Fatalf("the font pushed to the windows is %q, want %q", got.FontFamily, "Fira Code")
 	}
-	if saved := store.LoadPrefs(); saved.FontFamily != "Fira Code" {
+	if saved := store.LoadPrefs(); string(saved.UI["fontFamily"]) != `"Fira Code"` {
 		t.Errorf("the font did not reach the disk: %+v", saved)
 	}
 

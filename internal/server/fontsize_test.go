@@ -22,7 +22,7 @@ func TestTheFontSizeIsRemembered(t *testing.T) {
 	if got.FontSize != 16 {
 		t.Fatalf("the font size pushed to the windows is %d, want 16", got.FontSize)
 	}
-	if saved := store.LoadPrefs(); saved.FontSize != 16 {
+	if saved := store.LoadPrefs(); string(saved.UI["fontSize"]) != "16" {
 		t.Errorf("the font size did not reach the disk: %+v", saved)
 	}
 	if hello := nextHello(t, dialControl(t, srv)); hello.Prefs.FontSize != 16 {

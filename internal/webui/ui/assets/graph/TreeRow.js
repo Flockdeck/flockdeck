@@ -23,10 +23,11 @@ export function TreeHead() {
 }
 
 /** TreeRow draws one pane. row is from rowsOf, doing the line for "Doing now". */
-export function TreeRow({ row, node, name: given = "", needs, doing, chips = [], stop, selected, lit = false, roll = null, age, cost, onFocus, onOpen, onToggle = null, onLink = null, onLit = null }) {
+export function TreeRow({ row, node, name: given = "", nameRole = "", needs, doing, chips = [], stop, selected, lit = false, roll = null, age, cost, onFocus, onOpen, onToggle = null, onLink = null, onLit = null }) {
   const state = stateOf(node);
   const tone = toneOf(node, needs);
   const name = given || node.name || node.pane;
+  const full = nameRole + name;
   const label = [name, node.role, state.word, doing, node.task ? "task " + node.task.id : "", ...chips.map((c) => c.text), roll ? roll.below + " below" + (roll.needYou > 0 ? ", " + roll.needYou + " need you" : "") : ""].filter(Boolean).join(", ");
   return html`<div
     class=${"tree-row" + (tone ? " tree-row--" + tone : "") + (selected ? " is-open" : "") + (lit ? " is-lit" : "")}
@@ -46,7 +47,7 @@ export function TreeRow({ row, node, name: given = "", needs, doing, chips = [],
       ? html`<button type="button" class="tree-toggle" tabindex="-1" aria-label=${(row.collapsed ? "Unfold " : "Fold ") + name} onClick=${(e) => { e.stopPropagation(); if (onToggle) onToggle(node.pane); }}>${row.collapsed ? "▸" : "▾"}</button>`
       : html`<span class="tree-toggle" aria-hidden="true"></span>`}
     <span class=${"tree-glyph tree-glyph--" + state.key} aria-hidden="true"></span>
-    <span class="tree-c tree-c--name" title=${name}>${clip(name, 40)}</span>
+    <span class="tree-c tree-c--name" title=${full}>${nameRole ? html`<span class="tree-name-role">${nameRole}</span>` : null}${clip(name, 40)}</span>
     <span class="tree-c tree-c--role">${clip(node.role || (node.shell ? "shell" : ""), 12)}</span>
     <span class="tree-c tree-c--task">${node.task ? clip(node.task.id, 6) : ""}</span>
     <span class="tree-c tree-c--doing">

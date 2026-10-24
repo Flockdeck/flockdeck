@@ -102,6 +102,15 @@ var cmdVerdicts = map[string]Verdict{
 	// Replaced by what the new interface sends.
 	"sendPrompt": replaced("paneSend", "Prompting one pane; prompting all is cut"),
 
+	// Goal tabs (#554) replaced the terminal tab strip. Which goal is shown, and
+	// how the person named, ordered and archived them, is kept as an interface
+	// preference.
+	"closeTab":  replaced("uiPrefs", "Goal tabs are archived, not closed"),
+	"renameTab": replaced("uiPrefs", "A goal tab's name"),
+	"selectTab": replaced("uiPrefs", "Goal tabs, shown by number or step; the active one is kept"),
+	"nextTab":   replaced("uiPrefs", "Goal tabs, stepped"),
+	"prevTab":   replaced("uiPrefs", "Goal tabs, stepped"),
+
 	// Cut.
 	"splitPane":             cut(whyTiling),
 	"swapPanes":             cut(whyRearrange),
