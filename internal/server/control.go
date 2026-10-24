@@ -580,6 +580,9 @@ type command struct {
 	// Size is the terminal font size for fontSize, a number of lines for
 	// scrollback, and a width in pixels for railWidth.
 	Size int `json:"size"`
+	// UI is the patch for uiPrefs: the keys of the interface's own preferences to
+	// set, and null for one to remove (store.Prefs.PatchUI).
+	UI map[string]json.RawMessage `json:"ui"`
 	// Agent and Model are what the picker chose, carried on newTab, splitPane
 	// and spawn. Both empty means "whatever this project runs by default",
 	// which is what every keystroke that does not go through the picker sends
@@ -1797,6 +1800,9 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		return
 	case "fontSize":
 		s.setFontSize(c, cmd.Size)
+		return
+	case "uiPrefs":
+		s.setUIPrefs(c, cmd.UI)
 		return
 	case "notifications":
 		s.setNotifications(c, cmd.Kind == "off")

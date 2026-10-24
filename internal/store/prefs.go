@@ -120,6 +120,12 @@ type Prefs struct {
 	// pane.
 	Wake WakePrefs `json:"wake,omitzero"`
 
+	// UI is the interface's own preferences, kept as one object the server does
+	// not read (prefs_ui.go). The fields above for the font size, the font
+	// family, the help seen and the scrollback are what these used to be; they
+	// are read from an old file, moved here, and left out of the file after.
+	UI map[string]json.RawMessage `json:"ui,omitempty"`
+
 	// extra is every top-level key the file held that this build does not
 	// know, as it was written. A newer build's setting would otherwise go at
 	// the first change made here, since the file is written back whole: step
@@ -269,6 +275,7 @@ func ReadPrefs() (Prefs, error) {
 		return Prefs{accessLost: true}, nil
 	}
 	p.extra = unknownPrefs(data)
+	p.migrateUI()
 	return p, nil
 }
 

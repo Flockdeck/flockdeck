@@ -60,7 +60,12 @@ const whole = (v) => typeof v === "number" && Number.isInteger(v);
  *  window uses. Anything missing, of the wrong type or out of range is the
  *  default. */
 export function prefsOf(raw) {
-  const r = raw && typeof raw === "object" ? raw : {};
+  const r0 = raw && typeof raw === "object" ? raw : {};
+  // The settings that moved into the interface's own blob (ui) are read from it,
+  // and from the old top-level field where the blob has none (an older desktop).
+  const ui = r0.ui && typeof r0.ui === "object" && !Array.isArray(r0.ui) ? r0.ui : {};
+  const r = { ...r0 };
+  for (const k of UI_KEYS) if (Object.prototype.hasOwnProperty.call(ui, k)) r[k] = ui[k];
   const accent = ACCENTS.some(([v]) => v && v === r.accentColor) ? r.accentColor : "";
   const family = typeof r.fontFamily === "string" ? r.fontFamily.trim() : "";
   return {
@@ -182,11 +187,32 @@ export const WHY = {
   scrollback: "Scrollback is between " + SCROLLBACK_MIN.toLocaleString("en") + " and " + SCROLLBACK_MAX.toLocaleString("en") + " lines.",
 };
 
+/** UI_KEYS are the settings kept in the interface's own blob (prefs.ui) and not as
+ *  fields of their own: the desktop stores and returns them without reading them. */
+export const UI_KEYS = ["fontSize", "fontFamily", "scrollback", "helpSeen"];
+
+/** UI_CAP is the name of the feature that says the desktop takes the blob. */
+export const UI_CAP = "uiPrefs";
+
+// uiSetting is the change of one key of the blob: the uiPrefs command, and the
+// blob as the desktop will return it (keys in order, as it sends them). A value of
+// null removes the key. Without the feature the old command is used instead.
+function uiSetting(name, value, current, caps, legacy) {
+  if (!Array.isArray(caps) || !caps.includes(UI_CAP)) return legacy;
+  const was = current && current.ui && typeof current.ui === "object" && !Array.isArray(current.ui) ? current.ui : {};
+  const next = { ...was };
+  if (value === null) delete next[name];
+  else next[name] = value;
+  const ordered = {};
+  for (const k of Object.keys(next).sort()) ordered[k] = next[k];
+  return { command: { cmd: "uiPrefs", ui: { [name]: value } }, patch: { ui: ordered } };
+}
+
 /** setting is what changing one setting does: the command for the desktop and
  *  the preference as the desktop will keep it, which the window shows at once
  *  and until the desktop's own push arrives. It is null for a value that would
  *  not be kept. */
-export function setting(name, value, current = null) {
+export function setting(name, value, current = null, caps = null) {
   switch (name) {
     case "theme":
       if (!THEMES.some(([v]) => v === value)) return null;
@@ -196,16 +222,16 @@ export function setting(name, value, current = null) {
       return { command: { cmd: "accentColor", text: value }, patch: { accentColor: value } };
     case "fontSize": {
       if (!whole(value) || value < FONT_MIN || value > FONT_MAX) return null;
-      return { command: { cmd: "fontSize", size: value }, patch: { fontSize: value } };
+      return uiSetting("fontSize", value, current, caps, { command: { cmd: "fontSize", size: value }, patch: { fontSize: value } });
     }
     case "fontFamily": {
       const family = typeof value === "string" ? value.trim() : null;
       if (family === null || family.length > FONT_FAMILY_MAX) return null;
-      return { command: { cmd: "fontFamily", text: family }, patch: { fontFamily: family } };
+      return uiSetting("fontFamily", family === "" ? null : family, current, caps, { command: { cmd: "fontFamily", text: family }, patch: { fontFamily: family } });
     }
     case "scrollback":
       if (!whole(value) || value < SCROLLBACK_MIN || value > SCROLLBACK_MAX) return null;
-      return { command: { cmd: "scrollback", size: value }, patch: { scrollback: value } };
+      return uiSetting("scrollback", value, current, caps, { command: { cmd: "scrollback", size: value }, patch: { scrollback: value } });
     case "cursorStyle":
       if (!CURSORS.some(([v]) => v === value)) return null;
       return { command: { cmd: "cursorStyle", text: value }, patch: { cursorStyle: value === "block" ? "" : value } };
@@ -245,7 +271,7 @@ export function setting(name, value, current = null) {
       if (!whole(value) || value < RAIL_MIN || value > RAIL_MAX) return null;
       return { command: { cmd: "railWidth", size: value }, patch: { railWidth: value } };
     case "helpSeen":
-      return { command: { cmd: "helpSeen" }, patch: { helpSeen: true } };
+      return uiSetting("helpSeen", true, current, caps, { command: { cmd: "helpSeen" }, patch: { helpSeen: true } });
     case "resetTips":
       return { command: { cmd: "resetTips" }, patch: { dismissedTips: [] } };
     default:

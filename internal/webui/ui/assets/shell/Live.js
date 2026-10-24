@@ -44,6 +44,7 @@ import { Approvals } from "./Approvals.js";
 import { useLifecycle } from "../drawer/Lifecycle.js";
 import { useTranscripts } from "../drawer/Tools.js";
 import { HISTORY_REMOTE_WORDS } from "../lib/history.js";
+import { capsOf } from "../lib/apiversion.js";
 import { DESK_FILES_WORDS, STRUCTURED_RECORD_WORDS, acknowledged, canTranscribe } from "../lib/paneinfo.js";
 import { FONT_DEFAULT, FONT_MAX, FONT_MIN, PATCH_WAIT_MS, applyLook, prefsOf, reducedMotion, addPending, latestOf, settledPending, setting, termOptionsOf } from "../lib/prefs.js";
 import { RELAY_WORDS, quitQuestion, updateOf } from "../lib/updates.js";
@@ -271,7 +272,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
   // change sends one setting and shows it now. It answers whether the value
   // was one the desktop would keep.
   const change = (name, value) => {
-    const s = setting(name, value, { ...(kept_prefs || {}), ...latestOf(patch) });
+    const s = setting(name, value, { ...(kept_prefs || {}), ...latestOf(patch) }, capsOf(kept.current.hello));
     if (!s) return false;
     send(s.command);
     setPatch((p) => addPending(p, s.patch));

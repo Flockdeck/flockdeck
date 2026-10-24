@@ -32,7 +32,7 @@ func TestASettingThisBuildDoesNotKnowSurvivesAChangeMadeHere(t *testing.T) {
 	}
 	// One change made here, and one setting put back to its default.
 	p.Dismiss("palette")
-	p.HelpSeen = false
+	p.PatchUI(map[string]json.RawMessage{UIHelpSeen: json.RawMessage("null")})
 	if err := SavePrefs(p); err != nil {
 		t.Fatalf("save: %v", err)
 	}
@@ -53,8 +53,11 @@ func TestASettingThisBuildDoesNotKnowSurvivesAChangeMadeHere(t *testing.T) {
 	if _, ok := got["helpSeen"]; ok {
 		t.Errorf("a setting put back to its default came back from the file: %s", data)
 	}
+	if _, ok := got["fontSize"]; ok {
+		t.Errorf("the old font size field was written back after it moved into the blob: %s", data)
+	}
 	back := LoadPrefs()
-	if back.FontSize != 17 || !back.Dismissed("palette") || back.Spend.StatusLine != "on" {
+	if n, _ := back.uiInt(UIFontSize); n != 17 || !back.Dismissed("palette") || back.Spend.StatusLine != "on" {
 		t.Errorf("read back %+v, want the settings this build knows as they were saved", back)
 	}
 }
