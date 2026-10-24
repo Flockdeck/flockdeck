@@ -240,6 +240,8 @@ export function createDom() {
   };
   Object.defineProperty(doc, "activeElement", { get: () => doc._active || doc.body });
   doc.body = new Element_(doc, "body");
+  doc.documentElement = new Element_(doc, "html");
+  doc.documentElement.dataset = {};
   const win = new Element_(doc, "window");
   doc.defaultView = win;
   win.document = doc;
