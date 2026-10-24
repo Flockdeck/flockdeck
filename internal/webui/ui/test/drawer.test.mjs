@@ -477,6 +477,10 @@ test("[ and ] open the previous and next agent of the order, wrapping, and a box
     render(html`<${Drawer} store=${st} node=${node()} now=${NOW} order=${["p2"]} onOpenPane=${(p) => opened.push(p)} />`, box);
     await settle();
     assert.equal(box.querySelector(".drawer-next"), null, "a single agent has nothing to step to");
+  } finally {
+    restore();
+  }
+});
 
 test("a drawer opened by the ask for its own Changes tab opens on it; another pane's ask is old", async () => {
   const dom = createDom();
