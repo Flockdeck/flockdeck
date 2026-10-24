@@ -583,6 +583,16 @@ func TestRemoteAssetsAreSentCompressed(t *testing.T) {
 	if resp, _ := get(ts.URL + "/help.json"); resp.Header.Get("Content-Encoding") != "gzip" {
 		t.Errorf("help.json through the relay came as %q, want gzip", resp.Header.Get("Content-Encoding"))
 	}
+	// The same pages as the front end reads them, from the assets.
+	for _, name := range []string{"help.json", "keys.json"} {
+		resp, packed := get(ts.URL + "/assets/" + name)
+		if resp.Header.Get("Content-Encoding") != "gzip" {
+			t.Errorf("assets/%s through the relay came as %q, want gzip", name, resp.Header.Get("Content-Encoding"))
+		}
+		if len(packed) == 0 {
+			t.Errorf("assets/%s came back empty", name)
+		}
+	}
 }
 
 // dialRemoteControl opens the control socket through the tunnel as a page

@@ -386,7 +386,7 @@ test("Home draws from a snapshot alone", async () => {
 
 test("main.js makes the store, registers the key on a remote hello, starts the socket and unwatches on the way out", () => {
   const src = readFileSync(join(here, "..", "src", "main.js"), "utf8");
-  assert.match(src, /createStore\(\{ url: controlUrl\(window\.location\) \}\)/);
+  assert.match(src, /createStore\(\{ url: controlUrl\(window\.location\), keyDefaults: /);
   assert.match(src, /watchRemoteHello\(store\)/);
   assert.match(src, /store\.start\(\)/);
   assert.match(src, /watchPageLifecycle\(window, store\)/);

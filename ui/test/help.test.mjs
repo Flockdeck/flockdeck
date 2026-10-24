@@ -73,9 +73,9 @@ test("the pages of an answer are checked, and a bad answer says so", () => {
 });
 
 test("the address is the page's own directory, so it works under the relay's prefix", () => {
-  assert.equal(helpUrl(new URL("http://127.0.0.1:5/")), "http://127.0.0.1:5/help.json?form=tree");
-  assert.equal(helpUrl(new URL("https://relay.example/d/h1/index.html")), "https://relay.example/d/h1/help.json?form=tree");
-  assert.equal(helpUrl(new URL("https://relay.example/d/h1/")), "https://relay.example/d/h1/help.json?form=tree");
+  assert.equal(helpUrl(new URL("http://127.0.0.1:5/")), "http://127.0.0.1:5/assets/help.json");
+  assert.equal(helpUrl(new URL("https://relay.example/d/h1/index.html")), "https://relay.example/d/h1/assets/help.json");
+  assert.equal(helpUrl(new URL("https://relay.example/d/h1/")), "https://relay.example/d/h1/assets/help.json");
 });
 
 test("loading says what went wrong", async () => {
@@ -83,7 +83,7 @@ test("loading says what went wrong", async () => {
   const seen = [];
   const ok = await loadHelp(async (u, o) => (seen.push([u, o]), { ok: true, json: async () => ({ pages: PAGES }) }), loc);
   assert.equal(ok.pages.length, 2);
-  assert.equal(seen[0][0], "http://127.0.0.1:5/help.json?form=tree");
+  assert.equal(seen[0][0], "http://127.0.0.1:5/assets/help.json");
   assert.equal(seen[0][1].cache, "no-store");
   assert.match((await loadHelp(async () => ({ ok: false, status: 403 }), loc)).error, /HTTP 403/);
   assert.match((await loadHelp(async () => { throw new Error("offline"); }, loc)).error, /offline/);

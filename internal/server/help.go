@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/jmwri/flockdeck/internal/agent"
@@ -25,6 +26,13 @@ type helloMsg struct {
 	Type  string      `json:"type"`
 	Keys  []keyView   `json:"keys"`
 	Prefs store.Prefs `json:"prefs"`
+	// KeyOverrides and KeysHidden are the key table again, for a window that
+	// reads the defaults from keys.json under /assets/ (cap keyOverrides):
+	// the id and binding of every action this person has remapped, and the ids
+	// a window reached through the relay is not offered. Keys above carries the
+	// same table whole and stays for one release for windows without the cap.
+	KeyOverrides map[string]string `json:"keyOverrides,omitempty"`
+	KeysHidden   []string          `json:"keysHidden,omitempty"`
 	// Remote says the window was reached through the relay, so that it can
 	// leave out what only the desk may do: restart onto an update, turn
 	// remote access off or on, set an API key. The snapshot cannot say it,
@@ -119,6 +127,7 @@ type keyView struct {
 // runs on the workspace goroutine, which is what owns s.prefs.
 func (s *Server) sendHello(c *controlClient) {
 	msg := helloMsg{Type: "hello", Keys: s.effectiveKeys(c.remote), Prefs: prefsFor(c, s.prefs), Remote: c.remote, API: currentAPI()}
+	msg.KeyOverrides, msg.KeysHidden = s.keyDeltas(c.remote)
 	// A viewer is told what it is, so its window can say so, and is sent none of
 	// the desk's preferences.
 	if a := s.accessOf(c); a.EffectiveRole() != store.RoleFull {
@@ -160,11 +169,7 @@ func (s *Server) sendHello(c *controlClient) {
 // keydown handling, and it does, through keyTableMsg, but a window connecting
 // for the first time has no earlier keyTableMsg to have caught.
 func (s *Server) effectiveKeys(remote bool) []keyView {
-	f, err := keybindings.Load()
-	var overrides map[string]string
-	if err == nil {
-		overrides = f.Overrides
-	}
+	overrides := loadOverrides()
 	eff := keybindings.Effective(s.keys, overrides)
 	views := make([]keyView, len(eff))
 	for i, k := range eff {
@@ -177,6 +182,40 @@ func (s *Server) effectiveKeys(remote bool) []keyView {
 	return remoteFiltered(views)
 }
 
+// loadOverrides is keybindings.json's remappings, or none when it cannot be read.
+func loadOverrides() map[string]string {
+	f, err := keybindings.Load()
+	if err != nil {
+		return nil
+	}
+	return f.Overrides
+}
+
+// keyDeltas is what a window needs, together with keys.json, to have the table
+// effectiveKeys sends: the remappings of the actions the table has, and the ids
+// a window reached through the relay is not offered.
+func (s *Server) keyDeltas(remote bool) (map[string]string, []string) {
+	var overrides map[string]string
+	for id, keys := range loadOverrides() {
+		if _, ok := s.keys.Lookup(id); !ok || (remote && hiddenFromRemote(id)) {
+			continue
+		}
+		if overrides == nil {
+			overrides = map[string]string{}
+		}
+		overrides[id] = keys
+	}
+	if !remote {
+		return overrides, nil
+	}
+	return overrides, slices.Clone(remoteHidden)
+}
+
+// remoteHidden are the actions only the desk may do (see remoteFiltered).
+var remoteHidden = []string{"detach", "quit", "helpers"}
+
+func hiddenFromRemote(id string) bool { return slices.Contains(remoteHidden, id) }
+
 // remoteFiltered is keys without what a window reached through the relay
 // cannot do. Detach and Quit are the desk's to choose -- a phone's window
 // closing never stopped anything, and nothing on the phone could start the
@@ -188,8 +227,7 @@ func (s *Server) effectiveKeys(remote bool) []keyView {
 func remoteFiltered(keys []keyView) []keyView {
 	out := make([]keyView, 0, len(keys))
 	for _, k := range keys {
-		switch k.ID {
-		case "detach", "quit", "helpers":
+		if hiddenFromRemote(k.ID) {
 			continue
 		}
 		out = append(out, k)
@@ -208,13 +246,18 @@ func remoteFiltered(keys []keyView) []keyView {
 type keyTableMsg struct {
 	Type string    `json:"type"`
 	Keys []keyView `json:"keys"`
+	// KeyOverrides and KeysHidden are as in the hello.
+	KeyOverrides map[string]string `json:"keyOverrides,omitempty"`
+	KeysHidden   []string          `json:"keysHidden,omitempty"`
 }
 
 // broadcastKeys tells every window what the key table now is, one copy per
 // window since a window reached through the relay is sent fewer actions.
 func (s *Server) broadcastKeys() {
 	for _, cl := range s.clientList() {
-		data, err := json.Marshal(keyTableMsg{Type: "keyTable", Keys: s.effectiveKeys(cl.remote)})
+		msg := keyTableMsg{Type: "keyTable", Keys: s.effectiveKeys(cl.remote)}
+		msg.KeyOverrides, msg.KeysHidden = s.keyDeltas(cl.remote)
+		data, err := json.Marshal(msg)
 		if err != nil {
 			return
 		}
@@ -638,6 +681,11 @@ func (s *Server) setStatusLine(c *controlClient, mode string) {
 	s.updatePrefs(c, func(p *store.Prefs) bool { return setPref(&p.Spend.StatusLine, mode) })
 }
 
+// /help.json and the hello's whole key table stay for one release, for windows
+// that read the pages and the table from the server; the page that ships with
+// this one reads help.json and keys.json from /assets/ (see ui/help) and takes
+// only the changes from the hello. After the release both go.
+//
 // helpBody and treeBody are what /help.json answers with, and with ?form=tree,
 // encoded the first time each is asked for from Config.HelpJSON. The pages are
 // rendered once already and never change while the program runs; encoding them afresh for

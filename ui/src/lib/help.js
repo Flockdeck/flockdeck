@@ -4,9 +4,10 @@
 // shape again before anything is drawn: a desktop that is older, newer or
 // damaged gives a page that says so, not a page that breaks.
 
-/** HELP_PATH asks for nodes and not HTML. The path is the one the old interface
- *  uses, so a window reached through the relay needs nothing new allowed. */
-export const HELP_PATH = "help.json?form=tree";
+/** HELP_PATH is help.json, written by ui/help as nodes and not HTML, and served
+ *  with the page's other assets (so through the relay it is compressed like
+ *  them). The page asks for it only when help is opened. */
+export const HELP_PATH = "assets/help.json";
 
 /** helpUrl is the address of the pages for the page at `loc`. Through the relay
  *  the page lives under a prefix, so the path is the page's own directory. */
