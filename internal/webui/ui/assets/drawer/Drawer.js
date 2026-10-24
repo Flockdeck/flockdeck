@@ -187,6 +187,9 @@ function DrawerBody({ store, snap = null, node, pane = null, now, maximised = fa
   // asked, as the same card the strip has. Only the desk has the card to answer.
   const card = !terminal && !state.remote && state.structured && state.structured.id === node.pane && state.structured.card ? state.structured.card : null;
   const pending = card ? { card, node: html`<${StreamPermission} node=${node} card=${card} snap=${state} store=${store} />` } : null;
+  // While the transcript is showing, the permission is asked there, in the flow, and
+  // not a second time above the tabs. Another tab, or a transcript not loaded yet, has none to carry it.
+  const inFlow = !!pending && !!conv && conv.supported === true && !conv.refused && shown === "terminal";
   const details = state.details || null;
   const onDetail = (id) => store.requestDetail(id);
   const onOlder = () => store.olderConversation();
@@ -215,7 +218,7 @@ function DrawerBody({ store, snap = null, node, pane = null, now, maximised = fa
               : null}
           </div>`
         : null}
-      <${Prompt} node=${node} pane=${pane} snap=${state} store=${store} sendKeys=${sendKeys} terminal=${terminal} />
+      ${inFlow ? null : html`<${Prompt} node=${node} pane=${pane} snap=${state} store=${store} sendKeys=${sendKeys} terminal=${terminal} />`}
       <div class="drawer-tabs" role="tablist" aria-label="Views of this agent" onKeyDown=${tabKeys}>
         <button type="button" role="tab" id="drawer-tab-terminal" aria-selected=${shown === "terminal" ? "true" : "false"} aria-controls="drawer-panel-terminal" tabindex=${shown === "terminal" ? 0 : -1} ref=${(el) => { tabRefs.current.terminal = el; }} class=${"drawer-tab" + (shown === "terminal" ? " is-active" : "")} onClick=${() => setTab("terminal")}>${terminal ? "Terminal" : "Transcript"}</button>
         ${hasConv
