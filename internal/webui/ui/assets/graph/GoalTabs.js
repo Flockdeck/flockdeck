@@ -10,6 +10,7 @@
 // next time the value is written.
 /** TABS_KEY is the key of the interface's preferences the tab choices are kept under. */
 export const TABS_KEY = "tabs";
+import { taskOfTeam, taskLabelOf } from "./model.js";
 
 /** SOLO is the id of the tab for panes in no team. It is never a team's id. */
 export const SOLO = "solo";
@@ -97,7 +98,9 @@ export function goalTabsOf(model, state) {
   for (const t of teams) {
     if (!t.id || made.has(t.id)) continue;
     const named = typeof s.names[t.id] === "string";
-    const label = named ? s.names[t.id] : labelOf(t.goal);
+    // A goal started for a task is labelled with the task's title; the id is in the tooltip.
+    const task = taskOfTeam(model, t);
+    const label = named ? s.names[t.id] : task && task.title ? labelOf(task.title) : !t.goal && task ? task.id : labelOf(t.goal);
     // The same count as the goal line's "need you", so the two agree.
     const needs = t.needs.length + t.needsHidden;
     made.set(t.id, {
@@ -105,7 +108,7 @@ export function goalTabsOf(model, state) {
       kind: "team",
       label,
       named,
-      title: t.goal || label,
+      title: task ? taskLabelOf(task) + (t.goal ? " · " + t.goal : "") : t.goal || label,
       needs,
       activity: activityOf(model, t.members, needs),
     });

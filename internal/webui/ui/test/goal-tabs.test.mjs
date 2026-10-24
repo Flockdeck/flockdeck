@@ -140,3 +140,21 @@ test("the value written drops goals that are gone, keeps the rest sorted, and is
   assert.deepEqual(tabsValueOf(s, buildGraphModel(null)).order, ["t2", "gone", "t1"]);
   assert.deepEqual(tabsStateOf({ [TABS_KEY]: v }), { names: v.names, order: v.order, archived: v.archived });
 });
+
+test("a goal started for a task is labelled with the task's title, and the tooltip has the id", () => {
+  const model = buildGraphModel({
+    type: "graph",
+    nodes: [node("m1", { task: { id: "T4", title: "Limiter middleware" } }), node("m2")],
+    teams: [
+      { id: "t1", manager: "m1", members: ["m1"], goal: "Add rate limiting", taskId: "T4" },
+      { id: "t2", manager: "m2", members: ["m2"], goal: "", taskId: "T9" },
+    ],
+    solo: [],
+  });
+  const [a, b] = goalTabsOf(model, emptyTabs()).tabs;
+  assert.equal(a.label, "Limiter middleware");
+  assert.equal(a.title, "T4 · Limiter middleware · Add rate limiting");
+  assert.equal(b.label, "T9", "no title and no goal: the id");
+  const named = goalTabsOf(model, { names: { t1: "Mine" }, order: [], archived: [] }).tabs[0];
+  assert.equal(named.label, "Mine", "the person's name wins");
+});
