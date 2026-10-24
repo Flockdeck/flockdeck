@@ -2,20 +2,6 @@
  * rail. Colours and typefaces are the tokens of app.css; nothing here names one.
  * The dialogs themselves are the start dialog's (start.css). */
 
-.rail-projects,
-.rail-helpers {
-  padding: 6px 8px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--bg-raised);
-  color: var(--fg);
-  font: inherit;
-  cursor: pointer;
-}
-.rail-projects:hover,
-.rail-helpers:hover { background: var(--bg-hover); }
-.rail-helpers { margin-top: auto; }
-.rail-helpers + .rail-updates { margin-top: 6px; }
 
 .sr-only {
   position: absolute;

@@ -25,7 +25,10 @@
 // the server and the browser) is removed when it ends, however it ends: normally,
 // on an error, on SIGINT or SIGTERM, or when --ceiling minutes (default 20) pass.
 //
-//   node scripts/realpage/check.mjs [--out result.json] [--slowdown 1,4] [--repeat 3] [--only N]
+// With --shot DIR it also saves a 1440 by 900 dark screenshot of each fixture's
+// page, as DIR/fixture-NN.png, for a pull request to show before and after.
+//
+//   node scripts/realpage/check.mjs [--out result.json] [--slowdown 1,4] [--repeat 3] [--only N] [--shot DIR]
 //                                   [--allow-config-change] [--ceiling 20]
 //
 // CHROME names the browser; otherwise a Chromium of Playwright's is looked for.
@@ -46,6 +49,7 @@ const outFile = opt("out", "");
 const slowdowns = opt("slowdown", "1,4").split(",").map(Number);
 const repeat = Number(opt("repeat", "3"));
 const only = opt("only", ""); // a fixture number, to run one
+const shotDir = opt("shot", "");
 const LIMIT_MS = 2000;
 const allowConfigChange = args.includes("--allow-config-change");
 const ceilingMin = Number(opt("ceiling", "20"));
@@ -320,6 +324,18 @@ async function load(browser, url, boxesExpected, rate) {
   return { page, ok };
 }
 
+// screenshot saves the page as it is, at 1440 by 900 in the dark scheme, and puts
+// the window back as it was.
+async function screenshot(page, file) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  await page.S("Emulation.setDeviceMetricsOverride", { width: 1440, height: 900, deviceScaleFactor: 1, mobile: false });
+  await page.S("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: "dark" }] });
+  await sleep(300);
+  const { data } = await page.S("Page.captureScreenshot", { format: "png" });
+  fs.writeFileSync(file, Buffer.from(data, "base64"));
+  await page.S("Emulation.clearDeviceMetricsOverride");
+}
+
 // ------------------------------------------------------------------ checks
 
 function fixtureChecks(ex, seen) {
@@ -528,6 +544,7 @@ try {
       if (!ok) entry.checks.push({ name: "the page drew the graph", pass: false, detail: "no boxes" });
       else {
         await sleep(500);
+        if (shotDir) await screenshot(page, path.join(shotDir, "fixture-" + num.padStart(2, "0") + ".png"));
         const seen = await page.eval(READ);
         entry.checks.push(...fixtureChecks(ex, seen));
         entry.checks.push({ name: "no page errors on load", pass: page.errors.length === 0, detail: page.errors.join(" | ") });

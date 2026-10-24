@@ -2,18 +2,6 @@
  * the tokens of app.css; nothing here names one. The dialog itself is the
  * start dialog's (start.css). */
 
-.rail-settings {
-  margin-top: auto;
-  padding: 6px 8px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--bg-raised);
-  color: var(--fg);
-  font: inherit;
-  cursor: pointer;
-}
-.rail-settings:hover { background: var(--bg-hover); }
-.rail-settings + .rail-toggle { margin-top: 6px; }
 
 .dialog--wide { width: min(760px, calc(100vw - 24px)); }
 .settings-body { display: flex; gap: 14px; min-height: 0; }

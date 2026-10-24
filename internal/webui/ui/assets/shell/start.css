@@ -137,17 +137,7 @@
 }
 
 /* The updates dialog and its entry at the foot of the rail. */
-.rail-updates {
-  margin-top: auto;
-  padding: 6px 8px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--bg-raised);
-  cursor: pointer;
-}
-.rail-updates:hover { background: var(--bg-hover); }
 .rail-updates.has-update { color: var(--on-accent); background: var(--accent); border-color: var(--accent); }
-.rail-updates + .rail-toggle { margin-top: 6px; }
 .upd-notes {
   max-height: 30vh;
   overflow-y: auto;

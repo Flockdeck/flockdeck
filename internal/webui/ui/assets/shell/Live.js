@@ -16,6 +16,7 @@ import { focusNode } from "../drawer/state.js";
 import { ManagerBar, managerOf } from "../graph/ManagerBar.js";
 import { nextNeedsYou, paneAt } from "../graph/keys.js";
 import { Shell, useNarrow } from "./app.js";
+import { FootButton } from "./rail.js";
 import { Home, sameProject, rosterOf } from "./Home.js";
 import { Start } from "./Start.js";
 import { Confirm } from "./Confirm.js";
@@ -555,10 +556,8 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     onProjects=${() => setProjectsOpen(true)}
     railFoot=${snap.remote
       ? null
-      : html`<button type="button" class="rail-helpers" onClick=${() => setHelpersOpen(true)}>Helper apps</button>
-        <button type="button" class=${"rail-updates" + (update ? " has-update" : "")} onClick=${() => setUpdatesAt(noticeSeq)}>
-          ${update ? "Update " + update.version : "Updates"}
-        </button>`}
+      : html`<${FootButton} cls="rail-helpers" glyph="▤" label="Helper apps" onClick=${() => setHelpersOpen(true)} />
+        <${FootButton} cls=${"rail-updates" + (update ? " has-update" : "")} glyph="↑" label=${update ? "Update " + update.version : "Updates"} onClick=${() => setUpdatesAt(noticeSeq)} />`}
     notice=${noticeText}
     onDismissNotice=${() => { setLocal(""); setDismissed(noticeSeq); }}
     drawer=${node
