@@ -1146,7 +1146,7 @@ func run(opts options) error {
 		fmt.Fprintln(os.Stderr, "flockdeck: -shell has no effect, since this project's saved layout was restored (use -new -shell to start from a single shell)")
 	}
 
-	srv, err := server.New(ws)
+	srv, err := server.New(ws, server.Config{Static: webui.FS()})
 	if err != nil {
 		return err
 	}

@@ -114,7 +114,7 @@ func newTestServer(t *testing.T) (*Server, *workspace.Workspace) {
 	// Shell panes keep the test independent of whether claude is installed.
 	ws.NewTab(session.KindShell, ws.ActiveRoot(), "first")
 
-	srv, err := New(ws)
+	srv, err := New(ws, testConfig())
 	if err != nil {
 		t.Fatalf("server: %v", err)
 	}
@@ -911,7 +911,7 @@ func benchServer(b *testing.B, panes int) *Server {
 	for i := 1; i < panes; i++ {
 		ws.SplitPaneIn(layout.Horizontal, session.KindShell, "")
 	}
-	srv, err := New(ws)
+	srv, err := New(ws, testConfig())
 	if err != nil {
 		b.Fatalf("server: %v", err)
 	}
@@ -1167,7 +1167,7 @@ func TestRestoreOpenProjectsRunsInTheBackground(t *testing.T) {
 	t.Cleanup(ws.Close)
 	ws.NewTab(session.KindShell, ws.ActiveRoot(), "first")
 
-	srv, err := New(ws)
+	srv, err := New(ws, testConfig())
 	if err != nil {
 		t.Fatalf("server: %v", err)
 	}

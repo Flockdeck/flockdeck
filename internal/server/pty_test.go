@@ -1087,7 +1087,7 @@ func TestAPaneThatNeverStartedStillTakesASocket(t *testing.T) {
 	}
 	ws.NewTab(session.KindClaude, ws.ActiveRoot(), "agent")
 
-	srv, err := New(ws)
+	srv, err := New(ws, testConfig())
 	if err != nil {
 		t.Fatalf("server: %v", err)
 	}
