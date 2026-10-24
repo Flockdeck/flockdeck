@@ -564,7 +564,7 @@ func graphRollup(graph team.Graph, needs map[string]team.TeamNeeds) (stuck map[s
 	stuck = map[string]bool{}
 	for _, tn := range needs {
 		for _, it := range tn.Items {
-			if it.Kind == team.NeedStuck {
+			if team.IsStuck(it.Kind) {
 				stuck[it.Pane] = true
 			}
 			if team.AsksPerson(it.Kind) {

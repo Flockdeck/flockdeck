@@ -54,7 +54,7 @@ func TestLiveClaudeSmokePane(t *testing.T) {
 
 	ws.NewTabWith(workspace.Choice{Kind: session.KindClaude, Agent: "claude"}, ws.ActiveRoot(), "smoke")
 
-	srv, err := New(ws)
+	srv, err := New(ws, testConfig())
 	if err != nil {
 		t.Fatalf("server: %v", err)
 	}

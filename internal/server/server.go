@@ -30,7 +30,6 @@ import (
 	"github.com/jmwri/flockdeck/internal/helpers"
 	"github.com/jmwri/flockdeck/internal/spend"
 	"github.com/jmwri/flockdeck/internal/store"
-	"github.com/jmwri/flockdeck/internal/webui"
 	"github.com/jmwri/flockdeck/internal/workspace"
 )
 
@@ -73,8 +72,10 @@ const askedInterval = 5 * time.Millisecond
 
 // Server serves the front end and the live connections behind it.
 type Server struct {
-	ws    *workspace.Workspace
-	token string
+	// static is the front end the program gave in Config.
+	static fs.FS
+	ws     *workspace.Workspace
+	token  string
 
 	// structuredPane turns a pane id into a pane an agent drives over ACP, for
 	// permissionAnswer; nil until the workspace sets it, and then no pane is one.
@@ -371,8 +372,17 @@ func (s *Server) SetRecall(r *RecallView) {
 // none.
 func (s *Server) Recall() *RecallView { return s.recall.Load() }
 
+// Config is what the server is given by the program that starts it.
+type Config struct {
+	// Static is the front end the server serves: index.html at "/" and the
+	// rest under "/assets/". The server does not know where it comes from, so
+	// the program embeds it (see internal/webui) and a test can give it a
+	// directory. With none, the page answers that it has no front end.
+	Static fs.FS
+}
+
 // New starts a server for the workspace on a free loopback port.
-func New(ws *workspace.Workspace) (*Server, error) {
+func New(ws *workspace.Workspace, cfg Config) (*Server, error) {
 	// Starts the read of git's version in the background; windows are told what
 	// it came to (announceRadarSupport).
 	radarSupport()
@@ -394,6 +404,7 @@ func New(ws *workspace.Workspace) (*Server, error) {
 
 	s := &Server{
 		ws:      ws,
+		static:  cfg.Static,
 		prefs:   store.LoadPrefs(),
 		token:   hex.EncodeToString(raw),
 		hosts:   hosts,
@@ -434,7 +445,7 @@ func New(ws *workspace.Workspace) (*Server, error) {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", s.handleIndex)
-	mux.Handle("/assets/", http.StripPrefix("/assets/", s.authFiles(webui.FS())))
+	mux.Handle("/assets/", http.StripPrefix("/assets/", s.authFiles(s.staticFS())))
 	mux.HandleFunc("/ws/control", s.handleControl)
 	mux.HandleFunc("/ws/pty", s.handlePTY)
 	mux.HandleFunc("/help.json", s.handleHelp)
@@ -917,7 +928,7 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	data, err := fs.ReadFile(webui.FS(), "index.html")
+	data, err := fs.ReadFile(s.staticFS(), "index.html")
 	if err != nil {
 		http.Error(w, "missing front end", http.StatusInternalServerError)
 		return
@@ -938,6 +949,21 @@ func (s *Server) handleIndex(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Security-Policy", csp)
 	_, _ = w.Write(data)
+}
+
+// staticFS is the front end, or an empty file system when none was given.
+func (s *Server) staticFS() fs.FS {
+	if s.static == nil {
+		return emptyStatic{}
+	}
+	return s.static
+}
+
+// emptyStatic has no files.
+type emptyStatic struct{}
+
+func (emptyStatic) Open(name string) (fs.File, error) {
+	return nil, &fs.PathError{Op: "open", Path: name, Err: fs.ErrNotExist}
 }
 
 // authFiles serves embedded assets to authorised requests.

@@ -56,7 +56,7 @@ func newRepoServer(t *testing.T) (*Server, *workspace.Workspace, string) {
 	t.Cleanup(ws.Close)
 	ws.NewTab(session.KindShell, repo, "work")
 
-	srv, err := New(ws)
+	srv, err := New(ws, testConfig())
 	if err != nil {
 		t.Fatalf("server: %v", err)
 	}
