@@ -133,6 +133,10 @@ tool still running with an icon for its kind and the first file its summary name
 activity text, or "Idle". It shows the context used of its size, and the cost when the agent
 reported one. It draws the last 50 entries and nothing more: there is no Older button, because the
 push carries a fixed window and a button that asked for more would grow the list without limit.
+The entries are drawn by the same list and rows as the Conversation tab (`drawer/conv/`), so a
+reply is sanitised Markdown here too: nothing in it is put into the page as markup, a link is made
+only for http and https addresses, and a reply over 20,000 characters is cut with a note saying how
+much is not shown.
 The drawer still draws the push and has no Conversation tab. The server, though, now answers the
 conversation commands (`conversationOpen`, `conversationOlder`, `conversationDetail` and
 `conversationSearch`) for a structured pane, from the runtime's entries: pages of 50, older pages by

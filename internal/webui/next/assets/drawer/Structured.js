@@ -14,12 +14,14 @@
 // - The prompt box sends paneSend and Stop sends structuredCancel. Both are
 //   desk-only commands, so a window reached through the relay draws neither.
 //
-// Everything on a row came from an agent, a tool or a person. Row draws it as
-// text, never as Markdown or markup.
+// The entries are drawn by the same list as the Conversation tab's (conv/Log.js),
+// so a reply is sanitised Markdown here too. Everything on a row came from an
+// agent, a tool or a person, and none of it is put into the page as markup.
 import { useState } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
 import { clip } from "../graph/Node.js";
-import { Row, Icon, toolKind } from "./Conversation.js";
+import { Log } from "./conv/Log.js";
+import { Icon, toolKind } from "./conv/rows.js";
 
 export const MAX_ENTRIES = 50;
 /** SEND_NOT_SENT_WORDS is what the prompt box says when the store did not send the text; the draft stays. */
@@ -120,11 +122,7 @@ export function Structured({ pane, st, error = null, cancelError = null, desk = 
           ? html`<p class="structured-usage">${ctx ? html`<span class="structured-context">${ctx}</span>` : null}${cost ? html`<span class="structured-cost">${cost}</span>` : null}</p>`
           : null}
       </div>
-      <div class="conv structured-log" tabindex="0" role="log" aria-label="Conversation">
-        ${entries.length === 0
-          ? html`<p class="conv-empty">${NO_ENTRIES_WORDS}</p>`
-          : html`<ol class="conv-list">${entries.map((e) => html`<${Row} key=${e.id} entry=${e} />`)}</ol>`}
-      </div>
+      <${Log} entries=${entries} atStart=${true} className="structured-log"><p class="conv-empty">${NO_ENTRIES_WORDS}</p><//>
       ${desk
         ? html`<form class="structured-prompt" onSubmit=${submit}>
             <textarea class="structured-input" aria-label="Message to the agent" rows="2" value=${draft} onInput=${(e) => setDraft(e.target.value)}></textarea>
