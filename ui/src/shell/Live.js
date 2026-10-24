@@ -19,6 +19,7 @@ import { feedStep } from "../graph/FeedDiff.js";
 import { nextNeedsYou, paneAt, prevNeedsYou } from "../graph/keys.js";
 import { Shell, useMedia, useNarrow } from "./app.js";
 import { FootButton } from "./rail.js";
+import { teamOf } from "../lib/team.js";
 import { Tree, totalOf } from "../graph/Tree.js";
 import { Deps } from "../graph/DepsView.js";
 import { Board, ChangesView, Replay, firstViewOf, viewsOf } from "./Views.js";
@@ -310,6 +311,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     if (!snap.remote && change("drawerW", px)) setLocalDrawerW(null);
     else setLocalDrawerW(px);
   };
+  const teamTasks = useMemo(() => { const t = snap.remote ? null : teamOf(snap.team); return t ? t.tasks : null; }, [snap.team, snap.remote]);
   const savedTabs = useMemo(() => localTabs || tabsStateOf(prefs.ui), [localTabs, prefs.ui]);
   const goal = useMemo(() => goalTabsOf(current, savedTabs), [current, savedTabs]);
   const activeTab = activeTabOf(goal.tabs, chosenTab);
@@ -774,7 +776,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
               ${scoped ? html`<${GoalLine} model=${scoped} />` : null}
               ${scoped ? html`<${TreeNotes} model=${scoped} onOpen=${drawer.open} />` : null}
               ${activeTab === SOLO && scoped && scoped.ok && scoped.nodes.length === 0 ? html`<p class="solo-empty">No panes outside a goal.</p>` : null}
-              <${treeView} model=${scoped} open=${drawer.pane} onOpen=${drawer.open} send=${snap.remote ? null : send} decisions=${decisionCtx} />
+              <${treeView} model=${scoped} tasks=${teamTasks} open=${drawer.pane} onOpen=${drawer.open} send=${snap.remote ? null : send} decisions=${decisionCtx} />
             </div>
             ${showFeed ? html`<${Feed} feed=${scopedFeed} onFocus=${goTo} />` : null}
           </div>

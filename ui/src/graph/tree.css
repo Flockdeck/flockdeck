@@ -66,3 +66,5 @@ button.tree-toggle { cursor: pointer; }
 .tree--shared-names .tree-c--name { flex-basis: max(64px, calc(176px - var(--depth, 0) * 24px)); }
 .tree--no-task .tree-c--task { display: none; }
 .tree--no-cost .tree-c--cost { display: none; }
+.tree-chip--blocked { background: var(--bg-inset); border-color: var(--line-strong); color: var(--fg); }
+.tree-chip--est { color: var(--fg-dim); }
