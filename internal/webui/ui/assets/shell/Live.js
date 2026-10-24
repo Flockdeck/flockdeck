@@ -19,7 +19,8 @@ import { feedStep } from "../graph/FeedDiff.js";
 import { nextNeedsYou, paneAt, prevNeedsYou } from "../graph/keys.js";
 import { Shell, useNarrow } from "./app.js";
 import { FootButton } from "./rail.js";
-import { Board, ChangesView, HAS_TREE, Replay, firstViewOf, viewsOf } from "./Views.js";
+import { Tree } from "../graph/Tree.js";
+import { Board, ChangesView, Replay, firstViewOf, viewsOf } from "./Views.js";
 import { GoalLine } from "../graph/GoalLine.js";
 import { Home, sameProject, rosterOf } from "./Home.js";
 import { Start } from "./Start.js";
@@ -87,11 +88,11 @@ function nodeOfPane(p) {
 /** Live draws the shell for a store. matchMedia and window are the page's,
  *  passed for a test, and terminalOptions reach the drawer's terminal (a test
  *  gives it fakes for xterm and the socket). */
-export function Live({ store, matchMedia, window: win, terminalOptions = null, patchWaitMs = PATCH_WAIT_MS, treeView = null }) {
+export function Live({ store, matchMedia, window: win, terminalOptions = null, patchWaitMs = PATCH_WAIT_MS, treeView = Tree }) {
   // The Team view is the outline, a component given here: it is drawn with { model,
   // open, onOpen, send } in the home column, beside the activity feed. With none
-  // (and HAS_TREE off) the switch has no Team view and the page starts on the graph.
-  const hasTree = HAS_TREE || !!treeView;
+  // the switch has no Team view and the page starts on the graph.
+  const hasTree = !!treeView;
   const views = viewsOf(hasTree);
   const narrow = useNarrow(matchMedia);
   const snap = useStore(store);

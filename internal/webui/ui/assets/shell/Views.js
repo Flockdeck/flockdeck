@@ -19,10 +19,9 @@ export const VIEWS = [["graph", "Graph"], ["board", "Board"], ["changes", "Chang
  *  leads the switch and is the page's first view once HAS_TREE is true. */
 export const TREE_VIEW = ["tree", "Team"];
 
-/** HAS_TREE says the outline is built into this page. It is false until the
- *  outline's own change turns it on, so the switch does not offer a view that
- *  draws nothing. */
-export const HAS_TREE = false;
+/** HAS_TREE says the outline is built into this page: the switch leads with it
+ *  and the page starts on it. */
+export const HAS_TREE = true;
 
 /** viewsOf is the views of the switch in order, with the Tree first when the page has it. */
 export function viewsOf(hasTree = HAS_TREE) {

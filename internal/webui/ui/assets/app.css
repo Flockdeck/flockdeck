@@ -738,6 +738,6 @@ button { font: inherit; color: inherit; }
 
 /* The activity feed stacks under the team home below 1000 px (see graph/graph.css). */
 @media (max-width: 1000px) {
-  .home-split--feed { grid-template-columns: minmax(0, 1fr); }
+  .home-split.home-split--feed { grid-template-columns: minmax(0, 1fr); }
   .feed { border-left: 0; border-top: 1px solid var(--line); min-height: 0; }
 }
