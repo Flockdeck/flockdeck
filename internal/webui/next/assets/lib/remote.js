@@ -243,12 +243,29 @@ export function pairOf(msg) {
   };
 }
 
-/** pairLive says a pairing link is still good to scan: it has a link and has not
- *  run out. A link with no expiry is taken as live. */
+/** PAIR_CAP_MS is how long a link or code with no expiry of its own is shown,
+ *  counted from when it arrived. */
+export const PAIR_CAP_MS = 10 * 60 * 1000;
+
+/** pairLive says a pairing link or join code is still good: it has one and has
+ *  not run out. One with no expiry is shown for PAIR_CAP_MS from arrival (arrived
+ *  is set by the page), so it is never live for ever. */
 export function pairLive(p, now = Date.now()) {
-  if (!p || !p.url) return false;
+  if (!p || !(p.url || p.code)) return false;
   const t = time(p.expiresAt);
-  return !t || t > now;
+  if (t) return t > now;
+  return typeof p.arrived === "number" ? now - p.arrived < PAIR_CAP_MS : true;
+}
+
+const CODE = /^[A-Za-z0-9_-]+$/;
+const RELAY = /^(https?:\/\/)?[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?(:\d{1,5})?\/?$/;
+
+/** joinLine is the command to run on the other machine, or "" when the code or
+ *  the relay is not plain text a terminal would take literally: both came from
+ *  the relay, and the line is meant to be pasted. */
+export function joinLine(relay, code) {
+  if (!CODE.test(code || "") || (relay && !RELAY.test(relay))) return "";
+  return "flockdeck remote enable " + (relay ? "-relay " + relay + " " : "") + "-join " + code;
 }
 
 /** untilText is ", until 14:05" for a pairing link's expiry. */

@@ -25,7 +25,7 @@ import { composing, LIST } from "./keys.js";
 import { Confirm } from "./Confirm.js";
 import {
   ACCESS, DESK_ONLY_ACCESS, DESK_ONLY_JOIN, DESK_ONLY_REMOTE, ENTERPRISE_WORDS, INTRO_WORDS, KEPT_WORDS, LINK_WARNING, PAIR_WORDS, PLAN_WORDS, POLL_MS,
-  VERIFY_HELP, VERIFY_HELP_RELAY, accessIndex, ago, bare, deviceCodes, devicesCommand, enableCommand, leftText, moveCommand, outcomeOf, pairCommand, pairLive, pairOf,
+  VERIFY_HELP, VERIFY_HELP_RELAY, accessIndex, ago, bare, deviceCodes, devicesCommand, enableCommand, leftText, moveCommand, outcomeOf, pairCommand, joinLine, pairLive, pairOf,
   planText, qrSource, renameCommand, resumeCommand, revokeCommand, roleCommand, rosterOf, summaryOf, unverifyCommand, untilText, verifyCommand, verifyText, viewOf,
 } from "../lib/remote.js";
 
@@ -37,7 +37,7 @@ const NEW_MOVE = { open: false, relay: "", invite: "", join: "" };
  *  latest answers, remote says this window was reached through the relay, send is
  *  the store's send and copy(text, what) puts text on the clipboard. news is the
  *  latest notice since the dialog opened. tickMs, pollMs and clock are for tests. */
-export function Remote({ status, roster, pair, outcome, remote, send, copy, news = "", tickMs = 1000, pollMs = POLL_MS, clock = () => Date.now() }) {
+export function Remote({ status, roster, pair, outcome, remote, send, copy, forget = () => {}, news = "", tickMs = 1000, pollMs = POLL_MS, clock = () => Date.now() }) {
   const [now, setNow] = useState(clock());
   const [busy, setBusy] = useState(null);
   const [asking, setAsking] = useState(null);
@@ -60,6 +60,7 @@ export function Remote({ status, roster, pair, outcome, remote, send, copy, news
   const working = busy && !(outcome && outcome.seq > busy.floor) ? busy.action : "";
   const off = !!r && r.state === "disabled";
   const live = pairLive(link, now);
+  const joinOk = pairLive(join, now);
 
   useEffect(() => {
     if (send(devicesCommand()) === false) setProblem("The request could not be sent. Check the connection.");
@@ -75,6 +76,7 @@ export function Remote({ status, roster, pair, outcome, remote, send, copy, news
     if (!pair || pair.seq <= seenPair.current) return;
     seenPair.current = pair.seq;
     const p = pairOf(pair);
+    p.arrived = clock();
     if (p.kind === "host") {
       setJoin(p);
       setWanting((w) => (w === "host" ? "" : w));
@@ -84,10 +86,17 @@ export function Remote({ status, roster, pair, outcome, remote, send, copy, news
       setNow(clock());
     }
   }, [pair]);
+  // The store keeps the last answer for the life of the page; it is let go when the
+  // link has run out and when the dialog closes, so a stale one is never offered again.
+  const spent = (!!link && !live) || (!!join && !joinOk);
+  useEffect(() => {
+    if (spent) forget();
+  }, [spent]);
+  useEffect(() => forget, []);
   // While a link is good to scan the clock ticks, to count down to its end and to
   // ask for the roster again every few seconds; nothing else asks again on its own.
   useEffect(() => {
-    if (!live) return undefined;
+    if (!live && !joinOk) return undefined;
     let n = 0;
     const every = Math.max(1, Math.round(pollMs / tickMs));
     const t = setInterval(() => {
@@ -96,7 +105,7 @@ export function Remote({ status, roster, pair, outcome, remote, send, copy, news
       if (n % every === 0) send(devicesCommand());
     }, tickMs);
     return () => clearInterval(t);
-  }, [live]);
+  }, [live, joinOk]);
 
   const go = (cmd, action = "") => {
     if (!cmd) return false;
@@ -124,21 +133,25 @@ export function Remote({ status, roster, pair, outcome, remote, send, copy, news
 
   // --- not enrolled -------------------------------------------------------
   const notOn = !r && ro && !ro.enabled;
+  // The codes are secrets: once sent they are not kept in the form.
+  const enable = () => {
+    if (go(enableCommand(draft), "enable")) setDraft({ ...draft, join: "", invite: "" });
+  };
   const enableForm = () => {
-    const field = (key, id, placeholder, label) => html`<input type="text" class="dialog-field" id=${id} placeholder=${placeholder} aria-label=${label}
+    const field = (key, id, placeholder, label, secret = false) => html`<input type=${secret ? "password" : "text"} class="dialog-field" id=${id} placeholder=${placeholder} aria-label=${label}
       autocomplete="off" spellcheck="false" value=${draft[key]} onInput=${(e) => setDraft({ ...draft, [key]: e.target.value })}
-      onKeyDown=${sayEnter(() => go(enableCommand(draft), "enable"))} />`;
+      onKeyDown=${sayEnter(() => enable())} />`;
     return html`
       <div class="remote-box" id="remote-enable-box">
         <p class="set-intro">This machine is not enrolled with a relay. Leave the relay empty for remote.flockdeck.ai, or name another.</p>
         <div class="remote-form">
           ${field("relay", "remote-relay", "Relay — empty for remote.flockdeck.ai", "Relay address")}
           ${field("name", "remote-name", "Name for this machine — empty for its host name", "Machine name")}
-          ${draft.more ? field("join", "remote-join", "Join code, from a machine already on the account", "Join code") : null}
-          ${draft.more ? field("invite", "remote-invite", "Invitation code, for a relay that asks for one", "Invitation code") : null}
+          ${draft.more ? field("join", "remote-join", "Join code, from a machine already on the account", "Join code", true) : null}
+          ${draft.more ? field("invite", "remote-invite", "Invitation code, for a relay that asks for one", "Invitation code", true) : null}
         </div>
         <div class="remote-actions">
-          <button type="button" class="dialog-btn dialog-btn--primary" id="remote-enable" disabled=${!!working} onClick=${() => go(enableCommand(draft), "enable")}>
+          <button type="button" class="dialog-btn dialog-btn--primary" id="remote-enable" disabled=${!!working} onClick=${() => enable()}>
             ${working === "enable" ? "Turning it on…" : "Turn on Flockdeck Remote"}
           </button>
           <button type="button" class="dialog-btn" id="remote-more" aria-expanded=${draft.more ? "true" : "false"}
@@ -302,14 +315,14 @@ export function Remote({ status, roster, pair, outcome, remote, send, copy, news
       </section>`;
     }
     const moveForm = () => {
-      const field = (key, id, placeholder, label) => html`<input type="text" class="dialog-field" id=${id} placeholder=${placeholder} aria-label=${label}
+      const field = (key, id, placeholder, label, secret = false) => html`<input type=${secret ? "password" : "text"} class="dialog-field" id=${id} placeholder=${placeholder} aria-label=${label}
         autocomplete="off" spellcheck="false" value=${moving[key]} onInput=${(e) => setMoving({ ...moving, [key]: e.target.value })} onKeyDown=${sayEnter(move)} />`;
       return html`<div class="remote-box" id="remote-move-box">
         <p class="set-about">This machine is enrolled with the new relay first, and leaves ${where} only once the new one answers. Every device paired with it will then have to pair again, with the new relay.</p>
         <div class="remote-form">
           ${field("relay", "remote-move-relay", "New relay, for example relay.example.com", "New relay address")}
-          ${field("invite", "remote-move-invite", "Invitation code, if the new relay asks for one", "Invitation code")}
-          ${field("join", "remote-move-join", "Join code, to join an account already on the new relay", "Join code")}
+          ${field("invite", "remote-move-invite", "Invitation code, if the new relay asks for one", "Invitation code", true)}
+          ${field("join", "remote-move-join", "Join code, to join an account already on the new relay", "Join code", true)}
         </div>
         <div class="remote-actions">
           <button type="button" class="dialog-btn dialog-btn--primary" id="remote-move-go" disabled=${!!working} onClick=${move}>${working === "move" ? "Moving…" : "Move this machine"}</button>
@@ -327,7 +340,7 @@ export function Remote({ status, roster, pair, outcome, remote, send, copy, news
       }
       ask("machine", "Move this machine off " + where + " and onto " + bare(cmd.relay) + "?",
         ["Every device paired with it will have to pair again, with the new relay.", "Only this machine leaves " + where + ": its account there stays."], "Move this machine",
-        () => { setProblem(""); go(cmd, "move"); });
+        () => { setProblem(""); if (go(cmd, "move")) setMoving({ ...moving, invite: "", join: "" }); });
     }
     return html`<section class="remote-sec" aria-labelledby="remote-machine-head">
       <h4 class="set-sub" id="remote-machine-head">This machine</h4>
@@ -359,8 +372,13 @@ export function Remote({ status, roster, pair, outcome, remote, send, copy, news
           ${wanting === "host" ? "Asking the relay…" : "Show a join code"}</button>
       </div>
       ${join && join.error ? html`<p class="set-error" role="alert">${join.error}</p>` : null}
-      ${join && join.code
-        ? html`<p class="set-about" id="remote-join-text">On the other machine, run flockdeck remote enable -relay ${(r && r.relay) || ""} -join ${join.code}. It works once${untilText(join.expiresAt)}. That machine then shares this account, and devices paired with either reach both.</p>`
+      ${join && join.code && !joinOk
+        ? html`<p class="set-error" id="remote-join-expired" role="status">That join code has expired. Ask for a new one.</p>`
+        : null}
+      ${join && join.code && joinOk
+        ? joinLine((r && r.relay) || "", join.code)
+          ? html`<p class="set-about" id="remote-join-text">On the other machine, run <code>${joinLine((r && r.relay) || "", join.code)}</code>. It works once${untilText(join.expiresAt)}. That machine then shares this account, and devices paired with either reach both.</p>`
+          : html`<p class="set-error" id="remote-join-bad" role="alert">The relay sent a join code or address that is not plain text, so it is not shown. Do not paste it into a terminal.</p>`
         : null}
       ${o && (o.action !== "enable" || off) && o.action !== "move" && o.error ? html`<p class="set-error" role="alert">${o.error}</p>` : null}
       ${o && o.action === "move" && o.warning ? html`<p class="set-error" role="alert">${o.warning}</p>` : null}

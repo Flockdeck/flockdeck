@@ -541,6 +541,11 @@ export function createStore(opts) {
       notify();
     },
     getState() { return snap; },
+    /** clearPair lets go of the last pairing link and join code, which the page
+     *  would otherwise keep (url, QR, code) for its whole life. */
+    clearPair() {
+      if (snap.remotePair) set({ remotePair: null });
+    },
     subscribe(fn) {
       listeners.add(fn);
       return () => listeners.delete(fn);
