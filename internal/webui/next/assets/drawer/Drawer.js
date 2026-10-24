@@ -82,7 +82,7 @@ export function hasTerminal(node, pane) {
 /** Drawer is the component. store is the store of store.js; node and pane are the
  *  graph node and the state push's entry for it. terminalOptions reach the
  *  terminal, which is how a test gives it fakes for xterm and the socket. */
-function DrawerBody({ store, snap = null, node, pane = null, now, maximised = false, onClose, onToggleMax, onOpenPane = null, terminalOptions = null, life = null, tx = null, onInfo = null, findAsk = 0 }) {
+function DrawerBody({ store, snap = null, node, pane = null, now, maximised = false, onClose, onToggleMax, onOpenPane = null, terminalOptions = null, life = null, tx = null, onInfo = null, findAsk = 0, tabAsk = null }) {
   const rootRef = useRef(null);
   const terminalRef = useRef(null);
   // The terminal's controller once it is made, for the search bar, and the search
@@ -142,6 +142,14 @@ function DrawerBody({ store, snap = null, node, pane = null, now, maximised = fa
       setAskSeq((n) => n + 1);
     }
   }, [findAsk]);
+  // A tab asked for from a key (Changes): only a new ask counts, and only a tab
+  // this pane has.
+  const seenTab = useRef(tabAsk ? tabAsk.n : 0);
+  useEffect(() => {
+    if (!tabAsk || tabAsk.n === seenTab.current) return;
+    seenTab.current = tabAsk.n;
+    if (tabAsk.tab === "changes" && pane && pane.cwd) setTab("changes");
+  }, [tabAsk && tabAsk.n]);
   const onKeyDown = (e) => {
     if (e.key !== LIST.cancel || e.defaultPrevented || inTerminal(e.target)) return;
     e.preventDefault();
@@ -220,7 +228,7 @@ function DrawerBody({ store, snap = null, node, pane = null, now, maximised = fa
         : null}
       ${hasChanges && shown === "changes"
         ? html`<div class="drawer-panel" role="tabpanel" id="drawer-panel-changes" aria-labelledby="drawer-tab-changes">
-            <${Changes} key=${node.pane} cwd=${pane.cwd} snap=${state} store=${store} />
+            <${Changes} key=${node.pane} cwd=${pane.cwd} git=${[pane.dirty, pane.untracked, pane.ahead, pane.behind].join("/")} snap=${state} store=${store} />
           </div>`
         : null}
     </section>
