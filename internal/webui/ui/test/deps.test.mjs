@@ -2,7 +2,7 @@
 // worked out from the tasks' `depends` and states.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { planOf, depsOf, isReady, openBlockers, finishOf, hasEstimates, sinksOf, minutesWords, GOAL } from "../assets/graph/deps.js";
+import { IDLE, idleOf, planOf, depsOf, isReady, openBlockers, finishOf, hasEstimates, sinksOf, minutesWords, GOAL } from "../assets/graph/deps.js";
 
 const T = (id, state, depends = [], over = {}) => ({ id, title: "title " + id, state, depends, estimateMin: 0, ownerPane: "", owner: "", ...over });
 // The api-service team of prototype C: T1 merged, the rest hang from it.
@@ -113,4 +113,20 @@ test("waitsOf puts rings first, then what waits on you, then overlaps, then plai
   assert.deepEqual(w.map((x) => x.from + ">" + x.to), ["api>tests", "tests>api", "ci>you", "api>cfg", "cfg>rev"]);
   assert.equal(w[3].why, "cfg/limits.yaml");
   assert.deepEqual(waitsOf(buildGraphModel(null)), []);
+});
+
+test("tasks nobody has, nothing waits on and nothing blocks are one folded group, last", () => {
+  const many = [T("A", "in-progress", [], { ownerPane: "x" }), T("B", "planned", ["A"])];
+  for (let i = 0; i < 50; i++) many.push(T("I" + i, "planned"));
+  many.push(T("C", "planned", [], { owner: "someone" }));
+  const idx = depsOf(many);
+  assert.equal(idleOf(idx).length, 50);
+  const open = planOf(many, new Set([IDLE]));
+  const ids = open.rows.map((r) => r.id);
+  assert.deepEqual(ids, [GOAL, "B", "A", "C", IDLE], "work first, the group last, folded");
+  assert.equal(open.rows.at(-1).kids, 50);
+  assert.equal(open.rows.at(-1).folded, true);
+  assert.equal(planOf(many, new Set()).rows.length, 5 + 50, "unfolded it lists them under the group");
+  assert.deepEqual(open.ready, [], "an idle task is in the group, not counted as ready");
+  assert.equal(planOf([T("only", "planned")]).rows.length, 3, "a lone idle task is a group of one");
 });

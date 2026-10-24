@@ -131,3 +131,20 @@ test("Ask to start sends the manager the task and says so", async () => {
     m.done();
   }
 });
+
+test("sixty tasks: the idle ones are one row until opened, and a chain of one has no critical path band", async () => {
+  const many = [T("A", "in-progress", [], { ownerPane: "ci" })];
+  for (let i = 0; i < 59; i++) many.push(T("I" + i, "planned"));
+  const m = await mount({ team: push(many) });
+  try {
+    assert.equal(m.box.findAll(".tree-row").length, 3, "goal, A and the group");
+    assert.ok(m.box.textContent.includes("59 tasks not started, no dependencies"));
+    assert.ok(!m.box.textContent.includes("Critical path"), "the longest chain is one task");
+    m.row("IDLE").click();
+    m.box.findAll(".tree-toggle").find((e) => e.attributes["aria-label"] === "Unfold IDLE" || (e.attributes["aria-label"] || "").includes("Unfold")).click();
+    await settle();
+    assert.ok(m.box.findAll(".tree-row").length > 50);
+  } finally {
+    m.done();
+  }
+});
