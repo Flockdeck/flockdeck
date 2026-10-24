@@ -35,11 +35,24 @@ export function GoalStrip({
   const stopId = tabs.some((t) => t.id === stop) ? stop : active;
   const goals = tabs.filter((t) => t.kind === "team");
   const current = tabs.find((t) => t.id === active) || null;
+  // The open tab is kept in view when the row scrolls sideways.
+  useEffect(() => {
+    const li = root.current ? [...root.current.querySelectorAll("li")].find((n) => n.getAttribute("data-tab") === active) : null;
+    if (li && li.scrollIntoView) li.scrollIntoView({ inline: "nearest", block: "nearest" });
+  }, [active]);
   const onListKey = (e) => {
     if (composing(e) || e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return;
     const li = e.target && e.target.getAttribute && e.target.getAttribute("role") === "tab" ? e.target.closest("li") : null;
     const at = li ? tabs.findIndex((t) => t.id === li.getAttribute("data-tab")) : -1;
     if (at < 0) return;
+    if (e.key === "F2") {
+      if (tabs[at].kind === "team" && onRename) {
+        e.preventDefault();
+        e.stopPropagation();
+        setRenaming(tabs[at].id);
+      }
+      return;
+    }
     let to = -1;
     if (e.key === LIST.right) to = (at + 1) % tabs.length;
     else if (e.key === LIST.left) to = (at - 1 + tabs.length) % tabs.length;
@@ -85,7 +98,7 @@ export function GoalStrip({
           </li>`;
         })}
       </ul>
-      <${PlusMenu}>${(act) => html`
+      <${PlusMenu} dot=${archived.some((t) => t.needs > 0)}>${(act) => html`
         ${onStartTeam ? html`<button type="button" role="menuitem" class="tabs-btn tabs-team" onClick=${act(onStartTeam)}>Start a team…</button>` : null}
         ${onNewAgent ? html`<button type="button" role="menuitem" class="tabs-btn" onClick=${act(onNewAgent)}>New agent tab</button>` : null}
         ${onChoose ? html`<button type="button" role="menuitem" class="tabs-btn" onClick=${act(onChoose)}>Choose agent…</button>` : null}
@@ -109,7 +122,12 @@ export function GoalStrip({
 /** ViewBar is the switch between the views of the page. It is a row of its own
  *  under the goal strip, drawn as a group of buttons and not as tabs. */
 export function ViewBar({ view = firstViewOf(), views = null, onView }) {
-  return html`<div class="viewbar" role="group" aria-label="Views">
+  const bar = useRef(null);
+  useEffect(() => {
+    const on = bar.current ? [...bar.current.querySelectorAll("button")].find((b) => b.getAttribute("data-view") === view) : null;
+    if (on && on.scrollIntoView) on.scrollIntoView({ inline: "nearest", block: "nearest" });
+  }, [view]);
+  return html`<div class="viewbar" role="group" aria-label="Views" ref=${bar}>
     ${(views || viewsOf()).map(([id, name]) => html`<button type="button" key=${id} class=${"tabs-view" + (view === id ? " is-on" : "")} data-view=${id} aria-pressed=${view === id ? "true" : "false"} onClick=${() => onView(id)}>${name}</button>`)}
   </div>`;
 }
@@ -119,7 +137,7 @@ export function ViewBar({ view = firstViewOf(), views = null, onView }) {
  *  item gives the keyboard back to the "+" and closes the menu before the action
  *  runs (a dialog the action opens then takes the "+" as where to return to); Escape closes it and gives the keyboard back to the "+";
  *  Up and Down move along the items; a press outside closes it. */
-export function PlusMenu({ children }) {
+export function PlusMenu({ children, dot = false }) {
   const [open, setOpen] = useState(false);
   const box = useRef(null);
   const items = () => (box.current ? [...box.current.querySelectorAll('[role="menuitem"]')].filter((b) => !b.disabled) : []);
@@ -162,8 +180,8 @@ export function PlusMenu({ children }) {
   };
   return html`
     <div class="tabs-plus-box" ref=${box} onKeyDown=${onKeyDown}>
-      <button type="button" class="tabs-plus" aria-label="New tab and tab actions" title="New tab and tab actions" aria-haspopup="menu" aria-expanded=${open ? "true" : "false"}
-        onClick=${() => setOpen(!open)}>+</button>
+      <button type="button" class="tabs-plus" aria-label=${"New tab and tab actions" + (dot ? ", an archived goal needs you" : "")} title=${dot ? "An archived goal needs you" : "New tab and tab actions"} aria-haspopup="menu" aria-expanded=${open ? "true" : "false"}
+        onClick=${() => setOpen(!open)}>+${dot ? html`<span class="tabs-plus-dot" aria-hidden="true"></span>` : null}</button>
       ${open ? html`<div class="tabs-menu" role="menu" aria-label="Tab actions">${children(act)}</div>` : null}
     </div>
   `;

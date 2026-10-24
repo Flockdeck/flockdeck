@@ -236,3 +236,83 @@ test("with a desktop that has no uiPrefs the choices still work, for the life of
     assert.equal(m.sent("uiPrefs").length, 0, "nothing the desktop would not understand is sent");
     assert.deepEqual(m.ids(), [ONE, "solo"]);
   }));
+
+const click = async (m, el) => { await m.click(el); };
+const viewBtn = (m, id) => m.container.findAll(".tabs-view").find((b) => b.getAttribute("data-view") === id);
+const isOn = (b) => b.attributes.class.includes("is-on");
+
+test("choosing a tab on a project-wide view shows the Team view; on Dependencies it stays", () =>
+  withPage({}, async (m) => {
+    await m.connect();
+    await click(m, viewBtn(m, "board"));
+    assert.equal(isOn(viewBtn(m, "board")), true);
+    await click(m, m.tabs()[1].find(".tab-pick"));
+    assert.equal(isOn(viewBtn(m, "tree")), true, "the tab did something the person can see");
+    assert.equal(isOn(viewBtn(m, "board")), false);
+    await click(m, viewBtn(m, "deps"));
+    await click(m, m.tabs()[0].find(".tab-pick"));
+    assert.equal(isOn(viewBtn(m, "deps")), true, "Dependencies follows the tab, so it stays");
+    await click(m, viewBtn(m, "changes"));
+    await m.key("Alt+2");
+    assert.equal(isOn(viewBtn(m, "tree")), true, "the keys do the same");
+  }));
+
+test("a new shell tab opens its pane in the drawer, on Solo", () =>
+  withPage({}, async (m) => {
+    await m.connect();
+    await m.plus();
+    m.clear();
+    await click(m, m.container.findAll(".tabs-btn").find((b) => b.textContent === "New shell tab"));
+    assert.equal(m.sent("newTab").length, 1);
+    const g = graph();
+    g.nodes = [...g.nodes, { ...g.nodes[0], pane: "sh1", name: "shell one", parent: "", children: [], depth: 0, team: "", shell: true }];
+    g.solo = ["sh1"];
+    const st = stateOf(g);
+    await m.push(st);
+    await m.push(g);
+    assert.equal(m.container.find(".drawer-name").textContent, "shell one");
+    assert.deepEqual(m.active(), ["solo"]);
+    assert.ok(m.rows().includes("sh1"));
+  }));
+
+test("opening a pane from elsewhere (an agent started, the feed, the palette) opens the goal that holds it", () =>
+  withPage({}, async (m) => {
+    await m.connect();
+    await click(m, m.tabs()[1].find(".tab-pick"));
+    assert.deepEqual(m.active(), [TWO]);
+    await m.push({ type: "agentStarted", paneId: ONE, id: "x" });
+    assert.deepEqual(m.active(), [ONE]);
+  }));
+
+test("an empty Solo says so in one line", () =>
+  withPage({}, async (m) => {
+    await m.connect();
+    await click(m, m.tabs()[2].find(".tab-pick"));
+    assert.equal(m.container.find(".solo-empty").textContent, "No panes outside a goal.");
+    await click(m, m.tabs()[0].find(".tab-pick"));
+    assert.equal(m.container.find(".solo-empty"), null);
+  }));
+
+test("archiving says how to get the tab back, and a dot on the + says an archived goal needs you", () =>
+  withPage({}, async (m) => {
+    await m.connect();
+    await click(m, m.tabs()[1].find(".tab-close"));
+    assert.match(m.container.find(".notice").textContent, /Archived\. Show it again from the \+ menu\./);
+    assert.equal(m.container.find(".tabs-plus-dot"), null);
+    await click(m, m.tabs()[0].find(".tab-close"));
+    assert.ok(m.container.find(".tabs-plus-dot"), "the first goal has a pane waiting on the person");
+    assert.match(m.container.find(".tabs-plus").getAttribute("aria-label"), /an archived goal needs you/);
+  }));
+
+test("F2 renames the tab that has the keyboard, and is left alone on Solo", () =>
+  withPage({}, async (m) => {
+    await m.connect();
+    m.tabs()[1].find(".tab-pick").keydown("F2");
+    await settle();
+    assert.ok(m.container.find(".tab-rename"));
+    m.container.find(".tab-rename").keydown("Escape");
+    await settle();
+    m.tabs()[2].find(".tab-pick").keydown("F2");
+    await settle();
+    assert.equal(m.container.find(".tab-rename"), null);
+  }));
