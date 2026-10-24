@@ -408,7 +408,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
       }
     : null;
   const bar = current && !snap.graphGone
-    ? html`<${ManagerBar} snap=${snap} manager=${managerOf(current)} send=${(c) => store.send(c)} inputRef=${barRef} />`
+    ? html`<${ManagerBar} snap=${snap} manager=${managerOf(current)} send=${(c) => store.send(c)} inputRef=${barRef} lead=${true} />`
     : null;
 
   // The graph's two keys that no arrow does. The next agent that needs the person
@@ -633,7 +633,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     hello=${kept.current.hello}
     state=${kept.current.state}
     onWatch=${onWatch}
-    top=${bar}
+    bottom=${bar}
     narrow=${narrow}
     matchMedia=${matchMedia}
     window=${win}

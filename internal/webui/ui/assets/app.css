@@ -283,10 +283,11 @@ button { font: inherit; color: inherit; }
   display: grid;
   height: 100%;
   grid-template-columns: var(--rail-w) minmax(0, 1fr) auto;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr) auto auto;
   grid-template-areas:
     "rail top top"
     "rail main drawer"
+    "rail composer composer"
     "rail notices notices";
 }
 .shell--rail-collapsed { --rail-w: var(--rail-w-collapsed); }
@@ -430,6 +431,11 @@ button { font: inherit; color: inherit; }
 }
 .top-title { font-weight: 600; }
 
+/* The bar along the bottom holds the manager bar. */
+.composer { grid-area: composer; padding: 8px 12px; display: flex; background: var(--bg-raised); border-top: 1px solid var(--line); }
+.composer:empty { display: none; }
+.mbar-to { color: var(--fg-dim); font-family: var(--mono, monospace); font-size: 12px; white-space: nowrap; }
+.mbar-to b { color: var(--fg); font-weight: 600; }
 /* The manager bar: a box, a button and one line of what became of the last send. */
 .mbar {
   flex: 1;
@@ -607,11 +613,12 @@ button { font: inherit; color: inherit; }
 @media (max-width: 640px) {
   .shell {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto auto minmax(0, 1fr) auto;
+    grid-template-rows: auto auto minmax(0, 1fr) auto auto;
     grid-template-areas:
       "rail"
       "top"
       "main"
+      "composer"
       "notices";
   }
   .rail {
