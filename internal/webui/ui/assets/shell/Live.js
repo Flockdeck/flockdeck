@@ -17,7 +17,7 @@ import { ManagerBar, managerOf } from "../graph/ManagerBar.js";
 import { Feed } from "../graph/Feed.js";
 import { feedStep } from "../graph/FeedDiff.js";
 import { nextNeedsYou, paneAt, prevNeedsYou } from "../graph/keys.js";
-import { Shell, useNarrow } from "./app.js";
+import { Shell, useMedia, useNarrow } from "./app.js";
 import { FootButton } from "./rail.js";
 import { Tree, totalOf } from "../graph/Tree.js";
 import { Deps } from "../graph/DepsView.js";
@@ -291,6 +291,21 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
   // The drawer's width is kept in the preferences; where they cannot keep it (a relay
   // window, a desktop without uiPrefs) it is held for the life of the page.
   const [localDrawerW, setLocalDrawerW] = useState(null);
+  const [localDrawerH, setLocalDrawerH] = useState(null);
+  const [localOrient, setLocalOrient] = useState(null);
+  // The drawer goes below the main area in a window taller than it is wide, until the person chooses.
+  const portrait = useMedia(matchMedia, "(orientation: portrait)");
+  const pickedOrient = localOrient || prefs.orient;
+  const orient = pickedOrient === "auto" ? (portrait ? "stack" : "side") : pickedOrient;
+  const setDrawerH = (px) => {
+    if (!snap.remote && change("drawerH", px)) setLocalDrawerH(null);
+    else setLocalDrawerH(px);
+  };
+  const toggleLayout = () => {
+    const to = orient === "stack" ? "side" : "stack";
+    if (!snap.remote && change("orient", to)) setLocalOrient(null);
+    else setLocalOrient(to);
+  };
   const setDrawerW = (px) => {
     if (!snap.remote && change("drawerW", px)) setLocalDrawerW(null);
     else setLocalDrawerW(px);
@@ -549,6 +564,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
         items.push({ id: "agent-" + n.pane, group: "Agents", name: "Open " + (n.name || n.pane), detail: [n.role, n.status].filter(Boolean).join(" · "), run: () => { reveal(n.pane); drawer.open(n.pane); } });
       }
     }
+    items.push({ id: "layout", group: "Views", name: "Layout: stack / side by side", detail: orient === "stack" ? "now below" : "now beside", run: toggleLayout });
     for (const [id, name] of views) items.push({ id: "view-" + id, group: "Views", name: "Show " + name, detail: "", run: () => chooseView(id) });
     return items;
   }, [current, view]);
@@ -713,6 +729,9 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     onRailWidth=${snap.remote ? undefined : (px) => change("railWidth", px)}
     drawerW=${localDrawerW === null ? prefs.drawerW : localDrawerW}
     onDrawerW=${setDrawerW}
+    drawerH=${localDrawerH === null ? prefs.drawerH : localDrawerH}
+    onDrawerH=${setDrawerH}
+    orient=${orient}
     welcome=${!snap.remote && !!snap.hello && !prefs.helpSeen}
     onHelpOpened=${() => { if (!snap.remote && !prefs.helpSeen) change("helpSeen", true); }}
     blocked=${!!starting || settingsOpen || updatesAt >= 0 || quitAsk || historyOpen || !!infoFor || findingPane || helpersOpen || projectsOpen || !!baton || teamOpen || agentsOpen || worktreesOpen || closeAsk}
@@ -728,7 +747,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     drawer=${node
       ? html`<${Drawer} store=${store} snap=${snap} node=${node} pane=${pane} now=${Date.now()} maximised=${drawer.maximised}
           onClose=${drawer.close} onToggleMax=${drawer.toggleMax} terminalOptions=${termProps} life=${life}
-          tx=${tx} onInfo=${openInfo} findAsk=${findAsk} tabAsk=${tabAsk} onOpenPane=${drawer.open} order=${order} helpers=${helperNames} onStartTeam=${snap.remote ? null : () => setStarting("team")} />`
+          tx=${tx} onInfo=${openInfo} findAsk=${findAsk} tabAsk=${tabAsk} onOpenPane=${drawer.open} order=${order} helpers=${helperNames} layout=${orient} onLayout=${toggleLayout} onStartTeam=${snap.remote ? null : () => setStarting("team")} />`
       : null}
   >${snap.state
       ? html`<${GoalStrip} tabs=${goal.tabs} archived=${goal.archived} active=${activeTab} onSelect=${showTab}
