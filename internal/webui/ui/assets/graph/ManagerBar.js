@@ -100,7 +100,7 @@ export function outcomeOf(snap, pending) {
  * accepted send stays. verb starts the box's hint: "Tell" the manager, and
  * "Answer" an agent that asked a question.
  */
-export function ManagerBar({ snap, manager, send, inputRef, autoFocus = true, verb = "Tell", shownFor = SENT_SHOWN }) {
+export function ManagerBar({ snap, manager, send, inputRef, autoFocus = true, verb = "Tell", shownFor = SENT_SHOWN, lead = false }) {
   const own = useRef(null);
   const box = inputRef || own;
   const [draft, setDraft] = useState("");
@@ -174,6 +174,7 @@ export function ManagerBar({ snap, manager, send, inputRef, autoFocus = true, ve
   const say = local ? { kind: "refused", text: local } : outcome;
   const state = say ? say.kind : "idle";
   return html`<div class="mbar" data-state=${state}>
+    ${lead ? html`<span class="mbar-to">To <b>${clip(manager.name, 24)}</b></span>` : null}
     <input
       ref=${box}
       class="mbar-input"

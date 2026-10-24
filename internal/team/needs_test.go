@@ -484,33 +484,3 @@ func TestQuietFor(t *testing.T) {
 		}
 	}
 }
-
-func TestSpendLevelAndTheSpendItem(t *testing.T) {
-	for _, c := range []struct {
-		spent, limit float64
-		want         string
-	}{{0, 0, ""}, {99, 0, ""}, {7.99, 10, ""}, {8, 10, "warn"}, {9.99, 10, "warn"}, {10, 10, "over"}, {12, 10, "over"}} {
-		if got := SpendLevel(c.spent, c.limit); got != c.want {
-			t.Errorf("SpendLevel(%v, %v) = %q, want %q", c.spent, c.limit, got, c.want)
-		}
-	}
-	g := BuildGraph([]GraphPane{{ID: "m", Role: ManagerRole, Activity: "idle"}, {ID: "a", Parent: "m", Activity: "idle"}}, nil)
-	teamID := g.Teams[0].ID
-	needs := NeedsYouWithSpend(g, nil, nil, nil, nil, []SpendCheck{
-		{Team: teamID, Manager: "m", Spent: 8.5, Limit: 10, Partial: true},
-	}, time.Time{})
-	items := needs[teamID].Items
-	if len(items) != 1 || items[0].Kind != NeedSpend || items[0].Pane != "m" || items[0].Text != "at least $8.50 of the $10.00 limit spent (85%)" {
-		t.Errorf("items = %+v", items)
-	}
-	if !AsksPerson(NeedSpend) {
-		t.Error("a spend item asks the person")
-	}
-	// A spend item follows a pane that is down and goes before a setup item.
-	if !(needRank(NeedDown) < needRank(NeedSpend) && needRank(NeedSpend) < needRank(NeedSetup)) {
-		t.Error("spend is not between down and setup")
-	}
-	if len(NeedsYou(g, nil, nil, nil, nil, time.Time{})) != 0 {
-		t.Error("NeedsYou lists a spend item with no limit given")
-	}
-}

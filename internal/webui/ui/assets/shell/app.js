@@ -158,7 +158,7 @@ export function useNarrow(matchMedia, override) {
  *  to a box in it. window is the page's, passed in for a test. helpLoad fetches
  *  the help pages (lib/help.js); the default asks the page's own address. blocked
  *  says a view's modal dialog is open, and no key then reaches an action. */
-export function Shell({ hello, state, notice, onDismissNotice, onWatch, narrow: narrowProp, matchMedia, top, children, drawer, maximised = false, mainRef, window: win, actions = NO_ACTIONS, blocked = false, onSettings, onProjects, helpLoad, railFoot = null, paletteItems = null, railExpanded, railWidth = RAIL_DEFAULT, onRailExpanded, onRailWidth, keysOff = false, welcome = false, onHelpOpened }) {
+export function Shell({ hello, state, notice, onDismissNotice, onWatch, narrow: narrowProp, matchMedia, top, children, drawer, maximised = false, mainRef, bottom = null, total = "", window: win, actions = NO_ACTIONS, blocked = false, onSettings, onProjects, helpLoad, railFoot = null, paletteItems = null, railExpanded, railWidth = RAIL_DEFAULT, onRailExpanded, onRailWidth, keysOff = false, welcome = false, onHelpOpened }) {
   const keys = keysOf(hello);
   const bindings = useMemo(() => bindingsFrom(keys), [keys]);
   const broken = useMemo(() => unreadable(keys), [keys]);
@@ -281,10 +281,12 @@ export function Shell({ hello, state, notice, onDismissNotice, onWatch, narrow: 
         railRef=${regions.rail}
         foot=${railFoot}
       />
-      <header class="top" aria-label="Manager">
+      <header class="top" aria-label="Project">
         ${top || html`<span class="top-title">${current ? current.name : "Flockdeck"}</span>`}
+        ${total ? html`<span class="top-total" title="Spent so far, by every agent of this project">${total}</span>` : null}
       </header>
       <main class=${"main" + (narrow ? " main--list" : "")} tabindex="-1" ref=${regions.main}>${children}</main>
+      ${bottom ? html`<footer class="composer" aria-label="Manager">${bottom}</footer>` : null}
       <aside class="drawer" aria-label="Agent" tabindex="-1" ref=${regions.drawer} hidden=${!drawerOpen}>${drawer}</aside>
       <div class="notices" role="status" aria-live="polite">
         ${said

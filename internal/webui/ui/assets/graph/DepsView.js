@@ -20,7 +20,7 @@ import { teamOf, TEAM_RELAY_WORDS, isFinished as stateFinished } from "../lib/te
 import { clip, stateOf } from "./Node.js";
 import { managerOf } from "./ManagerBar.js";
 import { labelOf } from "./model.js";
-import { GOAL, isReady, openBlockers, planOf, loopsOf, waitsOf, minutesWords } from "./deps.js";
+import { GOAL, IDLE, isReady, openBlockers, planOf, loopsOf, waitsOf, minutesWords } from "./deps.js";
 import { stepOf, foldOf, ageOf } from "./Tree.js";
 
 export const NO_TASKS_WORDS = "No tasks have been planned yet. The manager adds them as it plans.";
@@ -54,7 +54,7 @@ function Chip({ c, onLink }) {
 
 /** Deps draws the view. team is the store's team push, model the graph model (or null), remote says the window is reached through the relay. */
 export function Deps({ team: teamMsg, model = null, remote = false, onOpen = null, send = null }) {
-  const [folded, setFolded] = useState(() => new Set());
+  const [folded, setFolded] = useState(() => new Set([IDLE]));
   const [focus, setFocus] = useState("");
   const [asked, setAsked] = useState({});
   const ref = useRef(null);
@@ -126,11 +126,14 @@ export function Deps({ team: teamMsg, model = null, remote = false, onOpen = nul
     go(to);
   };
 
-  const critical = new Set(plan.critical);
+  const critical = new Set(plan.critical.length >= 2 ? plan.critical : []);
   const path = plan.critical.slice().reverse();
   const taskRow = (r) => {
     if (r.id === GOAL) {
       return html`<${DepRow} key=${r.key} r=${r} stop=${stop === r.key} onFocus=${() => setFocus(r.key)} onToggle=${toggle} glyph="idle" id="Goal" title=${goal} fin=${plan.estimates ? minutesWords(plan.total) : ""} />`;
+    }
+    if (r.id === IDLE) {
+      return html`<${DepRow} key=${r.key} r=${r} stop=${stop === r.key} onFocus=${() => setFocus(r.key)} onToggle=${toggle} glyph="idle" id="" title=${plan.idle.length + (plan.idle.length === 1 ? " task" : " tasks") + " not started, no dependencies"} />`;
     }
     const t = plan.idx.byId.get(r.id);
     const blockers = openBlockers(plan.idx, r.id);
@@ -147,7 +150,7 @@ export function Deps({ team: teamMsg, model = null, remote = false, onOpen = nul
       if (ownerWaits) chips.push({ kind: "ask", text: nameOf(model, owner.pane) + " waits on you", to: "" });
     }
     const cls = [blockers.length > 0 && !stateFinished(t.state) ? "is-blocked" : "", ready ? "is-ready" : "", critical.has(r.id) && !r.dup ? "is-crit" : "", r.dup ? "is-dup" : "", ownerWaits ? "is-waiting" : "", ownerDown ? "is-down" : ""].filter(Boolean).join(" ");
-    const start = ready && !r.dup
+    const start = ready && !r.dup && r.parent !== IDLE
       ? html`<div class="deps-start" style=${"--depth:" + Math.min(r.depth, 12)} role="group" aria-label=${"Ready to start " + t.id}>
           <p class="deps-start-kind">Ready to start <span>all blockers merged</span></p>
           <p><b>${t.id}</b> ${clip(t.title, 120)} has no open blockers and nobody on it.</p>
@@ -174,10 +177,10 @@ export function Deps({ team: teamMsg, model = null, remote = false, onOpen = nul
     <div class="view-head">
       <div>
         <h2 class="view-title">Dependencies</h2>
-        <p class="view-note">What each piece of work waits on. Work at the top is finished last; the chain that sets that time is marked.</p>
+        <p class="view-note deps-note">Work by what blocks it. The marked chain sets the finish.</p>
       </div>
     </div>
-    ${plan.rows.length > 1
+    ${plan.critical.length >= 2
       ? html`<div class="deps-path" role="group" aria-label="Critical path">
           <span class="deps-path-label">Critical path</span>
           ${path.map((id, i) => html`<${Fragment} key=${id}>${i > 0 ? html`<span class="deps-arrow" aria-hidden="true">→</span>` : null}<button type="button" class="tree-chip tree-chip--crit is-link" onClick=${() => go(id)}>${id}</button><//>`)}
@@ -246,7 +249,7 @@ function WaitRow({ w, now, model, stop, onFocus, onOpen, onLink }) {
     <span class=${"tree-glyph tree-glyph--" + (w.kind === "loop" ? "exited" : w.kind === "you" ? "waiting" : "idle")} aria-hidden="true"></span>
     <span class="tree-c deps-tk">${w.kind === "you" ? "you" : w.kind === "overlap" ? "files" : "wait"}</span>
     <span class="tree-c deps-ttl"><b>${clip(from, 24)}</b> <span class="deps-sub">${word}</span> <b>${clip(to, 24)}</b>${w.why ? html` <span class="deps-sub">for ${clip(w.why, 120)}</span>` : null}</span>
-    ${chips.length > 0 ? html`<span class="tree-chips">${chips.map((c) => html`<${Chip} key=${c.kind + c.text} c=${c} onLink=${onLink} />`)}</span>` : null}
+    <span class="deps-more">${chips.length > 0 ? html`<span class="tree-chips">${chips.map((c) => html`<${Chip} key=${c.kind + c.text} c=${c} onLink=${onLink} />`)}</span>` : null}</span>
     <span class="tree-c deps-age">${ageOf(w.since, now)}</span>
   </div>`;
 }

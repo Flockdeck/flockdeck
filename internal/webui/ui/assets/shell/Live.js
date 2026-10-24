@@ -19,10 +19,11 @@ import { feedStep } from "../graph/FeedDiff.js";
 import { nextNeedsYou, paneAt, prevNeedsYou } from "../graph/keys.js";
 import { Shell, useNarrow } from "./app.js";
 import { FootButton } from "./rail.js";
-import { Tree } from "../graph/Tree.js";
+import { Tree, totalOf } from "../graph/Tree.js";
 import { Deps } from "../graph/DepsView.js";
 import { Board, ChangesView, Replay, firstViewOf, viewsOf } from "./Views.js";
 import { GoalLine } from "../graph/GoalLine.js";
+import { TreeNotes } from "../graph/TreeNotes.js";
 import { Home, sameProject, rosterOf } from "./Home.js";
 import { Start } from "./Start.js";
 import { Confirm } from "./Confirm.js";
@@ -408,7 +409,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
       }
     : null;
   const bar = current && !snap.graphGone
-    ? html`<${ManagerBar} snap=${snap} manager=${managerOf(current)} send=${(c) => store.send(c)} inputRef=${barRef} />`
+    ? html`<${ManagerBar} snap=${snap} manager=${managerOf(current)} send=${(c) => store.send(c)} inputRef=${barRef} lead=${true} />`
     : null;
 
   // The graph's two keys that no arrow does. The next agent that needs the person
@@ -633,7 +634,8 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     hello=${kept.current.hello}
     state=${kept.current.state}
     onWatch=${onWatch}
-    top=${bar}
+    bottom=${bar}
+    total=${totalOf(current)}
     narrow=${narrow}
     matchMedia=${matchMedia}
     window=${win}
@@ -679,6 +681,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
           <div class=${"home-split" + (showFeed ? " home-split--feed" : "")}>
             <div class="home-col">
               ${current ? html`<${GoalLine} model=${current} />` : null}
+              ${current ? html`<${TreeNotes} model=${current} onOpen=${drawer.open} />` : null}
               <${treeView} model=${current} open=${drawer.pane} onOpen=${drawer.open} send=${snap.remote ? null : send} decisions=${decisionCtx} />
             </div>
             ${showFeed ? html`<${Feed} feed=${feed} onFocus=${(p) => focusNode(mainRef.current, p)} />` : null}

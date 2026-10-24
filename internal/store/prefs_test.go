@@ -1,7 +1,6 @@
 package store
 
 import (
-	"math"
 	"os"
 	"path/filepath"
 	"testing"
@@ -60,33 +59,5 @@ func TestPrefsIgnoreDamagedFile(t *testing.T) {
 	kept, err := os.ReadFile(filepath.Join(dir, prefsFile+damagedSuffix))
 	if err != nil || string(kept) != "{not json" {
 		t.Errorf("damaged prefs = %q, %v; want them kept aside from the save", kept, err)
-	}
-}
-
-func TestSpendLimitIsPerProjectBoundedAndClears(t *testing.T) {
-	var p Prefs
-	root := t.TempDir()
-	if p.SpendLimitFor(root) != 0 {
-		t.Error("a new Prefs has a limit")
-	}
-	if !p.SetSpendLimit(root, 12.345) || p.SpendLimitFor(root) != 12.35 {
-		t.Errorf("limit = %v, want it rounded to cents", p.SpendLimitFor(root))
-	}
-	if p.SetSpendLimit(root, 12.35) {
-		t.Error("the same limit reported a change")
-	}
-	for _, bad := range []float64{-1, MaxSpendLimit + 1, math.NaN(), math.Inf(1)} {
-		if p.SetSpendLimit(root, bad) {
-			t.Errorf("%v was accepted", bad)
-		}
-	}
-	if p.SpendLimitFor(root) != 12.35 || p.SpendLimitFor(t.TempDir()) != 0 {
-		t.Error("another project, or a refused figure, changed the limit")
-	}
-	if p.ForWindow().SpendLimits != nil {
-		t.Error("project paths are sent to a window")
-	}
-	if !p.SetSpendLimit(root, 0) || p.SpendLimits != nil {
-		t.Errorf("zero did not clear: %v", p.SpendLimits)
 	}
 }

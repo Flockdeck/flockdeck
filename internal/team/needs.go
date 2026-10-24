@@ -1,7 +1,6 @@
 package team
 
 import (
-	"fmt"
 	"slices"
 	"strconv"
 	"strings"
@@ -18,8 +17,6 @@ const (
 	NeedSetup       = "setup"
 	NeedStaleUnread = "stale-unread"
 	NeedStuck       = "stuck"
-	// NeedSpend is a team that has spent most of, or all of, its spend limit.
-	NeedSpend = "spend"
 )
 
 // Values of GraphPane.PromptKind.
@@ -112,51 +109,6 @@ type TeamNeeds struct {
 // needs UnreadSince: a pane with unread mail and a zero UnreadSince is never
 // listed. It counts UnreadMail, which leaves out the notices Flockdeck wrote.
 func NeedsYou(g Graph, panes []GraphPane, tasks []GraphTask, conflicts []PaneConflict, moves []TaskMove, now time.Time) map[string]TeamNeeds {
-	return NeedsYouWithSpend(g, panes, tasks, conflicts, moves, nil, now)
-}
-
-// SpendWarnAt is the part of a limit at which a team's spend is listed.
-const SpendWarnAt = 0.8
-
-// SpendCheck is a team's spend against its limit, for NeedsYouWithSpend. Team is
-// the team id and Manager the pane the item is put on. A zero Limit is no limit.
-type SpendCheck struct {
-	Team, Manager string
-	Spent, Limit  float64
-	// Partial says some pane reported no spend, so Spent is a floor.
-	Partial bool
-}
-
-// SpendLevel says how near a team is to its limit: "" under SpendWarnAt of it,
-// "warn" from there, and "over" once it is spent. No limit is "".
-func SpendLevel(spent, limit float64) string {
-	switch {
-	case limit <= 0:
-		return ""
-	case spent >= limit:
-		return "over"
-	case spent >= limit*SpendWarnAt:
-		return "warn"
-	}
-	return ""
-}
-
-// spendText is the words of a spend item.
-func spendText(c SpendCheck, level string) string {
-	floor := ""
-	if c.Partial {
-		floor = "at least "
-	}
-	if level == "over" {
-		return fmt.Sprintf("%s$%.2f spent, over the $%.2f limit; no new helpers will start", floor, c.Spent, c.Limit)
-	}
-	return fmt.Sprintf("%s$%.2f of the $%.2f limit spent (%d%%)", floor, c.Spent, c.Limit, int(c.Spent/c.Limit*100))
-}
-
-// NeedsYouWithSpend is NeedsYou with a spend item for each team in spend whose
-// spend has reached SpendWarnAt of its limit. It is put on the team's manager
-// and has no time.
-func NeedsYouWithSpend(g Graph, panes []GraphPane, tasks []GraphTask, conflicts []PaneConflict, moves []TaskMove, spend []SpendCheck, now time.Time) map[string]TeamNeeds {
 	team := make(map[string]string, len(g.Nodes))
 	for _, n := range g.Nodes {
 		team[n.Pane] = n.Team
@@ -268,14 +220,6 @@ func NeedsYouWithSpend(g Graph, panes []GraphPane, tasks []GraphTask, conflicts 
 		}
 	}
 
-	for _, c := range spend {
-		level := SpendLevel(c.Spent, c.Limit)
-		if level == "" {
-			continue
-		}
-		lists[c.Team] = append(lists[c.Team], NeedsItem{ID: NeedSpend + ":" + c.Manager, Kind: NeedSpend, Pane: c.Manager, Text: spendText(c, level)})
-	}
-
 	out := make(map[string]TeamNeeds, len(lists))
 	for k, items := range lists {
 		slices.SortFunc(items, compareNeeds)
@@ -340,16 +284,14 @@ func needRank(kind string) int {
 		return 2
 	case NeedDown:
 		return 3
-	case NeedSpend:
-		return 4
 	case NeedSetup:
-		return 5
+		return 4
 	case NeedStaleUnread:
-		return 6
+		return 5
 	case NeedStuck:
-		return 7
+		return 6
 	}
-	return 8
+	return 7
 }
 
 func compareNeeds(a, b NeedsItem) int {

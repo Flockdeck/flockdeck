@@ -30,6 +30,19 @@ export const isFinished = (t) => FINISHED.has(t.state);
 /** The id of the root of the tree: what the team set out to do. */
 export const GOAL = "GOAL";
 
+/** The id of the group of tasks nothing waits on, nothing blocks and nobody has: one row, folded until asked for. */
+export const IDLE = "IDLE";
+
+/** idleOf are the open tasks with no dependencies either way and no owner: nothing to draw a tree of. */
+export function idleOf(idx) {
+  const wanted = new Set();
+  for (const deps of idx.dep.values()) for (const d of deps) wanted.add(d);
+  return [...idx.byId.keys()].filter((id) => {
+    const t = idx.byId.get(id);
+    return !isFinished(t) && t.state === "planned" && !t.ownerPane && !t.owner && (idx.dep.get(id) || []).length === 0 && !wanted.has(id);
+  });
+}
+
 /** depsOf indexes a list of tasks (the team push's) by id and reads the `depends` of each, leaving out a dependency on a task that does not exist and on itself. */
 export function depsOf(tasks) {
   const byId = new Map();
@@ -129,7 +142,8 @@ export function planOf(tasks, folded = new Set()) {
   const fin = finishOf(idx, estimates);
   const finish = (id) => fin.get(id) || 0;
   const order = (ids) => ids.slice().sort((a, b) => finish(b) - finish(a));
-  const goalKids = order(sinksOf(idx).filter((id) => !isFinished(idx.byId.get(id))));
+  const idle = new Set(idleOf(idx));
+  const goalKids = order(sinksOf(idx).filter((id) => !isFinished(idx.byId.get(id)) && !idle.has(id)));
   // A ring in the tasks has no end for the goal to wait on: hang the first task nothing above reaches.
   const reached = new Set();
   const reach = (from) => {
@@ -143,11 +157,13 @@ export function planOf(tasks, folded = new Set()) {
   };
   goalKids.forEach(reach);
   for (const [id, t] of idx.byId) {
-    if (reached.has(id) || isFinished(t)) continue;
+    if (reached.has(id) || isFinished(t) || idle.has(id)) continue;
     goalKids.push(id);
     reach(id);
   }
   const total = goalKids.length > 0 ? finish(goalKids[0]) : 0;
+  // Active, blocked and ready work first, the idle group last.
+  const idleIds = [...idle];
 
   // The critical path: from the goal, the open blocker that finishes last, over and over.
   const critical = [];
@@ -170,15 +186,15 @@ export function planOf(tasks, folded = new Set()) {
     const dup = !isGoal && seen.has(id);
     const key = dup ? id + "~" + ++again : id;
     seen.add(id);
-    const kidIds = isGoal ? goalKids : dup || isFinished(idx.byId.get(id)) ? [] : order(openBlockers(idx, id).map((b) => b.id));
+    const kidIds = isGoal ? (idleIds.length > 0 ? [...goalKids, IDLE] : goalKids) : id === IDLE ? idleIds : dup || isFinished(idx.byId.get(id)) ? [] : order(openBlockers(idx, id).map((b) => b.id));
     const isFolded = kidIds.length > 0 && folded.has(key);
     rows.push({ key, id, depth, parent, dup, kids: kidIds.length, folded: isFolded });
     if (isFolded) continue;
     for (let i = kidIds.length - 1; i >= 0; i--) stack.push({ id: kidIds[i], depth: depth + 1, parent: key });
   }
   const out = rows;
-  const ready = [...idx.byId.keys()].filter((id) => isReady(idx, id));
-  return { idx, rows: out, critical, ready, total, estimates, finish };
+  const ready = [...idx.byId.keys()].filter((id) => isReady(idx, id) && !idle.has(id));
+  return { idx, rows: out, critical, ready, total, estimates, finish, idle: idleIds };
 }
 
 /** minutesWords is a time as the view says it: "+1h 20m", "+45m", or "done" for none. */

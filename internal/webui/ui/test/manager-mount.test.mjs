@@ -57,7 +57,7 @@ test("there is no bar until the graph of the project has been read", async () =>
   assert.equal(m.container.find(".mbar"), null, "the bar was drawn while the graph was being read");
   assert.match(m.top().textContent, /alpha/, "the strip lost its title");
   await m.push(fixture(F1));
-  assert.ok(m.top().find(".mbar"), "no bar in the top strip");
+  assert.ok(m.container.find(".composer").find(".mbar"), "no bar in the bottom bar");
   m.done();
 });
 

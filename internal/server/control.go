@@ -710,9 +710,6 @@ type command struct {
 	// Depends is the task ids taskDepends sets the task ID to wait on (none
 	// clears), and taskEstimate takes the minutes as Size.
 	Depends []string `json:"depends,omitempty"`
-	// Limit is the team spend limit teamSpendLimit sets for the project at
-	// Root, in dollars; zero clears it.
-	Limit float64 `json:"limit,omitempty"`
 	// Panes are the panes teamClose is asked to close.
 	Panes []string `json:"panes,omitempty"`
 }
@@ -1806,9 +1803,6 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		return
 	case "fontSize":
 		s.setFontSize(c, cmd.Size)
-		return
-	case "teamSpendLimit":
-		s.setTeamSpendLimit(c, cmd)
 		return
 	case "uiPrefs":
 		s.setUIPrefs(c, cmd.UI)

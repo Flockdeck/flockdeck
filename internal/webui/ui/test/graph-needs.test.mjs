@@ -59,6 +59,9 @@ const WORDS = {
 
 const unescape = (s) => s.replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&amp;/g, "&");
 
+// The strip the list draws, which the graph no longer carries.
+const stripOf = (msg) => renderToString(html`<${NeedsYou} model=${buildGraphModel(msg)} onSelect=${() => {}} max=${MAX_CARDS} />`);
+
 // The badges drawn, as [pane, kind, word].
 function badgesOf(out) {
   const found = [];
@@ -81,33 +84,18 @@ function rowsOf(out) {
 }
 
 for (const name of names) {
-  test(`fixture ${name}: the panes that need the person have a badge and a row with the right word, and no others do`, () => {
+  test(`fixture ${name}: the panes that need the person have a badge with the right word, and no others do`, () => {
     const msg = load(name);
     const expected = expectedNeeds(name);
     assert.ok(expected.length > 0, "the fixture has needs");
     const out = draw(msg);
     const badges = badgesOf(out);
-    const rows = rowsOf(out);
 
     const wantPanes = new Set(expected.flatMap((e) => e.panes));
     assert.deepEqual(new Set(badges.map((b) => b[0])), wantPanes, "badges are on exactly the panes that need the person");
     assert.equal(badges.length, wantPanes.size, "one badge per pane");
 
-    // The strip draws at most MAX_CARDS loud rows and counts the rest; old unread
-    // mail follows them.
-    const quiet = expected.filter((e) => e.kind === "stale-unread").length;
-    const drawn = Math.min(expected.length - quiet, MAX_CARDS) + quiet;
-    assert.equal(rows.length, drawn, "one row per item, up to the cap");
-    // The .md lists the needs by their importance to a reader and the graph in its
-    // own order, so the rows are matched to the items here, and the order is
-    // tested apart, against the message.
-    const used = new Set();
     for (const e of expected) {
-      const at = rows.findIndex((r, i) => !used.has(i) && r[1] === e.kind && e.panes.includes(r[0]));
-      if (at < 0) assert.ok(expected.length - quiet > MAX_CARDS, `no row for ${e.kind} on ${e.panes}`);
-      else used.add(at);
-      if (at >= 0 && e.kind === "down") assert.match(rows[at][3], /^exited with code \d+$/, "word");
-      else if (at >= 0) assert.equal(rows[at][3], WORDS[e.kind], "word");
       for (const p of e.panes) {
         const b = badges.find((x) => x[0] === p);
         assert.ok(b, `no badge on ${p}`);
@@ -118,26 +106,6 @@ for (const name of names) {
         }
       }
     }
-  });
-
-  test(`fixture ${name}: the strip is in the graph's own order`, () => {
-    const msg = load(name);
-    const model = buildGraphModel(msg);
-    const rows = rowsOf(draw(msg));
-    // The strip draws the first MAX_CARDS loud items and then the quiet ones.
-    const inStrip = (list) => list.filter((n) => n.kind !== "stale-unread").slice(0, MAX_CARDS).concat(list.filter((n) => n.kind === "stale-unread"));
-    assert.deepEqual(
-      rows.map((r) => r[0]),
-      inStrip(model.needs).map((n) => n.pane),
-    );
-    // The graph's order is the message's own lists, in the teams' order and then the solo list.
-    const fromMessage = [];
-    for (const t of msg.teams) for (const n of t.needs || []) fromMessage.push(n);
-    for (const n of msg.soloNeeds || []) fromMessage.push(n);
-    assert.deepEqual(
-      rows.map((r) => r[0]),
-      inStrip(fromMessage).map((n) => n.pane),
-    );
   });
 }
 
@@ -179,7 +147,7 @@ test("a badge shows the first line of the text, clipped, never the whole command
   assert.ok(!badge.includes("--force --verbose"), "the rest of the first line is not drawn in the badge");
   assert.ok(!out.includes("--force --verbose"), "nor in the strip, which cuts the line at 40 characters");
   // The strip shows the first line too, clipped at its own, longer, limit, and not the second.
-  assert.ok(!rowsOf(out).some((r) => r.join(" ").includes("curl")));
+  assert.ok(!rowsOf(stripOf(msg)).some((r) => r.join(" ").includes("curl")));
 });
 
 test("only the first line of a multi-line command is in the badge and in the strip", () => {
@@ -194,7 +162,8 @@ test("only the first line of a multi-line command is in the badge and in the str
   const badge = out.slice(out.indexOf('<g class="gneed"'), out.indexOf("</g></g>", out.indexOf('<g class="gneed"')));
   assert.ok(badge.includes(">ls<"), badge);
   assert.ok(!badge.includes("rm -rf"), "the second line is in the badge");
-  const row = out.slice(out.indexOf('<li class="needs-row'), out.indexOf("</li>", out.indexOf('<li class="needs-row')));
+  const strip = stripOf(msg);
+  const row = strip.slice(strip.indexOf('<li class="needs-row'), strip.indexOf("</li>", strip.indexOf('<li class="needs-row')));
   assert.ok(row.includes(">ls<"), row);
   assert.ok(!row.includes("rm -rf"), "the second line is in the strip");
 });
@@ -207,8 +176,8 @@ test("a need cleared by a new push takes its badge and its row with it, in the s
   for (const t of cleared.teams) t.needs = [];
   const after = draw(cleared);
   assert.equal(badgesOf(after).length, 0);
-  assert.equal(rowsOf(after).length, 0);
-  assert.match(after, /Nothing needs you\./);
+  assert.equal(rowsOf(stripOf(cleared)).length, 0);
+  assert.match(stripOf(cleared), /Nothing needs you\./);
   assert.ok(!after.includes('class="gbadge'));
 });
 
@@ -216,7 +185,7 @@ test("a need for a pane that is not a node is in the strip, with no badge and no
   const msg = load("01-six-helpers-one-permission");
   msg.teams[0].needs.push({ id: "ask:ghost", kind: "ask", pane: "ghost123", time: "2026-10-21T08:00:00Z", text: "Who am I?" });
   const out = draw(msg);
-  const rows = rowsOf(out);
+  const rows = rowsOf(stripOf(msg));
   const ghost = rows.find((r) => r[0] === "ghost123");
   assert.ok(ghost, "a row for the missing pane");
   assert.equal(ghost[2], "ghost123", "named by its id");
@@ -243,7 +212,7 @@ test("a conflict is badged on both panes and named for both in its row", () => {
   };
   const out = draw(msg);
   assert.deepEqual(badgesOf(out).map((b) => b[0]).sort(), ["a", "b"]);
-  assert.deepEqual(rowsOf(out).map((r) => r[2]), ["alpha and beta"]);
+  assert.deepEqual(rowsOf(stripOf(msg)).map((r) => r[2]), ["alpha and beta"]);
 });
 
 test("a pane with several needs shows the first and a count", () => {
@@ -267,7 +236,7 @@ test("a pane with several needs shows the first and a count", () => {
   const out = draw(msg);
   assert.deepEqual(badgesOf(out), [["m", "permission", "asks to run a command"]]);
   assert.match(out, /class="gbadge-more"[^>]*>\+1</);
-  assert.equal(rowsOf(out).length, 2);
+  assert.equal(rowsOf(stripOf(msg)).length, 2);
 });
 
 test("each reason has an icon of its own shape", () => {
@@ -481,15 +450,4 @@ test("a stuck pane is a known, quiet kind with its own word", () => {
   assert.equal(r.word, "has gone quiet");
   assert.equal(r.detail, "no output for 12m");
   assert.ok(!draw(msg).includes("gnode--loud"), "a quiet pane was drawn loud");
-});
-
-test("a spend item has its word, and the team keeps its limit", () => {
-  assert.equal(reasonOf({ kind: "spend", text: "$9.00 of the $10.00 limit spent (90%)" }).word, "near its spend limit");
-  const msg = load(names[0]);
-  msg.teams[0].limitUSD = 10;
-  msg.teams[0].needs = [{ id: "spend:" + msg.teams[0].manager, kind: "spend", pane: msg.teams[0].manager, time: "0001-01-01T00:00:00Z", text: "$9.00 of the $10.00 limit spent (90%)" }];
-  const model = buildGraphModel(msg);
-  assert.equal(model.teams[0].limitUSD, 10);
-  const rows = rowsOf(draw(msg));
-  assert.deepEqual(rows.map((r) => [r[1], r[3]]), [["spend", "near its spend limit"]]);
 });

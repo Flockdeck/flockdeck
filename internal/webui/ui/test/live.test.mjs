@@ -73,7 +73,7 @@ test("a socket that is waiting to retry says how long", async () => {
 });
 
 for (const name of names) {
-  test(`fixture ${name}: hello, state and graph draw the graph, edges and the strip`, async () => {
+  test(`fixture ${name}: hello, state and graph draw the graph and edges, with no strip`, async () => {
     const m = await mount();
     await m.connect();
     await m.push(stateMsg());
@@ -82,7 +82,7 @@ for (const name of names) {
     const msg = fixture(name);
     await m.push(msg);
     assert.ok(m.container.find(".graph"), "no graph");
-    assert.ok(m.container.find(".needs"), "no needs-you strip");
+    assert.ok(m.container.find(".needs") === null, "the retired strip is drawn");
     for (const n of msg.nodes) assert.ok(m.container.findAll(".gnode").some((g) => g.attributes["data-pane"] === n.pane), `${n.pane} is not drawn`);
     const edgeKinds = new Set(msg.edges.map((e) => e.kind));
     if (edgeKinds.has("message")) assert.ok(m.container.find(".gedge--message"), "a message edge is not drawn");

@@ -11,7 +11,6 @@ import { GoalLine, helpersOf } from "./GoalLine.js";
 import { fitLayout } from "./layout.js";
 import { Node, clip, waitLine } from "./Node.js";
 import { Badge, isLoud } from "./Badge.js";
-import { NeedsYou } from "./NeedsYou.js";
 import { Teams } from "./Teams.js";
 import { Edges, EdgeDefs, EdgeNotice, countsOf, edgesOf, focusOf, linksOf } from "./Edges.js";
 import { navOf, onGraphKey } from "./keys.js";
@@ -127,8 +126,7 @@ export function GraphView({ model, layout = null, onSelect, onOpen = null, open 
   return html`
     <div class="graph-view">
       <div class="graph-goal"><${GoalLine} model=${model} /></div>
-      <aside class="graph-side" aria-label="Needs you and teams">
-        <${NeedsYou} model=${model} onSelect=${onSelect} max=${MAX_CARDS} />
+      <aside class="graph-side" aria-label="Teams">
         <${Teams} model=${model} onSelect=${onSelect} />
         <p class="graph-hint">Esc closes the drawer. Arrow keys move between agents.</p>
       </aside>

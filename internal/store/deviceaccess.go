@@ -135,7 +135,6 @@ func (p Prefs) ForWindow() Prefs {
 	p.Devices = nil
 	// Project paths are not something a window needs for this.
 	p.Knowledge = nil
-	p.SpendLimits = nil
 	// An interface built before the blob reads the old fields.
 	return p.withLegacyUI()
 }

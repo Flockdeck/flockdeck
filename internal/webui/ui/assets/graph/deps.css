@@ -44,8 +44,11 @@
   .deps-row { flex-wrap: wrap; padding-bottom: 6px; padding-top: 6px; row-gap: 2px; }
   .deps-more { align-items: center; display: flex; flex: 1 0 100%; gap: 8px; order: 9; padding-left: 40px; }
   .deps-row .tree-chips { flex: 1 1 0; flex-wrap: wrap; }
-  .deps-ttl { flex: 1 1 12ch; min-width: 12ch; }
+  .deps-ttl { flex: 1 1 12ch; min-width: 12ch; white-space: normal; }
+  .deps-more:empty { display: none; }
   .deps-start { margin-left: 16px; }
 }
 @media (max-width: 560px) { .deps-fin, .deps-age { display: none; } .deps-ttl { white-space: normal; } }
 .deps-head .tree-c { color: var(--fg-dim); font-weight: 400; }
+.deps-note { font-size: 12px; margin: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.view--deps .view-title { font-size: 14px; margin: 0 0 2px; }
