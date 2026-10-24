@@ -20,7 +20,7 @@ import { teamOf, TEAM_RELAY_WORDS, isFinished as stateFinished } from "../lib/te
 import { clip, stateOf } from "./Node.js";
 import { managerOf } from "./ManagerBar.js";
 import { labelOf } from "./model.js";
-import { GOAL, IDLE, isReady, openBlockers, planOf, loopsOf, waitsOf, minutesWords } from "./deps.js";
+import { GOAL, IDLE, scopeTasks, teamOfTask, isReady, openBlockers, planOf, loopsOf, waitsOf, minutesWords } from "./deps.js";
 import { stepOf, foldOf, ageOf } from "./Tree.js";
 
 export const NO_TASKS_WORDS = "No tasks have been planned yet. The manager adds them as it plans.";
@@ -53,7 +53,7 @@ function Chip({ c, onLink }) {
 }
 
 /** Deps draws the view. team is the store's team push, model the graph model (or null), remote says the window is reached through the relay. */
-export function Deps({ team: teamMsg, model = null, remote = false, onOpen = null, send = null }) {
+export function Deps({ team: teamMsg, model = null, whole = null, remote = false, onOpen = null, send = null }) {
   const [folded, setFolded] = useState(() => new Set([IDLE]));
   const [focus, setFocus] = useState("");
   const [asked, setAsked] = useState({});
@@ -61,7 +61,8 @@ export function Deps({ team: teamMsg, model = null, remote = false, onOpen = nul
   if (remote) return html`<div class="view view--deps"><p class="view-note">${TEAM_RELAY_WORDS}</p></div>`;
   const team = teamOf(teamMsg);
   if (!team) return html`<div class="view view--deps"><p class="view-note">${READING_WORDS}</p></div>`;
-  const plan = planOf(team.tasks, folded);
+  const scope = model && model.ok && model.teams.length === 1 ? model.teams[0] : null;
+  const plan = planOf(scopeTasks(team.tasks, scope ? scope.manager : "", whole || model), folded);
   const waits = waitsOf(model);
   const rings = loopsOf(model);
   const manager = model && model.ok ? managerOf(model) : null;
@@ -138,7 +139,10 @@ export function Deps({ team: teamMsg, model = null, remote = false, onOpen = nul
     const t = plan.idx.byId.get(r.id);
     const blockers = openBlockers(plan.idx, r.id);
     const ready = isReady(plan.idx, r.id);
-    const owner = t.ownerPane && model && model.byPane.get(t.ownerPane) ? model.byPane.get(t.ownerPane) : null;
+    // Where a team runs the task, its manager is the owner; else the pane the task is given to.
+    const runner = teamOfTask(t, whole || model);
+    const home = whole || model;
+    const owner = runner && home && home.byPane.get(runner) ? home.byPane.get(runner) : t.ownerPane && home && home.byPane.get(t.ownerPane) ? home.byPane.get(t.ownerPane) : null;
     const ownerWaits = !!owner && stateOf(owner).key === "waiting";
     const ownerDown = !!owner && (stateOf(owner).key === "exited" || stateOf(owner).key === "failed");
     const chips = [];
@@ -147,7 +151,7 @@ export function Deps({ team: teamMsg, model = null, remote = false, onOpen = nul
       if (critical.has(r.id)) chips.push({ kind: "crit", text: "critical", to: "" });
       if (ready) chips.push({ kind: "ready", text: "ready", to: "" });
       for (const b of blockers.slice(0, 2)) chips.push({ kind: "blocked", text: "blocked by " + b.id, to: b.id });
-      if (ownerWaits) chips.push({ kind: "ask", text: nameOf(model, owner.pane) + " waits on you", to: "" });
+      if (ownerWaits) chips.push({ kind: "ask", text: nameOf(home, owner.pane) + " waits on you", to: "" });
     }
     const cls = [blockers.length > 0 && !stateFinished(t.state) ? "is-blocked" : "", ready ? "is-ready" : "", critical.has(r.id) && !r.dup ? "is-crit" : "", r.dup ? "is-dup" : "", ownerWaits ? "is-waiting" : "", ownerDown ? "is-down" : ""].filter(Boolean).join(" ");
     const start = ready && !r.dup && r.parent !== IDLE
@@ -158,7 +162,7 @@ export function Deps({ team: teamMsg, model = null, remote = false, onOpen = nul
           ${sentOf(r.key, t.state) === "failed" ? html`<span class="view-note" role="status">Not connected, so the manager was not asked.</span>` : null}
         </div>`
       : null;
-    const ownerView = owner ? { name: owner.name || owner.pane, state: stateOf(owner).key } : null;
+    const ownerView = owner ? { name: nameOf(home, owner.pane), state: stateOf(owner).key } : null;
     const ownerWords = owner || stateFinished(t.state) ? "" : t.state === "planned" ? "no one yet" : t.owner || "";
     return html`<${Fragment} key=${r.key}>
       <${DepRow} r=${r} stop=${stop === r.key} cls=${cls} onFocus=${() => setFocus(r.key)} onToggle=${toggle} onLink=${go}
