@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jmwri/flockdeck/internal/webui"
+	webui "github.com/jmwri/flockdeck/ui"
 )
 
 // testConfig is the server's configuration in tests: the front end the program
@@ -21,7 +21,7 @@ func TestServerDoesNotImportTheFrontEnd(t *testing.T) {
 		t.Fatalf("go list: %v", err)
 	}
 	for _, pkg := range strings.Fields(string(out)) {
-		if strings.HasSuffix(pkg, "/internal/webui") || strings.Contains(pkg, "/internal/webui/") {
+		if strings.HasSuffix(pkg, "/ui") || strings.Contains(pkg, "/ui/") {
 			t.Errorf("internal/server depends on %s", pkg)
 		}
 	}

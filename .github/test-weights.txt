@@ -63,6 +63,5 @@ internal/tasks 0.944 6.590 0.848 2.706
 internal/team 0.037 0.087 0.027 1.096
 internal/testiso 0.031 0.100 0.038 3.055
 internal/testiso/iso 0.614 0.485 0.423 7.463
-internal/webui 83.724 195.484 111.983 128.167
 internal/workspace 39.907 412.192 57.827 88.618
 . 25.772 66.097 24.426 27.597

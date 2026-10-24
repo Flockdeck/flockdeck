@@ -376,7 +376,7 @@ func (s *Server) Recall() *RecallView { return s.recall.Load() }
 type Config struct {
 	// Static is the front end the server serves: index.html at "/" and the
 	// rest under "/assets/". The server does not know where it comes from, so
-	// the program embeds it (see internal/webui) and a test can give it a
+	// the program embeds it (see ui) and a test can give it a
 	// directory. With none, the page answers that it has no front end.
 	Static fs.FS
 }

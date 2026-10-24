@@ -22,7 +22,7 @@ import (
 	"os/signal"
 	"time"
 
-	"github.com/jmwri/flockdeck/internal/webui"
+	webui "github.com/jmwri/flockdeck/ui"
 )
 
 func main() {

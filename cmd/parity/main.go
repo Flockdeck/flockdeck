@@ -6,7 +6,7 @@
 //     new shell runs (IMPLEMENTED in shell/app.js and the actions Live.js adds);
 //   - the control-socket commands the old interface sent (the frozen list in
 //     oldcommands.txt; the old interface itself was deleted), against the ones the
-//     new interface sends (internal/webui/ui/assets).
+//     new interface sends (ui/src).
 //
 // Everything in either list that the new interface does not do yet must be
 // classified in classify.go: replaced by a command it sends, cut on purpose, or
@@ -36,9 +36,9 @@ import (
 
 const (
 	oldList   = "cmd/parity/oldcommands.txt"
-	nextShell = "internal/webui/ui/assets/shell/app.js"
-	nextLive  = "internal/webui/ui/assets/shell/Live.js"
-	nextDir   = "internal/webui/ui/assets"
+	nextShell = "ui/src/shell/app.js"
+	nextLive  = "ui/src/shell/Live.js"
+	nextDir   = "ui/src"
 	serverDir = "internal/server"
 	outFile   = "docs/parity.md"
 )

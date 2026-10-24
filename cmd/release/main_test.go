@@ -481,7 +481,7 @@ func TestNoticesNameEveryLinkedModule(t *testing.T) {
 		}
 		seen := map[string]bool{}
 		for _, m := range strings.Fields(string(out)) {
-			if m == strings.TrimSpace(string(self)) || seen[m] {
+			if m == strings.TrimSpace(string(self)) || strings.HasPrefix(m, strings.TrimSpace(string(self))+"/") || seen[m] {
 				continue
 			}
 			seen[m] = true

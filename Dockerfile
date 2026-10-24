@@ -25,6 +25,7 @@ WORKDIR /src
 
 # Dependencies first, so an edit to the source alone reuses this layer.
 COPY go.mod go.sum ./
+COPY ui/go.mod ui/go.mod
 RUN go mod download
 
 COPY . .
