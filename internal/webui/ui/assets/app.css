@@ -534,6 +534,7 @@ button { font: inherit; color: inherit; }
 .palette-name { flex: 1 1 auto; min-width: 0; }
 .palette-note { font-size: 11px; color: var(--fg-faint); }
 .palette-keys { font: 11px/1.4 var(--mono); color: var(--fg-dim); }
+.palette-group { padding: 8px 12px 2px; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--fg-faint); list-style: none; }
 .palette-empty { padding: 10px 12px; color: var(--fg-dim); }
 
 /* The help. */
