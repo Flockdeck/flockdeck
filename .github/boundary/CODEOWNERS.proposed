@@ -1,0 +1,23 @@
+# Proposed CODEOWNERS for the layout after step 3 of the separation plan.
+#
+# NOT ENABLED. GitHub reads .github/CODEOWNERS, and this file is not that. To enable
+# it: copy these lines to .github/CODEOWNERS, replace the placeholder team names with
+# real ones, and turn on "Require review from Code Owners" for main in the branch
+# protection rules. A team name that does not exist makes GitHub ignore its line.
+#
+# The point is the contract. api/ is what the server and the interface agree on, so a
+# change to it needs a person from each side. The rest follows who maintains it.
+
+# The contract. Both sides review it.
+/api/                      @Flockdeck/server-owners @Flockdeck/ui-owners
+
+# The interface, and the files that keep it apart from the server.
+/ui/                       @Flockdeck/ui-owners
+/.github/boundary/         @Flockdeck/server-owners @Flockdeck/ui-owners
+
+# The server. The relay registry and the access table are the two places where a new
+# message or command is classified, so they are named.
+/internal/                 @Flockdeck/server-owners
+/internal/server/relayscrub.go    @Flockdeck/server-owners
+/internal/server/viewerrole.go    @Flockdeck/server-owners
+/main.go                   @Flockdeck/server-owners @Flockdeck/ui-owners

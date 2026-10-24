@@ -1,0 +1,62 @@
+# The boundary check between the server and the web interface.
+#
+# NOT ENABLED. This file is not named *.yml, so GitHub does not run it. It is
+# written for the layout after step 3 of the separation plan (ui/ and api/ exist).
+# To enable it: move it to .github/workflows/boundary.yml and read the README next
+# to it. Until ui/ exists the checks pass without finding anything.
+name: boundary
+
+on:
+  pull_request:
+    paths:
+      - "ui/**"
+      - "api/**"
+      - "internal/**"
+      - "main.go"
+      - "cmd/**"
+      - ".github/boundary/**"
+
+permissions:
+  contents: read
+
+jobs:
+  imports:
+    name: no import crosses the line
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      # Go imports, relative JavaScript imports out of ui/, and code in api/.
+      - run: go test ./...
+        working-directory: .github/boundary
+
+  ui-only:
+    name: a "ui:" pull request touches only ui/ and api/fixtures/
+    if: startsWith(github.event.pull_request.title, 'ui:')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Changed paths outside ui/ and api/fixtures/
+        run: |
+          git diff --name-only "origin/${{ github.base_ref }}...HEAD" \
+            | (cd .github/boundary && go run ./cmd/outside) \
+            || { echo "A pull request titled 'ui:' may change only ui/ and api/fixtures/. Retitle it, or split it."; exit 1; }
+
+  lint:
+    name: ESLint on ui/
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      # ESLint is fetched here and not kept in the repository: the interface has no
+      # package.json, so this adds nothing to the build. The rule is in eslint.config.mjs.
+      - run: npx --yes eslint@9.17.0 --config .github/boundary/eslint.config.mjs ui/src ui/test
