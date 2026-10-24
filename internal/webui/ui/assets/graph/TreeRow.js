@@ -42,12 +42,17 @@ export function TreeRow({ row, node, needs, doing, chips = [], stop, selected, l
     onClick=${onOpen ? () => onOpen(node.pane) : undefined}
   >
     ${Array.from({ length: Math.min(row.depth, 12) }, (_, i) => html`<span class="tree-indent" key=${i} aria-hidden="true"></span>`)}
-    <span class="tree-toggle" aria-hidden="true" onClick=${row.kids > 0 && onToggle ? (e) => { e.stopPropagation(); onToggle(node.pane); } : undefined}>${row.kids > 0 ? (row.collapsed ? "▸" : "▾") : ""}</span>
+    ${row.kids > 0
+      ? html`<button type="button" class="tree-toggle" tabindex="-1" aria-label=${(row.collapsed ? "Unfold " : "Fold ") + name} onClick=${(e) => { e.stopPropagation(); if (onToggle) onToggle(node.pane); }}>${row.collapsed ? "▸" : "▾"}</button>`
+      : html`<span class="tree-toggle" aria-hidden="true"></span>`}
     <span class=${"tree-glyph tree-glyph--" + state.key} aria-hidden="true"></span>
     <span class="tree-c tree-c--name" title=${name}>${clip(name, 40)}</span>
     <span class="tree-c tree-c--role">${clip(node.role || (node.shell ? "shell" : ""), 12)}</span>
     <span class="tree-c tree-c--task">${node.task ? clip(node.task.id, 6) : ""}</span>
-    <span class="tree-c tree-c--doing" title=${doing}>${clip(doing, 160)}${roll ? html`<span class="tree-roll"> ${roll.below} below${roll.needYou > 0 ? html`<span class="tree-need"> · ${roll.needYou} need you</span>` : null}</span>` : null}</span>
+    <span class="tree-c tree-c--doing">
+      <span class="tree-doing-text" title=${doing}>${clip(doing, 160)}</span>
+      ${roll ? html`<span class="tree-roll">${roll.below} below${roll.needYou > 0 ? html`<span class="tree-need"> · ${roll.needYou} need you</span>` : null}</span>` : null}
+    </span>
     ${chips.length > 0 ? html`<span class="tree-chips">${chips.map((c) => (c.to
       ? html`<button type="button" class=${"tree-chip tree-chip--" + c.kind + " is-link"} key=${c.kind + c.to} title=${c.title || undefined} aria-label=${c.text + ", go to " + (c.toName || c.to)} tabindex=${stop ? "0" : "-1"}
           onClick=${(e) => { e.stopPropagation(); if (onLink) onLink(c.to); }}

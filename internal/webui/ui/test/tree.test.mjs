@@ -6,7 +6,7 @@ import { renderToString } from "./vendor/render-to-string.mjs";
 import { render } from "../assets/vendor/preact.mjs";
 import { html } from "../assets/html.js";
 import { buildGraphModel } from "../assets/graph/model.js";
-import { Tree, needsOf, rowsOf, stepOf, ageOf, rankOf, doingOf } from "../assets/graph/Tree.js";
+import { Tree, foldOf, needsOf, rowsOf, stepOf, ageOf, rankOf, doingOf } from "../assets/graph/Tree.js";
 import { createDom, install, settle } from "./dom.mjs";
 
 const n = (pane, over = {}) => ({ pane, kind: "terminal", depth: 0, team: "t", name: pane, role: "worker", status: "working", activity: "working", live: "go test", waitingOn: { kind: "none" }, children: [], ...over });
@@ -156,7 +156,6 @@ test("a key with a modifier, an unknown key and Esc are left to the page", async
     assert.equal(m.row("m").keydown("ArrowDown", { ctrlKey: true }).defaultPrevented, false);
     assert.equal(m.row("m").keydown("a").defaultPrevented, false);
     assert.equal(m.row("m").keydown("Escape").defaultPrevented, false);
-    assert.equal(m.row("m").keydown("ArrowLeft").defaultPrevented, false);
   } finally {
     m.done();
   }
@@ -351,4 +350,84 @@ test("the chips shrink with the row and the note under an empty manager is a dis
   g.teams[0].members = ["m"];
   const out = renderToString(html`<${Tree} model=${model(g)} />`);
   assert.ok(/role="treeitem"[^>]*aria-disabled="true"[^>]*>No helpers yet|aria-disabled="true"[^>]*role="treeitem"/.test(out) || out.includes('aria-disabled="true"'));
+});
+
+test("a roll-up counts exactly the rows folding the pane hides, even for a helper linked only by parent", () => {
+  const g = team([ask]);
+  g.nodes.find((x) => x.pane === "work").children = ["w1"]; // w2 names work as its parent but is not listed
+  const m = model(g);
+  const all = rowsOf(m).length;
+  for (const p of ["m", "work", "ask", "idle"]) {
+    const hidden = all - rowsOf(m, new Set([p])).length;
+    assert.equal(rollupOf(m, p).below, hidden, p);
+  }
+  assert.equal(rollupOf(m, "work").below, 2);
+  assert.equal(rowsOf(m, new Set(["work"])).filter((r) => r.pane === "w2").length, 0, "no stray row for a folded helper");
+});
+
+test("the roll-up sits in its own span beside the ellipsised doing text, and the chevron is a button off the tab order", async () => {
+  const m = await mount();
+  try {
+    m.row("work").findAll(".tree-toggle")[0].dispatch("click");
+    await settle();
+    const cell = m.row("work").findAll(".tree-c--doing")[0];
+    assert.ok(cell.findAll(".tree-doing-text").length === 1 && cell.findAll(".tree-roll").length === 1);
+    assert.ok(!cell.findAll(".tree-doing-text")[0].textContent.includes("below"));
+    const tog = m.row("work").findAll(".tree-toggle")[0];
+    assert.equal(tog.localName, "button");
+    assert.equal(tog.attributes.tabindex, "-1");
+    assert.ok(tog.attributes["aria-label"].startsWith("Unfold"));
+  } finally {
+    m.done();
+  }
+});
+
+test("foldOf: Right opens a folded parent, Left folds an open one, a row with no helpers folds nothing", () => {
+  const rows = rowsOf(model(team([ask])));
+  assert.equal(foldOf(rows, "work", "ArrowLeft"), "collapse");
+  assert.equal(foldOf(rows, "work", "ArrowRight"), "");
+  assert.equal(foldOf(rows, "idle", "ArrowLeft"), "");
+  const folded = rowsOf(model(team([ask])), new Set(["work"]));
+  assert.equal(foldOf(folded, "work", "ArrowRight"), "expand");
+  assert.equal(foldOf(folded, "work", "ArrowLeft"), "");
+  assert.equal(foldOf(folded, "nobody", "ArrowLeft"), "");
+  // Right on a folded parent does not move; on an open one it goes to the first helper.
+  assert.equal(stepOf(folded, "work", "ArrowRight"), "");
+  assert.equal(stepOf(rows, "work", "ArrowRight"), "w2");
+  // Left on an open parent folds it, so it does not go to its own parent.
+  assert.equal(stepOf(rows, "work", "ArrowLeft"), "");
+  assert.equal(stepOf(folded, "work", "ArrowLeft"), "m");
+  assert.deepEqual(folded.map((r) => r.pane), ["m", "ask", "down", "work", "idle"]);
+});
+
+test("a folded parent says how many are below and how many need you, and a click on the chevron folds it", async () => {
+  const m = await mount();
+  try {
+    assert.ok(!m.row("work").textContent.includes("below"));
+    m.row("work").findAll(".tree-toggle")[0].dispatch("click");
+    await settle();
+    const text = m.row("work").textContent;
+    assert.ok(text.includes("2 below"), text);
+    assert.ok(text.includes("1 need you"), text);
+    assert.equal(m.row("work").attributes["aria-expanded"], "false");
+    assert.equal(m.row("w1"), undefined);
+    assert.deepEqual(m.opened, [], "the chevron does not open the drawer");
+    m.row("work").keydown("ArrowRight");
+    await settle();
+    assert.equal(m.row("work").attributes["aria-expanded"], "true");
+    assert.ok(m.row("w1"));
+    m.row("work").keydown("ArrowLeft");
+    await settle();
+    assert.equal(m.row("w1"), undefined);
+  } finally {
+    m.done();
+  }
+});
+
+test("the columns follow the main column and a phone gets two lines", async () => {
+  const { readFileSync } = await import("node:fs");
+  const css = readFileSync(new URL("../assets/graph/tree.css", import.meta.url), "utf8");
+  assert.ok(css.includes("@container main (max-width: 680px)"));
+  assert.ok(/@container main[^{]*\{[^@]*\.tree-c--role, \.tree-c--task, \.tree-c--age \{ display: none; \}/.test(css));
+  assert.ok(css.includes("@media (max-width: 560px)"));
 });
