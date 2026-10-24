@@ -288,6 +288,13 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
   // the life of the page.
   const [chosenTab, setChosenTab] = useState("");
   const [localTabs, setLocalTabs] = useState(null);
+  // The drawer's width is kept in the preferences; where they cannot keep it (a relay
+  // window, a desktop without uiPrefs) it is held for the life of the page.
+  const [localDrawerW, setLocalDrawerW] = useState(null);
+  const setDrawerW = (px) => {
+    if (!snap.remote && change("drawerW", px)) setLocalDrawerW(null);
+    else setLocalDrawerW(px);
+  };
   const savedTabs = useMemo(() => localTabs || tabsStateOf(prefs.ui), [localTabs, prefs.ui]);
   const goal = useMemo(() => goalTabsOf(current, savedTabs), [current, savedTabs]);
   const activeTab = activeTabOf(goal.tabs, chosenTab);
@@ -704,6 +711,8 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     railWidth=${prefs.railWidth}
     onRailExpanded=${snap.remote ? undefined : (on) => change("railExpanded", on)}
     onRailWidth=${snap.remote ? undefined : (px) => change("railWidth", px)}
+    drawerW=${localDrawerW === null ? prefs.drawerW : localDrawerW}
+    onDrawerW=${setDrawerW}
     welcome=${!snap.remote && !!snap.hello && !prefs.helpSeen}
     onHelpOpened=${() => { if (!snap.remote && !prefs.helpSeen) change("helpSeen", true); }}
     blocked=${!!starting || settingsOpen || updatesAt >= 0 || quitAsk || historyOpen || !!infoFor || findingPane || helpersOpen || projectsOpen || !!baton || teamOpen || agentsOpen || worktreesOpen || closeAsk}
