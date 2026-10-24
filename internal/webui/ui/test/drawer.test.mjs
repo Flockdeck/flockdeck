@@ -110,6 +110,8 @@ test("a structured pane shows its own view and no terminal", () => {
   assert.ok(out.includes("data-structured-pane") || out.includes("Loading the agent."), "the structured view was not drawn");
   assert.ok(out.includes("structured</span>"), "the kind label was not drawn");
   assert.ok(!out.includes("terminal-pane"), "a terminal was made for a structured pane");
+  assert.match(out, /role="tab"[^>]*aria-selected="true"[^>]*>Transcript</, "the first tab is the transcript");
+  assert.ok(!/>Terminal</.test(out), "a structured pane offers a Terminal tab");
   assert.equal(hasTerminal(node({ structured: true }), null), false);
   assert.equal(hasTerminal(node(), { structured: true }), false, "the state push's word was ignored");
   assert.equal(hasTerminal(node(), {}), true);

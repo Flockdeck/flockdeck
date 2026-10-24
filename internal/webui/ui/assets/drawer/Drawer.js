@@ -169,6 +169,8 @@ function DrawerBody({ store, snap = null, node, pane = null, now, maximised = fa
   const hasConv = terminal && !!conv && (conv.supported === true || !!conv.refused);
   // The Changes tab is for a pane that has a directory to look at.
   const hasChanges = !!(pane && pane.cwd);
+  // A structured pane has no terminal: the first tab is its transcript, and the
+  // tab's id stays the same so the keys and asks that name it still reach it.
   const tabs = ["terminal"].concat(hasConv ? ["conversation"] : [], hasChanges ? ["changes"] : []);
   const shown = tabs.includes(tab) ? tab : "terminal";
   const tabRefs = useRef({});
@@ -215,7 +217,7 @@ function DrawerBody({ store, snap = null, node, pane = null, now, maximised = fa
         : null}
       <${Prompt} node=${node} pane=${pane} snap=${state} store=${store} sendKeys=${sendKeys} terminal=${terminal} />
       <div class="drawer-tabs" role="tablist" aria-label="Views of this agent" onKeyDown=${tabKeys}>
-        <button type="button" role="tab" id="drawer-tab-terminal" aria-selected=${shown === "terminal" ? "true" : "false"} aria-controls="drawer-panel-terminal" tabindex=${shown === "terminal" ? 0 : -1} ref=${(el) => { tabRefs.current.terminal = el; }} class=${"drawer-tab" + (shown === "terminal" ? " is-active" : "")} onClick=${() => setTab("terminal")}>Terminal</button>
+        <button type="button" role="tab" id="drawer-tab-terminal" aria-selected=${shown === "terminal" ? "true" : "false"} aria-controls="drawer-panel-terminal" tabindex=${shown === "terminal" ? 0 : -1} ref=${(el) => { tabRefs.current.terminal = el; }} class=${"drawer-tab" + (shown === "terminal" ? " is-active" : "")} onClick=${() => setTab("terminal")}>${terminal ? "Terminal" : "Transcript"}</button>
         ${hasConv
           ? html`<button type="button" role="tab" id="drawer-tab-conversation" aria-selected=${shown === "conversation" ? "true" : "false"} aria-controls="drawer-panel-conversation" tabindex=${shown === "conversation" ? 0 : -1} ref=${(el) => { tabRefs.current.conversation = el; }} class=${"drawer-tab" + (shown === "conversation" ? " is-active" : "")} onClick=${() => setTab("conversation")}>Conversation</button>`
           : null}
