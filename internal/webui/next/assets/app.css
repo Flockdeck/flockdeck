@@ -353,6 +353,18 @@ button { font: inherit; color: inherit; }
 .rail-toggle:hover { background: var(--bg-hover); }
 .shell--rail-collapsed .rail-name { display: none; }
 .shell--rail-collapsed .rail-initial { display: inline-block; }
+.shell--rail-collapsed .rail > button { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.rail { position: relative; }
+.rail-resize {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: 6px;
+  height: 100%;
+  cursor: col-resize;
+  touch-action: none;
+}
+.rail-resize:hover, .rail-resize:focus-visible { background: var(--accent-line); }
 
 .badge {
   flex: 0 0 auto;

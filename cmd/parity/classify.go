@@ -69,6 +69,7 @@ const (
 	whyTiling    = "Tiling and splitting panes is cut; the team is a graph."
 	whyRearrange = "Moving and merging panes and tabs is cut; the team is a graph."
 	whyBroadcast = "Broadcasting to panes is cut; a manager sends to its team."
+	whyHints     = "The hint bar of tips is cut; help is under F1."
 )
 
 // keyVerdicts classify every action of the key table that the new shell does not
@@ -118,19 +119,8 @@ var cmdVerdicts = map[string]Verdict{
 	// window's own and sends nothing.
 	"toggleZoom": cut(whyTiling + " The drawer has its own maximise."),
 
-	// L2: settings.
-	"statusLine":       task(tL2),
-	"railExpanded":     task(tL2),
-	"railWidth":        task(tL2),
-	"setKeybinding":    task(tL2),
-	"resetKeybinding":  task(tL2),
-	"resetKeybindings": task(tL2),
-	"dismissTip":       task(tL2),
-	"setAgentDefault":  task(tL2),
-	"setAgentAddress":  task(tL2),
-
-	// L3: help.
-	"helpSeen": task(tL3, "The first-run welcome"),
+	// The one-line hints under the tab bar.
+	"dismissTip": cut(whyHints),
 
 	// L7: updates, detach, quit.
 

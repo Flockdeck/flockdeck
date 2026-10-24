@@ -111,9 +111,9 @@ func TestVerdictsAreComplete(t *testing.T) {
 }
 
 // The intended cuts are the tiling, rearranging and broadcast the plan names, and
-// nothing else. A cut that is not of those needs a decision, not a line here.
+// the hint bar of tips, and nothing else. A cut that is not of those needs a decision, not a line here.
 func TestOnlyTheIntendedCutsAreCut(t *testing.T) {
-	allowed := []string{whyTiling, whyRearrange, whyBroadcast}
+	allowed := []string{whyTiling, whyRearrange, whyBroadcast, whyHints}
 	for _, set := range []map[string]Verdict{keyVerdicts, cmdVerdicts} {
 		for name, v := range set {
 			if v.Kind != Cut {

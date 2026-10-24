@@ -97,6 +97,8 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState("general");
   const [settingsAt, setSettingsAt] = useState(0);
+  // A binding is being recorded in the Keyboard section: the shell leaves keys alone.
+  const [recording, setRecording] = useState(false);
   const [patch, setPatch] = useState({});
   // The updates dialog (with the seq of the notice when it opened, so it shows
   // only newer ones) and the question before quit.
@@ -522,6 +524,10 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     news: local || (snap.notice && snap.notice.seq > settingsAt ? String(snap.notice.text || "") : ""),
     permission,
     onAsk: ask,
+    addressAnswer: snap.agentAddress,
+    table: kept.current.hello.keys,
+    page,
+    onRecording: setRecording,
     machine: (viewOf(kept.current.state.remote) || { name: "" }).name,
     pushError: (viewOf(kept.current.state.remote) || { pushError: "" }).pushError,
   };
@@ -537,6 +543,13 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     mainRef=${mainRef}
     actions=${actions}
     maximised=${drawer.maximised}
+    keysOff=${recording}
+    railExpanded=${snap.remote ? undefined : prefs.railExpanded}
+    railWidth=${prefs.railWidth}
+    onRailExpanded=${snap.remote ? undefined : (on) => change("railExpanded", on)}
+    onRailWidth=${snap.remote ? undefined : (px) => change("railWidth", px)}
+    welcome=${!snap.remote && !!snap.hello && !prefs.helpSeen}
+    onHelpOpened=${() => { if (!snap.remote && !prefs.helpSeen) change("helpSeen", true); }}
     blocked=${!!starting || settingsOpen || updatesAt >= 0 || quitAsk || historyOpen || !!infoFor || findingPane || helpersOpen || projectsOpen || !!baton || teamOpen || agentsOpen || worktreesOpen || closeAsk}
     onSettings=${() => openSettings("general")}
     onProjects=${() => setProjectsOpen(true)}

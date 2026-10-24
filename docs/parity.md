@@ -8,10 +8,10 @@ It compares two lists the sources hold: the actions of the key table (`internal/
 
 | | Actions | Commands |
 | --- | --- | --- |
-| done | 44 | 118 |
+| done | 44 | 127 |
 | replaced | 0 | 1 |
-| cut | 14 | 13 |
-| planned | 0 | 24 |
+| cut | 14 | 14 |
+| planned | 0 | 14 |
 | unclassified | 0 | 0 |
 | total | 58 | 156 |
 
@@ -37,6 +37,7 @@ The old interface let a person tile, split, move and broadcast to panes. The new
 | action | `toggleBroadcast` | Broadcasting to panes is cut; a manager sends to its team. |
 | action | `toggleBroadcastMember` | Broadcasting to panes is cut; a manager sends to its team. |
 | action | `promptAll` | Broadcasting to panes is cut; a manager sends to its team. It opens the prompt bar aimed at the focused pane, which the new prompt (paneSend) covers; with broadcast on it reached every member. |
+| command | `dismissTip` | The hint bar of tips is cut; help is under F1. |
 | command | `mergeAllTabs` | Moving and merging panes and tabs is cut; the team is a graph. |
 | command | `mergeTab` | Moving and merging panes and tabs is cut; the team is a graph. |
 | command | `movePane` | Moving and merging panes and tabs is cut; the team is a graph. |
@@ -56,8 +57,6 @@ The old interface let a person tile, split, move and broadcast to panes. The new
 | Task | Actions | Commands |
 | --- | --- | --- |
 | T134 (C8, GitHub) |  | `ghChecks`, `ghInstall`, `ghIssue`, `ghIssueComment`, `ghIssueCreate`, `ghIssues`, `ghLogin`, `ghLoginCancel`, `ghLogout`, `ghPR`, `ghPRComment`, `ghPRCreate`, `ghPRs`, `ghStatus` |
-| T137 (L2, settings) |  | `dismissTip`, `railExpanded`, `railWidth`, `resetKeybinding`, `resetKeybindings`, `setAgentAddress`, `setAgentDefault`, `setKeybinding`, `statusLine` |
-| T138 (L3, help) |  | `helpSeen` |
 
 ## Must exist before the old interface is retired
 
@@ -155,7 +154,7 @@ These are safety and security controls. The new interface has no way to do them 
 | `cursorStyle` | done |  |
 | `detach` | done |  |
 | `diff` | done |  |
-| `dismissTip` | planned | T137 (L2, settings) |
+| `dismissTip` | cut | The hint bar of tips is cut; help is under F1. |
 | `exportTranscript` | done |  |
 | `findPane` | done |  |
 | `focusPane` | done |  |
@@ -179,7 +178,7 @@ These are safety and security controls. The new interface has no way to do them 
 | `gitPull` | done |  |
 | `gitPush` | done |  |
 | `groupProjects` | done |  |
-| `helpSeen` | planned | T138 (L3, help). The first-run welcome |
+| `helpSeen` | done |  |
 | `helperInstall` | done |  |
 | `helperOpen` | done |  |
 | `helperPlan` | done |  |
@@ -218,8 +217,8 @@ These are safety and security controls. The new interface has no way to do them 
 | `pushDelay` | done |  |
 | `pushNotify` | done |  |
 | `quit` | done |  |
-| `railExpanded` | planned | T137 (L2, settings) |
-| `railWidth` | planned | T137 (L2, settings) |
+| `railExpanded` | done |  |
+| `railWidth` | done |  |
 | `recents` | done |  |
 | `recordPane` | done |  |
 | `refreshAgents` | done |  |
@@ -240,8 +239,8 @@ These are safety and security controls. The new interface has no way to do them 
 | `renameProject` | done |  |
 | `renameTab` | done |  |
 | `reorderProjects` | done |  |
-| `resetKeybinding` | planned | T137 (L2, settings) |
-| `resetKeybindings` | planned | T137 (L2, settings) |
+| `resetKeybinding` | done |  |
+| `resetKeybindings` | done |  |
 | `resetTips` | done |  |
 | `restart` | done |  |
 | `restartPane` | done |  |
@@ -257,16 +256,16 @@ These are safety and security controls. The new interface has no way to do them 
 | `selectRepo` | done |  |
 | `selectTab` | done |  |
 | `sendPrompt` | replaced | sent as `paneSend`. Prompting one pane; prompting all is cut |
-| `setAgentAddress` | planned | T137 (L2, settings) |
-| `setAgentDefault` | planned | T137 (L2, settings) |
+| `setAgentAddress` | done |  |
+| `setAgentDefault` | done |  |
 | `setDeviceRole` | done |  |
-| `setKeybinding` | planned | T137 (L2, settings) |
+| `setKeybinding` | done |  |
 | `setRouting` | done |  |
 | `setWeights` | cut | Tiling and splitting panes is cut; the team is a graph. |
 | `splitPane` | cut | Tiling and splitting panes is cut; the team is a graph. |
 | `startAgent` | done |  |
 | `startFromBaton` | done |  |
-| `statusLine` | planned | T137 (L2, settings) |
+| `statusLine` | done |  |
 | `swapPanes` | cut | Moving and merging panes and tabs is cut; the team is a graph. |
 | `taskAdd` | done |  |
 | `taskAssign` | done |  |
