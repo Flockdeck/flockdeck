@@ -106,14 +106,35 @@ func TestNeedsDown(t *testing.T) {
 
 func TestNeedsStaleUnread(t *testing.T) {
 	ps := team2()
-	ps[1].Unread, ps[1].UnreadSince = 2, t0.Add(-6*time.Minute)
-	ps[2].Unread, ps[2].UnreadSince = 1, t0.Add(-4*time.Minute)
+	ps[1].Unread, ps[1].UnreadMail, ps[1].UnreadSince = 2, 2, t0.Add(-40*time.Minute)
+	ps[2].Unread, ps[2].UnreadMail, ps[2].UnreadSince = 1, 1, t0.Add(-20*time.Minute)
 	ps = append(ps, pane("c", "m", "worker", "working"))
-	ps[3].Unread, ps[3].UnreadSince = 1, t0.Add(-time.Hour)
+	ps[3].Unread, ps[3].UnreadMail, ps[3].UnreadSince = 1, 1, t0.Add(-time.Hour)
 
 	got := needsFor(ps, nil, nil, nil)["m"]
 	if len(got) != 1 || got[0].ID != "stale-unread:a" || got[0].Text != "2 unread" {
-		t.Errorf("items = %+v, want only the idle pane unread for over five minutes", got)
+		t.Errorf("items = %+v, want only the idle pane unread for over half an hour", got)
+	}
+}
+
+func TestStaleUnreadOfSeveralPanesIsOneItem(t *testing.T) {
+	ps := []GraphPane{pane("m", "", "manager", "idle")}
+	for i, mins := range []int{50, 120, 90} {
+		p := pane(fmt.Sprintf("w%d", i), "m", "", "idle")
+		p.Unread, p.UnreadMail, p.UnreadSince = 10, 10, t0.Add(-time.Duration(mins)*time.Minute)
+		ps = append(ps, p)
+	}
+	got := needsFor(ps, nil, nil, nil)["m"]
+	if len(got) != 1 || got[0].ID != "stale-unread:w1" || got[0].Text != "3 agents, 30 unread" {
+		t.Errorf("items = %+v, want one item for the oldest pane counting all three", got)
+	}
+}
+
+func TestMailOfFlockdeckAloneIsNotStale(t *testing.T) {
+	ps := team2()
+	ps[1].Unread, ps[1].UnreadSince = 5, t0.Add(-time.Hour) // UnreadMail is 0: all five are notices
+	if got := needsFor(ps, nil, nil, nil); len(got) != 0 {
+		t.Errorf("got %+v", got)
 	}
 }
 
@@ -127,7 +148,7 @@ func TestNeedsOrder(t *testing.T) {
 		pane("ret", "m", "", "idle"),
 		pane("x", "m", "", "idle"),
 	}
-	ps[1].Unread, ps[1].UnreadSince = 1, t0.Add(-time.Hour)
+	ps[1].Unread, ps[1].UnreadMail, ps[1].UnreadSince = 1, 1, t0.Add(-time.Hour)
 	ps[2].Failed, ps[2].Exited = true, true
 	ps[3].HasPrompt, ps[3].PromptKind, ps[3].StatusSince = true, PromptAsk, t0.Add(-time.Minute)
 	ps[4].HasPrompt, ps[4].PromptKind, ps[4].StatusSince = true, PromptPermission, t0.Add(-time.Hour)
@@ -326,8 +347,8 @@ func TestNeedsZeroTimeLast(t *testing.T) {
 func TestNeedsBoundMixed(t *testing.T) {
 	ps := []GraphPane{pane("m", "", "manager", "idle")}
 	for i := 0; i < 60; i++ {
-		p := pane(fmt.Sprintf("u%02d", i), "m", "", "idle")
-		p.Unread, p.UnreadSince = 1, t0.Add(-time.Hour)
+		p := pane(fmt.Sprintf("u%02d", i), "m", "", "failed")
+		p.Failed = true
 		ps = append(ps, p)
 	}
 	for i := 0; i < 3; i++ {
@@ -370,7 +391,7 @@ func TestNeedsDuplicatePaneIDs(t *testing.T) {
 
 func TestNeedsStaleUnreadNeedsTime(t *testing.T) {
 	ps := team2()
-	ps[1].Unread = 3 // no UnreadSince
+	ps[1].Unread, ps[1].UnreadMail = 3, 3 // no UnreadSince
 	if got := needsFor(ps, nil, nil, nil); len(got) != 0 {
 		t.Errorf("got %+v", got)
 	}
@@ -396,7 +417,7 @@ func TestNeedsSetup(t *testing.T) {
 		pane("down", "m", "", "failed"),
 		pane("setup", "m", "", "blocked"),
 	}
-	ps[1].Unread, ps[1].UnreadSince = 1, t0.Add(-time.Hour)
+	ps[1].Unread, ps[1].UnreadMail, ps[1].UnreadSince = 1, 1, t0.Add(-time.Hour)
 	ps[2].Failed, ps[2].Exited = true, true
 	ps[3].SetupText = strings.Repeat("Install Node. ", 40)
 	ps[3].StatusSince = t0.Add(-time.Minute)

@@ -20,8 +20,20 @@ function nameOf(model, id) {
   return n && n.name ? n.name : id;
 }
 
+/** ageOf is how long ago an item began, as "9m", "2h" or "3d", or "" when its time is not known (the graph writes year 1 for that) or is ahead of now. */
+export function ageOf(time, now) {
+  const t = Date.parse(time);
+  if (!Number.isFinite(t) || t < Date.UTC(2000, 0, 1)) return "";
+  const s = Math.floor((now - t) / 1000);
+  if (s < 0) return "";
+  if (s < 60) return "now";
+  if (s < 3600) return Math.floor(s / 60) + "m";
+  if (s < 86400) return Math.floor(s / 3600) + "h";
+  return Math.floor(s / 86400) + "d";
+}
+
 /** rowOf is what the strip shows for one item: who, why and the first line. */
-export function rowOf(model, need) {
+export function rowOf(model, need, now = Date.now()) {
   const r = reasonOf(need);
   const who = [nameOf(model, need.pane)];
   if (need.other) who.push(nameOf(model, need.other));
@@ -33,6 +45,7 @@ export function rowOf(model, need) {
     who: who.join(" and "),
     word: r.word,
     detail: r.detail === "" ? "" : clip(r.detail, ROW_DETAIL),
+    age: ageOf(need.time, now),
   };
 }
 
@@ -42,7 +55,8 @@ export function rowOf(model, need) {
  * row for a pane the graph has no node for is not a button.
  */
 export function NeedsYou({ model, onSelect }) {
-  const rows = model.needs.map((n) => rowOf(model, n));
+  const now = Date.now();
+  const rows = model.needs.map((n) => rowOf(model, n, now));
   const hidden = model.teams.reduce((sum, t) => sum + t.needsHidden, 0) + model.soloNeedsHidden;
   if (rows.length === 0 && hidden === 0) {
     return html`<section class="needs" aria-label="Needs you"><p class="needs-none">Nothing needs you.</p></section>`;
@@ -55,8 +69,11 @@ export function NeedsYou({ model, onSelect }) {
           const body = html`
             <svg class="needs-icon" width="20" height="20" viewBox="-10 -10 20 20" aria-hidden="true"><${Icon} kind=${r.kind} x=${0} y=${0} /></svg>
             <span class="needs-who">${r.who}</span>
-            <span class="needs-word">${r.word}</span>
-            ${r.detail ? html`<span class="needs-detail">${r.detail}</span>` : null}
+            ${r.age ? html`<span class="needs-age">${r.age}</span>` : null}
+            <span class="needs-why">
+              <span class="needs-word">${r.word}</span>
+              ${r.detail ? html`<span class="needs-detail">${r.detail}</span>` : null}
+            </span>
           `;
           return html`
             <li class=${"needs-row needs-row--" + r.kind} data-pane=${r.pane} data-kind=${r.kind} key=${r.id || i}>

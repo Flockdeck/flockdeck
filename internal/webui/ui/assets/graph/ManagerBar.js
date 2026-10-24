@@ -22,6 +22,9 @@ import { html } from "../html.js";
 import { clip } from "./Node.js";
 import { composing } from "../shell/keys.js";
 
+/** SENT_SHOWN is how long, in ms, the line about an accepted send stays: long enough to read, then the bar is quiet again. A refusal stays until the text changes. */
+export const SENT_SHOWN = 6000;
+
 /** MAX_BYTES is the longest text the desk takes (workspace.MaxPaneSendBytes). */
 export const MAX_BYTES = 16 * 1024;
 
@@ -93,10 +96,11 @@ export function outcomeOf(snap, pending) {
  * managerOf(model) for the project on screen, and send is the store's send.
  * inputRef, if given, holds the text box for a view that moves the keyboard to
  * it. The keyboard goes to the box once on its own when nothing else holds it
- * (autoFocus, on by default). verb starts the box's hint: "Tell" the manager, and
+ * (autoFocus, on by default). shownFor is how long, in ms, the line about an
+ * accepted send stays. verb starts the box's hint: "Tell" the manager, and
  * "Answer" an agent that asked a question.
  */
-export function ManagerBar({ snap, manager, send, inputRef, autoFocus = true, verb = "Tell" }) {
+export function ManagerBar({ snap, manager, send, inputRef, autoFocus = true, verb = "Tell", shownFor = SENT_SHOWN }) {
   const own = useRef(null);
   const box = inputRef || own;
   const [draft, setDraft] = useState("");
@@ -125,6 +129,12 @@ export function ManagerBar({ snap, manager, send, inputRef, autoFocus = true, ve
   // The text goes once the desk has taken it; a refused one stays to be changed.
   useEffect(() => {
     if (done) setDraft("");
+  }, [done, open]);
+  // What became of an accepted send is said briefly, then the line goes.
+  useEffect(() => {
+    if (!done) return undefined;
+    const t = setTimeout(() => setPending(null), shownFor);
+    return () => clearTimeout(t);
   }, [done, open]);
 
   if (snap.remote) return null;
