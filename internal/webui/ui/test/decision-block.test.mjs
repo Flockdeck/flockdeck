@@ -196,3 +196,41 @@ test("Open sits last in the answer row of a question, and a conflict names both 
     await c.done();
   }
 });
+
+test("a relayed view (no store) draws no answering buttons and says to answer on the desktop", async () => {
+  const panes = new Map([["cfg", { ask: { questions: [{ question: "which?", options: [{ label: "a" }, { label: "b" }] }] } }]]);
+  for (const [pane, keep] of [["cfg", ["Open cfg"]], ["api", ["See in Review"]], ["lint", ["See terminal"]]]) {
+    const a = await mount({ store: null, panes, onOpen() {}, onSee() {}, onRestart() {} }, pane);
+    try {
+      assert.deepEqual(a.container.findAll(".dec-btn").map((b) => b.textContent).filter((t) => !/Open api/.test(t)), keep, pane);
+      assert.match(a.container.textContent, /Answer this on the desktop/);
+    } finally {
+      await a.done();
+    }
+  }
+});
+
+test("the block's buttons are not tab stops unless the row is", async () => {
+  const a = await mount({ tab: false, onOpen() {}, onRestart() {} }, "lint");
+  try {
+    for (const b of a.container.findAll(".dec-btn")) assert.equal(b.getAttribute("tabindex"), "-1");
+  } finally {
+    await a.done();
+  }
+});
+
+test("when a block that was pressed goes, the row it was under takes the keyboard", async () => {
+  const gone = [];
+  const a = await mount({ onGone: (p) => gone.push(p), onOpen() {} }, "lint");
+  try {
+    a.container.findAll(".dec-btn")[0].click();
+    assert.deepEqual(gone, []);
+  } finally {
+    await a.done();
+  }
+  assert.deepEqual(gone, ["lint"]);
+  const idle = [];
+  const b = await mount({ onGone: (p) => idle.push(p), onOpen() {} }, "lint");
+  await b.done();
+  assert.deepEqual(idle, [], "a block nobody pressed goes without moving the keyboard");
+});

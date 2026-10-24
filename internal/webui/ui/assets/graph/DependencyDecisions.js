@@ -12,8 +12,8 @@
 import { html } from "../html.js";
 import { clip } from "./Node.js";
 import { Icon } from "./Badge.js";
-import { Buttons, useAsk, NO_MANAGER_WORDS } from "./DecisionBlock.js";
-import { NOT_CONNECTED_WORDS } from "../drawer/Prompt.js";
+import { Buttons, useAsk, tabOf, NO_MANAGER_WORDS } from "./DecisionBlock.js";
+import { NOT_CONNECTED_WORDS, DESK_WORDS } from "../drawer/Prompt.js";
 
 const nameOf = (model, id) => {
   const n = model.byPane.get(id);
@@ -58,6 +58,7 @@ export function Deadlock({ model, loop, ctx = {} }) {
   const manager = ctx.manager || null;
   const last = loop[loop.length - 1];
   const parts = loopParts(loop);
+  const desk = !ctx.store;
   const note = state === "failed" || stubbed === "failed" ? html`<p class="dec-status dec-status--error" role="alert">${NOT_CONNECTED_WORDS}</p>` : null;
   return html`<section class="ask dec dec--down" role="group" aria-label="Deadlock" data-decision="deadlock">
     <header class="dec-head">
@@ -67,12 +68,13 @@ export function Deadlock({ model, loop, ctx = {} }) {
     </header>
     <p class="dec-line">${parts.map((p, i) => html`<b>${p.who}</b> waits on <b>${p.on}</b>${p.why ? " for " + clip(p.why, 80) : ""}${i < parts.length - 1 ? ", and " : ". "}`)}${loop.length === 2 ? "Neither can move." : "None of them can move."}</p>
     <${Buttons}>
-      <button type="button" class="dec-btn dec-btn--primary" disabled=${!manager || state === "sent"} title=${manager ? "" : NO_MANAGER_WORDS}
-        onClick=${() => manager && send(manager.pane, "These agents wait on each other and none can move: " + loop.map((s) => s.name).join(", ") + ". Please break the loop.")}>${state === "sent" ? "Manager asked" : "Ask mgr to break the loop"}</button>
-      <button type="button" class="dec-btn" disabled=${stubbed === "sent"}
-        onClick=${() => sendStub(last.pane, "You and " + last.onName + " wait on each other. Use a stub for what you need of " + last.onName + " so you can move.")}>${stubbed === "sent" ? clip(last.name, 20) + " told" : "Tell " + clip(last.name, 20) + " to use a stub"}</button>
-      ${ctx.onOpen ? html`<button type="button" class="dec-btn dec-btn--ghost" onClick=${() => ctx.onOpen(last.pane)}>Open ${clip(last.name, 20)}</button>` : null}
+      ${desk ? null : html`<button type="button" tabindex=${tabOf(ctx)} class="dec-btn dec-btn--primary" disabled=${!manager || state === "sent"} title=${manager ? "" : NO_MANAGER_WORDS}
+        onClick=${() => manager && send(manager.pane, "These agents wait on each other and none can move: " + loop.map((s) => s.name).join(", ") + ". Please break the loop.")}>${state === "sent" ? "Manager asked" : "Ask mgr to break the loop"}</button>`}
+      ${desk ? null : html`<button type="button" tabindex=${tabOf(ctx)} class="dec-btn" disabled=${stubbed === "sent"}
+        onClick=${() => sendStub(last.pane, "You and " + last.onName + " wait on each other. Use a stub for what you need of " + last.onName + " so you can move.")}>${stubbed === "sent" ? clip(last.name, 20) + " told" : "Tell " + clip(last.name, 20) + " to use a stub"}</button>`}
+      ${ctx.onOpen ? html`<button type="button" tabindex=${tabOf(ctx)} class="dec-btn dec-btn--ghost" onClick=${() => ctx.onOpen(last.pane)}>Open ${clip(last.name, 20)}</button>` : null}
     <//>
+    ${desk ? html`<p class="dec-more">${DESK_WORDS}</p>` : null}
     ${note}
   </section>`;
 }
@@ -88,10 +90,11 @@ export function ReadyToStart({ task, ctx = {} }) {
       <span class="dec-age">all blockers merged</span>
     </header>
     <p class="dec-line"><b>${task.id}</b> ${clip(task.title, 80)} has no open blockers and nobody on it.</p>
-    <${Buttons}>
-      <button type="button" class="dec-btn dec-btn--primary" disabled=${!manager || state === "sent"} title=${manager ? "" : NO_MANAGER_WORDS}
+    ${ctx.store ? null : html`<p class="dec-more">${DESK_WORDS}</p>`}
+    ${ctx.store ? html`<${Buttons}>
+      <button type="button" tabindex=${tabOf(ctx)} class="dec-btn dec-btn--primary" disabled=${!manager || state === "sent"} title=${manager ? "" : NO_MANAGER_WORDS}
         onClick=${() => manager && send(manager.pane, "Please start " + task.id + ": " + task.title)}>${state === "sent" ? "Manager asked" : "Ask mgr to start it"}</button>
-    <//>
+    <//>` : null}
     ${state === "failed" ? html`<p class="dec-status dec-status--error" role="alert">${NOT_CONNECTED_WORDS}</p>` : null}
   </section>`;
 }

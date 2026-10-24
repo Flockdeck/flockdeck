@@ -393,6 +393,18 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
   const barRef = useRef(null);
   // The feed is for a team with a manager, and gives its place to the drawer while that is open.
   const showFeed = !!current && !snap.graphGone && !node && current.teams.length > 0;
+  // What the outline's decision blocks answer with. A relayed view has no store to answer with.
+  const decisionCtx = current
+    ? {
+        snap,
+        store: snap.remote ? null : store,
+        panes: new Map(Object.entries(statePanes || {})),
+        manager: managerOf(current),
+        onOpen: drawer.open,
+        onSee: (p) => { drawer.open(p); setTabAsk((a) => ({ tab: "changes", n: a.n + 1, pane: p })); },
+        onRestart: snap.remote ? null : (p) => { const n = current.byPane.get(p); if (n) life.begin("restart", n, (statePanes || {})[p] || null); },
+      }
+    : null;
   const bar = current && !snap.graphGone
     ? html`<${ManagerBar} snap=${snap} manager=${managerOf(current)} send=${(c) => store.send(c)} inputRef=${barRef} />`
     : null;
@@ -665,7 +677,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
           <div class=${"home-split" + (showFeed ? " home-split--feed" : "")}>
             <div class="home-col">
               ${current ? html`<${GoalLine} model=${current} />` : null}
-              <${treeView} model=${current} open=${drawer.pane} onOpen=${drawer.open} send=${snap.remote ? null : send} />
+              <${treeView} model=${current} open=${drawer.pane} onOpen=${drawer.open} send=${snap.remote ? null : send} decisions=${decisionCtx} />
             </div>
             ${showFeed ? html`<${Feed} feed=${feed} onFocus=${(p) => focusNode(mainRef.current, p)} />` : null}
           </div>

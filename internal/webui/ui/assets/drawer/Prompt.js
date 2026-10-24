@@ -143,7 +143,7 @@ function TerminalPermission({ permission, sendKeys }) {
  *  asking, which every copy of the card reads and the store keeps to one answer
  *  for each card, so the card is answered once whichever copy is pressed, or
  *  pressed twice. */
-export function PermissionCard({ node, card, snap, store, tail = null }) {
+export function PermissionCard({ node, card, snap, store, tail = null, tabIndex = undefined }) {
   const [note, setNote] = useState("");
   const remote = !!snap.remote;
   const a = snap.answer;
@@ -169,7 +169,7 @@ export function PermissionCard({ node, card, snap, store, tail = null }) {
     ${remote
       ? null
       : html`<div class="prompt-choices" role="group" aria-label="Choices">
-          ${options.map((o) => html`<button type="button" class=${"prompt-choice prompt-choice--" + String(o.kind || "")} data-option=${o.id} data-kind=${o.kind || ""} disabled=${done} onClick=${() => answer(o)}>${clip(o.name || o.id, 80)}</button>`)}${tail}
+          ${options.map((o) => html`<button type="button" class=${"prompt-choice prompt-choice--" + String(o.kind || "")} data-option=${o.id} data-kind=${o.kind || ""} tabindex=${tabIndex} disabled=${done} onClick=${() => answer(o)}>${clip(o.name || o.id, 80)}</button>`)}${tail}
         </div>`}
     <p class=${"prompt-status" + (refused || note ? " prompt-status--error" : "")} role=${refused || note ? "alert" : "status"}>${says}</p>
   `;
