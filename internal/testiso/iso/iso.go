@@ -17,6 +17,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/jmwri/flockdeck/internal/testiso/depth"
 	"io/fs"
 	"net"
 	"net/http"
@@ -87,6 +88,7 @@ func record(format string, args ...any) string {
 
 // Main is a TestMain body: os.Exit(iso.Main(m)).
 func Main(m *testing.M) int {
+	depth.Guard()
 	if name := stubName(filepath.Base(os.Args[0])); name != "" {
 		// This binary was started as an agent, through a stub: see StubNames.
 		return runStub(name, os.Args[1:])

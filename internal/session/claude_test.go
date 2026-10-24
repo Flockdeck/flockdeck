@@ -3,6 +3,7 @@ package session
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/jmwri/flockdeck/internal/testiso/depth"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -291,6 +292,7 @@ func TestAFailedVersionQuestionIsAskedAgain(t *testing.T) {
 // Set to "answered", it starts the same copy, then says its version and exits
 // as a program should.
 func init() {
+	depth.Guard()
 	if len(os.Args) != 2 || os.Args[1] != "--version" {
 		return
 	}

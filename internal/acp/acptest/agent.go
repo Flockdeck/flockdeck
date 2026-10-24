@@ -55,6 +55,7 @@ import (
 	"time"
 
 	"github.com/jmwri/flockdeck/internal/sysproc"
+	"github.com/jmwri/flockdeck/internal/testiso/depth"
 )
 
 const (
@@ -83,6 +84,7 @@ const argSleeper = "--acptest-sleeper"
 // RunIfAgent runs the fake agent and returns true when this process was
 // started as one. Call it first in TestMain and return when it reports true.
 func RunIfAgent() bool {
+	depth.Guard()
 	for _, a := range os.Args[1:] {
 		if a == argSleeper {
 			time.Sleep(time.Minute)

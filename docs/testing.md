@@ -80,6 +80,12 @@ non-zero and lists what was refused.
   pass `os.Environ()` along (a test binary re-run as a child keeps the
   environment it is given and still remembers which directory is the real one), or build the environment by hand, adding `iso.ChildEnv()`, and set `APPDATA`, `LOCALAPPDATA`, `XDG_CONFIG_HOME`
   and `HOME`/`USERPROFILE` explicitly as `quit_agent_env_test.go` does.
+- **Running the test binary again as a fake program?** Call `depth.Guard()`
+  (`internal/testiso/depth`) first in the `TestMain` or `init` that does it,
+  unless `testiso.Main` or `acptest.RunIfAgent` already runs first. If the
+  variable or argument that says what the child is gets lost, the child runs
+  the whole suite and starts the next one. The guard counts ancestors running
+  the same program and exits with status 2 at three, which no suite needs.
 
 If a guard trips, the message names what was reached; fix the test rather than
 the guard. `internal/testiso/testiso_test.go` holds the regression tests that

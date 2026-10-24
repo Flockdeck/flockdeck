@@ -28,6 +28,7 @@ import (
 	"time"
 
 	"github.com/jmwri/flockdeck/internal/testiso"
+	"github.com/jmwri/flockdeck/internal/testiso/depth"
 )
 
 // runningOld makes this test binary stand in for a program still running: set,
@@ -35,6 +36,7 @@ import (
 const runningOld = "SELFUPDATE_TEST_RUNNING_OLD"
 
 func TestMain(m *testing.M) {
+	depth.Guard()
 	if os.Getenv(runningOld) != "" {
 		time.Sleep(time.Minute)
 		os.Exit(0)
