@@ -5,8 +5,8 @@ import (
 	"testing"
 )
 
-// TestMain keeps these tests off the real config directory. See cmd/uitests for
-// the front end's own tests, which do the same.
+// TestMain keeps these tests, and the node processes they start, off the real
+// config directory. The ui module cannot import the server's testiso.
 func TestMain(m *testing.M) { os.Exit(isolated(m)) }
 
 func isolated(m *testing.M) int {

@@ -1,9 +1,9 @@
 name: ui-module
 
 # The front end is its own Go module (ui/), so `go test ./...` at the root and
-# the sharded jobs in test.yml do not reach it. This runs its tests: the embed,
-# the joiner and the isolation of its own TestMain. The front end's content
-# tests (node, content policy) are cmd/uitests, which test.yml already runs.
+# the sharded jobs in test.yml do not reach it. This runs all its tests: the
+# embed, the joiner, the node tests and the content policy. The boundary between
+# the two modules is cmd/boundary, which test.yml runs.
 on:
   push:
     branches: [main]

@@ -1,4 +1,4 @@
-package ui
+package webui
 
 import (
 	"context"
@@ -22,7 +22,6 @@ import (
 	"testing"
 	"time"
 
-	webui "github.com/jmwri/flockdeck/ui"
 	"github.com/jmwri/flockdeck/ui/help"
 )
 
@@ -34,7 +33,7 @@ func serve(t *testing.T) *httptest.Server {
 	t.Helper()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		b, err := fs.ReadFile(webui.FS(), "index.html")
+		b, err := fs.ReadFile(FS(), "index.html")
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
@@ -42,7 +41,7 @@ func serve(t *testing.T) *httptest.Server {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		_, _ = w.Write(b)
 	})
-	mux.Handle("/assets/", http.StripPrefix("/assets/", http.FileServerFS(webui.FS())))
+	mux.Handle("/assets/", http.StripPrefix("/assets/", http.FileServerFS(FS())))
 	srv := httptest.NewServer(mux)
 	t.Cleanup(srv.Close)
 	return srv
@@ -90,7 +89,7 @@ var (
 // This follows the files as they are written, so it asks for them separately;
 // the page the server sends joins them (TestServedPageIsAFewFiles).
 func TestPageLoadsTheLiveShell(t *testing.T) {
-	t.Setenv(webui.UnbundledEnv, "1")
+	t.Setenv(UnbundledEnv, "1")
 	srv := serve(t)
 	page, ct := get(t, srv.URL+"/")
 	if !strings.HasPrefix(ct, "text/html") {
@@ -167,7 +166,7 @@ func TestServedPageIsAFewFiles(t *testing.T) {
 		t.Error("the joined script still has an import or export")
 	}
 	// Every module the written graph holds is in it.
-	t.Setenv(webui.UnbundledEnv, "1")
+	t.Setenv(UnbundledEnv, "1")
 	written := serve(t)
 	seen := map[string]bool{}
 	var visit func(name string)
@@ -203,7 +202,7 @@ func TestServedPageIsAFewFiles(t *testing.T) {
 // absolute URL, and no src that leaves the files served beside the page.
 func TestNextAssetsKeepToTheContentPolicy(t *testing.T) {
 	var checked int
-	err := fs.WalkDir(os.DirFS("../../ui/src"), ".", func(name string, d fs.DirEntry, err error) error {
+	err := fs.WalkDir(os.DirFS("src"), ".", func(name string, d fs.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return err
 		}
@@ -211,7 +210,7 @@ func TestNextAssetsKeepToTheContentPolicy(t *testing.T) {
 		if ext != ".html" && ext != ".js" && ext != ".mjs" {
 			return nil
 		}
-		b, err := os.ReadFile(filepath.Join("../../ui/src", filepath.FromSlash(name)))
+		b, err := os.ReadFile(filepath.Join("src", filepath.FromSlash(name)))
 		if err != nil {
 			return err
 		}
@@ -232,7 +231,7 @@ func TestNextAssetsKeepToTheContentPolicy(t *testing.T) {
 					continue
 				}
 				target := path.Join(path.Dir(name), ref)
-				if _, err := os.Stat(filepath.Join("../../ui/src", filepath.FromSlash(target))); err != nil {
+				if _, err := os.Stat(filepath.Join("src", filepath.FromSlash(target))); err != nil {
 					t.Errorf("%s imports %s, which is not in ui/src", name, ref)
 				}
 			}
@@ -350,7 +349,7 @@ func TestVendoredFilesMatchTheirRecordedHash(t *testing.T) {
 		recorded[fields[1]] = fields[0]
 	}
 	for name, want := range recorded {
-		b, err := os.ReadFile(filepath.Join("../../ui", filepath.FromSlash(name)))
+		b, err := os.ReadFile(filepath.Join(".", filepath.FromSlash(name)))
 		if err != nil {
 			t.Errorf("%s: %v", name, err)
 			continue
@@ -361,7 +360,7 @@ func TestVendoredFilesMatchTheirRecordedHash(t *testing.T) {
 		}
 	}
 	for _, dir := range []string{"src/vendor", "test/vendor"} {
-		ents, err := os.ReadDir(filepath.Join("../../ui", dir))
+		ents, err := os.ReadDir(filepath.Join(".", dir))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -375,7 +374,7 @@ func TestVendoredFilesMatchTheirRecordedHash(t *testing.T) {
 	if len(recorded) < 4 {
 		t.Errorf("only %d files recorded", len(recorded))
 	}
-	lic, err := os.ReadFile("../../ui/src/vendor/LICENSES.md")
+	lic, err := os.ReadFile("src/vendor/LICENSES.md")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -457,13 +456,13 @@ func TestNodeTests(t *testing.T) {
 		}
 		t.Skip("node is not on PATH, so the new shell's tests cannot run")
 	}
-	files, err := filepath.Glob(filepath.Join("../../ui/test", "*.test.mjs"))
+	files, err := filepath.Glob(filepath.Join("test", "*.test.mjs"))
 	if err != nil || len(files) < 2 {
 		t.Fatalf("test files %v, %v", files, err)
 	}
 	// Every test file in the directory must become a subtest, so a loop that
 	// skipped or stopped early cannot pass as a smaller suite.
-	entries, err := os.ReadDir("../../ui/test")
+	entries, err := os.ReadDir("test")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -504,7 +503,7 @@ func TestNodeTests(t *testing.T) {
 		t.Fatal(err)
 	}
 	// The modules joined as the server sends them, for the test that runs them.
-	joined, err := webui.Bundled()
+	joined, err := Bundled()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -548,11 +547,11 @@ func TestNodeTests(t *testing.T) {
 // module uses it through FlockdeckE2E, so a copy that drifted from the old one
 // would seal frames the desktop cannot open.
 func TestE2EIsTheOldWindowsFileByteForByte(t *testing.T) {
-	served, err := fs.ReadFile(webui.FS(), "e2e.js")
+	served, err := fs.ReadFile(FS(), "e2e.js")
 	if err != nil {
 		t.Fatal(err)
 	}
-	own, err := os.ReadFile(filepath.Join("../../ui/src", "e2e.js"))
+	own, err := os.ReadFile(filepath.Join("src", "e2e.js"))
 	if err != nil {
 		t.Fatalf("ui/src has no e2e.js: %v", err)
 	}
@@ -567,7 +566,7 @@ func TestE2EIsTheOldWindowsFileByteForByte(t *testing.T) {
 // terminal needs them, each of which the tagged build serves as JavaScript from
 // the old tree.
 func TestPageHoldsOnlyTheModuleAndTheLoaderNamesTheLibraries(t *testing.T) {
-	page, err := os.ReadFile(filepath.Join("../../ui/src", "index.html"))
+	page, err := os.ReadFile(filepath.Join("src", "index.html"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -575,7 +574,7 @@ func TestPageHoldsOnlyTheModuleAndTheLoaderNamesTheLibraries(t *testing.T) {
 	if len(tags) != 1 || !strings.Contains(tags[0], `type="module"`) || !strings.Contains(tags[0], `src="assets/main.js"`) {
 		t.Fatalf("the page's script tags are %v, want only the module", tags)
 	}
-	loader, err := os.ReadFile(filepath.Join("../../ui/src", "lib", "load-script.js"))
+	loader, err := os.ReadFile(filepath.Join("src", "lib", "load-script.js"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -605,7 +604,7 @@ func TestPageHoldsOnlyTheModuleAndTheLoaderNamesTheLibraries(t *testing.T) {
 // list of its own. The two lists have to be the same, or a tag the server lets
 // through is silently dropped, or one the server drops is let in.
 func TestHelpTagListsAgree(t *testing.T) {
-	src, err := os.ReadFile(filepath.Join("../../ui/src", "lib", "help.js"))
+	src, err := os.ReadFile(filepath.Join("src", "lib", "help.js"))
 	if err != nil {
 		t.Fatal(err)
 	}
