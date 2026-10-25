@@ -46,7 +46,7 @@ export function rosterOf(state) {
     .filter((p) => !seen.has(String(p.id)) && seen.add(String(p.id)))
     .map((p) => ({
       id: String(p.id || ""),
-      name: String(p.name || p.id || ""),
+      name: String(p.label || p.name || p.id || ""),
       role: String(p.role || ""),
       doing: String(p.activity || p.status || ""),
     }));

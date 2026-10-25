@@ -121,6 +121,8 @@ function nodeOf(raw) {
     orphaned: n.orphaned === true,
     waitingOn: waitingOf(n.waitingOn),
     name: str(n.name),
+    label: str(n.label),
+    labelAuto: n.labelAuto === true,
     peer: str(n.peer),
     role: str(n.role),
     agent: str(n.agent),
@@ -442,8 +444,13 @@ export function rollupOf(model, pane) {
 
 const labelsOf = new WeakMap();
 
+/** shownName is what a pane is called wherever one name is drawn: its label, else its name, else its id. */
+export function shownName(node) {
+  return (node && (node.label || node.name || node.pane)) || "";
+}
+
 /**
- * labelOf is the name a row shows for a pane. It is the pane's name, unless
+ * labelOf is the name a row shows for a pane. It is the pane's label, else its name, unless
  * another pane has the same one (helpers started from one project often do): then
  * it is the role and a short stable name, "worker · tabs per goal": the task
  * title if the pane has one, else the pane's name. Never the live line or a message. A label that is still shared gets the start of the
@@ -456,7 +463,7 @@ export function labelOf(model, pane) {
   if (!labels) {
     labels = new Map();
     const count = new Map();
-    const nameOf = (x) => x.name || x.pane;
+    const nameOf = shownName;
     for (const x of model.nodes) count.set(nameOf(x), (count.get(nameOf(x)) || 0) + 1);
     const made = new Map();
     for (const x of model.nodes) {
@@ -465,7 +472,7 @@ export function labelOf(model, pane) {
         continue;
       }
       // Stable text only: never the live line or a message, which change under the row and repeat the Doing column.
-      const what = (x.task && x.task.title) || x.name || "";
+      const what = x.label || (x.task && x.task.title) || x.name || "";
       const label = [x.role, what].filter(Boolean).join(" · ") || nameOf(x);
       made.set(label, (made.get(label) || 0) + 1);
       labels.set(x.pane, label);

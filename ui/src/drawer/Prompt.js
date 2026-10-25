@@ -26,6 +26,7 @@ import { useEffect, useRef, useState } from "../vendor/hooks.mjs";
 import { isViewer, VIEWER_WORDS } from "../lib/role.js";
 import { html } from "../html.js";
 import { clip } from "../graph/Node.js";
+import { shownName } from "../graph/model.js";
 import { ManagerBar } from "../graph/ManagerBar.js";
 
 /** KEYS is what each terminal choice types: Yes is Enter, the default of Claude
@@ -215,7 +216,7 @@ export function Question({ node, ask, snap, store }) {
     </div>`)}
     ${snap.remote
       ? html`<p class="prompt-more">${IN_TERMINAL_WORDS}</p>`
-      : html`<${ManagerBar} snap=${snap} manager=${{ pane: node.pane, name: node.name || node.pane }} send=${(c) => store.send(c)} autoFocus=${false} verb="Answer" />`}
+      : html`<${ManagerBar} snap=${snap} manager=${{ pane: node.pane, name: shownName(node) }} send=${(c) => store.send(c)} autoFocus=${false} verb="Answer" />`}
   `;
 }
 
