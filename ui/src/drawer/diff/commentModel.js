@@ -7,6 +7,7 @@
 // ("open" | "fixed" | "resolved" | "dismissed"), delivery ("queued" | "notified" |
 // "woken" | "read", absent while the message is being written), createdAt,
 // fixedAtSha }. Everything in it is text from the desk or an agent.
+import { showControls } from "./diffModel.js";
 
 /** MAX_COMMENT is the longest comment the desk takes, in characters. */
 export const MAX_COMMENT = 4096;
@@ -51,11 +52,11 @@ export function lineKey(side, line) {
   return !line ? "file" : (side === "old" ? "old" : "new") + ":" + line;
 }
 
-/** commentsAt groups one file's comments by place, each group oldest first. */
-export function commentsAt(comments, path) {
+/** commentsAt groups one file's comments by place, each group oldest first. A renamed file's comments may carry its old path. */
+export function commentsAt(comments, path, oldPath = "") {
   const out = new Map();
   for (const c of list(comments)) {
-    if (!isObject(c) || c.path !== path) continue;
+    if (!isObject(c) || !(c.path === path || (oldPath && c.path === oldPath))) continue;
     const k = lineKey(c.side, c.line);
     out.set(k, (out.get(k) || []).concat(c));
   }
@@ -75,18 +76,18 @@ export function forDrawer(comments) {
 /** whereWords says where a comment is: "path, line 12", "path, old line 12" or "path". */
 export function whereWords(c) {
   if (!isObject(c)) return "";
-  if (!c.line) return text(c.path);
-  return text(c.path) + ", " + (c.side === "old" ? "old line " : "line ") + c.line;
+  if (!c.line) return showControls(text(c.path));
+  return showControls(text(c.path)) + ", " + (c.side === "old" ? "old line " : "line ") + c.line;
 }
 
 /** addCommand builds the commentAdd command. expectSha is the head the person looked at. */
-export function addCommand({ pane, branch, file, side, line, text: body, expectSha, req }) {
-  return { cmd: "commentAdd", id: pane, branch, file, side: side === "old" ? "old" : "new", line: line | 0, text: body, expectSha, req };
+export function addCommand({ pane, file, side, line, text: body, expectSha, req }) {
+  return { cmd: "commentAdd", id: pane, file, side: side === "old" ? "old" : "new", line: line | 0, text: body, expectSha, req };
 }
 
 /** closeCommand builds commentResolve or commentReopen. */
-export function closeCommand(cmd, { pane, branch, commentId, req }) {
-  return { cmd: cmd === "commentReopen" ? "commentReopen" : "commentResolve", id: pane, branch, commentId, req };
+export function closeCommand(cmd, { pane, commentId, req }) {
+  return { cmd: cmd === "commentReopen" ? "commentReopen" : "commentResolve", id: pane, commentId, req };
 }
 
 /** refusalWords is what to say to the person for a changesResult that was not ok. */

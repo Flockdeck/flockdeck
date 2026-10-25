@@ -349,7 +349,7 @@ test("in split view Up and Down stay in the old or new column, and a failed read
     render(html`<${DiffViewer} file=${listing(failed)} hunks=${failed} />`, box);
     await settle();
     assert.equal(box.find(".dv-live").textContent, "", "the alert says it; the status line does not repeat it");
-    assert.ok(box.find("[role=alert]"));
+    assert.ok(box.find('[role="alert"]'));
   } finally {
     restore();
   }

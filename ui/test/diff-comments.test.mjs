@@ -61,10 +61,10 @@ test("comments group by place and the drawer's list puts open ones first", () =>
 });
 
 test("the commands carry expectSha and the ids the contract names", () => {
-  const cmd = addCommand({ pane: "p", branch: "b", file: "a.go", side: "old", line: 7, text: "t", expectSha: "abc", req: "r1" });
-  assert.deepEqual(cmd, { cmd: "commentAdd", id: "p", branch: "b", file: "a.go", side: "old", line: 7, text: "t", expectSha: "abc", req: "r1" });
-  assert.equal(closeCommand("commentReopen", { pane: "p", branch: "b", commentId: "c1", req: "r" }).cmd, "commentReopen");
-  assert.equal(closeCommand("anything", { pane: "p", branch: "b", commentId: "c1", req: "r" }).cmd, "commentResolve");
+  const cmd = addCommand({ pane: "p", file: "a.go", side: "old", line: 7, text: "t", expectSha: "abc", req: "r1" });
+  assert.deepEqual(cmd, { cmd: "commentAdd", id: "p", file: "a.go", side: "old", line: 7, text: "t", expectSha: "abc", req: "r1" });
+  assert.equal(closeCommand("commentReopen", { pane: "p", commentId: "c1", req: "r" }).cmd, "commentReopen");
+  assert.equal(closeCommand("anything", { pane: "p", commentId: "c1", req: "r" }).cmd, "commentResolve");
 });
 
 test("a refusal says what happened, from the fixtures' codes", () => {
@@ -117,9 +117,9 @@ test("the flow: resolve and reopen replace the listed comment until the listing 
 
 // ------------------------------------------------------------ in a page
 
-function Host({ send, result, comments = [] }) {
-  const flow = useCommentFlow({ pane: "5dc771c1", branch: "agent/cart", headSha: HEAD, send, result, comments });
-  return html`<${DiffViewer} branch="agent/cart" file=${file} hunks=${hunksFile} flow=${flow} headSha=${HEAD} nameOf=${(p) => (p === "5dc771c1" ? "api" : p)} />`;
+function Host({ send, result, results = null, comments = [], connected = true, session = null, readOnly = false, drawn }) {
+  const flow = useCommentFlow({ pane: "5dc771c1", drawnSha: drawn === undefined ? HEAD : drawn, send, result, results, comments, connected, session });
+  return html`<${DiffViewer} branch="agent/cart" file=${file} hunks=${hunksFile} flow=${flow} readOnly=${readOnly} headSha=${HEAD} nameOf=${(p) => (p === "5dc771c1" ? "api" : p)} />`;
 }
 
 async function mountHost(props) {
@@ -151,7 +151,7 @@ test("a + opens the composer on its line, Ctrl+Enter sends with expectSha, and t
     await settle();
     assert.equal(sent.length, 1);
     const { req, ...cmd } = sent[0];
-    assert.deepEqual(cmd, { cmd: "commentAdd", id: "5dc771c1", branch: "agent/cart", file: "internal/limit/limit.go", side: "new", line: 57, text: "Add a test for the boundary.", expectSha: HEAD });
+    assert.deepEqual(cmd, { cmd: "commentAdd", id: "5dc771c1", file: "internal/limit/limit.go", side: "new", line: 57, text: "Add a test for the boundary.", expectSha: HEAD });
     assert.match(m.box.textContent, /Sending/, "shown as sending until the desk answers");
     assert.equal(m.box.find(".dv-composer-text").disabled, true);
     m.draw({ send: () => true, result: { ...added, req } });
@@ -307,4 +307,175 @@ test("the drawer lists open comments first, jumps to one, and offers Reopen on a
 test("comment text from an agent is drawn as text", () => {
   const out = renderToString(html`<${Thread} comments=${[c({ text: "<img src=x onerror=1>", author: "evil‮" })]} headSha="aaa" />`);
   assert.doesNotMatch(out, /<img/);
+});
+
+// ------------------------------------------------------------ review findings on the flow
+
+const OLD = "oldoldoldold";
+const sentIn = () => { const sent = []; return { sent, send: (cmd) => { sent.push(cmd); return true; } }; };
+async function writeOne(m, text = "Add a test.") {
+  plusFor(m.box, /^Comment on line 57 of /).click();
+  await settle();
+  const ta = m.box.find(".dv-composer-text");
+  ta.enter(text);
+  await settle();
+  ta.keydown("Enter", { ctrlKey: true });
+  await settle();
+}
+
+test("a comment is sent with the head the diff was read at, not the branch's head now, and not at all without one", async () => {
+  const { sent, send } = sentIn();
+  const m = await mountHost({ send, drawn: OLD });
+  try {
+    await writeOne(m);
+    assert.equal(sent[0].expectSha, OLD, "the head of the listing the diff was read at; the viewer's headSha is another value");
+  } finally {
+    m.done();
+  }
+  for (const bad of ["", null]) {
+    const s2 = sentIn();
+    const n = await mountHost({ send: s2.send, drawn: bad });
+    try {
+      await writeOne(n);
+      assert.equal(s2.sent.length, 0, "nothing is sent");
+      assert.match(n.box.find(".dv-composer-error").textContent, /not read at a known head/);
+      assert.equal(n.box.find(".dv-composer-text").value, "Add a test.", "the text stays");
+    } finally {
+      n.done();
+    }
+  }
+});
+
+test("a dropped connection ends the wait, keeps the text and says to check; nothing is sent again", async () => {
+  const { sent, send } = sentIn();
+  const m = await mountHost({ send, session: 1 });
+  try {
+    await writeOne(m);
+    assert.equal(m.box.find(".dv-composer-text").disabled, true);
+    m.draw({ send, session: 2 });
+    await settle();
+    const ta = m.box.find(".dv-composer-text");
+    assert.equal(ta.disabled, false, "not stuck on pending");
+    assert.equal(ta.value, "Add a test.");
+    assert.match(m.box.find(".dv-composer-error").textContent, /connection dropped; check whether the comment appears/);
+    assert.equal(sent.length, 1);
+  } finally {
+    m.done();
+  }
+});
+
+test("a dropped connection ends a resolve's wait with the same words", () => {
+  let s = flowReducer(initialFlow, { type: "sent", req: "r1", pending: { kind: "close", id: "c1" } });
+  s = flowReducer(s, { type: "dropped" });
+  assert.deepEqual(s.pending, {});
+  assert.match(s.errors.c1, /check whether the comment appears/);
+  assert.equal(flowReducer(initialFlow, { type: "dropped" }), initialFlow, "nothing out, nothing to say");
+});
+
+test("two answers that land between renders are both seen", async () => {
+  const { sent, send } = sentIn();
+  const listed = [c({ id: "c1", path: file.path, line: 57 }), c({ id: "c2", path: file.path, line: 53 })];
+  const m = await mountHost({ send, comments: listed });
+  try {
+    m.box.findAll(".dv-resolve")[0].click();
+    m.box.findAll(".dv-resolve")[1].click();
+    await settle();
+    assert.equal(sent.length, 2);
+    const a = { type: "changesResult", req: sent[0].req, ok: true, comment: c({ id: "c1", path: file.path, line: 57, state: "resolved" }) };
+    const b = { type: "changesResult", req: sent[1].req, ok: true, comment: c({ id: "c2", path: file.path, line: 53, state: "resolved" }) };
+    m.draw({ send, results: [a, b], comments: listed });
+    await settle();
+    assert.equal(m.box.findAll(".dv-resolve").length, 0, "both are resolved");
+  } finally {
+    m.done();
+  }
+});
+
+test("Resolve is off while its command is out", async () => {
+  const { sent, send } = sentIn();
+  const m = await mountHost({ send, comments: [c({ id: "c1", path: file.path, line: 57 })] });
+  try {
+    m.box.find(".dv-resolve").click();
+    await settle();
+    assert.equal(m.box.find(".dv-resolve").disabled, true);
+    m.box.find(".dv-resolve").click();
+    assert.equal(sent.length, 1);
+  } finally {
+    m.done();
+  }
+});
+
+test("a draft is kept for each place when another + is opened", () => {
+  const a = { file: "f", side: "new", line: 1 };
+  const b = { file: "f", side: "new", line: 2 };
+  let s = flowReducer(initialFlow, { type: "open", target: a });
+  s = flowReducer(s, { type: "draft", text: "first" });
+  s = flowReducer(s, { type: "open", target: b });
+  assert.equal(s.draft, "");
+  s = flowReducer(s, { type: "draft", text: "second" });
+  s = flowReducer(s, { type: "open", target: a });
+  assert.equal(s.draft, "first");
+  s = flowReducer(s, { type: "open", target: b });
+  assert.equal(s.draft, "second");
+  s = flowReducer(s, { type: "cancel" });
+  s = flowReducer(s, { type: "open", target: b });
+  assert.equal(s.draft, "", "cancel throws the draft away");
+});
+
+test("after a refusal the box has the keyboard again, and the error is an alert", async () => {
+  const { sent, send } = sentIn();
+  const m = await mountHost({ send });
+  try {
+    await writeOne(m);
+    m.draw({ send, result: { ...headMoved, req: sent[0].req } });
+    await settle();
+    const ta = m.box.find(".dv-composer-text");
+    assert.equal(m.dom.document.activeElement, ta);
+    assert.equal(m.box.find(".dv-composer-error").getAttribute("role"), "alert");
+  } finally {
+    m.done();
+  }
+});
+
+test("read-only draws no +, no file button, no Resolve and no Reopen, and still draws the comments", async () => {
+  const m = await mountHost({ send: () => true, readOnly: true, comments: [c({ id: "c1", path: file.path, line: 57 }), c({ id: "c2", path: file.path, line: 53, state: "resolved" })] });
+  try {
+    assert.equal(m.box.findAll(".dv-plus").length, 0);
+    assert.equal(m.box.find(".dv-filecm-btn"), null);
+    assert.equal(m.box.find(".dv-resolve"), null);
+    assert.equal(m.box.find(".dv-reopen"), null);
+    assert.match(m.box.textContent, /fix/);
+  } finally {
+    m.done();
+  }
+  assert.doesNotMatch(renderToString(html`<${Thread} comments=${[c()]} headSha="aaa" />`), /dv-resolve/, "no callback, no button");
+});
+
+test("comments on lines that are not drawn, or on the old path, are not lost", async () => {
+  const lost = c({ id: "gone", path: file.path, line: 9999, text: "where did it go" });
+  const m = await mountHost({ send: () => true, comments: [lost] });
+  try {
+    const block = m.box.find(".dv-cm--unplaced");
+    assert.match(block.textContent, /1 comment is on lines not shown here/);
+    assert.match(block.textContent, /line 9999/);
+    assert.match(block.textContent, /where did it go/);
+  } finally {
+    m.done();
+  }
+  const at = commentsAt([c({ path: "old.go", line: 0 })], "new.go", "old.go");
+  assert.equal(at.has("file"), true);
+  assert.equal(commentsAt([c({ path: "old.go" })], "new.go").size, 0);
+});
+
+test("an agent is marked as an agent, so no name reads as You; text and place show hidden characters", () => {
+  const out = renderToString(html`<${Thread} comments=${[c({ author: "p9", text: "a‮b" })]} headSha="aaa" nameOf=${() => "You"} />`);
+  assert.match(out, /dv-agent">agent</);
+  assert.match(out, /a&lt;U\+202E>b|a<U\+202E>b/);
+  assert.equal(whereWords(c({ path: "a‮.go" })), "a<U+202E>.go, line 5");
+  assert.doesNotMatch(renderToString(html`<${Thread} comments=${[c()]} headSha="aaa" />`), /dv-agent/);
+});
+
+test("outdated shows on open comments only and says the line may have changed", () => {
+  assert.match(renderToString(html`<${Thread} comments=${[c()]} headSha="bbb" />`), /outdated: line may have changed/);
+  assert.doesNotMatch(renderToString(html`<${Thread} comments=${[c({ state: "resolved" })]} headSha="bbb" />`), /outdated/);
 });

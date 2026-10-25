@@ -24,8 +24,15 @@
 //     the diff draws each place's comments under its line, the composer where one is
 //     being written (the keyboard returns to the "+" when it closes), and a "+" that
 //     opens it; comments and onComment are then taken from it. headSha marks a
-//     comment written at another head as outdated, and nameOf(pane) gives the name
-//     drawn for a pane.
+//     comment written at another head as outdated (it is the branch's head now, not
+//     the head the diff was read at: that is the flow's drawnSha), and nameOf(pane)
+//     gives the name drawn for a pane. Comments on lines the diff does not show (a
+//     page not drawn yet, a gap, a line the new head dropped) are drawn in a block
+//     above the diff, with their place; a renamed file's comments may carry its old path.
+//   readOnly: removes every way to write or close a comment ("+", "Comment on this
+//     file", Resolve, Reopen); the comments are still drawn. The caller passes it for
+//     a viewer (lib/role.js isViewer), a relay window, and a desk whose caps lack
+//     changesDiff.
 //   collapsed, onToggle: the file's open state when the caller keeps it; without
 //     them the file keeps its own, shut at first for a generated file.
 //
@@ -105,7 +112,7 @@ function Code({ line, id }) {
 function Plus({ file, line, side, notes, onComment, rid, active, onActive, describedBy }) {
   if (!onComment) return null;
   if (typeof line !== "number") return html`<td class="dv-p"></td>`;
-  const n = notes.get(side + ":" + line) || 0;
+  const n = notes.get(lineKey(side, line)) || 0;
   const where = (side === "old" ? "old line " : "line ") + line + " of " + showControls(file);
   return html`<td class="dv-p"><button type="button" class="dv-plus" data-rid=${rid} tabindex=${active === rid ? 0 : -1} aria-describedby=${describedBy}
     aria-label=${"Comment on " + where + (n ? ", " + plural(n, "open comment", "open comments") : "")}
@@ -127,7 +134,7 @@ function Hunk({ row, cols }) {
 }
 
 function UnifiedRow({ row, uid, file, notes, onComment, active, onActive }) {
-  const mark = notes.get(row.anchor.side + ":" + row.anchor.line) || 0;
+  const mark = notes.get(lineKey(row.anchor.side, row.anchor.line)) || 0;
   const cid = uid + "-" + row.id;
   return html`<tr class=${"dv-row dv-row--" + row.t + (mark ? " has-comment" : "")} data-row=${row.id}>
     <${Plus} file=${file} line=${row.anchor.line} side=${row.anchor.side} notes=${notes} onComment=${onComment} rid=${row.id} active=${active} onActive=${onActive} describedBy=${cid} />
@@ -176,19 +183,19 @@ function plusIds(rows, split) {
 }
 
 // What goes under a line: its comments, and the composer when one is open there. In the table it is a row; above it (wrap) a block.
-function Inline({ keys, path, at, flow, headSha, nameOf, cols, wrap = false }) {
+function Inline({ keys, path, at, flow, headSha, nameOf, cols, wrap = false, readOnly = false }) {
   const here = (flow && flow.composing && flow.composing.file === path) ? lineKey(flow.composing.side, flow.composing.line) : "";
   const shown = keys.filter((k) => at.has(k) || k === here);
   if (!shown.length) return null;
   const body = shown.map((k) => html`<div key=${k}>
-    <${Thread} comments=${at.get(k) || NONE} headSha=${headSha} errors=${flow ? flow.errors : NO_CONTEXT} nameOf=${nameOf} onResolve=${flow && flow.close} onReopen=${flow && flow.reopen} />
+    <${Thread} comments=${at.get(k) || NONE} headSha=${headSha} errors=${flow ? flow.errors : NO_CONTEXT} closing=${flow ? flow.closing : NO_CONTEXT} nameOf=${nameOf} onResolve=${flow && !readOnly ? flow.close : null} onReopen=${flow && !readOnly ? flow.reopen : null} />
     ${k === here ? html`<${Composer} target=${flow.composing} draft=${flow.draft} error=${flow.error} busy=${flow.busy} onDraft=${flow.setDraft} onSend=${flow.submit} onCancel=${flow.cancel} />` : null}
   </div>`);
   return wrap ? html`<div class="dv-cm">${body}</div>` : html`<tr class="dv-cm"><td colspan=${cols}>${body}</td></tr>`;
 }
 
 /** DiffViewer draws one file: its header, which folds it, and its diff. */
-export function DiffViewer({ branch = "", file = null, hunks = null, layout = "unified", narrow = null, comments: given = NONE, onComment: onCommentGiven = null, flow = null, headSha = "", nameOf = null, context = NO_CONTEXT, onContext = null, collapsed = null, onToggle = null }) {
+export function DiffViewer({ branch = "", file = null, hunks = null, layout = "unified", narrow = null, comments: given = NONE, onComment: onCommentGiven = null, flow = null, readOnly = false, headSha = "", nameOf = null, context = NO_CONTEXT, onContext = null, collapsed = null, onToggle = null }) {
   const comments = flow ? flow.comments : given;
   const path = file ? text(file.path) : "";
   const uidRef = useRef(null);
@@ -208,12 +215,12 @@ export function DiffViewer({ branch = "", file = null, hunks = null, layout = "u
   const returnTo = useRef("");
   // The composer opens from a "+" and gives the keyboard back to it.
   const onComment = flow
-    ? (t) => {
+    ? readOnly ? null : (t) => {
         const el = wrap.current && wrap.current.ownerDocument ? wrap.current.ownerDocument.activeElement : null;
         returnTo.current = el && el.getAttribute ? el.getAttribute("data-rid") || "" : "";
         flow.open(t);
       }
-    : onCommentGiven;
+    : readOnly ? null : onCommentGiven;
   const composingHere = !!(flow && flow.composing);
   useEffect(() => {
     if (composingHere || !returnTo.current || !wrap.current) return;
@@ -230,19 +237,32 @@ export function DiffViewer({ branch = "", file = null, hunks = null, layout = "u
     const cut = !!(flags && flags.truncated);
     return lay === "split" ? sideRows(hunks.hunks, context, { cut }) : unifiedRows(hunks.hunks, context, { cut });
   }, [hunks, context, lay, flags]);
-  const at = useMemo(() => commentsAt(comments, path), [comments, path]);
+  const oldPath = file ? text(file.oldPath) : "";
+  const at = useMemo(() => commentsAt(comments, path, oldPath), [comments, path, oldPath]);
   const notes = useMemo(() => {
     const m = new Map();
     for (const c of Array.isArray(comments) ? comments : NONE) {
-      if (!isOpenComment(c) || c.path !== path) continue;
-      const k = c.side + ":" + c.line;
+      if (!isOpenComment(c) || !(c.path === path || (oldPath && c.path === oldPath))) continue;
+      const k = lineKey(c.side, c.line);
       m.set(k, (m.get(k) || 0) + 1);
     }
     return m;
-  }, [comments, path]);
+  }, [comments, path, oldPath]);
   const page = useMemo(() => pageRows(rows, pages), [rows, pages]);
   const ids = useMemo(() => plusIds(page.rows, lay === "split"), [page, lay]);
   const stop = ids.includes(active) ? active : ids[0] || "";
+  // Comments whose line is not drawn: they are not lost, they go above the diff.
+  const unplaced = useMemo(() => {
+    if (!hunks) return NONE;
+    const drawn = new Set();
+    for (const r of page.rows) {
+      if (r.type === "line") drawn.add(lineKey(r.anchor.side, r.anchor.line));
+      else if (r.type === "pair") for (const l of [r.left, r.right]) if (l) drawn.add(lineKey(l.anchor.side, l.anchor.line));
+    }
+    const out = [];
+    for (const [k, v] of at) if (k !== "file" && !drawn.has(k)) out.push(...v);
+    return out;
+  }, [page, at, hunks]);
 
   // What the status line says; it is filled after the first draw so a reader announces it.
   const added = file && typeof file.added === "number" ? file.added : 0;
@@ -324,7 +344,14 @@ export function DiffViewer({ branch = "", file = null, hunks = null, layout = "u
       ${onComment || at.has("file")
         ? html`<div class="dv-filecm">
             ${onComment ? html`<button type="button" class="drawer-btn dv-filecm-btn" onClick=${() => onComment({ file: path, side: "new", line: 0 })}>Comment on this file</button>` : null}
-            <${Inline} keys=${["file"]} path=${path} at=${at} flow=${flow} headSha=${headSha} nameOf=${nameOf} cols=${1} wrap=${true} />
+            <${Inline} keys=${["file"]} path=${path} at=${at} flow=${flow} headSha=${headSha} nameOf=${nameOf} cols=${1} wrap=${true} readOnly=${readOnly} />
+          </div>`
+        : null}
+      ${unplaced.length
+        ? html`<div class="dv-cm dv-cm--unplaced">
+            <p class="dv-note">${plural(unplaced.length, "comment is", "comments are") + " on lines not shown here."}</p>
+            <${Thread} comments=${unplaced} headSha=${headSha} errors=${flow ? flow.errors : NO_CONTEXT} closing=${flow ? flow.closing : NO_CONTEXT} nameOf=${nameOf} showWhere=${true} label="Comments on lines not shown"
+              onResolve=${flow && !readOnly ? flow.close : null} onReopen=${flow && !readOnly ? flow.reopen : null} />
           </div>`
         : null}
       ${renamed ? html`<p class="dv-note">Renamed from <span class="dv-mono">${pathText(from)}</span>. Only the changed lines are shown.</p>` : null}
@@ -341,9 +368,9 @@ export function DiffViewer({ branch = "", file = null, hunks = null, layout = "u
                 ? html`<${Gap} key=${r.id} row=${r} cols=${cols} onContext=${onContext ? askContext : null} />`
                 : lay === "split"
                   ? [html`<${SplitRow} key=${r.id} row=${r} uid=${uid} file=${path} notes=${notes} onComment=${onComment} active=${stop} onActive=${setActive} />`,
-                     html`<${Inline} key=${r.id + ":cm"} keys=${[r.left && r.left !== r.right ? lineKey(r.left.anchor.side, r.left.anchor.line) : "", r.right ? lineKey(r.right.anchor.side, r.right.anchor.line) : ""].filter(Boolean)} path=${path} at=${at} flow=${flow} headSha=${headSha} nameOf=${nameOf} cols=${cols} />`]
+                     html`<${Inline} key=${r.id + ":cm"} keys=${[r.left && r.left !== r.right ? lineKey(r.left.anchor.side, r.left.anchor.line) : "", r.right ? lineKey(r.right.anchor.side, r.right.anchor.line) : ""].filter(Boolean)} path=${path} at=${at} flow=${flow} headSha=${headSha} nameOf=${nameOf} cols=${cols} readOnly=${readOnly} />`]
                   : [html`<${UnifiedRow} key=${r.id} row=${r} uid=${uid} file=${path} notes=${notes} onComment=${onComment} active=${stop} onActive=${setActive} />`,
-                     html`<${Inline} key=${r.id + ":cm"} keys=${[lineKey(r.anchor.side, r.anchor.line)]} path=${path} at=${at} flow=${flow} headSha=${headSha} nameOf=${nameOf} cols=${cols} />`]))}</tbody>
+                     html`<${Inline} key=${r.id + ":cm"} keys=${[lineKey(r.anchor.side, r.anchor.line)]} path=${path} at=${at} flow=${flow} headSha=${headSha} nameOf=${nameOf} cols=${cols} readOnly=${readOnly} />`]))}</tbody>
           </table></div>
           <p ref=${endRef} tabindex="-1" class="dv-end">${"End of the diff of " + showControls(path) + "."}</p>`
         : null}
