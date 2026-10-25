@@ -106,10 +106,10 @@ export function Changes({ cwd, git = "", snap, store }) {
     const why = store.commitChanges(draft, push);
     setProblem(why);
   };
-  if (!ch) return html`<div class="chg"><p class="chg-empty" role="status">Reading what changed…</p></div>`;
+  if (!ch) return html`<div class="chg"><p class="chg-empty chg-state" role="status"><strong>Reading what changed…</strong><span>This takes a moment on a large repository.</span></p></div>`;
   if (ch.error) {
     return html`<div class="chg">
-      <p class="chg-empty chg-error" role="alert">${clip(text(ch.error), 600)}</p>
+      <p class="chg-empty chg-state chg-error" role="alert"><strong>Could not read this working tree</strong><span>${clip(text(ch.error), 600)}</span></p>
       ${(ch.repos || []).slice(0, 20).map((r) => html`<button type="button" key=${r.path} class="drawer-btn chg-repo" onClick=${() => store.requestChanges(r.path, false)}>${clip(text(r.name), 120)}</button>`)}
     </div>`;
   }
@@ -132,7 +132,7 @@ export function Changes({ cwd, git = "", snap, store }) {
     ${busy ? html`<p class="chg-busy" role="status">${"Working: " + clip(busy, 40) + "…"}</p>` : null}
     ${note && note.text ? html`<p class=${"chg-note" + (note.error ? " chg-error" : "")} role=${note.error ? "alert" : "status"}>${clip(text(note.text), 2000)}</p>` : null}
     ${snap.gitWarn ? html`<${GitWarn} key=${snap.gitWarn.seq} warn=${snap.gitWarn} store=${store} />` : null}
-    ${files.length === 0 && !ch.omitted ? html`<p class="chg-empty">Nothing has changed.</p>` : html`<${Files} files=${files} selected=${picked} onPick=${pick} />`}
+    ${files.length === 0 && !ch.omitted ? html`<p class="chg-empty chg-state"><strong>Nothing has changed.</strong><span>Edits in this working tree appear here. Refresh to check again.</span></p>` : html`<${Files} files=${files} selected=${picked} onPick=${pick} />`}
     ${ch.omitted ? html`<p class="chg-omitted">${plural(ch.omitted, "more file is", "more files are") + " not listed. The commit includes " + (ch.omitted === 1 ? "it" : "them") + "."}</p>` : null}
     ${picked
       ? html`<div class="chg-diff" aria-label=${"Diff of " + clip(picked, 200)}>
