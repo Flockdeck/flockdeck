@@ -3,6 +3,7 @@ package workspace
 import (
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -390,6 +391,25 @@ func (w *Workspace) PrepareWorktreeNew(cwd, branch string) (MadeWorktree, error)
 	return m, nil
 }
 
+// SameSubdir is where in the worktree at wt the folder from is: from's path relative
+// to its repository's root, joined to wt, when that folder exists there. A helper cut
+// from a parent working in a subfolder starts in the same subfolder; otherwise, or when
+// the folder is not in the worktree (it was untracked, or new), it starts at wt itself.
+func SameSubdir(from, wt string) string {
+	repo, err := gitx.Root(from)
+	if err != nil {
+		return wt
+	}
+	rel, err := filepath.Rel(repo, from)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		return wt
+	}
+	if fi, err := os.Stat(filepath.Join(wt, rel)); err != nil || !fi.IsDir() {
+		return wt
+	}
+	return filepath.Join(wt, rel)
+}
+
 // DiscardMade takes away what PrepareWorktreeNew made, for a helper that then did not
 // start, and returns cause with what became of it said. A worktree is removed only if
 // the call made it and nothing has changed in it since (no changed or new files, still
@@ -571,7 +591,7 @@ func (w *Workspace) Spawn(parentPaneID string, o SpawnOptions) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		made, cwd = m, m.Path
+		made, cwd = m, SameSubdir(cwd, m.Path)
 	}
 
 	title := o.Title

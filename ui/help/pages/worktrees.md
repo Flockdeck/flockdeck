@@ -58,6 +58,15 @@ since there is no folder left to open an agent, a shell or a review in. Either
 button clears every such record at once, including one for a worktree on a
 drive that is not plugged in.
 
+## Worktrees helpers leave behind
+
+A helper that is started with a worktree of its own (see [Agents](#agents)) keeps it
+after its pane closes: nothing removes a worktree when its agent stops, since the
+branch may hold work nobody has merged. This panel is where they are cleared, with
+**Remove worktree…**. A new worktree is a clean checkout of the commit it was cut from,
+so files git ignores, such as `node_modules` or a build folder, are not copied into it;
+install or build there as you would in a fresh clone.
+
 ## In the pane headers
 
 Every pane header carries the same information for the checkout it is working

@@ -352,7 +352,12 @@ The `worktree` setting is part of the briefing and the role list, and it decides
 `flockdeck spawn` does when an agent starts a helper. A helper in a role set to `own`, or in
 a role with no setting, or with no role, is given a git worktree and a branch of its own,
 cut from the starting agent's current commit and named from its task, with no flag needed;
-`spawn` prints the branch and directory. `-worktree <branch>` chooses the branch name and
+`spawn` prints the branch and directory. The helper starts in the same subfolder of the
+worktree that you were in, when it exists there. Uncommitted changes in your checkout are not
+in the worktree, and `spawn` says how many, so the manager can commit first. A tester that
+needs a worker's change is started with `-worktree <worker branch>`. Nothing removes a helper's
+worktree when it closes; [Worktrees](#worktrees) is where they are cleared, and files git ignores,
+such as `node_modules`, are not copied into it. `-worktree <branch>` chooses the branch name and
 `-no-worktree` starts the helper in the starting agent's checkout instead. A role set to
 `readonly` or `main` (the planner and reviewer, and the manager) is started in the starting
 agent's checkout. Flockdeck does not make a `readonly` checkout read-only. Outside a git
