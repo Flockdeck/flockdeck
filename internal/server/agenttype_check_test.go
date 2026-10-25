@@ -182,7 +182,7 @@ var agentTypeAllowed = map[string]map[string]agentTypeAllow{
 		"Workspace.PaneContext | sib.Kind == session.KindShell": {1, "whether a pane is a shell or an agent, to brief it; not which agent"},
 	},
 	"internal/workspace/panesend.go": {
-		"Workspace.SendToPane | p.Sess": {1, "types into a terminal session; a structured pane is sent its prompt through its runtime just above"},
+		"Workspace.SendToPaneThen | p.Sess": {1, "types into a terminal session; a structured pane is sent its prompt through its runtime just above"},
 	},
 	"internal/workspace/provider.go": {
 		"BatonProviderWith | spec.Runner == agent.RunnerAPI": {1, "the catalog entry's runner"},
