@@ -649,3 +649,18 @@ test("a clip never splits a character made of two code units, and a long desk er
   assert.equal(Array.from(words).length, 400);
   assert.ok(!/[\ud800-\udbff]$/.test(words.slice(0, -1)), "no lone half of a pair");
 });
+
+test("odd spaces in a command are drawn as marks, and the box does not hide its tail", async () => {
+  const { m, sent, send } = await reading();
+  try {
+    const cmd = "echo a" + String.fromCharCode(0xa0).repeat(3) + "b" + String.fromCharCode(0x3000) + "c" + String.fromCharCode(0x202f) + "d";
+    m.draw({ send, branch: api, checks: listing(sent[0].req, { commands: [{ name: "x", cmd }] }) });
+    await settle();
+    assert.equal(m.box.find("code").textContent, "echo a<U+00A0><U+00A0><U+00A0>b<U+3000>c<U+202F>d");
+  } finally {
+    m.done();
+  }
+  const css = readFileSync(join(here, "..", "src", "shell", "start.css"), "utf8");
+  const rule = css.split("\n").find((l) => l.startsWith(".confirm-cmd")) || "";
+  assert.ok(rule && !/max-height|overflow:\s*(auto|scroll|hidden)/.test(rule), "a long command makes the box taller; it is never scrolled out of sight");
+});

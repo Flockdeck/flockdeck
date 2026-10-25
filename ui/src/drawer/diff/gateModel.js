@@ -107,7 +107,8 @@ export const reviewCommand = ({ pane, reviewer, note = "", req }) => ({ cmd: "re
 
 const NAME_CLIP = 60;
 
-/** oneLine shows a command or a name as a single line of text: line breaks and other control characters are
+/** oneLine shows a command or a name as a single line of text: line breaks, other control characters and the spaces
+ *  that look like a space but are not one (no-break, en and em spaces, the ideographic space) are
  *  drawn as marks rather than acted on, and the hidden ones the page marks everywhere (showControls). */
 /** clipText cuts a text to at most max code points, ending in an ellipsis, so a surrogate pair is never split. */
 export function clipText(v, max) {
@@ -118,7 +119,7 @@ export function clipText(v, max) {
 function oneLine(v, max = Infinity) {
   const t = showControls(text(v))
     .replace(/[\r\n]+/g, " <LF> ")
-    .replace(/[\u0000-\u001f\u007f-\u009f]/g, (c) => "<U+" + c.charCodeAt(0).toString(16).toUpperCase().padStart(4, "0") + ">");
+    .replace(/[\u0000-\u001f\u007f-\u009f\u00a0\u1680\u2000-\u200a\u202f\u205f\u3000]/g, (c) => "<U+" + c.charCodeAt(0).toString(16).toUpperCase().padStart(4, "0") + ">");
   return clipText(t, max);
 }
 
