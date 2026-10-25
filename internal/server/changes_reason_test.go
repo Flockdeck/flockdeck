@@ -79,6 +79,7 @@ func TestAPushQuestionAfterACommitSaysTheCommitWasMade(t *testing.T) {
 	scanPrograms = func(string) (gitx.Report, error) {
 		calls++
 		r := gitx.Report{Repo: repo + "/.git"}
+		// scanPrograms is given only a directory, so it cannot tell which action asked; the call count stands in for it.
 		// The first two looks (before the commit and just before its hooks) are clean; the one before the push is not.
 		if calls > 2 {
 			r.Items = []gitx.Program{{Kind: "setting", Name: "core.sshcommand", Value: "x", Where: "/r/.git/config"}}
