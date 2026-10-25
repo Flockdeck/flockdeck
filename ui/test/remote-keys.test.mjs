@@ -912,8 +912,8 @@ test("Remote: a device's name is cleaned in the question, the labels and the row
     const bad = new RegExp(String.fromCharCode(0x202e));
     const button = m.container.find(".remote-access");
     assert.doesNotMatch(button.attributes["aria-label"], bad);
-    assert.doesNotMatch(m.container.find(".remote-row .key-name").textContent, bad);
-    assert.ok(m.container.find(".remote-row .key-name").textContent.length <= 40);
+    assert.doesNotMatch(m.container.find(".key-name").textContent, bad);
+    assert.ok(m.container.find(".key-name").textContent.length <= 40);
     await m.click(button);
     const title = m.container.find(".confirm").textContent;
     assert.doesNotMatch(title, bad);
