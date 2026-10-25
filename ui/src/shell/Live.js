@@ -631,13 +631,14 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
       if (el && el.focus) el.focus();
     },
     settings: () => openSettings("general"),
-    apiKeys: () => openSettings("keys"),
-    remote: () => openSettings("remote"),
+    apiKeys: () => (viewer ? say(VIEWER_WORDS) : openSettings("keys")),
+    remote: () => (viewer ? say(VIEWER_WORDS) : openSettings("remote")),
     helpers: () => (snap.remote ? say(HELPER_RELAY_WORDS) : viewer ? say(VIEWER_WORDS) : setHelpersOpen(true)),
     team: () => (snap.remote ? say(TEAM_RELAY_WORDS) : viewer ? say(VIEWER_WORDS) : setTeamOpen(true)),
-    agents: () => setAgentsOpen(true),
-    worktrees: () => setWorktreesOpen(true),
+    agents: () => (viewer ? say(VIEWER_WORDS) : setAgentsOpen(true)),
+    worktrees: () => (viewer ? say(VIEWER_WORDS) : setWorktreesOpen(true)),
     makeBaton: needPane(() => {
+      if (viewer) return say(VIEWER_WORDS);
       if (snap.remote) return say(BATON_RELAY_WORDS);
       const req = inflight.current.next();
       inflight.current.add(req, "makeBaton", drawer.pane);
@@ -648,9 +649,9 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     fontUp: () => bumpFont(prefs.fontSize + 1),
     fontDown: () => bumpFont(prefs.fontSize - 1),
     fontReset: () => bumpFont(FONT_DEFAULT),
-    newAgentTab: () => startTab(newTabCommand({ kind: "agent" })),
+    newAgentTab: () => (viewer ? say(VIEWER_WORDS) : startTab(newTabCommand({ kind: "agent" }))),
     newAgentTabChoose: () => (viewer ? say(VIEWER_WORDS) : setStarting("agent")),
-    newShellTab: () => startTab(newTabCommand({ kind: "shell" })),
+    newShellTab: () => (viewer ? say(VIEWER_WORDS) : startTab(newTabCommand({ kind: "shell" }))),
     startTeam: () => (viewer ? say(VIEWER_WORDS) : setStarting("team")),
     selectTab: (n) => {
       const t = goal.tabs[(n || 0) - 1];
@@ -658,33 +659,35 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
       showTab(t.id);
       return undefined;
     },
-    closeFinishedPanes: () => setCloseAsk(true),
+    closeFinishedPanes: () => (viewer ? say(VIEWER_WORDS) : setCloseAsk(true)),
     nextTab: () => showTab(goal.tabs[(goal.tabs.findIndex((t) => t.id === activeTab) + 1) % goal.tabs.length].id),
     prevTab: () => showTab(goal.tabs[(goal.tabs.findIndex((t) => t.id === activeTab) - 1 + goal.tabs.length) % goal.tabs.length].id),
     moveTabLeft: () => tabDo.step(activeTab, -1),
     moveTabRight: () => tabDo.step(activeTab, 1),
-    detach: () => (snap.remote ? say(RELAY_WORDS) : send({ cmd: "detach" })),
+    detach: () => (snap.remote ? say(RELAY_WORDS) : viewer ? say(VIEWER_WORDS) : send({ cmd: "detach" })),
     quit: () => (snap.remote ? say(RELAY_WORDS) : viewer ? say(VIEWER_WORDS) : setQuitAsk(true)),
-    history: () => (snap.remote ? say(HISTORY_REMOTE_WORDS) : setHistoryOpen(true)),
+    history: () => (snap.remote ? say(HISTORY_REMOTE_WORDS) : viewer ? say(VIEWER_WORDS) : setHistoryOpen(true)),
     findPane: () => (snap.remote ? say(DESK_FILES_WORDS) : setFindingPane(true)),
     paneInfo: openInfo,
     changes: needPane(() => (pane && pane.cwd ? setTabAsk((a) => ({ tab: "changes", n: a.n + 1 })) : say(NO_TREE_WORDS))),
     findInTerminal: needPane(() => (hasTerminal(node, pane) ? setFindAsk((n) => n + 1) : say(NO_TERMINAL_WORDS))),
     recordPane: needPane(() => {
-      if (canTranscribe(node, pane)) tx.record(node.pane, !(pane && pane.recording));
+      if (viewer) say(VIEWER_WORDS);
+      else if (canTranscribe(node, pane)) tx.record(node.pane, !(pane && pane.recording));
       else say(node.shell || (pane && pane.shell) ? SHELL_RECORD_WORDS : STRUCTURED_RECORD_WORDS);
     }),
     exportTranscript: needPane(() => {
-      if (snap.remote) say(DESK_FILES_WORDS);
+      if (viewer) say(VIEWER_WORDS);
+      else if (snap.remote) say(DESK_FILES_WORDS);
       else if (canTranscribe(node, pane)) tx.exportTranscript(node.pane);
       else say(node.shell || (pane && pane.shell) ? SHELL_RECORD_WORDS : STRUCTURED_RECORD_WORDS);
     }),
-    revealTranscript: needPane(() => (snap.remote ? say(DESK_FILES_WORDS) : send({ cmd: "revealTranscript", id: node.pane }))),
-    openRecordings: () => (snap.remote ? say(DESK_FILES_WORDS) : send({ cmd: "openRecordings" })),
+    revealTranscript: needPane(() => (viewer ? say(VIEWER_WORDS) : snap.remote ? say(DESK_FILES_WORDS) : send({ cmd: "revealTranscript", id: node.pane }))),
+    openRecordings: () => (viewer ? say(VIEWER_WORDS) : snap.remote ? say(DESK_FILES_WORDS) : send({ cmd: "openRecordings" })),
     zoomPane: needPane(() => drawer.toggleMax()),
-    restartPane: needPane(() => life.begin("restart", node, pane)),
-    lockPane: needPane(() => life.toggleLock(node.pane, !(pane && pane.locked))),
-    closePane: needPane(() => (pane && pane.locked ? say("This pane is locked. Unlock it to close it.") : life.begin("close", node, pane))),
+    restartPane: needPane(() => (viewer ? say(VIEWER_WORDS) : life.begin("restart", node, pane))),
+    lockPane: needPane(() => (viewer ? say(VIEWER_WORDS) : life.toggleLock(node.pane, !(pane && pane.locked)))),
+    closePane: needPane(() => (viewer ? say(VIEWER_WORDS) : pane && pane.locked ? say("This pane is locked. Unlock it to close it.") : life.begin("close", node, pane))),
   });
 
   // The baton answers. A draft is for the dialog whose request it carries. A
@@ -741,6 +744,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     outcome: snap.remoteOutcome,
     status: kept.current.state.remote || null,
     remote: snap.remote,
+    viewer,
     copy,
     news: local || (snap.notice && snap.notice.seq > settingsAt ? String(snap.notice.text || "") : ""),
     permission,
@@ -779,11 +783,11 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     onHelpOpened=${() => { if (!snap.remote && !prefs.helpSeen) change("helpSeen", true); }}
     blocked=${!!starting || settingsOpen || updatesAt >= 0 || quitAsk || historyOpen || !!infoFor || findingPane || helpersOpen || projectsOpen || !!baton || teamOpen || agentsOpen || worktreesOpen || closeAsk}
     onSettings=${() => openSettings("general")}
-    onProjects=${() => setProjectsOpen(true)}
+    onProjects=${viewer ? null : () => setProjectsOpen(true)}
     paletteItems=${paletteItems}
     railFoot=${snap.remote
       ? null
-      : html`<${FootButton} cls="rail-helpers" glyph="▤" label="Helper apps" onClick=${() => setHelpersOpen(true)} />
+      : html`${viewer ? null : html`<${FootButton} cls="rail-helpers" glyph="▤" label="Helper apps" onClick=${() => setHelpersOpen(true)} />`}
         <${FootButton} cls=${"rail-updates" + (update ? " has-update" : "")} glyph="↑" label=${update ? "Update " + update.version : "Updates"} onClick=${() => setUpdatesAt(noticeSeq)} />`}
     notice=${noticeText}
     onDismissNotice=${() => { setLocal(""); setDismissed(noticeSeq); }}
@@ -796,8 +800,8 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
       ? html`<${GoalStrip} tabs=${goal.tabs} archived=${goal.archived} active=${activeTab} onSelect=${showTab}
           onRename=${tabDo.rename} onArchive=${tabDo.archive} onRestore=${tabDo.restore} onMove=${tabDo.move} onStep=${tabDo.step} canStep=${(id, dir) => canStep(goal.tabs, id, dir)}
           onStartTeam=${snap.remote || viewer ? null : () => setStarting("team")}
-          onNewAgent=${() => startTab(newTabCommand({ kind: "agent" }))} onChoose=${() => setStarting("agent")} onNewShell=${() => startTab(newTabCommand({ kind: "shell" }))}
-          onHistory=${snap.remote ? null : () => setHistoryOpen(true)} onFind=${snap.remote ? null : () => setFindingPane(true)} />
+          onNewAgent=${viewer ? null : () => startTab(newTabCommand({ kind: "agent" }))} onChoose=${viewer ? null : () => setStarting("agent")} onNewShell=${viewer ? null : () => startTab(newTabCommand({ kind: "shell" }))}
+          onHistory=${snap.remote || viewer ? null : () => setHistoryOpen(true)} onFind=${snap.remote ? null : () => setFindingPane(true)} />
         <${ViewBar} view=${view} views=${views} onView=${chooseView} />`
       : null}
     <${Home} snap=${snap} selected=${selected} onShown=${setShown} onOpen=${drawer.open} open=${drawer.pane} />
