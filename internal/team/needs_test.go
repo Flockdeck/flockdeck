@@ -298,6 +298,32 @@ func TestNeedsPromptKindFallback(t *testing.T) {
 	}
 }
 
+func TestNeedsReturnedClearsOnceOwnerWorks(t *testing.T) {
+	tasks := []GraphTask{{ID: "T1", State: "in-progress", OwnerPane: "a"}}
+	mv := []TaskMove{{Task: "T1", From: "in-review", To: "in-progress", Time: t0.Add(-time.Hour), Note: "fix the findings"}}
+	for name, set := range map[string]func(p *GraphPane){
+		"idle, no output since": func(p *GraphPane) {},
+		"output before return":  func(p *GraphPane) { p.LastOutput = t0.Add(-2 * time.Hour) },
+		"working since before":  func(p *GraphPane) { p.Activity, p.StatusSince = "working", t0.Add(-2*time.Hour) },
+	} {
+		ps := team2()
+		set(&ps[1])
+		if got := needsFor(ps, tasks, nil, mv)["m"]; len(got) != 1 || got[0].Kind != NeedReturned {
+			t.Errorf("%s: items = %+v, want the returned item", name, got)
+		}
+	}
+	for name, set := range map[string]func(p *GraphPane){
+		"output since the return":  func(p *GraphPane) { p.LastOutput = t0.Add(-time.Minute) },
+		"working since the return": func(p *GraphPane) { p.Activity, p.StatusSince = "working", t0.Add(-30*time.Minute) },
+	} {
+		ps := team2()
+		set(&ps[1])
+		if got := needsFor(ps, tasks, nil, mv)["m"]; len(got) != 0 {
+			t.Errorf("%s: items = %+v, want none", name, got)
+		}
+	}
+}
+
 func TestNeedsReturnedEdges(t *testing.T) {
 	ps := team2()
 	tasks := []GraphTask{
