@@ -159,7 +159,7 @@ export function useMedia(matchMedia, query) {
 }
 
 /** Shell is the page frame: the rail with the open projects, a strip along the
- *  top for the manager bar, the main area, a region for the drawer and a place
+ *  top for the goal tabs and the view switch, the main area, a region for the drawer and a place
  *  for notices.
  *
  *  hello and state are the server's two first messages (the key table; the

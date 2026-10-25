@@ -92,6 +92,7 @@ filled in from the key table when the page is shown.
 - [Running Ornith models](ui/help/pages/ornith.md)
 - [Knowing who needs you](ui/help/pages/status.md), including
   [auto-approve read-only](ui/help/pages/auto-approve.md)
+- [The team views](ui/help/pages/views.md): Team, Dependencies, Board and goal tabs
 - [Spend and limits](ui/help/pages/spend.md)
 - [Broadcast and the prompt bar](ui/help/pages/broadcast.md)
 - [Git worktrees](ui/help/pages/worktrees.md),
