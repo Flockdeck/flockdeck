@@ -617,6 +617,27 @@ test("Notifications: the page raises one when an agent newly needs you and the w
   });
 });
 
+test("Notifications: a second one closes the first instead of leaving it on screen", () => {
+  const all = [];
+  class N {
+    constructor() { this.closed = false; all.push(this); }
+    close() { this.closed = true; }
+    static permission = "granted";
+  }
+  return withPage({ win: { Notification: N } }, async (m) => {
+    const g = graph();
+    const [a, b] = g.nodes;
+    await m.connect();
+    const st = (over) => stateOf(g, { panes: { ...stateOf(g).panes, ...over } });
+    const wait = (n) => ({ [n.pane]: { id: n.pane, name: n.name, status: "waiting", branch: "x", permission: { tool: "Bash", command: "ls" } } });
+    await m.push(st(wait(a)));
+    await m.push(st({ ...wait(a), ...wait(b) }));
+    assert.equal(all.length, 2);
+    assert.equal(all[0].closed, true, "the first notification stayed up under the second");
+    assert.equal(all[1].closed, false);
+  });
+});
+
 test("Notifications: a window in front is not interrupted", () => {
   const made = [];
   class N {
