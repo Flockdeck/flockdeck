@@ -188,7 +188,8 @@
         "queued": { "type": "boolean", "description": "True when the pane was in the middle of a turn, so the text waits behind it. Always written." },
         "shell": { "type": "boolean", "description": "True when the pane is a plain shell. Always written." },
         "waiting": { "const": true, "description": "Present, and true, when the pane was waiting on a question put to the person. Absent otherwise." },
-        "routed": { "const": true, "description": "Present, and true, when the text was the pane's first prompt and routing restarted the pane on another model to take it. Absent otherwise." }
+        "routed": { "const": true, "description": "Present, and true, when the text was the pane's first prompt and routing restarted the pane on another model to take it. Absent otherwise." },
+        "req": { "type": "string", "minLength": 1, "description": "The `req` of the command, as the window sent it. Absent when the command had none." }
       }
     }
   }

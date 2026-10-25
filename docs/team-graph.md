@@ -30,7 +30,7 @@ fields these commands use are:
 | Field | Used by | Meaning |
 | --- | --- | --- |
 | `cmd` | all | The command's name. |
-| `req` | `graphSnapshot`, `graphWatch`, `permissionAnswer` | A token of the window's choosing. It is copied into the `teamResult` that refuses a graph command, or into the `permissionAnswer` reply (section 2), so the window can tell which request it answers. |
+| `req` | `graphSnapshot`, `graphWatch`, `permissionAnswer`, `paneSend` | A token of the window's choosing. It is copied into the `teamResult` that refuses a graph command, into the `permissionAnswer` reply (section 2), or into the `paneSend` answer and the notice that refuses or qualifies it (section 6), so the window can tell which request it answers. |
 | `root` | `graphSnapshot`, `graphWatch` | The directory of the project. Empty means the project on screen. It must name an open project. |
 | `id` | `paneSend`, `permissionAnswer`, the conversation commands | The pane's id. |
 | `text` | `paneSend` | The text to type. |
@@ -318,6 +318,11 @@ An accepted send is answered with a `paneSend` message:
 | `shell` | The pane is a plain shell. |
 | `waiting` | The pane was waiting on a question, so the text may be read as the answer. Absent otherwise. |
 | `routed` | The text was the pane's first prompt and model routing restarted the pane on another model to take it. Absent otherwise. |
+| `req` | The `req` of the command, when it had one. Absent otherwise. |
+
+A refusal, and the later notice that the text reached the pane but the agent did not start on it, are
+`notice` messages with `"error":true`. Each carries the command's `req` too, as `"req"`, when it had
+one; send a different `req` with each paneSend if you need to match them.
 
 The write happens after the reply. `queued` is read before it, so a prompt that
 opens in between is not caught.

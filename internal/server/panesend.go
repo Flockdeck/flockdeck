@@ -11,6 +11,8 @@ type paneSendMsg struct {
 	// Waiting says the pane was waiting on a question put to the user.
 	Waiting bool `json:"waiting,omitempty"`
 	Routed  bool `json:"routed,omitempty"`
+	// Req is the req of the command, when it had one.
+	Req string `json:"req,omitempty"`
 }
 
 // paneSend types cmd.Text into the pane named by cmd.ID and submits it, for
@@ -18,7 +20,8 @@ type paneSendMsg struct {
 // and the text goes to that pane alone whatever the broadcast is set to.
 // cmd.AllowShell is the caller's say-so for a shell: without it a shell pane is refused.
 // A refusal comes back as an error notice, an accepted send as a paneSend
-// message.
+// message. Both carry cmd.Req when the window sent one, so it can tell which
+// send each answers; the notice that says the Enter did not take does too.
 //
 // A window reached through the relay is refused for now. Decision: whether and
 // how a remote device may send text into a pane is not decided (the phone
@@ -29,16 +32,16 @@ type paneSendMsg struct {
 // the drawer's choice buttons on the sealed terminal path; merges are desk-only.
 func (s *Server) paneSend(c *controlClient, cmd command) {
 	if c.remote {
-		c.notify(paneSendDeskOnly, true)
+		c.notifyReq(paneSendDeskOnly, true, cmd.Req)
 		return
 	}
 	s.do(func() {
-		res, err := s.ws.SendToPaneThen(cmd.ID, cmd.Text, cmd.AllowShell, func(err error) { c.notify(err.Error(), true) })
+		res, err := s.ws.SendToPaneThen(cmd.ID, cmd.Text, cmd.AllowShell, func(err error) { c.notifyReq(err.Error(), true, cmd.Req) })
 		if err != nil {
-			c.notify(err.Error(), true)
+			c.notifyReq(err.Error(), true, cmd.Req)
 			return
 		}
-		c.sendJSON(paneSendMsg{Type: "paneSend", ID: cmd.ID, Queued: res.Queued, Shell: res.Shell, Waiting: res.Waiting, Routed: res.Routed})
+		c.sendJSON(paneSendMsg{Type: "paneSend", ID: cmd.ID, Queued: res.Queued, Shell: res.Shell, Waiting: res.Waiting, Routed: res.Routed, Req: cmd.Req})
 	})
 }
 

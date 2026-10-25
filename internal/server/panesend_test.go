@@ -205,3 +205,30 @@ func TestPaneSendIsNotForViewers(t *testing.T) {
 		t.Error("paneSend types into a pane, so a viewer must not be allowed it")
 	}
 }
+
+// The req a window sends with a paneSend comes back on the answer, and on the
+// notice that refuses it, so the window can tell which send each is for.
+func TestPaneSendEchoesReq(t *testing.T) {
+	srv, ws := newTestServer(t)
+	id, _ := ask(srv, func() string { return ws.FocusedPane().ID })
+	c := &controlClient{out: make(chan []byte, 8)}
+
+	srv.handleCommand(c, command{Cmd: "paneSend", ID: "nope", Text: "hi", Req: "r1"})
+	if _, note := paneSendReply(t, c); !note.Error || note.Req != "r1" {
+		t.Errorf("refusal = %+v, want an error carrying req r1", note)
+	}
+	srv.handleCommand(c, command{Cmd: "paneSend", ID: id, Text: "hi", AllowShell: true, Req: "r2"})
+	if msg, note := paneSendReply(t, c); msg.Req != "r2" || note.Text != "" {
+		t.Errorf("answer = %+v and notice %+v, want req r2", msg, note)
+	}
+	srv.handleCommand(c, command{Cmd: "paneSend", ID: "nope", Text: "hi"})
+	if raw := <-c.out; strings.Contains(string(raw), `"req"`) {
+		t.Errorf("a command with no req was answered with one: %s", raw)
+	}
+
+	remote := &controlClient{remote: true, out: make(chan []byte, 8)}
+	srv.paneSend(remote, command{Cmd: "paneSend", ID: id, Text: "hi", Req: "r3"})
+	if _, note := paneSendReply(t, remote); note.Req != "r3" {
+		t.Errorf("the relay refusal = %+v, want req r3", note)
+	}
+}
