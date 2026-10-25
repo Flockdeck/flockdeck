@@ -204,7 +204,7 @@ func TestChangesDocumentNamesEverything(t *testing.T) {
 
 // No cap of the contract is listed until it is built.
 func TestChangesCapsAreNotListedYet(t *testing.T) {
-	built := []string{"changesTeam", "changesDiff", "changesChecks"}
+	built := []string{"changesTeam", "changesDiff", "changesChecks", "changesComments"}
 	for _, n := range changesCaps {
 		if slices.Contains(apiCaps, n) != slices.Contains(built, n) {
 			t.Errorf("api.caps and what is built disagree about %s", n)

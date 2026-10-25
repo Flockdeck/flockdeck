@@ -1,7 +1,7 @@
 {
   "api": {
     "major": 1,
-    "minor": 8
+    "minor": 9
   },
   "frames": [
     {
@@ -229,20 +229,20 @@
     {
       "name": "commentAdd",
       "access": "full",
-      "since": "1.3",
-      "status": "planned"
+      "since": "1.9",
+      "status": "stable"
     },
     {
       "name": "commentReopen",
       "access": "full",
-      "since": "1.3",
-      "status": "planned"
+      "since": "1.9",
+      "status": "stable"
     },
     {
       "name": "commentResolve",
       "access": "full",
-      "since": "1.3",
-      "status": "planned"
+      "since": "1.9",
+      "status": "stable"
     },
     {
       "name": "commit",
