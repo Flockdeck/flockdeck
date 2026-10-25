@@ -27,11 +27,12 @@ export function chipsOf(model, node, needs, now) {
   const key = stateOf(node).key;
   if (ask) out.push({ kind: "ask", text: ASKS[ask.kind], to: "", title: ask.label });
   else if (key === "exited" || key === "failed" || list.some((n) => n.kind === "down")) out.push({ kind: "down", text: "Down", to: "", title: "" });
-  // A conflict names two panes; the model has it under both.
+  // A conflict names two panes; the model has it under both. A pane in two conflicts with the same other one gets one chip, so the row's keys are unique.
+  const linked = new Set();
   for (const n of model.needsByPane.get(node.pane) || []) {
     if (n.kind !== "conflict") continue;
     const other = n.pane === node.pane ? n.other : n.pane;
-    if (other && other !== node.pane && model.byPane.has(other)) out.push({ kind: "overlap", text: "overlaps " + clip(nameOf(model, other), 14), to: other, toName: nameOf(model, other), title: n.text });
+    if (other && other !== node.pane && model.byPane.has(other) && !linked.has("overlap|" + other) && linked.add("overlap|" + other)) out.push({ kind: "overlap", text: "overlaps " + clip(nameOf(model, other), 14), to: other, toName: nameOf(model, other), title: n.text });
   }
   const w = node.waitingOn;
   if (w.kind === "helpers") {
