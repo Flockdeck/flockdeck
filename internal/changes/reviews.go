@@ -164,6 +164,12 @@ func (s ReviewState) Save(path string) error {
 	if err != nil {
 		return err
 	}
+	return writeAtomic(path, data)
+}
+
+// writeAtomic writes data to path through a temporary file in the same directory
+// and a rename over the old file.
+func writeAtomic(path string, data []byte) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
