@@ -4,16 +4,24 @@
 // workspace, no configuration directory), loads the page in headless Chromium
 // over the Chrome DevTools protocol, and checks from the page alone:
 //
-//   1. the strip: the rows the fixture's .md says need the person, with the right
-//      reason word, in the order of the graph's needs, and no others;
-//   2. the badges: a badge on each pane of those rows and on no other pane;
-//   3. the drawer is closed on load; fixture 3's nested helper and fixture 5's
-//      undelivered message edge are drawn;
-//   4. the second week-10 step: from a strip row, one click opens the drawer for
-//      that agent and the text of what it waits on is on screen, within 2 s;
-//      the same from a key. The time runs from the pointer event to the text;
-//   5. a window reached the way the relay reaches it (a remote hello): no graph
-//      command goes out, the roster and the line about the desktop show.
+//   1. the outline: a row for each agent, the decision blocks under the rows (permission,
+//      question, down and conflict items of the fixture's .md, each with its head and the
+//      agent's name, and no others), the chip on each row the .md names, a Down chip on the
+//      agents that exited, and no chip of the item kinds anywhere else;
+//   2. the drawer is closed on load; fixture 3's nested helper is the row after its parent,
+//      one level in, and fixture 5's unread message is noted under the manager's row;
+//   3. the second week-10 step: from a row, one click opens the drawer for that agent and the
+//      text of what it waits on is on screen, within 2 s; the same from a key on the row and
+//      from the block's Open button. The time runs from the pointer event to the text;
+//   4. a window reached the way the relay reaches it (a remote hello): no graph command goes
+//      out, the roster and the line about the desktop show.
+//
+// The page starts on the Team outline and the checks read it there. The canvas under
+// "Graph" is not checked.
+//
+// Your own checks: --script FILE loads each fixture's page on the Team outline and calls the
+// default export of FILE with { page, fixture, url, check, click, key, sleep }, in place of
+// the checks above. See runScript below for what each is. --only N limits it to one fixture.
 //
 // It does not look at or change the configuration directory, but it lists it
 // before and after. A change to the listing, or anything left in the sandbox,
@@ -30,7 +38,7 @@
 // and after. --shot-view NAME chooses a view of the tab strip's switch first, and
 // --shot-feed pushes changed graphs so the activity feed has entries. --shot-open opens the first agent's drawer first, --shot-resize N widens the open drawer by N big steps of the keyboard, --shot-max opens the first outline row's drawer and maximises it, --shot-widen widens the rail, --shot-palette opens the command palette, --shot-team opens the Start a team dialog, and --shot-settings SECTION opens Settings there.
 //
-//   node scripts/realpage/check.mjs [--out result.json] [--slowdown 1,4] [--repeat 3] [--only N] [--shot DIR]
+//   node scripts/realpage/check.mjs [--out result.json] [--slowdown 1,4] [--repeat 3] [--only N] [--script FILE] [--shot DIR]
 //                                   [--allow-config-change] [--ceiling 20]
 //
 // CHROME names the browser; otherwise a Chromium of Playwright's is looked for.
@@ -38,7 +46,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { spawn, execFileSync } from "node:child_process";
-import { fileURLToPath } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repo = path.resolve(here, "..", "..");
@@ -64,6 +72,7 @@ const shotPalette = args.includes("--shot-palette"); // open the command palette
 const shotTeam = args.includes("--shot-team"); // open the Start a team dialog first
 const shotFeed = args.includes("--shot-feed"); // give the activity feed entries first, by pushing changed graphs
 const shotSettings = opt("shot-settings", ""); // open Settings on this section first
+const scriptFile = opt("script", ""); // a module of your own to run on each fixture's page in place of the standard checks
 const LIMIT_MS = 2000;
 const allowConfigChange = args.includes("--allow-config-change");
 const ceilingMin = Number(opt("ceiling", "20"));
@@ -306,27 +315,24 @@ class Browser {
   close() { try { this.ws.close(); } catch { /* closed */ } killTree(this.child); live.children.delete(this.child); }
 }
 
-// What a page reports of itself.
+// What a page reports of itself: the outline's rows with their chips, the
+// decision blocks under them, and the drawer.
 const READ = `(() => {
   const text = (e) => (e ? e.textContent.trim() : "");
-  const rows = [...document.querySelectorAll(".needs-row")].map((r) => ({
-    pane: r.getAttribute("data-pane"), kind: r.getAttribute("data-kind"),
-    who: text(r.querySelector(".needs-who")), word: text(r.querySelector(".needs-word")),
-    control: !!r.querySelector("button"),
+  const rows = [...document.querySelectorAll(".tree-row")].map((r) => ({
+    pane: r.getAttribute("data-pane"), level: Number(r.getAttribute("aria-level")),
+    chips: [...r.querySelectorAll(".tree-chip")].map((c) => ({ kind: c.className.split(" ").find((k) => k.startsWith("tree-chip--")).slice(11), text: text(c) })),
   }));
-  const badges = [...document.querySelectorAll(".gneed")].map((g) => {
-    const b = g.querySelector(".gbadge");
-    return { pane: g.getAttribute("data-pane"), kind: b ? b.getAttribute("data-kind") : "", word: text(g.querySelector(".gbadge-word")), more: text(g.querySelector(".gbadge-more")) };
-  });
-  const boxes = {};
-  for (const g of document.querySelectorAll("g.gnode")) { const r = g.getBoundingClientRect(); boxes[g.getAttribute("data-pane")] = { x: r.x, y: r.y, w: r.width, h: r.height }; }
+  const decisions = [...document.querySelectorAll("[data-decision]")].map((d) => ({
+    kind: d.getAttribute("data-decision"), pane: d.getAttribute("data-pane"), head: text(d.querySelector(".dec-kind")), line: text(d.querySelector(".dec-line")),
+    buttons: [...d.querySelectorAll("button")].map(text),
+  }));
   const drawer = document.querySelector(".drawer");
   return {
-    rows, badges, boxes,
+    rows, decisions,
+    notes: [...document.querySelectorAll(".tree-notes")].map(text),
     drawers: document.querySelectorAll("[data-drawer-pane]").length,
-    drawerHidden: drawer ? drawer.hidden : null,
-    undelivered: [...document.querySelectorAll(".gedge--undelivered")].map((e) => ({ from: e.getAttribute("data-from"), to: e.getAttribute("data-to"), text: text(e) })),
-    mbar: !!document.querySelector(".top .mbar"),
+    drawerHidden: drawer ? drawer.hidden : true,
   };
 })()`;
 
@@ -349,10 +355,8 @@ async function load(browser, url, boxesExpected, rate) {
     });
   }
   await page.S("Page.navigate", { url });
-  // The page starts on the Team outline; the canvas is under "Graph".
-  await page.until(`!!document.querySelector('[data-view="graph"]')`);
-  await page.eval(`document.querySelector('[data-view="graph"]').click()`);
-  const ok = await page.until(`document.querySelectorAll("g.gnode").length >= ${boxesExpected}`);
+  // The page starts on the Team outline. The canvas, kept one more release, is under "Graph".
+  const ok = await page.until(`document.querySelectorAll(".tree-row").length >= ${boxesExpected}`);
   return { page, ok };
 }
 
@@ -371,7 +375,7 @@ async function screenshot(page, file) {
     await push(`(g) => { for (const e of g.edges) if (e.id === 9001) e.delivery = "read"; const h = g.nodes.filter((n) => n.parent); if (h[3]) h[3].task = { id: "T9", title: "x", state: "in-review" }; }`);
     await sleep(200);
   }
-  if (shotOpen) await page.eval(`(() => { const g = document.querySelector("g.gnode"); if (g) g.dispatchEvent(new MouseEvent("click", { bubbles: true })); })()`);
+  if (shotOpen) await page.eval(`(() => { const r = document.querySelector(".tree-row"); if (r) r.click(); })()`);
   if (shotWiden) await page.eval(`(() => { const b = document.querySelector(".rail-toggle"); if (b) b.click(); })()`);
   if (shotPalette) await page.eval(`document.dispatchEvent(new KeyboardEvent("keydown", { key: "K", code: "KeyK", ctrlKey: true, shiftKey: true, bubbles: true }))`);
   if (shotTeam) {
@@ -417,60 +421,79 @@ async function screenshot(page, file) {
 
 // ------------------------------------------------------------------ checks
 
+// The decision blocks draw four kinds of item (ui/src/graph/DecisionBlock.js), with these heads.
+const HEADS = { permission: "Permission", ask: "Question", conflict: "Files overlap", down: "Down" };
+// The chip a row carries for an item of each kind, in the words of ui/src/graph/chips.js.
+const CHIP_WORDS = { permission: "Permission", ask: "Question", returned: "Returned", down: "Down" };
+
 function fixtureChecks(ex, seen) {
   const results = [];
   const check = (name, pass, detail) => results.push({ name, pass: !!pass, detail: detail || "" });
-  const mdPanes = new Set();
-  for (const it of ex.items) { mdPanes.add(it.pane); if (it.other) mdPanes.add(it.other); }
+  const rowOf = (pane) => seen.rows.find((r) => r.pane === pane);
+  const nodes = ex.graph.nodes;
 
-  check("every node is a box", Object.keys(seen.boxes).length === ex.graph.nodes.length, `${Object.keys(seen.boxes).length} of ${ex.graph.nodes.length}`);
+  check("every agent is a row", seen.rows.length === nodes.length && nodes.every((n) => rowOf(n.pane)), `${seen.rows.length} rows for ${nodes.length} agents`);
   check("the drawer is closed on load", seen.drawers === 0 && seen.drawerHidden === true, `drawers=${seen.drawers} hidden=${seen.drawerHidden}`);
 
-  // The strip: one row per item the .md lists, no others. A conflict names two
-  // panes: the .md names them as it likes and the graph in sorted order, so both are
-  // compared as the sorted pair.
+  // The blocks: one for each permission, question, down and conflict the .md lists (a
+  // conflict under the first pane of the item only), and no others. The .md names the two
+  // panes of a conflict as it likes and the graph in sorted order, so both are compared as the sorted pair.
   const keyOf = (kind, pane, other) => kind + ":" + (kind === "conflict" ? [pane, other].sort().join("+") : pane);
-  const stripSet = seen.rows.map((r) => {
-    const need = ex.graphNeeds.find((n) => n.pane === r.pane && n.kind === r.kind);
-    return keyOf(r.kind, r.pane, need && need.other);
+  const drawn = (kind) => kind in HEADS;
+  const blockSet = seen.decisions.map((d) => {
+    const need = ex.graphNeeds.find((n) => n.pane === d.pane && n.kind === d.kind);
+    return keyOf(d.kind, d.pane, need && need.other);
   }).sort();
-  const mdSet = ex.items.map((i) => keyOf(i.kind, i.pane, i.other)).sort();
-  check("the strip has the .md's items and no others", JSON.stringify(stripSet) === JSON.stringify(mdSet), `strip ${JSON.stringify(stripSet)} vs md ${JSON.stringify(mdSet)}`);
-  // The reason words.
+  const mdSet = ex.items.filter((i) => drawn(i.kind)).map((i) => keyOf(i.kind, i.pane, i.other)).sort();
+  check("the decision blocks are the .md's permissions, questions, downs and conflicts, and no others", JSON.stringify(blockSet) === JSON.stringify(mdSet), `blocks ${JSON.stringify(blockSet)} vs md ${JSON.stringify(mdSet)}`);
+  // Heads and names.
   const wrong = [];
-  for (const r of seen.rows) {
-    const need = ex.graphNeeds.find((n) => n.pane === r.pane && n.kind === r.kind);
-    const want = need ? wordOf(need) : "?";
-    if (r.word !== want) wrong.push(`${r.pane} ${r.kind}: "${r.word}" not "${want}"`);
-    const who = ex.names[r.pane];
-    if (!r.who.startsWith(who)) wrong.push(`${r.pane}: who "${r.who}" does not start with "${who}"`);
+  for (const d of seen.decisions) {
+    if (d.head !== HEADS[d.kind]) wrong.push(`${d.pane} ${d.kind}: head "${d.head}" not "${HEADS[d.kind]}"`);
+    const who = ex.names[d.pane];
+    if (!d.line.startsWith(who)) wrong.push(`${d.pane}: line "${d.line.slice(0, 40)}" does not start with "${who}"`);
   }
-  check("each strip row has the right reason word and name", wrong.length === 0, wrong.join("; "));
-  // The order.
-  const stripOrder = seen.rows.map((r) => r.pane + ":" + r.kind);
-  const graphOrder = ex.graphNeeds.map((n) => n.pane + ":" + n.kind);
-  check("the strip order is the graph's needs order", JSON.stringify(stripOrder) === JSON.stringify(graphOrder), `strip ${JSON.stringify(stripOrder)} vs graph ${JSON.stringify(graphOrder)}`);
+  check("each block has its kind's head and starts with the agent's name", wrong.length === 0, wrong.join("; "));
+  // The order: blocks come in the outline's row order, and the needs of one pane in the graph's order.
+  const rowIndex = (pane) => seen.rows.findIndex((r) => r.pane === pane);
+  const inRowOrder = seen.decisions.every((d, i) => i === 0 || rowIndex(seen.decisions[i - 1].pane) <= rowIndex(d.pane));
+  check("the blocks follow the outline's rows", inRowOrder, JSON.stringify(seen.decisions.map((d) => d.pane + ":" + d.kind)));
 
-  // Badges: on the panes of those items, on no other.
-  const badged = new Set(seen.badges.map((b) => b.pane));
-  check("a badge on each pane the .md names, and on no other", badged.size === mdPanes.size && [...mdPanes].every((p) => badged.has(p)), `badges ${JSON.stringify([...badged].sort())} vs md ${JSON.stringify([...mdPanes].sort())}`);
-  const badWords = [];
-  for (const b of seen.badges) {
-    const first = ex.graphNeeds.find((n) => n.pane === b.pane || n.other === b.pane);
-    const want = first ? wordOf(first) : "?";
-    if (b.word !== want) badWords.push(`${b.pane}: "${b.word}" not "${want}"`);
+  // Chips: on the row of each pane the .md names, with the kind's word, and no chip of these kinds elsewhere.
+  const wantChips = new Map();
+  const want = (pane, text) => { if (!wantChips.has(pane)) wantChips.set(pane, new Set()); wantChips.get(pane).add(text); };
+  for (const it of ex.items) {
+    if (it.kind === "conflict") {
+      const names = ex.names;
+      want(it.pane, "overlaps " + names[it.other]);
+      want(it.other, "overlaps " + names[it.pane]);
+    } else if (CHIP_WORDS[it.kind]) want(it.pane, CHIP_WORDS[it.kind]);
   }
-  check("each badge has the reason word of its pane's first item", badWords.length === 0, badWords.join("; "));
+  const chipWrong = [];
+  for (const [pane, texts] of wantChips) {
+    const row = rowOf(pane);
+    const have = new Set((row ? row.chips : []).map((c) => c.text));
+    for (const t of texts) if (!have.has(t)) chipWrong.push(`${pane} lacks "${t}" (has ${JSON.stringify([...have])})`);
+  }
+  // A Down chip comes from the agent having exited, whether or not the .md lists an item for it.
+  const kindWords = new Set(Object.values(CHIP_WORDS).filter((w) => w !== "Down"));
+  for (const r of seen.rows) for (const c of r.chips) if (kindWords.has(c.text) && !(wantChips.get(r.pane) || new Set()).has(c.text)) chipWrong.push(`${r.pane} has an unlisted "${c.text}"`);
+  check("each row the .md names has the chip of its item, and no other row has one", chipWrong.length === 0, chipWrong.join("; "));
+  const downWrong = [];
+  for (const n of nodes) {
+    const has = (rowOf(n.pane) ? rowOf(n.pane).chips : []).some((c) => c.text === "Down");
+    if (has !== (n.status === "exited")) downWrong.push(`${n.pane} (${n.status}) ${has ? "has" : "lacks"} a Down chip`);
+  }
+  check("a row has a Down chip when its agent has exited, and not otherwise", downWrong.length === 0, downWrong.join("; "));
 
   if (ex.file.startsWith("03-")) {
-    // The nested helper: shards (21c76d4a) is a helper of indexer (025b0446), drawn below it.
-    const a = seen.boxes["025b0446"], b = seen.boxes["21c76d4a"];
-    check("fixture 3: the nested helper is drawn below its parent", a && b && b.y > a.y, JSON.stringify({ indexer: a, shards: b }));
+    // The nested helper: shards (21c76d4a) is a helper of indexer (025b0446), the row after it, one level in.
+    const a = rowOf("025b0446"), b = rowOf("21c76d4a");
+    const next = a && seen.rows[seen.rows.indexOf(a) + 1];
+    check("fixture 3: the nested helper is the next row after its parent, one level in", a && b && next === b && b.level === a.level + 1, JSON.stringify({ indexer: a && a.level, shards: b && b.level }));
   }
   if (ex.file.startsWith("05-")) {
-    const u = seen.undelivered[0];
-    check("fixture 5: the undelivered message edge is drawn from tests to the manager, in amber, with its words",
-      seen.undelivered.length === 1 && u.from === "2023df34" && u.to === "c2beaec2" && /not told yet/.test(u.text), JSON.stringify(seen.undelivered));
+    check("fixture 5: the manager's unread message is noted under its row", seen.notes.length === 1 && /Unread mail/.test(seen.notes[0]) && /manager/.test(seen.notes[0]), JSON.stringify(seen.notes));
   }
   return results;
 }
@@ -481,7 +504,7 @@ function fixtureChecks(ex, seen) {
 async function secondCheck(browser, url, ex, rate) {
   const target = ex.graphNeeds.find((n) => n.kind === "permission" || n.kind === "ask");
   const probe = (target.text || "").replace(/^[\s\S]*?\n/, (m) => m).split("\n")[0].trim().slice(0, 30);
-  const out = { pane: target.pane, kind: target.kind, name: ex.names[target.pane], text: probe, rate, strip: {}, box: {} };
+  const out = { pane: target.pane, kind: target.kind, name: ex.names[target.pane], text: probe, rate, row: {}, rowKey: {}, button: {} };
   const way = async (label, how) => {
     const { page, ok } = await load(browser, url, ex.graph.nodes.length, rate);
     if (!ok) { out[label] = { error: "the page did not draw" }; await page.close(); return; }
@@ -529,25 +552,23 @@ async function secondCheck(browser, url, ex, rate) {
     await page.S("Input.dispatchMouseEvent", { type: "mouseReleased", x: c.x, y: c.y, button: "left", clickCount: 1 });
     return {};
   };
-  // A click on the strip row.
-  await way("strip", async (page) => {
-    const sel = `.needs-row[data-pane="${target.pane}"][data-kind="${target.kind}"]`;
-    const isControl = await page.eval(`!!document.querySelector(${JSON.stringify(sel + " button")})`);
-    const r = await click(page, sel);
-    return { ...r, rowIsControl: isControl };
-  });
-  // A key on the strip row: focus it, then Enter. Focus only works on a control, so
-  // a row that is not one fails here. That Tab reaches the row is covered by the
-  // node tests, not by this check.
-  await way("stripKey", async (page) => {
-    const sel = `.needs-row[data-pane="${target.pane}"][data-kind="${target.kind}"] .needs-pick`;
-    const focusable = await page.eval(`(() => { const e = document.querySelector(${JSON.stringify(sel)}); if (!e) return false; e.focus(); return document.activeElement === e; })()`);
+  // A click on the agent's row.
+  await way("row", async (page) => click(page, `.tree-row[data-pane="${target.pane}"]`));
+  // A key on the row: focus it, then Enter. Rows take the keyboard one at a time, so
+  // the row is focused directly here; that Tab and the arrow keys reach it is covered
+  // by the node tests.
+  await way("rowKey", async (page) => {
+    const focusable = await page.eval(`(() => { const e = document.querySelector('.tree-row[data-pane="${target.pane}"]'); if (!e) return false; e.focus(); return document.activeElement === e; })()`);
     await page.S("Input.dispatchKeyEvent", { type: "keyDown", key: "Enter", code: "Enter", text: "\r", windowsVirtualKeyCode: 13 });
     await page.S("Input.dispatchKeyEvent", { type: "keyUp", key: "Enter", code: "Enter", windowsVirtualKeyCode: 13 });
     return { rowFocusable: focusable };
   });
-  // For comparison, and not the strip path: a click on the agent's box in the graph.
-  await way("box", async (page) => click(page, `g.gnode[data-pane="${target.pane}"]`));
+  // The button of the decision block, "Open <name>".
+  await way("button", async (page) => {
+    const tagged = await page.eval(`(() => { const b = [...document.querySelectorAll('[data-decision="${target.kind}"][data-pane="${target.pane}"] button')].find((x) => /^Open /.test(x.textContent.trim())); if (!b) return false; b.setAttribute("data-realpage", "open"); return true; })()`);
+    if (!tagged) return { error: "the block has no Open button" };
+    return click(page, '[data-realpage="open"]');
+  });
   return out;
 }
 
@@ -598,6 +619,44 @@ async function remoteCheck(browser, url, ex) {
   return results;
 }
 
+// A script of your own. It is a module whose default export is called once per
+// fixture, with the page loaded on the Team outline:
+//
+//   export default async function ({ page, fixture, url, check, click, key, sleep }) {
+//     check("a tab for the goal", await page.eval(`!!document.querySelector(".tabs")`));
+//   }
+//
+// page.eval(expr) runs an expression in the page and returns its value, page.until(expr, ms) waits
+// for it to be true, page.S(method, params) is a raw DevTools call, page.errors holds the page's
+// errors so far. fixture has file, num, graph (the push), names and the .md's items. click(selector)
+// presses the element with a real mouse, key(name) sends a key. check(name, pass, detail) records a
+// result; a script that throws fails the run. Run it with --script path/to/file.mjs [--only N].
+async function runScript(page, url, ex, num) {
+  const mod = await import(pathToFileURL(path.resolve(scriptFile)).href);
+  if (typeof mod.default !== "function") throw new Error(scriptFile + " has no default export to call");
+  const results = [];
+  const check = (name, pass, detail) => results.push({ name, pass: !!pass, detail: detail || "" });
+  const click = async (selector) => {
+    const c = await page.eval(`(() => { const e = document.querySelector(${JSON.stringify(selector)}); if (!e) return null; e.scrollIntoView({ block: "center" }); const r = e.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2 }; })()`);
+    if (!c) throw new Error("no such element: " + selector);
+    await page.S("Input.dispatchMouseEvent", { type: "mousePressed", x: c.x, y: c.y, button: "left", clickCount: 1 });
+    await page.S("Input.dispatchMouseEvent", { type: "mouseReleased", x: c.x, y: c.y, button: "left", clickCount: 1 });
+  };
+  const keys = { Enter: [13, "\r"], Escape: [27, ""], Tab: [9, ""], ArrowDown: [40, ""], ArrowUp: [38, ""], ArrowLeft: [37, ""], ArrowRight: [39, ""], " ": [32, " "] };
+  const key = async (name) => {
+    const [code, text] = keys[name] || [name.toUpperCase().charCodeAt(0), name];
+    await page.S("Input.dispatchKeyEvent", { type: "keyDown", key: name, code: name, text, windowsVirtualKeyCode: code });
+    await page.S("Input.dispatchKeyEvent", { type: "keyUp", key: name, code: name, windowsVirtualKeyCode: code });
+  };
+  try {
+    await mod.default({ page, fixture: { file: ex.file, num, graph: ex.graph, names: ex.names, items: ex.items, needs: ex.graphNeeds }, url, check, click, key, sleep });
+  } catch (e) {
+    check("the script ran to the end", false, e && e.stack ? e.stack.split("\n").slice(0, 3).join(" | ") : String(e));
+  }
+  check("no page errors", page.errors.length === 0, page.errors.join(" | "));
+  return results;
+}
+
 // ------------------------------------------------------------------ run
 
 const files = fs.readdirSync(fixtureDir).filter((f) => f.endsWith(".json")).map((f) => f.slice(0, -5)).filter((f) => !only || f.startsWith(only.padStart(2, "0") + "-")).sort();
@@ -620,8 +679,10 @@ try {
     const server = await startServer(exe, num, sandbox);
     try {
       const { page, ok } = await load(browser, server.url, ex.graph.nodes.length, 1);
-      if (!ok) entry.checks.push({ name: "the page drew the graph", pass: false, detail: "no boxes" });
-      else {
+      if (!ok) entry.checks.push({ name: "the page drew the outline", pass: false, detail: "no rows" });
+      else if (scriptFile) {
+        entry.checks.push(...(await runScript(page, server.url, ex, num)));
+      } else {
         await sleep(500);
         if (shotDir) await screenshot(page, path.join(shotDir, "fixture-" + num.padStart(2, "0") + ".png"));
         const seen = await page.eval(READ);
@@ -630,6 +691,7 @@ try {
         entry.mbar = seen.mbar;
       }
       await page.close();
+      if (scriptFile) { report.fixtures.push(entry); continue; }
       for (const rate of slowdowns) {
         for (let i = 0; i < repeat; i++) entry.second.push(await secondCheck(browser, server.url, ex, rate));
       }
@@ -660,17 +722,17 @@ for (const f of report.fixtures) {
   const bySlow = {};
   for (const s of f.second) (bySlow[s.rate] ||= []).push(s);
   for (const [rate, list] of Object.entries(bySlow)) {
-    for (const way of ["strip", "stripKey", "box"]) {
+    for (const way of ["row", "rowKey", "button"]) {
       const ms = list.map((s) => s[way] && s[way].ms).filter((x) => x != null).sort((a, b) => a - b);
       const passes = list.filter((s) => s[way] && s[way].pass).length;
       const first = list[0][way] || {};
-      const detail = way === "strip" ? ` rowIsControl=${first.rowIsControl}` : way === "stripKey" ? ` rowFocusable=${first.rowFocusable}` : "";
+      const detail = way === "rowKey" ? ` rowFocusable=${first.rowFocusable}` : "";
       lines.push(`  ${passes === list.length ? "ok  " : "FAIL"} second step by ${way} at ${rate}x CPU slowdown: ${passes}/${list.length} opened ${list[0].name} within 2 s; ms ${ms.length ? ms.join(", ") : "none"}${detail}`);
-      if (way !== "box" && passes !== list.length) failed++;
+      if (passes !== list.length) failed++;
     }
-    const cards = list.map((s) => s.strip && s.strip.cardOk);
+    const cards = list.map((s) => s.row && s.row.cardOk);
     const cardOk = cards.length > 0 && cards.every(Boolean);
-    const c0 = (list[0].strip && list[0].strip.card) || {};
+    const c0 = (list[0].row && list[0].row.card) || {};
     lines.push(`  ${cardOk ? "ok  " : "FAIL"} the card at ${rate}x shows ${list[0].kind === "permission" ? "the whole command and the Yes and No buttons" : "the whole question"}: command=${JSON.stringify(c0.command)} yes=${c0.yes} no=${c0.no} question=${JSON.stringify(c0.question)} fallback=${c0.fallback}`);
     if (!cardOk) failed++;
   }
