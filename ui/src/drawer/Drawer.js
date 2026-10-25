@@ -12,7 +12,7 @@
 // touches the terminal's size itself: the terminal measures its box when it
 // changes and tells the server (lib/terminal.js), which sizes the pane for the
 // window last used.
-import { useEffect, useMemo, useReducer, useRef, useState } from "../vendor/hooks.mjs";
+import { useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
 import { Header } from "./Header.js";
 import { Prompt, StreamPermission, waitingOn } from "./Prompt.js";
@@ -198,8 +198,8 @@ function DrawerBody({ store, snap = null, node, pane = null, now, maximised = fa
   const tabs = ["terminal"].concat(hasConv ? ["conversation"] : [], hasChanges ? ["changes"] : []);
   const shown = tabs.includes(tab) ? tab : "terminal";
   // Whether the Conversation tab shows its own message box, so the page can drop the home bar for the same manager.
-  const hasBox = hasConv && shown === "conversation" && terminal && !state.remote && !isViewer(state) && !node.shell;
-  useEffect(() => {
+  const hasBox = hasConv && shown === "conversation" && isManager(team && team.model, node.pane) && terminal && !state.remote && !isViewer(state) && !node.shell;
+  useLayoutEffect(() => {
     if (!onBox) return undefined;
     onBox(hasBox ? node.pane : "");
     return () => onBox("");

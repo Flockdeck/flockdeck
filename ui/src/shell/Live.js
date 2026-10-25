@@ -8,7 +8,7 @@
 // The strip along the top holds the manager bar, for the project whose graph is
 // on screen. It is not one of the keyboard regions: it is reached with Tab like
 // any control, and takes the keyboard once when the graph first names a manager.
-import { useEffect, useMemo, useRef, useState } from "../vendor/hooks.mjs";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
 import { useStore } from "../lib/use-store.js";
 import { Drawer, hasTerminal, useDrawer } from "../drawer/Drawer.js";
@@ -526,8 +526,18 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
         onRestart: snap.remote || viewer ? null : (p) => { const n = current.byPane.get(p); if (n) life.begin("restart", n, (statePanes || {})[p] || null); },
       }
     : null;
-  const bar = current && !snap.graphGone && managerOf(current) && managerOf(current).pane !== boxPane
-    ? html`<${ManagerBar} snap=${snap} manager=${managerOf(current)} send=${(c) => store.send(c)} inputRef=${barRef} lead=${true} />`
+  // The bar stays mounted while the drawer's box stands in for it, so a draft or an answer on the way is not lost.
+  const standIn = !!(current && managerOf(current) && boxPane && managerOf(current).pane === boxPane);
+  const drawerBox = () => (page && page.document ? page.document.querySelector("#drawer-panel-conversation .structured-input") : null);
+  useLayoutEffect(() => {
+    const el = barRef.current;
+    const doc = el && el.ownerDocument;
+    if (!standIn || !el || !doc || doc.activeElement !== el) return;
+    const box = drawerBox();
+    if (box && box.focus) box.focus();
+  }, [standIn]);
+  const bar = current && !snap.graphGone && managerOf(current)
+    ? html`<${ManagerBar} snap=${snap} manager=${managerOf(current)} send=${(c) => store.send(c)} inputRef=${barRef} lead=${true} hidden=${standIn} />`
     : null;
 
   // The graph's two keys that no arrow does. The next agent that needs the person
@@ -601,7 +611,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     nextNeedsYou: () => jumpNeedsYou(nextNeedsYou),
     prevNeedsYou: () => jumpNeedsYou(prevNeedsYou),
     managerBar: () => {
-      const el = barRef.current || (boxPane && page && page.document ? page.document.querySelector("#drawer-panel-conversation .structured-input") : null);
+      const el = standIn ? drawerBox() : barRef.current;
       if (el && el.focus) el.focus();
     },
     settings: () => openSettings("general"),

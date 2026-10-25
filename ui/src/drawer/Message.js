@@ -7,6 +7,7 @@
 import { useEffect, useRef, useState } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
 import { clip } from "../graph/Node.js";
+import { composing } from "../shell/keys.js";
 import { checkText, newReq, outcomeOf, NOT_CONNECTED_WORDS, SENT_SHOWN } from "../graph/ManagerBar.js";
 
 /** MAX_LINES is how many lines the box grows to before it scrolls. LINE_PX and PAD_PX are the line height and the vertical padding in drawer.css. */
@@ -75,7 +76,7 @@ export function Message({ pane, name, store, shownFor = SENT_SHOWN }) {
     }
   };
   const onKey = (e) => {
-    if (e.key !== "Enter" || e.shiftKey || e.ctrlKey || e.altKey || e.metaKey || e.isComposing) return;
+    if (e.key !== "Enter" || e.shiftKey || e.ctrlKey || e.altKey || e.metaKey || composing(e)) return;
     e.preventDefault();
     submit();
   };
