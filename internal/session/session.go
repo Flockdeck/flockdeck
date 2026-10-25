@@ -1365,6 +1365,10 @@ func (s *Session) Reconcile(busy bool, at time.Time, settle time.Duration) bool 
 		s.mu.Unlock()
 		return false
 	}
+	// Deliberately not setStatusLocked: that counts a hook (hookSeq, which the
+	// settle timers read as "the agent spoke") and marks the hooks as seen, and
+	// this is neither. The detail a hook named is dropped because it describes the
+	// status being replaced.
 	s.statusSince = time.Now()
 	s.detail, s.toolInput, s.toolQuestion = "", "", false
 	s.compacting = false
