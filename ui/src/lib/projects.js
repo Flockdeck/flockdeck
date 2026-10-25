@@ -95,7 +95,18 @@ export function moveCommand(list, root, delta) {
 }
 
 export const recentsCommand = () => ({ cmd: "recents" });
-export const browseCommand = (path) => ({ cmd: "browse", path: String(path || "") });
+export const browseCommand = (path, req) => ({ cmd: "browse", path: String(path || ""), ...(req ? { req } : {}) });
+
+/** browseReq is the req of the nth folder listing asked for; the desk repeats it in its answer. */
+export const browseReq = (n) => "b" + n;
+
+/** staleBrowse says a folder listing answers an ask older than the last one, so
+ *  it must not replace what the person is looking at. An answer with no req (from
+ *  a desk before 1.7) is never stale. */
+export function staleBrowse(msg, lastAsk) {
+  const m = msg && typeof msg.req === "string" ? /^b(\d+)$/.exec(msg.req) : null;
+  return !!m && Number(m[1]) < lastAsk;
+}
 export const selectCommand = (root) => ({ cmd: "selectProject", root });
 export const selectRepoCommand = (root) => ({ cmd: "selectRepo", root });
 export const openCommand = (path) => ({ cmd: "openProject", path });

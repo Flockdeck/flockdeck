@@ -902,7 +902,7 @@ test("the browser walks folders, asks the desk for each, and opens one by its ro
     await openProjects(m);
     m.clear();
     await m.click(m.byText(".proj-dir-into", /docs/));
-    assert.deepEqual(m.sent("browse"), [{ cmd: "browse", path: "/home/me/docs" }]);
+    assert.deepEqual(m.sent("browse"), [{ cmd: "browse", path: "/home/me/docs", req: "b2" }]);
     await m.click(m.container.find(".proj-places").findAll("button").find((b) => /^Home$/.test(b.textContent)));
     await m.click(m.container.findAll("button").filter((b) => b.textContent === "Up").pop());
     assert.equal(m.sent("browse")[2].path, "/home");
@@ -914,6 +914,30 @@ test("the browser walks folders, asks the desk for each, and opens one by its ro
     assert.deepEqual(m.sent("openProject"), [{ cmd: "openProject", path: "/home/me/app" }]);
     assert.equal(dlg(m), null, "the dialog closes");
   }));
+
+test("a late answer to an earlier browse does not replace the folder asked for last", () =>
+  withPage({}, async (m) => {
+    await openProjects(m);
+    m.clear();
+    await m.click(m.byText(".proj-dir-into", /docs/));
+    await m.click(m.container.find(".proj-places").findAll("button").find((b) => /^Home$/.test(b.textContent)));
+    assert.deepEqual(m.sent("browse").map((c) => c.req), ["b2", "b3"]);
+    const listing = (path, req) => ({ type: "browse", path, req, parent: "/", entries: [{ name: "in-" + req, path: path + "/x" }], places: [] });
+    await m.push(listing("/home/me", "b3"));
+    await m.push(listing("/home/me/docs", "b2"));
+    assert.match(dlg(m).textContent, /in-b3/);
+    assert.doesNotMatch(dlg(m).textContent, /in-b2/);
+  }));
+
+test("browse commands carry a req and a stale answer is told by it", () => {
+  assert.deepEqual(P.browseCommand("/a", P.browseReq(4)), { cmd: "browse", path: "/a", req: "b4" });
+  assert.deepEqual(P.browseCommand("/a"), { cmd: "browse", path: "/a" });
+  assert.equal(P.staleBrowse({ req: "b2" }, 3), true);
+  assert.equal(P.staleBrowse({ req: "b3" }, 3), false);
+  assert.equal(P.staleBrowse({}, 3), false, "a desk that does not echo req is never stale");
+  assert.equal(P.staleBrowse({ req: "x" }, 3), false);
+  assert.equal(P.staleBrowse(null, 3), false);
+});
 
 test("a folder that cannot be listed says why", () =>
   withPage({}, async (m) => {

@@ -29,6 +29,9 @@ type browseMsg struct {
 	Entries []dirEntry `json:"entries"`
 	Places  []dirEntry `json:"places"`
 	Error   string     `json:"error,omitempty"`
+	// Req is the req of the browse command this answers, so a window that asked
+	// twice can tell a late answer from the latest one. Absent when the command had none.
+	Req string `json:"req,omitempty"`
 }
 
 type recentsMsg struct {
@@ -51,10 +54,10 @@ type recentView struct {
 // system. A browser cannot give us a real directory path — the File System
 // Access API hands out opaque handles — so choosing a project has to be served
 // from this side.
-func (s *Server) browse(c *controlClient, path string) {
+func (s *Server) browse(c *controlClient, path, req string) {
 	go func() {
 		defer s.surviveFor(c, "listing a folder")
-		msg := browseMsg{Type: "browse"}
+		msg := browseMsg{Type: "browse", Req: req}
 
 		path = unquotePath(path)
 		// "D:" names a drive everywhere else on Windows, but as a path it is
