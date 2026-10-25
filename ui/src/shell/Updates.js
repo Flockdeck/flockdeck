@@ -16,17 +16,8 @@ import {
   checkCommand, dateOf, installCommand, installLabel, notesBlocks, restartCommand, updatesCommand, versionsCommand, versionsOf, webUrl,
 } from "../lib/updates.js";
 
-/** focusables are the controls Tab moves between inside the dialog. */
-const focusables = (root) => (root && root.querySelectorAll ? [...root.querySelectorAll("button, input, a, .upd-notes")].filter((n) => !n.disabled) : []);
-
-export function trapTab(e, root) {
-  const list = focusables(root);
-  if (list.length === 0) return;
-  const at = list.indexOf(root.ownerDocument.activeElement);
-  const to = e.shiftKey ? (at <= 0 ? list.length - 1 : at - 1) : (at < 0 || at === list.length - 1 ? 0 : at + 1);
-  e.preventDefault();
-  list[to].focus();
-}
+import { trapTab } from "./focus.js";
+export { trapTab };
 
 const runs = (rs) => rs.map((r, i) => (r.t === "strong" ? html`<strong key=${i}>${r.text}</strong>` : r.t === "code" ? html`<code key=${i}>${r.text}</code>` : r.text));
 
