@@ -559,3 +559,12 @@
 .dv-cd-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
 .dv-cd-where { margin: 0 0 4px; padding: 0; border: 0; background: none; color: var(--accent); font: 12px var(--mono); text-align: left; cursor: pointer; overflow-wrap: anywhere; }
 .dv-cd-where:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+/* The manager's panel: mail the team sent it and what happened to the team's work, between its own conversation. */
+.conv-mail { align-self: flex-start; padding: 8px 12px; border: 1px solid var(--line); border-left: 2px solid var(--line); border-radius: 8px; max-width: min(100%, 46em); background: var(--bg); }
+.conv-mail.is-waiting { border-color: var(--waiting-line); border-left-color: var(--waiting); background: var(--waiting-subtle); }
+.conv-mail .conv-text { margin: 4px 0 0; }
+.conv-mail-chip { margin-left: 6px; padding: 0 6px; border: 1px solid var(--waiting-line); border-radius: 10px; color: var(--waiting); font-size: 11px; }
+.conv-event { padding-left: 8px; border-left: 2px solid var(--line); }
+.conv-event--ship { border-left-color: var(--ok); }
+.conv-event--down { border-left-color: var(--waiting); color: var(--fg); }

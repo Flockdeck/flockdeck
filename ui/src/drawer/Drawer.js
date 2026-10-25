@@ -22,6 +22,7 @@ import { ChipsContext } from "./conv/chips.js";
 import { Structured } from "./Structured.js";
 import { Message } from "./Message.js";
 import { isViewer } from "../lib/role.js";
+import { managerTimeline, timelineEntries, isManager, mailFloor } from "../graph/ManagerTimeline.js";
 import { Lifecycle } from "./Lifecycle.js";
 import { Task } from "./Task.js";
 import { Changes } from "./Changes.js";
@@ -87,7 +88,7 @@ export function hasTerminal(node, pane) {
 /** Drawer is the component. store is the store of store.js; node and pane are the
  *  graph node and the state push's entry for it. terminalOptions reach the
  *  terminal, which is how a test gives it fakes for xterm and the socket. */
-function DrawerBody({ store, snap = null, node, pane = null, now, maximised = false, onClose, onToggleMax, onOpenPane = null, terminalOptions = null, life = null, tx = null, onInfo = null, findAsk = 0, tabAsk = null, order = [], onStartTeam = null, helpers = [], layout = "side", onLayout = null }) {
+function DrawerBody({ store, snap = null, node, pane = null, now, maximised = false, onClose, onToggleMax, onOpenPane = null, terminalOptions = null, life = null, tx = null, onInfo = null, findAsk = 0, tabAsk = null, order = [], onStartTeam = null, helpers = [], layout = "side", onLayout = null, team = null }) {
   const rootRef = useRef(null);
   const terminalRef = useRef(null);
   // The terminal's controller once it is made, for the search bar, and the search
@@ -181,7 +182,11 @@ function DrawerBody({ store, snap = null, node, pane = null, now, maximised = fa
     if (onClose) onClose();
   };
   const state = snap || store.getState();
-  const conv = state.conversation && state.conversation.id === node.pane ? state.conversation : null;
+  const own = state.conversation && state.conversation.id === node.pane ? state.conversation : null;
+  // A team manager's conversation also holds what the team sent it and what happened to the work, in time order.
+  const conv = useMemo(() => (own && own.supported === true && team && isManager(team.model, node.pane)
+    ? { ...own, entries: withFloor(timelineEntries(managerTimeline({ entries: own.entries || [], model: team.model, manager: node.pane, events: team.events || [] })), mailFloor(team.model)) }
+    : own), [own, team && team.model, team && team.events, node.pane]);
   // The tab is there for a pane with a conversation, and for one the desktop
   // refused this device, so the refusal is said where the conversation would be.
   // A structured pane's conversation is the body of its own panel, so the tab is for the others.
@@ -282,6 +287,13 @@ function DrawerBody({ store, snap = null, node, pane = null, now, maximised = fa
     </section>
     <//>
   `;
+}
+
+// The graph keeps only the latest message edges, so a busy team's older mail is not in the list: the list starts by saying from when it is complete.
+function withFloor(entries, floor) {
+  if (!floor) return entries;
+  const t = new Date(floor);
+  return [{ id: "mail-floor", kind: "notice", ts: t.toISOString(), text: "Mail from before " + t.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) + " is not shown." }, ...entries];
 }
 
 /** Drawer draws nothing for a node that is not there: the graph can drop a pane
