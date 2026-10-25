@@ -221,6 +221,17 @@ type Pane struct {
 	// that infrastructure may address under a different name entirely, and a
 	// stale one shown as current would be worse than none.
 	PeerName string
+	// Label is what the pane is called for the work it does, set with spawn -name
+	// or flockdeck pane-name, or made from its task when it was spawned. It is
+	// empty for a pane that has none. Unlike PeerName it is kept across a restart
+	// and saved with the layout. It is written from the hook goroutines, so it is
+	// only touched under the lock: read it through LabelOf. See panelabel.go.
+	Label string
+	// LabelAuto says Label was made from the pane's task and not chosen by an
+	// agent or the person. A label made from a task is the start of what the pane
+	// was asked, so it stays on the desk like the task itself (internal/server's
+	// relay scrub). Guarded like Label.
+	LabelAuto bool
 	// exitReported is the session whose exit has been reported to this pane's
 	// parent, so a process that ends is reported once. See noteExit.
 	exitReported *session.Session
@@ -519,6 +530,13 @@ type Workspace struct {
 	// team is the roster, inboxes and delivery of messages between panes; see
 	// team.go.
 	team teamState
+	// labelRenames are the times each pane was renamed by an agent, for the limit on how often (panelabel.go). Guarded by mu.
+	labelRenames map[string][]time.Time
+	// actorRenames are the times each pane renamed others, the limit across targets. Guarded by mu.
+	actorRenames map[string][]time.Time
+	// renameTrails are bursts of renames waiting to be told, and renameNotify is who is told (panelabel.go). Guarded by mu.
+	renameTrails map[string]*renameTrail
+	renameNotify func(RenameInfo)
 	// tasks is the task boards of the open projects; see tasks.go.
 	tasks taskState
 
@@ -2583,6 +2601,9 @@ func (w *Workspace) destroyPane(id string) {
 	forgetWorktreeProcess(id)
 	// The generated settings file is only meaningful while the pane lives.
 	_ = os.Remove(filepath.Join(w.settingsDir, id+".settings.json"))
+	w.mu.Lock()
+	w.forgetRenames(id)
+	w.mu.Unlock()
 	w.forgetTeam(id)
 	w.notePaneClosed(id)
 }
@@ -3691,6 +3712,7 @@ func (w *Workspace) applyGit(key string, st gitx.Status, late bool) {
 func (w *Workspace) Close() {
 	// The wake service types into panes, so it stops before they are destroyed.
 	w.stopWake()
+	w.stopRenames()
 	if w.claudeSvc != nil {
 		w.claudeSvc.Stop()
 	}

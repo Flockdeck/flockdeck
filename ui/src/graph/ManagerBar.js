@@ -20,6 +20,7 @@
 import { useEffect, useRef, useState } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
 import { clip } from "./Node.js";
+import { shownName } from "./model.js";
 import { composing } from "../shell/keys.js";
 import { isViewer, VIEWER_WORDS } from "../lib/role.js";
 
@@ -69,7 +70,7 @@ export function managerOf(model) {
   if (!model || !model.ok) return null;
   for (const t of model.teams) {
     const n = t.manager ? model.byPane.get(t.manager) : null;
-    if (n) return { pane: n.pane, name: n.name || n.pane };
+    if (n) return { pane: n.pane, name: shownName(n) };
   }
   return null;
 }
@@ -112,7 +113,7 @@ export function outcomeOf(snap, pending) {
  * accepted send stays. verb starts the box's hint: "Tell" the manager, and
  * "Answer" an agent that asked a question.
  */
-export function ManagerBar({ snap, manager, send, inputRef, autoFocus = true, verb = "Tell", shownFor = SENT_SHOWN, lead = false }) {
+export function ManagerBar({ snap, manager, send, inputRef, autoFocus = true, verb = "Tell", shownFor = SENT_SHOWN, lead = false, hidden = false }) {
   const own = useRef(null);
   const box = inputRef || own;
   const [draft, setDraft] = useState("");
@@ -122,6 +123,7 @@ export function ManagerBar({ snap, manager, send, inputRef, autoFocus = true, ve
   // Set at once on a send, so a second Enter before the page has redrawn does not send again.
   const busy = useRef(false);
 
+  // The one-time autoFocus below is spent on a bar that first mounts hidden: the drawer box has the keyboard then.
   const enabled = !!manager && !snap.remote;
   useEffect(() => {
     if (!autoFocus || !enabled || focused.current) return;
@@ -151,7 +153,7 @@ export function ManagerBar({ snap, manager, send, inputRef, autoFocus = true, ve
 
   if (snap.remote) return null;
   if (isViewer(snap) && manager) {
-    return html`<div class="mbar mbar--off" data-state="viewer">
+    return html`<div class="mbar mbar--off" data-state="viewer" hidden=${hidden}>
       ${lead ? html`<span class="mbar-to">To <b>${clip(manager.name, 24)}</b></span>` : null}
       <input class="mbar-input" type="text" disabled aria-label=${"Message " + clip(manager.name, 40)} placeholder=${VIEWER_WORDS} />
       <button class="mbar-send" type="button" disabled>Send</button>
@@ -159,7 +161,7 @@ export function ManagerBar({ snap, manager, send, inputRef, autoFocus = true, ve
     </div>`;
   }
   if (!manager) {
-    return html`<div class="mbar mbar--off" data-state="no-manager">
+    return html`<div class="mbar mbar--off" data-state="no-manager" hidden=${hidden}>
       <input class="mbar-input" type="text" disabled aria-label="Message the manager" placeholder="No manager" />
       <button class="mbar-send" type="button" disabled>Send</button>
       <span class="mbar-status" role="status">${NO_MANAGER_WORDS}</span>
@@ -193,7 +195,7 @@ export function ManagerBar({ snap, manager, send, inputRef, autoFocus = true, ve
 
   const say = local ? { kind: "refused", text: local } : outcome;
   const state = say ? say.kind : "idle";
-  return html`<div class="mbar" data-state=${state}>
+  return html`<div class="mbar" data-state=${state} hidden=${hidden}>
     ${lead ? html`<span class="mbar-to">To <b>${clip(manager.name, 24)}</b></span>` : null}
     <input
       ref=${box}

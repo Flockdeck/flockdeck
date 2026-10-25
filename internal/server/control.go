@@ -448,6 +448,12 @@ type paneView struct {
 	// Empty until reported, which is every pane that never runs `flockdeck
 	// peer-name`.
 	PeerName string `json:"peerName,omitempty"`
+	// Label is what the pane is called for its work (see Pane.Label), cut to
+	// team.MaxPaneLabel characters. Empty for a pane with none.
+	Label string `json:"label,omitempty"`
+	// LabelAuto says Label was made from the pane's task, which a relay window is
+	// not sent the start of (relayscrub.go).
+	LabelAuto bool `json:"labelAuto,omitempty"`
 	// Task is the opening prompt the pane was started with (see Pane.Task),
 	// in full. Both Name (the pane's own directory) and a tab's title (see
 	// tabView.Title) are cut short -- Name to a bare folder that says nothing
@@ -853,6 +859,8 @@ func (s *Server) snapshot() stateMsg {
 				AutoReview:   p.AutoReview,
 				AutoApproved: ws.AutoApprovedOf(p),
 				PeerName:     ws.PeerNameOf(p),
+				Label:        ws.LabelOf(p),
+				LabelAuto:    ws.LabelAutoOf(p),
 				Task:         p.Task,
 				Structured:   rt.Transport() == workspace.TransportStructured,
 				RunsUnasked:  rt.Caps().RunsUnasked,
@@ -2244,6 +2252,13 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 			c.notify(closedFinishedNotice(panes, tabs, locked), locked > 0 && panes == 0)
 		case "lockPane":
 			if !ws.SetPaneLocked(paneIDFor(ws, cmd.ID), cmd.Locked) {
+				c.notify(paneGone, true)
+				return
+			}
+		case "paneName":
+			// The person at the window may name any pane. Empty text clears the
+			// label, and the pane is called by its peer or directory name again.
+			if _, err := ws.SetPaneLabel("", paneIDFor(ws, cmd.ID), cmd.Text); err != nil {
 				c.notify(paneGone, true)
 				return
 			}

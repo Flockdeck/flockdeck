@@ -37,7 +37,7 @@ func TestBriefingListsTheTeamAsASnapshotAndPointsAtTheLiveList(t *testing.T) {
 	text := c.Render()
 	for _, want := range []string{
 		"## Your team", "when you were briefed, at 09:30 UTC", "snapshot", "`flockdeck team` prints the live list",
-		`manager: "api", claude · opus, working, pane p0 (you)`, `no role: "wc"`, `worker: "wb"`,
+		`pane p0: manager "api", claude · opus, working (you)`, `no role "wc"`, `worker "wb"`,
 		"…and 2 more, not listed",
 	} {
 		if !strings.Contains(text, want) {
@@ -172,6 +172,8 @@ func newCrew(t *testing.T) crew {
 		if err != nil {
 			t.Fatalf("spawn %s: %v", role, err)
 		}
+		// A spawned pane is labelled from its task; these tests name panes by directory and peer name.
+		ws.Pane(id).Label, ws.Pane(id).LabelAuto = "", false
 		return id
 	}
 	c.w1, c.w2, c.reviewer = spawn("worker"), spawn("worker"), spawn("reviewer")

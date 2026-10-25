@@ -10,6 +10,7 @@
 * [flockdeck inbox](inbox.md) - Lists, waits for, streams and reads the messages other agents sent to this pane.
 * [flockdeck keys](keys.md) - Stores, clears and checks the API keys that API agents use, and sets their endpoints.
 * [flockdeck msg](msg.md) - Sends a message to another agent in the same project.
+* [flockdeck pane-name](pane-name.md) - Names a pane for the work it does, so the window and other agents call it that.
 * [flockdeck peer-name](peer-name.md) - Tells the instance the name another Claude session would use to address this pane.
 * [flockdeck recordings](recordings.md) - Lists recorded pane transcripts and exports an agent's stored conversation as one.
 * [flockdeck remote pair](remote-pair.md) - Prints a one-time link and QR code that pairs a device, or a code that enrols another machine.

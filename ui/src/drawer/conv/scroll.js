@@ -60,3 +60,11 @@ export function newBelow(ids, lastId) {
   const at = ids.lastIndexOf(lastId);
   return at < 0 ? ids.length : ids.length - 1 - at;
 }
+
+/** unseenIds counts the entries drawn now that were not drawn before and sit at or below the entry that was at the top: rows paged in above it are not new, and mail or an event sorted into the middle is. */
+export function unseenIds(ids, before, topId) {
+  const from = topId ? Math.max(0, ids.indexOf(topId)) : 0;
+  let n = 0;
+  for (let i = from; i < ids.length; i++) if (!before.has(ids[i])) n++;
+  return n;
+}

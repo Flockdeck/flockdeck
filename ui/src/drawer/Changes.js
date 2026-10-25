@@ -32,7 +32,19 @@ const plural = (n, one, many) => n.toLocaleString("en-US") + " " + (n === 1 ? on
 function GitWarn({ warn, store }) {
   const [step, setStep] = useState(0);
   const items = Array.isArray(warn.items) ? warn.items : [];
-  return html`<section class="chg-warn" role="alertdialog" aria-label="This repository runs programs you have not accepted">
+  // The question takes the keyboard when it appears: it blocks the commit, and nothing else on the panel says so to a reader.
+  const box = useRef(null);
+  const before = useRef(null);
+  useEffect(() => {
+    if (!before.current && box.current) before.current = box.current.ownerDocument.activeElement;
+    if (box.current && box.current.focus) box.current.focus();
+  }, [warn.seq]);
+  // Answered, the keyboard goes back to where it was.
+  useEffect(() => () => {
+    const el = before.current;
+    if (el && el.ownerDocument && el !== el.ownerDocument.body && el.focus) el.focus();
+  }, []);
+  return html`<section class="chg-warn" role="alertdialog" tabindex="-1" ref=${box} aria-label="This repository runs programs you have not accepted">
     <p class="chg-warn-intro">${clip(text(warn.intro || warn.text), 1200)}</p>
     <ul class="chg-warn-items">${items.slice(0, 50).map((line, i) => html`<li key=${i}>${clip(text(line), 400)}</li>`)}</ul>
     ${step === 0
@@ -85,12 +97,21 @@ export function Changes({ cwd, git = "", snap, store }) {
     if (drawn.current === git) return;
     drawn.current = git;
     const ch = snap.changes;
-    if (cwd && ch && !ch.error && !snap.changesBusy) store.requestChanges(ch.cwd || cwd, true);
+    // Not while the git-settings question is on screen: the answer sends the listing again, so a follow dropped here is not lost.
+    if (cwd && ch && !ch.error && !snap.changesBusy && !snap.gitWarn) store.requestChanges(ch.cwd || cwd, true);
   }, [git]);
+  // The open diff follows the listing: read again while its file is still listed, closed when it is not.
+  useEffect(() => {
+    const ch = snap.changes;
+    if (!picked || !ch || ch.error) return;
+    // A file beyond the listed ones (the desk lists a cap and counts the rest) may still be there: keep it open.
+    if ((ch.files || []).some((f) => f.path === picked) || (ch.omitted | 0) > 0) store.requestDiff(picked, true);
+    else setPicked("");
+  }, [snap.changes]);
   // The draft goes when the commit is made, not when it is sent: a commit the
   // desktop refuses (the tree moved) keeps the words that were typed.
   useEffect(() => {
-    if (snap.changes && snap.changes.reason === "committed") setDraft("");
+    if (snap.changes && (snap.changes.reason === "committed" || snap.changes.committed === true)) setDraft("");
   }, [snap.changes]);
   if (!cwd) return html`<p class="chg-empty">${NO_TREE_WORDS}</p>`;
   const ch = snap.changes;
@@ -135,8 +156,8 @@ export function Changes({ cwd, git = "", snap, store }) {
     ${files.length === 0 && !ch.omitted ? html`<p class="chg-empty chg-state"><strong>Nothing has changed.</strong><span>Edits in this working tree appear here. Refresh to check again.</span></p>` : html`<${Files} files=${files} selected=${picked} onPick=${pick} />`}
     ${ch.omitted ? html`<p class="chg-omitted">${plural(ch.omitted, "more file is", "more files are") + " not listed. The commit includes " + (ch.omitted === 1 ? "it" : "them") + "."}</p>` : null}
     ${picked
-      ? html`<div class="chg-diff" aria-label=${"Diff of " + clip(picked, 200)}>
-          ${!diff || diff.loading ? html`<p class="chg-empty" role="status">Reading the diff…</p>` : diff.error ? html`<p class="chg-empty chg-error" role="alert">${clip(text(diff.error), 600)}</p>` : html`<${Diff} key=${picked} text=${diff.text} label=${"Diff of " + clip(picked, 200)} />`}
+      ? html`<div class="chg-diff" role="region" aria-label=${"Diff of " + clip(picked, 200)}>
+          ${!diff || (diff.loading && !diff.text) ? html`<p class="chg-empty" role="status">Reading the diff…</p>` : diff.error ? html`<p class="chg-empty chg-error" role="alert">${clip(text(diff.error), 600)}</p>` : html`<${Diff} key=${picked} text=${diff.text} label=${"Diff of " + clip(picked, 200)} />`}
         </div>`
       : null}
     ${total > 0

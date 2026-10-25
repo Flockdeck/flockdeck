@@ -170,6 +170,8 @@
 import { createSocket } from "./socket.js";
 import { clientHello, mismatchNotice, unsupportedNotice } from "./apiversion.js";
 import { mergeKeys, readsKeyFiles } from "./keytable.js";
+import { changesTeamOf, isStale, sameRoot } from "./changesteam.js";
+import { applyReply, readOf, readKey, statOf, touch, dropDiffs, pruneDiffs, dropErrors, diffKey, MAX_READS } from "./changesdiffs.js";
 
 /** DESK_ONLY_CODE is the code the desktop puts on the refusal it gives a window
  *  reached through the relay (internal/server/teamui.go, teamDeskOnlyCode).
@@ -253,19 +255,24 @@ const GRAPH_OPS = new Set(["graphSnapshot", "graphWatch", "graphUnwatch"]);
 const TEAM_COMMANDS = ["teamSnapshot", "teamWatch", "teamUnwatch", "taskList", "taskGet", "taskAdd", "taskAssign", "taskStatus", "taskNote", "taskBranch", "taskPrune", "msgList", "msgSend", "msgSeen", "teamClose"];
 const TEAM_OPS = new Set(TEAM_COMMANDS.filter((c) => c !== "teamWatch" && c !== "teamUnwatch"));
 
+/** RESULTS_KEPT is how many answers to the Changes view's commands changesTeamResults holds. */
+const RESULTS_KEPT = 50;
+/** CHANGES_TEAM_COMMANDS are the team-wide Changes view's (docs/changes-api.md): the watch, the files and the diffs, comments, checks, reviews and the merge gate. All are the desk's. */
+const CHANGES_TEAM_COMMANDS = ["changesWatch", "changesUnwatch", "changesSnapshot", "filesPage", "diffHunks", "diffContext", "commentAdd", "commentResolve", "commentReopen", "runChecks", "requestReview", "submitReview", "approveMerge", "unapproveMerge", "mergeBranch"];
+
 /** DESK_ONLY says a command is one a remote window may not send: the graph
  *  commands, the structured pane ones, permissionAnswer, paneSend, MACHINE_ONLY,
  *  MACHINE_FILES and HELPER_COMMANDS. The desktop refuses them there, so the store
  *  does not send them. paneSend is sent from two places, the manager bar and a
  *  structured pane's prompt box, and neither is drawn in a remote window. */
-const DESK_ONLY = (cmd) => typeof cmd === "string" && (cmd.startsWith("graph") || cmd.startsWith("structured") || cmd === "permissionAnswer" || cmd === "paneSend" || MACHINE_ONLY.includes(cmd) || MACHINE_FILES.includes(cmd) || HELPER_COMMANDS.includes(cmd) || DESK_SETTINGS.includes(cmd) || TEAM_COMMANDS.includes(cmd));
+const DESK_ONLY = (cmd) => typeof cmd === "string" && (CHANGES_TEAM_COMMANDS.includes(cmd) || cmd.startsWith("graph") || cmd.startsWith("structured") || cmd === "permissionAnswer" || cmd === "paneSend" || MACHINE_ONLY.includes(cmd) || MACHINE_FILES.includes(cmd) || HELPER_COMMANDS.includes(cmd) || DESK_SETTINGS.includes(cmd) || TEAM_COMMANDS.includes(cmd));
 
 const initial = () => ({
   connection: "idle", retryInMs: 0,
   hello: null, remote: false, state: null,
   graph: null, graphGone: null, graphRefused: false, graphError: null,
   notice: null, versions: null, helpers: null, helperPlan: null, recents: null, browse: null, batonDraft: null, batonSaved: null, batonError: null, agentAddress: null,
-  approvals: [], detached: false, sent: null, started: null, structured: null, structuredError: null, cancelError: null, answer: null, asking: null, conversation: null, details: nullMap(), search: null, taskDetail: null, changes: null, diff: null, gitWarn: null, changesBusy: "", changesNote: null, history: null, paneInfo: null, paneMatches: null, keys: null, jevKey: null, radar: null, worktrees: null, agentsList: null, team: null, teamGone: null, teamTasks: null, teamMessages: null, teamResult: null, teamRefused: false, remoteDevices: null, remotePair: null, remoteOutcome: null, dropped: 0,
+  approvals: [], detached: false, sent: null, started: null, structured: null, structuredError: null, cancelError: null, answer: null, asking: null, conversation: null, details: nullMap(), search: null, taskDetail: null, changes: null, diff: null, gitWarn: null, changesBusy: "", changesNote: null, history: null, paneInfo: null, paneMatches: null, keys: null, jevKey: null, radar: null, worktrees: null, agentsList: null, team: null, teamGone: null, teamTasks: null, teamMessages: null, teamResult: null, teamRefused: false, changesTeam: null, changesTeamGone: null, changesTeamRefused: false, changesTeamResult: null, changesTeamResults: [], changesDiffs: {}, branchGit: null, session: 0, remoteDevices: null, remotePair: null, remoteOutcome: null, dropped: 0,
 });
 
 /** upsert returns entries with each of the new ones in place of the one with its
@@ -314,6 +321,16 @@ export function createStore(opts) {
   let teamResultSeq = 0;
   // The project last asked for with watchTeam, or null when none.
   let watchingTeam = null;
+  // The project last asked for with watchChangesTeam, or null when none.
+  let watchingChanges = null;
+  // True from a watch being sent until its first push is drawn: a new watch starts its revisions again, so none is skipped as old.
+  let changesFresh = false;
+  let changesResultSeq = 0;
+  let changesDiffSeq = 0;
+  // The reads (diffHunks, diffContext) waited on, by req: what each was asked for and the head it was asked at.
+  const changesReads = new Map();
+  // Counts the hellos of this store: a value that changes when the connection is made again.
+  let sessionSeq = 0;
   let outcomeSeq = 0;
   let batonSeq = 0;
   let addressSeq = 0;
@@ -351,6 +368,9 @@ export function createStore(opts) {
         patch.state = null;
         // An answer sent on the connection that has gone may never have arrived: its cards can be answered again.
         askedCards.clear();
+        // A read sent on the connection that has gone may never be answered.
+        changesReads.clear();
+        if (snap.branchGit && !snap.branchGit.note) patch.branchGit = { ...snap.branchGit, note: { text: "The connection dropped; check the branch before trying again.", error: true } };
         patch.asking = null;
         // A request for an answer carries a token of the connection that has gone.
         if (snap.approvals.length) {
@@ -370,6 +390,11 @@ export function createStore(opts) {
 
   function sendTeamWatch() {
     return socket.send({ cmd: "teamWatch", root: watchingTeam, req: "t" + ++reqSeq });
+  }
+
+  function sendChangesWatch() {
+    changesFresh = true;
+    return socket.send({ cmd: "changesWatch", root: watchingChanges, req: "w" + ++reqSeq });
   }
 
   function sendStructuredWatch() {
@@ -419,16 +444,17 @@ export function createStore(opts) {
         const remote = !!msg.remote;
         // A new hello starts the connection over. What a graph command
         // refused before is tried again unless this window is remote.
-        set({ hello: msg, remote, graphRefused: remote, graphError: null, radar: null });
+        set({ hello: msg, remote, graphRefused: remote, graphError: null, radar: null, session: ++sessionSeq, changesDiffs: dropErrors(snap.changesDiffs) });
         // A server that offers the key table as keys.json plus changes is read that way.
         if (readsKeyFiles(msg)) keysFromFiles();
         // Tell the desktop which API this page speaks; it answers only if they do not match.
         socket.send(clientHello());
         // A watch asked for before this hello was known is dropped in a remote window, so stop() sends nothing for it.
-        if (remote) { watching = null; watchingPane = null; watchingTeam = null; }
+        if (remote) { watching = null; watchingPane = null; watchingTeam = null; watchingChanges = null; }
         if (!remote && watching !== null) sendGraphWatch();
         if (!remote && watchingPane !== null) sendStructuredWatch();
         if (!remote && watchingTeam !== null) sendTeamWatch();
+        if (!remote && watchingChanges !== null) sendChangesWatch();
         if (watchingConv !== null) {
           // What was asked on the connection that has gone is asked again, or is no longer waited for: an older page
           // left "loading" would take the answer to the open below for the page before the entries held.
@@ -470,6 +496,49 @@ export function createStore(opts) {
         break;
       case "team":
         if (watchingTeam !== null && !snap.remote) set({ team: { ...msg, seq: ++teamSeq }, teamGone: null });
+        break;
+      case "changesTeam":
+        // A push in flight when the watch was dropped is not wanted, nor one the page already drew (the revision is not newer).
+        if (watchingChanges !== null && !snap.remote) {
+          const next = changesTeamOf(msg);
+          // Only the project that is watched ("" is the one on screen, whose root cannot be compared).
+          if (next && (watchingChanges === "" || sameRoot(next.root, watchingChanges)) && (changesFresh || !isStale(snap.changesTeam, next))) {
+            changesFresh = false;
+            // The diffs of a branch that has left the listing are not kept.
+            set({ changesTeam: next, changesTeamGone: null, changesDiffs: pruneDiffs(snap.changesDiffs, next.branches.map((b) => b.pane)) });
+          }
+        }
+        break;
+      case "diffHunks":
+      case "diffContext": {
+        const read = changesReads.get(msg.req);
+        if (!read || snap.remote || watchingChanges === null) break;
+        changesReads.delete(msg.req);
+        set({ changesDiffs: applyReply(snap.changesDiffs, read, msg, ++changesDiffSeq) });
+        break;
+      }
+      case "changesResult":
+        // A read the desk refused (deskOnly, badRequest, unsupported) answers as a result: it is the read's, not the view's last command.
+        if (changesReads.has(msg.req)) {
+          const read = changesReads.get(msg.req);
+          changesReads.delete(msg.req);
+          if (!snap.remote && watchingChanges !== null) set({ changesDiffs: applyReply(snap.changesDiffs, read, msg, ++changesDiffSeq) });
+          break;
+        }
+        if (msg.op !== "changesWatch" && msg.op !== "changesUnwatch" && !snap.remote) {
+          // The answer to a command of the view, kept as it came: the gate and the comments match it to theirs by req.
+          const answered = { ...msg, seq: ++changesResultSeq };
+          // changesTeamResults keeps the last answers, so a window that renders between two of them still sees both.
+          set({ changesTeamResult: answered, changesTeamResults: snap.changesTeamResults.concat(answered).slice(-RESULTS_KEPT) });
+        }
+        if (msg.op === "changesWatch" && !msg.ok) {
+          if (msg.code === DESK_ONLY_CODE) {
+            watchingChanges = null;
+            set({ changesTeam: null, changesTeamRefused: true });
+          } else {
+            set({ changesTeamGone: { code: String(msg.code || ""), error: String(msg.error || "") } });
+          }
+        }
         break;
       case "tasks":
         if (!snap.remote) set({ teamTasks: { ...msg, seq: ++teamSeq } });
@@ -675,7 +744,13 @@ export function createStore(opts) {
         // The listing again after an action in the tree on screen is taken too.
         if (typeof msg.path === "string" && msg.path !== changesAsked && !(snap.changes && msg.cwd === snap.changes.cwd)) break;
         const { type, path, ...rest } = msg;
-        set({ changes: rest, changesBusy: "", gitWarn: null });
+        // The desk says why it sent the listing (internal/server/changes.go, Reason). "follow" is the panel's own re-read: it
+        // changes the listing and nothing else, so a git-settings question on screen and an action under way stay. "gitwarn"
+        // is the tree sent with a question, which stays open (after a commit that went through and then asked about its push
+        // it also says committed: true). Any other listing ends what the window had out.
+        if (msg.reason === "follow") set({ changes: rest });
+        else if (msg.reason === "gitwarn") set({ changes: rest, changesBusy: "" });
+        else set({ changes: rest, changesBusy: "", gitWarn: null });
         break;
       }
       case "diff": {
@@ -683,10 +758,12 @@ export function createStore(opts) {
         break;
       }
       case "gitWarn":
+        if (snap.branchGit && !snap.branchGit.note) set({ branchGit: { ...snap.branchGit, note: { text: "This repository runs programs you have not accepted. Accept them from the agent's Changes tab, then try again.", error: true } } });
         set({ gitWarn: { ...msg, seq: ++noticeSeq }, changesBusy: "" });
         break;
       case "notice": {
         // Only while the panel has an action out is an error notice its own; an unrelated one is left to the notice bar.
+        if (snap.branchGit && !snap.branchGit.note && msg.error !== undefined && !approvalOf(msg)) set({ branchGit: { ...snap.branchGit, note: { text: String(msg.text || ""), error: !!msg.error } } });
         if (snap.changes && snap.changesBusy && msg.error !== undefined && !approvalOf(msg)) set({ changesNote: { text: String(msg.text || ""), error: !!msg.error }, changesBusy: "" });
         // A request for an answer is its own thing, not the latest notice: it
         // stays until the desktop withdraws it.
@@ -724,6 +801,8 @@ export function createStore(opts) {
       watchingPane = null;
       if (watchingTeam !== null && watchSent()) socket.send({ cmd: "teamUnwatch" });
       watchingTeam = null;
+      if (watchingChanges !== null && watchSent()) socket.send({ cmd: "changesUnwatch" });
+      watchingChanges = null;
       if (watchingConv !== null && snap.hello) socket.send({ cmd: "conversationClose", id: watchingConv });
       watchingConv = null;
       socket.stop();
@@ -796,6 +875,74 @@ export function createStore(opts) {
       if (watchingTeam !== null && watchSent()) socket.send({ cmd: "teamUnwatch" });
       watchingTeam = null;
       if (snap.team || snap.teamTasks || snap.teamMessages) set({ team: null, teamTasks: null, teamMessages: null });
+    },
+    /** watchChangesTeam asks for the branches of a project, now and whenever they change.
+     *  It replaces the project watched before, and returns false, asking for nothing, in a remote window. */
+    watchChangesTeam(root) {
+      if (snap.remote) {
+        set({ changesTeamRefused: true });
+        return false;
+      }
+      const was = watchingChanges;
+      watchingChanges = String(root || "");
+      // Branches of another project are not drawn while the new ones are read.
+      set({ changesTeamGone: null, changesTeamRefused: false, ...(was !== null && was !== watchingChanges ? { changesTeam: null, changesDiffs: {}, changesTeamResults: [] } : {}) });
+      if (was !== watchingChanges) changesReads.clear();
+      if (snap.hello) sendChangesWatch();
+      return true;
+    },
+    /** branchRemote runs a fetch, pull or push in the checkout of the branch of pane id. The git questions about a
+     *  repository's programs are not answered here (the note says to answer it in the agent's Changes tab). */
+    branchRemote(action, id, cwd) {
+      const cmd = { fetch: "gitFetch", pull: "gitPull", push: "gitPush" }[action];
+      if (!cmd || typeof id !== "string" || id === "" || typeof cwd !== "string" || cwd === "" || snap.branchGit || snap.changesBusy) return false;
+      if (snap.remote || !snap.hello || !socket.send({ cmd, path: cwd })) return false;
+      set({ branchGit: { action, pane: id, note: null } });
+      return true;
+    },
+    /** clearBranchGit lets go of the last fetch, pull or push and what it said. */
+    clearBranchGit() {
+      if (snap.branchGit) set({ branchGit: null });
+    },
+    /** readChangesDiff asks for a file's diff (diffHunks) or the unchanged lines between two hunks (diffContext;
+     *  gap is the gap they are for). The answer is kept in changesDiffs under the pane and path, with drawnSha, the
+     *  head of the branch listing at the moment of asking (the reply carries none, unless the desk adds one). Nothing is
+     *  read for a branch the listing does not have. Returns the req (the one already out, for the same thing), or ""
+     *  when nothing was sent. */
+    readChangesDiff(fields, gap = "") {
+      if (!fields || (fields.cmd !== "diffHunks" && fields.cmd !== "diffContext") || snap.remote || !snap.hello || watchingChanges === null) return "";
+      // Nothing is read for a branch the listing does not have: there is no head to say the diff was read at.
+      const b = snap.changesTeam ? snap.changesTeam.branches.find((x) => x.pane === fields.id) : null;
+      if (!b || !b.headSha) return "";
+      const file = b.files.find((f) => f.path === fields.file);
+      const entry = snap.changesDiffs[diffKey(fields.id, fields.file)];
+      if (fields.cmd === "diffContext" && !entry) return "";
+      const read = readOf(fields, b.headSha, gap, statOf(file), entry ? entry.seq : 0);
+      // One read of the same thing is waited on at a time: a second ask gets the first one's req.
+      const key = readKey(read);
+      for (const [req, r] of changesReads) if (readKey(r) === key) return req;
+      if (changesReads.size >= MAX_READS) return "";
+      const req = "r" + ++reqSeq;
+      if (!socket.send({ ...fields, req })) return "";
+      changesReads.set(req, read);
+      return req;
+    },
+    /** touchChangesDiff marks a held diff as used now, so it is the last to be dropped for room. */
+    touchChangesDiff(pane, path) {
+      const next = touch(snap.changesDiffs, pane, path, ++changesDiffSeq);
+      if (next !== snap.changesDiffs) set({ changesDiffs: next });
+    },
+    /** dropChangesDiffs lets go of a branch's held diffs (or one file's), and of the reads still out for them. */
+    dropChangesDiffs(pane, path = null) {
+      for (const [req, r] of changesReads) if (r.pane === pane && (path === null || r.path === path)) changesReads.delete(req);
+      const next = dropDiffs(snap.changesDiffs, pane, path);
+      if (next !== snap.changesDiffs) set({ changesDiffs: next });
+    },
+    unwatchChangesTeam() {
+      if (watchingChanges !== null && watchSent()) socket.send({ cmd: "changesUnwatch" });
+      watchingChanges = null;
+      changesReads.clear();
+      if (snap.changesTeam || Object.keys(snap.changesDiffs).length || snap.changesTeamResults.length) set({ changesTeam: null, changesDiffs: {}, changesTeamResults: [] });
     },
     /** watchStructured asks for the structured messages of one pane, now and
      *  whenever it changes, for its permission card. It replaces the pane watched
@@ -878,10 +1025,12 @@ export function createStore(opts) {
       return true;
     },
     /** requestDiff asks for one file's diff in the tree last listed. */
-    requestDiff(file) {
+    requestDiff(file, again = false) {
       if (!snap.changes || typeof file !== "string" || !file) return false;
       if (!socket.send({ cmd: "diff", path: snap.changes.cwd, text: file })) return false;
-      set({ diff: { cwd: snap.changes.cwd, file, text: "", error: "", loading: true } });
+      // A re-read of the diff on screen keeps its text until the new one comes, so the view is not swapped for a loading line.
+      const keep = again && snap.diff && snap.diff.file === file && snap.diff.cwd === snap.changes.cwd ? snap.diff.text : "";
+      set({ diff: { cwd: snap.changes.cwd, file, text: keep, error: "", loading: true } });
       return true;
     },
     /** commitChanges commits the listing as it was last drawn. It sends the files

@@ -49,7 +49,7 @@ opens only its own projects.
 Run from inside a pane, this starts another agent:
 
 ```sh
-flockdeck spawn [-worktree <branch> | -no-worktree] [-split] [-tab <title>] [-shell] [-record]
+flockdeck spawn [-worktree <branch> | -no-worktree] [-split] [-tab <title>] [-name <label>] [-shell] [-record]
                 [-agent <id>] [-model <model>] [-role <id>] [-baton <ref>] [-baton-send-elsewhere] [-task <id>] <task>
 ```
 
@@ -65,6 +65,12 @@ and the panes for each are together in front of you. It takes precedence over `-
 with `-role`, `-worktree` and `-shell`, and is at most 60 characters with no control or
 format characters (line breaks, zero-width and direction marks), which are refused.
 The tab keeps that title, and goes when its last pane is closed.
+
+`-name <label>` says what the helper works on, in 2 to 5 words, such as the PR or the
+topic ("rate limiter PR"). The window and the other agents call the helper that, in
+place of the name of its directory, which every helper of a project shares. It is one line of at
+most 40 characters; control characters become spaces and the rest is cut. Without it the
+label is made from the first clause of the task. The helper can change it with `pane-name`.
 
 `-record` starts the helper with its agent interaction recorded as a
 transcript, the same as the record button in its header; see
@@ -130,6 +136,22 @@ without asking the pane to describe itself first.
 
 Like `spawn`, this only works inside a pane, using the address and token its
 environment was given.
+
+## pane-name
+
+Run from inside a pane, this names a pane for the work it does:
+
+```sh
+flockdeck pane-name [-pane <id>] <label>
+```
+
+The label is what the window and the other agents call the pane, with its role: "worker ·
+rate limiter PR". It is one line of at most 40 characters, in 2 to 5 words, the PR or the
+topic. An agent renames itself when its work changes. Without `-pane` the name is
+for the pane running the command; a manager may name any pane of its project with `-pane`,
+and no other pane may name another. That rule is a courtesy check on the pane id the command
+reports, not a security boundary: every pane holds the same token, as for messaging. A label of `""` clears it. A label is kept with the pane
+across a restart. When another pane names a pane, the named pane is told in its inbox, the windows at the desk show a notice, and the team event log records the pane id the command reported. Every rename is logged. The first of a burst is announced at once, and the last state of the burst (the latest name and how many renames) a few seconds after it goes quiet. Agents can rename a pane at most 6 times a minute, and rename others at most 12 times a minute in all. You can also rename a pane in the window.
 
 ## close
 
@@ -349,7 +371,7 @@ well. The same happens if the Enter cannot be written. The message is then not m
 woken, and nothing more is typed into that pane until you have typed in it.
 
 Every typed line is recorded in the team event log, `team-events.jsonl` in the state
-directory, which keeps the last 2,000 events or 256 KiB. A wake event holds the time, the
+directory, which keeps the last 2,000 events or 256 KiB. A `rename` event (a pane named another: `from` is the pane id the command reported, `to`, `old` and `new`, no id) is kept for the newest 200 only, and a build from before labels skips that line. A wake event holds the time, the
 message id, the pane, the agent, the rule's version and where it came from, the prompt line
 the rule matched (cut to 160 characters) and the line that was typed. A line that was typed
 without its Enter says so. An event holds no message text, except in text mode, where the

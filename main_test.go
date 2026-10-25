@@ -132,6 +132,7 @@ func TestHelpArgs(t *testing.T) {
 		{[]string{"remote", "pair"}, []string{"remote", "-h"}, false},
 		{[]string{"spawn"}, []string{"spawn", "-h"}, false},
 		{[]string{"peer-name"}, []string{"peer-name", "-h"}, false},
+		{[]string{"pane-name"}, []string{"pane-name", "-h"}, false},
 		{[]string{"helpers", "install"}, []string{"helpers", "-h"}, false},
 		{[]string{"hook"}, nil, true}, // hidden, so not something the usage offers
 		{[]string{"statusline"}, nil, true},
@@ -1088,6 +1089,31 @@ func TestParseSpawnCarriesTheAgentAndModel(t *testing.T) {
 	}
 	if plain.Agent != "" || plain.Model != "" {
 		t.Errorf("a spawn with no opinion carried %q/%q, want both empty", plain.Agent, plain.Model)
+	}
+}
+
+// -name is what the helper is called for its work. It is cleaned here the way the
+// application cleans it, and asking for nothing sends nothing.
+func TestParseSpawnCarriesTheNameAsACleanLabel(t *testing.T) {
+	useCatalog(t, testCatalog(), "claude", map[string]bool{"claude": true})
+
+	req, err := parseSpawn([]string{"repair the token refresh", "-name", "  token" + string(rune(10)) + "refresh PR  "})
+	if err != nil {
+		t.Fatalf("parseSpawn: %v", err)
+	}
+	if req.Task != "repair the token refresh" || req.Label != "token refresh PR" {
+		t.Errorf("request carried task %q and label %q", req.Task, req.Label)
+	}
+	long, err := parseSpawn([]string{"-name", strings.Repeat("word ", 20), "a task"})
+	if err != nil {
+		t.Fatalf("parseSpawn: %v", err)
+	}
+	if n := len([]rune(long.Label)); n == 0 || n > 40 {
+		t.Errorf("a long -name was sent as %d characters, want at most 40", n)
+	}
+	plain, err := parseSpawn([]string{"watch the build"})
+	if err != nil || plain.Label != "" {
+		t.Errorf("a spawn with no -name carried the label %q (%v)", plain.Label, err)
 	}
 }
 

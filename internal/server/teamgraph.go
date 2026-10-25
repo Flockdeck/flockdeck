@@ -66,9 +66,12 @@ type graphTaskChip struct {
 type graphNodeView struct {
 	team.GraphNode
 	// Kind is how the pane is run, as its runtime says: every pane is a terminal today.
-	Kind     string `json:"kind"`
-	Name     string `json:"name"`
-	Peer     string `json:"peer,omitempty"`
+	Kind string `json:"kind"`
+	Name string `json:"name"`
+	Peer string `json:"peer,omitempty"`
+	// Label is what the pane is called for its work (spawn -name, flockdeck
+	// pane-name), cut to team.MaxPaneLabel characters. Absent until it has one.
+	Label    string `json:"label,omitempty"`
 	Role     string `json:"role,omitempty"`
 	Agent    string `json:"agent,omitempty"`
 	Shell    bool   `json:"shell,omitempty"`
@@ -432,7 +435,7 @@ func (s *Server) graphPayload(root string) (graphMsg, error) {
 		stat, detail := rt.Status()
 		since := rt.StatusSince()
 		g := team.GraphPane{
-			ID: p.ID, Parent: p.Parent, Role: p.Role, Name: p.Name, Peer: ws.PeerNameOf(p), Agent: p.Agent,
+			ID: p.ID, Parent: p.Parent, Role: p.Role, Name: p.Name, Peer: ws.PeerNameOf(p), Label: ws.LabelOf(p), Agent: p.Agent,
 			Shell: !p.IsAgent(), Status: stat.String(), Activity: string(rt.Activity()),
 			StatusSince: since, Unread: ws.Unread(p.ID), UnreadSince: st.unreadSince[p.ID],
 			UnreadMail: min(st.unreadMail[p.ID], ws.Unread(p.ID)),
@@ -509,10 +512,15 @@ func (s *Server) graphPayload(root string) (graphMsg, error) {
 		figures[g.ID] = f
 	}
 	stuck, below := graphRollup(graph, needs)
+	// A label that passes for a role of the catalog is shown as an agent's own, as when it was set.
+	var labelRoles []string
+	if c := s.ws.Catalog(); c != nil {
+		labelRoles = c.RoleIDs()
+	}
 	for _, n := range graph.Nodes {
 		p, g := byID[n.Pane], gpByID[n.Pane]
 		nv := graphNodeView{
-			GraphNode: n, Kind: string(rts[n.Pane].Transport()), Name: team.PlainText(g.Name, graphNameCut), Peer: team.PlainText(g.Peer, graphPeerCut), Role: g.Role, Agent: team.PlainText(g.Agent, graphAgentCut), Shell: g.Shell,
+			GraphNode: n, Kind: string(rts[n.Pane].Transport()), Name: team.PlainText(g.Name, graphNameCut), Peer: team.PlainText(g.Peer, graphPeerCut), Label: team.PaneLabelText(g.Label, labelRoles...), Role: g.Role, Agent: team.PlainText(g.Agent, graphAgentCut), Shell: g.Shell,
 			Status: g.Status, Activity: g.Activity, Branch: team.PlainText(p.Branch, graphBranchCut), Live: live[n.Pane],
 			Dirty: p.Git.Dirty, Untracked: p.Git.Untracked, Ahead: p.Git.Ahead, Behind: p.Git.Behind,
 			Unread: g.Unread, AutoReview: p.AutoReview, AutoApproved: ws.AutoApprovedOf(p),
