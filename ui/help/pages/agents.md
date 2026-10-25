@@ -354,7 +354,7 @@ a role with no setting, or with no role, is given a git worktree and a branch of
 cut from the starting agent's current commit and named from its task, with no flag needed;
 `spawn` prints the branch and directory. The helper starts in the same subfolder of the
 worktree that you were in, when it exists there. Uncommitted changes in your checkout are not
-in the worktree, and `spawn` says how many, so the manager can commit first. A tester that
+in the worktree, and `spawn` says how many, so the manager can commit first. It says so only for the default worktree, not for one you name with `-worktree`. A tester that
 needs a worker's change is started with `-worktree <worker branch>`. Nothing removes a helper's
 worktree when it closes; [Worktrees](#worktrees) is where they are cleared, and files git ignores,
 such as `node_modules`, are not copied into it. `-worktree <branch>` chooses the branch name and

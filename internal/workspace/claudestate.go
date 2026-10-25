@@ -190,3 +190,41 @@ func (w *Workspace) startClaudeState() {
 	w.claudeSvc = newClaudeStateService(w.claudeStatePanes)
 	w.claudeSvc.run()
 }
+
+// claudeAgentIdle is the wake candidate's AgentIdle for a pane: nil unless it is a
+// Claude pane whose hooks have reported. w.mu may be held by the caller.
+func (w *Workspace) claudeAgentIdle(p *Pane) func() (time.Time, bool, bool) {
+	if p.Agent != "claude" || p.Sess == nil || !p.Sess.HooksReported() {
+		return nil
+	}
+	conv := p.Conversation
+	if conv == "" {
+		conv = p.ID
+	}
+	return w.agentIdle(claudeStatePane{Sess: p.Sess, Conversation: conv})
+}
+
+// agentIdle is the wake service's view of a Claude pane's session file: whether
+// Claude says it is idle and since when. ok is false when the file is not found
+// or is not the pane's own (see entryFor), and the pane is then woken only by a
+// rule that has been tested, which for Claude Code there is none.
+func (w *Workspace) agentIdle(p claudeStatePane) func() (time.Time, bool, bool) {
+	return func() (time.Time, bool, bool) {
+		svc := w.claudeSvc
+		if svc == nil {
+			return time.Time{}, false, false
+		}
+		var all []claudestate.Entry
+		got := false
+		e, ok := svc.entryFor(p, func() []claudestate.Entry {
+			if !got {
+				all, got = svc.readAll(), true
+			}
+			return all
+		})
+		if !ok {
+			return time.Time{}, false, false
+		}
+		return e.Updated, !e.Busy, true
+	}
+}

@@ -68,7 +68,7 @@ var agentTypePackages = []string{"internal/server", "internal/team", "internal/w
 // belong on it because it has uses to allow: add those to agentTypeAllowed.
 // agentTypeExemptCount is how many files are exempt. Adding one changes it, so a
 // new exemption is a decision made here and not a side effect.
-const agentTypeExemptCount = 9
+const agentTypeExemptCount = 10
 
 var agentTypeExempt = map[string]string{
 	"internal/workspace/reap.go":             "ends the processes of a pane and its worktree",
@@ -80,6 +80,7 @@ var agentTypeExempt = map[string]string{
 	"internal/workspace/panekind.go":         "terminalRuntime, the terminal's implementation of PaneRuntime. Unguarded: TerminalPermissionOptions compares the agent id with \"claude\"",
 	"internal/workspace/structuredpane.go":   "structuredRuntime, the structured implementation of PaneRuntime, and its start. Unguarded: it reads the pane's session to start",
 	"internal/workspace/team.go":             "idle and exit notes read off a pane's session",
+	"internal/workspace/claudestate.go":      "reads Claude Code's own session file for a Claude terminal pane and checks the pane's session against it; the wake candidate asks it, and nothing else names the agent",
 }
 
 // agentTypeFiles are the files to scan: every non-test Go file of the packages
@@ -237,7 +238,7 @@ var agentTypeAllowed = map[string]map[string]agentTypeAllow{
 		// assertion (w.Runtime(p).(*structuredRuntime)), which this checker does not
 		// catch.
 		"wakeService.consider | c.Sess":                          {7, "the status, input times and reading of a wakeSession, a terminal or a structured pane"},
-		"wakeService.fire | c.Sess":                              {5, "types into a terminal; a structured pane is delivered to before this (wakeCandidate.Deliver)"},
+		"wakeService.fire | c.Sess":                              {6, "types into a terminal, and re-reads its output before the line; a structured pane is delivered to before this (wakeCandidate.Deliver)"},
 		"Workspace.wakeCandidates | p.Sess":                      {2, "the skip of a pane with no session, which a structured pane passes because it has a runtime, and the session of a terminal candidate"},
 		"Workspace.wakeCandidates | p.Kind != session.KindAgent": {1, "only agent panes are woken"},
 	},

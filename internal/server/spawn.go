@@ -807,7 +807,8 @@ func (s *Server) installSpawnHandler() {
 			// What is uncommitted in the parent's checkout is not in a worktree cut
 			// from its HEAD; counted before the cut so the caller can be told.
 			if autoTree {
-				uncommitted = gitx.StatusOf(cwd).Dirty + gitx.StatusOf(cwd).Untracked
+				st := gitx.StatusOf(cwd)
+				uncommitted = st.Dirty + st.Untracked
 			}
 			from := cwd
 			made, err := s.ws.PrepareWorktreeNew(cwd, req.Branch)
