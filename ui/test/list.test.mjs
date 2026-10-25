@@ -11,15 +11,13 @@ import { dirname, join } from "node:path";
 import { render } from "../src/vendor/preact.mjs";
 import { html } from "../src/html.js";
 import { Live } from "../src/shell/Live.js";
-import { buildGraphModel } from "../src/graph/model.js";
-import { rowsOf, needsOfRoster, GraphList } from "../src/graph/List.js";
+import { needsOfRoster } from "../src/graph/List.js";
 import { createDom, install, settle } from "./dom.mjs";
 import { FakeWebSocket, harness, hello } from "./fakes.mjs";
 import { PtySocket, FakeTerm, FakeFit, FakeObserver } from "./termfakes.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const dir = join(here, "..", "..", "internal", "server", "testdata", "graph-fixtures");
-const names = readdirSync(dir).filter((f) => f.endsWith(".json")).map((f) => f.slice(0, -5)).sort();
 const fixture = (name) => ({ ...JSON.parse(readFileSync(join(dir, name + ".json"), "utf8")), root: "/work/a" });
 const projects = [{ root: "/work/a", name: "alpha", waiting: 0, working: 0 }];
 const stateMsg = (panes = {}) => ({ type: "state", root: "/work/a", projects, panes });
@@ -72,94 +70,6 @@ async function withPage(opts, fn) {
     m.done();
   }
 }
-
-for (const name of names) {
-  test(`fixture ${name}: the list's strip is in the graph's order`, async () => {
-    await withPage({ narrow: false }, async (m) => {
-      await m.connect();
-      await m.push(stateMsg());
-      await m.push(fixture(name));
-      assert.ok(m.container.find(".graph"), "the wide window has no graph");
-      assert.ok(m.container.find(".list") === null, "the wide window drew the list");
-    });
-    await withPage({ narrow: true }, async (m) => {
-      await m.connect();
-      await m.push(stateMsg());
-      await m.push(fixture(name));
-      assert.ok(m.container.find(".graph") === null, "the narrow window drew the graph");
-      assert.ok(m.container.find(".list"), "the narrow window has no list");
-      // The strip lists every item, the loud ones first and old unread mail after.
-      const needs = buildGraphModel(fixture(name)).needs;
-      const want = needs.filter((n) => n.kind !== "stale-unread").concat(needs.filter((n) => n.kind === "stale-unread")).map((n) => [n.pane, n.kind]);
-      assert.deepEqual(m.strip(), want, "the strip is not in the graph's order");
-      assert.ok(want.length > 0, "the fixture has nothing that needs the person");
-      // The strip is above the teams.
-      const list = m.container.find(".list");
-      assert.ok(list.childNodes.findIndex((c) => c.localName === "section" && c.getAttribute("aria-label") === "Needs you") < list.childNodes.findIndex((c) => c.getAttribute && c.getAttribute("data-team") !== null), "the strip is not first");
-      // Every agent is one row, once.
-      const msg = fixture(name);
-      assert.deepEqual(m.rows().map((r) => r.getAttribute("data-pane")).sort(), msg.nodes.map((n) => n.pane).sort());
-      // Within a team a helper follows its parent and the helpers keep the graph's order.
-      const kids = new Map(msg.nodes.map((n) => [n.pane, n.children || []]));
-      for (const t of msg.teams) {
-        const expected = [];
-        const stack = [t.manager];
-        while (stack.length) {
-          const p = stack.pop();
-          expected.push(p);
-          for (const c of [...(kids.get(p) || [])].reverse()) stack.push(c);
-        }
-        const rows = m.container.findAll(".list-team").find((e) => e.getAttribute("data-team") === t.id).findAll(".list-row").map((r) => r.getAttribute("data-pane"));
-        assert.deepEqual(rows.slice(0, expected.length), expected, "team " + t.id + " is not listed top down in the graph's order");
-      }
-    });
-  });
-}
-
-test("a helper of a helper is indented one step further, and a row opens the drawer and gets the keyboard back", async () => {
-  await withPage({ narrow: true }, async (m) => {
-    await m.connect();
-    await m.push(stateMsg());
-    await m.push(fixture("03-nested-helper-question-and-returned-task"));
-    const cls = (pane) => m.row(pane).getAttribute("class");
-    assert.match(cls("6e7bb3af"), /list-row--d0/, "the manager");
-    assert.match(cls("025b0446"), /list-row--d1/, "indexer, a helper");
-    assert.match(cls("21c76d4a"), /list-row--d2/, "shards, a helper of indexer");
-    // The row follows its parent.
-    const order = m.rows().map((r) => r.getAttribute("data-pane"));
-    assert.equal(order.indexOf("21c76d4a"), order.indexOf("025b0446") + 1);
-    const button = m.row("839bba23").find(".list-pick");
-    button.click();
-    await settle();
-    assert.ok(m.drawer(), "the row did not open the drawer");
-    assert.equal(m.drawer().getAttribute("data-drawer-pane"), "839bba23");
-    m.drawer().keydown("Escape");
-    await settle();
-    assert.ok(m.drawer() === null, "Esc did not close the drawer");
-    assert.ok(m.active() === m.row("839bba23").find(".list-pick"), "the keyboard did not return to the row");
-  });
-});
-
-test("a strip row opens the drawer in the narrow list too", async () => {
-  await withPage({ narrow: true }, async (m) => {
-    await m.connect();
-    await m.push(stateMsg());
-    await m.push(fixture("04-eight-helpers-three-waiting"));
-    m.container.findAll(".needs-pick")[0].click();
-    await settle();
-    assert.ok(m.drawer(), "the strip row did not open the drawer");
-  });
-});
-
-test("rowsOf lists a chain top down without recursing", () => {
-  const nodes = [{ pane: "p0", children: ["p1"] }];
-  for (let i = 1; i < 20000; i++) nodes.push({ pane: "p" + i, parent: "p" + (i - 1), children: i < 19999 ? ["p" + (i + 1)] : [], team: "t" });
-  nodes[0].team = "t";
-  const model = buildGraphModel({ type: "graph", root: "/x", nodes, teams: [{ id: "t", manager: "p0", members: nodes.map((n) => n.pane) }], edges: [], solo: [] });
-  const rows = rowsOf(model.teams[0]);
-  assert.equal(rows.length, 20000);
-  assert.equal(rows[19999].depth, 19999);
-});
 
 // ----------------------------------------------------------- the relay window
 
@@ -231,38 +141,6 @@ test("needsOfRoster reads the push as the relay makes it, and skips what is not 
 });
 
 // ----------------------------------------------------------- what the list must not lose
-
-test("a lone agent, a stray node and a member the tree does not reach are each a row", () => {
-  const dom = createDom();
-  const restore = install(dom);
-  try {
-    const model = buildGraphModel({
-      type: "graph", root: "/x", edges: [],
-      nodes: [
-        { pane: "m", name: "mgr", team: "t", children: ["h"] },
-        { pane: "h", name: "helper", team: "t", parent: "m" },
-        { pane: "u", name: "unlinked", team: "t" },
-        { pane: "s", name: "lone shell", shell: true },
-        { pane: "x", name: "stray" },
-      ],
-      teams: [{ id: "t", manager: "m", members: ["m", "h", "u"] }],
-      solo: ["s"],
-    });
-    const box = dom.document.createElement("div");
-    dom.body.appendChild(box);
-    render(html`<${GraphList} model=${model} onOpen=${() => {}} open="h" />`, box);
-    const panes = (sel) => box.find(sel).findAll(".list-row").map((r) => r.getAttribute("data-pane"));
-    assert.deepEqual(panes(".list-team"), ["m", "h", "u"], "the team's rows, with its unlinked member last");
-    assert.deepEqual(panes(".list-team--solo"), ["s", "x"], "the lone agent, then the stray node");
-    // The open row says so, and no other does.
-    const expanded = (pane) => box.findAll(".list-row").find((r) => r.getAttribute("data-pane") === pane).find(".list-pick").getAttribute("aria-expanded");
-    assert.equal(expanded("h"), "true");
-    assert.equal(expanded("m"), "false");
-    render(null, box);
-  } finally {
-    restore();
-  }
-});
 
 test("the roster row of the open agent says it is expanded", async () => {
   await withPage({ narrow: true, remote: true }, async (m) => {

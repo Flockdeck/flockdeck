@@ -747,16 +747,6 @@ button { font: inherit; color: inherit; }
 .pane-error-text.error { color: var(--exited); font-weight: 400; }
 .home { padding: 16px; display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .home--graph { padding: 0; gap: 0; overflow-x: hidden; overflow-y: auto; }
-/* Only the graph scrolls sideways, inside its own box. Left to the page's
- * column, a graph wider than the column made the whole column scrollable, and
- * anything that took focus scrolled the needs list, the tabs and the heading off
- * its left edge. */
-.graph-view { min-width: 0; max-width: 100%; display: grid; grid-template-columns: 236px minmax(0, 1fr); gap: 16px; align-items: start; padding: 12px 16px 0; }
-.graph-side { min-width: 0; position: sticky; top: 0; max-height: 100vh; overflow-y: auto; }
-.graph-main { min-width: 0; overflow-x: auto; }
-@media (max-width: 760px) { .graph-view { grid-template-columns: minmax(0, 1fr); } .graph-side { position: static; max-height: none; } }
-/* The tag under a box hangs below the last frame. */
-.home--graph .graph { margin-bottom: 24px; }
 .home-line { margin: 0; color: var(--fg-dim); font-size: 14px; }
 .home-line--error { color: var(--exited); }
 .home-line--stale { padding: 8px 16px; color: var(--waiting); }

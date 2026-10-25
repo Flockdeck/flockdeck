@@ -1,6 +1,6 @@
-// The views the strip's switch chooses between, other than the graph: the Board
-// (the project's tasks in columns by state), Changes (what changed in one pane's
-// working tree) and Replay. The graph is Home.
+// The views the strip's switch chooses between, other than the Team outline and
+// Dependencies (graph/Tree.js, graph/DepsView.js): the Board (the project's tasks
+// in columns by state), Changes (what changed in one pane's working tree) and Replay.
 //
 // The Board draws what the Team dialog does, from the same store watch
 // (watchTeam): the desktop pushes the whole picture and this only draws it. A
@@ -13,7 +13,7 @@ import { Changes, NO_TREE_WORDS } from "../drawer/Changes.js";
 import { STATES, teamOf, TEAM_RELAY_WORDS } from "../lib/team.js";
 
 /** VIEWS are the views of the switch, in the order it shows them. */
-export const VIEWS = [["graph", "Graph"], ["board", "Board"], ["changes", "Changes"], ["replay", "Replay"]];
+export const VIEWS = [["board", "Board"], ["changes", "Changes"], ["replay", "Replay"]];
 
 /** TREE_VIEW is the outline of the team (rows with the activity feed beside it). It
  *  leads the switch and is the page's first view once HAS_TREE is true. */
@@ -33,7 +33,7 @@ export function viewsOf(hasTree = HAS_TREE) {
 
 /** firstViewOf is the view the page starts on. */
 export function firstViewOf(hasTree = HAS_TREE) {
-  return hasTree ? TREE_VIEW[0] : "graph";
+  return hasTree ? TREE_VIEW[0] : VIEWS[0][0];
 }
 
 /** REPLAY_WORDS is what the Replay view says: it has nothing to draw yet. */

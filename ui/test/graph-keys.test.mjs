@@ -1,5 +1,4 @@
-// The keyboard in the team graph: arrows along the tree, the wrap rules, the
-// jump to the next agent that needs the person and the manager bar, and that
+// The keyboard in the team view: the jump to the next agent that needs the person and the manager bar, and that
 // every one of them works with no pointer in the real page.
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -11,7 +10,7 @@ import { html } from "../src/html.js";
 import { Live } from "../src/shell/Live.js";
 import { LIST } from "../src/shell/keys.js";
 import { buildGraphModel } from "../src/graph/model.js";
-import { navOf, stepFrom, nextNeedsYou, prevNeedsYou, onGraphKey, paneAt } from "../src/graph/keys.js";
+import { nextNeedsYou, prevNeedsYou, paneAt } from "../src/graph/keys.js";
 import { createDom, install, settle } from "./dom.mjs";
 import { FakeWebSocket, harness, hello } from "./fakes.mjs";
 import { realKeys } from "./util.mjs";
@@ -43,97 +42,6 @@ function synth({ teams, solo = [], loose = {} }) {
   };
 }
 const model = (msg) => buildGraphModel(msg);
-
-// m1 > (a, b > (c, d, e), f); team 2: m2 > g; solo s1, s2, s3.
-const MANY = synth({
-  teams: [
-    { id: "t1", nodes: [{ pane: "m1" }, { pane: "a", parent: "m1" }, { pane: "b", parent: "m1" }, { pane: "c", parent: "b" }, { pane: "d", parent: "b" }, { pane: "e", parent: "b" }, { pane: "f", parent: "m1" }] },
-    { id: "t2", nodes: [{ pane: "m2" }, { pane: "g", parent: "m2" }] },
-  ],
-  solo: ["s1", "s2", "s3"],
-});
-const step = (nav, pane, key) => stepFrom(nav, pane, key);
-
-test("Up goes to the manager and Down to the first helper, across nested rows", () => {
-  const nav = navOf(model(MANY));
-  assert.equal(step(nav, "m1", LIST.down), "a");
-  assert.equal(step(nav, "b", LIST.down), "c");
-  assert.equal(step(nav, "e", LIST.up), "b");
-  assert.equal(step(nav, "b", LIST.up), "m1");
-  assert.equal(step(nav, "g", LIST.up), "m2");
-});
-
-test("Up from the top of a tree and Down from a leaf stay where they are", () => {
-  const nav = navOf(model(MANY));
-  assert.equal(step(nav, "m1", LIST.up), "");
-  assert.equal(step(nav, "a", LIST.down), "");
-  assert.equal(step(nav, "s1", LIST.up), "");
-  assert.equal(step(nav, "s1", LIST.down), "");
-});
-
-test("Left and Right move along the row of one parent's helpers and wrap at both ends", () => {
-  const nav = navOf(model(MANY));
-  assert.equal(step(nav, "a", LIST.right), "b");
-  assert.equal(step(nav, "b", LIST.right), "f");
-  assert.equal(step(nav, "f", LIST.right), "a", "past the last is the first");
-  assert.equal(step(nav, "a", LIST.left), "f", "before the first is the last");
-  assert.equal(step(nav, "c", LIST.right), "d");
-  assert.equal(step(nav, "e", LIST.right), "c", "the nested row wraps inside itself");
-  assert.equal(step(nav, "c", LIST.left), "e");
-});
-
-test("the managers of the teams are one row, and the panes in no team another", () => {
-  const nav = navOf(model(MANY));
-  assert.equal(step(nav, "m1", LIST.right), "m2");
-  assert.equal(step(nav, "m2", LIST.right), "m1");
-  assert.equal(step(nav, "s1", LIST.right), "s2");
-  assert.equal(step(nav, "s3", LIST.right), "s1");
-  assert.equal(step(nav, "s1", LIST.left), "s3");
-});
-
-test("an only child has nowhere to go sideways", () => {
-  const nav = navOf(model(MANY));
-  assert.equal(step(nav, "g", LIST.right), "");
-  assert.equal(step(nav, "g", LIST.left), "");
-  const one = navOf(model(synth({ teams: [{ id: "t", nodes: [{ pane: "m" }] }] })));
-  assert.equal(step(one, "m", LIST.left), "");
-});
-
-test("a member the tree does not reach is a row of its own, and Up goes to its team's manager", () => {
-  const msg = synth({ teams: [{ id: "t1", nodes: [{ pane: "m1" }, { pane: "a", parent: "m1" }] }], loose: { t1: ["x", "y"] } });
-  const nav = navOf(model(msg));
-  assert.equal(step(nav, "x", LIST.right), "y");
-  assert.equal(step(nav, "y", LIST.right), "x");
-  assert.equal(step(nav, "x", LIST.up), "m1");
-  assert.equal(step(nav, "a", LIST.right), "", "a is the only helper, and x and y are not its row");
-});
-
-test("every pane of every fixture can be reached from the manager by the arrows alone", () => {
-  for (const name of FIXTURES) {
-    const m = model(load(name));
-    const nav = navOf(m);
-    const seen = new Set();
-    const queue = [m.teams[0].manager];
-    while (queue.length) {
-      const p = queue.pop();
-      if (seen.has(p)) continue;
-      seen.add(p);
-      for (const key of [LIST.up, LIST.down, LIST.left, LIST.right]) {
-        const to = step(nav, p, key);
-        if (to) queue.push(to);
-      }
-    }
-    assert.deepEqual([...seen].sort(), m.nodes.map((n) => n.pane).sort(), name);
-  }
-});
-
-test("a chain of 20000 panes is walked, not thrown on", () => {
-  const nodes = [{ pane: "p0" }];
-  for (let i = 1; i < 20000; i++) nodes.push({ pane: "p" + i, parent: "p" + (i - 1) });
-  const nav = navOf(model(synth({ teams: [{ id: "t", nodes }] })));
-  assert.equal(step(nav, "p0", LIST.down), "p1");
-  assert.equal(step(nav, "p19999", LIST.up), "p19998");
-});
 
 test("the jump goes in the strip's order, not the picture's, and wraps", () => {
   const m = model(load("04-eight-helpers-three-waiting"));
@@ -182,35 +90,6 @@ test("the jump skips an item for a pane that has no box", () => {
 test("the jump says nothing when nothing needs the person", () => {
   const m = model(synth({ teams: [{ id: "t", nodes: [{ pane: "m" }, { pane: "a", parent: "m" }] }] }));
   assert.equal(nextNeedsYou(m, ""), "");
-});
-
-test("the key handler leaves other keys, modifiers and composing alone", () => {
-  const nav = navOf(model(MANY));
-  const box = (pane) => ({ getAttribute: (k) => (k === "role" ? "button" : k === "data-pane" ? pane : null) });
-  const ev = (key, over = {}) => ({ key, target: box("a"), currentTarget: { querySelectorAll: () => [] }, preventDefault() { this.prevented = true; }, ...over });
-  const others = [
-    ev("x"),
-    ev(LIST.right, { ctrlKey: true }),
-    ev(LIST.right, { shiftKey: true }),
-    ev(LIST.right, { altKey: true }),
-    ev(LIST.right, { metaKey: true }),
-    ev(LIST.right, { isComposing: true }),
-    ev(LIST.right, { defaultPrevented: true }),
-    ev(LIST.right, { target: { getAttribute: () => null } }),
-  ];
-  // An arrow with no box to land on is not kept either.
-  others.push(ev(LIST.right));
-  for (const e of others) {
-    onGraphKey(nav, e);
-    assert.ok(!e.prevented, JSON.stringify(Object.keys(e)));
-  }
-});
-
-test("the key handler moves only from a box, not from another element in the graph", () => {
-  const nav = navOf(model(MANY));
-  const e = { key: LIST.right, target: { getAttribute: (k) => (k === "role" ? "group" : k === "data-pane" ? "a" : null) }, currentTarget: { querySelectorAll: () => [] }, preventDefault() { this.prevented = true; } };
-  assert.equal(onGraphKey(nav, e), false);
-  assert.ok(!e.prevented);
 });
 
 test("paneAt finds the pane of an element inside a box", () => {
@@ -275,7 +154,7 @@ async function mount(name, edit = (g) => g) {
   }
   return {
     dom, container, ws,
-    box: (pane) => container.findAll("[data-pane]").find((e) => e.localName === "g" && e.getAttribute("data-pane") === pane && e.getAttribute("role") === "button"),
+    box: (pane) => container.findAll("[data-pane]").find((e) => e.getAttribute("data-pane") === pane && String(e.className || e.getAttribute("class")).includes("tree-row")),
     active: () => dom.document.activeElement,
     activePane: () => dom.document.activeElement.getAttribute("data-pane"),
     drawer: () => container.find("[data-drawer-pane]"),
@@ -292,30 +171,6 @@ async function withPage(name, fn, edit) {
     m.done();
   }
 }
-
-test("in the page the arrows move the keyboard from box to box, Enter opens the drawer and Esc closes it", () =>
-  withPage("03-nested-helper-question-and-returned-task", async (m) => {
-    m.box("6e7bb3af").focus();
-    const arrow = (key) => m.active().keydown(key);
-    assert.equal(arrow(LIST.down).defaultPrevented, true);
-    assert.equal(m.activePane(), "025b0446", "Down: the manager's first helper");
-    arrow(LIST.down);
-    assert.equal(m.activePane(), "21c76d4a", "Down: its helper");
-    arrow(LIST.up);
-    arrow(LIST.right);
-    assert.equal(m.activePane(), "839bba23", "Right: the next helper");
-    arrow(LIST.left);
-    arrow(LIST.left);
-    assert.equal(m.activePane(), "ce2ebf6f", "Left from the first wraps to the last");
-    m.active().keydown(LIST.accept);
-    await settle();
-    assert.ok(m.drawer(), "Enter opened the drawer");
-    assert.equal(m.drawer().getAttribute("data-drawer-pane"), "ce2ebf6f");
-    m.drawer().keydown(LIST.cancel);
-    await settle();
-    assert.equal(m.drawer(), null, "Esc closed it");
-    assert.equal(m.activePane(), "ce2ebf6f", "and the keyboard is back on the box");
-  }));
 
 test("in the page the next-needs-you key follows the strip and opens each agent's drawer", () =>
   withPage("04-eight-helpers-three-waiting", async (m) => {
@@ -369,7 +224,6 @@ test("when the project can no longer be read the jump does nothing", () =>
     await settle();
     press(m, "nextNeedsYou");
     await settle();
-    assert.equal(m.container.find(".graph"), null, "the graph is gone");
     assert.notEqual(m.active(), m.container.find("main"), "the keyboard was not pulled to the main area");
   }));
 

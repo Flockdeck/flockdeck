@@ -1,4 +1,6 @@
-// The home screen: what the main area shows, drawn from the store's snapshot.
+// The home screen: the model of the graph push on screen, and the lines the page
+// says when there is none, drawn from the store's snapshot. The views (Team,
+// Dependencies and the rest) draw the picture; this says why there is none.
 //
 // - Connecting: no hello yet. One line, and the wait while the socket retries.
 // - The graph is refused to this window (graphRefused: it is reached through the
@@ -7,21 +9,18 @@
 // - No project is open.
 // - teamGone: the project can no longer be read. The picture is cleared.
 // - A graph command failed for another reason: the desk's sentence.
-// - Otherwise the graph with its edges, badges and needs-you strip, from the
-//   latest graph push. A push that cannot be read leaves the last good picture of
-//   the same project, and a push of another project than the one on screen is
-//   not drawn (the store keeps whichever came last).
+// - Otherwise nothing, or a line saying the picture is out of date or could not
+//   be updated. A push that cannot be read leaves the last good picture of the
+//   same project, and a push of another project than the one on screen is not
+//   used (the store keeps whichever came last).
 //
 // Every text here came from the desktop, an agent or a person, and is drawn as
 // text.
 import { useEffect, useMemo, useRef } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
 import { buildGraphModel } from "../graph/model.js";
-import { GraphView } from "../graph/Graph.js";
-import { GraphList, RosterList } from "../graph/List.js";
+import { RosterList } from "../graph/List.js";
 import { clip } from "../graph/Node.js";
-import { OverlapBar } from "../graph/OverlapBar.js";
-import { managerOf } from "../graph/ManagerBar.js";
 
 /** usable says a graph push can be drawn: it is a graph, and its lists are lists. */
 export function usable(g) {
@@ -58,13 +57,14 @@ function Line({ children, kind }) {
 }
 
 /**
- * Home draws the main area. snap is the store's snapshot; selected is the root
- * of the project the window is watching ("" when there is none). onShown is
- * called with the model of the picture on screen (or null) when it changes, so
- * the page can open a drawer for a node of it; onOpen and open are the graph's
- * (a click or key on a box, and the pane whose drawer is open).
+ * Home says what the picture is waiting for. snap is the store's snapshot;
+ * selected is the root of the project the window is watching ("" when there is
+ * none). onShown is called with the model of the picture on screen (or null)
+ * when it changes, so the page can draw it and open a drawer for a node of it;
+ * onOpen and open are for the roster (a click on an agent, and the pane whose
+ * drawer is open).
  */
-export function Home({ snap, selected, onShown, onOpen = null, open = "", narrow = false, send = null, onSeeChanges = null, onStartTeam = null }) {
+export function Home({ snap, selected, onShown, onOpen = null, open = "" }) {
   const last = useRef(null); // { root, model } of the last graph push that could be drawn
   const g = snap.graph;
   const model = useMemo(() => (usable(g) ? buildGraphModel(g) : null), [g]);
@@ -116,12 +116,9 @@ export function Home({ snap, selected, onShown, onOpen = null, open = "", narrow
   if (!shown) {
     return html`<div class="home"><${Line}>Reading the team graph…<//></div>`;
   }
+  if (snap.connection === "open" && !snap.graphError) return null;
   return html`<div class="home home--graph">
     ${snap.connection !== "open" ? html`<${Line} kind="stale">Out of date. Reconnecting.<//>` : null}
     ${snap.graphError ? html`<${Line} kind="error">The team graph could not be updated: ${clip(snap.graphError.error || "the desktop gave no reason", 200)}<//>` : null}
-    ${send ? html`<${OverlapBar} model=${shown} manager=${managerOf(shown)} send=${send} onSee=${onSeeChanges} />` : null}
-    ${narrow
-      ? html`<${GraphList} model=${shown} onOpen=${onOpen} open=${open} />`
-      : html`<${GraphView} model=${shown} onOpen=${onOpen} onSelect=${onOpen ? (pane) => onOpen(pane, "strip") : undefined} open=${open} onStartTeam=${onStartTeam} />`}
   </div>`;
 }

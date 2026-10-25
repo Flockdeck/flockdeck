@@ -443,8 +443,9 @@ interface: continue, then remember or only this time; nothing runs until then.
 
 ### Deprecated fields
 
-Marked deprecated since API 1.1. **Nothing here is removed.** The old Graph view reads
-most of it for one more release, and a field goes only in a change that raises the
+Marked deprecated since API 1.1. **Nothing here is removed.** The canvas Graph view that
+read most of it is gone from the web UI, but the server still sends the fields and
+flockdeck-remote may read some. A field goes only in a change that raises the
 major version and updates the schema, this page and the golden file. `api/catalog.json`
 lists them under `deprecated`, and the schema marks a deprecated field with
 `"deprecated": true`. A client written now should not read them. The scope `field`

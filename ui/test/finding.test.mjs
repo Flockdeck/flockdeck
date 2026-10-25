@@ -330,7 +330,7 @@ async function mount({ g = graph(), extra = {}, prefs = {}, helloOver = {} } = {
   const ws = () => FakeWebSocket.last;
   const m = {
     dom, store, container, ws, copied,
-    box: (pane) => container.findAll("[data-pane]").find((e) => e.localName === "g" && e.getAttribute("data-pane") === pane && e.getAttribute("role") === "button"),
+    box: (pane) => container.findAll("[data-pane]").find((e) => String(e.className || e.getAttribute("class")).includes("tree-row") && e.getAttribute("data-pane") === pane),
     sent: (cmd) => ws().commands(cmd),
     clear: () => { ws().sent.length = 0; },
     push: async (msg) => { ws().frame(msg); await settle(); },

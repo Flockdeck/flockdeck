@@ -125,7 +125,7 @@ What to know before you use one:
   instruction. The agent cannot fetch what is cut. Leave it off for an agent you
   would not trust with a peer's words.
 - **A login or Node problem** shows as a blocked pane marked "needs setup", and
-  as "Needs setting up" in the team graph, with the one step to take: sign in with
+  as "Needs setting up" in the Team view, with the one step to take: sign in with
   the agent's own tool (Flockdeck never signs in), install the agent, or install Node 20 or
   newer where the adapter needs it and restart Flockdeck, since a new Node on the
   path is only seen by a restarted Flockdeck. Start the pane again after the other
@@ -490,7 +490,7 @@ changes status appear without reopening it, and an open task, the text you are t
 place in the list stay as they were.
 
 **Agents** lists every agent pane of the project with its name, role, what it is doing and how
-many messages it has not read. The graph shows the rest of a pane's detail. **Close** and
+many messages it has not read. The Team view shows the rest of a pane's detail. **Close** and
 **Close finished** close panes that are idle or have exited; Close finished names them and asks
 first, and each pane is checked again as it closes, so one that has started working since the
 list was drawn is left open. A pane locked against closing keeps its button disabled. To start

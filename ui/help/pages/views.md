@@ -1,8 +1,8 @@
 # The team views
 
 The switch above the main area chooses how the project is drawn: **Team**,
-**Dependencies**, **Graph**, **Board**, **Changes** and **Replay**. Team is the
-one the window opens on. A pane's own terminal and conversation are in the
+**Dependencies**, **Board**, **Changes** and **Replay**. Team is the one the
+window opens on. A pane's own terminal and conversation are in the
 drawer, which any row or card can open.
 
 ## Team

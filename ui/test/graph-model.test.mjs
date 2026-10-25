@@ -7,15 +7,35 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import {
   buildGraphModel,
-  attentionOf,
   panesNeedingYou,
-  messagesOf,
-  promptOf,
   needLabel,
   deliveryRank,
   emptyModel,
-  DETAILS_ON_DESKTOP,
 } from "../src/graph/model.js";
+
+// What the model says about one pane, read from its fields.
+const DETAILS_ON_DESKTOP = "details on the desktop";
+function attentionOf(model, paneId) {
+  const node = model.byPane.get(paneId);
+  const needs = model.needsByPane.get(paneId) || [];
+  const wait = node ? node.waitingOn : { kind: "none" };
+  let level = "none";
+  if (needs.length > 0 || wait.kind === "user") level = "needs-you";
+  else if (wait.kind === "down") level = "down";
+  else if (wait.kind === "reviewer" || wait.kind === "task" || wait.kind === "helpers") level = "held";
+  return {
+    level,
+    needs,
+    textHidden: needs.some((n) => n.textHidden) || (wait.kind === "user" && wait.text === DETAILS_ON_DESKTOP),
+    structured: node ? node.structured : false,
+  };
+}
+function messagesOf(model, paneId) {
+  return {
+    inbound: model.edges.message.filter((e) => e.to === paneId),
+    outbound: model.edges.message.filter((e) => e.from === paneId),
+  };
+}
 
 const here = dirname(fileURLToPath(import.meta.url));
 const dir = join(here, "..", "..", "internal", "server", "testdata", "graph-fixtures");
@@ -262,30 +282,6 @@ test("all seven kinds of need have a label, and an unknown one is shown as it is
   assert.equal(needLabel("toString"), "toString");
 });
 
-test("promptOf reads a full card, a scrubbed card, a withheld question and a structured pane", () => {
-  const full = promptOf({ status: "waiting", permission: { tool: "Bash", summary: "Run: ls", command: "ls", options: [{ id: "yes" }, { id: "no" }] } });
-  assert.deepEqual([full.kind, full.hidden, full.canAnswerHere, full.options.length], ["permission", false, true, 2]);
-
-  const scrubbed = promptOf({ status: "waiting", detailsOnDesktop: true, permission: { tool: "Bash", summary: "Run a command, details on the desktop", redacted: true, options: [] } });
-  assert.deepEqual([scrubbed.kind, scrubbed.hidden, scrubbed.canAnswerHere, scrubbed.summary], ["permission", true, false, "Run a command, details on the desktop"]);
-
-  const noAsk = promptOf({ status: "waiting", detailsOnDesktop: true });
-  assert.deepEqual([noAsk.kind, noAsk.hidden, noAsk.canAnswerHere], ["waiting", true, false]);
-
-  const structured = promptOf({ status: "waiting", structured: true, detailsOnDesktop: true });
-  assert.deepEqual([structured.kind, structured.hidden], ["waiting", true]);
-  const idleStructured = promptOf({ status: "idle", structured: true, detailsOnDesktop: true });
-  assert.equal(idleStructured.kind, "none");
-
-  const ask = promptOf({ status: "waiting", ask: { questions: [{ question: "q" }] } });
-  assert.deepEqual([ask.kind, ask.canAnswerHere], ["ask", false]);
-
-  // A card a structured pane would carry is never answered from a window drawn from this push.
-  assert.equal(promptOf({ structured: true, permission: { tool: "x", summary: "y", options: [{ id: "a" }] } }).canAnswerHere, false);
-  assert.equal(promptOf(null).kind, "none");
-  assert.equal(promptOf({ permission: "x" }).kind, "none");
-});
-
 test("500 nodes build in under 100 ms", () => {
   const nodes = [nodeOf("root", { team: "t", children: [] })];
   const members = ["root"];
@@ -318,18 +314,6 @@ test("500 nodes build in under 100 ms", () => {
   walk(m.teams[0].tree);
   assert.equal(count, 500);
   assert.ok(took < 100, `500 nodes took ${took} ms`);
-});
-
-test("promptOf: a redacted card and a detailsOnDesktop pane are hidden and cannot be answered here", () => {
-  const redacted = promptOf({ status: "waiting", permission: { tool: "Bash", summary: "s", redacted: true, options: [{ id: "yes" }] } });
-  assert.deepEqual([redacted.hidden, redacted.canAnswerHere], [true, false]);
-  const onDesktop = promptOf({ status: "waiting", detailsOnDesktop: true, permission: { tool: "Bash", summary: "s", options: [{ id: "yes" }] } });
-  assert.deepEqual([onDesktop.hidden, onDesktop.canAnswerHere], [true, false]);
-  // Without either, a card with choices is answerable, and a card with none is not.
-  assert.equal(promptOf({ permission: { tool: "Bash", summary: "s", options: [{ id: "yes" }] } }).canAnswerHere, true);
-  assert.equal(promptOf({ permission: { tool: "Bash", summary: "s", options: [] } }).canAnswerHere, false);
-  assert.equal(promptOf({ permission: { tool: "Bash", summary: "s" } }).canAnswerHere, false);
-  assert.equal(promptOf({ structured: true, permission: { tool: "Bash", summary: "s", options: [{ id: "yes" }] } }).canAnswerHere, false);
 });
 
 test("undelivered holds the message edges that are not read, and not the read ones", () => {
