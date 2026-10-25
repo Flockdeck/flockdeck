@@ -23,12 +23,19 @@ func (w *Workspace) LabelAutoOf(p *Pane) bool {
 	return p.LabelAuto
 }
 
-// LabelOf reports a pane's label. It is written from the hook server's
-// goroutines, so it is read under the lock.
+// LabelOf reports a pane's label as it is shown: a label that was stored before
+// it could pass for a role of the catalog (a custom role added since) is marked
+// as an agent's here, not only when it is set again. It is written from the hook
+// server's goroutines, so it is read under the lock.
 func (w *Workspace) LabelOf(p *Pane) string {
+	roles := w.labelRoles()
 	w.mu.RLock()
-	defer w.mu.RUnlock()
-	return p.Label
+	label := p.Label
+	w.mu.RUnlock()
+	if label == "" {
+		return ""
+	}
+	return team.PaneLabelText(label, roles...)
 }
 
 // labelFromTask makes a short label from the text a pane was started with: the
@@ -236,7 +243,7 @@ func (w *Workspace) SetRenameNotifier(f func(RenameInfo)) {
 // notice. It must run on the workspace goroutine.
 func (w *Workspace) DisplayName(id string) string {
 	if p := w.Pane(id); p != nil {
-		return team.PlainName(team.Member{Name: p.Name, Peer: w.PeerNameOf(p), Called: w.LabelOf(p)}.Label(), 40)
+		return team.PlainName(team.Member{Name: p.Name, Peer: w.PeerNameOf(p), Called: w.LabelOf(p)}.Label(w.labelRoles()...), 40)
 	}
 	return id
 }

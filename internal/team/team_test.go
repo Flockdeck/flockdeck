@@ -723,3 +723,13 @@ func TestRenameEventsHaveTheirOwnCapAndKeepTheOtherEvents(t *testing.T) {
 		t.Errorf("the newest rename was dropped: %+v", last)
 	}
 }
+
+func TestAMemberLabelPassesForNoRoleOfTheCatalog(t *testing.T) {
+	m := Member{Name: "api", Called: "docs-bot"}
+	if got := m.Label(); got != "docs-bot" {
+		t.Errorf("without roles the label is %q", got)
+	}
+	if got := m.Label("docs-bot"); !strings.HasPrefix(got, "(agent) ") {
+		t.Errorf("a label equal to a role of the catalog was not marked: %q", got)
+	}
+}

@@ -345,3 +345,51 @@ func TestNoBurstNoticeForAPaneThatClosedOrAWorkspaceThatClosed(t *testing.T) {
 		t.Errorf("%d notices after Close, want the two first-of-burst ones", got)
 	}
 }
+
+// A label that was stored before it could pass for a role (set, say, before that role was added) is read cleaned by the roster, with no restart.
+func TestARosterReadsAStoredRoleWordLabelCleaned(t *testing.T) {
+	c := newCrew(t)
+	p := c.ws.Pane(c.w1)
+	c.ws.mu.Lock()
+	p.Label, p.LabelAuto = "reviewer", false
+	c.ws.mu.Unlock()
+	members, err := c.ws.Roster(c.lead)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range members {
+		if m.Pane == c.w1 {
+			if !strings.HasPrefix(m.Label(), "(agent) ") || !strings.HasPrefix(m.Called, "(agent) ") {
+				t.Errorf("the roster reads the label as %q (called %q), want it marked as an agent's", m.Label(), m.Called)
+			}
+			return
+		}
+	}
+	t.Error("the pane is not on the roster")
+}
+
+// A label stored before a custom role of that name existed reads cleaned in the pane view and the roster, for the catalog's roles and the project's.
+func TestLabelOfAndTheRosterCleanAStoredCustomRoleLabel(t *testing.T) {
+	c := newCrew(t)
+	custom := c.ws.labelRoles()
+	if len(custom) == 0 {
+		t.Fatal("the catalog has no roles")
+	}
+	word := custom[0]
+	p := c.ws.Pane(c.w1)
+	c.ws.mu.Lock()
+	p.Label, p.LabelAuto = word, false
+	c.ws.mu.Unlock()
+	if got := c.ws.LabelOf(p); !strings.HasPrefix(got, "(agent) ") {
+		t.Errorf("LabelOf(%q) = %q, want it marked as an agent's", word, got)
+	}
+	members, err := c.ws.Roster(c.lead)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range members {
+		if m.Pane == c.w1 && !strings.HasPrefix(m.Called, "(agent) ") {
+			t.Errorf("the roster has the label %q, want it marked", m.Called)
+		}
+	}
+}

@@ -38,10 +38,12 @@ type Member struct {
 }
 
 // Label is what to call the member: what it is called for its work, else its
-// peer name, else its pane name.
-func (m Member) Label() string {
+// peer name, else its pane name. roles are the role ids of the catalog, which a
+// label may not pass for (see PaneLabelText); a label set before a custom role
+// was added is rewritten here, not only when it is set again.
+func (m Member) Label(roles ...string) string {
 	if m.Called != "" {
-		return PaneLabelText(m.Called)
+		return PaneLabelText(m.Called, roles...)
 	}
 	if m.Peer != "" {
 		return AgentLabel(m.Peer)
