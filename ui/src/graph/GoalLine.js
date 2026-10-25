@@ -38,7 +38,7 @@ export function elapsedOf(started, now) {
 export function helpersOf(team) {
   const { used, max } = capOf(team);
   if (max <= 0) return "";
-  return used + " of " + max + " helpers" + (used >= max ? ", at the cap" : "");
+  return used + " of " + max + " helpers" + (used > max ? ", over the cap" : used >= max ? ", at the cap" : "");
 }
 
 /** capOf is how many helpers a team has and the most it may have, over its caps. */
@@ -56,14 +56,14 @@ export function capOf(team) {
 /** goalOf is what the line says the team is for: its task (id and title) when it was started for one and the title is known, else the goal text, else the bare task id. */
 function goalOf(model, team) {
   const task = taskOfTeam(model, team);
-  return task && task.title ? taskLabelOf(task) : team.goal || taskLabelOf(task);
+  return task && task.title ? taskLabelOf(task) : team.goal || taskLabelOf(task) || "Team";
 }
 
-/** managerOf is the name of the pane that runs the team, or "" when the team has none. */
+/** managerOf is the name of the pane that runs the team, "" when the team has none, or null when it has one the graph no longer holds. */
 function managerOf(model, team) {
   if (!team.manager) return "";
   const n = model.byPane.get(team.manager);
-  return (n && n.name) || team.manager;
+  return n ? n.name || team.manager : null;
 }
 
 export function summaryOf(model, team, now) {
@@ -75,6 +75,7 @@ export function summaryOf(model, team, now) {
   return {
     goal: goalOf(model, team),
     manager: managerOf(model, team),
+    over: capOf(team).used > capOf(team).max && capOf(team).max > 0,
     elapsed: elapsedOf(team.started, now),
     working,
     helpers: helpersOf(team),
@@ -93,7 +94,7 @@ export function GoalLine({ model, now = null, shownAs = "" }) {
     return () => clearInterval(id);
   }, [now]);
   const clock = now !== null ? now : Date.now();
-  const rows = model.teams.filter((t) => t.goal || taskOfTeam(model, t));
+  const rows = model.teams;
   if (rows.length === 0) return null;
   return html`<div class="goalline-box">
     ${rows.map((team) => {
@@ -102,12 +103,12 @@ export function GoalLine({ model, now = null, shownAs = "" }) {
         <span class="goalline-head">
           ${s.goal.trim() === String(shownAs).trim() ? null : html`<span class="goalline-label">Goal</span>
           <span class="goalline-goal">${clip(s.goal, 120)}</span>`}
-          ${s.manager ? html`<span class="goalline-manager">run by ${clip(s.manager, 40)}</span>` : null}
+          ${s.manager === null ? html`<span class="goalline-manager">manager gone</span>` : s.manager ? html`<span class="goalline-manager">run by ${clip(s.manager, 40)}</span>` : null}
         </span>
         <span class="goalline-facts">
           ${s.elapsed ? html`<span class="goalline-fact goalline-time">${s.elapsed}</span>` : null}
           <span class="goalline-fact goalline-working">Working: ${s.working}</span>
-          ${s.helpers ? html`<span class=${"goalline-fact goalline-helpers" + (s.capped ? " is-capped" : "")}>${s.helpers.replace(", at the cap", "")}</span>` : null}
+          ${s.helpers ? html`<span class=${"goalline-fact goalline-helpers" + (s.capped ? " is-capped" : "") + (s.over ? " is-over" : "")}>${s.helpers.replace(", at the cap", "")}</span>` : null}
           ${s.needs > 0
             ? html`<span class="goalline-fact goalline-needs">${s.needs} ${s.needs === 1 ? "needs" : "need"} you</span>`
             : html`<span class="goalline-fact goalline-none">Nothing waits on you</span>`}

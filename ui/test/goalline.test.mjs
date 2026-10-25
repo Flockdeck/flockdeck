@@ -49,7 +49,25 @@ test("what the push does not have is not drawn", () => {
   assert.doesNotMatch(out, /goalline-time|goalline-cost|goalline-helpers|goalline-needs/);
   assert.match(out, /goalline-none">Nothing waits on you</, "with nothing to answer the line says so");
   assert.match(out, /Working: 2/);
-  assert.equal(draw({ goal: "" }), "", "a team with no goal has no line");
+  const bare = draw({ goal: "" });
+  assert.match(bare, /goalline-goal">Team</, "a team with no goal and no task is still a line, called Team");
+  assert.match(bare, /Working: 2/);
+});
+
+test("a manager the graph no longer holds is said to be gone, not shown as a pane id", () => {
+  const m = msg({ manager: "ghost" });
+  const out = renderToString(html`<${GoalLine} model=${buildGraphModel(m)} now=${NOW} />`);
+  assert.match(out, /manager gone/);
+  assert.doesNotMatch(out, /ghost/);
+  assert.match(draw({}), /run by mgr/);
+});
+
+test("more helpers than the cap is shown as it is and flagged", () => {
+  const model = buildGraphModel(msg({ caps: [{ pane: "m", used: 9, max: 8 }] }));
+  assert.equal(summaryOf(model, model.teams[0], NOW).helpers, "9 of 8 helpers, over the cap");
+  const out = draw({ caps: [{ pane: "m", used: 9, max: 8 }] });
+  assert.match(out, /is-capped is-over/);
+  assert.match(out, /9 of 8 helpers, over the cap/);
 });
 
 test("the cap below its limit is not marked, and several needs are counted", () => {
