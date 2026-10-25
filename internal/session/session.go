@@ -1342,6 +1342,37 @@ func (s *Session) setStatusLocked(st Status, detail, toolInput string) bool {
 	return true
 }
 
+// Reconcile checks the pane's status against what the agent itself says: busy is
+// the agent's own idle/busy state and at is when it last changed. The hooks
+// stay the word on anything they have said since: the agent's report only
+// replaces a working or idle status that is older than it, and only once it has
+// stood for settle, so a hook that is about to arrive is not overruled. A pane
+// that is waiting on a question, blocked, starting or exited is left alone,
+// because the agent's two words do not say which of those it is. It reports
+// whether the status changed.
+func (s *Session) Reconcile(busy bool, at time.Time, settle time.Duration) bool {
+	s.mu.Lock()
+	if time.Since(at) < settle || !at.After(s.statusSince) {
+		s.mu.Unlock()
+		return false
+	}
+	switch {
+	case s.status == StatusWorking && !busy:
+		s.status = StatusIdle
+	case s.status == StatusIdle && busy:
+		s.status = StatusWorking
+	default:
+		s.mu.Unlock()
+		return false
+	}
+	s.statusSince = time.Now()
+	s.detail, s.toolInput, s.toolQuestion = "", "", false
+	s.compacting = false
+	s.mu.Unlock()
+	s.changed()
+	return true
+}
+
 // Status returns the current status and its detail label.
 func (s *Session) Status() (Status, string) {
 	s.mu.RLock()
