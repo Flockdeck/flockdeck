@@ -27,17 +27,43 @@ const apiCatalogPath = "../../api/catalog.json"
 // command or message raises the major; one that adds raises the minor.
 const (
 	apiMajor = 1
-	apiMinor = 2
+	apiMinor = 3
 )
 
 // addedIn names the minor version a command arrived in; any other is 1.0.
 var addedIn = map[string]string{"uiPrefs": "1.1"}
 
+// plannedMessages are the messages of the changes contract (docs/changes-api.md):
+// the ones the server does not send yet, and changesResult, which it sends today only
+// as a refusal. plannedCommands are its commands. Both are in the catalog with the
+// status planned, since 1.3, until they are built.
+var plannedMessages = map[string]bool{"changesResult": true}
+var plannedCommands = map[string]bool{}
+
+func init() {
+	for _, n := range changesMessages {
+		plannedMessages[n] = true
+	}
+	for _, n := range changesCommands {
+		plannedCommands[n] = true
+	}
+}
+
 func sinceOf(name string) string {
 	if v, ok := addedIn[name]; ok {
 		return v
 	}
+	if plannedCommands[name] || plannedMessages[name] {
+		return "1.3"
+	}
 	return "1.0"
+}
+
+func statusOf(name string) string {
+	if plannedCommands[name] || plannedMessages[name] {
+		return "planned"
+	}
+	return "stable"
 }
 
 type catalogCommand struct {
@@ -108,7 +134,7 @@ func buildAPICatalog(t *testing.T) catalogFile {
 	sort.Strings(names)
 	for _, name := range names {
 		c.Commands = append(c.Commands, catalogCommand{Name: name, Access: access[commandAccess[name]],
-			RelayRefused: remoteTextCommands[name], Since: sinceOf(name), Status: "stable"})
+			RelayRefused: remoteTextCommands[name], Since: sinceOf(name), Status: statusOf(name)})
 	}
 	sent := sentMessageTypes(t)
 	var types []string
@@ -117,7 +143,7 @@ func buildAPICatalog(t *testing.T) catalogFile {
 	}
 	sort.Strings(types)
 	for _, typ := range types {
-		m := catalogMessage{Name: typ, Since: "1.0", Status: "stable"}
+		m := catalogMessage{Name: typ, Since: sinceOf(typ), Status: statusOf(typ)}
 		switch _, scrubbed := relayScrubs[typ]; {
 		case scrubbed:
 			m.Relay = "scrub"
@@ -134,6 +160,13 @@ func buildAPICatalog(t *testing.T) catalogFile {
 		}
 		c.Messages = append(c.Messages, m)
 	}
+	// The messages of the contract that are not sent yet are never sent to a relay
+	// window: one the server does not know is dropped for it.
+	for _, typ := range changesMessages {
+		c.Messages = append(c.Messages, catalogMessage{Name: typ, Relay: "deskOnly", Why: "the changes view is refused to a relay window (docs/changes-api.md, section 9)",
+			Since: sinceOf(typ), Status: statusOf(typ)})
+	}
+	sort.Slice(c.Messages, func(i, j int) bool { return c.Messages[i].Name < c.Messages[j].Name })
 	return c
 }
 
@@ -208,8 +241,18 @@ func TestAPICatalogAgreesWithTheServer(t *testing.T) {
 	}
 	sent := sentMessageTypes(t)
 	seen := map[string]bool{}
+	unsent := map[string]bool{}
+	for _, n := range changesMessages {
+		unsent[n] = true
+	}
 	for _, m := range c.Messages {
 		seen[m.Name] = true
+		if unsent[m.Name] {
+			if m.Status != "planned" || m.Relay != "deskOnly" || sent[m.Name] {
+				t.Errorf("%s: a planned message is status planned and desk only until it is sent; got %+v, sent %v", m.Name, m, sent[m.Name])
+			}
+			continue
+		}
 		if !sent[m.Name] {
 			t.Errorf("the catalog has the message %q, which the server no longer sends", m.Name)
 		}

@@ -1,0 +1,27 @@
+{
+  "type": "diffContext",
+  "req": "x1",
+  "pane": "5dc771c1",
+  "path": "internal/limit/limit.go",
+  "lines": [
+    {
+      "t": "ctx",
+      "text": "\tif b.tokens < n {",
+      "oldNo": 59,
+      "newNo": 61
+    },
+    {
+      "t": "ctx",
+      "text": "\t\treturn false",
+      "oldNo": 60,
+      "newNo": 62
+    },
+    {
+      "t": "ctx",
+      "text": "\t}",
+      "oldNo": 61,
+      "newNo": 63
+    }
+  ],
+  "eof": false
+}

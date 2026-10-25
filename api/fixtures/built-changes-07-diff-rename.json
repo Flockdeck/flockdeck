@@ -1,0 +1,54 @@
+{
+  "type": "diffHunks",
+  "req": "d4",
+  "pane": "5dc771c1",
+  "path": "internal/limit/old_limit.go",
+  "oldPath": "internal/limit/legacy.go",
+  "against": "merge-base",
+  "hunks": [
+    {
+      "oldStart": 1,
+      "oldLines": 3,
+      "newStart": 1,
+      "newLines": 3,
+      "header": "",
+      "lines": [
+        {
+          "t": "del",
+          "text": "package limit // legacy",
+          "oldNo": 1,
+          "intra": [
+            [
+              14,
+              22
+            ]
+          ]
+        },
+        {
+          "t": "add",
+          "text": "package limit // kept for callers",
+          "newNo": 1,
+          "intra": [
+            [
+              14,
+              33
+            ]
+          ]
+        },
+        {
+          "t": "ctx",
+          "text": "",
+          "oldNo": 2,
+          "newNo": 2
+        },
+        {
+          "t": "ctx",
+          "text": "var _ = 0",
+          "oldNo": 3,
+          "newNo": 3
+        }
+      ]
+    }
+  ],
+  "totalLines": 4
+}

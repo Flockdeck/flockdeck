@@ -11,6 +11,10 @@ Graph pushes (`type: "graph"`) written by a real server, for a client in another
 | `05-six-helpers-undelivered-message.json` | Six helpers; one asks a question and the manager is idle with an unread message. |
 | `06-rate-limiting-tree-home` | Built, not recorded. See below. |
 
+## Changes examples
+
+`built-changes-*.json` are the messages of the team-wide changes contract (`docs/changes-api.md`, `api/schema/changes.schema.json`): a `changesTeam` push, a page of files, diffs as hunks, unchanged lines, and the answers to commands. They are built by hand, not recorded: no server writes these messages yet. A test validates each against the schema and checks what a schema cannot (hunk line counts, word ranges, a gate blocked exactly when it has blockers). `docs/changes-api.md` section 11 says what each one shows.
+
 ## How they are made
 
 `internal/server/api_fixtures_test.go` starts a server, puts panes in the states of the scenario (statuses, a board with tasks moved through their states, a message), and reads the push with the code a window's `graphSnapshot` runs. `TestAPIFixturesAreCurrent` fails when a file differs from what the server writes now. To write them again: `API_FIXTURES_UPDATE=1 go test -run TestAPIFixturesAreCurrent ./internal/server`.

@@ -1,0 +1,30 @@
+{
+  "type": "changesFiles",
+  "req": "p1",
+  "pane": "5dc771c1",
+  "offset": 2,
+  "total": 6,
+  "files": [
+    {
+      "path": "cfg/limits.yaml",
+      "status": "M",
+      "added": 14,
+      "removed": 3,
+      "owner": "5dc771c1",
+      "conflictWith": [
+        {
+          "pane": "1ce36fdc",
+          "path": "cfg/limits.yaml"
+        }
+      ]
+    },
+    {
+      "path": "go.sum",
+      "status": "M",
+      "added": 6,
+      "removed": 2,
+      "generated": true,
+      "owner": "5dc771c1"
+    }
+  ]
+}
