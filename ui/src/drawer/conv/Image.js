@@ -49,11 +49,11 @@ export function ImageBody({ entry: e, detail }) {
   // No detail yet is an empty region, not nothing: the words of the first state then arrive as a change.
   if (!detail) return html`<p class="conv-detail-state" role="status"></p>`;
   const data = detail.detail && typeof detail.detail.data === "string" ? detail.detail.data : "";
-  const src = detail.state === "loading" || detail.state === "gone" ? "" : imageSrc(e.mediaType, data);
+  const src = detail.state === "loading" || detail.state === "gone" || detail.state === "failed" ? "" : imageSrc(e.mediaType, data);
   const tooBig = !!src && decodedBytes(data) > MAX_IMAGE_BYTES;
   // The words stay in one element, empty when the picture is drawn, so a screen reader announces a change in it.
-  const say = detail.state === "loading" ? "Loading the image…" : detail.state === "gone" ? "No longer available." : !src ? NOT_DRAWN_WORDS : tooBig ? TOO_BIG_WORDS : "";
-  return html`<p class="conv-detail-state" data-detail=${detail.state === "loading" || detail.state === "gone" ? detail.state : undefined} role="status">${say}</p>
+  const say = detail.state === "loading" ? "Loading the image…" : detail.state === "gone" ? "No longer available." : detail.state === "failed" ? "Could not load. Open again to retry." : !src ? NOT_DRAWN_WORDS : tooBig ? TOO_BIG_WORDS : "";
+  return html`<p class="conv-detail-state" data-detail=${detail.state === "loading" || detail.state === "gone" || detail.state === "failed" ? detail.state : undefined} role="status">${say}</p>
     ${say ? null : html`<button type="button" class=${"conv-image" + (big ? " is-big" : "")} aria-label=${imageWords(e) + (big ? ", press to make it small" : ", press to make it larger")} aria-pressed=${big ? "true" : "false"} onClick=${() => setBig(!big)}>
       <img src=${src} alt=${imageWords(e)} />
     </button>`}`;

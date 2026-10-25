@@ -19,6 +19,7 @@ import { conversationText } from "./text.js";
 
 export const NO_MATCH_WORDS = "No matches.";
 export const SEARCH_LOADING_WORDS = "Searching…";
+export const SEARCH_FAILED_WORDS = "The search did not finish. Try again.";
 export const NOT_LOADED_WORDS = "Earlier than what is loaded. Use Older to load more.";
 export const MORE_MATCHES_WORDS = "There are more matches than are listed. Narrow the search.";
 export const EXPORT_UNAVAILABLE_WORDS = "Export is not available for this pane.";
@@ -73,7 +74,7 @@ export function Toolbar({ entries, search = null, onSearch, onClear, onJump, can
     ${canExport && onExport ? html`<button type="button" class="drawer-btn conv-export" onClick=${onExport}>Export</button>` : html`<span class="conv-toolbar-note conv-export-note">${EXPORT_UNAVAILABLE_WORDS}</span>`}
     <span class="conv-toolbar-note conv-copied" role="status">${copied}</span>
     <span class="conv-toolbar-note conv-search-note" role="status">${note}</span>
-    <p class="conv-results-note" role="status">${search ? (search.state === "loading" ? SEARCH_LOADING_WORDS : search.matches.length === 0 ? NO_MATCH_WORDS : "") : ""}</p>
+    <p class="conv-results-note" role="status">${search ? (search.state === "loading" ? SEARCH_LOADING_WORDS : search.failed ? SEARCH_FAILED_WORDS : search.matches.length === 0 ? NO_MATCH_WORDS : "") : ""}</p>
     ${search && search.state !== "loading" && search.matches.length > 0
           ? html`<ul class="conv-results" aria-label="Matches">
               ${search.matches.map((m) => {
