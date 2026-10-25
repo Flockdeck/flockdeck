@@ -8,7 +8,7 @@ import { renderToString } from "./vendor/render-to-string.mjs";
 import { html } from "../src/html.js";
 import { MergeGate, useGateActions } from "../src/drawer/diff/MergeGate.js";
 import {
-  gateOf, checksSummary, checksWords, reviewSummary, commentsSummary, conflictSummary, otherBlockers, approveState,
+  gateActsFor, actsFor, gateOf, checksSummary, checksWords, reviewSummary, commentsSummary, conflictSummary, otherBlockers, approveState,
   approveCommand, unapproveCommand, checksCommand, reviewCommand, gateRefusalWords,
 } from "../src/drawer/diff/gateModel.js";
 import { createDom, install, settle } from "./dom.mjs";
@@ -41,7 +41,7 @@ test("checks: a failing one is named, a running one waits, and one for another h
   assert.match(checksWords(checksSummary(old)), /0 of 1 passing, 1 waiting or out of date/);
   assert.equal(checksSummary({}).tone, "none");
   assert.match(checksWords(checksSummary({})), /No checks have run/);
-  assert.match(checksWords(checksSummary({ checks: [{ name: "a", state: "fail" }, { name: "b", state: "fail" }] })), /a and 1 more are failing/);
+  assert.match(checksWords(checksSummary({ headSha: "h", checks: [{ name: "a", state: "fail", atSha: "h" }, { name: "b", state: "fail", atSha: "h" }] })), /a and 1 more are failing/);
 });
 
 test("reviews: a stale sign-off does not count, changes win over approval, and none does not block", () => {
@@ -80,7 +80,12 @@ test("the commands carry the head the person looked at", () => {
   assert.equal(reviewCommand({ pane: "p", branch: "b", reviewer: "q", req: "r" }).reviewer, "q");
   assert.match(gateRefusalWords(headMoved), /new commit since you looked, so nothing was approved/);
   assert.match(gateRefusalWords(deskOnly), /not from this window/);
-  assert.match(gateRefusalWords(blocked), /search also changes/, "the desk's own sentence for a blocked approval");
+  assert.match(gateRefusalWords(blocked), /conflicts with its base/, "its own sentence for the code");
+  for (const code of ["unpushed", "empty", "checksNotPassing", "openComments", "reviewChangesRequested"]) {
+    assert.doesNotMatch(gateRefusalWords({ code, error: "raw" }), /raw/, code);
+  }
+  assert.equal(gateRefusalWords({ code: "failed", error: "raw words" }), "raw words", "the desk's error is the fallback");
+  assert.equal(reviewCommand({ pane: "p", branch: "b", reviewer: "q", req: "r" }).branch, undefined, "requestReview takes no branch");
 });
 
 const draw = (props) => renderToString(html`<${MergeGate} ...${props} />`);
@@ -166,7 +171,11 @@ test("a refused approval says why and keeps what the desk answered with; a lost 
     m.draw({ send, branch: cart, result: { ...headMoved, req: sent[0].req } });
     await settle();
     assert.match(m.box.find(".dv-live").textContent, /new commit since you looked/);
-    assert.equal(m.box.find(".dv-gate-approve").disabled, false, "it can be tried again");
+    assert.equal(m.box.find(".dv-gate-approve").disabled, true, "off until the branch's head changes");
+    assert.match(m.box.textContent, /The branch changed; waiting for the update\./);
+    m.draw({ send, branch: { ...cart, headSha: "newhead" } });
+    await settle();
+    assert.equal(m.box.find(".dv-gate-approve").disabled, false, "the next update is the truth again");
   } finally {
     m.done();
   }
@@ -209,4 +218,72 @@ test("Run again and Ask to review send their commands, and Withdraw sends unappr
 test("a gate text from an agent is drawn as text", () => {
   const evil = { ...api, gate: { state: "blocked", blockers: [{ kind: "conflict", text: "<img src=x onerror=1>" }] } };
   assert.doesNotMatch(draw({ branch: evil, canAct: true, flow: { busy: "" } }), /<img/);
+});
+
+test("the read-only rule is one function: only a full desk window with the gate cap acts", () => {
+  assert.equal(gateActsFor({ viewer: false, relay: false, caps: ["changesTeam", "changesGate"] }), true);
+  assert.equal(gateActsFor({ viewer: true, relay: false, caps: ["changesGate"] }), false, "a viewer");
+  assert.equal(gateActsFor({ viewer: false, relay: true, caps: ["changesGate"] }), false, "a relay window");
+  assert.equal(gateActsFor({ caps: ["changesTeam", "changesDiff"] }), false, "a desk without the cap");
+  assert.equal(gateActsFor({}), false);
+  assert.equal(gateActsFor(), false);
+  assert.equal(actsFor("changesDiff", { caps: ["changesDiff"] }), true);
+  assert.equal(gateActsFor({ caps: "changesGate" }), false, "caps must be a list");
+});
+
+test("a dropped connection ends the wait, with words to check the gate; nothing is sent again", async () => {
+  const sent = [];
+  const send = (c) => { sent.push(c); return true; };
+  const hostWith = (p) => html`<${HostC} ...${p} />`;
+  function HostC({ session }) {
+    const flow = useGateActions({ branch: cart, send, session });
+    return html`<${MergeGate} branch=${cart} canAct=${true} flow=${flow} />`;
+  }
+  const dom = createDom();
+  const restore = install(dom);
+  const box = dom.document.createElement("div");
+  dom.body.appendChild(box);
+  try {
+    render(hostWith({ session: 1 }), box);
+    await settle();
+    box.find(".dv-gate-approve").click();
+    await settle();
+    assert.equal(box.find(".dv-gate-approve").disabled, true);
+    render(hostWith({ session: 2 }), box);
+    await settle();
+    assert.equal(box.find(".dv-gate-approve").disabled, false);
+    assert.match(box.find(".dv-live").textContent, /connection dropped; check the gate before trying again/);
+    assert.equal(sent.length, 1);
+  } finally {
+    render(null, box);
+    restore();
+  }
+});
+
+test("approve with no head on the branch sends nothing", async () => {
+  const sent = [];
+  const m = await mountHost({ send: (c) => { sent.push(c); return true; }, branch: { ...cart, headSha: "" } });
+  try {
+    m.box.find(".dv-gate-approve").click();
+    await settle();
+    assert.equal(sent.length, 0);
+    assert.match(m.box.find(".dv-live").textContent, /no known head/);
+  } finally {
+    m.done();
+  }
+});
+
+test("a check with no head to show it ran on this one is out of date, and skipped is not a state", () => {
+  assert.equal(checksSummary({ headSha: "h", checks: [{ name: "t", state: "pass" }] }).tone, "wait");
+  assert.equal(checksSummary({ checks: [{ name: "t", state: "pass", atSha: "h" }] }).tone, "wait");
+  assert.equal(checksSummary({ headSha: "h", checks: [{ name: "t", state: "skipped", atSha: "h" }] }).tone, "wait");
+});
+
+test("agent text in the gate shows hidden characters and is isolated", () => {
+  const branch = { ...api, reviews: [{ reviewer: "r1", state: "changes", note: "no‮way" }], gate: { state: "blocked", blockers: [{ kind: "conflict", text: "x‮y" }] } };
+  const out = draw({ branch, canAct: true, flow: { busy: "" }, nameOf: () => "bo‮b" });
+  assert.doesNotMatch(out, /‮/);
+  assert.match(out, /no(&lt;|<)U\+202E>way/);
+  assert.match(out, /bo(&lt;|<)U\+202E>b/);
+  assert.match(out, /<bdi>/);
 });

@@ -7,6 +7,8 @@
 // gate is { state ("blocked" | "ready" | "approved" | "merged"), blockers
 // [{ kind, text }], approvedBy, approvedAt, approvedSha, mergeSha }.
 
+import { showControls } from "./diffModel.js";
+
 const isObject = (v) => !!v && typeof v === "object" && !Array.isArray(v);
 const list = (v) => (Array.isArray(v) ? v : []);
 const text = (v) => (typeof v === "string" ? v : "");
@@ -25,15 +27,16 @@ export function gateOf(branch) {
 export function checksSummary(branch) {
   const head = isObject(branch) ? text(branch.headSha) : "";
   const checks = list(isObject(branch) ? branch.checks : []).filter(isObject);
-  const now = checks.map((c) => ({ ...c, current: !c.atSha || !head || c.atSha === head }));
-  const state = (c) => (!c.current ? "stale" : c.state === "pass" || c.state === "fail" || c.state === "running" || c.state === "queued" || c.state === "skipped" ? c.state : "queued");
+  // A check with no head to show it ran on this one is out of date too.
+  const now = checks.map((c) => ({ ...c, current: !!c.atSha && !!head && c.atSha === head }));
+  const state = (c) => (!c.current ? "stale" : c.state === "pass" || c.state === "fail" || c.state === "running" || c.state === "queued" ? c.state : "queued");
   const count = (s) => now.filter((c) => state(c) === s).length;
   const failing = now.filter((c) => state(c) === "fail");
   return {
     total: checks.length,
-    passing: count("pass") + count("skipped"),
+    passing: count("pass"),
     failing: failing.length,
-    firstFailing: failing.length ? text(failing[0].name) : "",
+    firstFailing: failing.length ? showControls(text(failing[0].name)) : "",
     waiting: count("running") + count("queued") + count("stale"),
     tone: !checks.length ? "none" : failing.length ? "fail" : count("running") + count("queued") + count("stale") ? "wait" : "pass",
   };
@@ -51,9 +54,9 @@ export function checksWords(s) {
 export function reviewSummary(branch) {
   const reviews = list(isObject(branch) ? branch.reviews : []).filter((r) => isObject(r) && !r.stale);
   const asked = reviews.find((r) => r.state === "changes");
-  if (asked) return { tone: "fail", who: text(asked.reviewer), note: text(asked.note), state: "changes" };
+  if (asked) return { tone: "fail", who: text(asked.reviewer), note: showControls(text(asked.note)), state: "changes" };
   const ok = reviews.find((r) => r.state === "approved");
-  if (ok) return { tone: "pass", who: text(ok.reviewer), note: text(ok.note), state: "approved" };
+  if (ok) return { tone: "pass", who: text(ok.reviewer), note: showControls(text(ok.note)), state: "approved" };
   const wait = reviews.find((r) => r.state === "requested");
   if (wait) return { tone: "wait", who: text(wait.reviewer), note: "", state: "requested" };
   const stale = list(isObject(branch) ? branch.reviews : []).some((r) => isObject(r) && r.stale);
@@ -69,12 +72,12 @@ export function commentsSummary(branch) {
 /** conflictSummary reads the conflict blocker, if there is one. */
 export function conflictSummary(branch) {
   const b = gateOf(branch).blockers.find((x) => x.kind === "conflict");
-  return b ? { tone: "fail", text: text(b.text) } : { tone: "pass", text: "" };
+  return b ? { tone: "fail", text: showControls(text(b.text)) } : { tone: "pass", text: "" };
 }
 
 /** otherBlockers are the blockers the four rows do not show: unpushed and empty. */
 export function otherBlockers(branch) {
-  return gateOf(branch).blockers.filter((b) => b.kind === "unpushed" || b.kind === "empty");
+  return gateOf(branch).blockers.filter((b) => b.kind === "unpushed" || b.kind === "empty").map((b) => ({ ...b, text: showControls(text(b.text)) }));
 }
 
 /**
@@ -90,14 +93,15 @@ export function approveState(branch, canAct) {
   if (g.state === "merged") return { kind: "merged", enabled: false, label: "", why: "" };
   if (g.state === "approved") return { kind: "approved", enabled: !!canAct, label: "Withdraw approval", why: "" };
   const blocked = g.state !== "ready";
-  const why = blocked ? "Blocked: " + (g.blockers.length ? g.blockers.map((b) => text(b.text)).filter(Boolean).join("; ") : "the desk has not said why") : "";
+  const why = blocked ? "Blocked: " + (g.blockers.length ? g.blockers.map((b) => showControls(text(b.text))).filter(Boolean).join("; ") : "the desk has not said why") : "";
   return { kind: blocked ? "blocked" : "ready", enabled: !!canAct && !blocked, label: "Approve merge", why };
 }
 
 export const approveCommand = ({ pane, branch, expectSha, req }) => ({ cmd: "approveMerge", id: pane, branch, expectSha, req });
 export const unapproveCommand = ({ pane, branch, req }) => ({ cmd: "unapproveMerge", id: pane, branch, req });
 export const checksCommand = ({ pane, branch, names = [], req }) => ({ cmd: "runChecks", id: pane, branch, names, req });
-export const reviewCommand = ({ pane, branch, reviewer, note = "", req }) => ({ cmd: "requestReview", id: pane, branch, reviewer, text: note, req });
+// requestReview does not take a branch (docs/changes-api.md, section 3).
+export const reviewCommand = ({ pane, reviewer, note = "", req }) => ({ cmd: "requestReview", id: pane, reviewer, text: note, req });
 
 /** gateRefusalWords is what to say for a changesResult that was not ok. */
 export function gateRefusalWords(msg) {
@@ -108,6 +112,25 @@ export function gateRefusalWords(msg) {
     case "unsupported": return "This version of Flockdeck has no merge gate yet.";
     case "noBranch": return "That branch is gone.";
     case "notFound": return "That reviewer is not an agent pane in this project.";
-    default: return text(m.error) || "The desk did not do that.";
+    case "unpushed": return "The branch has commits that are not on the remote; push them first.";
+    case "empty": return "The branch has no changes to approve.";
+    case "checksNotPassing": return "The checks are not all passing for this head.";
+    case "conflicts": return "The branch conflicts with its base or another branch; sort that out first.";
+    case "openComments": return "The branch still has open review comments.";
+    case "reviewChangesRequested": return "A reviewer asked for changes on this head.";
+    default: return showControls(text(m.error)) || "The desk did not do that.";
   }
 }
+
+/**
+ * actsFor says whether this window may use a cap's commands. It is true only for a
+ * full desk window (not a viewer, not reached through the relay) whose desk lists
+ * the cap in api.caps. Everything that draws a live control asks this, so a viewer
+ * never sees an Approve that looks as if it works.
+ */
+export function actsFor(need, { viewer = false, relay = false, caps = [] } = {}) {
+  return !viewer && !relay && Array.isArray(caps) && caps.includes(need);
+}
+
+/** gateActsFor is actsFor for the merge gate's commands. */
+export const gateActsFor = (win) => actsFor("changesGate", win);

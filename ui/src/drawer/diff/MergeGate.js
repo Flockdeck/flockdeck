@@ -17,6 +17,7 @@
 import { useEffect, useRef, useState } from "../../vendor/hooks.mjs";
 import { html } from "../../html.js";
 import { clip } from "../../graph/Node.js";
+import { showControls } from "./diffModel.js";
 import {
   gateOf, checksSummary, checksWords, reviewSummary, commentsSummary, conflictSummary, otherBlockers, approveState,
   approveCommand, unapproveCommand, checksCommand, reviewCommand, gateRefusalWords,
@@ -25,19 +26,36 @@ import {
 const text = (v) => (typeof v === "string" ? v : v == null ? "" : String(v));
 const isObject = (v) => !!v && typeof v === "object" && !Array.isArray(v);
 const NOT_CONNECTED = "Not connected to Flockdeck. Nothing was sent.";
+const DROPPED = "The connection dropped; check the gate before trying again.";
+const NO_HEAD = "This branch has no known head, so nothing was approved. Wait for the next update.";
+const MOVED = "The branch changed; waiting for the update.";
 const TONE_WORDS = { pass: "Passing", fail: "Failing", wait: "Waiting", none: "None" };
 let counter = 0;
 const newReq = () => "gt" + Date.now().toString(36) + (++counter).toString(36);
 
 /**
- * useGateActions: { branch, send, result }. send writes a command and answers
- * whether it did; result is the latest changesResult. It answers { busy (the
- * command being waited on, or ""), error, said (the last outcome in words), gate
- * (the gate to draw: the desk's answer until the next push), approve, withdraw,
+ * useGateActions: { branch, send, result, connected, session }. send writes a
+ * command and answers whether it did; result is the latest changesResult. If the
+ * connection drops while a command is out (connected goes false, or session
+ * changes) the wait ends with a message to check the gate: after a drop the person
+ * cannot tell whether an approval was recorded, so the gate of the next push is
+ * what they see, and nothing is sent again by itself. Approve is refused when the
+ * branch has no head to send as expectSha. After a headMoved refusal the control
+ * stays off until the branch's head changes. It answers { busy (the command being
+ * waited on, or ""), error, said (the last outcome in words), gate (the gate to
+ * draw: the desk's answer until the next push), moved, approve, withdraw,
  * runChecks(), askReview(reviewer) }.
  */
-export function useGateActions({ branch = null, send = null, result = null }) {
-  const [s, setS] = useState({ busy: "", req: "", error: "", said: "", override: null });
+export function useGateActions({ branch = null, send = null, result = null, connected = true, session = null }) {
+  const [s, setS] = useState({ busy: "", req: "", error: "", said: "", override: null, movedFrom: "" });
+  const first = useRef(true);
+  useEffect(() => {
+    if (first.current) {
+      first.current = false;
+      if (connected !== false) return;
+    }
+    setS((p) => (p.req ? { ...p, busy: "", req: "", error: DROPPED, said: "", override: null } : p));
+  }, [connected === false, session]);
   const seen = useRef(null);
   useEffect(() => {
     if (!result || result === seen.current || !s.req || result.req !== s.req) return;
@@ -47,7 +65,8 @@ export function useGateActions({ branch = null, send = null, result = null }) {
       ...p, busy: "", req: "",
       error: result.ok ? "" : gateRefusalWords(result),
       said: result.ok ? (op === "approveMerge" ? "Approved. The manager has been told." : op === "unapproveMerge" ? "Approval withdrawn." : op === "runChecks" ? "Checks started." : op === "requestReview" ? "Review asked for." : "Done.") : "",
-      override: isObject(result.gate) ? result.gate : p.override,
+      override: result.code === "headMoved" ? p.override : isObject(result.gate) ? result.gate : p.override,
+      movedFrom: result.code === "headMoved" ? text(branch && branch.headSha) : p.movedFrom,
     }));
   }, [result]);
   // The desk's next push is the truth again.
@@ -69,7 +88,10 @@ export function useGateActions({ branch = null, send = null, result = null }) {
     error: s.error,
     said: s.said,
     gate: s.override,
-    approve: () => go(approveCommand({ ...ids(), expectSha: branch ? branch.headSha : "" }), "approveMerge"),
+    moved: !!s.movedFrom && s.movedFrom === text(branch && branch.headSha),
+    approve: () => (!branch || typeof branch.headSha !== "string" || !branch.headSha
+      ? (setS((p) => ({ ...p, error: NO_HEAD, said: "" })), false)
+      : go(approveCommand({ ...ids(), expectSha: branch.headSha }), "approveMerge")),
     withdraw: () => go(unapproveCommand(ids()), "unapproveMerge"),
     runChecks: () => go(checksCommand(ids()), "runChecks"),
     askReview: (reviewer) => go(reviewCommand({ ...ids(), reviewer }), "requestReview"),
@@ -97,27 +119,28 @@ export function MergeGate({ branch = null, canAct = false, flow = null, nameOf =
   const review = reviewSummary(view);
   const comments = commentsSummary(view);
   const conflict = conflictSummary(view);
-  const approve = approveState(view, canAct && !!flow && !flow.busy);
-  const name = (p) => clip(text(nameOf ? nameOf(p) : p), 40);
+  const moved = !!(flow && flow.moved);
+  const approve = { ...approveState(view, canAct && !!flow && !flow.busy && !moved), ...(moved ? { enabled: false, why: MOVED } : {}) };
+  const name = (p) => showControls(clip(text(nameOf ? nameOf(p) : p), 40));
   const act = canAct && !!flow;
   const whyId = "dv-gate-why-" + text(branch.pane);
   const stateWords = g.state === "blocked" ? (g.blockers.length ? g.blockers.length + " blocking" : "Blocked") : g.state === "ready" ? "Ready" : g.state === "approved" ? "Approved" : "Merged";
   const btn = (cls, label, onClick, aria) => html`<button type="button" class=${"drawer-btn " + cls} disabled=${!!flow.busy} aria-label=${aria || label} onClick=${onClick}>${label}</button>`;
 
-  return html`<section class="dv-gate" role="group" aria-label=${"Merge gate for " + clip(text(branch.branch), 80)}>
+  return html`<section class="dv-gate" role="group" aria-label=${"Merge gate for " + showControls(clip(text(branch.branch), 80))}>
     <div class="dv-gate-h"><b>Merge gate</b><span class=${"dv-chip dv-gate-state dv-gate-state--" + g.state}>${stateWords}</span>
       ${canAct ? null : html`<span class="dv-gate-ro">Read-only here</span>`}</div>
     <ul class="dv-gate-rows" aria-label="What the gate checks">
-      <${Row} label="Checks" tone=${checks.tone} action=${act && checks.tone !== "pass" ? btn("dv-gate-run", checks.total ? "Run again" : "Run checks", flow.runChecks, "Run the checks again") : null}>${checksWords(checks)}<//>
-      <${Row} label="Conflicts" tone=${conflict.tone}>${conflict.text ? clip(conflict.text, 300) : "None with the base or another branch"}<//>
+      <${Row} label="Checks" tone=${checks.tone} action=${act && checks.tone !== "pass" ? btn("dv-gate-run", checks.total ? "Run again" : "Run checks", flow.runChecks, "Run the checks again") : null}><bdi>${checksWords(checks)}</bdi><//>
+      <${Row} label="Conflicts" tone=${conflict.tone}>${conflict.text ? html`<bdi>${clip(conflict.text, 300)}</bdi>` : "None with the base or another branch"}<//>
       <${Row} label="Reviewer" tone=${review.tone}
-        action=${act && reviewer && (review.state === "none" || review.state === "stale") ? btn("dv-gate-ask", "Ask " + name(reviewer) + " to review", () => flow.askReview(reviewer)) : null}>${review.state === "changes" ? name(review.who) + " asked for changes" + (review.note ? ": " + clip(review.note, 200) : "")
-          : review.state === "approved" ? name(review.who) + " approved"
-          : review.state === "requested" ? "Waiting for " + name(review.who)
+        action=${act && reviewer && (review.state === "none" || review.state === "stale") ? btn("dv-gate-ask", "Ask " + name(reviewer) + " to review", () => flow.askReview(reviewer)) : null}>${review.state === "changes" ? html`<bdi>${name(review.who)}</bdi> asked for changes${review.note ? html`: <bdi>${clip(review.note, 200)}</bdi>` : ""}`
+          : review.state === "approved" ? html`<bdi>${name(review.who)}</bdi> approved`
+          : review.state === "requested" ? html`Waiting for <bdi>${name(review.who)}</bdi>`
           : review.state === "stale" ? "The earlier sign-off is out of date" : "No reviewer yet. This does not block the merge."}<//>
       <${Row} label="Comments" tone=${comments.tone}>${comments.open ? comments.open + (comments.open === 1 ? " open comment" : " open comments") : "No open review comments"}<//>
     </ul>
-    ${otherBlockers(view).map((b, i) => html`<p key=${i} class="dv-gate-also">${clip(text(b.text) || b.kind, 200)}</p>`)}
+    ${otherBlockers(view).map((b, i) => html`<p key=${i} class="dv-gate-also"><bdi>${clip(text(b.text) || b.kind, 200)}</bdi></p>`)}
     <div class="dv-gate-f">
       ${approve.kind === "merged"
         ? html`<span class="dv-chip dv-tone dv-tone--pass">Merged</span>${g.mergeSha ? html` <span class="dv-mono">${text(g.mergeSha).slice(0, 8)}</span>` : null}`
