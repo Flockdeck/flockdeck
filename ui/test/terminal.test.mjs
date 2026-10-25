@@ -794,3 +794,35 @@ test("options set while the libraries load are laid over the ones it was made wi
     h.ctl.dispose();
   }
 });
+
+test("a socket that opens before the hello reports its box once the hello is in", async () => {
+  FakeFit.box = { cols: 80, rows: 24 };
+  const h = build();
+  h.ctl.start();
+  const ws = PtySocket.last;
+  ws.open();
+  await settle();
+  assert.equal(resizesSent(ws).length, 1);
+  // The control socket drops (the hello goes), and the pty socket opens again before the next hello.
+  h.store.set({ hello: null });
+  ws.open();
+  await settle();
+  assert.equal(resizesSent(ws).length, 1, "reported with no hello");
+  h.store.set({ hello: hello() });
+  await settle();
+  assert.equal(resizesSent(ws).length, 2, "the box was never reported on the new socket");
+  h.ctl.dispose();
+});
+
+test("fitToBox sends nothing for a box too small to be a terminal", async () => {
+  FakeFit.box = { cols: 80, rows: 24 };
+  const h = build();
+  h.ctl.start();
+  const ws = PtySocket.last;
+  ws.open();
+  await settle();
+  FakeFit.box = { cols: 10, rows: 3 };
+  assert.equal(h.ctl.fitToBox(), false);
+  assert.equal(resizesSent(ws).length, 1);
+  h.ctl.dispose();
+});

@@ -14,6 +14,7 @@ import { html } from "../src/html.js";
 import { Live } from "../src/shell/Live.js";
 import {
   Prompt, diffRows, KEYS, NOT_DELIVERED_WORDS, MAX_DIFF_LINES, DESK_WORDS, NOT_CONNECTED_WORDS, IN_TERMINAL_WORDS, DETAILS_ON_DESKTOP_WORDS,
+  NOT_TAKEN_WORDS,
 } from "../src/drawer/Prompt.js";
 import { createDom, install, settle } from "./dom.mjs";
 import { FakeWebSocket, harness, hello } from "./fakes.mjs";
@@ -524,6 +525,28 @@ test("a refused send frees the card for another choice, and a late failure of an
     dones[0](false); // the refused click's callback, late
     await settle();
     assert.match(a.container.find(".prompt-status").textContent, /^Sending /, "an older click's failure changed the card");
+  } finally {
+    a.done();
+  }
+});
+
+test("keys the agent ignores: after a wait the buttons come back and say so, and the choice can be made again", async () => {
+  const calls = [];
+  const a = alone({ node: TERMINAL_NODE, pane: { permission: permission() }, snap: { remote: false }, store: {}, waitMs: 40, sendKeys: (text, done) => { calls.push(done); return true; } });
+  try {
+    await settle();
+    a.container.findAll(".prompt-choice")[0].click();
+    await settle();
+    calls[0](true);
+    await settle();
+    assert.ok(a.container.findAll(".prompt-choice").every((b) => b.getAttribute("disabled") !== null), "not locked once the keys were written");
+    await new Promise((r) => setTimeout(r, 80));
+    await settle();
+    assert.equal(a.container.find(".prompt-status").textContent, NOT_TAKEN_WORDS);
+    assert.ok(a.container.findAll(".prompt-choice").every((b) => b.getAttribute("disabled") === null), "the buttons stayed locked");
+    a.container.findAll(".prompt-choice")[0].click();
+    await settle();
+    assert.equal(calls.length, 2, "the choice could not be made again");
   } finally {
     a.done();
   }

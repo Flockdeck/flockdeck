@@ -59,7 +59,7 @@ button.tree-toggle { cursor: pointer; }
   .tree-row { align-content: center; flex-wrap: wrap; padding: 6px 6px 6px 0; row-gap: 2px; }
   .tree-c--name { flex: 0 1 auto; }
   .tree-c--doing { flex: 1 0 100%; order: 9; overflow: visible; padding-left: calc(40px + var(--depth, 0) * 13px); white-space: normal; }
-  .tree-doing-text { flex: 1 1 auto; overflow: visible; white-space: normal; }
+  .tree-doing-text { flex: 1 1 auto; overflow: visible; overflow-wrap: anywhere; white-space: normal; }
   .tree-chips { flex-wrap: wrap; }
   .tree-c--cost { margin-left: auto; }
 }

@@ -430,6 +430,9 @@ export function createTerminal(opts) {
           set({ reason: refusedReason });
         }
       }
+      // The socket may have opened before the hello that says this window may report;
+      // that size was dropped, and nothing else would send it.
+      if (reported === null) scheduleReport();
       return;
     }
     pty = createPty({
@@ -551,7 +554,7 @@ export function createTerminal(opts) {
     fitToBox() {
       if (!term || !fit || !pty) return false;
       measure();
-      if (!box) return false;
+      if (!box || box.cols < MIN_COLS || box.rows < MIN_ROWS) return false;
       const sent = pty.sendResize(box.cols, box.rows);
       if (sent) reported = { cols: box.cols, rows: box.rows };
       return sent;
