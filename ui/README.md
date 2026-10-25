@@ -9,7 +9,7 @@ The browser front end and what builds and tests it. It is its own Go module (`gi
 
 ## Working on the front end without a build
 
-Set `FLOCKDECK_UI_DIR` to the `src` folder and start Flockdeck. The server serves the page and its files from that folder, as they are (not joined), and reads them on each request, so a reload shows an edit. It logs the folder at start. A folder with no `index.html` is ignored, with a log line saying so.
+Set `FLOCKDECK_UI_DIR` to the `src` folder and start Flockdeck. The server serves the page and its files from that folder, as they are (not joined), and reads them on each request, so a reload shows an edit. It logs the folder at start. A folder with no `index.html` is ignored, with a log line saying so. Quotes around the value and spaces at either end are taken off (cmd.exe keeps both in `set X="C:\my files"`), and if the folder has a `src` with an `index.html` in it the log line says so.
 
 Windows reached through the relay are always served the files built into the program, so the folder never goes to a phone and the relay's compressed copies stay those of the built-in files.
 
