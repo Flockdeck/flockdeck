@@ -525,6 +525,12 @@ func (s *Server) setFontFamily(c *controlClient, family string) {
 // The server does not read what is in them. A patch outside the limits is refused,
 // and the window that sent it is told why.
 func (s *Server) setUIPrefs(c *controlClient, patch map[string]json.RawMessage) {
+	if c.remote {
+		if kept := withoutDeskOnlyUI(patch); len(kept) != len(patch) {
+			c.notify(uiDeskOnly, true)
+			patch = kept
+		}
+	}
 	if len(patch) == 0 {
 		return
 	}
@@ -541,6 +547,37 @@ func (s *Server) setUIPrefs(c *controlClient, patch map[string]json.RawMessage) 
 			c.notify("That setting was not kept: "+refused.Error(), true)
 		}
 	})
+}
+
+// deskOnlyUIKeys are the keys of the interface's preferences that hold text the
+// person wrote, and so are not sent to a window reached through the relay, nor
+// taken from one. "tabs" is the names given to goal tabs: a name is often a task
+// title, and the relay window has no goal tabs, since it is sent no team graph.
+var deskOnlyUIKeys = []string{"tabs"}
+
+// uiDeskOnly is what a window reached through the relay is told when it sets one.
+const uiDeskOnly = "Goal tab names are kept on the machine Flockdeck runs on, not from a window reached through the relay"
+
+// withoutDeskOnlyUI is ui without the desk-only keys, as a new map; ui itself is
+// shared and is not changed.
+func withoutDeskOnlyUI[V any](ui map[string]V) map[string]V {
+	has := false
+	for _, k := range deskOnlyUIKeys {
+		if _, ok := ui[k]; ok {
+			has = true
+		}
+	}
+	if !has {
+		return ui
+	}
+	out := make(map[string]V, len(ui))
+	for k, v := range ui {
+		out[k] = v
+	}
+	for _, k := range deskOnlyUIKeys {
+		delete(out, k)
+	}
+	return out
 }
 
 // railWidthMin and railWidthMax bound how wide the rail may be dragged or

@@ -133,6 +133,7 @@ func prefsFor(c *controlClient, p store.Prefs) store.Prefs {
 	p = p.ForWindow()
 	if c.remote {
 		p.RemoteArtifacts = store.RemoteArtifactsPrefs{}
+		p.UI = withoutDeskOnlyUI(p.UI)
 	}
 	return p
 }
