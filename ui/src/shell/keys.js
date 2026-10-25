@@ -16,12 +16,10 @@ const PLUS = "+";
 const EQUALS = "=";
 /** A key the table writes with a symbol or a word of its own, the keys a
  *  recorded binding is not made of, and the ones a terminal leaves to the page. */
-const NAMED = { ArrowLeft: "←", ArrowRight: "→", ArrowUp: "↑", ArrowDown: "↓", " ": "Space", Escape: "Esc" };
+const NAMED = { ArrowLeft: "←", ArrowRight: "→", ArrowUp: "↑", ArrowDown: "↓", " ": "Space", Escape: "Esc", Delete: "Del" };
 const MODIFIER_KEYS = ["Control", "Shift", "Alt", "Meta", "OS"];
 const FUNCTION_KEY = /^F([1-9]|1[0-9])$/;
 const PAGE_KEYS = ["Esc", "Tab"];
-/** CLEARS take a binding away while one is being recorded. */
-const CLEARS = ["Backspace", "Delete"];
 /** keyCode of a key pressed while an input method is composing. */
 const IME = 229;
 
@@ -30,7 +28,9 @@ export const composing = (e) => !!(e.isComposing || e.keyCode === IME);
 
 /** LIST are the keys that move through, choose from and leave a list. step goes to
  *  the next match of a search, as it does in nearly every program that searches. */
-export const LIST = { up: "ArrowUp", down: "ArrowDown", left: "ArrowLeft", right: "ArrowRight", home: "Home", end: "End", accept: "Enter", cancel: "Escape", tab: "Tab", step: "F3" };
+export const LIST = { up: "ArrowUp", down: "ArrowDown", left: "ArrowLeft", right: "ArrowRight", home: "Home", end: "End", accept: "Enter", cancel: "Escape", tab: "Tab", step: "F3", remove: "Delete" };
+/** CLEARS take a binding away while one is being recorded. */
+const CLEARS = ["Backspace", LIST.remove];
 // vocabulary:end
 
 /** signature is the shape a binding and a keydown are both reduced to, so that
@@ -178,7 +178,7 @@ export function recorded(e) {
 
 /** keycaps splits a binding into the parts to draw as keys. */
 export function keycaps(spec) {
-  return spec ? spec.split("+").map((p) => p.trim()).filter(Boolean) : [];
+  return spec ? spec.split("+").map((p) => p.trim()).filter(Boolean).map((p) => (Object.prototype.hasOwnProperty.call(NAMED, p) ? NAMED[p] : p)) : [];
 }
 
 /** listMove is what a keydown does in a list: the index it moves to, "accept",

@@ -1,0 +1,357 @@
+{
+  "type": "changesTeam",
+  "req": "w1",
+  "root": "/work/project",
+  "project": "project",
+  "rev": 7,
+  "branches": [
+    {
+      "pane": "5dc771c1",
+      "cwd": "/work/project/.worktrees/api",
+      "branch": "agent/rate-limit-api",
+      "base": "main",
+      "baseSha": "1111111aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "headSha": "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
+      "upstream": "origin/agent/rate-limit-api",
+      "ahead": 0,
+      "behind": 2,
+      "uncommitted": 1,
+      "untracked": 0,
+      "lastCommit": {
+        "sha": "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
+        "subject": "Read limits from cfg/limits.yaml",
+        "at": "2026-10-21T08:40:00Z"
+      },
+      "taskId": "T1",
+      "pr": {
+        "number": 412,
+        "url": "https://example.test/project/pull/412",
+        "state": "open",
+        "title": "Rate limiting: API",
+        "mergeable": "false",
+        "reviewDecision": "review_required"
+      },
+      "files": [
+        {
+          "path": "internal/limit/limit_test.go",
+          "status": "A",
+          "added": 88,
+          "removed": 0,
+          "owner": "5dc771c1",
+          "staged": true
+        },
+        {
+          "path": "internal/limit/limit.go",
+          "status": "M",
+          "added": 61,
+          "removed": 12,
+          "owner": "5dc771c1"
+        },
+        {
+          "path": "cfg/limits.yaml",
+          "status": "M",
+          "added": 14,
+          "removed": 3,
+          "owner": "5dc771c1",
+          "conflictWith": [
+            {
+              "pane": "1ce36fdc",
+              "path": "cfg/limits.yaml"
+            }
+          ]
+        },
+        {
+          "path": "go.sum",
+          "status": "M",
+          "added": 6,
+          "removed": 2,
+          "generated": true,
+          "owner": "5dc771c1"
+        },
+        {
+          "path": "internal/limit/old_limit.go",
+          "status": "R",
+          "added": 4,
+          "removed": 4,
+          "oldPath": "internal/limit/legacy.go",
+          "similarity": 92,
+          "owner": "5dc771c1"
+        },
+        {
+          "path": "docs/limits.png",
+          "status": "M",
+          "added": 0,
+          "removed": 0,
+          "binary": true,
+          "sizeBefore": 48210,
+          "sizeAfter": 51377,
+          "owner": "5dc771c1"
+        }
+      ],
+      "checks": [
+        {
+          "name": "go test ./internal/limit",
+          "state": "fail",
+          "startedAt": "2026-10-21T08:41:00Z",
+          "finishedAt": "2026-10-21T08:42:10Z",
+          "summary": "TestBucketRefill: expected 5, got 4",
+          "source": "local",
+          "atSha": "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678"
+        },
+        {
+          "name": "go vet ./...",
+          "state": "pass",
+          "startedAt": "2026-10-21T08:41:00Z",
+          "finishedAt": "2026-10-21T08:41:30Z",
+          "summary": "",
+          "source": "local",
+          "atSha": "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678"
+        }
+      ],
+      "reviews": [
+        {
+          "reviewer": "ec776492",
+          "state": "approved",
+          "note": "Reads fine.",
+          "at": "2026-10-21T08:20:00Z",
+          "atSha": "9f8e7d6c5b4a39281706f5e4d3c2b1a098765432",
+          "stale": true
+        }
+      ],
+      "comments": [
+        {
+          "id": "c3",
+          "pane": "5dc771c1",
+          "path": "internal/limit/limit.go",
+          "side": "new",
+          "line": 57,
+          "atSha": "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
+          "text": "This refills before the window closes. Use <=.",
+          "author": "you",
+          "to": "5dc771c1",
+          "delivery": "read",
+          "state": "open",
+          "createdAt": "2026-10-21T08:50:00Z"
+        },
+        {
+          "id": "c2",
+          "pane": "5dc771c1",
+          "path": "cfg/limits.yaml",
+          "side": "new",
+          "line": 9,
+          "atSha": "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
+          "text": "Why 60? The ticket says 100.",
+          "author": "you",
+          "to": "5dc771c1",
+          "delivery": "notified",
+          "state": "fixed",
+          "createdAt": "2026-10-21T08:30:00Z",
+          "fixedAtSha": "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678"
+        }
+      ],
+      "gate": {
+        "state": "blocked",
+        "blockers": [
+          {
+            "kind": "checks",
+            "text": "go test ./internal/limit is failing"
+          },
+          {
+            "kind": "conflict",
+            "text": "search also changes cfg/limits.yaml"
+          },
+          {
+            "kind": "comments",
+            "text": "1 open comment"
+          }
+        ]
+      }
+    },
+    {
+      "pane": "366c9143",
+      "cwd": "/work/project/.worktrees/tax",
+      "branch": "agent/tax-rounding",
+      "base": "main",
+      "baseSha": "1111111aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "headSha": "c3d4e5f60718293a4b5c6d7e8f90123456789012",
+      "ahead": 3,
+      "behind": 0,
+      "uncommitted": 0,
+      "untracked": 0,
+      "lastCommit": {
+        "sha": "c3d4e5f60718293a4b5c6d7e8f90123456789012",
+        "subject": "Add regional rates",
+        "at": "2026-10-21T08:10:00Z"
+      },
+      "files": [
+        {
+          "path": "internal/tax/rates.go",
+          "status": "M",
+          "added": 120,
+          "removed": 30,
+          "owner": "366c9143"
+        }
+      ],
+      "checks": [
+        {
+          "name": "go test ./internal/tax",
+          "state": "running",
+          "startedAt": "2026-10-21T08:54:00Z",
+          "summary": "",
+          "source": "local",
+          "atSha": "c3d4e5f60718293a4b5c6d7e8f90123456789012"
+        }
+      ],
+      "reviews": [
+        {
+          "reviewer": "ec776492",
+          "state": "changes",
+          "note": "Rounding differs from the cart.",
+          "at": "2026-10-21T08:45:00Z",
+          "atSha": "c3d4e5f60718293a4b5c6d7e8f90123456789012"
+        }
+      ],
+      "comments": [],
+      "gate": {
+        "state": "blocked",
+        "blockers": [
+          {
+            "kind": "unpushed",
+            "text": "3 commits are not on a remote"
+          },
+          {
+            "kind": "review",
+            "text": "docs asked for changes"
+          },
+          {
+            "kind": "checks",
+            "text": "go test ./internal/tax is still running"
+          }
+        ]
+      }
+    },
+    {
+      "pane": "6fb40971",
+      "cwd": "/work/project/.worktrees/cart",
+      "branch": "agent/cart-totals",
+      "base": "main",
+      "baseSha": "1111111aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "headSha": "b2c3d4e5f60718293a4b5c6d7e8f901234567890",
+      "upstream": "origin/agent/cart-totals",
+      "ahead": 0,
+      "behind": 0,
+      "uncommitted": 0,
+      "untracked": 0,
+      "lastCommit": {
+        "sha": "b2c3d4e5f60718293a4b5c6d7e8f901234567890",
+        "subject": "Round cart totals half-even",
+        "at": "2026-10-21T08:30:00Z"
+      },
+      "taskId": "T2",
+      "pr": {
+        "number": 409,
+        "url": "https://example.test/project/pull/409",
+        "state": "open",
+        "title": "Cart totals",
+        "mergeable": "true",
+        "reviewDecision": "approved"
+      },
+      "files": [
+        {
+          "path": "internal/cart/total.go",
+          "status": "M",
+          "added": 22,
+          "removed": 9,
+          "owner": "6fb40971"
+        },
+        {
+          "path": "internal/cart/total_test.go",
+          "status": "M",
+          "added": 41,
+          "removed": 0,
+          "owner": "6fb40971"
+        }
+      ],
+      "checks": [
+        {
+          "name": "go test ./internal/cart",
+          "state": "pass",
+          "startedAt": "2026-10-21T08:31:00Z",
+          "finishedAt": "2026-10-21T08:31:50Z",
+          "summary": "ok",
+          "source": "local",
+          "atSha": "b2c3d4e5f60718293a4b5c6d7e8f901234567890"
+        }
+      ],
+      "reviews": [
+        {
+          "reviewer": "ec776492",
+          "state": "approved",
+          "note": "",
+          "at": "2026-10-21T08:35:00Z",
+          "atSha": "b2c3d4e5f60718293a4b5c6d7e8f901234567890"
+        }
+      ],
+      "comments": [],
+      "gate": {
+        "state": "ready",
+        "blockers": []
+      }
+    },
+    {
+      "pane": "ec776492",
+      "cwd": "/work/project",
+      "branch": "main",
+      "base": "main",
+      "baseSha": "d4e5f60718293a4b5c6d7e8f9012345678901234",
+      "headSha": "d4e5f60718293a4b5c6d7e8f9012345678901234",
+      "upstream": "origin/main",
+      "ahead": 0,
+      "behind": 0,
+      "uncommitted": 2,
+      "untracked": 1,
+      "lastCommit": {
+        "sha": "d4e5f60718293a4b5c6d7e8f9012345678901234",
+        "subject": "Merge cart totals",
+        "at": "2026-10-21T07:00:00Z"
+      },
+      "files": [
+        {
+          "path": "docs/limits.md",
+          "status": "A",
+          "added": 40,
+          "removed": 0,
+          "owner": "ec776492"
+        },
+        {
+          "path": "README.md",
+          "status": "M",
+          "added": 3,
+          "removed": 1,
+          "owner": "ec776492"
+        }
+      ],
+      "checks": [],
+      "reviews": [],
+      "comments": [],
+      "gate": {
+        "state": "blocked",
+        "blockers": [
+          {
+            "kind": "empty",
+            "text": "main is the base; there is nothing to merge"
+          }
+        ]
+      }
+    },
+    {
+      "pane": "dccc34a5",
+      "cwd": "/work/gone/migrate",
+      "error": "the directory is gone"
+    }
+  ],
+  "partial": {
+    "read": 4,
+    "total": 5
+  }
+}

@@ -1,0 +1,7 @@
+{
+  "type": "diffHunks",
+  "req": "d5",
+  "pane": "dccc34a5",
+  "path": "db/001.sql",
+  "error": "the directory is gone"
+}

@@ -1,0 +1,8 @@
+{
+  "type": "changesResult",
+  "req": "a2",
+  "op": "approveMerge",
+  "ok": false,
+  "code": "headMoved",
+  "error": "agent/cart-totals has a new commit since you looked, so nothing was approved. Look at it again."
+}

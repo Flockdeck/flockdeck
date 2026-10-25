@@ -51,10 +51,22 @@ export function GoalStrip({
     setStop(pick.closest("li").getAttribute("data-tab"));
     pick.focus();
   }, [renaming, tabs]);
+  // An archive is only followed by a focus move once the strip has lost the tab: a refused one leaves it alone.
+  const archiving = useRef(null);
+  useEffect(() => {
+    const a = archiving.current;
+    if (!a || a.tabs === tabs) return;
+    archiving.current = null;
+    if (tabs.some((x) => x.id === a.id)) return;
+    const li = root.current ? [...root.current.querySelectorAll("li")].find((n) => n.getAttribute("data-tab") === a.near) : null;
+    const to = (li && li.querySelector('[role="tab"]')) || (root.current && root.current.querySelector(".tabs-plus"));
+    if (li) setStop(a.near);
+    if (to && to.focus) to.focus();
+  }, [tabs]);
   const archive = (id) => {
     const at = tabs.findIndex((x) => x.id === id);
     const near = tabs[at + 1] || tabs[at - 1];
-    if (near) refocus.current = near.id;
+    archiving.current = { id, near: near ? near.id : "", tabs };
     onArchive(id);
   };
   const onListKey = (e) => {
@@ -67,6 +79,18 @@ export function GoalStrip({
     else if (e.key === LIST.left) to = (at - 1 + tabs.length) % tabs.length;
     else if (e.key === LIST.home) to = 0;
     else if (e.key === LIST.end) to = tabs.length - 1;
+    if (e.key === LIST.remove) {
+      // Delete archives the goal under the keyboard, as the close button does; Solo has no close button and keeps its tab.
+      const t = tabs[at];
+      if (t.kind === "team" && onArchive) {
+        e.preventDefault();
+        e.stopPropagation();
+        // A held key repeats, and focus moves to the neighbour after the first: one press archives one goal.
+        if (e.repeat) return;
+        archive(t.id);
+      }
+      return;
+    }
     if (to < 0) return;
     e.preventDefault();
     e.stopPropagation();
@@ -76,7 +100,7 @@ export function GoalStrip({
     if (pick) pick.focus();
   };
   return html`
-    <div class="goaltabs" role="toolbar" aria-label="Goals" ref=${root}>
+    <div class="goaltabs" role="group" aria-label="Goals" ref=${root}>
       <ul class="goaltabs-list" role="tablist" aria-label="Goals" onKeyDown=${onListKey}>
         ${tabs.map((t) => {
           if (renaming === t.id) {
@@ -96,14 +120,14 @@ export function GoalStrip({
               ? (e) => { e.preventDefault(); onMove(dragging, goals.findIndex((g) => g.id === t.id)); setDragging(""); }
               : undefined}
             onDragEnd=${() => setDragging("")}>
-            <button type="button" class="tab-pick" role="tab" aria-selected=${t.id === active ? "true" : "false"} aria-label=${labelFor(t)} title=${t.title}
+            <button type="button" class="tab-pick" role="tab" aria-selected=${t.id === active ? "true" : "false"} aria-label=${labelFor(t)} aria-keyshortcuts=${goal && onArchive ? LIST.remove : undefined} title=${t.title}
               tabindex=${t.id === stopId ? "0" : "-1"} onFocus=${() => setStop(t.id)} onClick=${() => onSelect(t.id)}
               onDblClick=${goal && onRename ? () => setRenaming(t.id) : undefined}>
               <span class="tab-title">${t.label}</span>
               ${t.needs > 0 ? html`<span class="badge badge--waiting tab-needs" aria-hidden="true">${t.needs}</span>` : t.activity ? html`<span class=${"tab-dot tab-dot--" + t.activity} aria-hidden="true"></span>` : null}
             </button>
             ${goal && onArchive
-              ? html`<button type="button" class="tab-close" aria-label=${"Archive goal " + t.label} title="Archive this goal's tab" onClick=${() => archive(t.id)}>×</button>`
+              ? html`<button type="button" class="tab-close" aria-hidden="true" tabindex="-1" title="Archive this goal's tab" onClick=${() => archive(t.id)}>×</button>`
               : null}
           </li>`;
         })}
@@ -118,6 +142,7 @@ export function GoalStrip({
         ${current && current.kind === "team"
           ? html`<hr class="tabs-sep" />
               ${onRename ? html`<button type="button" role="menuitem" class="tabs-btn" onClick=${act(() => setRenaming(current.id))}>Rename this goal</button>` : null}
+              ${onArchive ? html`<button type="button" role="menuitem" class="tabs-btn tabs-archive" onClick=${act(() => archive(current.id))}>Archive this goal</button>` : null}
               ${onStep ? html`<button type="button" role="menuitem" class="tabs-btn" onClick=${act(() => onStep(current.id, -1))} disabled=${!canStep(current.id, -1)}>Move left</button>
               <button type="button" role="menuitem" class="tabs-btn" onClick=${act(() => onStep(current.id, 1))} disabled=${!canStep(current.id, 1)}>Move right</button>` : null}`
           : null}

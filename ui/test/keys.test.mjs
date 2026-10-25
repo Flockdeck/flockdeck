@@ -58,6 +58,11 @@ test("a keydown on a bare key matches no modified binding", () => {
 test("keycaps splits a binding into its keys", () => {
   assert.deepEqual(keycaps("Ctrl+Shift+K"), ["Ctrl", "Shift", "K"]);
   assert.deepEqual(keycaps(""), []);
+  // Named keys are drawn as the recorder writes them.
+  assert.deepEqual(keycaps(LIST.remove), ["Del"]);
+  assert.deepEqual(keycaps("Alt+ArrowLeft"), ["Alt", "←"]);
+  assert.deepEqual(keycaps("Ctrl+Escape"), ["Ctrl", "Esc"]);
+  assert.deepEqual(keycaps("constructor"), ["constructor"], "a name on the object prototype is not a key name");
 });
 
 test("list keys move, wrap, accept and cancel", () => {

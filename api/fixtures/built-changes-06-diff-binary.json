@@ -1,0 +1,12 @@
+{
+  "type": "diffHunks",
+  "req": "d3",
+  "pane": "5dc771c1",
+  "path": "docs/limits.png",
+  "against": "merge-base",
+  "binary": true,
+  "sizeBefore": 48210,
+  "sizeAfter": 51377,
+  "hunks": [],
+  "totalLines": 0
+}

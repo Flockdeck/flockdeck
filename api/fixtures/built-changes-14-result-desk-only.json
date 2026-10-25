@@ -1,0 +1,8 @@
+{
+  "type": "changesResult",
+  "req": "k2",
+  "op": "commentAdd",
+  "ok": false,
+  "code": "deskOnly",
+  "error": "Review comments are added on the machine Flockdeck runs on, not from a window reached through the relay"
+}

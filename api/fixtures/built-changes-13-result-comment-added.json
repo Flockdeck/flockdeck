@@ -1,0 +1,19 @@
+{
+  "type": "changesResult",
+  "req": "k1",
+  "op": "commentAdd",
+  "ok": true,
+  "comment": {
+    "id": "c4",
+    "pane": "5dc771c1",
+    "path": "internal/limit/limit.go",
+    "side": "new",
+    "line": 57,
+    "atSha": "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
+    "text": "Add a test for the boundary.",
+    "author": "you",
+    "to": "5dc771c1",
+    "state": "open",
+    "createdAt": "2026-10-21T08:58:00Z"
+  }
+}
