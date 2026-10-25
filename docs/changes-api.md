@@ -30,7 +30,8 @@ today and not an error.
 | `changesChecks` | `runChecks`, `requestReview`, `submitReview` and the `checks` and `reviews` of each branch. Without it both are empty. |
 | `changesGate` | `approveMerge`, `unapproveMerge`, `mergeBranch` and the `gate` of each branch. Without it `gate` is absent. |
 
-A cap is added to `api.caps` in the change that builds what it names. A window
+A cap is added to `api.caps` in the change that builds what it names.
+`changesTeam` came with API 1.5. A window
 reached through the relay is sent none of the five (section 9).
 
 ## 2. Commands
@@ -68,6 +69,7 @@ Which command answers with which code:
 | `headMoved` | `commentAdd`, `submitReview`, `approveMerge`, `mergeBranch` (`expectSha` is not the head). |
 | `checksNotPassing`, `conflicts`, `openComments`, `reviewChangesRequested`, `unpushed`, `empty` | `approveMerge`, in that order. |
 | `notApproved` | `mergeBranch`, when the gate is not approved for that head. |
+| `busy` | `changesSnapshot`, `filesPage`, `diffHunks` and `diffContext`, when the same window still has an earlier request of that kind being answered. One of each kind runs at a time for a window. |
 | `notClean`, `notFastForward`, `failed` | `mergeBranch`. |
 
 The fields these commands use, besides `cmd`:
@@ -122,7 +124,12 @@ copies), `binary` with `sizeBefore` and `sizeAfter`, `generated`, `modeChange`,
 - `files` holds the committed changes since `baseSha` and the uncommitted ones
   together; a file in both is one entry. Most changed first (lines added plus
   removed, then path). At most 2000 are listed and `omitted` counts the rest;
-  `filesPage` reads the whole list in order.
+  `filesPage` reads the whole list in order, from the watch's last read when the
+  window is watching, so its pages agree with the totals it was pushed.
+- A checkout whose changes are too many to list (git's listing is past 16 MiB)
+  is an entry with the `error` "too many changes to list". Line counts of untracked
+  files are kept between polls and read again only when a file's size or time
+  changed; past 64 MiB read in one poll, the rest are listed with no count.
 - `generated` is decided by path: lockfiles (`go.sum`, `package-lock.json`,
   `yarn.lock`, `pnpm-lock.yaml`, `Cargo.lock`), directories named `vendor` or
   `node_modules`, and names ending `.min.js`, `.min.css` or `.pb.go`.
@@ -280,7 +287,9 @@ relay is refused every command here, and `changesTeam`, `changesFiles`,
 is sent is that refusal: `code` is `deskOnly` or `unsupported` and `error` is the
 fixed sentence for that code, whatever the desktop wrote; anything else, and an
 answer that holds a comment or a gate, is dropped. Its hello does not
-list the five caps. The reason is what the data holds: branch names,
+list the five caps. A viewer device is refused by
+the access check before any command is read, with the notice every viewer gets and
+no `changesResult`. The reason is what the data holds: branch names,
 paths and file counts say what the project is and what an agent is doing, and a
 comment or a diff is source text. A read-only form for a relay window, with paths
 and counts and nothing else, is a decision to be made on its own; the default is

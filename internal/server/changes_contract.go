@@ -1,6 +1,9 @@
 package server
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"slices"
+)
 
 // The team-wide changes view (docs/changes-api.md, api/schema/changes.schema.json)
 // is a contract written before the server serves it. Until each part is built, its
@@ -15,12 +18,32 @@ var changesCommands = []string{
 	"approveMerge", "unapproveMerge", "mergeBranch",
 }
 
+// changesBuilt are the commands of the contract the server answers; the rest are
+// refused by changesPlanned. A command moves here in the change that builds it.
+var changesBuilt = []string{"changesWatch", "changesUnwatch", "changesSnapshot", "filesPage"}
+
 // changesCaps are the names the hello's api.caps will list as the parts are built.
-// None is listed yet: a cap is added in the change that builds what it names.
+// A cap is added in the change that builds what it names, and is not offered to a
+// window through the relay (see changesCapsFor).
 var changesCaps = []string{"changesTeam", "changesDiff", "changesComments", "changesChecks", "changesGate"}
 
 // changesMessages are the messages of the contract the server does not send yet.
-var changesMessages = []string{"changesTeam", "changesFiles", "diffHunks", "diffContext"}
+var changesMessages = []string{"diffHunks", "diffContext"}
+
+// changesCapsFor is the caps of the contract a window is told of: none for a
+// window through the relay, which is refused all of it.
+func changesCapsFor(remote bool, caps []string) []string {
+	if !remote {
+		return caps
+	}
+	var out []string
+	for _, c := range caps {
+		if !slices.Contains(changesCaps, c) {
+			out = append(out, c)
+		}
+	}
+	return out
+}
 
 const (
 	changesUnsupported = "Team-wide changes are not built into this version of Flockdeck yet"

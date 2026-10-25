@@ -27,11 +27,11 @@ import (
 // APIMajor and APIMinor are the version of the control socket's API.
 const (
 	APIMajor = 1
-	APIMinor = 4
+	APIMinor = 5
 )
 
 // apiCaps are the features of this version, in the order they were added.
-var apiCaps = []string{"clientHello", "unsupported", "apiMismatch", "uiPrefs", "keyOverrides", "paneName"}
+var apiCaps = []string{"clientHello", "unsupported", "apiMismatch", "uiPrefs", "keyOverrides", "paneName", "changesTeam"}
 
 // A deprecatedField is something the graph push still carries that a client
 // should stop reading. Nothing here is removed: the old Graph view reads most of
@@ -100,6 +100,14 @@ type apiInfo struct {
 // being marshalled cannot be changed under it.
 func currentAPI() *apiInfo {
 	return &apiInfo{Major: APIMajor, Minor: APIMinor, Caps: slices.Clone(apiCaps)}
+}
+
+// apiFor is the block a window is sent: the changes caps are left out for one
+// through the relay, which is refused the whole of that contract.
+func apiFor(remote bool) *apiInfo {
+	a := currentAPI()
+	a.Caps = changesCapsFor(remote, a.Caps)
+	return a
 }
 
 // clientHelloMsg is what a window sends once, after the hello: which version of

@@ -158,7 +158,7 @@ func TestChangesDocumentNamesEverything(t *testing.T) {
 		t.Fatal(err)
 	}
 	doc := string(raw)
-	for _, n := range slices.Concat(changesCommands, changesCaps, changesMessages, []string{"changesResult"}) {
+	for _, n := range slices.Concat(changesCommands, changesCaps, changesMessages, []string{"changesResult", "changesTeam", "changesFiles"}) {
 		if !strings.Contains(doc, "`"+n+"`") {
 			t.Errorf("docs/changes-api.md does not name `%s`", n)
 		}
@@ -203,9 +203,10 @@ func TestChangesDocumentNamesEverything(t *testing.T) {
 
 // No cap of the contract is listed until it is built.
 func TestChangesCapsAreNotListedYet(t *testing.T) {
+	built := []string{"changesTeam"}
 	for _, n := range changesCaps {
-		if slices.Contains(apiCaps, n) {
-			t.Errorf("api.caps lists %s, which is not built", n)
+		if slices.Contains(apiCaps, n) != slices.Contains(built, n) {
+			t.Errorf("api.caps and what is built disagree about %s", n)
 		}
 	}
 }
@@ -213,6 +214,9 @@ func TestChangesCapsAreNotListedYet(t *testing.T) {
 func TestPlannedChangesCommandsAreRefused(t *testing.T) {
 	srv, _ := newTestServer(t)
 	for _, name := range changesCommands {
+		if slices.Contains(changesBuilt, name) {
+			continue
+		}
 		c := &controlClient{out: make(chan []byte, 8)}
 		srv.handleCommand(c, command{Cmd: name, ID: "p1", Req: "r1"})
 		var m changesResultMsg
