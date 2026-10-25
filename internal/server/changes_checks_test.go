@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -130,5 +131,59 @@ func TestChecksAndReviewsAreRefusedToAConnectionThatIsNotAPage(t *testing.T) {
 		if m := answerOf(t, cl); m.Code != "deskOnly" || m.Op != name || m.OK {
 			t.Errorf("%s: answer = %+v, want deskOnly", name, m)
 		}
+	}
+}
+
+func TestAFailedListingOfBranchesMeansNoBranchIsGone(t *testing.T) {
+	lists := map[string]map[string]bool{"a": {"main": true, "feat": true}, "b": {"main": true, "other": true}}
+	list := func(d string) (map[string]bool, error) {
+		if l, ok := lists[d]; ok {
+			return l, nil
+		}
+		return nil, errors.New("not a repository")
+	}
+	got := unionBranches([]string{"a", "b"}, list)
+	if !got["feat"] || !got["other"] || !got["main"] || got["gone"] {
+		t.Errorf("a branch in only one checkout must count as live: %v", got)
+	}
+	if got := unionBranches([]string{"a", "broken"}, list); got != nil {
+		t.Errorf("a failed listing gave %v, want nil", got)
+	}
+}
+
+func TestADamagedStateFileIsReportedOnceUntilItLoads(t *testing.T) {
+	reviewsMu.Lock()
+	defer reviewsMu.Unlock()
+	p := "damaged-test-state.json"
+	defer delete(damagedReviews, p)
+	bad := errors.New("damaged")
+	if !firstDamage(p, bad) || firstDamage(p, bad) {
+		t.Fatal("want one notice for the same damage")
+	}
+	if firstDamage(p, nil) {
+		t.Fatal("a good load is not damage")
+	}
+	if !firstDamage(p, bad) {
+		t.Error("damage after a good load is reported again")
+	}
+}
+
+func TestAFailedLookAfterTheRunConfirmsNothing(t *testing.T) {
+	failed := changes.Branch{Error: "git failed"}
+	pass := changes.Check{Name: "unit", State: "pass", Source: "local", AtSha: "abc1234"}
+	if got := confirmAfterRun(pass, "unit", "abc1234", failed, false); got.State != "pass" || !got.Worktree {
+		t.Errorf("pass = %+v, want a pass marked worktree", got)
+	}
+	fail := changes.Check{Name: "unit", State: "fail", Source: "local", AtSha: "abc1234"}
+	if got := confirmAfterRun(fail, "unit", "abc1234", failed, false); got.State != "queued" || got.AtSha != "abc1234" || got.Worktree {
+		t.Errorf("fail = %+v, want queued", got)
+	}
+	moved := changes.Branch{HeadSha: "def5678"}
+	if got := confirmAfterRun(pass, "unit", "abc1234", moved, false); got.State != "queued" || got.AtSha != "def5678" {
+		t.Errorf("moved head = %+v", got)
+	}
+	same := changes.Branch{HeadSha: "abc1234"}
+	if got := confirmAfterRun(pass, "unit", "abc1234", same, false); got.State != "pass" || got.Worktree {
+		t.Errorf("confirmed pass = %+v", got)
 	}
 }

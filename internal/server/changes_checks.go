@@ -151,14 +151,24 @@ var damagedReviews = map[string]bool{}
 // is an empty state and one notice to the windows until it loads again.
 func (s *Server) loadReviews(path string) changes.ReviewState {
 	st, err := changes.LoadReviews(path)
-	switch {
-	case err == nil:
-		delete(damagedReviews, path)
-	case !damagedReviews[path]:
-		damagedReviews[path] = true
+	if firstDamage(path, err) {
 		s.notifyAll("Reviews are not shown: "+err.Error(), true)
 	}
 	return st
+}
+
+// firstDamage says whether err is the first report of path as damaged since it
+// last loaded. A nil err clears the record. reviewsMu must be held.
+func firstDamage(path string, err error) bool {
+	if err == nil {
+		delete(damagedReviews, path)
+		return false
+	}
+	if damagedReviews[path] {
+		return false
+	}
+	damagedReviews[path] = true
+	return true
 }
 
 // sameSha says whether a window's sha and the head are the same commit. A window
@@ -326,24 +336,31 @@ func (s *Server) changesRunChecks(c *controlClient, cmd command) {
 			// change files back before this look.
 			actx, acancel := context.WithTimeout(ctx, changesReadLimit)
 			nb, nd := readHead(actx, cmd.ID, cwd)
-			switch {
-			case nb.Error != "":
-				// Not looked at again, so not confirmed: a pass is marked as a worktree
-				// result and anything else is queued.
-				if res.State == "pass" {
-					res.MarkDirty()
-				} else {
-					res = changes.Check{Name: d.Name, State: "queued", Source: "local", AtSha: head}
-				}
-			case nb.HeadSha != head:
-				res = changes.Check{Name: d.Name, State: "queued", Source: "local", AtSha: nb.HeadSha}
-			case nd && !res.Worktree:
-				res.MarkDirty()
-			}
+			res = confirmAfterRun(res, d.Name, head, nb, nd)
 			acancel()
 			s.checks.put(cmd.ID, res)
 		}
 	}()
+}
+
+// confirmAfterRun settles a result against the look taken after the check ran. A
+// head that moved makes it queued for the new head; a tree that became dirty marks
+// it. A look that failed confirms nothing: a pass is marked as a worktree result
+// and anything else is queued.
+func confirmAfterRun(res changes.Check, name, head string, nb changes.Branch, dirty bool) changes.Check {
+	switch {
+	case nb.Error != "":
+		if res.State == "pass" {
+			res.MarkDirty()
+			return res
+		}
+		return changes.Check{Name: name, State: "queued", Source: "local", AtSha: head}
+	case nb.HeadSha != head:
+		return changes.Check{Name: name, State: "queued", Source: "local", AtSha: nb.HeadSha}
+	case dirty && !res.Worktree:
+		res.MarkDirty()
+	}
+	return res
 }
 
 // reviewerNote is what the window wrote to go with a request, cleaned. It is
@@ -446,9 +463,15 @@ func (s *Server) liveBranches(cwd, root string) map[string]bool {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), changesReadLimit)
 	defer cancel()
+	return unionBranches(cwds, func(d string) (map[string]bool, error) { return changes.LiveBranches(ctx, d) })
+}
+
+// unionBranches is the branches listed in any of the checkouts, or nil when a
+// listing fails: a branch is gone only if every checkout was asked and none has it.
+func unionBranches(cwds []string, list func(cwd string) (map[string]bool, error)) map[string]bool {
 	all := map[string]bool{}
 	for _, d := range cwds {
-		live, err := changes.LiveBranches(ctx, d)
+		live, err := list(d)
 		if err != nil {
 			return nil
 		}

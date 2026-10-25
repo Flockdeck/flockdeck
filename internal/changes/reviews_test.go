@@ -1,8 +1,10 @@
 package changes
 
 import (
+	"context"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -130,5 +132,80 @@ func TestNotesAndLinesLoseInvisibleSeparators(t *testing.T) {
 	}
 	if got := cleanLine(in, 100); strings.ContainsAny(got, "⁠⁣​‮\x07") {
 		t.Errorf("cleanLine = %q", got)
+	}
+}
+
+func TestLiveBranchesListsBranchesAndFailsOutsideARepository(t *testing.T) {
+	dir := repo(t)
+	runGit(t, dir, "branch", "feat/one")
+	live, err := LiveBranches(context.Background(), dir)
+	if err != nil || !live["main"] || !live["feat/one"] || live["feat/two"] {
+		t.Errorf("live = %v, err = %v", live, err)
+	}
+	if live, err := LiveBranches(context.Background(), t.TempDir()); err == nil || live != nil {
+		t.Errorf("outside a repository: %v, %v, want an error and no list", live, err)
+	}
+}
+
+func TestAFullStateKeepsApprovedAndChangesReviewsOfLiveBranches(t *testing.T) {
+	at := time.Now().UTC().Format(time.RFC3339)
+	full := func() ReviewState {
+		var st ReviewState
+		for i := 0; i < MaxReviews; i++ {
+			state := "approved"
+			if i%2 == 1 {
+				state = "changes"
+			}
+			st.Reviews = append(st.Reviews, reviewRecord{Branch: "b" + strconv.Itoa(i), Review: Review{Reviewer: "p", State: state, At: at, AtSha: testSha}})
+		}
+		return st
+	}
+	nothingGone := func(string) bool { return false }
+	st := full()
+	if err := st.Set("new", Review{Reviewer: "p", State: "approved", At: at, AtSha: testSha}, nothingGone); err != ErrReviewsFull || len(st.Reviews) != MaxReviews {
+		t.Errorf("all branches live: %v, %d reviews", err, len(st.Reviews))
+	}
+	for _, r := range st.Reviews {
+		if r.Branch == "new" {
+			t.Error("a review was recorded in a full state")
+		}
+	}
+	// A failed listing is passed as nil, which also drops nothing.
+	st = full()
+	if err := st.Set("new", Review{Reviewer: "p", State: "approved", At: at, AtSha: testSha}, nil); err != ErrReviewsFull {
+		t.Errorf("no listing: %v", err)
+	}
+	// Only the branch that is gone gives its approval up.
+	st = full()
+	if err := st.Set("new", Review{Reviewer: "p", State: "approved", At: at, AtSha: testSha}, func(b string) bool { return b == "b0" }); err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range st.Reviews {
+		if r.Branch == "b0" {
+			t.Error("the gone branch kept its place")
+		}
+	}
+	if len(st.Reviews) != MaxReviews {
+		t.Errorf("%d reviews", len(st.Reviews))
+	}
+}
+
+func TestADamagedFileIsCopiedOnceAndNeverOverwritten(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "s.json")
+	for _, body := range []string{"{", "{", "[1"} {
+		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := LoadReviews(p); err == nil {
+			t.Fatalf("%q loaded", body)
+		}
+	}
+	for name, want := range map[string]string{p + ".bad": "{", p + ".bad.1": "[1"} {
+		if got, err := os.ReadFile(name); err != nil || string(got) != want {
+			t.Errorf("%s = %q, %v, want %q", filepath.Base(name), got, err, want)
+		}
+	}
+	if _, err := os.Stat(p + ".bad.2"); err == nil {
+		t.Errorf("an identical copy was written again")
 	}
 }
