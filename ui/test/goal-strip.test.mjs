@@ -132,7 +132,7 @@ test("the views are on a row of their own, not inside the strip", () =>
     await m.connect();
     const bar = m.container.find(".viewbar");
     assert.ok(bar);
-    assert.deepEqual(bar.findAll(".tabs-view").map((b) => b.textContent.trim()), ["Team", "Dependencies", "Graph", "Board", "Changes", "Replay"]);
+    assert.deepEqual(bar.findAll(".tabs-view").map((b) => b.textContent.trim()), ["Team", "Dependencies", "Board", "Changes", "Replay"]);
     assert.equal(m.container.find(".goaltabs").findAll(".tabs-view").length, 0);
     assert.equal(m.container.find(".goaltabs").findAll(".viewbar").length, 0);
     assert.equal(m.container.find(".tabs"), null, "the desk's tab strip is gone");
@@ -167,6 +167,127 @@ test("renaming is a double click; Enter keeps the name in the preferences, Escap
     m.tabs()[2].find(".tab-pick").dispatch("dblclick");
     await settle();
     assert.equal(m.container.find(".tab-rename"), null);
+  }));
+
+test("a rename keeps what was typed when the field loses focus, and Escape then blur does not", () =>
+  withPage({}, async (m) => {
+    await m.connect();
+    m.clear();
+    m.tabs()[1].find(".tab-pick").dispatch("dblclick");
+    await settle();
+    let box = m.container.find(".tab-rename");
+    box.value = "Tests";
+    box.dispatch("input");
+    box.keydown("Escape");
+    box.dispatch("blur");
+    await settle();
+    assert.equal(m.sent("uiPrefs").length, 0, "Escape was undone by the blur that followed");
+    m.tabs()[1].find(".tab-pick").dispatch("dblclick");
+    await settle();
+    box = m.container.find(".tab-rename");
+    box.value = "Tests";
+    box.dispatch("input");
+    await settle();
+    box.dispatch("blur");
+    await settle();
+    assert.deepEqual(m.sent("uiPrefs"), [{ cmd: "uiPrefs", ui: { "tabs.names": { [TWO]: "Tests" } } }]);
+  }));
+
+test("focus goes back to the tab after a rename at the keyboard, and to its neighbour after an archive", () =>
+  withPage({}, async (m) => {
+    await m.connect();
+    m.tabs()[1].find(".tab-pick").dispatch("dblclick");
+    await settle();
+    m.container.find(".tab-rename").keydown("Escape");
+    await settle();
+    const doc = m.container.ownerDocument;
+    assert.equal(doc.activeElement, m.tabs()[1].find(".tab-pick"), "focus was lost with the field");
+    await m.click(m.tabs()[1].find(".tab-close"));
+    await settle();
+    assert.ok(doc.activeElement && doc.activeElement.getAttribute("role") === "tab", "focus was lost with the archived tab");
+  }));
+
+test("the + menu: Home and End go to the first and last item, Tab closes it", () =>
+  withPage({}, async (m) => {
+    await m.connect();
+    await m.plus();
+    const items = () => m.container.findAll('[role="menuitem"]').filter((b) => !b.disabled);
+    const doc = m.container.ownerDocument;
+    const menu = m.container.find(".tabs-menu");
+    assert.ok(items().length > 2);
+    menu.keydown("End");
+    await settle();
+    assert.equal(doc.activeElement, items()[items().length - 1]);
+    menu.keydown("Home");
+    await settle();
+    assert.equal(doc.activeElement, items()[0]);
+    menu.keydown("Tab");
+    await settle();
+    assert.equal(m.container.find(".tabs-menu"), null, "Tab left the menu open");
+  }));
+
+test("archiving a middle goal puts focus on its neighbouring tab", () =>
+  withPage({}, async (m) => {
+    await m.connect();
+    const doc = m.container.ownerDocument;
+    assert.deepEqual(m.ids(), [ONE, TWO, "solo"]);
+    await m.click(m.tabs()[0].find(".tab-close"));
+    await settle();
+    assert.deepEqual(m.ids(), [TWO, "solo"]);
+    assert.equal(doc.activeElement, m.tabs()[0].find('[role="tab"]'), "focus did not go to the tab that took its place");
+    await m.click(m.tabs()[0].find(".tab-close"));
+    await settle();
+    assert.deepEqual(m.ids(), ["solo"]);
+    assert.equal(doc.activeElement, m.tabs()[0].find('[role="tab"]'), "focus did not go to Solo, the last tab");
+  }));
+
+test("the strip is a group, not a toolbar; the close button is out of the tab order; Delete and the menu item archive", () =>
+  withPage({}, async (m) => {
+    await m.connect();
+    const strip = m.container.find(".goaltabs");
+    assert.equal(strip.getAttribute("role"), "group");
+    assert.equal(m.container.findAll('[role="toolbar"]').filter((n) => n.getAttribute("class") === "goaltabs").length, 0);
+    const close = m.tabs()[0].find(".tab-close");
+    assert.equal(close.getAttribute("tabindex"), "-1");
+    assert.equal(close.getAttribute("aria-hidden"), "true");
+    // Delete on the focused tab archives it, as the close button does, and Solo keeps its tab.
+    m.clear();
+    m.tabs()[2].find('[role="tab"]').keydown("Delete");
+    await settle();
+    assert.equal(m.sent("uiPrefs").length, 0, "Solo was archived");
+    m.tabs()[0].find('[role="tab"]').keydown("Delete");
+    await settle();
+    assert.deepEqual(m.sent("uiPrefs"), [{ cmd: "uiPrefs", ui: { "tabs.archived": [ONE] } }]);
+    assert.deepEqual(m.ids(), [TWO, "solo"]);
+    // The + menu has the same action for the goal being shown, and focus ends on the tab that took its place.
+    m.clear();
+    await m.plus();
+    const item = m.container.findAll(".tabs-archive");
+    assert.equal(item.length, 1);
+    assert.ok(item[0].textContent.includes("Del"), "the key is shown on the item");
+    await m.click(item[0]);
+    await settle();
+    assert.equal(m.sent("uiPrefs").length, 1);
+    assert.deepEqual(m.ids(), ["solo"]);
+    assert.equal(m.container.ownerDocument.activeElement, m.tabs()[0].find('[role="tab"]'), "focus did not land on the neighbouring tab");
+    // And it comes back from the menu.
+    await m.plus();
+    assert.equal(m.container.findAll(".tabs-restore").length, 2);
+  }));
+
+test("a held Delete archives one goal, not every goal", () =>
+  withPage({}, async (m) => {
+    await m.connect();
+    m.clear();
+    const tab = m.tabs()[0].find('[role="tab"]');
+    tab.keydown("Delete");
+    await settle();
+    // Focus has moved to the next goal; the key is still down and repeats.
+    m.tabs()[0].find('[role="tab"]').keydown("Delete", { repeat: true });
+    m.tabs()[0].find('[role="tab"]').keydown("Delete", { repeat: true });
+    await settle();
+    assert.deepEqual(m.ids(), [TWO, "solo"]);
+    assert.equal(m.sent("uiPrefs").length, 1);
   }));
 
 test("a name and an order kept in the preferences are used", () =>

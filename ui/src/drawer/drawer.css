@@ -53,7 +53,7 @@
   font-size: 12px;
 }
 .fact { display: flex; gap: 5px; min-width: 0; }
-.fact dt { color: var(--fg-faint); }
+.fact dt { color: var(--fg-dim); }
 .fact dd { margin: 0; color: var(--fg); overflow-wrap: anywhere; }
 .fact--waiting dd, .fact--blocked dd { color: var(--waiting); }
 .fact--exited dd, .fact--failed dd { color: var(--exited); }
@@ -254,7 +254,7 @@
 .md-code { margin: 0; padding: 6px 8px; overflow-x: auto; font-family: var(--mono); font-size: 12px; line-height: 1.45; white-space: pre; }
 .md-code.wrap { white-space: pre-wrap; overflow-wrap: anywhere; }
 .md-code code { padding: 0; background: none; }
-.tok-com { color: var(--fg-faint); } .tok-str { color: var(--ok); } .tok-kw { color: var(--cast); } .tok-num { color: var(--waiting); } .tok-tag { color: var(--accent); }
+.tok-com { color: var(--fg-dim); } .tok-str { color: var(--ok); } .tok-kw { color: var(--cast); } .tok-num { color: var(--waiting); } .tok-tag { color: var(--accent); }
 .tok-diff-add { color: var(--ok); } .tok-diff-del { color: var(--exited); } .tok-diff-hunk { color: var(--accent); }
 .conv-tool-title { flex: 1 1 auto; min-width: 0; font-family: var(--mono); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .conv-status { flex: 0 0 auto; color: var(--fg-dim); }
@@ -273,7 +273,7 @@
 .structured-log { max-height: 50vh; overflow: auto; }
 .structured-prompt { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; }
 .structured-input { flex: 1 1 240px; resize: vertical; font: inherit; color: var(--fg); background: var(--bg-inset); border: 1px solid var(--line-strong); border-radius: var(--radius); padding: 6px 8px; }
-.structured-input::placeholder { color: var(--fg-faint); }
+.structured-input::placeholder { color: var(--fg-dim); }
 .structured-note { flex: 1 1 100%; margin: 0; color: var(--waiting); font-size: 12px; }
 
 /* Restart, lock and close, under the header. */
@@ -427,3 +427,7 @@
 @media (max-width: 640px) {
   .drawer-layout { display: none; }
 }
+
+/* Live regions are always in the page, so a change in them is announced; empty, they take no room. */
+.conv-toolbar-note:empty, .conv-results-note:empty { position: absolute; }
+.conv-detail-state:empty, .task-empty:empty, .chg-busy:empty { margin: 0; }

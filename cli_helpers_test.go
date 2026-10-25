@@ -22,9 +22,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jmwri/flockdeck/ui/help"
 	"github.com/jmwri/flockdeck/internal/helpers"
 	"github.com/jmwri/flockdeck/internal/selfupdate"
+	"github.com/jmwri/flockdeck/ui/help"
 )
 
 // helperRelease serves a lens release for this platform from a fake GitHub.

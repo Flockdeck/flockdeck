@@ -24,7 +24,11 @@ class FakeWebSocket {
 
 const { createStore } = await load("src/lib/store.js");
 const { buildGraphModel } = await load("src/graph/model.js");
-const { Graph } = await load("src/graph/Graph.js");
+// The canvas Graph was removed from the current front end, and the previous one
+// still has it: draw what a tree has, the canvas where there is one and the Team
+// outline where there is not.
+const canvas = await load("src/graph/Graph.js").then((m) => m.Graph, () => null);
+const { Tree } = canvas ? { Tree: null } : await load("src/graph/Tree.js");
 const { html } = await load("src/html.js");
 const { renderToString } = await load("test/vendor/render-to-string.mjs");
 
@@ -42,8 +46,12 @@ for (const name of names) {
     ws.frame({ type: "graph", ...msg });
     const g = store.getState().graph;
     if (!g || !Array.isArray(g.nodes) || g.nodes.length !== msg.nodes.length) throw new Error("the store did not keep the graph push");
-    const svg = renderToString(html`<${Graph} model=${buildGraphModel(g)} />`);
-    if (!svg.includes("<svg")) throw new Error("the graph did not draw");
+    const model = buildGraphModel(g);
+    if (canvas) {
+      if (!renderToString(html`<${canvas} model=${model} />`).includes("<svg")) throw new Error("the graph did not draw");
+    } else if (!renderToString(html`<${Tree} model=${model} />`).includes('class="tree')) {
+      throw new Error("the team outline did not draw");
+    }
     store.stop();
   } catch (err) {
     out.ok = false;

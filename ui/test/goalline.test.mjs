@@ -107,16 +107,16 @@ import { HAS_TREE, TREE_VIEW, firstViewOf, viewsOf } from "../src/shell/Views.js
 
 test("the switch offers Tree first only when the page has it, and the page starts there then", () => {
   assert.equal(HAS_TREE, true, "the outline is built in");
-  assert.deepEqual(viewsOf().map(([id]) => id), ["tree", "deps", "graph", "board", "changes", "replay"]);
-  assert.deepEqual(viewsOf(false).map(([id]) => id), ["graph", "board", "changes", "replay"]);
-  assert.deepEqual(viewsOf(true).map(([id]) => id), ["tree", "deps", "graph", "board", "changes", "replay"]);
+  assert.deepEqual(viewsOf().map(([id]) => id), ["tree", "deps", "board", "changes", "replay"]);
+  assert.deepEqual(viewsOf(false).map(([id]) => id), ["board", "changes", "replay"]);
+  assert.deepEqual(viewsOf(true).map(([id]) => id), ["tree", "deps", "board", "changes", "replay"]);
   assert.equal(firstViewOf(), TREE_VIEW[0]);
-  assert.equal(firstViewOf(false), "graph");
+  assert.equal(firstViewOf(false), "board");
   assert.equal(firstViewOf(true), TREE_VIEW[0]);
   const out = renderToString(html`<${ViewBar} view="tree" onView=${() => {}} views=${viewsOf(true)} />`);
   assert.match(out, /data-view="tree"[^>]*>Team</);
   assert.match(out, /tabs-view is-on" data-view="tree" aria-pressed="true"/);
-  assert.ok(out.indexOf('data-view="tree"') < out.indexOf('data-view="graph"'));
+  assert.ok(out.indexOf('data-view="tree"') < out.indexOf('data-view="deps"'));
 });
 
 test("the home column, not .main, is the container the layout asks about", async () => {

@@ -131,13 +131,13 @@ func TestPageLoadsTheLiveShell(t *testing.T) {
 	// "assets/main.js" from a page at the root is /assets/main.js.
 	visit(srv.URL + "/" + m[1])
 	// The entry module wires the live store: the socket, the store, the home
-	// screen with the graph, and the end-to-end key's loader.
+	// screen with the team tree, and the end-to-end key's loader.
 	var got []string
 	for k := range seen {
 		got = append(got, k)
 	}
 	sort.Strings(got)
-	for _, want := range []string{"lib/store.js", "lib/socket.js", "lib/e2e-boot.js", "shell/Live.js", "shell/Home.js", "graph/Graph.js", "graph/Edges.js", "graph/ManagerBar.js", "drawer/Conversation.js", "drawer/Structured.js"} {
+	for _, want := range []string{"lib/store.js", "lib/socket.js", "lib/e2e-boot.js", "shell/Live.js", "shell/Home.js", "graph/Tree.js", "graph/ManagerBar.js", "drawer/Conversation.js", "drawer/Structured.js"} {
 		if !seen[srv.URL+"/assets/"+want] {
 			t.Errorf("%s is not reached from the entry module; reached %v", want, got)
 		}

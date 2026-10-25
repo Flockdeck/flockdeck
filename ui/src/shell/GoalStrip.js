@@ -40,6 +40,35 @@ export function GoalStrip({
     const li = root.current ? [...root.current.querySelectorAll("li")].find((n) => n.getAttribute("data-tab") === active) : null;
     if (li && li.scrollIntoView) li.scrollIntoView({ inline: "nearest", block: "nearest" });
   }, [active]);
+  // The tab to give focus to once the strip has redrawn: after a rename ends at the keyboard, or an archive removes the focused tab.
+  const refocus = useRef("");
+  useEffect(() => {
+    if (!refocus.current || renaming || !root.current) return;
+    const li = [...root.current.querySelectorAll("li")].find((n) => n.getAttribute("data-tab") === refocus.current);
+    const pick = li ? li.querySelector('[role="tab"]') : null;
+    if (!pick) return;
+    refocus.current = "";
+    setStop(pick.closest("li").getAttribute("data-tab"));
+    pick.focus();
+  }, [renaming, tabs]);
+  // An archive is only followed by a focus move once the strip has lost the tab: a refused one leaves it alone.
+  const archiving = useRef(null);
+  useEffect(() => {
+    const a = archiving.current;
+    if (!a || a.tabs === tabs) return;
+    archiving.current = null;
+    if (tabs.some((x) => x.id === a.id)) return;
+    const li = root.current ? [...root.current.querySelectorAll("li")].find((n) => n.getAttribute("data-tab") === a.near) : null;
+    const to = (li && li.querySelector('[role="tab"]')) || (root.current && root.current.querySelector(".tabs-plus"));
+    if (li) setStop(a.near);
+    if (to && to.focus) to.focus();
+  }, [tabs]);
+  const archive = (id) => {
+    const at = tabs.findIndex((x) => x.id === id);
+    const near = tabs[at + 1] || tabs[at - 1];
+    archiving.current = { id, near: near ? near.id : "", tabs };
+    onArchive(id);
+  };
   const onListKey = (e) => {
     if (composing(e) || e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return;
     const li = e.target && e.target.getAttribute && e.target.getAttribute("role") === "tab" ? e.target.closest("li") : null;
@@ -50,6 +79,18 @@ export function GoalStrip({
     else if (e.key === LIST.left) to = (at - 1 + tabs.length) % tabs.length;
     else if (e.key === LIST.home) to = 0;
     else if (e.key === LIST.end) to = tabs.length - 1;
+    if (e.key === LIST.remove) {
+      // Delete archives the goal under the keyboard, as the close button does; Solo has no close button and keeps its tab.
+      const t = tabs[at];
+      if (t.kind === "team" && onArchive) {
+        e.preventDefault();
+        e.stopPropagation();
+        // A held key repeats, and focus moves to the neighbour after the first: one press archives one goal.
+        if (e.repeat) return;
+        archive(t.id);
+      }
+      return;
+    }
     if (to < 0) return;
     e.preventDefault();
     e.stopPropagation();
@@ -59,12 +100,13 @@ export function GoalStrip({
     if (pick) pick.focus();
   };
   return html`
-    <div class="goaltabs" role="toolbar" aria-label="Goals" ref=${root}>
+    <div class="goaltabs" role="group" aria-label="Goals" ref=${root}>
       <ul class="goaltabs-list" role="tablist" aria-label="Goals" onKeyDown=${onListKey}>
         ${tabs.map((t) => {
           if (renaming === t.id) {
-            return html`<${RenameBox} key=${t.id} tab=${{ id: t.id, title: t.label }} onDone=${(text) => {
+            return html`<${RenameBox} key=${t.id} tab=${{ id: t.id, title: t.label }} onDone=${(text, by) => {
               if (text !== null && text !== t.label) onRename(t.id, text);
+              if (by !== "blur") refocus.current = t.id;
               setRenaming("");
             }} />`;
           }
@@ -78,14 +120,14 @@ export function GoalStrip({
               ? (e) => { e.preventDefault(); onMove(dragging, goals.findIndex((g) => g.id === t.id)); setDragging(""); }
               : undefined}
             onDragEnd=${() => setDragging("")}>
-            <button type="button" class="tab-pick" role="tab" aria-selected=${t.id === active ? "true" : "false"} aria-label=${labelFor(t)} title=${t.title}
+            <button type="button" class="tab-pick" role="tab" aria-selected=${t.id === active ? "true" : "false"} aria-label=${labelFor(t)} aria-keyshortcuts=${goal && onArchive ? LIST.remove : undefined} title=${t.title}
               tabindex=${t.id === stopId ? "0" : "-1"} onFocus=${() => setStop(t.id)} onClick=${() => onSelect(t.id)}
               onDblClick=${goal && onRename ? () => setRenaming(t.id) : undefined}>
               <span class="tab-title">${t.label}</span>
               ${t.needs > 0 ? html`<span class="badge badge--waiting tab-needs" aria-hidden="true">${t.needs}</span>` : t.activity ? html`<span class=${"tab-dot tab-dot--" + t.activity} aria-hidden="true"></span>` : null}
             </button>
             ${goal && onArchive
-              ? html`<button type="button" class="tab-close" aria-label=${"Archive goal " + t.label} title="Archive this goal's tab" onClick=${() => onArchive(t.id)}>×</button>`
+              ? html`<button type="button" class="tab-close" aria-hidden="true" tabindex="-1" title="Archive this goal's tab" onClick=${() => archive(t.id)}>×</button>`
               : null}
           </li>`;
         })}
@@ -100,12 +142,13 @@ export function GoalStrip({
         ${current && current.kind === "team"
           ? html`<hr class="tabs-sep" />
               ${onRename ? html`<button type="button" role="menuitem" class="tabs-btn" onClick=${act(() => setRenaming(current.id))}>Rename this goal</button>` : null}
+              ${onArchive ? html`<button type="button" role="menuitem" class="tabs-btn tabs-archive" onClick=${act(() => archive(current.id))}>Archive this goal<kbd class="tabs-key" aria-hidden="true">Del</kbd></button>` : null}
               ${onStep ? html`<button type="button" role="menuitem" class="tabs-btn" onClick=${act(() => onStep(current.id, -1))} disabled=${!canStep(current.id, -1)}>Move left</button>
               <button type="button" role="menuitem" class="tabs-btn" onClick=${act(() => onStep(current.id, 1))} disabled=${!canStep(current.id, 1)}>Move right</button>` : null}`
           : null}
         ${archived.length > 0 && onRestore
-          ? html`<hr class="tabs-sep" /><p class="tabs-menu-head" role="presentation">Archived goals</p>
-              ${archived.map((t) => html`<button key=${t.id} type="button" role="menuitem" class="tabs-btn tabs-restore" data-tab=${t.id} title=${t.title} onClick=${act(() => onRestore(t.id))}>Show ${t.label}</button>`)}`
+          ? html`<hr class="tabs-sep" /><div role="group" aria-label="Archived goals"><p class="tabs-menu-head" aria-hidden="true">Archived goals</p>
+              ${archived.map((t) => html`<button key=${t.id} type="button" role="menuitem" class="tabs-btn tabs-restore" data-tab=${t.id} title=${t.title} onClick=${act(() => onRestore(t.id))}>Show ${t.label}</button>`)}</div>`
           : null}`}<//>
     </div>
   `;
@@ -161,13 +204,18 @@ export function PlusMenu({ children, dot = false }) {
       close(true);
       return;
     }
-    const down = e.key === LIST.down, up = e.key === LIST.up;
-    if (!down && !up) return;
+    // Tab leaves the menu: it closes and the next stop is the one after the + button.
+    if (e.key === LIST.tab) {
+      close(true);
+      return;
+    }
+    const down = e.key === LIST.down, up = e.key === LIST.up, home = e.key === LIST.home, end = e.key === LIST.end;
+    if (!down && !up && !home && !end) return;
     e.preventDefault();
     e.stopPropagation();
     const list = items();
     const at = list.indexOf(e.target);
-    const to = down ? (at + 1) % list.length : (at - 1 + list.length) % list.length;
+    const to = home ? 0 : end ? list.length - 1 : down ? (at + 1) % list.length : (at - 1 + list.length) % list.length;
     if (list[to]) list[to].focus();
   };
   return html`
@@ -180,11 +228,18 @@ export function PlusMenu({ children, dot = false }) {
 }
 
 /** RenameBox is the field a goal's name is edited in. Enter keeps it, Escape
- *  leaves the name alone, and leaving the field empty gives the tab the label
- *  made from the goal back. */
+ *  leaves the name alone, leaving the field (blur) keeps what was typed, and an
+ *  empty field gives the tab the label made from the goal back. onDone(text, by)
+ *  gets by = "blur" when focus left the field of its own accord. */
 export function RenameBox({ tab, onDone }) {
   const [value, setValue] = useState(tab.title);
   const input = useRef(null);
+  const done = useRef(false);
+  const finish = (text, by) => {
+    if (done.current) return;
+    done.current = true;
+    onDone(text, by);
+  };
   useEffect(() => {
     if (input.current && input.current.focus) input.current.focus();
   }, []);
@@ -193,17 +248,17 @@ export function RenameBox({ tab, onDone }) {
     if (e.key === LIST.accept) {
       e.preventDefault();
       e.stopPropagation();
-      onDone(value.trim());
+      finish(value.trim(), "key");
     } else if (e.key === LIST.cancel) {
       e.preventDefault();
       e.stopPropagation();
-      onDone(null);
+      finish(null, "key");
     }
   };
   return html`
     <li class="tab tab--renaming" data-tab=${tab.id}>
       <input ref=${input} class="tab-rename" type="text" maxlength=${TITLE_MAX} value=${value} aria-label="Goal name"
-        placeholder="Leave empty to use the goal's own words" onInput=${(e) => setValue(e.target.value)} onKeyDown=${onKeyDown} onBlur=${() => onDone(null)} />
+        placeholder="Leave empty to use the goal's own words" onInput=${(e) => setValue(e.target.value)} onKeyDown=${onKeyDown} onBlur=${() => finish(value.trim(), "blur")} />
     </li>
   `;
 }

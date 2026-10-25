@@ -57,6 +57,9 @@ func TestAHelperIsGivenAWorktreeByDefault(t *testing.T) {
 		if res.Branch == "" || res.Cwd == "" || sameDir(res.Cwd, repo) {
 			t.Fatalf("%+v: reply = %+v, want a branch and a worktree other than the parent's", req, res)
 		}
+		if res.Uncommitted != 1 {
+			t.Errorf("%+v: Uncommitted = %d, want the parent's one unsaved file", req, res.Uncommitted)
+		}
 		if _, err := os.Stat(filepath.Join(res.Cwd, "README.md")); err != nil {
 			t.Errorf("the worktree has no checkout: %v", err)
 		}

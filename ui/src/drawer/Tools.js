@@ -52,7 +52,6 @@ export function useTranscripts(send, ack) {
  *  the relay; terminal says the pane has a terminal to search. */
 /** AUTO_REVIEW_WORDS says what the switch does, as its tooltip and its description. */
 export const AUTO_REVIEW_WORDS = "Only a command Flockdeck is confident is read-only is let through without asking; anything else still asks.";
-export const AUTO_REVIEW_SHELL_WORDS = "A shell asks no permission, so there is nothing to auto-approve.";
 
 /** autoReviewCommand turns auto-approval of read-only commands on or off for one pane. */
 export const autoReviewCommand = (id, on) => ({ cmd: "autoReview", id, autoReview: !!on });

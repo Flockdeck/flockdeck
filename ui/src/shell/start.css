@@ -164,6 +164,8 @@
   cursor: pointer;
 }
 .tabs-btn:hover:not(:disabled), .tabs-btn:focus-visible { background: var(--bg-hover); }
+.tabs-archive { display: flex; justify-content: space-between; gap: 16px; }
+.tabs-key { color: var(--fg-dim); font: inherit; font-size: 11px; }
 .tabs-btn:disabled { color: var(--fg-dim); cursor: default; }
 /* The view switch is a row of its own under the goal strip, drawn as a segmented
    control, so it is not mistaken for more tabs. */
@@ -174,8 +176,7 @@
   max-width: 100%;
   margin: 8px 0 10px;
   padding: 2px;
-  overflow-x: auto;
-  scrollbar-width: thin;
+  flex-wrap: wrap;
   background: var(--bg-inset);
   border: 1px solid var(--line-subtle);
   border-radius: var(--radius);
@@ -226,7 +227,7 @@
 /* Phone width: the view switch wraps to a second line instead of scrolling, and the
    goal tabs keep scrolling without a bar of their own. Neither makes the page wider. */
 @media (max-width: 640px) {
-  .viewbar { display: grid; grid-template-columns: repeat(3, 1fr); width: auto; overflow-x: visible; }
+  .viewbar { display: grid; grid-template-columns: repeat(3, 1fr); width: auto; }
   .tabs-view { text-align: center; }
   .goaltabs-list { scrollbar-width: none; }
   .goaltabs-list::-webkit-scrollbar { display: none; }

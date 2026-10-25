@@ -1,206 +1,7 @@
-/* The team graph's SVG. The colours are app.css's tokens; the mark of a status
- * differs in shape as well as in colour, and the status word is always drawn,
- * so no state is told by colour alone. No rule here is for a hover. */
-.graph {
-  display: block;
-  max-width: none;
-  font-family: var(--sans);
-}
-
-.graph-empty {
-  color: var(--fg-dim);
-  padding: 16px;
-}
-
-.gteam-frame {
-  fill: var(--bg-inset);
-  stroke: var(--line);
-  stroke-width: 1;
-}
-
-/* The lines from a pane to its helpers: who belongs to whom, always there, and quieter than a message. */
-.gtree {
-  fill: none;
-  stroke: var(--line-strong);
-  stroke-width: 1;
-  opacity: 0.6;
-}
-
-.gteam-title {
-  fill: var(--fg-dim);
-  font-size: 13px;
-  font-weight: 600;
-}
-
-.gnode-box {
-  fill: var(--bg-raised);
-  stroke: var(--line-strong);
-  stroke-width: 1;
-}
-
-.gnode--manager .gnode-box {
-  stroke-width: 2;
-}
-
-.gnode--shell .gnode-box,
-.gnode--structured .gnode-box {
-  stroke-dasharray: 4 3;
-}
-
-.gnode-name {
-  fill: var(--fg);
-  font-family: var(--mono);
-  font-size: 12.5px;
-  font-weight: 600;
-}
-
-.gnode-state {
-  fill: var(--fg-faint);
-  font-size: 11px;
-}
-
-.gnode-role {
-  fill: var(--fg-faint);
-  font-size: 11px;
-}
-
-.gnode-task {
-  fill: var(--fg);
-  font-size: 12px;
-}
-
-.gnode-taskid {
-  fill: var(--fg-dim);
-  font-family: var(--mono);
-  font-size: 11px;
-}
-
-.gnode-live,
-.gnode-wait {
-  fill: var(--fg-dim);
-  font-family: var(--mono);
-  font-size: 11px;
-}
-
-.gnode-wait {
-  font-family: var(--sans);
-}
-
-.gnode-spend {
-  fill: var(--fg-dim);
-  font-family: var(--mono);
-  font-size: 11px;
-}
-
-/* A pane that is idle or ended reads quieter than one at work. */
-.gnode--idle .gnode-name,
-.gnode--exited .gnode-name,
-.gnode--failed .gnode-name {
-  fill: var(--fg-dim);
-}
-
-.gmark {
-  stroke-width: 2;
-  fill: none;
-  stroke: var(--idle);
-}
-
-.gmark--circle {
-  fill: var(--working);
-  stroke: var(--working);
-}
-
-.gmark--diamond {
-  fill: var(--waiting);
-  stroke: var(--waiting);
-}
-
-.gmark--square {
-  fill: var(--waiting);
-  stroke: var(--waiting);
-}
-
-.gmark--cross {
-  stroke: var(--exited);
-  stroke-linecap: round;
-}
-
-.gmark--dashed {
-  stroke-dasharray: 3 2;
-}
-
-.gnode--blocked .gnode-box {
-  stroke: var(--waiting);
-}
-
-.gnode--exited .gnode-box,
-.gnode--failed .gnode-box {
-  stroke: var(--exited-line);
-}
-
-/* The one loud look: a pane that asks something of the person. */
-.gnode--loud .gnode-box {
-  fill: var(--waiting-subtle);
-  stroke: var(--waiting-line);
-}
-
-.gnode--loud .gnode-state {
-  fill: var(--waiting);
-  font-weight: 600;
-}
-
-.gnode-bar {
-  fill: var(--waiting);
-}
-
-/* Needs-you: the badge on a box and the strip above the graph. The icon's
- * shape differs per reason, and the words are always drawn. */
-/* The block lies over its box and is drawn after it: a click or a pointer on it is on the box. */
-.gneed {
-  pointer-events: none;
-}
-
-.gbadge-box {
-  fill: var(--bg-raised);
-  stroke: var(--waiting-line);
-  stroke-width: 1;
-}
-
-.gbadge--down .gbadge-box {
-  fill: var(--exited-subtle);
-  stroke: var(--exited-line);
-}
-
-.gbadge--quiet .gbadge-box {
-  fill: none;
-  stroke: var(--line-subtle);
-}
-
-.gbadge--quiet .gicon {
-  stroke: var(--fg-faint);
-}
-
-.gbadge-word {
-  fill: var(--waiting);
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.gbadge--down .gbadge-word {
-  fill: var(--exited);
-}
-
-.gbadge--quiet .gbadge-word {
-  fill: var(--fg-dim);
-}
-
-.gbadge-detail,
-.gbadge-more {
-  fill: var(--fg-dim);
-  font-family: var(--mono);
-  font-size: 11px;
-}
-
+/* The reason icons, the needs-you cards, the roster of a window the graph is not
+ * sent to, the goal line, the activity feed and the outline's blocks. The colours
+ * are app.css's tokens; the icon's shape differs per reason, so no state is told
+ * by colour alone. */
 .gicon {
   fill: none;
   stroke: var(--waiting);
@@ -336,122 +137,8 @@
   stroke: currentColor;
 }
 
-
-/* Edges. A line is never the only sign of its state: each carries a word. The
- * amber one is a message that has not been told to its pane yet. */
-.graph {
-  overflow: visible;
-}
-
-.gedge path {
-  fill: none;
-  stroke: var(--fg-dim);
-  stroke-width: 1.5;
-}
-
-.gedge--waiting path {
-  stroke: var(--line-strong);
-  stroke-dasharray: 6 3;
-}
-
-.gedge--sent path {
-  stroke-dasharray: 1 5;
-  stroke-linecap: round;
-}
-
-.gedge--undelivered path {
-  stroke: var(--waiting);
-  stroke-width: 2;
-}
-
-.gedge-head {
-  fill: var(--fg-dim);
-  stroke: none;
-}
-
-.gedge-head--wait {
-  fill: var(--line-strong);
-}
-
-.gedge-head--amber {
-  fill: var(--waiting);
-}
-
-.gedge-label rect {
-  fill: var(--bg-raised);
-  stroke: var(--line);
-  stroke-width: 1;
-}
-
-.gedge-label--amber rect {
-  stroke: var(--waiting);
-}
-
-.gedge-label text {
-  fill: var(--fg);
-  font-size: 11px;
-}
-
-.gedge-notice text {
-  fill: var(--fg-dim);
-  font-size: 12px;
-}
-
-/* A line is drawn for the pane the pointer or the keyboard is on, and for the open
- * pane. The others are in the page and not seen. */
-.gedge {
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 140ms;
-}
-.gedge--on {
-  opacity: 1;
-}
-.gnode {
-  transition: opacity 140ms;
-}
-.gnode--dim {
-  opacity: 0.55;
-}
-.gnode-rel {
-  fill: none;
-  stroke: var(--line-strong);
-  stroke-width: 1.5;
-  stroke-dasharray: 5 3;
-}
-.gnode-msgs {
-  fill: var(--fg-faint);
-  font-size: 11px;
-}
-.gnode-und {
-  fill: var(--waiting);
-}
-
-/* Told (notified or woken) but not yet read: the same line, dimmer. */
-.gedge--told path {
-  stroke-opacity: 0.6;
-}
-
-/* A box that opens a drawer is a button: it takes the keyboard, and the one
- * whose drawer is open is marked. */
-.gnode[role="button"] { cursor: pointer; }
-.gnode[role="button"]:focus { outline: none; }
-.gnode[role="button"]:focus-visible .gnode-box { stroke: var(--accent); stroke-width: 3; }
-.gnode--open .gnode-box { stroke: var(--accent); stroke-width: 2; }
-
-/* The graph as a list, for a narrow window, and the roster of a window the graph
- * is not sent to. A row is a button; the depth of a helper is its indent. */
+/* The roster of a window the graph is not sent to. A row is a button. */
 .list { display: flex; flex-direction: column; gap: 12px; padding: 12px; }
-.list-team { margin: 0; }
-.list-head { color: var(--fg); font-size: 14px; font-weight: 600; margin: 0 0 6px; overflow-wrap: anywhere; }
-.list-rows { list-style: none; margin: 0; padding: 0; }
-.list-row + .list-row { border-top: 1px solid var(--line-subtle); }
-.list-row--d1 { padding-left: 16px; }
-.list-row--d2 { padding-left: 32px; }
-.list-row--d3 { padding-left: 48px; }
-.list-row--d4 { padding-left: 64px; }
-.list-row--d5 { padding-left: 80px; }
-.list-row--d6 { padding-left: 96px; }
 .list-pick {
   align-items: baseline;
   background: none;
@@ -467,30 +154,9 @@
   width: 100%;
 }
 .list-pick.is-open { box-shadow: inset 3px 0 0 var(--accent); }
-.list-name { font-weight: 600; overflow-wrap: anywhere; }
-.list-state, .list-who { color: var(--fg-dim); font-size: 12px; }
-.list-live { color: var(--fg-dim); font-family: var(--mono); font-size: 12px; overflow-wrap: anywhere; width: 100%; }
-.list-mark { align-self: center; border: 2px solid var(--fg-dim); border-radius: 50%; flex: 0 0 auto; height: 10px; width: 10px; }
-.list-mark--working { background: var(--working); border-color: var(--working); }
-.list-mark--waiting, .list-mark--blocked { border-color: var(--waiting); }
-.list-mark--exited, .list-mark--failed { border-color: var(--exited); }
 .list--roster .home-roster { gap: 0; }
 .list--roster .home-agent { background: none; border: 0; border-radius: 0; padding: 0; }
 .list--roster .home-agent + .home-agent { border-top: 1px solid var(--line-subtle); }
-
-/* The overlap bar above the graph. */
-.overlap { display: flex; flex-direction: column; gap: 6px; margin-bottom: 8px; }
-.overlap-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 12px; padding: 8px 10px; border: 1px solid var(--waiting); border-radius: 6px; background: color-mix(in srgb, var(--waiting) 12%, transparent); }
-.overlap-text { margin: 0; flex: 1 1 240px; min-width: 0; overflow-wrap: anywhere; }
-.overlap-actions { display: flex; flex-wrap: wrap; gap: 6px; }
-.overlap-note { flex: 1 1 100%; margin: 0; color: var(--waiting); font-size: 12px; }
-.overlap-resolved { margin: 0; padding: 6px 10px; border: 1px solid var(--working, var(--accent)); border-radius: 6px; font-size: 13px; }
-
-/* The left column: cards for what needs the person, old unread mail quietly, then the teams. */
-.graph-side .needs-list {
-  max-height: none;
-  overflow: visible;
-}
 
 .needs-row--quiet {
   background: none;
@@ -509,64 +175,6 @@
 .needs-row--quiet .needs-word {
   color: var(--fg-dim);
 }
-
-.teams {
-  margin: 0 0 12px;
-}
-
-.teams-head {
-  color: var(--fg-dim);
-  font-size: 11px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  margin: 0 0 4px;
-  text-transform: uppercase;
-}
-
-.teams-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-.teams-pick {
-  align-items: baseline;
-  background: none;
-  border: 0;
-  color: var(--fg);
-  display: flex;
-  font: inherit;
-  gap: 8px;
-  justify-content: space-between;
-  min-width: 0;
-  padding: 4px 8px;
-  text-align: left;
-  width: 100%;
-}
-
-.teams-name {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.teams-stat {
-  color: var(--fg-dim);
-  flex: none;
-  font-size: 12px;
-}
-
-.teams-stat--needs {
-  color: var(--waiting);
-}
-
-.graph-hint {
-  color: var(--fg-dim);
-  font-size: 12px;
-  margin: 12px 0 0;
-}
-
 
 /* The goal line: one unframed row. The label and the goal come first, and the facts
  * follow at the right, set apart by thin rules. When the row is too narrow the facts
@@ -590,24 +198,11 @@
 .goalline-fact { padding: 0 10px; white-space: nowrap; }
 .goalline-fact + .goalline-fact { border-left: 1px solid var(--line); }
 .goalline-fact:last-child { padding-right: 0; }
-.goalline-time, .goalline-cost { font-family: var(--mono); }
-.goalline-cost { color: var(--fg); }
+.goalline-time { font-family: var(--mono); }
 .goalline-needs { color: var(--waiting); font-weight: 600; }
 .goalline-helpers.is-capped { color: var(--waiting); }
 /* The main column's own width decides this, so an open drawer is counted. */
 @container main (max-width: 560px) { .goalline-facts { margin-left: 0; flex-basis: 100%; } .goalline-fact:first-child { padding-left: 0; } }
-.graph-empty p { margin: 0 0 8px; }
-.graph-empty-start { font: inherit; }
-
-.gnode-cap { font-family: var(--mono); font-size: 12px; fill: var(--fg-dim); }
-.graph-goal {
-  grid-column: 1 / -1;
-  min-width: 0;
-}
-
-.graph-goal:empty {
-  display: none;
-}
 
 /* The activity feed beside the team home. It sits right of the home at 360 px and
    under it below 1000 px. */

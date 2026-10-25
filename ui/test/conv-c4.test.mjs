@@ -192,7 +192,32 @@ test("an image that is not a drawable type, is not base64, or is too large is no
   assert.ok(bad("image/png", "<script>").includes(NOT_DRAWN_WORDS));
   assert.ok(!bad("image/png", "<script>").includes("<img"));
   assert.ok(bad("image/png", "A".repeat(Math.ceil((MAX_IMAGE_BYTES * 4) / 3) + 8)).includes(TOO_BIG_WORDS));
-  assert.equal(draw(html`<${ImageBody} entry=${e} detail=${null} />`), "");
+  assert.ok(!draw(html`<${ImageBody} entry=${e} detail=${null} />`).includes("<img"), "nothing is drawn before the detail comes");
+});
+
+test("the image's status region stays in the page and changes its words in place", async () => {
+  const dom = createDom();
+  const restore = install(dom);
+  try {
+    const box = dom.document.createElement("div");
+    dom.body.appendChild(box);
+    const e = { id: "i", kind: "image", mediaType: "image/png" };
+    const draw2 = (detail) => render(html`<${ImageBody} entry=${e} detail=${detail} />`, box);
+    draw2(null);
+    await settle();
+    const region = box.querySelector('[role="status"]');
+    assert.ok(region, "no region before the detail");
+    draw2({ state: "loading" });
+    await settle();
+    assert.equal(box.querySelector('[role="status"]'), region, "the region was replaced, so a screen reader would miss the change");
+    assert.ok(region.textContent.includes("Loading the image"));
+    draw2({ state: "gone" });
+    await settle();
+    assert.equal(box.querySelector('[role="status"]'), region);
+    assert.ok(region.textContent.includes("No longer available"));
+  } finally {
+    restore();
+  }
 });
 
 test("an image entry with nothing held is a line, not a button", async () => {
@@ -299,7 +324,7 @@ test("a search the store did not send says so, an empty one clears, and Clear dr
     m.container.find(".conv-search").dispatch("submit");
     await settle();
     assert.equal(cleared.length, 1);
-    assert.equal(m.container.find(".conv-search-note"), null);
+    assert.equal(m.container.find(".conv-search-note").textContent, "", "the live region stays, empty");
     m.container.find(".conv-search-clear") && m.container.find(".conv-search-clear").click();
   } finally {
     m.done();

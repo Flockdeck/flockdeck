@@ -16,9 +16,9 @@ import (
 	"time"
 
 	"github.com/jmwri/flockdeck/internal/agent"
-	"github.com/jmwri/flockdeck/ui/help"
 	"github.com/jmwri/flockdeck/internal/hooks"
 	"github.com/jmwri/flockdeck/internal/store"
+	"github.com/jmwri/flockdeck/ui/help"
 )
 
 // The flags that describe a fresh start are dropped when a launch turns into

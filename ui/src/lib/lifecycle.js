@@ -78,7 +78,7 @@ export function defaultValue(catalog) {
   return first ? first.value : "";
 }
 
-/** roleTreeDefault says whether "Start in a worktree" starts ticked for a role: the roles that work on a branch of their own (a worktree setting of "own", or none set) do, and no role, the manager and the read-only roles do not. It matches what `flockdeck spawn` does for a helper. */
+/** roleTreeDefault says whether "Start in a worktree" starts ticked for a role: the roles that work on a branch of their own (a worktree setting of "own", or none set) do, and no role, the manager and the read-only roles do not. A helper started with `flockdeck spawn` follows the same rule, and one with no role gets a worktree there too. */
 export const roleTreeDefault = (catalog, id) => {
   const r = id ? catalog.roles.find((x) => x.id === id) : null;
   return !!r && (!r.worktree || r.worktree === "own");

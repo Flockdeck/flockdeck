@@ -10,15 +10,14 @@ Results recorded here, each on the tree named in its section: Chrome 153.0.8010.
 
 ## What passes
 
+The canvas Graph view has been removed, so the box, badge and edge steps of the earlier runs no longer exist. The check now reads the Team outline and its decision blocks. The first-run record below is kept as it was and names the canvas.
+
 For all five fixtures, with the drawer closed on load (these checks passed on every tree below):
 
-- Every node is a box, and the drawer is closed.
+- Every node is a row of the Team outline, and the drawer is closed.
 - The strip has the rows the fixture's `.md` lists under "Needs the person" and no others. A conflict is compared as the sorted pair of its panes, since the `.md` names them in either order.
 - Each row has the reason word of docs/team-graph.md section 5 and the pane's name.
 - The strip order is the order of the graph's `needs` (the teams' lists, then the solo one), not the order of the `.md`. Fixture 4 differs: the `.md` lists the permission first and the graph the question first.
-- A badge is on each pane the `.md` names and on no other, with the reason word of that pane's first item. A pane with two items (fixture 1's tax) shows the first and "+1".
-- Fixture 3: the nested helper (shards) is drawn below its parent (indexer). No line is drawn from parent to helper; the tree shows by position.
-- Fixture 5: the undelivered message edge is drawn from tests to the manager in amber, with "not told yet".
 - No exceptions or console errors on load.
 - A window reached the way the relay reaches it, with the hello made remote in the page (the same page, a changed hello): no `graph`, `structured`, `paneSend` or `permissionAnswer` command goes out, the line "The team graph is shown on the desktop." shows, the roster lists every agent, and there is no graph, manager bar or drawer.
 - The configuration directory (`%APPDATA%\flockdeck`) was listed before and after the whole run: 84 files both times, no difference. The temporary directory the server ran in was left empty. A Flockdeck was running on the same machine; it changed nothing in the window of the run.

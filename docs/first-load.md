@@ -21,7 +21,7 @@ Measured at `dcc0554b` (main after #394), five runs per case, median. Times are 
 
 First meaningful paint is the first time the app's own markup is inserted into the page, which is before the browser paints it. The script also records the first contentful paint, which comes 100 to 140 ms later in every case (3324 against 3214 for the modules as shipped, 2360 against 2255 concatenated). Interactive is measured from the same point. Interactive is the later of first meaningful paint, the end of the document's scripts and the last long task. The page's load event comes about 0.8 s later in every case, because the font is the last file to arrive; it is not counted.
 
-"Finished app" is a stand-in: the shell's entry plus every library module that nothing imports yet (store, socket, pty, terminal, use-store, the graph view model). It is there to show what the module count does once those are in use, not a prediction of the final size.
+"Finished app" is a stand-in: the shell's entry plus every library module that nothing imports yet (store, socket, pty, terminal, use-store, the team graph model). It is there to show what the module count does once those are in use, not a prediction of the final size.
 
 ## What it says
 

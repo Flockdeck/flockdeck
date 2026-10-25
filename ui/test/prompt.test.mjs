@@ -59,7 +59,7 @@ async function mount({ g = graph(), extra = {}, hello: helloOver = {} } = {}) {
   const ws = () => FakeWebSocket.last;
   const m = {
     dom, store, container, ws,
-    box: (pane) => container.findAll("[data-pane]").find((e) => e.localName === "g" && e.getAttribute("data-pane") === pane && e.getAttribute("role") === "button"),
+    box: (pane) => container.findAll("[data-pane]").find((e) => String(e.className || e.getAttribute("class")).includes("tree-row") && e.getAttribute("data-pane") === pane),
     card: () => container.find(".prompt"),
     // The strip's card is the first; a structured pane's permission is drawn again in the conversation (see conv-tool.test.mjs).
     choices: () => (container.find(".prompt") ? container.find(".prompt").findAll(".prompt-choice") : []),

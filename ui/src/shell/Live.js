@@ -97,7 +97,7 @@ function nodeOfPane(p) {
 export function Live({ store, matchMedia, window: win, terminalOptions = null, patchWaitMs = PATCH_WAIT_MS, treeView = Tree }) {
   // The Team view is the outline, a component given here: it is drawn with { model,
   // open, onOpen, send } in the home column, beside the activity feed. With none
-  // the switch has no Team view and the page starts on the graph.
+  // the switch has no Team view and the page starts on the Board.
   const hasTree = !!treeView;
   const views = viewsOf(hasTree);
   const narrow = useNarrow(matchMedia);
@@ -129,7 +129,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
   const [infoFor, setInfoFor] = useState(null);
   const [findingPane, setFindingPane] = useState(false);
   const [findAsk, setFindAsk] = useState(0);
-  // The view the strip's switch has chosen: graph, board, changes or replay.
+  // The view the strip's switch has chosen: tree, deps, board, changes or replay.
   const [view, setView] = useState(firstViewOf(hasTree));
   const [tabAsk, setTabAsk] = useState({ tab: "", n: 0 });
   // The helper apps and projects dialogs, and the baton being made: the pane it
@@ -359,7 +359,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     setFocusAsk(pane);
   };
   useEffect(() => {
-    if (focusAsk && scoped && scoped.byPane.has(focusAsk) && (view === "tree" || view === "graph")) {
+    if (focusAsk && scoped && scoped.byPane.has(focusAsk) && view === "tree") {
       focusNode(mainRef.current, focusAsk);
       setFocusAsk("");
     }
@@ -367,9 +367,12 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
   // A tab or a shell the "+" menu or a key opens has no answer of its own: the next
   // pane the desktop lists is the one, and it is opened in the drawer.
   const newWatch = useRef(null);
+  const newWatchTimer = useRef(0);
   const startTab = (cmd) => {
     newWatch.current = new Set(Object.keys(kept.current.state.panes || {}));
-    setTimeout(() => { newWatch.current = null; }, 15000);
+    // One timer: a second start inside the window takes over the first one's watch.
+    clearTimeout(newWatchTimer.current);
+    newWatchTimer.current = setTimeout(() => { newWatch.current = null; }, 15000);
     send(cmd);
   };
   useEffect(() => {
@@ -454,6 +457,8 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
       setToasts((cur) => addToasts(cur, fresh, drawer.pane));
       return;
     }
+    // A second notification replaces the first: the first is closed, not left on screen.
+    if (lastNote.current) { try { lastNote.current.close(); } catch { /* already gone */ } }
     lastNote.current = raise(page, noteOf(fresh), (id) => drawer.open(id));
   }, [statePanes]);
   const bumpFont = (to) => {
@@ -556,14 +561,12 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
   useEffect(() => {
     if (settingsOpen && (settingsSection === "routing") && !snap.remote) send({ cmd: "refreshAgents" });
   }, [settingsOpen, settingsSection]);
-  const chooseView = (v) => {
-    if (v === "graph") drawer.close();
-    setView(v);
-  };
+  const chooseView = (v) => setView(v);
   // What the command palette lists besides the key table's actions: what needs the
   // person (choosing one opens that agent), every agent of the graph, and the views.
   // None of them answers anything: a permission is answered on its card.
-  const paletteItems = useMemo(() => {
+  // Rebuilt each render: it reads the tab set, the views and the drawer through closures, and it is cheap.
+  const paletteItems = (() => {
     const items = [];
     if (current) {
       const nameOf = (id) => (current.byPane.get(id) && current.byPane.get(id).name) || id;
@@ -578,7 +581,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     items.push({ id: "layout", group: "Views", name: "Layout: stack / side by side", detail: orient === "stack" ? "now below" : "now beside", run: toggleLayout });
     for (const [id, name] of views) items.push({ id: "view-" + id, group: "Views", name: "Show " + name, detail: "", run: () => chooseView(id) });
     return items;
-  }, [current, view]);
+  })();
   // step is nextNeedsYou or prevNeedsYou. The pane the keyboard is on, or the open drawer's, is where it starts.
   const jumpNeedsYou = (step) => {
     if (!current || snap.graphGone) return;
@@ -590,7 +593,8 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     drawer.open(to, "key");
   };
   const helperNames = useMemo(() => (current ? current.nodes.map((n) => ({ pane: n.pane, name: n.name })) : []), [current]);
-  const actions = useMemo(() => ({
+  // Rebuilt each render, as the palette items are: the Shell keeps the latest in a ref.
+  const actions = ({
     // The jump lands on the agent's box and opens its drawer, where the prompt is.
     nextNeedsYou: () => jumpNeedsYou(nextNeedsYou),
     prevNeedsYou: () => jumpNeedsYou(prevNeedsYou),
@@ -653,7 +657,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     restartPane: needPane(() => life.begin("restart", node, pane)),
     lockPane: needPane(() => life.toggleLock(node.pane, !(pane && pane.locked))),
     closePane: needPane(() => (pane && pane.locked ? say("This pane is locked. Unlock it to close it.") : life.begin("close", node, pane))),
-  }), [current, snap.graphGone, snap.remote, win, drawer.pane, node, pane, goal, activeTab, savedTabs, view, current, onDesk, life.request, tx.request, prefs.fontSize, snap.paneInfo, noticeSeq]);
+  });
 
   // The baton answers. A draft is for the dialog whose request it carries. A
   // saved or refused command is taken off the list of those out, and a saved one
@@ -768,16 +772,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
           onHistory=${snap.remote ? null : () => setHistoryOpen(true)} onFind=${snap.remote ? null : () => setFindingPane(true)} />
         <${ViewBar} view=${view} views=${views} onView=${chooseView} />`
       : null}
-    <div class="view-graph" hidden=${view !== "graph"}>
-     <div class=${"home-split" + (showFeed ? " home-split--feed" : "")}>
-      <div class="home-col">
-      <${Home} snap=${snap} selected=${selected} onShown=${setShown} onOpen=${drawer.open} open=${drawer.pane} narrow=${narrow} send=${snap.remote ? null : send}
-        onStartTeam=${snap.remote || viewer ? null : () => setStarting("team")}
-        onSeeChanges=${(p) => { drawer.open(p); setTabAsk((a) => ({ tab: "changes", n: a.n + 1, pane: p })); }} />
-      </div>
-      ${showFeed ? html`<${Feed} feed=${feed} onFocus=${goTo} />` : null}
-     </div>
-    </div>
+    <${Home} snap=${snap} selected=${selected} onShown=${setShown} onOpen=${drawer.open} open=${drawer.pane} />
     ${hasTree && treeView && view === "tree"
       ? html`<div class="view-tree">
           <div class=${"home-split" + (showFeed ? " home-split--feed" : "") + (showFeed && feedCount === 0 ? " home-split--feed-empty" : "")}>

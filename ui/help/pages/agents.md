@@ -125,7 +125,7 @@ What to know before you use one:
   instruction. The agent cannot fetch what is cut. Leave it off for an agent you
   would not trust with a peer's words.
 - **A login or Node problem** shows as a blocked pane marked "needs setup", and
-  as "Needs setting up" in the team graph, with the one step to take: sign in with
+  as "Needs setting up" in the Team view, with the one step to take: sign in with
   the agent's own tool (Flockdeck never signs in), install the agent, or install Node 20 or
   newer where the adapter needs it and restart Flockdeck, since a new Node on the
   path is only seen by a restarted Flockdeck. Start the pane again after the other
@@ -352,7 +352,12 @@ The `worktree` setting is part of the briefing and the role list, and it decides
 `flockdeck spawn` does when an agent starts a helper. A helper in a role set to `own`, or in
 a role with no setting, or with no role, is given a git worktree and a branch of its own,
 cut from the starting agent's current commit and named from its task, with no flag needed;
-`spawn` prints the branch and directory. `-worktree <branch>` chooses the branch name and
+`spawn` prints the branch and directory. The helper starts in the same subfolder of the
+worktree that you were in, when it exists there. Uncommitted changes in your checkout are not
+in the worktree, and `spawn` says how many, so the manager can commit first. A tester that
+needs a worker's change is started with `-worktree <worker branch>`. Nothing removes a helper's
+worktree when it closes; [Worktrees](#worktrees) is where they are cleared, and files git ignores,
+such as `node_modules`, are not copied into it. `-worktree <branch>` chooses the branch name and
 `-no-worktree` starts the helper in the starting agent's checkout instead. A role set to
 `readonly` or `main` (the planner and reviewer, and the manager) is started in the starting
 agent's checkout. Flockdeck does not make a `readonly` checkout read-only. Outside a git
@@ -485,7 +490,7 @@ changes status appear without reopening it, and an open task, the text you are t
 place in the list stay as they were.
 
 **Agents** lists every agent pane of the project with its name, role, what it is doing and how
-many messages it has not read. The graph shows the rest of a pane's detail. **Close** and
+many messages it has not read. The Team view shows the rest of a pane's detail. **Close** and
 **Close finished** close panes that are idle or have exited; Close finished names them and asks
 first, and each pane is checked again as it closes, so one that has started working since the
 list was drawn is left open. A pane locked against closing keeps its button disabled. To start
