@@ -624,7 +624,7 @@ func TestPaneLabelTextCutsAtTheLimitWithoutATrailingSpace(t *testing.T) {
 }
 
 func TestAMembersLabelPrefersWhatItIsCalledForItsWork(t *testing.T) {
-	m := Member{Pane: "p1", Name: "flockdeck", Peer: "worker-3", Called: "limiter PR"}
+	m := Member{Pane: "p1", Name: "api", Peer: "worker-3", Called: "limiter PR"}
 	if got := m.Label(); got != "limiter PR" {
 		t.Errorf("Label = %q, want the label", got)
 	}
@@ -633,10 +633,10 @@ func TestAMembersLabelPrefersWhatItIsCalledForItsWork(t *testing.T) {
 		t.Errorf("Label with no label = %q, want the peer name", got)
 	}
 	m.Peer = ""
-	if got := m.Label(); got != "flockdeck" {
+	if got := m.Label(); got != "api" {
 		t.Errorf("Label with neither = %q, want the pane name", got)
 	}
-	if got := paneLabel(GraphPane{ID: "p1", Name: "flockdeck", Peer: "worker-3", Label: "limiter PR"}); got != "limiter PR" {
+	if got := paneLabel(GraphPane{ID: "p1", Name: "api", Peer: "worker-3", Label: "limiter PR"}); got != "limiter PR" {
 		t.Errorf("paneLabel = %q", got)
 	}
 }

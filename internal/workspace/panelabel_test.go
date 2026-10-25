@@ -22,7 +22,7 @@ func TestLabelFromTaskIsTheFirstClauseWithoutMarkdown(t *testing.T) {
 		"- [ ] Add rate limiting; tests too":   "Add rate limiting",
 		"```\n\nWrite limiter_test.go - cover": "Write limiter_test.go",
 		"first line\nsecond line":              "first line",
-		long:                                   "Refactor the rate limiter so that",
+		long:                                   "Refactor the rate limiter so that every",
 	} {
 		got := labelFromTask(task)
 		if got != want {
