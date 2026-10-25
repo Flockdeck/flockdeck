@@ -8,7 +8,7 @@
 // The strip along the top holds the manager bar, for the project whose graph is
 // on screen. It is not one of the keyboard regions: it is reached with Tab like
 // any control, and takes the keyboard once when the graph first names a manager.
-import { useEffect, useMemo, useRef, useState } from "../vendor/hooks.mjs";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
 import { useStore } from "../lib/use-store.js";
 import { Drawer, hasTerminal, useDrawer } from "../drawer/Drawer.js";
@@ -510,6 +510,13 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
   // count. Before any graph there is no bar, so "no manager" is not said while
   // the graph is still being read.
   const barRef = useRef(null);
+  // The pane whose Conversation tab shows its own message box: for the manager, that box is the bar, so the bar steps aside.
+  const [boxPane, setBoxPane] = useState("");
+  const boxFocus = useRef(null);
+  const onBox = (pane, focus) => {
+    boxFocus.current = focus || null;
+    setBoxPane(pane);
+  };
   // The feed is for a team with a manager, and gives its place to the drawer while that is open.
   const showFeed = !!current && !snap.graphGone && !node && current.teams.length > 0;
   // What the outline's decision blocks answer with. A relayed view has no store to answer with.
@@ -524,8 +531,17 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
         onRestart: snap.remote || viewer ? null : (p) => { const n = current.byPane.get(p); if (n) life.begin("restart", n, (statePanes || {})[p] || null); },
       }
     : null;
+  // The bar stays mounted while the drawer's box stands in for it, so a draft or an answer on the way is not lost.
+  const standIn = !!(current && managerOf(current) && boxPane && managerOf(current).pane === boxPane);
+  const focusDrawerBox = () => { if (boxFocus.current) boxFocus.current(); };
+  useLayoutEffect(() => {
+    const el = barRef.current;
+    const doc = el && el.ownerDocument;
+    if (!standIn || !el || !doc || doc.activeElement !== el) return;
+    focusDrawerBox();
+  }, [standIn]);
   const bar = current && !snap.graphGone && managerOf(current)
-    ? html`<${ManagerBar} snap=${snap} manager=${managerOf(current)} send=${(c) => store.send(c)} inputRef=${barRef} lead=${true} />`
+    ? html`<${ManagerBar} snap=${snap} manager=${managerOf(current)} send=${(c) => store.send(c)} inputRef=${barRef} lead=${true} hidden=${standIn} />`
     : null;
 
   // The graph's two keys that no arrow does. The next agent that needs the person
@@ -599,6 +615,10 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     nextNeedsYou: () => jumpNeedsYou(nextNeedsYou),
     prevNeedsYou: () => jumpNeedsYou(prevNeedsYou),
     managerBar: () => {
+      if (standIn) {
+        focusDrawerBox();
+        return;
+      }
       const el = barRef.current;
       if (el && el.focus) el.focus();
     },
@@ -762,7 +782,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     drawer=${node
       ? html`<${Drawer} store=${store} snap=${snap} node=${node} pane=${pane} now=${Date.now()} maximised=${drawer.maximised}
           onClose=${drawer.close} onToggleMax=${drawer.toggleMax} terminalOptions=${termProps} life=${viewer ? null : life}
-          tx=${tx} onInfo=${openInfo} findAsk=${findAsk} tabAsk=${tabAsk} onOpenPane=${drawer.open} order=${order} helpers=${helperNames} layout=${orient} onLayout=${toggleLayout} team=${current ? { model: current, events: feed ? feed.entries : [] } : null} onStartTeam=${snap.remote || viewer ? null : () => setStarting("team")} />`
+          tx=${tx} onInfo=${openInfo} findAsk=${findAsk} tabAsk=${tabAsk} onOpenPane=${drawer.open} order=${order} helpers=${helperNames} layout=${orient} onLayout=${toggleLayout} onBox=${onBox} team=${current ? { model: current, events: feed ? feed.entries : [] } : null} onStartTeam=${snap.remote || viewer ? null : () => setStarting("team")} />`
       : null}
   >${snap.state
       ? html`<${GoalStrip} tabs=${goal.tabs} archived=${goal.archived} active=${activeTab} onSelect=${showTab}

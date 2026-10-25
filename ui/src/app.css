@@ -435,6 +435,9 @@ button { font: inherit; color: inherit; }
 /* The bar along the bottom holds the manager bar. */
 .composer { grid-area: composer; padding: 8px 12px; display: flex; background: var(--bg-raised); border-top: 1px solid var(--line); }
 .composer:empty { display: none; }
+/* The bar steps aside (hidden) while the manager's drawer box stands in for it; an author display rule beats [hidden], so say it, and drop the footer around it. */
+.mbar[hidden] { display: none; }
+.composer:has(> .mbar[hidden]) { display: none; }
 .mbar-to { color: var(--fg-dim); font-family: var(--mono, monospace); font-size: 12px; white-space: nowrap; }
 .mbar-to b { color: var(--fg); font-weight: 600; }
 /* The manager bar: a box, a button and one line of what became of the last send. */

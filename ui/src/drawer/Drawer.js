@@ -12,7 +12,7 @@
 // touches the terminal's size itself: the terminal measures its box when it
 // changes and tells the server (lib/terminal.js), which sizes the pane for the
 // window last used.
-import { useEffect, useMemo, useReducer, useRef, useState } from "../vendor/hooks.mjs";
+import { useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
 import { Header } from "./Header.js";
 import { Prompt, StreamPermission, waitingOn } from "./Prompt.js";
@@ -88,7 +88,7 @@ export function hasTerminal(node, pane) {
 /** Drawer is the component. store is the store of store.js; node and pane are the
  *  graph node and the state push's entry for it. terminalOptions reach the
  *  terminal, which is how a test gives it fakes for xterm and the socket. */
-function DrawerBody({ store, snap = null, node, pane = null, now, maximised = false, onClose, onToggleMax, onOpenPane = null, terminalOptions = null, life = null, tx = null, onInfo = null, findAsk = 0, tabAsk = null, order = [], onStartTeam = null, helpers = [], layout = "side", onLayout = null, team = null }) {
+function DrawerBody({ store, snap = null, node, pane = null, now, maximised = false, onClose, onToggleMax, onOpenPane = null, terminalOptions = null, life = null, tx = null, onInfo = null, findAsk = 0, tabAsk = null, order = [], onStartTeam = null, helpers = [], layout = "side", onLayout = null, team = null, onBox = null }) {
   const rootRef = useRef(null);
   const terminalRef = useRef(null);
   // The terminal's controller once it is made, for the search bar, and the search
@@ -197,6 +197,17 @@ function DrawerBody({ store, snap = null, node, pane = null, now, maximised = fa
   // tab's id stays the same so the keys and asks that name it still reach it.
   const tabs = ["terminal"].concat(hasConv ? ["conversation"] : [], hasChanges ? ["changes"] : []);
   const shown = tabs.includes(tab) ? tab : "terminal";
+  // Whether the Conversation tab shows its own message box, so the page can drop the home bar for the same manager.
+  const hasBox = hasConv && shown === "conversation" && isManager(team && team.model, node.pane) && terminal && !state.remote && !isViewer(state) && !node.shell;
+  useLayoutEffect(() => {
+    if (!onBox) return undefined;
+    // The second argument takes the keyboard to the box, for the key that aims at the manager.
+    onBox(hasBox ? node.pane : "", () => {
+      const el = rootRef.current && rootRef.current.querySelector(".structured-input");
+      if (el && el.focus) el.focus();
+    });
+    return () => onBox("", null);
+  }, [hasBox, node.pane]);
   const tabRefs = useRef({});
   const tabKeys = (e) => {
     if (tabs.length < 2 || (e.key !== "ArrowLeft" && e.key !== "ArrowRight") || e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return;
