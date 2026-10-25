@@ -17,7 +17,7 @@ const ROW_DETAIL = 40;
 
 function nameOf(model, id) {
   const n = model.byPane.get(id);
-  return n && n.name ? n.name : id;
+  return n && (n.label || n.name) ? n.label || n.name : id;
 }
 
 /** ageOf is how long ago an item began, as "9m", "2h" or "3d", or "" when its time is not known (the graph writes year 1 for that) or is ahead of now. */

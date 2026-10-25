@@ -63,7 +63,7 @@ export function Header({ node, pane = null, now = Date.now(), maximised = false,
   return html`
     <header class="drawer-head">
       <div class="drawer-title">
-        <h2 class="drawer-name">${node.name || node.pane}</h2>
+        <h2 class="drawer-name">${node.label || node.name || node.pane}</h2>
         ${node.structured || node.kind === "structured" ? html`<span class="drawer-kind">structured</span>` : null}
         <div class="drawer-actions">
           ${onStep
@@ -87,6 +87,7 @@ export function Header({ node, pane = null, now = Date.now(), maximised = false,
       </div>
       ${pane && pane.runsUnasked === true ? html`<p class="drawer-warn" role="note">${UNASKED_WORDS}</p>` : null}
       <dl class="drawer-facts">
+        ${node.label && node.name && node.label !== node.name ? html`<div class="fact fact--name"><dt>Name</dt><dd>${node.name}</dd></div>` : null}
         ${who ? html`<div class="fact fact--who"><dt>Agent</dt><dd>${who}</dd></div>` : null}
         <div class=${"fact fact--status fact--" + state.key}>
           <dt>Status</dt>
