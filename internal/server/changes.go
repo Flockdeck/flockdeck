@@ -56,12 +56,16 @@ type changesMsg struct {
 	// tree, when repositories are to be found just inside it: see reposUnder.
 	Repos []repoChoice `json:"repos,omitempty"`
 	// Reason says why this listing was sent, which is what the window's
-	// record of what somebody has looked at goes by: "asked" for one it
-	// asked to be shown -- the panel opening, or Refresh -- "refused" for the
-	// tree as it is after a commit refused because it had moved, and
-	// "committed" after a commit was made. It is empty for the rest: a
-	// listing the panel asked for itself because the tree moved, and the one
-	// after a push, pull or fetch.
+	// record of what somebody has looked at goes by, and what it does with a
+	// git-settings question or an action still out: "asked" for one it
+	// asked to be shown -- the panel opening, or Refresh -- "follow" for one
+	// the panel asked for itself because the tree moved (it changes the
+	// listing and nothing else), "gitwarn" for the tree sent with a question
+	// about the repository's programs (the question is still open),
+	// "refused" for the tree as it is after a commit refused because it had
+	// moved, and "committed" after a commit was made. It is empty for the
+	// rest: the listing after a push, pull or fetch, and after a commit that
+	// failed for another reason; those end the action the window has out.
 	Reason string `json:"reason,omitempty"`
 }
 
@@ -140,7 +144,7 @@ func (s *Server) listChanges(c *controlClient, path string, follow bool) {
 	asked := changeListings.asked(c)
 	reason := "asked"
 	if follow {
-		reason = ""
+		reason = "follow"
 	}
 	s.sendChanges(c, s.reviewDir(path), asked, reason)
 }
@@ -373,6 +377,9 @@ func (s *Server) commitChanges(c *controlClient, path, message string, push bool
 			action = "commit and push"
 		}
 		if !s.gitProgramsAccepted(c, dir, path, action, "commit", ans.accept, ans.seen) {
+			// The window has the question; the tree goes with it, and says so, so the question stays open.
+			s.sendChanges(c, dir, asked, "gitwarn")
+			answered = true
 			return
 		}
 		// Looked at again once the files are staged, just before git commit starts
@@ -394,6 +401,8 @@ func (s *Server) commitChanges(c *controlClient, path, message string, push bool
 				// The window has the question. The files are staged and nothing is
 				// committed.
 				c.notify("Nothing was committed: the repository's git settings or hooks changed while your files were being staged. They are staged. Answer the question to go on.", true)
+				s.sendChanges(c, dir, asked, "gitwarn")
+				answered = true
 				return
 			}
 			c.notify(err.Error(), true)
@@ -445,7 +454,7 @@ func (s *Server) runRemote(c *controlClient, action, path string, ans gitAnswer)
 	go func() {
 		defer s.surviveFor(c, "talking to the remote")
 		if !s.gitProgramsAccepted(c, repoRoot(dir), path, action, resendName(action), ans.accept, ans.seen) {
-			s.sendChanges(c, repoRoot(dir), asked, "")
+			s.sendChanges(c, repoRoot(dir), asked, "gitwarn")
 			return
 		}
 		var (

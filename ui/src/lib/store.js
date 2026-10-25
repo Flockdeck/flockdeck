@@ -297,11 +297,6 @@ export function createStore(opts) {
   let noticeSeq = 0;
   let pendingCommit = null;
   let changesAsked = null;
-  // When each re-read the panel made itself was sent, for the replies still to come. The desk answers a follow with no
-  // reason, as it does a push, pull or fetch and a commit that failed, so a reply without one is a follow's only if one
-  // was sent a moment ago. The desk drops the answer to a follow that a later request replaced, so they expire.
-  let changesFollows = [];
-  const FOLLOW_WAIT_MS = 5000;
   let sentSeq = 0;
   let startedSeq = 0;
   let answerSeq = 0;
@@ -678,18 +673,16 @@ export function createStore(opts) {
         // answer to a question since replaced (the pane changed): not taken.
         // The desktop echoes the directory it was asked about as path.
         // The listing again after an action in the tree on screen is taken too.
-        // A reply to a re-read the panel made itself changes the listing only: the git-settings question on screen and a
-        // commit under way are not its to clear. A reply that says why it was sent ("asked", "committed", "refused") is not one.
-        const now = Date.now();
-        changesFollows = changesFollows.filter((t) => now - t < FOLLOW_WAIT_MS);
-        let quiet = false;
-        if (msg.reason === undefined || msg.reason === "") {
-          quiet = changesFollows.length > 0;
-          if (quiet) changesFollows.shift();
-        } else changesFollows = [];
         if (typeof msg.path === "string" && msg.path !== changesAsked && !(snap.changes && msg.cwd === snap.changes.cwd)) break;
         const { type, path, ...rest } = msg;
-        set(quiet ? { changes: rest } : { changes: rest, changesBusy: "", gitWarn: null });
+        // The desk says why it sent the listing (internal/server/changes.go, Reason). "follow" is the panel's own re-read: it
+        // changes the listing and nothing else, so a git-settings question on screen and an action under way stay. "gitwarn"
+        // is the tree sent with a question, which stays open. A commit that went through and then asked about its push
+        // leaves that question open too. Any other listing ends what the window had out.
+        const asks = snap.gitWarn && snap.gitWarn.resend === "gitPush" && msg.reason === "committed";
+        if (msg.reason === "follow") set({ changes: rest });
+        else if (msg.reason === "gitwarn" || asks) set({ changes: rest, changesBusy: "" });
+        else set({ changes: rest, changesBusy: "", gitWarn: null });
         break;
       }
       case "diff": {
@@ -889,15 +882,15 @@ export function createStore(opts) {
       const asked = String(path || "");
       if (!socket.send({ cmd: "changes", path: asked, follow: !!follow })) return false;
       changesAsked = asked;
-      if (follow) changesFollows.push(Date.now());
-      else changesFollows = [];
       return true;
     },
     /** requestDiff asks for one file's diff in the tree last listed. */
-    requestDiff(file) {
+    requestDiff(file, again = false) {
       if (!snap.changes || typeof file !== "string" || !file) return false;
       if (!socket.send({ cmd: "diff", path: snap.changes.cwd, text: file })) return false;
-      set({ diff: { cwd: snap.changes.cwd, file, text: "", error: "", loading: true } });
+      // A re-read of the diff on screen keeps its text until the new one comes, so the view is not swapped for a loading line.
+      const keep = again && snap.diff && snap.diff.file === file && snap.diff.cwd === snap.changes.cwd ? snap.diff.text : "";
+      set({ diff: { cwd: snap.changes.cwd, file, text: keep, error: "", loading: true } });
       return true;
     },
     /** commitChanges commits the listing as it was last drawn. It sends the files

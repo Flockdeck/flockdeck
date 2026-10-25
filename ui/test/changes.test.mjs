@@ -153,6 +153,30 @@ test("no follow is sent while the git question is on screen, and the question ta
   }
 });
 
+test("answering the git question puts the keyboard back where it was", async () => {
+  const st = fakeStore();
+  const dom = createDom();
+  const restore = install(dom);
+  try {
+    const box = dom.document.createElement("div");
+    dom.body.appendChild(box);
+    const warn = { seq: 1, intro: "It runs hooks.", items: ["hook"], text: "x" };
+    const again = (s) => render(html`<${Changes} cwd="/r" git="1" snap=${s} store=${st} />`, box);
+    again({ changes: ch() });
+    await settle();
+    const commit = box.querySelector(".chg-refresh");
+    commit.focus();
+    again({ changes: ch(), gitWarn: warn });
+    await settle();
+    assert.equal(dom.document.activeElement, box.querySelector(".chg-warn"));
+    again({ changes: ch() });
+    await settle();
+    assert.equal(dom.document.activeElement, commit, "focus was lost with the question");
+  } finally {
+    restore();
+  }
+});
+
 test("the open diff is read again after the listing changes, and closed when its file is gone", async () => {
   const st = fakeStore();
   const dom = createDom();

@@ -149,42 +149,58 @@ test("a failed push is kept as the panel's note with git's words", async () => {
   assert.equal(store.getState().changesBusy, "");
 });
 
-test("the reply to a re-read the panel made itself keeps the git question and a commit under way; any other reply clears them", async () => {
+test("a follow's reply changes the listing only; a gitwarn reply keeps the question; any other reply ends what was out", async () => {
   const { store, ws } = await up();
   ws.frame(listing());
   ws.frame({ type: "gitWarn", cwd: "C:/repo", path: "C:/repo", action: "commit", resend: "commit", intro: "x", items: ["hook"], text: "x", seen: "abc" });
   assert.ok(store.getState().gitWarn);
-  store.requestChanges("C:/repo", true);
-  ws.frame(listing({ branch: "feat" }));
+  ws.frame(listing({ branch: "feat", reason: "follow" }));
   assert.equal(store.getState().changes.branch, "feat", "the listing was not taken");
   assert.ok(store.getState().gitWarn, "a follow's reply took the question away");
-  // A reply to a request that was not a follow, with no reason, clears it, as it always did.
-  store.requestChanges("C:/repo", false);
-  ws.frame(listing());
+  // The tree sent with the question keeps it open.
+  ws.frame(listing({ reason: "gitwarn" }));
+  assert.ok(store.getState().gitWarn, "the listing sent with the question closed it");
+  // A listing that was asked for, with the question still up, closes it, as it always did.
+  ws.frame(listing({ reason: "asked" }));
   assert.equal(store.getState().gitWarn, null);
-  // A commit under way: the follow's reply does not end it, the commit's own reply does.
+});
+
+test("a follow in flight does not end a commit or a push; the action's own reply does", async () => {
+  const { store, ws } = await up();
+  ws.frame(listing());
   assert.equal(store.commitChanges("Fix it", false), "");
   assert.equal(store.getState().changesBusy, "commit");
-  store.requestChanges("C:/repo", true);
-  ws.frame(listing());
+  ws.frame(listing({ reason: "follow" }));
   assert.equal(store.getState().changesBusy, "commit", "a follow ended the commit's busy state");
   ws.frame(listing({ reason: "committed" }));
   assert.equal(store.getState().changesBusy, "");
-});
-
-test("a push's reply has no reason either, and still ends the busy state when no re-read is waiting", async () => {
-  const { store, ws } = await up();
-  ws.frame(listing());
+  // A push: the follow's reply comes first, then the push's own with no reason.
   assert.equal(store.remoteChanges("push"), true);
+  ws.frame(listing({ reason: "follow" }));
   assert.equal(store.getState().changesBusy, "push");
   ws.frame(listing({ ahead: 0 }));
   assert.equal(store.getState().changesBusy, "", "the push's own reply left the panel busy for good");
-  // A re-read that was sent long ago and never answered does not swallow it either.
-  store.requestChanges("C:/repo", true);
-  store.requestChanges("C:/repo", false);
-  assert.equal(store.remoteChanges("pull"), true);
+});
+
+test("a commit that went through and then asked about its push leaves that question open", async () => {
+  const { store, ws } = await up();
   ws.frame(listing());
+  assert.equal(store.commitChanges("Fix it", true), "");
+  ws.frame({ type: "gitWarn", cwd: "C:/repo", path: "C:/repo", action: "push", resend: "gitPush", intro: "", items: [], text: "", seen: "z" });
+  ws.frame(listing({ reason: "committed" }));
+  assert.ok(store.getState().gitWarn, "the push question was closed by the commit's listing");
   assert.equal(store.getState().changesBusy, "");
+});
+
+test("a re-read of the diff on screen keeps its text until the new one comes", async () => {
+  const { store, ws } = await up();
+  ws.frame(listing());
+  store.requestDiff("a.go");
+  ws.frame({ type: "diff", cwd: "C:/repo", file: "a.go", text: "old" });
+  store.requestDiff("a.go", true);
+  assert.deepEqual([store.getState().diff.text, store.getState().diff.loading], ["old", true]);
+  store.requestDiff("b.txt");
+  assert.equal(store.getState().diff.text, "", "another file's diff started from the old text");
 });
 
 test("a gitWarn is kept, and answering sends the same commit again with the answer and what was shown", async () => {
