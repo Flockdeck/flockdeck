@@ -564,7 +564,9 @@ func (s *Server) graphPayload(root string) (graphMsg, error) {
 		}
 		nv.Stuck = stuck[n.Pane]
 		nv.Below, nv.NeedYou = below(n.Pane)
-		if nv.Live == "" && !g.Shell {
+		// A working pane shows that it is working: its last reply is the
+		// previous turn, not what it is doing now.
+		if nv.Live == "" && !g.Shell && g.Activity != string(workspace.ActivityWorking) {
 			if last, ok := rts[p.ID].LastReply(); ok {
 				nv.Live = graphLine(last.Text, graphLiveCut)
 			}

@@ -45,6 +45,9 @@ func (f fakeRuntime) Activity() workspace.Activity {
 	if f.status == session.StatusBlocked {
 		return workspace.ActivityBlocked
 	}
+	if f.status == session.StatusIdle {
+		return workspace.ActivityIdle
+	}
 	return workspace.ActivityWorking
 }
 func (f fakeRuntime) Setup() (workspace.SetupNeeded, bool) { return f.setup, f.setup.Text != "" }
@@ -94,6 +97,7 @@ func TestAPaneOfAnotherTransportIsReadThroughItsRuntime(t *testing.T) {
 	e.detach(e.dev, fakeRuntime{status: session.StatusWaiting, detail: "Bash",
 		input: `{"command":"make test"}`, options: always, ran: true, started: start, tasks: 2})
 	e.detach(e.eyes, fakeRuntime{status: session.StatusWorking, reply: "Reading the diff", ran: true, started: start})
+	e.detach(e.boss, fakeRuntime{status: session.StatusIdle, reply: "Done, merged it", ran: true, started: start})
 
 	g := e.snapshotGraph(t)
 	dev, ok := g.node(e.dev)
@@ -107,11 +111,13 @@ func TestAPaneOfAnotherTransportIsReadThroughItsRuntime(t *testing.T) {
 		t.Error("no status time from the runtime")
 	}
 	eyes, _ := g.node(e.eyes)
-	if eyes.Status != "working" || eyes.Live != "Reading the diff" {
-		t.Errorf("status %q, live %q; want the runtime's", eyes.Status, eyes.Live)
+	// A working pane's last reply is the previous turn, so it is not shown as
+	// what the pane is doing; an idle pane keeps it.
+	if eyes.Status != "working" || eyes.Live != "" {
+		t.Errorf("status %q, live %q; want a working pane with no live line", eyes.Status, eyes.Live)
 	}
-	if boss, _ := g.node(e.boss); boss.Kind != graphKindTerminal {
-		t.Errorf("the manager is a %q pane", boss.Kind)
+	if boss, _ := g.node(e.boss); boss.Activity != "idle" || boss.Live != "Done, merged it" {
+		t.Errorf("the idle pane has activity %q, live %q", boss.Activity, boss.Live)
 	}
 	if !hasNeed(g, e.dev) {
 		t.Errorf("the waiting pane is not in the needs list: %+v", g.Teams)
