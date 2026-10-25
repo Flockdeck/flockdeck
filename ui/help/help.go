@@ -37,6 +37,7 @@ var order = []string{
 	"broadcast",
 	"worktrees",
 	"changes",
+	"views",
 	"github",
 	"history",
 	"baton",
