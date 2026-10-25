@@ -286,6 +286,11 @@
   border-bottom: 1px solid var(--line-subtle);
 }
 .life-note { font-size: 12px; color: var(--fg-dim); }
+.rename { align-items: center; display: flex; flex-wrap: wrap; gap: 8px; padding: 6px 0; }
+.rename-label { color: var(--fg-dim); font-size: 12px; }
+.rename-input { background: var(--bg-input, transparent); border: 1px solid var(--line-strong); border-radius: 4px; color: var(--fg); flex: 1 1 160px; font: inherit; min-width: 0; padding: 3px 6px; }
+.rename-input:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.rename-note { color: var(--exited); font-size: 12px; }
 
 /* Opened tool rows: output, diffs, a helper's steps, a permission asked in the stream. */
 .conv-output, .conv-diff, .conv-detail-state, .conv-tool-report { margin: 4px 0 0 22px; }

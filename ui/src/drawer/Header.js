@@ -93,6 +93,7 @@ export function Header({ node, pane = null, now = Date.now(), maximised = false,
           <dt>Status</dt>
           <dd>${state.word}${since ? " for " + since : ""}</dd>
         </div>
+        ${node.live && !node.shell ? html`<div class="fact fact--doing"><dt>Doing now</dt><dd>${node.live}</dd></div>` : null}
         ${node.branch ? html`<div class="fact fact--branch"><dt>Branch</dt><dd>${node.branch}${counts ? " · " + counts : ""}</dd></div>` : null}
         ${model ? html`<div class="fact fact--model"><dt>Model</dt><dd>${model}</dd></div>` : null}
         ${spend ? html`<div class="fact fact--spend"><dt>Spend</dt><dd>${spend}</dd></div>` : null}
