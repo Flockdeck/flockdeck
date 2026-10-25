@@ -1684,7 +1684,7 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		s.pruneWorktrees(c, cmd.Root)
 		return
 	case "browse":
-		s.browse(c, cmd.Path)
+		s.browse(c, cmd.Path, cmd.Req)
 		return
 	case "startAgent":
 		s.startAgent(c, cmd)

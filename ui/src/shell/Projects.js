@@ -27,7 +27,13 @@ export function Projects({ open, recents: recentsMsg, browse: browseMsg, root, s
   useInert(rootRef);
   const first = useRef(null);
   const recents = P.recentsOf(recentsMsg);
-  const browse = P.browseOf(browseMsg);
+  // The folder listing last accepted. A late answer to an earlier ask is dropped
+  // so it cannot put back a folder the person has already left. The check runs in
+  // render and reads the module's ask count, which a later render sees moved on.
+  const listing = useRef(null);
+  if (browseMsg && !P.staleBrowse(browseMsg, P.lastBrowseAsk())) listing.current = P.browseOf(browseMsg);
+  const browse = listing.current;
+  const ask = (p) => send(P.browseCommand(p, P.nextBrowseReq()));
   // Which name is being edited ({ root, open, draft }), which close is being
   // asked about, which groups are expanded, and the group being made.
   const [renaming, setRenaming] = useState(null);
@@ -45,7 +51,7 @@ export function Projects({ open, recents: recentsMsg, browse: browseMsg, root, s
     const doc = el && el.ownerDocument;
     const before = doc && doc.activeElement;
     send(P.recentsCommand());
-    send(P.browseCommand(root));
+    ask(root);
     if (first.current && first.current.focus) first.current.focus();
     else if (el && el.focus) el.focus();
     return () => {
@@ -151,7 +157,7 @@ export function Projects({ open, recents: recentsMsg, browse: browseMsg, root, s
               ${rename(p, true)}
               ${archive(p)}
               <button type="button" class="dialog-btn" aria-label=${"Add a directory to " + p.name} title="Add another directory to this project. Each agent is told about the other directories and the agents working in them."
-                onClick=${() => { setAdding({ root: p.root, name: p.name }); send(P.browseCommand(root)); setPath(null); }}>Add directory…</button>
+                onClick=${() => { setAdding({ root: p.root, name: p.name }); ask(root); setPath(null); }}>Add directory…</button>
               ${multi ? html`<button type="button" class="dialog-btn" aria-expanded=${expanded.has(p.root) ? "true" : "false"} aria-label=${"Directories of " + p.name} onClick=${() => toggle(p.root)}>${expanded.has(p.root) ? "Hide directories" : "Directories"}</button>` : null}
               ${open.length > 1 ? html`<button type="button" class="dialog-btn dialog-btn--danger" aria-label=${"Close " + p.name} title="Close this project. The agents running in it stop." onClick=${() => startClose(p)}>Close</button>` : null}
             </span>`}
@@ -243,16 +249,16 @@ export function Projects({ open, recents: recentsMsg, browse: browseMsg, root, s
           <h3 id="proj-browse-h" class="proj-h">${adding ? "Add a directory to " + adding.name : "Open a folder"}</h3>
           ${adding ? html`<button type="button" class="dialog-btn" onClick=${() => setAdding(null)}>Cancel</button>` : null}
           <div class="proj-bar">
-            <button type="button" class="dialog-btn" disabled=${!browse || !browse.parent} onClick=${() => { setPath(null); send(P.browseCommand(browse.parent)); }}>Up</button>
+            <button type="button" class="dialog-btn" disabled=${!browse || !browse.parent} onClick=${() => { setPath(null); ask(browse.parent); }}>Up</button>
             <input id="browse-path" type="text" class="dialog-field" aria-label="Folder" placeholder="Type or paste a path, then press Enter" value=${target}
               onInput=${(e) => setPath(e.target.value)}
-              onKeyDown=${(e) => { if (e.key === LIST.accept) { e.preventDefault(); setPath(null); send(P.browseCommand(P.cleanPath(e.target.value))); } }} />
+              onKeyDown=${(e) => { if (e.key === LIST.accept) { e.preventDefault(); setPath(null); ask(P.cleanPath(e.target.value)); } }} />
             <button type="button" id="browse-open" class="dialog-btn dialog-btn--primary" disabled=${!target} onClick=${() => pickFolder(target)}>${adding ? "Add this folder" : "Open this folder"}</button>
           </div>
           ${problem ? html`<p class="dialog-note dialog-note--error" role="alert">${problem}</p>` : null}
           ${browse && browse.places.length
             ? html`<div class="proj-places" role="group" aria-label="Places">
-                ${browse.places.map((pl) => html`<button type="button" class="dialog-btn" key=${pl.path} onClick=${() => { setPath(null); send(P.browseCommand(pl.path)); }}>${pl.name}</button>`)}
+                ${browse.places.map((pl) => html`<button type="button" class="dialog-btn" key=${pl.path} onClick=${() => { setPath(null); ask(pl.path); }}>${pl.name}</button>`)}
               </div>`
             : null}
           ${browse && browse.error
@@ -263,7 +269,7 @@ export function Projects({ open, recents: recentsMsg, browse: browseMsg, root, s
                 ? html`<p class="dialog-note">No sub-folders here.</p>`
                 : html`<ul class="proj-dirs" aria-label="Folders">
                     ${browse.entries.map((d) => html`<li class="proj-dir" key=${d.path}>
-                      <button type="button" class="proj-dir-into" onClick=${() => { setPath(null); send(P.browseCommand(d.path)); }}>
+                      <button type="button" class="proj-dir-into" onClick=${() => { setPath(null); ask(d.path); }}>
                         <span class="proj-name">${d.name}</span>${d.isRepo ? html`<span class="proj-badge">git</span>` : null}
                       </button>
                       <button type="button" class="dialog-btn" aria-label=${(adding ? "Add " : "Open ") + d.name} onClick=${() => pickFolder(d.path)}>${adding ? "Add" : "Open"}</button>
