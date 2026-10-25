@@ -174,6 +174,9 @@ var agentTypeAllowed = map[string]map[string]agentTypeAllow{
 		"EventLog.Load | e.Kind != EventMessage":  {1, "an event's kind, not a pane's"},
 		"EventLog.Load | e.Kind != EventWake":     {1, "an event's kind, not a pane's"},
 		"EventLog.Load | e.Kind == EventWake":     {1, "an event's kind, not a pane's"},
+		"EventLog.Load | e.Kind == EventRename":   {1, "an event's kind, not a pane's"},
+		"EventLog.Load | e.Kind != EventRename":   {2, "an event's kind, not a pane's"},
+		"EventLog.Append | e.Kind == EventRename": {1, "an event's kind, not a pane's"},
 	},
 	"internal/workspace/claudelink.go": {
 		"resolveClaudeLink | e.Type != \"tree\"": {1, "a git tree entry's type"},

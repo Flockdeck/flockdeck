@@ -530,6 +530,13 @@ type Workspace struct {
 	// team is the roster, inboxes and delivery of messages between panes; see
 	// team.go.
 	team teamState
+	// labelRenames are the times each pane was renamed by an agent, for the limit on how often (panelabel.go). Guarded by mu.
+	labelRenames map[string][]time.Time
+	// actorRenames are the times each pane renamed others, the limit across targets. Guarded by mu.
+	actorRenames map[string][]time.Time
+	// renameTrails are bursts of renames waiting to be told, and renameNotify is who is told (panelabel.go). Guarded by mu.
+	renameTrails map[string]*renameTrail
+	renameNotify func(RenameInfo)
 	// tasks is the task boards of the open projects; see tasks.go.
 	tasks taskState
 
@@ -2594,6 +2601,9 @@ func (w *Workspace) destroyPane(id string) {
 	forgetWorktreeProcess(id)
 	// The generated settings file is only meaningful while the pane lives.
 	_ = os.Remove(filepath.Join(w.settingsDir, id+".settings.json"))
+	w.mu.Lock()
+	w.forgetRenames(id)
+	w.mu.Unlock()
 	w.forgetTeam(id)
 	w.notePaneClosed(id)
 }
@@ -3702,6 +3712,7 @@ func (w *Workspace) applyGit(key string, st gitx.Status, late bool) {
 func (w *Workspace) Close() {
 	// The wake service types into panes, so it stops before they are destroyed.
 	w.stopWake()
+	w.stopRenames()
 	if w.claudeSvc != nil {
 		w.claudeSvc.Stop()
 	}

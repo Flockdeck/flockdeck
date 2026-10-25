@@ -294,7 +294,7 @@ func (w *Workspace) deliver(members []team.Member, sender team.Sender, target, t
 			if len(targets) == 1 {
 				return hooks.MsgResult{}, err
 			}
-			res.Failed = append(res.Failed, fmt.Sprintf("%s: %v", to.Label(), err))
+			res.Failed = append(res.Failed, fmt.Sprintf("%s (pane %s): %v", to.Label(), to.Pane, err))
 			continue
 		}
 		res.Sent = append(res.Sent, hooks.Sent{ID: m.ID, Pane: to.Pane, To: to.Label(), Notifies: w.notifiable(to.Pane)})
@@ -335,11 +335,9 @@ func (w *Workspace) notifyParent(p *Pane, parent, what string) {
 	if parent == "" || w.Pane(parent) == nil {
 		return
 	}
-	label := p.Name
+	// The name the roster shows: what the pane is called for its work, else its peer name, else its pane name.
 	w.mu.RLock()
-	if p.PeerName != "" {
-		label = p.PeerName
-	}
+	label := team.Member{Name: p.Name, Peer: p.PeerName, Called: p.Label}.Label()
 	w.mu.RUnlock()
 	who := "agent"
 	if p.Role != "" {

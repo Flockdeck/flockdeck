@@ -1,8 +1,11 @@
 package workspace
 
 import (
+	"fmt"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/jmwri/flockdeck/internal/hooks"
 	"github.com/jmwri/flockdeck/internal/session"
@@ -180,5 +183,165 @@ func TestALabelThatPassesForARoleOfTheProjectIsMarkedAsAnAgents(t *testing.T) {
 	}
 	if got, _ := c.ws.SetPaneLabel(c.w1, c.w1, "reviewer PR 12"); got != "reviewer PR 12" {
 		t.Errorf("a label that only contains a role word was changed: %q", got)
+	}
+}
+
+func TestARenameByAnotherPaneTellsTheNamedPaneAndIsLimited(t *testing.T) {
+	c := newCrew(t)
+	if _, err := c.ws.SetPaneLabel(c.lead, c.w1, "docs sweep"); err != nil {
+		t.Fatal(err)
+	}
+	var told bool
+	for _, m := range c.inbox(t, c.w1, true) {
+		if strings.Contains(m.Text, `now "docs sweep"`) && strings.Contains(m.Text, "pane "+c.lead) {
+			told = true
+		}
+	}
+	if !told {
+		t.Errorf("the named pane was not told who named it: %+v", c.inbox(t, c.w1, true))
+	}
+	before := len(c.inbox(t, c.w1, true))
+	if _, err := c.ws.SetPaneLabel(c.w1, c.w1, "my own name"); err != nil {
+		t.Fatal(err)
+	}
+	if got := len(c.inbox(t, c.w1, true)); got != before {
+		t.Errorf("a pane naming itself sent itself a message (%d, was %d)", got, before)
+	}
+	var err error
+	for i := 0; i < maxRenames+1 && err == nil; i++ {
+		_, err = c.ws.SetPaneLabel(c.lead, c.w1, fmt.Sprintf("name %d", i))
+	}
+	if err == nil || !strings.Contains(err.Error(), "wait before naming it again") {
+		t.Errorf("renames in a loop were not limited: %v", err)
+	}
+	if _, err := c.ws.SetPaneLabel("", c.w1, "the person may"); err != nil {
+		t.Errorf("the person at the window was limited: %v", err)
+	}
+	notices := 0
+	for _, m := range c.inbox(t, c.w1, true) {
+		if strings.Contains(m.Text, "Pane name changed") || strings.Contains(m.Text, "times in the last minute") {
+			notices++
+		}
+	}
+	if notices > 2 {
+		t.Errorf("a burst of renames sent %d notices, want the first and one summary", notices)
+	}
+}
+
+func TestOnePaneIsLimitedInRenamingOthersAcrossTargets(t *testing.T) {
+	c := newCrew(t)
+	targets := []string{c.w1, c.w2, c.reviewer}
+	var err error
+	n := 0
+	for i := 0; i < maxActorRenames+1 && err == nil; i++ {
+		_, err = c.ws.SetPaneLabel(c.lead, targets[i%len(targets)], fmt.Sprintf("name %d", i))
+		if err == nil {
+			n++
+		}
+	}
+	if err == nil || !strings.Contains(err.Error(), "wait before naming another") || n != maxActorRenames {
+		t.Errorf("renames across panes were not limited: %d done, %v", n, err)
+	}
+	c.ws.mu.Lock()
+	c.ws.forgetRenames(c.w1)
+	_, left := c.ws.labelRenames[c.w1]
+	c.ws.mu.Unlock()
+	if left {
+		t.Error("a closed pane's renames were remembered")
+	}
+}
+
+func TestALabelMadeFromATaskIsNotAWordForARole(t *testing.T) {
+	if got := labelFromTask("Reviewer", "docs-bot"); !strings.HasPrefix(got, "(agent) ") {
+		t.Errorf("a task that is a role word gave %q", got)
+	}
+	if got := labelFromTask("docs-bot"); got != "docs-bot" {
+		t.Errorf("not a role without the project's roles: %q", got)
+	}
+	if got := labelFromTask("docs-bot", "docs-bot"); !strings.HasPrefix(got, "(agent) ") {
+		t.Errorf("a custom role id was not rewritten: %q", got)
+	}
+}
+
+func TestEveryRenameIsLoggedAndTheLastOfABurstIsTold(t *testing.T) {
+	old := renameQuiet
+	renameQuiet = 20 * time.Millisecond
+	defer func() { renameQuiet = old }()
+	c := newCrew(t)
+	var told []RenameInfo
+	var mu sync.Mutex
+	c.ws.SetRenameNotifier(func(r RenameInfo) { mu.Lock(); told = append(told, r); mu.Unlock() })
+	for _, name := range []string{"first", "second", "third"} {
+		if _, err := c.ws.SetPaneLabel(c.lead, c.w1, name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	renames := 0
+	for _, e := range c.ws.team.events.Events() {
+		if e.Kind == team.EventRename && e.To == c.w1 {
+			renames++
+		}
+	}
+	if renames != 3 {
+		t.Errorf("%d rename events, want 3", renames)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		mu.Lock()
+		n := len(told)
+		mu.Unlock()
+		if n >= 2 || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(told) != 2 || told[0].Now != "first" || told[1].Now != "third" || told[1].N != 3 || told[1].Was != "" {
+		t.Errorf("the person was told %+v, want the first rename and then the third of 3", told)
+	}
+	var last bool
+	for _, m := range c.inbox(t, c.w1, true) {
+		if strings.Contains(m.Text, `now "third"`) && strings.Contains(m.Text, "3 times") {
+			last = true
+		}
+	}
+	if !last {
+		t.Errorf("the pane was not told its latest name: %+v", c.inbox(t, c.w1, true))
+	}
+}
+
+func TestNoBurstNoticeForAPaneThatClosedOrAWorkspaceThatClosed(t *testing.T) {
+	old := renameQuiet
+	renameQuiet = 20 * time.Millisecond
+	defer func() { renameQuiet = old }()
+	c := newCrew(t)
+	var mu sync.Mutex
+	told := 0
+	c.ws.SetRenameNotifier(func(RenameInfo) { mu.Lock(); told++; mu.Unlock() })
+	count := func() int { mu.Lock(); defer mu.Unlock(); return told }
+
+	for _, name := range []string{"a", "b", "c"} {
+		if _, err := c.ws.SetPaneLabel(c.lead, c.w1, name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !c.ws.ClosePaneByID(c.w1) {
+		t.Fatal("pane did not close")
+	}
+	time.Sleep(150 * time.Millisecond)
+	if got := count(); got != 1 {
+		t.Errorf("%d notices after the pane closed, want only the first", got)
+	}
+
+	for _, name := range []string{"x", "y"} {
+		if _, err := c.ws.SetPaneLabel(c.lead, c.w2, name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	c.ws.Close()
+	time.Sleep(150 * time.Millisecond)
+	if got := count(); got != 2 {
+		t.Errorf("%d notices after Close, want the two first-of-burst ones", got)
 	}
 }

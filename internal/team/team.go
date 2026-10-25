@@ -59,7 +59,7 @@ func (m Member) Line() string {
 		role = "no role"
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s: %q", role, m.Label())
+	fmt.Fprintf(&b, "pane %s: %s %q", m.Pane, role, m.Label())
 	if m.Peer != "" && m.Name != "" && m.Peer != m.Name {
 		fmt.Fprintf(&b, " (pane name %q)", m.Name)
 	}
@@ -69,7 +69,7 @@ func (m Member) Line() string {
 			b.WriteString(" · " + m.Model)
 		}
 	}
-	fmt.Fprintf(&b, ", %s, pane %s", m.Status, m.Pane)
+	fmt.Fprintf(&b, ", %s", m.Status)
 	if m.Self {
 		b.WriteString(" (you)")
 	}
@@ -284,6 +284,10 @@ func noFormat(s string) string {
 		return r
 	}, s)
 }
+
+// PlainName is a name that another pane chose, as text for a notice: format
+// characters dropped (see noFormat), one line, at most max characters.
+func PlainName(s string, max int) string { return PlainText(noFormat(s), max) }
 
 // PaneLabelText is a pane's label as text: one line of at most MaxPaneLabel
 // characters with no control or format character in it, and rewritten as

@@ -512,10 +512,15 @@ func (s *Server) graphPayload(root string) (graphMsg, error) {
 		figures[g.ID] = f
 	}
 	stuck, below := graphRollup(graph, needs)
+	// A label that passes for a role of the catalog is shown as an agent's own, as when it was set.
+	var labelRoles []string
+	if c := s.ws.Catalog(); c != nil {
+		labelRoles = c.RoleIDs()
+	}
 	for _, n := range graph.Nodes {
 		p, g := byID[n.Pane], gpByID[n.Pane]
 		nv := graphNodeView{
-			GraphNode: n, Kind: string(rts[n.Pane].Transport()), Name: team.PlainText(g.Name, graphNameCut), Peer: team.PlainText(g.Peer, graphPeerCut), Label: team.PaneLabelText(g.Label), Role: g.Role, Agent: team.PlainText(g.Agent, graphAgentCut), Shell: g.Shell,
+			GraphNode: n, Kind: string(rts[n.Pane].Transport()), Name: team.PlainText(g.Name, graphNameCut), Peer: team.PlainText(g.Peer, graphPeerCut), Label: team.PaneLabelText(g.Label, labelRoles...), Role: g.Role, Agent: team.PlainText(g.Agent, graphAgentCut), Shell: g.Shell,
 			Status: g.Status, Activity: g.Activity, Branch: team.PlainText(p.Branch, graphBranchCut), Live: live[n.Pane],
 			Dirty: p.Git.Dirty, Untracked: p.Git.Untracked, Ahead: p.Git.Ahead, Behind: p.Git.Behind,
 			Unread: g.Unread, AutoReview: p.AutoReview, AutoApproved: ws.AutoApprovedOf(p),
