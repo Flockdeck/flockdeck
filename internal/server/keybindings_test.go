@@ -8,9 +8,9 @@ import (
 
 	"github.com/coder/websocket"
 
-	"github.com/jmwri/flockdeck/ui/help"
 	"github.com/jmwri/flockdeck/internal/keybindings"
 	"github.com/jmwri/flockdeck/internal/keytable"
+	"github.com/jmwri/flockdeck/ui/help"
 )
 
 // nextKeyTable reads control messages until a keyTable push satisfies cond.

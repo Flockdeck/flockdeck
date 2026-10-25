@@ -10,8 +10,8 @@ import (
 
 	"github.com/coder/websocket"
 
-	"github.com/jmwri/flockdeck/ui/help"
 	"github.com/jmwri/flockdeck/internal/store"
+	"github.com/jmwri/flockdeck/ui/help"
 )
 
 // The help pages are behind the same token as everything else, and come back
