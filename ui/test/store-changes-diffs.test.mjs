@@ -168,3 +168,16 @@ test("a branch's entries go when it leaves the listing, errors go after a hello,
   assert.ok(dropErrors(bad)[diffKey("p", "b")]);
   assert.equal(trim(diffs), diffs);
 });
+
+test("the commands of the check file are kept for the gate that asked, and let go with the watch", async () => {
+  const { store, ws } = await up();
+  const msg = { type: "changesChecks", req: "gt9", commands: [{ name: "unit", cmd: "go test ./..." }], hash: "a".repeat(64), pinned: false };
+  assert.equal(store.send({ cmd: "confirmChecks", id: API, req: "gt9" }), true, "a command of the view");
+  ws.frame(msg);
+  assert.equal(store.getState().changesChecks.req, "gt9");
+  assert.equal(store.getState().changesChecks.hash, "a".repeat(64));
+  store.unwatchChangesTeam();
+  assert.equal(store.getState().changesChecks, null);
+  ws.frame(msg);
+  assert.equal(store.getState().changesChecks, null, "not taken when nothing is watched");
+});

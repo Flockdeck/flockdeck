@@ -100,8 +100,48 @@ export function approveState(branch, canAct) {
 export const approveCommand = ({ pane, branch, expectSha, req }) => ({ cmd: "approveMerge", id: pane, branch, expectSha, req });
 export const unapproveCommand = ({ pane, branch, req }) => ({ cmd: "unapproveMerge", id: pane, branch, req });
 export const checksCommand = ({ pane, branch, names = [], req }) => ({ cmd: "runChecks", id: pane, branch, names, req });
+// confirmChecks without confirm only asks for the commands; with confirm and the hash that was shown it records them (section 6).
+export const confirmChecksCommand = ({ pane, branch, confirm = false, hash = "", req }) => ({ cmd: "confirmChecks", id: pane, branch, ...(confirm ? { confirm: true, hash } : {}), req });
 // requestReview does not take a branch (docs/changes-api.md, section 3).
 export const reviewCommand = ({ pane, reviewer, note = "", req }) => ({ cmd: "requestReview", id: pane, reviewer, text: note, req });
+
+const MAX_COMMANDS = 20;
+const NAME_CLIP = 60;
+const CMD_CLIP = 1000;
+
+/** oneLine shows a command or a name as a single line of text: line breaks and other control characters are
+ *  drawn as marks rather than acted on, and the hidden ones the page marks everywhere (showControls). */
+function oneLine(v, max) {
+  const t = showControls(text(v))
+    .replace(/[\r\n]+/g, " <LF> ")
+    .replace(/[\u0000-\u001f\u007f-\u009f]/g, (c) => "<U+" + c.charCodeAt(0).toString(16).toUpperCase().padStart(4, "0") + ">");
+  return t.length > max ? t.slice(0, max - 1) + "…" : t;
+}
+
+/** checksListOf reads a changesChecks: the commands the check file would run, the hash to send back to confirm them,
+ *  and whether they are already confirmed. null when there is nothing to confirm (no
+ *  command, or no hash to send back). The text of a command is the file's, written by whoever could write the file: it is
+ *  shown as it is, bounded, and never run or acted on here. */
+export function checksListOf(msg) {
+  if (!isObject(msg) || msg.type !== "changesChecks") return null;
+  const commands = list(msg.commands).filter((c) => isObject(c) && text(c.cmd) !== "").slice(0, MAX_COMMANDS)
+    .map((c) => ({ name: oneLine(c.name, NAME_CLIP), cmd: oneLine(c.cmd, CMD_CLIP) }));
+  const hash = text(msg.hash);
+  if (!commands.length || !hash) return null;
+  return { commands, hash, pinned: msg.pinned === true };
+}
+
+/** confirmWords are the sentences of the question before the checks run: the project, what was asked, each command and
+ *  where it runs. They are the page's words around the file's text. */
+export function confirmWords(ask, project) {
+  const a = isObject(ask) ? ask : {};
+  const out = [];
+  if (a.note) out.push(a.note);
+  if (project) out.push("Project: " + oneLine(project, 120));
+  for (const c of list(a.commands)) out.push((c.name ? c.name + ": " : "") + c.cmd);
+  out.push("These commands run on this machine, in this branch's checkout, and the checks run code from that checkout. Confirm only if you have read them.");
+  return out;
+}
 
 /** gateRefusalWords is what to say for a changesResult that was not ok. */
 export function gateRefusalWords(msg) {

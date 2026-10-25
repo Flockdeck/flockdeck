@@ -17,21 +17,21 @@ import { actsFor, gateActsFor } from "../drawer/diff/gateModel.js";
 import { CHANGES_RELAY_WORDS, CHANGES_VIEWER_WORDS } from "../lib/changesteam.js";
 
 /** BranchGate is the merge gate of one branch: the drawer's MergeGate with the actions it sends through the store. win says what this window may do ({ viewer, relay, caps }). */
-function BranchGate({ branch, names, win, reviewers, flowIn }) {
-  const flow = useGateActions({ branch, send: flowIn.send, result: flowIn.result, connected: flowIn.connected, session: flowIn.session });
+function BranchGate({ branch, names, win, reviewers, flowIn, project }) {
+  const flow = useGateActions({ branch, send: flowIn.send, result: flowIn.result, connected: flowIn.connected, session: flowIn.session, checks: flowIn.checks });
   const others = reviewers.filter((r) => r.pane !== branch.pane);
-  return html`<${MergeGate} branch=${branch} canAct=${gateActsFor(win)} canCheck=${actsFor("changesChecks", win)} flow=${flow}
+  return html`<${MergeGate} branch=${branch} canAct=${gateActsFor(win)} canCheck=${actsFor("changesChecks", win)} flow=${flow} project=${project}
     nameOf=${(p) => nameOf(names, p)} reviewer=${others.length ? others[0].pane : ""} />`;
 }
 
-function Detail({ branch: b, names, onBack, backRef, win, reviewers, flowIn, git, onRemote, onDismiss, diffs, results, store }) {
+function Detail({ project, branch: b, names, onBack, backRef, win, reviewers, flowIn, git, onRemote, onDismiss, diffs, results, store }) {
   return html`<section class="ct-detail" aria-label=${"Changes of " + nameOf(names, b.pane)}>
     <button type="button" class="ct-back drawer-btn" ref=${backRef} onClick=${onBack}>Back to the list</button>
     <h3 class="ct-detail-title">${nameOf(names, b.pane)} <span class="ct-branch">${words(b.branch, 120)}</span></h3>
     ${b.error
       ? html`<p class="view-note ct-error" role="alert">${words(b.error, 200)}</p>`
       : html`<${BranchHeader} branch=${b} names=${names} git=${git} onRemote=${onRemote} onDismiss=${onDismiss} />
-        ${b.gate ? html`<${BranchGate} key=${b.pane} branch=${b} names=${names} win=${win} reviewers=${reviewers} flowIn=${flowIn} />` : null}
+        ${b.gate ? html`<${BranchGate} key=${b.pane} branch=${b} names=${names} win=${win} reviewers=${reviewers} flowIn=${flowIn} project=${project} />` : null}
         <${BranchDiff} key=${b.pane} branch=${b} names=${names} win=${win} diffs=${diffs} results=${results} session=${flowIn.session} connected=${flowIn.connected} store=${store} />`}
     ${b.omitted ? html`<p class="view-note">${b.omitted} more files are not listed.</p>` : null}
   </section>`;
@@ -46,7 +46,7 @@ export function statusOf({ data, remote, viewer, gone }) {
 }
 
 /** TeamChanges draws a changesTeam push (lib/changesteam.js). gone is the watch's refusal, if any; viewer is a window that may not use the desk's commands. */
-export function TeamChanges({ data, names, remote, viewer, gone, caps = [], reviewers = [], result = null, connected = true, session = null, git = null, store = null, diffs, results }) {
+export function TeamChanges({ data, names, remote, viewer, gone, caps = [], reviewers = [], result = null, checks = null, connected = true, session = null, git = null, store = null, diffs, results }) {
   const [picked, setPicked] = useState("");
   const [detail, setDetail] = useState(false);
   const root = useRef(null);
@@ -72,8 +72,8 @@ export function TeamChanges({ data, names, remote, viewer, gone, caps = [], revi
     const cur = data.branches.find((b) => b.pane === picked) || data.branches[0];
     body = html`<div class=${"ct-view" + (detail ? " is-detail" : "")} ref=${root}>
       <${ChangesList} branches=${data.branches} names=${names} selected=${cur.pane} onPick=${(p) => { asked.current = "open"; setPicked(p); setDetail(true); }} />
-      <${Detail} branch=${cur} names=${names} backRef=${backRef} onBack=${() => { asked.current = "back"; setDetail(false); }}
-        win=${{ viewer: !!viewer, relay: !!remote, caps }} reviewers=${reviewers} flowIn=${{ send: store ? (c) => store.send(c) : null, result, connected, session }}
+      <${Detail} project=${data.project} branch=${cur} names=${names} backRef=${backRef} onBack=${() => { asked.current = "back"; setDetail(false); }}
+        win=${{ viewer: !!viewer, relay: !!remote, caps }} reviewers=${reviewers} flowIn=${{ send: store ? (c) => store.send(c) : null, result, checks, connected, session }}
         git=${git} diffs=${diffs} results=${results} store=${store} onRemote=${store ? (a) => store.branchRemote(a, cur.pane, cur.cwd) : null} onDismiss=${store ? () => store.clearBranchGit() : null} />
     </div>`;
   }
