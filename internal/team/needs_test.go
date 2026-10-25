@@ -321,8 +321,16 @@ func TestNeedsReturnedClearsOnceOwnerWorks(t *testing.T) {
 	if got := needsFor(ps, tasks, nil, mv)["m"]; len(got) != 0 {
 		t.Errorf("working since the return: items = %+v, want none", got)
 	}
+	// The owner worked and went idle with the task still in progress: it counts again.
+	ps[1].Activity, ps[1].StatusSince = "idle", t0.Add(-time.Minute)
+	if got := needsFor(ps, tasks, nil, mv)["m"]; len(got) != 1 || got[0].Kind != NeedReturned {
+		t.Errorf("working then idle: items = %+v, want the returned item", got)
+	}
 	// A duplicate pane id does not let a later copy decide.
 	dup := append(team2(), ps[1])
+	if len(dup) != 4 {
+		t.Fatalf("team2 has %d panes, test expects 3", len(dup)-1)
+	}
 	dup[3].ID = "a"
 	if got := needsFor(dup, tasks, nil, mv)["m"]; len(got) != 1 {
 		t.Errorf("duplicate id: items = %+v, want the first pane's view (idle): one item", got)

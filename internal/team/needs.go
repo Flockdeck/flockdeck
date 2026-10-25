@@ -93,8 +93,8 @@ type TeamNeeds struct {
 // left out. A conflict between panes of two teams is listed in both.
 //
 // Order: permission and ask prompts, longest waiting first; then returned
-// tasks, newest first, which stop being listed once the owner pane is working
-// again (its status began after the return); then conflicts; then panes that are down; then stale
+// tasks, newest first, except while the owner pane is working and has been since
+// the return; then conflicts; then panes that are down; then stale
 // unread mail, which is one item for the team: the oldest pane's, with a count
 // when more than one pane has such mail. An item with an unknown time goes after the others
 // of its kind. Each list keeps at most MaxNeeds items and counts the rest.
@@ -202,8 +202,12 @@ func NeedsYou(g Graph, panes []GraphPane, tasks []GraphTask, conflicts []PaneCon
 		if !ok || t.State != taskInProgress || t.OwnerPane == "" {
 			continue
 		}
-		// A return is over once the owner began working after it. Terminal output
-		// is no sign of that: the return note is typed into the pane and echoed.
+		// While the owner is working and began after the return, the person has
+		// nothing to do about it. If it goes idle with the task still in progress
+		// the item comes back: that is a stall worth a look, and the badge changing
+		// then is intended. Terminal output is not used, since the return note is
+		// typed into the pane and echoed. A pane without hooks counts as working on
+		// any output that is not a redraw, so there an echo can clear the item.
 		if o, found := byID[t.OwnerPane]; found && o.Activity == activityWorking && o.StatusSince.After(m.Time) {
 			continue
 		}
