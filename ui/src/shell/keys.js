@@ -30,7 +30,7 @@ export const composing = (e) => !!(e.isComposing || e.keyCode === IME);
 
 /** LIST are the keys that move through, choose from and leave a list. step goes to
  *  the next match of a search, as it does in nearly every program that searches. */
-export const LIST = { up: "ArrowUp", down: "ArrowDown", left: "ArrowLeft", right: "ArrowRight", home: "Home", end: "End", accept: "Enter", cancel: "Escape", tab: "Tab", step: "F3" };
+export const LIST = { up: "ArrowUp", down: "ArrowDown", left: "ArrowLeft", right: "ArrowRight", home: "Home", end: "End", accept: "Enter", cancel: "Escape", tab: "Tab", step: "F3", remove: "Delete" };
 // vocabulary:end
 
 /** signature is the shape a binding and a keydown are both reduced to, so that
