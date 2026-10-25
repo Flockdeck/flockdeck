@@ -2,6 +2,7 @@ package changes
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path"
 	"path/filepath"
@@ -10,6 +11,8 @@ import (
 	"strings"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/jmwri/flockdeck/internal/gitx"
 )
 
 const (
@@ -237,6 +240,9 @@ func Diff(ctx context.Context, pane, cwd string, req DiffRequest) (DiffHunks, *R
 		}
 		args = append(append(args, "--"), paths...)
 		o, err := git(ctx, cwd, args...)
+		if errors.Is(err, gitx.ErrTooLarge) {
+			return fail("the diff is too large to read")
+		}
 		if err != nil {
 			return fail("could not read the diff: " + firstLine(err.Error()))
 		}

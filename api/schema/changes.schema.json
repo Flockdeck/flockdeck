@@ -921,6 +921,15 @@
           ],
           "description": "What the diff is against, as asked."
         },
+        "headSha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{7,40}$",
+          "description": "The commit the branch's HEAD was on when the diff was made. A comment written on this diff is attached to it (atSha); line numbers on the new side are the working tree's when worktree is set, and the head's otherwise."
+        },
+        "worktree": {
+          "const": true,
+          "description": "Present, and true, when the new side is the working tree and this file differs there from headSha: the diff includes uncommitted changes. Never present for against head."
+        },
         "binary": {
           "const": true,
           "description": "Present, and true, for a binary file: hunks is then empty and sizeBefore and sizeAfter are written."
@@ -990,6 +999,7 @@
           "then": {
             "required": [
               "against",
+              "headSha",
               "hunks",
               "totalLines"
             ]
@@ -1032,7 +1042,7 @@
           "items": {
             "$ref": "#/$defs/line"
           },
-          "description": "The lines asked for, all ctx, fewer if the file ended."
+          "description": "The lines asked for, all ctx, fewer if the file ended. Each carries the number of the side asked for (oldNo for old, newNo for new)."
         },
         "eof": {
           "type": "boolean",
