@@ -93,7 +93,8 @@ type TeamNeeds struct {
 // left out. A conflict between panes of two teams is listed in both.
 //
 // Order: permission and ask prompts, longest waiting first; then returned
-// tasks, newest first; then conflicts; then panes that are down; then stale
+// tasks, newest first, except while the owner pane is working and has been since
+// the return; then conflicts; then panes that are down; then stale
 // unread mail, which is one item for the team: the oldest pane's, with a count
 // when more than one pane has such mail. An item with an unknown time goes after the others
 // of its kind. Each list keeps at most MaxNeeds items and counts the rest.
@@ -181,6 +182,12 @@ func NeedsYou(g Graph, panes []GraphPane, tasks []GraphTask, conflicts []PaneCon
 		lists[t] = append(lists[t], it)
 	}
 
+	byID := make(map[string]GraphPane, len(panes))
+	for _, p := range panes {
+		if _, dup := byID[p.ID]; !dup {
+			byID[p.ID] = p
+		}
+	}
 	latest := map[string]TaskMove{}
 	for _, m := range moves {
 		if m.From != taskInReview || m.To != taskInProgress || m.Time.After(now) || now.Sub(m.Time) > ReturnedWindow {
@@ -193,6 +200,15 @@ func NeedsYou(g Graph, panes []GraphPane, tasks []GraphTask, conflicts []PaneCon
 	for _, t := range tasks {
 		m, ok := latest[t.ID]
 		if !ok || t.State != taskInProgress || t.OwnerPane == "" {
+			continue
+		}
+		// While the owner is working and began after the return, the person has
+		// nothing to do about it. If it goes idle with the task still in progress
+		// the item comes back: that is a stall worth a look, and the badge changing
+		// then is intended. Terminal output is not used, since the return note is
+		// typed into the pane and echoed. A pane without hooks counts as working on
+		// any output that is not a redraw, so there an echo can clear the item.
+		if o, found := byID[t.OwnerPane]; found && o.Activity == activityWorking && o.StatusSince.After(m.Time) {
 			continue
 		}
 		add(t.OwnerPane, NeedsItem{ID: NeedReturned + ":" + t.ID, Kind: NeedReturned, Pane: t.OwnerPane, Task: t.ID, Time: m.Time, Text: PlainText(m.Note, MaxWaitText)})

@@ -298,6 +298,45 @@ func TestNeedsPromptKindFallback(t *testing.T) {
 	}
 }
 
+func TestNeedsReturnedClearsOnceOwnerWorks(t *testing.T) {
+	tasks := []GraphTask{{ID: "T1", State: "in-progress", OwnerPane: "a"}}
+	mv := []TaskMove{{Task: "T1", From: "in-review", To: "in-progress", Time: t0.Add(-time.Hour), Note: "fix the findings"}}
+	for name, set := range map[string]func(p *GraphPane){
+		"idle since the return":                 func(p *GraphPane) {},
+		"echo of the return note":               func(p *GraphPane) { p.LastOutput = t0.Add(-time.Hour + time.Second) },
+		"output long after, still idle":         func(p *GraphPane) { p.LastOutput = t0.Add(-time.Minute) },
+		"working since before the return":       func(p *GraphPane) { p.Activity, p.StatusSince = "working", t0.Add(-2*time.Hour) },
+		"working from the moment of the return": func(p *GraphPane) { p.Activity, p.StatusSince = "working", t0.Add(-time.Hour) },
+		"working with no status time":           func(p *GraphPane) { p.Activity = "working" },
+	} {
+		ps := team2()
+		set(&ps[1])
+		if got := needsFor(ps, tasks, nil, mv)["m"]; len(got) != 1 || got[0].Kind != NeedReturned {
+			t.Errorf("%s: items = %+v, want the returned item", name, got)
+		}
+	}
+	// The appraisable shape: the worker is working after the return.
+	ps := team2()
+	ps[1].Activity, ps[1].StatusSince, ps[1].LastOutput = "working", t0.Add(-30*time.Minute), t0.Add(-time.Second)
+	if got := needsFor(ps, tasks, nil, mv)["m"]; len(got) != 0 {
+		t.Errorf("working since the return: items = %+v, want none", got)
+	}
+	// The owner worked and went idle with the task still in progress: it counts again.
+	ps[1].Activity, ps[1].StatusSince = "idle", t0.Add(-time.Minute)
+	if got := needsFor(ps, tasks, nil, mv)["m"]; len(got) != 1 || got[0].Kind != NeedReturned {
+		t.Errorf("working then idle: items = %+v, want the returned item", got)
+	}
+	// A duplicate pane id does not let a later copy decide.
+	dup := append(team2(), ps[1])
+	if len(dup) != 4 {
+		t.Fatalf("team2 has %d panes, test expects 3", len(dup)-1)
+	}
+	dup[3].ID, dup[3].Activity, dup[3].StatusSince = "a", "working", t0.Add(-30*time.Minute)
+	if got := needsFor(dup, tasks, nil, mv)["m"]; len(got) != 1 {
+		t.Errorf("duplicate id: items = %+v, want the first pane's view (idle): one item", got)
+	}
+}
+
 func TestNeedsReturnedEdges(t *testing.T) {
 	ps := team2()
 	tasks := []GraphTask{

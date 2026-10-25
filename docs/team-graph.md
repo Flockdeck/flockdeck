@@ -250,7 +250,7 @@ their own (`soloNeeds`).
 | --- | --- | --- | --- |
 | `permission` | a pane is waiting on a permission prompt | when it started waiting | the command, cut to 200 characters |
 | `ask` | a pane is waiting on a question put to the person | when it started waiting | the question, cut to 200 characters |
-| `returned` | a task went from in review back to in progress in the last 24 hours and is still in progress | when it came back | the note it came back with; absent when it had none |
+| `returned` | a task went from in review back to in progress in the last 24 hours and is still in progress, except while its owner pane is working and has been since it came back; the item returns if the owner goes idle with the task still in progress | when it came back | the note it came back with; absent when it had none |
 | `conflict` | the conflict radar reports that two panes' work would conflict | when the radar first reported the pair, if known | up to 5 paths, each cut to 80 characters, and "and N more" for the rest |
 | `down` | a pane failed, or exited with a code other than 0, and was not closed by the person | when its status began | `failed` and the reason, or `exited with code N` |
 | `setup` | a structured pane could not start and needs something from the person: Node, a sign-in, or the agent's program | when its status began | the fix, cut to 200 characters |
