@@ -3197,17 +3197,35 @@ func typeInto(s *session.Session, text string, submit bool) {
 // typeIntoFrom is typeInto with the source of the input named, so a line
 // Flockdeck types itself is not recorded as the user at the keyboard.
 func typeIntoFrom(s *session.Session, src session.InputSource, text string, submit bool) {
+	typeIntoSink(s, src, text, submit)
+}
+
+// promptSink is the part of a session typeIntoSink writes through, so a test can
+// stand in for the terminal and see what arrives, in what order and how far
+// apart.
+type promptSink interface {
+	BracketedPaste() bool
+	WriteStringFrom(src session.InputSource, s string) error
+}
+
+// typeIntoSink is typeIntoFrom over a sink.
+func typeIntoSink(s promptSink, src session.InputSource, text string, submit bool) {
 	typed, pasted := promptInput(text, s.BracketedPaste())
 	if err := s.WriteStringFrom(src, typed); err == nil && submit {
-		// The Enter waits a moment after a paste. A program can take
-		// a paste in on its own time -- Claude Code folds a long one
-		// into a placeholder first -- and an Enter arriving on the
-		// heels of the end marker could be read before the paste had
-		// reached the input, submitting what was there without it.
+		// The Enter waits a moment after the text, pasted or typed. A program can
+		// take a paste in on its own time -- Claude Code folds a long one into a
+		// placeholder first -- and an Enter arriving on the heels of the end
+		// marker could be read before the paste had reached the input, submitting
+		// what was there without it. Text typed in one write is no different: an
+		// agent that reads input arriving together as a paste takes the Enter that
+		// came with it for a line break, and the text is left in its prompt with
+		// the cursor on a new line, never sent.
 		if pasted {
 			time.Sleep(pasteSettle)
+		} else {
+			time.Sleep(typedSettle)
 		}
-		_ = s.WriteStringFrom(src, "\r")
+		_ = s.WriteStringFrom(src, "")
 	}
 }
 
@@ -3294,6 +3312,10 @@ func (w *Workspace) routeFirstTurn(p *Pane, text string) bool {
 // pasteSettle is how long SendPrompt leaves between a pasted prompt and the
 // Enter that submits it.
 var pasteSettle = 100 * time.Millisecond
+
+// typedSettle is the same wait after text that was typed and not pasted. It is
+// longer because nothing marks where the text ends: only the gap does.
+var typedSettle = 200 * time.Millisecond
 
 // promptInput returns what the prompt bar writes to a pane for text, and
 // whether it is a paste. Only text with a line break in it is pasted: a line

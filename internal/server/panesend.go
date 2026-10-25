@@ -33,7 +33,7 @@ func (s *Server) paneSend(c *controlClient, cmd command) {
 		return
 	}
 	s.do(func() {
-		res, err := s.ws.SendToPane(cmd.ID, cmd.Text, cmd.AllowShell)
+		res, err := s.ws.SendToPaneThen(cmd.ID, cmd.Text, cmd.AllowShell, func(err error) { c.notify(err.Error(), true) })
 		if err != nil {
 			c.notify(err.Error(), true)
 			return

@@ -3,6 +3,7 @@ package workspace
 import (
 	"errors"
 	"strings"
+	"time"
 
 	"github.com/jmwri/flockdeck/internal/session"
 	"github.com/jmwri/flockdeck/internal/structured"
@@ -21,7 +22,15 @@ var (
 	ErrSendPermission = errors.New("That pane is waiting on a permission prompt, which is answered with its choice buttons and not by text, so the text was not sent")
 	ErrSendInFlight   = errors.New("The pane is still taking in the last text sent to it, so this was not sent. Try again in a moment")
 	ErrSendQueueFull  = errors.New("That pane already has as many prompts waiting as it takes, so the text was not sent. Try again when it has worked through them")
+	// ErrSendNotSubmitted is not an early refusal: the text was written and the
+	// agent did not start a turn on it, after a second Enter.
+	ErrSendNotSubmitted = errors.New("The text reached the agent but it did not start on it, so it may be sitting in its prompt. Open the pane and press Enter there")
 )
+
+// submitWait is how long SendToPane gives an idle agent to start a turn after
+// the Enter before it presses Enter again, and then before it says the text was
+// not sent.
+var submitWait = time.Second
 
 // SendResult says how a SendToPane went.
 type SendResult struct {
@@ -76,6 +85,14 @@ type SendResult struct {
 // as from the prompt bar. Like SendPrompt it runs on the goroutine that owns
 // the workspace.
 func (w *Workspace) SendToPane(id, text string, allowShell bool) (SendResult, error) {
+	return w.SendToPaneThen(id, text, allowShell, nil)
+}
+
+// SendToPaneThen is SendToPane that tells unsent, from a goroutine of its own,
+// when the text was written to an idle agent's terminal and the agent did not
+// start a turn on it: after the Enter and a second one a second apart. A pane
+// that was busy is not checked, since its status says nothing about the text.
+func (w *Workspace) SendToPaneThen(id, text string, allowShell bool, unsent func(error)) (SendResult, error) {
 	var res SendResult
 	p := w.Pane(id)
 	if p == nil {
@@ -129,8 +146,46 @@ func (w *Workspace) SendToPane(id, text string, allowShell bool) (SendResult, er
 		return res, err
 	}
 	sess := p.Sess
-	go w.writeToPane(p, sess, text, typeIntoAsFlockdeck)
+	check := unsent != nil && !res.Shell && !res.Queued && !res.Waiting
+	go func() {
+		w.writeToPane(p, sess, text, typeIntoAsFlockdeck)
+		if check {
+			if err := confirmSubmitted(sess, submitWait); err != nil {
+				unsent(err)
+			}
+		}
+	}()
 	return res, nil
+}
+
+// confirmSubmitted waits for an agent that was idle to leave idle after text and
+// an Enter were written to it, which is what starting a turn looks like to the
+// session whether the agent reports it or its output does. If it has not within
+// wait it is sent one more Enter, once, and given the same time again. It
+// returns ErrSendNotSubmitted if it still has not, and nil if the agent started.
+func confirmSubmitted(sess *session.Session, wait time.Duration) error {
+	started := func() bool {
+		st, _ := sess.Status()
+		return st != session.StatusIdle
+	}
+	waitFor := func() bool {
+		for deadline := time.Now().Add(wait); ; time.Sleep(25 * time.Millisecond) {
+			if started() {
+				return true
+			}
+			if !time.Now().Before(deadline) {
+				return false
+			}
+		}
+	}
+	if waitFor() {
+		return nil
+	}
+	_ = sess.WriteStringFrom(session.InputFlockdeck, "")
+	if waitFor() {
+		return nil
+	}
+	return ErrSendNotSubmitted
 }
 
 // typeIntoAsFlockdeck is what SendToPane types with. The text is written on
