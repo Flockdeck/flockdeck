@@ -151,6 +151,11 @@ func checkEnv() []string {
 			env = append(env, n+"="+v)
 		}
 	}
+	if runtime.GOOS == "windows" {
+		// Without this a command named go or npm runs a go.bat or npm.cmd of the
+		// checkout before the one on PATH, and the agent wrote the checkout.
+		env = append(env, "NoDefaultCurrentDirectoryInExePath=1")
+	}
 	return env
 }
 
@@ -179,11 +184,28 @@ func (w *cappedWriter) bytes() []byte {
 	return append([]byte(nil), w.buf.Bytes()...)
 }
 
+const dirtyNote = "run on uncommitted files, not a pass for the head commit"
+
+// MarkDirty marks the result as one that saw files that are not in the head
+// commit, and says so in its summary.
+func (c *Check) MarkDirty() {
+	if c.Worktree && strings.HasSuffix(c.Summary, dirtyNote+")") {
+		return
+	}
+	c.Worktree = true
+	if c.Summary != "" {
+		c.Summary = cleanLine(cleanLine(c.Summary, MaxSummary-len(dirtyNote)-3)+" ("+dirtyNote+")", MaxSummary)
+	} else {
+		c.Summary = dirtyNote
+	}
+}
+
 // RunCheck runs one check in dir and returns its result. dir is the agent's
 // checkout: the command runs there with the person's rights, exactly as if the
 // person had run it, with a clean environment, at most timeout and its output
-// capped. When the time is up, or ctx ends, the command and everything it
-// started are killed. A tree with files that are not in the head commit is
+// capped. When the time is up, or ctx ends, the command and what it started
+// are ended as far as proctree reaches: a daemon that left its session survives on
+// Unix, and only console programs are ended on Windows. A tree with files that are not in the head commit is
 // run on as it is and marked Worktree.
 func RunCheck(ctx context.Context, dir string, def CheckDef, headSha string, dirty bool, timeout time.Duration) Check {
 	res := Check{Name: def.Name, Source: "local", AtSha: headSha, Worktree: dirty,
@@ -191,17 +213,9 @@ func RunCheck(ctx context.Context, dir string, def CheckDef, headSha string, dir
 	finish := func(state, summary string) Check {
 		res.State = state
 		res.FinishedAt = time.Now().UTC().Format(time.RFC3339)
+		res.Summary = summary
 		if dirty {
-			note := "run on uncommitted files, not a pass for the head commit"
-			if summary != "" {
-				summary = cleanLine(summary, MaxSummary-len(note)-3)
-				summary += " (" + note + ")"
-			} else {
-				summary = note
-			}
-			res.Summary = cleanLine(summary, MaxSummary)
-		} else {
-			res.Summary = summary
+			res.MarkDirty()
 		}
 		return res
 	}
@@ -233,6 +247,10 @@ func RunCheck(ctx context.Context, dir string, def CheckDef, headSha string, dir
 	case waitErr = <-done:
 	case <-rctx.Done():
 		timedOut = true
+		// exec's own kill on the context has ended the shell only, and Wait cannot
+		// return while a child holds the output pipe (WaitDelay lets go of it after a
+		// second). End with no reaped channel ends the tree at once; the second End,
+		// once Wait is back, makes sure what is left of the tree is gone.
 		tree.End(cmd.Process, nil, checkKillGrace)
 		waitErr = <-done
 	}

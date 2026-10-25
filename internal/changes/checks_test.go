@@ -147,3 +147,29 @@ func TestCappedWriterKeepsOnlyTheCap(t *testing.T) {
 		t.Errorf("wrote %d and %d, kept %q", n, m, w.bytes())
 	}
 }
+
+func TestAWindowsCheckDoesNotRunAScriptOfTheCheckoutFirst(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("only Windows looks in the current directory first")
+	}
+	dir := t.TempDir()
+	write(t, dir, "zzplanted.bat", "@echo PLANTED\r\n")
+	got := RunCheck(context.Background(), dir, CheckDef{Name: "p", Cmd: "zzplanted"}, "abc1234", false, time.Minute)
+	if got.State != "fail" || strings.Contains(got.Summary, "PLANTED") {
+		t.Errorf("the planted script ran: %+v", got)
+	}
+}
+
+func TestMarkDirtyMarksOnceAndKeepsTheSummary(t *testing.T) {
+	c := Check{Name: "a", State: "pass", Summary: "ok"}
+	c.MarkDirty()
+	c.MarkDirty()
+	if !c.Worktree || c.Summary != "ok ("+dirtyNote+")" {
+		t.Errorf("check = %+v", c)
+	}
+	e := Check{Name: "b", State: "pass"}
+	e.MarkDirty()
+	if e.Summary != dirtyNote {
+		t.Errorf("empty summary = %q", e.Summary)
+	}
+}

@@ -70,7 +70,7 @@ func TestChecksAndReviewsRefuseWhatTheyCannotAnswer(t *testing.T) {
 		"submitReview no pane":      {command{Cmd: "submitReview", Req: "r", ID: "nope", State: "approved", ExpectSha: "abcdef0"}, "noBranch"},
 	} {
 		t.Run(name, func(t *testing.T) {
-			cl := &controlClient{out: make(chan []byte, 8)}
+			cl := &controlClient{out: make(chan []byte, 8), page: true}
 			srv.handleCommand(cl, c.cmd)
 			m := answerOf(t, cl)
 			if m.Type != "changesResult" || m.Op != c.cmd.Cmd || m.Req != "r" || m.OK || m.Code != c.code || m.Error == "" {
@@ -117,5 +117,18 @@ func TestAReviewRequestSaysWhatWasAskedAndApprovesNothing(t *testing.T) {
 	rec := reviewRecordedText("changes", "feat/x", sha, "no")
 	if !strings.Contains(rec, "asked for changes on feat/x at 0123456789ab") || !strings.Contains(rec, "not a merge approval") || !strings.Contains(rec, "> no") {
 		t.Errorf("recorded text = %s", rec)
+	}
+}
+
+// The three commands act for the person, so a connection that did not open as a
+// page of the window is refused them (an agent's token is accepted by the socket).
+func TestChecksAndReviewsAreRefusedToAConnectionThatIsNotAPage(t *testing.T) {
+	srv, _ := newTestServer(t)
+	for _, name := range []string{"runChecks", "requestReview", "submitReview"} {
+		cl := &controlClient{out: make(chan []byte, 8)}
+		srv.handleCommand(cl, command{Cmd: name, Req: "r", ID: "p1", Reviewer: "p2", State: "approved", ExpectSha: "abcdef0"})
+		if m := answerOf(t, cl); m.Code != "deskOnly" || m.Op != name || m.OK {
+			t.Errorf("%s: answer = %+v, want deskOnly", name, m)
+		}
 	}
 }

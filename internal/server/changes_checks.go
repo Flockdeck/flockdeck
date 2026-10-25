@@ -125,7 +125,8 @@ func (s *Server) withChecksAndReviews(t *changes.Team, root, project string) {
 	var state changes.ReviewState
 	if _, statePath, err := changesFiles(root, project); err == nil {
 		reviewsMu.Lock()
-		state = changes.LoadReviews(statePath)
+		// A damaged file shows as no reviews here; the commands that would write over it refuse.
+		state, _ = changes.LoadReviews(statePath)
 		reviewsMu.Unlock()
 	}
 	keep := map[string]bool{}
@@ -267,16 +268,55 @@ func (s *Server) changesRunChecks(c *controlClient, cmd command) {
 	changesOK(c, cmd)
 	go func() {
 		defer s.checks.end(cmd.ID)
+		// The checks stop when the server closes and when the pane is closed.
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		go func() {
+			tick := time.NewTicker(2 * time.Second)
+			defer tick.Stop()
+			for {
+				select {
+				case <-ctx.Done():
+					return
+				case <-s.closed:
+					cancel()
+					return
+				case <-tick.C:
+					if open, ok := ask(s, func() bool { return s.ws.Pane(cmd.ID) != nil }); !ok || !open {
+						cancel()
+						return
+					}
+				}
+			}
+		}()
 		for _, d := range defs {
+			if ctx.Err() != nil {
+				return
+			}
 			head, dirtyNow := b.HeadSha, dirty
-			rctx, cancel := context.WithTimeout(context.Background(), changesReadLimit)
+			rctx, rcancel := context.WithTimeout(ctx, changesReadLimit)
 			if nb, nd := readHead(rctx, cmd.ID, cwd); nb.Error == "" {
 				head, dirtyNow = nb.HeadSha, nd
 			}
-			cancel()
+			rcancel()
 			s.checks.put(cmd.ID, changes.Check{Name: d.Name, State: "running", Source: "local", AtSha: head, Worktree: dirtyNow,
 				StartedAt: time.Now().UTC().Format(time.RFC3339)})
-			s.checks.put(cmd.ID, changes.RunCheck(context.Background(), cwd, d, head, dirtyNow, changes.CheckTimeout))
+			res := changes.RunCheck(ctx, cwd, d, head, dirtyNow, changes.CheckTimeout)
+			// The head and the tree are looked at again, as an honesty check and not a
+			// boundary: a commit or an edit made while the check ran does not leave a
+			// result that claims more than it saw. A process that wants to deceive can
+			// change files back before this look.
+			actx, acancel := context.WithTimeout(ctx, changesReadLimit)
+			if nb, nd := readHead(actx, cmd.ID, cwd); nb.Error == "" {
+				switch {
+				case nb.HeadSha != head:
+					res = changes.Check{Name: d.Name, State: "queued", Source: "local", AtSha: nb.HeadSha}
+				case nd && !res.Worktree:
+					res.MarkDirty()
+				}
+			}
+			acancel()
+			s.checks.put(cmd.ID, res)
 		}
 	}()
 }
@@ -299,7 +339,7 @@ func (s *Server) changesRequestReview(c *controlClient, cmd command) {
 		changesRefuse(c, cmd, "badRequest", "a pane cannot be asked to review its own branch")
 		return
 	}
-	_, b, _, ok := s.checkPane(c, cmd)
+	cwd, b, _, ok := s.checkPane(c, cmd)
 	if !ok {
 		return
 	}
@@ -336,14 +376,7 @@ func (s *Server) changesRequestReview(c *controlClient, cmd command) {
 		changesRefuse(c, cmd, "badRequest", sendErr.Error())
 		return
 	}
-	_, statePath, err := changesFiles(root, project)
-	if err == nil {
-		reviewsMu.Lock()
-		st := changes.LoadReviews(statePath)
-		st.Set(b.Branch, changes.Review{Reviewer: cmd.Reviewer, State: "requested", At: time.Now().UTC().Format(time.RFC3339), AtSha: b.HeadSha})
-		err = st.Save(statePath)
-		reviewsMu.Unlock()
-	}
+	err := recordReview(cwd, root, project, b.Branch, changes.Review{Reviewer: cmd.Reviewer, State: "requested", At: time.Now().UTC().Format(time.RFC3339), AtSha: b.HeadSha})
 	if err != nil {
 		changesRefuse(c, cmd, "badRequest", "the request was sent but could not be recorded: "+err.Error())
 		return
@@ -351,12 +384,34 @@ func (s *Server) changesRequestReview(c *controlClient, cmd command) {
 	changesOK(c, cmd)
 }
 
+// recordReview adds a review to the project's state file. A state file that is
+// damaged is not written over (see changes.LoadReviews).
+func recordReview(cwd, root, project, branch string, r changes.Review) error {
+	_, statePath, err := changesFiles(root, project)
+	if err != nil {
+		return err
+	}
+	reviewsMu.Lock()
+	defer reviewsMu.Unlock()
+	st, err := changes.LoadReviews(statePath)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), changesReadLimit)
+	defer cancel()
+	if err := st.Set(branch, r, func(br string) bool { return !changes.BranchExists(ctx, cwd, br) }); err != nil {
+		return err
+	}
+	return st.Save(statePath)
+}
+
 // personReviewer is who a review by the window is recorded as.
 const personReviewer = "the person"
 
-// changesSubmitReview answers submitReview. It exists only for a window on this
-// machine: no command line or pane reaches it, so a review recorded as the
-// person's is the person's.
+// changesSubmitReview answers submitReview. changesCommand takes it only from a
+// connection that opened as a page of the window; an agent that sets an Origin
+// can still send it with its pane token, so a review recorded as the person's is
+// not proof that the person made it until the window has a credential of its own.
 func (s *Server) changesSubmitReview(c *controlClient, cmd command) {
 	switch cmd.State {
 	case "approved", "changes", "dismissed":
@@ -372,7 +427,7 @@ func (s *Server) changesSubmitReview(c *controlClient, cmd command) {
 		changesRefuse(c, cmd, "badRequest", "the note is too long")
 		return
 	}
-	_, b, _, ok := s.checkPane(c, cmd)
+	cwd, b, _, ok := s.checkPane(c, cmd)
 	if !ok {
 		return
 	}
@@ -385,14 +440,7 @@ func (s *Server) changesSubmitReview(c *controlClient, cmd command) {
 		changesRefuse(c, cmd, "noBranch", "no such pane")
 		return
 	}
-	_, statePath, err := changesFiles(root, project)
-	if err == nil {
-		reviewsMu.Lock()
-		st := changes.LoadReviews(statePath)
-		st.Set(b.Branch, changes.Review{Reviewer: personReviewer, State: cmd.State, Note: cmd.Note, At: time.Now().UTC().Format(time.RFC3339), AtSha: b.HeadSha})
-		err = st.Save(statePath)
-		reviewsMu.Unlock()
-	}
+	err := recordReview(cwd, root, project, b.Branch, changes.Review{Reviewer: personReviewer, State: cmd.State, Note: cmd.Note, At: time.Now().UTC().Format(time.RFC3339), AtSha: b.HeadSha})
 	if err != nil {
 		changesRefuse(c, cmd, "badRequest", "the review could not be recorded: "+err.Error())
 		return

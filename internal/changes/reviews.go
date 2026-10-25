@@ -2,6 +2,7 @@ package changes
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -11,6 +12,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // Limits of the review state.
@@ -20,6 +22,10 @@ const (
 	MaxReviewer   = 64
 	reviewStateMB = 4 << 20
 )
+
+// ErrReviewsFull is returned by Set when the state holds MaxReviews reviews that
+// may not be dropped.
+var ErrReviewsFull = errors.New("there are too many reviews to keep another")
 
 // Review is one review of a branch, in the shape of the schema's review.
 type Review struct {
@@ -55,21 +61,32 @@ func validState(s string) bool {
 
 // LoadReviews reads the state file at path and cleans it: unknown fields are
 // dropped by decoding into the known shape and writing back only that, entries
-// over the limits are cut, entries with an unknown state or a malformed sha
-// are dropped. A missing or unreadable file is an empty state.
-func LoadReviews(path string) ReviewState {
+// over the limits are cut, entries with an unknown state or a malformed sha are
+// dropped.
+//
+// A file that is not there is an empty state and no error. One that is there and
+// cannot be read, is too large or is not valid is an error, and a copy of it is
+// kept beside it as <path>.bad, so a caller that refuses to save over it does not
+// lose the person's reviews to a bad write.
+func LoadReviews(path string) (ReviewState, error) {
 	f, err := os.Open(path)
+	if errors.Is(err, os.ErrNotExist) {
+		return ReviewState{}, nil
+	}
 	if err != nil {
-		return ReviewState{}
+		return ReviewState{}, err
 	}
 	defer f.Close()
 	var buf bytes.Buffer
-	if _, err := buf.ReadFrom(io.LimitReader(f, reviewStateMB+1)); err != nil || buf.Len() > reviewStateMB {
-		return ReviewState{}
+	if _, err := buf.ReadFrom(io.LimitReader(f, reviewStateMB+1)); err != nil {
+		return ReviewState{}, err
 	}
 	var raw ReviewState
-	if json.Unmarshal(buf.Bytes(), &raw) != nil {
-		return ReviewState{}
+	if buf.Len() > reviewStateMB || json.Unmarshal(buf.Bytes(), &raw) != nil {
+		if buf.Len() <= reviewStateMB {
+			_ = os.WriteFile(path+".bad", buf.Bytes(), 0o600)
+		}
+		return ReviewState{}, errors.New("the review file is damaged; a copy was kept as " + path + ".bad")
 	}
 	var out ReviewState
 	for _, r := range raw.Reviews {
@@ -89,11 +106,12 @@ func LoadReviews(path string) ReviewState {
 	if len(out.Reviews) > MaxReviews {
 		out.Reviews = out.Reviews[:MaxReviews]
 	}
-	return out
+	return out, nil
 }
 
-// CleanNote keeps line breaks and tabs of a note and drops other control and
-// format characters.
+// CleanNote keeps the line breaks and tabs of a note and drops every other
+// control, format and line or paragraph separator character, then cuts it to
+// MaxNote characters.
 func CleanNote(s string) string {
 	var b strings.Builder
 	n := 0
@@ -101,9 +119,7 @@ func CleanNote(s string) string {
 		if n >= MaxNote {
 			break
 		}
-		switch {
-		case r == '\n' || r == '\t':
-		case r < 0x20 || r == 0x7f || (r >= 0x80 && r < 0xa0) || (r >= 0x200b && r <= 0x200f) || (r >= 0x202a && r <= 0x202e) || (r >= 0x2066 && r <= 0x2069) || r == 0xfeff:
+		if r != '\n' && r != '\t' && (unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || unicode.Is(unicode.Zl, r) || unicode.Is(unicode.Zp, r)) {
 			continue
 		}
 		b.WriteRune(r)
@@ -140,23 +156,54 @@ func (s ReviewState) Save(path string) error {
 	return nil
 }
 
+// BranchExists says whether the repository at cwd has a local branch of that name.
+func BranchExists(ctx context.Context, cwd, branch string) bool {
+	_, err := git(ctx, cwd, "rev-parse", "--verify", "--quiet", "--end-of-options", "refs/heads/"+branch)
+	return err == nil
+}
+
 // Set records a review of branch by reviewer, replacing that reviewer's earlier
 // one of the branch.
-func (s *ReviewState) Set(branch string, r Review) {
+//
+// When the state is full, reviews are dropped in this order, oldest first within
+// each step: requests and dismissals of branches that are gone, requests, then
+// dismissals, then anything else of a branch that is gone. The person's approved
+// and changes reviews of a branch that still exists are never dropped; if nothing
+// else can go, Set returns ErrReviewsFull and records nothing. gone says whether a
+// branch no longer exists; nil means none is.
+func (s *ReviewState) Set(branch string, r Review, gone func(branch string) bool) error {
 	r.Reviewer = cleanLine(r.Reviewer, MaxReviewer)
 	r.Note = CleanNote(r.Note)
 	r.Stale = false
-	kept := s.Reviews[:0]
+	kept := make([]reviewRecord, 0, len(s.Reviews)+1)
+	kept = append(kept, reviewRecord{Branch: branch, Review: r})
 	for _, x := range s.Reviews {
 		if x.Branch == branch && x.Reviewer == r.Reviewer {
 			continue
 		}
 		kept = append(kept, x)
 	}
-	s.Reviews = append([]reviewRecord{{Branch: branch, Review: r}}, kept...)
-	if len(s.Reviews) > MaxReviews {
-		s.Reviews = s.Reviews[:MaxReviews]
+	isGone := func(x reviewRecord) bool { return gone != nil && x.Branch != branch && gone(x.Branch) }
+	steps := []func(reviewRecord) bool{
+		func(x reviewRecord) bool { return isGone(x) && (x.State == "requested" || x.State == "dismissed") },
+		func(x reviewRecord) bool { return x.State == "requested" && x != kept[0] },
+		func(x reviewRecord) bool { return x.State == "dismissed" && x != kept[0] },
+		func(x reviewRecord) bool { return isGone(x) },
 	}
+	// kept is newest first (the new review is first, the rest in file order), so
+	// the oldest candidates are at the end.
+	for _, drop := range steps {
+		for i := len(kept) - 1; i > 0 && len(kept) > MaxReviews; i-- {
+			if drop(kept[i]) {
+				kept = append(kept[:i], kept[i+1:]...)
+			}
+		}
+	}
+	if len(kept) > MaxReviews {
+		return ErrReviewsFull
+	}
+	s.Reviews = kept
+	return nil
 }
 
 // For lists the reviews of branch, marking those made at another head stale.
