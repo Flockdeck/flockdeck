@@ -318,8 +318,8 @@
 .conv-image img { display: block; max-width: 160px; max-height: 120px; }
 .conv-image.is-big { cursor: zoom-out; }
 .conv-image.is-big img { max-width: 100%; max-height: none; }
-.conv-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 6px 0; }
-.conv-search { display: flex; flex: 1 1 200px; gap: 6px; }
+.conv-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 6px 12px; box-sizing: border-box; }
+.conv-search { display: flex; flex: 1 1 200px; min-width: 0; gap: 6px; }
 .conv-search-input { flex: 1; min-width: 0; min-height: 28px; padding: 0 8px; border: 1px solid var(--accent-line); border-radius: 4px; background: transparent; color: var(--fg); font: inherit; }
 .conv-toolbar-note, .conv-results-note, .conv-result-note { color: var(--fg-dim); font-size: 12px; }
 .conv-results-note { flex-basis: 100%; margin: 0; }
@@ -353,41 +353,48 @@
 }
 .task-head { display: flex; align-items: baseline; gap: 8px; }
 .task-title { flex: 1 1 auto; margin: 0; font-size: 13px; font-weight: 600; overflow-wrap: anywhere; }
-.task-id { color: var(--fg-muted); font-weight: 400; }
-.task-state { flex: 0 0 auto; font-size: 12px; color: var(--fg-muted); }
+.task-id { color: var(--fg-dim); font-weight: 400; }
+.task-state { flex: 0 0 auto; font-size: 12px; color: var(--fg-dim); }
 .task-facts { display: flex; flex-wrap: wrap; gap: 2px 16px; margin: 6px 0; font-size: 12px; }
-.task-facts dt { display: inline; color: var(--fg-muted); }
+.task-facts dt { display: inline; color: var(--fg-dim); }
 .task-facts dt::after { content: ": "; }
 .task-facts dd { display: inline; margin: 0; overflow-wrap: anywhere; }
 .task-text, .task-note-text { margin: 4px 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 12px; }
-.task-empty { margin: 6px 0; font-size: 12px; color: var(--fg-muted); }
-.task-error { color: var(--danger, var(--fg)); }
+.task-empty { margin: 6px 0; font-size: 12px; color: var(--fg-dim); }
+.task-error { color: var(--exited); }
 .task-notes-title { margin: 8px 0 2px; font-size: 12px; }
 .task-notes { margin: 0; padding: 0; list-style: none; }
 .task-note { padding: 4px 0; border-top: 1px solid var(--line); }
-.task-note-head { margin: 0; font-size: 11px; color: var(--fg-muted); }
+.task-note-head { margin: 0; font-size: 11px; color: var(--fg-dim); }
 .task-goto, .task-more { margin: 4px 0; }
 
 .chg { padding: 8px 12px; overflow: auto; font-size: 12px; }
 .chg-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
 .chg-branch { font-weight: 600; overflow-wrap: anywhere; }
-.chg-sync { color: var(--fg-muted); }
+.chg-sync { color: var(--fg-dim); }
 .chg-actions, .chg-row { display: flex; flex-wrap: wrap; gap: 6px; margin-left: auto; }
 .chg-row { margin-left: 0; margin-top: 6px; }
-.chg-busy, .chg-note, .chg-omitted, .chg-empty { margin: 6px 0; color: var(--fg-muted); }
-.chg-error { color: var(--danger, var(--fg)); white-space: pre-wrap; overflow-wrap: anywhere; }
+.chg-busy, .chg-note, .chg-omitted, .chg-empty { margin: 6px 0; color: var(--fg-dim); }
+.chg-error { color: var(--exited); background: var(--exited-subtle); border-color: var(--exited-line); white-space: pre-wrap; overflow-wrap: anywhere; }
+.chg-added { color: var(--ok); }
+.chg-removed { color: var(--exited); }
+/* Loading, error and empty are a block, not a line of text. */
+.chg-state { margin: 8px 0; padding: 12px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--bg-inset); color: var(--fg-dim); }
+.chg-state strong { display: block; color: var(--fg); font-weight: 600; }
+.chg-state span { display: block; margin-top: 2px; }
+.chg-state.chg-error strong { color: var(--exited); }
 .chg-note { white-space: pre-wrap; overflow-wrap: anywhere; }
 .chg-files { margin: 8px 0 0; padding: 0; list-style: none; }
 .chg-file-btn { display: flex; width: 100%; gap: 8px; align-items: baseline; padding: 3px 4px; border: 0; border-radius: var(--radius); background: transparent; color: var(--fg); font: inherit; text-align: left; cursor: pointer; }
 .chg-file-btn:hover { background: var(--bg-hover); }
 .chg-file-btn.is-selected { background: var(--accent-subtle); }
 .chg-file-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.chg-status { flex: 0 0 auto; min-width: 7ch; color: var(--fg-muted); }
+.chg-status { flex: 0 0 auto; min-width: 7ch; color: var(--fg-dim); }
 .chg-path { flex: 1 1 auto; overflow-wrap: anywhere; }
-.chg-counts { flex: 0 0 auto; color: var(--fg-muted); }
+.chg-counts { flex: 0 0 auto; color: var(--fg-dim); }
 .chg-diff { margin-top: 8px; }
 .chg-commit { margin-top: 10px; }
-.chg-label { display: block; margin-bottom: 2px; color: var(--fg-muted); }
+.chg-label { display: block; margin-bottom: 2px; color: var(--fg-dim); }
 .chg-message { box-sizing: border-box; width: 100%; font: inherit; color: var(--fg); background: var(--bg-overlay); border: 1px solid var(--line-strong); border-radius: var(--radius); padding: 4px 6px; }
 .chg-warn { margin: 8px 0; padding: 8px; border: 1px solid var(--accent-line); border-radius: var(--radius); }
 .chg-warn-intro, .chg-warn-ask { margin: 0 0 4px; overflow-wrap: anywhere; }
