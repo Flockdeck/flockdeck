@@ -114,7 +114,9 @@ test("a diff that starts at line 1 has no gap above it", () => {
 
 test("fixture 05: a cut diff says how much was kept and how long it was", () => {
   const f = fileFlags(truncated);
-  assert.deepEqual(f.truncated, { kept: 2, total: 48213 });
+  assert.deepEqual(f.truncated, { kept: 3, bytes: 96, total: 48213 }, "what the desk said it kept, not a recount");
+  assert.equal(fileFlags({ ...truncated, truncated: true }).truncated.kept, 2, "a bare true falls back to a recount");
+  assert.equal(fileFlags({ ...truncated, truncated: { lines: 3 } }).truncated.bytes, null);
   assert.equal(f.generated, true, "go.sum");
   assert.equal(f.empty, false);
 });
@@ -145,6 +147,11 @@ test("a line-ending change with no hunks says so, and an empty diff is empty", (
   assert.equal(fileFlags({ path: "a", hunks: [], eolChange: true }).eolOnly, true);
   assert.equal(fileFlags({ path: "a", hunks: [] }).empty, true);
   assert.equal(fileFlags(null).empty, true, "no reply throws nothing");
+  assert.equal(fileFlags({ path: "a", hunks: [], eolChange: true }).eolChange, true);
+  assert.equal(fileFlags({ path: "b", oldPath: "a", hunks: [] }).empty, false, "a pure rename is not empty");
+  assert.equal(fileFlags({ path: "a", hunks: [], modeChange: true }).empty, false);
+  const bare = fileFlags({ path: "a", hunks: [], totalLines: 40 });
+  assert.deepEqual([bare.unknown, bare.empty], [true, false], "no hunks but lines: not read as nothing changed");
 });
 
 test("generated files are those the listing marks or the path says", () => {
@@ -152,6 +159,9 @@ test("generated files are those the listing marks or the path says", () => {
   assert.equal(isGenerated("web/package-lock.json"), true);
   assert.equal(isGenerated("vendor/x/y.go"), true);
   assert.equal(isGenerated("api/x.pb.go"), true);
+  assert.equal(isGenerated("web/app.min.css"), true);
+  assert.equal(isGenerated("dist/app.js"), false, "only the contract rules");
+  assert.equal(isGenerated("composer.lock"), false);
   assert.equal(isGenerated("internal/limit/limit.go"), false);
   assert.equal(fileFlags({ path: "a.go", hunks: [] }, { generated: true }).generated, true);
 });
@@ -167,4 +177,22 @@ test("missing and odd input neither throws nor draws", () => {
   assert.deepEqual(unifiedRows(undefined), []);
   assert.deepEqual(unifiedRows([null, "x", { lines: "no" }]).filter((r) => r.type === "line"), []);
   assert.doesNotThrow(() => sideRows([{ newStart: 1, newLines: 1, oldStart: 1, oldLines: 0, lines: [{ t: "add", text: 5 }] }], null));
+});
+
+test("no gap is drawn after a cut diff, a deleted file or the one hunk of a new file", () => {
+  const ids = (rows) => rows.filter((r) => r.type === "gap").map((r) => r.id);
+  assert.deepEqual(ids(unifiedRows(hunksFile.hunks, {}, { cut: true })), ["g-top", "g0"], "the cut part was never sent");
+  assert.deepEqual(ids(sideRows(hunksFile.hunks, {}, { cut: true })), ["g-top", "g0"]);
+  const gone = [{ oldStart: 1, oldLines: 2, newStart: 0, newLines: 0, header: "", lines: [{ t: "del", text: "a", oldNo: 1 }, { t: "del", text: "b", oldNo: 2 }] }];
+  assert.deepEqual(ids(unifiedRows(gone)), []);
+  const added = [{ oldStart: 0, oldLines: 0, newStart: 1, newLines: 2, header: "", lines: [{ t: "add", text: "a", newNo: 1 }, { t: "add", text: "b", newNo: 2 }] }];
+  assert.deepEqual(ids(unifiedRows(added)), []);
+});
+
+test("a line with no number anchors on null, and a long pair is not marked", () => {
+  const rows = unifiedRows([{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: [{ t: "del", text: "a" }, { t: "add", text: "b" }] }]).filter((r) => r.type === "line");
+  assert.deepEqual([rows[0].anchor, rows[1].anchor], [{ side: "old", line: null }, { side: "new", line: null }]);
+  const long = "x".repeat(3000);
+  assert.deepEqual(pairMarks(long + "a", long + "b"), { del: [], add: [] });
+  assert.equal(pageRows([{}], NaN).rows.length, 1);
 });

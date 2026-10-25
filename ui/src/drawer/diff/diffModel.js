@@ -15,6 +15,9 @@
 //   file is not known, so to and count are null until the desk says `eof`.
 // - Context already fetched is passed in as { [gap id]: { lines, eof } } and is
 //   drawn as ctx rows at the start of the gap, which then shrinks.
+// - The view keeps `fetched` itself: each `diffContext` reply for a gap is added to
+//   that gap's entry ({ lines: earlier lines plus the new ones, eof }), and the
+//   model reads it back; nothing here asks or stores.
 // - Hunk numbers are taken as sent. A hunk with no new lines (a diff asked for
 //   with no context) is read as sitting between the line it names and the next.
 
@@ -23,6 +26,9 @@ export const PAGE_ROWS = 400;
 
 /** CONTEXT_LINES is the most `diffContext` returns at once. */
 export const CONTEXT_LINES = 200;
+
+/** MARK_LIMIT is the longest line (in code points) a word mark is worked out for; a longer pair is shown unmarked. */
+export const MARK_LIMIT = 2000;
 
 const list = (v) => (Array.isArray(v) ? v : []);
 const isObject = (v) => !!v && typeof v === "object" && !Array.isArray(v);
@@ -53,6 +59,7 @@ function validMarks(marks, len) {
 export function pairMarks(oldText, newText) {
   const a = pointsOf(oldText);
   const b = pointsOf(newText);
+  if (a.length > MARK_LIMIT || b.length > MARK_LIMIT) return { del: [], add: [] };
   let p = 0;
   while (p < a.length && p < b.length && a[p] === b[p]) p++;
   let s = 0;
@@ -84,11 +91,10 @@ const lastNew = (h) => (h.newLines === 0 ? h.newStart : h.newStart + h.newLines 
 function lineRows(h, hi) {
   const rows = list(h.lines).filter(isObject).map((l, i) => {
     const t = l.t === "add" || l.t === "del" ? l.t : "ctx";
-    const anchor = t === "del" ? { side: "old", line: l.oldNo } : { side: "new", line: l.newNo };
-    return {
-      type: "line", id: "h" + hi + ":" + i, t, text: typeof l.text === "string" ? l.text : "",
-      oldNo: isNumber(l.oldNo) ? l.oldNo : null, newNo: isNumber(l.newNo) ? l.newNo : null, marks: [], anchor, intra: l.intra,
-    };
+    const oldNo = isNumber(l.oldNo) ? l.oldNo : null;
+    const newNo = isNumber(l.newNo) ? l.newNo : null;
+    const anchor = t === "del" ? { side: "old", line: oldNo } : { side: "new", line: newNo };
+    return { type: "line", id: "h" + hi + ":" + i, t, text: typeof l.text === "string" ? l.text : "", oldNo, newNo, marks: [], anchor, intra: l.intra };
   });
   // A run of deletions followed by a run of additions: the n-th of one pairs with the n-th of the other.
   let i = 0;
@@ -116,10 +122,10 @@ function lineRows(h, hi) {
   return rows;
 }
 
-const ctxRow = (id, l) => ({
-  type: "line", id, t: "ctx", text: typeof l.text === "string" ? l.text : "",
-  oldNo: isNumber(l.oldNo) ? l.oldNo : null, newNo: isNumber(l.newNo) ? l.newNo : null, marks: [], anchor: { side: "new", line: l.newNo },
-});
+const ctxRow = (id, l) => {
+  const newNo = isNumber(l.newNo) ? l.newNo : null;
+  return { type: "line", id, t: "ctx", text: typeof l.text === "string" ? l.text : "", oldNo: isNumber(l.oldNo) ? l.oldNo : null, newNo, marks: [], anchor: { side: "new", line: newNo } };
+};
 
 /** gapRows makes the rows for the unchanged lines between prev and next (either may be null) on the new side. */
 function gapRows(id, prev, next, filled) {
@@ -146,9 +152,11 @@ function gapRows(id, prev, next, filled) {
  * unifiedRows turns hunks into unified rows. fetched holds context already asked
  * for, by gap id ("g-top", "g0", "g1", ... and "g-end"): { lines, eof }. A gap
  * with nothing left to show is not drawn, and the one after the last hunk is
- * drawn until the file's end has been reached.
+ * drawn until the file's end has been reached. It is not drawn at all when the
+ * diff was cut (opts.cut: the hunks stop before the file does, and the view says
+ * so there), after a deleted file, or when the one hunk of a new file holds it all.
  */
-export function unifiedRows(hunks, fetched = {}) {
+export function unifiedRows(hunks, fetched = {}, { cut = false } = {}) {
   const hs = list(hunks).filter(isObject);
   const fill = isObject(fetched) ? fetched : {};
   const rows = [];
@@ -158,7 +166,10 @@ export function unifiedRows(hunks, fetched = {}) {
     rows.push({ type: "hunk", id: "h" + hi, header: typeof h.header === "string" ? h.header : "", oldStart: h.oldStart, oldLines: h.oldLines, newStart: h.newStart, newLines: h.newLines });
     rows.push(...lineRows(h, hi));
   });
-  if (hs.length) rows.push(...gapRows("g-end", hs[hs.length - 1], null, fill["g-end"]));
+  const tail = hs.length ? hs[hs.length - 1] : null;
+  const gone = tail && tail.newStart === 0 && tail.newLines === 0;
+  const added = tail && hs.length === 1 && tail.oldStart === 0 && tail.oldLines === 0;
+  if (tail && !cut && !gone && !added) rows.push(...gapRows("g-end", tail, null, fill["g-end"]));
   return rows;
 }
 
@@ -167,8 +178,8 @@ export function unifiedRows(hunks, fetched = {}) {
  * that follow it share rows, old on the left and new on the right, with an empty
  * side where one has more lines than the other. A context line is on both sides.
  */
-export function sideRows(hunks, fetched = {}) {
-  const rows = unifiedRows(hunks, fetched);
+export function sideRows(hunks, fetched = {}, opts = {}) {
+  const rows = unifiedRows(hunks, fetched, opts);
   const out = [];
   let i = 0;
   while (i < rows.length) {
@@ -190,18 +201,16 @@ export function sideRows(hunks, fetched = {}) {
 
 /** pageRows is the first `pages` pages of rows and how many are left. */
 export function pageRows(rows, pages = 1) {
-  const n = Math.max(1, pages) * PAGE_ROWS;
+  const n = Math.max(1, Math.floor(Number.isFinite(pages) ? pages : 1)) * PAGE_ROWS;
   return { rows: rows.slice(0, n), hidden: Math.max(0, rows.length - n) };
 }
 
-// Paths a person does not review line by line.
+// Paths a person does not review line by line: the rules of docs/changes-api.md, section 3, and no more.
 const GENERATED = [
-  /(^|\/)(go\.sum|package-lock\.json|yarn\.lock|pnpm-lock\.yaml|Cargo\.lock|poetry\.lock|Gemfile\.lock|composer\.lock)$/,
-  /(^|\/)(vendor|node_modules|dist)\//,
+  /(^|\/)(go\.sum|package-lock\.json|yarn\.lock|pnpm-lock\.yaml|Cargo\.lock)$/,
+  /(^|\/)(vendor|node_modules)\//,
   /\.min\.(js|css)$/,
   /\.pb\.go$/,
-  /(^|[._-])generated\.[a-z]+$/,
-  /_generated\.[a-z]+$/,
 ];
 
 /** isGenerated says whether a path looks like one a generator wrote, for a file the listing did not mark. */
@@ -213,29 +222,41 @@ export function isGenerated(path) {
  * fileFlags reads a `diffHunks` reply for what the view says about the file:
  *   error: the reply's error text, or "";
  *   renamed, from: the file was renamed, and its old path;
- *   binary, sizeBefore, sizeAfter;
+ *   binary, sizeBefore, sizeAfter, modeChange;
  *   generated: the listing said so (listed.generated) or the path looks generated;
- *   truncated: { kept, total } when the desk cut the diff, else null;
- *   eolOnly: only the line endings changed, so there are no hunks to draw;
+ *   truncated: { kept, bytes, total } when the desk cut the diff, else null. kept
+ *     and bytes are what the desk said it kept (kept is counted from the hunks only
+ *     when it sent no number, or a bare true), total is the whole diff's line count;
+ *   eolChange: the line endings changed; eolOnly: that is all, so there are no hunks;
+ *   unknown: no hunks but the diff has lines (totalLines above 0), so the reply
+ *     is not to be read as "nothing changed";
  *   empty: nothing to draw and nothing to say.
  */
 export function fileFlags(reply, listed = null) {
   const r = isObject(reply) ? reply : {};
   const hunks = list(r.hunks);
-  const kept = hunks.reduce((n, h) => n + (isObject(h) ? list(h.lines).length : 0), 0);
+  const counted = hunks.reduce((n, h) => n + (isObject(h) ? list(h.lines).length : 0), 0);
   const binary = r.binary === true;
-  const eolOnly = r.eolChange === true && !hunks.length && !binary;
+  const eolChange = r.eolChange === true;
+  const eolOnly = eolChange && !hunks.length && !binary;
   const error = typeof r.error === "string" ? r.error : "";
+  const cut = isObject(r.truncated) ? r.truncated : r.truncated === true ? {} : null;
+  const renamed = typeof r.oldPath === "string" && r.oldPath !== "" && r.oldPath !== r.path;
+  const modeChange = !!r.modeChange;
+  const unknown = !error && !hunks.length && !binary && !eolOnly && isNumber(r.totalLines) && r.totalLines > 0;
   return {
     error,
-    renamed: typeof r.oldPath === "string" && r.oldPath !== "" && r.oldPath !== r.path,
+    renamed,
     from: typeof r.oldPath === "string" ? r.oldPath : "",
     binary,
     sizeBefore: isNumber(r.sizeBefore) ? r.sizeBefore : null,
     sizeAfter: isNumber(r.sizeAfter) ? r.sizeAfter : null,
+    modeChange,
     generated: !!(listed && listed.generated) || isGenerated(r.path),
-    truncated: isObject(r.truncated) ? { kept, total: isNumber(r.totalLines) ? r.totalLines : null } : null,
+    truncated: cut ? { kept: isNumber(cut.lines) ? cut.lines : counted, bytes: isNumber(cut.bytes) ? cut.bytes : null, total: isNumber(r.totalLines) ? r.totalLines : null } : null,
+    eolChange,
     eolOnly,
-    empty: !error && !hunks.length && !binary && !eolOnly,
+    unknown,
+    empty: !error && !hunks.length && !binary && !eolOnly && !renamed && !cut && !modeChange && !unknown,
   };
 }
