@@ -142,7 +142,7 @@ export function GoalStrip({
         ${current && current.kind === "team"
           ? html`<hr class="tabs-sep" />
               ${onRename ? html`<button type="button" role="menuitem" class="tabs-btn" onClick=${act(() => setRenaming(current.id))}>Rename this goal</button>` : null}
-              ${onArchive ? html`<button type="button" role="menuitem" class="tabs-btn tabs-archive" onClick=${act(() => archive(current.id))}>Archive this goal<kbd class="tabs-key" aria-hidden="true">Del</kbd></button>` : null}
+              ${onArchive ? html`<button type="button" role="menuitem" class="tabs-btn tabs-archive" onClick=${act(() => archive(current.id))}>Archive this goal</button>` : null}
               ${onStep ? html`<button type="button" role="menuitem" class="tabs-btn" onClick=${act(() => onStep(current.id, -1))} disabled=${!canStep(current.id, -1)}>Move left</button>
               <button type="button" role="menuitem" class="tabs-btn" onClick=${act(() => onStep(current.id, 1))} disabled=${!canStep(current.id, 1)}>Move right</button>` : null}`
           : null}

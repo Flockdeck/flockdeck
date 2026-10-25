@@ -164,8 +164,6 @@
   cursor: pointer;
 }
 .tabs-btn:hover:not(:disabled), .tabs-btn:focus-visible { background: var(--bg-hover); }
-.tabs-archive { display: flex; justify-content: space-between; gap: 16px; }
-.tabs-key { color: var(--fg-dim); font: inherit; font-size: 11px; }
 .tabs-btn:disabled { color: var(--fg-dim); cursor: default; }
 /* The view switch is a row of its own under the goal strip, drawn as a segmented
    control, so it is not mistaken for more tabs. */

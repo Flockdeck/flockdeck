@@ -264,7 +264,6 @@ test("the strip is a group, not a toolbar; the close button is out of the tab or
     await m.plus();
     const item = m.container.findAll(".tabs-archive");
     assert.equal(item.length, 1);
-    assert.ok(item[0].textContent.includes("Del"), "the key is shown on the item");
     await m.click(item[0]);
     await settle();
     assert.equal(m.sent("uiPrefs").length, 1);
