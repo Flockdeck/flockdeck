@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { render } from "../src/vendor/preact.mjs";
 import { html } from "../src/html.js";
 import { Team } from "../src/shell/Team.js";
-import { Settings, SECTIONS } from "../src/shell/Settings.js";
+import { Settings, SECTIONS, VIEWER_HIDDEN } from "../src/shell/Settings.js";
 import { Start } from "../src/shell/Start.js";
 import { Projects } from "../src/shell/Projects.js";
 import { Remote } from "../src/shell/Remote.js";
@@ -143,6 +143,25 @@ test("Settings: a font typed once is sent once however many of Enter, change and
   } finally {
     m.done();
   }
+});
+
+test("Settings: for a viewer End goes to the last section it has, not one that is hidden", async () => {
+  const visible = SECTIONS.filter(([id]) => !VIEWER_HIDDEN.includes(id));
+  const m = await mount(html`<${Settings} prefs=${prefsOf({})} change=${() => true} onClose=${() => {}} ctx=${{ viewer: true }} />`);
+  try {
+    const active = () => m.container.findAll(".settings-tab").find((t) => t.attributes.class.includes("is-active")).getAttribute("data-section");
+    m.container.find("#settings-tab-" + visible[0][0]).keydown("End");
+    await settle();
+    assert.equal(active(), visible[visible.length - 1][0]);
+    assert.ok(!VIEWER_HIDDEN.includes(active()));
+  } finally {
+    m.done();
+  }
+});
+
+test("the message box loads: Message.js has no syntax error and exports the box", async () => {
+  const mod = await import("../src/drawer/Message.js");
+  assert.ok(Object.keys(mod).length > 0, "it exports something");
 });
 
 // ---------------------------------------------------------------- Projects
