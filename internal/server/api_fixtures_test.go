@@ -255,18 +255,40 @@ func normalizeRecording(t *testing.T, spec fxSpec, raw []byte, ids map[string]st
 	return buf.Bytes()
 }
 
+// firstDifference names the first line two recordings differ at, so a failure
+// that comes from the machine's timing says what moved.
+func firstDifference(want, got []byte) string {
+	w, g := strings.Split(string(want), "\n"), strings.Split(string(got), "\n")
+	for i := 0; i < len(w) || i < len(g); i++ {
+		var a, b string
+		if i < len(w) {
+			a = w[i]
+		}
+		if i < len(g) {
+			b = g[i]
+		}
+		if a != b {
+			return fmt.Sprintf("line %d: file has %q, server wrote %q", i+1, strings.TrimSpace(a), strings.TrimSpace(b))
+		}
+	}
+	return "no line differs"
+}
+
+func specNamed(t *testing.T, name string) fxSpec {
+	t.Helper()
+	for _, s := range graphFixtureSpecs {
+		if s.name == name {
+			return s
+		}
+	}
+	t.Fatalf("no fixture spec %s", name)
+	return fxSpec{}
+}
+
 func TestAPIFixturesAreCurrent(t *testing.T) {
 	dir := filepath.Join("..", "..", "api", "fixtures")
 	for _, name := range recordedFixtures {
-		var spec fxSpec
-		for _, s := range graphFixtureSpecs {
-			if s.name == name {
-				spec = s
-			}
-		}
-		if spec.name == "" {
-			t.Fatalf("no fixture spec %s", name)
-		}
+		spec := specNamed(t, name)
 		t.Run(name, func(t *testing.T) {
 			got := recordGraphFixture(t, spec)
 			if errs := loadGraphSchema(t).Validate(got); len(errs) != 0 {
@@ -287,25 +309,31 @@ func TestAPIFixturesAreCurrent(t *testing.T) {
 				t.Fatalf("%v; API_FIXTURES_UPDATE=1 writes it", err)
 			}
 			if !bytes.Equal(got, want) {
-				t.Errorf("%s differs from what the server writes; API_FIXTURES_UPDATE=1 go test -run TestAPIFixturesAreCurrent ./internal/server writes it again", path)
+				t.Errorf("%s differs from what the server writes; API_FIXTURES_UPDATE=1 go test -run TestAPIFixturesAreCurrent ./internal/server writes it again\n%s", path, firstDifference(want, got))
 			}
 		})
 	}
 }
 
 // A machine that stalls between setting the panes up and reading the push, for
-// longer than the startup shell takes to settle to idle, records the same file.
+// longer than a pane takes to settle on its own, records the same file for every
+// fixture.
 func TestAPIFixtureSurvivesAStall(t *testing.T) {
 	old := recordingStall
 	t.Cleanup(func() { recordingStall = old })
 	recordingStall = func() { time.Sleep(4 * time.Second) }
-	spec := graphFixtureSpecs[0]
-	got := recordGraphFixture(t, spec)
-	want, err := os.ReadFile(filepath.Join("..", "..", "api", "fixtures", spec.name+".json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !bytes.Equal(got, want) {
-		t.Errorf("a recording made after a 4 s stall differs from %s", spec.name)
+	for _, name := range recordedFixtures {
+		spec := specNamed(t, name)
+		t.Run(name, func(t *testing.T) {
+			got := recordGraphFixture(t, spec)
+			want, err := os.ReadFile(filepath.Join("..", "..", "api", "fixtures", spec.name+".json"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !bytes.Equal(got, want) {
+				t.Errorf("a recording made after a 4 s stall differs from %s", spec.name)
+				_ = os.WriteFile(filepath.Join(os.TempDir(), "stall-"+spec.name+".json"), got, 0o644)
+			}
+		})
 	}
 }
