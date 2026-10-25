@@ -22,7 +22,7 @@ import { ChipsContext } from "./conv/chips.js";
 import { Structured } from "./Structured.js";
 import { Message } from "./Message.js";
 import { isViewer } from "../lib/role.js";
-import { managerTimeline, timelineEntries, isManager, mailFloor } from "../graph/ManagerTimeline.js";
+import { managerTimeline, timelineEntries, isManager, mailFloor, withFloor } from "../graph/ManagerTimeline.js";
 import { Lifecycle } from "./Lifecycle.js";
 import { Task } from "./Task.js";
 import { Changes } from "./Changes.js";
@@ -287,13 +287,6 @@ function DrawerBody({ store, snap = null, node, pane = null, now, maximised = fa
     </section>
     <//>
   `;
-}
-
-// The graph keeps only the latest message edges, so a busy team's older mail is not in the list: the list starts by saying from when it is complete.
-function withFloor(entries, floor) {
-  if (!floor) return entries;
-  const t = new Date(floor);
-  return [{ id: "mail-floor", kind: "notice", ts: t.toISOString(), text: "Mail from before " + t.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) + " is not shown." }, ...entries];
 }
 
 /** Drawer draws nothing for a node that is not there: the graph can drop a pane

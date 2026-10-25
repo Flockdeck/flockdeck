@@ -22,7 +22,7 @@ import { Row, StepsRow } from "./rows.js";
 import { groupEntries, defaultOpen } from "./steps.js";
 import { pendingAfter } from "./Tool.js";
 import {
-  startIndex, earlierStart, atBottom, anchored, moveTo, newBelow, MAX_ROWS, NEAR_TOP,
+  startIndex, earlierStart, atBottom, anchored, moveTo, unseenIds, MAX_ROWS, NEAR_TOP,
 } from "./scroll.js";
 
 export const OLDER_LIMIT_WORDS = "Earlier entries are not drawn: the list shows at most " + MAX_ROWS.toLocaleString("en-US") + " rows.";
@@ -43,7 +43,7 @@ export function Log({ entries, atStart = true, older = "idle", onOlder = null, d
   const following = useRef(true);
   const top = useRef("");
   const prevFirst = useRef("");
-  const was = useRef({ height: 0, top: "", last: "" });
+  const was = useRef({ height: 0, top: "", last: "", ids: null });
   const [, redraw] = useState(0);
   const [opened, setOpened] = useState({});
   const [unseen, setUnseen] = useState(0);
@@ -85,7 +85,7 @@ export function Log({ entries, atStart = true, older = "idle", onOlder = null, d
         focusId.current = "";
         if (row.scrollIntoView) row.scrollIntoView({ block: "center" });
         if (row.focus) row.focus();
-        was.current = { height: el.scrollHeight, top: top.current, last: lastId };
+        was.current = { height: el.scrollHeight, top: top.current, last: lastId, ids: new Set(ids) };
         return;
       }
     }
@@ -95,9 +95,10 @@ export function Log({ entries, atStart = true, older = "idle", onOlder = null, d
       if (unseen) setUnseen(0);
     } else {
       if (w.top && top.current !== w.top) el.scrollTop = anchored(el.scrollTop, w.height, el.scrollHeight);
-      if (w.last && lastId !== w.last) setUnseen((n) => n + newBelow(ids, w.last));
+      const fresh = w.ids ? unseenIds(ids, w.ids, w.top) : 0;
+      if (w.last && fresh) setUnseen((n) => n + fresh);
     }
-    was.current = { height: el.scrollHeight, top: top.current, last: lastId };
+    was.current = { height: el.scrollHeight, top: top.current, last: lastId, ids: new Set(ids) };
   });
 
   const canEarlier = start > 0 || !atStart;

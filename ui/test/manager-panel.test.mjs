@@ -53,3 +53,8 @@ test("copied text for mail and events", () => {
   assert.match(entryText({ kind: "mail", label: "api", text: "hi" }), /api.*hi/s);
   assert.match(entryText({ kind: "event", text: "api exited." }), /api exited\./);
 });
+
+test("a mail or event row with missing fields draws without throwing", () => {
+  assert.match(renderToString(html`<${Row} entry=${{ id: "m:2", kind: "mail" }} />`), /From an agent/);
+  assert.doesNotThrow(() => renderToString(html`<${Row} entry=${{ id: "e:2", kind: "event" }} />`));
+});
