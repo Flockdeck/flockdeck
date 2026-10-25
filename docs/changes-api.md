@@ -205,13 +205,23 @@ branch's `headSha` as outdated.
 
 `commentAdd` finds the owner of the file (`owner`, else the branch's pane),
 writes the comment into that pane's inbox as an ordinary message from the
-person, and records it. The message names the branch, the file and the line, quotes the
+person, and records it. Today every file's owner is the branch's pane. The message names the branch, the file and the line, quotes the
 comment and names its author. `to` is that pane. The owner sees it as it would
 any message. It carries the person's tag only when the command came from a
 window; a comment or sign-off an agent adds through another path is attributed to
 that pane and never to the person. `commentAdd` needs `expectSha` (the head the
 person looked at) and answers `headMoved` if the branch has moved on. An unknown
-`commentId` is `notFound`.
+`commentId` is `notFound`. Nothing is sent when a comment is refused, and
+nothing is recorded when the message could not be sent (the owner's inbox is
+full, say). A comment store that is damaged is not written over: it is kept as
+`<name>.comments.json.bad` (or `.bad.1` and so on), `commentAdd`, `commentResolve`
+and `commentReopen` answer `badRequest` with an error, and the branches show no
+comments until the person has dealt with it, with one notice to the window.
+
+A comment is sent as the person only because it came from a window page on this
+machine. That is the limit described in section 6: an agent that sets an `Origin`
+can send the command too, and until the window has a credential an agent cannot
+get, the author `you` is not proof that the person wrote the comment.
 
 - `delivery` reuses the graph's message states, in the same order: `queued`,
   `notified`, `woken`, `read`. It is absent while the message is being written,
@@ -221,10 +231,27 @@ person looked at) and answers `headMoved` if the branch has moved on. An unknown
   owner says so (a later commit on the branch that the owner reports); only the
   person sets `resolved`, with `commentResolve`. `commentReopen` makes a comment
   open again. Open comments block the merge.
-- A comment is at most 4096 characters, a branch keeps at most 500, and a path
-  must be one of the branch's files. A comment on a line a diff does not have is
-  refused as `badRequest`.
-- Comments are kept with the project's team data and survive a restart.
+- A comment is at most 4096 characters, a branch keeps at most 500 (the 501st is
+  `badRequest`), and the store keeps at most 5000, dropping the oldest resolved or
+  dismissed comment to make room and refusing when every one is open. A `file` must
+  be one of the branch's files (by its new or its old path). The line must exist on
+  the side named: from 1 to the number of lines the file has at the head (`new`) or
+  at the merge base (`old`), or 0 for the whole file. A line past the end, a side the
+  file does not have (the old side of an added file) and a file too large to read
+  are `badRequest`. The text loses control and format characters, and the
+  line breaks and tabs stay.
+- The server sets `open`. `commentResolve` makes an open or fixed comment
+  `resolved`, and is harmless on one already closed. `commentReopen` makes any
+  comment `open` and drops `fixedAtSha`. Nothing sets `fixed` or `dismissed` yet:
+  there is no command for the owner to report a fix, so only the person closes
+  a comment, and a comment the store holds in either state is shown as it is.
+- `delivery` is read from the inbox each time the branches are pushed, with the
+  message id kept in the store, and is not written to the file. A message that is
+  no longer in the inbox leaves `delivery` absent.
+- Comments are kept in `changes/<project name>-<8 hex>.comments.json` in the config
+  directory, beside the review state, written the same way, and survive a restart.
+  Each is kept with its branch name, so it survives the pane's id, and `pane` is the
+  branch's pane now.
 
 ## 6. Checks and reviews
 
