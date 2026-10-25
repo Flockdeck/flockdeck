@@ -762,7 +762,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     drawer=${node
       ? html`<${Drawer} store=${store} snap=${snap} node=${node} pane=${pane} now=${Date.now()} maximised=${drawer.maximised}
           onClose=${drawer.close} onToggleMax=${drawer.toggleMax} terminalOptions=${termProps} life=${viewer ? null : life}
-          tx=${tx} onInfo=${openInfo} findAsk=${findAsk} tabAsk=${tabAsk} onOpenPane=${drawer.open} order=${order} helpers=${helperNames} layout=${orient} onLayout=${toggleLayout} onStartTeam=${snap.remote || viewer ? null : () => setStarting("team")} />`
+          tx=${tx} onInfo=${openInfo} findAsk=${findAsk} tabAsk=${tabAsk} onOpenPane=${drawer.open} order=${order} helpers=${helperNames} layout=${orient} onLayout=${toggleLayout} team=${current ? { model: current, events: feed ? feed.entries : [] } : null} onStartTeam=${snap.remote || viewer ? null : () => setStarting("team")} />`
       : null}
   >${snap.state
       ? html`<${GoalStrip} tabs=${goal.tabs} archived=${goal.archived} active=${activeTab} onSelect=${showTab}

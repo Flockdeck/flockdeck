@@ -431,3 +431,12 @@
 /* Live regions are always in the page, so a change in them is announced; empty, they take no room. */
 .conv-toolbar-note:empty, .conv-results-note:empty { position: absolute; }
 .conv-detail-state:empty, .task-empty:empty, .chg-busy:empty { margin: 0; }
+
+/* The manager's panel: mail the team sent it and what happened to the team's work, between its own conversation. */
+.conv-mail { align-self: flex-start; padding: 8px 12px; border: 1px solid var(--line); border-left: 2px solid var(--line); border-radius: 8px; max-width: min(100%, 46em); background: var(--bg); }
+.conv-mail.is-waiting { border-color: var(--waiting-line); border-left-color: var(--waiting); background: var(--waiting-subtle); }
+.conv-mail .conv-text { margin: 4px 0 0; }
+.conv-mail-chip { margin-left: 6px; padding: 0 6px; border: 1px solid var(--waiting-line); border-radius: 10px; color: var(--waiting); font-size: 11px; }
+.conv-event { padding-left: 8px; border-left: 2px solid var(--line); }
+.conv-event--ship { border-left-color: var(--ok); }
+.conv-event--down { border-left-color: var(--waiting); color: var(--fg); }
