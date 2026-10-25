@@ -4,7 +4,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { buildGraphModel } from "../src/graph/model.js";
 import {
-  SOLO, TABS_KEY, activeTabOf, archiveTab, canStep, emptyTabs, goalTabsOf, labelOf, moveTab, renameTab, restoreTab, stepTab, tabsStateOf, tabsValueOf, teamOfTab,
+  SOLO, TABS_KEY, NAMES_KEY, ORDER_KEY, ARCHIVED_KEY, tabsKeysOf, activeTabOf, archiveTab, canStep, emptyTabs, goalTabsOf, labelOf, moveTab, renameTab, restoreTab, stepTab, tabsStateOf, tabsValueOf, teamOfTab,
 } from "../src/graph/GoalTabs.js";
 
 const node = (pane, over = {}) => ({ pane, kind: "terminal", children: [], depth: 0, status: "idle", activity: "idle", ...over });
@@ -157,4 +157,17 @@ test("a goal started for a task is labelled with the task's title, and the toolt
   assert.equal(b.label, "T9", "no title and no goal: the id");
   const named = goalTabsOf(model, { names: { t1: "Mine" }, order: [], archived: [] }).tabs[0];
   assert.equal(named.label, "Mine", "the person's name wins");
+});
+
+test("tabsKeysOf writes only the choices that changed, one key each, and carries the old single key over", () => {
+  const model = graph();
+  const s = { names: { t1: "Billing" }, order: ["t2", "t1"], archived: [] };
+  assert.deepEqual(tabsKeysOf(s, model, {}), { [NAMES_KEY]: { t1: "Billing" }, [ORDER_KEY]: ["t2", "t1"] });
+  // Nothing changed: nothing to write.
+  assert.deepEqual(tabsKeysOf(s, model, { [NAMES_KEY]: { t1: "Billing" }, [ORDER_KEY]: ["t2", "t1"] }), {});
+  // One choice changed: only its key, and an emptied choice is removed.
+  assert.deepEqual(tabsKeysOf({ ...s, order: [] }, model, { [NAMES_KEY]: { t1: "Billing" }, [ORDER_KEY]: ["t2", "t1"] }), { [ORDER_KEY]: null });
+  // The old key: its choices move to the new keys and it goes.
+  assert.deepEqual(tabsKeysOf(s, model, { [TABS_KEY]: { names: { t1: "Billing" }, order: ["t2", "t1"] } }), { [NAMES_KEY]: { t1: "Billing" }, [ORDER_KEY]: ["t2", "t1"], [TABS_KEY]: null });
+  assert.deepEqual(tabsStateOf({ [NAMES_KEY]: { t1: "Billing" }, [TABS_KEY]: { names: { t1: "Old" } } }).names, { t1: "Billing" }, "a new key wins over the old one");
 });

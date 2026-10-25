@@ -160,7 +160,7 @@ test("renaming is a double click; Enter keeps the name in the preferences, Escap
     await settle();
     again.keydown("Enter");
     await settle();
-    assert.deepEqual(m.sent("uiPrefs"), [{ cmd: "uiPrefs", ui: { tabs: { names: { [TWO]: "Tests" } } } }]);
+    assert.deepEqual(m.sent("uiPrefs"), [{ cmd: "uiPrefs", ui: { "tabs.names": { [TWO]: "Tests" } } }]);
     assert.equal(m.tabs()[1].find(".tab-title").textContent, "Tests", "shown at once, before the desk answers");
     // Solo has no name to change.
     m.clear();
@@ -181,7 +181,7 @@ test("× archives a goal's tab; the + menu lists it and brings it back", () =>
     await m.connect();
     m.clear();
     await m.click(m.tabs()[1].find(".tab-close"));
-    assert.deepEqual(m.sent("uiPrefs"), [{ cmd: "uiPrefs", ui: { tabs: { archived: [TWO] } } }]);
+    assert.deepEqual(m.sent("uiPrefs"), [{ cmd: "uiPrefs", ui: { "tabs.archived": [TWO] } }]);
     assert.deepEqual(m.ids(), [ONE, "solo"]);
     assert.equal(m.sent("closeTab").length, 0, "nothing is closed on the desk");
     await m.plus();
@@ -190,7 +190,7 @@ test("× archives a goal's tab; the + menu lists it and brings it back", () =>
     assert.equal(restore[0].textContent.startsWith("Show Fix"), true);
     m.clear();
     await m.click(restore[0]);
-    assert.deepEqual(m.sent("uiPrefs"), [{ cmd: "uiPrefs", ui: { tabs: null } }], "nothing left to keep removes the key");
+    assert.deepEqual(m.sent("uiPrefs"), [{ cmd: "uiPrefs", ui: { "tabs.archived": null } }], "nothing left to keep removes the key");
     assert.deepEqual(m.ids(), [ONE, TWO, "solo"]);
     assert.deepEqual(m.active(), [TWO], "the restored goal is the one open");
   }));
@@ -204,7 +204,7 @@ test("move left and right, and the keys, change the order of goals; Alt+number a
     const names = m.container.findAll(".tabs-btn");
     assert.equal(names.find((b) => b.textContent === "Move left").disabled, true, "first goal cannot go left");
     await m.click(names.find((b) => b.textContent === "Move right"));
-    assert.deepEqual(m.sent("uiPrefs"), [{ cmd: "uiPrefs", ui: { tabs: { order: [TWO, ONE] } } }]);
+    assert.deepEqual(m.sent("uiPrefs"), [{ cmd: "uiPrefs", ui: { "tabs.order": [TWO, ONE] } }]);
     assert.deepEqual(m.ids(), [TWO, ONE, "solo"]);
     m.clear();
     await m.key("Alt+3");
@@ -302,4 +302,13 @@ test("archiving says how to get the tab back, and a dot on the + says an archive
     await click(m, m.tabs()[0].find(".tab-close"));
     assert.ok(m.container.find(".tabs-plus-dot"), "the first goal has a pane waiting on the person");
     assert.match(m.container.find(".tabs-plus").getAttribute("aria-label"), /an archived goal needs you/);
+  }));
+
+test("the older single tabs key is still read, and the next change carries its choices to the three keys and removes it", () =>
+  withPage({ ui: { tabs: { names: { [TWO]: "Tests" } } } }, async (m) => {
+    await m.connect();
+    assert.equal(m.tabs()[1].find(".tab-title").textContent, "Tests", "the old key was not read");
+    m.clear();
+    await m.click(m.tabs()[0].find(".tab-close"));
+    assert.deepEqual(m.sent("uiPrefs"), [{ cmd: "uiPrefs", ui: { "tabs.archived": [ONE], "tabs.names": { [TWO]: "Tests" }, tabs: null } }]);
   }));

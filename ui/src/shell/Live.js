@@ -31,7 +31,7 @@ import { Confirm } from "./Confirm.js";
 import { LIST } from "./keys.js";
 import { Updates, trapTab } from "./Updates.js";
 import { GoalStrip, ViewBar } from "./GoalStrip.js";
-import { SOLO, TABS_KEY, activeTabOf, archiveTab, canStep, goalTabsOf, moveTab, renameTab, restoreTab, scopeFeed, scopeModel, stepTab, tabsStateOf, tabsValueOf } from "../graph/GoalTabs.js";
+import { SOLO, activeTabOf, archiveTab, canStep, goalTabsOf, moveTab, renameTab, restoreTab, scopeFeed, scopeModel, stepTab, tabsKeysOf, tabsStateOf } from "../graph/GoalTabs.js";
 import { Settings } from "./Settings.js";
 import { History } from "./History.js";
 import { PaneInfo } from "./PaneInfo.js";
@@ -320,7 +320,9 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
   const feedCount = scopedFeed && scopedFeed.entries ? scopedFeed.entries.length : 0;
   const saveTabs = (next) => {
     if (next === savedTabs) return;
-    if (!snap.remote && change(TABS_KEY, tabsValueOf(next, current))) setLocalTabs(null);
+    // One command with a key for each choice that changed, so another window's other choices are left alone.
+    const writes = tabsKeysOf(next, current, prefs.ui);
+    if (!snap.remote && (Object.keys(writes).length === 0 || change("tabsKeys", writes))) setLocalTabs(null);
     else setLocalTabs(next);
   };
   // Choosing a goal tab shows that goal's Team view, unless the page is on a view that
