@@ -348,10 +348,17 @@ merged over it field by field, and any other `id` is a role of your own:
 | `spawns` | The ids of the roles an agent in this role may start. An agent in a role may start only these; an agent with no role may start any |
 | `plain` | `true` lets an agent in this role start agents with no role. Off unless set |
 
-The `worktree` setting is part of the briefing and the role list. Flockdeck does not
-yet cut a worktree or make a checkout read-only because of it, so pass
-`-worktree <branch>` when a role should have its own. The manager briefing says to
-do this for workers and to pass the branch name to the reviewer and tester. A `worktree` that is none of
+The `worktree` setting is part of the briefing and the role list, and it decides what
+`flockdeck spawn` does when an agent starts a helper. A helper in a role set to `own`, or in
+a role with no setting, or with no role, is given a git worktree and a branch of its own,
+cut from the starting agent's current commit and named from its task, with no flag needed;
+`spawn` prints the branch and directory. `-worktree <branch>` chooses the branch name and
+`-no-worktree` starts the helper in the starting agent's checkout instead. A role set to
+`readonly` or `main` (the planner and reviewer, and the manager) is started in the starting
+agent's checkout. Flockdeck does not make a `readonly` checkout read-only. Outside a git
+repository, or when the worktree cannot be cut, the start is refused and the note names
+`-no-worktree`; it is never started in the shared checkout on its own. In the window, **Start in
+a worktree** is ticked when you choose a role that works on its own branch. A `worktree` that is none of
 the three, a bad `tier`, and a `spawns` entry that names no role are listed in the
 notice and ignored.
 
@@ -389,9 +396,9 @@ Given a goal, a manager works through it without being asked at each step:
 
 1. It breaks the goal into tasks and puts them on the task board, starting a `planner`
    first when the goal is more than one obvious change.
-2. It starts a `worker` for each task with `spawn -role worker -worktree <branch>`, so
-   each has a branch of its own, and assigns the task to it. Planners and reviewers read
-   and need no worktree of their own. Every agent it starts for one task gets the same
+2. It starts a `worker` for each task with `spawn -role worker`, so each is given a branch
+   of its own, and assigns the task to it. Planners and reviewers read and share the
+   manager's checkout. Every agent it starts for one task gets the same
    `-tab "<task title>"`, so the planner, worker, reviewer and tester for a task share one
    tab named after it, and another task gets another tab. The tab is forgotten when Flockdeck
    restarts, so a task whose helpers are still running gets a second tab of the same title the

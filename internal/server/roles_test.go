@@ -54,24 +54,24 @@ func TestSpawnInARoleOverTheCallbackAPI(t *testing.T) {
 	}
 
 	// Unknown roles start nothing and say which ones there are.
-	_, err := spawn(pane, hooks.SpawnRequest{Task: "x", Role: "scuot"})
+	_, err := spawn(pane, hooks.SpawnRequest{NoWorktree: true, Task: "x", Role: "scuot"})
 	if err == nil || !strings.Contains(err.Error(), `no role called "scuot"`) || !strings.Contains(err.Error(), "scout") {
 		t.Errorf("unknown role: error = %v", err)
 	}
-	if _, err := spawn(pane, hooks.SpawnRequest{Task: "x", Shell: true, Role: "worker"}); err == nil {
+	if _, err := spawn(pane, hooks.SpawnRequest{NoWorktree: true, Task: "x", Shell: true, Role: "worker"}); err == nil {
 		t.Error("a shell was started in a role")
 	}
 
 	// The role's agent is used when the spawn names none, and the spawn's own
 	// wins when it does.
-	res, err := spawn(pane, hooks.SpawnRequest{Task: "look around", Role: "scout"})
+	res, err := spawn(pane, hooks.SpawnRequest{NoWorktree: true, Task: "look around", Role: "scout"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if role, agentID := paneOf(res.PaneID); res.Role != "scout" || role != "scout" || agentID != "gocli2" {
 		t.Errorf("pane has role %q on %q (result %q), want scout on gocli2", role, agentID, res.Role)
 	}
-	res, err = spawn(pane, hooks.SpawnRequest{Task: "look around", Role: "scout", Agent: "gocli"})
+	res, err = spawn(pane, hooks.SpawnRequest{NoWorktree: true, Task: "look around", Role: "scout", Agent: "gocli"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,35 +81,35 @@ func TestSpawnInARoleOverTheCallbackAPI(t *testing.T) {
 
 	// A pane in a role may start only what its role lists. The scout lists
 	// nothing, so it cannot start a role; the manager can start a worker.
-	scout, err := spawn(pane, hooks.SpawnRequest{Task: "look around", Role: "scout"})
+	scout, err := spawn(pane, hooks.SpawnRequest{NoWorktree: true, Task: "look around", Role: "scout"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := spawn(scout.PaneID, hooks.SpawnRequest{Task: "x", Role: "worker"}); err == nil || !strings.Contains(err.Error(), "scout role may not start") {
+	if _, err := spawn(scout.PaneID, hooks.SpawnRequest{NoWorktree: true, Task: "x", Role: "worker"}); err == nil || !strings.Contains(err.Error(), "scout role may not start") {
 		t.Errorf("scout starting a worker: error = %v", err)
 	}
 	// Starting an agent with no role would shed the limits, so a role that is
 	// not Plain may not do it either, with or without an agent named.
-	if _, err := spawn(scout.PaneID, hooks.SpawnRequest{Task: "plain helper", Agent: "gocli"}); err == nil || !strings.Contains(err.Error(), "scout role may not start an agent without a role") {
+	if _, err := spawn(scout.PaneID, hooks.SpawnRequest{NoWorktree: true, Task: "plain helper", Agent: "gocli"}); err == nil || !strings.Contains(err.Error(), "scout role may not start an agent without a role") {
 		t.Errorf("scout starting a role-less agent: error = %v", err)
 	}
-	if _, err := spawn(scout.PaneID, hooks.SpawnRequest{Task: "plain helper"}); err == nil {
+	if _, err := spawn(scout.PaneID, hooks.SpawnRequest{NoWorktree: true, Task: "plain helper"}); err == nil {
 		t.Error("scout started a role-less agent with no agent named")
 	}
 	// A manager is Plain, and a pane with no role is not limited.
-	mgr, err := spawn(pane, hooks.SpawnRequest{Task: "run things", Role: "manager", Agent: "gocli"})
+	mgr, err := spawn(pane, hooks.SpawnRequest{NoWorktree: true, Task: "run things", Role: "manager", Agent: "gocli"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := spawn(mgr.PaneID, hooks.SpawnRequest{Task: "plain helper", Agent: "gocli"}); err != nil {
+	if _, err := spawn(mgr.PaneID, hooks.SpawnRequest{NoWorktree: true, Task: "plain helper", Agent: "gocli"}); err != nil {
 		t.Errorf("a Plain role was stopped from starting an agent with no role: %v", err)
 	}
-	if _, err := spawn(mgr.PaneID, hooks.SpawnRequest{Task: "x", Role: "worker", Agent: "gocli"}); err != nil {
+	if _, err := spawn(mgr.PaneID, hooks.SpawnRequest{NoWorktree: true, Task: "x", Role: "worker", Agent: "gocli"}); err != nil {
 		t.Errorf("manager starting a worker: %v", err)
 	}
 	// A parent that is not a pane cannot be checked, so it is refused; shells
 	// are not agents and are not held to the rule.
-	if _, err := spawn("no-such-pane", hooks.SpawnRequest{Task: "x", Agent: "gocli"}); err == nil || !strings.Contains(err.Error(), "not open") {
+	if _, err := spawn("no-such-pane", hooks.SpawnRequest{NoWorktree: true, Task: "x", Agent: "gocli"}); err == nil || !strings.Contains(err.Error(), "not open") {
 		t.Errorf("unknown parent: error = %v", err)
 	}
 }

@@ -68,9 +68,8 @@ func BuiltinRoles() []Role {
 				"(`spawn -role planner`) and wait for its steps; otherwise write the tasks yourself. Put each on the " +
 				"board with `flockdeck task add <title> -body <details> -role worker`, with enough detail to stand on " +
 				"its own.\n" +
-				"2. Start an agent for each task with `spawn -role <role>`. Give a worker `-worktree <branch>` so it has " +
-				"a branch of its own, and name that branch in the task; a worker whose files overlap nobody else's can " +
-				"share the checkout, but when in doubt cut the worktree. Assign the task (`flockdeck task assign <id> " +
+				"2. Start an agent for each task with `spawn -role <role>`. A worker, tester or docs helper gets its own worktree and branch automatically (`spawn` prints them); " +
+				"`-worktree <branch>` names it, `-no-worktree` shares your checkout. Planners and reviewers share it. Assign the task (`flockdeck task assign <id> " +
 				"<pane id or role>`; the pane id is in the output of `spawn` and `flockdeck team -json`, and a role leaves " +
 				"the task to whichever pane in it moves it first) before the " +
 				"worker moves it to in-progress, and put the task id in the worker's task; an assign after that takes it from the worker, with a warning. Put your session name (see ListAgents) in each helper's task and again after a restart. `spawn` prints a pane id only: find a helper's name in ListAgents or ask it to send it. Put every agent for one task in one tab " +

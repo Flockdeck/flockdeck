@@ -91,7 +91,7 @@ func spawnElsewhere(hook *hooks.Server, pane string) chan error {
 	notes := writeNotesIn(pane)
 	go func() {
 		_, err := hooks.Spawn(hook.BaseURL(), hook.Token(), pane,
-			hooks.SpawnRequest{Task: "x", Agent: "gitcli", Baton: "path:" + notes, BatonElsewhere: true})
+			hooks.SpawnRequest{NoWorktree: true, Task: "x", Agent: "gitcli", Baton: "path:" + notes, BatonElsewhere: true})
 		result <- err
 	}()
 	return result

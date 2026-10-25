@@ -402,8 +402,8 @@ func writeSpawnFlags(b *strings.Builder, flockdeck string, roles bool) {
 		"front of the user at once.\n" +
 		"- `-tab <title>`: the agent joins the tab with that title, which is made if there is none. Use one title for everything that belongs to one piece of work; it takes " +
 		"precedence over `-split`.\n" +
-		"- `-worktree <branch>`: the agent gets a git worktree and branch of its own, cut from yours; without it " +
-		"it shares this working tree, so use it when two agents would touch the same files.\n" +
+		"- `-worktree <branch>`: a git worktree and branch of its own, cut from your current commit. An agent with no role, " +
+		"or a worker, tester or docs one, gets one anyway, named from its task; this picks the name. `-no-worktree` shares your tree.\n" +
 		"- `-shell`: a terminal, not a conversation. `-agent <id>` and `-model <model>` pick another agent or " +
 		"model (`" + flockdeck + " agents` lists them); neither goes with `-shell`.\n")
 	if roles {

@@ -947,7 +947,11 @@ type SpawnRequest struct {
 	Parent string `json:"parent"`
 	Task   string `json:"task"`
 	Branch string `json:"branch,omitempty"`
-	Split  bool   `json:"split,omitempty"`
+	// NoWorktree starts the helper in the caller's own checkout. Without it, and
+	// without Branch, a helper in a role that works on its own branch is given a
+	// worktree and a branch the application names (see the spawn handler).
+	NoWorktree bool `json:"noWorktree,omitempty"`
+	Split      bool `json:"split,omitempty"`
 	// Tab is the title of the tab the helper joins: the tab of that title in
 	// the caller's project, made if there is none. It takes precedence over
 	// Split, and is how a manager keeps the panes for one piece of work together.
@@ -1024,6 +1028,9 @@ type SpawnResult struct {
 	Cwd string `json:"cwd,omitempty"`
 	// Role is the role the helper was started as, when it was started as one.
 	Role string `json:"role,omitempty"`
+	// Branch is the branch the helper works on, when it was given a worktree of
+	// its own (one asked for, or the default), and Cwd is that worktree.
+	Branch string `json:"branch,omitempty"`
 	// BatonID and BatonPath say which baton the helper was started from and
 	// where it is kept, when it was started from one, so the caller can read it
 	// with `flockdeck baton show`.

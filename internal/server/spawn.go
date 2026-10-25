@@ -599,6 +599,24 @@ func chooseInRole(cat *agent.Catalog, parentRole, roleID, agentID, model, defaul
 	return agentID, model, nil
 }
 
+// helperGetsWorktree says a spawn is to be given a worktree it did not ask for:
+// an agent started by an agent (a shell, a start with -worktree or -no-worktree
+// named, and a role that reads or shares the checkout are all left as they are).
+// A role with no worktree setting, and no role at all, is a helper like a worker.
+func (s *Server) helperGetsWorktree(req hooks.SpawnRequest) bool {
+	if req.Parent == "" || req.Shell || req.Branch != "" || req.NoWorktree {
+		return false
+	}
+	if req.Role == "" {
+		return true
+	}
+	role, ok := s.ws.Catalog().Role(req.Role)
+	if !ok {
+		return false
+	}
+	return role.Worktree == "" || role.Worktree == agent.WorktreeOwn
+}
+
 // errShuttingDown is what a spawn is answered with when the window it would
 // have opened in is already going away.
 var errShuttingDown = errors.New("the workspace is shutting down")
@@ -667,6 +685,24 @@ func (s *Server) installSpawnHandler() {
 			return hooks.SpawnResult{}, in.err
 		}
 		cwd := in.cwd
+
+		// A helper in a role that works on its own branch gets a worktree and a
+		// branch unless it was told not to: two agents in one checkout are what
+		// the worktree is for. The name is final only under the repository's lock
+		// below; this one is for what is planned before then.
+		autoTree := false
+		if s.helperGetsWorktree(req) {
+			repo := gitRoot(cwd)
+			if repo == "" {
+				return hooks.SpawnResult{}, fmt.Errorf("%s is not in a git repository (or git is not installed), so the helper cannot be given a worktree of its own; pass -no-worktree to start it in your checkout", filepath.Base(cwd))
+			}
+			taken, err := localBranches(repo)
+			if err != nil {
+				return hooks.SpawnResult{}, fmt.Errorf("could not read the branches of %s, so no worktree was cut for the helper: %v; pass -no-worktree to start it in your checkout", filepath.Base(repo), err)
+			}
+			req.Branch = uniqueBranch(workspace.BranchNameFor(req.Task), taken, nil)
+			autoTree = true
+		}
 
 		// Resolved before a worktree is cut, so a reference that does not
 		// resolve is refused without leaving a checkout behind.
@@ -758,8 +794,20 @@ func (s *Server) installSpawnHandler() {
 			// and has to find this helper in it when it does; see discardWorktree.
 			defer lockRepo(cwd)()
 			repo, _ := gitx.Root(cwd)
+			if autoTree {
+				// The name is chosen again with the lock held, so a branch made since
+				// is not taken for this helper's.
+				taken, err := localBranches(repo)
+				if err != nil {
+					return hooks.SpawnResult{}, fmt.Errorf("could not read the branches of %s, so no worktree was cut for the helper: %v; pass -no-worktree to start it in your checkout", filepath.Base(repo), err)
+				}
+				req.Branch = uniqueBranch(workspace.BranchNameFor(req.Task), taken, nil)
+			}
 			made, err := s.ws.PrepareWorktreeNew(cwd, req.Branch)
 			if err != nil {
+				if autoTree {
+					err = fmt.Errorf("could not cut a worktree for the helper, so it was not started in your checkout: %w; pass -no-worktree to start it there", err)
+				}
 				return hooks.SpawnResult{}, err
 			}
 			cwd = made.Path
@@ -822,7 +870,7 @@ func (s *Server) installSpawnHandler() {
 		if r.err != nil {
 			return hooks.SpawnResult{}, cleanup(r.err)
 		}
-		res := hooks.SpawnResult{PaneID: r.id, Cwd: cwd, Role: req.Role}
+		res := hooks.SpawnResult{PaneID: r.id, Cwd: cwd, Role: req.Role, Branch: req.Branch}
 		if req.TaskID != "" {
 			// The helper is running already, so a task that cannot be given to it
 			// (the caller may not edit it) is said, not undone.

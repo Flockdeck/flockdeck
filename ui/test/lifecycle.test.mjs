@@ -17,7 +17,7 @@ import { renderToString } from "./vendor/render-to-string.mjs";
 import { LOCKED_WORDS } from "../src/drawer/Lifecycle.js";
 import {
   catalogOf, closeTabWarnings, closeWarnings, defaultValue, moveTabCommand, newTabCommand, optionsOf, restartWarnings, splitValue, startAgentCommand,
-  startProblem, tabsOf, valueOf,
+  startProblem, tabsOf, valueOf, roleTreeDefault,
 } from "../src/lib/lifecycle.js";
 import { createDom, install, settle } from "./dom.mjs";
 import { FakeWebSocket, harness, hello } from "./fakes.mjs";
@@ -321,7 +321,7 @@ test("a task, or a role, starts the agent in the project itself through startAge
     await fill(m, "#start-task", "  write the tests  ");
     await choose(m, "#start-role", "worker");
     await m.click(m.byText(".dialog-btn", /^Start$/));
-    assert.deepEqual(m.sent("startAgent"), [{ cmd: "startAgent", root: "/work/a", task: "write the tests", worktree: false, agent: "claude", model: "opus", role: "worker" }]);
+    assert.deepEqual(m.sent("startAgent"), [{ cmd: "startAgent", root: "/work/a", task: "write the tests", worktree: true, agent: "claude", model: "opus", role: "worker" }]);
     assert.equal(m.sent("newTab").length, 0);
   }));
 
@@ -674,4 +674,14 @@ test("a solo agent's header offers Start a team, and an agent in a team does not
   assert.match(solo, /drawer-team[^>]*>Start a team</);
   const none = renderToString(html`<${Header} node=${{ pane: "p", name: "solo", team: "" }} onClose=${() => {}} onToggleMax=${() => {}} />`);
   assert.doesNotMatch(none, /Start a team/);
+});
+
+test("the start dialog ticks a worktree for the roles that work on their own branch", () => {
+  const catalog = { roles: [{ id: "worker", worktree: "own" }, { id: "custom" }, { id: "manager", worktree: "main" }, { id: "reviewer", worktree: "readonly" }] };
+  assert.equal(roleTreeDefault(catalog, "worker"), true);
+  assert.equal(roleTreeDefault(catalog, "custom"), true, "a role with no setting is a helper");
+  assert.equal(roleTreeDefault(catalog, "manager"), false);
+  assert.equal(roleTreeDefault(catalog, "reviewer"), false);
+  assert.equal(roleTreeDefault(catalog, ""), false, "no role leaves the box as it was");
+  assert.equal(roleTreeDefault(catalog, "gone"), false);
 });

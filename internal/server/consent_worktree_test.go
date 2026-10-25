@@ -305,7 +305,7 @@ func TestASpawnThatNeededNoApprovalCarriesNoApprovalRequired(t *testing.T) {
 		t.Skip("no hook server")
 	}
 	got := recordApproved(t)
-	if _, err := hooks.Spawn(hook.BaseURL(), hook.Token(), pane, hooks.SpawnRequest{Task: "x", Agent: "gocli", Baton: "self"}); err != nil {
+	if _, err := hooks.Spawn(hook.BaseURL(), hook.Token(), pane, hooks.SpawnRequest{NoWorktree: true, Task: "x", Agent: "gocli", Baton: "self"}); err != nil {
 		t.Fatalf("a same-agent spawn: %v", err)
 	}
 	if len(*got) != 1 || (*got)[0] == nil {
