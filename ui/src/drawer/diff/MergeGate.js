@@ -35,6 +35,8 @@ const MOVED = "The branch changed; waiting for the update.";
 const CHANGED_NOTE = "The check file changed after it was shown. These are its commands now; nothing was confirmed.";
 const STALE = "The branch changed, so the question about its checks was dropped. Press Run checks to ask again.";
 const NO_COMMANDS = "The check file has no command to run.";
+const NO_HASH = "The desk sent the commands without a way to confirm them, so nothing was confirmed.";
+const UNEXPECTED = "The desk answered in a way that was not asked for, so the checks were not run.";
 const TONE_WORDS = { pass: "Passing", fail: "Failing", wait: "Waiting", none: "None" };
 let counter = 0;
 const newReq = () => "gt" + Date.now().toString(36) + (++counter).toString(36);
@@ -92,9 +94,12 @@ export function useGateActions({ branch = null, send = null, result = null, conn
     inflight.current = false;
     const op = text(result.op);
     if (op === "confirmChecks") {
-      if (result.ok) {
+      if (result.ok && s.ask && s.ask.phase === "confirming") {
         // The person's press was taken: the checks run now.
         sendNow(checksCommand(ids()), "runChecks", { ask: null });
+      } else if (result.ok) {
+        // An ok that is not the answer to a press (the reading, or nothing asked): never a reason to run.
+        setS((p) => ({ ...p, busy: "", req: "", ask: null, error: UNEXPECTED, said: "" }));
       } else if (result.code === "changed") {
         // The file is not the one that was shown: read it again, show what it says now, confirm nothing.
         sendNow(confirmChecksCommand(ids()), "confirmChecks", { ask: { phase: "reading", branch: branchName, note: CHANGED_NOTE } });
@@ -118,8 +123,8 @@ export function useGateActions({ branch = null, send = null, result = null, conn
     seenChecks.current = checks;
     inflight.current = false;
     const found = checksListOf(checks);
-    if (!found) {
-      setS((p) => ({ ...p, busy: "", req: "", ask: null, error: NO_COMMANDS, said: "" }));
+    if (!found || found.fault) {
+      setS((p) => ({ ...p, busy: "", req: "", ask: null, error: found && found.fault === "hash" ? NO_HASH : NO_COMMANDS, said: "" }));
     } else if (found.pinned && !s.ask.note) {
       sendNow(checksCommand(ids()), "runChecks", { ask: null });
     } else {
@@ -181,6 +186,18 @@ function Row({ label, tone, children, action }) {
 /** MergeGate draws the gate of one branch. */
 export function MergeGate({ branch = null, canAct = false, canCheck = false, flow = null, nameOf = null, reviewer = "", project = "" }) {
   const [said, setSaid] = useState("");
+  // When the question closes, the keyboard goes back to the button that opened it (once it is enabled again).
+  const runRef = useRef(null);
+  const wantFocus = useRef(false);
+  const asking = !!(flow && flow.ask);
+  const busy = !!(flow && flow.busy);
+  useEffect(() => {
+    if (asking) wantFocus.current = true;
+    else if (wantFocus.current && !busy) {
+      wantFocus.current = false;
+      if (runRef.current && runRef.current.focus) runRef.current.focus();
+    }
+  }, [asking, busy]);
   const status = flow ? flow.error || flow.said || (flow.busy ? "Working…" : "") : "";
   useEffect(() => { setSaid(status); }, [status]);
   if (!isObject(branch)) return null;
@@ -197,13 +214,13 @@ export function MergeGate({ branch = null, canAct = false, canCheck = false, flo
   const actChecks = canCheck && !!flow;
   const whyId = "dv-gate-why-" + text(branch.pane);
   const stateWords = g.state === "blocked" ? (g.blockers.length ? g.blockers.length + " blocking" : "Blocked") : g.state === "ready" ? "Ready" : g.state === "approved" ? "Approved" : "Merged";
-  const btn = (cls, label, onClick, aria) => html`<button type="button" class=${"drawer-btn " + cls} disabled=${!!flow.busy} aria-label=${aria || label} onClick=${onClick}>${label}</button>`;
+  const btn = (cls, label, onClick, aria, ref = null) => html`<button type="button" class=${"drawer-btn " + cls} ref=${ref} disabled=${!!flow.busy} aria-label=${aria || label} onClick=${onClick}>${label}</button>`;
 
   return html`<section class="dv-gate" role="group" aria-label=${"Merge gate for " + showControls(clip(text(branch.branch), 80))}>
     <div class="dv-gate-h"><b>Merge gate</b><span class=${"dv-chip dv-gate-state dv-gate-state--" + g.state}>${stateWords}</span>
       ${canAct ? null : html`<span class="dv-gate-ro">Read-only here</span>`}</div>
     <ul class="dv-gate-rows" aria-label="What the gate checks">
-      <${Row} label="Checks" tone=${checks.tone} action=${actChecks && checks.tone !== "pass" ? btn("dv-gate-run", checks.total ? "Run again" : "Run checks", flow.runChecks, "Run the checks again") : null}><bdi>${checksWords(checks)}</bdi><//>
+      <${Row} label="Checks" tone=${checks.tone} action=${actChecks && checks.tone !== "pass" ? btn("dv-gate-run", checks.total ? "Run again" : "Run checks", flow.runChecks, "Run the checks again", runRef) : null}><bdi>${checksWords(checks)}</bdi><//>
       <${Row} label="Conflicts" tone=${conflict.tone}>${conflict.text ? html`<bdi>${clip(conflict.text, 300)}</bdi>` : "None with the base or another branch"}<//>
       <${Row} label="Reviewer" tone=${review.tone}
         action=${actChecks && reviewer && (review.state === "none" || review.state === "stale") ? btn("dv-gate-ask", "Ask " + name(reviewer) + " to review", () => flow.askReview(reviewer)) : null}>${review.state === "changes" ? html`<bdi>${name(review.who)}</bdi> asked for changes${review.note ? html`: <bdi>${clip(review.note, 200)}</bdi>` : ""}`

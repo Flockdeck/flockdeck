@@ -109,23 +109,30 @@ const NAME_CLIP = 60;
 
 /** oneLine shows a command or a name as a single line of text: line breaks and other control characters are
  *  drawn as marks rather than acted on, and the hidden ones the page marks everywhere (showControls). */
+/** clipText cuts a text to at most max code points, ending in an ellipsis, so a surrogate pair is never split. */
+export function clipText(v, max) {
+  const chars = Array.from(String(v == null ? "" : v));
+  return chars.length <= max ? chars.join("") : chars.slice(0, Math.max(0, max - 1)).join("") + "…";
+}
+
 function oneLine(v, max = Infinity) {
   const t = showControls(text(v))
     .replace(/[\r\n]+/g, " <LF> ")
     .replace(/[\u0000-\u001f\u007f-\u009f]/g, (c) => "<U+" + c.charCodeAt(0).toString(16).toUpperCase().padStart(4, "0") + ">");
-  return t.length > max ? t.slice(0, max - 1) + "…" : t;
+  return clipText(t, max);
 }
 
 /** checksListOf reads a changesChecks: the commands the check file would run, the hash to send back to confirm them,
  *  and whether they are already confirmed. A name is bounded; a command is shown whole (the desk caps it).  null when there is nothing to confirm (no
- *  command, or no hash to send back). The text of a command is the file's, written by whoever could write the file: it is
+ *  command, or no hash to send back: { fault: "commands" } or { fault: "hash" } says which). The text of a command is the file's, written by whoever could write the file: it is
  *  shown as it is, bounded, and never run or acted on here. */
 export function checksListOf(msg) {
   if (!isObject(msg) || msg.type !== "changesChecks") return null;
   const commands = list(msg.commands).filter((c) => isObject(c) && text(c.cmd) !== "")
     .map((c) => ({ name: oneLine(c.name, NAME_CLIP), cmd: oneLine(c.cmd) }));
   const hash = text(msg.hash);
-  if (!commands.length || !hash) return null;
+  if (!commands.length) return { fault: "commands" };
+  if (!hash) return { fault: "hash" };
   return { commands, hash, pinned: msg.pinned === true };
 }
 
@@ -157,7 +164,7 @@ export function gateRefusalWords(msg) {
     case "conflicts": return "The branch conflicts with its base or another branch; sort that out first.";
     case "openComments": return "The branch still has open review comments.";
     case "reviewChangesRequested": return "A reviewer asked for changes on this head.";
-    default: return showControls(text(m.error)) || "The desk did not do that.";
+    default: return clipText(showControls(text(m.error)), 400) || "The desk did not do that.";
   }
 }
 

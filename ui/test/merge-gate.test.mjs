@@ -9,7 +9,7 @@ import { html } from "../src/html.js";
 import { MergeGate, useGateActions } from "../src/drawer/diff/MergeGate.js";
 import {
   gateActsFor, actsFor, gateOf, checksSummary, checksWords, reviewSummary, commentsSummary, conflictSummary, otherBlockers, approveState,
-  approveCommand, unapproveCommand, checksCommand, reviewCommand, gateRefusalWords,
+  approveCommand, unapproveCommand, checksCommand, reviewCommand, gateRefusalWords, clipText, checksListOf,
 } from "../src/drawer/diff/gateModel.js";
 import { createDom, install, settle } from "./dom.mjs";
 
@@ -520,4 +520,132 @@ test("a command is shown whole: a thousand characters, and more than twenty comm
   } finally {
     m.done();
   }
+});
+
+test("an ok for the reading is never a reason to run: only a press on Confirm lets the checks run", async () => {
+  const { m, sent, send } = await reading();
+  try {
+    m.draw({ send, branch: api, result: { type: "changesResult", req: sent[0].req, op: "confirmChecks", ok: true } });
+    await settle();
+    assert.equal(sent.some((c) => c.cmd === "runChecks"), false, "an ok for the read's req sends nothing");
+    assert.match(m.box.find(".dv-live").textContent, /not asked for, so the checks were not run/);
+    assert.equal(m.box.find(".confirm"), null);
+  } finally {
+    m.done();
+  }
+});
+
+test("when the question closes the keyboard goes back to Run checks", async () => {
+  const { m, sent, send } = await reading();
+  try {
+    m.draw({ send, branch: api, checks: listing(sent[0].req) });
+    await settle();
+    m.box.find(".confirm").dispatch("keydown", { key: "Escape", ctrlKey: false, shiftKey: false, altKey: false });
+    await settle();
+    assert.equal(m.box.ownerDocument.activeElement, m.box.find(".dv-gate-run"), "after Cancel");
+  } finally {
+    m.done();
+  }
+  const b = await reading();
+  try {
+    b.m.draw({ send: b.send, branch: api, checks: listing(b.sent[0].req) });
+    await settle();
+    b.m.box.find(".dialog-btn--danger").click();
+    await settle();
+    const confirmReq = b.sent.filter((c) => c.confirm)[0].req;
+    b.m.draw({ send: b.send, branch: api, result: { type: "changesResult", req: confirmReq, op: "confirmChecks", ok: true } });
+    await settle();
+    b.m.draw({ send: b.send, branch: api, result: { type: "changesResult", req: lastOf(b.sent, "runChecks").req, op: "runChecks", ok: true } });
+    await settle();
+    assert.equal(b.m.box.ownerDocument.activeElement, b.m.box.find(".dv-gate-run"), "after Confirm, once the checks have started");
+  } finally {
+    b.m.done();
+  }
+});
+
+test("a listing with no hash is not the same fault as one with no command", async () => {
+  const { m, sent, send } = await reading();
+  try {
+    m.draw({ send, branch: api, checks: listing(sent[0].req, { hash: "" }) });
+    await settle();
+    assert.match(m.box.find(".dv-live").textContent, /without a way to confirm them/);
+    assert.equal(m.box.find(".confirm"), null);
+  } finally {
+    m.done();
+  }
+  const n = await reading();
+  try {
+    n.m.draw({ send: n.send, branch: api, checks: listing(n.sent[0].req, { commands: [] }) });
+    await settle();
+    assert.match(n.m.box.find(".dv-live").textContent, /no command to run/);
+  } finally {
+    n.m.done();
+  }
+  assert.deepEqual(checksListOf({ type: "changesChecks", commands: [], hash: "h" }), { fault: "commands" });
+  assert.deepEqual(checksListOf({ type: "changesChecks", commands: [{ name: "a", cmd: "b" }], hash: "" }), { fault: "hash" });
+});
+
+test("after notConfirmed, pressing Run checks reads the file again; nothing is retried by itself", async () => {
+  const { m, sent, send } = await reading();
+  try {
+    m.draw({ send, branch: api, checks: listing(sent[0].req, { pinned: true }) });
+    await settle();
+    const run = lastOf(sent, "runChecks");
+    const before = sent.length;
+    m.draw({ send, branch: api, checks: listing(sent[0].req, { pinned: true }), result: { type: "changesResult", req: run.req, op: "runChecks", ok: false, code: "notConfirmed", error: "not confirmed; the checks run code from the checkout" } });
+    await settle();
+    assert.equal(sent.length, before, "nothing is sent by itself");
+    m.box.find(".dv-gate-run").click();
+    await settle();
+    const again = sent[sent.length - 1];
+    assert.deepEqual([again.cmd, again.confirm], ["confirmChecks", undefined], "a fresh read");
+    assert.notEqual(again.req, sent[0].req);
+  } finally {
+    m.done();
+  }
+});
+
+test("a list that is pinned after a changed note still asks", async () => {
+  const { m, sent, send } = await reading();
+  try {
+    m.draw({ send, branch: api, checks: listing(sent[0].req) });
+    await settle();
+    m.box.find(".dialog-btn--danger").click();
+    await settle();
+    const confirmReq = sent.filter((c) => c.confirm)[0].req;
+    m.draw({ send, branch: api, result: { type: "changesResult", req: confirmReq, op: "confirmChecks", ok: false, code: "changed", error: "changed" } });
+    await settle();
+    const reread = sent[sent.length - 1];
+    m.draw({ send, branch: api, checks: listing(reread.req, { pinned: true, hash: "e".repeat(64) }) });
+    await settle();
+    assert.ok(m.box.find(".confirm"), "it asks");
+    assert.equal(sent.some((c) => c.cmd === "runChecks"), false);
+  } finally {
+    m.done();
+  }
+});
+
+test("control characters that expand past a thousand characters leave the command whole, and 21 commands are all drawn", async () => {
+  const { m, sent, send } = await reading();
+  try {
+    const cmd = "echo " + String.fromCharCode(0x202e).repeat(300);
+    const twentyOne = Array.from({ length: 21 }, (_, i) => ({ name: "n" + i, cmd: "c" + i }));
+    m.draw({ send, branch: api, checks: listing(sent[0].req, { commands: [{ name: "x", cmd }, ...twentyOne] }) });
+    await settle();
+    const codes = m.box.find(".confirm").findAll("code");
+    assert.equal(codes.length, 22);
+    assert.equal(codes[0].textContent, "echo " + "<U+202E>".repeat(300));
+    assert.ok(codes[0].textContent.length > 2000 && !codes[0].textContent.includes("…"));
+  } finally {
+    m.done();
+  }
+});
+
+test("a clip never splits a character made of two code units, and a long desk error is bounded", () => {
+  const pair = String.fromCodePoint(0x1f600);
+  assert.equal(clipText(pair.repeat(5), 3), pair + pair + "…");
+  assert.equal(clipText("short", 10), "short");
+  const words = gateRefusalWords({ code: "failed", error: pair.repeat(1000) });
+  assert.equal(Array.from(words).length, 400);
+  assert.ok(!/[\ud800-\udbff]$/.test(words.slice(0, -1)), "no lone half of a pair");
 });
