@@ -188,8 +188,8 @@ const viewerRefused = "This device can only view. Ask for it to be made a full d
 // refuseViewer tells a viewer its command was not done. It goes round the
 // outgoing filter, which would drop a notice, because this one is the answer to
 // the viewer's own request and says nothing about the desk.
-func (c *controlClient) refuseViewer() {
-	if data, err := json.Marshal(noticeMsg{Type: "notice", Text: viewerRefused, Error: true}); err == nil {
+func (c *controlClient) refuseViewer(req string) {
+	if data, err := json.Marshal(noticeMsg{Type: "notice", Text: viewerRefused, Error: true, Req: req}); err == nil {
 		c.putMessage(data)
 	}
 }

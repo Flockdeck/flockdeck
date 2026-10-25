@@ -544,6 +544,9 @@ type noticeMsg struct {
 	// Kind is "approval" for what is said of a request for the user's answer, which
 	// is not the answer to anything else the window is waiting on.
 	Kind string `json:"kind,omitempty"`
+	// Req is the command's own req, copied back by the commands that answer with
+	// one (paneSend), so a window can match a refusal to the send it was for.
+	Req string `json:"req,omitempty"`
 }
 
 // command is a request from the front end.
@@ -1581,6 +1584,13 @@ func (c *controlClient) notify(text string, isErr bool) {
 	}
 }
 
+// notifyReq is notify for the answer to a command that carried a req.
+func (c *controlClient) notifyReq(text string, isErr bool, req string) {
+	if data, err := json.Marshal(noticeMsg{Type: "notice", Text: text, Error: isErr, Req: req}); err == nil {
+		c.send(data)
+	}
+}
+
 // ---------------------------------------------------------------------------
 // Commands
 // ---------------------------------------------------------------------------
@@ -1590,7 +1600,7 @@ func (c *controlClient) notify(text string, isErr bool) {
 func (s *Server) handleCommand(c *controlClient, cmd command) {
 	// A viewer's commands are refused before anything below looks at them.
 	if !s.allowCommand(c, cmd.Cmd) {
-		c.refuseViewer()
+		c.refuseViewer(cmd.Req)
 		return
 	}
 	// A command this server has no handler for is told so. A viewer was refused
