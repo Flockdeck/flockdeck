@@ -145,4 +145,7 @@ test("stepTab and canStep do nothing for a tab that is not listed, or at an end"
   assert.equal(canStep(tabs, "a", 1), true);
   assert.equal(canStep(tabs, "c", 1), false);
   assert.equal(canStep(tabs, "c", -1), true);
+  assert.equal(stepTab(state, tabs, "a", -1), state);
+  assert.equal(stepTab(state, tabs, "c", 1), state);
+  assert.deepEqual(stepTab(state, tabs, "a", 1).order, ["b", "a", "c"]);
 });

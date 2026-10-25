@@ -4,7 +4,7 @@
 // fallbacks and the task of a team.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildGraphModel, emptyModel, stuckOf, needsYouOf, rollupOf, labelOf, taskOfTeam, STUCK_MS } from "../src/graph/model.js";
+import { buildGraphModel, emptyModel, stuckOf, needsYouOf, rollupOf, labelOf, shownName, taskOfTeam, STUCK_MS } from "../src/graph/model.js";
 
 const n = (pane, over = {}) => ({ pane, kind: "terminal", depth: 0, team: "t", name: pane, role: "worker", status: "working", activity: "working", live: "", waitingOn: { kind: "none" }, children: [], ...over });
 const graph = (nodes, over = {}) => ({
@@ -19,6 +19,8 @@ const graph = (nodes, over = {}) => ({
 });
 const NOW = Date.parse("2026-10-24T12:00:00Z");
 const agoIso = (ms) => new Date(NOW - ms).toISOString();
+// A frame as the team's tree holds it, for the tests that build a tree the model would not.
+const frame = (pane, ...children) => ({ pane, depth: 0, children });
 const one = (over) => buildGraphModel(graph([n("a", over)])).byPane.get("a");
 
 test("stuckOf counts whole minutes and rounds down", () => {
@@ -83,15 +85,25 @@ test("needsYouOf counts a need that is not quiet and not one that is", () => {
   assert.equal(needsYouOf(m, "m"), false);
 });
 
-test("rollupOf counts a child that points back at its parent once", () => {
-  const m = buildGraphModel(graph([n("m", { children: ["a"] }), n("a", { parent: "m", children: ["m"] })]));
-  assert.deepEqual(rollupOf(m, "m"), { below: 1, needYou: 0 });
-  assert.deepEqual(rollupOf(m, "a"), { below: 0, needYou: 0 });
+// buildGraphModel's treeOf already drops a repeat, so these two hand the roll-up a tree
+// that holds one, which only rollupOf's own guard can count once. (A true loop is left
+// out: without the guard it would not stop.)
+test("rollupOf counts a pane that two branches hold once", () => {
+  const m = buildGraphModel(graph([n("m"), n("a"), n("b"), n("c")]));
+  m.teams[0].tree = frame("m", frame("a", frame("c")), frame("b", frame("c")));
+  assert.deepEqual(rollupOf(m, "m"), { below: 3, needYou: 0 });
 });
 
 test("rollupOf counts a pane below once however it is reached, and the ones that need the person", () => {
-  const m = buildGraphModel(graph([n("m", { children: ["a", "b"] }), n("a", { parent: "m", children: ["c"] }), n("b", { parent: "m", children: ["c"], activity: "waiting" }), n("c", { parent: "a", activity: "blocked" })]));
+  const m = buildGraphModel(graph([n("m"), n("a"), n("b", { activity: "waiting" }), n("c", { activity: "blocked" })]));
+  m.teams[0].tree = frame("m", frame("a", frame("c")), frame("b", frame("c")));
   assert.deepEqual(rollupOf(m, "m"), { below: 3, needYou: 2 });
+});
+
+test("rollupOf does not count the pane itself when a branch below holds it again", () => {
+  const m = buildGraphModel(graph([n("m"), n("a")]));
+  m.teams[0].tree = frame("m", frame("a", frame("m")));
+  assert.deepEqual(rollupOf(m, "m"), { below: 1, needYou: 0 });
 });
 
 test("rollupOf leaves out a child that is not a pane of the model", () => {
@@ -112,17 +124,26 @@ test("rollupOf uses the desk's figures only when the tree has nothing below", ()
   assert.deepEqual(rollupOf(tree, "m"), { below: 1, needYou: 0 });
 });
 
-test("rollupOf reads teams without a tree and a pane two teams hold", () => {
+test("rollupOf reads a team without a tree, and keeps the first tree of a pane two teams hold", () => {
   const msg = graph([n("m", { children: ["a"] }), n("a", { parent: "m" })]);
   msg.teams.push({ id: "orphan", manager: "ghost", goal: "", members: ["a"], needs: [] }, { id: "again", manager: "m", goal: "", members: ["m", "a"], needs: [] });
   const m = buildGraphModel(msg);
   assert.equal(m.teams[1].tree, null);
+  // The second team holds m with nothing below it; the first team's m, with a, is the one that counts.
+  m.teams[2].tree = frame("m");
   assert.deepEqual(rollupOf(m, "m"), { below: 1, needYou: 0 });
 });
 
 test("labelOf shows the pane id for a pane with no name", () => {
   const m = buildGraphModel(graph([n("p1", { name: "" })]));
   assert.equal(labelOf(m, "p1"), "p1");
+  assert.equal(shownName(m.byPane.get("p1")), "p1");
+});
+
+test("two panes with no name are told apart by their ids, not taken for one shared name", () => {
+  const m = buildGraphModel(graph([n("p1", { name: "" }), n("p2", { name: "", parent: "p1" })]));
+  assert.equal(labelOf(m, "p1"), "p1");
+  assert.equal(labelOf(m, "p2"), "p2");
 });
 
 test("labelOf gives panes with the same name and nothing else to tell them by the start of their ids", () => {
@@ -144,6 +165,8 @@ test("labelOf tells panes of one name apart by role and task title", () => {
   assert.equal(labelOf(m, "p3"), "solo");
 });
 
+// The labels are worked out once for each model on purpose: rows ask for one per render, and a
+// label that changed under a row would move it. Do not remove the cache and this test together.
 test("labelOf keeps the first answer for a model", () => {
   const m = buildGraphModel(graph([n("p1", { name: "one" })]));
   assert.equal(labelOf(m, "p1"), "one");
@@ -177,8 +200,9 @@ test("taskOfTeam reads the title from a helper when the manager carries another 
 });
 
 test("taskOfTeam prefers the manager's title to a helper's", () => {
+  // The helper is listed first, so only the step that reads the manager's own pane gives its title.
   const m = buildGraphModel(
-    graph([n("m", { children: ["h"], task: { id: "T4", title: "Manager's", state: "doing" } }), n("h", { parent: "m", task: { id: "T4", title: "Helper's", state: "doing" } })]),
+    graph([n("h", { parent: "m", task: { id: "T4", title: "Helper's", state: "doing" } }), n("m", { task: { id: "T4", title: "Manager's", state: "doing" } })], { manager: "m" }),
   );
   assert.deepEqual(taskOfTeam(m, { taskId: "T4", manager: "m" }), { id: "T4", title: "Manager's" });
 });
