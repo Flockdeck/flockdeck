@@ -48,3 +48,13 @@
 .view--changes { container: ctview / inline-size; }
 /* The status line stays in the accessibility tree when it is empty (display: none would take it out), and takes no room. */
 .ct-live:empty { margin: 0; position: absolute; }
+/* The branch header and the merge gate. */
+.ct-header { margin-bottom: 8px; }
+.ct-meta { color: var(--fg-dim); display: flex; flex-wrap: wrap; font-size: 12px; gap: 4px 12px; margin: 0 0 4px; }
+.ct-dirty { color: var(--waiting); }
+.ct-last { color: var(--fg-dim); font-family: var(--mono); font-size: 12px; margin: 0 0 6px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ct-pr { color: var(--accent); font-size: 12px; }
+.ct-actions { align-items: center; display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0; }
+.ct-note { font-size: 12px; margin: 6px 0; }
+.ct-dismiss, .ct-link { background: none; border: 0; color: var(--accent); cursor: pointer; font: inherit; padding: 0; text-decoration: underline; }
+.ct-dismiss:focus-visible, .ct-link:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }

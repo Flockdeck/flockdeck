@@ -269,7 +269,7 @@ const initial = () => ({
   hello: null, remote: false, state: null,
   graph: null, graphGone: null, graphRefused: false, graphError: null,
   notice: null, versions: null, helpers: null, helperPlan: null, recents: null, browse: null, batonDraft: null, batonSaved: null, batonError: null, agentAddress: null,
-  approvals: [], detached: false, sent: null, started: null, structured: null, structuredError: null, cancelError: null, answer: null, asking: null, conversation: null, details: nullMap(), search: null, taskDetail: null, changes: null, diff: null, gitWarn: null, changesBusy: "", changesNote: null, history: null, paneInfo: null, paneMatches: null, keys: null, jevKey: null, radar: null, worktrees: null, agentsList: null, team: null, teamGone: null, teamTasks: null, teamMessages: null, teamResult: null, teamRefused: false, changesTeam: null, changesTeamGone: null, changesTeamRefused: false, remoteDevices: null, remotePair: null, remoteOutcome: null, dropped: 0,
+  approvals: [], detached: false, sent: null, started: null, structured: null, structuredError: null, cancelError: null, answer: null, asking: null, conversation: null, details: nullMap(), search: null, taskDetail: null, changes: null, diff: null, gitWarn: null, changesBusy: "", changesNote: null, history: null, paneInfo: null, paneMatches: null, keys: null, jevKey: null, radar: null, worktrees: null, agentsList: null, team: null, teamGone: null, teamTasks: null, teamMessages: null, teamResult: null, teamRefused: false, changesTeam: null, changesTeamGone: null, changesTeamRefused: false, changesTeamResult: null, branchGit: null, session: 0, remoteDevices: null, remotePair: null, remoteOutcome: null, dropped: 0,
 });
 
 /** upsert returns entries with each of the new ones in place of the one with its
@@ -322,6 +322,9 @@ export function createStore(opts) {
   let watchingChanges = null;
   // True from a watch being sent until its first push is drawn: a new watch starts its revisions again, so none is skipped as old.
   let changesFresh = false;
+  let changesResultSeq = 0;
+  // Counts the hellos of this store: a value that changes when the connection is made again.
+  let sessionSeq = 0;
   let outcomeSeq = 0;
   let batonSeq = 0;
   let addressSeq = 0;
@@ -359,6 +362,7 @@ export function createStore(opts) {
         patch.state = null;
         // An answer sent on the connection that has gone may never have arrived: its cards can be answered again.
         askedCards.clear();
+        if (snap.branchGit && !snap.branchGit.note) patch.branchGit = { ...snap.branchGit, note: { text: "The connection dropped; check the branch before trying again.", error: true } };
         patch.asking = null;
         // A request for an answer carries a token of the connection that has gone.
         if (snap.approvals.length) {
@@ -432,7 +436,7 @@ export function createStore(opts) {
         const remote = !!msg.remote;
         // A new hello starts the connection over. What a graph command
         // refused before is tried again unless this window is remote.
-        set({ hello: msg, remote, graphRefused: remote, graphError: null, radar: null });
+        set({ hello: msg, remote, graphRefused: remote, graphError: null, radar: null, session: ++sessionSeq });
         // A server that offers the key table as keys.json plus changes is read that way.
         if (readsKeyFiles(msg)) keysFromFiles();
         // Tell the desktop which API this page speaks; it answers only if they do not match.
@@ -497,6 +501,10 @@ export function createStore(opts) {
         }
         break;
       case "changesResult":
+        if (msg.op !== "changesWatch" && msg.op !== "changesUnwatch" && !snap.remote) {
+          // The answer to a command of the view, kept as it came: the gate and the comments match it to theirs by req.
+          set({ changesTeamResult: { ...msg, seq: ++changesResultSeq } });
+        }
         if (msg.op === "changesWatch" && !msg.ok) {
           if (msg.code === DESK_ONLY_CODE) {
             watchingChanges = null;
@@ -724,10 +732,12 @@ export function createStore(opts) {
         break;
       }
       case "gitWarn":
+        if (snap.branchGit && !snap.branchGit.note) set({ branchGit: { ...snap.branchGit, note: { text: "This repository runs programs you have not accepted. Accept them from the agent's Changes tab, then try again.", error: true } } });
         set({ gitWarn: { ...msg, seq: ++noticeSeq }, changesBusy: "" });
         break;
       case "notice": {
         // Only while the panel has an action out is an error notice its own; an unrelated one is left to the notice bar.
+        if (snap.branchGit && !snap.branchGit.note && msg.error !== undefined && !approvalOf(msg)) set({ branchGit: { ...snap.branchGit, note: { text: String(msg.text || ""), error: !!msg.error } } });
         if (snap.changes && snap.changesBusy && msg.error !== undefined && !approvalOf(msg)) set({ changesNote: { text: String(msg.text || ""), error: !!msg.error }, changesBusy: "" });
         // A request for an answer is its own thing, not the latest notice: it
         // stays until the desktop withdraws it.
@@ -853,6 +863,19 @@ export function createStore(opts) {
       set({ changesTeamGone: null, changesTeamRefused: false, ...(was !== null && was !== watchingChanges ? { changesTeam: null } : {}) });
       if (snap.hello) sendChangesWatch();
       return true;
+    },
+    /** branchRemote runs a fetch, pull or push in the checkout of the branch of pane id. The git questions about a
+     *  repository's programs are not answered here (the note says to answer it in the agent's Changes tab). */
+    branchRemote(action, id, cwd) {
+      const cmd = { fetch: "gitFetch", pull: "gitPull", push: "gitPush" }[action];
+      if (!cmd || typeof id !== "string" || id === "" || typeof cwd !== "string" || cwd === "" || snap.branchGit || snap.changesBusy) return false;
+      if (snap.remote || !snap.hello || !socket.send({ cmd, path: cwd })) return false;
+      set({ branchGit: { action, pane: id, note: null } });
+      return true;
+    },
+    /** clearBranchGit lets go of the last fetch, pull or push and what it said. */
+    clearBranchGit() {
+      if (snap.branchGit) set({ branchGit: null });
     },
     unwatchChangesTeam() {
       if (watchingChanges !== null && watchSent()) socket.send({ cmd: "changesUnwatch" });
