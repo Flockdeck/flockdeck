@@ -71,7 +71,7 @@ test("text typed in the bar goes out as paneSend to the manager's id, exactly", 
   await settle();
   m.input().keydown("Enter");
   await settle();
-  assert.deepEqual(m.sends(), [{ cmd: "paneSend", id: MANAGER, text }]);
+  assert.deepEqual(m.sends().map(({ req, ...c }) => c), [{ cmd: "paneSend", id: MANAGER, text }]);
   await m.push({ type: "paneSend", id: MANAGER, queued: true, shell: false });
   assert.equal(m.status(), "Sent. The manager reads it when its turn ends.");
   m.done();

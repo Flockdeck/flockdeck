@@ -7,7 +7,7 @@
 import { useEffect, useRef, useState } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
 import { clip } from "../graph/Node.js";
-import { checkText, outcomeOf, NOT_CONNECTED_WORDS, SENT_SHOWN } from "../graph/ManagerBar.js";
+import { checkText, newReq, outcomeOf, NOT_CONNECTED_WORDS, SENT_SHOWN } from "../graph/ManagerBar.js";
 
 export const MESSAGE_NOT_SENT_WORDS = NOT_CONNECTED_WORDS;
 
@@ -51,8 +51,8 @@ export function Message({ pane, name, store, shownFor = SENT_SHOWN }) {
       return;
     }
     setLocal("");
-    const mark = { pane, notice: state.notice ? state.notice.seq : 0, sent: state.sent ? state.sent.seq : 0, hello: state.hello || null };
-    if (store.send({ cmd: "paneSend", id: pane, text })) {
+    const mark = { pane, notice: state.notice ? state.notice.seq : 0, sent: state.sent ? state.sent.seq : 0, hello: state.hello || null, req: newReq() };
+    if (store.send({ cmd: "paneSend", id: pane, text, req: mark.req })) {
       busy.current = true;
       setPending(mark);
     } else {

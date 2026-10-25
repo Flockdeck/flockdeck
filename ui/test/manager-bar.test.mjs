@@ -99,7 +99,8 @@ test("sending reaches paneSend with the manager's id and the exact text, and no 
     const text = "  /review the diff, then !ls  \tend  ";
     await a.type(text);
     await a.submit();
-    assert.deepEqual(a.sends(), [{ cmd: "paneSend", id: "p1", text }]);
+    assert.deepEqual(a.sends().map(({ req, ...c }) => c), [{ cmd: "paneSend", id: "p1", text }]);
+    assert.match(a.sends()[0].req, /^ps/, "the send carries a token the desk can echo");
     assert.ok(!("allowShell" in a.sends()[0]));
   }));
 
@@ -383,3 +384,15 @@ test("a viewer's manager bar is off and says so, and sends nothing", () =>
     await settle();
     assert.deepEqual(a.sends(), []);
   }, undefined, { helloOver: { role: "viewer" } }));
+
+test("outcomeOf: an answer or refusal that carries another send's req is not this send's", () => {
+  const hello = { type: "hello" };
+  const pending = { pane: "m1", notice: 0, sent: 0, hello, req: "mine" };
+  const snap = { connection: "open", hello, sent: null, notice: null };
+  assert.equal(outcomeOf({ ...snap, notice: { seq: 1, error: true, text: "no", req: "other" } }, pending).kind, "sending", "another send's refusal");
+  assert.deepEqual(outcomeOf({ ...snap, notice: { seq: 1, error: true, text: "no", req: "mine" } }, pending), { kind: "refused", text: "no" });
+  assert.equal(outcomeOf({ ...snap, sent: { seq: 1, id: "m1", req: "other" } }, pending).kind, "sending", "another send's answer");
+  assert.equal(outcomeOf({ ...snap, sent: { seq: 1, id: "m1", req: "mine" } }, pending).kind, "sent");
+  // A desk that does not echo req: the old reading, any new error notice.
+  assert.equal(outcomeOf({ ...snap, notice: { seq: 1, error: true, text: "no" } }, pending).kind, "refused");
+});

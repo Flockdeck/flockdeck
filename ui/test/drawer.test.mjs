@@ -439,7 +439,7 @@ test("a terminal pane has a message box that sends paneSend by its id, and a str
     await settle();
     box.querySelector(".drawer-message").dispatch("submit");
     await settle();
-    assert.deepEqual(st.sent.filter((c) => c.cmd === "paneSend"), [{ cmd: "paneSend", id: "p2", text: "run the tests" }]);
+    assert.deepEqual(st.sent.filter((c) => c.cmd === "paneSend").map(({ req, ...c }) => c), [{ cmd: "paneSend", id: "p2", text: "run the tests" }]);
     assert.equal(box.querySelector(".structured-input").value, "  run the tests  ", "the draft went before the desk answered");
     st.set({ sent: { seq: 1, id: "p2" } });
     await settle();

@@ -82,15 +82,21 @@ export function sentWords(sent) {
   return "Sent.";
 }
 
+let reqSeq = 0;
+/** newReq makes the token a paneSend carries as `req`; the desk echoes it on the answer and on every refusal of that send. */
+export const newReq = () => "ps" + Date.now().toString(36) + "-" + ++reqSeq;
+
 /** outcomeOf is where the open send has got to, from the snapshot: sending,
  *  sent (with the words) or refused (with the desk's notice). */
 export function outcomeOf(snap, pending) {
   if (!pending) return null;
   const s = snap.sent;
-  if (s && s.seq > pending.sent && s.id === pending.pane) return { kind: "sent", text: sentWords(s) };
+  // An answer or notice that carries another send's req is not this one's. One with no req is from a desk that does not echo it.
+  const ours = (m) => !pending.req || !m.req || m.req === pending.req;
+  if (s && s.seq > pending.sent && s.id === pending.pane && ours(s)) return { kind: "sent", text: sentWords(s) };
   const n = snap.notice;
   // An approval notice is the answer to something else.
-  if (n && n.seq > pending.notice && n.error && n.kind !== "approval") return { kind: "refused", text: String(n.text || "The text was not sent.") };
+  if (n && n.seq > pending.notice && n.error && n.kind !== "approval" && ours(n)) return { kind: "refused", text: String(n.text || "The text was not sent.") };
   if (snap.connection !== "open") return { kind: "refused", text: NOT_CONNECTED_WORDS };
   // The answer belongs to the connection the text went on; after a reconnect none is coming.
   if (pending.hello && snap.hello !== pending.hello) return { kind: "refused", text: LOST_WORDS };
@@ -169,9 +175,9 @@ export function ManagerBar({ snap, manager, send, inputRef, autoFocus = true, ve
       return;
     }
     setLocal("");
-    const mark = { pane: manager.pane, notice: snap.notice ? snap.notice.seq : 0, sent: snap.sent ? snap.sent.seq : 0, hello: snap.hello || null };
+    const mark = { pane: manager.pane, notice: snap.notice ? snap.notice.seq : 0, sent: snap.sent ? snap.sent.seq : 0, hello: snap.hello || null, req: newReq() };
     // The text as written; allowShell is never sent.
-    if (send({ cmd: "paneSend", id: manager.pane, text: draft })) {
+    if (send({ cmd: "paneSend", id: manager.pane, text: draft, req: mark.req })) {
       busy.current = true;
       setPending(mark);
     } else {
