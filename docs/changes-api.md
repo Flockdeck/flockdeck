@@ -56,6 +56,20 @@ with a `changesResult` whose `code` is `deskOnly` and a notice.
 | `unapproveMerge` | Withdraws an approval. |
 | `mergeBranch` | Merges an approved branch into its base (section 7). |
 
+A refused command is a `changesResult` with `ok` false, a `code` and an `error`.
+Which command answers with which code:
+
+| Code | Commands |
+| --- | --- |
+| `deskOnly`, `unsupported` | All of them (section 9; a build without the cap). |
+| `badRequest` | Any with a missing, too long or out of range field; `diffHunks`, `diffContext` and `commentAdd` for a `file` that is not one of the branch's files or leaves the checkout, and `commentAdd` for a line the diff does not have. |
+| `noBranch` | Any with an `id` that is not a pane with a branch, or a `branch` that differs. |
+| `notFound` | `commentResolve`, `commentReopen` (no such comment); `requestReview` (no such reviewer, or not an agent pane); `runChecks` (no team file). |
+| `headMoved` | `commentAdd`, `submitReview`, `approveMerge`, `mergeBranch` (`expectSha` is not the head). |
+| `checksNotPassing`, `conflicts`, `openComments`, `reviewChangesRequested`, `unpushed`, `empty` | `approveMerge`, in that order. |
+| `notApproved` | `mergeBranch`, when the gate is not approved for that head. |
+| `notClean`, `notFastForward`, `failed` | `mergeBranch`. |
+
 The fields these commands use, besides `cmd`:
 
 | Field | Used by | Meaning |
@@ -64,7 +78,7 @@ The fields these commands use, besides `cmd`:
 | `root` | `changesWatch`, `changesSnapshot` | The project's directory. Empty means the project on screen. |
 | `id` | all but the three watch commands | The pane whose branch is meant. Required. |
 | `branch` | `approveMerge`, `unapproveMerge`, `mergeBranch`, `runChecks` | The branch name the window believes the pane is on. When it is sent and differs, the answer is `noBranch`. |
-| `file` | `diffHunks`, `diffContext`, `commentAdd` | A path relative to the repository root. |
+| `file` | `diffHunks`, `diffContext`, `commentAdd` | A path relative to the repository root. It must be one of the branch's listed files (section 4). |
 | `against` | `diffHunks`, `diffContext` | `worktree` (uncommitted changes, HEAD to the working tree), `head` (committed changes, `baseSha` to `headSha`) or `merge-base` (everything on the branch, `baseSha` to the working tree). Default `merge-base`. |
 | `context` | `diffHunks` | Lines of context around a change: 0 to 50, default 3, or `-1` for the whole file. |
 | `ignoreWhitespace` | `diffHunks` | True to ignore whitespace-only changes. |
@@ -76,7 +90,7 @@ The fields these commands use, besides `cmd`:
 | `names` | `runChecks` | The checks to run. Empty means all of them. |
 | `reviewer` | `requestReview` | The pane to ask. |
 | `state`, `note` | `submitReview` | `approved`, `changes` or `dismissed`, and a note of up to 2000 characters. |
-| `expectSha` | `approveMerge`, `mergeBranch` | The head the window looked at (section 7). Required. |
+| `expectSha` | `approveMerge`, `mergeBranch`, `commentAdd`, `submitReview` | The head the window looked at. Required. When it is not the current head the answer is `headMoved` and nothing is recorded, so a comment or sign-off is never attached to code the person did not see (sections 5 and 7). |
 | `offset`, `limit` | `filesPage` | The page: `limit` defaults to 200 and is at most 500. |
 
 ## 3. The branch list
@@ -141,6 +155,13 @@ find `changesDiff` in the caps keeps using it.
 - `diffContext` returns the unchanged lines between two hunks, or after the last
   one, on one side: at most 200 at a time, and `eof` says the file ended.
 - An `error` replaces everything but `type`, `req`, `pane` and `path`.
+- The path is checked before git or the disk is touched. It must be one of the
+  branch's listed files (a renamed file by either of its paths), is cleaned, and
+  is refused as `badRequest` if it is absolute, has a `..` element or a drive,
+  or would leave the checkout. A file that is a symbolic link is read as the
+  link (its target text), never followed, so a link pointing outside the
+  checkout shows the path it points to and nothing from there. `diffContext`
+  reads the same way.
 
 ## 5. Comments
 
@@ -151,8 +172,13 @@ branch's `headSha` as outdated.
 
 `commentAdd` finds the owner of the file (`owner`, else the branch's pane),
 writes the comment into that pane's inbox as an ordinary message from the
-person, and records it. The message names the branch, the file and the line, and
-quotes the comment. `to` is that pane. The owner sees it as it would any message.
+person, and records it. The message names the branch, the file and the line, quotes the
+comment and names its author. `to` is that pane. The owner sees it as it would
+any message. It carries the person's tag only when the command came from a
+window; a comment or sign-off an agent adds through another path is attributed to
+that pane and never to the person. `commentAdd` needs `expectSha` (the head the
+person looked at) and answers `headMoved` if the branch has moved on. An unknown
+`commentId` is `notFound`.
 
 - `delivery` reuses the graph's message states, in the same order: `queued`,
   `notified`, `woken`, `read`. It is absent while the message is being written,
@@ -181,7 +207,12 @@ the server reports the check as `queued` again, or leaves it out, and never as
 **Reviews.** `requestReview` records a `requested` review for the pane and sends
 it a message. A pane's own sign-off, `approved`, `changes` or `dismissed`, comes
 in through the command line and replaces the earlier review by the same
-reviewer. A review has the `atSha` it was given at, and `stale` is set by the
+reviewer. `requestReview` is a message through the inbox, never typed into the
+pane, and is refused as a message to a shell pane is by `paneSend`; a reviewer
+that is missing or not an agent pane is `notFound`. `submitReview` needs
+`expectSha` and answers `headMoved` on a mismatch; its message names the author
+in the same way as a comment's. `runChecks` is `notFound` when the project has no
+team file. A review has the `atSha` it was given at, and `stale` is set by the
 server once the head has moved: a stale approval does not count.
 
 ## 7. The gate and the merge
@@ -209,15 +240,21 @@ and nothing is recorded, when:
 - a check is not passing for the head (`checksNotPassing`);
 - a conflict exists (`conflicts`);
 - a comment is open (`openComments`);
-- a current review asks for changes (`reviewChangesRequested`).
+- a current review asks for changes (`reviewChangesRequested`);
+- the head is not on the upstream (`unpushed`);
+- the branch has no commits of its own (`empty`).
 
 These are checked in that order and the first is reported. The `changesResult`
-carries the branch's `gate`. A later commit drops the approval. `unapproveMerge`
+carries the branch's `gate`. A later commit drops the approval, and so does any blocker that appears after it
+(a check that fails, a comment, a conflict, a review asking for changes): the
+gate goes back to `blocked` and `mergeBranch` refuses. `unapproveMerge`
 withdraws one.
 
-`mergeBranch` takes the pane and `expectSha`. It requires the gate to be
-`approved` for that head, then merges the branch into `base` in the project's
-main checkout by fast-forward when it can and by a merge commit when it cannot.
+`mergeBranch` takes the pane and `expectSha`. It takes the repository's lock,
+reads the head again, and refuses (`notApproved`, or `headMoved`) unless the gate
+is `approved` for that head. It then merges `expectSha` itself (`git merge
+<expectSha>`, never the branch name, which could have moved) into `base` in the
+project's main checkout by fast-forward when it can and by a merge commit when it cannot.
 It never forces, never touches a dirty checkout (`notClean`), never merges a
 base that has moved in a way a fast-forward or a clean merge cannot take
 (`notFastForward`), and records what it did in the activity log. After a merge
@@ -240,8 +277,9 @@ the branch's `gate.state` is `merged` and `mergeSha` is the new tip of the base.
 All of it is for the machine Flockdeck runs on. A window reached through the
 relay is refused every command here, and `changesTeam`, `changesFiles`,
 `diffHunks` and `diffContext` are never sent to one. The only `changesResult` it
-is sent is that refusal, rewritten to one line with its `op`, `req`, `code` and
-`error`; an answer that holds a comment or a gate is dropped. Its hello does not
+is sent is that refusal: `code` is `deskOnly` or `unsupported` and `error` is the
+fixed sentence for that code, whatever the desktop wrote; anything else, and an
+answer that holds a comment or a gate, is dropped. Its hello does not
 list the five caps. The reason is what the data holds: branch names,
 paths and file counts say what the project is and what an agent is doing, and a
 comment or a diff is source text. A read-only form for a relay window, with paths
@@ -286,4 +324,4 @@ The fields of the smaller objects, for the ones the sections above do not walk t
 - `comment`: `author` (the person or the pane that wrote it), `createdAt`, and `fixedAtSha`, the head at which the owner reported it fixed.
 - `gate`: `approvedSha` is the head that was approved, `approvedBy` who approved it and `approvedAt` when.
 - `line`: `t` is the line kind, `ctx`, `add` or `del`.
-- `changesResult`: `ok` is true when the command did what it said. When it is false, `code` and `error` say why.
+- `changesResult`: `op` is the command it answers, and `ok` is true when the command did what it said. When it is false, `code` and `error` say why.

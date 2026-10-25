@@ -179,6 +179,20 @@ func TestChangesDocumentNamesEverything(t *testing.T) {
 			}
 		}
 	}
+	// Every result code of the schema is named, with the commands that use it.
+	if r, _ := defs["changesResult"].(map[string]any); r != nil {
+		props, _ := r["properties"].(map[string]any)
+		code, _ := props["code"].(map[string]any)
+		codes, _ := code["enum"].([]any)
+		if len(codes) == 0 {
+			t.Error("the schema has no result codes")
+		}
+		for _, c := range codes {
+			if !strings.Contains(doc, "`"+c.(string)+"`") {
+				t.Errorf("docs/changes-api.md does not name the result code `%s`", c)
+			}
+		}
+	}
 	// Every command field of the contract is in its table.
 	for _, f := range []string{"file", "against", "context", "ignoreWhitespace", "side", "line", "commentId", "names", "reviewer", "note", "expectSha", "offset", "limit", "from", "to"} {
 		if !strings.Contains(doc, "| `"+f+"`") && !strings.Contains(doc, "`"+f+"`, ") && !strings.Contains(doc, ", `"+f+"`") {
@@ -225,13 +239,32 @@ func TestPlannedChangesCommandsAreDeskOnly(t *testing.T) {
 		for len(c.out) > 0 {
 			got = append(got, string(<-c.out))
 		}
-		if len(got) == 0 || !strings.Contains(got[0], `"deskOnly"`) || !strings.Contains(got[0], `"r2"`) {
-			t.Errorf("%s from a relay window: %v, want a deskOnly changesResult carrying req", name, got)
+		// Exactly the refusal and one notice, and nothing else.
+		if len(got) != 2 || !strings.Contains(got[0], `"changesResult"`) || !strings.Contains(got[0], `"deskOnly"`) ||
+			!strings.Contains(got[0], `"r2"`) || !strings.Contains(got[1], `"notice"`) {
+			t.Errorf("%s from a relay window: %v, want one deskOnly changesResult carrying req, then one notice", name, got)
 			continue
 		}
 		// What the relay is sent is the refusal, and nothing the command held.
 		if out := scrubForRemote([]byte(got[0])); out == nil || !strings.Contains(string(out), `"deskOnly"`) {
 			t.Errorf("%s: the relay was sent %s", name, out)
+		}
+	}
+	// What the relay is sent is fixed words for one of two codes: an error that
+	// holds a path, a branch or source text is not passed on, and any other code is
+	// dropped.
+	for _, code := range []string{"deskOnly", "unsupported"} {
+		leak := mustJSON(t, map[string]any{"type": "changesResult", "op": "diffHunks", "req": "r3", "ok": false, "code": code,
+			"error": "cannot read internal/secret/keys.go on agent/x: password=hunter2"})
+		out := scrubForRemote(leak)
+		if out == nil || strings.Contains(string(out), "hunter2") || strings.Contains(string(out), "secret") || !strings.Contains(string(out), code) {
+			t.Errorf("%s: the relay was sent %s", code, out)
+		}
+	}
+	for _, code := range []string{"headMoved", "failed", "notFound", ""} {
+		leak := mustJSON(t, map[string]any{"type": "changesResult", "op": "approveMerge", "ok": false, "code": code, "error": "agent/x moved"})
+		if out := scrubForRemote(leak); out != nil {
+			t.Errorf("a %q refusal reached the relay: %s", code, out)
 		}
 	}
 	// An answer that holds data is never sent to a relay window.

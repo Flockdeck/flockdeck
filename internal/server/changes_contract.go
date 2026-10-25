@@ -53,10 +53,21 @@ func (s *Server) changesPlanned(c *controlClient, cmd command) {
 // contract and drops any answer that holds data.
 func scrubChangesResult(data []byte) []byte {
 	var m changesResultMsg
-	if json.Unmarshal(data, &m) != nil || m.OK || m.Error == "" {
+	if json.Unmarshal(data, &m) != nil || m.OK {
 		return nil
 	}
-	out, err := json.Marshal(changesResultMsg{Type: "changesResult", Req: m.Req, Op: m.Op, Code: m.Code, Error: safeLine(m.Error, maxRemoteNotice)})
+	// Only the two refusals a relay window can be owed, in fixed words: what the
+	// desktop wrote in error is not trusted to hold nothing.
+	var text string
+	switch m.Code {
+	case "deskOnly":
+		text = changesDeskOnly
+	case "unsupported":
+		text = changesUnsupported
+	default:
+		return nil
+	}
+	out, err := json.Marshal(changesResultMsg{Type: "changesResult", Req: m.Req, Op: m.Op, Code: m.Code, Error: text})
 	if err != nil {
 		return nil
 	}

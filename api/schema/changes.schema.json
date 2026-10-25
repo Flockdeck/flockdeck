@@ -522,7 +522,7 @@
         "approvedSha": {
           "type": "string",
           "pattern": "^[0-9a-f]{7,40}$",
-          "description": "The head that was approved. An approval for a head that is no longer current is dropped and the state goes back to ready or blocked. Written for approved and merged."
+          "description": "The head that was approved. An approval for a head that is no longer current is dropped, and so is one when any blocker appears after it; the state goes back to ready or blocked. Written for approved and merged."
         },
         "mergeSha": {
           "type": "string",
@@ -1083,11 +1083,15 @@
             "conflicts",
             "openComments",
             "reviewChangesRequested",
+            "unpushed",
+            "empty",
+            "notApproved",
+            "notFound",
             "notClean",
             "notFastForward",
             "failed"
           ],
-          "description": "Why it was refused. Written when ok is false. deskOnly: a window through the relay. unsupported: this build does not do it yet (see caps). badRequest: a field is missing, too long or out of range. noBranch: no such pane or branch. headMoved: expectSha is not the head. checksNotPassing: a check is failing, running, queued or missing at this head. conflicts. openComments. reviewChangesRequested. notClean: the base checkout has uncommitted changes. notFastForward: the base moved, so the branch needs the base merged into it first. failed: git refused, and error has its words."
+          "description": "Why it was refused. Written when ok is false. deskOnly: a window through the relay. unsupported: this build does not do it yet (see caps). badRequest: a field is missing, too long or out of range. noBranch: no such pane or branch. headMoved: expectSha is not the head. checksNotPassing: a check is failing, running, queued or missing at this head. conflicts. openComments. reviewChangesRequested. unpushed: the head is not on the upstream. empty: the branch has no commits of its own. notApproved: mergeBranch, and the gate is not approved for that head. notFound: no such comment, a reviewer that is missing or not an agent pane, or no team file for runChecks. notClean: the base checkout has uncommitted changes. notFastForward: the base moved, so the branch needs the base merged into it first. failed: git refused, and error has its words."
         },
         "error": {
           "type": "string",
