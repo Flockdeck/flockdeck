@@ -5,8 +5,8 @@
 // - files: [{ path, oldPath, status ("A" "M" "D" "R" "C" "U"), added, removed,
 //   binary, generated, conflictWith }], in the order to draw them.
 // - selected: the path picked, or "". onPick(path) is called with the path.
-// - comments: the review comments, [{ path, status }] ("fixed" and "dismissed"
-//   are done); a file with open ones says how many.
+// - comments: the review comments, [{ path, state }] (state "open", "fixed",
+//   "resolved" or "dismissed", as the desk sends it); a file with open ones says how many.
 // Every path and name is drawn as text. The status is a word as well as a colour,
 // and the picked row is marked with aria-current, not by colour alone.
 import { useState } from "../../vendor/hooks.mjs";
@@ -25,11 +25,16 @@ export function statusWord(status) {
   return WORDS[text(status)] || "Changed";
 }
 
+/** isOpenComment says whether a comment is still open: its state is "open", or the desk sent none. */
+export function isOpenComment(c) {
+  return !!c && typeof c === "object" && (c.state === undefined || c.state === "open");
+}
+
 /** openByPath counts the comments that are still open, by file path. */
 export function openByPath(comments) {
   const out = new Map();
   for (const c of Array.isArray(comments) ? comments : []) {
-    if (!c || typeof c.path !== "string" || c.status === "fixed" || c.status === "dismissed") continue;
+    if (!isOpenComment(c) || typeof c.path !== "string") continue;
     out.set(c.path, (out.get(c.path) || 0) + 1);
   }
   return out;

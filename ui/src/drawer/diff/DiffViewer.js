@@ -9,7 +9,7 @@
 //     `error` in it is drawn in place of the diff.
 //   layout: "unified" or "split"; narrow says the container is too narrow for
 //     split, and the diff is drawn unified then (effectiveLayout).
-//   comments: [{ path, side, line, status }]; a line with open ones is marked.
+//   comments: [{ path, side, line, state }]; a line with open ones is marked.
 //   onComment({ file, side, line }): called by the "+" of a line. With none there
 //     is no "+": the diff is read-only.
 //   context: the unchanged lines fetched so far, { [gap id]: { lines, eof } }, kept
@@ -26,7 +26,7 @@
 import { useMemo, useState } from "../../vendor/hooks.mjs";
 import { html } from "../../html.js";
 import { clip } from "../../graph/Node.js";
-import { statusWord } from "./FileList.js";
+import { statusWord, isOpenComment } from "./FileList.js";
 import { unifiedRows, sideRows, pageRows, segments, fileFlags, PAGE_ROWS } from "./diffModel.js";
 
 /** effectiveLayout is the layout to draw: split only when asked for and there is room. */
@@ -113,7 +113,7 @@ export function DiffViewer({ branch = "", file = null, hunks = null, layout = "u
   const notes = useMemo(() => {
     const m = new Map();
     for (const c of Array.isArray(comments) ? comments : []) {
-      if (!c || c.path !== path || c.status === "fixed" || c.status === "dismissed") continue;
+      if (!isOpenComment(c) || c.path !== path) continue;
       const k = c.side + ":" + c.line;
       m.set(k, (m.get(k) || 0) + 1);
     }

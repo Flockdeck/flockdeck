@@ -28,14 +28,14 @@ test("the file list names each status, marks the picked row and says how many co
     { path: "c.png", status: "A", binary: true },
     { path: "go.sum", status: "M", generated: true },
   ];
-  const comments = [{ path: "a.go", status: "delivered" }, { path: "a.go", status: "fixed" }, { path: "a.go", status: "sending" }];
+  const comments = [{ path: "a.go", state: "open", delivery: "read" }, { path: "a.go", state: "fixed" }, { path: "a.go", state: "open" }, { path: "a.go", state: "resolved" }];
   const out = renderToString(html`<${FileList} files=${files} selected="a.go" comments=${comments} />`);
   assert.match(out, /aria-label="Changed files, 4"/);
   assert.match(out, /Modified/);
   assert.match(out, /Renamed/);
   assert.match(out, /aria-current="true"/);
   assert.equal((out.match(/aria-current/g) || []).length, 1);
-  assert.match(out, /2 open comments/, "a fixed one is not open");
+  assert.match(out, /2 open comments/, "a fixed or resolved one is not open");
   assert.match(out, /binary/);
   assert.match(out, /generated/);
   assert.match(out, /old\.go/);
@@ -141,7 +141,7 @@ test("a line's + reports its side and number, a gap button its request, and open
     dom.body.appendChild(box);
     const said = [];
     const asked = [];
-    const comments = [{ path: hunksFile.path, side: "new", line: 55, status: "delivered" }, { path: hunksFile.path, side: "new", line: 56, status: "fixed" }];
+    const comments = [{ path: hunksFile.path, side: "new", line: 55, state: "open" }, { path: hunksFile.path, side: "new", line: 56, state: "fixed" }];
     render(html`<${DiffViewer} file=${listing(hunksFile)} hunks=${hunksFile} comments=${comments} onComment=${(c) => said.push(c)} onContext=${(id, ask) => asked.push([id, ask])} />`, box);
     await settle();
     const plusses = box.findAll(".dv-plus");
