@@ -485,7 +485,7 @@ test("the question box asks to answer, not to tell", async () => {
   const a = alone({ node: { pane: "p1", name: "cart" }, pane: { ask: ASKED }, snap: { remote: false, connection: "open" }, store: { send: () => true } });
   try {
     await settle();
-    assert.match(a.container.find(".mbar-input").getAttribute("placeholder"), /^Answer cart… \(one line, Enter sends\)$/);
+    assert.match(a.container.find(".mbar-input").getAttribute("placeholder"), /^Answer cart… \(Enter sends\)$/);
   } finally {
     a.done();
   }
