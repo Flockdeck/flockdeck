@@ -583,7 +583,7 @@ type command struct {
 	// changes contract (docs/changes-api.md, section 2).
 	File             string   `json:"file"`
 	Against          string   `json:"against"`
-	Context          int      `json:"context"`
+	Context          *int     `json:"context"`
 	IgnoreWhitespace bool     `json:"ignoreWhitespace"`
 	Side             string   `json:"side"`
 	Line             int      `json:"line"`
@@ -1658,11 +1658,10 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 	case "graphSnapshot", "graphWatch", "graphUnwatch":
 		s.graphCommand(c, cmd)
 		return
-	case "changesWatch", "changesUnwatch", "changesSnapshot", "filesPage":
+	case "changesWatch", "changesUnwatch", "changesSnapshot", "filesPage", "diffHunks", "diffContext":
 		s.changesCommand(c, cmd)
 		return
-	case "diffHunks", "diffContext",
-		"commentAdd", "commentResolve", "commentReopen", "runChecks", "requestReview", "submitReview",
+	case "commentAdd", "commentResolve", "commentReopen", "runChecks", "requestReview", "submitReview",
 		"approveMerge", "unapproveMerge", "mergeBranch":
 		s.changesPlanned(c, cmd)
 		return

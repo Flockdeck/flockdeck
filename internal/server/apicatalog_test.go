@@ -48,7 +48,7 @@ func init() {
 		plannedCommands[n] = !slices.Contains(changesBuilt, n)
 	}
 	// What is built arrived with the changesTeam cap, in 1.5.
-	for _, n := range slices.Concat(changesBuilt, []string{"changesTeam", "changesFiles"}) {
+	for _, n := range slices.Concat(changesBuilt, []string{"changesTeam", "changesFiles", "diffHunks", "diffContext"}) {
 		addedIn[n] = "1.5"
 	}
 }
