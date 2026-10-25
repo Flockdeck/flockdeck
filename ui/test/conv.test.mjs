@@ -527,3 +527,21 @@ test("a link whose text is a web address for another host shows the real host be
   assert.ok(out.includes("(evil.example)"), "the real host was not shown: " + out);
   assert.equal(out.split("md-linkhost").length - 1, 1, "a same-host link or a plain label got a host");
 });
+
+test("a link whose text looks like a host, or a host and path, shows the real host when it is another one", () => {
+  const out = md("[github.com/org/repo](https://evil.example/x) and [github.com](https://github.com/org) and [www.github.com/a](https://github.com/b) and [github.com](https://github.com@evil.example/) and [v1.2](https://evil.example/v)");
+  assert.ok(out.includes('href="https://evil.example/x"'));
+  assert.equal(out.split("(evil.example)").length - 1, 2, "the host-like texts that point elsewhere show it, the version does not: " + out);
+  assert.equal(out.split("md-linkhost").length - 1, 2);
+  assert.ok(!out.includes("(github.com)"), "a text naming the host it links to, with or without www, shows nothing");
+});
+
+test("a file name as link text is not taken for a host", () => {
+  const out = md("[main.go](https://github.com/o/r/blob/main/main.go) [README.md](https://github.com/o/r) [config.json](https://example.org/c) [Node.js](https://nodejs.org) [install.sh](https://github.com/o/r/install.sh)");
+  assert.equal(out.split("md-linkhost").length - 1, 0, out);
+});
+
+test("a country site as link text is taken for a host when the target is another one", () => {
+  const out = md("[example.jp](https://evil.example/a) and [example.se](https://example.se/b)");
+  assert.equal(out.split("md-linkhost").length - 1, 1, out);
+});
