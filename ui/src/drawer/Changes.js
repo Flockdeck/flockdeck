@@ -32,7 +32,12 @@ const plural = (n, one, many) => n.toLocaleString("en-US") + " " + (n === 1 ? on
 function GitWarn({ warn, store }) {
   const [step, setStep] = useState(0);
   const items = Array.isArray(warn.items) ? warn.items : [];
-  return html`<section class="chg-warn" role="alertdialog" aria-label="This repository runs programs you have not accepted">
+  // The question takes the keyboard when it appears: it blocks the commit, and nothing else on the panel says so to a reader.
+  const box = useRef(null);
+  useEffect(() => {
+    if (box.current && box.current.focus) box.current.focus();
+  }, [warn.seq]);
+  return html`<section class="chg-warn" role="alertdialog" tabindex="-1" ref=${box} aria-label="This repository runs programs you have not accepted">
     <p class="chg-warn-intro">${clip(text(warn.intro || warn.text), 1200)}</p>
     <ul class="chg-warn-items">${items.slice(0, 50).map((line, i) => html`<li key=${i}>${clip(text(line), 400)}</li>`)}</ul>
     ${step === 0
@@ -85,8 +90,16 @@ export function Changes({ cwd, git = "", snap, store }) {
     if (drawn.current === git) return;
     drawn.current = git;
     const ch = snap.changes;
-    if (cwd && ch && !ch.error && !snap.changesBusy) store.requestChanges(ch.cwd || cwd, true);
+    // Not while the git-settings question is on screen: it is answered, then the commit goes on.
+    if (cwd && ch && !ch.error && !snap.changesBusy && !snap.gitWarn) store.requestChanges(ch.cwd || cwd, true);
   }, [git]);
+  // The open diff follows the listing: read again while its file is still listed, closed when it is not.
+  useEffect(() => {
+    const ch = snap.changes;
+    if (!picked || !ch || ch.error) return;
+    if ((ch.files || []).some((f) => f.path === picked)) store.requestDiff(picked);
+    else setPicked("");
+  }, [snap.changes]);
   // The draft goes when the commit is made, not when it is sent: a commit the
   // desktop refuses (the tree moved) keeps the words that were typed.
   useEffect(() => {
@@ -135,7 +148,7 @@ export function Changes({ cwd, git = "", snap, store }) {
     ${files.length === 0 && !ch.omitted ? html`<p class="chg-empty chg-state"><strong>Nothing has changed.</strong><span>Edits in this working tree appear here. Refresh to check again.</span></p>` : html`<${Files} files=${files} selected=${picked} onPick=${pick} />`}
     ${ch.omitted ? html`<p class="chg-omitted">${plural(ch.omitted, "more file is", "more files are") + " not listed. The commit includes " + (ch.omitted === 1 ? "it" : "them") + "."}</p>` : null}
     ${picked
-      ? html`<div class="chg-diff" aria-label=${"Diff of " + clip(picked, 200)}>
+      ? html`<div class="chg-diff" role="region" aria-label=${"Diff of " + clip(picked, 200)}>
           ${!diff || diff.loading ? html`<p class="chg-empty" role="status">Reading the diff…</p>` : diff.error ? html`<p class="chg-empty chg-error" role="alert">${clip(text(diff.error), 600)}</p>` : html`<${Diff} key=${picked} text=${diff.text} label=${"Diff of " + clip(picked, 200)} />`}
         </div>`
       : null}

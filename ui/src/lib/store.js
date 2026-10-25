@@ -297,6 +297,8 @@ export function createStore(opts) {
   let noticeSeq = 0;
   let pendingCommit = null;
   let changesAsked = null;
+  // For each listing asked, whether it was a re-read the panel made itself, in the order asked; a reply takes the first.
+  const changesFollows = [];
   let sentSeq = 0;
   let startedSeq = 0;
   let answerSeq = 0;
@@ -673,9 +675,12 @@ export function createStore(opts) {
         // answer to a question since replaced (the pane changed): not taken.
         // The desktop echoes the directory it was asked about as path.
         // The listing again after an action in the tree on screen is taken too.
+        // A reply to a re-read the panel made itself (no reason: an action's reply says why) changes the listing only: the
+        // git-settings question on screen and a commit under way are not its to clear. Every reply without a reason takes its turn.
+        const quiet = msg.reason === undefined && changesFollows.length > 0 && changesFollows.shift() === true;
         if (typeof msg.path === "string" && msg.path !== changesAsked && !(snap.changes && msg.cwd === snap.changes.cwd)) break;
         const { type, path, ...rest } = msg;
-        set({ changes: rest, changesBusy: "", gitWarn: null });
+        set(quiet ? { changes: rest } : { changes: rest, changesBusy: "", gitWarn: null });
         break;
       }
       case "diff": {
@@ -875,6 +880,8 @@ export function createStore(opts) {
       const asked = String(path || "");
       if (!socket.send({ cmd: "changes", path: asked, follow: !!follow })) return false;
       changesAsked = asked;
+      changesFollows.push(!!follow);
+      if (changesFollows.length > 20) changesFollows.shift();
       return true;
     },
     /** requestDiff asks for one file's diff in the tree last listed. */

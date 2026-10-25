@@ -149,6 +149,29 @@ test("a failed push is kept as the panel's note with git's words", async () => {
   assert.equal(store.getState().changesBusy, "");
 });
 
+test("the reply to a re-read the panel made itself keeps the git question and a commit under way; any other reply clears them", async () => {
+  const { store, ws } = await up();
+  ws.frame(listing());
+  ws.frame({ type: "gitWarn", cwd: "C:/repo", path: "C:/repo", action: "commit", resend: "commit", intro: "x", items: ["hook"], text: "x", seen: "abc" });
+  assert.ok(store.getState().gitWarn);
+  store.requestChanges("C:/repo", true);
+  ws.frame(listing({ branch: "feat" }));
+  assert.equal(store.getState().changes.branch, "feat", "the listing was not taken");
+  assert.ok(store.getState().gitWarn, "a follow's reply took the question away");
+  // A reply to a request that was not a follow, with no reason, clears it, as it always did.
+  store.requestChanges("C:/repo", false);
+  ws.frame(listing());
+  assert.equal(store.getState().gitWarn, null);
+  // A commit under way: the follow's reply does not end it, the commit's own reply does.
+  assert.equal(store.commitChanges("Fix it", false), "");
+  assert.equal(store.getState().changesBusy, "commit");
+  store.requestChanges("C:/repo", true);
+  ws.frame(listing());
+  assert.equal(store.getState().changesBusy, "commit", "a follow ended the commit's busy state");
+  ws.frame(listing({ reason: "committed" }));
+  assert.equal(store.getState().changesBusy, "");
+});
+
 test("a gitWarn is kept, and answering sends the same commit again with the answer and what was shown", async () => {
   const { store, ws } = await up();
   ws.frame(listing());
