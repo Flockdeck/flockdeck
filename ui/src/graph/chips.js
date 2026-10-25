@@ -6,7 +6,7 @@
 // Every text is an agent's or a person's and is drawn as text.
 import { clip } from "./Node.js";
 import { stateOf } from "./Node.js";
-import { QUIET_KINDS, stuckOf, labelOf } from "./model.js";
+import { QUIET_KINDS, stuckOf, labelOf, spanOf } from "./model.js";
 import { depsOf, openBlockers, isFinished } from "./deps.js";
 
 /** The words on the chip of each kind of need that asks something of the person. */
@@ -41,7 +41,7 @@ export function chipsOf(model, node, needs, now) {
   else if (w.kind === "task") out.push({ kind: "wait", text: "waiting on a task", to: "", title: w.text });
   if (node.undelivered > 0) out.push({ kind: "undelivered", text: node.undelivered + " undelivered", to: "", title: "" });
   const stuck = stuckOf(node, now);
-  if (stuck) out.push({ kind: "stuck", text: stuck.minutes > 0 ? "stuck " + stuck.minutes + "m" : "stuck", to: "", title: "" });
+  if (stuck) out.push({ kind: "stuck", text: stuck.minutes > 0 ? "stuck " + spanOf(stuck.minutes) : "stuck", to: "", title: "" });
   return out;
 }
 

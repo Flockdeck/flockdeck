@@ -772,15 +772,14 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     </div>
     ${hasTree && treeView && view === "tree"
       ? html`<div class="view-tree">
-          <div class=${"home-split" + (showFeed && feedCount > 0 ? " home-split--feed" : "")}>
+          <div class=${"home-split" + (showFeed ? " home-split--feed" : "") + (showFeed && feedCount === 0 ? " home-split--feed-empty" : "")}>
             <div class="home-col">
               ${scoped ? html`<${GoalLine} model=${scoped} shownAs=${(goal.tabs.find((t) => t.id === activeTab) || {}).label || ""} />` : null}
               ${scoped ? html`<${TreeNotes} model=${scoped} onOpen=${drawer.open} />` : null}
               ${activeTab === SOLO && scoped && scoped.ok && scoped.nodes.length === 0 ? html`<p class="solo-empty">No panes outside a goal.</p>` : null}
               <${treeView} model=${scoped} tasks=${teamTasks} open=${drawer.pane} onOpen=${drawer.open} send=${snap.remote ? null : send} decisions=${decisionCtx} />
-              ${showFeed && feedCount === 0 ? html`<p class="feed-none">No activity yet</p>` : null}
             </div>
-            ${showFeed && feedCount > 0 ? html`<${Feed} feed=${scopedFeed} onFocus=${goTo} />` : null}
+            ${showFeed ? html`<${Feed} feed=${scopedFeed} onFocus=${goTo} />` : null}
           </div>
         </div>`
       : null}

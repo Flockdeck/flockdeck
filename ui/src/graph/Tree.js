@@ -19,7 +19,7 @@ import { reasonOf, isLoud } from "./Badge.js";
 import { TreeRow, TreeHead } from "./TreeRow.js";
 import { TreeDecisions } from "./TreeDecisions.js";
 import { chipsOf, dependencyChipsOf } from "./chips.js";
-import { rollupOf, labelOf } from "./model.js";
+import { rollupOf, labelOf, spanOf } from "./model.js";
 
 /** TICK_MS is how often the ages are worked out again. */
 export const TICK_MS = 30000;
@@ -45,11 +45,7 @@ function sinceOf(node) {
 export function ageOf(since, now) {
   const t = Date.parse(since);
   if (!Number.isFinite(t) || t < Date.UTC(2000, 0, 1)) return "";
-  const m = Math.floor((now - t) / 60000);
-  if (m < 1) return "now";
-  if (m < 60) return m + "m";
-  const h = Math.floor(m / 60);
-  return h < 48 ? h + "h" : Math.floor(h / 24) + "d";
+  return spanOf(Math.floor((now - t) / 60000));
 }
 
 /**
