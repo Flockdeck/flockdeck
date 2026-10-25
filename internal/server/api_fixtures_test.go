@@ -143,8 +143,10 @@ func recordGraphFixture(t *testing.T, spec fxSpec) []byte {
 			onTask(h, fmt.Sprintf("T%d", n), "in-progress", "blocked")
 		case fxReturned:
 			n++
-			onTask(h, fmt.Sprintf("T%d", n), "in-progress", "in-review", "in-progress")
+			// Working before the return, as a worker that was sent back while at something else: one that
+			// began work after the return is not listed as returned.
 			status(h.name, session.StatusWorking, "Reading the review note", "")
+			onTask(h, fmt.Sprintf("T%d", n), "in-progress", "in-review", "in-progress")
 		}
 	}
 	if spec.managerIdle {
