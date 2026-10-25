@@ -169,6 +169,63 @@ test("renaming is a double click; Enter keeps the name in the preferences, Escap
     assert.equal(m.container.find(".tab-rename"), null);
   }));
 
+test("a rename keeps what was typed when the field loses focus, and Escape then blur does not", () =>
+  withPage({}, async (m) => {
+    await m.connect();
+    m.clear();
+    m.tabs()[1].find(".tab-pick").dispatch("dblclick");
+    await settle();
+    let box = m.container.find(".tab-rename");
+    box.value = "Tests";
+    box.dispatch("input");
+    box.keydown("Escape");
+    box.dispatch("blur");
+    await settle();
+    assert.equal(m.sent("uiPrefs").length, 0, "Escape was undone by the blur that followed");
+    m.tabs()[1].find(".tab-pick").dispatch("dblclick");
+    await settle();
+    box = m.container.find(".tab-rename");
+    box.value = "Tests";
+    box.dispatch("input");
+    await settle();
+    box.dispatch("blur");
+    await settle();
+    assert.deepEqual(m.sent("uiPrefs"), [{ cmd: "uiPrefs", ui: { "tabs.names": { [TWO]: "Tests" } } }]);
+  }));
+
+test("focus goes back to the tab after a rename at the keyboard, and to its neighbour after an archive", () =>
+  withPage({}, async (m) => {
+    await m.connect();
+    m.tabs()[1].find(".tab-pick").dispatch("dblclick");
+    await settle();
+    m.container.find(".tab-rename").keydown("Escape");
+    await settle();
+    const doc = m.container.ownerDocument;
+    assert.equal(doc.activeElement, m.tabs()[1].find(".tab-pick"), "focus was lost with the field");
+    await m.click(m.tabs()[1].find(".tab-close"));
+    await settle();
+    assert.ok(doc.activeElement && doc.activeElement.getAttribute("role") === "tab", "focus was lost with the archived tab");
+  }));
+
+test("the + menu: Home and End go to the first and last item, Tab closes it", () =>
+  withPage({}, async (m) => {
+    await m.connect();
+    await m.plus();
+    const items = () => m.container.findAll('[role="menuitem"]').filter((b) => !b.disabled);
+    const doc = m.container.ownerDocument;
+    const menu = m.container.find(".tabs-menu");
+    assert.ok(items().length > 2);
+    menu.keydown("End");
+    await settle();
+    assert.equal(doc.activeElement, items()[items().length - 1]);
+    menu.keydown("Home");
+    await settle();
+    assert.equal(doc.activeElement, items()[0]);
+    menu.keydown("Tab");
+    await settle();
+    assert.equal(m.container.find(".tabs-menu"), null, "Tab left the menu open");
+  }));
+
 test("a name and an order kept in the preferences are used", () =>
   withPage({ ui: { tabs: { names: { [TWO]: "Tests" }, order: [TWO, ONE] } } }, async (m) => {
     await m.connect();
