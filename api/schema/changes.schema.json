@@ -1096,7 +1096,7 @@
               },
               "cmd": {
                 "type": "string",
-                "description": "The command line, as it would run.",
+                "description": "The command line, as it would run. A command with a control or hidden character is never here: the file is refused. The command runs whatever the checkout holds, such as its scripts and tests, with the person's rights.",
                 "minLength": 1
               }
             }
@@ -1110,7 +1110,7 @@
         },
         "pinned": {
           "type": "boolean",
-          "description": "True when this hash is the one the person last confirmed, so runChecks will run these commands."
+          "description": "True when this hash is the one the person confirmed since Flockdeck started, so runChecks will run these commands. The hash is kept in memory, so this is false again after a restart."
         }
       }
     },
@@ -1163,7 +1163,7 @@
             "notConfirmed",
             "changed"
           ],
-          "description": "Why it was refused. Written when ok is false. deskOnly: a window through the relay. unsupported: this build does not do it yet (see caps). badRequest: a field is missing, too long or out of range. noBranch: no such pane or branch. headMoved: expectSha is not the head. checksNotPassing: a check is failing, running, queued or missing at this head. conflicts. openComments. reviewChangesRequested. unpushed: the head is not on the upstream. empty: the branch has no commits of its own. notApproved: mergeBranch, and the gate is not approved for that head. notFound: no such comment, a reviewer that is missing or not an agent pane, or no check file for runChecks and confirmChecks. notClean: the base checkout has uncommitted changes. notFastForward: the base moved, so the branch needs the base merged into it first. failed: git refused, and error has its words, or the confirmation could not be saved. notConfirmed: runChecks, and the commands of the check file are not the ones the person confirmed. changed: confirmChecks, and the check file is not the one the hash was taken from."
+          "description": "Why it was refused. Written when ok is false. deskOnly: a window through the relay. unsupported: this build does not do it yet (see caps). badRequest: a field is missing, too long or out of range, or (runChecks, confirmChecks) the check file is not valid or a command in it holds a control or hidden character. noBranch: no such pane or branch. headMoved: expectSha is not the head. checksNotPassing: a check is failing, running, queued or missing at this head. conflicts. openComments. reviewChangesRequested. unpushed: the head is not on the upstream. empty: the branch has no commits of its own. notApproved: mergeBranch, and the gate is not approved for that head. notFound: no such comment, a reviewer that is missing or not an agent pane, or no check file for runChecks and confirmChecks. notClean: the base checkout has uncommitted changes. notFastForward: the base moved, so the branch needs the base merged into it first. failed: git refused, and error has its words. notConfirmed: runChecks, and the commands of the check file are not the ones the person confirmed since Flockdeck started. changed: confirmChecks, and the check file is not the one the hash was taken from."
         },
         "error": {
           "type": "string",

@@ -4,5 +4,5 @@
   "op": "runChecks",
   "ok": false,
   "code": "notConfirmed",
-  "error": "The commands in the check file have not been confirmed in the Flockdeck window. Open the checks, read the commands and confirm them."
+  "error": "The commands in the check file have not been confirmed in the Flockdeck window since it started. Open the checks, read the commands and confirm them. A command runs whatever the checkout holds, such as its scripts and tests, with your rights."
 }

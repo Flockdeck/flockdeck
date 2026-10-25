@@ -64,10 +64,10 @@ Which command answers with which code:
 | Code | Commands |
 | --- | --- |
 | `deskOnly`, `unsupported` | All of them (section 9; a build without the cap). |
-| `badRequest` | Any with a missing, too long or out of range field; `diffHunks`, `diffContext` and `commentAdd` for a `file` that is not one of the branch's files or leaves the checkout, and `commentAdd` for a line the diff does not have. |
+| `badRequest` | Any with a missing, too long or out of range field; `runChecks` and `confirmChecks` for a check file that is not valid or holds a command with a control or hidden character; `diffHunks`, `diffContext` and `commentAdd` for a `file` that is not one of the branch's files or leaves the checkout, and `commentAdd` for a line the diff does not have. |
 | `noBranch` | Any with an `id` that is not a pane with a branch, or a `branch` that differs. |
 | `notFound` | `commentResolve`, `commentReopen` (no such comment); `requestReview` (no such reviewer, or not an agent pane); `runChecks` and `confirmChecks` (no check file, or none that holds a check). |
-| `notConfirmed` | `runChecks`, when the commands of the check file are not the ones the person confirmed. |
+| `notConfirmed` | `runChecks`, when the commands of the check file are not the ones the person confirmed since Flockdeck started. |
 | `changed` | `confirmChecks` with `confirm`, when the file no longer has the `hash` that was shown. |
 | `headMoved` | `commentAdd`, `submitReview`, `approveMerge`, `mergeBranch` (`expectSha` is not the head). |
 | `checksNotPassing`, `conflicts`, `openComments`, `reviewChangesRequested`, `unpushed`, `empty` | `approveMerge`, in that order. |
@@ -234,21 +234,33 @@ Flockdeck's config directory, `changes/<project name>-<8 hex>.json`, as
 60 characters, a command of 1000). A command never comes from a window, from the
 repository or from an agent: the team file, the task board and the branch are
 all written by agents and are not read for commands. A `runChecks` that finds no
-such file is `notFound`, and its error gives the path to write.
+such file is `notFound`, and its error gives the path to write. A file that is not
+valid, or holds a command that cannot be shown as it runs (below), is `badRequest`.
 
 **Confirming the commands.** `confirmChecks` answers with a `changesChecks`: the
 `commands` the file would run, as they would run, their `hash`, and `pinned`,
-whether that hash is the one the person last confirmed. The window shows the
-commands to the person. `confirmChecks` with `confirm` true and that `hash`
-records it as confirmed, in `changes/<project name>-<8 hex>.pin.json`, which is
-written the same way as the review state. If the file no longer has that hash
-the answer is `changed` and nothing is recorded, so the person confirms only
-what they read. A file with no check is not confirmed. `runChecks` runs the
-commands only while the file still has the confirmed hash, and is `notConfirmed`
-otherwise: a file edited after the confirmation, a missing or damaged pin and a
-pin for other commands all count as not confirmed. The hash is taken of the list
+whether that hash is the one the person confirmed. The window shows the commands
+to the person, with the warning below. `confirmChecks` with `confirm` true and
+that `hash` records it as confirmed. If the file no longer has that hash the
+answer is `changed` and nothing is recorded, so the person confirms only what
+they read. A file with no check is not confirmed. `runChecks` runs the commands
+only while the file still has the confirmed hash, and is `notConfirmed`
+otherwise: a file edited after the confirmation, a hash for other commands, and
+a Flockdeck that has restarted since all count as not confirmed. The confirmed
+hash is kept in memory, per check file, and is forgotten on a restart, so the
+person confirms again then. It is not written beside the check file, where an
+agent that can plant the file could plant it too. The hash is taken of the list
 `runChecks` loads and runs, not of the file as a whole, so spacing in the file
 does not need a new confirmation and a change after the load is not run.
+
+What the person confirms is the command line, and the warning says so: a command
+such as `make test` runs whatever the checkout holds, and the checkout is the
+agent's. The commands shown are what runs. A command with a line break or other
+control character, a bidirectional override or isolate, a zero width or other
+format character, or a line or paragraph separator could be shown as one line
+and run as more, so `LoadChecks` refuses the whole file: `confirmChecks` and
+`runChecks` answer `badRequest`, and the error names the check and the
+character. A tab is allowed.
 
 `runChecks` runs the checks, or those in `names`, one at a time in the branch's
 checkout through the platform's shell, and answers at once. The results are in
@@ -298,10 +310,10 @@ commands (`approveMerge`, `mergeBranch`, section 7) must not ship before that
 credential exists. The check file is in the config directory, so an agent that
 can write there can plant commands in it. The pin makes that show: a changed
 file is not run until the person has read and confirmed it. It does not stop an
-agent that can also write the pin file, or that sends `confirmChecks` itself
-with its pane token and an `Origin`; that needs the same credential, and until
-it exists the pin guards against a file that changed after the person read it
-and not against an agent on this machine.
+agent that sends `confirmChecks` itself with its pane token and an `Origin`;
+that needs the same credential, and until it exists the pin guards against a
+file that changed after the person read it and not against an agent on this
+machine.
 
 A CI result has `source` `ci` and a `url`; a result an agent reports has `source`
 `agent`. Neither is built in this version.
