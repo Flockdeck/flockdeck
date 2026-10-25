@@ -288,6 +288,9 @@ func (w *Workspace) recordRename(actor, id, old, label string, burst int) {
 	if w.renameTrails == nil {
 		w.renameTrails = map[string]*renameTrail{}
 	}
+	if old := w.renameTrails[id]; old != nil && old.timer != nil {
+		old.timer.Stop()
+	}
 	w.renameTrails[id] = &renameTrail{info: info, at: time.Now()}
 	w.mu.Unlock()
 	if w.Pane(id) == nil {
