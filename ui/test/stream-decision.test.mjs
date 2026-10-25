@@ -55,7 +55,13 @@ test("a choice is sent to the pane as text, once", async () => {
     b[1].click();
     b[0].click();
     await settle();
-    assert.deepEqual(a.ws.commands("paneSend"), [{ cmd: "paneSend", id: "m", text: "new" }]);
+    const sent = a.ws.commands("paneSend");
+    assert.deepEqual(sent.map(({ req, ...rest }) => rest), [{ cmd: "paneSend", id: "m", text: "new" }]);
+    assert.equal(typeof sent[0].req, "string");
+    // Taken by the socket is not yet taken by the desk.
+    assert.match(a.container.find(".prompt-status").textContent, /Sending/);
+    a.ws.frame({ type: "paneSend", id: "m", queued: true, shell: false, req: sent[0].req });
+    await settle();
     assert.match(a.container.find(".prompt-status").textContent, /Sent “new”/);
   } finally {
     await a.done();

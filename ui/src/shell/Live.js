@@ -824,7 +824,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
         </div>`
       : null}
     ${view === "deps"
-      ? html`<${Deps} team=${snap.team} model=${scoped} whole=${current} remote=${!!snap.remote} onOpen=${drawer.open} send=${snap.remote ? null : send} />`
+      ? html`<${Deps} team=${snap.team} model=${scoped} whole=${current} remote=${!!snap.remote} onOpen=${drawer.open} send=${snap.remote ? null : send} snap=${snap} />`
       : null}
     ${view === "board"
       ? html`<${Board} team=${snap.team} remote=${!!snap.remote} gone=${snap.teamGone ? snap.teamGone.error || "This project can no longer be read." : ""}

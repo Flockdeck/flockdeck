@@ -277,7 +277,7 @@
 .dec-btn, .dec .prompt-choice { min-height: 26px; padding: 3px 10px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--bg-raised); color: var(--fg); font: inherit; font-size: 12px; cursor: pointer; }
 .dec-btn:hover:not(:disabled), .dec .prompt-choice:hover:not(:disabled) { background: var(--bg-hover); }
 .dec-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.dec-btn:disabled { opacity: .5; cursor: default; }
+.dec-btn:disabled, .dec-btn[aria-disabled="true"] { opacity: .5; cursor: default; }
 .dec-btn--primary { border-color: var(--accent); background: var(--accent); color: var(--on-accent); font-weight: 600; }
 .dec-btn--primary:hover:not(:disabled) { background: var(--accent-strong); }
 .dec-btn--ghost { border-color: transparent; background: transparent; color: var(--fg-dim); }

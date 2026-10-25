@@ -104,6 +104,56 @@ export function outcomeOf(snap, pending) {
   return { kind: "sending", text: "Sending…" };
 }
 
+/** sendTo sends text to a pane as a paneSend with a req of its own, for a button that answers or asks something. It returns the mark outcomeOf follows, or null when the socket did not take the command. */
+export function sendTo(send, snap, pane, text) {
+  const s = snap || {};
+  const mark = { pane, notice: s.notice ? s.notice.seq : 0, sent: s.sent ? s.sent.seq : 0, hello: s.hello || null, req: newReq() };
+  return send({ cmd: "paneSend", id: pane, text, req: mark.req }) ? mark : null;
+}
+
+/**
+ * usePaneSend is a one-shot send for a button: [outcome, go]. go(pane, text)
+ * sends once and returns true when it started a send; a second call before the
+ * page has redrawn, or after the desk took the text, does nothing and returns
+ * false, so a caller keeps what it remembers about the click (which choice was
+ * sent) only when go says it was the one sent. outcome is null before a send, then { kind:
+ * "sending" | "sent" | "refused", text } from the desk's answer to this send
+ * (outcomeOf), so a refusal (the agent is gone, a shell pane, a viewer, a text
+ * over 16 KiB) is said and the button can be pressed again. Once the desk has
+ * taken the text it stays sent: the snapshot keeps only the latest accepted
+ * send, so a later send elsewhere must not turn this one back into "sending".
+ * snap is the store's snapshot and is required.
+ */
+export function usePaneSend(snap, send) {
+  const [pending, setPending] = useState(null);
+  const [local, setLocal] = useState("");
+  const busy = useRef(false);
+  const settled = useRef(null);
+  let outcome = null;
+  if (local) outcome = { kind: "refused", text: local };
+  else if (pending && settled.current && settled.current.mark === pending) outcome = settled.current.outcome;
+  else if (pending && snap) {
+    outcome = outcomeOf(snap, pending);
+    if (outcome.kind === "sent") settled.current = { mark: pending, outcome };
+  }
+  if (!outcome || outcome.kind === "refused") busy.current = false;
+  const go = (pane, text) => {
+    if (!snap) throw new Error("usePaneSend needs the store's snapshot to follow the answer");
+    if (busy.current || !send) return false;
+    const mark = sendTo(send, snap, pane, text);
+    if (mark) {
+      busy.current = true;
+      setLocal("");
+      setPending(mark);
+      return true;
+    }
+    setPending(null);
+    setLocal(NOT_CONNECTED_WORDS);
+    return false;
+  };
+  return [outcome, go];
+}
+
 /**
  * ManagerBar draws the box. snap is the store's snapshot, manager is
  * managerOf(model) for the project on screen, and send is the store's send.

@@ -22,8 +22,9 @@ import { html } from "../html.js";
 import { clip } from "./Node.js";
 import { Icon, firstLine } from "./Badge.js";
 import { ageOf } from "./NeedsYou.js";
-import { PermissionCard, NOT_CONNECTED_WORDS, DETAILS_ON_DESKTOP_WORDS, DESK_WORDS } from "../drawer/Prompt.js";
+import { PermissionCard, DETAILS_ON_DESKTOP_WORDS, DESK_WORDS } from "../drawer/Prompt.js";
 import { labelOf } from "./model.js";
+import { usePaneSend } from "./ManagerBar.js";
 
 export const KINDS = ["permission", "ask", "conflict", "down"];
 export const NO_MANAGER_WORDS = "This team has no manager to ask.";
@@ -98,20 +99,18 @@ export function decisionOf(model, need, now = Date.now(), card = null) {
   return out;
 }
 
-/** useAsk is a one-shot send to a pane: state is "", "sent" or "failed", and a second call before the redraw does nothing. */
+/** storeSendOf is the send of the context's store, or null when it has none. */
+const storeSendOf = (ctx) => (ctx.store ? (m) => ctx.store.send(m) : null);
+
+/** useAsk is a one-shot send to a pane: state is "", "sending", "sent" or "failed" (the socket or the desk refused it; words says why), and a second call before the redraw does nothing. */
 export function useAsk(ctx) {
-  const [state, setState] = useState("");
-  const done = useRef(false);
+  const [outcome, go] = usePaneSend(ctx.snap, storeSendOf(ctx));
+  const state = !outcome ? "" : outcome.kind === "refused" ? "failed" : outcome.kind;
   const send = (pane, text) => {
-    if (done.current) return;
-    if (ctx.store && ctx.store.send({ cmd: "paneSend", id: pane, text })) {
-      done.current = true;
-      setState("sent");
-    } else {
-      setState("failed");
-    }
+    if (!ctx.store) return;
+    go(pane, text);
   };
-  return [state, send];
+  return [state, send, state === "failed" ? outcome.text : ""];
 }
 
 export function Buttons({ children }) {
@@ -129,30 +128,27 @@ function Permission({ model, need, ctx, tail }) {
 }
 
 function Question({ need, ctx, options, tail }) {
-  const [sent, setSent] = useState("");
-  const [note, setNote] = useState("");
-  // Set at the click: a second click before the card is drawn again finds it answered.
-  const done = useRef(false);
+  const [picked, setPicked] = useState("");
+  // One send at a time: a second click before the card is drawn again finds it answered, and a refusal leaves the choices to be pressed again.
+  const [out, go] = usePaneSend(ctx.snap, storeSendOf(ctx));
+  const busy = !!out && out.kind !== "refused";
   const pick = (label) => {
-    if (done.current) return;
-    if (ctx.store && ctx.store.send({ cmd: "paneSend", id: need.pane, text: label })) {
-      done.current = true;
-      setSent(label);
-      setNote("");
-    } else {
-      setNote(NOT_CONNECTED_WORDS);
-    }
+    if (busy || !ctx.store) return;
+    // go says whether this click started the send: a second click in the same tick must not change the choice named as sent.
+    if (go(need.pane, label)) setPicked(label);
   };
   if (options.length === 0) return null;
   if (!ctx.store) return html`<${Buttons}>${tail}<//><p class="dec-more">${DESK_WORDS}</p>`;
+  const note = out && out.kind === "refused" ? clip(out.text, 160) : "";
+  const status = out && out.kind === "sent" ? "Sent “" + clip(picked, 60) + "”. Waiting for the agent." : out && out.kind === "sending" ? "Sending…" : note;
   return html`<${Buttons}>
-      ${options.map((label, i) => html`<button type="button" tabindex=${tabOf(ctx)} class=${"dec-btn" + (i === 0 ? " dec-btn--primary" : "")} data-option=${label} disabled=${!!sent} onClick=${() => pick(label)}>${clip(label, 60)}</button>`)}${tail}
+      ${options.map((label, i) => html`<button type="button" tabindex=${tabOf(ctx)} class=${"dec-btn" + (i === 0 ? " dec-btn--primary" : "")} data-option=${label} aria-disabled=${busy ? "true" : undefined} onClick=${() => pick(label)}>${clip(label, 60)}</button>`)}${tail}
     <//>
-    <p class=${"dec-status" + (note ? " dec-status--error" : "")} role=${note ? "alert" : "status"}>${sent ? "Sent “" + clip(sent, 60) + "”. Waiting for the agent." : note}</p>`;
+    <p class=${"dec-status" + (note ? " dec-status--error" : "")} role=${note ? "alert" : "status"}>${status}</p>`;
 }
 
 function Conflict({ model, need, ctx }) {
-  const [state, send] = useAsk(ctx);
+  const [state, send, why] = useAsk(ctx);
   const manager = ctx.manager || null;
   const ask = () => {
     if (!manager) return;
@@ -161,17 +157,17 @@ function Conflict({ model, need, ctx }) {
   const see = ctx.onSee ? html`<button type="button" tabindex=${tabOf(ctx)} class="dec-btn" onClick=${() => ctx.onSee(need.pane)}>See in Review</button>` : null;
   if (!ctx.store) return html`<${Buttons}>${see}<//><p class="dec-more">${DESK_WORDS}</p>`;
   return html`<${Buttons}>
-      <button type="button" tabindex=${tabOf(ctx)} class="dec-btn dec-btn--primary" disabled=${!manager || state === "sent"} title=${manager ? "" : NO_MANAGER_WORDS} onClick=${ask}>${state === "sent" ? "Manager asked" : "Ask mgr to sort it out"}</button>
+      <button type="button" tabindex=${tabOf(ctx)} class="dec-btn dec-btn--primary" disabled=${!manager} aria-disabled=${state === "sent" || state === "sending" ? "true" : undefined} title=${manager ? "" : NO_MANAGER_WORDS} onClick=${ask}>${state === "sent" ? "Manager asked" : "Ask mgr to sort it out"}</button>
       ${see}
     <//>
-    ${state === "failed" ? html`<p class="dec-status dec-status--error" role="alert">${NOT_CONNECTED_WORDS}</p>` : null}`;
+    ${state === "failed" ? html`<p class="dec-status dec-status--error" role="alert">${clip(why, 160)}</p>` : null}`;
 }
 
 function Down({ need, who, ctx }) {
-  const [state, send] = useAsk(ctx);
+  const [state, send, why] = useAsk(ctx);
   const manager = ctx.manager || null;
   const reassign = manager && need.task && ctx.store
-    ? html`<button type="button" tabindex=${tabOf(ctx)} class="dec-btn" disabled=${state === "sent"} onClick=${() => send(manager.pane, "Please reassign " + need.task + ": " + who + " is down.")}>${state === "sent" ? "Manager asked" : "Ask mgr to reassign " + need.task}</button>`
+    ? html`<button type="button" tabindex=${tabOf(ctx)} class="dec-btn" aria-disabled=${state === "sent" || state === "sending" ? "true" : undefined} onClick=${() => send(manager.pane, "Please reassign " + need.task + ": " + who + " is down.")}>${state === "sent" ? "Manager asked" : "Ask mgr to reassign " + need.task}</button>`
     : null;
   const terminal = ctx.onOpen ? html`<button type="button" tabindex=${tabOf(ctx)} class="dec-btn dec-btn--ghost" onClick=${() => ctx.onOpen(need.pane)}>See terminal</button>` : null;
   return html`<${Buttons}>
@@ -179,7 +175,7 @@ function Down({ need, who, ctx }) {
       ${reassign}${terminal}
     <//>
     ${ctx.store ? null : html`<p class="dec-more">${DESK_WORDS}</p>`}
-    ${state === "failed" ? html`<p class="dec-status dec-status--error" role="alert">${NOT_CONNECTED_WORDS}</p>` : null}`;
+    ${state === "failed" ? html`<p class="dec-status dec-status--error" role="alert">${clip(why, 160)}</p>` : null}`;
 }
 
 /**
