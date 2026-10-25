@@ -349,6 +349,9 @@ export function createStore(opts) {
       if (phase !== "open") {
         patch.hello = null;
         patch.state = null;
+        // An answer sent on the connection that has gone may never have arrived: its cards can be answered again.
+        askedCards.clear();
+        patch.asking = null;
         // A request for an answer carries a token of the connection that has gone.
         if (snap.approvals.length) {
           patch.approvals = [];
@@ -427,8 +430,15 @@ export function createStore(opts) {
         if (!remote && watchingPane !== null) sendStructuredWatch();
         if (!remote && watchingTeam !== null) sendTeamWatch();
         if (watchingConv !== null) {
-          if (snap.conversation && snap.conversation.refused) set({ conversation: { ...snap.conversation, refused: "" } });
+          // What was asked on the connection that has gone is asked again, or is no longer waited for: an older page
+          // left "loading" would take the answer to the open below for the page before the entries held.
+          const c = snap.conversation;
+          if (c && (c.refused || c.older !== "idle")) set({ conversation: { ...c, refused: "", older: "idle" } });
           sendConversationOpen();
+          if (!remote) {
+            for (const entry of Object.keys(snap.details)) if (snap.details[entry].state === "loading") socket.send({ cmd: "conversationDetail", id: watchingConv, entry });
+            if (snap.search && snap.search.state === "loading") socket.send({ cmd: "conversationSearch", id: watchingConv, q: snap.search.q });
+          }
         }
         break;
       }
@@ -469,7 +479,11 @@ export function createStore(opts) {
         break;
       case "teamGone":
         // The same for the Team panel's project: it is shown as gone, not as it was.
+        // The server tells the graph watch and the team watch apart only by their roots, so a message
+        // the team watch took is not also taken for a graph watch that has no graph yet.
+        let teamTaken = false;
         if (watchingTeam !== null && (snap.team === null || msg.root === snap.team.root)) {
+          teamTaken = true;
           watchingTeam = null;
           set({ team: null, teamGone: { root: String(msg.root || ""), error: String(msg.error || "") } });
         }
@@ -478,7 +492,7 @@ export function createStore(opts) {
         // for the watch that is open, and ignored when none is. The watch is
         // given up, so a reconnect does not ask for a project that is not
         // there; the view calls watchGraph again when there is another one.
-        if (snap.graph === null ? watching !== null : msg.root === snap.graph.root) {
+        if (snap.graph === null ? watching !== null && !teamTaken : msg.root === snap.graph.root) {
           watching = null;
           set({ graph: null, graphGone: { root: String(msg.root || ""), error: String(msg.error || "") } });
         }

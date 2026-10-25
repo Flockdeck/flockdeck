@@ -22,7 +22,7 @@
 //
 // The text on a card is what an agent, a tool or a file said. It is drawn as
 // text and never as markup.
-import { useRef, useState } from "../vendor/hooks.mjs";
+import { useEffect, useRef, useState } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
 import { clip } from "../graph/Node.js";
 import { ManagerBar } from "../graph/ManagerBar.js";
@@ -36,6 +36,10 @@ export const KEYS = Object.freeze({ yes: "\r", no: "\x1b" });
 export const DESK_WORDS = "Answer this on the desktop.";
 export const NOT_CONNECTED_WORDS = "The terminal is not connected, so nothing was sent.";
 export const NOT_DELIVERED_WORDS = "The choice did not reach the terminal. Try again.";
+
+/** ANSWER_WAIT_MS is how long the buttons stay locked after the keys were written. An agent that ignores them leaves the card up, so the buttons come back. */
+export const ANSWER_WAIT_MS = 5000;
+export const NOT_TAKEN_WORDS = "The agent has not taken the choice yet. You can choose again.";
 export const NOT_ANSWERED_WORDS = "Not connected to Flockdeck, so the answer was not sent.";
 export const IN_TERMINAL_WORDS = "The choices are in the terminal below.";
 export const DETAILS_ON_DESKTOP_WORDS = "The details are on the desktop.";
@@ -96,13 +100,26 @@ function PermissionBody({ permission }) {
 // the keys are written to the socket, and "sent" after; keys lost on the way (a
 // sealed frame that could not be sealed, a socket that closed) put the buttons
 // back and say so.
-function TerminalPermission({ permission, sendKeys }) {
+function TerminalPermission({ permission, sendKeys, waitMs = ANSWER_WAIT_MS }) {
   const [sent, setSent] = useState(null); // { name, written }
   const [note, setNote] = useState("");
   // Set at the click, not at the render after it: three clicks before the card
   // is drawn again would otherwise each find it unanswered.
   const busy = useRef(null); // the token of the choice in flight, or null
   const options = (permission.options || []).filter((o) => o && Object.prototype.hasOwnProperty.call(KEYS, o.id));
+  // The card goes when the agent takes the choice. If it is still here after a while the keys were ignored.
+  const written = !!(sent && sent.written);
+  useEffect(() => {
+    if (!written) return undefined;
+    const token = sent.token;
+    const t = setTimeout(() => {
+      if (busy.current !== token) return;
+      busy.current = null;
+      setSent(null);
+      setNote(NOT_TAKEN_WORDS);
+    }, waitMs);
+    return () => clearTimeout(t);
+  }, [written, waitMs]);
   const choose = (opt) => {
     if (busy.current) return;
     const token = {};
@@ -207,7 +224,7 @@ export function Question({ node, ask, snap, store }) {
  * store's snapshot, store the store, and sendKeys types into the pane's terminal
  * (the terminal's sendKeys). terminal says whether the pane has one.
  */
-export function Prompt({ node, pane = null, snap, store, sendKeys, terminal = true }) {
+export function Prompt({ node, pane = null, snap, store, sendKeys, terminal = true, waitMs = ANSWER_WAIT_MS }) {
   const kind = waitingOn(node, pane);
   if (!kind) return null;
   let body = null;
@@ -231,7 +248,7 @@ export function Prompt({ node, pane = null, snap, store, sendKeys, terminal = tr
     const p = pane.permission;
     id = idOf("p", p.tool, p.command, p.file, p.summary, pane.statusSince);
     title = "Permission: " + (p.tool || "tool");
-    body = html`<${TerminalPermission} key=${id} permission=${p} sendKeys=${sendKeys} />`;
+    body = html`<${TerminalPermission} key=${id} permission=${p} sendKeys=${sendKeys} waitMs=${waitMs} />`;
   } else if (kind === "ask") {
     id = idOf("a", pane.statusSince, pane.ask.questions.map((q) => q.question).join("\u0002"));
     title = "Question";

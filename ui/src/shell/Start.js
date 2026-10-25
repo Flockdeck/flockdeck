@@ -19,6 +19,7 @@
 import { useEffect, useMemo, useRef, useState } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
 import { composing, LIST } from "./keys.js";
+import { trapTab } from "./focus.js";
 import {
   defaultValue, managerRole, newTabCommand, optionsOf, presetTaskFor, roleOptions, splitValue, startAgentCommand, startProblem, TEAM_HELPER_CAP, TEAM_PRESETS,
 } from "../lib/lifecycle.js";
@@ -29,19 +30,7 @@ export const WORKTREE_WORDS = "Cuts a new worktree and branch from the project f
 /** TITLES are the dialog's names. */
 export const TITLES = { agent: "Start an agent", team: "Start a team" };
 
-/** focusables are the controls Tab moves between inside the dialog. */
-const focusables = (root) => (root && root.querySelectorAll ? [...root.querySelectorAll("select, textarea, input, button")].filter((n) => !n.disabled) : []);
-
-/** trapTab keeps Tab and Shift+Tab inside the dialog. */
-export function trapTab(e, root) {
-  const list = focusables(root);
-  if (list.length === 0) return;
-  const doc = root.ownerDocument;
-  const at = list.indexOf(doc.activeElement);
-  const to = e.shiftKey ? (at <= 0 ? list.length - 1 : at - 1) : (at < 0 || at === list.length - 1 ? 0 : at + 1);
-  e.preventDefault();
-  list[to].focus();
-}
+export { trapTab };
 
 /**
  * Start is the dialog. mode is "agent" or "team"; catalog is the agent catalog

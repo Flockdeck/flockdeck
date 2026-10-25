@@ -63,7 +63,9 @@ export function DrawerResize({ width, onWidth, onDrag = null, vertical = false }
       el.removeEventListener("pointermove", move);
       el.removeEventListener("pointerup", done);
       el.removeEventListener("pointercancel", done);
-      onWidth(last);
+      // A click with no movement is not a resize: no write, and no drag size left showing.
+      if (last !== start) onWidth(last);
+      else if (onDrag) onDrag(null);
     };
     el.addEventListener("pointermove", move);
     el.addEventListener("pointerup", done);
@@ -72,5 +74,5 @@ export function DrawerResize({ width, onWidth, onDrag = null, vertical = false }
   return html`<div class=${"drawer-resize" + (vertical ? " drawer-resize--h" : "")} role="separator" aria-orientation=${vertical ? "horizontal" : "vertical"} aria-label=${vertical ? "Drawer height" : "Drawer width"} tabindex="0"
     aria-valuemin=${lim.min} aria-valuemax=${lim.max} aria-valuenow=${width} aria-valuetext=${width + " pixels"}
     title="Drag to resize. Double-click to reset."
-    onKeyDown=${onKeyDown} onPointerDown=${onPointerDown} onDblClick=${() => onWidth(lim.dflt)}></div>`;
+    onKeyDown=${onKeyDown} onPointerDown=${onPointerDown} onDblClick=${() => { if (width !== lim.dflt) onWidth(lim.dflt); }}></div>`;
 }
