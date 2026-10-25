@@ -27,7 +27,7 @@ import (
 // APIMajor and APIMinor are the version of the control socket's API.
 const (
 	APIMajor = 1
-	APIMinor = 3
+	APIMinor = 4
 )
 
 // apiCaps are the features of this version, in the order they were added.
