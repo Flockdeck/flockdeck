@@ -78,7 +78,7 @@ func TestTheConsentCheckJudgesTheAgentTheHelperWillRun(t *testing.T) {
 				t.Skip("no hook server")
 			}
 			_ = srv
-			_, err := hooks.Spawn(hook.BaseURL(), hook.Token(), parent, hooks.SpawnRequest{Task: "x", Baton: "self"})
+			_, err := hooks.Spawn(hook.BaseURL(), hook.Token(), parent, hooks.SpawnRequest{NoWorktree: true, Task: "x", Baton: "self"})
 			refused := err != nil && strings.Contains(err.Error(), "different company")
 			if refused != c.refused {
 				t.Errorf("refused = %v, want %v (err: %v)", refused, c.refused, err)

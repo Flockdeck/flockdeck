@@ -250,7 +250,7 @@ func TestSpawnWithBatonOverTheCallbackAPI(t *testing.T) {
 		t.Skip("no hook server")
 	}
 
-	res, err := hooks.Spawn(hook.BaseURL(), hook.Token(), pane, hooks.SpawnRequest{Task: "the refresh part", Agent: "gocli", Baton: "self"})
+	res, err := hooks.Spawn(hook.BaseURL(), hook.Token(), pane, hooks.SpawnRequest{NoWorktree: true, Task: "the refresh part", Agent: "gocli", Baton: "self"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -270,10 +270,10 @@ func TestSpawnWithBatonOverTheCallbackAPI(t *testing.T) {
 
 	// A shell is not an agent, and a reference that does not resolve starts
 	// nothing.
-	if _, err := hooks.Spawn(hook.BaseURL(), hook.Token(), pane, hooks.SpawnRequest{Task: "x", Shell: true, Baton: "self"}); err == nil {
+	if _, err := hooks.Spawn(hook.BaseURL(), hook.Token(), pane, hooks.SpawnRequest{NoWorktree: true, Task: "x", Shell: true, Baton: "self"}); err == nil {
 		t.Error("a shell was started from a baton")
 	}
-	if _, err := hooks.Spawn(hook.BaseURL(), hook.Token(), pane, hooks.SpawnRequest{Task: "x", Agent: "gocli", Baton: "nothing-like-it"}); err == nil {
+	if _, err := hooks.Spawn(hook.BaseURL(), hook.Token(), pane, hooks.SpawnRequest{NoWorktree: true, Task: "x", Agent: "gocli", Baton: "nothing-like-it"}); err == nil {
 		t.Error("an unresolvable reference started an agent")
 	}
 }
@@ -333,13 +333,13 @@ func TestSpawnWithBatonToAnotherCompanyNeedsTheFlag(t *testing.T) {
 		t.Skip("no hook server")
 	}
 	for _, ref := range []string{"self", "path:" + writeNotesFor(t, pane)} {
-		_, err := hooks.Spawn(hook.BaseURL(), hook.Token(), pane, hooks.SpawnRequest{Task: "x", Agent: "gitcli", Baton: ref})
+		_, err := hooks.Spawn(hook.BaseURL(), hook.Token(), pane, hooks.SpawnRequest{NoWorktree: true, Task: "x", Agent: "gitcli", Baton: ref})
 		if err == nil || !strings.Contains(err.Error(), "-baton-send-elsewhere") || !strings.Contains(err.Error(), "different company") {
 			t.Errorf("%s: err = %v, want the refusal naming the flag", ref, err)
 		}
 		// With the flag the refusal is not what stops it: starting the chat client
 		// in a test may fail for other reasons.
-		_, err = hooks.Spawn(hook.BaseURL(), hook.Token(), pane, hooks.SpawnRequest{Task: "x", Agent: "gitcli", Baton: ref, BatonElsewhere: true})
+		_, err = hooks.Spawn(hook.BaseURL(), hook.Token(), pane, hooks.SpawnRequest{NoWorktree: true, Task: "x", Agent: "gitcli", Baton: ref, BatonElsewhere: true})
 		if err != nil && strings.Contains(err.Error(), "different company") {
 			t.Errorf("%s: the flag did not lift the refusal: %v", ref, err)
 		}

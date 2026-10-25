@@ -47,8 +47,8 @@ remember that one.
 
 Two agents editing the same files will fight. Give each its own checkout
 instead: [[key:worktrees]] opens the worktrees, where you can create them, and
-**Start a team** starts a manager agent that starts the rest, each in a
-worktree of its own. [Git worktrees](#worktrees) and [Agents and models](#agents)
+**Start a team** starts a manager agent that starts the rest; each helper that edits
+code is given a worktree of its own, and the manager and the readers share the project's checkout. [Git worktrees](#worktrees) and [Agents and models](#agents)
 cover both.
 
 ## Which agent, which model

@@ -49,9 +49,11 @@ opens only its own projects.
 Run from inside a pane, this starts another agent:
 
 ```sh
-flockdeck spawn [-worktree <branch>] [-split] [-tab <title>] [-shell] [-record]
+flockdeck spawn [-worktree <branch> | -no-worktree] [-split] [-tab <title>] [-shell] [-record]
                 [-agent <id>] [-model <model>] [-role <id>] [-baton <ref>] [-baton-send-elsewhere] [-task <id>] <task>
 ```
+
+A helper an agent starts is given a git worktree and a branch of its own, cut from the caller's current commit and named from its task, unless the caller names the branch with `-worktree`, passes `-no-worktree`, or starts it in a role that reads or shares the checkout (the `manager`, `planner` and `reviewer`) or as a shell. Uncommitted changes in the caller's checkout are not carried over. `spawn` prints the branch and directory it cut. In a directory that is not a git repository, or when the worktree cannot be cut, the start is refused with a note naming `-no-worktree`; it never falls back to the caller's checkout on its own.
 
 `-tab <title>` puts the helper in the tab with that title in the caller's project, and
 makes the tab if there is none. Only a tab an earlier `-tab` made is joined: a tab you made

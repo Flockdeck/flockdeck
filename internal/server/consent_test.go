@@ -27,7 +27,7 @@ func TestAForgedHeaderDoesNotMakeABatonOKToSend(t *testing.T) {
 	}
 	spawn := func(ref string, elsewhere bool) error {
 		_, err := hooks.Spawn(hook.BaseURL(), hook.Token(), pane,
-			hooks.SpawnRequest{Task: "x", Agent: "gitcli", Baton: ref, BatonElsewhere: elsewhere})
+			hooks.SpawnRequest{NoWorktree: true, Task: "x", Agent: "gitcli", Baton: ref, BatonElsewhere: elsewhere})
 		return err
 	}
 

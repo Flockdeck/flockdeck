@@ -21,11 +21,11 @@ import { html } from "../html.js";
 import { composing, LIST } from "./keys.js";
 import { trapTab } from "./focus.js";
 import {
-  defaultValue, managerRole, newTabCommand, optionsOf, presetTaskFor, roleOptions, splitValue, startAgentCommand, startProblem, TEAM_HELPER_CAP, TEAM_PRESETS,
+  defaultValue, managerRole, newTabCommand, optionsOf, presetTaskFor, roleOptions, roleTreeDefault, splitValue, startAgentCommand, startProblem, TEAM_HELPER_CAP, TEAM_PRESETS,
 } from "../lib/lifecycle.js";
 
 /** WORKTREE_WORDS is what the option says. */
-export const WORKTREE_WORDS = "Cuts a new worktree and branch from the project for this agent, so it cannot edit the files another agent is working on. It needs a task. The branch is kept when the worktree is removed.";
+export const WORKTREE_WORDS = "Ticked for a role that works on its own branch. Cuts a new worktree and branch from the project for this agent, so it cannot edit the files another agent is working on. It needs a task. The branch is kept when the worktree is removed.";
 
 /** TITLES are the dialog's names. */
 export const TITLES = { agent: "Start an agent", team: "Start a team" };
@@ -46,6 +46,8 @@ export function Start({ mode, catalog, project, send, onClose }) {
   const [preset, setPreset] = useState("");
   const [task, setTask] = useState("");
   const [tree, setTree] = useState(false);
+  // Choosing a role sets the box to that role's default until the person has set it themselves.
+  const treeSet = useRef(false);
   const [problem, setProblem] = useState("");
   const rootRef = useRef(null);
   const first = useRef(null);
@@ -130,7 +132,7 @@ export function Start({ mode, catalog, project, send, onClose }) {
                 ${TEAM_PRESETS.map((p) => html`<option key=${p.id} value=${p.id}>${p.name}</option>`)}
               </select>`
           : html`<label class="dialog-label" for="start-role">Role</label>
-              <select id="start-role" class="dialog-field" value=${roleId} onChange=${(e) => setRoleId(e.target.value)}>
+              <select id="start-role" class="dialog-field" value=${roleId} onChange=${(e) => { setRoleId(e.target.value); if (!treeSet.current) setTree(roleTreeDefault(catalog, e.target.value)); }}>
                 <option value="">No role</option>
                 ${roles.map((r) => html`<option key=${r.id} value=${r.id}>${r.name}</option>`)}
               </select>`}
@@ -141,7 +143,7 @@ export function Start({ mode, catalog, project, send, onClose }) {
         ${team
           ? null
           : html`<label class="dialog-check">
-              <input type="checkbox" id="start-worktree" checked=${tree} aria-describedby="start-worktree-note" onChange=${(e) => setTree(e.target.checked)} />
+              <input type="checkbox" id="start-worktree" checked=${tree} aria-describedby="start-worktree-note" onChange=${(e) => { treeSet.current = true; setTree(e.target.checked); }} />
               <span>Start in a worktree</span>
             </label>
             <p class="dialog-note" id="start-worktree-note">${WORKTREE_WORDS}</p>`}

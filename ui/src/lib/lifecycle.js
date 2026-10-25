@@ -78,6 +78,12 @@ export function defaultValue(catalog) {
   return first ? first.value : "";
 }
 
+/** roleTreeDefault says whether "Start in a worktree" starts ticked for a role: the roles that work on a branch of their own (a worktree setting of "own", or none set) do, and no role, the manager and the read-only roles do not. It matches what `flockdeck spawn` does for a helper. */
+export const roleTreeDefault = (catalog, id) => {
+  const r = id ? catalog.roles.find((x) => x.id === id) : null;
+  return !!r && (!r.worktree || r.worktree === "own");
+};
+
 /** roleOptions are the roles a pane can be started in: the id and the name. */
 export const roleOptions = (catalog) => catalog.roles.map((r) => ({ id: r.id, name: String(r.name || r.id) }));
 
@@ -143,9 +149,9 @@ export function startProblem({ mode, task, role, root, picked, worktree = false 
     return "";
   }
   if (!picked) return "There is no agent that can be started.";
-  if (worktree && !String(task || "").trim()) return "A worktree is made for a task. Write the task first.";
   if ((role || String(task || "").trim() || worktree) && !root) return "There is no project open to start an agent in.";
   if (role && !String(task || "").trim()) return "An agent started in a role needs a task.";
+  if (worktree && !String(task || "").trim()) return "A worktree is made for a task. Write the task first.";
   return "";
 }
 

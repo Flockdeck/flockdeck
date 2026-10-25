@@ -17,7 +17,8 @@ Flags may come before or after the task: `orderSpawnArgs` moves them in front. E
 
 | Flag | Default | Effect |
 |---|---|---|
-| `-worktree <branch>` | none | Branch for a git worktree made for the helper. |
+| `-worktree <branch>` | see cli help | Branch for a git worktree made for the helper. |
+| `-no-worktree` | false | Start the helper in the caller's own checkout. Cannot go with `-worktree`. |
 | `-split` | false | Place the helper beside this pane, not in a new tab. |
 | `-tab <title>` | none | Put the helper in the tab of that name in this project, made if missing. Takes precedence over `-split`. |
 | `-shell` | false | Start a shell instead of an agent. |

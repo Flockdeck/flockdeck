@@ -470,7 +470,7 @@ func usage(fs *flag.FlagSet) {
 	fmt.Fprintf(out, "Usage:\n  flockdeck [flags]\n\nFlags:\n")
 	fs.PrintDefaults()
 	fmt.Fprintf(out, "\nSubcommands:\n")
-	fmt.Fprintf(out, "  spawn [-worktree <branch>] [-split] [-tab <title>] [-shell] [-record] [-agent <id>] [-model <model>] [-role <id>] [-baton <ref> [-baton-send-elsewhere]] [-task <id>] <task>\n")
+	fmt.Fprintf(out, "  spawn [-worktree <branch> | -no-worktree] [-split] [-tab <title>] [-shell] [-record] [-agent <id>] [-model <model>] [-role <id>] [-baton <ref> [-baton-send-elsewhere]] [-task <id>] <task>\n")
 	fmt.Fprintf(out, "        start another agent; run from inside a pane\n")
 	fmt.Fprintf(out, "        run flockdeck spawn -h for what the flags do\n")
 	fmt.Fprintf(out, "  baton list | baton show [-path] <baton-id>\n")
@@ -1755,6 +1755,9 @@ func runSpawn(args []string) error {
 	if res.Cwd != "" {
 		started = append(started, "in", res.Cwd)
 	}
+	if res.Branch != "" {
+		started = append(started, "on branch", res.Branch)
+	}
 	fmt.Println(started...)
 	// The baton is saved before the helper starts, and where is worth saying
 	// back: the caller can read what the helper was told.
@@ -1806,6 +1809,9 @@ func parseSpawn(args []string) (hooks.SpawnRequest, error) {
 		fs.Usage()
 		return hooks.SpawnRequest{}, fmt.Errorf("a task is required")
 	}
+	if f.noWorktree && f.worktree != "" {
+		return hooks.SpawnRequest{}, fmt.Errorf("-worktree asks for a worktree and -no-worktree for none, so they cannot go together")
+	}
 	if f.batonElsewhere && f.baton == "" {
 		return hooks.SpawnRequest{}, fmt.Errorf("-baton-send-elsewhere is for -baton, and no -baton was given")
 	}
@@ -1838,17 +1844,18 @@ func parseSpawn(args []string) (hooks.SpawnRequest, error) {
 		return hooks.SpawnRequest{}, err
 	}
 	return hooks.SpawnRequest{
-		Task:   task,
-		Branch: f.worktree,
-		Split:  f.split,
-		Tab:    tab,
-		Shell:  f.shell,
-		Agent:  f.agent,
-		Model:  f.model,
-		Role:   f.role,
-		Record: f.record,
-		Baton:  batonRef(f.baton),
-		TaskID: strings.TrimSpace(f.task),
+		Task:       task,
+		Branch:     f.worktree,
+		NoWorktree: f.noWorktree,
+		Split:      f.split,
+		Tab:        tab,
+		Shell:      f.shell,
+		Agent:      f.agent,
+		Model:      f.model,
+		Role:       f.role,
+		Record:     f.record,
+		Baton:      batonRef(f.baton),
+		TaskID:     strings.TrimSpace(f.task),
 
 		BatonElsewhere: f.batonElsewhere,
 	}, nil
@@ -1856,16 +1863,17 @@ func parseSpawn(args []string) (hooks.SpawnRequest, error) {
 
 // spawnFlags are the flags of `flockdeck spawn` and where their values land.
 type spawnFlags struct {
-	worktree string
-	agent    string
-	model    string
-	role     string
-	split    bool
-	tab      string
-	shell    bool
-	record   bool
-	baton    string
-	task     string
+	worktree   string
+	agent      string
+	model      string
+	role       string
+	noWorktree bool
+	split      bool
+	tab        string
+	shell      bool
+	record     bool
+	baton      string
+	task       string
 	// batonElsewhere agrees to the baton going to an agent of another company.
 	batonElsewhere bool
 }
@@ -1877,6 +1885,7 @@ func spawnFlagSet(f *spawnFlags) *flag.FlagSet {
 	fs := flag.NewFlagSet("spawn", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 	fs.StringVar(&f.worktree, "worktree", "", "`branch` for the helper's own git worktree, made for it")
+	fs.BoolVar(&f.noWorktree, "no-worktree", false, "start the helper in your own checkout. Without -worktree or this, a helper in a role that works on its own branch (worker, tester, docs, or no role) gets a worktree and a branch of its own, named from its task; the manager, planner and reviewer do not")
 	fs.BoolVar(&f.split, "split", false, "place the helper beside this pane instead of in a new tab")
 	fs.StringVar(&f.tab, "tab", "", "`title` of the tab to put the helper in: the tab of that name in this project, made if there is none. Use one title for the panes of one piece of work. Takes precedence over -split")
 	fs.BoolVar(&f.shell, "shell", false, "start a shell instead of an agent")
