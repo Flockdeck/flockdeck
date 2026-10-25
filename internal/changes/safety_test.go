@@ -237,3 +237,36 @@ func TestTheBranchIsReusedForAFewSeconds(t *testing.T) {
 		t.Errorf("after the time the file is still missing: %d files", len(third.AllFiles()))
 	}
 }
+
+// A directory swapped for a link that stays inside the checkout, to .git say, is
+// refused by both reads: the link is to a place the window was never shown.
+func TestAFileBehindALinkInsideTheCheckoutIsRefused(t *testing.T) {
+	dir := repo(t)
+	runGit(t, dir, "checkout", "-q", "-b", "feat")
+	write(t, dir, "x/config", "committed\n")
+	runGit(t, dir, "add", "-A")
+	runGit(t, dir, "commit", "-q", "-m", "x")
+	if err := os.RemoveAll(filepath.Join(dir, "x")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(".git", filepath.Join(dir, "x")); err != nil {
+		t.Skipf("no symbolic links here: %v", err)
+	}
+	for _, against := range []string{"merge-base", "worktree"} {
+		c, ref := ReadContext(context.Background(), "p1", dir, "x/config", against, "new", 1, 50)
+		if ref == nil || ref.Code != "badRequest" || len(c.Lines) != 0 {
+			t.Errorf("diffContext %s: %+v %+v, want a refusal", against, c, ref)
+		}
+		if _, ref := Diff(context.Background(), "p1", dir, DiffRequest{File: "x/config", Against: against, Context: 3}); ref == nil || ref.Code != "badRequest" {
+			t.Errorf("diffHunks %s: %+v, want a refusal", against, ref)
+		}
+	}
+}
+
+func TestAMissingFileAtACommitIsAnEmptySideAndNotAnError(t *testing.T) {
+	dir := repo(t)
+	b := Read(context.Background(), "p1", dir, MaxFiles)
+	if _, problem, found := blobText(context.Background(), dir, b.HeadSha, "no/such/file.txt"); problem != "" || found {
+		t.Errorf("a missing path: problem %q found %v, want neither", problem, found)
+	}
+}

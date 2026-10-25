@@ -186,7 +186,7 @@ func Diff(ctx context.Context, pane, cwd string, req DiffRequest) (DiffHunks, *R
 	fail := func(msg string, err error) (DiffHunks, *Refusal) {
 		if err != nil {
 			// What git said can hold paths of this machine; it goes to the log and not to the window.
-			log.Printf("changes: the diff of %s in pane %s failed: %v", f.Path, pane, firstLine(err.Error()))
+			log.Printf("changes: the diff of %q in pane %q failed: %v", f.Path, pane, firstLine(err.Error()))
 		}
 		return DiffHunks{Pane: pane, Path: f.Path, Hunks: []Hunk{}, Error: msg}, nil
 	}
@@ -278,6 +278,10 @@ func Diff(ctx context.Context, pane, cwd string, req DiffRequest) (DiffHunks, *R
 			return fail("could not read the diff", err)
 		}
 		text = o
+		if against != "head" && !parentsArePlain(cwd, f.Path) {
+			// A directory was swapped for a link while git ran; what it read is not used.
+			return DiffHunks{}, badRequest("file is not a path inside the checkout")
+		}
 		if strings.TrimSpace(text) != "" && !req.IgnoreWhitespace && strings.Contains(text, "\r") {
 			// The same diff, with a carriage return before a line end not counted: when
 			// that leaves nothing, the file changed only in its line endings.
@@ -611,6 +615,10 @@ func ReadContext(ctx context.Context, pane, cwd, file, against, side string, fro
 	if ref != nil {
 		return DiffContext{}, ref
 	}
+	if side == "new" && against != "head" && !parentsArePlain(cwd, f.Path) {
+		// A link that stays inside the checkout, to .git say, is read by nothing here.
+		return DiffContext{}, badRequest("file is not a path inside the checkout")
+	}
 	out := DiffContext{Pane: pane, Path: f.Path, Lines: []Line{}}
 	var content, problem string
 	var ok bool
@@ -675,8 +683,13 @@ func blobText(ctx context.Context, cwd, rev, rel string) (content, problem strin
 		return "", "the file is too large to read", true
 	case ctx.Err() != nil:
 		return "", "reading the file took too long", true
-	case err != nil:
+	case errors.Is(err, context.DeadlineExceeded):
+		return "", "reading the file took too long", true
+	case err != nil && missingInGit(err):
 		return "", "", false
+	case err != nil:
+		log.Printf("changes: git show of %q failed: %v", rev+":"+rel, firstLine(err.Error()))
+		return "", "the file could not be read", true
 	case len(out) > maxContextFile:
 		return "", "the file is too large to read", true
 	}
@@ -694,4 +707,11 @@ func blobSize(ctx context.Context, cwd, rev, rel string) *int64 {
 		return nil
 	}
 	return &n
+}
+
+// missingInGit says whether git show failed because the path is not in the
+// commit, which is an empty side and not a failure.
+func missingInGit(err error) bool {
+	m := err.Error()
+	return strings.Contains(m, "does not exist in") || strings.Contains(m, "exists on disk, but not in") || strings.Contains(m, "Path '")
 }

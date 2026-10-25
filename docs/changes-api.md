@@ -179,6 +179,18 @@ find `changesDiff` in the caps keeps using it.
   link (its target text), never followed, so a link pointing outside the
   checkout shows the path it points to and nothing from there. `diffContext`
   reads the same way.
+- A read of the working tree is refused as `badRequest` when a directory above
+  the file is a symbolic link or a junction, even one that stays inside the
+  checkout (a link to `.git`, say). Limits of that check:
+  - git, not Flockdeck, reads the working tree for `diffHunks`. The check is made
+    before git runs and again after, and the output is dropped if a directory was
+    swapped in between. A process that can write inside the checkout can still
+    swap one while git runs and not be noticed if it swaps it back.
+  - A Windows reparse point that is not a symbolic link or junction, such as a
+    OneDrive placeholder, is refused too, with the same message, which is wrong
+    for that case.
+  - A hard link to a file outside the checkout reads as a regular file of the
+    checkout. A hard link cannot be told from the file itself.
 
 ## 5. Comments
 
