@@ -39,8 +39,12 @@ export const SECTIONS = [["general", "General"], ["appearance", "Appearance"], [
  *  pair and outcome answers, the tunnel's status, remote (this window came through
  *  the relay), copy, news (a notice since the dialog opened) and the notification
  *  permission with onAsk and the machine's name. */
+/** VIEWER_HIDDEN are the sections whose controls all send commands the desktop refuses a viewer. */
+export const VIEWER_HIDDEN = ["wake", "keys", "remote", "agents", "routing", "keyboard"];
+
 export function Settings({ prefs, change, onClose, section: first = "general", ctx = {} }) {
-  const [section, setSection] = useState(SECTIONS.some(([id]) => id === first) ? first : "general");
+  const sections = ctx.viewer ? SECTIONS.filter(([id]) => !VIEWER_HIDDEN.includes(id)) : SECTIONS;
+  const [section, setSection] = useState(sections.some(([id]) => id === first) ? first : "general");
   const rootRef = useRef(null);
   const tabRef = useRef(null);
   useEffect(() => {
@@ -62,17 +66,17 @@ export function Settings({ prefs, change, onClose, section: first = "general", c
       trapTab(e, rootRef.current);
     }
   };
-  const chosen = SECTIONS.findIndex(([id]) => id === section);
+  const chosen = sections.findIndex(([id]) => id === section);
   const onTabKey = (e) => {
     if (composing(e)) return;
     const by = e.key === LIST.down || e.key === LIST.right ? 1 : e.key === LIST.up || e.key === LIST.left ? -1 : 0;
     if (!by) return;
     e.preventDefault();
     e.stopPropagation();
-    setSection(SECTIONS[(chosen + by + SECTIONS.length) % SECTIONS.length][0]);
+    setSection(sections[(chosen + by + sections.length) % sections.length][0]);
     // The new tab takes the keyboard once it is the one in the tab order.
     const root = rootRef.current;
-    const next = SECTIONS[(chosen + by + SECTIONS.length) % SECTIONS.length][0];
+    const next = sections[(chosen + by + sections.length) % sections.length][0];
     const btn = root && [...root.querySelectorAll("button")].find((b) => b.getAttribute("data-section") === next);
     if (btn) btn.focus();
   };
@@ -82,7 +86,7 @@ export function Settings({ prefs, change, onClose, section: first = "general", c
         <h2 id="settings-title" class="dialog-title">Settings</h2>
         <div class="settings-body">
           <div class="settings-nav" role="tablist" aria-label="Settings sections" aria-orientation="vertical">
-            ${SECTIONS.map(([id, label]) => html`
+            ${sections.map(([id, label]) => html`
               <button type="button" role="tab" class=${"settings-tab" + (id === section ? " is-active" : "")} id=${"settings-tab-" + id}
                 data-section=${id} aria-selected=${id === section ? "true" : "false"} aria-controls="settings-panel"
                 tabindex=${id === section ? "0" : "-1"} ref=${id === section ? tabRef : null}

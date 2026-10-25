@@ -518,3 +518,31 @@ test("Agents & models: a window with no catalog says so", () =>
     await m.openSettings("agents");
     assert.match(m.container.find(".settings-panel").textContent, /Reading the agents/);
   }));
+
+test("a viewer's Settings has none of the sections whose controls the desktop refuses", async () => {
+  const { Settings, VIEWER_HIDDEN } = await import("../src/shell/Settings.js");
+  const { render } = await import("../src/vendor/preact.mjs");
+  const { html } = await import("../src/html.js");
+  const { createDom, install, settle } = await import("./dom.mjs");
+  const dom = createDom();
+  const restore = install(dom);
+  try {
+    const box = dom.document.createElement("div");
+    dom.body.appendChild(box);
+    const tabs = (ctx, first) => {
+      render(html`<${Settings} prefs=${{}} change=${() => {}} section=${first} onClose=${() => {}} ctx=${ctx} />`, box);
+      return box.findAll("[role=tab]").map((b) => b.getAttribute("data-section"));
+    };
+    await settle();
+    const all = tabs({}, "general");
+    const viewer = tabs({ viewer: true }, "keys");
+    for (const id of VIEWER_HIDDEN) {
+      assert.ok(all.includes(id), id + " for the desk");
+      assert.ok(!viewer.includes(id), id + " hidden for a viewer");
+    }
+    assert.ok(viewer.includes("general") && viewer.includes("appearance"));
+    assert.equal(box.find('[aria-selected="true"]').getAttribute("data-section"), "general", "a hidden section asked for opens General");
+  } finally {
+    restore();
+  }
+});
