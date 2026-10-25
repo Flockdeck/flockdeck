@@ -84,10 +84,14 @@ func LoadReviews(path string) (ReviewState, error) {
 	}
 	var raw ReviewState
 	if buf.Len() > reviewStateMB || json.Unmarshal(buf.Bytes(), &raw) != nil {
+		kept := ""
 		if buf.Len() <= reviewStateMB {
-			keepBadCopy(path, buf.Bytes())
+			kept = keepBadCopy(path, buf.Bytes())
 		}
-		return ReviewState{}, errors.New("the review file is damaged; a copy was kept as " + path + ".bad")
+		if kept == "" {
+			return ReviewState{}, errors.New("the review file is damaged; no copy of it could be kept")
+		}
+		return ReviewState{}, errors.New("the review file is damaged; a copy is kept as " + kept)
 	}
 	var out ReviewState
 	for _, r := range raw.Reviews {
@@ -112,8 +116,9 @@ func LoadReviews(path string) (ReviewState, error) {
 
 // keepBadCopy saves a damaged file beside it as <path>.bad. A copy that is already
 // there with other content is not written over: the next free <path>.bad.N is used
-// (up to nine), and a copy with the same content is not written again.
-func keepBadCopy(path string, data []byte) {
+// (up to nine), and a copy with the same content is not written again. It returns
+// the name of the copy that holds data, or "" if none could be kept.
+func keepBadCopy(path string, data []byte) string {
 	for i := 0; i < 10; i++ {
 		name := path + ".bad"
 		if i > 0 {
@@ -121,13 +126,16 @@ func keepBadCopy(path string, data []byte) {
 		}
 		old, err := os.ReadFile(name)
 		if errors.Is(err, os.ErrNotExist) {
-			_ = os.WriteFile(name, data, 0o600)
-			return
+			if os.WriteFile(name, data, 0o600) != nil {
+				return ""
+			}
+			return name
 		}
 		if err == nil && bytes.Equal(old, data) {
-			return
+			return name
 		}
 	}
+	return ""
 }
 
 // CleanNote keeps the line breaks and tabs of a note and drops every other

@@ -152,7 +152,8 @@ var damagedReviews = map[string]bool{}
 func (s *Server) loadReviews(path string) changes.ReviewState {
 	st, err := changes.LoadReviews(path)
 	if firstDamage(path, err) {
-		s.notifyAll("Reviews are not shown: "+err.Error(), true)
+		// The error names the state file, which is in the person's config directory.
+		s.notifyAllOr("Reviews are not shown: "+err.Error(), "The review file is damaged; reviews are not shown", true)
 	}
 	return st
 }
@@ -452,14 +453,43 @@ func (s *Server) recordReview(cwd, root, project, branch string, r changes.Revie
 	return st.Save(statePath)
 }
 
+// projectCwds is the working directories of the project's panes. The workspace
+// is read only on its own goroutine, so this runs under ask: recordReview is on a
+// request goroutine and must not call the workspace directly.
+func (s *Server) projectCwds(root string) ([]string, bool) {
+	type res struct {
+		cwds []string
+		ok   bool
+	}
+	r, ok := ask(s, func() res {
+		resolved, err := s.ws.TeamRoot(root)
+		if err != nil {
+			return res{}
+		}
+		panes, err := s.ws.TeamPanes(resolved)
+		if err != nil {
+			return res{}
+		}
+		var out []string
+		for _, p := range panes {
+			if p.Cwd != "" && !slices.Contains(out, p.Cwd) {
+				out = append(out, p.Cwd)
+			}
+		}
+		return res{out, true}
+	})
+	return r.cwds, ok && r.ok
+}
+
 // liveBranches is the local branches of every checkout of the project, listed
 // before the reviews lock is taken. It is nil when any listing fails.
 func (s *Server) liveBranches(cwd, root string) map[string]bool {
-	cwds := []string{cwd}
-	for _, p := range s.changesTargetOf(root).panes {
-		if !slices.Contains(cwds, p.Cwd) {
-			cwds = append(cwds, p.Cwd)
-		}
+	cwds, ok := s.projectCwds(root)
+	if !ok {
+		return nil
+	}
+	if !slices.Contains(cwds, cwd) {
+		cwds = append(cwds, cwd)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), changesReadLimit)
 	defer cancel()

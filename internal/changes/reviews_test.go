@@ -196,8 +196,15 @@ func TestADamagedFileIsCopiedOnceAndNeverOverwritten(t *testing.T) {
 		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := LoadReviews(p); err == nil {
+		_, err := LoadReviews(p)
+		if err == nil {
 			t.Fatalf("%q loaded", body)
+		}
+		if want := filepath.Base(p) + ".bad"; body == "[1" {
+			want += ".1"
+			if !strings.HasSuffix(err.Error(), want) {
+				t.Errorf("the error names %q, want it to end with %q", err, want)
+			}
 		}
 	}
 	for name, want := range map[string]string{p + ".bad": "{", p + ".bad.1": "[1"} {
