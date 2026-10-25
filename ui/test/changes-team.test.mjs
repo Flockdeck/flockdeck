@@ -133,3 +133,41 @@ test("a relay window sends none of the Changes commands and says so", async () =
   assert.equal(store.getState().changesTeam, null);
   store.stop();
 });
+
+test("the branch rows are one tab stop and the arrow keys, Home and End move between them", async () => {
+  const { render } = await import("../src/vendor/preact.mjs");
+  const { createDom, install, settle } = await import("./dom.mjs");
+  const dom = createDom();
+  const restore = install(dom);
+  try {
+    const box = dom.document.createElement("div");
+    dom.body.appendChild(box);
+    const picked = [];
+    render(html`<${ChangesList} branches=${changesTeamOf(mixed()).branches} names=${names} selected="6fb40971" onPick=${(p) => picked.push(p)} />`, box);
+    await settle();
+    const rows = box.findAll(".ct-row");
+    const stops = rows.filter((r) => r.getAttribute("tabindex") === "0");
+    assert.equal(stops.length, 1, "one tab stop");
+    assert.equal(stops[0].getAttribute("data-pane"), "6fb40971", "the open row");
+    rows[0].focus();
+    rows[0].keydown("ArrowDown");
+    assert.equal(dom.document.activeElement, rows[1]);
+    rows[1].keydown("End");
+    assert.equal(dom.document.activeElement, rows[rows.length - 1]);
+    rows[rows.length - 1].keydown("Home");
+    assert.equal(dom.document.activeElement, rows[0]);
+    await settle();
+    assert.equal(box.findAll(".ct-row").filter((r) => r.getAttribute("tabindex") === "0")[0].getAttribute("data-pane"), rows[0].getAttribute("data-pane"));
+    rows[0].keydown("ArrowUp");
+    assert.equal(dom.document.activeElement, rows[0], "stops at the top");
+    rows[0].keydown("ArrowDown", { ctrlKey: true });
+    assert.equal(dom.document.activeElement, rows[0], "a key with ctrl held is left alone");
+    const other = rows[rows.length - 1].getAttribute("data-pane");
+    render(html`<${ChangesList} branches=${changesTeamOf(mixed()).branches} names=${names} selected=${other} onPick=${(p) => picked.push(p)} />`, box);
+    await settle();
+    const now = box.findAll(".ct-row").filter((r) => r.getAttribute("tabindex") === "0");
+    assert.deepEqual(now.map((r) => r.getAttribute("data-pane")), [other], "a row opened from outside takes the tab stop");
+  } finally {
+    restore();
+  }
+});
