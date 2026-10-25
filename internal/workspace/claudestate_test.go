@@ -161,3 +161,45 @@ func TestAReconciledStatusDecidesWhetherAPaneIsWoken(t *testing.T) {
 		t.Errorf("typed %q into a busy pane", r.sess.written())
 	}
 }
+
+// What the typed wake acts on is the pane's own pid file and nothing found any
+// other way: a file for the conversation with none for the pid is no word, nor is
+// the previous process's file left on disk by a restart, nor one from before a
+// clear.
+func TestTheWakeActsOnlyOnThePanesOwnPidFile(t *testing.T) {
+	s := idleShellSession(t)
+	if s.Pid() == 0 {
+		t.Skip("the pane has no process id")
+	}
+	var cur *claudestate.Entry
+	all := []claudestate.Entry{{Pid: 777, SessionID: "conv", Updated: time.Now()}}
+	svc := &claudeStateService{
+		readPid: func(pid int) (claudestate.Entry, bool) { return pick(cur, pid) },
+		readAll: func() []claudestate.Entry { return all },
+		started: func(int) (time.Time, bool) { return time.Time{}, false },
+	}
+	pane := claudeStatePane{Sess: s, Conversation: "conv"}
+
+	// Only a conversation file: the status check may use it, the wake may not.
+	if _, found, ok := svc.ownEntry(pane); found || ok {
+		t.Error("a pane with no pid file of its own had one")
+	}
+	if e, ok := svc.entryFor(pane, func() []claudestate.Entry { return all }); !ok || e.Pid != 777 {
+		t.Errorf("the status check lost its conversation fallback: %+v %v", e, ok)
+	}
+	// The previous process of a restarted pane left its file; this process began later.
+	cur = &claudestate.Entry{Pid: s.Pid(), SessionID: "conv", Busy: false, Updated: s.StartedAt().Add(-time.Hour)}
+	if _, found, ok := svc.ownEntry(pane); !found || ok {
+		t.Errorf("a file from before this process began was taken: found=%v ok=%v", found, ok)
+	}
+	// A clear changes the session id under the pane.
+	cur = &claudestate.Entry{Pid: s.Pid(), SessionID: "before-the-clear", Updated: time.Now()}
+	if _, found, ok := svc.ownEntry(pane); !found || ok {
+		t.Errorf("a file for another session was taken: found=%v ok=%v", found, ok)
+	}
+	// And its own is taken.
+	cur = &claudestate.Entry{Pid: s.Pid(), SessionID: "conv", Updated: time.Now()}
+	if e, found, ok := svc.ownEntry(pane); !found || !ok || e.Pid != s.Pid() {
+		t.Errorf("the pane's own file was refused: %+v %v %v", e, found, ok)
+	}
+}

@@ -137,6 +137,22 @@ func (r *WakeRule) sameShape(o *WakeRule) bool {
 		slices.Equal(a.Footers, b.Footers) && slices.Equal(a.Forbid, b.Forbid)
 }
 
+// Forbidden reports whether the tail holds one of the rule's forbidden strings: a
+// question, a confirmation, an editor, a trust or login screen, or the hint an
+// agent shows while it works. It is the one part of the rule that says "not now"
+// without needing the screen to look like a prompt, and a nil rule forbids nothing.
+func (r *WakeRule) Forbidden(tail []string) bool {
+	if r == nil {
+		return false
+	}
+	lines := make([]string, len(tail))
+	for i, l := range tail {
+		lines[i] = strings.ToLower(l)
+	}
+	joined := strings.Join(strings.Fields(strings.Join(lines, " ")), " ")
+	return containsAnyOf(joined, foldAll(r.Forbid))
+}
+
 // Judge reads the tail of a pane's output, oldest line first with escape
 // sequences already removed, and says whether a line may be typed. When the
 // verdict is WakeOK the second result is the prompt line that was matched, as

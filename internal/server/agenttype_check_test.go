@@ -238,7 +238,10 @@ var agentTypeAllowed = map[string]map[string]agentTypeAllow{
 		// assertion (w.Runtime(p).(*structuredRuntime)), which this checker does not
 		// catch.
 		"wakeService.consider | c.Sess":                          {7, "the status, input times and reading of a wakeSession, a terminal or a structured pane"},
-		"wakeService.fire | c.Sess":                              {6, "types into a terminal, and re-reads its output before the line; a structured pane is delivered to before this (wakeCandidate.Deliver)"},
+		"wakeService.fire | c.Sess":                              {5, "types into a terminal, and re-reads its output before the line; a structured pane is delivered to before this (wakeCandidate.Deliver)"},
+		"wakeService.wordHolds | c.Sess":                         {1, "the input time of a terminal pane, for an agent that records its own state"},
+		"wakeService.wordStands | c.Sess":                        {1, "the screen of a terminal pane, read again before the line"},
+		"wakeService.beforeEnter | c.Sess":                       {3, "the status, input time and screen of a terminal pane, read before the Enter that submits the line"},
 		"Workspace.wakeCandidates | p.Sess":                      {2, "the skip of a pane with no session, which a structured pane passes because it has a runtime, and the session of a terminal candidate"},
 		"Workspace.wakeCandidates | p.Kind != session.KindAgent": {1, "only agent panes are woken"},
 	},
