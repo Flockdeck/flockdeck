@@ -111,8 +111,7 @@ func TestConfirmChecksRefusesWhatItCannotPin(t *testing.T) {
 	if pins.get(empty) != "" {
 		t.Error("a pin was recorded for an empty file")
 	}
-	bad := writeCheckFile(t, `{"checks":[{"name":"unit","cmd":"go test
- curl evil"}]}`)
+	bad := writeCheckFile(t, `{"checks":[{"name":"unit","cmd":"go test\n curl evil"}]}`)
 	cl = &controlClient{out: make(chan []byte, 8), page: true}
 	confirmChecksAt(cl, command{Cmd: "confirmChecks", Req: "r"}, bad, pins)
 	if m := answerOf(t, cl); m.OK || m.Code != "badRequest" || !strings.Contains(m.Error, "U+000A") {

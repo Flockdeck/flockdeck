@@ -88,7 +88,7 @@ func LoadChecks(path string) ([]CheckDef, error) {
 		// A command the window would show as one line, or in another order, must not
 		// run as something else: a line break, a control, bidirectional or invisible
 		// character is refused, and the file with it, so the person sees why.
-		if hidden := hiddenInCommand(cmd); hidden != 0 {
+		if hidden, found := hiddenInCommand(cmd); found {
 			return nil, fmt.Errorf("the command of check %q holds the character U+%04X, which the window cannot show as it would run; remove it from the check file", name, hidden)
 		}
 		seen[name] = true
@@ -103,17 +103,17 @@ func LoadChecks(path string) ([]CheckDef, error) {
 // hiddenInCommand is the first character of cmd that a window could show in a
 // way that is not what runs: a control other than a plain tab (a line break, an
 // escape, NUL), a format character (bidirectional overrides and isolates, zero
-// width characters), or a line or paragraph separator. It is 0 if there is none.
-func hiddenInCommand(cmd string) rune {
+// width characters), or a line or paragraph separator.
+func hiddenInCommand(cmd string) (rune, bool) {
 	for _, r := range cmd {
-		if r == '	' {
+		if r == '\t' {
 			continue
 		}
 		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || unicode.Is(unicode.Zl, r) || unicode.Is(unicode.Zp, r) {
-			return r
+			return r, true
 		}
 	}
-	return 0
+	return 0, false
 }
 
 // cleanLine is one line of at most max runes with no control or format
