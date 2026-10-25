@@ -288,8 +288,9 @@ func TestBuiltinRolesTellTheAgentToArmTheInboxStreamUnderMonitor(t *testing.T) {
 // Every shipped role is told to label its pane, and the manager to name the panes it starts.
 func TestBuiltinRolesAreToldToLabelTheirPanes(t *testing.T) {
 	for _, r := range BuiltinRoles() {
-		if !strings.Contains(r.Briefing, "pane-name") {
-			t.Errorf("role %q is not told to set its pane label", r.ID)
+		at := strings.Index(r.Briefing, paneLabelLine)
+		if at < 0 || at > 400 {
+			t.Errorf("role %q is not told to set its pane label in its first 400 characters (at %d)", r.ID, at)
 		}
 	}
 	for _, r := range BuiltinRoles() {

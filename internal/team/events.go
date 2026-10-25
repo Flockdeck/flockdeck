@@ -66,6 +66,14 @@ type Event struct {
 	// Unsubmitted is set when the line was typed but its Enter was not, so it
 	// may still sit in the pane's input box and the message was not marked woken.
 	Unsubmitted bool `json:"unsubmitted,omitempty"`
+	// Pid, SessionID, IdleSince and WordFrom belong to a wake allowed by an agent's
+	// own record of its state (Claude Code's session file): the process and
+	// session the file was about, when it said the agent went idle, and where it
+	// was found ("pid file").
+	Pid       int       `json:"pid,omitempty"`
+	SessionID string    `json:"sessionId,omitempty"`
+	IdleSince time.Time `json:"idleSince,omitzero"`
+	WordFrom  string    `json:"wordFrom,omitempty"`
 	// Old and New are the labels of a rename event, each at most MaxPaneLabel characters.
 	Old string `json:"old,omitempty"`
 	New string `json:"new,omitempty"`
@@ -106,6 +114,8 @@ func cleanWake(e *Event) {
 	e.Agent = CleanLine(e.Agent, maxWakeField)
 	e.Rule = CleanLine(e.Rule, maxWakeField)
 	e.RuleSource = CleanLine(e.RuleSource, maxWakeField)
+	e.SessionID = CleanLine(e.SessionID, maxWakeField)
+	e.WordFrom = CleanLine(e.WordFrom, maxWakeField)
 	e.Prompt = CleanLine(e.Prompt, MaxPromptLine)
 	e.Line = CleanLine(e.Line, MaxTextLine)
 }

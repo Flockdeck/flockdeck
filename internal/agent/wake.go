@@ -67,8 +67,9 @@ type WakeRule struct {
 	// rule that allowed it.
 	Version string `json:"version,omitempty"`
 	// Tested is set once a fixture taken from a real recording of the agent
-	// passes. A rule that is not tested never allows a wake: Judge turns its
-	// WakeOK into WakeUnknown. It can still say WakeNo, which is the safe way
+	// passes. A rule that is not tested never allows a wake by its screen reading:
+	// Judge turns its WakeOK into WakeUnknown. (A Claude pane is woken on the word
+	// in Claude's session file instead, which does not use this.) It can still say WakeNo, which is the safe way
 	// to be wrong. Merge takes it only from the catalog's own rule: an entry
 	// in agents.json cannot mark a built-in rule tested, because the file is
 	// not what proves a rule.
@@ -135,6 +136,22 @@ func (r *WakeRule) sameShape(o *WakeRule) bool {
 	return a.Version == b.Version && a.Boxed == b.Boxed && a.RequireFooter == b.RequireFooter &&
 		a.StatusLine == b.StatusLine && slices.Equal(a.Prompts, b.Prompts) &&
 		slices.Equal(a.Footers, b.Footers) && slices.Equal(a.Forbid, b.Forbid)
+}
+
+// Forbidden reports whether the tail holds one of the rule's forbidden strings: a
+// question, a confirmation, an editor, a trust or login screen, or the hint an
+// agent shows while it works. It is the one part of the rule that says "not now"
+// without needing the screen to look like a prompt, and a nil rule forbids nothing.
+func (r *WakeRule) Forbidden(tail []string) bool {
+	if r == nil {
+		return false
+	}
+	lines := make([]string, len(tail))
+	for i, l := range tail {
+		lines[i] = strings.ToLower(l)
+	}
+	joined := strings.Join(strings.Fields(strings.Join(lines, " ")), " ")
+	return containsAnyOf(joined, foldAll(r.Forbid))
 }
 
 // Judge reads the tail of a pane's output, oldest line first with escape
@@ -280,10 +297,17 @@ func borderOnly(l string) bool {
 	return seen
 }
 
+// The strings in Forbid are checked against the last session.ScreenTailLines (12)
+// lines of the pane, so a dialog taller than that is seen by its footer, which is
+// what the footer strings are for. "would you like", "enter to select" and "to
+// navigate" were found in the strings of Claude Code 2.1.310; "ready to proceed"
+// and "esc to exit" were not, and are not listed.
 // claudeWake is the rule for Claude Code. It is written from the documented
 // shape of its input, an empty prompt between two border lines with a hint
-// line under it, and not from a recording, so it is not yet tested and wakes
-// nothing.
+// line under it, and not from a recording, so it is not tested and allows no
+// wake by itself. A Claude pane is woken through the word in Claude's own
+// session file (workspace/wake.go), and this rule contributes only its Forbid
+// list, which stops a line being typed into a question or a dialog.
 func claudeWake() *WakeRule {
 	return &WakeRule{
 		Version:       "claude-code-untested-1",
@@ -295,7 +319,8 @@ func claudeWake() *WakeRule {
 		RequireFooter: true,
 		Forbid: []string{
 			"esc to interrupt", // the hint shown while it works
-			"do you want", "(y/n)", "enter to confirm", "esc to cancel",
+			"do you want", "would you like", "(y/n)", "enter to confirm", "esc to cancel",
+			"enter to select", "to navigate", // footers of Claude Code's own pickers and dialogs
 			"do you trust", "trust this folder",
 			"select login method", "press enter to continue",
 			"ctrl+g to edit", "-- insert --",

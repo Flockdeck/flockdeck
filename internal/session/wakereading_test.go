@@ -74,3 +74,23 @@ func TestWakeReadingOfTheShippedClaudeRuleIsUnknown(t *testing.T) {
 		}
 	}
 }
+
+// A dialog taller than the tail is still seen: its footer is the last line, so it is
+// always inside the lines the rule reads, even when it is the only forbidden text.
+func TestAFooterIsSeenOnADialogTallerThanTheTail(t *testing.T) {
+	s := fakeSession(newFakePTY())
+	s.wake = &agent.WakeRule{Version: "v1", Tested: true, Source: agent.RuleBuiltIn, Prompts: []string{">"}, Forbid: []string{"enter to select"}}
+	var out []byte
+	for i := 0; i < 3*ScreenTailLines; i++ {
+		out = append(out, []byte("  option line\r\n")...)
+	}
+	out = append(out, []byte("Enter to select · up/down to move")...)
+	s.publish(out)
+	r := s.WakeReading()
+	if len(r.Tail.Lines) > ScreenTailLines {
+		t.Fatalf("tail holds %d lines, more than %d", len(r.Tail.Lines), ScreenTailLines)
+	}
+	if !r.Forbidden {
+		t.Error("the footer of a tall dialog was not seen")
+	}
+}
