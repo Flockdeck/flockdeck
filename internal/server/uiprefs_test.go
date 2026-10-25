@@ -97,3 +97,44 @@ func TestHelloSaysThereAreUIPrefs(t *testing.T) {
 		t.Errorf("api = %+v", hello.API)
 	}
 }
+
+// What the person wrote into the interface's preferences is not sent to a window
+// reached through the relay, which has no goal tabs, and is not taken from one.
+func TestGoalTabNamesStayOnTheDesk(t *testing.T) {
+	ui := map[string]json.RawMessage{
+		"tabs":     json.RawMessage(`{"names":{"p1":"Ship the billing migration"}}`),
+		"fontSize": json.RawMessage(`15`),
+	}
+	prefs := store.Prefs{UI: ui}
+
+	remote := prefsFor(&controlClient{remote: true}, prefs)
+	if _, has := remote.UI["tabs"]; has {
+		t.Errorf("a relay window is sent the goal tab names: %v", remote.UI)
+	}
+	if string(remote.UI["fontSize"]) != "15" {
+		t.Errorf("a relay window lost its font size: %v", remote.UI)
+	}
+	if _, has := ui["tabs"]; !has {
+		t.Error("taking the names out for a relay window changed the desk's own preferences")
+	}
+	if local := prefsFor(&controlClient{}, prefs); string(local.UI["tabs"]) == "" {
+		t.Error("the desk's own window is not sent the goal tab names")
+	}
+
+	srv, _ := newTestServer(t)
+	c := &controlClient{remote: true, out: make(chan []byte, 8)}
+	srv.setUIPrefs(c, map[string]json.RawMessage{"tabs": json.RawMessage(`{"names":{"p1":"x"}}`)})
+	var n map[string]any
+	select {
+	case raw := <-c.out:
+		_ = json.Unmarshal(raw, &n)
+	default:
+		t.Fatal("a relay window that set the names was told nothing")
+	}
+	if n["type"] != "notice" || n["error"] != true || n["text"] != uiDeskOnly {
+		t.Errorf("notice = %v", n)
+	}
+	if saved := store.LoadPrefs(); len(saved.UI) != 0 {
+		t.Errorf("a relay window's goal tab names were kept: %v", saved.UI)
+	}
+}

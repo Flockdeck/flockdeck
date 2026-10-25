@@ -471,19 +471,18 @@ no pane has started.
 
 ### The Team panel
 
-[[action:team]] opens a sheet for the project on screen, with three tabs. It shows what the
-command line shows, and lets you steer from the window. It updates as the team works: a task
-that moves, a message that arrives and a pane that starts, stops or changes status appear
-without reopening it, and an open task, the text you are typing and your place in the list
-stay as they were.
+[[action:team]] opens a sheet for the project on screen, with three tabs: Tasks, Messages and
+Agents. It shows what the command line shows, and lets you steer from the window. It updates as
+the team works: a task that moves, a message that arrives and a pane that starts, stops or
+changes status appear without reopening it, and an open task, the text you are typing and your
+place in the list stay as they were.
 
-**Roster** lists every agent pane of the project with its role, name, agent and model, status,
-branch and its current task: the one in progress, else in review, else the first assigned. Click
-a row to go to the pane, or click its task to open it on the board. **Start an agent…** opens the
-agent picker with its Role control. **Close** and **Close finished** close panes that are idle or have
-exited; Close finished names them and asks first, and each pane is checked again as it closes, so one
-that has started working since the list was drawn is left open.
-With no agent running, the tab says what a team is and offers [[action:startTeam]].
+**Agents** lists every agent pane of the project with its name, role, what it is doing and how
+many messages it has not read. The graph shows the rest of a pane's detail. **Close** and
+**Close finished** close panes that are idle or have exited; Close finished names them and asks
+first, and each pane is checked again as it closes, so one that has started working since the
+list was drawn is left open. A pane locked against closing keeps its button disabled. To start
+an agent, use the agent picker; the sheet has no button for it.
 
 **Tasks** is the board, one column for each of planned, assigned, in progress, in review and
 done. In a window narrower than 900 pixels the columns are one list, grouped by state. Blocked and
