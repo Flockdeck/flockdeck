@@ -10,6 +10,7 @@ import { dirname, join } from "node:path";
 import { render } from "../src/vendor/preact.mjs";
 import { html } from "../src/html.js";
 import { Live } from "../src/shell/Live.js";
+import { PENDING_MS } from "../src/shell/Team.js";
 import {
   TEAM_RELAY_WORDS, addTaskCommand, assignCommand, boardOf, branchCommand, mergeTasks, noteCommand, pruneCommand, resultOf, resultWords, seenCommand,
   sendMessageCommand, statusCommand, taskGetCommand, taskOf, teamOf,
@@ -298,7 +299,13 @@ test("Team: opening a task asks for it, shows its notes and history, and the mov
     assert.equal(!!moves[1].disabled || moves[1].attributes.disabled !== undefined, true, "a move that needs a note waits for one");
     m.clear();
     await m.click(moves[0]);
-    assert.deepEqual(m.sent("taskStatus").map(({ req, ...c }) => c), [{ cmd: "taskStatus", root: "/work/a", id: "T1", state: "in-progress" }]);
+    const first = m.sent("taskStatus");
+    assert.deepEqual(first.map(({ req, ...c }) => c), [{ cmd: "taskStatus", root: "/work/a", id: "T1", state: "in-progress" }]);
+    // A move is sent one at a time: the next waits for this one's answer.
+    await m.type("#team-note", "no longer wanted");
+    await m.click(m.container.findAll(".team-move")[1]);
+    assert.equal(m.sent("taskStatus").length, 1, "a second move was sent before the first was answered");
+    await m.push({ type: "teamResult", op: "taskStatus", ok: true, req: reqOf(first), task: task({ state: "in-progress" }), told: 0 });
     await m.type("#team-note", "no longer wanted");
     m.clear();
     await m.click(m.container.findAll(".team-move")[1]);
@@ -333,6 +340,97 @@ test("Team: a task the person may not assign or edit has no controls for it, and
     assert.match(m.container.find("#team-problem").textContent, /only the manager may do that/);
     assert.equal(valueIn(m.container.find("#team-note")), "x", "what was typed is kept for another try");
   }));
+
+test("Team: a second click on Add task before the answer sends nothing more, and the button is ready after it", () =>
+  withPage({}, async (m) => {
+    await m.connect();
+    await m.key("Ctrl+Shift+M");
+    await m.push(teamPush({}));
+    await m.type("#team-new-title", "New thing");
+    m.clear();
+    await m.click(m.container.find("#team-add"));
+    await m.click(m.container.find("#team-add"));
+    const add = m.sent("taskAdd");
+    assert.equal(add.length, 1, "the task was added twice");
+    assert.equal(!!m.container.find("#team-add").disabled, true);
+    await m.push({ type: "teamResult", op: "taskAdd", ok: true, req: reqOf(add), task: task({ id: "T5" }), told: 0 });
+    await m.type("#team-new-title", "Another");
+    await m.click(m.container.find("#team-add"));
+    assert.equal(m.sent("taskAdd").length, 2);
+  }));
+
+// The 20 s wait that frees a send whose answer does not come, with setTimeout held so the test fires it.
+async function withHeldTimers(fn) {
+  const realSet = globalThis.setTimeout;
+  const realClear = globalThis.clearTimeout;
+  const held = new Map();
+  let id = 9000;
+  globalThis.setTimeout = (f, ms, ...rest) => {
+    if (ms !== PENDING_MS) return realSet(f, ms, ...rest);
+    held.set(++id, f);
+    return id;
+  };
+  globalThis.clearTimeout = (t) => (held.has(t) ? held.delete(t) : realClear(t));
+  try {
+    await fn(held);
+  } finally {
+    globalThis.setTimeout = realSet;
+    globalThis.clearTimeout = realClear;
+  }
+}
+
+test("Team: a send whose answer is lost frees its button after the wait", () =>
+  withHeldTimers((held) => withPage({}, async (m) => {
+    await m.connect();
+    await m.key("Ctrl+Shift+M");
+    await m.push(teamPush({}));
+    await m.type("#team-new-title", "New thing");
+    m.clear();
+    await m.click(m.container.find("#team-add"));
+    assert.equal(m.sent("taskAdd").length, 1);
+    assert.equal(!!m.container.find("#team-add").disabled, true, "it waits for the answer");
+    assert.equal(held.size, 1);
+    // The answer never comes: the wait ends.
+    for (const f of [...held.values()]) f();
+    held.clear();
+    await settle();
+    assert.equal(!!m.container.find("#team-add").disabled, false, "the button is ready again");
+    await m.click(m.container.find("#team-add"));
+    assert.equal(m.sent("taskAdd").length, 2);
+  })));
+
+test("Team: the wait is cleared by the answer, and by closing the dialog", () =>
+  withHeldTimers((held) => withPage({}, async (m) => {
+    await m.connect();
+    await m.key("Ctrl+Shift+M");
+    await m.push(teamPush({}));
+    await m.type("#team-new-title", "New thing");
+    await m.click(m.container.find("#team-add"));
+    const add = m.sent("taskAdd");
+    assert.equal(held.size, 1);
+    await m.push({ type: "teamResult", op: "taskAdd", ok: true, req: reqOf(add), task: task({ id: "T5" }), told: 0 });
+    assert.equal(held.size, 0, "an answered send holds no timer");
+    await m.type("#team-new-title", "Another");
+    await m.click(m.container.find("#team-add"));
+    assert.equal(held.size, 1);
+    await m.click(closeBtn(m));
+    assert.equal(m.container.find("#team-detail"), null);
+    assert.equal(held.size, 0, "a closed dialog holds no timer");
+  })));
+
+test("Team: a dropped connection frees the buttons at once, not after the wait", () =>
+  withHeldTimers((held) => withPage({}, async (m) => {
+    await m.connect();
+    await m.key("Ctrl+Shift+M");
+    await m.push(teamPush({}));
+    await m.type("#team-new-title", "New thing");
+    await m.click(m.container.find("#team-add"));
+    assert.equal(!!m.container.find("#team-add").disabled, true);
+    m.ws().drop();
+    await settle();
+    assert.equal(!!m.container.find("#team-add").disabled, false, "the answer went with the connection");
+    assert.equal(held.size, 0);
+  })));
 
 test("Team: adding a task, messaging, marking seen, the whole text, finished tasks and pruning", () =>
   withPage({}, async (m) => {

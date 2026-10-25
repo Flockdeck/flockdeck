@@ -10,6 +10,9 @@
 /** SHOWN_RECENT is how many recent projects are shown before "Show more". */
 export const SHOWN_RECENT = 8;
 
+/** NOT_SENT_WORDS is what a dialog says when the socket did not take its command, and it stays open so nothing typed is lost. */
+export const NOT_SENT_WORDS = "Not connected to Flockdeck, so that was not sent.";
+
 const text = (v) => (typeof v === "string" ? v : "");
 const count = (v) => (Number.isFinite(v) && v > 0 ? Math.floor(v) : 0);
 

@@ -45,6 +45,18 @@ export function Projects({ open, recents: recentsMsg, browse: browseMsg, root, s
   const [showArchived, setShowArchived] = useState(false);
   const [path, setPath] = useState(null);
   const [problem, setProblem] = useState("");
+  // Set when the socket did not take a command, so the dialog stays open with what was typed.
+  const [lost, setLost] = useState("");
+  const nameBox = useRef(null);
+  const tell = (cmd) => {
+    const ok = send(cmd) !== false;
+    setLost(ok ? "" : P.NOT_SENT_WORDS);
+    return ok;
+  };
+  // The name box takes the keyboard when a rename starts, and not again on each render.
+  useEffect(() => {
+    if (renaming && nameBox.current && nameBox.current.focus) nameBox.current.focus();
+  }, [renaming ? renaming.root + (renaming.open ? "|open" : "") : ""]);
 
   useEffect(() => {
     const el = rootRef.current;
@@ -70,8 +82,7 @@ export function Projects({ open, recents: recentsMsg, browse: browseMsg, root, s
     }
   };
   const go = (cmd) => {
-    send(cmd);
-    onClose();
+    if (tell(cmd)) onClose();
   };
   const toggle = (r) => {
     const next = new Set(expanded);
@@ -82,11 +93,13 @@ export function Projects({ open, recents: recentsMsg, browse: browseMsg, root, s
   const saveName = () => {
     if (!renaming) return;
     const current = (renaming.open ? open.find((p) => p.root === renaming.root) : (recents ? [...recents.recent, ...recents.archived].find((p) => p.root === renaming.root) : null));
-    if (!current || renaming.draft.trim() !== current.name) send(P.renameCommand(renaming.root, renaming.draft, renaming.open));
+    if (!current || renaming.draft.trim() !== current.name) {
+      if (!tell(P.renameCommand(renaming.root, renaming.draft, renaming.open))) return;
+    }
     setRenaming(null);
   };
   const startClose = (p) => {
-    if (P.closeWords(p).length === 0) send(P.closeCommand(p.root));
+    if (P.closeWords(p).length === 0) tell(P.closeCommand(p.root));
     else setClosing(p.root);
   };
   const target = path !== null ? path : browse ? browse.path : "";
@@ -100,7 +113,7 @@ export function Projects({ open, recents: recentsMsg, browse: browseMsg, root, s
     }
     setProblem("");
     if (adding) {
-      send(P.addRepoCommand(adding.root, folder));
+      if (!tell(P.addRepoCommand(adding.root, folder))) return;
       setExpanded(new Set(expanded).add(adding.root));
       setAdding(null);
     } else {
@@ -108,7 +121,7 @@ export function Projects({ open, recents: recentsMsg, browse: browseMsg, root, s
     }
   };
   const makeGroup = () => {
-    send(P.groupCommand(grouping.picked, grouping.name));
+    if (!tell(P.groupCommand(grouping.picked, grouping.name))) return;
     setExpanded(new Set([...expanded, ...grouping.picked]));
     setGrouping(null);
   };
@@ -117,7 +130,7 @@ export function Projects({ open, recents: recentsMsg, browse: browseMsg, root, s
   const nameEditor = (r) =>
     html`<span class="proj-edit">
       <input type="text" class="dialog-field proj-name-input" aria-label=${"New name for " + r.name} placeholder="Leave empty to use the folder's name" value=${renaming.draft}
-        ref=${(el) => el && el.focus && el.focus()}
+        ref=${nameBox}
         onInput=${(e) => setRenaming({ ...renaming, draft: e.target.value })}
         onKeyDown=${(e) => {
           if (e.key === LIST.accept) { e.preventDefault(); saveName(); }
@@ -129,7 +142,7 @@ export function Projects({ open, recents: recentsMsg, browse: browseMsg, root, s
 
   const rename = (r, isOpen) => html`<button type="button" class="dialog-btn" aria-label=${"Rename " + r.name} onClick=${() => setRenaming({ root: r.root, open: isOpen, draft: r.name })}>Rename</button>`;
   const archive = (r) => html`<button type="button" class="dialog-btn" aria-label=${(r.archived ? "Unarchive " : "Archive ") + r.name} title=${r.archived ? "Bring this project back among your other projects." : "Keep this project out of the way. " + NOTHING_ON_DISK + " An open project stays open."}
-    onClick=${() => send(P.archiveCommand(r.root, !r.archived))}>${r.archived ? "Unarchive" : "Archive"}</button>`;
+    onClick=${() => tell(P.archiveCommand(r.root, !r.archived))}>${r.archived ? "Unarchive" : "Archive"}</button>`;
 
   const openRow = (p, i) => {
     const multi = p.members.length > 1;
@@ -162,14 +175,14 @@ export function Projects({ open, recents: recentsMsg, browse: browseMsg, root, s
               ${open.length > 1 ? html`<button type="button" class="dialog-btn dialog-btn--danger" aria-label=${"Close " + p.name} title="Close this project. The agents running in it stop." onClick=${() => startClose(p)}>Close</button>` : null}
             </span>`}
         ${closing === p.root
-          ? html`<${Confirm} title=${"Close " + p.name + "?"} words=${P.closeWords(p)} label="Close project" onConfirm=${() => { setClosing(""); send(P.closeCommand(p.root)); }} onCancel=${() => setClosing("")} />`
+          ? html`<${Confirm} title=${"Close " + p.name + "?"} words=${P.closeWords(p)} label="Close project" onConfirm=${() => { if (tell(P.closeCommand(p.root))) setClosing(""); }} onCancel=${() => setClosing("")} />`
           : null}
         ${multi && expanded.has(p.root)
           ? html`<ul class="proj-members" aria-label=${"Directories of " + p.name}>
               ${p.members.map((m) => html`<li class="proj-member" key=${m.root}>
                 <button type="button" class="proj-member-go" onClick=${() => go(P.selectRepoCommand(m.root))}>${m.name}</button>
                 <span class="proj-path">${m.root}</span>
-                <button type="button" class="dialog-btn" aria-label=${"Remove " + m.name + " out of " + p.name} title=${"It stays open on its own. " + NOTHING_ON_DISK} onClick=${() => send(P.removeRepoCommand(m.root))}>Remove</button>
+                <button type="button" class="dialog-btn" aria-label=${"Remove " + m.name + " out of " + p.name} title=${"It stays open on its own. " + NOTHING_ON_DISK} onClick=${() => tell(P.removeRepoCommand(m.root))}>Remove</button>
               </li>`)}
             </ul>`
           : null}
@@ -180,7 +193,7 @@ export function Projects({ open, recents: recentsMsg, browse: browseMsg, root, s
     const editing = renaming && !renaming.open && renaming.root === r.root;
     const move = (d) => {
       const c = P.moveCommand(list, r.root, d);
-      if (c) send(c);
+      if (c) tell(c);
     };
     return html`
       <li key=${r.root} class=${"proj-row" + (r.exists ? "" : " is-missing")} data-root=${r.root}>
@@ -197,7 +210,7 @@ export function Projects({ open, recents: recentsMsg, browse: browseMsg, root, s
               <button type="button" class="dialog-btn" aria-label=${"Move " + r.name + " up"} disabled=${i <= 0} onClick=${() => move(-1)}>Up</button>
               <button type="button" class="dialog-btn" aria-label=${"Move " + r.name + " down"} disabled=${i >= list.length - 1} onClick=${() => move(1)}>Down</button>
               ${archive(r)}
-              <button type="button" class="dialog-btn" aria-label=${"Remove " + r.name + " from the list"} title=${"Remove this project from the list. " + NOTHING_ON_DISK} onClick=${() => send(P.removeCommand(r.root))}>Remove</button>
+              <button type="button" class="dialog-btn" aria-label=${"Remove " + r.name + " from the list"} title=${"Remove this project from the list. " + NOTHING_ON_DISK} onClick=${() => tell(P.removeCommand(r.root))}>Remove</button>
             </span>`}
       </li>`;
   };
@@ -222,6 +235,7 @@ export function Projects({ open, recents: recentsMsg, browse: browseMsg, root, s
               : html`<div class="proj-bar"><button type="button" id="group-start" class="dialog-btn" title="Pick two or more of the projects below to treat as one. Each agent is told about the other directories and the agents working in them."
                   onClick=${() => setGrouping({ picked: [], name: "" })}>Group open projects…</button></div>`
             : null}
+          ${lost ? html`<p class="dialog-note dialog-note--error" role="alert">${lost}</p>` : null}
           ${open.length === 0 ? html`<p class="dialog-note">No project is open.</p>` : null}
           <ul class="proj-list">${open.map((p, i) => openRow(p, i))}</ul>
         </section>
