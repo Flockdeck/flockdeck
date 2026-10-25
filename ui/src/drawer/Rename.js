@@ -49,7 +49,7 @@ export function Rename({ node, send }) {
   const submit = (e) => {
     e.preventDefault();
     const next = labelText(text);
-    go(next, next ? "Label saved" : "Label cleared");
+    go(next, next ? "Label sent" : "Label cleared");
   };
   const clear = () => {
     setText("");
@@ -60,10 +60,17 @@ export function Rename({ node, send }) {
       <label class="rename-label" for="rename-text">Label</label>
       <input id="rename-text" class="rename-input" type="text" value=${text}
         placeholder=${node.label && node.labelAuto ? node.label : node.name || "the work this pane is on"}
-        onInput=${(e) => { setText(Array.from(e.target.value).slice(0, LABEL_MAX).join("")); setDirty(true); }} />
+        onInput=${(e) => {
+          const cut = Array.from(e.target.value).slice(0, LABEL_MAX).join("");
+          // At the limit the state does not change, so the page would not redraw: the box is written to.
+          if (cut !== e.target.value) e.target.value = cut;
+          setText(cut);
+          setDirty(true);
+          setStatus({ text: "", error: false });
+        }} />
       <button type="submit" class="drawer-btn rename-save">Save</button>
       <button type="button" class="drawer-btn rename-clear" disabled=${!chosen} onClick=${clear}>Clear</button>
-      <span class=${"rename-status" + (status.error ? " rename-status--error" : "")} role=${status.error ? "alert" : "status"} aria-live="polite">${status.text}</span>
+      <span class=${"rename-status" + (status.error ? " rename-status--error" : "")} role="status" aria-live="polite">${status.text}</span>
     </form>
   `;
 }

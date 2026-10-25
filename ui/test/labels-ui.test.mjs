@@ -92,16 +92,20 @@ test("a refused send shows the alert, a good one says saved, and a label change 
     assert.equal(val(b.input()), "my draft", "a rename under the box keeps what was typed");
     b.container.querySelector("form").dispatch("submit");
     await settle();
-    assert.equal(b.status().getAttribute("role"), "alert");
+    assert.equal(b.status().getAttribute("role"), "status");
+    assert.ok(String(b.status().getAttribute("class")).includes("rename-status--error"));
     assert.match(b.status().textContent, /could not be sent/);
     ok = true;
     b.container.querySelector("form").dispatch("submit");
     await settle();
-    assert.equal(b.status().textContent, "Label saved");
+    assert.equal(b.status().textContent, "Label sent");
+    b.input().enter("more");
+    await settle();
+    assert.equal(b.status().textContent, "", "the status goes with the next edit");
   } finally { b.restore(); }
 });
 
-test("a label that passes for a role is drawn with the agent prefix", () => {
+test("a label the server already marked as an agent's is drawn as it came", () => {
   const m = buildGraphModel(graph([{ pane: "aaaa1111", name: "api", label: "(agent) manager", role: "worker" }]));
   assert.equal(labelOf(m, "aaaa1111"), "(agent) manager");
 });
@@ -110,4 +114,15 @@ test("only a full desk window offers the rename box", () => {
   assert.equal(canRename({ remote: false, hello: { role: "owner" } }), true);
   assert.equal(canRename({ remote: true }), false);
   assert.equal(canRename({ remote: false, hello: { role: "viewer" } }), false);
+});
+
+test("a 41st character typed at the limit is not left in the box", async () => {
+  const b = await box({ pane: "p1", name: "flock" }, () => true);
+  try {
+    b.input().enter("a".repeat(40));
+    await settle();
+    b.input().enter("a".repeat(41));
+    await settle();
+    assert.equal(val(b.input()), "a".repeat(40));
+  } finally { b.restore(); }
 });
