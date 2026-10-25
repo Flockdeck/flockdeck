@@ -8,6 +8,7 @@ import { renderToString } from "./vendor/render-to-string.mjs";
 import { html } from "../src/html.js";
 import { FileList, openByPath, statusWord } from "../src/drawer/diff/FileList.js";
 import { DiffViewer, effectiveLayout, sizeWords } from "../src/drawer/diff/DiffViewer.js";
+import { showControls } from "../src/drawer/diff/diffModel.js";
 import { createDom, install, settle } from "./dom.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -83,7 +84,7 @@ test("side by side and unified have their own tables, and a narrow container dra
   assert.match(view({ file: listing(hunksFile), hunks: hunksFile, layout: "split", narrow: true }), /dv-tbl--unified/);
 });
 
-test("the stylesheet keys the narrow layout on the main container", () => {
+test("the stylesheet keys the narrow layout on the viewer's own container", () => {
   const css = readFileSync(join(here, "..", "src", "drawer", "drawer.css"), "utf8");
   assert.match(css, /@container dv \(max-width: 680px\)\s*\{[^}]*\.dv-/);
   assert.doesNotMatch(css, /@container main[^{]*\{[^}]*\.dv-/, "the drawer is not inside the main column");
@@ -307,6 +308,65 @@ test("more rows move the keyboard to the first new row", async () => {
     const rows = box.findAll(".dv-row");
     assert.equal(dom.document.activeElement, rows[399], "the first row of the new page");
     assert.match(box.find(".dv-live").textContent, /rows shown\./);
+  } finally {
+    restore();
+  }
+});
+
+test("invisible and reordering characters are all shown, not just the bidi ones", () => {
+  const out = showControls("a\u200b\u00ad\ufeff\u2060b\u200d");
+  assert.equal(out, "a<U+200B><U+00AD><U+FEFF><U+2060>b<U+200D>");
+});
+
+test("a first line with no number does not leave every + out of the tab order", async () => {
+  const reply = { path: "a", hunks: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 2, header: "", lines: [{ t: "ctx", text: "a" }, { t: "add", text: "b", newNo: 2 }] }], totalLines: 2 };
+  const dom = createDom();
+  const restore = install(dom);
+  try {
+    const box = dom.document.createElement("div");
+    dom.body.appendChild(box);
+    render(html`<${DiffViewer} file=${{ path: "a", status: "M" }} hunks=${reply} onComment=${() => {}} />`, box);
+    await settle();
+    assert.deepEqual(box.findAll(".dv-plus").map((b) => b.getAttribute("tabindex")), ["0"]);
+  } finally {
+    restore();
+  }
+});
+
+test("in split view Up and Down stay in the old or new column, and a failed read is said once", async () => {
+  const dom = createDom();
+  const restore = install(dom);
+  try {
+    const box = dom.document.createElement("div");
+    dom.body.appendChild(box);
+    render(html`<${DiffViewer} file=${listing(hunksFile)} hunks=${hunksFile} layout="split" narrow=${false} onComment=${() => {}} />`, box);
+    await settle();
+    const rid = (b) => b.getAttribute("data-rid");
+    const right = box.findAll(".dv-plus").filter((b) => rid(b).endsWith(":r"));
+    right[0].focus();
+    press(right[0], "ArrowDown");
+    assert.equal(dom.document.activeElement, right[1], "stayed in the new column");
+    render(html`<${DiffViewer} file=${listing(failed)} hunks=${failed} />`, box);
+    await settle();
+    assert.equal(box.find(".dv-live").textContent, "", "the alert says it; the status line does not repeat it");
+    assert.ok(box.find('[role="alert"]'));
+  } finally {
+    restore();
+  }
+});
+
+test("a viewer that first mounts with no file draws once the file arrives, narrow as asked", async () => {
+  const dom = createDom();
+  const restore = install(dom);
+  try {
+    const box = dom.document.createElement("div");
+    dom.body.appendChild(box);
+    render(html`<${DiffViewer} file=${null} hunks=${null} />`, box);
+    await settle();
+    render(html`<${DiffViewer} file=${listing(hunksFile)} hunks=${hunksFile} layout="split" narrow=${true} />`, box);
+    await settle();
+    assert.ok(box.find(".dv-tbl--unified"));
+    assert.equal(box.find(".dv-tbl--split"), null, "narrow draws unified");
   } finally {
     restore();
   }
