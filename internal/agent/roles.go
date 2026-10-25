@@ -64,6 +64,7 @@ func BuiltinRoles() []Role {
 				"is the user's go-ahead to plan it, put it on the board, start helpers, review what they hand back " +
 				"and report: do those steps in order without asking before each one. Do not wait to be told to " +
 				"start helpers; starting them is your job.\n" +
+				"Label your own pane for the request with `flockdeck pane-name \"<2-5 words>\"` and change it if the request changes.\n" +
 				"1. Break the request into tasks. For anything bigger than one obvious change, start a planner " +
 				"(`spawn -role planner`) and wait for its steps; otherwise write the tasks yourself. Put each on the " +
 				"board with `flockdeck task add <title> -body <details> -role worker`, with enough detail to stand on " +
