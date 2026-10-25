@@ -23,6 +23,7 @@
 // The text on a card is what an agent, a tool or a file said. It is drawn as
 // text and never as markup.
 import { useEffect, useRef, useState } from "../vendor/hooks.mjs";
+import { isViewer, VIEWER_WORDS } from "../lib/role.js";
 import { html } from "../html.js";
 import { clip } from "../graph/Node.js";
 import { ManagerBar } from "../graph/ManagerBar.js";
@@ -100,7 +101,7 @@ function PermissionBody({ permission }) {
 // the keys are written to the socket, and "sent" after; keys lost on the way (a
 // sealed frame that could not be sealed, a socket that closed) put the buttons
 // back and say so.
-function TerminalPermission({ permission, sendKeys, waitMs = ANSWER_WAIT_MS }) {
+function TerminalPermission({ permission, sendKeys, waitMs = ANSWER_WAIT_MS, viewer = false }) {
   const [sent, setSent] = useState(null); // { name, written }
   const [note, setNote] = useState("");
   // Set at the click, not at the render after it: three clicks before the card
@@ -121,7 +122,7 @@ function TerminalPermission({ permission, sendKeys, waitMs = ANSWER_WAIT_MS }) {
     return () => clearTimeout(t);
   }, [written, waitMs]);
   const choose = (opt) => {
-    if (busy.current) return;
+    if (busy.current || viewer) return;
     const token = {};
     busy.current = token;
     const name = opt.name || opt.id;
@@ -147,10 +148,10 @@ function TerminalPermission({ permission, sendKeys, waitMs = ANSWER_WAIT_MS }) {
     <${PermissionBody} permission=${permission} />
     ${options.length > 0
       ? html`<div class="prompt-choices" role="group" aria-label="Choices">
-          ${options.map((o) => html`<button type="button" class=${"prompt-choice prompt-choice--" + String(o.kind || "")} data-option=${o.id} disabled=${!!sent} onClick=${() => choose(o)}>${clip(o.name || o.id, 80)}</button>`)}
+          ${options.map((o) => html`<button type="button" class=${"prompt-choice prompt-choice--" + String(o.kind || "")} data-option=${o.id} disabled=${!!sent || viewer} onClick=${() => choose(o)}>${clip(o.name || o.id, 80)}</button>`)}
         </div>`
       : html`<p class="prompt-more">${IN_TERMINAL_WORDS}</p>`}
-    <p class=${"prompt-status" + (note ? " prompt-status--error" : "")} role=${note ? "alert" : "status"}>${sent ? (sent.written ? "Sent “" + clip(sent.name, 80) + "”. Waiting for the agent." : "Sending “" + clip(sent.name, 80) + "”…") : note}</p>
+    <p class=${"prompt-status" + (note ? " prompt-status--error" : "")} role=${note ? "alert" : "status"}>${viewer ? VIEWER_WORDS : sent ? (sent.written ? "Sent “" + clip(sent.name, 80) + "”. Waiting for the agent." : "Sending “" + clip(sent.name, 80) + "”…") : note}</p>
   `;
 }
 
@@ -248,7 +249,7 @@ export function Prompt({ node, pane = null, snap, store, sendKeys, terminal = tr
     const p = pane.permission;
     id = idOf("p", p.tool, p.command, p.file, p.summary, pane.statusSince);
     title = "Permission: " + (p.tool || "tool");
-    body = html`<${TerminalPermission} key=${id} permission=${p} sendKeys=${sendKeys} waitMs=${waitMs} />`;
+    body = html`<${TerminalPermission} key=${id} permission=${p} sendKeys=${sendKeys} waitMs=${waitMs} viewer=${isViewer(snap)} />`;
   } else if (kind === "ask") {
     id = idOf("a", pane.statusSince, pane.ask.questions.map((q) => q.question).join("\u0002"));
     title = "Question";

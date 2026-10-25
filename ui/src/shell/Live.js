@@ -59,6 +59,7 @@ import { openOf, selectCommand } from "../lib/projects.js";
 import { askPermission, noteOf, permissionOf, raise, showAttention, waitingCount, waitsOf, watchPresence } from "../lib/attention.js";
 import { Toasts, addToasts, keepWaiting } from "./Toasts.js";
 import { viewOf } from "../lib/remote.js";
+import { isViewer, VIEWER_WORDS } from "../lib/role.js";
 
 // What the shell is given before the first hello and state. Constants, so the
 // shell does not take them for a change on every render.
@@ -240,6 +241,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
   const noticeSeq = snap.notice ? snap.notice.seq : 0;
   const noticeText = local || (snap.notice && noticeSeq > dismissed ? String(snap.notice.text || "") : "");
   const say = (text) => setLocal(text);
+  const viewer = isViewer(snap);
 
   // The settings: the desktop's, with this window's own changes over them until
   // the desktop answers. A change it refuses (a viewer's) is answered with a
@@ -277,6 +279,10 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
   // change sends one setting and shows it now. It answers whether the value
   // was one the desktop would keep.
   const change = (name, value) => {
+    if (viewer) {
+      say(VIEWER_WORDS);
+      return false;
+    }
     const s = setting(name, value, { ...(kept_prefs || {}), ...latestOf(patch) }, capsOf(kept.current.hello));
     if (!s) return false;
     send(s.command);
@@ -505,12 +511,12 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
   const decisionCtx = current
     ? {
         snap,
-        store: snap.remote ? null : store,
+        store: snap.remote || viewer ? null : store,
         panes: new Map(Object.entries(statePanes || {})),
         manager: managerOf(current),
         onOpen: drawer.open,
         onSee: (p) => { drawer.open(p); setTabAsk((a) => ({ tab: "changes", n: a.n + 1, pane: p })); },
-        onRestart: snap.remote ? null : (p) => { const n = current.byPane.get(p); if (n) life.begin("restart", n, (statePanes || {})[p] || null); },
+        onRestart: snap.remote || viewer ? null : (p) => { const n = current.byPane.get(p); if (n) life.begin("restart", n, (statePanes || {})[p] || null); },
       }
     : null;
   const bar = current && !snap.graphGone && managerOf(current)
@@ -595,8 +601,8 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     settings: () => openSettings("general"),
     apiKeys: () => openSettings("keys"),
     remote: () => openSettings("remote"),
-    helpers: () => (snap.remote ? say(HELPER_RELAY_WORDS) : setHelpersOpen(true)),
-    team: () => (snap.remote ? say(TEAM_RELAY_WORDS) : setTeamOpen(true)),
+    helpers: () => (snap.remote ? say(HELPER_RELAY_WORDS) : viewer ? say(VIEWER_WORDS) : setHelpersOpen(true)),
+    team: () => (snap.remote ? say(TEAM_RELAY_WORDS) : viewer ? say(VIEWER_WORDS) : setTeamOpen(true)),
     agents: () => setAgentsOpen(true),
     worktrees: () => setWorktreesOpen(true),
     makeBaton: needPane(() => {
@@ -611,9 +617,9 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     fontDown: () => bumpFont(prefs.fontSize - 1),
     fontReset: () => bumpFont(FONT_DEFAULT),
     newAgentTab: () => startTab(newTabCommand({ kind: "agent" })),
-    newAgentTabChoose: () => setStarting("agent"),
+    newAgentTabChoose: () => (viewer ? say(VIEWER_WORDS) : setStarting("agent")),
     newShellTab: () => startTab(newTabCommand({ kind: "shell" })),
-    startTeam: () => setStarting("team"),
+    startTeam: () => (viewer ? say(VIEWER_WORDS) : setStarting("team")),
     selectTab: (n) => {
       const t = goal.tabs[(n || 0) - 1];
       if (!t) return say("There is no tab " + n + ".");
@@ -626,7 +632,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     moveTabLeft: () => tabDo.step(activeTab, -1),
     moveTabRight: () => tabDo.step(activeTab, 1),
     detach: () => (snap.remote ? say(RELAY_WORDS) : send({ cmd: "detach" })),
-    quit: () => (snap.remote ? say(RELAY_WORDS) : setQuitAsk(true)),
+    quit: () => (snap.remote ? say(RELAY_WORDS) : viewer ? say(VIEWER_WORDS) : setQuitAsk(true)),
     history: () => (snap.remote ? say(HISTORY_REMOTE_WORDS) : setHistoryOpen(true)),
     findPane: () => (snap.remote ? say(DESK_FILES_WORDS) : setFindingPane(true)),
     paneInfo: openInfo,
@@ -751,13 +757,13 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     onDismissNotice=${() => { setLocal(""); setDismissed(noticeSeq); }}
     drawer=${node
       ? html`<${Drawer} store=${store} snap=${snap} node=${node} pane=${pane} now=${Date.now()} maximised=${drawer.maximised}
-          onClose=${drawer.close} onToggleMax=${drawer.toggleMax} terminalOptions=${termProps} life=${life}
-          tx=${tx} onInfo=${openInfo} findAsk=${findAsk} tabAsk=${tabAsk} onOpenPane=${drawer.open} order=${order} helpers=${helperNames} layout=${orient} onLayout=${toggleLayout} onStartTeam=${snap.remote ? null : () => setStarting("team")} />`
+          onClose=${drawer.close} onToggleMax=${drawer.toggleMax} terminalOptions=${termProps} life=${viewer ? null : life}
+          tx=${tx} onInfo=${openInfo} findAsk=${findAsk} tabAsk=${tabAsk} onOpenPane=${drawer.open} order=${order} helpers=${helperNames} layout=${orient} onLayout=${toggleLayout} onStartTeam=${snap.remote || viewer ? null : () => setStarting("team")} />`
       : null}
   >${snap.state
       ? html`<${GoalStrip} tabs=${goal.tabs} archived=${goal.archived} active=${activeTab} onSelect=${showTab}
           onRename=${tabDo.rename} onArchive=${tabDo.archive} onRestore=${tabDo.restore} onMove=${tabDo.move} onStep=${tabDo.step} canStep=${(id, dir) => canStep(goal.tabs, id, dir)}
-          onStartTeam=${snap.remote ? null : () => setStarting("team")}
+          onStartTeam=${snap.remote || viewer ? null : () => setStarting("team")}
           onNewAgent=${() => startTab(newTabCommand({ kind: "agent" }))} onChoose=${() => setStarting("agent")} onNewShell=${() => startTab(newTabCommand({ kind: "shell" }))}
           onHistory=${snap.remote ? null : () => setHistoryOpen(true)} onFind=${snap.remote ? null : () => setFindingPane(true)} />
         <${ViewBar} view=${view} views=${views} onView=${chooseView} />`
@@ -766,7 +772,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
      <div class=${"home-split" + (showFeed ? " home-split--feed" : "")}>
       <div class="home-col">
       <${Home} snap=${snap} selected=${selected} onShown=${setShown} onOpen=${drawer.open} open=${drawer.pane} narrow=${narrow} send=${snap.remote ? null : send}
-        onStartTeam=${snap.remote ? null : () => setStarting("team")}
+        onStartTeam=${snap.remote || viewer ? null : () => setStarting("team")}
         onSeeChanges=${(p) => { drawer.open(p); setTabAsk((a) => ({ tab: "changes", n: a.n + 1, pane: p })); }} />
       </div>
       ${showFeed ? html`<${Feed} feed=${feed} onFocus=${goTo} />` : null}
@@ -790,7 +796,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
       : null}
     ${view === "board"
       ? html`<${Board} team=${snap.team} remote=${!!snap.remote} gone=${snap.teamGone ? snap.teamGone.error || "This project can no longer be read." : ""}
-          onOpenPane=${drawer.open} onTeam=${() => setTeamOpen(true)} />`
+          onOpenPane=${drawer.open} onTeam=${viewer ? null : () => setTeamOpen(true)} />`
       : null}
     ${view === "changes"
       ? html`<${ChangesView} nodes=${current ? current.nodes : []} statePanes=${statePanes} openPane=${drawer.pane} snap=${snap} store=${store} />`

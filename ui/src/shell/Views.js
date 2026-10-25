@@ -52,7 +52,7 @@ export function Board({ team: teamMsg, gone = "", remote = false, onOpenPane, on
   return html`<div class="view view--board">
     <div class="view-head">
       <h2 class="view-title">Board <span class="view-count">${team.tasks.length === 1 ? "1 task" : team.tasks.length + " tasks"}</span></h2>
-      <button type="button" class="view-btn board-manage" onClick=${onTeam}>Add and manage tasks…</button>
+      ${onTeam ? html`<button type="button" class="view-btn board-manage" onClick=${onTeam}>Add and manage tasks…</button>` : null}
     </div>
     ${team.boardError ? html`<p class="view-note" role="alert">${team.boardError}</p>` : null}
     ${team.tasks.length === 0 && !team.boardError ? html`<p class="view-note board-empty">No tasks yet.</p>` : null}
