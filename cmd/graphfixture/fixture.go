@@ -23,8 +23,10 @@ type fixture struct {
 	name string
 	raw  []byte
 	team []byte // NAME.team.json: the team message teamWatch is answered with, or nil
-	root string
-	proj string
+	// script is NAME.script.json: what is pushed after the first graphWatch, once.
+	script []scriptStep
+	root   string
+	proj   string
 	// nodes are the panes of the graph, in the order the file has them.
 	nodes []fixtureNode
 	// needs are the items the graph says need the person, by pane: the
@@ -80,7 +82,7 @@ func fixtureNames(dir string) ([]string, error) {
 	}
 	var out []string
 	for _, e := range ents {
-		if n, ok := strings.CutSuffix(e.Name(), ".json"); ok && !e.IsDir() && !strings.HasSuffix(n, ".team") {
+		if n, ok := strings.CutSuffix(e.Name(), ".json"); ok && !e.IsDir() && !strings.HasSuffix(n, ".team") && !strings.HasSuffix(n, ".script") {
 			out = append(out, n)
 		}
 	}
@@ -135,6 +137,9 @@ func loadFixture(dir, which string) (*fixture, error) {
 	}
 	fx := &fixture{name: name, raw: raw, root: g.Root, proj: g.Project, nodes: g.Nodes}
 	// A team push (tasks) the page asks for with teamWatch, when the fixture has one beside it.
+	if err := fx.loadScript(dir, name); err != nil {
+		return nil, err
+	}
 	if team, err := os.ReadFile(filepath.Join(dir, name+".team.json")); err == nil {
 		fx.team = team
 	}
@@ -201,4 +206,37 @@ func helloMsg() map[string]any {
 		keys[i] = keyView{Key: k}
 	}
 	return map[string]any{"type": "hello", "keys": keys, "prefs": map[string]any{"helpSeen": true}}
+}
+
+// scriptStep is one step of a script: after AfterMs (from the step before) the
+// graph message in File is pushed as it is, or, with Drop, the socket is closed.
+// File messages may be older than what was shown (a stale or out-of-order push).
+type scriptStep struct {
+	AfterMs int    `json:"afterMs"`
+	File    string `json:"file"`
+	Drop    bool   `json:"drop"`
+	raw     []byte
+}
+
+// loadScript reads NAME.script.json beside the fixture, if there is one, and the files it names.
+func (fx *fixture) loadScript(dir, name string) error {
+	data, err := os.ReadFile(filepath.Join(dir, name+".script.json"))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if err := json.Unmarshal(data, &fx.script); err != nil {
+		return fmt.Errorf("%s.script.json: %w", name, err)
+	}
+	for i, st := range fx.script {
+		if st.File == "" {
+			continue
+		}
+		if fx.script[i].raw, err = os.ReadFile(filepath.Join(dir, filepath.Base(st.File))); err != nil {
+			return err
+		}
+	}
+	return nil
 }

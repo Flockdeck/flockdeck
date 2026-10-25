@@ -616,3 +616,67 @@ func TestStructuredPaneGetsNeitherView(t *testing.T) {
 		})
 	}
 }
+
+// A fixture with a NAME.script.json pushes its steps after the first graphWatch,
+// a graph message as written and then a dropped socket, and does it only once.
+func TestAScriptIsPlayedOnceAfterTheFirstGraphWatch(t *testing.T) {
+	const name = "01-six-helpers-one-permission"
+	dir := t.TempDir()
+	src, err := os.ReadFile(filepath.Join(fixtureDir(t), name+".json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	later := bytes.Replace(src, []byte(`"project"`), []byte(`"project": "later", "was"`), 1)
+	for f, data := range map[string][]byte{
+		name + ".json":        src,
+		"later.json":          later,
+		name + ".script.json": []byte(`[{"afterMs":5,"file":"later.json"},{"afterMs":5,"drop":true}]`),
+	} {
+		if err := os.WriteFile(filepath.Join(dir, f), data, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fx, err := loadFixture(dir, name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if names, _ := fixtureNames(dir); len(names) != 2 || names[0] == name+".script" {
+		t.Fatalf("the script is listed as a fixture: %v", names)
+	}
+	s := &fixtureServer{fx: fx, files: webui.FS(), token: "tok"}
+	ts := httptest.NewServer(s.handler())
+	defer ts.Close()
+	c := dial(t, ts.URL, s.token)
+	c.read()
+	c.read()
+	c.send(map[string]any{"cmd": "graphWatch", "req": "g1"})
+	if got := c.readRaw(); !bytes.Equal(got, compact(t, fx.raw)) {
+		t.Fatalf("graphWatch is not answered with the fixture as written: %.120s", got)
+	}
+	if got := c.readRaw(); !bytes.Equal(got, compact(t, later)) {
+		t.Fatalf("the first step is not the later graph: %s", got)
+	}
+	if _, _, err := c.conn.Read(c.ctx); err == nil {
+		t.Fatal("the socket was not dropped")
+	}
+	c2 := dial(t, ts.URL, s.token)
+	c2.read()
+	c2.read()
+	c2.send(map[string]any{"cmd": "graphWatch", "req": "g2"})
+	c2.readRaw()
+	ctx, cancel := context.WithTimeout(c2.ctx, 300*time.Millisecond)
+	defer cancel()
+	if _, _, err := c2.conn.Read(ctx); err == nil {
+		t.Fatal("the script ran again on the second connection")
+	}
+}
+
+// compact is a message as the socket writes it: JSON with no spaces between tokens.
+func compact(t *testing.T, raw []byte) []byte {
+	t.Helper()
+	var b bytes.Buffer
+	if err := json.Compact(&b, raw); err != nil {
+		t.Fatal(err)
+	}
+	return b.Bytes()
+}
