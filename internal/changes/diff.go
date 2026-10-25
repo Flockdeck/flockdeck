@@ -3,10 +3,11 @@ package changes
 import (
 	"context"
 	"errors"
-	"os"
+	"log"
 	"path"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strconv"
 	"strings"
 	"unicode"
@@ -25,6 +26,8 @@ const (
 	maxContextFile = 8 << 20
 	// maxIntraTokens bounds the word diff of one pair of lines.
 	maxIntraTokens = 400
+	// maxIntraCells bounds the word diffs of one diff: all the tables together.
+	maxIntraCells = 4 << 20
 	// wholeFile is the context that shows a whole file.
 	wholeFile = 100_000_000
 )
@@ -114,7 +117,9 @@ func CleanPath(p string) (string, bool) {
 	if p == "" || len(p) > 4096 || strings.ContainsRune(p, 0) {
 		return "", false
 	}
-	p = strings.ReplaceAll(p, "\\", "/")
+	if runtime.GOOS == "windows" {
+		p = strings.ReplaceAll(p, "\\", "/")
+	}
 	if strings.HasPrefix(p, "/") || filepath.VolumeName(p) != "" || (len(p) > 1 && p[1] == ':') {
 		return "", false
 	}
@@ -146,7 +151,7 @@ func checkedFile(ctx context.Context, pane, cwd, file string) (Branch, File, *Re
 	if !ok {
 		return Branch{}, File{}, badRequest("file is not a path inside the checkout")
 	}
-	b := Read(ctx, pane, cwd, 0)
+	b := cachedBranch(ctx, pane, cwd)
 	if b.Error != "" {
 		return b, File{}, &Refusal{Code: "noBranch", Msg: b.Error}
 	}
@@ -178,7 +183,11 @@ func Diff(ctx context.Context, pane, cwd string, req DiffRequest) (DiffHunks, *R
 		return DiffHunks{}, ref
 	}
 	out := DiffHunks{Pane: pane, Path: f.Path, OldPath: f.OldPath, Against: against, HeadSha: b.HeadSha, Hunks: []Hunk{}}
-	fail := func(msg string) (DiffHunks, *Refusal) {
+	fail := func(msg string, err error) (DiffHunks, *Refusal) {
+		if err != nil {
+			// What git said can hold paths of this machine; it goes to the log and not to the window.
+			log.Printf("changes: the diff of %s in pane %s failed: %v", f.Path, pane, firstLine(err.Error()))
+		}
 		return DiffHunks{Pane: pane, Path: f.Path, Hunks: []Hunk{}, Error: msg}, nil
 	}
 
@@ -192,12 +201,16 @@ func Diff(ctx context.Context, pane, cwd string, req DiffRequest) (DiffHunks, *R
 			untracked = true
 		}
 	}
+	if against != "head" && !parentsArePlain(cwd, f.Path) {
+		// git would read the working tree through a link, out of the checkout.
+		return DiffHunks{}, badRequest("file is not a path inside the checkout")
+	}
 	if against != "head" {
 		// The new side is the working tree. It is the head's own only when this
 		// file has no uncommitted change.
 		out.Worktree = untracked
 		if !untracked {
-			if o, err := git(ctx, cwd, append([]string{"diff", "--name-only", "-z", "--no-ext-diff", "HEAD", "--"}, paths...)...); err == nil && strings.ReplaceAll(o, "\x00", "") != "" {
+			if o, err := git(ctx, cwd, append([]string{"diff", "--name-only", "-z", "--no-ext-diff", "--end-of-options", b.HeadSha, "--"}, paths...)...); err == nil && strings.ReplaceAll(o, "\x00", "") != "" {
 				out.Worktree = true
 			}
 		}
@@ -205,6 +218,16 @@ func Diff(ctx context.Context, pane, cwd string, req DiffRequest) (DiffHunks, *R
 
 	if f.Binary {
 		out.Binary, out.SizeBefore, out.SizeAfter = true, f.SizeBefore, f.SizeAfter
+		if against == "head" {
+			// The sizes of the file are for the merge base against the working tree; a
+			// committed diff has the sizes of the two commits.
+			old := f.Path
+			if f.OldPath != "" {
+				old = f.OldPath
+			}
+			out.SizeBefore = blobSize(ctx, cwd, b.BaseSha, old)
+			out.SizeAfter = blobSize(ctx, cwd, b.HeadSha, f.Path)
+		}
 		zero := 0
 		out.TotalLines = &zero
 		return out, nil
@@ -215,7 +238,7 @@ func Diff(ctx context.Context, pane, cwd string, req DiffRequest) (DiffHunks, *R
 	case untracked:
 		var binary bool
 		var size int64
-		text, binary, size = syntheticAdd(filepath.Join(cwd, filepath.FromSlash(f.Path)), f.Path)
+		text, binary, size = syntheticAdd(cwd, f.Path)
 		if binary {
 			out.Binary = true
 			out.SizeAfter = &size
@@ -226,33 +249,39 @@ func Diff(ctx context.Context, pane, cwd string, req DiffRequest) (DiffHunks, *R
 	case against == "head" && f.Status == "A" && !tracked(ctx, cwd, f.Path):
 		// Added in the working tree only: nothing is committed.
 	default:
-		args := []string{"diff", "-M", "-U" + strconv.Itoa(contextArg(n)), "--no-color", "--no-ext-diff", "--no-textconv"}
+		flags := []string{"-M", "-U" + strconv.Itoa(contextArg(n)), "--no-color", "--no-ext-diff", "--no-textconv"}
 		if req.IgnoreWhitespace {
-			args = append(args, "-w")
+			flags = append(flags, "-w")
 		}
+		var revs []string
 		switch against {
 		case "worktree":
-			args = append(args, "HEAD")
+			revs = []string{b.HeadSha}
 		case "head":
-			args = append(args, b.BaseSha, "HEAD")
+			revs = []string{b.BaseSha, b.HeadSha}
 		default:
-			args = append(args, b.BaseSha)
+			revs = []string{b.BaseSha}
 		}
-		args = append(append(args, "--"), paths...)
-		o, err := git(ctx, cwd, args...)
+		build := func(extra ...string) []string {
+			a := append([]string{"diff"}, flags...)
+			a = append(a, extra...)
+			a = append(a, "--end-of-options")
+			a = append(a, revs...)
+			a = append(a, "--")
+			return append(a, paths...)
+		}
+		o, err := git(ctx, cwd, build()...)
 		if errors.Is(err, gitx.ErrTooLarge) {
-			return fail("the diff is too large to read")
+			return fail("the diff is too large to read", nil)
 		}
 		if err != nil {
-			return fail("could not read the diff: " + firstLine(err.Error()))
+			return fail("could not read the diff", err)
 		}
 		text = o
 		if strings.TrimSpace(text) != "" && !req.IgnoreWhitespace && strings.Contains(text, "\r") {
-			cr := append([]string{}, args[:len(args)-len(paths)-1]...)
-			cr = append(cr, "--ignore-cr-at-eol", "--")
-			cr = append(cr, paths...)
-			// Only the shape matters here, so the context is the smallest.
-			if o2, err := git(ctx, cwd, cr...); err == nil && len(parseUnified(o2, 0, 0).hunks) == 0 && len(parseUnified(text, 0, 0).hunks) > 0 {
+			// The same diff, with a carriage return before a line end not counted: when
+			// that leaves nothing, the file changed only in its line endings.
+			if o2, err := git(ctx, cwd, build("--ignore-cr-at-eol")...); err == nil && len(parseUnified(o2, 0, 0).hunks) == 0 && len(parseUnified(text, 0, 0).hunks) > 0 {
 				out.EolChange = true
 				zero := 0
 				out.TotalLines = &zero
@@ -271,7 +300,7 @@ func Diff(ctx context.Context, pane, cwd string, req DiffRequest) (DiffHunks, *R
 	if p.cut {
 		out.Truncated = &Truncated{Lines: p.keptLines, Bytes: p.keptBytes}
 	}
-	markIntra(out.Hunks)
+	markIntra(ctx, out.Hunks)
 	return out, nil
 }
 
@@ -289,28 +318,9 @@ func contextArg(n int) int {
 }
 
 // syntheticAdd is the diff of a file git does not know yet: all of it added.
-func syntheticAdd(abs, rel string) (text string, binary bool, size int64) {
-	fi, err := os.Lstat(abs)
-	if err != nil {
-		return "", false, 0
-	}
-	size = fi.Size()
-	var data []byte
-	switch {
-	case fi.Mode()&os.ModeSymlink != 0:
-		target, err := os.Readlink(abs)
-		if err != nil {
-			return "", false, size
-		}
-		data = []byte(target + "\n")
-	case fi.Mode().IsRegular():
-		if fi.Size() > maxContextFile {
-			return "", false, size
-		}
-		if data, err = os.ReadFile(abs); err != nil {
-			return "", false, size
-		}
-	default:
+func syntheticAdd(cwd, rel string) (text string, binary bool, size int64) {
+	data, size, ok := readWorking(cwd, rel)
+	if !ok {
 		return "", false, size
 	}
 	head := data
@@ -442,7 +452,18 @@ func parseUnified(diff string, maxLines, maxBytes int) parsed {
 // markIntra gives the paired deleted and added lines of each hunk their
 // word-level changes: the i-th line of a run of deleted lines is paired with the
 // i-th of the added lines that follow it.
-func markIntra(hunks []Hunk) {
+//
+// The work is bounded: it waits for a git slot, as the other work of a read does,
+// stops when ctx ends, and pairs lines only while the diff as a whole has used
+// fewer than maxIntraCells table cells.
+func markIntra(ctx context.Context, hunks []Hunk) {
+	select {
+	case gitSlots <- struct{}{}:
+		defer func() { <-gitSlots }()
+	case <-ctx.Done():
+		return
+	}
+	spent := 0
 	for hi := range hunks {
 		ls := hunks[hi].Lines
 		for i := 0; i < len(ls); {
@@ -460,7 +481,10 @@ func markIntra(hunks []Hunk) {
 			}
 			dels, adds := a-d, i-a
 			for k := 0; k < dels && k < adds; k++ {
-				o, n := wordDiff(ls[d+k].Text, ls[a+k].Text)
+				if ctx.Err() != nil {
+					return
+				}
+				o, n := wordDiffBudget(ls[d+k].Text, ls[a+k].Text, &spent)
 				if len(o) > 0 && len(n) > 0 {
 					ls[d+k].Intra, ls[a+k].Intra = o, n
 				}
@@ -502,10 +526,22 @@ func tokens(s string) []string {
 // wordDiff gives the ranges, in code points, of the tokens of old and new that
 // are not in the longest run of tokens they share.
 func wordDiff(oldText, newText string) (o, n [][2]int) {
+	spent := 0
+	return wordDiffBudget(oldText, newText, &spent)
+}
+
+// wordDiffBudget is wordDiff that adds the cells of its table to spent, and gives
+// nothing once the diff has used maxIntraCells.
+func wordDiffBudget(oldText, newText string, spent *int) (o, n [][2]int) {
 	a, b := tokens(oldText), tokens(newText)
 	if len(a) == 0 || len(b) == 0 || len(a) > maxIntraTokens || len(b) > maxIntraTokens {
 		return nil, nil
 	}
+	cells := (len(a) + 1) * (len(b) + 1)
+	if *spent+cells > maxIntraCells {
+		return nil, nil
+	}
+	*spent += cells
 	lcs := make([][]int, len(a)+1)
 	for i := range lcs {
 		lcs[i] = make([]int, len(b)+1)
@@ -576,23 +612,27 @@ func ReadContext(ctx context.Context, pane, cwd, file, against, side string, fro
 		return DiffContext{}, ref
 	}
 	out := DiffContext{Pane: pane, Path: f.Path, Lines: []Line{}}
-	var content string
+	var content, problem string
 	var ok bool
 	switch {
 	case side == "new" && against != "head":
-		content, ok = workingText(cwd, f.Path)
+		content, problem, ok = workingText(cwd, f.Path)
 	case side == "new":
-		content, ok = blobText(ctx, cwd, "HEAD", f.Path)
+		content, problem, ok = blobText(ctx, cwd, b.HeadSha, f.Path)
 	default:
 		rev := b.BaseSha
 		if against == "worktree" {
-			rev = "HEAD"
+			rev = b.HeadSha
 		}
 		old := f.Path
 		if f.OldPath != "" {
 			old = f.OldPath
 		}
-		content, ok = blobText(ctx, cwd, rev, old)
+		content, problem, ok = blobText(ctx, cwd, rev, old)
+	}
+	if problem != "" {
+		out.Error = problem
+		return out, nil
 	}
 	if !ok {
 		out.Eof = true
@@ -613,29 +653,45 @@ func ReadContext(ctx context.Context, pane, cwd, file, against, side string, fro
 }
 
 // workingText reads a file of the checkout as the diff sees it: a link is its
-// target text and is never followed.
-func workingText(cwd, rel string) (string, bool) {
-	abs := filepath.Join(cwd, filepath.FromSlash(rel))
-	fi, err := os.Lstat(abs)
-	if err != nil {
-		return "", false
+// target text and is never followed (see readWorking). found is false when there
+// is no such file or it is not a regular one, and problem says why a file that is
+// there was not read.
+func workingText(cwd, rel string) (content, problem string, found bool) {
+	data, size, ok := readWorking(cwd, rel)
+	if !ok {
+		if size > maxContextFile {
+			return "", "the file is too large to read", true
+		}
+		return "", "", false
 	}
-	if fi.Mode()&os.ModeSymlink != 0 {
-		t, err := os.Readlink(abs)
-		return t + "\n", err == nil
-	}
-	if !fi.Mode().IsRegular() || fi.Size() > maxContextFile {
-		return "", false
-	}
-	data, err := os.ReadFile(abs)
-	return string(data), err == nil
+	return string(data), "", true
 }
 
 // blobText reads a file as it was at a commit.
-func blobText(ctx context.Context, cwd, rev, rel string) (string, bool) {
-	out, err := git(ctx, cwd, "show", "--no-textconv", rev+":"+rel)
-	if err != nil || len(out) > maxContextFile {
-		return "", false
+func blobText(ctx context.Context, cwd, rev, rel string) (content, problem string, found bool) {
+	out, err := git(ctx, cwd, "show", "--no-textconv", "--end-of-options", rev+":"+rel)
+	switch {
+	case errors.Is(err, gitx.ErrTooLarge):
+		return "", "the file is too large to read", true
+	case ctx.Err() != nil:
+		return "", "reading the file took too long", true
+	case err != nil:
+		return "", "", false
+	case len(out) > maxContextFile:
+		return "", "the file is too large to read", true
 	}
-	return out, true
+	return out, "", true
+}
+
+// blobSize is the size of a file at a commit, or nil when it is not there.
+func blobSize(ctx context.Context, cwd, rev, rel string) *int64 {
+	o, err := git(ctx, cwd, "cat-file", "-s", "--end-of-options", rev+":"+rel)
+	if err != nil {
+		return nil
+	}
+	n, err := strconv.ParseInt(strings.TrimSpace(o), 10, 64)
+	if err != nil {
+		return nil
+	}
+	return &n
 }

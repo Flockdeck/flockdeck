@@ -2,6 +2,7 @@ package changes
 
 import (
 	"context"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -149,11 +150,21 @@ func TestDiffRefusesWhatItShouldNot(t *testing.T) {
 func TestCleanPath(t *testing.T) {
 	for p, ok := range map[string]bool{
 		"a.txt": true, "dir/a.txt": true, "dir/sub/a b.txt": true, "": false, ".": false, "/a": false, "a/": false,
-		"./a": false, "a//b": false, "a/../b": false, "..": false, "C:a": false, "C:\\a": false, "\\\\host\\share": false,
+		"./a": false, "a//b": false, "a/../b": false, "..": false, "C:a": false, "C:\\a": false,
 	} {
 		if _, got := CleanPath(p); got != ok {
 			t.Errorf("CleanPath(%q) = %v", p, got)
 		}
+	}
+	if runtime.GOOS != "windows" {
+		// A backslash is an ordinary character of a name here.
+		if p, ok := CleanPath("dir\\a.txt"); !ok || p != "dir\\a.txt" {
+			t.Errorf("a name with a backslash: %q %v", p, ok)
+		}
+		return
+	}
+	if _, ok := CleanPath("\\\\host\\share"); ok {
+		t.Error("a share was accepted")
 	}
 	if p, ok := CleanPath("dir\\a.txt"); !ok || p != "dir/a.txt" {
 		t.Errorf("a path with backslashes: %q %v", p, ok)

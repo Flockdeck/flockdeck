@@ -149,7 +149,7 @@ func (s *Server) changesTasks(root string) map[string]string {
 		if t.OwnerPane == "" || (t.State != tasks.Assigned && t.State != tasks.InProgress && t.State != tasks.InReview) {
 			continue
 		}
-		if at, ok := newest[t.OwnerPane]; !ok || t.Updated.After(at) {
+		if at, ok := newest[t.OwnerPane]; !ok || t.Updated.After(at) || (t.Updated.Equal(at) && t.ID > out[t.OwnerPane]) {
 			newest[t.OwnerPane], out[t.OwnerPane] = t.Updated, t.ID
 		}
 	}
