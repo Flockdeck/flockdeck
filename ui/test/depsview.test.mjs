@@ -175,3 +175,30 @@ test("a task another team runs is marked with that team's task, not its raw owne
   assert.ok(out.includes("T9 · Write the docs"), "the other team is named by its task");
   assert.ok(out.includes("title T1"));
 });
+
+test("with the view scoped to a team, open tasks no team runs sit under a folded row of their own", async () => {
+  const list = [T("T1", "in-progress", [], { team: "mgr" }), T("T2", "planned", []), T("T3", "done", []), T("T4", "planned", ["T2"])];
+  const m = await mount({ team: push(list) });
+  try {
+    const head = m.row("NOTEAM");
+    assert.ok(head, "the row is there");
+    assert.match(head.textContent, /Not assigned to a team/);
+    assert.match(head.textContent, /2 tasks/);
+    assert.equal(m.row("NOTEAM-T2"), undefined, "folded at first");
+    head.keydown("ArrowRight");
+    await settle();
+    assert.ok(m.row("NOTEAM-T2") && m.row("NOTEAM-T4"));
+    assert.equal(m.row("NOTEAM-T3"), undefined, "a finished one is not listed");
+  } finally {
+    m.done();
+  }
+});
+
+test("when no task names a team nothing is scoped, so there is no unassigned row", async () => {
+  const m = await mount();
+  try {
+    assert.equal(m.row("NOTEAM"), undefined);
+  } finally {
+    m.done();
+  }
+});

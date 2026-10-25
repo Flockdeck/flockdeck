@@ -23,6 +23,9 @@ import { labelOf, taskOfTeam, taskLabelOf } from "./model.js";
 import { GOAL, IDLE, scopeTasks, teamOfTask, isReady, openBlockers, planOf, loopsOf, waitsOf, minutesWords } from "./deps.js";
 import { stepOf, foldOf, ageOf } from "./Tree.js";
 
+/** The key of the folded row of open tasks no team runs, shown when the view is scoped to one team. */
+const NOTEAM = "NOTEAM";
+
 export const NO_TASKS_WORDS = "No tasks have been planned yet. The manager adds them as it plans.";
 export const READING_WORDS = "Reading the tasks…";
 
@@ -54,7 +57,7 @@ function Chip({ c, onLink }) {
 
 /** Deps draws the view. team is the store's team push, model the graph model (or null), remote says the window is reached through the relay. */
 export function Deps({ team: teamMsg, model = null, whole = null, remote = false, onOpen = null, send = null }) {
-  const [folded, setFolded] = useState(() => new Set([IDLE]));
+  const [folded, setFolded] = useState(() => new Set([IDLE, NOTEAM]));
   const [focus, setFocus] = useState("");
   const [asked, setAsked] = useState({});
   const ref = useRef(null);
@@ -63,6 +66,8 @@ export function Deps({ team: teamMsg, model = null, whole = null, remote = false
   if (!team) return html`<div class="view view--deps"><p class="view-note">${READING_WORDS}</p></div>`;
   const scope = model && model.ok && model.teams.length === 1 ? model.teams[0] : null;
   const plan = planOf(scopeTasks(team.tasks, scope ? scope.manager : "", whole || model), folded);
+  // With the view scoped to a team, the open tasks no team runs would vanish: they are listed under a folded row of their own.
+  const unassigned = scope ? (Array.isArray(team.tasks) ? team.tasks : []).filter((t) => !teamOfTask(t, whole || model) && !stateFinished(t.state) && !plan.idx.byId.has(t.id)) : [];
   const waits = waitsOf(model);
   const rings = loopsOf(model);
   const manager = model && model.ok ? managerOf(model) : null;
@@ -70,6 +75,10 @@ export function Deps({ team: teamMsg, model = null, whole = null, remote = false
 
   // The rows as the keyboard sees them: the tree, then the group of waits under its own heading.
   const keyRows = plan.rows.map((r) => ({ pane: r.key, depth: r.depth, parent: r.parent, kids: r.kids, collapsed: r.folded }));
+  if (unassigned.length > 0) {
+    keyRows.push({ pane: NOTEAM, depth: 0, parent: "", kids: unassigned.length, collapsed: folded.has(NOTEAM) });
+    if (!folded.has(NOTEAM)) for (const t of unassigned) keyRows.push({ pane: NOTEAM + "-" + t.id, depth: 1, parent: NOTEAM, kids: 0, collapsed: false });
+  }
   if (waits.length > 0) {
     keyRows.push({ pane: "W", depth: 0, parent: "", kids: waits.length, collapsed: folded.has("W") });
     if (!folded.has("W")) for (const w of waits) keyRows.push({ pane: w.key, depth: 1, parent: "W", kids: 0, collapsed: false });
@@ -210,6 +219,8 @@ export function Deps({ team: teamMsg, model = null, whole = null, remote = false
       <div class="tree-head deps-head" aria-hidden="true"><span class="tree-lead"></span><span class="tree-c deps-tk">Task</span><span class="tree-c deps-ttl">Work, by what blocks it</span><span class="tree-c deps-own">Owner</span>${plan.estimates ? html`<span class="tree-c deps-est">Est</span><span class="tree-c deps-fin">Done in</span>` : null}</div>
       <div class="tree-rows" role="tree" aria-label="Dependencies" ref=${ref} onKeyDown=${onKeyDown}>
         ${plan.rows.map(taskRow)}
+        ${unassigned.length > 0 ? html`<${DepRow} key=${NOTEAM} r=${{ key: NOTEAM, depth: 0, kids: unassigned.length, folded: folded.has(NOTEAM) }} stop=${stop === NOTEAM} onFocus=${() => setFocus(NOTEAM)} onToggle=${toggle} glyph="idle" id="" title="Not assigned to a team" sub=${unassigned.length + (unassigned.length === 1 ? " task" : " tasks")} />` : null}
+        ${unassigned.length > 0 && !folded.has(NOTEAM) ? unassigned.map((t) => html`<${DepRow} key=${NOTEAM + "-" + t.id} r=${{ key: NOTEAM + "-" + t.id, depth: 1, parent: NOTEAM, kids: 0, folded: false }} stop=${stop === NOTEAM + "-" + t.id} onFocus=${() => setFocus(NOTEAM + "-" + t.id)} onToggle=${toggle} glyph=${glyphOf(t)} id=${t.id} title=${t.title} ownerWords=${t.state === "planned" ? "no one yet" : t.owner || ""} />`) : null}
         ${waitHead}
         ${folded.has("W") ? null : waits.map((w) => html`<${WaitRow} key=${w.key} now=${now} w=${w} model=${model} stop=${stop === w.key} onFocus=${() => setFocus(w.key)} onOpen=${onOpen} onLink=${go} />`)}
       </div>
