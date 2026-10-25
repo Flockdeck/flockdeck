@@ -28,7 +28,10 @@ const (
 	claudeStateSettle = 3 * time.Second
 	// claudeStartSkew is how far the file's start time may be from the start of
 	// the process with its pid before the file is taken to be a different
-	// process's, left by a pid that was used again.
+	// process's, left by a pid that was used again. That check runs only where the
+	// file gives a start time and the platform can say when a process started
+	// (not macOS); otherwise a file is taken as stale if its last change is from
+	// before the pane's own session began, less this much.
 	claudeStartSkew = 30 * time.Second
 )
 
@@ -135,6 +138,7 @@ func (s *claudeStateService) entryFor(p claudeStatePane, all func() []claudestat
 		if p.Conversation != "" && e.SessionID != p.Conversation {
 			return claudestate.Entry{}, false
 		}
+		checked := false
 		if !e.Started.IsZero() {
 			if st, ok := s.started(pid); ok {
 				d := e.Started.Sub(st)
@@ -144,26 +148,40 @@ func (s *claudeStateService) entryFor(p claudeStatePane, all func() []claudestat
 				if d > claudeStartSkew {
 					return claudestate.Entry{}, false
 				}
+				checked = true
 			}
+		}
+		// Without that check, a file of the same conversation left on a pid that
+		// was used again is told apart only by when it last changed: not before
+		// this pane's session began.
+		if !checked && e.Updated.Before(p.Sess.StartedAt().Add(-claudeStartSkew)) {
+			return claudestate.Entry{}, false
 		}
 		return e, true
 	}
+	// No file of the pane's own. The conversation finds one, with no start time
+	// to check it against, so a second Claude process on the same conversation
+	// (the user resuming it in another terminal) can answer for a pane whose own
+	// file is missing. That is rare, and it is only ever a busy/idle word that the
+	// hooks' newer word still beats.
 	return claudestate.ByConversation(all(), p.Conversation)
 }
 
 // claudeStatePanes lists the running Claude panes whose hooks have reported.
 func (w *Workspace) claudeStatePanes() []claudeStatePane {
 	w.mu.RLock()
-	var ps []*Pane
+	defer w.mu.RUnlock()
+	var out []claudeStatePane
 	for _, p := range w.panes {
 		if p.Kind == session.KindAgent && p.Agent == "claude" && p.Sess != nil && !p.Sess.Exited() && p.Sess.HooksReported() {
-			ps = append(ps, p)
+			// The conversation as conversationOf has it, read here because that
+			// takes the lock this holds.
+			conv := p.Conversation
+			if conv == "" {
+				conv = p.ID
+			}
+			out = append(out, claudeStatePane{Sess: p.Sess, Conversation: conv})
 		}
-	}
-	w.mu.RUnlock()
-	out := make([]claudeStatePane, 0, len(ps))
-	for _, p := range ps {
-		out = append(out, claudeStatePane{Sess: p.Sess, Conversation: w.conversationOf(p)})
 	}
 	return out
 }

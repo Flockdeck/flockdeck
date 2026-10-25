@@ -91,6 +91,19 @@ func TestClaudeStateFileMustBeThePanesOwn(t *testing.T) {
 	if _, ok := svc.entryFor(pane, allFn); ok {
 		t.Error("a file for a process that started at another time (a reused pid) was used")
 	}
+	// Where the start times cannot be compared, a file last changed long before the
+	// pane began is a stale one on a reused pid.
+	svc.started = func(int) (time.Time, bool) { return time.Time{}, false }
+	cur = base
+	cur.Started = time.Time{}
+	cur.Updated = s.StartedAt().Add(-time.Hour)
+	if _, ok := svc.entryFor(pane, allFn); ok {
+		t.Error("a file last changed before the pane began was used")
+	}
+	cur.Updated = time.Now()
+	if _, ok := svc.entryFor(pane, allFn); !ok {
+		t.Error("a file changed since the pane began was refused")
+	}
 	// No file for the pid: the conversation finds it, if there is one.
 	svc.readPid = func(int) (claudestate.Entry, bool) { return claudestate.Entry{}, false }
 	all = []claudestate.Entry{{Pid: 4242, SessionID: "conv", Updated: time.Now()}}
