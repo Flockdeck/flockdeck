@@ -331,7 +331,7 @@ func TestNeedsReturnedClearsOnceOwnerWorks(t *testing.T) {
 	if len(dup) != 4 {
 		t.Fatalf("team2 has %d panes, test expects 3", len(dup)-1)
 	}
-	dup[3].ID = "a"
+	dup[3].ID, dup[3].Activity, dup[3].StatusSince = "a", "working", t0.Add(-30*time.Minute)
 	if got := needsFor(dup, tasks, nil, mv)["m"]; len(got) != 1 {
 		t.Errorf("duplicate id: items = %+v, want the first pane's view (idle): one item", got)
 	}
