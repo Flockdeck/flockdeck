@@ -100,6 +100,14 @@ export const browseCommand = (path, req) => ({ cmd: "browse", path: String(path 
 /** browseReq is the req of the nth folder listing asked for; the desk repeats it in its answer. */
 export const browseReq = (n) => "b" + n;
 
+// The asks are counted here and not in the dialog, so a dialog opened again does
+// not start over at b1 and take a late answer to an ask of the one before.
+let browseAsks = 0;
+/** nextBrowseReq numbers a new ask. */
+export const nextBrowseReq = () => browseReq(++browseAsks);
+/** lastBrowseAsk is how many asks have been made. */
+export const lastBrowseAsk = () => browseAsks;
+
 /** staleBrowse says a folder listing answers an ask older than the last one, so
  *  it must not replace what the person is looking at. An answer with no req (from
  *  a desk before 1.7) is never stale. */

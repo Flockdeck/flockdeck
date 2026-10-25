@@ -28,12 +28,12 @@ export function Projects({ open, recents: recentsMsg, browse: browseMsg, root, s
   const first = useRef(null);
   const recents = P.recentsOf(recentsMsg);
   // The folder listing last accepted. A late answer to an earlier ask is dropped
-  // so it cannot put back a folder the person has already left.
-  const asks = useRef(0);
+  // so it cannot put back a folder the person has already left. The check runs in
+  // render and reads the module's ask count, which a later render sees moved on.
   const listing = useRef(null);
-  if (browseMsg && !P.staleBrowse(browseMsg, asks.current)) listing.current = P.browseOf(browseMsg);
+  if (browseMsg && !P.staleBrowse(browseMsg, P.lastBrowseAsk())) listing.current = P.browseOf(browseMsg);
   const browse = listing.current;
-  const ask = (p) => send(P.browseCommand(p, P.browseReq(++asks.current)));
+  const ask = (p) => send(P.browseCommand(p, P.nextBrowseReq()));
   // Which name is being edited ({ root, open, draft }), which close is being
   // asked about, which groups are expanded, and the group being made.
   const [renaming, setRenaming] = useState(null);

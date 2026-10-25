@@ -902,7 +902,10 @@ test("the browser walks folders, asks the desk for each, and opens one by its ro
     await openProjects(m);
     m.clear();
     await m.click(m.byText(".proj-dir-into", /docs/));
-    assert.deepEqual(m.sent("browse"), [{ cmd: "browse", path: "/home/me/docs", req: "b2" }]);
+    const asked = m.sent("browse");
+    assert.equal(asked.length, 1);
+    assert.deepEqual(asked, [{ cmd: "browse", path: "/home/me/docs", req: asked[0].req }]);
+    assert.match(asked[0].req, /^b\d+$/);
     await m.click(m.container.find(".proj-places").findAll("button").find((b) => /^Home$/.test(b.textContent)));
     await m.click(m.container.findAll("button").filter((b) => b.textContent === "Up").pop());
     assert.equal(m.sent("browse")[2].path, "/home");
@@ -921,12 +924,32 @@ test("a late answer to an earlier browse does not replace the folder asked for l
     m.clear();
     await m.click(m.byText(".proj-dir-into", /docs/));
     await m.click(m.container.find(".proj-places").findAll("button").find((b) => /^Home$/.test(b.textContent)));
-    assert.deepEqual(m.sent("browse").map((c) => c.req), ["b2", "b3"]);
-    const listing = (path, req) => ({ type: "browse", path, req, parent: "/", entries: [{ name: "in-" + req, path: path + "/x" }], places: [] });
-    await m.push(listing("/home/me", "b3"));
-    await m.push(listing("/home/me/docs", "b2"));
-    assert.match(dlg(m).textContent, /in-b3/);
-    assert.doesNotMatch(dlg(m).textContent, /in-b2/);
+    const [first, last] = m.sent("browse").map((c) => c.req);
+    const listing = (path, req, over = {}) => ({ type: "browse", path, req, parent: "/", entries: [{ name: "in-" + req, path: path + "/x" }], places: [], ...over });
+    await m.push(listing("/home/me", last));
+    await m.push(listing("/home/me/docs", first));
+    assert.match(dlg(m).textContent, new RegExp("in-" + last));
+    assert.doesNotMatch(dlg(m).textContent, new RegExp("in-" + first + "\b"));
+    // A stale error is dropped too, and the same answer twice does no harm.
+    await m.push(listing("/nope", first, { error: "stale failure", entries: [] }));
+    assert.doesNotMatch(dlg(m).textContent, /stale failure/);
+    await m.push(listing("/home/me", last));
+    assert.match(dlg(m).textContent, new RegExp("in-" + last));
+  }));
+
+test("a dialog opened again does not take a late answer to an ask of the one before", () =>
+  withPage({}, async (m) => {
+    await openProjects(m);
+    await m.click(m.byText(".proj-dir-into", /docs/));
+    const late = m.sent("browse").map((c) => c.req).pop();
+    dlg(m).dispatch("keydown", { key: "Escape", ctrlKey: false, shiftKey: false, altKey: false });
+    await settle();
+    assert.equal(dlg(m), null);
+    await openProjects(m);
+    const again = m.sent("browse").map((c) => c.req).pop();
+    assert.notEqual(again, late, "the count carries on");
+    await m.push({ type: "browse", path: "/late", req: late, parent: "/", entries: [{ name: "late-one", path: "/late/x" }], places: [] });
+    assert.doesNotMatch(dlg(m).textContent, /late-one/);
   }));
 
 test("browse commands carry a req and a stale answer is told by it", () => {
