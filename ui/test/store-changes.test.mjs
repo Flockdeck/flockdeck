@@ -182,6 +182,25 @@ test("a follow in flight does not end a commit or a push; the action's own reply
   assert.equal(store.getState().changesBusy, "", "the push's own reply left the panel busy for good");
 });
 
+test("a follow nobody has answered, then a push, then the push's reasonless reply: busy clears", async () => {
+  const { store, ws } = await up();
+  ws.frame(listing());
+  assert.equal(store.requestChanges("C:/repo", true), true);
+  assert.equal(store.remoteChanges("push"), true);
+  ws.frame(listing({ ahead: 0 }));
+  assert.equal(store.getState().changesBusy, "", "an unanswered follow made the push's reply count as quiet");
+});
+
+test("a refused push: the desk sends the question, then its listing, and the question stays", async () => {
+  const { store, ws } = await up();
+  ws.frame(listing());
+  assert.equal(store.remoteChanges("push"), true);
+  ws.frame({ type: "gitWarn", cwd: "C:/repo", path: "C:/repo", action: "push", resend: "gitPush", intro: "", items: ["hook"], text: "", seen: "z" });
+  ws.frame(listing({ reason: "gitwarn" }));
+  assert.ok(store.getState().gitWarn, "the question was closed by the listing sent with it");
+  assert.equal(store.getState().changesBusy, "");
+});
+
 test("a commit that went through and then asked about its push leaves that question open", async () => {
   const { store, ws } = await up();
   ws.frame(listing());
