@@ -10,6 +10,11 @@
 // next time the value is written.
 /** TABS_KEY is the key of the interface's preferences the tab choices are kept under. */
 export const TABS_KEY = "tabs";
+
+/** The three choices have a key each, so two windows changing different ones do not overwrite each other. TABS_KEY is the older single key: it is still read when none of these is set, and removed on the next write. */
+export const NAMES_KEY = "tabs.names";
+export const ORDER_KEY = "tabs.order";
+export const ARCHIVED_KEY = "tabs.archived";
 import { taskOfTeam, taskLabelOf } from "./model.js";
 
 /** SOLO is the id of the tab for panes in no team. It is never a team's id. */
@@ -55,7 +60,8 @@ export function emptyTabs() {
  *  keeps only what is well formed: a name that is a string, a list of ids. Whatever
  *  else the value holds, or is not, is left out. */
 export function tabsStateOf(ui) {
-  const raw = isObject(ui) && isObject(ui[TABS_KEY]) ? ui[TABS_KEY] : {};
+  const split = isObject(ui) && (NAMES_KEY in ui || ORDER_KEY in ui || ARCHIVED_KEY in ui);
+  const raw = split ? { names: ui[NAMES_KEY], order: ui[ORDER_KEY], archived: ui[ARCHIVED_KEY] } : isObject(ui) && isObject(ui[TABS_KEY]) ? ui[TABS_KEY] : {};
   const names = {};
   if (isObject(raw.names)) {
     for (const [id, name] of Object.entries(raw.names).slice(0, KEEP)) {
@@ -218,6 +224,28 @@ export function tabsValueOf(state, model) {
   if (order.length > 0) value.order = order;
   if (archived.length > 0) value.archived = archived;
   return value;
+}
+
+/**
+ * tabsKeysOf is the writes that put `state` in the preferences: one for each
+ * choice that differs from what `ui` (the current preferences) holds, as
+ * { key: value | null }, and TABS_KEY removed when it is still there. A choice that is empty is
+ * removed (null).
+ */
+export function tabsKeysOf(state, model, ui) {
+  const whole = tabsValueOf(state, model) || {};
+  const want = { [NAMES_KEY]: whole.names || null, [ORDER_KEY]: whole.order || null, [ARCHIVED_KEY]: whole.archived || null };
+  const have = { [NAMES_KEY]: ui ? ui[NAMES_KEY] : undefined, [ORDER_KEY]: ui ? ui[ORDER_KEY] : undefined, [ARCHIVED_KEY]: ui ? ui[ARCHIVED_KEY] : undefined };
+  const out = {};
+  for (const k of Object.keys(want)) {
+    if (JSON.stringify(want[k]) !== JSON.stringify(have[k] === undefined ? null : have[k])) out[k] = want[k];
+  }
+  if (ui && TABS_KEY in ui) {
+    // The old key is read only when no new one is set: carry its choices over before it goes.
+    for (const k of Object.keys(want)) if (want[k] !== null && !(k in out)) out[k] = want[k];
+    out[TABS_KEY] = null;
+  }
+  return out;
 }
 
 /**

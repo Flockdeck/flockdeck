@@ -232,6 +232,31 @@ function uiSetting(name, value, current, caps, legacy) {
   return { command: { cmd: "uiPrefs", ui: { [name]: value } }, patch: { ui: ordered } };
 }
 
+// The goal tabs' keys and what each holds. They are written together, in one command.
+const TAB_KEYS = { tabs: "object", "tabs.names": "object", "tabs.order": "array", "tabs.archived": "array" };
+
+/** tabsSetting writes several of the goal tabs' keys in one uiPrefs command: writes is { key: value | null }. */
+function tabsSetting(writes, current, caps) {
+  if (!Array.isArray(caps) || !caps.includes(UI_CAP)) return null;
+  if (!writes || typeof writes !== "object" || Array.isArray(writes)) return null;
+  const keys = Object.keys(writes);
+  if (keys.length === 0) return null;
+  for (const k of keys) {
+    const v = writes[k];
+    if (!Object.prototype.hasOwnProperty.call(TAB_KEYS, k)) return null;
+    if (v !== null && (TAB_KEYS[k] === "array" ? !Array.isArray(v) : typeof v !== "object" || Array.isArray(v))) return null;
+  }
+  const was = current && current.ui && typeof current.ui === "object" && !Array.isArray(current.ui) ? current.ui : {};
+  const next = { ...was };
+  for (const k of keys) {
+    if (writes[k] === null) delete next[k];
+    else next[k] = writes[k];
+  }
+  const ordered = {};
+  for (const k of Object.keys(next).sort()) ordered[k] = next[k];
+  return { command: { cmd: "uiPrefs", ui: writes }, patch: { ui: ordered } };
+}
+
 /** setting is what changing one setting does: the command for the desktop and
  *  the preference as the desktop will keep it, which the window shows at once
  *  and until the desktop's own push arrives. It is null for a value that would
@@ -310,6 +335,8 @@ export function setting(name, value, current = null, caps = null) {
       // The goal tabs' choices: an object, or null for none. With no uiPrefs there is nowhere to keep them.
       if (value !== null && (typeof value !== "object" || Array.isArray(value))) return null;
       return uiSetting("tabs", value, current, caps, null);
+    case "tabsKeys":
+      return tabsSetting(value, current, caps);
     case "resetTips":
       return { command: { cmd: "resetTips" }, patch: { dismissedTips: [] } };
     default:
