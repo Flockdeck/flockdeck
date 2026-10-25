@@ -549,11 +549,12 @@ func (s *Server) setUIPrefs(c *controlClient, patch map[string]json.RawMessage) 
 	})
 }
 
-// deskOnlyUIKeys are the keys of the interface's preferences that hold text the
-// person wrote, and so are not sent to a window reached through the relay, nor
-// taken from one. "tabs" is the names given to goal tabs: a name is often a task
-// title, and the relay window has no goal tabs, since it is sent no team graph.
-var deskOnlyUIKeys = []string{"tabs"}
+// deskOnlyUIKey says a key of the interface's preferences holds text the person
+// wrote, and so is not sent to a window reached through the relay, nor taken from
+// one. "tabs" and the keys under it ("tabs.names", "tabs.order", "tabs.archived")
+// are the goal tabs: a name is often a task title, and the relay window has no
+// goal tabs, since it is sent no team graph.
+func deskOnlyUIKey(k string) bool { return k == "tabs" || strings.HasPrefix(k, "tabs.") }
 
 // uiDeskOnly is what a window reached through the relay is told when it sets one.
 const uiDeskOnly = "Goal tab names are kept on the machine Flockdeck runs on, not from a window reached through the relay"
@@ -562,9 +563,10 @@ const uiDeskOnly = "Goal tab names are kept on the machine Flockdeck runs on, no
 // shared and is not changed.
 func withoutDeskOnlyUI[V any](ui map[string]V) map[string]V {
 	has := false
-	for _, k := range deskOnlyUIKeys {
-		if _, ok := ui[k]; ok {
+	for k := range ui {
+		if deskOnlyUIKey(k) {
 			has = true
+			break
 		}
 	}
 	if !has {
@@ -572,10 +574,9 @@ func withoutDeskOnlyUI[V any](ui map[string]V) map[string]V {
 	}
 	out := make(map[string]V, len(ui))
 	for k, v := range ui {
-		out[k] = v
-	}
-	for _, k := range deskOnlyUIKeys {
-		delete(out, k)
+		if !deskOnlyUIKey(k) {
+			out[k] = v
+		}
 	}
 	return out
 }
