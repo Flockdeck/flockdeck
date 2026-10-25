@@ -64,9 +64,6 @@ var relayScrubs = map[string]func([]byte) []byte{
 	"teamResult": scrubTeamResult,
 	// Likewise the only changesResult: the refusal of a command of the changes contract.
 	"changesResult": scrubChangesResult,
-	// The check commands a pane's checks would run, for the person to confirm. Never
-	// sent to a relay window; confirmChecks is refused to one already.
-	"changesChecks": dropForRelay,
 	// Today a relay window is sent only the refusal of the command. The same message
 	// carries the reason an answer could not be given, and the OK reply, when the
 	// refusal is lifted (permission-answer-relay in permission_answer.go).
@@ -144,6 +141,7 @@ var relayDeskOnly = map[string]string{
 	"noticeWithdraw": "an approval for windows on this machine only",
 	"changesTeam":    "the changes view is refused to a relay window", "changesFiles": "the changes view is refused to a relay window",
 	"diffHunks": "the changes view is refused to a relay window", "diffContext": "the changes view is refused to a relay window",
+	"changesChecks": "the commands of a check file are for the person at the desk, and confirmChecks is refused to a relay window",
 }
 
 // messageType reads the type of a marshalled message. Every message here is a

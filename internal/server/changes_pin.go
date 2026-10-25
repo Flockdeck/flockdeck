@@ -3,19 +3,42 @@ package server
 import (
 	"errors"
 	"os"
+	"sync"
 
 	"github.com/jmwri/flockdeck/internal/changes"
 )
 
-// Pinning the check file (docs/changes-api.md, section 6). confirmChecks shows
+// Confirming the check file (docs/changes-api.md, section 6). confirmChecks shows
 // the window the commands the check file holds and a hash of them; confirmChecks
 // with confirm and that hash records it as the one the person looked at. runChecks
 // runs only commands whose hash is the confirmed one.
 //
-// The pin is a tripwire for a file that changed after the person read it. It is
-// kept in the config directory beside the file, so it does not stop an agent that
-// can write there as well, or that sends confirmChecks itself with a pane token
-// and an Origin. That needs a credential of the window's own.
+// The confirmed hash is kept in memory, per check file, and is forgotten when
+// Flockdeck restarts. A file beside the check file would let an agent that can
+// plant the check file compute the hash and plant the pin too. What is left open
+// is an agent that sends confirmChecks itself with its pane token and an Origin;
+// that needs a credential of the window's own.
+
+// checkPins is the hash of the commands the person confirmed, by check file.
+type checkPins struct {
+	mu     sync.Mutex
+	hashes map[string]string
+}
+
+func (p *checkPins) get(path string) string {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.hashes[path]
+}
+
+func (p *checkPins) set(path, hash string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.hashes == nil {
+		p.hashes = map[string]string{}
+	}
+	p.hashes[path] = hash
+}
 
 // changesChecksMsg answers confirmChecks without confirm: the commands as they
 // would run, their hash, and whether that hash is the confirmed one.
@@ -27,7 +50,7 @@ type changesChecksMsg struct {
 	Pinned   bool               `json:"pinned"`
 }
 
-const notConfirmedText = "The commands in the check file have not been confirmed in the Flockdeck window. Open the checks, read the commands and confirm them."
+const notConfirmedText = "The commands in the check file have not been confirmed in the Flockdeck window since it started. Open the checks, read the commands and confirm them. A command runs whatever the checkout holds, such as its scripts and tests, with your rights."
 
 // changesConfirmChecks answers confirmChecks.
 func (s *Server) changesConfirmChecks(c *controlClient, cmd command) {
@@ -45,35 +68,39 @@ func (s *Server) changesConfirmChecks(c *controlClient, cmd command) {
 		changesRefuse(c, cmd, "notFound", "the config directory cannot be found")
 		return
 	}
-	confirmChecksAt(c, cmd, checksPath)
+	confirmChecksAt(c, cmd, checksPath, &s.pins)
 }
 
 // checksConfirmed says whether the commands just loaded are the ones the person
 // confirmed. defs is the list that will run, so a file changed after this look is
 // not what runs.
-func checksConfirmed(checksPath string, defs []changes.CheckDef) bool {
-	pin := changes.LoadPin(changes.PinPath(checksPath))
+func checksConfirmed(pins *checkPins, checksPath string, defs []changes.CheckDef) bool {
+	pin := pins.get(checksPath)
 	return pin != "" && pin == changes.HashChecks(defs)
 }
 
-// confirmChecksAt shows or confirms the check file at checksPath.
-func confirmChecksAt(c *controlClient, cmd command, checksPath string) {
-	defs, err := changes.LoadChecks(checksPath)
-	switch {
-	case errors.Is(err, os.ErrNotExist):
+// refuseCheckFile answers a check file that cannot be used.
+func refuseCheckFile(c *controlClient, cmd command, checksPath string, err error) {
+	if errors.Is(err, os.ErrNotExist) {
 		changesRefuse(c, cmd, "notFound", "there is no check file for this project; write one at "+checksPath)
 		return
-	case err != nil:
-		changesRefuse(c, cmd, "notFound", err.Error())
+	}
+	changesRefuse(c, cmd, "badRequest", err.Error())
+}
+
+// confirmChecksAt shows or confirms the check file at checksPath.
+func confirmChecksAt(c *controlClient, cmd command, checksPath string, pins *checkPins) {
+	defs, err := changes.LoadChecks(checksPath)
+	if err != nil {
+		refuseCheckFile(c, cmd, checksPath, err)
 		return
 	}
 	hash := changes.HashChecks(defs)
-	pinPath := changes.PinPath(checksPath)
 	if !cmd.Confirm {
 		if defs == nil {
 			defs = []changes.CheckDef{}
 		}
-		c.sendJSON(changesChecksMsg{Type: "changesChecks", Req: cmd.Req, Commands: defs, Hash: hash, Pinned: checksConfirmed(checksPath, defs)})
+		c.sendJSON(changesChecksMsg{Type: "changesChecks", Req: cmd.Req, Commands: defs, Hash: hash, Pinned: checksConfirmed(pins, checksPath, defs)})
 		return
 	}
 	// The window confirms the hash it was shown. A file that changed since is not
@@ -90,9 +117,6 @@ func confirmChecksAt(c *controlClient, cmd command, checksPath string) {
 		changesRefuse(c, cmd, "notFound", "the check file has no checks")
 		return
 	}
-	if err := changes.SavePin(pinPath, hash); err != nil {
-		changesRefuse(c, cmd, "failed", "the confirmation could not be saved: "+err.Error())
-		return
-	}
+	pins.set(checksPath, hash)
 	changesOK(c, cmd)
 }

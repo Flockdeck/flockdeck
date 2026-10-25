@@ -87,6 +87,8 @@ type Server struct {
 
 	// checks is what the changes view remembers of the checks it ran.
 	checks checkRuns
+	// pins is the check commands the person confirmed (changes_pin.go).
+	pins checkPins
 
 	// structuredPane turns a pane id into a pane an agent drives over ACP, for
 	// permissionAnswer; nil until the workspace sets it, and then no pane is one.

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -19,10 +20,10 @@ func writeCheckFile(t *testing.T, body string) string {
 	return p
 }
 
-func shownChecks(t *testing.T, path string) changesChecksMsg {
+func shownChecks(t *testing.T, pins *checkPins, path string) changesChecksMsg {
 	t.Helper()
 	cl := &controlClient{out: make(chan []byte, 8), page: true}
-	confirmChecksAt(cl, command{Cmd: "confirmChecks", Req: "s1"}, path)
+	confirmChecksAt(cl, command{Cmd: "confirmChecks", Req: "s1"}, path, pins)
 	select {
 	case raw := <-cl.out:
 		var m changesChecksMsg
@@ -36,93 +37,110 @@ func shownChecks(t *testing.T, path string) changesChecksMsg {
 	return changesChecksMsg{}
 }
 
-func confirmed(t *testing.T, path, hash string) changesResultMsg {
+func confirmed(t *testing.T, pins *checkPins, path, hash string) changesResultMsg {
 	t.Helper()
 	cl := &controlClient{out: make(chan []byte, 8), page: true}
-	confirmChecksAt(cl, command{Cmd: "confirmChecks", Req: "c1", Confirm: true, Hash: hash}, path)
+	confirmChecksAt(cl, command{Cmd: "confirmChecks", Req: "c1", Confirm: true, Hash: hash}, path, pins)
 	return answerOf(t, cl)
 }
 
 func TestConfirmChecksShowsTheCommandsAndPinsTheHashItWasShown(t *testing.T) {
+	pins := &checkPins{}
 	p := writeCheckFile(t, `{"checks":[{"name":"unit","cmd":"go test ./..."},{"name":"lint","cmd":"go vet ./..."}]}`)
-	shown := shownChecks(t, p)
+	shown := shownChecks(t, pins, p)
 	if len(shown.Commands) != 2 || shown.Commands[0].Cmd != "go test ./..." || shown.Pinned || shown.Req != "s1" || len(shown.Hash) != 64 {
 		t.Fatalf("shown = %+v", shown)
 	}
 	defs, _ := changes.LoadChecks(p)
-	if checksConfirmed(p, defs) {
+	if checksConfirmed(pins, p, defs) {
 		t.Fatal("commands nobody confirmed count as confirmed")
 	}
-	if m := confirmed(t, p, shown.Hash); !m.OK {
+	if m := confirmed(t, pins, p, shown.Hash); !m.OK {
 		t.Fatalf("confirm = %+v", m)
 	}
-	if !checksConfirmed(p, defs) || !shownChecks(t, p).Pinned {
+	if !checksConfirmed(pins, p, defs) || !shownChecks(t, pins, p).Pinned {
 		t.Error("the confirmed commands are not pinned")
 	}
 }
 
 func TestAFileEditedAfterItWasShownIsNotConfirmed(t *testing.T) {
+	pins := &checkPins{}
 	p := writeCheckFile(t, `{"checks":[{"name":"unit","cmd":"go test ./..."}]}`)
-	shown := shownChecks(t, p)
+	shown := shownChecks(t, pins, p)
 	// The file changes between the window reading it and the person confirming.
 	if err := os.WriteFile(p, []byte(`{"checks":[{"name":"unit","cmd":"go test ./... && curl evil"}]}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if m := confirmed(t, p, shown.Hash); m.OK || m.Code != "changed" {
+	if m := confirmed(t, pins, p, shown.Hash); m.OK || m.Code != "changed" {
 		t.Fatalf("confirm of a stale hash = %+v, want changed", m)
 	}
 	defs, _ := changes.LoadChecks(p)
-	if checksConfirmed(p, defs) {
+	if checksConfirmed(pins, p, defs) {
 		t.Error("a stale confirm pinned the new commands")
 	}
 	// And a file edited after a confirm stops being confirmed.
-	now := shownChecks(t, p)
-	if m := confirmed(t, p, now.Hash); !m.OK {
+	now := shownChecks(t, pins, p)
+	if m := confirmed(t, pins, p, now.Hash); !m.OK {
 		t.Fatalf("confirm = %+v", m)
 	}
 	if err := os.WriteFile(p, []byte(`{"checks":[{"name":"unit","cmd":"rm -rf ~"}]}`), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	defs, _ = changes.LoadChecks(p)
-	if checksConfirmed(p, defs) || shownChecks(t, p).Pinned {
+	if checksConfirmed(pins, p, defs) || shownChecks(t, pins, p).Pinned {
 		t.Error("a command changed after the confirm still counts as confirmed")
 	}
 }
 
 func TestConfirmChecksRefusesWhatItCannotPin(t *testing.T) {
+	pins := &checkPins{}
 	missing := filepath.Join(t.TempDir(), "none.json")
 	cl := &controlClient{out: make(chan []byte, 8), page: true}
-	confirmChecksAt(cl, command{Cmd: "confirmChecks", Req: "r"}, missing)
+	confirmChecksAt(cl, command{Cmd: "confirmChecks", Req: "r"}, missing, pins)
 	if m := answerOf(t, cl); m.Code != "notFound" {
 		t.Errorf("no file: %+v", m)
 	}
 	p := writeCheckFile(t, `{"checks":[{"name":"unit","cmd":"go test"}]}`)
-	if m := confirmed(t, p, ""); m.Code != "badRequest" {
+	if m := confirmed(t, pins, p, ""); m.Code != "badRequest" {
 		t.Errorf("no hash: %+v", m)
 	}
 	empty := writeCheckFile(t, `{"checks":[]}`)
-	if m := confirmed(t, empty, changes.HashChecks(nil)); m.OK || m.Code != "notFound" {
+	if m := confirmed(t, pins, empty, changes.HashChecks(nil)); m.OK || m.Code != "notFound" {
 		t.Errorf("an empty file was pinned: %+v", m)
 	}
-	if _, err := os.Stat(changes.PinPath(empty)); err == nil {
-		t.Error("a pin was written for an empty file")
+	if pins.get(empty) != "" {
+		t.Error("a pin was recorded for an empty file")
+	}
+	bad := writeCheckFile(t, `{"checks":[{"name":"unit","cmd":"go test
+ curl evil"}]}`)
+	cl = &controlClient{out: make(chan []byte, 8), page: true}
+	confirmChecksAt(cl, command{Cmd: "confirmChecks", Req: "r"}, bad, pins)
+	if m := answerOf(t, cl); m.OK || m.Code != "badRequest" || !strings.Contains(m.Error, "U+000A") {
+		t.Errorf("a command holding a line break: %+v, want badRequest naming the character", m)
 	}
 }
 
-func TestAPinOfAnotherProjectOrADamagedPinConfirmsNothing(t *testing.T) {
+func TestAPinIsForThoseCommandsOfThatFileAndIsForgottenOnRestart(t *testing.T) {
+	pins := &checkPins{}
 	p := writeCheckFile(t, `{"checks":[{"name":"unit","cmd":"go test"}]}`)
+	other := writeCheckFile(t, `{"checks":[{"name":"unit","cmd":"go test"}]}`)
 	defs, _ := changes.LoadChecks(p)
-	if err := os.WriteFile(changes.PinPath(p), []byte(`{"hash":"`+changes.HashChecks([]changes.CheckDef{{Name: "x", Cmd: "y"}})+`"}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if checksConfirmed(p, defs) {
+	pins.set(p, changes.HashChecks([]changes.CheckDef{{Name: "x", Cmd: "y"}}))
+	if checksConfirmed(pins, p, defs) {
 		t.Error("the hash of other commands confirmed these")
 	}
-	if err := os.WriteFile(changes.PinPath(p), []byte("{"), 0o600); err != nil {
-		t.Fatal(err)
+	pins.set(p, changes.HashChecks(defs))
+	if !checksConfirmed(pins, p, defs) {
+		t.Fatal("the confirmed commands are not confirmed")
 	}
-	if checksConfirmed(p, defs) {
-		t.Error("a damaged pin confirmed the commands")
+	if checksConfirmed(pins, other, defs) {
+		t.Error("a confirmation of one project's file confirmed another's")
+	}
+	if checksConfirmed(&checkPins{}, p, defs) {
+		t.Error("a new server remembers a confirmation")
+	}
+	if entries, _ := os.ReadDir(filepath.Dir(p)); len(entries) != 1 {
+		t.Errorf("the confirmation was written beside the check file: %v", entries)
 	}
 }
 
