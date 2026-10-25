@@ -9,8 +9,6 @@ import { html } from "../html.js";
 import { clip } from "../graph/Node.js";
 import { checkText, newReq, outcomeOf, NOT_CONNECTED_WORDS, SENT_SHOWN } from "../graph/ManagerBar.js";
 
-export const MESSAGE_NOT_SENT_WORDS = NOT_CONNECTED_WORDS;
-
 /** MAX_LINES is how many lines the box grows to before it scrolls. LINE_PX and PAD_PX are the line height and the vertical padding in drawer.css. */
 export const MAX_LINES = 4;
 const LINE_PX = 18;
