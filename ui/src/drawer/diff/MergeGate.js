@@ -5,7 +5,9 @@
 //
 // - canAct: false (the default) draws the gate read-only, with no buttons: that is
 //   a window whose desk has no gate caps, or one that may not write. It is the
-//   caller's to know.
+//   caller's to know (gateActsFor in gateModel.js). canCheck is the same for the
+//   "Run checks" and "Ask to review" buttons, which are the changesChecks cap's,
+//   not the gate's: actsFor("changesChecks", win). It is false unless given.
 // - flow: the state of the actions (useGateActions): busy, error, and the gate the
 //   desk answered with. Without it the buttons are not drawn.
 // - nameOf(pane): the name drawn for a reviewer; reviewer: the pane the "Ask to
@@ -41,13 +43,13 @@ const newReq = () => "gt" + Date.now().toString(36) + (++counter).toString(36);
  * cannot tell whether an approval was recorded, so the gate of the next push is
  * what they see, and nothing is sent again by itself. Approve is refused when the
  * branch has no head to send as expectSha. After a headMoved refusal the control
- * stays off until the branch's head changes. It answers { busy (the command being
+ * stays off while the branch's head is still the one that was sent (the sha that went out, not the one the window has when the answer lands: a push with the new head may arrive first). It answers { busy (the command being
  * waited on, or ""), error, said (the last outcome in words), gate (the gate to
  * draw: the desk's answer until the next push), moved, approve, withdraw,
  * runChecks(), askReview(reviewer) }.
  */
 export function useGateActions({ branch = null, send = null, result = null, connected = true, session = null }) {
-  const [s, setS] = useState({ busy: "", req: "", error: "", said: "", override: null, movedFrom: "" });
+  const [s, setS] = useState({ busy: "", req: "", error: "", said: "", override: null, movedFrom: "", sentSha: "" });
   const first = useRef(true);
   useEffect(() => {
     if (first.current) {
@@ -66,7 +68,7 @@ export function useGateActions({ branch = null, send = null, result = null, conn
       error: result.ok ? "" : gateRefusalWords(result),
       said: result.ok ? (op === "approveMerge" ? "Approved. The manager has been told." : op === "unapproveMerge" ? "Approval withdrawn." : op === "runChecks" ? "Checks started." : op === "requestReview" ? "Review asked for." : "Done.") : "",
       override: result.code === "headMoved" ? p.override : isObject(result.gate) ? result.gate : p.override,
-      movedFrom: result.code === "headMoved" ? text(branch && branch.headSha) : p.movedFrom,
+      movedFrom: result.code === "headMoved" ? p.sentSha : p.movedFrom,
     }));
   }, [result]);
   // The desk's next push is the truth again.
@@ -79,7 +81,7 @@ export function useGateActions({ branch = null, send = null, result = null, conn
       setS((p) => ({ ...p, error: NOT_CONNECTED, said: "" }));
       return false;
     }
-    setS((p) => ({ ...p, busy, req: cmd.req, error: "", said: "" }));
+    setS((p) => ({ ...p, busy, req: cmd.req, sentSha: text(cmd.expectSha), error: "", said: "" }));
     return true;
   };
   const ids = () => ({ pane: branch ? branch.pane : "", branch: branch ? branch.branch : "", req: newReq() });
@@ -108,7 +110,7 @@ function Row({ label, tone, children, action }) {
 }
 
 /** MergeGate draws the gate of one branch. */
-export function MergeGate({ branch = null, canAct = false, flow = null, nameOf = null, reviewer = "" }) {
+export function MergeGate({ branch = null, canAct = false, canCheck = false, flow = null, nameOf = null, reviewer = "" }) {
   const [said, setSaid] = useState("");
   const status = flow ? flow.error || flow.said || (flow.busy ? "Working…" : "") : "";
   useEffect(() => { setSaid(status); }, [status]);
@@ -123,6 +125,7 @@ export function MergeGate({ branch = null, canAct = false, flow = null, nameOf =
   const approve = { ...approveState(view, canAct && !!flow && !flow.busy && !moved), ...(moved ? { enabled: false, why: MOVED } : {}) };
   const name = (p) => showControls(clip(text(nameOf ? nameOf(p) : p), 40));
   const act = canAct && !!flow;
+  const actChecks = canCheck && !!flow;
   const whyId = "dv-gate-why-" + text(branch.pane);
   const stateWords = g.state === "blocked" ? (g.blockers.length ? g.blockers.length + " blocking" : "Blocked") : g.state === "ready" ? "Ready" : g.state === "approved" ? "Approved" : "Merged";
   const btn = (cls, label, onClick, aria) => html`<button type="button" class=${"drawer-btn " + cls} disabled=${!!flow.busy} aria-label=${aria || label} onClick=${onClick}>${label}</button>`;
@@ -131,10 +134,10 @@ export function MergeGate({ branch = null, canAct = false, flow = null, nameOf =
     <div class="dv-gate-h"><b>Merge gate</b><span class=${"dv-chip dv-gate-state dv-gate-state--" + g.state}>${stateWords}</span>
       ${canAct ? null : html`<span class="dv-gate-ro">Read-only here</span>`}</div>
     <ul class="dv-gate-rows" aria-label="What the gate checks">
-      <${Row} label="Checks" tone=${checks.tone} action=${act && checks.tone !== "pass" ? btn("dv-gate-run", checks.total ? "Run again" : "Run checks", flow.runChecks, "Run the checks again") : null}><bdi>${checksWords(checks)}</bdi><//>
+      <${Row} label="Checks" tone=${checks.tone} action=${actChecks && checks.tone !== "pass" ? btn("dv-gate-run", checks.total ? "Run again" : "Run checks", flow.runChecks, "Run the checks again") : null}><bdi>${checksWords(checks)}</bdi><//>
       <${Row} label="Conflicts" tone=${conflict.tone}>${conflict.text ? html`<bdi>${clip(conflict.text, 300)}</bdi>` : "None with the base or another branch"}<//>
       <${Row} label="Reviewer" tone=${review.tone}
-        action=${act && reviewer && (review.state === "none" || review.state === "stale") ? btn("dv-gate-ask", "Ask " + name(reviewer) + " to review", () => flow.askReview(reviewer)) : null}>${review.state === "changes" ? html`<bdi>${name(review.who)}</bdi> asked for changes${review.note ? html`: <bdi>${clip(review.note, 200)}</bdi>` : ""}`
+        action=${actChecks && reviewer && (review.state === "none" || review.state === "stale") ? btn("dv-gate-ask", "Ask " + name(reviewer) + " to review", () => flow.askReview(reviewer)) : null}>${review.state === "changes" ? html`<bdi>${name(review.who)}</bdi> asked for changes${review.note ? html`: <bdi>${clip(review.note, 200)}</bdi>` : ""}`
           : review.state === "approved" ? html`<bdi>${name(review.who)}</bdi> approved`
           : review.state === "requested" ? html`Waiting for <bdi>${name(review.who)}</bdi>`
           : review.state === "stale" ? "The earlier sign-off is out of date" : "No reviewer yet. This does not block the merge."}<//>

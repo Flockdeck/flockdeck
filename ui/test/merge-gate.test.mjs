@@ -92,7 +92,7 @@ const draw = (props) => renderToString(html`<${MergeGate} ...${props} />`);
 
 test("a blocked branch shows four rows in words, what else blocks it, and a disabled control with the reason beside it", () => {
   const flow = { busy: "", error: "", said: "", gate: null };
-  const out = draw({ branch: tax, canAct: true, flow, reviewer: "ec776492", nameOf: (p) => (p === "ec776492" ? "docs" : p) });
+  const out = draw({ branch: tax, canAct: true, canCheck: true, flow, reviewer: "ec776492", nameOf: (p) => (p === "ec776492" ? "docs" : p) });
   assert.match(out, /role="group" aria-label="Merge gate for agent\/tax-rounding"/);
   assert.match(out, /Waiting/);
   assert.match(out, /asked for changes|Changes/);
@@ -125,7 +125,7 @@ test("an approved gate says by whom and at which head, and that it does not merg
 
 function Host({ send, result, branch }) {
   const flow = useGateActions({ branch, send, result });
-  return html`<${MergeGate} branch=${branch} canAct=${true} flow=${flow} reviewer="ec776492" nameOf=${(p) => p} />`;
+  return html`<${MergeGate} branch=${branch} canAct=${true} canCheck=${true} flow=${flow} reviewer="ec776492" nameOf=${(p) => p} />`;
 }
 
 async function mountHost(props) {
@@ -286,4 +286,31 @@ test("agent text in the gate shows hidden characters and is isolated", () => {
   assert.match(out, /no(&lt;|<)U\+202E>way/);
   assert.match(out, /bo(&lt;|<)U\+202E>b/);
   assert.match(out, /<bdi>/);
+});
+
+test("a push with the new head that lands before the headMoved answer does not lock Approve", async () => {
+  const sent = [];
+  const send = (c) => { sent.push(c); return true; };
+  const m = await mountHost({ send, branch: cart });
+  try {
+    m.box.find(".dv-gate-approve").click();
+    await settle();
+    const moved = { ...cart, headSha: "newhead" };
+    m.draw({ send, branch: moved });
+    await settle();
+    m.draw({ send, branch: moved, result: { ...headMoved, req: sent[0].req } });
+    await settle();
+    assert.equal(m.box.find(".dv-gate-approve").disabled, false, "the window already has the new head");
+    assert.doesNotMatch(m.box.textContent, /waiting for the update/);
+  } finally {
+    m.done();
+  }
+});
+
+test("Run checks and Ask to review need the checks cap, not the gate's", () => {
+  const flow = { busy: "", error: "", said: "", gate: null };
+  const out = draw({ branch: api, canAct: true, flow, reviewer: "ec776492" });
+  assert.doesNotMatch(out, /dv-gate-run|dv-gate-ask/);
+  assert.match(draw({ branch: api, canAct: true, canCheck: true, flow, reviewer: "ec776492" }), /dv-gate-run/);
+  assert.equal(actsFor("changesChecks", { caps: ["changesGate"] }), false);
 });
