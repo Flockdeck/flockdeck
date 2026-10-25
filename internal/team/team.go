@@ -269,15 +269,47 @@ func AgentLabel(name string) string {
 // MaxPaneLabel is the longest label a pane may have, in characters.
 const MaxPaneLabel = 40
 
+// labelRoles are the role ids a label may not pass for, besides the ids of the
+// roles of the project it is given in.
+var labelRoles = []string{ManagerRole, "reviewer", "planner", "tester", "worker"}
+
+// noFormat drops the format characters (Unicode category Cf): zero-width and
+// direction marks, the byte order mark and the tag block. They print as nothing
+// or reorder what is around them, so a label could hide or fake words with them.
+func noFormat(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.Is(unicode.Cf, r) {
+			return -1
+		}
+		return r
+	}, s)
+}
+
 // PaneLabelText is a pane's label as text: one line of at most MaxPaneLabel
-// characters with no control character in it, and rewritten as "(agent) name"
-// when it could pass for the user or for Flockdeck, as AgentLabel does.
-func PaneLabelText(s string) string {
-	n := PlainText(s, MaxPaneLabel)
-	if Impersonates(n) {
+// characters with no control or format character in it, and rewritten as
+// "(agent) name" when it could pass for the user or for Flockdeck, or for a role
+// (manager, reviewer, planner, tester, worker, or one of roles), as AgentLabel does.
+func PaneLabelText(s string, roles ...string) string {
+	n := PlainText(noFormat(s), MaxPaneLabel)
+	if Impersonates(n) || passesForRole(n, roles) {
 		return PlainText("(agent) "+n, MaxPaneLabel)
 	}
 	return n
+}
+
+func passesForRole(label string, roles []string) bool {
+	n := Normalize(label)
+	if n == "" {
+		return false
+	}
+	for _, list := range [][]string{labelRoles, roles} {
+		for _, r := range list {
+			if n == Normalize(r) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // Sender says who a message came from.

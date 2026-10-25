@@ -423,7 +423,7 @@ interface: continue, then remember or only this time; nothing runs until then.
 | Edges | 100 `message` edges and 100 `sent` edges. |
 | `SendMessage` calls remembered | The last 200, in memory only. |
 | Needs-you items | 50 for each team and 50 for the solo panes. |
-| Text | A waiting-on text 200 characters; a live line 140; an edge's first line 140; a task title 120; a team's goal 300; a pane's name 80, its peer name 80, its branch 120 and its agent id 80; a pane's label 40. All are cut by characters and have control characters and runs of white space turned into single spaces. |
+| Text | A waiting-on text 200 characters; a live line 140; an edge's first line 140; a task title 120; a team's goal 300; a pane's name 80, its peer name 80, its branch 120 and its agent id 80; a pane's label 40. All are cut by characters and have control characters and runs of white space turned into single spaces. A label also loses format characters (zero-width and direction marks, the byte order mark, the tag block). |
 | `paneSend` text | 16 KiB, one write in progress for each pane. |
 | Helper cap | `max` is 8 for each pane. |
 | Relay scrub cost | A message to a window reached through the relay is decoded and encoded again once for each such window, in `controlClient.write`. A window on this machine is written the bytes as they were. |

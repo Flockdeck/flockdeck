@@ -169,3 +169,16 @@ func TestALabelSurvivesSaveAndRestore(t *testing.T) {
 		t.Errorf("a pane with no label came back with one: %+v", p)
 	}
 }
+
+func TestALabelThatPassesForARoleOfTheProjectIsMarkedAsAnAgents(t *testing.T) {
+	c := newCrew(t)
+	for _, text := range []string{"manager", "Reviewer", "w-o-r-k-e-r"} {
+		got, err := c.ws.SetPaneLabel(c.w1, c.w1, text)
+		if err != nil || !strings.HasPrefix(got, "(agent) ") {
+			t.Errorf("SetPaneLabel(%q) = %q, %v, want it marked as an agent's", text, got, err)
+		}
+	}
+	if got, _ := c.ws.SetPaneLabel(c.w1, c.w1, "reviewer PR 12"); got != "reviewer PR 12" {
+		t.Errorf("a label that only contains a role word was changed: %q", got)
+	}
+}

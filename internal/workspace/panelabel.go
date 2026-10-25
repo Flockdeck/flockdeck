@@ -68,7 +68,10 @@ func labelFromTask(task string) string {
 
 // SetPaneLabel names pane id for its work. actor is the pane asking, or empty for
 // the person at the window, who may name any pane. A pane may name itself; only a
-// manager may name another pane, and only one of its own project. Text is cleaned
+// manager may name another pane, and only one of its own project. This is a
+// courtesy check on the pane id the caller reports, not a security boundary: every
+// pane holds the same token, as for messaging, so a pane can say it is another.
+// Text is cleaned
 // and cut (team.PaneLabelText); empty clears the label. It reports the label
 // stored. It must run on the workspace goroutine.
 func (w *Workspace) SetPaneLabel(actor, id, text string) (string, error) {
@@ -83,7 +86,7 @@ func (w *Workspace) SetPaneLabel(actor, id, text string) (string, error) {
 		}
 		manager, inProject := false, false
 		for _, m := range members {
-			if m.Pane == actor && m.Role == "manager" {
+			if m.Pane == actor && m.Role == team.ManagerRole {
 				manager = true
 			}
 			if m.Pane == id {
@@ -97,7 +100,7 @@ func (w *Workspace) SetPaneLabel(actor, id, text string) (string, error) {
 			return "", fmt.Errorf("pane %q is not in your project", id)
 		}
 	}
-	label := team.PaneLabelText(text)
+	label := team.PaneLabelText(text, w.projectRoles(id)...)
 	w.mu.Lock()
 	changed := p.Label != label || p.LabelAuto
 	p.Label, p.LabelAuto = label, false
@@ -124,4 +127,20 @@ func (w *Workspace) PaneNamed(req hooks.PaneNameRequest) (hooks.PaneNameResult, 
 		return hooks.PaneNameResult{}, err
 	}
 	return hooks.PaneNameResult{Pane: target, Label: label}, nil
+}
+
+// projectRoles are the role ids of the panes in pane id's project, which a label
+// may not pass for.
+func (w *Workspace) projectRoles(id string) []string {
+	members, err := w.Roster(id)
+	if err != nil {
+		return nil
+	}
+	var roles []string
+	for _, m := range members {
+		if m.Role != "" {
+			roles = append(roles, m.Role)
+		}
+	}
+	return roles
 }

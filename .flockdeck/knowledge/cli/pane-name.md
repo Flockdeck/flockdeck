@@ -11,13 +11,13 @@ code_paths: [main.go, internal/hooks/team.go, internal/workspace/panelabel.go]
 
 `flockdeck pane-name [-pane <id>] <label>`
 
-The label is the rest of the arguments joined by spaces: one line of at most 40 characters, in 2-5 words (the PR or topic). An empty label clears it. A label that could pass for the user or for Flockdeck is shown as "(agent) ...".
+The label is the rest of the arguments joined by spaces: one line of at most 40 characters, in 2-5 words (the PR or topic). An empty label clears it. Control and format characters (zero-width and direction marks, the byte order mark, the tag block) are dropped. A label that could pass for the user, for Flockdeck or for a role (manager, reviewer, planner, tester, worker, or a role of the project) is shown as "(agent) ...".
 
 ## Flags
 
 | Flag | Default | Effect |
 |---|---|---|
-| `-pane <id>` | this pane | The pane to name. A pane may name itself; a manager may name any pane of its own project; any other pane is refused. |
+| `-pane <id>` | this pane | The pane to name. A pane may name itself; a manager may name any pane of its own project; any other pane is refused. This is a courtesy check on the pane id the command reports, not a security boundary: every pane holds the same token. |
 
 ## Where it runs
 

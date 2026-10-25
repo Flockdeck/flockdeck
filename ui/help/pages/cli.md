@@ -149,7 +149,8 @@ The label is what the window and the other agents call the pane, with its role: 
 rate limiter PR". It is one line of at most 40 characters, in 2 to 5 words, the PR or the
 topic. An agent renames itself when its work changes. Without `-pane` the name is
 for the pane running the command; a manager may name any pane of its project with `-pane`,
-and no other pane may name another. A label of `""` clears it. A label is kept with the pane
+and no other pane may name another. That rule is a courtesy check on the pane id the command
+reports, not a security boundary: every pane holds the same token, as for messaging. A label of `""` clears it. A label is kept with the pane
 across a restart. You can also rename a pane in the window.
 
 ## close

@@ -2048,7 +2048,7 @@ func runPeerName(args []string) error {
 func runPaneName(args []string) error {
 	fs := flag.NewFlagSet("pane-name", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
-	target := fs.String("pane", "", "`id` of the pane to name; a manager may name any pane of its project, any other pane only itself. Default: this pane")
+	target := fs.String("pane", "", "`id` of the pane to name; a manager may name any pane of its project (a courtesy check on the pane id given, not a security boundary), any other pane only itself. Default: this pane")
 	fs.Usage = func() {
 		fmt.Fprint(os.Stderr, "Usage: flockdeck pane-name [-pane <id>] <label>\n\n"+
 			"Names a pane for the work it does, in 2-5 words (the PR or topic), so the\n"+
