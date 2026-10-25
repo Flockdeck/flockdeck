@@ -48,7 +48,8 @@ import { Approvals } from "./Approvals.js";
 import { useLifecycle } from "../drawer/Lifecycle.js";
 import { useTranscripts } from "../drawer/Tools.js";
 import { HISTORY_REMOTE_WORDS } from "../lib/history.js";
-import { capsOf } from "../lib/apiversion.js";
+import { capsOf, hasCap } from "../lib/apiversion.js";
+import { CHANGES_TEAM_CAP } from "../lib/changesteam.js";
 import { DESK_FILES_WORDS, STRUCTURED_RECORD_WORDS, acknowledged, canTranscribe } from "../lib/paneinfo.js";
 import { FONT_DEFAULT, FONT_MAX, FONT_MIN, PATCH_WAIT_MS, applyLook, prefsOf, reducedMotion, addPending, latestOf, settledPending, setting, termOptionsOf } from "../lib/prefs.js";
 import { RELAY_WORDS, quitQuestion, updateOf } from "../lib/updates.js";
@@ -560,6 +561,13 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     store.watchTeam(selected);
     return () => store.unwatchTeam();
   }, [teamOpen, view === "board" || view === "deps", selected]);
+  // The team-wide Changes view keeps a watch on the project chosen in the rail while it is shown and the desktop offers it.
+  const changesTeam = view === "changes" && hasCap(snap.hello, CHANGES_TEAM_CAP) && !snap.remote && !viewer;
+  useEffect(() => {
+    if (!changesTeam) return undefined;
+    store.watchChangesTeam(selected);
+    return () => store.unwatchChangesTeam();
+  }, [changesTeam, selected]);
   // The desk keeps one focused pane in each tab. A pane opened in the drawer is
   // the one the person is working in, so the desk is told, and its own window and
   // the commands that act on the focused pane agree with this one.
