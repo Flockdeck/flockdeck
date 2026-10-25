@@ -20,8 +20,6 @@ const NAMED = { ArrowLeft: "←", ArrowRight: "→", ArrowUp: "↑", ArrowDown: 
 const MODIFIER_KEYS = ["Control", "Shift", "Alt", "Meta", "OS"];
 const FUNCTION_KEY = /^F([1-9]|1[0-9])$/;
 const PAGE_KEYS = ["Esc", "Tab"];
-/** CLEARS take a binding away while one is being recorded. */
-const CLEARS = ["Backspace", "Delete"];
 /** keyCode of a key pressed while an input method is composing. */
 const IME = 229;
 
@@ -30,7 +28,9 @@ export const composing = (e) => !!(e.isComposing || e.keyCode === IME);
 
 /** LIST are the keys that move through, choose from and leave a list. step goes to
  *  the next match of a search, as it does in nearly every program that searches. */
-export const LIST = { up: "ArrowUp", down: "ArrowDown", left: "ArrowLeft", right: "ArrowRight", home: "Home", end: "End", accept: "Enter", cancel: "Escape", tab: "Tab", step: "F3" };
+export const LIST = { up: "ArrowUp", down: "ArrowDown", left: "ArrowLeft", right: "ArrowRight", home: "Home", end: "End", accept: "Enter", cancel: "Escape", tab: "Tab", step: "F3", remove: "Delete" };
+/** CLEARS take a binding away while one is being recorded. */
+const CLEARS = ["Backspace", LIST.remove];
 // vocabulary:end
 
 /** signature is the shape a binding and a keydown are both reduced to, so that
