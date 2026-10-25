@@ -66,7 +66,9 @@ export function Settings({ prefs, change, onClose, section: first = "general", c
       trapTab(e, rootRef.current);
     }
   };
-  const chosen = sections.findIndex(([id]) => id === section);
+  // A section hidden after the role arrived (a viewer) gives way to General.
+  const shown = sections.some(([id]) => id === section) ? section : "general";
+  const chosen = sections.findIndex(([id]) => id === shown);
   const onTabKey = (e) => {
     if (composing(e)) return;
     const by = e.key === LIST.down || e.key === LIST.right ? 1 : e.key === LIST.up || e.key === LIST.left ? -1 : 0;
@@ -87,26 +89,27 @@ export function Settings({ prefs, change, onClose, section: first = "general", c
         <div class="settings-body">
           <div class="settings-nav" role="tablist" aria-label="Settings sections" aria-orientation="vertical">
             ${sections.map(([id, label]) => html`
-              <button type="button" role="tab" class=${"settings-tab" + (id === section ? " is-active" : "")} id=${"settings-tab-" + id}
-                data-section=${id} aria-selected=${id === section ? "true" : "false"} aria-controls="settings-panel"
-                tabindex=${id === section ? "0" : "-1"} ref=${id === section ? tabRef : null}
+              <button type="button" role="tab" class=${"settings-tab" + (id === shown ? " is-active" : "")} id=${"settings-tab-" + id}
+                data-section=${id} aria-selected=${id === shown ? "true" : "false"} aria-controls="settings-panel"
+                tabindex=${id === shown ? "0" : "-1"} ref=${id === shown ? tabRef : null}
                 onKeyDown=${onTabKey} onClick=${() => setSection(id)}>${label}</button>`)}
           </div>
-          <div class="settings-panel" role="tabpanel" id="settings-panel" aria-labelledby=${"settings-tab-" + section}>
-            ${section === "general" ? html`<${General} prefs=${prefs} change=${change} radar=${ctx.radar || null} remote=${!!ctx.remote} />` : null}
-            ${section === "appearance" ? html`<${Appearance} prefs=${prefs} change=${change} />` : null}
-            ${section === "terminal" ? html`<${Terminal} prefs=${prefs} change=${change} />` : null}
-            ${section === "notifications"
+          <div class="settings-panel" role="tabpanel" id="settings-panel" aria-labelledby=${"settings-tab-" + shown}>
+            ${ctx.viewer ? html`<p class="set-about" id="settings-viewer" role="status">This device can only view. Changes made here are refused.</p>` : null}
+            ${shown === "general" ? html`<${General} prefs=${prefs} change=${change} radar=${ctx.radar || null} remote=${!!ctx.remote} />` : null}
+            ${shown === "appearance" ? html`<${Appearance} prefs=${prefs} change=${change} />` : null}
+            ${shown === "terminal" ? html`<${Terminal} prefs=${prefs} change=${change} />` : null}
+            ${shown === "notifications"
               ? html`<${Notify} prefs=${prefs} change=${change} permission=${ctx.permission || "unsupported"} machine=${ctx.machine || ""} pushError=${ctx.pushError || ""}
                   onAsk=${ctx.onAsk || (() => {})} />`
               : null}
-            ${section === "keys" ? html`<${Keys} keys=${ctx.keys || null} remote=${!!ctx.remote} send=${ctx.send} news=${ctx.news || ""} jev=${ctx.jev || null} />` : null}
-            ${section === "status" ? html`<${JevStatus} prefs=${prefs} change=${change} remote=${!!ctx.remote} jev=${ctx.jev || null} send=${ctx.send} />` : null}
-            ${section === "routing" ? html`<${Routing} agents=${ctx.agents || null} project=${ctx.project || ""} send=${ctx.send} />` : null}
-            ${section === "agents" ? html`<${AgentSettings} agents=${ctx.agents || null} project=${ctx.project || ""} answer=${ctx.addressAnswer || null} remote=${!!ctx.remote} send=${ctx.send} />` : null}
-            ${section === "wake" ? html`<${Wake} wake=${prefs.wake} agents=${ctx.agents || null} panes=${ctx.panes || []} remote=${!!ctx.remote} send=${ctx.send} />` : null}
-            ${section === "keyboard" ? html`<${Keybindings} keys=${ctx.table || null} send=${ctx.send} page=${ctx.page || null} onRecording=${ctx.onRecording} />` : null}
-            ${section === "remote"
+            ${shown === "keys" ? html`<${Keys} keys=${ctx.keys || null} remote=${!!ctx.remote} send=${ctx.send} news=${ctx.news || ""} jev=${ctx.jev || null} />` : null}
+            ${shown === "status" ? html`<${JevStatus} prefs=${prefs} change=${change} remote=${!!ctx.remote} jev=${ctx.jev || null} send=${ctx.send} />` : null}
+            ${shown === "routing" ? html`<${Routing} agents=${ctx.agents || null} project=${ctx.project || ""} send=${ctx.send} />` : null}
+            ${shown === "agents" ? html`<${AgentSettings} agents=${ctx.agents || null} project=${ctx.project || ""} answer=${ctx.addressAnswer || null} remote=${!!ctx.remote} send=${ctx.send} />` : null}
+            ${shown === "wake" ? html`<${Wake} wake=${prefs.wake} agents=${ctx.agents || null} panes=${ctx.panes || []} remote=${!!ctx.remote} send=${ctx.send} />` : null}
+            ${shown === "keyboard" ? html`<${Keybindings} keys=${ctx.table || null} send=${ctx.send} page=${ctx.page || null} onRecording=${ctx.onRecording} />` : null}
+            ${shown === "remote"
               ? html`<${Remote} status=${ctx.status || null} roster=${ctx.roster || null} pair=${ctx.pair || null} outcome=${ctx.outcome || null} remote=${!!ctx.remote}
                   send=${ctx.send} copy=${ctx.copy || (() => {})} forget=${ctx.forgetPair || (() => {})} news=${ctx.news || ""} />`
               : null}

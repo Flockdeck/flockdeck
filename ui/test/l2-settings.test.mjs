@@ -546,3 +546,29 @@ test("a viewer's Settings has none of the sections whose controls the desktop re
     restore();
   }
 });
+
+test("a viewer's Settings says so, and a section hidden once the role arrives gives way to General", async () => {
+  const { Settings } = await import("../src/shell/Settings.js");
+  const { render } = await import("../src/vendor/preact.mjs");
+  const { html } = await import("../src/html.js");
+  const { createDom, install, settle } = await import("./dom.mjs");
+  const dom = createDom();
+  const restore = install(dom);
+  try {
+    const box = dom.document.createElement("div");
+    dom.body.appendChild(box);
+    const draw = (ctx) => render(html`<${Settings} prefs=${{}} change=${() => {}} onClose=${() => {}} ctx=${ctx} />`, box);
+    draw({});
+    await settle();
+    assert.equal(box.find("#settings-viewer"), null);
+    box.find("#settings-tab-keys").click();
+    await settle();
+    assert.equal(box.find('[aria-selected="true"]').getAttribute("data-section"), "keys");
+    draw({ viewer: true });
+    await settle();
+    assert.equal(box.find('[aria-selected="true"]').getAttribute("data-section"), "general", "keys is not a section of a viewer");
+    assert.match(box.find("#settings-viewer").textContent, /can only view/);
+  } finally {
+    restore();
+  }
+});
