@@ -255,9 +255,9 @@ const GRAPH_OPS = new Set(["graphSnapshot", "graphWatch", "graphUnwatch"]);
 const TEAM_COMMANDS = ["teamSnapshot", "teamWatch", "teamUnwatch", "taskList", "taskGet", "taskAdd", "taskAssign", "taskStatus", "taskNote", "taskBranch", "taskPrune", "msgList", "msgSend", "msgSeen", "teamClose"];
 const TEAM_OPS = new Set(TEAM_COMMANDS.filter((c) => c !== "teamWatch" && c !== "teamUnwatch"));
 
-/** CHANGES_TEAM_COMMANDS are the team-wide Changes view's (docs/changes-api.md): the watch, the files and the diffs, comments, checks, reviews and the merge gate. All are the desk's. */
 /** RESULTS_KEPT is how many answers to the Changes view's commands changesTeamResults holds. */
 const RESULTS_KEPT = 50;
+/** CHANGES_TEAM_COMMANDS are the team-wide Changes view's (docs/changes-api.md): the watch, the files and the diffs, comments, checks, reviews and the merge gate. All are the desk's. */
 const CHANGES_TEAM_COMMANDS = ["changesWatch", "changesUnwatch", "changesSnapshot", "filesPage", "diffHunks", "diffContext", "commentAdd", "commentResolve", "commentReopen", "runChecks", "requestReview", "submitReview", "approveMerge", "unapproveMerge", "mergeBranch"];
 
 /** DESK_ONLY says a command is one a remote window may not send: the graph
