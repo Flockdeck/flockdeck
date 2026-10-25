@@ -1,3 +1,4 @@
+// Degenerate graphs and task lists through the model, the outline, the goal line, Dependencies, the feed and the tabs: nothing throws.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { renderToString } from "./vendor/render-to-string.mjs";
@@ -60,7 +61,7 @@ test("30 teams, 200 agents", () => {
   const m = buildGraphModel(g(nodes, teams));
   const t0 = Date.now(); const o = all(m);
   assert.ok(Date.now() - t0 < 3000, "slow " + (Date.now() - t0));
-  assert.equal(o.tabs.tabs.length, 30);
+  assert.equal(o.tabs.tabs.length, 31, "30 goals and Solo");
 });
 test("names: long, rtl, emoji, markup, newline", () => {
   const names = ["x".repeat(500), "مرحبا بالعالم", "🙂🙂🙂", "<script>alert(1)</script>", "a\nb", "‮evil", ""];
