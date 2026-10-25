@@ -132,7 +132,7 @@ test("the views are on a row of their own, not inside the strip", () =>
     await m.connect();
     const bar = m.container.find(".viewbar");
     assert.ok(bar);
-    assert.deepEqual(bar.findAll(".tabs-view").map((b) => b.textContent.trim()), ["Team", "Dependencies", "Graph", "Board", "Changes", "Replay"]);
+    assert.deepEqual(bar.findAll(".tabs-view").map((b) => b.textContent.trim()), ["Team", "Dependencies", "Board", "Changes", "Replay"]);
     assert.equal(m.container.find(".goaltabs").findAll(".tabs-view").length, 0);
     assert.equal(m.container.find(".goaltabs").findAll(".viewbar").length, 0);
     assert.equal(m.container.find(".tabs"), null, "the desk's tab strip is gone");

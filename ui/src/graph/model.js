@@ -23,11 +23,11 @@
 // children) but not the tab a helper was started in with `spawn -tab`, so there
 // is no tab grouping to draw. The model does not guess one.
 
-/** The words a scrubbed prompt is given when a graph is sent through the relay (internal/server/relayscrub.go). */
-export const DETAILS_ON_DESKTOP = "details on the desktop";
+// The words a scrubbed prompt is given when a graph is sent through the relay (internal/server/relayscrub.go).
+const DETAILS_ON_DESKTOP = "details on the desktop";
 
-/** The kinds of needs-you item the graph can carry, in the order the schema lists them. */
-export const NEED_KINDS = ["permission", "ask", "returned", "conflict", "down", "setup", "stale-unread", "stuck"];
+// The kinds of needs-you item the graph can carry, in the order the schema lists them.
+const NEED_KINDS = ["permission", "ask", "returned", "conflict", "down", "setup", "stale-unread", "stuck"];
 
 const NEED_LABELS = {
   permission: "Wants to run something",
@@ -333,33 +333,6 @@ export function buildGraphModel(msg) {
   };
 }
 
-/**
- * attentionOf says how much a pane asks of the person, from its needs and what
- * it waits on.
- *
- * level is "needs-you" when a needs-you item names the pane (or the graph says
- * it waits on the user), "down" when it ended, "held" when it waits on a
- * reviewer, a task or helpers, and "none" otherwise, which includes a
- * waitingOn kind this file does not know.
- */
-export function attentionOf(model, paneId) {
-  const node = model.byPane.get(paneId);
-  const needs = model.needsByPane.get(paneId) || [];
-  const wait = node ? node.waitingOn : { kind: "none", text: "", ref: "" };
-  let level = "none";
-  if (needs.length > 0 || wait.kind === "user") level = "needs-you";
-  else if (wait.kind === "down") level = "down";
-  else if (wait.kind === "reviewer" || wait.kind === "task" || wait.kind === "helpers") level = "held";
-  return {
-    level,
-    needs,
-    waitingOn: wait,
-    // The question or command is not in the graph; it is on the desktop.
-    textHidden: needs.some((n) => n.textHidden) || (wait.kind === "user" && wait.text === DETAILS_ON_DESKTOP),
-    structured: node ? node.structured : false,
-  };
-}
-
 /** The panes that ask something of the person, in the order of the needs-you list. */
 export function panesNeedingYou(model) {
   const out = [];
@@ -373,55 +346,6 @@ export function panesNeedingYou(model) {
     }
   }
   return out;
-}
-
-/** The message edges to and from a pane, in the graph's order (newest first). */
-export function messagesOf(model, paneId) {
-  const inbound = [];
-  const outbound = [];
-  for (const e of model.edges.message) {
-    if (e.to === paneId) inbound.push(e);
-    if (e.from === paneId) outbound.push(e);
-  }
-  return { inbound, outbound };
-}
-
-/**
- * promptOf reads the permission or question a pane view of the state push
- * carries, for a pane drawn in a window. It copes with every shape the push
- * has: a full card, a card scrubbed for the relay (redacted, no buttons), a
- * question that was left out (detailsOnDesktop with no ask) and a structured
- * pane that sends its roster fields only.
- *
- * kind is "permission", "ask", "waiting" (the pane waits and what for was left
- * out) or "none". hidden says what was asked is not in
- * the push and is on the desktop. canAnswerHere says the card has choices to
- * press: false for a scrubbed or structured card, which is answered at the desk.
- */
-export function promptOf(pane) {
-  const p = isObject(pane) ? pane : {};
-  const perm = isObject(p.permission) ? p.permission : null;
-  const ask = isObject(p.ask) ? p.ask : null;
-  const hidden = p.detailsOnDesktop === true || (perm !== null && perm.redacted === true);
-  const options = perm ? list(perm.options).filter(isObject) : [];
-  if (perm) {
-    return {
-      kind: "permission",
-      hidden,
-      tool: str(perm.tool),
-      summary: str(perm.summary),
-      options,
-      canAnswerHere: !hidden && options.length > 0 && p.structured !== true,
-    };
-  }
-  if (ask) {
-    return { kind: "ask", hidden, tool: "", summary: "", options: [], canAnswerHere: false };
-  }
-  // Waiting with the details left out: the pane waits and says nothing more.
-  if (hidden) {
-    return { kind: str(p.status) === "waiting" ? "waiting" : "none", hidden, tool: "", summary: "", options: [], canAnswerHere: false };
-  }
-  return { kind: "none", hidden: false, tool: "", summary: "", options: [], canAnswerHere: false };
 }
 
 /** spanOf is a number of whole minutes as the outline writes a time: "now", "12m", "5h" or "3d" (hours up to 47). */

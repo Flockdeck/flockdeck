@@ -64,7 +64,7 @@ async function mount({ keys = [], g = graph() } = {}) {
   const ws = () => FakeWebSocket.last;
   const m = {
     dom, store, container, ws,
-    box: (pane) => container.findAll("[data-pane]").find((e) => e.localName === "g" && e.getAttribute("data-pane") === pane && e.getAttribute("role") === "button"),
+    box: (pane) => container.findAll("[data-pane]").find((e) => String(e.className || e.getAttribute("class")).includes("tree-row") && e.getAttribute("data-pane") === pane),
     bodies: () => container.findAll("[data-drawer-pane]"),
     name: () => { const e = container.find(".drawer-name"); return e ? e.textContent : ""; },
     active: () => dom.document.activeElement,
@@ -111,7 +111,7 @@ test("a click on a box opens the drawer for that pane, and Enter on another repl
 test("Esc closes the drawer and the keyboard goes to the box, not to the needs-you row with the same pane id", () =>
   withPage({}, async (m) => {
     await m.connect();
-    const rows = m.container.findAll("[data-pane]").filter((e) => e.localName !== "g" && e.getAttribute("data-pane") === TAX);
+    const rows = m.container.findAll("[data-pane]").filter((e) => !String(e.className || e.getAttribute("class")).includes("tree-row") && e.getAttribute("data-pane") === TAX);
     assert.ok(rows.length > 0, "the strip has no row for the pane, so this test would prove nothing");
     m.box(TAX).click();
     await settle();
@@ -132,7 +132,7 @@ test("focus returns to the box after a push that drew the graph again", () =>
     m.bodies()[0].keydown("Escape");
     await settle();
     assert.equal(m.active(), m.box(CART));
-    assert.equal(m.active().getAttribute("aria-expanded"), "false");
+    assert.equal(m.active().getAttribute("aria-selected"), "false");
   }));
 
 test("the header follows later pushes while the drawer is open", () =>
@@ -229,7 +229,7 @@ test("a graph command that failed is said above the picture that stays", () =>
     await m.connect();
     await m.push({ type: "teamResult", ok: false, op: "graphSnapshot", error: "the project is busy" });
     assert.match(m.container.find(".home").textContent, /The team graph could not be updated: the project is busy/);
-    assert.ok(m.container.find(".gnode"), "the picture went");
+    assert.ok(m.container.find(".tree-row"), "the picture went");
   }));
 
 test("a local window the desk refused the graph for is not told it is the relay", () => {

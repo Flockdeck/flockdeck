@@ -60,7 +60,7 @@ async function mount(extra = {}) {
 test("before a hello the main area says it is connecting", async () => {
   const m = await mount();
   assert.match(m.main().textContent, /Connecting to Flockdeck/);
-  assert.equal(m.container.find(".graph"), null);
+  assert.equal(m.container.find(".tree"), null);
   m.done();
 });
 
@@ -73,7 +73,7 @@ test("a socket that is waiting to retry says how long", async () => {
 });
 
 for (const name of names) {
-  test(`fixture ${name}: hello, state and graph draw the graph and edges, with no strip`, async () => {
+  test(`fixture ${name}: hello, state and graph draw the tree, with no strip`, async () => {
     const m = await mount();
     await m.connect();
     await m.push(stateMsg());
@@ -81,39 +81,27 @@ for (const name of names) {
     assert.match(m.main().textContent, /Reading the team graph/);
     const msg = fixture(name);
     await m.push(msg);
-    assert.ok(m.container.find(".graph"), "no graph");
+    assert.ok(m.container.find(".tree"), "no tree");
     assert.ok(m.container.find(".needs") === null, "the retired strip is drawn");
-    for (const n of msg.nodes) assert.ok(m.container.findAll(".gnode").some((g) => g.attributes["data-pane"] === n.pane), `${n.pane} is not drawn`);
-    const edgeKinds = new Set(msg.edges.map((e) => e.kind));
-    if (edgeKinds.has("message")) assert.ok(m.container.find(".gedge--message"), "a message edge is not drawn");
+    for (const n of msg.nodes) assert.ok(m.container.findAll(".tree-row").some((g) => g.attributes["data-pane"] === n.pane), `${n.pane} is not drawn`);
     assert.equal(m.main().textContent.includes("Reading the team graph"), false);
     m.done();
   });
 }
 
-test("fixture 5 draws the amber edge with its words through the page", async () => {
-  const m = await mount();
-  await m.connect();
-  await m.push(stateMsg());
-  await m.push(fixture("05-six-helpers-undelivered-message"));
-  assert.ok(m.container.find(".gedge--undelivered"));
-  assert.match(m.main().textContent, /not told yet/);
-  m.done();
-});
-
-test("a second graph push updates the picture without remounting it", async () => {
+test("a second graph push updates the tree without remounting it", async () => {
   const m = await mount();
   await m.connect();
   await m.push(stateMsg());
   const msg = fixture("01-six-helpers-one-permission");
   await m.push(msg);
-  const svg = m.container.find(".graph");
+  const tree = m.container.find(".tree");
   const pane = msg.nodes[0].pane;
-  const box = m.container.findAll(".gnode").find((g) => g.attributes["data-pane"] === pane);
+  const box = m.container.findAll(".tree-row").find((g) => g.attributes["data-pane"] === pane);
   const next = { ...msg, nodes: msg.nodes.map((n, i) => (i === 0 ? { ...n, live: "A new line from the agent" } : n)) };
   await m.push(next);
-  assert.equal(m.container.find(".graph"), svg, "the svg was replaced");
-  assert.equal(m.container.findAll(".gnode").find((g) => g.attributes["data-pane"] === pane), box, "a box was replaced");
+  assert.equal(m.container.find(".tree"), tree, "the tree was replaced");
+  assert.equal(m.container.findAll(".tree-row").find((g) => g.attributes["data-pane"] === pane), box, "a box was replaced");
   assert.match(m.main().textContent, /A new line from the agent/);
   m.done();
 });
@@ -127,7 +115,6 @@ test("a reconnect sends graphWatch again for the same project", async () => {
   first.drop();
   await settle();
   assert.match(m.main().textContent, /Out of date/, "the last picture is kept and called out of date");
-  assert.ok(m.container.find(".graph"));
   m.clock.advance(1000);
   assert.notEqual(m.ws(), first);
   await m.connect();
@@ -142,20 +129,20 @@ test("a project switch watches the new project and draws no picture of the old o
   await m.connect();
   await m.push(stateMsg());
   await m.push(fixture("01-six-helpers-one-permission", "/work/a"));
-  assert.ok(m.container.find(".graph"));
+  assert.ok(m.container.find(".tree"));
   const rail = m.container.findAll("button").find((b) => b.attributes["data-root"] === "/work/b");
   assert.ok(rail, "no rail button for beta");
   rail.click();
   await settle();
   assert.deepEqual(m.ws().commands("graphWatch").map((c) => c.root), ["/work/a", "/work/b"]);
   // The old project's picture is gone while the new one is read.
-  assert.equal(m.container.find(".graph"), null);
+  assert.equal(m.container.find(".tree"), null);
   assert.match(m.main().textContent, /Reading the team graph/);
   // A push of the old project that was in flight is not drawn.
   await m.push(fixture("01-six-helpers-one-permission", "/work/a"));
-  assert.equal(m.container.find(".graph"), null);
+  assert.equal(m.container.find(".tree"), null);
   await m.push(fixture("02-eight-helpers-permission-and-question", "/work/b"));
-  assert.ok(m.container.find(".graph"));
+  assert.ok(m.container.find(".tree"));
   m.done();
 });
 
@@ -165,7 +152,6 @@ test("teamGone clears the picture and says the project can no longer be read", a
   await m.push(stateMsg());
   await m.push(fixture("01-six-helpers-one-permission"));
   await m.push({ type: "teamGone", root: "/work/a", error: "that directory is gone" });
-  assert.equal(m.container.find(".graph"), null);
   assert.match(m.main().textContent, /This project can no longer be read/);
   assert.match(m.main().textContent, /that directory is gone/);
   m.done();
@@ -196,14 +182,14 @@ test("a graph push that cannot be read leaves the last good picture", async () =
   await m.push(stateMsg());
   const msg = fixture("01-six-helpers-one-permission");
   await m.push(msg);
-  const before = m.container.findAll(".gnode").length;
+  const before = m.container.findAll(".tree-row").length;
   assert.ok(before > 0);
   await m.push({ type: "graph", root: "/work/a", nodes: "not a list", teams: null, edges: 7 });
-  assert.equal(m.container.findAll(".gnode").length, before);
-  assert.ok(m.container.find(".graph"));
+  assert.equal(m.container.findAll(".tree-row").length, before);
+  assert.ok(m.container.find(".tree"));
   // And the next good push is drawn.
   await m.push({ ...msg, nodes: msg.nodes.slice(0, 2) });
-  assert.equal(m.container.findAll(".gnode").length, 2);
+  assert.equal(m.container.findAll(".tree-row").length, 2);
   m.done();
 });
 
@@ -230,7 +216,7 @@ test("a remote hello sends no graph command and shows the roster and the desktop
   }));
   assert.equal(m.ws().sent.filter((c) => String(c.cmd).startsWith("graph")).length, 0, "a graph command went to the relay");
   assert.match(m.main().textContent, /The team graph is shown on the desktop/);
-  assert.equal(m.container.find(".graph"), null);
+  assert.equal(m.container.find(".tree"), null);
   const rows = m.container.findAll(".home-agent");
   assert.equal(rows.length, 2);
   assert.match(rows[0].textContent, /manager/);
@@ -240,7 +226,7 @@ test("a remote hello sends no graph command and shows the roster and the desktop
   assert.ok(rows[1].textContent.includes("<img src=x"));
   // A graph push in a window like this is not drawn.
   await m.push(fixture("01-six-helpers-one-permission"));
-  assert.equal(m.container.find(".graph"), null);
+  assert.equal(m.container.find(".tree"), null);
   m.done();
 });
 

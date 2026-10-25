@@ -16,8 +16,7 @@
 //   4. a window reached the way the relay reaches it (a remote hello): no graph command goes
 //      out, the roster and the line about the desktop show.
 //
-// The page starts on the Team outline and the checks read it there. The canvas under
-// "Graph" is not checked.
+// The page starts on the Team outline and the checks read it there.
 //
 // Your own checks: --script FILE loads each fixture's page on the Team outline and calls the
 // default export of FILE with { page, fixture, url, check, click, key, sleep }, in place of
@@ -356,7 +355,7 @@ async function load(browser, url, boxesExpected, rate) {
     });
   }
   await page.S("Page.navigate", { url });
-  // The page starts on the Team outline. The canvas, kept one more release, is under "Graph".
+  // The page starts on the Team outline.
   const ok = await page.until(`document.querySelectorAll(".tree-row").length >= ${boxesExpected}`);
   return { page, ok };
 }
@@ -610,7 +609,7 @@ async function remoteCheck(browser, url, ex) {
     sent: window.__sent.map((c) => (c && c.cmd) || c),
     home: (document.querySelector(".home") || {}).textContent || "",
     roster: [...document.querySelectorAll(".home-agent")].map((e) => e.textContent.trim()),
-    graph: document.querySelectorAll("g.gnode").length,
+    tree: document.querySelectorAll(".tree-row").length,
     mbar: !!document.querySelector(".mbar"),
     drawer: document.querySelectorAll("[data-drawer-pane]").length,
   }))()`);
@@ -619,7 +618,7 @@ async function remoteCheck(browser, url, ex) {
   check("no graph, structured or paneSend command went out", !r.sent.some((c) => typeof c === "string" && /^(graph|structured|paneSend|permissionAnswer)/.test(c)), JSON.stringify(r.sent));
   check("the desktop line shows", /The team graph is shown on the desktop/.test(r.home), r.home.slice(0, 80));
   check("the roster shows every agent", r.roster.length === ex.graph.nodes.length, `${r.roster.length} of ${ex.graph.nodes.length}`);
-  check("no graph, no manager bar, no drawer", r.graph === 0 && !r.mbar && r.drawer === 0, JSON.stringify({ graph: r.graph, mbar: r.mbar, drawer: r.drawer }));
+  check("no tree, no manager bar, no drawer", r.tree === 0 && !r.mbar && r.drawer === 0, JSON.stringify({ tree: r.tree, mbar: r.mbar, drawer: r.drawer }));
   check("no page errors", page.errors.length === 0, page.errors.join(" | "));
   await page.close();
   return results;

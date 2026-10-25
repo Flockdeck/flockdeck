@@ -22,7 +22,6 @@ import { html } from "../html.js";
 import { clip } from "./Node.js";
 import { Icon, firstLine } from "./Badge.js";
 import { ageOf } from "./NeedsYou.js";
-import { askText } from "./OverlapBar.js";
 import { PermissionCard, NOT_CONNECTED_WORDS, DETAILS_ON_DESKTOP_WORDS, DESK_WORDS } from "../drawer/Prompt.js";
 import { labelOf } from "./model.js";
 
@@ -36,6 +35,11 @@ export const tabOf = (ctx) => (ctx && ctx.tab === false ? -1 : 0);
 const TERMINAL_WORDS = "Answer in its drawer, where the terminal is.";
 
 const nameOf = labelOf;
+
+/** askText is the line the manager is sent about two agents that changed the same files; o is { who, files }. */
+export function askText(o) {
+  return "Two agents have changed the same files: " + o.who + (o.files ? " (" + o.files + ")" : "") + ". Please decide now who keeps which changes, and tell them both.";
+}
 
 /** isDecision says whether the item is one of the four kinds a block draws. */
 export function isDecision(need) {

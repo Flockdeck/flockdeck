@@ -249,7 +249,7 @@ async function mount() {
   await settle();
   return {
     dom, ws, store, container,
-    box: (pane) => container.findAll("[data-pane]").find((e) => e.localName === "g" && e.getAttribute("data-pane") === pane && e.getAttribute("role") === "button"),
+    box: (pane) => container.findAll("[data-pane]").find((e) => String(e.className || e.getAttribute("class")).includes("tree-row") && e.getAttribute("data-pane") === pane),
     tabs: () => container.findAll(".drawer-tab"),
     panel: (id) => container.find("#drawer-panel-" + id),
     done: () => { render(null, container); store.stop(); restore(); },

@@ -160,7 +160,7 @@ async function mount({ prefs = {}, helloOver = {}, state = {} } = {}) {
     clear: () => { ws().sent.length = 0; },
     push: async (msg) => { ws().frame(msg); await settle(); },
     click: async (el) => { assert.ok(el, "no element to click"); el.click(); await settle(); },
-    box: (pane) => container.findAll("[data-pane]").find((e) => e.localName === "g" && e.getAttribute("data-pane") === pane && e.getAttribute("role") === "button"),
+    box: (pane) => container.findAll("[data-pane]").find((e) => String(e.className || e.getAttribute("class")).includes("tree-row") && e.getAttribute("data-pane") === pane),
     connect: async (over) => {
       ws().open();
       ws().frame(hello({ keys: KEYS, prefs, ...helloOver }));
