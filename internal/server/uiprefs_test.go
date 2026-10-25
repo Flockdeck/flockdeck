@@ -102,14 +102,19 @@ func TestHelloSaysThereAreUIPrefs(t *testing.T) {
 // reached through the relay, which has no goal tabs, and is not taken from one.
 func TestGoalTabNamesStayOnTheDesk(t *testing.T) {
 	ui := map[string]json.RawMessage{
-		"tabs":     json.RawMessage(`{"names":{"p1":"Ship the billing migration"}}`),
-		"fontSize": json.RawMessage(`15`),
+		"tabs":          json.RawMessage(`{"names":{"p1":"Ship the billing migration"}}`),
+		"tabs.names":    json.RawMessage(`{"p1":"Ship the billing migration"}`),
+		"tabs.order":    json.RawMessage(`["p1"]`),
+		"tabs.archived": json.RawMessage(`["p2"]`),
+		"fontSize":      json.RawMessage(`15`),
 	}
 	prefs := store.Prefs{UI: ui}
 
 	remote := prefsFor(&controlClient{remote: true}, prefs)
-	if _, has := remote.UI["tabs"]; has {
-		t.Errorf("a relay window is sent the goal tab names: %v", remote.UI)
+	for _, k := range []string{"tabs", "tabs.names", "tabs.order", "tabs.archived"} {
+		if _, has := remote.UI[k]; has {
+			t.Errorf("a relay window is sent %s: %v", k, remote.UI)
+		}
 	}
 	if string(remote.UI["fontSize"]) != "15" {
 		t.Errorf("a relay window lost its font size: %v", remote.UI)
@@ -123,7 +128,7 @@ func TestGoalTabNamesStayOnTheDesk(t *testing.T) {
 
 	srv, _ := newTestServer(t)
 	c := &controlClient{remote: true, out: make(chan []byte, 8)}
-	srv.setUIPrefs(c, map[string]json.RawMessage{"tabs": json.RawMessage(`{"names":{"p1":"x"}}`)})
+	srv.setUIPrefs(c, map[string]json.RawMessage{"tabs.names": json.RawMessage(`{"p1":"x"}`)})
 	var n map[string]any
 	select {
 	case raw := <-c.out:
