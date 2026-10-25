@@ -30,7 +30,8 @@ today and not an error.
 | `changesChecks` | `runChecks`, `requestReview`, `submitReview` and the `checks` and `reviews` of each branch. Without it both are empty. |
 | `changesGate` | `approveMerge`, `unapproveMerge`, `mergeBranch` and the `gate` of each branch. Without it `gate` is absent. |
 
-A cap is added to `api.caps` in the change that builds what it names. A window
+A cap is added to `api.caps` in the change that builds what it names.
+`changesTeam` came with API 1.5. A window
 reached through the relay is sent none of the five (section 9).
 
 ## 2. Commands

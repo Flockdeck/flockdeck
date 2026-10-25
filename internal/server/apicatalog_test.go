@@ -27,7 +27,7 @@ const apiCatalogPath = "../../api/catalog.json"
 // command or message raises the major; one that adds raises the minor.
 const (
 	apiMajor = 1
-	apiMinor = 4
+	apiMinor = 5
 )
 
 // addedIn names the minor version a command arrived in; any other is 1.0.
@@ -46,6 +46,10 @@ func init() {
 	}
 	for _, n := range changesCommands {
 		plannedCommands[n] = !slices.Contains(changesBuilt, n)
+	}
+	// What is built arrived with the changesTeam cap, in 1.5.
+	for _, n := range slices.Concat(changesBuilt, []string{"changesTeam", "changesFiles"}) {
+		addedIn[n] = "1.5"
 	}
 }
 
