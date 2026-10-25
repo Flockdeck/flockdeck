@@ -1184,6 +1184,9 @@ type controlClient struct {
 	// teamgraph.go), which is subscribed to apart from the Team panel.
 	graphRoot string
 	graphSent []byte
+	// changes is the window's team-wide changes watch (changes_team.go); it
+	// belongs to the workspace goroutine.
+	changes *changesWatcher
 	// relayTeamsSent is the relay form of the teams this window was last sent,
 	// so an unchanged one is not sent again.
 	relayTeamsSent []byte
@@ -1489,6 +1492,7 @@ func (s *Server) handleControl(w http.ResponseWriter, r *http.Request) {
 		s.mu.Unlock()
 		// A window that has gone is watching no pane's conversation either.
 		s.convos.dropClient(c)
+		s.do(c.stopChangesWatch)
 		// A window that has gone reports no more input from here.
 		s.setDeskUsed(c, false)
 		cancel()
@@ -1642,7 +1646,10 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 	case "graphSnapshot", "graphWatch", "graphUnwatch":
 		s.graphCommand(c, cmd)
 		return
-	case "changesWatch", "changesUnwatch", "changesSnapshot", "filesPage", "diffHunks", "diffContext",
+	case "changesWatch", "changesUnwatch", "changesSnapshot", "filesPage":
+		s.changesCommand(c, cmd)
+		return
+	case "diffHunks", "diffContext",
 		"commentAdd", "commentResolve", "commentReopen", "runChecks", "requestReview", "submitReview",
 		"approveMerge", "unapproveMerge", "mergeBranch":
 		s.changesPlanned(c, cmd)

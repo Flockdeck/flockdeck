@@ -45,7 +45,7 @@ func init() {
 		plannedMessages[n] = true
 	}
 	for _, n := range changesCommands {
-		plannedCommands[n] = true
+		plannedCommands[n] = !slices.Contains(changesBuilt, n)
 	}
 }
 

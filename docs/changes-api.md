@@ -280,7 +280,9 @@ relay is refused every command here, and `changesTeam`, `changesFiles`,
 is sent is that refusal: `code` is `deskOnly` or `unsupported` and `error` is the
 fixed sentence for that code, whatever the desktop wrote; anything else, and an
 answer that holds a comment or a gate, is dropped. Its hello does not
-list the five caps. The reason is what the data holds: branch names,
+list the five caps. A viewer device is refused by
+the access check before any command is read, with the notice every viewer gets and
+no `changesResult`. The reason is what the data holds: branch names,
 paths and file counts say what the project is and what an agent is doing, and a
 comment or a diff is source text. A read-only form for a relay window, with paths
 and counts and nothing else, is a decision to be made on its own; the default is

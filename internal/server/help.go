@@ -126,7 +126,7 @@ type keyView struct {
 // sendHello gives a freshly connected window the key table and the prefs. It
 // runs on the workspace goroutine, which is what owns s.prefs.
 func (s *Server) sendHello(c *controlClient) {
-	msg := helloMsg{Type: "hello", Keys: s.effectiveKeys(c.remote), Prefs: prefsFor(c, s.prefs), Remote: c.remote, API: currentAPI()}
+	msg := helloMsg{Type: "hello", Keys: s.effectiveKeys(c.remote), Prefs: prefsFor(c, s.prefs), Remote: c.remote, API: apiFor(c.remote)}
 	msg.KeyOverrides, msg.KeysHidden = s.keyDeltas(c.remote)
 	// A viewer is told what it is, so its window can say so, and is sent none of
 	// the desk's preferences.
