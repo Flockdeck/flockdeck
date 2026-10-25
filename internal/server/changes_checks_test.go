@@ -95,3 +95,27 @@ func TestChecksAndReviewsAreRefusedToARelayWindow(t *testing.T) {
 		t.Error("changesChecks is not listed for this machine only")
 	}
 }
+
+// The request is worded as Flockdeck's, names the branch and head, approves
+// nothing, and quotes a note after cleaning it.
+func TestAReviewRequestSaysWhatWasAskedAndApprovesNothing(t *testing.T) {
+	sha := "0123456789abcdef0123456789abcdef01234567"
+	got := reviewRequestText("feat/x", sha, "look at the\u202e parser\x07\nand the tests")
+	for _, want := range []string{"the person asked you to review feat/x at 0123456789ab.", "> look at the parser", "> and the tests", "It does not approve or merge anything."} {
+		if !strings.Contains(got, want) {
+			t.Errorf("text lacks %q:\n%s", want, got)
+		}
+	}
+	for _, bad := range []string{"from the person", "\u202e", "\x07", "please merge", "approved"} {
+		if strings.Contains(got, bad) {
+			t.Errorf("text holds %q:\n%s", bad, got)
+		}
+	}
+	if plain := reviewRequestText("feat/x", sha, ""); strings.Contains(plain, "quoted") {
+		t.Errorf("a request with no note quotes one: %s", plain)
+	}
+	rec := reviewRecordedText("changes", "feat/x", sha, "no")
+	if !strings.Contains(rec, "asked for changes on feat/x at 0123456789ab") || !strings.Contains(rec, "not a merge approval") || !strings.Contains(rec, "> no") {
+		t.Errorf("recorded text = %s", rec)
+	}
+}

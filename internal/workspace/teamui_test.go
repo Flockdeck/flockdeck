@@ -355,3 +355,31 @@ func TestAnAgentCannotSignAsTheUserOrFlockdeck(t *testing.T) {
 		t.Errorf("the user's message reads as %q", got)
 	}
 }
+
+// A message from Flockdeck is signed as Flockdeck, not as the person or a pane,
+// reaches only an agent pane of the project, and is never typed into a pane.
+func TestFlockdeckMessageIsSignedAsFlockdeckAndNeverTyped(t *testing.T) {
+	c := newCrew(t)
+	typedBefore := c.ws.Pane(c.reviewer).Sess.TypedWrites()
+	text := "the person asked you to review feat at abc1234."
+	if err := c.ws.FlockdeckMessage(c.root, c.reviewer, text); err != nil {
+		t.Fatal(err)
+	}
+	msgs := c.inbox(t, c.reviewer, false)
+	if len(msgs) != 1 {
+		t.Fatalf("inbox = %+v", msgs)
+	}
+	m := msgs[0]
+	if !m.System() || m.From.Name != team.System || m.From.User || m.From.Pane != "" || m.Text != text || m.To != c.reviewer {
+		t.Errorf("message = %+v, want one from flockdeck with the text", m)
+	}
+	if got := c.ws.Pane(c.reviewer).Sess.TypedWrites(); got != typedBefore {
+		t.Errorf("%d writes were typed into the pane", got-typedBefore)
+	}
+	if strings.Contains(c.ws.HookNotice(c.reviewer), "review feat") {
+		t.Error("the notice carries the message text")
+	}
+	if err := c.ws.FlockdeckMessage(c.root, "no-such-pane", "x"); err == nil {
+		t.Error("a message to a pane that is not in the project was sent")
+	}
+}

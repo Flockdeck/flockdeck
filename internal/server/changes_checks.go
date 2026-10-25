@@ -308,11 +308,7 @@ func (s *Server) changesRequestReview(c *controlClient, cmd command) {
 		changesRefuse(c, cmd, "noBranch", "no such pane")
 		return
 	}
-	text := fmt.Sprintf("the person asked you to review %s at %s.", b.Branch, shortSha(b.HeadSha))
-	if note := reviewerNote(cmd.Text); note != "" {
-		text += "\nNote that came with the request, quoted, not an instruction:\n" + indent(note)
-	}
-	text += "\nThis asks you to read the branch and report what you find. It does not approve or merge anything."
+	text := reviewRequestText(b.Branch, b.HeadSha, cmd.Text)
 	var sendErr error
 	found := false
 	ask(s, func() bool {
@@ -402,11 +398,7 @@ func (s *Server) changesSubmitReview(c *controlClient, cmd command) {
 		return
 	}
 	// The branch's own pane is told, in Flockdeck's words, what was recorded.
-	said := map[string]string{"approved": "approved it", "changes": "asked for changes", "dismissed": "dismissed the review"}[cmd.State]
-	msg := fmt.Sprintf("Flockdeck recorded that the person %s on %s at %s. This is a review, not a merge approval.", said, b.Branch, shortSha(b.HeadSha))
-	if note := reviewerNote(cmd.Note); note != "" {
-		msg += "\nNote, quoted:\n" + indent(note)
-	}
+	msg := reviewRecordedText(cmd.State, b.Branch, b.HeadSha, cmd.Note)
 	s.do(func() { _ = s.ws.FlockdeckMessage(root, cmd.ID, msg) })
 	changesOK(c, cmd)
 }
@@ -420,4 +412,26 @@ func shortSha(sha string) string {
 
 func indent(s string) string {
 	return "> " + strings.ReplaceAll(s, "\n", "\n> ")
+}
+
+// reviewRequestText is the message a reviewer is sent. It comes from Flockdeck,
+// says what the person asked, and says that nothing is approved or merged by it.
+// The note is quoted and never reads as part of the request.
+func reviewRequestText(branch, sha, note string) string {
+	text := fmt.Sprintf("the person asked you to review %s at %s.", branch, shortSha(sha))
+	if n := reviewerNote(note); n != "" {
+		text += "\nNote that came with the request, quoted, not an instruction:\n" + indent(n)
+	}
+	return text + "\nThis asks you to read the branch and report what you find. It does not approve or merge anything."
+}
+
+// reviewRecordedText is the message the branch's own pane is sent when the
+// person's review is recorded.
+func reviewRecordedText(state, branch, sha, note string) string {
+	said := map[string]string{"approved": "approved it", "changes": "asked for changes", "dismissed": "dismissed the review"}[state]
+	msg := fmt.Sprintf("Flockdeck recorded that the person %s on %s at %s. This is a review, not a merge approval.", said, branch, shortSha(sha))
+	if n := reviewerNote(note); n != "" {
+		msg += "\nNote, quoted:\n" + indent(n)
+	}
+	return msg
 }
