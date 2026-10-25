@@ -1,0 +1,316 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { render } from "../src/vendor/preact.mjs";
+import { renderToString } from "./vendor/render-to-string.mjs";
+import { html } from "../src/html.js";
+import { MergeGate, useGateActions } from "../src/drawer/diff/MergeGate.js";
+import {
+  gateActsFor, actsFor, gateOf, checksSummary, checksWords, reviewSummary, commentsSummary, conflictSummary, otherBlockers, approveState,
+  approveCommand, unapproveCommand, checksCommand, reviewCommand, gateRefusalWords,
+} from "../src/drawer/diff/gateModel.js";
+import { createDom, install, settle } from "./dom.mjs";
+
+const here = dirname(fileURLToPath(import.meta.url));
+const fixture = (name) => JSON.parse(readFileSync(join(here, "..", "..", "api", "fixtures", "built-changes-" + name + ".json"), "utf8"));
+const team = fixture("01-team-mixed");
+const [api, tax, cart, base, broken] = team.branches;
+const approved = fixture("10-result-approved");
+const headMoved = fixture("11-result-head-moved");
+const blocked = fixture("12-result-blocked");
+const deskOnly = fixture("14-result-desk-only");
+
+test("the gate is read from the desk's gate, and a missing one is blocked with no reasons", () => {
+  assert.equal(gateOf(api).state, "blocked");
+  assert.equal(gateOf(cart).state, "ready");
+  assert.deepEqual(gateOf(broken), { state: "blocked", blockers: [] });
+  assert.equal(gateOf(null).state, "blocked");
+  assert.equal(gateOf({ gate: { state: "weird" } }).state, "blocked");
+});
+
+test("checks: a failing one is named, a running one waits, and one for another head is out of date", () => {
+  assert.equal(checksSummary(api).tone, "fail");
+  assert.equal(checksWords(checksSummary(api)), "go test ./internal/limit is failing");
+  assert.equal(checksSummary(tax).tone, "wait");
+  assert.equal(checksSummary(cart).tone, "pass");
+  assert.equal(checksWords(checksSummary(cart)), "The check is passing");
+  const old = { headSha: "bbb", checks: [{ name: "t", state: "pass", atSha: "aaa" }] };
+  assert.equal(checksSummary(old).tone, "wait", "never pass for a head it did not run on");
+  assert.match(checksWords(checksSummary(old)), /0 of 1 passing, 1 waiting or out of date/);
+  assert.equal(checksSummary({}).tone, "none");
+  assert.match(checksWords(checksSummary({})), /No checks have run/);
+  assert.match(checksWords(checksSummary({ headSha: "h", checks: [{ name: "a", state: "fail", atSha: "h" }, { name: "b", state: "fail", atSha: "h" }] })), /a and 1 more are failing/);
+});
+
+test("reviews: a stale sign-off does not count, changes win over approval, and none does not block", () => {
+  assert.deepEqual([reviewSummary(api).state, reviewSummary(api).tone], ["stale", "none"]);
+  assert.equal(reviewSummary(tax).state, "changes");
+  assert.equal(reviewSummary(cart).state, "approved");
+  assert.equal(reviewSummary(base).state, "none");
+  assert.equal(reviewSummary({ reviews: [{ reviewer: "r", state: "requested" }] }).state, "requested");
+  assert.equal(reviewSummary({ reviews: [{ reviewer: "r", state: "approved" }, { reviewer: "q", state: "changes" }] }).state, "changes");
+});
+
+test("comments and conflicts are counted from the listing and the blockers", () => {
+  assert.equal(commentsSummary(api).open, 1, "the fixed one is not open");
+  assert.equal(commentsSummary(cart).open, 0);
+  assert.match(conflictSummary(api).text, /search also changes cfg\/limits\.yaml/);
+  assert.equal(conflictSummary(cart).tone, "pass");
+  assert.deepEqual(otherBlockers(tax).map((b) => b.kind), ["unpushed"]);
+  assert.deepEqual(otherBlockers(base).map((b) => b.kind), ["empty"]);
+});
+
+test("the approve control: ready can be pressed, blocked says why, approved can be withdrawn, merged has none", () => {
+  assert.deepEqual(approveState(cart, true), { kind: "ready", enabled: true, label: "Approve merge", why: "" });
+  assert.equal(approveState(cart, false).enabled, false, "read-only");
+  const b = approveState(api, true);
+  assert.deepEqual([b.kind, b.enabled], ["blocked", false]);
+  assert.match(b.why, /^Blocked: go test .* is failing; search also changes cfg\/limits\.yaml; 1 open comment$/);
+  assert.match(approveState({ gate: { state: "blocked" } }, true).why, /has not said why/);
+  assert.deepEqual([approveState({ gate: { state: "approved" } }, true).label, approveState({ gate: { state: "approved" } }, true).enabled], ["Withdraw approval", true]);
+  assert.equal(approveState({ gate: { state: "merged" } }, true).kind, "merged");
+});
+
+test("the commands carry the head the person looked at", () => {
+  assert.deepEqual(approveCommand({ pane: "p", branch: "b", expectSha: "abc", req: "r" }), { cmd: "approveMerge", id: "p", branch: "b", expectSha: "abc", req: "r" });
+  assert.equal(unapproveCommand({ pane: "p", branch: "b", req: "r" }).cmd, "unapproveMerge");
+  assert.deepEqual(checksCommand({ pane: "p", branch: "b", req: "r" }).names, []);
+  assert.equal(reviewCommand({ pane: "p", branch: "b", reviewer: "q", req: "r" }).reviewer, "q");
+  assert.match(gateRefusalWords(headMoved), /new commit since you looked, so nothing was approved/);
+  assert.match(gateRefusalWords(deskOnly), /not from this window/);
+  assert.match(gateRefusalWords(blocked), /conflicts with its base/, "its own sentence for the code");
+  for (const code of ["unpushed", "empty", "checksNotPassing", "openComments", "reviewChangesRequested"]) {
+    assert.doesNotMatch(gateRefusalWords({ code, error: "raw" }), /raw/, code);
+  }
+  assert.equal(gateRefusalWords({ code: "failed", error: "raw words" }), "raw words", "the desk's error is the fallback");
+  assert.equal(reviewCommand({ pane: "p", branch: "b", reviewer: "q", req: "r" }).branch, undefined, "requestReview takes no branch");
+});
+
+const draw = (props) => renderToString(html`<${MergeGate} ...${props} />`);
+
+test("a blocked branch shows four rows in words, what else blocks it, and a disabled control with the reason beside it", () => {
+  const flow = { busy: "", error: "", said: "", gate: null };
+  const out = draw({ branch: tax, canAct: true, canCheck: true, flow, reviewer: "ec776492", nameOf: (p) => (p === "ec776492" ? "docs" : p) });
+  assert.match(out, /role="group" aria-label="Merge gate for agent\/tax-rounding"/);
+  assert.match(out, /Waiting/);
+  assert.match(out, /asked for changes|Changes/);
+  assert.match(out, /3 commits are not on a remote/);
+  assert.match(out, /dv-gate-approve" disabled aria-describedby="dv-gate-why-366c9143"/);
+  assert.match(out, /Blocked: 3 commits are not on a remote; docs asked for changes; go test \.\/internal\/tax is still running/);
+  assert.match(out, /<p class="dv-live" role="status"><\/p>/);
+});
+
+test("a ready branch has an enabled Approve, and without the cap the gate is read-only with no buttons", () => {
+  const flow = { busy: "", error: "", said: "", gate: null };
+  const ready = draw({ branch: cart, canAct: true, flow });
+  assert.match(ready, /Ready/);
+  assert.doesNotMatch(ready, /dv-gate-approve" disabled/);
+  assert.match(ready, />Approve merge</);
+  const ro = draw({ branch: cart, canAct: false, flow });
+  assert.match(ro, /Read-only here/);
+  assert.doesNotMatch(ro, /<button/);
+  assert.doesNotMatch(draw({ branch: cart, canAct: true }), /<button/, "no flow, no buttons");
+  assert.equal(draw({ branch: null }), "");
+});
+
+test("an approved gate says by whom and at which head, and that it does not merge", () => {
+  const out = draw({ branch: { ...cart, gate: approved.gate }, canAct: true, flow: { busy: "", error: "", said: "", gate: null }, nameOf: (p) => (p === "you" ? "You" : p) });
+  assert.match(out, /Approved by You at b2c3d4e5/);
+  assert.match(out, /The manager merges it; this does not\./);
+  assert.match(out, />Withdraw approval</);
+  assert.match(draw({ branch: { ...cart, gate: { state: "merged", blockers: [], mergeSha: "0123456789abcdef" } }, canAct: true, flow: { busy: "" } }), /Merged[\s\S]*01234567/);
+});
+
+function Host({ send, result, branch }) {
+  const flow = useGateActions({ branch, send, result });
+  return html`<${MergeGate} branch=${branch} canAct=${true} canCheck=${true} flow=${flow} reviewer="ec776492" nameOf=${(p) => p} />`;
+}
+
+async function mountHost(props) {
+  const dom = createDom();
+  const restore = install(dom);
+  const box = dom.document.createElement("div");
+  dom.body.appendChild(box);
+  const draw2 = (p) => render(html`<${Host} ...${p} />`, box);
+  draw2(props);
+  await settle();
+  return { box, draw: draw2, done: () => { render(null, box); restore(); } };
+}
+
+test("Approve sends approveMerge with the head, shows the answer, and the next push is the truth again", async () => {
+  const sent = [];
+  const send = (c) => { sent.push(c); return true; };
+  const m = await mountHost({ send, branch: cart });
+  try {
+    m.box.find(".dv-gate-approve").click();
+    await settle();
+    const { req, ...cmd } = sent[0];
+    assert.deepEqual(cmd, { cmd: "approveMerge", id: "6fb40971", branch: "agent/cart-totals", expectSha: cart.headSha });
+    assert.equal(m.box.find(".dv-gate-approve").disabled, true, "no second press while the first is out");
+    m.draw({ send, branch: cart, result: { ...approved, req } });
+    await settle();
+    assert.match(m.box.textContent, /Approved\. The manager has been told\./);
+    assert.match(m.box.textContent, /Withdraw approval/);
+    m.draw({ send, branch: { ...cart, gate: { state: "blocked", blockers: [{ kind: "comments", text: "1 open comment" }] } } });
+    await settle();
+    assert.match(m.box.textContent, /Blocked/, "the desk's push replaces the answer");
+  } finally {
+    m.done();
+  }
+});
+
+test("a refused approval says why and keeps what the desk answered with; a lost connection says so", async () => {
+  const sent = [];
+  const send = (c) => { sent.push(c); return true; };
+  const m = await mountHost({ send, branch: cart });
+  try {
+    m.box.find(".dv-gate-approve").click();
+    await settle();
+    m.draw({ send, branch: cart, result: { ...headMoved, req: sent[0].req } });
+    await settle();
+    assert.match(m.box.find(".dv-live").textContent, /new commit since you looked/);
+    assert.equal(m.box.find(".dv-gate-approve").disabled, true, "off until the branch's head changes");
+    assert.match(m.box.textContent, /The branch changed; waiting for the update\./);
+    m.draw({ send, branch: { ...cart, headSha: "newhead" } });
+    await settle();
+    assert.equal(m.box.find(".dv-gate-approve").disabled, false, "the next update is the truth again");
+  } finally {
+    m.done();
+  }
+  const off = await mountHost({ send: () => false, branch: cart });
+  try {
+    off.box.find(".dv-gate-approve").click();
+    await settle();
+    assert.match(off.box.find(".dv-live").textContent, /Not connected/);
+  } finally {
+    off.done();
+  }
+});
+
+test("Run again and Ask to review send their commands, and Withdraw sends unapproveMerge", async () => {
+  const sent = [];
+  const send = (c) => { sent.push(c); return true; };
+  const m = await mountHost({ send, branch: api });
+  try {
+    m.box.find(".dv-gate-run").click();
+    await settle();
+    assert.equal(sent[0].cmd, "runChecks");
+    m.draw({ send, branch: api, result: { type: "changesResult", req: sent[0].req, op: "runChecks", ok: true } });
+    await settle();
+    m.box.find(".dv-gate-ask").click();
+    await settle();
+    assert.deepEqual([sent[1].cmd, sent[1].reviewer], ["requestReview", "ec776492"]);
+  } finally {
+    m.done();
+  }
+  const w = await mountHost({ send, branch: { ...cart, gate: approved.gate } });
+  try {
+    w.box.find(".dv-gate-approve").click();
+    await settle();
+    assert.equal(sent[2].cmd, "unapproveMerge");
+  } finally {
+    w.done();
+  }
+});
+
+test("a gate text from an agent is drawn as text", () => {
+  const evil = { ...api, gate: { state: "blocked", blockers: [{ kind: "conflict", text: "<img src=x onerror=1>" }] } };
+  assert.doesNotMatch(draw({ branch: evil, canAct: true, flow: { busy: "" } }), /<img/);
+});
+
+test("the read-only rule is one function: only a full desk window with the gate cap acts", () => {
+  assert.equal(gateActsFor({ viewer: false, relay: false, caps: ["changesTeam", "changesGate"] }), true);
+  assert.equal(gateActsFor({ viewer: true, relay: false, caps: ["changesGate"] }), false, "a viewer");
+  assert.equal(gateActsFor({ viewer: false, relay: true, caps: ["changesGate"] }), false, "a relay window");
+  assert.equal(gateActsFor({ caps: ["changesTeam", "changesDiff"] }), false, "a desk without the cap");
+  assert.equal(gateActsFor({}), false);
+  assert.equal(gateActsFor(), false);
+  assert.equal(actsFor("changesDiff", { caps: ["changesDiff"] }), true);
+  assert.equal(gateActsFor({ caps: "changesGate" }), false, "caps must be a list");
+});
+
+test("a dropped connection ends the wait, with words to check the gate; nothing is sent again", async () => {
+  const sent = [];
+  const send = (c) => { sent.push(c); return true; };
+  const hostWith = (p) => html`<${HostC} ...${p} />`;
+  function HostC({ session }) {
+    const flow = useGateActions({ branch: cart, send, session });
+    return html`<${MergeGate} branch=${cart} canAct=${true} flow=${flow} />`;
+  }
+  const dom = createDom();
+  const restore = install(dom);
+  const box = dom.document.createElement("div");
+  dom.body.appendChild(box);
+  try {
+    render(hostWith({ session: 1 }), box);
+    await settle();
+    box.find(".dv-gate-approve").click();
+    await settle();
+    assert.equal(box.find(".dv-gate-approve").disabled, true);
+    render(hostWith({ session: 2 }), box);
+    await settle();
+    assert.equal(box.find(".dv-gate-approve").disabled, false);
+    assert.match(box.find(".dv-live").textContent, /connection dropped; check the gate before trying again/);
+    assert.equal(sent.length, 1);
+  } finally {
+    render(null, box);
+    restore();
+  }
+});
+
+test("approve with no head on the branch sends nothing", async () => {
+  const sent = [];
+  const m = await mountHost({ send: (c) => { sent.push(c); return true; }, branch: { ...cart, headSha: "" } });
+  try {
+    m.box.find(".dv-gate-approve").click();
+    await settle();
+    assert.equal(sent.length, 0);
+    assert.match(m.box.find(".dv-live").textContent, /no known head/);
+  } finally {
+    m.done();
+  }
+});
+
+test("a check with no head to show it ran on this one is out of date, and skipped is not a state", () => {
+  assert.equal(checksSummary({ headSha: "h", checks: [{ name: "t", state: "pass" }] }).tone, "wait");
+  assert.equal(checksSummary({ checks: [{ name: "t", state: "pass", atSha: "h" }] }).tone, "wait");
+  assert.equal(checksSummary({ headSha: "h", checks: [{ name: "t", state: "skipped", atSha: "h" }] }).tone, "wait");
+});
+
+test("agent text in the gate shows hidden characters and is isolated", () => {
+  const branch = { ...api, reviews: [{ reviewer: "r1", state: "changes", note: "no‮way" }], gate: { state: "blocked", blockers: [{ kind: "conflict", text: "x‮y" }] } };
+  const out = draw({ branch, canAct: true, flow: { busy: "" }, nameOf: () => "bo‮b" });
+  assert.doesNotMatch(out, /‮/);
+  assert.match(out, /no(&lt;|<)U\+202E>way/);
+  assert.match(out, /bo(&lt;|<)U\+202E>b/);
+  assert.match(out, /<bdi>/);
+});
+
+test("a push with the new head that lands before the headMoved answer does not lock Approve", async () => {
+  const sent = [];
+  const send = (c) => { sent.push(c); return true; };
+  const m = await mountHost({ send, branch: cart });
+  try {
+    m.box.find(".dv-gate-approve").click();
+    await settle();
+    const moved = { ...cart, headSha: "newhead" };
+    m.draw({ send, branch: moved });
+    await settle();
+    m.draw({ send, branch: moved, result: { ...headMoved, req: sent[0].req } });
+    await settle();
+    assert.equal(m.box.find(".dv-gate-approve").disabled, false, "the window already has the new head");
+    assert.doesNotMatch(m.box.textContent, /waiting for the update/);
+  } finally {
+    m.done();
+  }
+});
+
+test("Run checks and Ask to review need the checks cap, not the gate's", () => {
+  const flow = { busy: "", error: "", said: "", gate: null };
+  const out = draw({ branch: api, canAct: true, flow, reviewer: "ec776492" });
+  assert.doesNotMatch(out, /dv-gate-run|dv-gate-ask/);
+  assert.match(draw({ branch: api, canAct: true, canCheck: true, flow, reviewer: "ec776492" }), /dv-gate-run/);
+  assert.equal(actsFor("changesChecks", { caps: ["changesGate"] }), false);
+});

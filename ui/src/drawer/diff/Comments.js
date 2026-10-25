@@ -37,16 +37,16 @@ export function Composer({ target, to = "", draft = "", error = "", busy = false
   useEffect(() => {
     if (box.current && box.current.focus) box.current.focus();
   }, [target ? target.file + ":" + target.side + ":" + target.line : ""]);
-  if (!target) return null;
-  const place = target.line ? (target.side === "old" ? "old line " : "line ") + target.line + " of " : "";
-  const label = "Comment on " + place + showControls(target.file);
-  const n = Array.from(draft).length;
   // After a refusal the box is enabled again; the keyboard goes back to it.
   const was = useRef(false);
   useEffect(() => {
     if (was.current && !busy && error && box.current && box.current.focus) box.current.focus();
     was.current = busy;
   }, [busy]);
+  if (!target) return null;
+  const place = target.line ? (target.side === "old" ? "old line " : "line ") + target.line + " of " : "";
+  const label = "Comment on " + place + showControls(target.file);
+  const n = Array.from(draft).length;
   const onKey = (e) => {
     if (composing(e)) return;
     if (e.key === "Escape") {
