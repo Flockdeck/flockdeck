@@ -10,6 +10,7 @@
 // The dialog is not drawn in a window reached through the relay, which has
 // RELAY_WORDS instead (Live decides).
 import { useEffect, useRef, useState } from "../vendor/hooks.mjs";
+import { useInert } from "./inert.js";
 import { html } from "../html.js";
 import { composing, LIST } from "./keys.js";
 import {
@@ -35,6 +36,7 @@ export function Notes({ text }) {
  *  text of a notice that came since the dialog opened, or "". */
 export function Updates({ update, versions: answer, updatesOff, notice = "", send, onClose }) {
   const rootRef = useRef(null);
+  useInert(rootRef);
   const first = useRef(null);
   const [checking, setChecking] = useState(false);
   const [listing, setListing] = useState(false);

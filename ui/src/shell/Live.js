@@ -10,6 +10,7 @@
 // any control, and takes the keyboard once when the graph first names a manager.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
+import { ModalScrim } from "./inert.js";
 import { useStore } from "../lib/use-store.js";
 import { Drawer, hasTerminal, useDrawer } from "../drawer/Drawer.js";
 import { focusNode } from "../drawer/state.js";
@@ -868,16 +869,16 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
       ? html`<${Baton} draft=${draft} pane=${baton.name} run=${runBaton} answer=${batonAnswer} onClose=${() => setBaton(null)} />`
       : null}
     ${closeAsk
-      ? html`<div class="dialog-scrim" onKeyDown=${(e) => e.key === LIST.tab && trapTab(e, e.currentTarget)}>
+      ? html`<${ModalScrim} onKeyDown=${(e) => e.key === LIST.tab && trapTab(e, e.currentTarget)}>
           <${Confirm} title="Close every finished pane?" words=${CLOSE_FINISHED_WORDS} label="Close finished panes"
             onConfirm=${() => { setCloseAsk(false); send(CLOSE_FINISHED_COMMAND); }} onCancel=${() => setCloseAsk(false)} />
-        </div>`
+        <//>`
       : null}
     ${quitAsk
-      ? html`<div class="dialog-scrim" onKeyDown=${(e) => e.key === LIST.tab && trapTab(e, e.currentTarget)}>
+      ? html`<${ModalScrim} onKeyDown=${(e) => e.key === LIST.tab && trapTab(e, e.currentTarget)}>
           <${Confirm} title=${quitQuestion(kept.current.hello.keys)} words=${["The layout is saved first. Agents that are running stop."]} label="Quit and stop everything"
             onConfirm=${() => { setQuitAsk(false); send({ cmd: "quit" }); }} onCancel=${() => setQuitAsk(false)} />
-        </div>`
+        <//>`
       : null}
   <//>`;
 }

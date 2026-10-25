@@ -11,6 +11,7 @@
 // if either has changed. The dialog is not drawn in a window reached through the
 // relay, which has RELAY_WORDS instead (Live decides).
 import { useEffect, useRef, useState } from "../vendor/hooks.mjs";
+import { useInert } from "./inert.js";
 import { html } from "../html.js";
 import { composing, LIST } from "./keys.js";
 import { trapTab } from "./focus.js";
@@ -23,6 +24,7 @@ import {
  *  null), plan its helperPlan answer or null, send the store's send. */
 export function Helpers({ helpers, plan: planMsg, send, onClose }) {
   const rootRef = useRef(null);
+  useInert(rootRef);
   const first = useRef(null);
   const heard = useRef(new Map());
   const [view, setView] = useState({ kind: "list" });

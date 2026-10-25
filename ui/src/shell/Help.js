@@ -4,6 +4,7 @@
 // checks their shape first). The first entry is a page the window makes itself,
 // the key table as this desktop has it, with what this window runs marked.
 import { useEffect, useMemo, useRef, useState } from "../vendor/hooks.mjs";
+import { useInert } from "./inert.js";
 import { h } from "../vendor/preact.mjs";
 import { html } from "../html.js";
 import { composing, listMove, LIST } from "./keys.js";
@@ -86,6 +87,9 @@ export function Help({ keys, implemented, load, slug = "", onClose }) {
   const [missing, setMissing] = useState("");
   const search = useRef(null);
   const content = useRef(null);
+  // First, so on close the page is live again before the focus effect below puts the focus back.
+  const root = useRef(null);
+  useInert(root);
 
   useEffect(() => {
     let live = true;
@@ -132,7 +136,6 @@ export function Help({ keys, implemented, load, slug = "", onClose }) {
     if (content.current && content.current.scrollTo) content.current.scrollTo(0, 0);
   };
 
-  const root = useRef(null);
   const onKeyDown = (e) => {
     if (composing(e)) return;
     if (e.key === LIST.tab && root.current) {

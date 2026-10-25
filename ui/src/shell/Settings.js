@@ -11,6 +11,7 @@
 // and back to where it was when it closes, Tab stays inside it, and Escape
 // closes it. Nothing a person types is used as markup.
 import { useEffect, useRef, useState } from "../vendor/hooks.mjs";
+import { useInert } from "./inert.js";
 import { html } from "../html.js";
 import { composing, LIST } from "./keys.js";
 import { trapTab } from "./focus.js";
@@ -46,6 +47,7 @@ export function Settings({ prefs, change, onClose, section: first = "general", c
   const sections = ctx.viewer ? SECTIONS.filter(([id]) => !VIEWER_HIDDEN.includes(id)) : SECTIONS;
   const [section, setSection] = useState(sections.some(([id]) => id === first) ? first : "general");
   const rootRef = useRef(null);
+  useInert(rootRef);
   const tabRef = useRef(null);
   useEffect(() => {
     const el = rootRef.current;

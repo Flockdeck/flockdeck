@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "../vendor/hooks.mjs";
+import { useInert } from "./inert.js";
 import { html } from "../html.js";
 import { composing, keycaps, listMove } from "./keys.js";
 
@@ -106,6 +107,8 @@ export function Palette({ keys, implemented, onRun, onClose, live = null, onRunL
   const [query, setQuery] = useState("");
   const [index, setIndex] = useState(0);
   const input = useRef(null);
+  const box = useRef(null);
+  useInert(box);
   const rows = useMemo(() => {
     const actions = filterActions(keys, query, implemented).map((r) => ({ ...r, group: "Actions" }));
     return live && live.length ? filterLive(live, query).concat(actions) : actions;
@@ -143,7 +146,7 @@ export function Palette({ keys, implemented, onRun, onClose, live = null, onRunL
 
   return html`
     <div class="palette-scrim" onMouseDown=${(e) => e.target === e.currentTarget && onClose && onClose()}>
-      <div class="palette" role="dialog" aria-modal="true" aria-label="Command palette" onKeyDown=${onKeyDown}>
+      <div class="palette" role="dialog" aria-modal="true" aria-label="Command palette" ref=${box} onKeyDown=${onKeyDown}>
         <input
           ref=${input}
           class="palette-input"

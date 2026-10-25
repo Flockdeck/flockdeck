@@ -7,12 +7,15 @@ import { useEffect, useRef } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
 import { composing, LIST } from "./keys.js";
 import { trapTab } from "./focus.js";
+import { useInert } from "./inert.js";
 
 /** Dialog draws its children in the frame. id names the title for a screen
  *  reader, focus is a selector for the control that takes the keyboard first, and
  *  wide gives the box more room. */
 export function Dialog({ id, title, onClose, focus = "", wide = false, children }) {
   const rootRef = useRef(null);
+  // Declared first: the page goes inert before the focus moves in, and on close it is live again (cleanups run in order) before the focus goes back.
+  useInert(rootRef);
   useEffect(() => {
     const el = rootRef.current;
     const doc = el && el.ownerDocument;
@@ -23,6 +26,7 @@ export function Dialog({ id, title, onClose, focus = "", wide = false, children 
       if (before && before !== doc.body && before.focus) before.focus();
     };
   }, []);
+
   const onKeyDown = (e) => {
     if (composing(e)) return;
     if (e.key === LIST.cancel) {

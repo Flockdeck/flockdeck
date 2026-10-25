@@ -37,7 +37,7 @@ export function keepWaiting(current, waiting) {
 export function Toasts({ toasts, onOpen, onDismiss }) {
   if (!toasts || toasts.length === 0) return null;
   return html`
-    <div class="toasts" role="region" aria-label="Agents that need you">
+    <div class="toasts" data-keep-live role="region" aria-label="Agents that need you">
       ${toasts.map((t) => html`
         <div class="toast" role="status" key=${t.id} data-pane=${t.id}>
           <span class="toast-text"><b>${clip(t.name, 40)}</b> needs you: ${t.text}</span>

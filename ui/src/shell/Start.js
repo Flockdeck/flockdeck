@@ -17,6 +17,7 @@
 // it. What the person types is sent as text in a command and is never used as
 // markup.
 import { useEffect, useMemo, useRef, useState } from "../vendor/hooks.mjs";
+import { useInert } from "./inert.js";
 import { html } from "../html.js";
 import { composing, LIST } from "./keys.js";
 import { trapTab } from "./focus.js";
@@ -50,6 +51,7 @@ export function Start({ mode, catalog, project, send, onClose }) {
   const treeSet = useRef(false);
   const [problem, setProblem] = useState("");
   const rootRef = useRef(null);
+  useInert(rootRef);
   const first = useRef(null);
   const root = project ? project.root : "";
 
