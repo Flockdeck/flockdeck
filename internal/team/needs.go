@@ -93,7 +93,8 @@ type TeamNeeds struct {
 // left out. A conflict between panes of two teams is listed in both.
 //
 // Order: permission and ask prompts, longest waiting first; then returned
-// tasks, newest first, until the owner pane has worked since the return; then conflicts; then panes that are down; then stale
+// tasks, newest first, which stop being listed once the owner pane is working
+// again (its status began after the return); then conflicts; then panes that are down; then stale
 // unread mail, which is one item for the team: the oldest pane's, with a count
 // when more than one pane has such mail. An item with an unknown time goes after the others
 // of its kind. Each list keeps at most MaxNeeds items and counts the rest.
@@ -183,7 +184,9 @@ func NeedsYou(g Graph, panes []GraphPane, tasks []GraphTask, conflicts []PaneCon
 
 	byID := make(map[string]GraphPane, len(panes))
 	for _, p := range panes {
-		byID[p.ID] = p
+		if _, dup := byID[p.ID]; !dup {
+			byID[p.ID] = p
+		}
 	}
 	latest := map[string]TaskMove{}
 	for _, m := range moves {
@@ -199,9 +202,9 @@ func NeedsYou(g Graph, panes []GraphPane, tasks []GraphTask, conflicts []PaneCon
 		if !ok || t.State != taskInProgress || t.OwnerPane == "" {
 			continue
 		}
-		// Once the owner has picked the task up again there is nothing left for the
-		// person to do about the return.
-		if o, found := byID[t.OwnerPane]; found && (o.LastOutput.After(m.Time) || o.Activity == activityWorking && o.StatusSince.After(m.Time)) {
+		// A return is over once the owner began working after it. Terminal output
+		// is no sign of that: the return note is typed into the pane and echoed.
+		if o, found := byID[t.OwnerPane]; found && o.Activity == activityWorking && o.StatusSince.After(m.Time) {
 			continue
 		}
 		add(t.OwnerPane, NeedsItem{ID: NeedReturned + ":" + t.ID, Kind: NeedReturned, Pane: t.OwnerPane, Task: t.ID, Time: m.Time, Text: PlainText(m.Note, MaxWaitText)})
