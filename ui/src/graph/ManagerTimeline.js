@@ -58,7 +58,7 @@ export function isManager(model, pane) {
  *     the manager's own team are used.
  * It answers items oldest first. An item is { key, at, kind, ... } where kind is
  *   "entry": entry is the conversation entry, unchanged;
- *   "mail": from, label, text, delivery, waiting (not yet read), maybeCut;
+ *   "mail": from, label, text, delivery, waiting (not yet read), maybeCut, known (the desk said whether it was cut);
  *   "event": tone ("ship" or "down"), pane, text.
  * The conversation keeps its own order: an entry with no usable time takes the time
  * of the one before it, so the merge never moves an entry past its neighbours. Mail
@@ -78,7 +78,7 @@ export function managerTimeline({ entries = [], model = null, manager = "", even
   if (model && model.ok && manager) {
     for (const e of list(model.edges.message)) {
       if (!isObject(e) || e.to !== manager) continue;
-      other.push({ key: "m:" + (e.id ? e.id : e.time + ":" + e.from + ":" + e.text), at: timeOf(e.time), kind: "mail", from: e.from, label: labelOf(model, e.from) || "an agent", text: e.text, delivery: e.delivery, waiting: e.delivery !== "read", maybeCut: maybeCut(e.text) });
+      other.push({ key: "m:" + (e.id ? e.id : e.time + ":" + e.from + ":" + e.text), at: timeOf(e.time), kind: "mail", from: e.from, label: labelOf(model, e.from) || "an agent", text: e.text, delivery: e.delivery, waiting: e.delivery !== "read", maybeCut: typeof e.cut === "boolean" ? e.cut : maybeCut(e.text), known: typeof e.cut === "boolean" });
     }
     const team = model.teams.find((t) => t.manager === manager);
     const mine = new Set(team ? list(team.members) : []);
@@ -108,7 +108,7 @@ export function timelineEntries(items) {
   return list(items).map((it) => {
     if (it.kind === "entry") return it.entry.id !== undefined && it.entry.id !== "" ? it.entry : { ...it.entry, id: it.key };
     const ts = Number.isFinite(it.at) ? new Date(it.at).toISOString() : "";
-    if (it.kind === "mail") return { id: it.key, kind: "mail", ts, from: it.from, label: it.label, text: it.text, waiting: it.waiting, maybeCut: it.maybeCut };
+    if (it.kind === "mail") return { id: it.key, kind: "mail", ts, from: it.from, label: it.label, text: it.text, waiting: it.waiting, maybeCut: it.maybeCut, cutKnown: it.known };
     return { id: it.key, kind: "event", ts, tone: it.tone, pane: it.pane, text: it.text };
   });
 }

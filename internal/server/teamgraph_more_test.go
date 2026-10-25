@@ -468,3 +468,52 @@ func TestGraphStaticsDroppedWhenAWindowClosesWithoutUnwatching(t *testing.T) {
 		t.Errorf("%d kept after a window closed and a push, want 1", n)
 	}
 }
+
+func TestGraphEdgeLineSaysWhenAMessageWasCut(t *testing.T) {
+	long := strings.Repeat("é", graphEdgeCut+1)
+	for _, c := range []struct {
+		name, in, line string
+		cut            bool
+	}{
+		{"one short line", "Start on T4", "Start on T4", false},
+		{"a trailing newline", "Start on T4\n", "Start on T4", false},
+		{"blank lines after", "Start on T4\n\n  \n", "Start on T4", false},
+		{"a second line", "Start on T4\nthen T5", "Start on T4", true},
+		{"a blank first line", "\n\nStart on T4\nthen T5", "Start on T4", true},
+		{"a line of exactly the cut", strings.Repeat("é", graphEdgeCut), strings.Repeat("é", graphEdgeCut), false},
+		{"a line one over the cut", long, strings.Repeat("é", graphEdgeCut), true},
+		{"no text", " \n ", "", false},
+		{"a line of control characters first", "\x01\x02\nStart on T4", "Start on T4", false},
+		{"a line of control characters after", "Start on T4\n\x01\x02", "Start on T4", false},
+		{"only control characters", "\x01\n\x02", "", false},
+	} {
+		line, cut := graphEdgeLine(c.in, graphEdgeCut)
+		if line != c.line || cut != c.cut {
+			t.Errorf("%s: got %q, %v; want %q, %v", c.name, line, cut, c.line, c.cut)
+		}
+	}
+}
+
+func TestGraphMessageEdgesCarryCut(t *testing.T) {
+	e := newGraphEnv(t)
+	hookSrv := e.ws.HookServer()
+	api, token := hookSrv.BaseURL(), hookSrv.Token()
+	for _, text := range []string{"short", "first\nsecond"} {
+		if _, err := hooks.Msg(api, token, e.dev, e.boss, text); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := map[string]bool{}
+	for _, ed := range e.snapshotGraph(t).Edges {
+		if ed.Kind != "message" {
+			continue
+		}
+		if ed.Cut == nil {
+			t.Fatalf("message edge %d has no cut", ed.ID)
+		}
+		got[ed.Text] = *ed.Cut
+	}
+	if len(got) != 2 || got["short"] || !got["first"] {
+		t.Errorf("cut by text = %v, want short false and first true", got)
+	}
+}

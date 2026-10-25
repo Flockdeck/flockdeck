@@ -45,6 +45,9 @@ test("the rows say what they are, and read-mail is not marked waiting", () => {
   assert.doesNotMatch(mail({}), /not read yet|is-waiting/);
   assert.match(mail({}), /First line only/);
   assert.match(mail({ maybeCut: true, waiting: true }), /May be cut/);
+  // The desk said: nothing for a message that was whole, a mark for one that was not.
+  assert.doesNotMatch(mail({ cutKnown: true, maybeCut: false }), /conv-cut/);
+  assert.match(mail({ cutKnown: true, maybeCut: true }), /More of this message/);
   const ev = renderToString(html`<${Row} entry=${{ id: "e:1", kind: "event", tone: "down", pane: "a", text: "api exited." }} />`);
   assert.match(ev, /conv-event--down/);
 });

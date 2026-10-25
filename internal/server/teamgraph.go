@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jmwri/flockdeck/internal/session"
 	"github.com/jmwri/flockdeck/internal/spend"
@@ -172,6 +174,9 @@ type graphEdge struct {
 	ID   int    `json:"id,omitempty"`
 	Time string `json:"time,omitempty"`
 	Text string `json:"text,omitempty"`
+	// Cut says the message has more than Text shows: another line, or a first
+	// line cut at graphEdgeCut. Written for message edges only.
+	Cut *bool `json:"cut,omitempty"`
 	// Delivery is the newest delivery state of a message: queued, notified,
 	// woken or read.
 	Delivery string `json:"delivery,omitempty"`
@@ -201,14 +206,36 @@ type graphMsg struct {
 	PanesHidden int `json:"panesHidden,omitempty"`
 }
 
-// graphLine is the first non-empty line of s, cleaned and cut to n characters.
+// graphLine is the first line of s that has text left once it is cleaned, cut to
+// n characters. A line of only control characters has none.
 func graphLine(s string, n int) string {
 	for _, l := range strings.Split(s, "\n") {
-		if strings.TrimSpace(l) != "" {
-			return team.PlainText(l, n)
+		if t := team.PlainText(l, n); t != "" {
+			return t
 		}
 	}
 	return ""
+}
+
+// graphEdgeLine is graphLine for a message edge, and says whether anything of
+// the message was left out: a later line, or the rest of a line that was cut.
+func graphEdgeLine(s string, n int) (line string, cut bool) {
+	lines := strings.Split(s, "\n")
+	for i, l := range lines {
+		whole := team.PlainText(l, math.MaxInt32)
+		if whole == "" {
+			continue
+		}
+		line = team.PlainText(l, n)
+		cut = utf8.RuneCountInString(whole) > utf8.RuneCountInString(line)
+		for _, rest := range lines[i+1:] {
+			if team.PlainText(rest, math.MaxInt32) != "" {
+				cut = true
+			}
+		}
+		return line, cut
+	}
+	return "", false
 }
 
 // graphPrompt is the text of the question or permission prompt a pane is
@@ -381,8 +408,9 @@ func (s *Server) graphStaticFor(root string, members []team.Member) *graphStatic
 		if m.From.Pane == "" || !agent[m.From.Pane] || !agent[m.To] {
 			continue
 		}
+		text, cut := graphEdgeLine(m.Text, graphEdgeCut)
 		st.edges = append(st.edges, graphEdge{Kind: graphEdgeMessage, From: m.From.Pane, To: m.To, ID: m.ID,
-			Time: m.Time.Format(time.RFC3339), Text: graphLine(m.Text, graphEdgeCut), Delivery: m.Delivery()})
+			Time: m.Time.Format(time.RFC3339), Text: text, Cut: &cut, Delivery: m.Delivery()})
 	}
 	if s.graphStatics == nil {
 		s.graphStatics = map[string]*graphStatic{}

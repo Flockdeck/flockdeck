@@ -174,13 +174,18 @@ node order; then the last 100 `message` edges, newest first; then the last 100
 | `kind` | Goes `from` | `to` | Other fields |
 | --- | --- | --- | --- |
 | `spawn` | a parent | a helper it started | none |
-| `message` | the sending pane | the pane whose inbox the message went to | `id`, `time`, `text`, `delivery` |
+| `message` | the sending pane | the pane whose inbox the message went to | `id`, `time`, `text`, `cut`, `delivery` |
 | `sent` | a Claude session | the pane its `SendMessage` call named | `time` only |
 
 - Both ends of a `message` edge are agent panes of the project. Mail from the
   person or from Flockdeck has no sending pane and is not an edge.
 - `text` is the message's first non-empty line, cleaned of control characters and
   cut to 140 characters.
+- `cut` is true when the message has more than `text` shows: another non-empty line,
+  or a first line that was cut at 140 characters. It is false for a message that
+  `text` holds whole. Added in API 1.6: a server of 1.6 or later always writes it on
+  a `message` edge, and a missing value (an older server, or data saved before) is
+  unknown, for which the interface guesses from the length of `text`.
 - `delivery` is the newest state of the message: `queued` (in the inbox), `notified`
   (the hook notice of it was given), `woken` (a line was typed into the pane for
   it) or `read` (the agent ran `inbox read`). A state counts as newer by this

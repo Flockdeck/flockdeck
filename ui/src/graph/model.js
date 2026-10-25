@@ -162,6 +162,8 @@ function edgeOf(raw) {
     id: num(e.id),
     time: str(e.time),
     text: str(e.text),
+    // true or false from a server that says (API 1.6), null from one that does not.
+    cut: typeof e.cut === "boolean" ? e.cut : null,
     delivery: str(e.delivery),
     deliveryRank: deliveryRank(str(e.delivery)),
   };
