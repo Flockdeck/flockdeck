@@ -4,9 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"errors"
 	"fmt"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -261,12 +259,15 @@ func (s *Server) changesRunChecks(c *controlClient, cmd command) {
 		return
 	}
 	defs, err := changes.LoadChecks(checksPath)
-	switch {
-	case errors.Is(err, os.ErrNotExist):
-		changesRefuse(c, cmd, "notFound", "there is no check file for this project; write one at "+checksPath)
+	if err != nil {
+		refuseCheckFile(c, cmd, checksPath, err)
 		return
-	case err != nil:
-		changesRefuse(c, cmd, "notFound", err.Error())
+	}
+	// The commands that would run must be the ones the person confirmed. The hash
+	// is of the list just loaded, which is the list that runs, so a file changed
+	// after this point is not run.
+	if !checksConfirmed(&s.pins, checksPath, defs) {
+		changesRefuse(c, cmd, "notConfirmed", notConfirmedText)
 		return
 	}
 	if len(cmd.Names) > 0 {

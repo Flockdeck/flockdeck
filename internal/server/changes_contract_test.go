@@ -22,6 +22,7 @@ var changesFixtureDefs = map[string]string{
 	"04": "diffHunks", "05": "diffHunks", "06": "diffHunks", "07": "diffHunks", "08": "diffHunks",
 	"09": "diffContext",
 	"10": "changesResult", "11": "changesResult", "12": "changesResult", "13": "changesResult", "14": "changesResult",
+	"15": "changesChecks", "16": "changesResult", "17": "changesResult",
 }
 
 func changesFixtures(t *testing.T) map[string][]byte {
@@ -158,7 +159,7 @@ func TestChangesDocumentNamesEverything(t *testing.T) {
 		t.Fatal(err)
 	}
 	doc := string(raw)
-	for _, n := range slices.Concat(changesCommands, changesCaps, changesMessages, []string{"changesResult", "changesTeam", "changesFiles", "diffHunks", "diffContext"}) {
+	for _, n := range slices.Concat(changesCommands, changesCaps, changesMessages, []string{"changesResult", "changesChecks", "changesTeam", "changesFiles", "diffHunks", "diffContext"}) {
 		if !strings.Contains(doc, "`"+n+"`") {
 			t.Errorf("docs/changes-api.md does not name `%s`", n)
 		}

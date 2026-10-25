@@ -141,6 +141,7 @@ var relayDeskOnly = map[string]string{
 	"noticeWithdraw": "an approval for windows on this machine only",
 	"changesTeam":    "the changes view is refused to a relay window", "changesFiles": "the changes view is refused to a relay window",
 	"diffHunks": "the changes view is refused to a relay window", "diffContext": "the changes view is refused to a relay window",
+	"changesChecks": "the commands of a check file are for the person at the desk, and confirmChecks is refused to a relay window",
 }
 
 // messageType reads the type of a marshalled message. Every message here is a

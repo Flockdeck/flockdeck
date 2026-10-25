@@ -1,0 +1,8 @@
+{
+  "type": "changesResult",
+  "req": "q2",
+  "op": "confirmChecks",
+  "ok": false,
+  "code": "changed",
+  "error": "the check file changed after it was shown; read the commands again"
+}

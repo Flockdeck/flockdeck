@@ -62,6 +62,8 @@ func TestChecksAndReviewsRefuseWhatTheyCannotAnswer(t *testing.T) {
 	}{
 		"runChecks no id":           {command{Cmd: "runChecks", Req: "r"}, "badRequest"},
 		"runChecks no pane":         {command{Cmd: "runChecks", Req: "r", ID: "nope"}, "noBranch"},
+		"confirmChecks no id":       {command{Cmd: "confirmChecks", Req: "r"}, "badRequest"},
+		"confirmChecks no pane":     {command{Cmd: "confirmChecks", Req: "r", ID: "nope"}, "noBranch"},
 		"requestReview no reviewer": {command{Cmd: "requestReview", Req: "r", ID: "p1"}, "badRequest"},
 		"requestReview own branch":  {command{Cmd: "requestReview", Req: "r", ID: "p1", Reviewer: "p1"}, "badRequest"},
 		"requestReview no pane":     {command{Cmd: "requestReview", Req: "r", ID: "nope", Reviewer: "p2"}, "noBranch"},
@@ -85,7 +87,7 @@ func TestChecksAndReviewsRefuseWhatTheyCannotAnswer(t *testing.T) {
 // fixture has the caps in the hello of a window on this machine only.
 func TestChecksAndReviewsAreRefusedToARelayWindow(t *testing.T) {
 	srv, _ := newTestServer(t)
-	for _, name := range []string{"runChecks", "requestReview", "submitReview"} {
+	for _, name := range []string{"runChecks", "confirmChecks", "requestReview", "submitReview"} {
 		cl := &controlClient{out: make(chan []byte, 8), remote: true, device: "d"}
 		srv.handleCommand(cl, command{Cmd: name, Req: "r", ID: "p1", Reviewer: "p2", State: "approved", ExpectSha: "abcdef0"})
 		if m := answerOf(t, cl); m.Code != "deskOnly" || m.Op != name {
@@ -125,7 +127,7 @@ func TestAReviewRequestSaysWhatWasAskedAndApprovesNothing(t *testing.T) {
 // page of the window is refused them (an agent's token is accepted by the socket).
 func TestChecksAndReviewsAreRefusedToAConnectionThatIsNotAPage(t *testing.T) {
 	srv, _ := newTestServer(t)
-	for _, name := range []string{"runChecks", "requestReview", "submitReview"} {
+	for _, name := range []string{"runChecks", "confirmChecks", "requestReview", "submitReview"} {
 		cl := &controlClient{out: make(chan []byte, 8)}
 		srv.handleCommand(cl, command{Cmd: name, Req: "r", ID: "p1", Reviewer: "p2", State: "approved", ExpectSha: "abcdef0"})
 		if m := answerOf(t, cl); m.Code != "deskOnly" || m.Op != name || m.OK {
