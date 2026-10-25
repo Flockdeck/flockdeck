@@ -55,6 +55,7 @@ const shotDir = opt("shot", "");
 const shotView = opt("shot-view", ""); // a view of the strip's switch to choose first: board, changes, replay
 const shotSize = opt("shot-size", "1440x900").split("x").map(Number);
 const shotResize = Number(args[args.indexOf("--shot-resize") + 1]) || 0; // with --shot-open: press Shift+Left on the drawer's border this many times
+const shotLight = args.includes("--shot-light"); // draw the light theme instead of the dark one
 const shotClick = args.includes("--shot-click"); // open the first outline row's drawer with a real mouse click, not a script's click
 const shotMax = args.includes("--shot-max"); // open the first outline row's drawer and maximise it
 const shotOpen = args.includes("--shot-open"); // open the first agent's drawer first
@@ -360,7 +361,8 @@ async function load(browser, url, boxesExpected, rate) {
 async function screenshot(page, file) {
   fs.mkdirSync(path.dirname(file), { recursive: true });
   await page.S("Emulation.setDeviceMetricsOverride", { width: shotSize[0], height: shotSize[1], deviceScaleFactor: 1, mobile: false });
-  await page.S("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: "dark" }] });
+  await page.S("Emulation.setEmulatedMedia", { features: [{ name: "prefers-color-scheme", value: shotLight ? "light" : "dark" }] });
+  if (shotLight) await page.eval(`document.documentElement.setAttribute("data-theme", "light")`);
   if (shotFeed) {
     // Three pushes after the first: a question, a helper that ended and a message, then the message read.
     const push = (edit) => page.eval(`(() => { const g = JSON.parse(JSON.stringify(window.__graph)); (${edit})(g); window.__graph = g; window.__ws.dispatchEvent(new MessageEvent("message", { data: JSON.stringify(g) })); })()`);

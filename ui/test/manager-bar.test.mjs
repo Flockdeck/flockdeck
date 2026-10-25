@@ -329,7 +329,7 @@ test("the box is one line: a line break typed or pasted becomes a space", () =>
     assert.equal(a.input().value, "one two three");
     await a.submit();
     assert.deepEqual(a.sends().map((c) => c.text), ["one two three"]);
-    assert.match(a.input().getAttribute("placeholder"), /one line/);
+    assert.match(a.input().getAttribute("placeholder"), /Enter sends/);
   }));
 
 test("a second Enter before the page has redrawn does not send again", () =>
