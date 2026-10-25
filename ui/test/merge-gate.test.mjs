@@ -345,8 +345,10 @@ test("Run checks shows the commands, the project and where they run, and sends n
     const q = m.box.find(".confirm");
     assert.match(q.textContent, /Run these checks\?/);
     assert.match(q.textContent, /Project: shop/);
-    assert.match(q.textContent, /unit: go test \.\/\.\.\./);
-    assert.match(q.textContent, /lint: go vet \.\/\.\.\./);
+    assert.match(q.textContent, /unit/);
+    assert.match(q.textContent, /go test \.\/\.\.\./);
+    assert.equal(q.findAll(".confirm-cmd").length, 2, "each command is in a monospace element");
+    assert.match(q.textContent, /go vet \.\/\.\.\./);
     assert.match(q.textContent, /run code from that checkout/);
     assert.deepEqual(sent.map((c) => c.cmd), ["confirmChecks"], "reading is not confirming");
   } finally {
@@ -496,7 +498,25 @@ test("the commands are drawn as text, with line breaks and hidden characters mad
     await settle();
     const q = m.box.find(".confirm");
     assert.equal(q.find("b"), null);
-    assert.match(q.textContent, /<b>x<\/b>: echo a <LF> rm -rf \/<U\+202E>/);
+    assert.match(q.textContent, /<b>x<\/b>/);
+    assert.match(q.find("code").textContent, /^echo a <LF> rm -rf \/<U\+202E>$/);
+  } finally {
+    m.done();
+  }
+});
+
+test("a command is shown whole: a thousand characters, and more than twenty commands, are not cut", async () => {
+  const { m, sent, send } = await reading();
+  try {
+    const long = "go test " + "x".repeat(992);
+    assert.equal(long.length, 1000);
+    const many = Array.from({ length: 25 }, (_, i) => ({ name: "c" + i, cmd: "cmd" + i }));
+    m.draw({ send, branch: api, checks: listing(sent[0].req, { commands: [{ name: "long", cmd: long }, ...many] }) });
+    await settle();
+    const codes = m.box.find(".confirm").findAll("code");
+    assert.equal(codes.length, 26, "every command is listed");
+    assert.equal(codes[0].textContent, long, "no truncation and no ellipsis");
+    assert.equal(codes[25].textContent, "cmd24");
   } finally {
     m.done();
   }
