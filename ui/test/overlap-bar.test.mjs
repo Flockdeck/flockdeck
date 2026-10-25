@@ -121,3 +121,33 @@ test("fixture 01: the overlap bar is the snapshot", () => {
   assert.equal(out, readFileSync(file, "utf8").replace(/\r\n/g, "\n"));
   assert.match(out, /tax and cart/);
 });
+
+test("a resolved note goes after RESOLVED_MS even when another overlap came and went meanwhile", async () => {
+  const { mock } = await import("node:test");
+  mock.timers.enable({ apis: ["Date"] });
+  const dom = createDom();
+  const restore = install(dom);
+  try {
+    const box = dom.document.createElement("div");
+    dom.body.appendChild(box);
+    const other = { id: "d", kind: "conflict", pane: "b", other: "a", text: "x.go" };
+    const draw = (needs) => render(html`<${OverlapBar} model=${modelOf(needs)} send=${() => true} />`, box);
+    draw([conflict]);
+    await settle();
+    draw([]);
+    await settle();
+    assert.equal(box.querySelectorAll(".overlap-resolved").length, 1);
+    mock.timers.tick(3000);
+    draw([other]); // the key changes inside the window
+    await settle();
+    mock.timers.tick(RESOLVED_MS);
+    await settle();
+    draw([other]);
+    await settle();
+    assert.equal(box.querySelectorAll(".overlap-resolved").length, 0, "the first note is still shown");
+    render(null, box);
+  } finally {
+    restore();
+    mock.timers.reset();
+  }
+});

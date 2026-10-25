@@ -56,10 +56,16 @@ export function OverlapBar({ model, manager = null, send, onSee = null }) {
     before.current = now;
     if (gone.length === 0) return;
     setResolved((r) => r.concat(gone.map((o) => ({ ...o, until: Date.now() + RESOLVED_MS }))));
-    const timer = setTimeout(() => setResolved((r) => r.filter((x) => x.until > Date.now())), RESOLVED_MS + 50);
-    return () => clearTimeout(timer);
   }, [key]);
-  if (overlaps.length === 0 && resolved.length === 0) return null;
+  // One timer for the soonest expiry, set again whenever the list changes, so a new overlap cannot cancel the clearing of an old note.
+  useEffect(() => {
+    if (resolved.length === 0) return undefined;
+    const soonest = Math.min(...resolved.map((x) => x.until));
+    const timer = setTimeout(() => setResolved((r) => r.filter((x) => x.until > Date.now())), Math.max(0, soonest - Date.now()) + 50);
+    return () => clearTimeout(timer);
+  }, [resolved]);
+  const shown = resolved.filter((x) => x.until > Date.now());
+  if (overlaps.length === 0 && shown.length === 0) return null;
   const ask = (o) => {
     if (!manager) return;
     setAsked((m) => ({ ...m, [o.id]: send({ cmd: "paneSend", id: manager.pane, text: askText(o) }) ? "sent" : NOT_SENT_WORDS }));
@@ -73,6 +79,6 @@ export function OverlapBar({ model, manager = null, send, onSee = null }) {
       </div>
       ${asked[o.id] && asked[o.id] !== "sent" ? html`<p class="overlap-note" role="status">${asked[o.id]}</p>` : null}
     </div>`)}
-    ${resolved.map((o) => html`<p class="overlap-resolved" role="status" key=${"r" + o.id + o.until}>Overlap resolved: ${o.who}.</p>`)}
+    ${shown.map((o) => html`<p class="overlap-resolved" role="status" key=${"r" + o.id + o.until}>Overlap resolved: ${o.who}.</p>`)}
   </div>`;
 }

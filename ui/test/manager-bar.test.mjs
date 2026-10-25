@@ -11,7 +11,7 @@ import { useStore } from "../src/lib/use-store.js";
 import { buildGraphModel } from "../src/graph/model.js";
 import {
   ManagerBar, managerOf, checkText, sentWords, SENT_SHOWN,
-  MAX_BYTES, EMPTY_WORDS, TOO_LONG_WORDS, NO_MANAGER_WORDS, NOT_CONNECTED_WORDS,
+  MAX_BYTES, EMPTY_WORDS, TOO_LONG_WORDS, NO_MANAGER_WORDS, NOT_CONNECTED_WORDS, LOST_WORDS, outcomeOf,
 } from "../src/graph/ManagerBar.js";
 import { createDom, install, settle } from "./dom.mjs";
 import { FakeWebSocket, harness, hello } from "./fakes.mjs";
@@ -360,3 +360,14 @@ test("the box takes the keyboard once: a manager that goes and comes back does n
     await a.redraw(buildGraphModel(teamGraph()));
     assert.notEqual(a.dom.document.activeElement, a.input(), "the box took the keyboard a second time");
   }));
+
+test("outcomeOf: after a reconnect no answer is coming, so the open send is refused, not sending forever", () => {
+  const hello = { type: "hello" };
+  const pending = { pane: "m1", notice: 0, sent: 0, hello };
+  const snap = { connection: "open", hello, sent: null, notice: null };
+  assert.equal(outcomeOf(snap, pending).kind, "sending");
+  assert.deepEqual(outcomeOf({ ...snap, connection: "waiting", hello: null }, pending), { kind: "refused", text: NOT_CONNECTED_WORDS });
+  assert.deepEqual(outcomeOf({ ...snap, hello: { type: "hello" } }, pending), { kind: "refused", text: LOST_WORDS });
+  // An answer that did arrive on the same connection still counts.
+  assert.equal(outcomeOf({ ...snap, sent: { seq: 1, id: "m1" } }, pending).kind, "sent");
+});
