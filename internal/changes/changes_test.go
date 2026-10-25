@@ -72,7 +72,7 @@ func TestReadListsCommittedUncommittedAndUntrackedFiles(t *testing.T) {
 	if b.Error != "" {
 		t.Fatalf("error: %s", b.Error)
 	}
-	if b.Branch != "feat" || b.Base == "" || b.BaseSha == "" || b.HeadSha == "" || b.Detached {
+	if b.Branch != "feat" || b.Base != "main" || b.BaseSha == "" || b.HeadSha == "" || b.Detached {
 		t.Errorf("branch = %+v", b)
 	}
 	if *b.Ahead != 1 || *b.Behind != 0 {

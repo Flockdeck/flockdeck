@@ -2,6 +2,7 @@ package changes
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"sort"
@@ -62,12 +63,12 @@ func read(ctx context.Context, pane, cwd string, maxFiles int) (Branch, string) 
 	dirty, untracked := st.Dirty, st.Untracked
 	b.Uncommitted, b.Untracked = &dirty, &untracked
 
-	base := gitx.BaseOf(ctx, cwd)
-	if base == "" {
-		return fail("no base branch was found to compare against")
+	base, baseID, err := baseOf(ctx, cwd, st.Branch)
+	if err != nil {
+		return fail(err.Error())
 	}
 	b.Base = base
-	baseSha, err := git(ctx, cwd, "merge-base", "--end-of-options", base, "HEAD")
+	baseSha, err := git(ctx, cwd, "merge-base", "--end-of-options", baseID, "HEAD")
 	if err != nil || strings.TrimSpace(baseSha) == "" {
 		return fail("the branch shares no history with " + base)
 	}
@@ -75,7 +76,7 @@ func read(ctx context.Context, pane, cwd string, maxFiles int) (Branch, string) 
 
 	ahead, behind := st.Ahead, st.Behind
 	if st.Upstream == "" {
-		if out, err := git(ctx, cwd, "rev-list", "--left-right", "--count", "--end-of-options", base+"...HEAD"); err == nil {
+		if out, err := git(ctx, cwd, "rev-list", "--left-right", "--count", "--end-of-options", baseID+"...HEAD"); err == nil {
 			f := strings.Fields(out)
 			if len(f) == 2 {
 				behind, _ = strconv.Atoi(f[0])
@@ -114,6 +115,45 @@ func read(ctx context.Context, pane, cwd string, maxFiles int) (Branch, string) 
 		b.all = files
 	}
 	return b, common
+}
+
+// baseOf finds the branch a checkout's changes are measured from: of the
+// candidates (the main worktree's branch, origin's default, main and master) the
+// nearest that shares history, as the radar chooses. The checkout's own branch is
+// left out, since a pane in the main worktree on a feature branch would otherwise
+// be measured against itself and show nothing; it is used only when it is the one
+// candidate. name is the branch as a person writes it; id is its commit.
+func baseOf(ctx context.Context, cwd, own string) (name, id string, err error) {
+	bases, err := gitx.ResolveBases(ctx, cwd)
+	if err != nil {
+		if errors.Is(err, gitx.ErrNoBase) {
+			return "", "", errors.New("no base branch was found to compare against")
+		}
+		return "", "", errors.New("could not find the base branch: " + firstLine(err.Error()))
+	}
+	pick := *bases
+	if own != "" {
+		var others []gitx.Base
+		for _, c := range bases.List {
+			if c.Ref != "refs/heads/"+own {
+				others = append(others, c)
+			}
+		}
+		if len(others) > 0 {
+			pick.List = others
+		}
+	}
+	id, err = gitx.ChooseBase(ctx, cwd, "", &pick)
+	if err != nil {
+		return "", "", errors.New("no base branch shares history with this one")
+	}
+	for _, c := range pick.List {
+		if c.ID == id {
+			name = strings.TrimPrefix(strings.TrimPrefix(c.Ref, "refs/heads/"), "refs/remotes/")
+			return name, id, nil
+		}
+	}
+	return id, id, nil
 }
 
 // filesOf lists what differs from baseSha in the working tree: the committed

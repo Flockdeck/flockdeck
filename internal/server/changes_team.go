@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/jmwri/flockdeck/internal/changes"
-	"github.com/jmwri/flockdeck/internal/session"
 )
 
 // The team-wide branch list (docs/changes-api.md, sections 2 and 3): changesWatch,
@@ -62,6 +61,14 @@ func (s *Server) changesTargetOf(root string) changesTarget {
 	if err != nil {
 		return changesTarget{err: err}
 	}
+	members, err := ws.TeamMembers(resolved)
+	if err != nil {
+		return changesTarget{err: err}
+	}
+	agents := map[string]bool{}
+	for _, m := range members {
+		agents[m.Pane] = true
+	}
 	t := changesTarget{root: resolved}
 	for _, p := range ws.Projects() {
 		if p.Root == resolved {
@@ -69,7 +76,7 @@ func (s *Server) changesTargetOf(root string) changesTarget {
 		}
 	}
 	for _, p := range panes {
-		if p.Kind == session.KindAgent && p.Cwd != "" {
+		if agents[p.ID] && p.Cwd != "" {
 			t.panes = append(t.panes, changes.PaneRef{ID: p.ID, Cwd: p.Cwd})
 		}
 	}
@@ -204,8 +211,18 @@ func (s *Server) changesFilesPage(c *controlClient, cmd command) {
 		return
 	}
 	cwd, ok := ask(s, func() string {
-		if p := s.ws.Pane(cmd.ID); p != nil && p.Kind == session.KindAgent {
-			return p.Cwd
+		p := s.ws.Pane(cmd.ID)
+		if p == nil {
+			return ""
+		}
+		members, err := s.ws.TeamMembers(p.Root)
+		if err != nil {
+			return ""
+		}
+		for _, m := range members {
+			if m.Pane == p.ID {
+				return p.Cwd
+			}
 		}
 		return ""
 	})

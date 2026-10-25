@@ -76,12 +76,15 @@ func TestAWatchStopsWhenItIsReplacedOrUnwatched(t *testing.T) {
 	srv, _ := newTestServer(t)
 	cl := &controlClient{out: make(chan []byte, 8)}
 	stopped := 0
-	srv.do(func() { cl.changes = &changesWatcher{root: "x", cancel: func() { stopped++ }} })
+	// ask waits for the workspace goroutine, which do does not.
+	ask(srv, func() bool { cl.changes = &changesWatcher{root: "x", cancel: func() { stopped++ }}; return true })
 	srv.handleCommand(cl, command{Cmd: "changesUnwatch"})
-	srv.do(func() {})
-	if stopped != 1 || cl.changes != nil {
-		t.Errorf("stopped %d, watch %v, want it stopped once and cleared", stopped, cl.changes)
-	}
+	ask(srv, func() bool {
+		if stopped != 1 || cl.changes != nil {
+			t.Errorf("stopped %d, watch %v, want it stopped once and cleared", stopped, cl.changes)
+		}
+		return true
+	})
 
 	relay := &controlClient{out: make(chan []byte, 8), remote: true, device: "d"}
 	srv.handleCommand(relay, command{Cmd: "changesWatch", Req: "r"})
