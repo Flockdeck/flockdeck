@@ -91,7 +91,7 @@ export function Team({ team: teamMsg, tasks: tasksMsg, messages: messagesMsg, re
   const tabKey = (e) => {
     const ids = ["tasks", "messages", "agents"];
     const i = ids.indexOf(tab);
-    const j = e.key === "ArrowRight" ? (i + 1) % 3 : e.key === "ArrowLeft" ? (i + 2) % 3 : e.key === "Home" ? 0 : e.key === "End" ? 2 : -1;
+    const j = e.key === LIST.right ? (i + 1) % 3 : e.key === LIST.left ? (i + 2) % 3 : e.key === LIST.home ? 0 : e.key === LIST.end ? 2 : -1;
     if (j < 0) return;
     e.preventDefault();
     setTab(ids[j]);
