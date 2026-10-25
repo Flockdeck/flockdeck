@@ -913,8 +913,8 @@
     {
       "name": "requestReview",
       "access": "full",
-      "since": "1.3",
-      "status": "planned"
+      "since": "1.5",
+      "status": "stable"
     },
     {
       "name": "resetKeybinding",
@@ -985,8 +985,8 @@
     {
       "name": "runChecks",
       "access": "full",
-      "since": "1.3",
-      "status": "planned"
+      "since": "1.5",
+      "status": "stable"
     },
     {
       "name": "save",
@@ -1135,8 +1135,8 @@
     {
       "name": "submitReview",
       "access": "full",
-      "since": "1.3",
-      "status": "planned"
+      "since": "1.5",
+      "status": "stable"
     },
     {
       "name": "swapPanes",

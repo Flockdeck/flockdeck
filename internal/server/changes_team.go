@@ -177,6 +177,12 @@ func (s *Server) changesCommand(c *controlClient, cmd command) {
 		go s.changesDiffHunks(c, cmd)
 	case "diffContext":
 		go s.changesDiffContext(c, cmd)
+	case "runChecks":
+		go s.changesRunChecks(c, cmd)
+	case "requestReview":
+		go s.changesRequestReview(c, cmd)
+	case "submitReview":
+		go s.changesSubmitReview(c, cmd)
 	}
 }
 
@@ -204,6 +210,7 @@ func (s *Server) changesSnapshot(c *controlClient, cmd command) {
 	ctx, cancel := context.WithTimeout(context.Background(), changesReadLimit)
 	defer cancel()
 	team := changes.ReadTeam(ctx, t.root, t.project, t.panes, 1)
+	s.withChecksAndReviews(&team, t.root, t.project)
 	team.Req = cmd.Req
 	c.sendJSON(changesTeamMsg{Type: "changesTeam", Team: team})
 }
@@ -262,6 +269,7 @@ func (s *Server) runChangesWatch(ctx context.Context, c *controlClient, w *chang
 		rctx, cancel := context.WithTimeout(ctx, changesReadLimit)
 		team := changes.ReadTeam(rctx, t.root, t.project, t.panes, 0)
 		cancel()
+		s.withChecksAndReviews(&team, t.root, t.project)
 		if ctx.Err() != nil {
 			return
 		}
