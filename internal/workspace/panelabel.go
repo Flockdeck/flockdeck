@@ -3,6 +3,7 @@ package workspace
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/jmwri/flockdeck/internal/hooks"
 	"github.com/jmwri/flockdeck/internal/team"
@@ -33,7 +34,7 @@ func (w *Workspace) LabelOf(p *Pane) string {
 // labelFromTask makes a short label from the text a pane was started with: the
 // first clause of its first line, without markdown, cut at a word. It is empty
 // when the text is a slash command or a synthetic message, or has no words.
-func labelFromTask(task string) string {
+func labelFromTask(task string, roles ...string) string {
 	raw := strings.TrimSpace(task)
 	if raw == "" || strings.HasPrefix(raw, "/") || strings.HasPrefix(raw, "<") {
 		return ""
@@ -63,8 +64,24 @@ func labelFromTask(task string) string {
 		}
 		line = strings.TrimSpace(string(r[:cut]))
 	}
-	return team.PaneLabelText(line)
+	return team.PaneLabelText(line, roles...)
 }
+
+// labelRoles are the role ids a label may not pass for: those of the catalog,
+// custom roles among them. SetPaneLabel adds the roles the panes of the project run as.
+func (w *Workspace) labelRoles() []string {
+	if c := w.agents(); c != nil {
+		return c.RoleIDs()
+	}
+	return nil
+}
+
+// A pane's label may be changed this often by others in a window of time.
+const (
+	maxRenames    = 6
+	renameWindow  = time.Minute
+	renameEventTo = 64
+)
 
 // SetPaneLabel names pane id for its work. actor is the pane asking, or empty for
 // the person at the window, who may name any pane. A pane may name itself; only a
@@ -100,12 +117,35 @@ func (w *Workspace) SetPaneLabel(actor, id, text string) (string, error) {
 			return "", fmt.Errorf("pane %q is not in your project", id)
 		}
 	}
-	label := team.PaneLabelText(text, w.projectRoles(id)...)
+	label := team.PaneLabelText(text, append(w.labelRoles(), w.projectRoles(id)...)...)
 	w.mu.Lock()
+	old := p.Label
 	changed := p.Label != label || p.LabelAuto
+	if changed && actor != "" {
+		// An agent may rename a pane only so often, so a loop cannot flood the window with changes.
+		now := time.Now()
+		recent := w.labelRenames[id][:0:0]
+		for _, at := range w.labelRenames[id] {
+			if now.Sub(at) < renameWindow {
+				recent = append(recent, at)
+			}
+		}
+		if len(recent) >= maxRenames {
+			w.labelRenames[id] = recent
+			w.mu.Unlock()
+			return "", fmt.Errorf("pane %s was renamed %d times in the last minute; wait before naming it again", id, maxRenames)
+		}
+		if w.labelRenames == nil {
+			w.labelRenames = map[string][]time.Time{}
+		}
+		w.labelRenames[id] = append(recent, now)
+	}
 	p.Label, p.LabelAuto = label, false
 	w.mu.Unlock()
 	if changed {
+		if actor != "" && actor != id {
+			w.recordRename(actor, id, old, label)
+		}
 		w.wake()
 	}
 	return label, nil
@@ -143,4 +183,29 @@ func (w *Workspace) projectRoles(id string) []string {
 		}
 	}
 	return roles
+}
+
+// recordRename logs a rename by another pane in the team event log (who, which
+// pane, the old label and the new) and tells the pane that was named, in its inbox
+// and from Flockdeck, so it is not left calling itself something it is no longer
+// called.
+func (w *Workspace) recordRename(actor, id, old, label string) {
+	w.recordEvent(team.Event{Kind: team.EventRename, Time: time.Now(), From: actor, To: id, Old: old, New: label})
+	if w.team.inbox == nil {
+		return
+	}
+	who := "another pane"
+	if members, err := w.Roster(id); err == nil {
+		for _, m := range members {
+			if m.Pane == actor {
+				who = fmt.Sprintf("%s %q (pane %s)", m.Role, m.Label(), actor)
+				break
+			}
+		}
+	}
+	text := fmt.Sprintf("%s named this pane %q.", who, label)
+	if label == "" {
+		text = fmt.Sprintf("%s cleared this pane's name.", who)
+	}
+	w.team.inbox.SendSystem(id, text)
 }

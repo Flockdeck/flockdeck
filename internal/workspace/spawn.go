@@ -616,7 +616,7 @@ func (w *Workspace) Spawn(parentPaneID string, o SpawnOptions) (string, error) {
 		initial, batonID, batonPrompt = o.Baton.Prompt, o.Baton.ID, o.Baton.Prompt
 	}
 
-	label, auto := spawnLabel(o.Label, o.Task)
+	label, auto := spawnLabel(o.Label, o.Task, w.labelRoles())
 	p := &Pane{
 		ID:        uuid.NewString(),
 		Kind:      o.Kind,
@@ -829,8 +829,8 @@ func (w *Workspace) StartAgentAs(root, agentID, model, cwd, task, role string) (
 		Branch:    branchOf(cwd),
 		initial:   task,
 		Task:      task,
-		Label:     labelFromTask(task),
-		LabelAuto: labelFromTask(task) != "",
+		Label:     labelFromTask(task, w.labelRoles()...),
+		LabelAuto: labelFromTask(task, w.labelRoles()...) != "",
 		Agent:     agentID,
 		Model:     model,
 		Role:      role,
@@ -993,10 +993,10 @@ var beforeBranchDelete = func(repo string, m MadeWorktree) {}
 
 // spawnLabel is the label of a pane spawned with the one asked for, or, when none
 // was, one made from its task.
-func spawnLabel(asked, task string) (label string, auto bool) {
-	if l := team.PaneLabelText(asked); l != "" {
+func spawnLabel(asked, task string, roles []string) (label string, auto bool) {
+	if l := team.PaneLabelText(asked, roles...); l != "" {
 		return l, false
 	}
-	l := labelFromTask(task)
+	l := labelFromTask(task, roles...)
 	return l, l != ""
 }

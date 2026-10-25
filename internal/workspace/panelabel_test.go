@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -180,5 +181,50 @@ func TestALabelThatPassesForARoleOfTheProjectIsMarkedAsAnAgents(t *testing.T) {
 	}
 	if got, _ := c.ws.SetPaneLabel(c.w1, c.w1, "reviewer PR 12"); got != "reviewer PR 12" {
 		t.Errorf("a label that only contains a role word was changed: %q", got)
+	}
+}
+
+func TestARenameByAnotherPaneTellsTheNamedPaneAndIsLimited(t *testing.T) {
+	c := newCrew(t)
+	if _, err := c.ws.SetPaneLabel(c.lead, c.w1, "docs sweep"); err != nil {
+		t.Fatal(err)
+	}
+	var told bool
+	for _, m := range c.inbox(t, c.w1, true) {
+		if strings.Contains(m.Text, `named this pane "docs sweep"`) && strings.Contains(m.Text, "pane "+c.lead) {
+			told = true
+		}
+	}
+	if !told {
+		t.Errorf("the named pane was not told who named it: %+v", c.inbox(t, c.w1, true))
+	}
+	before := len(c.inbox(t, c.w1, true))
+	if _, err := c.ws.SetPaneLabel(c.w1, c.w1, "my own name"); err != nil {
+		t.Fatal(err)
+	}
+	if got := len(c.inbox(t, c.w1, true)); got != before {
+		t.Errorf("a pane naming itself sent itself a message (%d, was %d)", got, before)
+	}
+	var err error
+	for i := 0; i < maxRenames+1 && err == nil; i++ {
+		_, err = c.ws.SetPaneLabel(c.lead, c.w1, fmt.Sprintf("name %d", i))
+	}
+	if err == nil || !strings.Contains(err.Error(), "wait before naming it again") {
+		t.Errorf("renames in a loop were not limited: %v", err)
+	}
+	if _, err := c.ws.SetPaneLabel("", c.w1, "the person may"); err != nil {
+		t.Errorf("the person at the window was limited: %v", err)
+	}
+}
+
+func TestALabelMadeFromATaskIsNotAWordForARole(t *testing.T) {
+	if got := labelFromTask("Reviewer", "docs-bot"); !strings.HasPrefix(got, "(agent) ") {
+		t.Errorf("a task that is a role word gave %q", got)
+	}
+	if got := labelFromTask("docs-bot"); got != "docs-bot" {
+		t.Errorf("not a role without the project's roles: %q", got)
+	}
+	if got := labelFromTask("docs-bot", "docs-bot"); !strings.HasPrefix(got, "(agent) ") {
+		t.Errorf("a custom role id was not rewritten: %q", got)
 	}
 }

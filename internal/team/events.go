@@ -17,6 +17,9 @@ const (
 	EventDelivery = "delivery"
 	// EventWake: a line was typed into a pane to wake its agent for a message.
 	EventWake = "wake"
+	// EventRename: a pane was given a label by another pane. From is the pane that
+	// did it, To the pane named, Old and New the labels (see MaxPaneLabel).
+	EventRename = "rename"
 )
 
 const (
@@ -60,6 +63,9 @@ type Event struct {
 	// Unsubmitted is set when the line was typed but its Enter was not, so it
 	// may still sit in the pane's input box and the message was not marked woken.
 	Unsubmitted bool `json:"unsubmitted,omitempty"`
+	// Old and New are the labels of a rename event, each at most MaxPaneLabel characters.
+	Old string `json:"old,omitempty"`
+	New string `json:"new,omitempty"`
 }
 
 // MaxPromptLine is the most characters of a matched prompt line a wake event
@@ -99,6 +105,14 @@ func cleanWake(e *Event) {
 	e.RuleSource = CleanLine(e.RuleSource, maxWakeField)
 	e.Prompt = CleanLine(e.Prompt, MaxPromptLine)
 	e.Line = CleanLine(e.Line, MaxTextLine)
+}
+
+// cleanRename applies the limits a rename event is written with.
+func cleanRename(e *Event) {
+	e.From = CleanLine(e.From, maxWakeField)
+	e.To = CleanLine(e.To, maxWakeField)
+	e.Old = CleanLine(e.Old, MaxPaneLabel)
+	e.New = CleanLine(e.New, MaxPaneLabel)
 }
 
 // EventLog is the record of events kept for a project: one JSON line for each,
@@ -168,8 +182,11 @@ func (l *EventLog) Load(data []byte) {
 	size := 0
 	for _, raw := range bytes.Split(data, []byte("\n")) {
 		var e Event
-		if json.Unmarshal(raw, &e) != nil || e.ID <= 0 || (e.Kind != EventMessage && e.Kind != EventDelivery && e.Kind != EventWake) {
+		if json.Unmarshal(raw, &e) != nil || (e.ID <= 0 && e.Kind != EventRename) || (e.Kind != EventMessage && e.Kind != EventDelivery && e.Kind != EventWake && e.Kind != EventRename) {
 			continue
+		}
+		if e.Kind == EventRename {
+			cleanRename(&e)
 		}
 		if e.Kind == EventWake {
 			cleanWake(&e)

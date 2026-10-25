@@ -554,7 +554,7 @@ func (w *Workspace) decodeNode(n *store.Node, tabRoot string, r *restoring) *lay
 			Cwd:             n.Pane.Cwd,
 			Name:            n.Pane.Name,
 			Task:            n.Pane.Task,
-			Label:           team.PaneLabelText(n.Pane.Label),
+			Label:           team.PaneLabelText(n.Pane.Label, w.labelRoles()...),
 			LabelAuto:       n.Pane.LabelAuto && n.Pane.Label != "",
 			BatonID:         n.Pane.BatonID,
 			Role:            n.Pane.Role,

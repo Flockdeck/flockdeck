@@ -530,6 +530,8 @@ type Workspace struct {
 	// team is the roster, inboxes and delivery of messages between panes; see
 	// team.go.
 	team teamState
+	// labelRenames are the times each pane was renamed by an agent, for the limit on how often (panelabel.go). Guarded by mu.
+	labelRenames map[string][]time.Time
 	// tasks is the task boards of the open projects; see tasks.go.
 	tasks taskState
 

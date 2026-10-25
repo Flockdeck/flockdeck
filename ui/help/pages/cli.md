@@ -151,7 +151,7 @@ topic. An agent renames itself when its work changes. Without `-pane` the name i
 for the pane running the command; a manager may name any pane of its project with `-pane`,
 and no other pane may name another. That rule is a courtesy check on the pane id the command
 reports, not a security boundary: every pane holds the same token, as for messaging. A label of `""` clears it. A label is kept with the pane
-across a restart. You can also rename a pane in the window.
+across a restart. When another pane names a pane, the named pane is told in its inbox, the windows at the desk show a notice, and the team event log records who did it; agents can rename a pane at most 6 times a minute. You can also rename a pane in the window.
 
 ## close
 

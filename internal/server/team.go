@@ -1,8 +1,11 @@
 package server
 
 import (
+	"strconv"
+
 	"github.com/jmwri/flockdeck/internal/hooks"
 	"github.com/jmwri/flockdeck/internal/team"
+	"github.com/jmwri/flockdeck/internal/workspace"
 )
 
 // This file is the desktop side of `flockdeck team`, `flockdeck msg`,
@@ -67,6 +70,10 @@ func (s *Server) installTeamHandlers() {
 	hookSrv.SetPaneNameHandler(func(req hooks.PaneNameRequest) (hooks.PaneNameResult, error) {
 		out, ok := ask(s, func() outcome[hooks.PaneNameResult] {
 			r, err := s.ws.PaneNamed(req)
+			if err == nil && r.Pane != req.Pane {
+				// A pane named another: the person at the window is told who, which pane and what it is now called.
+				s.noticeDesk(renameNotice(s.ws, req.Pane, r.Pane, r.Label), false)
+			}
 			return outcome[hooks.PaneNameResult]{r, err}
 		})
 		if !ok {
@@ -88,4 +95,19 @@ func (s *Server) installTeamHandlers() {
 		}
 		return out.res, out.err
 	})
+}
+
+// renameNotice is the sentence the desk is shown when a pane names another: who did it
+// and what the pane is called now. Both names are the panes' own words and are cut.
+func renameNotice(ws *workspace.Workspace, actor, target, label string) string {
+	name := func(id string) string {
+		if p := ws.Pane(id); p != nil {
+			return team.PlainText(team.Member{Name: p.Name, Peer: ws.PeerNameOf(p), Called: ws.LabelOf(p)}.Label(), 40)
+		}
+		return id
+	}
+	if label == "" {
+		return name(actor) + " cleared the name of " + name(target)
+	}
+	return name(actor) + " named " + name(target) + " " + strconv.Quote(label)
 }

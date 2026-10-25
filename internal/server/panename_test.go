@@ -106,3 +106,11 @@ func TestRelayStateKeepsAChosenLabelAndDropsOneMadeFromTheTask(t *testing.T) {
 		t.Errorf("a label made from the task reached the relay window: %+v", got)
 	}
 }
+
+func TestRelayDropsTheGraphWhateverTheLabels(t *testing.T) {
+	g := graphMsg{Type: "graph", Root: "/r", Project: "p", Teams: []graphTeamView{}, Edges: []graphEdge{}, Solo: []string{}, SoloNeeds: []team.NeedsItem{},
+		Nodes: []graphNodeView{{GraphNode: team.GraphNode{Pane: "a"}, Name: "n", Label: "PR " + relaySecrets[0]}}}
+	if got := scrubForRemote(mustJSON(t, g)); got != nil {
+		t.Errorf("a graph with a label was sent to a relay window: %s", got)
+	}
+}

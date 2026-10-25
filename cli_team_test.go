@@ -43,7 +43,7 @@ func TestTeamPrintsTheRosterAndItsJSON(t *testing.T) {
 	if err := runTeam(nil, &out); err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{`manager: "api", claude, working, pane p-me (you)`, `no role: "fix", codex · gpt, idle, pane p-2`} {
+	for _, want := range []string{`pane p-me: manager "api", claude, working (you)`, `pane p-2: no role "fix", codex · gpt, idle`} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("output lacks %q:\n%s", want, out.String())
 		}

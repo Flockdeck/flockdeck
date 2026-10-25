@@ -59,7 +59,7 @@ func (m Member) Line() string {
 		role = "no role"
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s: %q", role, m.Label())
+	fmt.Fprintf(&b, "pane %s: %s %q", m.Pane, role, m.Label())
 	if m.Peer != "" && m.Name != "" && m.Peer != m.Name {
 		fmt.Fprintf(&b, " (pane name %q)", m.Name)
 	}
@@ -69,7 +69,7 @@ func (m Member) Line() string {
 			b.WriteString(" · " + m.Model)
 		}
 	}
-	fmt.Fprintf(&b, ", %s, pane %s", m.Status, m.Pane)
+	fmt.Fprintf(&b, ", %s", m.Status)
 	if m.Self {
 		b.WriteString(" (you)")
 	}
