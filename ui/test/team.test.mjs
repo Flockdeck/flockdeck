@@ -609,3 +609,12 @@ test("Feed: eleven entries show and the rest scroll, and it stacks under the hom
   const app = readFileSync(join(here, "..", "src", "app.css"), "utf8");
   assert.ok(app.includes("  .home-split.home-split--feed, .home-split.home-split--feed.home-split--feed-empty { grid-template-columns: minmax(0, 1fr); }"), "below 1000 px the feed stacks under the home, empty or not");
 });
+
+test("a viewer cannot open Team: the key says so and no dialog opens; the Board has no manage button", () =>
+  withPage({ helloOver: { role: "viewer" } }, async (m) => {
+    await m.connect();
+    await m.key("Ctrl+Shift+M");
+    await settle();
+    assert.equal(m.container.find(".dialog"), null, "the Team dialog opened for a viewer");
+    assert.equal(m.sent("team").length, 0);
+  }));
