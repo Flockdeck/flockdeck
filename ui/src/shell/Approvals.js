@@ -20,7 +20,7 @@ export function Approvals({ approvals, dismissed, send, onDismiss }) {
   const shown = approvals.filter((a) => !dismissed.has(a.id));
   if (shown.length === 0) return null;
   return html`
-    <div class="approvals" role="region" aria-label="Requests waiting for you">
+    <div class="approvals" data-keep-live role="region" aria-label="Requests waiting for you">
       ${shown.map((a) => html`
         <section class="approval" key=${a.id} role="alert">
           <p class="approval-text">${a.lead ? html`<strong>${a.lead}</strong> ` : null}${a.text}</p>

@@ -10,6 +10,7 @@
 // project from a list, or archiving it, touches nothing on disk, and the dialog
 // says so. Names and paths come from the machine and are drawn as text.
 import { useEffect, useRef, useState } from "../vendor/hooks.mjs";
+import { useInert } from "./inert.js";
 import { html } from "../html.js";
 import { composing, LIST } from "./keys.js";
 import { trapTab } from "./Start.js";
@@ -23,6 +24,7 @@ const NOTHING_ON_DISK = "Nothing on disk is touched.";
  *  desk has active, and send the store's send. */
 export function Projects({ open, recents: recentsMsg, browse: browseMsg, root, send, onClose }) {
   const rootRef = useRef(null);
+  useInert(rootRef);
   const first = useRef(null);
   const recents = P.recentsOf(recentsMsg);
   const browse = P.browseOf(browseMsg);

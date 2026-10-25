@@ -11,6 +11,7 @@
 // and back to where it was when it closes, Tab stays inside it, and Escape
 // closes it. Nothing a person types is used as markup.
 import { useEffect, useRef, useState } from "../vendor/hooks.mjs";
+import { useInert } from "./inert.js";
 import { html } from "../html.js";
 import { composing, LIST } from "./keys.js";
 import { trapTab } from "./Start.js";
@@ -42,6 +43,7 @@ export const SECTIONS = [["general", "General"], ["appearance", "Appearance"], [
 export function Settings({ prefs, change, onClose, section: first = "general", ctx = {} }) {
   const [section, setSection] = useState(SECTIONS.some(([id]) => id === first) ? first : "general");
   const rootRef = useRef(null);
+  useInert(rootRef);
   const tabRef = useRef(null);
   useEffect(() => {
     const el = rootRef.current;

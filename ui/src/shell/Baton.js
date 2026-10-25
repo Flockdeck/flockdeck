@@ -13,6 +13,7 @@
 // A start that sends the baton to another company needs the box ticked here, and
 // the desktop asks for it as well.
 import { useEffect, useMemo, useRef, useState } from "../vendor/hooks.mjs";
+import { useInert } from "./inert.js";
 import { html } from "../html.js";
 import { composing, LIST } from "./keys.js";
 import { trapTab } from "./Start.js";
@@ -28,6 +29,7 @@ import {
  *  { req, ok } for the latest answer to a command of this dialog's, or null. */
 export function Baton({ draft, pane, reading = "", run, answer, onClose, waitMs = WAIT_MS }) {
   const rootRef = useRef(null);
+  useInert(rootRef);
   const first = useRef(null);
   useEffect(() => {
     const el = rootRef.current;
