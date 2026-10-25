@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"sync/atomic"
 	"time"
 
 	"github.com/jmwri/flockdeck/internal/changes"
@@ -41,7 +42,40 @@ type changesFilesMsg struct {
 type changesWatcher struct {
 	root   string
 	cancel context.CancelFunc
+	// last is the newest read of the team, which filesPage is served from, so a
+	// window paging through a branch does not read the checkout again for each page.
+	last atomic.Pointer[changes.Team]
 }
+
+const (
+	changesBusySnapshot uint32 = 1 << iota
+	changesBusyPage
+)
+
+// beginRead marks a read of kind bit as running for the window, and says false
+// when one already is.
+func (c *controlClient) beginRead(bit uint32) bool {
+	for {
+		old := c.changesBusy.Load()
+		if old&bit != 0 {
+			return false
+		}
+		if c.changesBusy.CompareAndSwap(old, old|bit) {
+			return true
+		}
+	}
+}
+
+func (c *controlClient) endRead(bit uint32) {
+	for {
+		old := c.changesBusy.Load()
+		if c.changesBusy.CompareAndSwap(old, old&^bit) {
+			return
+		}
+	}
+}
+
+const changesBusyText = "An earlier request of this kind is still being answered"
 
 // changesTarget is what the workspace goroutine is asked for: the project's root
 // and name, and the agent panes whose checkouts are to be read.
@@ -103,11 +137,19 @@ func (s *Server) changesCommand(c *controlClient, cmd command) {
 	}
 }
 
+// changesRefuse answers a refusal. msg may quote git (see changes.Read) and is for
+// a window on this machine only: a relay window is refused before anything is
+// read (changesCommand), and scrubChangesResult would drop it anyway.
 func changesRefuse(c *controlClient, cmd command, code, msg string) {
 	c.sendJSON(changesResultMsg{Type: "changesResult", Req: cmd.Req, Op: cmd.Cmd, Code: code, Error: msg})
 }
 
 func (s *Server) changesSnapshot(c *controlClient, cmd command) {
+	if !c.beginRead(changesBusySnapshot) {
+		changesRefuse(c, cmd, "busy", changesBusyText)
+		return
+	}
+	defer c.endRead(changesBusySnapshot)
 	t, ok := ask(s, func() changesTarget { return s.changesTargetOf(cmd.Root) })
 	if !ok {
 		return
@@ -134,8 +176,9 @@ func (s *Server) changesWatch(c *controlClient, cmd command) {
 		}
 		c.stopChangesWatch()
 		ctx, cancel := context.WithCancel(context.Background())
-		c.changes = &changesWatcher{root: t.root, cancel: cancel}
-		go s.runChangesWatch(ctx, c, t.root, cmd.Req)
+		w := &changesWatcher{root: t.root, cancel: cancel}
+		c.changes = w
+		go s.runChangesWatch(ctx, c, w, t.root, cmd.Req)
 		return t
 	})
 	if ok && t.err != nil {
@@ -153,7 +196,7 @@ func (c *controlClient) stopChangesWatch() {
 
 // runChangesWatch reads the team's checkouts every changesPoll and sends the
 // window a changesTeam when what it holds has changed.
-func (s *Server) runChangesWatch(ctx context.Context, c *controlClient, root, req string) {
+func (s *Server) runChangesWatch(ctx context.Context, c *controlClient, w *changesWatcher, root, req string) {
 	var last []byte
 	rev := 0
 	tick := time.NewTicker(changesPoll)
@@ -179,6 +222,7 @@ func (s *Server) runChangesWatch(ctx context.Context, c *controlClient, root, re
 		if ctx.Err() != nil {
 			return
 		}
+		w.last.Store(&team)
 		// What is compared leaves out the push's number and token.
 		if body, err := json.Marshal(changesTeamMsg{Type: "changesTeam", Team: team}); err == nil && string(body) != string(last) {
 			last = body
@@ -210,6 +254,44 @@ func (s *Server) changesFilesPage(c *controlClient, cmd command) {
 		changesRefuse(c, cmd, "badRequest", "offset or limit is out of range")
 		return
 	}
+	if !c.beginRead(changesBusyPage) {
+		changesRefuse(c, cmd, "busy", changesBusyText)
+		return
+	}
+	defer c.endRead(changesBusyPage)
+	cwd, ok := s.changesPaneCwd(c, cmd)
+	if !ok {
+		return
+	}
+	// A window that is watching is served from the watch's last read, which is the
+	// list its totals came from; one that is not has the checkout read for it.
+	if w, _ := ask(s, func() *changesWatcher { return c.changes }); w != nil {
+		if t := w.last.Load(); t != nil {
+			for _, br := range t.Branches {
+				if br.Pane == cmd.ID && br.Error == "" {
+					all := br.AllFiles()
+					c.sendJSON(changesFilesMsg{Type: "changesFiles", Files: changes.Files{Req: cmd.Req, Pane: cmd.ID, Offset: cmd.Offset,
+						Total: len(all), Files: changes.Page(all, cmd.Offset, limit)}})
+					return
+				}
+			}
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), changesReadLimit)
+	defer cancel()
+	b := changes.Read(ctx, cmd.ID, cwd, 0)
+	if b.Error != "" {
+		changesRefuse(c, cmd, "noBranch", b.Error)
+		return
+	}
+	all := b.AllFiles()
+	c.sendJSON(changesFilesMsg{Type: "changesFiles", Files: changes.Files{Req: cmd.Req, Pane: cmd.ID, Offset: cmd.Offset,
+		Total: len(all), Files: changes.Page(all, cmd.Offset, limit)}})
+}
+
+// changesPaneCwd finds the checkout of the agent pane a command is about, or
+// answers noBranch and says so.
+func (s *Server) changesPaneCwd(c *controlClient, cmd command) (string, bool) {
 	cwd, ok := ask(s, func() string {
 		p := s.ws.Pane(cmd.ID)
 		if p == nil {
@@ -227,20 +309,11 @@ func (s *Server) changesFilesPage(c *controlClient, cmd command) {
 		return ""
 	})
 	if !ok {
-		return
+		return "", false
 	}
 	if cwd == "" {
 		changesRefuse(c, cmd, "noBranch", "no such pane")
-		return
+		return "", false
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), changesReadLimit)
-	defer cancel()
-	b := changes.Read(ctx, cmd.ID, cwd, 0)
-	if b.Error != "" {
-		changesRefuse(c, cmd, "noBranch", b.Error)
-		return
-	}
-	all := b.AllFiles()
-	c.sendJSON(changesFilesMsg{Type: "changesFiles", Files: changes.Files{Req: cmd.Req, Pane: cmd.ID, Offset: cmd.Offset,
-		Total: len(all), Files: changes.Page(all, cmd.Offset, limit)}})
+	return cwd, true
 }

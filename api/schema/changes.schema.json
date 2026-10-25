@@ -1087,6 +1087,7 @@
             "empty",
             "notApproved",
             "notFound",
+            "busy",
             "notClean",
             "notFastForward",
             "failed"

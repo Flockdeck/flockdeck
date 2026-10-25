@@ -1195,6 +1195,10 @@ type controlClient struct {
 	// changes is the window's team-wide changes watch (changes_team.go); it
 	// belongs to the workspace goroutine.
 	changes *changesWatcher
+	// changesBusy has a bit for each read of the changes view this window has
+	// running (changesBusySnapshot, changesBusyPage); a second of the same kind is
+	// refused as busy.
+	changesBusy atomic.Uint32
 	// relayTeamsSent is the relay form of the teams this window was last sent,
 	// so an unchanged one is not sent again.
 	relayTeamsSent []byte

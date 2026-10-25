@@ -95,3 +95,30 @@ func TestAWatchStopsWhenItIsReplacedOrUnwatched(t *testing.T) {
 		t.Errorf("answer = %+v, want deskOnly", m)
 	}
 }
+
+// One read of each kind runs at a time for a window; the next is refused as busy,
+// and runs once the first is over.
+func TestASecondReadOfTheSameKindIsRefusedAsBusy(t *testing.T) {
+	srv, _ := newTestServer(t)
+	cl := &controlClient{out: make(chan []byte, 8)}
+	if !cl.beginRead(changesBusyPage) {
+		t.Fatal("the first read was refused")
+	}
+	srv.handleCommand(cl, command{Cmd: "filesPage", Req: "r", ID: "p1"})
+	if m := answerOf(t, cl); m.Code != "busy" || m.Op != "filesPage" || m.Req != "r" {
+		t.Errorf("answer = %+v, want a busy refusal", m)
+	}
+	// A different kind is not held up by it.
+	if !cl.beginRead(changesBusySnapshot) {
+		t.Error("a snapshot was refused while a page was being read")
+	}
+	cl.endRead(changesBusyPage)
+	cl.endRead(changesBusySnapshot)
+	if cl.changesBusy.Load() != 0 {
+		t.Errorf("busy bits left: %b", cl.changesBusy.Load())
+	}
+	srv.handleCommand(cl, command{Cmd: "filesPage", Req: "r2", ID: "nope"})
+	if m := answerOf(t, cl); m.Code != "noBranch" {
+		t.Errorf("after the first read ended: %+v, want it to run (and find no pane)", m)
+	}
+}

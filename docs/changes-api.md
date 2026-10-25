@@ -69,6 +69,7 @@ Which command answers with which code:
 | `headMoved` | `commentAdd`, `submitReview`, `approveMerge`, `mergeBranch` (`expectSha` is not the head). |
 | `checksNotPassing`, `conflicts`, `openComments`, `reviewChangesRequested`, `unpushed`, `empty` | `approveMerge`, in that order. |
 | `notApproved` | `mergeBranch`, when the gate is not approved for that head. |
+| `busy` | `changesSnapshot`, `filesPage`, `diffHunks` and `diffContext`, when the same window still has an earlier request of that kind being answered. One of each kind runs at a time for a window. |
 | `notClean`, `notFastForward`, `failed` | `mergeBranch`. |
 
 The fields these commands use, besides `cmd`:
@@ -123,7 +124,12 @@ copies), `binary` with `sizeBefore` and `sizeAfter`, `generated`, `modeChange`,
 - `files` holds the committed changes since `baseSha` and the uncommitted ones
   together; a file in both is one entry. Most changed first (lines added plus
   removed, then path). At most 2000 are listed and `omitted` counts the rest;
-  `filesPage` reads the whole list in order.
+  `filesPage` reads the whole list in order, from the watch's last read when the
+  window is watching, so its pages agree with the totals it was pushed.
+- A checkout whose changes are too many to list (git's listing is past 16 MiB)
+  is an entry with the `error` "too many changes to list". Line counts of untracked
+  files are kept between polls and read again only when a file's size or time
+  changed; past 64 MiB read in one poll, the rest are listed with no count.
 - `generated` is decided by path: lockfiles (`go.sum`, `package-lock.json`,
   `yarn.lock`, `pnpm-lock.yaml`, `Cargo.lock`), directories named `vendor` or
   `node_modules`, and names ending `.min.js`, `.min.css` or `.pb.go`.

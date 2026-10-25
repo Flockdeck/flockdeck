@@ -1,13 +1,16 @@
 package changes
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jmwri/flockdeck/internal/gitx"
@@ -23,7 +26,23 @@ const (
 	maxCountBytes = 1 << 20
 	// maxBinarySizes is how many binary files have their old size looked up.
 	maxBinarySizes = 50
+	// maxGitOutput is the most of one git command's output that is kept. A
+	// repository can make a listing of changes as large as it likes, so past this
+	// the checkout is reported as having too many changes to list.
+	maxGitOutput = 16 << 20
+	// maxCountTotal is the most bytes of untracked files read to count lines in
+	// one read of a checkout; files past it are listed without a count.
+	maxCountTotal = 64 << 20
+	// gitReads is how many git commands run at once for all the windows.
+	gitReads = 6
 )
+
+// tooMany is said of a checkout whose listing of changes is past the limit.
+const tooMany = "too many changes to list"
+
+// gitSlots limits the git processes the changes view has running at once, across
+// every window and every watch.
+var gitSlots = make(chan struct{}, gitReads)
 
 // Read reads one pane's checkout. maxFiles caps the files listed (the rest are
 // counted in Omitted); zero lists them all, for filesPage. A checkout that cannot
@@ -94,6 +113,9 @@ func read(ctx context.Context, pane, cwd string, maxFiles int) (Branch, string) 
 
 	files, err := filesOf(ctx, cwd, b.BaseSha)
 	if err != nil {
+		if errors.Is(err, gitx.ErrTooLarge) {
+			return fail(tooMany)
+		}
 		return fail("could not read the changed files: " + firstLine(err.Error()))
 	}
 	sort.SliceStable(files, func(i, j int) bool {
@@ -192,7 +214,12 @@ func filesOf(ctx context.Context, cwd, baseSha string) ([]File, error) {
 		}
 	}
 
-	if out, err := git(ctx, cwd, "ls-files", "--others", "--exclude-standard", "-z"); err == nil {
+	budget := int64(maxCountTotal)
+	out, err := git(ctx, cwd, "ls-files", "--others", "--exclude-standard", "-z")
+	if errors.Is(err, gitx.ErrTooLarge) {
+		return nil, err
+	}
+	if err == nil {
 		for n, p := range splitZ(out) {
 			if n >= maxUntracked {
 				break
@@ -201,7 +228,7 @@ func filesOf(ctx context.Context, cwd, baseSha string) ([]File, error) {
 				continue
 			}
 			f := File{Path: p, Status: "A"}
-			countUntracked(filepath.Join(cwd, filepath.FromSlash(p)), &f)
+			countUntracked(filepath.Join(cwd, filepath.FromSlash(p)), &f, &budget)
 			byPath[p] = len(files)
 			files = append(files, f)
 		}
@@ -328,37 +355,85 @@ func splitZ(s string) []string {
 	return out
 }
 
-// countUntracked fills in the lines of a new file, or marks it binary. A link or
-// a file over maxCountBytes is listed with no count.
-func countUntracked(path string, f *File) {
+// countCache remembers the line count of an untracked file by its size and
+// modification time, so that a poll every few seconds reads a file again only
+// when it changed.
+var countCache = struct {
+	sync.Mutex
+	m map[string]counted
+}{m: map[string]counted{}}
+
+type counted struct {
+	size   int64
+	mod    int64
+	added  int
+	binary bool
+}
+
+const maxCountCache = 20000
+
+// countUntracked fills in the lines of a new file, or marks it binary. A link, a
+// file over maxCountBytes, or one that would take a read past the budget (the
+// bytes still allowed for this read of the checkout) is listed with no count. The
+// file is opened and checked to be the one that was looked at, so a link swapped
+// in between is not followed.
+func countUntracked(path string, f *File, budget *int64) {
 	fi, err := os.Lstat(path)
 	if err != nil || !fi.Mode().IsRegular() {
 		return
 	}
-	if fi.Size() > maxCountBytes {
-		n := fi.Size()
-		f.SizeAfter = &n
+	size := fi.Size()
+	if size > maxCountBytes {
+		f.SizeAfter = &size
 		return
 	}
-	data, err := os.ReadFile(path)
+	mod := fi.ModTime().UnixNano()
+	countCache.Lock()
+	c, ok := countCache.m[path]
+	countCache.Unlock()
+	if ok && c.size == size && c.mod == mod {
+		f.Added, f.Binary = c.added, c.binary
+		return
+	}
+	if *budget < size {
+		f.SizeAfter = &size
+		return
+	}
+	*budget -= size
+	file, err := os.Open(path)
 	if err != nil {
+		return
+	}
+	defer file.Close()
+	if open, err := file.Stat(); err != nil || !open.Mode().IsRegular() || !os.SameFile(fi, open) {
+		return
+	}
+	data, err := io.ReadAll(io.LimitReader(file, maxCountBytes+1))
+	if err != nil || len(data) > maxCountBytes {
 		return
 	}
 	head := data
 	if len(head) > 8000 {
 		head = head[:8000]
 	}
-	for _, c := range head {
-		if c == 0 {
+	for _, ch := range head {
+		if ch == 0 {
 			f.Binary = true
-			return
 		}
 	}
-	lines := strings.Count(string(data), "\n")
-	if len(data) > 0 && data[len(data)-1] != '\n' {
-		lines++
+	if !f.Binary {
+		lines := bytes.Count(data, []byte{'\n'})
+		if len(data) > 0 && data[len(data)-1] != '\n' {
+			lines++
+		}
+		f.Added = lines
 	}
-	f.Added = lines
+	countCache.Lock()
+	if len(countCache.m) >= maxCountCache {
+		clear(countCache.m)
+	}
+	countCache.m[path] = counted{size: size, mod: mod, added: f.Added, binary: f.Binary}
+	countCache.Unlock()
 }
 
 // Generated says the path rules mark a file as generated: lockfiles, vendored
@@ -381,9 +456,15 @@ func Generated(path string) bool {
 // git runs a read-only git command in dir, with the protections of every other
 // command Flockdeck runs, and a limit on how long it may take.
 func git(ctx context.Context, dir string, args ...string) (string, error) {
+	select {
+	case gitSlots <- struct{}{}:
+		defer func() { <-gitSlots }()
+	case <-ctx.Done():
+		return "", ctx.Err()
+	}
 	ctx, cancel := context.WithTimeout(ctx, 25*time.Second)
 	defer cancel()
-	return gitx.ReadOnly(ctx, dir, args...)
+	return gitx.ReadOnlyCapped(ctx, dir, maxGitOutput, args...)
 }
 
 func firstLine(s string) string {
