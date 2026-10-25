@@ -85,6 +85,8 @@ export function GoalStrip({
       if (t.kind === "team" && onArchive) {
         e.preventDefault();
         e.stopPropagation();
+        // A held key repeats, and focus moves to the neighbour after the first: one press archives one goal.
+        if (e.repeat) return;
         archive(t.id);
       }
       return;
@@ -118,7 +120,7 @@ export function GoalStrip({
               ? (e) => { e.preventDefault(); onMove(dragging, goals.findIndex((g) => g.id === t.id)); setDragging(""); }
               : undefined}
             onDragEnd=${() => setDragging("")}>
-            <button type="button" class="tab-pick" role="tab" aria-selected=${t.id === active ? "true" : "false"} aria-label=${labelFor(t)} title=${t.title}
+            <button type="button" class="tab-pick" role="tab" aria-selected=${t.id === active ? "true" : "false"} aria-label=${labelFor(t)} aria-keyshortcuts=${goal && onArchive ? LIST.remove : undefined} title=${t.title}
               tabindex=${t.id === stopId ? "0" : "-1"} onFocus=${() => setStop(t.id)} onClick=${() => onSelect(t.id)}
               onDblClick=${goal && onRename ? () => setRenaming(t.id) : undefined}>
               <span class="tab-title">${t.label}</span>
@@ -140,7 +142,7 @@ export function GoalStrip({
         ${current && current.kind === "team"
           ? html`<hr class="tabs-sep" />
               ${onRename ? html`<button type="button" role="menuitem" class="tabs-btn" onClick=${act(() => setRenaming(current.id))}>Rename this goal</button>` : null}
-              ${onArchive ? html`<button type="button" role="menuitem" class="tabs-btn tabs-archive" onClick=${act(() => archive(current.id))}>Archive this goal</button>` : null}
+              ${onArchive ? html`<button type="button" role="menuitem" class="tabs-btn tabs-archive" onClick=${act(() => archive(current.id))}>Archive this goal<kbd class="tabs-key" aria-hidden="true">Del</kbd></button>` : null}
               ${onStep ? html`<button type="button" role="menuitem" class="tabs-btn" onClick=${act(() => onStep(current.id, -1))} disabled=${!canStep(current.id, -1)}>Move left</button>
               <button type="button" role="menuitem" class="tabs-btn" onClick=${act(() => onStep(current.id, 1))} disabled=${!canStep(current.id, 1)}>Move right</button>` : null}`
           : null}

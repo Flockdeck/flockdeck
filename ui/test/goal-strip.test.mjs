@@ -259,18 +259,35 @@ test("the strip is a group, not a toolbar; the close button is out of the tab or
     await settle();
     assert.deepEqual(m.sent("uiPrefs"), [{ cmd: "uiPrefs", ui: { "tabs.archived": [ONE] } }]);
     assert.deepEqual(m.ids(), [TWO, "solo"]);
-    // The + menu has the same action for the goal being shown.
+    // The + menu has the same action for the goal being shown, and focus ends on the tab that took its place.
     m.clear();
     await m.plus();
     const item = m.container.findAll(".tabs-archive");
     assert.equal(item.length, 1);
+    assert.ok(item[0].textContent.includes("Del"), "the key is shown on the item");
     await m.click(item[0]);
     await settle();
     assert.equal(m.sent("uiPrefs").length, 1);
     assert.deepEqual(m.ids(), ["solo"]);
+    assert.equal(m.container.ownerDocument.activeElement, m.tabs()[0].find('[role="tab"]'), "focus did not land on the neighbouring tab");
     // And it comes back from the menu.
     await m.plus();
     assert.equal(m.container.findAll(".tabs-restore").length, 2);
+  }));
+
+test("a held Delete archives one goal, not every goal", () =>
+  withPage({}, async (m) => {
+    await m.connect();
+    m.clear();
+    const tab = m.tabs()[0].find('[role="tab"]');
+    tab.keydown("Delete");
+    await settle();
+    // Focus has moved to the next goal; the key is still down and repeats.
+    m.tabs()[0].find('[role="tab"]').keydown("Delete", { repeat: true });
+    m.tabs()[0].find('[role="tab"]').keydown("Delete", { repeat: true });
+    await settle();
+    assert.deepEqual(m.ids(), [TWO, "solo"]);
+    assert.equal(m.sent("uiPrefs").length, 1);
   }));
 
 test("a name and an order kept in the preferences are used", () =>
