@@ -117,15 +117,21 @@ func (r *checkRuns) of(pane, head string) []changes.Check {
 // reviewsMu serialises changes to the review state files.
 var reviewsMu sync.Mutex
 
-// withChecksAndReviews puts the server's checks and the saved reviews in the
-// branches of a read team.
+// withChecksAndReviews puts the server's checks and the saved reviews and
+// comments in the branches of a read team.
 func (s *Server) withChecksAndReviews(t *changes.Team, root, project string) {
 	var state changes.ReviewState
+	var comments changes.CommentState
 	if _, statePath, err := changesFiles(root, project); err == nil {
 		reviewsMu.Lock()
 		// A damaged file shows as no reviews here; the commands that would write over it refuse.
 		state = s.loadReviews(statePath)
+		comments = s.loadComments(commentsPath(statePath))
 		reviewsMu.Unlock()
+	}
+	var delivery func(to string, id int) string
+	if comments.HasComments() {
+		delivery = s.commentDeliveries(root)
 	}
 	keep := map[string]bool{}
 	for i := range t.Branches {
@@ -136,7 +142,8 @@ func (s *Server) withChecksAndReviews(t *changes.Team, root, project string) {
 		}
 		checks := s.checks.of(b.Pane, b.HeadSha)
 		reviews := state.For(b.Branch, b.HeadSha)
-		b.Checks, b.Reviews = &checks, &reviews
+		list := comments.For(b.Branch, b.Pane, delivery)
+		b.Checks, b.Reviews, b.Comments = &checks, &reviews, &list
 	}
 	s.checks.forget(keep)
 }
