@@ -514,3 +514,10 @@ test("an idle row says only idle: how long is the Age column's", () => {
   const out = renderToString(html`<${Tree} model=${model(team())} />`);
   assert.doesNotMatch(out, /idle \d+[smhd]/);
 });
+
+test("on a phone the doing text breaks inside a long unbroken path, so the outline never scrolls sideways", async () => {
+  const { readFileSync } = await import("node:fs");
+  const css = readFileSync(new URL("../src/graph/tree.css", import.meta.url), "utf8");
+  const phone = css.slice(css.indexOf("@media (max-width: 560px)"));
+  assert.match(phone.slice(0, phone.indexOf("\n}")), /\.tree-doing-text \{[^}]*overflow-wrap: anywhere/);
+});
