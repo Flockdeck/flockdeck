@@ -57,6 +57,7 @@ test("copied text for mail and events", () => {
 test("a mail or event row with missing fields draws without throwing", () => {
   assert.match(renderToString(html`<${Row} entry=${{ id: "m:2", kind: "mail" }} />`), /From an agent/);
   assert.doesNotThrow(() => renderToString(html`<${Row} entry=${{ id: "e:2", kind: "event" }} />`));
+});
 
 test("the drawer says when its own message box is showing, so the home bar can step aside", async () => {
   const { createDom, install, settle } = await import("./dom.mjs");
