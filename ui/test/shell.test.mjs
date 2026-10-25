@@ -60,8 +60,8 @@ test("a project name that holds markup is drawn as text", () => {
 
 test("waiting and working counts are on the rail", () => {
   const out = draw({ narrow: false });
-  assert.match(out, /badge badge--waiting" aria-hidden="true">2</);
-  assert.match(out, /badge badge--working" aria-hidden="true">3</);
+  assert.match(out, /badge badge--waiting" aria-hidden="true" title="2 agents waiting \(panes, not requests\)">2</);
+  assert.match(out, /badge badge--working" aria-hidden="true" title="3 agents working">3</);
   // The button carries the name and the counts, since the name can be hidden.
   assert.match(out, /aria-label="alpha, 2 waiting"/);
   assert.match(out, /aria-label="beta, 3 working"/);

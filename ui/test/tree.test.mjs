@@ -521,3 +521,12 @@ test("on a phone the doing text breaks inside a long unbroken path, so the outli
   const phone = css.slice(css.indexOf("@media (max-width: 560px)"));
   assert.match(phone.slice(0, phone.indexOf("\n}")), /\.tree-doing-text \{[^}]*overflow-wrap: anywhere/);
 });
+
+test("the stuck chip writes its time as the Age column does", () => {
+  const m = model(proto());
+  const chip = (min) => chipsOf(m, { ...m.byPane.get("work"), lastOutput: new Date(NOW - min * 60000).toISOString() }, [], NOW).find((c) => c.kind === "stuck").text;
+  assert.equal(chip(12), "stuck 12m");
+  assert.equal(chip(300), "stuck 5h");
+  assert.equal(chip(5472), "stuck 3d");
+  assert.equal(ageOf(new Date(NOW - 5472 * 60000).toISOString(), NOW), "3d");
+});

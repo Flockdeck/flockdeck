@@ -48,7 +48,7 @@ export function FootButton({ cls, glyph, label, title = label, pressed, onClick 
   </button>`;
 }
 
-function RailItem({ project, active, onSelect }) {
+export function RailItem({ project, active, onSelect }) {
   const { root, name, waiting = 0, working = 0 } = project;
   // The name is hidden when the rail is narrow, so the button carries it, and
   // the counts, in its label.
@@ -60,14 +60,14 @@ function RailItem({ project, active, onSelect }) {
         class=${"rail-item" + (active ? " is-active" : "")}
         aria-current=${active ? "true" : undefined}
         aria-label=${label}
-        title=${name}
+        title=${label}
         data-root=${root}
         onClick=${() => onSelect && onSelect(root)}
       >
         <span class="rail-initial" aria-hidden="true">${initialOf(name)}</span>
         <span class="rail-name">${name}</span>
-        ${waiting > 0 ? html`<span class="badge badge--waiting" aria-hidden="true">${waiting}</span>` : null}
-        ${working > 0 ? html`<span class="badge badge--working" aria-hidden="true">${working}</span>` : null}
+        ${waiting > 0 ? html`<span class="badge badge--waiting" aria-hidden="true" title=${waiting + (waiting === 1 ? " agent waiting" : " agents waiting") + " (panes, not requests)"}>${waiting}</span>` : null}
+        ${working > 0 ? html`<span class="badge badge--working" aria-hidden="true" title=${working + (working === 1 ? " agent working" : " agents working")}>${working}</span>` : null}
       </button>
     </li>
   `;

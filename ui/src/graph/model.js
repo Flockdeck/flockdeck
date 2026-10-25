@@ -424,6 +424,14 @@ export function promptOf(pane) {
   return { kind: "none", hidden: false, tool: "", summary: "", options: [], canAnswerHere: false };
 }
 
+/** spanOf is a number of whole minutes as the outline writes a time: "now", "12m", "5h" or "3d" (hours up to 47). */
+export function spanOf(m) {
+  if (m < 1) return "now";
+  if (m < 60) return m + "m";
+  const h = Math.floor(m / 60);
+  return h < 48 ? h + "h" : Math.floor(h / 24) + "d";
+}
+
 /** STUCK_MS is how long a working terminal pane may write nothing before it is called stuck. It is the desk's own rule (team.StuckAfter, internal/team/graph.go); keep the two equal. */
 export const STUCK_MS = 10 * 60 * 1000;
 

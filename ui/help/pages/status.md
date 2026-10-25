@@ -22,6 +22,14 @@ Each state has its own shape as well as its colour, so you can tell them apart
 without seeing colour, except that waiting and blocked share the triangle. A
 blocked pane counts as waiting everywhere waiting agents are counted (below).
 
+In the Team view the requests show under the agent's row. A permission asked by
+a terminal pane is answered in its drawer, where its terminal is, so its block has
+no Approve button; the buttons are for a question that offers choices and for a
+permission from a structured pane. A Down block offers "Ask the manager to
+reassign" only when the pane has a task. The number on a project in the rail counts
+panes that are waiting or blocked. The goal line and the goal tab count requests,
+so a pane with two requests is one in the rail and two there.
+
 A pane whose turn is over but that has background work still running, a
 command or subagent it started, is still **Idle** and its header says how many
 are "in background". Its dot is the working dot all the same, and its tooltip

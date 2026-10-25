@@ -579,8 +579,9 @@ test("Team view: with a tree the switch leads with Team, the page starts there, 
     assert.equal(rows.length, m.g.nodes.length, "the tree was given the model");
     const tree = m.container.find(".view-tree");
     assert.ok(tree.find(".home-col").find(".goalline"), "the goal line is at the top of the column");
-    assert.equal(tree.find(".feed"), null, "an empty feed takes no column");
-    assert.match(tree.find(".feed-none").textContent, /No activity yet/);
+    assert.match(tree.find(".feed").find(".feed-head").textContent, /Activity/, "an empty feed still has its heading");
+    assert.match(tree.find(".feed").find(".feed-empty").textContent, /Nothing has happened yet/);
+    assert.match(tree.find(".home-split").getAttribute("class"), /home-split--feed-empty/, "and a narrow column");
     assert.ok(m.container.find(".view-graph").getAttribute("hidden") !== null, "the graph is not shown");
   }));
 
@@ -606,5 +607,5 @@ test("Feed: eleven entries show and the rest scroll, and it stacks under the hom
   const css = readFileSync(join(here, "..", "src", "graph", "graph.css"), "utf8");
   assert.ok(css.includes("max-height: calc(11 * var(--feed-row)); overflow-y: auto;"));
   const app = readFileSync(join(here, "..", "src", "app.css"), "utf8");
-  assert.ok(app.includes("  .home-split.home-split--feed { grid-template-columns: minmax(0, 1fr); }"), "below 1000 px the feed stacks under the home");
+  assert.ok(app.includes("  .home-split.home-split--feed, .home-split.home-split--feed.home-split--feed-empty { grid-template-columns: minmax(0, 1fr); }"), "below 1000 px the feed stacks under the home, empty or not");
 });
