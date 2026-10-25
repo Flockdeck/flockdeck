@@ -221,6 +221,17 @@ type Pane struct {
 	// that infrastructure may address under a different name entirely, and a
 	// stale one shown as current would be worse than none.
 	PeerName string
+	// Label is what the pane is called for the work it does, set with spawn -name
+	// or flockdeck pane-name, or made from its task when it was spawned. It is
+	// empty for a pane that has none. Unlike PeerName it is kept across a restart
+	// and saved with the layout. It is written from the hook goroutines, so it is
+	// only touched under the lock: read it through LabelOf. See panelabel.go.
+	Label string
+	// LabelAuto says Label was made from the pane's task and not chosen by an
+	// agent or the person. A label made from a task is the start of what the pane
+	// was asked, so it stays on the desk like the task itself (internal/server's
+	// relay scrub). Guarded like Label.
+	LabelAuto bool
 	// exitReported is the session whose exit has been reported to this pane's
 	// parent, so a process that ends is reported once. See noteExit.
 	exitReported *session.Session

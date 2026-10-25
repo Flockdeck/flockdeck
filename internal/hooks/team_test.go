@@ -83,3 +83,30 @@ func TestTeamEndpointsPassOnARefusalAndSayWhenNothingIsInstalled(t *testing.T) {
 		t.Errorf("a refusal = %v, want the handler's words", err)
 	}
 }
+
+func TestPaneNameCarriesTheTargetAndTheTextAndRefusesAWrongToken(t *testing.T) {
+	srv, _ := newServer(t)
+	var got PaneNameRequest
+	srv.SetPaneNameHandler(func(r PaneNameRequest) (PaneNameResult, error) {
+		got = r
+		if r.Text == "refuse" {
+			return PaneNameResult{}, errors.New("only a manager can name another pane")
+		}
+		return PaneNameResult{Pane: "p2", Label: "limiter PR"}, nil
+	})
+	api, tok := srv.BaseURL(), srv.Token()
+
+	res, err := PaneName(api, tok, "p1", "p2", "limiter PR")
+	if err != nil || res.Pane != "p2" || res.Label != "limiter PR" {
+		t.Fatalf("PaneName = %+v, %v", res, err)
+	}
+	if got.Pane != "p1" || got.Target != "p2" || got.Text != "limiter PR" {
+		t.Errorf("handler saw %+v", got)
+	}
+	if _, err := PaneName(api, tok, "p1", "", "refuse"); err == nil || !strings.Contains(err.Error(), "only a manager") {
+		t.Errorf("a refusal reached the caller as %v", err)
+	}
+	if _, err := PaneName(api, "not-the-token", "p1", "", "x"); err == nil {
+		t.Error("a wrong token was accepted")
+	}
+}

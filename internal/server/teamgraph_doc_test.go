@@ -181,6 +181,7 @@ func TestGraphPageQuotesTheCodesLimits(t *testing.T) {
 		{graphLiveCut == 140 && graphEdgeCut == 140, "a live line 140; an edge's first line 140"},
 		{graphGoalCut == 300, "a team's goal 300"},
 		{graphNameCut == 80 && graphPeerCut == 80 && graphBranchCut == 120 && graphAgentCut == 80, "a pane's name 80, its peer name 80, its branch 120 and its agent id 80"},
+		{team.MaxPaneLabel == 40, "a pane's label 40"},
 		{team.MaxConflictPaths == 5, "up to 5 paths"},
 		{workspace.MaxHelpers == 8, "`max` is 8"},
 		{workspace.MaxPaneSendBytes == 16*1024, "16 KiB (16384 bytes"},

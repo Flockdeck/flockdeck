@@ -249,6 +249,11 @@ func scrubPane(pv *paneView) {
 // secret on the phone.
 func scrubPaneNames(pv *paneView) {
 	pv.Name, pv.PeerName = capName(pv.Name), capName(pv.PeerName)
+	// A label made from the task is the start of the task, which is not sent.
+	if pv.LabelAuto {
+		pv.Label = ""
+	}
+	pv.Label, pv.LabelAuto = capName(pv.Label), false
 	pv.Project, pv.Branch, pv.Cwd = record.Redact(pv.Project), record.Redact(pv.Branch), record.Redact(pv.Cwd)
 	if len(pv.Conflicts) > 0 {
 		cs := make([]conflictView, len(pv.Conflicts))

@@ -172,6 +172,8 @@ func newCrew(t *testing.T) crew {
 		if err != nil {
 			t.Fatalf("spawn %s: %v", role, err)
 		}
+		// A spawned pane is labelled from its task; these tests name panes by directory and peer name.
+		ws.Pane(id).Label, ws.Pane(id).LabelAuto = "", false
 		return id
 	}
 	c.w1, c.w2, c.reviewer = spawn("worker"), spawn("worker"), spawn("reviewer")

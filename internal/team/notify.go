@@ -166,10 +166,8 @@ func noticeSender(m Message) string {
 		return UserLabel
 	}
 	who := `"` + noticeWord(m.From.Name, noticeNameMax, "another agent") + `"`
-	if m.From.Role != "" {
-		who += ` (role "` + noticeWord(m.From.Role, noticeRoleMax, "") + `")`
-	}
-	return who
+	// The role slot is always printed, so a name that is a role's word cannot stand in for a role the sender lacks.
+	return who + ` (role "` + noticeWord(m.From.Role, noticeRoleMax, "no role") + `")`
 }
 
 // noticeWord is s as plain words: letters of any script, digits, spaces and the

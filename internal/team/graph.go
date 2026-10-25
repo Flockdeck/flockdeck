@@ -49,7 +49,9 @@ type GraphPane struct {
 	Role   string
 	Name   string
 	Peer   string
-	Agent  string
+	// Label is what the pane is called for its work (Pane.Label), empty for none.
+	Label string
+	Agent string
 	// Shell marks a plain terminal with no agent in it.
 	Shell    bool
 	Status   string
@@ -345,6 +347,9 @@ func reviewerLabel(t GraphTask, owner string, panes []GraphPane, index map[strin
 }
 
 func paneLabel(p GraphPane) string {
+	if p.Label != "" {
+		return p.Label
+	}
 	if p.Peer != "" {
 		return p.Peer
 	}
