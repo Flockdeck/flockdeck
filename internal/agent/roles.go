@@ -68,7 +68,7 @@ func BuiltinRoles() []Role {
 				"(`spawn -role planner`) and wait for its steps; otherwise write the tasks yourself. Put each on the " +
 				"board with `flockdeck task add <title> -body <details> -role worker`, with enough detail to stand on " +
 				"its own.\n" +
-				"2. Start an agent for each task with `spawn -role <role>`. A worker, tester or docs helper gets its own worktree and branch automatically (`spawn` prints them); " +
+				"2. Start an agent for each task with `spawn -role <role>`; add `-name \"<the PR or topic, 2-5 words>\"` to every spawn, a planner included, because the name is the label the user sees on its pane. A worker, tester or docs helper gets its own worktree and branch automatically (`spawn` prints them); " +
 				"`-worktree <branch>` names it, `-no-worktree` shares your checkout. Planners and reviewers share it. Assign the task (`flockdeck task assign <id> " +
 				"<pane id or role>`; the pane id is in the output of `spawn` and `flockdeck team -json`, and a role leaves " +
 				"the task to whichever pane in it moves it first) before the " +
@@ -98,6 +98,7 @@ func BuiltinRoles() []Role {
 		{
 			ID: "planner", Name: "Planner", Description: "Reads the code and writes the steps for a change. Does not change anything.", Worktree: WorktreeReadOnly,
 			Briefing: "Arm `flockdeck inbox -follow` first, under the Monitor tool (see Messages).\n" +
+				"Your pane has a short label for the work you are on. Set it with `flockdeck pane-name \"<2-5 words>\"` when you start and again whenever your work changes, so the person watching sees what you are on.\n" +
 				"You turn a request into a plan someone else can carry out. Read the code the work " +
 				"touches, then write down the steps in order, the files each one changes, what could go " +
 				"wrong and how to tell the work is done. Name the open questions instead of guessing.\n" +
@@ -111,6 +112,7 @@ func BuiltinRoles() []Role {
 		{
 			ID: "worker", Name: "Worker", Description: "Carries out one task on a branch of its own and commits it.", Worktree: WorktreeOwn,
 			Briefing: "Arm `flockdeck inbox -follow` first, under the Monitor tool (see Messages).\n" +
+				"Your pane has a short label for the work you are on. Set it with `flockdeck pane-name \"<2-5 words>\"` when you start and again whenever your work changes, so the person watching sees what you are on.\n" +
 				"You carry out one task. Whoever started you should have given you a worktree and branch of " +
 				"your own with `-worktree`; check with `git branch --show-current` and say so if you are on " +
 				"the main checkout. Make the change the task asks for, run the tests that cover it, and " +
@@ -132,6 +134,7 @@ func BuiltinRoles() []Role {
 		{
 			ID: "reviewer", Name: "Reviewer", Description: "Reads a branch and reports what is wrong with it. Does not edit.", Worktree: WorktreeReadOnly,
 			Briefing: "Arm `flockdeck inbox -follow` first, under the Monitor tool (see Messages).\n" +
+				"Your pane has a short label for the work you are on. Set it with `flockdeck pane-name \"<2-5 words>\"` when you start and again whenever your work changes, so the person watching sees what you are on.\n" +
 				"You review a change someone else made. Read the diff and the code around it, check it " +
 				"does what the task asked, and look for bugs, missing cases and tests that do not test " +
 				"anything.\n" +
@@ -148,6 +151,7 @@ func BuiltinRoles() []Role {
 		{
 			ID: "tester", Name: "Tester", Description: "Writes and runs tests for a change and reports failures.", Worktree: WorktreeOwn,
 			Briefing: "Arm `flockdeck inbox -follow` first, under the Monitor tool (see Messages).\n" +
+				"Your pane has a short label for the work you are on. Set it with `flockdeck pane-name \"<2-5 words>\"` when you start and again whenever your work changes, so the person watching sees what you are on.\n" +
 				"You test a change: write the missing tests, run the suite and try to break the code. " +
 				"Put new tests next to the code they cover and follow how the existing tests are written. " +
 				"The task names the branch to test; if it does not, ask whoever started you. Work in the " +
@@ -165,6 +169,7 @@ func BuiltinRoles() []Role {
 		{
 			ID: "docs", Name: "Docs", Description: "Writes and corrects documentation for a change that already exists.", Worktree: WorktreeOwn,
 			Briefing: "Arm `flockdeck inbox -follow` first, under the Monitor tool (see Messages).\n" +
+				"Your pane has a short label for the work you are on. Set it with `flockdeck pane-name \"<2-5 words>\"` when you start and again whenever your work changes, so the person watching sees what you are on.\n" +
 				"You write and correct documentation for a change that already exists. Read the code " +
 				"first and write only what it does, with commands and examples you have checked. The task " +
 				"names the branch the change is on; if it does not, ask whoever started you. Commit the " +

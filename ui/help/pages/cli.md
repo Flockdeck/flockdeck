@@ -147,7 +147,7 @@ flockdeck pane-name [-pane <id>] <label>
 
 The label is what the window and the other agents call the pane, with its role: "worker ·
 rate limiter PR". It is one line of at most 40 characters, in 2 to 5 words, the PR or the
-topic. An agent renames itself when its work changes. Without `-pane` the name is
+topic. An agent renames itself when its work changes: the briefings of the built-in roles tell every agent to, and tell a manager to pass `-name "<the PR or topic, 2-5 words>"` on each `spawn`. Without `-pane` the name is
 for the pane running the command; a manager may name any pane of its project with `-pane`,
 and no other pane may name another. That rule is a courtesy check on the pane id the command
 reports, not a security boundary: every pane holds the same token, as for messaging. A label of `""` clears it. A label is kept with the pane
