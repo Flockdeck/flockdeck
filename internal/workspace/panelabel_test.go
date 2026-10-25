@@ -191,7 +191,7 @@ func TestARenameByAnotherPaneTellsTheNamedPaneAndIsLimited(t *testing.T) {
 	}
 	var told bool
 	for _, m := range c.inbox(t, c.w1, true) {
-		if strings.Contains(m.Text, `named this pane "docs sweep"`) && strings.Contains(m.Text, "pane "+c.lead) {
+		if strings.Contains(m.Text, `now "docs sweep"`) && strings.Contains(m.Text, "pane "+c.lead) {
 			told = true
 		}
 	}
@@ -214,6 +214,38 @@ func TestARenameByAnotherPaneTellsTheNamedPaneAndIsLimited(t *testing.T) {
 	}
 	if _, err := c.ws.SetPaneLabel("", c.w1, "the person may"); err != nil {
 		t.Errorf("the person at the window was limited: %v", err)
+	}
+	notices := 0
+	for _, m := range c.inbox(t, c.w1, true) {
+		if strings.Contains(m.Text, "Pane name changed") || strings.Contains(m.Text, "name was changed") {
+			notices++
+		}
+	}
+	if notices > 2 {
+		t.Errorf("a burst of renames sent %d notices, want the first and one summary", notices)
+	}
+}
+
+func TestOnePaneIsLimitedInRenamingOthersAcrossTargets(t *testing.T) {
+	c := newCrew(t)
+	targets := []string{c.w1, c.w2, c.reviewer}
+	var err error
+	n := 0
+	for i := 0; i < maxActorRenames+1 && err == nil; i++ {
+		_, err = c.ws.SetPaneLabel(c.lead, targets[i%len(targets)], fmt.Sprintf("name %d", i))
+		if err == nil {
+			n++
+		}
+	}
+	if err == nil || !strings.Contains(err.Error(), "wait before naming another") || n != maxActorRenames {
+		t.Errorf("renames across panes were not limited: %d done, %v", n, err)
+	}
+	c.ws.mu.Lock()
+	c.ws.forgetRenames(c.w1)
+	_, left := c.ws.labelRenames[c.w1]
+	c.ws.mu.Unlock()
+	if left {
+		t.Error("a closed pane's renames were remembered")
 	}
 }
 

@@ -702,3 +702,24 @@ func TestARenameEventSurvivesTheLogAndIsCut(t *testing.T) {
 		t.Errorf("the new label has %d characters after a load, the limit is %d", n, MaxPaneLabel)
 	}
 }
+
+func TestRenameEventsHaveTheirOwnCapAndKeepTheOtherEvents(t *testing.T) {
+	var l EventLog
+	l.Append(Event{Kind: EventMessage, ID: 1, Time: time.Now(), From: "a", To: "b"})
+	for i := 0; i < MaxRenameEvents+50; i++ {
+		l.Append(Event{Kind: EventRename, Time: time.Now(), From: "m", To: "w", Old: "o", New: fmt.Sprint("n", i)})
+	}
+	evs := l.Events()
+	renames := 0
+	for _, e := range evs {
+		if e.Kind == EventRename {
+			renames++
+		}
+	}
+	if renames != MaxRenameEvents || len(evs) != MaxRenameEvents+1 || evs[0].Kind != EventMessage {
+		t.Fatalf("%d renames of %d events: the cap should drop the oldest renames only", renames, len(evs))
+	}
+	if last := evs[len(evs)-1]; last.New != fmt.Sprint("n", MaxRenameEvents+49) {
+		t.Errorf("the newest rename was dropped: %+v", last)
+	}
+}

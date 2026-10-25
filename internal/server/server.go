@@ -74,6 +74,8 @@ const askedInterval = 5 * time.Millisecond
 
 // Server serves the front end and the live connections behind it.
 type Server struct {
+	// renameToasts is when the person was last told of a rename of each pane (team.go). Used on the workspace goroutine.
+	renameToasts map[string]time.Time
 	// static is the front end the program gave in Config, and staticRemote the
 	// one for windows reached through the relay, when it gave another.
 	static       fs.FS

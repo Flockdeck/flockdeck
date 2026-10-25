@@ -28,6 +28,9 @@ const (
 	// MaxEventBytes is the most the log holds in bytes; the oldest lines are
 	// dropped first when it is over.
 	MaxEventBytes = 256 * 1024
+	// MaxRenameEvents is the most rename events the log keeps, the newest. A burst of
+	// renames cannot push the wake and delivery events out of the shared caps.
+	MaxRenameEvents = 200
 )
 
 // Event is one line of the team event log. A message is named by its id and the
@@ -135,7 +138,35 @@ func (l *EventLog) Append(e Event) {
 	defer l.mu.Unlock()
 	l.lines = append(l.lines, line)
 	l.size += len(line) + 1
+	if e.Kind == EventRename {
+		l.capRenames()
+	}
 	l.trim()
+}
+
+var renameMark = []byte(`"kind":"` + EventRename + `"`)
+
+// capRenames drops the oldest rename events beyond MaxRenameEvents. l.mu is held.
+func (l *EventLog) capRenames() {
+	n := 0
+	for _, line := range l.lines {
+		if bytes.Contains(line, renameMark) {
+			n++
+		}
+	}
+	if n <= MaxRenameEvents {
+		return
+	}
+	kept := make([][]byte, 0, len(l.lines))
+	for _, line := range l.lines {
+		if n > MaxRenameEvents && bytes.Contains(line, renameMark) {
+			n--
+			l.size -= len(line) + 1
+			continue
+		}
+		kept = append(kept, line)
+	}
+	l.lines = kept
 }
 
 // trim drops lines from the front while the log is over a cap. l.mu is held.
@@ -203,5 +234,6 @@ func (l *EventLog) Load(data []byte) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.lines, l.size = lines, size
+	l.capRenames()
 	l.trim()
 }

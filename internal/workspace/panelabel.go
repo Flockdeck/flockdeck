@@ -78,9 +78,9 @@ func (w *Workspace) labelRoles() []string {
 
 // A pane's label may be changed this often by others in a window of time.
 const (
-	maxRenames    = 6
-	renameWindow  = time.Minute
-	renameEventTo = 64
+	maxRenames      = 6
+	maxActorRenames = 12
+	renameWindow    = time.Minute
 )
 
 // SetPaneLabel names pane id for its work. actor is the pane asking, or empty for
@@ -121,30 +121,37 @@ func (w *Workspace) SetPaneLabel(actor, id, text string) (string, error) {
 	w.mu.Lock()
 	old := p.Label
 	changed := p.Label != label || p.LabelAuto
+	burst := 0
 	if changed && actor != "" {
-		// An agent may rename a pane only so often, so a loop cannot flood the window with changes.
+		// An agent may rename a pane only so often, and rename only so many panes, so a loop cannot flood the window with changes.
 		now := time.Now()
-		recent := w.labelRenames[id][:0:0]
-		for _, at := range w.labelRenames[id] {
-			if now.Sub(at) < renameWindow {
-				recent = append(recent, at)
-			}
-		}
+		recent := recentTimes(w.labelRenames[id], now)
+		mine := recentTimes(w.actorRenames[actor], now)
 		if len(recent) >= maxRenames {
 			w.labelRenames[id] = recent
 			w.mu.Unlock()
 			return "", fmt.Errorf("pane %s was renamed %d times in the last minute; wait before naming it again", id, maxRenames)
 		}
+		if len(mine) >= maxActorRenames {
+			w.actorRenames[actor] = mine
+			w.mu.Unlock()
+			return "", fmt.Errorf("you have renamed panes %d times in the last minute; wait before naming another", maxActorRenames)
+		}
 		if w.labelRenames == nil {
 			w.labelRenames = map[string][]time.Time{}
 		}
+		if w.actorRenames == nil {
+			w.actorRenames = map[string][]time.Time{}
+		}
 		w.labelRenames[id] = append(recent, now)
+		w.actorRenames[actor] = append(mine, now)
+		burst = len(recent) + 1
 	}
 	p.Label, p.LabelAuto = label, false
 	w.mu.Unlock()
 	if changed {
 		if actor != "" && actor != id {
-			w.recordRename(actor, id, old, label)
+			w.recordRename(actor, id, old, label, burst)
 		}
 		w.wake()
 	}
@@ -185,16 +192,40 @@ func (w *Workspace) projectRoles(id string) []string {
 	return roles
 }
 
-// recordRename logs a rename by another pane in the team event log (who, which
-// pane, the old label and the new) and tells the pane that was named, in its inbox
-// and from Flockdeck, so it is not left calling itself something it is no longer
-// called.
-func (w *Workspace) recordRename(actor, id, old, label string) {
-	w.recordEvent(team.Event{Kind: team.EventRename, Time: time.Now(), From: actor, To: id, Old: old, New: label})
+// recentTimes is the times in at that fall in the rename window ending at now.
+func recentTimes(at []time.Time, now time.Time) []time.Time {
+	recent := at[:0:0]
+	for _, t := range at {
+		if now.Sub(t) < renameWindow {
+			recent = append(recent, t)
+		}
+	}
+	return recent
+}
+
+// forgetRenames drops what the rename limits remember of a pane that is closed.
+// It runs with w.mu held.
+func (w *Workspace) forgetRenames(id string) {
+	delete(w.labelRenames, id)
+	delete(w.actorRenames, id)
+}
+
+// recordRename tells of a rename by another pane. burst is how many renames of
+// this pane there have been in the last minute, this one included. Only the first
+// of a burst is logged in the team event log (who, which pane, the old label and
+// the new) and told to the pane in its inbox; the one that reaches the limit says
+// how many there were, and those between say nothing.
+func (w *Workspace) recordRename(actor, id, old, label string, burst int) {
+	if burst > 1 && burst < maxRenames {
+		return
+	}
+	if burst == 1 {
+		w.recordEvent(team.Event{Kind: team.EventRename, Time: time.Now(), From: actor, To: id, Old: old, New: label})
+	}
 	if w.team.inbox == nil {
 		return
 	}
-	who := "another pane"
+	who := "pane " + actor
 	if members, err := w.Roster(id); err == nil {
 		for _, m := range members {
 			if m.Pane == actor {
@@ -203,9 +234,12 @@ func (w *Workspace) recordRename(actor, id, old, label string) {
 			}
 		}
 	}
-	text := fmt.Sprintf("%s named this pane %q.", who, label)
+	text := fmt.Sprintf("Pane name changed. Set by %s, as the command reported its pane id. Was %q, now %q.", who, old, label)
 	if label == "" {
-		text = fmt.Sprintf("%s cleared this pane's name.", who)
+		text = fmt.Sprintf("Pane name cleared. Set by %s, as the command reported its pane id. Was %q.", who, old)
+	}
+	if burst > 1 {
+		text = fmt.Sprintf("This pane's name was changed %d times in the last minute by %s, as the command reported its pane id. The latest is %q.", burst, who, label)
 	}
 	w.team.inbox.SendSystem(id, text)
 }

@@ -151,7 +151,7 @@ topic. An agent renames itself when its work changes. Without `-pane` the name i
 for the pane running the command; a manager may name any pane of its project with `-pane`,
 and no other pane may name another. That rule is a courtesy check on the pane id the command
 reports, not a security boundary: every pane holds the same token, as for messaging. A label of `""` clears it. A label is kept with the pane
-across a restart. When another pane names a pane, the named pane is told in its inbox, the windows at the desk show a notice, and the team event log records who did it; agents can rename a pane at most 6 times a minute. You can also rename a pane in the window.
+across a restart. When another pane names a pane, the named pane is told in its inbox, the windows at the desk show a notice, and the team event log records the pane id the command reported. Only the first rename of a pane in a minute is announced. Agents can rename a pane at most 6 times a minute, and rename others at most 12 times a minute in all. You can also rename a pane in the window.
 
 ## close
 
@@ -371,7 +371,7 @@ well. The same happens if the Enter cannot be written. The message is then not m
 woken, and nothing more is typed into that pane until you have typed in it.
 
 Every typed line is recorded in the team event log, `team-events.jsonl` in the state
-directory, which keeps the last 2,000 events or 256 KiB. A wake event holds the time, the
+directory, which keeps the last 2,000 events or 256 KiB. A `rename` event (a pane named another: `from` is the pane id the command reported, `to`, `old` and `new`, no id) is kept for the newest 200 only, and a build from before labels skips that line. A wake event holds the time, the
 message id, the pane, the agent, the rule's version and where it came from, the prompt line
 the rule matched (cut to 160 characters) and the line that was typed. A line that was typed
 without its Enter says so. An event holds no message text, except in text mode, where the

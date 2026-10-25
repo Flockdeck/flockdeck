@@ -532,6 +532,8 @@ type Workspace struct {
 	team teamState
 	// labelRenames are the times each pane was renamed by an agent, for the limit on how often (panelabel.go). Guarded by mu.
 	labelRenames map[string][]time.Time
+	// actorRenames are the times each pane renamed others, the limit across targets. Guarded by mu.
+	actorRenames map[string][]time.Time
 	// tasks is the task boards of the open projects; see tasks.go.
 	tasks taskState
 
@@ -2596,6 +2598,9 @@ func (w *Workspace) destroyPane(id string) {
 	forgetWorktreeProcess(id)
 	// The generated settings file is only meaningful while the pane lives.
 	_ = os.Remove(filepath.Join(w.settingsDir, id+".settings.json"))
+	w.mu.Lock()
+	w.forgetRenames(id)
+	w.mu.Unlock()
 	w.forgetTeam(id)
 	w.notePaneClosed(id)
 }
