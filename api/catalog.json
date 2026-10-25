@@ -1,7 +1,7 @@
 {
   "api": {
     "major": 1,
-    "minor": 2
+    "minor": 3
   },
   "frames": [
     {
@@ -131,6 +131,12 @@
       "status": "stable"
     },
     {
+      "name": "approveMerge",
+      "access": "full",
+      "since": "1.3",
+      "status": "planned"
+    },
+    {
       "name": "archiveProject",
       "access": "full",
       "since": "1.0",
@@ -167,6 +173,24 @@
       "status": "stable"
     },
     {
+      "name": "changesSnapshot",
+      "access": "full",
+      "since": "1.3",
+      "status": "planned"
+    },
+    {
+      "name": "changesUnwatch",
+      "access": "full",
+      "since": "1.3",
+      "status": "planned"
+    },
+    {
+      "name": "changesWatch",
+      "access": "full",
+      "since": "1.3",
+      "status": "planned"
+    },
+    {
       "name": "checkForUpdate",
       "access": "full",
       "since": "1.0",
@@ -201,6 +225,24 @@
       "access": "full",
       "since": "1.0",
       "status": "stable"
+    },
+    {
+      "name": "commentAdd",
+      "access": "full",
+      "since": "1.3",
+      "status": "planned"
+    },
+    {
+      "name": "commentReopen",
+      "access": "full",
+      "since": "1.3",
+      "status": "planned"
+    },
+    {
+      "name": "commentResolve",
+      "access": "full",
+      "since": "1.3",
+      "status": "planned"
     },
     {
       "name": "commit",
@@ -280,6 +322,18 @@
       "status": "stable"
     },
     {
+      "name": "diffContext",
+      "access": "full",
+      "since": "1.3",
+      "status": "planned"
+    },
+    {
+      "name": "diffHunks",
+      "access": "full",
+      "since": "1.3",
+      "status": "planned"
+    },
+    {
       "name": "dismissTip",
       "access": "full",
       "since": "1.0",
@@ -290,6 +344,12 @@
       "access": "full",
       "since": "1.0",
       "status": "stable"
+    },
+    {
+      "name": "filesPage",
+      "access": "full",
+      "since": "1.3",
+      "status": "planned"
     },
     {
       "name": "findPane",
@@ -555,6 +615,12 @@
       "access": "full",
       "since": "1.0",
       "status": "stable"
+    },
+    {
+      "name": "mergeBranch",
+      "access": "full",
+      "since": "1.3",
+      "status": "planned"
     },
     {
       "name": "mergeTab",
@@ -839,6 +905,12 @@
       "status": "stable"
     },
     {
+      "name": "requestReview",
+      "access": "full",
+      "since": "1.3",
+      "status": "planned"
+    },
+    {
       "name": "resetKeybinding",
       "access": "full",
       "since": "1.0",
@@ -903,6 +975,12 @@
       "access": "full",
       "since": "1.0",
       "status": "stable"
+    },
+    {
+      "name": "runChecks",
+      "access": "full",
+      "since": "1.3",
+      "status": "planned"
     },
     {
       "name": "save",
@@ -1049,6 +1127,12 @@
       "status": "stable"
     },
     {
+      "name": "submitReview",
+      "access": "full",
+      "since": "1.3",
+      "status": "planned"
+    },
+    {
       "name": "swapPanes",
       "access": "full",
       "since": "1.0",
@@ -1181,6 +1265,12 @@
       "status": "stable"
     },
     {
+      "name": "unapproveMerge",
+      "access": "full",
+      "since": "1.3",
+      "status": "planned"
+    },
+    {
       "name": "updates",
       "access": "full",
       "since": "1.0",
@@ -1295,6 +1385,26 @@
       "status": "stable"
     },
     {
+      "name": "changesFiles",
+      "relay": "deskOnly",
+      "why": "the changes view is refused to a relay window (docs/changes-api.md, section 9)",
+      "since": "1.3",
+      "status": "planned"
+    },
+    {
+      "name": "changesResult",
+      "relay": "scrub",
+      "since": "1.3",
+      "status": "planned"
+    },
+    {
+      "name": "changesTeam",
+      "relay": "deskOnly",
+      "why": "the changes view is refused to a relay window (docs/changes-api.md, section 9)",
+      "since": "1.3",
+      "status": "planned"
+    },
+    {
       "name": "conversationAppend",
       "relay": "scrub",
       "viewers": "watcher",
@@ -1341,6 +1451,20 @@
       "why": "a diff",
       "since": "1.0",
       "status": "stable"
+    },
+    {
+      "name": "diffContext",
+      "relay": "deskOnly",
+      "why": "the changes view is refused to a relay window (docs/changes-api.md, section 9)",
+      "since": "1.3",
+      "status": "planned"
+    },
+    {
+      "name": "diffHunks",
+      "relay": "deskOnly",
+      "why": "the changes view is refused to a relay window (docs/changes-api.md, section 9)",
+      "since": "1.3",
+      "status": "planned"
     },
     {
       "name": "ghChecks",

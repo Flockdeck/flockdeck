@@ -572,6 +572,24 @@ type command struct {
 	Base      string `json:"base"`
 	Force     bool   `json:"force"`
 	Push      bool   `json:"push"`
+	// File, Against, Context, IgnoreWhitespace, Side, Line, CommentID, Names,
+	// Reviewer, Note, ExpectSha, Offset, Limit, From and To are the fields of the
+	// changes contract (docs/changes-api.md, section 2).
+	File             string   `json:"file"`
+	Against          string   `json:"against"`
+	Context          int      `json:"context"`
+	IgnoreWhitespace bool     `json:"ignoreWhitespace"`
+	Side             string   `json:"side"`
+	Line             int      `json:"line"`
+	CommentID        string   `json:"commentId"`
+	Names            []string `json:"names"`
+	Reviewer         string   `json:"reviewer"`
+	Note             string   `json:"note"`
+	ExpectSha        string   `json:"expectSha"`
+	Offset           int      `json:"offset"`
+	Limit            int      `json:"limit"`
+	From             int      `json:"from"`
+	To               int      `json:"to"`
 	// AllowShell is paneSend's own: the caller means the text for a shell.
 	AllowShell bool `json:"allowShell"`
 	// Target names what a drag was dropped on: a pane for movePane and
@@ -1623,6 +1641,11 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		return
 	case "graphSnapshot", "graphWatch", "graphUnwatch":
 		s.graphCommand(c, cmd)
+		return
+	case "changesWatch", "changesUnwatch", "changesSnapshot", "filesPage", "diffHunks", "diffContext",
+		"commentAdd", "commentResolve", "commentReopen", "runChecks", "requestReview", "submitReview",
+		"approveMerge", "unapproveMerge", "mergeBranch":
+		s.changesPlanned(c, cmd)
 		return
 	case "structuredSnapshot", "structuredWatch", "structuredUnwatch", "structuredCancel":
 		s.structuredCommand(c, cmd)

@@ -1,0 +1,131 @@
+{
+  "type": "diffHunks",
+  "req": "d1",
+  "pane": "5dc771c1",
+  "path": "internal/limit/limit.go",
+  "against": "merge-base",
+  "hunks": [
+    {
+      "oldStart": 52,
+      "oldLines": 7,
+      "newStart": 52,
+      "newLines": 8,
+      "header": "func (b *Bucket) Take(n int) bool {",
+      "lines": [
+        {
+          "t": "ctx",
+          "text": "\tnow := b.clock()",
+          "oldNo": 52,
+          "newNo": 52
+        },
+        {
+          "t": "ctx",
+          "text": "\tb.mu.Lock()",
+          "oldNo": 53,
+          "newNo": 53
+        },
+        {
+          "t": "ctx",
+          "text": "\tdefer b.mu.Unlock()",
+          "oldNo": 54,
+          "newNo": 54
+        },
+        {
+          "t": "del",
+          "text": "\tif now.Sub(b.last) > b.window {",
+          "oldNo": 55,
+          "intra": [
+            [
+              19,
+              20
+            ]
+          ]
+        },
+        {
+          "t": "add",
+          "text": "\tif now.Sub(b.last) >= b.window {",
+          "newNo": 55,
+          "intra": [
+            [
+              19,
+              21
+            ]
+          ]
+        },
+        {
+          "t": "add",
+          "text": "\t\tb.tokens = b.size",
+          "newNo": 56
+        },
+        {
+          "t": "ctx",
+          "text": "\t\tb.last = now",
+          "oldNo": 56,
+          "newNo": 57
+        },
+        {
+          "t": "ctx",
+          "text": "\t}",
+          "oldNo": 57,
+          "newNo": 58
+        },
+        {
+          "t": "ctx",
+          "text": "\tif b.tokens < n {",
+          "oldNo": 58,
+          "newNo": 59
+        }
+      ]
+    },
+    {
+      "oldStart": 90,
+      "oldLines": 4,
+      "newStart": 91,
+      "newLines": 4,
+      "header": "",
+      "lines": [
+        {
+          "t": "ctx",
+          "text": "// Reset empties the bucket.",
+          "oldNo": 90,
+          "newNo": 91
+        },
+        {
+          "t": "del",
+          "text": "func (b *Bucket) Reset() { b.tokens = 0 }",
+          "oldNo": 91,
+          "intra": [
+            [
+              24,
+              40
+            ]
+          ]
+        },
+        {
+          "t": "add",
+          "text": "func (b *Bucket) Reset() { b.tokens = b.size }",
+          "newNo": 92,
+          "intra": [
+            [
+              24,
+              45
+            ]
+          ]
+        },
+        {
+          "t": "ctx",
+          "text": "",
+          "oldNo": 92,
+          "newNo": 93
+        },
+        {
+          "t": "ctx",
+          "text": "// Size is the bucket's capacity.",
+          "oldNo": 93,
+          "newNo": 94
+        }
+      ]
+    }
+  ],
+  "totalLines": 14
+}

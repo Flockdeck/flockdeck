@@ -1,0 +1,1123 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/Flockdeck/flockdeck/blob/main/api/schema/changes.schema.json",
+  "title": "Flockdeck team-wide changes",
+  "description": "PLANNED CONTRACT, not served yet: every command and message here has status planned in api/catalog.json until the server builds it, and a client looks for the changes* names in the hello's api.caps before using any of them. The messages the Changes view reads: the changesTeam push (a watch of every agent checkout of a project, with files, checks, reviews, comments and the merge gate), a page of files (changesFiles), a file's diff as hunks (diffHunks), unchanged lines between hunks (diffContext) and the answer to a command that changes something (changesResult). The document root is changesTeam; the other shapes are in $defs. Desk only: a window through the relay is sent none of it. An object with a field not named here is not one Flockdeck writes. Optional fields are absent, never null. docs/changes-api.md explains each.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "type",
+    "root",
+    "project",
+    "rev",
+    "branches"
+  ],
+  "properties": {
+    "type": {
+      "const": "changesTeam"
+    },
+    "req": {
+      "type": "string",
+      "description": "The req of the command, when it had one.",
+      "minLength": 1
+    },
+    "root": {
+      "type": "string",
+      "description": "The project's directory, as the workspace spells it. Always written.",
+      "minLength": 1
+    },
+    "project": {
+      "type": "string",
+      "description": "The project's name. May be empty."
+    },
+    "rev": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "A number that goes up with each push of this watch. A client skips a push whose rev it has seen."
+    },
+    "branches": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/branch"
+      },
+      "description": "One entry for each checkout of the project's agent panes that is in a git repository, at most 60, in the order of the team graph. Empty, never absent."
+    },
+    "partial": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "read",
+        "total"
+      ],
+      "description": "Present when some checkouts could not be read in time.",
+      "properties": {
+        "read": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Checkouts read."
+        },
+        "total": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Checkouts asked for."
+        }
+      }
+    }
+  },
+  "$defs": {
+    "lastCommit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "sha",
+        "subject",
+        "at"
+      ],
+      "description": "The newest commit on the branch (stored: git).",
+      "properties": {
+        "sha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{7,40}$",
+          "description": "Its id, at least 7 characters."
+        },
+        "subject": {
+          "type": "string",
+          "description": "The first line of its message, cut to 200 characters."
+        },
+        "at": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$",
+          "description": "When it was committed, RFC 3339."
+        }
+      }
+    },
+    "pr": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "number",
+        "url",
+        "state",
+        "title",
+        "mergeable"
+      ],
+      "description": "The pull request of the branch (stored: the GitHub integration, when it is on). Absent when there is none or the integration is off.",
+      "properties": {
+        "number": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The pull request number."
+        },
+        "url": {
+          "type": "string",
+          "description": "Its address.",
+          "minLength": 1
+        },
+        "state": {
+          "enum": [
+            "draft",
+            "open",
+            "merged",
+            "closed"
+          ],
+          "description": "Its state."
+        },
+        "title": {
+          "type": "string",
+          "description": "Its title, cut to 200 characters."
+        },
+        "mergeable": {
+          "enum": [
+            "true",
+            "false",
+            "unknown"
+          ],
+          "description": "Whether GitHub says it merges cleanly. The strings are written as shown; unknown while GitHub works it out."
+        },
+        "reviewDecision": {
+          "enum": [
+            "approved",
+            "changes_requested",
+            "review_required",
+            ""
+          ],
+          "description": "GitHub's review decision, empty when it has none. This is GitHub's, not the `reviews` of this contract."
+        }
+      }
+    },
+    "conflictWith": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pane",
+        "path"
+      ],
+      "description": "Another branch that also changes the path (derived).",
+      "properties": {
+        "pane": {
+          "type": "string",
+          "description": "The pane id of the other branch.",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string",
+          "description": "The path in the other branch. Differs from the file's own path when one side renamed it.",
+          "minLength": 1
+        }
+      }
+    },
+    "file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "path",
+        "status",
+        "added",
+        "removed"
+      ],
+      "description": "One changed file of a branch.",
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "The path in the working tree, with forward slashes, relative to the repository root. Always written.",
+          "minLength": 1
+        },
+        "oldPath": {
+          "type": "string",
+          "description": "The path before a rename or copy. Written for status R and C only.",
+          "minLength": 1
+        },
+        "status": {
+          "enum": [
+            "A",
+            "M",
+            "D",
+            "R",
+            "C",
+            "U"
+          ],
+          "description": "Added, modified, deleted, renamed, copied or unmerged. Always written."
+        },
+        "added": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Lines added; 0 for a binary file. Always written."
+        },
+        "removed": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Lines removed; 0 for a binary file. Always written."
+        },
+        "binary": {
+          "const": true,
+          "description": "Present, and true, for a binary file. Absent for text."
+        },
+        "sizeBefore": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Bytes before the change. Written for a binary file that existed before; absent otherwise."
+        },
+        "sizeAfter": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Bytes after the change. Written for a binary file that exists after; absent otherwise."
+        },
+        "similarity": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Percent of the content kept across a rename or copy. Written for status R and C only."
+        },
+        "generated": {
+          "const": true,
+          "description": "Present, and true, for a file the path rules mark as generated (lockfiles, go.sum, vendored directories, minified bundles). A client may fold it. Absent otherwise."
+        },
+        "modeChange": {
+          "type": "string",
+          "description": "A change of file mode as 'old new' in octal, such as '100644 100755'. Absent when the mode is the same.",
+          "pattern": "^[0-7]{6} [0-7]{6}$"
+        },
+        "staged": {
+          "const": true,
+          "description": "Present, and true, when the change is in the index. Absent otherwise."
+        },
+        "owner": {
+          "type": "string",
+          "description": "The pane id that last changed the file on this branch (derived from the branch's panes; the branch's own pane when it is the only one). Absent when unknown.",
+          "minLength": 1
+        },
+        "conflictWith": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/conflictWith"
+          },
+          "description": "Other branches that change the same path. Absent when there are none.",
+          "minItems": 1
+        }
+      }
+    },
+    "check": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "name",
+        "state",
+        "source",
+        "atSha"
+      ],
+      "description": "One check of a branch at its head.",
+      "properties": {
+        "name": {
+          "type": "string",
+          "description": "The check's name.",
+          "minLength": 1
+        },
+        "state": {
+          "enum": [
+            "queued",
+            "running",
+            "pass",
+            "fail",
+            "skipped"
+          ],
+          "description": "Its state."
+        },
+        "startedAt": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$",
+          "description": "When it started. Absent while queued."
+        },
+        "finishedAt": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$",
+          "description": "When it ended. Absent until pass, fail or skipped."
+        },
+        "summary": {
+          "type": "string",
+          "description": "One line, cut to 200 characters. May be empty."
+        },
+        "source": {
+          "enum": [
+            "local",
+            "ci",
+            "agent"
+          ],
+          "description": "local: a command of the project's gate.checks that Flockdeck ran. ci: a CI system's result. agent: a result an agent reported."
+        },
+        "url": {
+          "type": "string",
+          "description": "Where to read the full result. Absent when there is none.",
+          "minLength": 1
+        },
+        "atSha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{7,40}$",
+          "description": "The head the check ran against. A check whose atSha is not the branch's headSha is out of date; the server then reports it as queued again or leaves it out, never as pass."
+        }
+      }
+    },
+    "review": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "reviewer",
+        "state",
+        "at",
+        "atSha"
+      ],
+      "description": "A reviewer's sign-off on a branch.",
+      "properties": {
+        "reviewer": {
+          "type": "string",
+          "description": "The reviewing pane's id.",
+          "minLength": 1
+        },
+        "state": {
+          "enum": [
+            "requested",
+            "approved",
+            "changes",
+            "dismissed"
+          ],
+          "description": "requested: asked, no answer. approved. changes: changes requested. dismissed: withdrawn."
+        },
+        "note": {
+          "type": "string",
+          "description": "The reviewer's note, cut to 2000 characters. May be empty."
+        },
+        "at": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$",
+          "description": "When the state was set."
+        },
+        "atSha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{7,40}$",
+          "description": "The head the reviewer looked at."
+        },
+        "stale": {
+          "const": true,
+          "description": "Present, and true, when atSha is not the branch's headSha: a commit came after the review. A stale approval does not count. Written by the server so every client agrees."
+        }
+      }
+    },
+    "comment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "pane",
+        "path",
+        "side",
+        "line",
+        "atSha",
+        "text",
+        "author",
+        "to",
+        "state",
+        "createdAt"
+      ],
+      "description": "A review comment on one line of one file, sent to the file's owner.",
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "The comment's id, assigned by the server.",
+          "minLength": 1
+        },
+        "pane": {
+          "type": "string",
+          "description": "The branch's pane id.",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string",
+          "description": "The file the comment is on.",
+          "minLength": 1
+        },
+        "side": {
+          "enum": [
+            "old",
+            "new"
+          ],
+          "description": "old: the line number is in the file before the change. new: after."
+        },
+        "line": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The line number on that side, from 1. 0 is a comment on the whole file."
+        },
+        "atSha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{7,40}$",
+          "description": "The head the line numbers are for. A client may mark a comment whose atSha is not the headSha as outdated; the server does not move it."
+        },
+        "text": {
+          "type": "string",
+          "description": "The comment, 1 to 4096 characters.",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "author": {
+          "type": "string",
+          "description": "you for the person at the window, else the pane id of the agent that wrote it.",
+          "minLength": 1
+        },
+        "to": {
+          "type": "string",
+          "description": "The pane id the comment is routed to: the file's owner, else the branch's pane. Always written.",
+          "minLength": 1
+        },
+        "delivery": {
+          "enum": [
+            "queued",
+            "notified",
+            "woken",
+            "read"
+          ],
+          "description": "The newest delivery state of the message that carried the comment to `to`, with the meaning and order of the graph's message edges. Absent while it is being sent, which a client shows as sending."
+        },
+        "state": {
+          "enum": [
+            "open",
+            "fixed",
+            "resolved",
+            "dismissed"
+          ],
+          "description": "open blocks the merge. fixed: the owner says it has dealt with it. resolved: closed by commentResolve. dismissed: closed as not needed. A reopened comment is open again."
+        },
+        "createdAt": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$",
+          "description": "When it was added."
+        },
+        "fixedAtSha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{7,40}$",
+          "description": "The head at which the owner said it was fixed. Written for state fixed only."
+        }
+      }
+    },
+    "blocker": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "text"
+      ],
+      "description": "One reason a branch cannot be merged yet.",
+      "properties": {
+        "kind": {
+          "enum": [
+            "checks",
+            "conflict",
+            "review",
+            "comments",
+            "unpushed",
+            "empty"
+          ],
+          "description": "checks: one is not passing, or not run at this head. conflict: a path is changed by another branch, or does not merge with the base. review: a current review asks for changes. comments: a comment is open. unpushed: the head is not on the upstream. empty: the branch has no commits of its own."
+        },
+        "text": {
+          "type": "string",
+          "description": "One line naming what blocks, such as 'api also changes cfg/limits.yaml'.",
+          "minLength": 1
+        }
+      }
+    },
+    "gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "state",
+        "blockers"
+      ],
+      "description": "Where a branch stands against the merge gate (derived).",
+      "properties": {
+        "state": {
+          "enum": [
+            "blocked",
+            "ready",
+            "approved",
+            "merged"
+          ],
+          "description": "blocked: blockers is not empty. ready: nothing blocks, no approval yet. approved: the person approved headSha. merged: the branch is in the base."
+        },
+        "blockers": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/blocker"
+          },
+          "description": "Empty unless the state is blocked. Always written."
+        },
+        "approvedBy": {
+          "type": "string",
+          "description": "Who approved: you. Written for approved and merged.",
+          "minLength": 1
+        },
+        "approvedAt": {
+          "type": "string",
+          "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?(Z|[+-][0-9]{2}:[0-9]{2})$",
+          "description": "When. Written for approved and merged."
+        },
+        "approvedSha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{7,40}$",
+          "description": "The head that was approved. An approval for a head that is no longer current is dropped and the state goes back to ready or blocked. Written for approved and merged."
+        },
+        "mergeSha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{7,40}$",
+          "description": "The commit the base is at after the merge. Written for merged only."
+        }
+      }
+    },
+    "branch": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "pane",
+        "cwd"
+      ],
+      "description": "One branch of the team, which is one pane's checkout.",
+      "properties": {
+        "pane": {
+          "type": "string",
+          "description": "The pane the checkout belongs to. Always written, and unique in a push.",
+          "minLength": 1
+        },
+        "cwd": {
+          "type": "string",
+          "description": "The checkout's directory. Always written.",
+          "minLength": 1
+        },
+        "branch": {
+          "type": "string",
+          "description": "The branch name. Absent for a detached head.",
+          "minLength": 1
+        },
+        "detached": {
+          "const": true,
+          "description": "Present, and true, when HEAD is on no branch."
+        },
+        "base": {
+          "type": "string",
+          "description": "The branch merges go into, usually main.",
+          "minLength": 1
+        },
+        "baseSha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{7,40}$",
+          "description": "The merge base of the branch and `base`."
+        },
+        "headSha": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{7,40}$",
+          "description": "The commit HEAD is on."
+        },
+        "upstream": {
+          "type": "string",
+          "description": "The upstream branch. Absent when there is none.",
+          "minLength": 1
+        },
+        "ahead": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Commits ahead of the upstream; of `base` when there is no upstream."
+        },
+        "behind": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Commits behind the same."
+        },
+        "uncommitted": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Files with uncommitted changes."
+        },
+        "untracked": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Untracked files."
+        },
+        "lastCommit": {
+          "$ref": "#/$defs/lastCommit"
+        },
+        "taskId": {
+          "type": "string",
+          "pattern": "^T[0-9]+$",
+          "description": "The task the pane works on, from the board. Absent for none."
+        },
+        "pr": {
+          "$ref": "#/$defs/pr"
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/file"
+          },
+          "description": "The changed files, most changed first (lines added plus removed, then path), at most 2000. Committed changes since baseSha and uncommitted changes together; a file in both appears once."
+        },
+        "omitted": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Files left out of `files` because of the limit. Absent at 0."
+        },
+        "checks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/check"
+          },
+          "description": "The branch's checks at headSha. Empty when the project defines none."
+        },
+        "reviews": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/review"
+          },
+          "description": "Newest first."
+        },
+        "comments": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/comment"
+          },
+          "description": "All comments of the branch, newest first, at most 500."
+        },
+        "gate": {
+          "$ref": "#/$defs/gate"
+        },
+        "error": {
+          "type": "string",
+          "description": "Why this checkout could not be read, such as the directory being gone. When set, only pane, cwd and error are written.",
+          "minLength": 1
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "not": {
+              "required": [
+                "error"
+              ]
+            }
+          },
+          "then": {
+            "required": [
+              "headSha",
+              "base",
+              "baseSha",
+              "ahead",
+              "behind",
+              "uncommitted",
+              "untracked",
+              "files",
+              "checks",
+              "reviews",
+              "comments",
+              "gate"
+            ]
+          }
+        }
+      ]
+    },
+    "changesTeam": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "root",
+        "project",
+        "rev",
+        "branches"
+      ],
+      "description": "The push a window gets after changesWatch, and in answer to changesSnapshot, for one project.",
+      "properties": {
+        "type": {
+          "const": "changesTeam"
+        },
+        "req": {
+          "type": "string",
+          "description": "The req of the command, when it had one.",
+          "minLength": 1
+        },
+        "root": {
+          "type": "string",
+          "description": "The project's directory, as the workspace spells it. Always written.",
+          "minLength": 1
+        },
+        "project": {
+          "type": "string",
+          "description": "The project's name. May be empty."
+        },
+        "rev": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "A number that goes up with each push of this watch. A client skips a push whose rev it has seen."
+        },
+        "branches": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/branch"
+          },
+          "description": "One entry for each checkout of the project's agent panes that is in a git repository, at most 60, in the order of the team graph. Empty, never absent."
+        },
+        "partial": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "read",
+            "total"
+          ],
+          "description": "Present when some checkouts could not be read in time.",
+          "properties": {
+            "read": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Checkouts read."
+            },
+            "total": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Checkouts asked for."
+            }
+          }
+        }
+      }
+    },
+    "changesFiles": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "pane",
+        "offset",
+        "total",
+        "files"
+      ],
+      "description": "A page of one branch's files, in answer to filesPage.",
+      "properties": {
+        "type": {
+          "const": "changesFiles"
+        },
+        "req": {
+          "type": "string",
+          "description": "The req of the command.",
+          "minLength": 1
+        },
+        "pane": {
+          "type": "string",
+          "description": "The branch's pane.",
+          "minLength": 1
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Where the page starts."
+        },
+        "total": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Files the branch has."
+        },
+        "files": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/file"
+          },
+          "description": "The page, in the order of the branch's `files`."
+        }
+      }
+    },
+    "line": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "t",
+        "text"
+      ],
+      "description": "One line of a hunk.",
+      "properties": {
+        "t": {
+          "enum": [
+            "ctx",
+            "add",
+            "del"
+          ],
+          "description": "A context line, an added line or a deleted line."
+        },
+        "text": {
+          "type": "string",
+          "description": "The line without its end of line."
+        },
+        "oldNo": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The line number before the change, from 1. Written for ctx and del."
+        },
+        "newNo": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "The line number after the change, from 1. Written for ctx and add."
+        },
+        "intra": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "minItems": 2
+          },
+          "description": "Word-level changes inside a changed line as [start, end) pairs in Unicode code points of `text`. Written for add and del lines that pair with a line on the other side; absent otherwise.",
+          "minItems": 1
+        }
+      }
+    },
+    "hunk": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "oldStart",
+        "oldLines",
+        "newStart",
+        "newLines",
+        "header",
+        "lines"
+      ],
+      "description": "One hunk.",
+      "properties": {
+        "oldStart": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "First line on the old side, from 1; 0 when the old side is empty."
+        },
+        "oldLines": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Lines on the old side."
+        },
+        "newStart": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "First line on the new side; 0 when empty."
+        },
+        "newLines": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Lines on the new side."
+        },
+        "header": {
+          "type": "string",
+          "description": "The text git puts after the @@ range, such as a function name. May be empty."
+        },
+        "lines": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/line"
+          },
+          "description": "The hunk's lines in order."
+        }
+      }
+    },
+    "diffHunks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "pane",
+        "path"
+      ],
+      "description": "A file's diff as hunks, in answer to diffHunks.",
+      "properties": {
+        "type": {
+          "const": "diffHunks"
+        },
+        "req": {
+          "type": "string",
+          "description": "The req of the command.",
+          "minLength": 1
+        },
+        "pane": {
+          "type": "string",
+          "description": "The branch's pane.",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string",
+          "description": "The file.",
+          "minLength": 1
+        },
+        "oldPath": {
+          "type": "string",
+          "description": "The path before a rename. Absent otherwise.",
+          "minLength": 1
+        },
+        "against": {
+          "enum": [
+            "worktree",
+            "head",
+            "merge-base"
+          ],
+          "description": "What the diff is against, as asked."
+        },
+        "binary": {
+          "const": true,
+          "description": "Present, and true, for a binary file: hunks is then empty and sizeBefore and sizeAfter are written."
+        },
+        "sizeBefore": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Bytes before, for a binary file."
+        },
+        "sizeAfter": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Bytes after, for a binary file."
+        },
+        "eolChange": {
+          "const": true,
+          "description": "Present, and true, when the file's line endings changed. When that is the only change, hunks is empty."
+        },
+        "hunks": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/hunk"
+          },
+          "description": "In file order. Empty, never absent."
+        },
+        "totalLines": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "The lines the whole diff has, counting those left out by truncated."
+        },
+        "truncated": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "lines",
+            "bytes"
+          ],
+          "description": "Present when the diff was cut: hunks holds the first lines and no more.",
+          "properties": {
+            "lines": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Lines kept."
+            },
+            "bytes": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Bytes kept."
+            }
+          }
+        },
+        "error": {
+          "type": "string",
+          "description": "Why the diff could not be made. When set, only type, req, pane, path and error are written.",
+          "minLength": 1
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "not": {
+              "required": [
+                "error"
+              ]
+            }
+          },
+          "then": {
+            "required": [
+              "against",
+              "hunks",
+              "totalLines"
+            ]
+          }
+        }
+      ]
+    },
+    "diffContext": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "pane",
+        "path",
+        "lines",
+        "eof"
+      ],
+      "description": "Unchanged lines between hunks, in answer to diffContext.",
+      "properties": {
+        "type": {
+          "const": "diffContext"
+        },
+        "req": {
+          "type": "string",
+          "description": "The req of the command.",
+          "minLength": 1
+        },
+        "pane": {
+          "type": "string",
+          "description": "The branch's pane.",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string",
+          "description": "The file.",
+          "minLength": 1
+        },
+        "lines": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/line"
+          },
+          "description": "The lines asked for, all ctx, fewer if the file ended."
+        },
+        "eof": {
+          "type": "boolean",
+          "description": "True when the last line of the file is in `lines`."
+        },
+        "error": {
+          "type": "string",
+          "description": "Why the lines could not be read. When set, lines is empty.",
+          "minLength": 1
+        }
+      }
+    },
+    "changesResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "op",
+        "ok"
+      ],
+      "description": "The answer to a command that changes something, and the refusal of any changes command.",
+      "properties": {
+        "type": {
+          "const": "changesResult"
+        },
+        "req": {
+          "type": "string",
+          "description": "The req of the command, when it had one.",
+          "minLength": 1
+        },
+        "op": {
+          "type": "string",
+          "description": "The command's name.",
+          "minLength": 1
+        },
+        "ok": {
+          "type": "boolean",
+          "description": "True when it was done."
+        },
+        "code": {
+          "enum": [
+            "deskOnly",
+            "unsupported",
+            "badRequest",
+            "noBranch",
+            "headMoved",
+            "checksNotPassing",
+            "conflicts",
+            "openComments",
+            "reviewChangesRequested",
+            "notClean",
+            "notFastForward",
+            "failed"
+          ],
+          "description": "Why it was refused. Written when ok is false. deskOnly: a window through the relay. unsupported: this build does not do it yet (see caps). badRequest: a field is missing, too long or out of range. noBranch: no such pane or branch. headMoved: expectSha is not the head. checksNotPassing: a check is failing, running, queued or missing at this head. conflicts. openComments. reviewChangesRequested. notClean: the base checkout has uncommitted changes. notFastForward: the base moved, so the branch needs the base merged into it first. failed: git refused, and error has its words."
+        },
+        "error": {
+          "type": "string",
+          "description": "A sentence a window can show. Written when ok is false.",
+          "minLength": 1
+        },
+        "comment": {
+          "$ref": "#/$defs/comment"
+        },
+        "gate": {
+          "$ref": "#/$defs/gate"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "ok": {
+                "const": false
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "code",
+              "error"
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

@@ -62,6 +62,8 @@ var relayScrubs = map[string]func([]byte) []byte{
 	"notice": scrubNotice,
 	// The only teamResult a relay window is sent is the refusal of a team command.
 	"teamResult": scrubTeamResult,
+	// Likewise the only changesResult: the refusal of a command of the changes contract.
+	"changesResult": scrubChangesResult,
 	// Today a relay window is sent only the refusal of the command. The same message
 	// carries the reason an answer could not be given, and the OK reply, when the
 	// refusal is lifted (permission-answer-relay in permission_answer.go).

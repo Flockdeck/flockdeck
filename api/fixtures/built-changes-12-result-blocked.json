@@ -1,0 +1,25 @@
+{
+  "type": "changesResult",
+  "req": "a3",
+  "op": "approveMerge",
+  "ok": false,
+  "code": "conflicts",
+  "error": "search also changes cfg/limits.yaml, so agent/rate-limit-api cannot be approved yet.",
+  "gate": {
+    "state": "blocked",
+    "blockers": [
+      {
+        "kind": "checks",
+        "text": "go test ./internal/limit is failing"
+      },
+      {
+        "kind": "conflict",
+        "text": "search also changes cfg/limits.yaml"
+      },
+      {
+        "kind": "comments",
+        "text": "1 open comment"
+      }
+    ]
+  }
+}

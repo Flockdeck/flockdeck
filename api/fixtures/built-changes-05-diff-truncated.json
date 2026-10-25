@@ -1,0 +1,34 @@
+{
+  "type": "diffHunks",
+  "req": "d2",
+  "pane": "5dc771c1",
+  "path": "go.sum",
+  "against": "head",
+  "hunks": [
+    {
+      "oldStart": 1,
+      "oldLines": 1,
+      "newStart": 1,
+      "newLines": 2,
+      "header": "",
+      "lines": [
+        {
+          "t": "ctx",
+          "text": "github.com/a/b v1.0.0 h1:AAAA=",
+          "oldNo": 1,
+          "newNo": 1
+        },
+        {
+          "t": "add",
+          "text": "github.com/a/b v1.0.0/go.mod h1:BBBB=",
+          "newNo": 2
+        }
+      ]
+    }
+  ],
+  "totalLines": 48213,
+  "truncated": {
+    "lines": 3,
+    "bytes": 96
+  }
+}
