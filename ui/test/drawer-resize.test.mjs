@@ -280,3 +280,26 @@ test("the layout settings are read defensively and kept as nothing at the defaul
   assert.equal(setting("drawerH", 100, {}, ["uiPrefs"]), null);
   assert.equal(setting("drawerH", 500, {}, []), null);
 });
+
+test("a plain click on the handle, or a double click at the default width, writes nothing", () =>
+  withPage({}, async (m) => {
+    await m.connect();
+    await m.openDrawer();
+    m.clear();
+    const h = m.handle();
+    h.dispatch("pointerdown", { button: 0, clientX: 600, pointerId: 1 });
+    h.dispatch("pointerup", {});
+    await settle();
+    assert.equal(m.sent("uiPrefs").length, 0, "a click wrote the width");
+    // A drag that ends where it began is no change either, and leaves no drag width showing.
+    h.dispatch("pointerdown", { button: 0, clientX: 600, pointerId: 1 });
+    h.dispatch("pointermove", { clientX: 500 });
+    h.dispatch("pointermove", { clientX: 600 });
+    h.dispatch("pointerup", {});
+    await settle();
+    assert.equal(m.sent("uiPrefs").length, 0);
+    assert.doesNotMatch(String(m.shell().style.cssText || ""), /--drawer-w/);
+    h.dispatch("dblclick");
+    await settle();
+    assert.equal(m.sent("uiPrefs").length, 0, "a double click at the default wrote it");
+  }));
