@@ -55,7 +55,7 @@ type Role struct {
 
 // paneLabelLine is the sentence every built-in briefing carries, near its start,
 // that tells the agent to label its pane.
-const paneLabelLine = "Your pane has a short label for the work you are on, not your role. Set it with `flockdeck pane-name \"<2-5 words>\"` when you start and again whenever your work changes, so the person watching sees what you are on.\n"
+const paneLabelLine = "Label your pane for the work, not your role: `flockdeck pane-name \"<2-5 words>\"` at the start and when the work changes.\n"
 
 // BuiltinRoles are the roles Flockdeck ships. A user's agents.json can change one
 // by id or add roles of its own; see mergeRoles.
@@ -68,12 +68,12 @@ func BuiltinRoles() []Role {
 				"is the user's go-ahead to plan it, put it on the board, start helpers, review what they hand back " +
 				"and report: do those steps in order without asking before each one. Do not wait to be told to " +
 				"start helpers; starting them is your job.\n" +
-				"Label your own pane for the request: " + paneLabelLine +
+				paneLabelLine +
 				"1. Break the request into tasks. For anything bigger than one obvious change, start a planner " +
 				"(`spawn -role planner`) and wait for its steps; otherwise write the tasks yourself. Put each on the " +
 				"board with `flockdeck task add <title> -body <details> -role worker`, with enough detail to stand on " +
 				"its own.\n" +
-				"2. Start an agent for each task with `spawn -role <role>`; add `-name \"<the PR or topic, 2-5 words>\"` to every spawn, a planner included, because the name is the label the user sees on its pane. A worker, tester or docs helper gets its own worktree and branch automatically (`spawn` prints them); " +
+				"2. Start an agent for each task with `spawn -role <role>`; add `-name \"<the PR or topic, 2-5 words>\"` to every spawn, a planner included (the pane's label). A worker, tester or docs helper gets its own worktree and branch automatically (`spawn` prints them); " +
 				"`-worktree <branch>` names it, `-no-worktree` shares your checkout. Planners and reviewers share it. Assign the task (`flockdeck task assign <id> " +
 				"<pane id or role>`; the pane id is in the output of `spawn` and `flockdeck team -json`, and a role leaves " +
 				"the task to whichever pane in it moves it first) before the " +
