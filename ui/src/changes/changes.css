@@ -41,9 +41,10 @@
   .ct-view.is-detail .ct-list { display: none; }
   .ct-view.is-detail .ct-detail { display: block; }
   .ct-back { display: inline-block; }
-  .ct-lines, .ct-bar, .ct-files { display: none; }
+  .ct-row .ct-lines, .ct-bar, .ct-files { display: none; }
 }
 .ct-chip--unpushed { background: var(--waiting-subtle); border-color: var(--waiting-line); color: var(--waiting); }
 .ct-sr { border: 0; clip: rect(0 0 0 0); height: 1px; margin: -1px; overflow: hidden; padding: 0; position: absolute; white-space: nowrap; width: 1px; }
 .view--changes { container: ctview / inline-size; }
-.ct-live:empty { display: none; }
+/* The status line stays in the accessibility tree when it is empty (display: none would take it out), and takes no room. */
+.ct-live:empty { margin: 0; position: absolute; }
