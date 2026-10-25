@@ -11,6 +11,11 @@ import { checkText, newReq, outcomeOf, NOT_CONNECTED_WORDS, SENT_SHOWN } from ".
 
 export const MESSAGE_NOT_SENT_WORDS = NOT_CONNECTED_WORDS;
 
+/** MAX_LINES is how many lines the box grows to before it scrolls. LINE_PX and PAD_PX are the line height and the vertical padding in drawer.css. */
+export const MAX_LINES = 4;
+const LINE_PX = 18;
+const PAD_PX = 12;
+
 // A line break would reach the agent's prompt as a paste with an Enter in it, so
 // the box sends one line, as the manager bar does.
 const BREAKS = /\s*[\r\n]+\s*/g;
@@ -40,6 +45,17 @@ export function Message({ pane, name, store, shownFor = SENT_SHOWN }) {
     return () => clearTimeout(t);
   }, [done, pending]);
   const sending = !!outcome && outcome.kind === "sending";
+  // One line that grows with the text, up to MAX_LINES, with no grip: the conversation above takes the rest.
+  const box = useRef(null);
+  useEffect(() => {
+    const el = box.current;
+    if (!el || !el.style) return;
+    el.style.height = "auto";
+    const max = LINE_PX * MAX_LINES + PAD_PX;
+    // A hidden panel measures 0: leave the height to the stylesheet until it is shown.
+    el.style.height = el.scrollHeight ? Math.min(el.scrollHeight, max) + "px" : "";
+    el.style.overflowY = (el.scrollHeight || 0) > max ? "auto" : "hidden";
+  }, [draft]);
   const submit = (e) => {
     if (e && e.preventDefault) e.preventDefault();
     if (busy.current) return;
@@ -68,7 +84,7 @@ export function Message({ pane, name, store, shownFor = SENT_SHOWN }) {
   const say = local ? { kind: "refused", text: local } : outcome;
   const kind = say ? say.kind : "idle";
   return html`<form class="structured-prompt drawer-message" data-state=${kind} onSubmit=${submit}>
-    <textarea class="structured-input" aria-label=${"Message " + clip(name || pane, 60) + " directly"} placeholder=${"Message " + clip(name || pane, 60) + " directly"} rows="2" readOnly=${sending} aria-busy=${sending ? "true" : undefined} value=${draft}
+    <textarea ref=${box} class="structured-input" aria-label=${"Message " + clip(name || pane, 60) + " directly"} placeholder=${"Message " + clip(name || pane, 60) + " directly"} rows="1" readOnly=${sending} aria-busy=${sending ? "true" : undefined} value=${draft}
       onInput=${(e) => { setDraft(e.target.value); if (local) setLocal(""); if (outcome && outcome.kind === "refused") setPending(null); }} onKeyDown=${onKey}></textarea>
     <button type="submit" class="drawer-btn structured-send" disabled=${sending || draft.trim() === ""}>Send</button>
     ${say && kind !== "sending" ? html`<p class=${"structured-note" + (kind === "refused" ? " structured-note--unsent" : "")} role=${kind === "refused" ? "alert" : "status"}>${say.text}</p>` : null}

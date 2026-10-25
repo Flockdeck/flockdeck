@@ -10,6 +10,8 @@ import { Shell, keysOf } from "../src/shell/app.js";
 import { Graph } from "../src/graph/Graph.js";
 import { buildGraphModel } from "../src/graph/model.js";
 import { Drawer, useDrawer, hasTerminal, keysFor } from "../src/drawer/Drawer.js";
+import { MAX_LINES } from "../src/drawer/Message.js";
+import { readFileSync } from "node:fs";
 import { Header, sinceOf, spendText, countsOf } from "../src/drawer/Header.js";
 import { initialDrawer, reduceDrawer } from "../src/drawer/state.js";
 import { createDom, install, settle } from "./dom.mjs";
@@ -52,6 +54,7 @@ test("a drawer whose pane has left the graph closes, and one whose pane is there
 // ------------------------------------------------------------------ header
 
 const NOW = Date.parse("2026-10-20T09:20:00Z");
+const CONV = { id: "p2", supported: true, entries: [], atStart: true, older: "idle", refused: "" };
 const node = (over = {}) => ({
   pane: "p2", kind: "terminal", structured: false, name: "shop-w1", role: "worker", agent: "claude", shell: false,
   status: "waiting", activity: "waiting", since: "2026-10-20T09:14:02Z", branch: "basket", dirty: 3, untracked: 1, ahead: 2, behind: 0,
@@ -427,7 +430,7 @@ test("a terminal pane has a message box that sends paneSend by its id, and a str
   try {
     const box = dom.document.createElement("div");
     dom.body.appendChild(box);
-    const st = fakeStore({ hello: { type: "hello" }, state: paneState({ p2: {} }) });
+    const st = fakeStore({ hello: { type: "hello" }, conversation: CONV, state: paneState({ p2: {} }) });
     render(html`<${Drawer} store=${st} node=${node()} now=${NOW} />`, box);
     await settle();
     const ta = box.querySelector(".structured-input");
@@ -457,7 +460,7 @@ test("a shell has no message box: the desk refuses text into a shell", () => {
 });
 
 test("a message box is not drawn through the relay", () => {
-  const remote = fakeStore({ hello: { type: "hello" }, remote: true, state: paneState({ p2: {} }) });
+  const remote = fakeStore({ hello: { type: "hello" }, remote: true, conversation: CONV, state: paneState({ p2: {} }) });
   assert.ok(!renderToString(html`<${Drawer} store=${remote} node=${node()} now=${NOW} />`).includes("drawer-message"));
 });
 
@@ -468,7 +471,7 @@ test("[ and ] open the previous and next agent of the order, wrapping, and a box
     const box = dom.document.createElement("div");
     dom.body.appendChild(box);
     const opened = [];
-    const st = fakeStore({ hello: { type: "hello" }, state: paneState({ p2: {} }) });
+    const st = fakeStore({ hello: { type: "hello" }, conversation: CONV, state: paneState({ p2: {} }) });
     render(html`<${Drawer} store=${st} node=${node()} now=${NOW} order=${["p1", "p2", "p3"]} onOpenPane=${(p) => opened.push(p)} />`, box);
     await settle();
     const body = box.querySelector("section");
@@ -516,7 +519,7 @@ test("the message box keeps the draft and says so when the desk refuses the text
   try {
     const box = dom.document.createElement("div");
     dom.body.appendChild(box);
-    const st = fakeStore({ hello: { type: "hello" }, connection: "open", state: paneState({ p2: {} }) });
+    const st = fakeStore({ hello: { type: "hello" }, connection: "open", conversation: CONV, state: paneState({ p2: {} }) });
     render(html`<${Drawer} store=${st} node=${node()} now=${NOW} />`, box);
     await settle();
     const ta = () => box.querySelector(".structured-input");
@@ -544,6 +547,36 @@ test("the message box keeps the draft and says so when the desk refuses the text
 });
 
 test("a viewer's drawer has no message box", () => {
-  const viewer = fakeStore({ hello: { type: "hello", role: "viewer" }, state: paneState({ p2: {} }) });
+  const viewer = fakeStore({ hello: { type: "hello", role: "viewer" }, conversation: CONV, state: paneState({ p2: {} }) });
   assert.ok(!renderToString(html`<${Drawer} store=${viewer} node=${node()} now=${NOW} />`).includes("drawer-message"));
+});
+
+test("the message box is in the conversation tab only: not in the terminal's panel, not in Changes, and a pane with no conversation has none", () => {
+  const st = fakeStore({ hello: { type: "hello" }, conversation: CONV, state: paneState({ p2: {} }) });
+  const out = renderToString(html`<${Drawer} store=${st} node=${node()} now=${NOW} />`);
+  const terminal = out.slice(out.indexOf('id="drawer-panel-terminal"'), out.indexOf('id="drawer-panel-conversation"'));
+  assert.ok(terminal.length > 0 && !terminal.includes("drawer-message"), "the terminal's panel has a message box");
+  assert.ok(out.slice(out.indexOf('id="drawer-panel-conversation"')).includes("drawer-message"), "the conversation tab has none");
+  const bare = fakeStore({ hello: { type: "hello" }, state: paneState({ p2: {} }) });
+  assert.ok(!renderToString(html`<${Drawer} store=${bare} node=${node()} now=${NOW} />`).includes("drawer-message"));
+});
+
+test("the conversation's message box is one line, grows with its text to four lines and has no grip", async () => {
+  const dom = createDom();
+  const restore = install(dom);
+  try {
+    const box = dom.document.createElement("div");
+    dom.body.appendChild(box);
+    const st = fakeStore({ hello: { type: "hello" }, conversation: CONV, state: paneState({ p2: {} }) });
+    render(html`<${Drawer} store=${st} node=${node()} now=${NOW} />`, box);
+    await settle();
+    const ta = box.querySelector(".structured-input");
+    assert.equal(ta.getAttribute("rows"), "1");
+    const css = readFileSync(new URL("../src/drawer/drawer.css", import.meta.url), "utf8");
+    assert.match(css, /\.drawer-message \.structured-input \{[^}]*resize: none/);
+    assert.match(css, /\.drawer-message \.structured-input \{[^}]*max-height: 84px/);
+    assert.equal(MAX_LINES, 4);
+  } finally {
+    restore();
+  }
 });

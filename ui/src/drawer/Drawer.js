@@ -269,15 +269,15 @@ function DrawerBody({ store, snap = null, node, pane = null, now, maximised = fa
         ? html`<div class="drawer-panel" role="tabpanel" id="drawer-panel-conversation" aria-labelledby="drawer-tab-conversation" hidden=${shown !== "conversation"}>
             <${Conversation} conv=${conv} onOlder=${onOlder} details=${details} onDetail=${onDetail} pending=${pending}
               search=${state.search} onSearch=${onSearch} onClearSearch=${onClearSearch} canExport=${canExport} onExport=${() => tx.exportTranscript(node.pane)} />
+            ${terminal && !state.remote && !isViewer(state) && !node.shell
+              ? html`<${Message} key=${node.pane} pane=${node.pane} name=${node.name} store=${store} />`
+              : null}
           </div>`
         : null}
       ${hasChanges && shown === "changes"
         ? html`<div class="drawer-panel" role="tabpanel" id="drawer-panel-changes" aria-labelledby="drawer-tab-changes">
             <${Changes} key=${node.pane} cwd=${pane.cwd} git=${[pane.dirty, pane.untracked, pane.ahead, pane.behind].join("/")} snap=${state} store=${store} />
           </div>`
-        : null}
-      ${terminal && !state.remote && !isViewer(state) && !node.shell
-        ? html`<${Message} key=${node.pane} pane=${node.pane} name=${node.name} store=${store} />`
         : null}
     </section>
     <//>
