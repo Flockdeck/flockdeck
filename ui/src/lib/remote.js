@@ -206,6 +206,23 @@ export function verifyText(state) {
   return "Not verified";
 }
 
+/** NAME_MAX is the most of a device's name that is drawn. */
+export const NAME_MAX = 40;
+
+/**
+ * deviceName is a paired device's name as it is drawn, in a question, a label and the list. The device
+ * chooses its own name, so control, line-break, zero-width and bidirectional characters are taken out (they can
+ * reorder the words around the name or hide them), runs of space become one, and a long name is cut.
+ */
+export function deviceName(name) {
+  const clean = String(name == null ? "" : name)
+    .replace(/[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u180e\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff\ufff9-\ufffb]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  const chars = Array.from(clean);
+  return chars.length > NAME_MAX ? chars.slice(0, NAME_MAX - 1).join("").trimEnd() + "\u2026" : clean;
+}
+
 /** ACCESS are what a device may be allowed, in the order Access steps through. */
 export const ACCESS = [
   { role: "full", watch: false, label: "Full access", rank: 2 },

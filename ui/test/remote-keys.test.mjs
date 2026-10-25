@@ -14,7 +14,7 @@ import { Live } from "../src/shell/Live.js";
 import { Remote } from "../src/shell/Remote.js";
 import { canClear, clearKeyCommand, keyNotes, keyStatus, keysOf, setKeyCommand } from "../src/lib/apikeys.js";
 import {
-  ACCESS, accessIndex, accessOf, addsAccess, nextAccess, ago, daysLeft, deviceCodes, enableCommand, joinLine, leftText, moveCommand, outcomeOf, PAIR_CAP_MS, pairLive, pairOf, planOf, planText, qrSource, renameCommand,
+  ACCESS, accessIndex, accessOf, addsAccess, deviceName, nextAccess, ago, daysLeft, deviceCodes, enableCommand, joinLine, leftText, moveCommand, outcomeOf, PAIR_CAP_MS, pairLive, pairOf, planOf, planText, qrSource, renameCommand,
   retryClock, revokeCommand, roleCommand, rosterOf, summaryOf, unverifyCommand, untilText, verifyCommand, viewOf,
 } from "../src/lib/remote.js";
 import {
@@ -887,6 +887,74 @@ test("Remote: the access button names the level it sets, and each step that adds
     assert.match(m.container.find(".confirm").textContent, /Give Tablet more access\?/);
     await m.click(m.byText(".confirm button", /^Give access$/));
     assert.deepEqual(m.sent("setDeviceRole"), [{ cmd: "setDeviceRole", id: "d3", kind: "full", watch: false }]);
+  }));
+
+test("deviceName takes out control and bidi characters, one-lines the name and cuts a long one", () => {
+  const c = (n) => String.fromCharCode(n);
+  assert.equal(deviceName("Tablet"), "Tablet");
+  assert.equal(deviceName("Tab" + c(0x202e) + "let"), "Tab let", "a right-to-left override is not drawn");
+  assert.equal(deviceName(c(0x2066) + "A" + c(0x200b) + "B" + c(0x2069)), "A B");
+  assert.equal(deviceName("a\n\tb" + c(0) + c(0x9f) + "  c"), "a b c");
+  assert.equal(deviceName(c(0x202e)), "", "a name of nothing but those is no name");
+  assert.equal(deviceName(undefined), "");
+  const long = deviceName("x".repeat(500));
+  assert.equal(Array.from(long).length, 40);
+  assert.ok(long.endsWith(c(0x2026)));
+  assert.equal(deviceName("x".repeat(40)), "x".repeat(40), "a name at the limit is kept whole");
+});
+
+test("Remote: a device's name is cleaned in the question, the labels and the row", () =>
+  withPage({ extra: { remote: TUNNEL } }, async (m) => {
+    await m.connect();
+    await m.openSettings("remote");
+    const evil = "Tab" + String.fromCharCode(0x202e) + "let" + "y".repeat(80);
+    await m.push({ ...ROSTER, devices: [{ id: "d6", name: evil, role: "viewer", watchPanes: true }] });
+    const bad = new RegExp(String.fromCharCode(0x202e));
+    const button = m.container.find(".remote-access");
+    assert.doesNotMatch(button.attributes["aria-label"], bad);
+    assert.doesNotMatch(m.container.find(".remote-row .key-name").textContent, bad);
+    assert.ok(m.container.find(".remote-row .key-name").textContent.length <= 40);
+    await m.click(button);
+    const title = m.container.find(".confirm").textContent;
+    assert.doesNotMatch(title, bad);
+    assert.match(title, /Give Tab let/);
+    assert.match(title, /more access\?/, "the question is not pushed out by the name");
+  }));
+
+test("Remote: a question about access is closed, and sends nothing, when the device's level changes under it", () =>
+  withPage({ extra: { remote: TUNNEL } }, async (m) => {
+    await m.connect();
+    await m.openSettings("remote");
+    const dev = (over) => ({ id: "d5", name: "Tablet", created: "2026-10-03T00:00:00Z", lastSeen: "2026-10-24T11:00:00Z", role: "viewer", watchPanes: true, ...over });
+    await m.push({ ...ROSTER, devices: [dev({})] });
+    m.clear();
+    await m.click(m.container.find(".remote-access"));
+    assert.match(m.container.find(".confirm").textContent, /“View artifacts and watch panes” to “Full access”/);
+    // Another window drops it to view-only while the question is open: "from watching" is no longer true.
+    await m.push({ ...ROSTER, devices: [dev({ watchPanes: false })] });
+    assert.equal(m.container.find(".confirm"), null, "the question goes");
+    assert.match(m.container.find("#remote-problem").textContent, /Access for Tablet changed while you were deciding/);
+    assert.deepEqual(m.sent("setDeviceRole"), []);
+    // A push that leaves the level alone keeps the question.
+    await m.click(m.container.find(".remote-access"));
+    await m.push({ ...ROSTER, devices: [dev({ watchPanes: false, lastSeen: "2026-10-24T11:30:00Z" })] });
+    assert.ok(m.container.find(".confirm"));
+    // The device going altogether closes it too.
+    await m.push({ ...ROSTER, devices: [] });
+    assert.equal(m.container.find(".confirm"), null);
+    assert.deepEqual(m.sent("setDeviceRole"), []);
+  }));
+
+test("Remote: a step of access says what was asked, in a status line", () =>
+  withPage({ extra: { remote: TUNNEL } }, async (m) => {
+    await m.connect();
+    await m.openSettings("remote");
+    await m.push({ ...ROSTER, devices: [{ id: "d7", name: "Tablet", role: "viewer", watchPanes: true }] });
+    assert.equal(m.container.find("#remote-said"), null);
+    await m.click(m.container.find(".remote-access"));
+    await m.click(m.byText(".confirm button", /^Give access$/));
+    assert.equal(m.container.find("#remote-said").attributes.role, "status");
+    assert.match(m.container.find("#remote-said").textContent, /Asked the desktop to set Tablet to “Full access”\./);
   }));
 
 test("Remote: a device whose access is not one of the three is shown as unknown, and is only reset to a known level after a question", () =>

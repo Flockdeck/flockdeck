@@ -25,8 +25,8 @@ import { composing, LIST } from "./keys.js";
 import { Confirm } from "./Confirm.js";
 import {
   ACCESS, DESK_ONLY_ACCESS, DESK_ONLY_JOIN, DESK_ONLY_REMOTE, ENTERPRISE_WORDS, INTRO_WORDS, KEPT_WORDS, LINK_WARNING, PAIR_WORDS, PLAN_WORDS, POLL_MS,
-  VERIFY_HELP, VERIFY_HELP_RELAY, accessOf, addsAccess, ago, bare, deviceCodes, devicesCommand, enableCommand, leftText, moveCommand, nextAccess, outcomeOf, pairCommand, joinLine, pairLive, pairOf,
-  planText, qrSource, renameCommand, resumeCommand, revokeCommand, roleCommand, rosterOf, summaryOf, unverifyCommand, untilText, verifyCommand, verifyText, viewOf,
+  VERIFY_HELP, VERIFY_HELP_RELAY, accessOf, addsAccess, accessIndex, ago, bare, deviceCodes, devicesCommand, enableCommand, leftText, moveCommand, nextAccess, outcomeOf, pairCommand, joinLine, pairLive, pairOf,
+  deviceName, planText, qrSource, renameCommand, resumeCommand, revokeCommand, roleCommand, rosterOf, summaryOf, unverifyCommand, untilText, verifyCommand, verifyText, viewOf,
 } from "../lib/remote.js";
 
 const NEW_DRAFT = { relay: "", name: "", join: "", invite: "", more: false };
@@ -46,6 +46,7 @@ export function Remote({ status, roster, pair, outcome, remote, send, copy, forg
   const [draft, setDraft] = useState(NEW_DRAFT);
   const [moving, setMoving] = useState(NEW_MOVE);
   const [problem, setProblem] = useState("");
+  const [said, setSaid] = useState("");
   const [link, setLink] = useState(null);
   const [join, setJoin] = useState(null);
   const [wanting, setWanting] = useState("");
@@ -126,11 +127,31 @@ export function Remote({ status, roster, pair, outcome, remote, send, copy, forg
     if (ok && action) setBusy({ action, floor: outcomeSeq });
     return ok;
   };
-  const ask = (at, title, words, label, run) => setAsking({ at, title, words, label, run });
+  const ask = (at, title, words, label, run, device = null) => setAsking({ at, title, words, label, run, device });
+  // A question about a device's access names the level the device had when it was asked. If the roster then shows another
+  // level, or no device, the question is no longer true: it is closed, and a late click on it sends nothing.
+  const accessNow = (id) => {
+    const cur = ro && ro.devices.find((x) => x.id === id);
+    return cur ? accessIndex(cur) : null;
+  };
+  useEffect(() => {
+    if (!asking || !asking.device || accessNow(asking.device.id) === asking.device.level) return;
+    setAsking(null);
+    setSaid("");
+    setProblem("Access for " + asking.device.name + " changed while you were deciding. Nothing was sent. Look at it again.");
+  }, [ro]);
   const confirmFor = (at) =>
     asking && asking.at === at
       ? html`<${Confirm} title=${asking.title} words=${asking.words} label=${asking.label}
-          onConfirm=${() => { const run = asking.run; setAsking(null); run(); }} onCancel=${() => setAsking(null)} />`
+          onConfirm=${() => {
+            const q = asking;
+            setAsking(null);
+            if (q.device && accessNow(q.device.id) !== q.device.level) {
+              setProblem("Access for " + q.device.name + " changed while you were deciding. Nothing was sent. Look at it again.");
+              return;
+            }
+            q.run();
+          }} onCancel=${() => setAsking(null)} />`
       : null;
   const pairNow = (kind) => {
     if (go(pairCommand(kind))) setWanting(kind);
@@ -212,7 +233,7 @@ export function Remote({ status, roster, pair, outcome, remote, send, copy, forg
 
   // --- devices ------------------------------------------------------------
   const codeBlock = (d, k) => {
-    const name = d.name || "this device";
+    const name = deviceName(d.name) || "this device";
     const sure = () => ask("device:" + d.id, "Mark " + name + " verified?", ["Only do this if the code above is exactly what " + name + " shows."], "Mark verified", () => go(verifyCommand(d.id, k.origin, k.code)));
     return html`<div class="remote-code" data-origin=${k.origin}>
       <div class="key-note">${k.label} · ${verifyText(k.state)}</div>
@@ -231,7 +252,7 @@ export function Remote({ status, roster, pair, outcome, remote, send, copy, forg
       if (next !== current) go(renameCommand(kind, id, next));
     };
     return html`<div class="remote-rename">
-      <input type="text" class="dialog-field" id="remote-rename-field" aria-label=${kind === "host" ? "New name for this machine" : "New name for " + (current || "this device")}
+      <input type="text" class="dialog-field" id="remote-rename-field" aria-label=${kind === "host" ? "New name for this machine" : "New name for " + (deviceName(current) || "this device")}
         autocomplete="off" spellcheck="false" value=${renaming.value} ref=${renameField}
         onInput=${(e) => setRenaming({ ...renaming, value: e.target.value })}
         onKeyDown=${(e) => {
@@ -247,9 +268,13 @@ export function Remote({ status, roster, pair, outcome, remote, send, copy, forg
     const mine = !!ro.current && d.id === ro.current;
     const codes = deviceCodes(d);
     const shown = open.has(d.id);
-    const name = d.name || "Unnamed device";
+    const name = deviceName(d.name) || "Unnamed device";
     const level = accessOf(d);
     const next = nextAccess(d);
+    const setLevel = (to) => {
+      if (go(roleCommand(d.id, to))) setSaid("Asked the desktop to set " + name + " to “" + to.label + "”.");
+    };
+    const about = { id: d.id, level: accessIndex(d), name };
     const here = renaming && renaming.kind === "device" && renaming.id === d.id;
     return html`<li class="remote-row" key=${d.id} data-device=${d.id}>
       <div class="key-main">
@@ -267,12 +292,11 @@ export function Remote({ status, roster, pair, outcome, remote, send, copy, forg
           : next
             ? html`<button type="button" class="dialog-btn remote-access" aria-label=${"Access for " + name + ": " + level.label + ". Press to change it to " + next.label + "."}
                 onClick=${() => {
-                  const cmd = roleCommand(d.id, next);
-                  if (!addsAccess(level, next)) go(cmd);
-                  else ask("access:" + d.id, "Give " + name + " more access?", ["It goes from “" + level.label + "” to “" + next.label + "”."], "Give access", () => go(cmd));
+                  if (!addsAccess(level, next)) setLevel(next);
+                  else ask("access:" + d.id, "Give " + name + " more access?", ["It goes from “" + level.label + "” to “" + next.label + "”."], "Give access", () => setLevel(next), about);
                 }}>${level.label}</button>`
             : html`<button type="button" class="dialog-btn remote-access" aria-label=${"Access for " + name + ": unknown, which the desktop treats as view-only. Press to set it to " + ACCESS[1].label + "."}
-                onClick=${() => ask("access:" + d.id, "Reset access for " + name + "?", ["Its access is not one this page knows, and the desktop treats it as view-only. It will be set to “" + ACCESS[1].label + "”."], "Reset access", () => go(roleCommand(d.id, ACCESS[1])))}>${level.label}</button>`}
+                onClick=${() => ask("access:" + d.id, "Reset access for " + name + "?", ["Its access is not one this page knows, and the desktop treats it as view-only. It will be set to “" + ACCESS[1].label + "”."], "Reset access", () => setLevel(ACCESS[1]), about)}>${level.label}</button>`}
         <button type="button" class="dialog-btn" onClick=${() => setRenaming({ kind: "device", id: d.id, value: d.name })}>Rename</button>
         <button type="button" class="dialog-btn dialog-btn--danger" aria-label=${"Unpair " + name}
           onClick=${() => ask("device:" + d.id, mine ? "Unpair this device?" : "Unpair " + name + "?",
@@ -427,6 +451,7 @@ export function Remote({ status, roster, pair, outcome, remote, send, copy, forg
     <h3 class="set-head">Flockdeck Remote</h3>
     ${news ? html`<p class="set-status" role="status" id="remote-news">${news}</p>` : null}
     ${problem ? html`<p class="set-error" role="alert" id="remote-problem">${problem}</p>` : null}
+    ${said ? html`<p class="set-status" role="status" id="remote-said">${said}</p>` : null}
     ${notOn
       ? html`<p class="set-intro" id="remote-intro">${INTRO_WORDS}</p>${remote ? html`<p class="set-about" id="remote-desk-only">${DESK_ONLY_REMOTE}</p>` : enableForm()}`
       : html`
