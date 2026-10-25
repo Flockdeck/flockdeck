@@ -11,6 +11,9 @@ import { useEffect, useState } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
 import { Changes, NO_TREE_WORDS } from "../drawer/Changes.js";
 import { STATES, teamOf, TEAM_RELAY_WORDS } from "../lib/team.js";
+import { TeamChanges } from "../changes/TeamChanges.js";
+import { CHANGES_TEAM_CAP } from "../lib/changesteam.js";
+import { hasCap } from "../lib/apiversion.js";
 
 /** VIEWS are the views of the switch, in the order it shows them. */
 export const VIEWS = [["board", "Board"], ["changes", "Changes"], ["replay", "Replay"]];
@@ -80,7 +83,19 @@ export function Board({ team: teamMsg, gone = "", remote = false, onOpenPane, on
  *  agent when it has a directory, else the manager, else the first agent that has
  *  one. The agent can be changed here. nodes are the graph's nodes, statePanes the
  *  state push's panes (they carry the directory). */
-export function ChangesView({ nodes, statePanes, openPane, snap, store }) {
+export function ChangesView(props) {
+  // A desktop that offers the team-wide list gets it; an older one gets one agent's tree.
+  const { nodes, snap } = props;
+  if (!hasCap(snap.hello, CHANGES_TEAM_CAP)) return html`<${OneTreeChanges} ...${props} />`;
+  const names = {};
+  for (const n of nodes) names[n.pane] = n.name || n.pane;
+  return html`<div class="view view--changes">
+    <div class="view-head"><h2 class="view-title">Changes</h2></div>
+    <${TeamChanges} data=${snap.changesTeam} names=${names} remote=${!!snap.remote} gone=${snap.changesTeamGone} />
+  </div>`;
+}
+
+function OneTreeChanges({ nodes, statePanes, openPane, snap, store }) {
   const withTree = nodes.filter((n) => statePanes && statePanes[n.pane] && statePanes[n.pane].cwd);
   const [picked, setPicked] = useState("");
   const fallback = withTree.find((n) => n.pane === openPane) || withTree.find((n) => n.role === "manager") || withTree[0] || null;

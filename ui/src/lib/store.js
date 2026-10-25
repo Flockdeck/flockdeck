@@ -170,6 +170,7 @@
 import { createSocket } from "./socket.js";
 import { clientHello, mismatchNotice, unsupportedNotice } from "./apiversion.js";
 import { mergeKeys, readsKeyFiles } from "./keytable.js";
+import { changesTeamOf, isStale } from "./changesteam.js";
 
 /** DESK_ONLY_CODE is the code the desktop puts on the refusal it gives a window
  *  reached through the relay (internal/server/teamui.go, teamDeskOnlyCode).
@@ -253,19 +254,22 @@ const GRAPH_OPS = new Set(["graphSnapshot", "graphWatch", "graphUnwatch"]);
 const TEAM_COMMANDS = ["teamSnapshot", "teamWatch", "teamUnwatch", "taskList", "taskGet", "taskAdd", "taskAssign", "taskStatus", "taskNote", "taskBranch", "taskPrune", "msgList", "msgSend", "msgSeen", "teamClose"];
 const TEAM_OPS = new Set(TEAM_COMMANDS.filter((c) => c !== "teamWatch" && c !== "teamUnwatch"));
 
+/** CHANGES_TEAM_COMMANDS are the team-wide Changes view's (docs/changes-api.md): the watch, the files and the diffs, comments, checks, reviews and the merge gate. All are the desk's. */
+const CHANGES_TEAM_COMMANDS = ["changesWatch", "changesUnwatch", "changesSnapshot", "filesPage", "diffHunks", "diffContext", "commentAdd", "commentResolve", "commentReopen", "runChecks", "requestReview", "submitReview", "approveMerge", "unapproveMerge", "mergeBranch"];
+
 /** DESK_ONLY says a command is one a remote window may not send: the graph
  *  commands, the structured pane ones, permissionAnswer, paneSend, MACHINE_ONLY,
  *  MACHINE_FILES and HELPER_COMMANDS. The desktop refuses them there, so the store
  *  does not send them. paneSend is sent from two places, the manager bar and a
  *  structured pane's prompt box, and neither is drawn in a remote window. */
-const DESK_ONLY = (cmd) => typeof cmd === "string" && (cmd.startsWith("graph") || cmd.startsWith("structured") || cmd === "permissionAnswer" || cmd === "paneSend" || MACHINE_ONLY.includes(cmd) || MACHINE_FILES.includes(cmd) || HELPER_COMMANDS.includes(cmd) || DESK_SETTINGS.includes(cmd) || TEAM_COMMANDS.includes(cmd));
+const DESK_ONLY = (cmd) => typeof cmd === "string" && (CHANGES_TEAM_COMMANDS.includes(cmd) || cmd.startsWith("graph") || cmd.startsWith("structured") || cmd === "permissionAnswer" || cmd === "paneSend" || MACHINE_ONLY.includes(cmd) || MACHINE_FILES.includes(cmd) || HELPER_COMMANDS.includes(cmd) || DESK_SETTINGS.includes(cmd) || TEAM_COMMANDS.includes(cmd));
 
 const initial = () => ({
   connection: "idle", retryInMs: 0,
   hello: null, remote: false, state: null,
   graph: null, graphGone: null, graphRefused: false, graphError: null,
   notice: null, versions: null, helpers: null, helperPlan: null, recents: null, browse: null, batonDraft: null, batonSaved: null, batonError: null, agentAddress: null,
-  approvals: [], detached: false, sent: null, started: null, structured: null, structuredError: null, cancelError: null, answer: null, asking: null, conversation: null, details: nullMap(), search: null, taskDetail: null, changes: null, diff: null, gitWarn: null, changesBusy: "", changesNote: null, history: null, paneInfo: null, paneMatches: null, keys: null, jevKey: null, radar: null, worktrees: null, agentsList: null, team: null, teamGone: null, teamTasks: null, teamMessages: null, teamResult: null, teamRefused: false, remoteDevices: null, remotePair: null, remoteOutcome: null, dropped: 0,
+  approvals: [], detached: false, sent: null, started: null, structured: null, structuredError: null, cancelError: null, answer: null, asking: null, conversation: null, details: nullMap(), search: null, taskDetail: null, changes: null, diff: null, gitWarn: null, changesBusy: "", changesNote: null, history: null, paneInfo: null, paneMatches: null, keys: null, jevKey: null, radar: null, worktrees: null, agentsList: null, team: null, teamGone: null, teamTasks: null, teamMessages: null, teamResult: null, teamRefused: false, changesTeam: null, changesTeamGone: null, changesTeamRefused: false, remoteDevices: null, remotePair: null, remoteOutcome: null, dropped: 0,
 });
 
 /** upsert returns entries with each of the new ones in place of the one with its
@@ -314,6 +318,8 @@ export function createStore(opts) {
   let teamResultSeq = 0;
   // The project last asked for with watchTeam, or null when none.
   let watchingTeam = null;
+  // The project last asked for with watchChangesTeam, or null when none.
+  let watchingChanges = null;
   let outcomeSeq = 0;
   let batonSeq = 0;
   let addressSeq = 0;
@@ -372,6 +378,10 @@ export function createStore(opts) {
     return socket.send({ cmd: "teamWatch", root: watchingTeam, req: "t" + ++reqSeq });
   }
 
+  function sendChangesWatch() {
+    return socket.send({ cmd: "changesWatch", root: watchingChanges, req: "w" + ++reqSeq });
+  }
+
   function sendStructuredWatch() {
     return socket.send({ cmd: "structuredWatch", id: watchingPane, req: "s" + ++reqSeq });
   }
@@ -425,10 +435,11 @@ export function createStore(opts) {
         // Tell the desktop which API this page speaks; it answers only if they do not match.
         socket.send(clientHello());
         // A watch asked for before this hello was known is dropped in a remote window, so stop() sends nothing for it.
-        if (remote) { watching = null; watchingPane = null; watchingTeam = null; }
+        if (remote) { watching = null; watchingPane = null; watchingTeam = null; watchingChanges = null; }
         if (!remote && watching !== null) sendGraphWatch();
         if (!remote && watchingPane !== null) sendStructuredWatch();
         if (!remote && watchingTeam !== null) sendTeamWatch();
+        if (!remote && watchingChanges !== null) sendChangesWatch();
         if (watchingConv !== null) {
           // What was asked on the connection that has gone is asked again, or is no longer waited for: an older page
           // left "loading" would take the answer to the open below for the page before the entries held.
@@ -470,6 +481,23 @@ export function createStore(opts) {
         break;
       case "team":
         if (watchingTeam !== null && !snap.remote) set({ team: { ...msg, seq: ++teamSeq }, teamGone: null });
+        break;
+      case "changesTeam":
+        // A push in flight when the watch was dropped is not wanted, nor one the page already drew (the revision is not newer).
+        if (watchingChanges !== null && !snap.remote) {
+          const next = changesTeamOf(msg);
+          if (next && !isStale(snap.changesTeam, next)) set({ changesTeam: next, changesTeamGone: null });
+        }
+        break;
+      case "changesResult":
+        if (msg.op === "changesWatch" && !msg.ok) {
+          if (msg.code === DESK_ONLY_CODE) {
+            watchingChanges = null;
+            set({ changesTeam: null, changesTeamRefused: true });
+          } else {
+            set({ changesTeamGone: { code: String(msg.code || ""), error: String(msg.error || "") } });
+          }
+        }
         break;
       case "tasks":
         if (!snap.remote) set({ teamTasks: { ...msg, seq: ++teamSeq } });
@@ -724,6 +752,8 @@ export function createStore(opts) {
       watchingPane = null;
       if (watchingTeam !== null && watchSent()) socket.send({ cmd: "teamUnwatch" });
       watchingTeam = null;
+      if (watchingChanges !== null && watchSent()) socket.send({ cmd: "changesUnwatch" });
+      watchingChanges = null;
       if (watchingConv !== null && snap.hello) socket.send({ cmd: "conversationClose", id: watchingConv });
       watchingConv = null;
       socket.stop();
@@ -796,6 +826,25 @@ export function createStore(opts) {
       if (watchingTeam !== null && watchSent()) socket.send({ cmd: "teamUnwatch" });
       watchingTeam = null;
       if (snap.team || snap.teamTasks || snap.teamMessages) set({ team: null, teamTasks: null, teamMessages: null });
+    },
+    /** watchChangesTeam asks for the branches of a project, now and whenever they change.
+     *  It replaces the project watched before, and returns false, asking for nothing, in a remote window. */
+    watchChangesTeam(root) {
+      if (snap.remote) {
+        set({ changesTeamRefused: true });
+        return false;
+      }
+      const was = watchingChanges;
+      watchingChanges = String(root || "");
+      // Branches of another project are not drawn while the new ones are read.
+      set({ changesTeamGone: null, changesTeamRefused: false, ...(was !== null && was !== watchingChanges ? { changesTeam: null } : {}) });
+      if (snap.hello) sendChangesWatch();
+      return true;
+    },
+    unwatchChangesTeam() {
+      if (watchingChanges !== null && watchSent()) socket.send({ cmd: "changesUnwatch" });
+      watchingChanges = null;
+      if (snap.changesTeam) set({ changesTeam: null });
     },
     /** watchStructured asks for the structured messages of one pane, now and
      *  whenever it changes, for its permission card. It replaces the pane watched
