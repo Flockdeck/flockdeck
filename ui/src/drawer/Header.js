@@ -7,7 +7,9 @@
 // (model, spend, recording). Every text came from an agent or a task, so each is
 // a child of an element and so drawn as text.
 import { html } from "../html.js";
-import { stateOf, dirtyOf } from "../graph/Node.js";
+import { stateOf, dirtyOf, clip } from "../graph/Node.js";
+import { shownName } from "../graph/model.js";
+import { showControls } from "./diff/diffModel.js";
 
 /** UNASKED_WORDS is the standing warning for an agent the manifest records as
  *  possibly running commands and edits without sending a permission request
@@ -63,7 +65,7 @@ export function Header({ node, pane = null, now = Date.now(), maximised = false,
   return html`
     <header class="drawer-head">
       <div class="drawer-title">
-        <h2 class="drawer-name">${node.label || node.name || node.pane}</h2>
+        <h2 class="drawer-name" title=${showControls(shownName(node))}>${clip(showControls(shownName(node)), 60)}</h2>
         ${node.structured || node.kind === "structured" ? html`<span class="drawer-kind">structured</span>` : null}
         <div class="drawer-actions">
           ${onStep
@@ -87,13 +89,13 @@ export function Header({ node, pane = null, now = Date.now(), maximised = false,
       </div>
       ${pane && pane.runsUnasked === true ? html`<p class="drawer-warn" role="note">${UNASKED_WORDS}</p>` : null}
       <dl class="drawer-facts">
-        ${node.label && node.name && node.label !== node.name ? html`<div class="fact fact--name"><dt>Name</dt><dd>${node.name}</dd></div>` : null}
+        ${node.label && node.name && node.label !== node.name ? html`<div class="fact fact--name"><dt>Name</dt><dd>${clip(showControls(node.name), 60)}</dd></div>` : null}
         ${who ? html`<div class="fact fact--who"><dt>Agent</dt><dd>${who}</dd></div>` : null}
         <div class=${"fact fact--status fact--" + state.key}>
           <dt>Status</dt>
           <dd>${state.word}${since ? " for " + since : ""}</dd>
         </div>
-        ${node.live && !node.shell ? html`<div class="fact fact--doing"><dt>Doing now</dt><dd>${node.live}</dd></div>` : null}
+        ${node.live && !node.shell ? html`<div class="fact fact--doing"><dt>Doing now</dt><dd title=${showControls(node.live)}>${clip(showControls(node.live), 120)}</dd></div>` : null}
         ${node.branch ? html`<div class="fact fact--branch"><dt>Branch</dt><dd>${node.branch}${counts ? " · " + counts : ""}</dd></div>` : null}
         ${model ? html`<div class="fact fact--model"><dt>Model</dt><dd>${model}</dd></div>` : null}
         ${spend ? html`<div class="fact fact--spend"><dt>Spend</dt><dd>${spend}</dd></div>` : null}

@@ -8,13 +8,14 @@
 import { html } from "../html.js";
 import { ageOf } from "./NeedsYou.js";
 import { clip } from "./Node.js";
+import { shownName } from "./model.js";
 import { summaryOf, words } from "./Teams.js";
 
 /** notesOf is { unread: [{ pane, name, age }], teams: [{ id, name, pane, words, needs }] } from a model. teams has the lines of Teams.js when the project has two or more, else is empty. */
 export function notesOf(model, now = Date.now()) {
   const unread = model.needs
     .filter((n) => n.kind === "stale-unread" && model.byPane.has(n.pane))
-    .map((n) => ({ pane: n.pane, name: model.byPane.get(n.pane).name || n.pane, age: ageOf(n.time, now) }));
+    .map((n) => ({ pane: n.pane, name: shownName(model.byPane.get(n.pane)), age: ageOf(n.time, now) }));
   const lines = summaryOf(model);
   const teams = lines.length >= 2 ? lines.map((s) => ({ id: s.id, name: s.name, pane: s.pane, words: words(s), needs: s.needs })) : [];
   return { unread, teams };

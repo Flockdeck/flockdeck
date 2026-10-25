@@ -20,6 +20,7 @@
 import { useEffect, useRef, useState } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
 import { clip } from "./Node.js";
+import { shownName } from "./model.js";
 import { composing } from "../shell/keys.js";
 import { isViewer, VIEWER_WORDS } from "../lib/role.js";
 
@@ -69,7 +70,7 @@ export function managerOf(model) {
   if (!model || !model.ok) return null;
   for (const t of model.teams) {
     const n = t.manager ? model.byPane.get(t.manager) : null;
-    if (n) return { pane: n.pane, name: n.name || n.pane };
+    if (n) return { pane: n.pane, name: shownName(n) };
   }
   return null;
 }

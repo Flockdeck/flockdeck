@@ -12,7 +12,7 @@
 // touches the terminal's size itself: the terminal measures its box when it
 // changes and tells the server (lib/terminal.js), which sizes the pane for the
 // window last used.
-import { Rename } from "./Rename.js";
+import { Rename, canRename } from "./Rename.js";
 import { useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
 import { Header } from "./Header.js";
@@ -256,7 +256,7 @@ function DrawerBody({ store, snap = null, node, pane = null, now, maximised = fa
       ${showMore
         ? html`<div class="drawer-more-panel" id="drawer-more">
             ${life ? html`<${Lifecycle} node=${node} pane=${pane} life=${life} />` : null}
-            ${life && !state.remote && !isViewer(state) ? html`<${Rename} key=${node.pane + "|" + (node.label || "")} node=${node} send=${(c) => store.send(c)} />` : null}
+            ${life && canRename(state) ? html`<${Rename} key=${node.pane} node=${node} send=${(c) => store.send(c)} />` : null}
             ${tx
               ? html`<${Tools} node=${node} pane=${pane} tx=${tx} remote=${!!state.remote} terminal=${terminal} finding=${finding} send=${(c) => store.send(c)}
                   onInfo=${onInfo} onFind=${() => { setTab("terminal"); setFinding(true); setAskSeq((n) => n + 1); }} />`

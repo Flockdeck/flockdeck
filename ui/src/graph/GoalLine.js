@@ -13,7 +13,7 @@
 import { useEffect, useState } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
 import { clip } from "./Node.js";
-import { taskOfTeam, taskLabelOf } from "./model.js";
+import { shownName, taskOfTeam, taskLabelOf } from "./model.js";
 
 /** TICK_MS is how often the elapsed time is looked at again. */
 export const TICK_MS = 30000;
@@ -63,7 +63,7 @@ function goalOf(model, team) {
 function managerOf(model, team) {
   if (!team.manager) return "";
   const n = model.byPane.get(team.manager);
-  return n ? n.name || team.manager : null;
+  return n ? shownName(n) || team.manager : null;
 }
 
 export function summaryOf(model, team, now) {

@@ -11,13 +11,14 @@
 import { html } from "../html.js";
 import { Icon, reasonOf } from "./Badge.js";
 import { clip } from "./Node.js";
+import { shownName } from "./model.js";
 
 /** The longest first line a row shows. */
 const ROW_DETAIL = 40;
 
 function nameOf(model, id) {
   const n = model.byPane.get(id);
-  return n && (n.label || n.name) ? n.label || n.name : id;
+  return n && shownName(n) ? shownName(n) : id;
 }
 
 /** ageOf is how long ago an item began, as "9m", "2h" or "3d", or "" when its time is not known (the graph writes year 1 for that) or is ahead of now. */

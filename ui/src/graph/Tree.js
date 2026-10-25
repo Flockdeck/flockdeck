@@ -19,7 +19,7 @@ import { reasonOf, isLoud } from "./Badge.js";
 import { TreeRow, TreeHead } from "./TreeRow.js";
 import { TreeDecisions } from "./TreeDecisions.js";
 import { chipsOf, dependencyChipsOf } from "./chips.js";
-import { rollupOf, labelOf, spanOf } from "./model.js";
+import { rollupOf, labelOf, shownName, spanOf } from "./model.js";
 
 /** TICK_MS is how often the ages are worked out again. */
 export const TICK_MS = 30000;
@@ -271,7 +271,7 @@ export function Tree({ model, onOpen = null, open = "", decisions = null, tasks 
   // One agent that leads no team is a lone agent: no header, nothing to fold.
   const solo = rows.length === 1 && !rows[0].team;
   // With panes that share a name the names are longer (what the pane is on), so the column is wider.
-  const shared = rows.some((r) => labelOf(model, r.pane) !== (model.byPane.get(r.pane).name || r.pane));
+  const shared = rows.some((r) => labelOf(model, r.pane) !== shownName(model.byPane.get(r.pane)));
   const noTask = !rows.some((r) => model.byPane.get(r.pane).task);
   const noCost = !rows.some((r) => costOf(model.byPane.get(r.pane)));
   return html`<div class=${"tree" + (shared ? " tree--shared-names" : "") + (noTask ? " tree--no-task" : "") + (noCost ? " tree--no-cost" : "")}>
