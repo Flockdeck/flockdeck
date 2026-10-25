@@ -236,14 +236,14 @@ func (w *Workspace) projectPanes(myRoot, self string, agentsOnly bool) []*Pane {
 // memberOf describes a pane for the roster.
 func (w *Workspace) memberOf(p *Pane, self bool) team.Member {
 	w.mu.RLock()
-	peer := p.PeerName
+	peer, label := p.PeerName, p.Label
 	w.mu.RUnlock()
 	// A pane that never started has no session and reads as exited; a
 	// structured pane has none either and says its status itself.
 	status, _ := w.Runtime(p).Status()
 	agentID, model := paneAgent(p)
 	return team.Member{
-		Pane: p.ID, Name: p.Name, Peer: peer, Role: p.Role,
+		Pane: p.ID, Name: p.Name, Peer: peer, Called: label, Role: p.Role,
 		Agent: agentID, Model: model, Status: status.String(), Self: self,
 	}
 }

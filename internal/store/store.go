@@ -90,6 +90,11 @@ type Pane struct {
 	// Task is what a spawned pane was asked to do. It is kept so a restored
 	// agent can still be told why its pane exists.
 	Task string `json:"task,omitempty"`
+	// Label is what the pane is called for its work, absent when it has none.
+	// See workspace.Pane.Label.
+	Label string `json:"label,omitempty"`
+	// LabelAuto says the label was made from the task. See workspace.Pane.LabelAuto.
+	LabelAuto bool `json:"labelAuto,omitempty"`
 	// BatonID is the id of the baton the pane was started from, absent for a
 	// pane that began without one. See workspace.Pane.BatonID.
 	BatonID string `json:"baton,omitempty"`

@@ -12,7 +12,7 @@ import { Markdown, renderMarkdown, MAX_INLINE, MAX_HIGHLIGHT, MAX_DEPTH, COLLAPS
 import { Row, NO_SUMMARY_WORDS, MAX_REPLY } from "../src/drawer/conv/rows.js";
 import { Log, OLDER_LIMIT_WORDS } from "../src/drawer/conv/Log.js";
 import {
-  startIndex, earlierStart, atBottom, anchored, moveTo, newBelow, START_ROWS, PAGE_ROWS, MAX_ROWS,
+  startIndex, earlierStart, atBottom, anchored, moveTo, newBelow, unseenIds, START_ROWS, PAGE_ROWS, MAX_ROWS,
 } from "../src/drawer/conv/scroll.js";
 import { createDom, install, settle } from "./dom.mjs";
 
@@ -213,6 +213,15 @@ test("new entries below are counted from the last one seen", () => {
   assert.equal(newBelow(idsOf(10), ""), 0);
 });
 
+test("unseenIds counts entries that were not drawn, at or below the old top", () => {
+  const before = new Set(["a", "b", "c"]);
+  assert.equal(unseenIds(["a", "b", "c"], before, "a"), 0);
+  assert.equal(unseenIds(["a", "b", "c", "d"], before, "a"), 1);
+  assert.equal(unseenIds(["a", "m", "b", "c"], before, "a"), 1, "an entry sorted into the middle is new");
+  assert.equal(unseenIds(["z", "a", "b", "c"], before, "a"), 0, "a page added above the top is not new");
+  assert.equal(unseenIds(["a", "b"], before, "gone"), 0);
+});
+
 // --- The list in a page ------------------------------------------------------
 
 const entry = (n, over = {}) => ({ id: "e" + n, kind: "prompt", text: "say " + n, ...over });
@@ -228,6 +237,24 @@ async function mount(props) {
   await settle();
   return { dom, container, draw, rows: () => container.findAll(".conv-row"), done: () => { render(null, container); restore(); } };
 }
+
+test("mail sorted into the middle while the reader is scrolled up is counted, and a fixed first row does not hide older rows paged in", async () => {
+  const notice = { id: "mail-floor", kind: "notice", text: "Mail from before 10:00 is not shown." };
+  const props = (entries) => ({ entries, atStart: true });
+  const m = await mount(props([notice, ...range(1, 5)]));
+  try {
+    const list = () => m.container.find(".conv");
+    geometry(list(), { height: 1000, client: 400, top: 100 });
+    list().dispatch("scroll");
+    // A mail older than the last entry arrives: the last id does not change.
+    m.draw(props([notice, ...range(1, 4), entry(9, { id: "m:1" }), entry(5)]));
+    await settle();
+    assert.equal(m.container.find(".conv-new").textContent, "1 new below");
+    assert.equal(list().scrollTop, 100);
+  } finally {
+    m.done();
+  }
+});
 
 test("a long conversation draws only the newest rows, and Older steps up from what is held before asking", async () => {
   const asked = [];

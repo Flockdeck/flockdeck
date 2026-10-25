@@ -14,6 +14,8 @@ export function entryText(e) {
     case "tool": return "Tool: " + [text(e.label) || text(e.name), text(e.summary)].filter(Boolean).join(" - ") + (e.status ? " [" + text(e.status) + "]" : "");
     case "subagent": return "Helper: " + (text(e.description) || text(e.name)) + (e.status ? " [" + text(e.status) + "]" : "") + (e.report ? "\n" + text(e.report) : "");
     case "compaction": return "(conversation compacted)";
+    case "mail": return "From " + (text(e.label) || text(e.from)) + ": " + text(e.text);
+    case "event": return "(" + text(e.text) + ")";
     case "notice": return "(" + text(e.text) + ")";
     case "image": return "(" + imageWords(e) + ")";
     default: return "";

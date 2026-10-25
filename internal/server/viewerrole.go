@@ -160,7 +160,7 @@ var commandAccess = map[string]cmdAccess{
 	"prevTab": accessFull, "renameTab": accessFull, "openProject": accessFull, "selectProject": accessFull,
 	"selectRepo": accessFull, "closeProject": accessFull, "addRepoToGroup": accessFull,
 	"removeRepoFromGroup": accessFull, "renameGroup": accessFull, "groupProjects": accessFull,
-	"splitPane": accessFull, "closePane": accessFull, "closeFinishedPanes": accessFull, "lockPane": accessFull,
+	"splitPane": accessFull, "closePane": accessFull, "paneName": accessFull, "closeFinishedPanes": accessFull, "lockPane": accessFull,
 	"focusPane": accessFull, "restartPane": accessFull, "toggleZoom": accessFull, "mutePane": accessFull,
 	"autoReview": accessFull, "movePane": accessFull, "swapPanes": accessFull, "movePaneDir": accessFull,
 	"movePaneToTab": accessFull, "movePaneToNewTab": accessFull, "tilePanes": accessFull, "moveTab": accessFull,

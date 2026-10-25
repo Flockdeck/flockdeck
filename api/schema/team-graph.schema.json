@@ -90,6 +90,7 @@
         "waitingOn": { "$ref": "#/$defs/waitingOn" },
         "name": { "type": "string", "description": "The pane's own name, usually its directory's name (stored by the workspace), cut to 80 characters. Always written, and may be empty." },
         "peer": { "type": "string", "minLength": 1, "description": "The name the agent reported with `flockdeck peer-name` (stored), cut to 80 characters. Absent until it does." },
+        "label": { "type": "string", "minLength": 1, "maxLength": 40, "description": "What the pane is called for the work it does, set with `flockdeck spawn -name` or `flockdeck pane-name`, or made from its task when it was spawned. One line, cut to 40 characters. Absent until the pane has one." },
         "role": { "type": "string", "minLength": 1, "description": "The id of the role the pane was started as (stored). Absent for none." },
         "agent": { "type": "string", "minLength": 1, "description": "The id of the agent the pane runs (stored), cut to 80 characters. Absent for a shell and for a pane that never recorded one." },
         "shell": { "const": true, "description": "Present, and true, for a plain terminal with no agent in it. Absent for an agent." },

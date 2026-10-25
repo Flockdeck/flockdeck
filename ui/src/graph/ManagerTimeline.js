@@ -78,12 +78,12 @@ export function managerTimeline({ entries = [], model = null, manager = "", even
   if (model && model.ok && manager) {
     for (const e of list(model.edges.message)) {
       if (!isObject(e) || e.to !== manager) continue;
-      other.push({ key: "m:" + (e.id ? e.id : e.time + ":" + e.from + ":" + e.text), at: timeOf(e.time), kind: "mail", from: e.from, label: labelOf(model, e.from), text: e.text, delivery: e.delivery, waiting: e.delivery !== "read", maybeCut: maybeCut(e.text) });
+      other.push({ key: "m:" + (e.id ? e.id : e.time + ":" + e.from + ":" + e.text), at: timeOf(e.time), kind: "mail", from: e.from, label: labelOf(model, e.from) || "an agent", text: e.text, delivery: e.delivery, waiting: e.delivery !== "read", maybeCut: maybeCut(e.text) });
     }
     const team = model.teams.find((t) => t.manager === manager);
     const mine = new Set(team ? list(team.members) : []);
     for (const v of list(events)) {
-      if (!isObject(v) || (v.kind !== "ship" && v.kind !== "down") || v.pane === manager || !mine.has(v.pane)) continue;
+      if (!isObject(v) || (v.kind !== "ship" && v.kind !== "down") || v.pane === manager || !mine.has(v.pane) || typeof v.text !== "string" || !v.text.trim()) continue;
       other.push({ key: "e:" + v.at + ":" + v.pane + ":" + v.text, at: timeOf(v.at), kind: "event", tone: v.kind, pane: v.pane, text: v.text });
     }
   }
@@ -106,9 +106,35 @@ export function managerTimeline({ entries = [], model = null, manager = "", even
  */
 export function timelineEntries(items) {
   return list(items).map((it) => {
-    if (it.kind === "entry") return it.entry;
+    if (it.kind === "entry") return it.entry.id !== undefined && it.entry.id !== "" ? it.entry : { ...it.entry, id: it.key };
     const ts = Number.isFinite(it.at) ? new Date(it.at).toISOString() : "";
     if (it.kind === "mail") return { id: it.key, kind: "mail", ts, from: it.from, label: it.label, text: it.text, waiting: it.waiting, maybeCut: it.maybeCut };
     return { id: it.key, kind: "event", ts, tone: it.tone, pane: it.pane, text: it.text };
   });
+}
+
+/**
+ * withFloor puts a notice into the drawn entries where the mail stops being
+ * complete: just before the first entry at or after `floor` (a time in ms, from
+ * mailFloor), so older conversation paged in above it sits above the notice and
+ * the first drawn entry changes, which the list reads as rows added above. With no
+ * floor the entries come back as they were. now is for the date: a floor that is
+ * not today says its day.
+ */
+export function withFloor(entries, floor, now = Date.now()) {
+  const list2 = list(entries);
+  if (!Number.isFinite(floor)) return list2;
+  const t = new Date(floor);
+  const sameDay = new Date(now).toDateString() === t.toDateString();
+  const clock = t.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  const when = sameDay ? clock : t.toLocaleDateString([], { day: "numeric", month: "short" }) + " " + clock;
+  const notice = { id: "mail-floor", kind: "notice", ts: t.toISOString(), text: "Mail from before " + when + " is not shown." };
+  let last = -Infinity;
+  let at = list2.length;
+  for (let i = 0; i < list2.length; i++) {
+    const v = timeOf(list2[i] && list2[i].ts);
+    if (Number.isFinite(v)) last = Math.max(last, v);
+    if (last >= floor) { at = i; break; }
+  }
+  return [...list2.slice(0, at), notice, ...list2.slice(at)];
 }

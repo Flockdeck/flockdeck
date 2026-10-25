@@ -127,6 +127,14 @@ export function Row({ entry: e, open = false, onToggle = null, detail = null, ne
       return html`<li class="conv-row conv-note" data-kind="compaction" data-entry=${nested ? null : e.id} tabindex="-1">${typeof e.turns === "number" ? "Conversation compacted (" + e.turns + " turns)" : "Conversation compacted"}</li>`;
     case "notice":
       return html`<li class="conv-row conv-note" data-kind="notice" data-entry=${nested ? null : e.id} tabindex="-1">${clip(text(e.text), 400)}</li>`;
+    case "mail":
+      return html`<li class=${"conv-row conv-mail" + (e.waiting ? " is-waiting" : "")} data-kind="mail" data-entry=${nested ? null : e.id} tabindex="-1">
+        <span class="conv-who">${"From " + clip(text(e.label) || text(e.from) || "an agent", 60)}${e.waiting ? html` <span class="conv-mail-chip">not read yet</span>` : null}</span>
+        <p class="conv-text">${clip(text(e.text), MAX_TEXT)}</p>
+        <p class="conv-cut">${e.maybeCut ? "May be cut. " : "First line only. "}The whole message is in ${clip(text(e.label) || text(e.from) || "an agent", 60)}'s conversation.</p>
+      </li>`;
+    case "event":
+      return html`<li class=${"conv-row conv-note conv-event conv-event--" + (e.tone === "down" ? "down" : "ship")} data-kind="event" data-entry=${nested ? null : e.id} tabindex="-1">${clip(text(e.text), 300)}</li>`;
     case "image":
       return html`<li class=${"conv-row conv-image-row" + (open ? " is-open" : "")} data-kind="image" data-entry=${nested ? null : e.id} data-nested=${nested ? "" : null} tabindex="-1">
         ${e.hasDetail && onToggle

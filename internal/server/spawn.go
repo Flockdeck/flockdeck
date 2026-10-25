@@ -854,6 +854,7 @@ func (s *Server) installSpawnHandler() {
 				Cwd:            cwd,
 				Split:          req.Split,
 				TabName:        req.Tab,
+				Label:          req.Label,
 				Kind:           kind,
 				Agent:          req.Agent,
 				Model:          req.Model,

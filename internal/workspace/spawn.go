@@ -17,6 +17,7 @@ import (
 	"github.com/jmwri/flockdeck/internal/layout"
 	"github.com/jmwri/flockdeck/internal/session"
 	"github.com/jmwri/flockdeck/internal/store"
+	"github.com/jmwri/flockdeck/internal/team"
 )
 
 // maxTaskBytes bounds the task text an agent is started with. The same text is
@@ -120,8 +121,11 @@ type SpawnOptions struct {
 	// given it. It is how a manager keeps the panes for one piece of work in
 	// one tab. When it is set, Tab and Split are not used.
 	TabName string
-	Kind    session.Kind
-	Title   string
+	// Label is what the child is called for its work (see Pane.Label). Empty
+	// means one is made from Task.
+	Label string
+	Kind  session.Kind
+	Title string
 	// Agent names the agent.Spec the pane runs, and Model the model that agent
 	// is asked for. Empty means the default, which is how a spawn made
 	// without a thought about either keeps running what Flockdeck already ran. An
@@ -612,17 +616,20 @@ func (w *Workspace) Spawn(parentPaneID string, o SpawnOptions) (string, error) {
 		initial, batonID, batonPrompt = o.Baton.Prompt, o.Baton.ID, o.Baton.Prompt
 	}
 
+	label, auto := spawnLabel(o.Label, o.Task)
 	p := &Pane{
-		ID:      uuid.NewString(),
-		Kind:    o.Kind,
-		Cwd:     cwd,
-		Name:    filepath.Base(cwd),
-		Root:    w.helperProject(cwd, home),
-		Branch:  branchOf(cwd),
-		initial: initial,
-		Task:    o.Task,
-		BatonID: batonID,
-		Role:    o.Role,
+		ID:        uuid.NewString(),
+		Kind:      o.Kind,
+		Cwd:       cwd,
+		Name:      filepath.Base(cwd),
+		Root:      w.helperProject(cwd, home),
+		Branch:    branchOf(cwd),
+		initial:   initial,
+		Task:      o.Task,
+		Label:     label,
+		LabelAuto: auto,
+		BatonID:   batonID,
+		Role:      o.Role,
 		// Kept in memory so a restart before the first turn asks the same thing.
 		batonPrompt: batonPrompt,
 		// A child inherits the pane it was started from trusting auto-review
@@ -814,17 +821,19 @@ func (w *Workspace) StartAgentAs(root, agentID, model, cwd, task, role string) (
 	}
 
 	p := &Pane{
-		ID:      uuid.NewString(),
-		Kind:    session.KindClaude,
-		Cwd:     cwd,
-		Name:    filepath.Base(cwd),
-		Root:    open,
-		Branch:  branchOf(cwd),
-		initial: task,
-		Task:    task,
-		Agent:   agentID,
-		Model:   model,
-		Role:    role,
+		ID:        uuid.NewString(),
+		Kind:      session.KindClaude,
+		Cwd:       cwd,
+		Name:      filepath.Base(cwd),
+		Root:      open,
+		Branch:    branchOf(cwd),
+		initial:   task,
+		Task:      task,
+		Label:     labelFromTask(task),
+		LabelAuto: labelFromTask(task) != "",
+		Agent:     agentID,
+		Model:     model,
+		Role:      role,
 		// Never given a Parent (see the doc comment above), so it starts
 		// AutoReview from the installation's own default like any other pane
 		// the user started themselves.
@@ -981,3 +990,13 @@ var extrasOf = gitx.Extras
 // beforeBranchDelete runs between looking at a made branch and deleting it; a test moves
 // the branch there, as another process could.
 var beforeBranchDelete = func(repo string, m MadeWorktree) {}
+
+// spawnLabel is the label of a pane spawned with the one asked for, or, when none
+// was, one made from its task.
+func spawnLabel(asked, task string) (label string, auto bool) {
+	if l := team.PaneLabelText(asked); l != "" {
+		return l, false
+	}
+	l := labelFromTask(task)
+	return l, l != ""
+}

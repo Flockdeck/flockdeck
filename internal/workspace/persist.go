@@ -12,6 +12,7 @@ import (
 	"github.com/jmwri/flockdeck/internal/layout"
 	"github.com/jmwri/flockdeck/internal/session"
 	"github.com/jmwri/flockdeck/internal/store"
+	"github.com/jmwri/flockdeck/internal/team"
 )
 
 // SaveAll writes the layout of every open project and the list of which ones
@@ -129,6 +130,10 @@ func (w *Workspace) encodeNode(n *layout.Node, tabRoot string) *store.Node {
 			Cwd:  p.Cwd,
 			Name: p.Name,
 			Task: p.Task,
+			// Empty, and so left out, for a pane with no label.
+			Label: w.LabelOf(p),
+			// Written only for a label made from the task.
+			LabelAuto: w.LabelAutoOf(p),
 			// Empty, and so left out, for a pane that began without a baton.
 			BatonID: p.BatonID,
 			// Empty, and so left out, for a pane started with no role.
@@ -549,6 +554,8 @@ func (w *Workspace) decodeNode(n *store.Node, tabRoot string, r *restoring) *lay
 			Cwd:             n.Pane.Cwd,
 			Name:            n.Pane.Name,
 			Task:            n.Pane.Task,
+			Label:           team.PaneLabelText(n.Pane.Label),
+			LabelAuto:       n.Pane.LabelAuto && n.Pane.Label != "",
 			BatonID:         n.Pane.BatonID,
 			Role:            n.Pane.Role,
 			Root:            n.Pane.Root,

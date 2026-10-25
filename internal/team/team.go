@@ -25,6 +25,9 @@ type Member struct {
 	// Peer the name the agent reported with `flockdeck peer-name`, if it did.
 	Name string `json:"name"`
 	Peer string `json:"peer,omitempty"`
+	// Called is what the pane is called for the work it does (the pane's label,
+	// set with spawn -name or flockdeck pane-name), empty until it has one.
+	Called string `json:"label,omitempty"`
 	// Role is the id of the role the pane was started as, empty for none.
 	Role   string `json:"role,omitempty"`
 	Agent  string `json:"agent,omitempty"`
@@ -34,8 +37,12 @@ type Member struct {
 	Self bool `json:"self,omitempty"`
 }
 
-// Label is what to call the member: its peer name, or its pane name.
+// Label is what to call the member: what it is called for its work, else its
+// peer name, else its pane name.
 func (m Member) Label() string {
+	if m.Called != "" {
+		return PaneLabelText(m.Called)
+	}
 	if m.Peer != "" {
 		return AgentLabel(m.Peer)
 	}
@@ -257,6 +264,52 @@ func AgentLabel(name string) string {
 		return PlainLabel("(agent) " + n)
 	}
 	return n
+}
+
+// MaxPaneLabel is the longest label a pane may have, in characters.
+const MaxPaneLabel = 40
+
+// labelRoles are the role ids a label may not pass for, besides the ids of the
+// roles of the project it is given in.
+var labelRoles = []string{ManagerRole, "reviewer", "planner", "tester", "worker"}
+
+// noFormat drops the format characters (Unicode category Cf): zero-width and
+// direction marks, the byte order mark and the tag block. They print as nothing
+// or reorder what is around them, so a label could hide or fake words with them.
+func noFormat(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.Is(unicode.Cf, r) {
+			return -1
+		}
+		return r
+	}, s)
+}
+
+// PaneLabelText is a pane's label as text: one line of at most MaxPaneLabel
+// characters with no control or format character in it, and rewritten as
+// "(agent) name" when it could pass for the user or for Flockdeck, or for a role
+// (manager, reviewer, planner, tester, worker, or one of roles), as AgentLabel does.
+func PaneLabelText(s string, roles ...string) string {
+	n := PlainText(noFormat(s), MaxPaneLabel)
+	if Impersonates(n) || passesForRole(n, roles) {
+		return PlainText("(agent) "+n, MaxPaneLabel)
+	}
+	return n
+}
+
+func passesForRole(label string, roles []string) bool {
+	n := Normalize(label)
+	if n == "" {
+		return false
+	}
+	for _, list := range [][]string{labelRoles, roles} {
+		for _, r := range list {
+			if n == Normalize(r) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // Sender says who a message came from.
