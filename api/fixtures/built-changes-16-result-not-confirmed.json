@@ -1,0 +1,8 @@
+{
+  "type": "changesResult",
+  "req": "r1",
+  "op": "runChecks",
+  "ok": false,
+  "code": "notConfirmed",
+  "error": "The commands in the check file have not been confirmed in the Flockdeck window. Open the checks, read the commands and confirm them."
+}

@@ -27,7 +27,7 @@ today and not an error.
 | `changesTeam` | `changesWatch`, `changesUnwatch`, `changesSnapshot` and `filesPage`: the team-wide list of branches and their files. |
 | `changesDiff` | `diffHunks` and `diffContext`: a file's diff as hunks. |
 | `changesComments` | `commentAdd`, `commentResolve`, `commentReopen` and the `comments` of each branch. |
-| `changesChecks` | `runChecks`, `requestReview`, `submitReview` and the `checks` and `reviews` of each branch. Without it both are empty. |
+| `changesChecks` | `runChecks`, `confirmChecks`, `requestReview`, `submitReview` and the `checks` and `reviews` of each branch. Without it both are empty. |
 | `changesGate` | `approveMerge`, `unapproveMerge`, `mergeBranch` and the `gate` of each branch. Without it `gate` is absent. |
 
 A cap is added to `api.caps` in the change that builds what it names.
@@ -51,6 +51,7 @@ with a `changesResult` whose `code` is `deskOnly` and a notice.
 | `commentAdd` | Adds a comment and sends it to the file's owner (section 5). Answers with a `changesResult` holding the `comment`. |
 | `commentResolve`, `commentReopen` | Close and reopen a comment. Answer with a `changesResult` holding the `comment`. |
 | `runChecks` | Runs the project's local checks for a branch. Answers at once with a `changesResult`; results arrive in the next `changesTeam`. |
+| `confirmChecks` | Shows the commands of the check file and a hash of them, and with `confirm` records that hash as the one the person looked at (section 6). Answers with a `changesChecks`, or with a `changesResult` when it confirms. |
 | `requestReview` | Asks a pane to review a branch: records a `requested` review and sends the pane a message. |
 | `submitReview` | Records the person's own sign-off (`approved`, `changes` or `dismissed`) on a branch. Taken from a window page only (section 6). |
 | `approveMerge` | Approves a branch's current head (section 7). |
@@ -65,7 +66,9 @@ Which command answers with which code:
 | `deskOnly`, `unsupported` | All of them (section 9; a build without the cap). |
 | `badRequest` | Any with a missing, too long or out of range field; `diffHunks`, `diffContext` and `commentAdd` for a `file` that is not one of the branch's files or leaves the checkout, and `commentAdd` for a line the diff does not have. |
 | `noBranch` | Any with an `id` that is not a pane with a branch, or a `branch` that differs. |
-| `notFound` | `commentResolve`, `commentReopen` (no such comment); `requestReview` (no such reviewer, or not an agent pane); `runChecks` (no check file). |
+| `notFound` | `commentResolve`, `commentReopen` (no such comment); `requestReview` (no such reviewer, or not an agent pane); `runChecks` and `confirmChecks` (no check file, or none that holds a check). |
+| `notConfirmed` | `runChecks`, when the commands of the check file are not the ones the person confirmed. |
+| `changed` | `confirmChecks` with `confirm`, when the file no longer has the `hash` that was shown. |
 | `headMoved` | `commentAdd`, `submitReview`, `approveMerge`, `mergeBranch` (`expectSha` is not the head). |
 | `checksNotPassing`, `conflicts`, `openComments`, `reviewChangesRequested`, `unpushed`, `empty` | `approveMerge`, in that order. |
 | `notApproved` | `mergeBranch`, when the gate is not approved for that head. |
@@ -90,6 +93,7 @@ The fields these commands use, besides `cmd`:
 | `text` | `commentAdd`, `requestReview` | The comment (1 to 4096 characters), or an optional note to the reviewer. |
 | `commentId` | `commentResolve`, `commentReopen` | The comment's id. |
 | `names` | `runChecks` | The checks to run. Empty means all of them. |
+| `confirm`, `hash` | `confirmChecks` | `confirm` true records the commands whose hash is `hash`, the one the window was shown. Without it the command only shows them. |
 | `reviewer` | `requestReview` | The pane to ask. |
 | `state`, `note` | `submitReview` | `approved`, `changes` or `dismissed`, and a note of up to 2000 characters. |
 | `expectSha` | `approveMerge`, `mergeBranch`, `commentAdd`, `submitReview` | The head the window looked at. Required. When it is not the current head the answer is `headMoved` and nothing is recorded, so a comment or sign-off is never attached to code the person did not see (sections 5 and 7). |
@@ -232,6 +236,20 @@ repository or from an agent: the team file, the task board and the branch are
 all written by agents and are not read for commands. A `runChecks` that finds no
 such file is `notFound`, and its error gives the path to write.
 
+**Confirming the commands.** `confirmChecks` answers with a `changesChecks`: the
+`commands` the file would run, as they would run, their `hash`, and `pinned`,
+whether that hash is the one the person last confirmed. The window shows the
+commands to the person. `confirmChecks` with `confirm` true and that `hash`
+records it as confirmed, in `changes/<project name>-<8 hex>.pin.json`, which is
+written the same way as the review state. If the file no longer has that hash
+the answer is `changed` and nothing is recorded, so the person confirms only
+what they read. A file with no check is not confirmed. `runChecks` runs the
+commands only while the file still has the confirmed hash, and is `notConfirmed`
+otherwise: a file edited after the confirmation, a missing or damaged pin and a
+pin for other commands all count as not confirmed. The hash is taken of the list
+`runChecks` loads and runs, not of the file as a whole, so spacing in the file
+does not need a new confirmation and a change after the load is not run.
+
 `runChecks` runs the checks, or those in `names`, one at a time in the branch's
 checkout through the platform's shell, and answers at once. The results are in
 the branch's `checks` with `source` `local`, in the pushes that follow. Each has
@@ -269,7 +287,7 @@ is reported `queued`, and one that saw a tree that became dirty is marked
 `worktree`. That is an honesty check and not a boundary; a process that wants to
 deceive can put the files back before the second look.
 
-Who may start a check. `runChecks`, `requestReview` and `submitReview` are
+Who may start a check. `runChecks`, `confirmChecks`, `requestReview` and `submitReview` are
 taken only from a connection that opened as a page of the window on this machine
 (with an `Origin`), as `approveBaton` is, and refused as `deskOnly` otherwise.
 That raises the bar and does not close it: an agent's pane token is accepted by
@@ -278,7 +296,12 @@ credential an agent cannot get, an agent on this machine can run the person's
 checks, and a recorded review is not proof that the person made it. The merge
 commands (`approveMerge`, `mergeBranch`, section 7) must not ship before that
 credential exists. The check file is in the config directory, so an agent that
-can write there can plant commands in it; the person's file is not pinned yet.
+can write there can plant commands in it. The pin makes that show: a changed
+file is not run until the person has read and confirmed it. It does not stop an
+agent that can also write the pin file, or that sends `confirmChecks` itself
+with its pane token and an `Origin`; that needs the same credential, and until
+it exists the pin guards against a file that changed after the person read it
+and not against an agent on this machine.
 
 A CI result has `source` `ci` and a `url`; a result an agent reports has `source`
 `agent`. Neither is built in this version.
@@ -373,7 +396,7 @@ the branch's `gate.state` is `merged` and `mergeSha` is the new tip of the base.
 
 All of it is for the machine Flockdeck runs on. A window reached through the
 relay is refused every command here, and `changesTeam`, `changesFiles`,
-`diffHunks` and `diffContext` are never sent to one. The only `changesResult` it
+`diffHunks`, `diffContext` and `changesChecks` (the commands of the check file) are never sent to one. The only `changesResult` it
 is sent is that refusal: `code` is `deskOnly` or `unsupported` and `error` is the
 fixed sentence for that code, whatever the desktop wrote; anything else, and an
 answer that holds a comment or a gate, is dropped. Its hello does not
@@ -410,6 +433,8 @@ none.
 | `built-changes-08-diff-error.json` | A diff that could not be made. |
 | `built-changes-09-diff-context.json` | Lines between hunks. |
 | `built-changes-10-result-approved.json` to `built-changes-14-result-desk-only.json` | `changesResult`: an approval, a head that moved, a blocked approval, a comment added, a refusal to a relay window. |
+| `built-changes-15-checks-to-confirm.json` | A `changesChecks`: two commands and the hash to confirm. |
+| `built-changes-16-result-not-confirmed.json`, `built-changes-17-result-changed.json` | `changesResult`: `runChecks` refused as `notConfirmed`, and a `confirmChecks` refused as `changed`. |
 
 ## 12. Field reference
 
@@ -423,4 +448,5 @@ The fields of the smaller objects, for the ones the sections above do not walk t
 - `comment`: `author` (the person or the pane that wrote it), `createdAt`, and `fixedAtSha`, the head at which the owner reported it fixed.
 - `gate`: `approvedSha` is the head that was approved, `approvedBy` who approved it and `approvedAt` when.
 - `line`: `t` is the line kind, `ctx`, `add` or `del`.
+- `changesChecks`: `commands` are `{name, cmd}` in file order, `hash` is the hash to send back and `pinned` says whether it is already confirmed.
 - `changesResult`: `op` is the command it answers, and `ok` is true when the command did what it said. When it is false, `code` and `error` say why.

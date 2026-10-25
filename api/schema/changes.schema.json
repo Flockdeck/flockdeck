@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/Flockdeck/flockdeck/blob/main/api/schema/changes.schema.json",
   "title": "Flockdeck team-wide changes",
-  "description": "PLANNED CONTRACT, not served yet: every command and message here has status planned in api/catalog.json until the server builds it, and a client looks for the changes* names in the hello's api.caps before using any of them. The messages the Changes view reads: the changesTeam push (a watch of every agent checkout of a project, with files, checks, reviews, comments and the merge gate), a page of files (changesFiles), a file's diff as hunks (diffHunks), unchanged lines between hunks (diffContext) and the answer to a command that changes something (changesResult). The document root is changesTeam; the other shapes are in $defs. Desk only: a window through the relay is sent none of it. An object with a field not named here is not one Flockdeck writes. Optional fields are absent, never null. docs/changes-api.md explains each.",
+  "description": "PLANNED CONTRACT, not served yet: every command and message here has status planned in api/catalog.json until the server builds it, and a client looks for the changes* names in the hello's api.caps before using any of them. The messages the Changes view reads: the changesTeam push (a watch of every agent checkout of a project, with files, checks, reviews, comments and the merge gate), a page of files (changesFiles), a file's diff as hunks (diffHunks), unchanged lines between hunks (diffContext), the commands of the check file to confirm (changesChecks) and the answer to a command that changes something (changesResult). The document root is changesTeam; the other shapes are in $defs. Desk only: a window through the relay is sent none of it. An object with a field not named here is not one Flockdeck writes. Optional fields are absent, never null. docs/changes-api.md explains each.",
   "type": "object",
   "additionalProperties": false,
   "required": [
@@ -1059,6 +1059,61 @@
         }
       }
     },
+    "changesChecks": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "type",
+        "commands",
+        "hash",
+        "pinned"
+      ],
+      "description": "The commands the project's check file would run, in answer to confirmChecks without confirm. Sent to the window that asked and never to one reached through the relay.",
+      "properties": {
+        "type": {
+          "const": "changesChecks"
+        },
+        "req": {
+          "type": "string",
+          "description": "The req of the command.",
+          "minLength": 1
+        },
+        "commands": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "name",
+              "cmd"
+            ],
+            "description": "One check.",
+            "properties": {
+              "name": {
+                "type": "string",
+                "description": "The check's name.",
+                "minLength": 1
+              },
+              "cmd": {
+                "type": "string",
+                "description": "The command line, as it would run.",
+                "minLength": 1
+              }
+            }
+          },
+          "description": "In file order, after the limits are applied. Empty when the file has no usable check."
+        },
+        "hash": {
+          "type": "string",
+          "description": "The hash of commands. A confirmChecks with confirm sends it back, and is refused as changed when the file no longer has this hash.",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "pinned": {
+          "type": "boolean",
+          "description": "True when this hash is the one the person last confirmed, so runChecks will run these commands."
+        }
+      }
+    },
     "changesResult": {
       "type": "object",
       "additionalProperties": false,
@@ -1104,9 +1159,11 @@
             "busy",
             "notClean",
             "notFastForward",
-            "failed"
+            "failed",
+            "notConfirmed",
+            "changed"
           ],
-          "description": "Why it was refused. Written when ok is false. deskOnly: a window through the relay. unsupported: this build does not do it yet (see caps). badRequest: a field is missing, too long or out of range. noBranch: no such pane or branch. headMoved: expectSha is not the head. checksNotPassing: a check is failing, running, queued or missing at this head. conflicts. openComments. reviewChangesRequested. unpushed: the head is not on the upstream. empty: the branch has no commits of its own. notApproved: mergeBranch, and the gate is not approved for that head. notFound: no such comment, a reviewer that is missing or not an agent pane, or no team file for runChecks. notClean: the base checkout has uncommitted changes. notFastForward: the base moved, so the branch needs the base merged into it first. failed: git refused, and error has its words."
+          "description": "Why it was refused. Written when ok is false. deskOnly: a window through the relay. unsupported: this build does not do it yet (see caps). badRequest: a field is missing, too long or out of range. noBranch: no such pane or branch. headMoved: expectSha is not the head. checksNotPassing: a check is failing, running, queued or missing at this head. conflicts. openComments. reviewChangesRequested. unpushed: the head is not on the upstream. empty: the branch has no commits of its own. notApproved: mergeBranch, and the gate is not approved for that head. notFound: no such comment, a reviewer that is missing or not an agent pane, or no check file for runChecks and confirmChecks. notClean: the base checkout has uncommitted changes. notFastForward: the base moved, so the branch needs the base merged into it first. failed: git refused, and error has its words, or the confirmation could not be saved. notConfirmed: runChecks, and the commands of the check file are not the ones the person confirmed. changed: confirmChecks, and the check file is not the one the hash was taken from."
         },
         "error": {
           "type": "string",

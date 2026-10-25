@@ -1,0 +1,16 @@
+{
+  "type": "changesChecks",
+  "req": "q1",
+  "commands": [
+    {
+      "name": "unit",
+      "cmd": "go test ./..."
+    },
+    {
+      "name": "lint",
+      "cmd": "go vet ./..."
+    }
+  ],
+  "hash": "6d1f0c2a9b4e8f3d5a7c1e0b2d4f6a8c9e1b3d5f7a9c0e2b4d6f8a1c3e5b7d90",
+  "pinned": false
+}
