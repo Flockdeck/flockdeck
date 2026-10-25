@@ -49,7 +49,7 @@ opens only its own projects.
 Run from inside a pane, this starts another agent:
 
 ```sh
-flockdeck spawn [-worktree <branch> | -no-worktree] [-split] [-tab <title>] [-shell] [-record]
+flockdeck spawn [-worktree <branch> | -no-worktree] [-split] [-tab <title>] [-name <label>] [-shell] [-record]
                 [-agent <id>] [-model <model>] [-role <id>] [-baton <ref>] [-baton-send-elsewhere] [-task <id>] <task>
 ```
 
@@ -65,6 +65,12 @@ and the panes for each are together in front of you. It takes precedence over `-
 with `-role`, `-worktree` and `-shell`, and is at most 60 characters with no control or
 format characters (line breaks, zero-width and direction marks), which are refused.
 The tab keeps that title, and goes when its last pane is closed.
+
+`-name <label>` says what the helper works on, in 2 to 5 words, such as the PR or the
+topic ("rate limiter PR"). The window and the other agents call the helper that, in
+place of the name of its directory, which every helper of a project shares. It is one line of at
+most 40 characters; control characters become spaces and the rest is cut. Without it the
+label is made from the first clause of the task. The helper can change it with `pane-name`.
 
 `-record` starts the helper with its agent interaction recorded as a
 transcript, the same as the record button in its header; see
@@ -130,6 +136,21 @@ without asking the pane to describe itself first.
 
 Like `spawn`, this only works inside a pane, using the address and token its
 environment was given.
+
+## pane-name
+
+Run from inside a pane, this names a pane for the work it does:
+
+```sh
+flockdeck pane-name [-pane <id>] <label>
+```
+
+The label is what the window and the other agents call the pane, with its role: "worker ·
+rate limiter PR". It is one line of at most 40 characters, in 2 to 5 words, the PR or the
+topic. An agent renames itself when its work changes. Without `-pane` the name is
+for the pane running the command; a manager may name any pane of its project with `-pane`,
+and no other pane may name another. A label of `""` clears it. A label is kept with the pane
+across a restart. You can also rename a pane in the window.
 
 ## close
 

@@ -719,6 +719,12 @@
       "status": "stable"
     },
     {
+      "name": "paneName",
+      "access": "full",
+      "since": "1.3",
+      "status": "stable"
+    },
+    {
       "name": "paneSend",
       "access": "full",
       "since": "1.0",

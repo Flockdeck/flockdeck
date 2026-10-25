@@ -88,12 +88,29 @@ type InboxResult struct {
 	Messages []team.Message `json:"messages"`
 }
 
+// PaneNameRequest names a pane for the work it does (`flockdeck pane-name`). With
+// no Target it names the caller's own pane; a manager may name another pane of
+// its project, and no other pane may. Text is cleaned and cut by the application
+// (see team.PaneLabelText), and empty clears the name.
+type PaneNameRequest struct {
+	Auth
+	Target string `json:"target,omitempty"`
+	Text   string `json:"text"`
+}
+
+// PaneNameResult is the pane named and the label it now has, as stored.
+type PaneNameResult struct {
+	Pane  string `json:"pane"`
+	Label string `json:"label,omitempty"`
+}
+
 // teamHandlers are the functions the application installs.
 type teamHandlers struct {
-	team  func(TeamRequest) (TeamResult, error)
-	msg   func(MsgRequest) (MsgResult, error)
-	inbox func(InboxRequest) (InboxResult, error)
-	task  func(TaskRequest) (TaskResult, error)
+	paneName func(PaneNameRequest) (PaneNameResult, error)
+	team     func(TeamRequest) (TeamResult, error)
+	msg      func(MsgRequest) (MsgResult, error)
+	inbox    func(InboxRequest) (InboxResult, error)
+	task     func(TaskRequest) (TaskResult, error)
 }
 
 // SetTeamHandler installs the function that answers `flockdeck team`.
@@ -114,6 +131,13 @@ func (s *Server) SetMsgHandler(fn func(MsgRequest) (MsgResult, error)) {
 func (s *Server) SetInboxHandler(fn func(InboxRequest) (InboxResult, error)) {
 	s.mu.Lock()
 	s.onTeam.inbox = fn
+	s.mu.Unlock()
+}
+
+// SetPaneNameHandler installs the function that names a pane.
+func (s *Server) SetPaneNameHandler(fn func(PaneNameRequest) (PaneNameResult, error)) {
+	s.mu.Lock()
+	s.onTeam.paneName = fn
 	s.mu.Unlock()
 }
 
@@ -162,6 +186,10 @@ func (s *Server) handleMsg() http.HandlerFunc {
 
 func (s *Server) handleInbox() http.HandlerFunc {
 	return serveJSON(s, "the inbox", func() func(InboxRequest) (InboxResult, error) { return s.onTeam.inbox })
+}
+
+func (s *Server) handlePaneName() http.HandlerFunc {
+	return serveJSON(s, "naming a pane", func() func(PaneNameRequest) (PaneNameResult, error) { return s.onTeam.paneName })
 }
 
 // teamTimeout is how long the team commands wait for the application. Nothing
@@ -227,6 +255,12 @@ func Team(api, token, pane string) (TeamResult, error) {
 // Msg is the client half of `flockdeck msg send`.
 func Msg(api, token, pane, target, text string) (MsgResult, error) {
 	return post[MsgResult](api, "/msg", MsgRequest{Auth: Auth{Pane: pane, Token: token}, Target: target, Text: text})
+}
+
+// PaneName is the client half of `flockdeck pane-name`. An empty target names
+// the caller's own pane.
+func PaneName(api, token, pane, target, text string) (PaneNameResult, error) {
+	return post[PaneNameResult](api, "/pane-name", PaneNameRequest{Auth: Auth{Pane: pane, Token: token}, Target: target, Text: text})
 }
 
 // Inbox is the client half of `flockdeck inbox`: the unread messages, or all of

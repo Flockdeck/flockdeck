@@ -150,6 +150,7 @@ root need not be a manager: any pane that started helpers is one.
 | `orphaned` | `true` when the pane named a parent that is not open, or is where a parent loop was cut. It is then treated as a root. |
 | `waitingOn` | What the pane is held up by (section 4). |
 | `name`, `peer`, `role`, `agent` | The pane's name (usually its directory's), the name the agent reported with `flockdeck peer-name`, the id of the role it was started as, and the id of its agent. `peer`, `role` and `agent` are absent until known; `agent` is also absent for a shell. |
+| `label` | What the pane is called for the work it does: set with `flockdeck spawn -name <label>` or `flockdeck pane-name`, or made from its task text when it was spawned. A client shows the role and the label, then the peer name, then the name. Kept with the pane across a restart. Absent until the pane has one. Added in API 1.3. |
 | `shell` | `true` for a plain terminal with no agent in it. |
 | `status` | The session's status: `starting`, `working`, `waiting`, `blocked`, `idle`, `exited`, or `unknown`. |
 | `activity` | What the pane is drawn as doing: `waiting`, `blocked`, `working`, `idle`, `starting`, `exited` or `failed`. Background work that is still running keeps an idle agent reading as `working`. Empty for none. |
@@ -422,7 +423,7 @@ interface: continue, then remember or only this time; nothing runs until then.
 | Edges | 100 `message` edges and 100 `sent` edges. |
 | `SendMessage` calls remembered | The last 200, in memory only. |
 | Needs-you items | 50 for each team and 50 for the solo panes. |
-| Text | A waiting-on text 200 characters; a live line 140; an edge's first line 140; a task title 120; a team's goal 300; a pane's name 80, its peer name 80, its branch 120 and its agent id 80. All are cut by characters and have control characters and runs of white space turned into single spaces. |
+| Text | A waiting-on text 200 characters; a live line 140; an edge's first line 140; a task title 120; a team's goal 300; a pane's name 80, its peer name 80, its label 40, its branch 120 and its agent id 80. All are cut by characters and have control characters and runs of white space turned into single spaces. |
 | `paneSend` text | 16 KiB, one write in progress for each pane. |
 | Helper cap | `max` is 8 for each pane. |
 | Relay scrub cost | A message to a window reached through the relay is decoded and encoded again once for each such window, in `controlClient.write`. A window on this machine is written the bytes as they were. |
@@ -500,7 +501,7 @@ is `user`, `down`, `reviewer`, `task` or `helpers`; `wait.prompt` is `permission
 A need's `kind` is `permission`, `question`, `returned`, `conflict`, `down`, `setup`
 or `unread`.
 
-Not in it: pane names, peer names, goals, live lines, branches, task titles, edge
+Not in it: pane names, peer names, labels, goals, live lines, branches, task titles, edge
 texts, the texts of needs and waits, permission and question text, agent names and
 paths. A structured pane has `kind` and `status` and nothing else. The names of
 teams and panes are open: until the user decides they may cross, a pane is "Worker 2".

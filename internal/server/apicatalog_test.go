@@ -31,7 +31,7 @@ const (
 )
 
 // addedIn names the minor version a command arrived in; any other is 1.0.
-var addedIn = map[string]string{"uiPrefs": "1.1"}
+var addedIn = map[string]string{"uiPrefs": "1.1", "paneName": "1.3"}
 
 // plannedMessages are the messages of the changes contract (docs/changes-api.md):
 // the ones the server does not send yet, and changesResult, which it sends today only

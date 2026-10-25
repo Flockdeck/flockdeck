@@ -25,6 +25,9 @@ type Member struct {
 	// Peer the name the agent reported with `flockdeck peer-name`, if it did.
 	Name string `json:"name"`
 	Peer string `json:"peer,omitempty"`
+	// Called is what the pane is called for the work it does (the pane's label,
+	// set with spawn -name or flockdeck pane-name), empty until it has one.
+	Called string `json:"label,omitempty"`
 	// Role is the id of the role the pane was started as, empty for none.
 	Role   string `json:"role,omitempty"`
 	Agent  string `json:"agent,omitempty"`
@@ -34,8 +37,12 @@ type Member struct {
 	Self bool `json:"self,omitempty"`
 }
 
-// Label is what to call the member: its peer name, or its pane name.
+// Label is what to call the member: what it is called for its work, else its
+// peer name, else its pane name.
 func (m Member) Label() string {
+	if m.Called != "" {
+		return PaneLabelText(m.Called)
+	}
 	if m.Peer != "" {
 		return AgentLabel(m.Peer)
 	}
@@ -255,6 +262,20 @@ func AgentLabel(name string) string {
 	n := PlainLabel(name)
 	if Impersonates(n) {
 		return PlainLabel("(agent) " + n)
+	}
+	return n
+}
+
+// MaxPaneLabel is the longest label a pane may have, in characters.
+const MaxPaneLabel = 40
+
+// PaneLabelText is a pane's label as text: one line of at most MaxPaneLabel
+// characters with no control character in it, and rewritten as "(agent) name"
+// when it could pass for the user or for Flockdeck, as AgentLabel does.
+func PaneLabelText(s string) string {
+	n := PlainText(s, MaxPaneLabel)
+	if Impersonates(n) {
+		return PlainText("(agent) "+n, MaxPaneLabel)
 	}
 	return n
 }

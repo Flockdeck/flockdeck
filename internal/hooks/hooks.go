@@ -711,6 +711,7 @@ func Serve(on func(Event)) (*Server, error) {
 	mux.HandleFunc("/team", s.handleTeam())
 	mux.HandleFunc("/msg", s.handleMsg())
 	mux.HandleFunc("/inbox", s.handleInbox())
+	mux.HandleFunc("/pane-name", s.handlePaneName())
 	mux.HandleFunc("/task", s.handleTask())
 	s.srv = &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 
@@ -957,6 +958,10 @@ type SpawnRequest struct {
 	// Split, and is how a manager keeps the panes for one piece of work together.
 	Tab   string `json:"tab,omitempty"`
 	Shell bool   `json:"shell,omitempty"`
+	// Label is what the helper is called for its work ("the PR or topic, 2-5
+	// words"). The application cleans and cuts it (see team.PaneLabelText); empty
+	// means one is made from Task.
+	Label string `json:"label,omitempty"`
 	// Agent and Model are which agent the helper should be, for an agent
 	// handing work to one that is better at it than itself. Both empty is what
 	// every earlier build sent and means the project's default, so a helper

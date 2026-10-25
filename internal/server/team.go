@@ -64,6 +64,17 @@ func (s *Server) installTeamHandlers() {
 		}
 		return hooks.InboxResult{Messages: out.res}, out.err
 	})
+	hookSrv.SetPaneNameHandler(func(req hooks.PaneNameRequest) (hooks.PaneNameResult, error) {
+		out, ok := ask(s, func() outcome[hooks.PaneNameResult] {
+			r, err := s.ws.PaneNamed(req)
+			return outcome[hooks.PaneNameResult]{r, err}
+		})
+		if !ok {
+			return hooks.PaneNameResult{}, errShuttingDown
+		}
+		s.Wake()
+		return out.res, out.err
+	})
 	hookSrv.SetTaskHandler(func(req hooks.TaskRequest) (hooks.TaskResult, error) {
 		out, ok := ask(s, func() outcome[hooks.TaskResult] {
 			r, err := s.ws.Task(req)

@@ -599,3 +599,44 @@ func TestFollowLineIsOneQuotedLineWithoutMessageText(t *testing.T) {
 		t.Errorf("the user's message is not labelled %q: %s", UserLabel, got)
 	}
 }
+
+func TestPaneLabelTextIsOneShortLineThatCannotPoseAsTheUser(t *testing.T) {
+	for in, want := range map[string]string{
+		"":                       "",
+		"  rate limiter PR  ":    "rate limiter PR",
+		"tabs\nper\x1b[31m goal": "tabs per [31m goal",
+		"a b\tc":                 "a b c",
+		"the user":               "(agent) the user",
+		"flockdeck":              "(agent) flockdeck",
+		strings.Repeat("x", 80):  strings.Repeat("x", MaxPaneLabel),
+	} {
+		if got := PaneLabelText(in); got != want {
+			t.Errorf("PaneLabelText(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestPaneLabelTextCutsAtTheLimitWithoutATrailingSpace(t *testing.T) {
+	got := PaneLabelText(strings.Repeat("ab ", 30))
+	if n := len([]rune(got)); n == 0 || n > MaxPaneLabel || strings.HasSuffix(got, " ") {
+		t.Errorf("PaneLabelText of a long text = %q (%d characters)", got, n)
+	}
+}
+
+func TestAMembersLabelPrefersWhatItIsCalledForItsWork(t *testing.T) {
+	m := Member{Pane: "p1", Name: "flockdeck", Peer: "worker-3", Called: "limiter PR"}
+	if got := m.Label(); got != "limiter PR" {
+		t.Errorf("Label = %q, want the label", got)
+	}
+	m.Called = ""
+	if got := m.Label(); got != "worker-3" {
+		t.Errorf("Label with no label = %q, want the peer name", got)
+	}
+	m.Peer = ""
+	if got := m.Label(); got != "flockdeck" {
+		t.Errorf("Label with neither = %q, want the pane name", got)
+	}
+	if got := paneLabel(GraphPane{ID: "p1", Name: "flockdeck", Peer: "worker-3", Label: "limiter PR"}); got != "limiter PR" {
+		t.Errorf("paneLabel = %q", got)
+	}
+}

@@ -36,6 +36,7 @@ import (
 	"github.com/jmwri/flockdeck/internal/server"
 	"github.com/jmwri/flockdeck/internal/session"
 	"github.com/jmwri/flockdeck/internal/store"
+	"github.com/jmwri/flockdeck/internal/team"
 	"github.com/jmwri/flockdeck/internal/workspace"
 	webui "github.com/jmwri/flockdeck/ui"
 	"github.com/jmwri/flockdeck/ui/help"
@@ -137,6 +138,17 @@ func main() {
 		if err := runPeerName(os.Args[2:]); err != nil {
 			if !errors.Is(err, errReported) {
 				fmt.Fprintln(os.Stderr, "flockdeck peer-name:", err)
+			}
+			os.Exit(1)
+		}
+		return
+	}
+	// `pane-name` names a pane for the work it does: the agent's own, or, for a
+	// manager, another pane of its project. See hooks.PaneNameRequest.
+	if len(os.Args) > 1 && os.Args[1] == "pane-name" {
+		if err := runPaneName(os.Args[2:]); err != nil {
+			if !errors.Is(err, errReported) {
+				fmt.Fprintln(os.Stderr, "flockdeck pane-name:", err)
 			}
 			os.Exit(1)
 		}
@@ -371,7 +383,7 @@ func helpArgs(rest []string) (args []string, top bool) {
 	switch {
 	case len(rest) == 0:
 		return nil, true
-	case map[string]bool{"spawn": true, "baton": true, "peer-name": true, "close": true, "team": true, "msg": true, "inbox": true, "task": true, "recordings": true, "agents": true, "chat": true, "keys": true, "knowledge": true, "wake": true, "remote": true, "update": true, "helpers": true}[rest[0]]:
+	case map[string]bool{"spawn": true, "baton": true, "peer-name": true, "pane-name": true, "close": true, "team": true, "msg": true, "inbox": true, "task": true, "recordings": true, "agents": true, "chat": true, "keys": true, "knowledge": true, "wake": true, "remote": true, "update": true, "helpers": true}[rest[0]]:
 		return []string{rest[0], "-h"}, false
 	}
 	return nil, true
@@ -470,13 +482,15 @@ func usage(fs *flag.FlagSet) {
 	fmt.Fprintf(out, "Usage:\n  flockdeck [flags]\n\nFlags:\n")
 	fs.PrintDefaults()
 	fmt.Fprintf(out, "\nSubcommands:\n")
-	fmt.Fprintf(out, "  spawn [-worktree <branch> | -no-worktree] [-split] [-tab <title>] [-shell] [-record] [-agent <id>] [-model <model>] [-role <id>] [-baton <ref> [-baton-send-elsewhere]] [-task <id>] <task>\n")
+	fmt.Fprintf(out, "  spawn [-worktree <branch> | -no-worktree] [-split] [-tab <title>] [-name <label>] [-shell] [-record] [-agent <id>] [-model <model>] [-role <id>] [-baton <ref> [-baton-send-elsewhere]] [-task <id>] <task>\n")
 	fmt.Fprintf(out, "        start another agent; run from inside a pane\n")
 	fmt.Fprintf(out, "        run flockdeck spawn -h for what the flags do\n")
 	fmt.Fprintf(out, "  baton list | baton show [-path] <baton-id>\n")
 	fmt.Fprintf(out, "        the handoffs agents have made, which spawn -baton starts a helper from\n")
 	fmt.Fprintf(out, "  peer-name <name>\n")
 	fmt.Fprintf(out, "        report the name another Claude session would address this pane by; run from inside a pane\n")
+	fmt.Fprintf(out, "  pane-name [-pane <id>] <label>\n")
+	fmt.Fprintf(out, "        name this pane for its work (2-5 words), or another pane if you are the manager; run from inside a pane\n")
 	fmt.Fprintf(out, "  close [-force] <pane-id> | close -finished\n")
 	fmt.Fprintf(out, "        close another pane, or every finished one; run from inside a pane\n")
 	fmt.Fprintf(out, "  team [-json]\n")
@@ -1852,6 +1866,7 @@ func parseSpawn(args []string) (hooks.SpawnRequest, error) {
 		NoWorktree: f.noWorktree,
 		Split:      f.split,
 		Tab:        tab,
+		Label:      team.PaneLabelText(f.name),
 		Shell:      f.shell,
 		Agent:      f.agent,
 		Model:      f.model,
@@ -1873,6 +1888,7 @@ type spawnFlags struct {
 	noWorktree bool
 	split      bool
 	tab        string
+	name       string
 	shell      bool
 	record     bool
 	baton      string
@@ -1891,6 +1907,7 @@ func spawnFlagSet(f *spawnFlags) *flag.FlagSet {
 	fs.BoolVar(&f.noWorktree, "no-worktree", false, "start the helper in your own checkout. Without -worktree or this, a helper in a role that works on its own branch (worker, tester, docs, or no role) gets a worktree and a branch of its own, named from its task; the manager, planner and reviewer do not")
 	fs.BoolVar(&f.split, "split", false, "place the helper beside this pane instead of in a new tab")
 	fs.StringVar(&f.tab, "tab", "", "`title` of the tab to put the helper in: the tab of that name in this project, made if there is none. Use one title for the panes of one piece of work. Takes precedence over -split")
+	fs.StringVar(&f.name, "name", "", "`label` for the helper: what it works on, in 2-5 words, such as the PR or topic. Shown in place of the directory name; up to 40 characters. Made from the task when not given; the helper can change it with flockdeck pane-name")
 	fs.BoolVar(&f.shell, "shell", false, "start a shell instead of an agent")
 	fs.BoolVar(&f.record, "record", false, "record the helper's agent interaction as a transcript; off unless given, and only once recording has been turned on in the window")
 	fs.StringVar(&f.agent, "agent", "", "`id` of the agent to start; flockdeck agents lists them")
@@ -2021,6 +2038,52 @@ func runPeerName(args []string) error {
 		return err
 	}
 	fmt.Println("reported peer name", name)
+	return nil
+}
+
+// runPaneName is `flockdeck pane-name [-pane <id>] <label>`: it names this pane
+// for the work it does, or, for a manager, another pane of its project. An empty
+// label ("") clears the name. The label is cleaned and cut to 40 characters by
+// the application, which says what it stored.
+func runPaneName(args []string) error {
+	fs := flag.NewFlagSet("pane-name", flag.ContinueOnError)
+	fs.SetOutput(os.Stderr)
+	target := fs.String("pane", "", "`id` of the pane to name; a manager may name any pane of its project, any other pane only itself. Default: this pane")
+	fs.Usage = func() {
+		fmt.Fprint(os.Stderr, "Usage: flockdeck pane-name [-pane <id>] <label>\n\n"+
+			"Names a pane for the work it does, in 2-5 words (the PR or topic), so the\n"+
+			"window and the other agents call it that and not by its directory name.\n"+
+			"The label is one line of at most 40 characters. Rename yourself when your\n"+
+			"work changes. A label of \"\" clears it.\n\nFlags:\n")
+		fs.PrintDefaults()
+	}
+	if err := fs.Parse(args); err != nil {
+		if errors.Is(err, flag.ErrHelp) {
+			return nil
+		}
+		return errReported
+	}
+	if fs.NArg() < 1 {
+		fs.Usage()
+		return errReported
+	}
+	text := strings.Join(fs.Args(), " ")
+	api := paneEnv("API")
+	token := paneEnv("TOKEN")
+	pane := paneEnv("PANE")
+	if api == "" || token == "" {
+		return fmt.Errorf("this only works inside a flockdeck pane, which is started with FLOCKDECK_API and FLOCKDECK_TOKEN set, " +
+			"and they are not set here; from any other terminal, run `flockdeck` to open the window and start the agent there")
+	}
+	res, err := hooks.PaneName(api, token, pane, *target, text)
+	if err != nil {
+		return err
+	}
+	if res.Label == "" {
+		fmt.Println("cleared the name of pane", res.Pane)
+		return nil
+	}
+	fmt.Printf("pane %s is now called %q\n", res.Pane, res.Label)
 	return nil
 }
 
