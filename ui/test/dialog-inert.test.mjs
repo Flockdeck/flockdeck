@@ -5,6 +5,9 @@ import { render } from "../src/vendor/preact.mjs";
 import { html } from "../src/html.js";
 import { Dialog } from "../src/shell/Dialog.js";
 import { ModalScrim } from "../src/shell/inert.js";
+import { Help } from "../src/shell/Help.js";
+import { Palette } from "../src/shell/palette.js";
+import { fakeKeys } from "./util.mjs";
 import { createDom, install, settle } from "./dom.mjs";
 
 async function mount() {
@@ -13,12 +16,14 @@ async function mount() {
   const container = dom.document.createElement("div");
   dom.body.appendChild(container);
   // a: the first dialog, b: a second one over it, ask: a ModalScrim question.
-  const page = ({ a = false, b = false, ask = false } = {}) => html`<div id="app">
+  const page = ({ a = false, b = false, ask = false, help = false, palette = false } = {}) => html`<div id="app">
     <main id="page"><button id="opener">Behind</button></main>
     <p id="note" role="status"></p>
     <div id="approvals" class="approvals" data-keep-live role="region"><section role="alert"><button id="yes">Allow</button></section></div>
     ${a ? html`<${Dialog} id="da" title="A" onClose=${() => {}}><button id="ina">In A</button><//>` : null}
     ${b ? html`<${Dialog} id="db" title="B" onClose=${() => {}}><button id="inb">In B</button><//>` : null}
+    ${help ? html`<${Help} keys=${fakeKeys} implemented=${[]} load=${() => Promise.resolve({ pages: [] })} onClose=${() => {}} />` : null}
+    ${palette ? html`<${Palette} keys=${fakeKeys} implemented=${[]} onRun=${() => {}} onClose=${() => {}} />` : null}
     ${ask ? html`<${ModalScrim}><button id="inask">Sure</button><//>` : null}
   </div>`;
   const draw = async (props) => { render(page(props), container); await settle(); };
@@ -63,15 +68,18 @@ test("two dialogs at once: the page stays inert until the last one closes, which
   }
 });
 
-test("on close the page is live before the focus goes back to where it was", async () => {
-  const m = await mount();
-  try {
-    await m.draw({});
-    const opener = m.container.querySelector("#opener");
-    opener.focus();
-    await m.draw({ a: true });
-    await m.draw({});
-    assert.equal(m.inert("#page"), null);
-    assert.equal(m.dom.document.activeElement, opener, "the focus is back on the opener");
-  } finally { m.restore(); }
+test("on close the page is live before the focus goes back to where it was, for each kind of modal", async () => {
+  for (const kind of ["a", "help", "palette"]) {
+    const m = await mount();
+    try {
+      await m.draw({});
+      const opener = m.container.querySelector("#opener");
+      opener.focus();
+      await m.draw({ [kind]: true });
+      assert.equal(m.inert("#page"), "", kind + ": the page is inert while it is open");
+      await m.draw({});
+      assert.equal(m.inert("#page"), null, kind + ": the page is live again");
+      assert.equal(m.dom.document.activeElement, opener, kind + ": the focus is back on the opener");
+    } finally { m.restore(); }
+  }
 });

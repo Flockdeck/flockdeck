@@ -85,6 +85,9 @@ export function Help({ keys, implemented, load, slug = "", onClose }) {
   const [attempt, setAttempt] = useState(0);
   const search = useRef(null);
   const content = useRef(null);
+  // First, so on close the page is live again before the focus effect below puts the focus back.
+  const root = useRef(null);
+  useInert(root);
 
   useEffect(() => {
     let live = true;
@@ -126,8 +129,6 @@ export function Help({ keys, implemented, load, slug = "", onClose }) {
     if (content.current && content.current.scrollTo) content.current.scrollTo(0, 0);
   };
 
-  const root = useRef(null);
-  useInert(root);
   const onKeyDown = (e) => {
     if (composing(e)) return;
     if (e.key === LIST.tab && root.current) {
