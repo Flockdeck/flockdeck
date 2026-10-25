@@ -13,7 +13,7 @@
 import { useEffect, useRef, useState } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
 import { composing, LIST } from "./keys.js";
-import { trapTab } from "./Start.js";
+import { trapTab } from "./focus.js";
 import { Row, Switch } from "./Controls.js";
 import { Notify } from "./Notify.js";
 import { Keys } from "./ApiKeys.js";
@@ -72,13 +72,15 @@ export function Settings({ prefs, change, onClose, section: first = "general", c
   const onTabKey = (e) => {
     if (composing(e)) return;
     const by = e.key === LIST.down || e.key === LIST.right ? 1 : e.key === LIST.up || e.key === LIST.left ? -1 : 0;
-    if (!by) return;
+    // Home and End go to the first and last section.
+    const edge = e.key === LIST.home ? 0 : e.key === LIST.end ? sections.length - 1 : -1;
+    if (!by && edge < 0) return;
     e.preventDefault();
     e.stopPropagation();
-    setSection(sections[(chosen + by + sections.length) % sections.length][0]);
+    const next = edge >= 0 ? sections[edge][0] : sections[(chosen + by + sections.length) % sections.length][0];
+    setSection(next);
     // The new tab takes the keyboard once it is the one in the tab order.
     const root = rootRef.current;
-    const next = sections[(chosen + by + sections.length) % sections.length][0];
     const btn = root && [...root.querySelectorAll("button")].find((b) => b.getAttribute("data-section") === next);
     if (btn) btn.focus();
   };
@@ -200,16 +202,22 @@ function Terminal({ prefs, change }) {
   const [familyError, setFamilyError] = useState("");
   const [lines, setLines] = useState(null);
   const [linesError, setLinesError] = useState("");
+  // Enter, change and blur can all fire for one edit before the state below has caught up: an edit is sent once.
+  const sentOnce = useRef({ family: null, lines: null });
   const applyFamily = () => {
-    if (family === null) return;
+    if (family === null || sentOnce.current.family === family) return;
+    sentOnce.current.family = family;
     const sent = change("fontFamily", family);
+    if (!sent) sentOnce.current.family = null;
     setFamilyError(sent ? "" : WHY.fontFamily);
     if (sent) setFamily(null);
   };
   const applyLines = () => {
-    if (lines === null) return;
+    if (lines === null || sentOnce.current.lines === lines) return;
+    sentOnce.current.lines = lines;
     const n = Number(lines);
     const sent = lines.trim() !== "" && change("scrollback", n);
+    if (!sent) sentOnce.current.lines = null;
     setLinesError(sent ? "" : WHY.scrollback);
     if (sent) setLines(null);
   };
@@ -243,7 +251,7 @@ function Terminal({ prefs, change }) {
     <${Row} id="set-font-family" label="Font" about="Any monospaced font on this computer, by its name. Empty is the default." error=${familyError}>
       <input type="text" class="dialog-field" id="set-font-family-field" placeholder="Default" autocomplete="off" spellcheck="false"
         list="set-fonts" aria-labelledby="set-font-family-label" aria-describedby="set-font-family-about" aria-invalid=${familyError ? "true" : undefined}
-        value=${family !== null ? family : prefs.fontFamily} onInput=${(e) => setFamily(e.target.value)}
+        value=${family !== null ? family : prefs.fontFamily} onInput=${(e) => { sentOnce.current.family = null; setFamily(e.target.value); }}
         onKeyDown=${enter(applyFamily)} onChange=${applyFamily} onBlur=${applyFamily} />
       <datalist id="set-fonts">${FONT_SUGGESTIONS.map((f) => html`<option key=${f} value=${f}></option>`)}</datalist>
     <//>
@@ -253,7 +261,7 @@ function Terminal({ prefs, change }) {
         ${counts.map((n) => html`<option key=${n} value=${String(n)}>${n.toLocaleString("en") + " lines"}</option>`)}
       </select>
       <input type="number" class="dialog-field" id="set-scrollback-custom" min=${SCROLLBACK_MIN} max=${SCROLLBACK_MAX} aria-label="Scrollback, a number of lines"
-        placeholder="Other number of lines" value=${lines !== null ? lines : ""} onInput=${(e) => setLines(e.target.value)}
+        placeholder="Other number of lines" value=${lines !== null ? lines : ""} onInput=${(e) => { sentOnce.current.lines = null; setLines(e.target.value); }}
         onKeyDown=${enter(applyLines)} onChange=${applyLines} onBlur=${applyLines} />
     <//>
     <${Row} id="set-cursor" label="Cursor" about="The shape of the cursor in every terminal.">

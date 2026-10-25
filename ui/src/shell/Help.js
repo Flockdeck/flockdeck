@@ -82,6 +82,8 @@ export function Help({ keys, implemented, load, slug = "", onClose }) {
   const [query, setQuery] = useState("");
   const [shown, setShown] = useState(slug);
   const [attempt, setAttempt] = useState(0);
+  // The name of a link that is no page, said instead of doing nothing.
+  const [missing, setMissing] = useState("");
   const search = useRef(null);
   const content = useRef(null);
 
@@ -120,6 +122,11 @@ export function Help({ keys, implemented, load, slug = "", onClose }) {
   const at = Math.max(0, hits.findIndex((x) => x.page === page));
 
   const pick = (s) => {
+    if (!known.has(s)) {
+      setMissing(s);
+      return;
+    }
+    setMissing("");
     setShown(s);
     setQuery("");
     if (content.current && content.current.scrollTo) content.current.scrollTo(0, 0);
@@ -136,10 +143,13 @@ export function Help({ keys, implemented, load, slug = "", onClose }) {
     const move = listMove(e, at, hits.length);
     if (move === "cancel") {
       e.preventDefault();
-      if (onClose) onClose();
+      // Escape first empties a search that has text, then closes.
+      if (query) setQuery("");
+      else if (onClose) onClose();
     } else if (typeof move === "number" && e.target === search.current && hits.length > 0) {
       // The arrows walk the contents from the search box, as in a list.
       e.preventDefault();
+      setMissing("");
       setShown(hits[move].page.slug);
     }
   };
@@ -171,7 +181,7 @@ export function Help({ keys, implemented, load, slug = "", onClose }) {
             autocomplete="off"
             spellcheck="false"
             value=${query}
-            onInput=${(e) => setQuery(e.target.value)}
+            onInput=${(e) => { setMissing(""); setQuery(e.target.value); }}
           />
           ${loaded && loaded.pages
             ? hits.length === 0
@@ -189,7 +199,7 @@ export function Help({ keys, implemented, load, slug = "", onClose }) {
                 </ul>`
             : null}
         </nav>
-        <div class="help-content" ref=${content} tabindex="0" aria-label=${page ? page.title : "Help"} data-page=${page ? page.slug : ""}>${body}</div>
+        <div class="help-content" ref=${content} tabindex="0" role="region" aria-label=${page ? page.title : "Help"} data-page=${page ? page.slug : ""}>${missing ? html`<p class="help-note" role="status">There is no help page called "${missing}".</p>` : null}${body}</div>
       </div>
     </div>`;
 }

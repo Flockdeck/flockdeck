@@ -86,6 +86,7 @@ export function Message({ pane, name, store, shownFor = SENT_SHOWN }) {
     <textarea ref=${box} class="structured-input" aria-label=${"Message " + clip(name || pane, 60) + " directly"} placeholder=${"Message " + clip(name || pane, 60) + " directly"} rows="1" readOnly=${sending} aria-busy=${sending ? "true" : undefined} value=${draft}
       onInput=${(e) => { setDraft(e.target.value); if (local) setLocal(""); if (outcome && outcome.kind === "refused") setPending(null); }} onKeyDown=${onKey}></textarea>
     <button type="submit" class="drawer-btn structured-send" disabled=${sending || draft.trim() === ""}>Send</button>
+    ${!say && /\n/.test(draft) ? html`<p class="structured-note" role="status">Line breaks are sent as spaces.</p>` : null}
     ${say && kind !== "sending" ? html`<p class=${"structured-note" + (kind === "refused" ? " structured-note--unsent" : "")} role=${kind === "refused" ? "alert" : "status"}>${say.text}</p>` : null}
   </form>`;
 }

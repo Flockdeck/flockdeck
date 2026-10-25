@@ -51,12 +51,24 @@ export function Remote({ status, roster, pair, outcome, remote, send, copy, forg
   const [wanting, setWanting] = useState("");
   const renameField = useRef(null);
   const seenPair = useRef(pair ? pair.seq : 0);
+  // The codes last sent, kept for a minute and only here, to put back in the form if the relay answers with an error,
+  // so a typo is not a retype of the rest. A success, the minute, or closing the dialog drops them.
+  const sentCodes = useRef({});
+  useEffect(() => () => { sentCodes.current = {}; }, []);
   const outcomeFloor = useRef(outcome ? outcome.seq : 0);
   const outcomeSeq = outcome ? outcome.seq : 0;
 
   const r = viewOf(status);
   const ro = useMemo(() => (roster ? rosterOf(roster) : null), [roster]);
   const o = outcome && outcome.seq > outcomeFloor.current ? outcomeOf(outcome) : null;
+  useEffect(() => {
+    if (!o) return;
+    const sent = sentCodes.current[o.action];
+    delete sentCodes.current[o.action];
+    if (!sent || !o.error || Date.now() - sent.at > 60000) return;
+    if (o.action === "enable") setDraft((d) => ({ ...d, join: d.join || sent.join, invite: d.invite || sent.invite }));
+    if (o.action === "move") setMoving((m) => ({ ...m, join: m.join || sent.join, invite: m.invite || sent.invite }));
+  }, [outcome && outcome.seq]);
   const working = busy && !(outcome && outcome.seq > busy.floor) ? busy.action : "";
   const off = !!r && r.state === "disabled";
   const live = pairLive(link, now);
@@ -135,7 +147,10 @@ export function Remote({ status, roster, pair, outcome, remote, send, copy, forg
   const notOn = !r && ro && !ro.enabled;
   // The codes are secrets: once sent they are not kept in the form.
   const enable = () => {
-    if (go(enableCommand(draft), "enable")) setDraft({ ...draft, join: "", invite: "" });
+    if (go(enableCommand(draft), "enable")) {
+      sentCodes.current.enable = { join: draft.join, invite: draft.invite, at: Date.now() };
+      setDraft({ ...draft, join: "", invite: "" });
+    }
   };
   const enableForm = () => {
     const field = (key, id, placeholder, label, secret = false) => html`<input type=${secret ? "password" : "text"} class="dialog-field" id=${id} placeholder=${placeholder} aria-label=${label}
@@ -340,7 +355,7 @@ export function Remote({ status, roster, pair, outcome, remote, send, copy, forg
       }
       ask("machine", "Move this machine off " + where + " and onto " + bare(cmd.relay) + "?",
         ["Every device paired with it will have to pair again, with the new relay.", "Only this machine leaves " + where + ": its account there stays."], "Move this machine",
-        () => { setProblem(""); if (go(cmd, "move")) setMoving({ ...moving, invite: "", join: "" }); });
+        () => { setProblem(""); if (go(cmd, "move")) { sentCodes.current.move = { join: moving.join, invite: moving.invite, at: Date.now() }; setMoving({ ...moving, invite: "", join: "" }); } });
     }
     return html`<section class="remote-sec" aria-labelledby="remote-machine-head">
       <h4 class="set-sub" id="remote-machine-head">This machine</h4>
