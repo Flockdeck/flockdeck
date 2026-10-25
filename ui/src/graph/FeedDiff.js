@@ -119,7 +119,10 @@ export function diffGraphs(prev, next, now) {
     if (!e.id) continue;
     const was = before.get(e.id);
     if (!was) {
-      const gist = e.text ? ": " + cut(e.text, 60) + (e.cut === true && cut(e.text, 60) === e.text ? "…" : "") : "";
+      // The ellipsis is not read out, so a message with more to it says so in words.
+      const shown = cut(e.text, 60);
+      const more = e.cut === true || shown !== String(e.text).replace(/\s+/g, " ").trim();
+      const gist = e.text ? ": " + shown + (e.cut === true && !shown.endsWith("…") ? "…" : "") + (more ? " (more in the message)" : "") : "";
       add("info", e.to, who(e.from) + " sent " + who(e.to) + " a message" + gist, e.from);
       continue;
     }

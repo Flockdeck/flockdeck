@@ -63,6 +63,17 @@ test("a prompt hidden for the relay is not said", () => {
   assert.deepEqual(texts(es), ["a asks to run something"]);
 });
 
+test("a message that was cut says so in words, and a whole one does not", () => {
+  const sent = (text, cut) => texts(diff(graph(), graph({ edges: [{ kind: "message", from: "a", to: "b", id: 9, time: "2026-10-21T10:00:00Z", text, delivery: "queued", ...(cut === undefined ? {} : { cut }) }] })));
+  assert.deepEqual(sent("T3 is ready", false), ["a sent b a message: T3 is ready"]);
+  assert.deepEqual(sent("T3 is ready"), ["a sent b a message: T3 is ready"]);
+  assert.deepEqual(sent("T3 is ready", true), ["a sent b a message: T3 is ready… (more in the message)"]);
+  // A first line longer than the feed's 60 characters is clipped by the feed itself.
+  const long = "x".repeat(80);
+  assert.deepEqual(sent(long, false), ["a sent b a message: " + "x".repeat(59) + "… (more in the message)"]);
+  assert.deepEqual(sent(long, true), ["a sent b a message: " + "x".repeat(59) + "… (more in the message)"]);
+});
+
 test("a task that changes state is an entry, and a finished one is a ship", () => {
   const was = graph({ nodes: [node("m"), node("a", { task: { id: "T3", title: "x", state: "in-progress" } })] });
   const review = graph({ nodes: [node("m"), node("a", { task: { id: "T3", title: "x", state: "in-review" } })] });

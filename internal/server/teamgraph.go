@@ -206,11 +206,12 @@ type graphMsg struct {
 	PanesHidden int `json:"panesHidden,omitempty"`
 }
 
-// graphLine is the first non-empty line of s, cleaned and cut to n characters.
+// graphLine is the first line of s that has text left once it is cleaned, cut to
+// n characters. A line of only control characters has none.
 func graphLine(s string, n int) string {
 	for _, l := range strings.Split(s, "\n") {
-		if strings.TrimSpace(l) != "" {
-			return team.PlainText(l, n)
+		if t := team.PlainText(l, n); t != "" {
+			return t
 		}
 	}
 	return ""
@@ -221,13 +222,14 @@ func graphLine(s string, n int) string {
 func graphEdgeLine(s string, n int) (line string, cut bool) {
 	lines := strings.Split(s, "\n")
 	for i, l := range lines {
-		if strings.TrimSpace(l) == "" {
+		whole := team.PlainText(l, math.MaxInt32)
+		if whole == "" {
 			continue
 		}
 		line = team.PlainText(l, n)
-		cut = utf8.RuneCountInString(team.PlainText(l, math.MaxInt32)) > utf8.RuneCountInString(line)
+		cut = utf8.RuneCountInString(whole) > utf8.RuneCountInString(line)
 		for _, rest := range lines[i+1:] {
-			if strings.TrimSpace(rest) != "" {
+			if team.PlainText(rest, math.MaxInt32) != "" {
 				cut = true
 			}
 		}

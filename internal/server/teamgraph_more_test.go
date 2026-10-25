@@ -483,6 +483,9 @@ func TestGraphEdgeLineSaysWhenAMessageWasCut(t *testing.T) {
 		{"a line of exactly the cut", strings.Repeat("é", graphEdgeCut), strings.Repeat("é", graphEdgeCut), false},
 		{"a line one over the cut", long, strings.Repeat("é", graphEdgeCut), true},
 		{"no text", " \n ", "", false},
+		{"a line of control characters first", "\x01\x02\nStart on T4", "Start on T4", false},
+		{"a line of control characters after", "Start on T4\n\x01\x02", "Start on T4", false},
+		{"only control characters", "\x01\n\x02", "", false},
 	} {
 		line, cut := graphEdgeLine(c.in, graphEdgeCut)
 		if line != c.line || cut != c.cut {
