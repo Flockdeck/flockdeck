@@ -367,3 +367,29 @@ func TestARosterReadsAStoredRoleWordLabelCleaned(t *testing.T) {
 	}
 	t.Error("the pane is not on the roster")
 }
+
+// A label stored before a custom role of that name existed reads cleaned in the pane view and the roster, for the catalog's roles and the project's.
+func TestLabelOfAndTheRosterCleanAStoredCustomRoleLabel(t *testing.T) {
+	c := newCrew(t)
+	custom := c.ws.labelRoles()
+	if len(custom) == 0 {
+		t.Fatal("the catalog has no roles")
+	}
+	word := custom[0]
+	p := c.ws.Pane(c.w1)
+	c.ws.mu.Lock()
+	p.Label, p.LabelAuto = word, false
+	c.ws.mu.Unlock()
+	if got := c.ws.LabelOf(p); !strings.HasPrefix(got, "(agent) ") {
+		t.Errorf("LabelOf(%q) = %q, want it marked as an agent's", word, got)
+	}
+	members, err := c.ws.Roster(c.lead)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range members {
+		if m.Pane == c.w1 && !strings.HasPrefix(m.Called, "(agent) ") {
+			t.Errorf("the roster has the label %q, want it marked", m.Called)
+		}
+	}
+}

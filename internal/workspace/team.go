@@ -176,8 +176,16 @@ func (w *Workspace) Roster(self string) ([]team.Member, error) {
 // goroutine.
 func (w *Workspace) rosterOf(myRoot, self string) []team.Member {
 	var out []team.Member
-	for _, p := range w.projectPanes(myRoot, self, true) {
-		out = append(out, w.memberOf(p, p.ID == self))
+	panes := w.projectPanes(myRoot, self, true)
+	// What a label may not pass for: the roles of the catalog and those the panes of this project run as, as SetPaneLabel checks.
+	roles := w.labelRoles()
+	for _, p := range panes {
+		if p.Role != "" {
+			roles = append(roles, p.Role)
+		}
+	}
+	for _, p := range panes {
+		out = append(out, w.memberOf(p, p.ID == self, roles))
 	}
 	return out
 }
@@ -233,8 +241,9 @@ func (w *Workspace) projectPanes(myRoot, self string, agentsOnly bool) []*Pane {
 	return out
 }
 
-// memberOf describes a pane for the roster.
-func (w *Workspace) memberOf(p *Pane, self bool) team.Member {
+// memberOf describes a pane for the roster. roles are the role ids a label may
+// not pass for.
+func (w *Workspace) memberOf(p *Pane, self bool, roles []string) team.Member {
 	w.mu.RLock()
 	peer, label := p.PeerName, p.Label
 	w.mu.RUnlock()
@@ -242,9 +251,10 @@ func (w *Workspace) memberOf(p *Pane, self bool) team.Member {
 	// structured pane has none either and says its status itself.
 	status, _ := w.Runtime(p).Status()
 	agentID, model := paneAgent(p)
-	// A label set before a custom role of that name was added is cleaned now, so every reader of the roster sees it the same.
+	// A label set before a role of that name was added is cleaned now, so
+	// every reader of the roster sees it the same.
 	if label != "" {
-		label = team.PaneLabelText(label, w.labelRoles()...)
+		label = team.PaneLabelText(label, roles...)
 	}
 	return team.Member{
 		Pane: p.ID, Name: p.Name, Peer: peer, Called: label, Role: p.Role,
