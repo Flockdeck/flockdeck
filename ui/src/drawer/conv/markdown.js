@@ -315,16 +315,31 @@ const HTTP_URL = /^https?:[/][/]/i;
 
 const link = (href, kids) => h("a", { href, target: "_blank", rel: "noopener noreferrer" }, ...kids);
 
+/** HOST_TEXT is link text that reads as a host, or a host and a path: "github.com/org/repo". The last label is letters, so a version such as "v1.2" is not one. */
+const HOST_TEXT = /^[\w-]+(\.[\w-]+)*\.([a-z]{2,})(\/\S*)?$/i;
+
+/** HOST_ENDINGS are the endings a bare name (no path) must have to read as a host, so a file name such as main.go, README.md or Node.js does not. */
+const HOST_ENDINGS = new Set(["com", "org", "net", "io", "dev", "app", "ai", "co", "gov", "edu", "info", "me", "xyz", "cloud", "uk", "de", "fr", "nl", "eu", "us", "ca", "au", "ru", "cn", "jp", "in", "br", "it", "es", "se", "tv", "so"]);
+
+/** looksLikeHost says link text reads as a web address without its scheme. */
+function looksLikeHost(t) {
+  const m = HOST_TEXT.exec(t);
+  return !!m && (m[3] !== undefined || HOST_ENDINGS.has(m[2].toLowerCase()));
+}
+
 /** disguisedHost is the target's host when the link's text is itself a web
- *  address for another host, so the real destination is shown beside it; "" when
- *  the text is not an address or names the same host. */
+ *  address, or looks like a host or a host and a path, for another host, so the
+ *  real destination is shown beside it; "" when the text is not an address or
+ *  names the same host. */
 function disguisedHost(text, target) {
   const t = String(text || "").trim();
-  if (!HTTP_URL.test(t)) return "";
+  const address = HTTP_URL.test(t) ? t : looksLikeHost(t) ? "https://" + t : "";
+  if (!address) return "";
   try {
-    const shown = new URL(t).host.toLowerCase();
+    const bare = (host) => host.toLowerCase().replace(/^www\./, "");
+    const shown = bare(new URL(address).host);
     const real = new URL(target).host.toLowerCase();
-    return shown === real ? "" : real;
+    return shown === bare(real) ? "" : real;
   } catch {
     return "";
   }
