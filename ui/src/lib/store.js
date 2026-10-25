@@ -171,6 +171,7 @@ import { createSocket } from "./socket.js";
 import { clientHello, mismatchNotice, unsupportedNotice } from "./apiversion.js";
 import { mergeKeys, readsKeyFiles } from "./keytable.js";
 import { changesTeamOf, isStale, sameRoot } from "./changesteam.js";
+import { applyReply, readOf, MAX_READS } from "./changesdiffs.js";
 
 /** DESK_ONLY_CODE is the code the desktop puts on the refusal it gives a window
  *  reached through the relay (internal/server/teamui.go, teamDeskOnlyCode).
@@ -255,6 +256,8 @@ const TEAM_COMMANDS = ["teamSnapshot", "teamWatch", "teamUnwatch", "taskList", "
 const TEAM_OPS = new Set(TEAM_COMMANDS.filter((c) => c !== "teamWatch" && c !== "teamUnwatch"));
 
 /** CHANGES_TEAM_COMMANDS are the team-wide Changes view's (docs/changes-api.md): the watch, the files and the diffs, comments, checks, reviews and the merge gate. All are the desk's. */
+/** RESULTS_KEPT is how many answers to the Changes view's commands changesTeamResults holds. */
+const RESULTS_KEPT = 50;
 const CHANGES_TEAM_COMMANDS = ["changesWatch", "changesUnwatch", "changesSnapshot", "filesPage", "diffHunks", "diffContext", "commentAdd", "commentResolve", "commentReopen", "runChecks", "requestReview", "submitReview", "approveMerge", "unapproveMerge", "mergeBranch"];
 
 /** DESK_ONLY says a command is one a remote window may not send: the graph
@@ -269,7 +272,7 @@ const initial = () => ({
   hello: null, remote: false, state: null,
   graph: null, graphGone: null, graphRefused: false, graphError: null,
   notice: null, versions: null, helpers: null, helperPlan: null, recents: null, browse: null, batonDraft: null, batonSaved: null, batonError: null, agentAddress: null,
-  approvals: [], detached: false, sent: null, started: null, structured: null, structuredError: null, cancelError: null, answer: null, asking: null, conversation: null, details: nullMap(), search: null, taskDetail: null, changes: null, diff: null, gitWarn: null, changesBusy: "", changesNote: null, history: null, paneInfo: null, paneMatches: null, keys: null, jevKey: null, radar: null, worktrees: null, agentsList: null, team: null, teamGone: null, teamTasks: null, teamMessages: null, teamResult: null, teamRefused: false, changesTeam: null, changesTeamGone: null, changesTeamRefused: false, changesTeamResult: null, branchGit: null, session: 0, remoteDevices: null, remotePair: null, remoteOutcome: null, dropped: 0,
+  approvals: [], detached: false, sent: null, started: null, structured: null, structuredError: null, cancelError: null, answer: null, asking: null, conversation: null, details: nullMap(), search: null, taskDetail: null, changes: null, diff: null, gitWarn: null, changesBusy: "", changesNote: null, history: null, paneInfo: null, paneMatches: null, keys: null, jevKey: null, radar: null, worktrees: null, agentsList: null, team: null, teamGone: null, teamTasks: null, teamMessages: null, teamResult: null, teamRefused: false, changesTeam: null, changesTeamGone: null, changesTeamRefused: false, changesTeamResult: null, changesTeamResults: [], changesDiffs: {}, branchGit: null, session: 0, remoteDevices: null, remotePair: null, remoteOutcome: null, dropped: 0,
 });
 
 /** upsert returns entries with each of the new ones in place of the one with its
@@ -323,6 +326,9 @@ export function createStore(opts) {
   // True from a watch being sent until its first push is drawn: a new watch starts its revisions again, so none is skipped as old.
   let changesFresh = false;
   let changesResultSeq = 0;
+  let changesDiffSeq = 0;
+  // The reads (diffHunks, diffContext) waited on, by req: what each was asked for and the head it was asked at.
+  const changesReads = new Map();
   // Counts the hellos of this store: a value that changes when the connection is made again.
   let sessionSeq = 0;
   let outcomeSeq = 0;
@@ -362,6 +368,8 @@ export function createStore(opts) {
         patch.state = null;
         // An answer sent on the connection that has gone may never have arrived: its cards can be answered again.
         askedCards.clear();
+        // A read sent on the connection that has gone may never be answered.
+        changesReads.clear();
         if (snap.branchGit && !snap.branchGit.note) patch.branchGit = { ...snap.branchGit, note: { text: "The connection dropped; check the branch before trying again.", error: true } };
         patch.asking = null;
         // A request for an answer carries a token of the connection that has gone.
@@ -500,10 +508,27 @@ export function createStore(opts) {
           }
         }
         break;
+      case "diffHunks":
+      case "diffContext": {
+        const read = changesReads.get(msg.req);
+        if (!read || snap.remote || watchingChanges === null) break;
+        changesReads.delete(msg.req);
+        set({ changesDiffs: applyReply(snap.changesDiffs, read, msg, ++changesDiffSeq) });
+        break;
+      }
       case "changesResult":
+        // A read the desk refused (deskOnly, badRequest, unsupported) answers as a result: it is the read's, not the view's last command.
+        if (changesReads.has(msg.req)) {
+          const read = changesReads.get(msg.req);
+          changesReads.delete(msg.req);
+          if (!snap.remote && watchingChanges !== null) set({ changesDiffs: applyReply(snap.changesDiffs, read, msg, ++changesDiffSeq) });
+          break;
+        }
         if (msg.op !== "changesWatch" && msg.op !== "changesUnwatch" && !snap.remote) {
           // The answer to a command of the view, kept as it came: the gate and the comments match it to theirs by req.
-          set({ changesTeamResult: { ...msg, seq: ++changesResultSeq } });
+          const answered = { ...msg, seq: ++changesResultSeq };
+          // changesTeamResults keeps the last answers, so a window that renders between two of them still sees both.
+          set({ changesTeamResult: answered, changesTeamResults: snap.changesTeamResults.concat(answered).slice(-RESULTS_KEPT) });
         }
         if (msg.op === "changesWatch" && !msg.ok) {
           if (msg.code === DESK_ONLY_CODE) {
@@ -860,7 +885,8 @@ export function createStore(opts) {
       const was = watchingChanges;
       watchingChanges = String(root || "");
       // Branches of another project are not drawn while the new ones are read.
-      set({ changesTeamGone: null, changesTeamRefused: false, ...(was !== null && was !== watchingChanges ? { changesTeam: null } : {}) });
+      set({ changesTeamGone: null, changesTeamRefused: false, ...(was !== null && was !== watchingChanges ? { changesTeam: null, changesDiffs: {}, changesTeamResults: [] } : {}) });
+      if (was !== watchingChanges) changesReads.clear();
       if (snap.hello) sendChangesWatch();
       return true;
     },
@@ -877,10 +903,24 @@ export function createStore(opts) {
     clearBranchGit() {
       if (snap.branchGit) set({ branchGit: null });
     },
+    /** readChangesDiff asks for a file's diff (diffHunks) or the unchanged lines between two hunks (diffContext;
+     *  gap is the gap they are for). The answer is kept in changesDiffs under the pane and path, with drawnSha, the
+     *  head of the branch listing at the moment of asking (the reply carries none). Returns the req, or "" when
+     *  nothing was sent. */
+    readChangesDiff(fields, gap = "") {
+      if (!fields || (fields.cmd !== "diffHunks" && fields.cmd !== "diffContext") || snap.remote || !snap.hello || watchingChanges === null) return "";
+      if (changesReads.size >= MAX_READS) return "";
+      const b = snap.changesTeam ? snap.changesTeam.branches.find((x) => x.pane === fields.id) : null;
+      const req = "r" + ++reqSeq;
+      if (!socket.send({ ...fields, req })) return "";
+      changesReads.set(req, readOf(fields, b ? b.headSha : "", gap));
+      return req;
+    },
     unwatchChangesTeam() {
       if (watchingChanges !== null && watchSent()) socket.send({ cmd: "changesUnwatch" });
       watchingChanges = null;
-      if (snap.changesTeam) set({ changesTeam: null });
+      changesReads.clear();
+      if (snap.changesTeam || Object.keys(snap.changesDiffs).length || snap.changesTeamResults.length) set({ changesTeam: null, changesDiffs: {}, changesTeamResults: [] });
     },
     /** watchStructured asks for the structured messages of one pane, now and
      *  whenever it changes, for its permission card. It replaces the pane watched
