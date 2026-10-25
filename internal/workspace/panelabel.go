@@ -236,7 +236,7 @@ func (w *Workspace) SetRenameNotifier(f func(RenameInfo)) {
 // notice. It must run on the workspace goroutine.
 func (w *Workspace) DisplayName(id string) string {
 	if p := w.Pane(id); p != nil {
-		return team.PlainName(team.Member{Name: p.Name, Peer: w.PeerNameOf(p), Called: w.LabelOf(p)}.Label(), 40)
+		return team.PlainName(team.Member{Name: p.Name, Peer: w.PeerNameOf(p), Called: w.LabelOf(p)}.Label(w.labelRoles()...), 40)
 	}
 	return id
 }

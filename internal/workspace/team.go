@@ -242,6 +242,10 @@ func (w *Workspace) memberOf(p *Pane, self bool) team.Member {
 	// structured pane has none either and says its status itself.
 	status, _ := w.Runtime(p).Status()
 	agentID, model := paneAgent(p)
+	// A label set before a custom role of that name was added is cleaned now, so every reader of the roster sees it the same.
+	if label != "" {
+		label = team.PaneLabelText(label, w.labelRoles()...)
+	}
 	return team.Member{
 		Pane: p.ID, Name: p.Name, Peer: peer, Called: label, Role: p.Role,
 		Agent: agentID, Model: model, Status: status.String(), Self: self,
@@ -337,7 +341,7 @@ func (w *Workspace) notifyParent(p *Pane, parent, what string) {
 	}
 	// The name the roster shows: what the pane is called for its work, else its peer name, else its pane name.
 	w.mu.RLock()
-	label := team.Member{Name: p.Name, Peer: p.PeerName, Called: p.Label}.Label()
+	label := team.Member{Name: p.Name, Peer: p.PeerName, Called: p.Label}.Label(w.labelRoles()...)
 	w.mu.RUnlock()
 	who := "agent"
 	if p.Role != "" {

@@ -345,3 +345,25 @@ func TestNoBurstNoticeForAPaneThatClosedOrAWorkspaceThatClosed(t *testing.T) {
 		t.Errorf("%d notices after Close, want the two first-of-burst ones", got)
 	}
 }
+
+// A label that was stored before it could pass for a role (set, say, before that role was added) is read cleaned by the roster, with no restart.
+func TestARosterReadsAStoredRoleWordLabelCleaned(t *testing.T) {
+	c := newCrew(t)
+	p := c.ws.Pane(c.w1)
+	c.ws.mu.Lock()
+	p.Label, p.LabelAuto = "reviewer", false
+	c.ws.mu.Unlock()
+	members, err := c.ws.Roster(c.lead)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range members {
+		if m.Pane == c.w1 {
+			if !strings.HasPrefix(m.Label(), "(agent) ") || !strings.HasPrefix(m.Called, "(agent) ") {
+				t.Errorf("the roster reads the label as %q (called %q), want it marked as an agent's", m.Label(), m.Called)
+			}
+			return
+		}
+	}
+	t.Error("the pane is not on the roster")
+}
