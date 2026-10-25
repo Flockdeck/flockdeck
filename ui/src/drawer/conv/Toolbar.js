@@ -71,14 +71,11 @@ export function Toolbar({ entries, search = null, onSearch, onClear, onJump, can
     </form>
     <button type="button" class="drawer-btn conv-copy" disabled=${entries.length === 0} onClick=${doCopy}>Copy</button>
     ${canExport && onExport ? html`<button type="button" class="drawer-btn conv-export" onClick=${onExport}>Export</button>` : html`<span class="conv-toolbar-note conv-export-note">${EXPORT_UNAVAILABLE_WORDS}</span>`}
-    ${copied ? html`<span class="conv-toolbar-note conv-copied" role="status">${copied}</span>` : null}
-    ${note ? html`<span class="conv-toolbar-note conv-search-note" role="status">${note}</span>` : null}
-    ${search
-      ? search.state === "loading"
-        ? html`<p class="conv-results-note" role="status">${SEARCH_LOADING_WORDS}</p>`
-        : search.matches.length === 0
-          ? html`<p class="conv-results-note" role="status">${NO_MATCH_WORDS}</p>`
-          : html`<ul class="conv-results" aria-label="Matches">
+    <span class="conv-toolbar-note conv-copied" role="status">${copied}</span>
+    <span class="conv-toolbar-note conv-search-note" role="status">${note}</span>
+    <p class="conv-results-note" role="status">${search ? (search.state === "loading" ? SEARCH_LOADING_WORDS : search.matches.length === 0 ? NO_MATCH_WORDS : "") : ""}</p>
+    ${search && search.state !== "loading" && search.matches.length > 0
+          ? html`<ul class="conv-results" aria-label="Matches">
               ${search.matches.map((m) => {
                 const [before, hit, after] = snippetParts(m.snippet, m.offset, needle);
                 const here = held.has(m.entryId);

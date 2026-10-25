@@ -427,3 +427,7 @@
 @media (max-width: 640px) {
   .drawer-layout { display: none; }
 }
+
+/* Live regions are always in the page, so a change in them is announced; empty, they take no room. */
+.conv-toolbar-note:empty, .conv-results-note:empty { position: absolute; }
+.conv-detail-state:empty, .task-empty:empty, .chg-busy:empty { margin: 0; }

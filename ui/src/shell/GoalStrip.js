@@ -51,10 +51,22 @@ export function GoalStrip({
     setStop(pick.closest("li").getAttribute("data-tab"));
     pick.focus();
   }, [renaming, tabs]);
+  // An archive is only followed by a focus move once the strip has lost the tab: a refused one leaves it alone.
+  const archiving = useRef(null);
+  useEffect(() => {
+    const a = archiving.current;
+    if (!a || a.tabs === tabs) return;
+    archiving.current = null;
+    if (tabs.some((x) => x.id === a.id)) return;
+    const li = root.current ? [...root.current.querySelectorAll("li")].find((n) => n.getAttribute("data-tab") === a.near) : null;
+    const to = (li && li.querySelector('[role="tab"]')) || (root.current && root.current.querySelector(".tabs-plus"));
+    if (li) setStop(a.near);
+    if (to && to.focus) to.focus();
+  }, [tabs]);
   const archive = (id) => {
     const at = tabs.findIndex((x) => x.id === id);
     const near = tabs[at + 1] || tabs[at - 1];
-    if (near) refocus.current = near.id;
+    archiving.current = { id, near: near ? near.id : "", tabs };
     onArchive(id);
   };
   const onListKey = (e) => {

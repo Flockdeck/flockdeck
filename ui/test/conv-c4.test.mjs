@@ -299,7 +299,7 @@ test("a search the store did not send says so, an empty one clears, and Clear dr
     m.container.find(".conv-search").dispatch("submit");
     await settle();
     assert.equal(cleared.length, 1);
-    assert.equal(m.container.find(".conv-search-note"), null);
+    assert.equal(m.container.find(".conv-search-note").textContent, "", "the live region stays, empty");
     m.container.find(".conv-search-clear") && m.container.find(".conv-search-clear").click();
   } finally {
     m.done();
