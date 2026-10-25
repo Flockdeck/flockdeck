@@ -172,6 +172,21 @@ test("the reply to a re-read the panel made itself keeps the git question and a 
   assert.equal(store.getState().changesBusy, "");
 });
 
+test("a push's reply has no reason either, and still ends the busy state when no re-read is waiting", async () => {
+  const { store, ws } = await up();
+  ws.frame(listing());
+  assert.equal(store.remoteChanges("push"), true);
+  assert.equal(store.getState().changesBusy, "push");
+  ws.frame(listing({ ahead: 0 }));
+  assert.equal(store.getState().changesBusy, "", "the push's own reply left the panel busy for good");
+  // A re-read that was sent long ago and never answered does not swallow it either.
+  store.requestChanges("C:/repo", true);
+  store.requestChanges("C:/repo", false);
+  assert.equal(store.remoteChanges("pull"), true);
+  ws.frame(listing());
+  assert.equal(store.getState().changesBusy, "");
+});
+
 test("a gitWarn is kept, and answering sends the same commit again with the answer and what was shown", async () => {
   const { store, ws } = await up();
   ws.frame(listing());

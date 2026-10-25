@@ -297,8 +297,11 @@ export function createStore(opts) {
   let noticeSeq = 0;
   let pendingCommit = null;
   let changesAsked = null;
-  // For each listing asked, whether it was a re-read the panel made itself, in the order asked; a reply takes the first.
-  const changesFollows = [];
+  // When each re-read the panel made itself was sent, for the replies still to come. The desk answers a follow with no
+  // reason, as it does a push, pull or fetch and a commit that failed, so a reply without one is a follow's only if one
+  // was sent a moment ago. The desk drops the answer to a follow that a later request replaced, so they expire.
+  let changesFollows = [];
+  const FOLLOW_WAIT_MS = 5000;
   let sentSeq = 0;
   let startedSeq = 0;
   let answerSeq = 0;
@@ -675,9 +678,15 @@ export function createStore(opts) {
         // answer to a question since replaced (the pane changed): not taken.
         // The desktop echoes the directory it was asked about as path.
         // The listing again after an action in the tree on screen is taken too.
-        // A reply to a re-read the panel made itself (no reason: an action's reply says why) changes the listing only: the
-        // git-settings question on screen and a commit under way are not its to clear. Every reply without a reason takes its turn.
-        const quiet = msg.reason === undefined && changesFollows.length > 0 && changesFollows.shift() === true;
+        // A reply to a re-read the panel made itself changes the listing only: the git-settings question on screen and a
+        // commit under way are not its to clear. A reply that says why it was sent ("asked", "committed", "refused") is not one.
+        const now = Date.now();
+        changesFollows = changesFollows.filter((t) => now - t < FOLLOW_WAIT_MS);
+        let quiet = false;
+        if (msg.reason === undefined || msg.reason === "") {
+          quiet = changesFollows.length > 0;
+          if (quiet) changesFollows.shift();
+        } else changesFollows = [];
         if (typeof msg.path === "string" && msg.path !== changesAsked && !(snap.changes && msg.cwd === snap.changes.cwd)) break;
         const { type, path, ...rest } = msg;
         set(quiet ? { changes: rest } : { changes: rest, changesBusy: "", gitWarn: null });
@@ -880,8 +889,8 @@ export function createStore(opts) {
       const asked = String(path || "");
       if (!socket.send({ cmd: "changes", path: asked, follow: !!follow })) return false;
       changesAsked = asked;
-      changesFollows.push(!!follow);
-      if (changesFollows.length > 20) changesFollows.shift();
+      if (follow) changesFollows.push(Date.now());
+      else changesFollows = [];
       return true;
     },
     /** requestDiff asks for one file's diff in the tree last listed. */
