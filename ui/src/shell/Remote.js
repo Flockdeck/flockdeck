@@ -25,7 +25,7 @@ import { composing, LIST } from "./keys.js";
 import { Confirm } from "./Confirm.js";
 import {
   ACCESS, DESK_ONLY_ACCESS, DESK_ONLY_JOIN, DESK_ONLY_REMOTE, ENTERPRISE_WORDS, INTRO_WORDS, KEPT_WORDS, LINK_WARNING, PAIR_WORDS, PLAN_WORDS, POLL_MS,
-  VERIFY_HELP, VERIFY_HELP_RELAY, accessIndex, ago, bare, deviceCodes, devicesCommand, enableCommand, leftText, moveCommand, outcomeOf, pairCommand, joinLine, pairLive, pairOf,
+  VERIFY_HELP, VERIFY_HELP_RELAY, accessOf, addsAccess, ago, bare, deviceCodes, devicesCommand, enableCommand, leftText, moveCommand, nextAccess, outcomeOf, pairCommand, joinLine, pairLive, pairOf,
   planText, qrSource, renameCommand, resumeCommand, revokeCommand, roleCommand, rosterOf, summaryOf, unverifyCommand, untilText, verifyCommand, verifyText, viewOf,
 } from "../lib/remote.js";
 
@@ -248,7 +248,8 @@ export function Remote({ status, roster, pair, outcome, remote, send, copy, forg
     const codes = deviceCodes(d);
     const shown = open.has(d.id);
     const name = d.name || "Unnamed device";
-    const level = ACCESS[accessIndex(d)];
+    const level = accessOf(d);
+    const next = nextAccess(d);
     const here = renaming && renaming.kind === "device" && renaming.id === d.id;
     return html`<li class="remote-row" key=${d.id} data-device=${d.id}>
       <div class="key-main">
@@ -263,8 +264,15 @@ export function Remote({ status, roster, pair, outcome, remote, send, copy, forg
           : null}
         ${remote
           ? null
-          : html`<button type="button" class="dialog-btn remote-access" aria-label=${"Access for " + name + ": " + level.label + ". Press to change."}
-              onClick=${() => go(roleCommand(d.id, ACCESS[(accessIndex(d) + 1) % ACCESS.length]))}>${level.label}</button>`}
+          : next
+            ? html`<button type="button" class="dialog-btn remote-access" aria-label=${"Access for " + name + ": " + level.label + ". Press to change it to " + next.label + "."}
+                onClick=${() => {
+                  const cmd = roleCommand(d.id, next);
+                  if (!addsAccess(level, next)) go(cmd);
+                  else ask("access:" + d.id, "Give " + name + " more access?", ["It goes from “" + level.label + "” to “" + next.label + "”."], "Give access", () => go(cmd));
+                }}>${level.label}</button>`
+            : html`<button type="button" class="dialog-btn remote-access" aria-label=${"Access for " + name + ": unknown, which the desktop treats as view-only. Press to set it to " + ACCESS[1].label + "."}
+                onClick=${() => ask("access:" + d.id, "Reset access for " + name + "?", ["Its access is not one this page knows, and the desktop treats it as view-only. It will be set to “" + ACCESS[1].label + "”."], "Reset access", () => go(roleCommand(d.id, ACCESS[1])))}>${level.label}</button>`}
         <button type="button" class="dialog-btn" onClick=${() => setRenaming({ kind: "device", id: d.id, value: d.name })}>Rename</button>
         <button type="button" class="dialog-btn dialog-btn--danger" aria-label=${"Unpair " + name}
           onClick=${() => ask("device:" + d.id, mine ? "Unpair this device?" : "Unpair " + name + "?",
@@ -273,6 +281,7 @@ export function Remote({ status, roster, pair, outcome, remote, send, copy, forg
       </div>
       ${here ? renameBox("device", d.id, d.name) : null}
       ${confirmFor("device:" + d.id)}
+      ${confirmFor("access:" + d.id)}
     </li>`;
   };
   const devicesBox = () => {

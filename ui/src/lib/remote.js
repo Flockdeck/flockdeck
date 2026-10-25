@@ -173,7 +173,8 @@ export function rosterOf(msg) {
       deskFingerprint: str(d.deskFingerprint),
       verify: str(d.verify),
       deskVerify: str(d.deskVerify),
-      role: d.role === "viewer" ? "viewer" : "full",
+      // A desk that sends no role means full access; a role this file does not know is shown as unknown, not as full access.
+      role: d.role === "viewer" ? "viewer" : d.role === "full" || d.role === undefined || d.role === "" ? "full" : "unknown",
       watchPanes: d.watchPanes === true,
     }));
   const hosts = (Array.isArray(m.hosts) ? m.hosts : [])
@@ -207,13 +208,34 @@ export function verifyText(state) {
 
 /** ACCESS are what a device may be allowed, in the order Access steps through. */
 export const ACCESS = [
-  { role: "full", watch: false, label: "Full access" },
-  { role: "viewer", watch: false, label: "View artifacts only" },
-  { role: "viewer", watch: true, label: "View artifacts and watch panes" },
+  { role: "full", watch: false, label: "Full access", rank: 2 },
+  { role: "viewer", watch: false, label: "View artifacts only", rank: 0 },
+  { role: "viewer", watch: true, label: "View artifacts and watch panes", rank: 1 },
 ];
 
+/** UNKNOWN_ACCESS is what a device is shown with when its role is not one of ACCESS. It is never stepped from. */
+export const UNKNOWN_ACCESS = { role: "", watch: false, label: "Unknown", rank: -1 };
+
+/** accessIndex is the place of a device's level in ACCESS, or -1 when it is none of them. A full device is full whatever its watch flag says. */
 export function accessIndex(d) {
-  return Math.max(0, ACCESS.findIndex((l) => l.role === d.role && l.watch === d.watchPanes));
+  return ACCESS.findIndex((l) => l.role === d.role && (l.role === "full" || l.watch === d.watchPanes));
+}
+
+/** accessOf is the level a device has, or UNKNOWN_ACCESS. */
+export function accessOf(d) {
+  const i = accessIndex(d);
+  return i < 0 ? UNKNOWN_ACCESS : ACCESS[i];
+}
+
+/** nextAccess is the level one press of the access button sets, or null from a level that is not known. */
+export function nextAccess(d) {
+  const i = accessIndex(d);
+  return i < 0 ? null : ACCESS[(i + 1) % ACCESS.length];
+}
+
+/** addsAccess says a step gives a device more than it has: it is asked about first. */
+export function addsAccess(from, to) {
+  return to.rank > from.rank;
 }
 
 /** pairOf reads the desktop's remotePair answer. */
