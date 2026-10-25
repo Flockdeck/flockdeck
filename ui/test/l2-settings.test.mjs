@@ -526,16 +526,17 @@ test("a viewer's Settings has none of the sections whose controls the desktop re
   const { createDom, install, settle } = await import("./dom.mjs");
   const dom = createDom();
   const restore = install(dom);
+  const box = dom.document.createElement("div");
+  dom.body.appendChild(box);
   try {
-    const box = dom.document.createElement("div");
-    dom.body.appendChild(box);
-    const tabs = (ctx, first) => {
+    const tabs = async (ctx, first) => {
       render(html`<${Settings} prefs=${{}} change=${() => {}} section=${first} onClose=${() => {}} ctx=${ctx} />`, box);
-      return box.findAll("[role=tab]").map((b) => b.getAttribute("data-section"));
+      await settle();
+      return box.findAll(".settings-tab").map((b) => b.getAttribute("data-section"));
     };
     await settle();
-    const all = tabs({}, "general");
-    const viewer = tabs({ viewer: true }, "keys");
+    const all = await tabs({}, "general");
+    const viewer = await tabs({ viewer: true }, "keys");
     for (const id of VIEWER_HIDDEN) {
       assert.ok(all.includes(id), id + " for the desk");
       assert.ok(!viewer.includes(id), id + " hidden for a viewer");
@@ -543,6 +544,7 @@ test("a viewer's Settings has none of the sections whose controls the desktop re
     assert.ok(viewer.includes("general") && viewer.includes("appearance"));
     assert.equal(box.find('[aria-selected="true"]').getAttribute("data-section"), "general", "a hidden section asked for opens General");
   } finally {
+    render(null, box);
     restore();
   }
 });
@@ -554,21 +556,22 @@ test("a viewer's Settings says so, and a section hidden once the role arrives gi
   const { createDom, install, settle } = await import("./dom.mjs");
   const dom = createDom();
   const restore = install(dom);
+  const box = dom.document.createElement("div");
+  dom.body.appendChild(box);
   try {
-    const box = dom.document.createElement("div");
-    dom.body.appendChild(box);
     const draw = (ctx) => render(html`<${Settings} prefs=${{}} change=${() => {}} onClose=${() => {}} ctx=${ctx} />`, box);
-    draw({});
+    draw({ send: () => true });
     await settle();
     assert.equal(box.find("#settings-viewer"), null);
     box.find("#settings-tab-keys").click();
     await settle();
     assert.equal(box.find('[aria-selected="true"]').getAttribute("data-section"), "keys");
-    draw({ viewer: true });
+    draw({ viewer: true, send: () => true });
     await settle();
     assert.equal(box.find('[aria-selected="true"]').getAttribute("data-section"), "general", "keys is not a section of a viewer");
     assert.match(box.find("#settings-viewer").textContent, /can only view/);
   } finally {
+    render(null, box);
     restore();
   }
 });
