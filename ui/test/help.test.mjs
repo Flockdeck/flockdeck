@@ -3,6 +3,7 @@
 // fake DOM. The real pages are read from NEXT_HELP_JSON when the Go test that
 // runs these has written them.
 import { test } from "node:test";
+import { focusables } from "../src/shell/focus.js";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { render } from "../src/vendor/preact.mjs";
@@ -359,18 +360,19 @@ test("while it is open the other keys do nothing underneath it", async () => {
   } finally { m.done(); }
 });
 
-test("Tab stays inside the dialog", async () => {
+test("Tab stays inside the dialog, with no hidden focusable sentinels", async () => {
   const m = await mount();
   try {
     await m.press("F1");
-    const sentinels = m.container.findAll(".help-sentinel");
-    assert.equal(sentinels.length, 2);
-    sentinels[1].focus();
-    sentinels[1].dispatch("focus");
-    assert.equal(m.dom.document.activeElement, m.search(), "past the last control it comes back to the first");
-    sentinels[0].focus();
-    sentinels[0].dispatch("focus");
-    assert.equal(m.dom.document.activeElement, m.content());
+    assert.equal(m.container.findAll(".help-sentinel").length, 0, "an aria-hidden focusable is an ARIA error");
+    const dialog = m.container.find(".help");
+    const list = focusables(dialog);
+    assert.ok(list.length > 2);
+    list[list.length - 1].focus();
+    dialog.keydown("Tab");
+    assert.equal(m.dom.document.activeElement, list[0], "past the last control it comes back to the first");
+    dialog.keydown("Tab", { shiftKey: true });
+    assert.equal(m.dom.document.activeElement, list[list.length - 1], "before the first it goes to the last");
   } finally { m.done(); }
 });
 
