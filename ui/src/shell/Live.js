@@ -367,9 +367,12 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
   // A tab or a shell the "+" menu or a key opens has no answer of its own: the next
   // pane the desktop lists is the one, and it is opened in the drawer.
   const newWatch = useRef(null);
+  const newWatchTimer = useRef(0);
   const startTab = (cmd) => {
     newWatch.current = new Set(Object.keys(kept.current.state.panes || {}));
-    setTimeout(() => { newWatch.current = null; }, 15000);
+    // One timer: a second start inside the window takes over the first one's watch.
+    clearTimeout(newWatchTimer.current);
+    newWatchTimer.current = setTimeout(() => { newWatch.current = null; }, 15000);
     send(cmd);
   };
   useEffect(() => {
@@ -454,6 +457,8 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
       setToasts((cur) => addToasts(cur, fresh, drawer.pane));
       return;
     }
+    // A second notification replaces the first: the first is closed, not left on screen.
+    if (lastNote.current) { try { lastNote.current.close(); } catch { /* already gone */ } }
     lastNote.current = raise(page, noteOf(fresh), (id) => drawer.open(id));
   }, [statePanes]);
   const bumpFont = (to) => {
@@ -578,7 +583,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     items.push({ id: "layout", group: "Views", name: "Layout: stack / side by side", detail: orient === "stack" ? "now below" : "now beside", run: toggleLayout });
     for (const [id, name] of views) items.push({ id: "view-" + id, group: "Views", name: "Show " + name, detail: "", run: () => chooseView(id) });
     return items;
-  }, [current, view]);
+  }, [current, view, orient]);
   // step is nextNeedsYou or prevNeedsYou. The pane the keyboard is on, or the open drawer's, is where it starts.
   const jumpNeedsYou = (step) => {
     if (!current || snap.graphGone) return;
@@ -653,7 +658,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     restartPane: needPane(() => life.begin("restart", node, pane)),
     lockPane: needPane(() => life.toggleLock(node.pane, !(pane && pane.locked))),
     closePane: needPane(() => (pane && pane.locked ? say("This pane is locked. Unlock it to close it.") : life.begin("close", node, pane))),
-  }), [current, snap.graphGone, snap.remote, win, drawer.pane, node, pane, goal, activeTab, savedTabs, view, current, onDesk, life.request, tx.request, prefs.fontSize, snap.paneInfo, noticeSeq]);
+  }), [current, snap.graphGone, snap.remote, win, drawer.pane, node, pane, goal, activeTab, savedTabs, view, current, onDesk, life.request, tx.request, prefs.fontSize, snap.paneInfo, noticeSeq, viewer, patch]);
 
   // The baton answers. A draft is for the dialog whose request it carries. A
   // saved or refused command is taken off the list of those out, and a saved one
