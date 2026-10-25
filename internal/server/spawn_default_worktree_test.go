@@ -2,6 +2,7 @@ package server
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -9,6 +10,7 @@ import (
 	"github.com/jmwri/flockdeck/internal/agent"
 	"github.com/jmwri/flockdeck/internal/gitx"
 	"github.com/jmwri/flockdeck/internal/hooks"
+	"github.com/jmwri/flockdeck/internal/workspace"
 )
 
 // defaultTreeServer is a server over a git repository, with a parent agent pane
@@ -158,5 +160,75 @@ func TestRolePoliciesMatchWhatTheDefaultDoes(t *testing.T) {
 	}
 	if seen != len(want) {
 		t.Errorf("found %d of the %d roles", seen, len(want))
+	}
+}
+
+// A helper cut from a parent that works in a subfolder starts in the same
+// subfolder of its worktree, and says how many uncommitted files it left behind.
+func TestAHelperStartsInTheParentsSubfolder(t *testing.T) {
+	if !gitx.Available() {
+		t.Skip("git is not installed")
+	}
+	srv, ws, repo := newRepoServer(t)
+	rolesAgent(t, srv)
+	hook := ws.HookServer()
+	if hook == nil {
+		t.Skip("no hook server")
+	}
+	sub := filepath.Join(repo, "services", "api")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(sub, "main.go"), []byte("package api\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"add", "."}, {"commit", "-m", "add the api"}} {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = repo
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+	}
+	lead := firstPane(t, srv, ws)
+	parent, ok := ask(srv, func() string {
+		id, err := ws.Spawn(lead, workspace.SpawnOptions{Task: "port the parser", Agent: "gocli", Cwd: sub})
+		if err != nil {
+			t.Error(err)
+		}
+		return id
+	})
+	if !ok || parent == "" {
+		t.Fatal("the parent pane did not start")
+	}
+	if cwd, ok := ask(srv, func() string { return ws.Pane(parent).Cwd }); ok {
+		paneDirs.Store(parent, cwd)
+	}
+	// Two files the parent has not committed, and a folder that exists only there.
+	if err := os.WriteFile(filepath.Join(sub, "wip.go"), []byte("package api\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	fresh := filepath.Join(repo, "scratch")
+	if err := os.MkdirAll(fresh, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(fresh, "notes.txt"), []byte("x\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := hooks.Spawn(hook.BaseURL(), hook.Token(), parent, hooks.SpawnRequest{Task: "fix the api", Role: "worker", Agent: "gocli"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasSuffix(filepath.ToSlash(res.Cwd), "services/api") {
+		t.Errorf("the helper started in %s, want the services/api folder of its worktree", res.Cwd)
+	}
+	if sameDir(res.Cwd, sub) {
+		t.Error("the helper started in the parent's own checkout")
+	}
+	if _, err := os.Stat(filepath.Join(res.Cwd, "main.go")); err != nil {
+		t.Errorf("the committed file is not in the helper's folder: %v", err)
+	}
+	if res.Uncommitted != 2 {
+		t.Errorf("Uncommitted = %d, want the two files left behind", res.Uncommitted)
 	}
 }

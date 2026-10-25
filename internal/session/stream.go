@@ -882,6 +882,10 @@ type WakeReading struct {
 	// Tail is the output the verdict was drawn from, with the time it last
 	// changed, for the caller to require a quiet period.
 	Tail ScreenTail
+	// Forbidden is set when the tail holds a string the rule forbids (a question,
+	// a confirmation, an editor, a login), whatever the rest of the screen looks
+	// like.
+	Forbidden bool
 }
 
 // WakeReading reads the tail of the pane through its agent's wake rule. It
@@ -893,5 +897,6 @@ func (s *Session) WakeReading() WakeReading {
 		r.Version, r.Source = s.wake.Version, s.wake.Source
 	}
 	r.Verdict, r.Prompt = s.wake.Judge(tail.Lines)
+	r.Forbidden = s.wake.Forbidden(tail.Lines)
 	return r
 }

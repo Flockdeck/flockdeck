@@ -26,8 +26,9 @@ import (
 //
 // Three off switches (global, per agent type, per pane) are kept in the
 // preferences and read through WakeSettings. Everything is on until one is
-// switched off, and still only for an agent whose rule is tested, or a structured
-// pane.
+// switched off, and still only for an agent whose rule is tested, a structured
+// pane, or a Claude pane whose own session file says it is idle (AgentWord), which
+// needs no screen rule.
 
 // Conditions and limits. All conditions must hold.
 const (
@@ -38,6 +39,10 @@ const (
 	wakeQuiet = 5 * time.Second
 	// wakeUserQuiet is how long nobody may have typed into the pane.
 	wakeUserQuiet = 30 * time.Second
+	// wakeAgentIdle is how long an agent that records its own state must have
+	// said it is idle before it is woken without a screen rule (see
+	// wakeCandidate.AgentIdle).
+	wakeAgentIdle = 5 * time.Second
 	// wakeHookQuiet is how long after a hook notice the agent is left alone.
 	wakeHookQuiet = time.Minute
 	// wakePaneEvery is the least time between two typed lines in one pane.
@@ -49,6 +54,23 @@ const (
 	// `inbox read` between them.
 	wakeStreakMax = 3
 )
+
+// AgentWord is what an agent that records its own state says about one pane: that
+// it is idle, since when, and which process and session the record is about.
+type AgentWord struct {
+	Idle      bool
+	Since     time.Time
+	Pid       int
+	SessionID string
+	// From says where the record was found: "pid file", the file named for the
+	// pane's own process.
+	From string
+}
+
+// wakeSessionFileRule is what the audit record of a wake names as the reason it was
+// allowed when the agent's own session file said it was idle and no screen rule
+// was used.
+const wakeSessionFileRule = "claude-session-file"
 
 // wakeLine is exactly what is typed by default: a fixed sentence and the digits
 // of the newest unread message's id. Never a sender, never message text. Text
@@ -173,6 +195,14 @@ type wakeCandidate struct {
 	// TextOK says the agent's catalog entry offers the message text as the wake
 	// line (agent.Caps.TextWake). Without it the setting is never looked at.
 	TextOK bool
+	// AgentIdle is for an agent that writes down its own busy/idle state (Claude
+	// Code's session file): when it has a word on this pane, idle says whether it
+	// is idle and since is when that began. ok is false when it has no word, and
+	// the pane's wake rule decides as before. An agent that says it is idle for
+	// wakeAgentIdle, whose pane Flockdeck also sees idle, is woken without the
+	// screen rule, which for Claude Code is not tested; every other condition and
+	// limit still applies.
+	AgentIdle func() (AgentWord, bool)
 	// Deliver sends the line as a prompt over a protocol, for a pane with no
 	// terminal. Nil means the line is typed into Sess.
 	Deliver func(line string) error
@@ -330,6 +360,16 @@ func (s *wakeService) consider(c wakeCandidate) string {
 		return "Flockdeck typed into the pane a moment ago"
 	}
 	r := c.Sess.WakeReading()
+	var word *AgentWord
+	if c.AgentIdle != nil {
+		if w, ok := c.AgentIdle(); ok {
+			if why := s.wordHolds(c, w, now); why != "" {
+				return why
+			}
+			word = &w
+			r.Verdict, r.Version, r.Source, r.Prompt = agent.WakeOK, wakeSessionFileRule, wakeSessionFileRule, ""
+		}
+	}
 	if r.Verdict != agent.WakeOK {
 		return "the rule does not allow it"
 	}
@@ -394,7 +434,7 @@ func (s *wakeService) consider(c wakeCandidate) string {
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
-		s.fire(c, id, text, r, now)
+		s.fire(c, id, text, r, word, now)
 	}()
 	return ""
 }
@@ -420,7 +460,7 @@ func (s *wakeService) readSince(pane string, t time.Time) bool {
 // as well. The event says the line was unsubmitted, the message stays unread
 // and unwoken, and nothing more is typed until the user has typed in the pane.
 // at is the time the limits were counted at.
-func (s *wakeService) fire(c wakeCandidate, id int, text bool, r session.WakeReading, at time.Time) {
+func (s *wakeService) fire(c wakeCandidate, id int, text bool, r session.WakeReading, word *AgentWord, at time.Time) {
 	defer func() {
 		if c.Release != nil {
 			c.Release()
@@ -446,8 +486,16 @@ func (s *wakeService) fire(c wakeCandidate, id int, text bool, r session.WakeRea
 		s.undo(c, at, false)
 		return
 	}
-	// The pane may have changed since it was judged.
-	if again := c.Sess.WakeReading(); again.Verdict != r.Verdict || !again.Tail.ChangedAt.Equal(r.Tail.ChangedAt) {
+	// The pane may have changed since it was judged. A wake allowed by the agent's
+	// own word is judged again by that word and by the output not having moved.
+	if word != nil {
+		if !s.wordStands(c, *word, r) {
+			// Backed off for the minute, so a pane that flaps between idle and busy
+			// is not looked at again on every tick.
+			s.undo(c, at, true)
+			return
+		}
+	} else if again := c.Sess.WakeReading(); again.Verdict != r.Verdict || !again.Tail.ChangedAt.Equal(r.Tail.ChangedAt) {
 		s.undo(c, at, false)
 		return
 	}
@@ -472,7 +520,7 @@ func (s *wakeService) fire(c wakeCandidate, id int, text bool, r session.WakeRea
 	typedAt := s.now()
 	submitted := false
 	if s.sleep(s.settle, s.stop) {
-		if t := c.Sess.LastUserInput(); (t.IsZero() || !t.After(typedAt)) && !off() {
+		if t := c.Sess.LastUserInput(); (t.IsZero() || !t.After(typedAt)) && !off() && (word == nil || s.beforeEnter(c, *word)) {
 			submitted = c.Sess.WriteStringFrom(session.InputFlockdeck, "\r") == nil
 		}
 	}
@@ -493,12 +541,69 @@ func (s *wakeService) fire(c wakeCandidate, id int, text bool, r session.WakeRea
 		s.mu.Unlock()
 	}
 	if s.record != nil {
-		s.record(team.Event{
+		s.record(withWord(team.Event{
 			Kind: team.EventWake, ID: id, Time: typedAt, Pane: c.ID, Agent: c.Agent,
 			Rule: r.Version, RuleSource: r.Source, Prompt: cleanPromptLine(r.Prompt), Line: line,
 			Unsubmitted: !submitted,
-		})
+		}, word))
 	}
+}
+
+// withWord adds to a wake event what an agent's own record said.
+func withWord(e team.Event, w *AgentWord) team.Event {
+	if w != nil {
+		e.Pid, e.SessionID, e.IdleSince, e.WordFrom = w.Pid, w.SessionID, w.Since, w.From
+	}
+	return e
+}
+
+// wordHolds is the conditions on an agent's record for a wake to start: the
+// agent says it is idle, has said so for wakeAgentIdle, and nobody has pressed a
+// key in the pane since it went idle. The last is what shows the input box is
+// empty and no picker or dialog was opened by hand: a draft, or /model, /resume
+// and the like, take keys, and the agent does not leave idle for them. Text a
+// paneSend or a wake itself typed is Flockdeck's and is not counted.
+func (s *wakeService) wordHolds(c wakeCandidate, w AgentWord, now time.Time) string {
+	if !w.Idle || now.Sub(w.Since) < wakeAgentIdle {
+		return "the agent has not said it is idle for long enough"
+	}
+	if u := c.Sess.LastUserInput(); !u.IsZero() && u.After(w.Since) {
+		return "someone has typed in the pane since the agent went idle"
+	}
+	return ""
+}
+
+// wordStands is wordHolds again, just before the line, with the record read afresh
+// and required to be the same one, and the screen to be as it was and to hold
+// nothing the rule forbids.
+func (s *wakeService) wordStands(c wakeCandidate, w AgentWord, r session.WakeReading) bool {
+	again, ok := c.AgentIdle()
+	if !ok || again.Pid != w.Pid || again.SessionID != w.SessionID || !again.Since.Equal(w.Since) {
+		return false
+	}
+	if s.wordHolds(c, again, s.now()) != "" {
+		return false
+	}
+	now := c.Sess.WakeReading()
+	return !now.Forbidden && now.Tail.ChangedAt.Equal(r.Tail.ChangedAt)
+}
+
+// beforeEnter is the last look before the Enter that submits the line: the pane is
+// still idle by Flockdeck's reading and by the agent's own, the same record, nobody
+// has typed since, and the screen holds nothing the rule forbids (an Enter on a
+// permission dialog takes its default choice).
+func (s *wakeService) beforeEnter(c wakeCandidate, w AgentWord) bool {
+	if st, _ := c.Sess.Status(); st != session.StatusIdle {
+		return false
+	}
+	again, ok := c.AgentIdle()
+	if !ok || !again.Idle || again.Pid != w.Pid || again.SessionID != w.SessionID || !again.Since.Equal(w.Since) {
+		return false
+	}
+	if u := c.Sess.LastUserInput(); !u.IsZero() && u.After(w.Since) {
+		return false
+	}
+	return !c.Sess.WakeReading().Forbidden
 }
 
 // deliver sends the line to a pane with no terminal as a prompt. A prompt is
@@ -608,8 +713,10 @@ func (w *Workspace) wakeCandidates() []wakeCandidate {
 			continue
 		}
 		spec, _ := w.agents().Find(p.Agent)
-		out = append(out, wakeCandidate{ID: p.ID, Agent: p.Agent, Root: p.Root, Sess: p.Sess, TextOK: spec.Caps.TextWake,
-			Claim: func() bool { return w.claimSend(p) }, Release: func() { w.releaseSend(p) }})
+		cand := wakeCandidate{ID: p.ID, Agent: p.Agent, Root: p.Root, Sess: p.Sess, TextOK: spec.Caps.TextWake,
+			Claim: func() bool { return w.claimSend(p) }, Release: func() { w.releaseSend(p) }}
+		cand.AgentIdle = w.claudeAgentIdle(p)
+		out = append(out, cand)
 	}
 	return out
 }
