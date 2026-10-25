@@ -1,0 +1,218 @@
+package changes
+
+import (
+	"context"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"testing"
+	"time"
+)
+
+const testSha = "0123456789abcdef0123456789abcdef01234567"
+
+func TestReviewStateIsCleanedWhenRead(t *testing.T) {
+	now := time.Now().UTC().Format(time.RFC3339)
+	p := filepath.Join(t.TempDir(), "s.json")
+	body := `{"reviews":[
+		{"branch":"feat","reviewer":"p2","state":"approved","note":"fine‮","at":"` + now + `","atSha":"` + testSha + `","stale":true,"extra":1},
+		{"branch":"feat","reviewer":"p3","state":"merged","at":"` + now + `","atSha":"` + testSha + `"},
+		{"branch":"feat","reviewer":"p4","state":"approved","at":"` + now + `","atSha":"not a sha"},
+		{"branch":"feat","reviewer":"p5","state":"approved","at":"yesterday","atSha":"` + testSha + `"},
+		{"branch":"","reviewer":"p6","state":"approved","at":"` + now + `","atSha":"` + testSha + `"}],"unknown":true}`
+	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	st, err := LoadReviews(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(st.Reviews) != 1 || st.Reviews[0].Reviewer != "p2" || st.Reviews[0].Note != "fine" || st.Reviews[0].Stale {
+		t.Fatalf("state = %+v", st)
+	}
+	if err := st.Save(p); err != nil {
+		t.Fatal(err)
+	}
+	data, _ := os.ReadFile(p)
+	for _, bad := range []string{"extra", "unknown", "stale"} {
+		if strings.Contains(string(data), bad) {
+			t.Errorf("saved state keeps %q: %s", bad, data)
+		}
+	}
+	if left, _ := filepath.Glob(filepath.Join(filepath.Dir(p), "*.tmp")); len(left) != 0 {
+		t.Errorf("temporary files left: %v", left)
+	}
+	if got, err := LoadReviews(filepath.Join(t.TempDir(), "none.json")); err != nil || len(got.Reviews) != 0 {
+		t.Errorf("a missing file: %+v %v, want an empty state and no error", got, err)
+	}
+	if err := os.WriteFile(p, []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := LoadReviews(p); err == nil || len(got.Reviews) != 0 {
+		t.Errorf("a broken file: %+v %v, want an error", got, err)
+	}
+	if bad, err := os.ReadFile(p + ".bad"); err != nil || string(bad) != "{" {
+		t.Errorf("the copy of the broken file: %q %v", bad, err)
+	}
+}
+
+func TestSetReplacesTheSameReviewersAndForMarksStale(t *testing.T) {
+	var st ReviewState
+	at := time.Now().UTC().Format(time.RFC3339)
+	if err := st.Set("feat", Review{Reviewer: "p2", State: "requested", At: at, AtSha: testSha}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Set("feat", Review{Reviewer: "p2", State: "approved", Note: strings.Repeat("n", MaxNote+10), At: at, AtSha: testSha}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Set("other", Review{Reviewer: "p2", State: "changes", At: at, AtSha: testSha}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if len(st.Reviews) != 2 {
+		t.Fatalf("state = %+v, want one review for each branch", st.Reviews)
+	}
+	got := st.For("feat", testSha)
+	if len(got) != 1 || got[0].State != "approved" || got[0].Stale || len([]rune(got[0].Note)) != MaxNote {
+		t.Errorf("reviews = %+v", got)
+	}
+	if got := st.For("feat", "ffffffffffffffffffffffffffffffffffffffff"); len(got) != 1 || !got[0].Stale {
+		t.Errorf("after a commit: %+v, want it stale", got)
+	}
+	if got := st.For("none", testSha); got == nil || len(got) != 0 {
+		t.Errorf("a branch with no review: %v, want an empty list", got)
+	}
+}
+
+func TestAFullStateDropsRequestsFirstAndNeverTheApprovals(t *testing.T) {
+	at := time.Now().UTC().Format(time.RFC3339)
+	name := func(i int) string { return "b" + string(rune('A'+i%26)) + string(rune('a'+i/26)) }
+	var st ReviewState
+	approved := 0
+	for i := 0; i < MaxReviews; i++ {
+		state := "requested"
+		if i%2 == 0 {
+			state = "approved"
+			approved++
+		}
+		st.Reviews = append(st.Reviews, reviewRecord{Branch: name(i), Review: Review{Reviewer: "p", State: state, At: at, AtSha: testSha}})
+	}
+	if err := st.Set("new", Review{Reviewer: "the person", State: "changes", At: at, AtSha: testSha}, nil); err != nil {
+		t.Fatalf("a request could not make room: %v", err)
+	}
+	kept := 0
+	for _, r := range st.Reviews {
+		if r.State == "approved" {
+			kept++
+		}
+	}
+	if len(st.Reviews) != MaxReviews || kept != approved || st.Reviews[0].Branch != "new" {
+		t.Errorf("%d reviews, %d of %d approvals kept, first %q", len(st.Reviews), kept, approved, st.Reviews[0].Branch)
+	}
+
+	// With nothing left that may go, a new review is refused and the state is as it was.
+	var full ReviewState
+	for i := 0; i < MaxReviews; i++ {
+		full.Reviews = append(full.Reviews, reviewRecord{Branch: name(i), Review: Review{Reviewer: "p", State: "approved", At: at, AtSha: testSha}})
+	}
+	if err := full.Set("new", Review{Reviewer: "p", State: "approved", At: at, AtSha: testSha}, nil); err != ErrReviewsFull || len(full.Reviews) != MaxReviews {
+		t.Errorf("a full state of approvals: %v, %d reviews", err, len(full.Reviews))
+	}
+	// A branch that is gone gives its approval up.
+	gone := func(b string) bool { return b == name(0) }
+	if err := full.Set("new", Review{Reviewer: "p", State: "approved", At: at, AtSha: testSha}, gone); err != nil {
+		t.Errorf("a gone branch kept its place: %v", err)
+	}
+}
+
+func TestNotesAndLinesLoseInvisibleSeparators(t *testing.T) {
+	in := "a b c⁠d⁣e​f‮g\x07h\ni\tj"
+	if got := CleanNote(in); got != "abcdefgh\ni\tj" {
+		t.Errorf("CleanNote = %q", got)
+	}
+	if got := cleanLine(in, 100); strings.ContainsAny(got, "⁠⁣​‮\x07") {
+		t.Errorf("cleanLine = %q", got)
+	}
+}
+
+func TestLiveBranchesListsBranchesAndFailsOutsideARepository(t *testing.T) {
+	dir := repo(t)
+	runGit(t, dir, "branch", "feat/one")
+	live, err := LiveBranches(context.Background(), dir)
+	if err != nil || !live["main"] || !live["feat/one"] || live["feat/two"] {
+		t.Errorf("live = %v, err = %v", live, err)
+	}
+	if live, err := LiveBranches(context.Background(), t.TempDir()); err == nil || live != nil {
+		t.Errorf("outside a repository: %v, %v, want an error and no list", live, err)
+	}
+}
+
+func TestAFullStateKeepsApprovedAndChangesReviewsOfLiveBranches(t *testing.T) {
+	at := time.Now().UTC().Format(time.RFC3339)
+	full := func() ReviewState {
+		var st ReviewState
+		for i := 0; i < MaxReviews; i++ {
+			state := "approved"
+			if i%2 == 1 {
+				state = "changes"
+			}
+			st.Reviews = append(st.Reviews, reviewRecord{Branch: "b" + strconv.Itoa(i), Review: Review{Reviewer: "p", State: state, At: at, AtSha: testSha}})
+		}
+		return st
+	}
+	nothingGone := func(string) bool { return false }
+	st := full()
+	if err := st.Set("new", Review{Reviewer: "p", State: "approved", At: at, AtSha: testSha}, nothingGone); err != ErrReviewsFull || len(st.Reviews) != MaxReviews {
+		t.Errorf("all branches live: %v, %d reviews", err, len(st.Reviews))
+	}
+	for _, r := range st.Reviews {
+		if r.Branch == "new" {
+			t.Error("a review was recorded in a full state")
+		}
+	}
+	// A failed listing is passed as nil, which also drops nothing.
+	st = full()
+	if err := st.Set("new", Review{Reviewer: "p", State: "approved", At: at, AtSha: testSha}, nil); err != ErrReviewsFull {
+		t.Errorf("no listing: %v", err)
+	}
+	// Only the branch that is gone gives its approval up.
+	st = full()
+	if err := st.Set("new", Review{Reviewer: "p", State: "approved", At: at, AtSha: testSha}, func(b string) bool { return b == "b0" }); err != nil {
+		t.Fatal(err)
+	}
+	for _, r := range st.Reviews {
+		if r.Branch == "b0" {
+			t.Error("the gone branch kept its place")
+		}
+	}
+	if len(st.Reviews) != MaxReviews {
+		t.Errorf("%d reviews", len(st.Reviews))
+	}
+}
+
+func TestADamagedFileIsCopiedOnceAndNeverOverwritten(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "s.json")
+	for _, body := range []string{"{", "{", "[1"} {
+		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		_, err := LoadReviews(p)
+		if err == nil {
+			t.Fatalf("%q loaded", body)
+		}
+		if want := filepath.Base(p) + ".bad"; body == "[1" {
+			want += ".1"
+			if !strings.HasSuffix(err.Error(), want) {
+				t.Errorf("the error names %q, want it to end with %q", err, want)
+			}
+		}
+	}
+	for name, want := range map[string]string{p + ".bad": "{", p + ".bad.1": "[1"} {
+		if got, err := os.ReadFile(name); err != nil || string(got) != want {
+			t.Errorf("%s = %q, %v, want %q", filepath.Base(name), got, err, want)
+		}
+	}
+	if _, err := os.Stat(p + ".bad.2"); err == nil {
+		t.Errorf("an identical copy was written again")
+	}
+}

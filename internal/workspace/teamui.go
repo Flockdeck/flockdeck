@@ -98,6 +98,24 @@ func (w *Workspace) UserMessage(root, target, text string) (hooks.MsgResult, err
 	return w.deliver(w.rosterOf(open, ""), team.UserSender(), target, text)
 }
 
+// FlockdeckMessage puts a message from Flockdeck itself, not from the person or
+// another pane, in the inbox of an agent pane of the project at root. It is for
+// what Flockdeck does on the person's behalf, such as asking for a review, and
+// is refused when the pane is not an agent of that project or its inbox is full.
+func (w *Workspace) FlockdeckMessage(root, pane, text string) error {
+	members, err := w.TeamMembers(root)
+	if err != nil {
+		return err
+	}
+	for _, m := range members {
+		if m.Pane == pane {
+			_, err := w.team.inbox.Send(team.Sender{Name: team.System}, pane, text)
+			return err
+		}
+	}
+	return fmt.Errorf("no agent pane %q in this project", pane)
+}
+
 // TeamMessages lists every message in the inboxes of the project at root's agent
 // panes, oldest first, with the roster they were found by.
 func (w *Workspace) TeamMessages(root string) ([]team.Message, []team.Member, error) {

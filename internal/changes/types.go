@@ -54,8 +54,8 @@ type Branch struct {
 	TaskID      string      `json:"taskId,omitempty"`
 	Files       []File      `json:"files,omitempty"`
 	Omitted     int         `json:"omitted,omitempty"`
-	Checks      *[]struct{} `json:"checks,omitempty"`
-	Reviews     *[]struct{} `json:"reviews,omitempty"`
+	Checks      *[]Check    `json:"checks,omitempty"`
+	Reviews     *[]Review   `json:"reviews,omitempty"`
 	Comments    *[]struct{} `json:"comments,omitempty"`
 	Error       string      `json:"error,omitempty"`
 

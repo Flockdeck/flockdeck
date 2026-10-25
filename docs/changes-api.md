@@ -52,7 +52,7 @@ with a `changesResult` whose `code` is `deskOnly` and a notice.
 | `commentResolve`, `commentReopen` | Close and reopen a comment. Answer with a `changesResult` holding the `comment`. |
 | `runChecks` | Runs the project's local checks for a branch. Answers at once with a `changesResult`; results arrive in the next `changesTeam`. |
 | `requestReview` | Asks a pane to review a branch: records a `requested` review and sends the pane a message. |
-| `submitReview` | Records the person's own sign-off (`approved`, `changes` or `dismissed`) on a branch. An agent's sign-off arrives through the command line, which is not part of this contract. |
+| `submitReview` | Records the person's own sign-off (`approved`, `changes` or `dismissed`) on a branch. Taken from a window page only (section 6). |
 | `approveMerge` | Approves a branch's current head (section 7). |
 | `unapproveMerge` | Withdraws an approval. |
 | `mergeBranch` | Merges an approved branch into its base (section 7). |
@@ -65,11 +65,11 @@ Which command answers with which code:
 | `deskOnly`, `unsupported` | All of them (section 9; a build without the cap). |
 | `badRequest` | Any with a missing, too long or out of range field; `diffHunks`, `diffContext` and `commentAdd` for a `file` that is not one of the branch's files or leaves the checkout, and `commentAdd` for a line the diff does not have. |
 | `noBranch` | Any with an `id` that is not a pane with a branch, or a `branch` that differs. |
-| `notFound` | `commentResolve`, `commentReopen` (no such comment); `requestReview` (no such reviewer, or not an agent pane); `runChecks` (no team file). |
+| `notFound` | `commentResolve`, `commentReopen` (no such comment); `requestReview` (no such reviewer, or not an agent pane); `runChecks` (no check file). |
 | `headMoved` | `commentAdd`, `submitReview`, `approveMerge`, `mergeBranch` (`expectSha` is not the head). |
 | `checksNotPassing`, `conflicts`, `openComments`, `reviewChangesRequested`, `unpushed`, `empty` | `approveMerge`, in that order. |
 | `notApproved` | `mergeBranch`, when the gate is not approved for that head. |
-| `busy` | `changesSnapshot`, `filesPage`, `diffHunks` and `diffContext`, when the same window still has an earlier request of that kind being answered. One of each kind runs at a time for a window. |
+| `busy` | `changesSnapshot`, `filesPage`, `diffHunks` and `diffContext`, when the same window still has an earlier request of that kind being answered. One of each kind runs at a time for a window. `runChecks` is also `busy` while the branch's checks are running. |
 | `notClean`, `notFastForward`, `failed` | `mergeBranch`. |
 
 The fields these commands use, besides `cmd`:
@@ -224,25 +224,93 @@ person looked at) and answers `headMoved` if the branch has moved on. An unknown
 
 ## 6. Checks and reviews
 
-**Checks.** The project says what its local checks are in its team file:
-`gate.checks`, a list of `{ "name": "...", "cmd": "..." }`. `runChecks` runs them
-in the branch's checkout, one at a time, and the results are in the branch's
-`checks` with `source` `local`. A CI result has `source` `ci` and a `url`; a
-result an agent reports (the tester's last run) has `source` `agent`. Every
-check has the `atSha` it ran against. A commit makes the old results out of date:
-the server reports the check as `queued` again, or leaves it out, and never as
-`pass` for a head it did not run on.
+**Checks.** The person writes the project's local checks by hand in a file in
+Flockdeck's config directory, `changes/<project name>-<8 hex>.json`, as
+`{ "checks": [{ "name": "...", "cmd": "..." }] }` (at most 20 checks, a name of
+60 characters, a command of 1000). A command never comes from a window, from the
+repository or from an agent: the team file, the task board and the branch are
+all written by agents and are not read for commands. A `runChecks` that finds no
+such file is `notFound`, and its error gives the path to write.
 
-**Reviews.** `requestReview` records a `requested` review for the pane and sends
-it a message. A pane's own sign-off, `approved`, `changes` or `dismissed`, comes
-in through the command line and replaces the earlier review by the same
-reviewer. `requestReview` is a message through the inbox, never typed into the
-pane, and is refused as a message to a shell pane is by `paneSend`; a reviewer
-that is missing or not an agent pane is `notFound`. `submitReview` needs
-`expectSha` and answers `headMoved` on a mismatch; its message names the author
-in the same way as a comment's. `runChecks` is `notFound` when the project has no
-team file. A review has the `atSha` it was given at, and `stale` is set by the
-server once the head has moved: a stale approval does not count.
+`runChecks` runs the checks, or those in `names`, one at a time in the branch's
+checkout through the platform's shell, and answers at once. The results are in
+the branch's `checks` with `source` `local`, in the pushes that follow. Each has
+the `atSha` it ran against. A commit makes the old results out of date: the
+server reports the check as `queued` for the new head, and never as `pass` for a
+head it did not run on. Results are kept in memory, so a restart forgets them. A
+second `runChecks` for a branch whose checks are still running is `busy`.
+
+A check runs with the person's rights. It runs in the agent's checkout, so
+scripts and test code the agent wrote run exactly as if the person had run them.
+Flockdeck limits the damage and does not sandbox it:
+
+- The environment holds only the variables a build needs to find its tools and
+  a place to write (`PATH`, the system and temp folders, the home folder, the
+  language), and nothing else, so no token of Flockdeck's or the person's
+  session is passed to it.
+- A check is stopped after 10 minutes, and the command and what it started are
+  ended as far as Flockdeck's process tree reaches. On Unix that is the command's
+  session: a daemon that leaves it with `setsid` survives, and on macOS only the
+  process group is signalled. On Windows it is the job object, which ends console
+  programs only; a program with a window of its own is left running.
+- Windows does not run a `go.bat` or `npm.cmd` of the checkout ahead of the one
+  on `PATH` (`NoDefaultCurrentDirectoryInExePath` is set).
+- At most 64 KiB of its output is read. The first line of the check's own output
+  with something in it is the only text kept, as `summary` (at most 200
+  characters, with control and formatting characters removed). Flockdeck does not
+  echo anything else.
+
+A tree with uncommitted or untracked files is still checked, as it is. The result
+has `worktree` true, the same marker a diff carries, and its summary says it ran
+on uncommitted files. A pass on a dirty tree is not a pass for the head commit:
+the gate (section 7) does not count it toward `approveMerge`. The head and the
+tree are looked at again when a check ends: a result for a head that has moved
+is reported `queued`, and one that saw a tree that became dirty is marked
+`worktree`. That is an honesty check and not a boundary; a process that wants to
+deceive can put the files back before the second look.
+
+Who may start a check. `runChecks`, `requestReview` and `submitReview` are
+taken only from a connection that opened as a page of the window on this machine
+(with an `Origin`), as `approveBaton` is, and refused as `deskOnly` otherwise.
+That raises the bar and does not close it: an agent's pane token is accepted by
+the same socket, and an agent can set an `Origin`. Until the window has a
+credential an agent cannot get, an agent on this machine can run the person's
+checks, and a recorded review is not proof that the person made it. The merge
+commands (`approveMerge`, `mergeBranch`, section 7) must not ship before that
+credential exists. The check file is in the config directory, so an agent that
+can write there can plant commands in it; the person's file is not pinned yet.
+
+A CI result has `source` `ci` and a `url`; a result an agent reports has `source`
+`agent`. Neither is built in this version.
+
+**Reviews.** `requestReview` records a `requested` review for the reviewer pane
+and puts a message in its inbox. The message comes from Flockdeck, not from the
+person, and says that the person asked the pane to review the branch at the
+head. It states that the request does not approve or merge anything, and it
+quotes any `text` the window sent as a note and not as an instruction. It is
+never typed into the pane. A reviewer that is missing or is not an agent pane of
+the project is `notFound`.
+
+`submitReview` records the person's own sign-off, `approved`, `changes` or
+`dismissed`, with a note. It is taken from a window page on this machine only, with the limit
+described above: an agent that sets an `Origin` can send it too. It needs `expectSha` and answers
+`headMoved` on a mismatch, and a review replaces the earlier one by the same
+reviewer. The branch's pane is told in a message from Flockdeck what was
+recorded.
+
+The reviews are kept in `changes/<project name>-<8 hex>.state.json`, which only
+Flockdeck writes. It is written to a temporary file and renamed into place, and
+it is cleaned when read: entries over the limits, with an unknown state or
+without a valid sha are dropped, and fields it does not know are not kept. A file
+that is there and cannot be read is not written over: it is kept as
+`<name>.state.json.bad`, the commands that record a review answer with an error,
+and the branches show no reviews until the person has dealt with it. A missing
+file is an empty state. When the state is full (200 reviews), requests and
+dismissals, and the reviews of branches that no longer exist, are dropped
+first, oldest first; an `approved` or `changes` review of a branch that exists
+is never dropped, and a new review is refused instead. A
+review has the `atSha` it was given at, and `stale` is set by the server once
+the head has moved: a stale approval does not count.
 
 ## 7. The gate and the merge
 
@@ -252,7 +320,7 @@ head, and `merged` once the branch is in its base. The blockers, by `kind`:
 
 | Kind | Blocks when |
 | --- | --- |
-| `checks` | A check is failing, or running, queued or missing for the head. |
+| `checks` | A check is failing, or running, queued or missing for the head. A pass with `worktree` true ran on uncommitted files and counts as missing. |
 | `conflict` | Another branch changes one of the same paths, or the branch does not merge into its base without a conflict. |
 | `review` | A review that is not stale asks for changes. A missing review does not block. |
 | `comments` | A comment is open. |

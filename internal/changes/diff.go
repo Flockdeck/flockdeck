@@ -685,7 +685,7 @@ func blobText(ctx context.Context, cwd, rev, rel string) (content, problem strin
 		return "", "reading the file took too long", true
 	case errors.Is(err, context.DeadlineExceeded):
 		return "", "reading the file took too long", true
-	case err != nil && missingInGit(err):
+	case err != nil && missingAtCommit(ctx, cwd, rev, rel):
 		return "", "", false
 	case err != nil:
 		log.Printf("changes: git show of %q failed: %v", rev+":"+rel, firstLine(err.Error()))
@@ -709,9 +709,11 @@ func blobSize(ctx context.Context, cwd, rev, rel string) *int64 {
 	return &n
 }
 
-// missingInGit says whether git show failed because the path is not in the
-// commit, which is an empty side and not a failure.
-func missingInGit(err error) bool {
-	m := err.Error()
-	return strings.Contains(m, "does not exist in") || strings.Contains(m, "exists on disk, but not in") || strings.Contains(m, "Path '")
+// missingAtCommit says whether the path is not in the commit, which is an empty
+// side and not a failure. It asks git's tree and does not read git's message, so
+// it does not depend on the language git writes in: an empty answer from a tree
+// that was read is a path that is not there.
+func missingAtCommit(ctx context.Context, cwd, rev, rel string) bool {
+	o, err := git(ctx, cwd, "ls-tree", "-z", "--end-of-options", rev, "--", rel)
+	return err == nil && o == ""
 }

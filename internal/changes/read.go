@@ -130,7 +130,8 @@ func read(ctx context.Context, pane, cwd string, maxFiles int) (Branch, string) 
 	}
 	b.Files = files
 	none := []struct{}{}
-	b.Checks, b.Reviews, b.Comments = &none, &none, &none
+	checks, reviews := []Check{}, []Review{}
+	b.Checks, b.Reviews, b.Comments = &checks, &reviews, &none
 	if maxFiles > 0 && len(files) > maxFiles {
 		b.Omitted = len(files) - maxFiles
 		b.Files = files[:maxFiles]

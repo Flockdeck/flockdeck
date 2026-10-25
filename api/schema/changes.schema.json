@@ -302,7 +302,7 @@
             "ci",
             "agent"
           ],
-          "description": "local: a command of the project's gate.checks that Flockdeck ran. ci: a CI system's result. agent: a result an agent reported."
+          "description": "local: a check from the person's check file in the config directory, which Flockdeck ran. ci: a CI system's result. agent: a result an agent reported."
         },
         "url": {
           "type": "string",
@@ -313,6 +313,10 @@
           "type": "string",
           "pattern": "^[0-9a-f]{7,40}$",
           "description": "The head the check ran against. A check whose atSha is not the branch's headSha is out of date; the server then reports it as queued again or leaves it out, never as pass."
+        },
+        "worktree": {
+          "const": true,
+          "description": "Present, and true, when the check ran on a tree with uncommitted or untracked files. The result says nothing about the head commit, and the merge gate never counts such a pass."
         }
       }
     },

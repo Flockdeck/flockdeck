@@ -270,3 +270,19 @@ func TestAMissingFileAtACommitIsAnEmptySideAndNotAnError(t *testing.T) {
 		t.Errorf("a missing path: problem %q found %v, want neither", problem, found)
 	}
 }
+
+// A missing path is told from a failed read by asking the tree, not by reading
+// git's message.
+func TestMissingAtCommitAsksTheTree(t *testing.T) {
+	dir := repo(t)
+	b := Read(context.Background(), "p1", dir, MaxFiles)
+	if !missingAtCommit(context.Background(), dir, b.HeadSha, "no/such.txt") {
+		t.Error("a path that is not in the commit was not called missing")
+	}
+	if missingAtCommit(context.Background(), dir, b.HeadSha, "a.txt") {
+		t.Error("a path that is in the commit was called missing")
+	}
+	if missingAtCommit(context.Background(), dir, "0000000000000000000000000000000000000000", "a.txt") {
+		t.Error("a commit that is not there was called a missing path")
+	}
+}
