@@ -568,7 +568,8 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
   // What the command palette lists besides the key table's actions: what needs the
   // person (choosing one opens that agent), every agent of the graph, and the views.
   // None of them answers anything: a permission is answered on its card.
-  const paletteItems = useMemo(() => {
+  // Rebuilt each render: it reads the tab set, the views and the drawer through closures, and it is cheap.
+  const paletteItems = (() => {
     const items = [];
     if (current) {
       const nameOf = (id) => (current.byPane.get(id) && current.byPane.get(id).name) || id;
@@ -583,7 +584,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     items.push({ id: "layout", group: "Views", name: "Layout: stack / side by side", detail: orient === "stack" ? "now below" : "now beside", run: toggleLayout });
     for (const [id, name] of views) items.push({ id: "view-" + id, group: "Views", name: "Show " + name, detail: "", run: () => chooseView(id) });
     return items;
-  }, [current, view, orient]);
+  })();
   // step is nextNeedsYou or prevNeedsYou. The pane the keyboard is on, or the open drawer's, is where it starts.
   const jumpNeedsYou = (step) => {
     if (!current || snap.graphGone) return;
@@ -595,7 +596,8 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     drawer.open(to, "key");
   };
   const helperNames = useMemo(() => (current ? current.nodes.map((n) => ({ pane: n.pane, name: n.name })) : []), [current]);
-  const actions = useMemo(() => ({
+  // Rebuilt each render, as the palette items are: the Shell keeps the latest in a ref.
+  const actions = ({
     // The jump lands on the agent's box and opens its drawer, where the prompt is.
     nextNeedsYou: () => jumpNeedsYou(nextNeedsYou),
     prevNeedsYou: () => jumpNeedsYou(prevNeedsYou),
@@ -658,7 +660,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     restartPane: needPane(() => life.begin("restart", node, pane)),
     lockPane: needPane(() => life.toggleLock(node.pane, !(pane && pane.locked))),
     closePane: needPane(() => (pane && pane.locked ? say("This pane is locked. Unlock it to close it.") : life.begin("close", node, pane))),
-  }), [current, snap.graphGone, snap.remote, win, drawer.pane, node, pane, goal, activeTab, savedTabs, view, current, onDesk, life.request, tx.request, prefs.fontSize, snap.paneInfo, noticeSeq, viewer, patch]);
+  });
 
   // The baton answers. A draft is for the dialog whose request it carries. A
   // saved or refused command is taken off the list of those out, and a saved one
