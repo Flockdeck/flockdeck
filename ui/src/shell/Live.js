@@ -59,6 +59,7 @@ import { openOf, selectCommand } from "../lib/projects.js";
 import { askPermission, noteOf, permissionOf, raise, showAttention, waitingCount, waitsOf, watchPresence } from "../lib/attention.js";
 import { Toasts, addToasts, keepWaiting } from "./Toasts.js";
 import { viewOf } from "../lib/remote.js";
+import { isViewer } from "../lib/role.js";
 
 // What the shell is given before the first hello and state. Constants, so the
 // shell does not take them for a change on every render.
@@ -499,16 +500,17 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
   const barRef = useRef(null);
   // The feed is for a team with a manager, and gives its place to the drawer while that is open.
   const showFeed = !!current && !snap.graphGone && !node && current.teams.length > 0;
+  const viewer = isViewer(snap);
   // What the outline's decision blocks answer with. A relayed view has no store to answer with.
   const decisionCtx = current
     ? {
         snap,
-        store: snap.remote ? null : store,
+        store: snap.remote || viewer ? null : store,
         panes: new Map(Object.entries(statePanes || {})),
         manager: managerOf(current),
         onOpen: drawer.open,
         onSee: (p) => { drawer.open(p); setTabAsk((a) => ({ tab: "changes", n: a.n + 1, pane: p })); },
-        onRestart: snap.remote ? null : (p) => { const n = current.byPane.get(p); if (n) life.begin("restart", n, (statePanes || {})[p] || null); },
+        onRestart: snap.remote || viewer ? null : (p) => { const n = current.byPane.get(p); if (n) life.begin("restart", n, (statePanes || {})[p] || null); },
       }
     : null;
   const bar = current && !snap.graphGone && managerOf(current)
@@ -749,7 +751,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     onDismissNotice=${() => { setLocal(""); setDismissed(noticeSeq); }}
     drawer=${node
       ? html`<${Drawer} store=${store} snap=${snap} node=${node} pane=${pane} now=${Date.now()} maximised=${drawer.maximised}
-          onClose=${drawer.close} onToggleMax=${drawer.toggleMax} terminalOptions=${termProps} life=${life}
+          onClose=${drawer.close} onToggleMax=${drawer.toggleMax} terminalOptions=${termProps} life=${viewer ? null : life}
           tx=${tx} onInfo=${openInfo} findAsk=${findAsk} tabAsk=${tabAsk} onOpenPane=${drawer.open} order=${order} helpers=${helperNames} layout=${orient} onLayout=${toggleLayout} onStartTeam=${snap.remote ? null : () => setStarting("team")} />`
       : null}
   >${snap.state

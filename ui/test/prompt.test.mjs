@@ -551,3 +551,20 @@ test("keys the agent ignores: after a wait the buttons come back and say so, and
     a.done();
   }
 });
+
+test("a viewer sees the permission choices disabled with the sentence, and nothing is sent", async () => {
+  const calls = [];
+  const a = alone({ node: TERMINAL_NODE, pane: { permission: permission() }, snap: { remote: false, hello: { role: "viewer" } }, store: {}, sendKeys: (text, done) => { calls.push(text); return true; } });
+  try {
+    await settle();
+    const buttons = a.container.findAll(".prompt-choice");
+    assert.ok(buttons.length > 0);
+    assert.ok(buttons.every((b) => b.getAttribute("disabled") !== null));
+    assert.equal(a.container.find(".prompt-status").textContent, "This device can only view.");
+    buttons[0].click();
+    await settle();
+    assert.deepEqual(calls, []);
+  } finally {
+    a.done();
+  }
+});

@@ -21,6 +21,7 @@ import { Conversation } from "./Conversation.js";
 import { ChipsContext } from "./conv/chips.js";
 import { Structured } from "./Structured.js";
 import { Message } from "./Message.js";
+import { isViewer } from "../lib/role.js";
 import { Lifecycle } from "./Lifecycle.js";
 import { Task } from "./Task.js";
 import { Changes } from "./Changes.js";
@@ -275,7 +276,7 @@ function DrawerBody({ store, snap = null, node, pane = null, now, maximised = fa
             <${Changes} key=${node.pane} cwd=${pane.cwd} git=${[pane.dirty, pane.untracked, pane.ahead, pane.behind].join("/")} snap=${state} store=${store} />
           </div>`
         : null}
-      ${terminal && !state.remote && !node.shell
+      ${terminal && !state.remote && !isViewer(state) && !node.shell
         ? html`<${Message} key=${node.pane} pane=${node.pane} name=${node.name} store=${store} />`
         : null}
     </section>

@@ -542,3 +542,8 @@ test("the message box keeps the draft and says so when the desk refuses the text
     restore();
   }
 });
+
+test("a viewer's drawer has no message box", () => {
+  const viewer = fakeStore({ hello: { type: "hello", role: "viewer" }, state: paneState({ p2: {} }) });
+  assert.ok(!renderToString(html`<${Drawer} store=${viewer} node=${node()} now=${NOW} />`).includes("drawer-message"));
+});

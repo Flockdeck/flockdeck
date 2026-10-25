@@ -13,6 +13,7 @@ import {
   ManagerBar, managerOf, checkText, sentWords, SENT_SHOWN,
   MAX_BYTES, EMPTY_WORDS, TOO_LONG_WORDS, NO_MANAGER_WORDS, NOT_CONNECTED_WORDS, LOST_WORDS, outcomeOf,
 } from "../src/graph/ManagerBar.js";
+import { VIEWER_WORDS } from "../src/lib/role.js";
 import { createDom, install, settle } from "./dom.mjs";
 import { FakeWebSocket, harness, hello } from "./fakes.mjs";
 
@@ -371,3 +372,14 @@ test("outcomeOf: after a reconnect no answer is coming, so the open send is refu
   // An answer that did arrive on the same connection still counts.
   assert.equal(outcomeOf({ ...snap, sent: { seq: 1, id: "m1" } }, pending).kind, "sent");
 });
+
+test("a viewer's manager bar is off and says so, and sends nothing", () =>
+  withBar(async (a) => {
+    assert.equal(a.state(), "viewer");
+    assert.equal(a.input().getAttribute("disabled") !== null, true);
+    assert.equal(a.send().getAttribute("disabled") !== null, true);
+    assert.equal(a.status(), VIEWER_WORDS);
+    a.send().click();
+    await settle();
+    assert.deepEqual(a.sends(), []);
+  }, undefined, { helloOver: { role: "viewer" } }));

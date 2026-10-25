@@ -21,6 +21,7 @@ import { useEffect, useRef, useState } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
 import { clip } from "./Node.js";
 import { composing } from "../shell/keys.js";
+import { isViewer, VIEWER_WORDS } from "../lib/role.js";
 
 /** SENT_SHOWN is how long, in ms, the line about an accepted send stays: long enough to read, then the bar is quiet again. A refusal stays until the text changes. */
 export const SENT_SHOWN = 6000;
@@ -143,6 +144,14 @@ export function ManagerBar({ snap, manager, send, inputRef, autoFocus = true, ve
   }, [done, open]);
 
   if (snap.remote) return null;
+  if (isViewer(snap) && manager) {
+    return html`<div class="mbar mbar--off" data-state="viewer">
+      ${lead ? html`<span class="mbar-to">To <b>${clip(manager.name, 24)}</b></span>` : null}
+      <input class="mbar-input" type="text" disabled aria-label=${"Message " + clip(manager.name, 40)} placeholder=${VIEWER_WORDS} />
+      <button class="mbar-send" type="button" disabled>Send</button>
+      <span class="mbar-status" role="status">${VIEWER_WORDS}</span>
+    </div>`;
+  }
   if (!manager) {
     return html`<div class="mbar mbar--off" data-state="no-manager">
       <input class="mbar-input" type="text" disabled aria-label="Message the manager" placeholder="No manager" />
