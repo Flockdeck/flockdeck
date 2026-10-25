@@ -1,7 +1,7 @@
 {
   "api": {
     "major": 1,
-    "minor": 7
+    "minor": 8
   },
   "frames": [
     {
@@ -248,6 +248,12 @@
       "name": "commit",
       "access": "full",
       "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "confirmChecks",
+      "access": "full",
+      "since": "1.8",
       "status": "stable"
     },
     {
@@ -1388,6 +1394,12 @@
       "relay": "pass",
       "why": "git status",
       "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "changesChecks",
+      "relay": "scrub",
+      "since": "1.8",
       "status": "stable"
     },
     {
