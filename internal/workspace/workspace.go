@@ -465,6 +465,7 @@ type Workspace struct {
 	// wakeSvc types the wake line into idle agent panes; wakeSettings says where
 	// it may.
 	wakeSvc      *wakeService
+	claudeSvc    *claudeStateService
 	wakeSettings WakeSettings
 	// pendingTitles holds titles a pane asked for from the hook goroutine,
 	// waiting to be applied to its tab on the interface's own goroutine.
@@ -682,6 +683,7 @@ func New(opts Options) (*Workspace, error) {
 	w.loadMessages()
 	w.wakeSettings = newPrefsWake()
 	w.startWake()
+	w.startClaudeState()
 	w.SetWake(opts.OnWake)
 	_ = store.TouchRecent(root)
 
@@ -3689,6 +3691,9 @@ func (w *Workspace) applyGit(key string, st gitx.Status, late bool) {
 func (w *Workspace) Close() {
 	// The wake service types into panes, so it stops before they are destroyed.
 	w.stopWake()
+	if w.claudeSvc != nil {
+		w.claudeSvc.Stop()
+	}
 	// Close stops waiting for a running index refresh; git finishes it by itself. Only
 	// this workspace's: each has a context of its own.
 	w.stopRefreshes()
