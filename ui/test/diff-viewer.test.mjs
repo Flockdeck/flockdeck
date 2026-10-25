@@ -63,15 +63,15 @@ test("the file list reports a pick by path, and draws a hostile path as text", a
 
 test("a diff is a named region with named buttons, and its lines carry a sign as well as a colour", () => {
   const out = view({ branch: "feat/limit", file: listing(hunksFile), hunks: hunksFile });
-  assert.match(out, /role="region" aria-label="Diff of internal\/limit\/limit\.go on feat\/limit"/);
+  assert.match(out, /role="group" aria-label="Diff of internal\/limit\/limit\.go on feat\/limit"/);
   assert.match(out, /aria-expanded="true"/);
-  assert.match(out, /Show 51 unchanged lines/);
-  assert.match(out, /Show 31 unchanged lines/);
-  assert.match(out, /Show the unchanged lines below/);
+  assert.match(out, /Show 51 unchanged lines \(lines 1 to 51\)/);
+  assert.match(out, /Show 31 unchanged lines \(lines 60 to 90\)/);
+  assert.match(out, /Show the unchanged lines below from line 95/);
   assert.match(out, /removed: /);
   assert.match(out, /added: /);
   assert.match(out, /<mark>/);
-  assert.match(out, /role="status"/, "the status line stays in the page");
+  assert.match(out, /<p class="dv-live" role="status"><\/p>/, "the status line is in the page empty, and filled after the first draw");
   assert.doesNotMatch(out, /dv-plus/, "no + without onComment");
 });
 
@@ -85,13 +85,18 @@ test("side by side and unified have their own tables, and a narrow container dra
 
 test("the stylesheet keys the narrow layout on the main container", () => {
   const css = readFileSync(join(here, "..", "src", "drawer", "drawer.css"), "utf8");
-  assert.match(css, /@container main \(max-width: 680px\)\s*\{[^}]*\.dv-/);
+  assert.match(css, /@container dv \(max-width: 680px\)\s*\{[^}]*\.dv-/);
+  assert.doesNotMatch(css, /@container main[^{]*\{[^}]*\.dv-/, "the drawer is not inside the main column");
+  assert.match(css, /\.dv\s*\{\s*container:\s*dv \/ inline-size/);
+  assert.match(css, /\.dv-plus\s*\{[^}]*width:\s*24px/);
   assert.match(css, /\.dv-body\[hidden\]\s*\{\s*display:\s*none/);
 });
 
 test("fixture 05: a cut diff says so and draws no gap below the kept lines", () => {
   const out = view({ file: listing(truncated, { generated: false }), hunks: truncated });
   assert.match(out, /The desk cut this diff at 3 of 48,213 lines/);
+  const big = { ...truncated, hunks: [{ oldStart: 0, oldLines: 0, newStart: 1, newLines: 900, header: "", lines: Array.from({ length: 900 }, (_, i) => ({ t: "add", text: "x" + i, newNo: i + 1 })) }] };
+  assert.doesNotMatch(view({ file: listing(truncated), hunks: big, collapsed: false }), /The desk cut this diff/, "the cut note waits until the last page is drawn");
   assert.doesNotMatch(out, /unchanged lines below/, "the cut part was never sent, so there is nothing to ask for");
   assert.doesNotMatch(view({ file: listing(truncated), hunks: { ...truncated, truncated: true } }), /unchanged lines below/, "a bare true is a cut too");
   assert.match(view({ file: listing(hunksFile), hunks: hunksFile }), /unchanged lines below/, "an uncut diff has it");
@@ -100,7 +105,6 @@ test("fixture 05: a cut diff says so and draws no gap below the kept lines", () 
 test("a generated file starts shut, and the header opens it", async () => {
   const out = view({ file: listing(truncated), hunks: truncated });
   assert.match(out, /aria-expanded="false"/);
-  assert.match(out, /Generated file, collapsed\./);
   const dom = createDom();
   const restore = install(dom);
   try {
@@ -109,6 +113,7 @@ test("a generated file starts shut, and the header opens it", async () => {
     render(html`<${DiffViewer} file=${listing(truncated)} hunks=${truncated} />`, box);
     await settle();
     assert.ok(box.find(".dv-body").getAttribute("hidden") !== null);
+    assert.match(box.textContent, /Generated file, collapsed|cut: 3 lines shown/, "the live line says what is shown");
     box.find(".dv-fh").click();
     await settle();
     assert.equal(box.find(".dv-body").getAttribute("hidden"), null);
@@ -148,7 +153,7 @@ test("a line's + reports its side and number, a gap button its request, and open
     const del = plusses.find((b) => /old line 55/.test(b.getAttribute("aria-label")));
     assert.ok(del, "a deleted line is commented on its old side");
     del.click();
-    const add = plusses.find((b) => /^Comment on line 55, 1 open comment$/.test(b.getAttribute("aria-label")));
+    const add = plusses.find((b) => /^Comment on line 55 of internal\/limit\/limit\.go, 1 open comment$/.test(b.getAttribute("aria-label")));
     assert.ok(add, "an open comment is counted in the label");
     add.click();
     assert.deepEqual(said, [{ file: hunksFile.path, side: "old", line: 55 }, { file: hunksFile.path, side: "new", line: 55 }]);
@@ -188,4 +193,121 @@ test("missing input draws nothing or a quiet note, and never throws", () => {
   assert.doesNotThrow(() => view({ file: { path: "a" }, hunks: {} }));
   assert.doesNotThrow(() => view({ file: { path: "a" }, hunks: { hunks: [null, { lines: [null] }] }, comments: [null, 1] }));
   assert.match(view({ file: { path: "a" }, hunks: { path: "a", hunks: [], totalLines: 0 } }), /Nothing changed in this file/);
+});
+
+const press = (el, key) => el.keydown(key);
+
+test("the file list is one tab stop, and the arrow keys move between files", async () => {
+  const dom = createDom();
+  const restore = install(dom);
+  try {
+    const box = dom.document.createElement("div");
+    dom.body.appendChild(box);
+    const files = ["a", "b", "c"].map((p) => ({ path: p + ".go", status: "M" }));
+    render(html`<${FileList} files=${files} selected="b.go" />`, box);
+    await settle();
+    const btns = () => box.findAll(".dv-filebtn");
+    assert.deepEqual(btns().map((b) => b.getAttribute("tabindex")), ["-1", "0", "-1"], "the picked file is the tab stop");
+    btns()[1].focus();
+    press(btns()[1], "ArrowDown");
+    assert.equal(dom.document.activeElement, btns()[2]);
+    press(btns()[2], "Home");
+    assert.equal(dom.document.activeElement, btns()[0]);
+    press(btns()[0], "End");
+    assert.equal(dom.document.activeElement, btns()[2]);
+    assert.match(box.find(".dv-live").textContent, /3 files\./, "the status is filled after the first draw");
+  } finally {
+    restore();
+  }
+});
+
+test("the + buttons are one tab stop, the arrow keys move between them, and Skip goes past the diff", async () => {
+  const dom = createDom();
+  const restore = install(dom);
+  try {
+    const box = dom.document.createElement("div");
+    dom.body.appendChild(box);
+    render(html`<${DiffViewer} file=${listing(hunksFile)} hunks=${hunksFile} onComment=${() => {}} />`, box);
+    await settle();
+    const plusses = () => box.findAll(".dv-plus");
+    assert.ok(plusses().length > 10);
+    assert.equal(plusses().filter((b) => b.getAttribute("tabindex") === "0").length, 1, "one tab stop");
+    plusses()[0].focus();
+    press(plusses()[0], "ArrowDown");
+    assert.equal(dom.document.activeElement, plusses()[1]);
+    await settle();
+    assert.equal(plusses().map((b) => b.getAttribute("tabindex")).indexOf("0"), 1, "the tab stop follows the focus");
+    press(plusses()[1], "End");
+    assert.equal(dom.document.activeElement, plusses()[plusses().length - 1]);
+    box.find(".dv-skip").click();
+    assert.equal(dom.document.activeElement, box.find(".dv-end"));
+  } finally {
+    restore();
+  }
+});
+
+test("the + sits in its own 24 px column, and a read-only diff has none", () => {
+  const withPlus = view({ file: listing(hunksFile), hunks: hunksFile, onComment: () => {} });
+  assert.match(withPlus, /<col class="dv-col-p"/);
+  assert.match(withPlus, /aria-describedby="dv\d+-h0:3"/, "the + is described by the line's code");
+  const without = view({ file: listing(hunksFile), hunks: hunksFile });
+  assert.doesNotMatch(without, /dv-col-p|dv-p"/);
+});
+
+test("two files whose paths differ only by punctuation get different ids", () => {
+  const a = view({ file: { path: "src/a.js", status: "M" }, hunks: { path: "src/a.js", hunks: [], totalLines: 0 }, collapsed: false });
+  const b = view({ file: { path: "src_a.js", status: "M" }, hunks: { path: "src_a.js", hunks: [], totalLines: 0 }, collapsed: false });
+  const id = (out) => /aria-controls="([^"]+)"/.exec(out)[1];
+  assert.notEqual(id(a), id(b));
+  assert.doesNotMatch(a, /role="region"/, "a group, not a landmark per file");
+});
+
+test("split view shows a sign, and hostile characters in code and paths are made visible", () => {
+  const split = view({ file: listing(hunksFile), hunks: hunksFile, layout: "split" });
+  assert.match(split, /class="dv-sgn" aria-hidden="true">\+/);
+  const evil = { path: "a\u202e.go", hunks: [{ oldStart: 1, oldLines: 0, newStart: 1, newLines: 1, header: "", lines: [{ t: "add", text: "x\u202e\u2066y", newNo: 1 }] }], totalLines: 1 };
+  const out = view({ file: { path: "a\u202e.go", status: "A" }, hunks: evil });
+  assert.ok(out.includes("U+202E"));
+  assert.ok(!out.includes("\u202e"));
+  assert.ok(!out.includes("\u2066"));
+});
+
+test("a very long line is cut with a button for the whole line, and a hunk with no numbers draws no range", async () => {
+  const long = "y".repeat(5000);
+  const reply = { path: "a", hunks: [{ header: "h", lines: [{ t: "add", text: long, newNo: 1 }] }], totalLines: 1 };
+  const dom = createDom();
+  const restore = install(dom);
+  try {
+    const box = dom.document.createElement("div");
+    dom.body.appendChild(box);
+    render(html`<${DiffViewer} file=${{ path: "a", status: "A" }} hunks=${reply} />`, box);
+    await settle();
+    assert.doesNotMatch(box.textContent, /undefined|NaN|@@ -/);
+    assert.ok(box.textContent.length < 3000, "the line was cut");
+    box.find(".dv-wholebtn").click();
+    await settle();
+    assert.ok(box.textContent.length > 5000);
+  } finally {
+    restore();
+  }
+});
+
+test("more rows move the keyboard to the first new row", async () => {
+  const lines = Array.from({ length: 900 }, (_, i) => ({ t: "add", text: "line " + i, newNo: i + 1 }));
+  const reply = { path: "big.txt", hunks: [{ oldStart: 0, oldLines: 0, newStart: 1, newLines: 900, header: "", lines }], totalLines: 900 };
+  const dom = createDom();
+  const restore = install(dom);
+  try {
+    const box = dom.document.createElement("div");
+    dom.body.appendChild(box);
+    render(html`<${DiffViewer} file=${{ path: "big.txt", status: "A" }} hunks=${reply} />`, box);
+    await settle();
+    box.find(".drawer-btn").click();
+    await settle();
+    const rows = box.findAll(".dv-row");
+    assert.equal(dom.document.activeElement, rows[399], "the first row of the new page");
+    assert.match(box.find(".dv-live").textContent, /rows shown\./);
+  } finally {
+    restore();
+  }
 });

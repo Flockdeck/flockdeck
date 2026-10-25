@@ -57,6 +57,8 @@ function validMarks(marks, len) {
  * equal.
  */
 export function pairMarks(oldText, newText) {
+  // A string of more than twice the limit in UTF-16 units has more than the limit in code points: skip it before splitting it.
+  if ((typeof oldText === "string" && oldText.length > MARK_LIMIT * 2) || (typeof newText === "string" && newText.length > MARK_LIMIT * 2)) return { del: [], add: [] };
   const a = pointsOf(oldText);
   const b = pointsOf(newText);
   if (a.length > MARK_LIMIT || b.length > MARK_LIMIT) return { del: [], add: [] };
@@ -69,18 +71,23 @@ export function pairMarks(oldText, newText) {
   return { del: span(a.length), add: span(b.length) };
 }
 
+/** showControls makes the characters that reorder or hide text visible as <U+202E>, so a name or a line cannot read differently from what it is. */
+export function showControls(value) {
+  return String(value == null ? "" : value).replace(/[‎‏؜‪-‮⁦-⁩]/g, (c) => "<U+" + c.charCodeAt(0).toString(16).toUpperCase().padStart(4, "0") + ">");
+}
+
 /** segments cuts text at marks into { text, mark } runs, so a view can draw the marked words apart. */
 export function segments(text, marks) {
   const pts = pointsOf(text);
-  if (!validMarks(marks, pts.length) || !marks.length) return [{ text: pts.join(""), mark: false }];
+  if (!validMarks(marks, pts.length) || !marks.length) return [{ text: showControls(pts.join("")), mark: false }];
   const out = [];
   let at = 0;
   for (const [s, e] of marks) {
-    if (s > at) out.push({ text: pts.slice(at, s).join(""), mark: false });
-    out.push({ text: pts.slice(s, e).join(""), mark: true });
+    if (s > at) out.push({ text: showControls(pts.slice(at, s).join("")), mark: false });
+    out.push({ text: showControls(pts.slice(s, e).join("")), mark: true });
     at = e;
   }
-  if (at < pts.length) out.push({ text: pts.slice(at).join(""), mark: false });
+  if (at < pts.length) out.push({ text: showControls(pts.slice(at).join("")), mark: false });
   return out;
 }
 
@@ -131,6 +138,8 @@ const ctxRow = (id, l) => {
 function gapRows(id, prev, next, filled) {
   const got = filled && Array.isArray(filled.lines) ? filled.lines.filter(isObject) : [];
   const rows = got.map((l, i) => ctxRow(id + ":c" + i, l));
+  // A hunk whose numbers did not come cannot say where its gaps are.
+  if ((prev && !isNumber(lastNew(prev))) || (next && !isNumber(firstNew(next)))) return rows;
   const from = (prev ? lastNew(prev) + 1 : 1) + got.length;
   const eof = !!(filled && filled.eof);
   let to = null;
