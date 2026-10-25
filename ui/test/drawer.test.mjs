@@ -440,7 +440,10 @@ test("a terminal pane has a message box that sends paneSend by its id, and a str
     box.querySelector(".drawer-message").dispatch("submit");
     await settle();
     assert.deepEqual(st.sent.filter((c) => c.cmd === "paneSend"), [{ cmd: "paneSend", id: "p2", text: "run the tests" }]);
-    assert.equal(box.querySelector(".structured-input").value, "", "the draft stayed after a send");
+    assert.equal(box.querySelector(".structured-input").value, "  run the tests  ", "the draft went before the desk answered");
+    st.set({ sent: { seq: 1, id: "p2" } });
+    await settle();
+    assert.equal(box.querySelector(".structured-input").value, "", "the draft stayed after the desk took the text");
     render(null, box);
     const out = renderToString(html`<${Drawer} store=${store} node=${node({ pane: "p3", structured: true })} now=${NOW} />`);
     assert.equal((out.match(/Message [^"]* directly/g) || []).length, 0, "a structured pane got a second box");
@@ -502,6 +505,39 @@ test("a drawer opened by the ask for its own Changes tab opens on it; another pa
     render(html`<${Drawer} store=${quiet} node=${node()} pane=${{ cwd: "/work/b" }} tabAsk=${{ tab: "changes", n: 3, pane: "p9" }} now=${NOW} />`, b);
     await settle();
     assert.notEqual(selected(b), "true");
+  } finally {
+    restore();
+  }
+});
+
+test("the message box keeps the draft and says so when the desk refuses the text, and sends it as one line", async () => {
+  const dom = createDom();
+  const restore = install(dom);
+  try {
+    const box = dom.document.createElement("div");
+    dom.body.appendChild(box);
+    const st = fakeStore({ hello: { type: "hello" }, connection: "open", state: paneState({ p2: {} }) });
+    render(html`<${Drawer} store=${st} node=${node()} now=${NOW} />`, box);
+    await settle();
+    const ta = () => box.querySelector(".structured-input");
+    ta().enter("line one\nline two");
+    await settle();
+    box.querySelector(".drawer-message").dispatch("submit");
+    await settle();
+    assert.equal(st.sent.filter((c) => c.cmd === "paneSend")[0].text, "line one line two");
+    assert.equal(ta().getAttribute("aria-busy"), "true", "the box waits for the desk");
+    box.querySelector(".drawer-message").dispatch("submit");
+    await settle();
+    assert.equal(st.sent.filter((c) => c.cmd === "paneSend").length, 1, "a second submit while sending went out");
+    st.set({ notice: { seq: 1, error: true, kind: "send", text: "p2 is not taking text now." } });
+    await settle();
+    assert.equal(ta().value, "line one\nline two", "a refused text was thrown away");
+    assert.match(box.querySelector(".structured-note--unsent").textContent, /not taking text/);
+    assert.equal(ta().getAttribute("aria-busy"), null);
+    ta().enter("line one line two!");
+    await settle();
+    assert.equal(box.querySelector(".structured-note--unsent"), null, "the refusal stayed after the text changed");
+    render(null, box);
   } finally {
     restore();
   }
