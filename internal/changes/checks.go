@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"runtime"
@@ -54,7 +55,9 @@ type CheckDef struct {
 // in the config directory, and edited by hand by the person: no command comes
 // from a window, a repository or an agent. A missing file is reported as
 // os.ErrNotExist. Entries over the limits, repeated names and entries with no
-// name or command are dropped.
+// name or command are dropped. A command with a control, format or separator
+// character in it (other than a tab) is an error, not a dropped entry: the person
+// is told which check holds it.
 func LoadChecks(path string) ([]CheckDef, error) {
 	f, err := os.Open(path)
 	if err != nil {
@@ -79,8 +82,14 @@ func LoadChecks(path string) ([]CheckDef, error) {
 	for _, d := range doc.Checks {
 		name := cleanLine(d.Name, MaxCheckName)
 		cmd := strings.TrimSpace(d.Cmd)
-		if name == "" || cmd == "" || len(cmd) > MaxCheckCmd || strings.ContainsRune(cmd, 0) || seen[name] {
+		if name == "" || cmd == "" || len(cmd) > MaxCheckCmd || seen[name] {
 			continue
+		}
+		// A command the window would show as one line, or in another order, must not
+		// run as something else: a line break, a control, bidirectional or invisible
+		// character is refused, and the file with it, so the person sees why.
+		if hidden := hiddenInCommand(cmd); hidden != 0 {
+			return nil, fmt.Errorf("the command of check %q holds the character U+%04X, which the window cannot show as it would run; remove it from the check file", name, hidden)
 		}
 		seen[name] = true
 		out = append(out, CheckDef{Name: name, Cmd: cmd})
@@ -89,6 +98,22 @@ func LoadChecks(path string) ([]CheckDef, error) {
 		}
 	}
 	return out, nil
+}
+
+// hiddenInCommand is the first character of cmd that a window could show in a
+// way that is not what runs: a control other than a plain tab (a line break, an
+// escape, NUL), a format character (bidirectional overrides and isolates, zero
+// width characters), or a line or paragraph separator. It is 0 if there is none.
+func hiddenInCommand(cmd string) rune {
+	for _, r := range cmd {
+		if r == '	' {
+			continue
+		}
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || unicode.Is(unicode.Zl, r) || unicode.Is(unicode.Zp, r) {
+			return r
+		}
+	}
+	return 0
 }
 
 // cleanLine is one line of at most max runes with no control or format

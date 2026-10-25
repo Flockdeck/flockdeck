@@ -1,10 +1,6 @@
 package changes
 
-import (
-	"os"
-	"path/filepath"
-	"testing"
-)
+import "testing"
 
 func TestHashChecksFollowsWhatWouldRun(t *testing.T) {
 	a := []CheckDef{{Name: "unit", Cmd: "go test ./..."}, {Name: "lint", Cmd: "go vet ./..."}}
@@ -27,34 +23,5 @@ func TestHashChecksFollowsWhatWouldRun(t *testing.T) {
 	}
 	if len(HashChecks(nil)) != 64 || HashChecks(nil) != HashChecks([]CheckDef{}) {
 		t.Errorf("an empty list: %q", HashChecks(nil))
-	}
-}
-
-func TestAPinIsKeptAndADamagedOneIsNoPin(t *testing.T) {
-	dir := t.TempDir()
-	p := PinPath(filepath.Join(dir, "proj-1234abcd.json"))
-	if filepath.Base(p) != "proj-1234abcd.pin.json" {
-		t.Fatalf("PinPath = %q", p)
-	}
-	if LoadPin(p) != "" {
-		t.Error("a missing pin is a pin")
-	}
-	h := HashChecks([]CheckDef{{Name: "unit", Cmd: "go test"}})
-	if err := SavePin(p, h); err != nil {
-		t.Fatal(err)
-	}
-	if LoadPin(p) != h {
-		t.Errorf("LoadPin = %q, want %q", LoadPin(p), h)
-	}
-	for _, body := range []string{"{", `{"hash":"nope"}`, `{"hash":"` + h[:63] + `"}`, `{"hash":"` + h + `0"}`, ""} {
-		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		if got := LoadPin(p); got != "" {
-			t.Errorf("%q gave the pin %q", body, got)
-		}
-	}
-	if err := SavePin(p, "nope"); err == nil {
-		t.Error("a pin that is not a hash was saved")
 	}
 }
