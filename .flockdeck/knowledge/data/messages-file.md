@@ -22,5 +22,6 @@ Next to `messages.json`, `loadEvents` keeps the team event log (`team.EventLog`)
 - Ids are the inbox ids. If `messages.json` is lost, the ids start again from 1, so the same id can appear for two different messages in one log.
 - Events are appended when the store reports them, which is not always the order of their times. A delivery event can come before the one it follows, so read the time on each line, not the position.
 - It keeps at most 2000 lines and 256 KiB, dropping the oldest first. A damaged line is skipped on load.
+- A `rename` event (a pane named another) has `from`, `to`, `old` and `new` and no id. Only the newest 200 are kept, so a burst of renames cannot push the others out. `from` is the pane id the command reported. A build from before labels skips that line when it loads the file.
 
 See [workspace](/packages/workspace.md), [state dir permissions](/security/state-dir-permissions.md).

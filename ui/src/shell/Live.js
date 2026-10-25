@@ -85,7 +85,7 @@ function nodeOfPane(p) {
   const id = String(p.id || "");
   return {
     pane: id, kind: p.structured ? "structured" : "terminal", structured: !!p.structured,
-    name: String(p.name || id), role: String(p.role || ""), agent: String(p.agent || ""), shell: !!p.shell,
+    name: String(p.name || id), label: String(p.label || ""), labelAuto: p.labelAuto === true, role: String(p.role || ""), agent: String(p.agent || ""), shell: !!p.shell,
     status: String(p.status || "unknown"), activity: String(p.activity || ""), since: "", live: "", branch: "",
     dirty: 0, untracked: 0, ahead: 0, behind: 0, task: null, unread: 0,
     waitingOn: { kind: p.permission || (p.ask && p.ask.questions) ? "user" : "none", text: "", ref: "" },

@@ -165,7 +165,9 @@ The limits of this today:
   text. A typed message counts as read, so the limit on lines in a row never
   applies there; only the one-a-minute and twenty-an-hour limits do.
 - Each typed line is an event in `team-events.jsonl` (the last 2,000 events or
-  256 KiB), without message text outside text mode.
+  256 KiB), without message text outside text mode. A `rename` event (a pane
+  named another: `from`, `to`, `old`, `new`, no id) is kept for the newest 200 only,
+  and an older build skips that line.
 - The refusal of `flockdeck wake on` inside a pane is advisory. The only barrier is
   the agent's own permission prompt for running a command, which an agent set to
   skip prompts does not have.

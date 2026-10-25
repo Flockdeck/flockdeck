@@ -1,8 +1,11 @@
 package server
 
 import (
+	"strconv"
+
 	"github.com/jmwri/flockdeck/internal/hooks"
 	"github.com/jmwri/flockdeck/internal/team"
+	"github.com/jmwri/flockdeck/internal/workspace"
 )
 
 // This file is the desktop side of `flockdeck team`, `flockdeck msg`,
@@ -13,6 +16,7 @@ import (
 // installTeamHandlers lets a pane list its project's agents, exchange messages
 // with them and use the project's task board.
 func (s *Server) installTeamHandlers() {
+	s.ws.SetRenameNotifier(func(r workspace.RenameInfo) { s.noticeDesk(renameNotice(r), false) })
 	hookSrv := s.ws.HookServer()
 	if hookSrv == nil {
 		return
@@ -88,4 +92,18 @@ func (s *Server) installTeamHandlers() {
 		}
 		return out.res, out.err
 	})
+}
+
+// renameNotice is the sentence the desk is shown when a pane names another. The
+// actor is the pane id the command reported, which another pane could have given;
+// the names are the panes' own words and are cut.
+func renameNotice(r workspace.RenameInfo) string {
+	who := "pane " + r.Actor + " (" + r.ActorName + ")"
+	if r.N > 1 {
+		return who + " renamed pane " + r.Target + " " + strconv.Itoa(r.N) + " times: from " + strconv.Quote(r.Was) + ", now " + strconv.Quote(r.Now)
+	}
+	if r.Now == "" {
+		return who + " cleared the name of pane " + r.Target + ", " + strconv.Quote(r.Was)
+	}
+	return who + " renamed pane " + r.Target + " from " + strconv.Quote(r.Was) + " to " + strconv.Quote(r.Now)
 }

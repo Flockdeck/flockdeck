@@ -9,6 +9,7 @@
 import { useRef, useState } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
 import { clip } from "../graph/Node.js";
+import { shownName } from "../graph/model.js";
 import { ageOf } from "../graph/NeedsYou.js";
 import { questionOptions } from "../graph/DecisionBlock.js";
 import { Question, NOT_ANSWERED_WORDS, IN_TERMINAL_WORDS } from "./Prompt.js";
@@ -23,7 +24,7 @@ export function StreamDecision({ node, pane, snap, store, now = Date.now() }) {
   const questions = ask && Array.isArray(ask.questions) ? ask.questions : [];
   const options = questionOptions(pane);
   const age = ageOf(pane && pane.statusSince, now);
-  const name = node.name || node.pane;
+  const name = shownName(node);
   const pick = (label) => {
     if (done.current || snap.remote) return;
     if (store.send({ cmd: "paneSend", id: node.pane, text: label })) {

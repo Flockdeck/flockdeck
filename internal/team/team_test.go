@@ -3,9 +3,9 @@ package team
 import (
 	"fmt"
 	"strings"
-	"unicode"
 	"testing"
 	"time"
+	"unicode"
 )
 
 func roster() []Member {
@@ -21,13 +21,13 @@ func roster() []Member {
 
 func TestLineShowsRolePeerAgentStatusAndSelf(t *testing.T) {
 	r := roster()
-	if got, want := r[0].Line(), `manager: "api", claude · opus, working, pane p-mgr (you)`; got != want {
+	if got, want := r[0].Line(), `pane p-mgr: manager "api", claude · opus, working (you)`; got != want {
 		t.Errorf("self line = %q, want %q", got, want)
 	}
-	if got, want := r[1].Line(), `worker: "worker-1" (pane name "api-fix"), claude, idle, pane p-w1`; got != want {
+	if got, want := r[1].Line(), `pane p-w1: worker "worker-1" (pane name "api-fix"), claude, idle`; got != want {
 		t.Errorf("peer line = %q, want %q", got, want)
 	}
-	if got, want := r[5].Line(), `no role: "scratch", claude, working, pane p-none`; got != want {
+	if got, want := r[5].Line(), `pane p-none: no role "scratch", claude, working`; got != want {
 		t.Errorf("no-role line = %q, want %q", got, want)
 	}
 }
@@ -686,5 +686,40 @@ func TestANoticeAlwaysPrintsTheRoleSlot(t *testing.T) {
 	}
 	if got := noticeSender(Message{From: Sender{Name: "api", Role: "worker"}}); got != `"api" (role "worker")` {
 		t.Errorf("sender with a role = %s", got)
+	}
+}
+
+func TestARenameEventSurvivesTheLogAndIsCut(t *testing.T) {
+	var l EventLog
+	l.Append(Event{Kind: EventRename, Time: time.Date(2026, 10, 25, 9, 0, 0, 0, time.UTC), From: "m", To: "w", Old: "old name", New: strings.Repeat("n", 200)})
+	var back EventLog
+	back.Load(l.Encode())
+	evs := back.Events()
+	if len(evs) != 1 || evs[0].Kind != EventRename || evs[0].From != "m" || evs[0].To != "w" || evs[0].Old != "old name" {
+		t.Fatalf("rename event after a save and load = %+v", evs)
+	}
+	if n := len([]rune(evs[0].New)); n > MaxPaneLabel {
+		t.Errorf("the new label has %d characters after a load, the limit is %d", n, MaxPaneLabel)
+	}
+}
+
+func TestRenameEventsHaveTheirOwnCapAndKeepTheOtherEvents(t *testing.T) {
+	var l EventLog
+	l.Append(Event{Kind: EventMessage, ID: 1, Time: time.Now(), From: "a", To: "b"})
+	for i := 0; i < MaxRenameEvents+50; i++ {
+		l.Append(Event{Kind: EventRename, Time: time.Now(), From: "m", To: "w", Old: "o", New: fmt.Sprint("n", i)})
+	}
+	evs := l.Events()
+	renames := 0
+	for _, e := range evs {
+		if e.Kind == EventRename {
+			renames++
+		}
+	}
+	if renames != MaxRenameEvents || len(evs) != MaxRenameEvents+1 || evs[0].Kind != EventMessage {
+		t.Fatalf("%d renames of %d events: the cap should drop the oldest renames only", renames, len(evs))
+	}
+	if last := evs[len(evs)-1]; last.New != fmt.Sprint("n", MaxRenameEvents+49) {
+		t.Errorf("the newest rename was dropped: %+v", last)
 	}
 }

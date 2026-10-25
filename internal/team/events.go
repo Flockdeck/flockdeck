@@ -17,6 +17,9 @@ const (
 	EventDelivery = "delivery"
 	// EventWake: a line was typed into a pane to wake its agent for a message.
 	EventWake = "wake"
+	// EventRename: a pane was given a label by another pane. From is the pane that
+	// did it, To the pane named, Old and New the labels (see MaxPaneLabel).
+	EventRename = "rename"
 )
 
 const (
@@ -25,6 +28,9 @@ const (
 	// MaxEventBytes is the most the log holds in bytes; the oldest lines are
 	// dropped first when it is over.
 	MaxEventBytes = 256 * 1024
+	// MaxRenameEvents is the most rename events the log keeps, the newest. A burst of
+	// renames cannot push the wake and delivery events out of the shared caps.
+	MaxRenameEvents = 200
 )
 
 // Event is one line of the team event log. A message is named by its id and the
@@ -68,6 +74,9 @@ type Event struct {
 	SessionID string    `json:"sessionId,omitempty"`
 	IdleSince time.Time `json:"idleSince,omitzero"`
 	WordFrom  string    `json:"wordFrom,omitempty"`
+	// Old and New are the labels of a rename event, each at most MaxPaneLabel characters.
+	Old string `json:"old,omitempty"`
+	New string `json:"new,omitempty"`
 }
 
 // MaxPromptLine is the most characters of a matched prompt line a wake event
@@ -111,6 +120,14 @@ func cleanWake(e *Event) {
 	e.Line = CleanLine(e.Line, MaxTextLine)
 }
 
+// cleanRename applies the limits a rename event is written with.
+func cleanRename(e *Event) {
+	e.From = CleanLine(e.From, maxWakeField)
+	e.To = CleanLine(e.To, maxWakeField)
+	e.Old = CleanLine(e.Old, MaxPaneLabel)
+	e.New = CleanLine(e.New, MaxPaneLabel)
+}
+
 // EventLog is the record of events kept for a project: one JSON line for each,
 // oldest first, capped at MaxEvents lines and MaxEventBytes. It is safe for
 // concurrent use. It does no file work of its own: Encode is what the caller
@@ -131,7 +148,35 @@ func (l *EventLog) Append(e Event) {
 	defer l.mu.Unlock()
 	l.lines = append(l.lines, line)
 	l.size += len(line) + 1
+	if e.Kind == EventRename {
+		l.capRenames()
+	}
 	l.trim()
+}
+
+var renameMark = []byte(`"kind":"` + EventRename + `"`)
+
+// capRenames drops the oldest rename events beyond MaxRenameEvents. l.mu is held.
+func (l *EventLog) capRenames() {
+	n := 0
+	for _, line := range l.lines {
+		if bytes.Contains(line, renameMark) {
+			n++
+		}
+	}
+	if n <= MaxRenameEvents {
+		return
+	}
+	kept := make([][]byte, 0, len(l.lines))
+	for _, line := range l.lines {
+		if n > MaxRenameEvents && bytes.Contains(line, renameMark) {
+			n--
+			l.size -= len(line) + 1
+			continue
+		}
+		kept = append(kept, line)
+	}
+	l.lines = kept
 }
 
 // trim drops lines from the front while the log is over a cap. l.mu is held.
@@ -178,8 +223,11 @@ func (l *EventLog) Load(data []byte) {
 	size := 0
 	for _, raw := range bytes.Split(data, []byte("\n")) {
 		var e Event
-		if json.Unmarshal(raw, &e) != nil || e.ID <= 0 || (e.Kind != EventMessage && e.Kind != EventDelivery && e.Kind != EventWake) {
+		if json.Unmarshal(raw, &e) != nil || (e.ID <= 0 && e.Kind != EventRename) || (e.Kind != EventMessage && e.Kind != EventDelivery && e.Kind != EventWake && e.Kind != EventRename) {
 			continue
+		}
+		if e.Kind == EventRename {
+			cleanRename(&e)
 		}
 		if e.Kind == EventWake {
 			cleanWake(&e)
@@ -196,5 +244,6 @@ func (l *EventLog) Load(data []byte) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	l.lines, l.size = lines, size
+	l.capRenames()
 	l.trim()
 }
