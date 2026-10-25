@@ -111,7 +111,7 @@ export function Changes({ cwd, git = "", snap, store }) {
   // The draft goes when the commit is made, not when it is sent: a commit the
   // desktop refuses (the tree moved) keeps the words that were typed.
   useEffect(() => {
-    if (snap.changes && snap.changes.reason === "committed") setDraft("");
+    if (snap.changes && (snap.changes.reason === "committed" || snap.changes.committed === true)) setDraft("");
   }, [snap.changes]);
   if (!cwd) return html`<p class="chg-empty">${NO_TREE_WORDS}</p>`;
   const ch = snap.changes;

@@ -677,11 +677,10 @@ export function createStore(opts) {
         const { type, path, ...rest } = msg;
         // The desk says why it sent the listing (internal/server/changes.go, Reason). "follow" is the panel's own re-read: it
         // changes the listing and nothing else, so a git-settings question on screen and an action under way stay. "gitwarn"
-        // is the tree sent with a question, which stays open. A commit that went through and then asked about its push
-        // leaves that question open too. Any other listing ends what the window had out.
-        const asks = snap.gitWarn && snap.gitWarn.resend === "gitPush" && msg.reason === "committed";
+        // is the tree sent with a question, which stays open (after a commit that went through and then asked about its push
+        // it also says committed: true). Any other listing ends what the window had out.
         if (msg.reason === "follow") set({ changes: rest });
-        else if (msg.reason === "gitwarn" || asks) set({ changes: rest, changesBusy: "" });
+        else if (msg.reason === "gitwarn") set({ changes: rest, changesBusy: "" });
         else set({ changes: rest, changesBusy: "", gitWarn: null });
         break;
       }

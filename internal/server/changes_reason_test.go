@@ -14,6 +14,12 @@ import (
 // Reason of the listing it ends on.
 func listingReason(t *testing.T, run func(c *controlClient)) string {
 	t.Helper()
+	m := lastListing(t, run)
+	return m.Reason
+}
+
+func lastListing(t *testing.T, run func(c *controlClient)) changesMsg {
+	t.Helper()
 	c := &controlClient{out: make(chan []byte, 32)}
 	run(c)
 	for {
@@ -21,7 +27,7 @@ func listingReason(t *testing.T, run func(c *controlClient)) string {
 		case raw := <-c.out:
 			var m changesMsg
 			if err := json.Unmarshal(raw, &m); err == nil && m.Type == "changes" {
-				return m.Reason
+				return m
 			}
 		case <-time.After(30 * time.Second):
 			t.Fatal("no listing arrived")
@@ -58,5 +64,29 @@ func TestTheListingSentWithAGitQuestionSaysSo(t *testing.T) {
 	}
 	if got := listingReason(t, func(c *controlClient) { srv.runRemote(c, "fetch", repo, gitAnswer{}) }); got != "gitwarn" {
 		t.Errorf("the listing sent with a fetch's question says %q; want gitwarn", got)
+	}
+}
+
+// A commit that goes through and then asks about its push says the commit was
+// made, so the typed message goes, and keeps the question open with "gitwarn".
+func TestAPushQuestionAfterACommitSaysTheCommitWasMade(t *testing.T) {
+	isolateGit(t)
+	srv, _, repo := newRepoServer(t)
+	edit(t, repo, "one\n")
+	was := scanPrograms
+	t.Cleanup(func() { scanPrograms = was })
+	calls := 0
+	scanPrograms = func(string) (gitx.Report, error) {
+		calls++
+		r := gitx.Report{Repo: repo + "/.git"}
+		// The first two looks (before the commit and just before its hooks) are clean; the one before the push is not.
+		if calls > 2 {
+			r.Items = []gitx.Program{{Kind: "setting", Name: "core.sshcommand", Value: "x", Where: "/r/.git/config"}}
+		}
+		return r, nil
+	}
+	m := lastListing(t, func(c *controlClient) { srv.commitChanges(c, repo, "one", true, nil, nil, 0, gitAnswer{}) })
+	if m.Reason != "gitwarn" || !m.Committed {
+		t.Errorf("the listing after a commit and a push question says reason %q, committed %v; want gitwarn and true", m.Reason, m.Committed)
 	}
 }

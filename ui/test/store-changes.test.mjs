@@ -206,8 +206,9 @@ test("a commit that went through and then asked about its push leaves that quest
   ws.frame(listing());
   assert.equal(store.commitChanges("Fix it", true), "");
   ws.frame({ type: "gitWarn", cwd: "C:/repo", path: "C:/repo", action: "push", resend: "gitPush", intro: "", items: [], text: "", seen: "z" });
-  ws.frame(listing({ reason: "committed" }));
+  ws.frame(listing({ reason: "gitwarn", committed: true }));
   assert.ok(store.getState().gitWarn, "the push question was closed by the commit's listing");
+  assert.equal(store.getState().changes.committed, true);
   assert.equal(store.getState().changesBusy, "");
 });
 

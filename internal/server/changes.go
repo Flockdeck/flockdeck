@@ -67,6 +67,11 @@ type changesMsg struct {
 	// rest: the listing after a push, pull or fetch, and after a commit that
 	// failed for another reason; those end the action the window has out.
 	Reason string `json:"reason,omitempty"`
+	// Committed is true on the listing sent with the question about a push
+	// that follows a commit: its reason is "gitwarn", because the question is
+	// still open, and this says the commit itself went through, so the window
+	// can clear the message that was typed.
+	Committed bool `json:"committed,omitempty"`
 }
 
 type diffMsg struct {
@@ -153,10 +158,17 @@ func (s *Server) listChanges(c *controlClient, path string, follow bool) {
 // another listing since the request numbered asked. reason goes out as the
 // listing's Reason.
 func (s *Server) sendChanges(c *controlClient, dir string, asked uint64, reason string) {
+	s.sendChangesWith(c, dir, asked, reason, false)
+}
+
+// sendChangesWith is sendChanges that can also say a commit was made, for the
+// listing sent with the question about a push that follows it.
+func (s *Server) sendChangesWith(c *controlClient, dir string, asked uint64, reason string, committed bool) {
 	go func() {
 		defer s.surviveFor(c, "reading what changed")
 		msg := readChanges(dir)
 		msg.Reason = reason
+		msg.Committed = committed
 		if !changeListings.answer(c, asked) {
 			return
 		}
@@ -418,7 +430,8 @@ func (s *Server) commitChanges(c *controlClient, path, message string, push bool
 		if push {
 			// A hook the commit ran may have changed what a push would run.
 			if !s.gitProgramsAccepted(c, dir, path, "push", "gitPush", ans.accept, ans.seen) {
-				s.sendChanges(c, dir, asked, "committed")
+				// The commit is made, and the push waits on the question.
+				s.sendChangesWith(c, dir, asked, "gitwarn", true)
 				answered = true
 				return
 			}
