@@ -37,6 +37,9 @@ export const TOO_LONG_WORDS = "That text is over 16 KB, so it was not sent";
 export const NO_MANAGER_WORDS = "This project has no manager. Its agents work on their own.";
 export const NOT_CONNECTED_WORDS = "Not connected to Flockdeck, so the text was not sent.";
 
+/** LOST_WORDS is said when the connection a text was sent on has been replaced before the desk answered: it may or may not have arrived. */
+export const LOST_WORDS = "The connection dropped before Flockdeck answered. Check the pane, then send again if the text is not there.";
+
 // Control characters other than tab, carriage return and line feed, which the
 // desk removes before it looks at the text.
 // eslint-disable-next-line no-control-regex
@@ -88,6 +91,8 @@ export function outcomeOf(snap, pending) {
   // An approval notice is the answer to something else.
   if (n && n.seq > pending.notice && n.error && n.kind !== "approval") return { kind: "refused", text: String(n.text || "The text was not sent.") };
   if (snap.connection !== "open") return { kind: "refused", text: NOT_CONNECTED_WORDS };
+  // The answer belongs to the connection the text went on; after a reconnect none is coming.
+  if (pending.hello && snap.hello !== pending.hello) return { kind: "refused", text: LOST_WORDS };
   return { kind: "sending", text: "Sending…" };
 }
 
@@ -155,7 +160,7 @@ export function ManagerBar({ snap, manager, send, inputRef, autoFocus = true, ve
       return;
     }
     setLocal("");
-    const mark = { pane: manager.pane, notice: snap.notice ? snap.notice.seq : 0, sent: snap.sent ? snap.sent.seq : 0 };
+    const mark = { pane: manager.pane, notice: snap.notice ? snap.notice.seq : 0, sent: snap.sent ? snap.sent.seq : 0, hello: snap.hello || null };
     // The text as written; allowShell is never sent.
     if (send({ cmd: "paneSend", id: manager.pane, text: draft })) {
       busy.current = true;

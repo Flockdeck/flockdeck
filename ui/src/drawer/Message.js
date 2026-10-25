@@ -51,7 +51,7 @@ export function Message({ pane, name, store, shownFor = SENT_SHOWN }) {
       return;
     }
     setLocal("");
-    const mark = { pane, notice: state.notice ? state.notice.seq : 0, sent: state.sent ? state.sent.seq : 0 };
+    const mark = { pane, notice: state.notice ? state.notice.seq : 0, sent: state.sent ? state.sent.seq : 0, hello: state.hello || null };
     if (store.send({ cmd: "paneSend", id: pane, text })) {
       busy.current = true;
       setPending(mark);
