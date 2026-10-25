@@ -929,7 +929,7 @@ test("a late answer to an earlier browse does not replace the folder asked for l
     await m.push(listing("/home/me", last));
     await m.push(listing("/home/me/docs", first));
     assert.match(dlg(m).textContent, new RegExp("in-" + last));
-    assert.doesNotMatch(dlg(m).textContent, new RegExp("in-" + first + "\b"));
+    assert.doesNotMatch(dlg(m).textContent, new RegExp("in-" + first + "\\b"));
     // A stale error is dropped too, and the same answer twice does no harm.
     await m.push(listing("/nope", first, { error: "stale failure", entries: [] }));
     assert.doesNotMatch(dlg(m).textContent, /stale failure/);
