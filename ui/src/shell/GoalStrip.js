@@ -9,7 +9,7 @@
 // is never markup.
 import { useEffect, useRef, useState } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
-import { composing, keycaps, LIST } from "./keys.js";
+import { composing, LIST } from "./keys.js";
 import { viewsOf, firstViewOf } from "./Views.js";
 
 /** TITLE_MAX is the most characters of a name the person may give a goal's tab. */
@@ -142,7 +142,7 @@ export function GoalStrip({
         ${current && current.kind === "team"
           ? html`<hr class="tabs-sep" />
               ${onRename ? html`<button type="button" role="menuitem" class="tabs-btn" onClick=${act(() => setRenaming(current.id))}>Rename this goal</button>` : null}
-              ${onArchive ? html`<button type="button" role="menuitem" class="tabs-btn tabs-archive" aria-keyshortcuts=${LIST.remove} onClick=${act(() => archive(current.id))}>Archive this goal<kbd class="tabs-key" aria-hidden="true">${keycaps(LIST.remove).join("+")}</kbd></button>` : null}
+              ${onArchive ? html`<button type="button" role="menuitem" class="tabs-btn tabs-archive" onClick=${act(() => archive(current.id))}>Archive this goal</button>` : null}
               ${onStep ? html`<button type="button" role="menuitem" class="tabs-btn" onClick=${act(() => onStep(current.id, -1))} disabled=${!canStep(current.id, -1)}>Move left</button>
               <button type="button" role="menuitem" class="tabs-btn" onClick=${act(() => onStep(current.id, 1))} disabled=${!canStep(current.id, 1)}>Move right</button>` : null}`
           : null}

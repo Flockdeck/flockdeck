@@ -178,7 +178,7 @@ export function recorded(e) {
 
 /** keycaps splits a binding into the parts to draw as keys. */
 export function keycaps(spec) {
-  return spec ? spec.split("+").map((p) => p.trim()).filter(Boolean).map((p) => NAMED[p] || p) : [];
+  return spec ? spec.split("+").map((p) => p.trim()).filter(Boolean).map((p) => (Object.prototype.hasOwnProperty.call(NAMED, p) ? NAMED[p] : p)) : [];
 }
 
 /** listMove is what a keydown does in a list: the index it moves to, "accept",
