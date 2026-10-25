@@ -1031,6 +1031,10 @@ type SpawnResult struct {
 	// Branch is the branch the helper works on, when it was given a worktree of
 	// its own (one asked for, or the default), and Cwd is that worktree.
 	Branch string `json:"branch,omitempty"`
+	// Uncommitted counts the files changed or new in the parent's checkout when the
+	// helper was given a worktree by default. The worktree is cut from the parent's
+	// HEAD, so none of them are in it.
+	Uncommitted int `json:"uncommitted,omitempty"`
 	// BatonID and BatonPath say which baton the helper was started from and
 	// where it is kept, when it was started from one, so the caller can read it
 	// with `flockdeck baton show`.

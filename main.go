@@ -1759,6 +1759,9 @@ func runSpawn(args []string) error {
 		started = append(started, "on branch", res.Branch)
 	}
 	fmt.Println(started...)
+	if res.Uncommitted > 0 {
+		fmt.Printf("%d uncommitted files in your checkout are not in this worktree; commit them first if the helper needs them\n", res.Uncommitted)
+	}
 	// The baton is saved before the helper starts, and where is worth saying
 	// back: the caller can read what the helper was told.
 	if res.TaskID != "" {
