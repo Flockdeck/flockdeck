@@ -1,19 +1,16 @@
-// The reason a pane needs the person, as words and as a badge on its box.
+// The reason a pane needs the person, as words and an icon.
 //
 // The reason class is the kind of the needs-you item the graph carries; this
 // file adds no class of its own. Each kind has a short fixed phrase, and a kind
-// this file does not know is shown as the graph spelled it. A badge carries an
-// icon whose shape differs per kind (so no reason rests on colour), the phrase,
-// and the first line of the item's text, clipped. The whole text is never in
-// the badge: a command waiting for approval is read in the drawer, where it can
-// be answered, and a graph pushed to a relay has it replaced already.
+// this file does not know is shown as the graph spelled it. The icon's shape differs
+// per kind, so no reason rests on colour. The whole text is never shown with the
+// reason: a command waiting for approval is read in the drawer, where it can be
+// answered, and a graph pushed to a relay has it replaced already.
 //
 // Every text here is untrusted and is drawn as text.
 import { html } from "../html.js";
 import { clip } from "./Node.js";
-import { QUIET_KINDS } from "./model.js";
-
-export { QUIET_KINDS, isLoud } from "./model.js";
+export { isLoud } from "./model.js";
 
 /** The phrases for the kinds the graph has. A down item's phrase is taken from its text, below. */
 const PHRASES = {
@@ -25,9 +22,6 @@ const PHRASES = {
   stuck: "has gone quiet",
   setup: "needs setting up",
 };
-
-/** The block a pane's request is drawn in, in the box's own coordinates (the box is 216 wide and the live line is not drawn under it), and the characters its detail line holds. */
-export const BADGE = { w: 200, h: 46, x: 8, top: 66, detailMax: 21 };
 
 /** firstLine is the first non-empty line of a text, trimmed. */
 export function firstLine(text) {
@@ -76,27 +70,6 @@ export function Icon({ kind, x, y }) {
     <g class=${"gicon gicon--" + (known ? kind : "unknown")} transform=${`translate(${x} ${y})`} aria-hidden="true">
       ${ring ? html`<circle r="7" />` : null}
       ${known ? html`<path d=${ICONS[kind]} />` : html`<path d="M0 -2.5 V0.5 M0 3 V3.3" />`}
-    </g>
-  `;
-}
-
-/**
- * Badge is drawn on a node, in the node's own coordinates, as a block inside the
- * box. needs are the pane's items; the first one is shown, and a count of the
- * others when there are more. A quiet kind is drawn without the amber.
- */
-export function Badge({ needs }) {
-  if (!needs || needs.length === 0) return null;
-  const r = reasonOf(needs[0]);
-  const more = needs.length - 1;
-  const detail = r.detail === "" ? "" : clip(r.detail, BADGE.detailMax);
-  return html`
-    <g class=${"gbadge gbadge--" + (r.kind === "down" ? "down" : QUIET_KINDS.includes(r.kind) ? "quiet" : "ask")} data-kind=${r.kind} role="img" aria-label=${"Needs you: " + r.word}>
-      <rect class="gbadge-box" x=${BADGE.x} y=${BADGE.top} width=${BADGE.w} height=${BADGE.h} rx="4" />
-      <${Icon} kind=${r.kind} x=${BADGE.x + 16} y=${BADGE.top + 14} />
-      <text class="gbadge-word" x=${BADGE.x + 32} y=${BADGE.top + 18}>${r.word}</text>
-      ${more > 0 ? html`<text class="gbadge-more" x=${BADGE.x + BADGE.w - 8} y=${BADGE.top + 36} text-anchor="end">+${more}</text>` : null}
-      ${detail !== "" ? html`<text class="gbadge-detail" x=${BADGE.x + 32} y=${BADGE.top + 36}>${detail}</text>` : null}
     </g>
   `;
 }

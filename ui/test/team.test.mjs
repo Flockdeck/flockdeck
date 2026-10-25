@@ -189,7 +189,7 @@ const stateOf = (g) => ({
   panes: Object.fromEntries(g.nodes.map((n) => [n.pane, { id: n.pane, name: n.name, structured: n.kind === "structured", status: "working" }])),
 });
 
-async function mount({ helloOver = {}, treeView = null } = {}) {
+async function mount({ helloOver = {}, treeView = StubTree } = {}) {
   PtySocket.reset();
   FakeTerm.reset();
   FakeObserver.instances.length = 0;
@@ -448,7 +448,7 @@ test("Views: the Board view watches the team, draws the tasks in columns as text
     await m.click(viewButton(m, "board"));
     assert.deepEqual(m.sent("teamWatch").map((c) => c.root), ["/work/a"]);
     assert.equal(viewButton(m, "board").attributes["aria-pressed"], "true");
-    assert.equal(viewButton(m, "graph").attributes["aria-pressed"], "false");
+    assert.equal(viewButton(m, "tree").attributes["aria-pressed"], "false");
     await m.push(teamPush({ tasks: [task({ title: MARKUP }), task({ id: "T2", title: "Review", state: "in-review", owner: "", ownerOpen: false, ownerPane: "", branch: "", notes: 0 })] }));
     assert.equal(m.container.findAll(".board-col").length, 7 - 1, "every state but cancelled has a column");
     assert.ok(m.container.findAll(".board-col").find((c) => c.attributes["data-state"] === "assigned").textContent.includes(MARKUP));
@@ -458,7 +458,7 @@ test("Views: the Board view watches the team, draws the tasks in columns as text
     assert.ok(m.container.find("#team-title"), "the Team dialog");
     await m.click(closeBtn(m));
     m.clear();
-    await m.click(viewButton(m, "graph"));
+    await m.click(viewButton(m, "tree"));
     assert.equal(m.sent("teamUnwatch").length, 1);
     assert.equal(m.container.find(".board"), null);
   }));
@@ -546,7 +546,7 @@ test("Feed: it starts empty, adds an entry when a later push brings news, goes w
     await m.push(g2);
     assert.equal(m.container.findAll(".feed-btn").length, 1, "the same push again adds nothing");
     // The drawer takes the place of the feed.
-    const open = m.container.findAll("[data-pane]").find((el) => el.getAttribute("data-pane") === helper.pane && el.getAttribute("tabindex") !== null);
+    const open = m.container.findAll(".stub-row").find((el) => el.getAttribute("data-pane") === helper.pane);
     await m.click(open);
     assert.equal(feed(), null, "no feed while the drawer is open");
   }));
@@ -560,18 +560,17 @@ const StubTree = ({ model, open, onOpen }) => html`<ul class="stub-tree" data-op
 </ul>`;
 const viewButtons = (m) => m.container.findAll(".tabs-view").map((b) => b.getAttribute("data-view"));
 
-test("Team view: with no tree the switch has no Team and the page starts on the graph", () =>
-  withPage({}, async (m) => {
+test("Team view: with no tree the switch has no Team and the page starts on the board", () =>
+  withPage({ treeView: null }, async (m) => {
     await m.connect();
-    assert.deepEqual(viewButtons(m), ["graph", "board", "changes", "replay"]);
+    assert.deepEqual(viewButtons(m), ["board", "changes", "replay"]);
     assert.equal(m.container.find(".stub-tree"), null);
-    assert.ok(m.container.find(".graph-view"), "the graph is drawn");
   }));
 
 test("Team view: with a tree the switch leads with Team, the page starts there, and the goal line, the tree and the feed share the home", () =>
   withPage({ treeView: StubTree }, async (m) => {
     await m.connect();
-    assert.deepEqual(viewButtons(m), ["tree", "deps", "graph", "board", "changes", "replay"]);
+    assert.deepEqual(viewButtons(m), ["tree", "deps", "board", "changes", "replay"]);
     const team = m.container.findAll(".tabs-view")[0];
     assert.equal(team.textContent, "Team");
     assert.equal(team.getAttribute("aria-pressed"), "true");
@@ -582,16 +581,14 @@ test("Team view: with a tree the switch leads with Team, the page starts there, 
     assert.match(tree.find(".feed").find(".feed-head").textContent, /Activity/, "an empty feed still has its heading");
     assert.match(tree.find(".feed").find(".feed-empty").textContent, /Nothing has happened yet/);
     assert.match(tree.find(".home-split").getAttribute("class"), /home-split--feed-empty/, "and a narrow column");
-    assert.ok(m.container.find(".view-graph").getAttribute("hidden") !== null, "the graph is not shown");
   }));
 
-test("Team view: choosing Graph and back, a row opening the drawer (which takes the feed's place), and the palette", () =>
+test("Team view: choosing Board and back, a row opening the drawer (which takes the feed's place), and the palette", () =>
   withPage({ treeView: StubTree }, async (m) => {
     await m.connect();
     const choose = async (id) => m.click(m.container.findAll(".tabs-view").find((b) => b.getAttribute("data-view") === id));
-    await choose("graph");
+    await choose("board");
     assert.equal(m.container.find(".stub-tree"), null, "the tree is not drawn under another view");
-    assert.equal(m.container.find(".view-graph").getAttribute("hidden"), null);
     await choose("tree");
     assert.ok(m.container.find(".stub-tree"));
     await m.click(m.container.findAll(".stub-row")[1]);

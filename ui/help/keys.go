@@ -125,7 +125,7 @@ var Keys = []Key{
 	{ID: "findPane", Keys: "Ctrl+Shift+L", Label: "Find pane", Section: "Finding your way", Page: "panes"},
 	{ID: "history", Keys: "Ctrl+Shift+R", Label: "Resume — reopen a past conversation", Section: "Finding your way", Page: "history"},
 	{ID: "projects", Keys: "Ctrl+Shift+O", Label: "Projects", Section: "Finding your way", Page: "projects"},
-	// The team graph: arrows, Enter and Esc move through it as they do in a list,
+	// The team outline: arrows, Enter and Esc move through it as they do in a list,
 	// and these two reach the parts that no arrow does.
 	{ID: "nextNeedsYou", Keys: "Ctrl+Shift+U", Label: "Next agent that needs you", Section: "Finding your way"},
 	{ID: "prevNeedsYou", Keys: "Ctrl+Shift+J", Label: "Previous agent that needs you", Section: "Finding your way"},

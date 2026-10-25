@@ -7,7 +7,7 @@ import { render } from "../src/vendor/preact.mjs";
 import { useMemo, useRef } from "../src/vendor/hooks.mjs";
 import { html } from "../src/html.js";
 import { Shell, keysOf } from "../src/shell/app.js";
-import { Graph } from "../src/graph/Graph.js";
+import { Tree } from "../src/graph/Tree.js";
 import { buildGraphModel } from "../src/graph/model.js";
 import { Drawer, useDrawer, hasTerminal, keysFor } from "../src/drawer/Drawer.js";
 import { MAX_LINES } from "../src/drawer/Message.js";
@@ -157,7 +157,7 @@ function App({ msg, store: st, dom, terminalOptions }) {
         onClose=${d.close} onToggleMax=${d.toggleMax} terminalOptions=${terminalOptions} />`
     : null;
   return html`<${Shell} hello=${{ keys: fakeKeys }} state=${fakeState} window=${dom.window} mainRef=${mainRef} maximised=${d.maximised} drawer=${drawer}>
-    <${Graph} model=${model} onOpen=${d.open} open=${d.pane} />
+    <${Tree} model=${model} onOpen=${d.open} open=${d.pane} />
   <//>`;
 }
 
@@ -180,7 +180,7 @@ async function mount(msg = graphMsg(), opts = {}) {
   const api = {
     dom, container, st,
     redraw: async (m) => { draw(m); await settle(); },
-    box: (pane) => container.findAll("[data-pane]").find((e) => e.getAttribute("data-pane") === pane && e.localName === "g"),
+    box: (pane) => container.findAll(".tree-row").find((e) => e.getAttribute("data-pane") === pane),
     drawerBodies: () => container.findAll("[data-drawer-pane]"),
     drawerEl: () => container.find(".drawer"),
     name: () => { const e = container.find(".drawer-name"); return e ? e.textContent : ""; },
@@ -231,8 +231,8 @@ test("opening another node replaces the content, and there is one drawer", () =>
     assert.equal(a.drawerBodies().length, 1);
     assert.equal(a.name(), "shop");
     assert.equal(a.container.findAll(".drawer").length, 1);
-    assert.equal(a.box("p1").getAttribute("aria-expanded"), "true");
-    assert.equal(a.box("p2").getAttribute("aria-expanded"), "false");
+    assert.equal(a.box("p1").getAttribute("aria-selected"), "true");
+    assert.equal(a.box("p2").getAttribute("aria-selected"), "false");
     assert.equal(FakeTerm.instances.filter((t) => !t.disposed).length, 1, "the first pane's terminal was kept open");
   }));
 

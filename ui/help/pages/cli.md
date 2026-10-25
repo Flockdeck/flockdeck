@@ -334,7 +334,7 @@ When a rule is tested, the line is typed only if all of these hold:
 - the end of its output has not changed for 5 seconds;
 - you have not typed in the pane for 30 seconds, and Flockdeck has not typed into it for 5;
 - no hook notice was given to the agent in the last minute;
-- Flockdeck is not already sending a message from the graph to that pane.
+- Flockdeck is not already sending a message from the window to that pane.
 
 It is typed at most once a minute for a pane, at most 3 times in a row for a pane without
 the agent running `inbox read` in between, and at most 20 times an hour for a project.

@@ -97,7 +97,7 @@ function nodeOfPane(p) {
 export function Live({ store, matchMedia, window: win, terminalOptions = null, patchWaitMs = PATCH_WAIT_MS, treeView = Tree }) {
   // The Team view is the outline, a component given here: it is drawn with { model,
   // open, onOpen, send } in the home column, beside the activity feed. With none
-  // the switch has no Team view and the page starts on the graph.
+  // the switch has no Team view and the page starts on the Board.
   const hasTree = !!treeView;
   const views = viewsOf(hasTree);
   const narrow = useNarrow(matchMedia);
@@ -129,7 +129,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
   const [infoFor, setInfoFor] = useState(null);
   const [findingPane, setFindingPane] = useState(false);
   const [findAsk, setFindAsk] = useState(0);
-  // The view the strip's switch has chosen: graph, board, changes or replay.
+  // The view the strip's switch has chosen: tree, deps, board, changes or replay.
   const [view, setView] = useState(firstViewOf(hasTree));
   const [tabAsk, setTabAsk] = useState({ tab: "", n: 0 });
   // The helper apps and projects dialogs, and the baton being made: the pane it
@@ -359,7 +359,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     setFocusAsk(pane);
   };
   useEffect(() => {
-    if (focusAsk && scoped && scoped.byPane.has(focusAsk) && (view === "tree" || view === "graph")) {
+    if (focusAsk && scoped && scoped.byPane.has(focusAsk) && view === "tree") {
       focusNode(mainRef.current, focusAsk);
       setFocusAsk("");
     }
@@ -556,10 +556,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
   useEffect(() => {
     if (settingsOpen && (settingsSection === "routing") && !snap.remote) send({ cmd: "refreshAgents" });
   }, [settingsOpen, settingsSection]);
-  const chooseView = (v) => {
-    if (v === "graph") drawer.close();
-    setView(v);
-  };
+  const chooseView = (v) => setView(v);
   // What the command palette lists besides the key table's actions: what needs the
   // person (choosing one opens that agent), every agent of the graph, and the views.
   // None of them answers anything: a permission is answered on its card.
@@ -768,16 +765,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
           onHistory=${snap.remote ? null : () => setHistoryOpen(true)} onFind=${snap.remote ? null : () => setFindingPane(true)} />
         <${ViewBar} view=${view} views=${views} onView=${chooseView} />`
       : null}
-    <div class="view-graph" hidden=${view !== "graph"}>
-     <div class=${"home-split" + (showFeed ? " home-split--feed" : "")}>
-      <div class="home-col">
-      <${Home} snap=${snap} selected=${selected} onShown=${setShown} onOpen=${drawer.open} open=${drawer.pane} narrow=${narrow} send=${snap.remote ? null : send}
-        onStartTeam=${snap.remote || viewer ? null : () => setStarting("team")}
-        onSeeChanges=${(p) => { drawer.open(p); setTabAsk((a) => ({ tab: "changes", n: a.n + 1, pane: p })); }} />
-      </div>
-      ${showFeed ? html`<${Feed} feed=${feed} onFocus=${goTo} />` : null}
-     </div>
-    </div>
+    <${Home} snap=${snap} selected=${selected} onShown=${setShown} onOpen=${drawer.open} open=${drawer.pane} />
     ${hasTree && treeView && view === "tree"
       ? html`<div class="view-tree">
           <div class=${"home-split" + (showFeed ? " home-split--feed" : "") + (showFeed && feedCount === 0 ? " home-split--feed-empty" : "")}>

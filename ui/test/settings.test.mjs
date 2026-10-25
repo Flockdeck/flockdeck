@@ -590,7 +590,7 @@ test("General: auto-approve for new panes, and the hints can be shown again", ()
 test("an open terminal takes the settings at once, and a new one starts with them", () =>
   withPage({ fontSize: 17, scrollback: 5000, cursorStyle: "bar" }, async (m) => {
     await m.connect();
-    await m.click(m.container.findAll("[data-pane]").find((e) => e.localName === "g" && e.getAttribute("data-pane") === CART && e.getAttribute("role") === "button"));
+    await m.click(m.container.findAll("[data-pane]").find((e) => String(e.className || e.getAttribute("class")).includes("tree-row") && e.getAttribute("data-pane") === CART));
     const term = FakeTerm.last;
     assert.ok(term, "no terminal");
     assert.equal(term.options.fontSize, 17);

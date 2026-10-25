@@ -26,7 +26,7 @@ for (const f of frames) {
 }
 const out = {
   watches: ws.commands("graphWatch").length,
-  boxes: container.findAll("g").filter((e) => e.getAttribute("role") === "button").map((e) => e.getAttribute("data-pane")),
+  boxes: container.findAll("[data-pane]").filter((e) => String(e.className || e.getAttribute("class")).includes("tree-row")).map((e) => e.getAttribute("data-pane")),
   drawers: container.findAll("[data-drawer-pane]").length,
   drawerName: container.find(".drawer-name") ? container.find(".drawer-name").textContent : null,
   bar: !!container.find(".mbar"),

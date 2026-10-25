@@ -485,18 +485,13 @@ test("panes that share a name read as role and a stable name, never the live lin
 });
 
 import { decisionOf } from "../src/graph/DecisionBlock.js";
-import { loopOf } from "../src/graph/DependencyDecisions.js";
-import { overlapsOf } from "../src/graph/OverlapBar.js";
 
-test("decision blocks, the overlap bar and the loop block name panes that share a name by role and a stable name", () => {
+test("decision blocks name panes that share a name by role and a stable name", () => {
   const g = team([ask, { id: "c", kind: "conflict", pane: "ask", other: "work", time: "2026-10-24T08:21:00Z", text: "a.go" }]);
   for (const p of ["ask", "work"]) g.nodes.find((x) => x.pane === p).name = "flockdeck";
   g.nodes.find((x) => x.pane === "ask").live = "reading logs";
   const m = model(g);
   assert.equal(decisionOf(m, ask).who, "worker · flockdeck");
-  assert.ok(overlapsOf(m)[0].who.includes("worker · flockdeck and worker · Limiter"));
-  const lp = model(team());
-  assert.equal(loopOf(lp), null);
 });
 
 import { totalOf } from "../src/graph/Tree.js";
