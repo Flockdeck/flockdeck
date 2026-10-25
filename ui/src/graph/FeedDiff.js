@@ -119,7 +119,7 @@ export function diffGraphs(prev, next, now) {
     if (!e.id) continue;
     const was = before.get(e.id);
     if (!was) {
-      const gist = e.text ? ": " + cut(e.text, 60) : "";
+      const gist = e.text ? ": " + cut(e.text, 60) + (e.cut === true && cut(e.text, 60) === e.text ? "…" : "") : "";
       add("info", e.to, who(e.from) + " sent " + who(e.to) + " a message" + gist, e.from);
       continue;
     }

@@ -45,6 +45,16 @@ test("a line that fills the desk's cut may have been cut", () => {
   assert.equal(maybeCut(undefined), false);
 });
 
+test("a message edge's cut flag decides, and the length guess is for a desk that does not say", () => {
+  const edge = (cut) => ({ ...mail(1, "a", "m", T(1)), text: "short", ...(cut === undefined ? {} : { cut }) });
+  const row = (e) => timelineEntries(managerTimeline({ model: graph([e]), manager: "m" }))[0];
+  assert.equal(row(edge(true)).maybeCut, true);
+  assert.equal(row(edge(true)).cutKnown, true);
+  assert.equal(row(edge(false)).maybeCut, false);
+  assert.equal(row(edge(false)).cutKnown, true);
+  assert.equal(row(edge()).cutKnown, false);
+});
+
 test("the manager's own events are left out, and mail with no time is left out", () => {
   const model = graph([mail(1, "a", "m", "")]);
   const out = managerTimeline({ model, manager: "m", events: [{ kind: "ship", pane: "m", text: "x", at: 1 }] });
