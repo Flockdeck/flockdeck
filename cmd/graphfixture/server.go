@@ -44,8 +44,38 @@ type fixtureServer struct {
 	files fs.FS
 	token string
 
-	mu   sync.Mutex
-	sent []sentText
+	mu     sync.Mutex
+	sent   []sentText
+	played bool // the fixture's script has been started
+}
+
+// play runs the fixture's script on one connection, the first to watch the graph:
+// each step waits, then pushes a graph message or drops the socket, which the
+// page answers by reconnecting (the script does not run again).
+func (s *fixtureServer) play(ctx context.Context, conn *websocket.Conn, put func(any) bool) {
+	s.mu.Lock()
+	run := !s.played && len(s.fx.script) > 0
+	s.played = true
+	s.mu.Unlock()
+	if !run {
+		return
+	}
+	go func() {
+		for _, st := range s.fx.script {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(time.Duration(st.AfterMs) * time.Millisecond):
+			}
+			if st.Drop {
+				conn.CloseNow()
+				return
+			}
+			if !put(json.RawMessage(st.raw)) {
+				return
+			}
+		}
+	}()
 }
 
 func newToken() (string, error) {
@@ -182,6 +212,9 @@ func (s *fixtureServer) control(w http.ResponseWriter, r *http.Request) {
 			if !put(reply) {
 				return
 			}
+		}
+		if cmd.Cmd == "graphWatch" {
+			s.play(ctx, conn, put)
 		}
 	}
 }

@@ -7,6 +7,12 @@
 // panes, and answers graphWatch with the fixture's graph message. It answers
 // paneSend and the conversation commands with canned replies.
 //
+// A fixture with a NAME.script.json beside it is played once after the first
+// graphWatch: [{"afterMs":400,"file":"later.json"},{"afterMs":400,"drop":true}]
+// pushes the graph message in later.json (it may be older than the one shown, to
+// try stale and out-of-order pushes) and then closes the socket, so the page's
+// reconnect can be watched.
+//
 // It starts no workspace and reads no configuration. It binds loopback on a port
 // the system chooses and wants a random token in the first request, which it
 // prints in the link. It never opens a path in the configuration directory.
