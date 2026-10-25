@@ -113,8 +113,68 @@ test("a request the desk never answers is given up after a wait, not left loadin
   }
   assert.equal(store.getState().conversation.older, "loading");
   for (const fn of timers) fn();
-  assert.equal(store.getState().conversation.older, "idle");
-  assert.equal(store.getState().details.e6.state, "gone");
+  assert.equal(store.getState().conversation.older, "late");
+  assert.equal(store.getState().details.e6.state, "failed");
   assert.equal(store.getState().search.state, "done");
   assert.equal(store.getState().search.failed, true);
+});
+
+// Timers the store sets while `fn` runs are held, to be fired by the test.
+async function held(fn) {
+  const real = globalThis.setTimeout;
+  const timers = [];
+  globalThis.setTimeout = (f) => { timers.push(f); return 0; };
+  try {
+    await fn();
+  } finally {
+    globalThis.setTimeout = real;
+  }
+  return timers;
+}
+
+test("an older page that comes after the wait was given up is put before the entries held, not after", async () => {
+  const { store, ws } = await open();
+  const timers = await held(() => store.olderConversation());
+  for (const fn of timers) fn();
+  assert.equal(store.getState().conversation.older, "late");
+  ws().frame({ type: "conversationPage", id: "p1", supported: true, atStart: true, entries: [{ id: "e3", kind: "user" }, { id: "e4", kind: "reply" }] });
+  const c = store.getState().conversation;
+  assert.deepEqual(c.entries.map((e) => e.id), ["e3", "e4", "e5", "e6"]);
+  assert.equal(c.atStart, true);
+  assert.equal(c.older, "idle");
+});
+
+test("an open the desk never answers does not hold Older back for good", async () => {
+  const { store, reconnect } = await open();
+  let next;
+  const timers = await held(() => { next = reconnect(); });
+  assert.equal(next.commands("conversationOpen").length, 1);
+  assert.equal(store.olderConversation(), false, "refused while the open is out");
+  for (const fn of timers) fn();
+  assert.equal(store.olderConversation(), true);
+});
+
+test("a wait begun before a drop does not cut the wait after the reconnect short", async () => {
+  const { store, reconnect } = await open();
+  let next;
+  const timers = await held(() => {
+    store.requestDetail("e6");
+    next = reconnect();
+  });
+  assert.equal(next.commands("conversationDetail").length, 1, "asked again by the hello");
+  assert.ok(timers.length >= 2);
+  timers[0]();
+  assert.equal(store.getState().details.e6.state, "loading", "the first wait is over; the second is still on");
+  timers[timers.length - 1]();
+  assert.equal(store.getState().details.e6.state, "failed");
+});
+
+test("the matches of a search are kept while it is asked again after a reconnect", async () => {
+  const { store, ws, reconnect } = await open();
+  store.searchConversation("limiter");
+  ws().frame({ type: "conversationSearch", id: "p1", q: "limiter", matches: [{ entryId: "e6", kind: "reply", snippet: "limiter", offset: 0 }], more: false });
+  reconnect();
+  const got = store.getState().search;
+  assert.equal(got.state, "loading");
+  assert.equal(got.matches.length, 1);
 });

@@ -92,7 +92,7 @@
 //                 a card drawn in the strip and again in the stream is answered
 //                 once; a refusal clears it and the card can be answered again.
 //   details       the answers to requestDetail for the open conversation, by entry
-//                 id: { state: "loading" | "ok" | "gone", detail }. At most
+//                 id: { state: "loading" | "ok" | "gone" | "failed", detail }. At most
 //                 MAX_DETAILS are held; the oldest asked for goes first.
 //   changes       the latest listing of a working tree (the desktop's "changes"
 //                 message without its type), or null: cwd, branch, ahead, behind,
@@ -357,8 +357,22 @@ export function createStore(opts) {
     return at;
   };
   let olderTok = 0;
+  let openTok = 0;
   let searchTok = 0;
   const detailTok = new Map();
+  /** guardDetail gives up a detail still loading after LOAD_MS as "failed" (not "gone": it may be there, so it can be asked for again). A newer ask for the entry replaces the wait. */
+  const guardDetail = (entry) => {
+    const id = watchingConv;
+    const tok = ++detailSeqTok;
+    detailTok.set(entry, tok);
+    guardLoad(() => watchingConv === id && detailTok.get(entry) === tok && !!snap.details[entry] && snap.details[entry].state === "loading",
+      () => {
+        const now = nullMap(snap.details);
+        Object.defineProperty(now, entry, { value: { ...snap.details[entry], state: "failed" }, enumerable: true, writable: true, configurable: true });
+        set({ details: now });
+      });
+  };
+  let detailSeqTok = 0;
   // The permission cards an answer was sent for, so a second view of one cannot send another.
   const askedCards = new Set();
   const cardKey = (c) => [c.id, c.cardSeq, c.requestId].map((p) => String(p == null ? "" : p)).join("");
@@ -430,6 +444,11 @@ export function createStore(opts) {
     // After a reconnect the desktop is asked only for what came since.
     if (c && c.entries.length > 0) cmd.after = c.entries[c.entries.length - 1].id;
     convOpenOut = socket.send(cmd);
+    if (convOpenOut) {
+      // An open the desk refused or dropped must not hold Older back for good.
+      const tok = ++openTok;
+      guardLoad(() => openTok === tok && convOpenOut, () => { convOpenOut = false; });
+    }
     return convOpenOut;
   }
 
@@ -480,10 +499,10 @@ export function createStore(opts) {
           if (c && (c.refused || c.older !== "idle")) set({ conversation: { ...c, refused: "", older: "idle" } });
           sendConversationOpen();
           if (!remote) {
-            for (const entry of Object.keys(snap.details)) if (snap.details[entry].state === "loading") socket.send({ cmd: "conversationDetail", id: watchingConv, entry });
+            for (const entry of Object.keys(snap.details)) if (snap.details[entry].state === "loading" && socket.send({ cmd: "conversationDetail", id: watchingConv, entry })) guardDetail(entry);
             // A search that was done on the connection that has gone is asked again: the conversation may have grown.
             if (snap.search && snap.search.q) {
-              if (snap.search.state !== "loading") set({ search: { q: snap.search.q, state: "loading", matches: [], more: false } });
+              if (snap.search.state !== "loading") set({ search: { ...snap.search, q: snap.search.q, state: "loading", failed: false } });
               socket.send({ cmd: "conversationSearch", id: watchingConv, q: snap.search.q });
               const id = watchingConv;
               const tok = ++searchTok;
@@ -675,7 +694,7 @@ export function createStore(opts) {
         const page = goodEntries(msg.entries);
         let entries;
         let atStart = !!msg.atStart;
-        if (c.older === "loading" && !msg.reset) {
+        if ((c.older === "loading" || c.older === "late") && !msg.reset) {
           // The page before the ones held.
           entries = upsert(page, c.entries);
         } else if (msg.reset || c.entries.length === 0) {
@@ -808,6 +827,7 @@ export function createStore(opts) {
         // The refusal of a conversation command is shown on the tab, once. The
         // notice is kept as well, like any other.
         if (watchingConv !== null && snap.conversation && snap.conversation.supported === null && msg.error && (String(msg.text || "").startsWith(VIEWER_REFUSED_PHRASE) || String(msg.text || "").startsWith(REMOTE_CONVERSATION_LINE))) {
+          convOpenOut = false;
           set({ notice: { ...msg, seq: ++noticeSeq }, conversation: { ...snap.conversation, refused: String(msg.text) } });
           break;
         }
@@ -1015,7 +1035,8 @@ export function createStore(opts) {
       const id = watchingConv;
       const tok = ++olderTok;
       guardLoad(() => olderTok === tok && watchingConv === id && !!snap.conversation && snap.conversation.older === "loading",
-        () => set({ conversation: { ...snap.conversation, older: "idle" } }));
+        // Not "idle": a page that comes late is still the page before, and is put before the entries held.
+        () => set({ conversation: { ...snap.conversation, older: "late" } }));
       return true;
     },
     /** requestDetail asks for the full body of one entry of the open conversation:
@@ -1025,7 +1046,7 @@ export function createStore(opts) {
     requestDetail(entry) {
       if (watchingConv === null || snap.remote || !entry || typeof entry !== "string") return false;
       const have = snap.details[entry];
-      if (have && have.state !== "gone") return true;
+      if (have && have.state !== "gone" && have.state !== "failed") return true;
       if (!socket.send({ cmd: "conversationDetail", id: watchingConv, entry })) return false;
       const items = nullMap(snap.details);
       delete items[entry];
@@ -1034,15 +1055,7 @@ export function createStore(opts) {
       while (keys.length >= MAX_DETAILS) delete items[keys.shift()];
       Object.defineProperty(items, entry, { value: { state: "loading", n: ++detailSeq }, enumerable: true, writable: true, configurable: true });
       set({ details: items });
-      const id = watchingConv;
-      const tok = ++loadSeq;
-      detailTok.set(entry, tok);
-      guardLoad(() => watchingConv === id && detailTok.get(entry) === tok && !!snap.details[entry] && snap.details[entry].state === "loading",
-        () => {
-          const now = nullMap(snap.details);
-          Object.defineProperty(now, entry, { value: { ...snap.details[entry], state: "gone" }, enumerable: true, writable: true, configurable: true });
-          set({ details: now });
-        });
+      guardDetail(entry);
       return true;
     },
     /** requestTask asks the desktop for one task of the project on screen: its

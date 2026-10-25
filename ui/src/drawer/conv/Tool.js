@@ -17,6 +17,7 @@ import { Diff } from "./Diff.js";
 export const OUTPUT_CAP = 4 << 10;
 export const LOADING_DETAIL_WORDS = "Loading the full output…";
 export const GONE_WORDS = "No longer available.";
+export const FAILED_WORDS = "Could not load. Open again to retry.";
 export const NOT_ASKED_WORDS = "Not connected to Flockdeck, so the full output was not asked for.";
 
 /** Output is a tool's output text, cut at OUTPUT_CAP with the cut said. */
@@ -40,6 +41,7 @@ export function ToolBody({ entry: e, detail }) {
   }
   if (!e.hasDetail) return null;
   if (!detail) return html`<p class="conv-detail-state" role="status">${NOT_ASKED_WORDS}</p>`;
+  if (detail.state === "failed") return html`<p class="conv-detail-state" data-detail="failed" role="status">${FAILED_WORDS}</p>`;
   if (detail.state === "gone") return html`<p class="conv-detail-state" data-detail="gone" role="status">${GONE_WORDS}</p>`;
   if (detail.state === "loading") return html`<p class="conv-detail-state" data-detail="loading" role="status">${LOADING_DETAIL_WORDS}</p>`;
   return null;
