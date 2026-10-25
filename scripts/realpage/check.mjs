@@ -64,6 +64,7 @@ const shotView = opt("shot-view", ""); // a view of the strip's switch to choose
 const shotSize = opt("shot-size", "1440x900").split("x").map(Number);
 const shotResize = Number(args[args.indexOf("--shot-resize") + 1]) || 0; // with --shot-open: press Shift+Left on the drawer's border this many times
 const shotLight = args.includes("--shot-light"); // draw the light theme instead of the dark one
+const shotTab = opt("shot-tab", ""); // after opening the drawer, show this tab: conversation or changes
 const shotClick = args.includes("--shot-click"); // open the first outline row's drawer with a real mouse click, not a script's click
 const shotMax = args.includes("--shot-max"); // open the first outline row's drawer and maximise it
 const shotOpen = args.includes("--shot-open"); // open the first agent's drawer first
@@ -399,6 +400,10 @@ async function screenshot(page, file) {
       await page.S("Input.dispatchMouseEvent", { type: "mouseReleased", x: at.x, y: at.y, button: "left", clickCount: 1 });
       await sleep(600);
     }
+  }
+  if (shotTab) {
+    await page.eval(`(() => { const t = document.querySelector("#drawer-tab-${shotTab}"); if (t) t.click(); })()`);
+    await sleep(400);
   }
   if (shotResize) {
     await sleep(500);

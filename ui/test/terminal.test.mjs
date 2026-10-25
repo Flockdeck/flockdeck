@@ -136,6 +136,21 @@ test("the box is reported when the socket opens and when it changes, once for ea
   assert.equal(FakeObserver.instances[0].disconnected, true);
 });
 
+
+test("the terminal is refitted when the box under it goes away: the freed rows are reported", async () => {
+  const h = build();
+  h.ctl.start();
+  const ws = PtySocket.last;
+  ws.open();
+  await settle();
+  const before = resizesSent(ws).length;
+  // The terminal tab lost its message box, so the same panel is taller: more rows fit.
+  FakeFit.box = { cols: 100, rows: 34 };
+  for (const o of FakeObserver.instances) o.fire();
+  await settle();
+  assert.deepEqual(resizesSent(ws).slice(before), [{ resize: { cols: 100, rows: 34 } }]);
+  h.ctl.dispose();
+});
 test("a box laid out while hidden is reported when it is shown", async () => {
   const h = build();
   FakeFit.box = null;
