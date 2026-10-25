@@ -318,11 +318,11 @@ test("Run checks and Ask to review need the checks cap, not the gate's", () => {
 
 // ---- the confirm step for the commands of the check file (docs/changes-api.md, section 6)
 
-const listing = (req, over = {}) => ({
-  type: "changesChecks", req,
-  commands: [{ name: "unit", cmd: "go test ./..." }, { name: "lint", cmd: "go vet ./..." }],
-  hash: "6d1f0c2a9b4e8f3d5a7c1e0b2d4f6a8c9e1b3d5f7a9c0e2b4d6f8a1c3e5b7d90", pinned: false, ...over,
-});
+// The shapes are the fixtures the desk is held to (api/fixtures 15 to 17); a test changes only the req and what it is about.
+const checksFx = fixture("15-checks-to-confirm");
+const notConfirmedFx = fixture("16-result-not-confirmed");
+const changedFx = fixture("17-result-changed");
+const listing = (req, over = {}) => ({ ...checksFx, req, ...over });
 const lastOf = (sent, cmd) => sent.filter((c) => c.cmd === cmd).pop();
 
 async function reading(extra = {}) {
@@ -390,7 +390,7 @@ test("a file edited while the question was open shows its new commands and sends
     m.box.find(".dialog-btn--danger").click();
     await settle();
     const confirmReq = sent.filter((c) => c.confirm)[0].req;
-    m.draw({ send, branch: api, checks: listing(sent[0].req), result: { type: "changesResult", req: confirmReq, op: "confirmChecks", ok: false, code: "changed", error: "the check file changed after it was shown; read the commands again" } });
+    m.draw({ send, branch: api, checks: listing(sent[0].req), result: { ...changedFx, req: confirmReq } });
     await settle();
     const reread = sent[sent.length - 1];
     assert.deepEqual([reread.cmd, reread.confirm], ["confirmChecks", undefined], "it asks to read the file again");
@@ -483,9 +483,9 @@ test("a refusal from the desk is said in its words and ends the question", async
   try {
     n.m.draw({ send: n.send, branch: api, checks: listing(n.sent[0].req, { pinned: true }) });
     await settle();
-    n.m.draw({ send: n.send, branch: api, checks: listing(n.sent[0].req, { pinned: true }), result: { type: "changesResult", req: lastOf(n.sent, "runChecks").req, op: "runChecks", ok: false, code: "notConfirmed", error: "The commands in the check file have not been confirmed in the Flockdeck window; the checks run code from the checkout." } });
+    n.m.draw({ send: n.send, branch: api, checks: listing(n.sent[0].req, { pinned: true }), result: { ...notConfirmedFx, req: lastOf(n.sent, "runChecks").req } });
     await settle();
-    assert.match(n.m.box.find(".dv-live").textContent, /run code from the checkout/);
+    assert.match(n.m.box.find(".dv-live").textContent, /have not been confirmed/);
   } finally {
     n.m.done();
   }
@@ -592,7 +592,7 @@ test("after notConfirmed, pressing Run checks reads the file again; nothing is r
     await settle();
     const run = lastOf(sent, "runChecks");
     const before = sent.length;
-    m.draw({ send, branch: api, checks: listing(sent[0].req, { pinned: true }), result: { type: "changesResult", req: run.req, op: "runChecks", ok: false, code: "notConfirmed", error: "not confirmed; the checks run code from the checkout" } });
+    m.draw({ send, branch: api, checks: listing(sent[0].req, { pinned: true }), result: { ...notConfirmedFx, req: run.req } });
     await settle();
     assert.equal(sent.length, before, "nothing is sent by itself");
     m.box.find(".dv-gate-run").click();
@@ -613,7 +613,7 @@ test("a list that is pinned after a changed note still asks", async () => {
     m.box.find(".dialog-btn--danger").click();
     await settle();
     const confirmReq = sent.filter((c) => c.confirm)[0].req;
-    m.draw({ send, branch: api, result: { type: "changesResult", req: confirmReq, op: "confirmChecks", ok: false, code: "changed", error: "changed" } });
+    m.draw({ send, branch: api, result: { ...changedFx, req: confirmReq } });
     await settle();
     const reread = sent[sent.length - 1];
     m.draw({ send, branch: api, checks: listing(reread.req, { pinned: true, hash: "e".repeat(64) }) });
