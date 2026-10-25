@@ -2,8 +2,6 @@ package server
 
 import (
 	"strconv"
-	"strings"
-	"time"
 
 	"github.com/jmwri/flockdeck/internal/hooks"
 	"github.com/jmwri/flockdeck/internal/team"
@@ -18,6 +16,7 @@ import (
 // installTeamHandlers lets a pane list its project's agents, exchange messages
 // with them and use the project's task board.
 func (s *Server) installTeamHandlers() {
+	s.ws.SetRenameNotifier(func(r workspace.RenameInfo) { s.noticeDesk(renameNotice(r), false) })
 	hookSrv := s.ws.HookServer()
 	if hookSrv == nil {
 		return
@@ -71,16 +70,7 @@ func (s *Server) installTeamHandlers() {
 	})
 	hookSrv.SetPaneNameHandler(func(req hooks.PaneNameRequest) (hooks.PaneNameResult, error) {
 		out, ok := ask(s, func() outcome[hooks.PaneNameResult] {
-			target := strings.TrimSpace(req.Target)
-			if target == "" {
-				target = req.Pane
-			}
-			was := paneDisplayName(s.ws, target)
 			r, err := s.ws.PaneNamed(req)
-			if err == nil && r.Pane != req.Pane && s.renameToast(r.Pane) {
-				// A pane named another: the person at the window is told who, which pane and what it is called now.
-				s.noticeDesk(renameNotice(req.Pane, paneDisplayName(s.ws, req.Pane), r.Pane, was, r.Label), false)
-			}
 			return outcome[hooks.PaneNameResult]{r, err}
 		})
 		if !ok {
@@ -104,39 +94,16 @@ func (s *Server) installTeamHandlers() {
 	})
 }
 
-// renameToastWindow is how long after a pane's rename was shown to the person that
-// another rename of it is not shown again: a loop of renames is one notice, not a flood.
-const renameToastWindow = time.Minute
-
-// renameToast says whether the person is told of a rename of pane id now, and notes
-// that they were. It runs on the workspace goroutine, so it takes no lock of its own.
-func (s *Server) renameToast(id string) bool {
-	now := time.Now()
-	if at, ok := s.renameToasts[id]; ok && now.Sub(at) < renameToastWindow {
-		return false
-	}
-	if s.renameToasts == nil || len(s.renameToasts) > 256 {
-		s.renameToasts = map[string]time.Time{}
-	}
-	s.renameToasts[id] = now
-	return true
-}
-
-// paneDisplayName is how the pane is called now: its label, else its name, cut.
-func paneDisplayName(ws *workspace.Workspace, id string) string {
-	if p := ws.Pane(id); p != nil {
-		return team.PlainText(team.Member{Name: p.Name, Peer: ws.PeerNameOf(p), Called: ws.LabelOf(p)}.Label(), 40)
-	}
-	return id
-}
-
 // renameNotice is the sentence the desk is shown when a pane names another. The
 // actor is the pane id the command reported, which another pane could have given;
 // the names are the panes' own words and are cut.
-func renameNotice(actor, actorName, target, was, label string) string {
-	who := "pane " + actor + " (" + actorName + ")"
-	if label == "" {
-		return who + " cleared the name of pane " + target + ", " + strconv.Quote(was)
+func renameNotice(r workspace.RenameInfo) string {
+	who := "pane " + r.Actor + " (" + r.ActorName + ")"
+	if r.N > 1 {
+		return who + " renamed pane " + r.Target + " " + strconv.Itoa(r.N) + " times: from " + strconv.Quote(r.Was) + ", now " + strconv.Quote(r.Now)
 	}
-	return who + " renamed pane " + target + " from " + strconv.Quote(was) + " to " + strconv.Quote(label)
+	if r.Now == "" {
+		return who + " cleared the name of pane " + r.Target + ", " + strconv.Quote(r.Was)
+	}
+	return who + " renamed pane " + r.Target + " from " + strconv.Quote(r.Was) + " to " + strconv.Quote(r.Now)
 }

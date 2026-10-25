@@ -285,6 +285,10 @@ func noFormat(s string) string {
 	}, s)
 }
 
+// PlainName is a name that another pane chose, as text for a notice: format
+// characters dropped (see noFormat), one line, at most max characters.
+func PlainName(s string, max int) string { return PlainText(noFormat(s), max) }
+
 // PaneLabelText is a pane's label as text: one line of at most MaxPaneLabel
 // characters with no control or format character in it, and rewritten as
 // "(agent) name" when it could pass for the user or for Flockdeck, or for a role

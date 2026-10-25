@@ -534,6 +534,9 @@ type Workspace struct {
 	labelRenames map[string][]time.Time
 	// actorRenames are the times each pane renamed others, the limit across targets. Guarded by mu.
 	actorRenames map[string][]time.Time
+	// renameTrails are bursts of renames waiting to be told, and renameNotify is who is told (panelabel.go). Guarded by mu.
+	renameTrails map[string]*renameTrail
+	renameNotify func(RenameInfo)
 	// tasks is the task boards of the open projects; see tasks.go.
 	tasks taskState
 

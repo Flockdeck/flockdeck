@@ -208,38 +208,119 @@ func recentTimes(at []time.Time, now time.Time) []time.Time {
 func (w *Workspace) forgetRenames(id string) {
 	delete(w.labelRenames, id)
 	delete(w.actorRenames, id)
+	if t := w.renameTrails[id]; t != nil && t.timer != nil {
+		t.timer.Stop()
+	}
+	delete(w.renameTrails, id)
 }
 
-// recordRename tells of a rename by another pane. burst is how many renames of
-// this pane there have been in the last minute, this one included. Only the first
-// of a burst is logged in the team event log (who, which pane, the old label and
-// the new) and told to the pane in its inbox; the one that reaches the limit says
-// how many there were, and those between say nothing.
+// RenameInfo is a rename of a pane by another, for the person at the window. Was
+// is the name the pane had when a burst of renames began, Now the latest, and N how
+// many renames the burst has had so far. Names are cut and have no format character.
+type RenameInfo struct {
+	Actor, ActorName, Target, Was, Now string
+	N                                  int
+}
+
+// SetRenameNotifier sets what is told of renames by other panes: the first of a
+// burst at once, then one more after the burst has been quiet for a moment, with
+// the latest name and the count. It is called from the workspace goroutine and,
+// for the trailing one, from a timer.
+func (w *Workspace) SetRenameNotifier(f func(RenameInfo)) {
+	w.mu.Lock()
+	w.renameNotify = f
+	w.mu.Unlock()
+}
+
+// DisplayName is how a pane is called: its label, else its name, as text for a
+// notice. It must run on the workspace goroutine.
+func (w *Workspace) DisplayName(id string) string {
+	if p := w.Pane(id); p != nil {
+		return team.PlainName(team.Member{Name: p.Name, Peer: w.PeerNameOf(p), Called: w.LabelOf(p)}.Label(), 40)
+	}
+	return id
+}
+
+// renameTrail is a burst of renames of one pane waiting for its trailing notice.
+type renameTrail struct {
+	timer *time.Timer
+	info  RenameInfo
+	who   string
+}
+
+// renameQuiet is how long a burst of renames must be quiet before its last state is told.
+var renameQuiet = 3 * time.Second
+
+// recordRename logs a rename by another pane in the team event log (who, which
+// pane, the old label and the new) every time; the log keeps the newest 200. The
+// pane's inbox and the person are told of the first rename of a burst at once, and
+// of the last state of the burst once it is quiet, so a few renames in a row are
+// two notices and the pane is never left believing an older name. burst is how many
+// renames of this pane there have been in the last minute, this one included.
 func (w *Workspace) recordRename(actor, id, old, label string, burst int) {
-	if burst > 1 && burst < maxRenames {
-		return
-	}
-	if burst == 1 {
-		w.recordEvent(team.Event{Kind: team.EventRename, Time: time.Now(), From: actor, To: id, Old: old, New: label})
-	}
-	if w.team.inbox == nil {
-		return
-	}
+	w.recordEvent(team.Event{Kind: team.EventRename, Time: time.Now(), From: actor, To: id, Old: old, New: label})
 	who := "pane " + actor
 	if members, err := w.Roster(id); err == nil {
 		for _, m := range members {
 			if m.Pane == actor {
-				who = fmt.Sprintf("%s %q (pane %s)", m.Role, m.Label(), actor)
+				who = fmt.Sprintf("%s %q (pane %s)", m.Role, team.PlainName(m.Label(), team.MaxPaneLabel), actor)
 				break
 			}
 		}
 	}
-	text := fmt.Sprintf("Pane name changed. Set by %s, as the command reported its pane id. Was %q, now %q.", who, old, label)
-	if label == "" {
-		text = fmt.Sprintf("Pane name cleared. Set by %s, as the command reported its pane id. Was %q.", who, old)
-	}
+	info := RenameInfo{Actor: actor, ActorName: w.DisplayName(actor), Target: id, Was: team.PlainName(old, team.MaxPaneLabel), Now: label, N: 1}
+	w.mu.Lock()
+	notify := w.renameNotify
 	if burst > 1 {
-		text = fmt.Sprintf("This pane's name was changed %d times in the last minute by %s, as the command reported its pane id. The latest is %q.", burst, who, label)
+		if w.renameTrails == nil {
+			w.renameTrails = map[string]*renameTrail{}
+		}
+		t := w.renameTrails[id]
+		if t == nil {
+			t = &renameTrail{info: info}
+			w.renameTrails[id] = t
+		}
+		t.info.Actor, t.info.ActorName, t.info.Target, t.info.Now, t.who = actor, info.ActorName, id, label, who
+		t.info.N = burst
+		if t.timer != nil {
+			t.timer.Stop()
+		}
+		t.timer = time.AfterFunc(renameQuiet, func() { w.tellRenameBurst(id) })
+		w.mu.Unlock()
+		return
 	}
-	w.team.inbox.SendSystem(id, text)
+	// The name this burst began from, for the summary if more renames follow.
+	if w.renameTrails == nil {
+		w.renameTrails = map[string]*renameTrail{}
+	}
+	w.renameTrails[id] = &renameTrail{info: info}
+	w.mu.Unlock()
+	if w.team.inbox != nil {
+		text := fmt.Sprintf("Pane name changed. Set by %s, as the command reported its pane id. Was %q, now %q.", who, info.Was, label)
+		if label == "" {
+			text = fmt.Sprintf("Pane name cleared. Set by %s, as the command reported its pane id. Was %q.", who, info.Was)
+		}
+		w.team.inbox.SendSystem(id, text)
+	}
+	if notify != nil {
+		notify(info)
+	}
+}
+
+// tellRenameBurst tells the last state of a burst of renames, once it is quiet.
+func (w *Workspace) tellRenameBurst(id string) {
+	w.mu.Lock()
+	t := w.renameTrails[id]
+	delete(w.renameTrails, id)
+	notify := w.renameNotify
+	w.mu.Unlock()
+	if t == nil || t.timer == nil {
+		return
+	}
+	if w.team.inbox != nil {
+		w.team.inbox.SendSystem(id, fmt.Sprintf("Pane name changed %d times in the last minute. Set by %s, as the command reported its pane id. Was %q at the start, now %q.", t.info.N, t.who, t.info.Was, t.info.Now))
+	}
+	if notify != nil {
+		notify(t.info)
+	}
 }

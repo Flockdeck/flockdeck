@@ -3,7 +3,9 @@ package workspace
 import (
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/jmwri/flockdeck/internal/hooks"
 	"github.com/jmwri/flockdeck/internal/session"
@@ -217,7 +219,7 @@ func TestARenameByAnotherPaneTellsTheNamedPaneAndIsLimited(t *testing.T) {
 	}
 	notices := 0
 	for _, m := range c.inbox(t, c.w1, true) {
-		if strings.Contains(m.Text, "Pane name changed") || strings.Contains(m.Text, "name was changed") {
+		if strings.Contains(m.Text, "Pane name changed") || strings.Contains(m.Text, "times in the last minute") {
 			notices++
 		}
 	}
@@ -258,5 +260,53 @@ func TestALabelMadeFromATaskIsNotAWordForARole(t *testing.T) {
 	}
 	if got := labelFromTask("docs-bot", "docs-bot"); !strings.HasPrefix(got, "(agent) ") {
 		t.Errorf("a custom role id was not rewritten: %q", got)
+	}
+}
+
+func TestEveryRenameIsLoggedAndTheLastOfABurstIsTold(t *testing.T) {
+	old := renameQuiet
+	renameQuiet = 20 * time.Millisecond
+	defer func() { renameQuiet = old }()
+	c := newCrew(t)
+	var told []RenameInfo
+	var mu sync.Mutex
+	c.ws.SetRenameNotifier(func(r RenameInfo) { mu.Lock(); told = append(told, r); mu.Unlock() })
+	for _, name := range []string{"first", "second", "third"} {
+		if _, err := c.ws.SetPaneLabel(c.lead, c.w1, name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	renames := 0
+	for _, e := range c.ws.team.events.Events() {
+		if e.Kind == team.EventRename && e.To == c.w1 {
+			renames++
+		}
+	}
+	if renames != 3 {
+		t.Errorf("%d rename events, want 3", renames)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		mu.Lock()
+		n := len(told)
+		mu.Unlock()
+		if n >= 2 || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(told) != 2 || told[0].Now != "first" || told[1].Now != "third" || told[1].N != 3 || told[1].Was != "" {
+		t.Errorf("the person was told %+v, want the first rename and then the third of 3", told)
+	}
+	var last bool
+	for _, m := range c.inbox(t, c.w1, true) {
+		if strings.Contains(m.Text, `now "third"`) && strings.Contains(m.Text, "3 times") {
+			last = true
+		}
+	}
+	if !last {
+		t.Errorf("the pane was not told its latest name: %+v", c.inbox(t, c.w1, true))
 	}
 }
