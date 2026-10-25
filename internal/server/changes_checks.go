@@ -269,6 +269,13 @@ func (s *Server) changesRunChecks(c *controlClient, cmd command) {
 		changesRefuse(c, cmd, "notFound", err.Error())
 		return
 	}
+	// The commands that would run must be the ones the person confirmed. The hash
+	// is of the list just loaded, which is the list that runs, so a file changed
+	// after this point is not run.
+	if !checksConfirmed(checksPath, defs) {
+		changesRefuse(c, cmd, "notConfirmed", notConfirmedText)
+		return
+	}
 	if len(cmd.Names) > 0 {
 		var chosen []changes.CheckDef
 		for _, n := range cmd.Names {

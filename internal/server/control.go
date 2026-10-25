@@ -579,7 +579,7 @@ type command struct {
 	Force     bool   `json:"force"`
 	Push      bool   `json:"push"`
 	// File, Against, Context, IgnoreWhitespace, Side, Line, CommentID, Names,
-	// Reviewer, Note, ExpectSha, Offset, Limit, From and To are the fields of the
+	// Confirm, Hash, Reviewer, Note, ExpectSha, Offset, Limit, From and To are the fields of the
 	// changes contract (docs/changes-api.md, section 2).
 	File             string   `json:"file"`
 	Against          string   `json:"against"`
@@ -589,6 +589,8 @@ type command struct {
 	Line             int      `json:"line"`
 	CommentID        string   `json:"commentId"`
 	Names            []string `json:"names"`
+	Confirm          bool     `json:"confirm"`
+	Hash             string   `json:"hash"`
 	Reviewer         string   `json:"reviewer"`
 	Note             string   `json:"note"`
 	ExpectSha        string   `json:"expectSha"`
@@ -1658,7 +1660,7 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 	case "graphSnapshot", "graphWatch", "graphUnwatch":
 		s.graphCommand(c, cmd)
 		return
-	case "changesWatch", "changesUnwatch", "changesSnapshot", "filesPage", "diffHunks", "diffContext", "runChecks", "requestReview", "submitReview":
+	case "changesWatch", "changesUnwatch", "changesSnapshot", "filesPage", "diffHunks", "diffContext", "runChecks", "confirmChecks", "requestReview", "submitReview":
 		s.changesCommand(c, cmd)
 		return
 	case "commentAdd", "commentResolve", "commentReopen",
