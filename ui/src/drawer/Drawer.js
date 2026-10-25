@@ -201,8 +201,12 @@ function DrawerBody({ store, snap = null, node, pane = null, now, maximised = fa
   const hasBox = hasConv && shown === "conversation" && isManager(team && team.model, node.pane) && terminal && !state.remote && !isViewer(state) && !node.shell;
   useLayoutEffect(() => {
     if (!onBox) return undefined;
-    onBox(hasBox ? node.pane : "");
-    return () => onBox("");
+    // The second argument takes the keyboard to the box, for the key that aims at the manager.
+    onBox(hasBox ? node.pane : "", () => {
+      const el = rootRef.current && rootRef.current.querySelector(".structured-input");
+      if (el && el.focus) el.focus();
+    });
+    return () => onBox("", null);
   }, [hasBox, node.pane]);
   const tabRefs = useRef({});
   const tabKeys = (e) => {

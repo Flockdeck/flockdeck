@@ -512,6 +512,11 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
   const barRef = useRef(null);
   // The pane whose Conversation tab shows its own message box: for the manager, that box is the bar, so the bar steps aside.
   const [boxPane, setBoxPane] = useState("");
+  const boxFocus = useRef(null);
+  const onBox = (pane, focus) => {
+    boxFocus.current = focus || null;
+    setBoxPane(pane);
+  };
   // The feed is for a team with a manager, and gives its place to the drawer while that is open.
   const showFeed = !!current && !snap.graphGone && !node && current.teams.length > 0;
   // What the outline's decision blocks answer with. A relayed view has no store to answer with.
@@ -528,13 +533,12 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     : null;
   // The bar stays mounted while the drawer's box stands in for it, so a draft or an answer on the way is not lost.
   const standIn = !!(current && managerOf(current) && boxPane && managerOf(current).pane === boxPane);
-  const drawerBox = () => (page && page.document ? page.document.querySelector("#drawer-panel-conversation .structured-input") : null);
+  const focusDrawerBox = () => { if (boxFocus.current) boxFocus.current(); };
   useLayoutEffect(() => {
     const el = barRef.current;
     const doc = el && el.ownerDocument;
     if (!standIn || !el || !doc || doc.activeElement !== el) return;
-    const box = drawerBox();
-    if (box && box.focus) box.focus();
+    focusDrawerBox();
   }, [standIn]);
   const bar = current && !snap.graphGone && managerOf(current)
     ? html`<${ManagerBar} snap=${snap} manager=${managerOf(current)} send=${(c) => store.send(c)} inputRef=${barRef} lead=${true} hidden=${standIn} />`
@@ -611,7 +615,11 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     nextNeedsYou: () => jumpNeedsYou(nextNeedsYou),
     prevNeedsYou: () => jumpNeedsYou(prevNeedsYou),
     managerBar: () => {
-      const el = standIn ? drawerBox() : barRef.current;
+      if (standIn) {
+        focusDrawerBox();
+        return;
+      }
+      const el = barRef.current;
       if (el && el.focus) el.focus();
     },
     settings: () => openSettings("general"),
@@ -774,7 +782,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     drawer=${node
       ? html`<${Drawer} store=${store} snap=${snap} node=${node} pane=${pane} now=${Date.now()} maximised=${drawer.maximised}
           onClose=${drawer.close} onToggleMax=${drawer.toggleMax} terminalOptions=${termProps} life=${viewer ? null : life}
-          tx=${tx} onInfo=${openInfo} findAsk=${findAsk} tabAsk=${tabAsk} onOpenPane=${drawer.open} order=${order} helpers=${helperNames} layout=${orient} onLayout=${toggleLayout} onBox=${setBoxPane} team=${current ? { model: current, events: feed ? feed.entries : [] } : null} onStartTeam=${snap.remote || viewer ? null : () => setStarting("team")} />`
+          tx=${tx} onInfo=${openInfo} findAsk=${findAsk} tabAsk=${tabAsk} onOpenPane=${drawer.open} order=${order} helpers=${helperNames} layout=${orient} onLayout=${toggleLayout} onBox=${onBox} team=${current ? { model: current, events: feed ? feed.entries : [] } : null} onStartTeam=${snap.remote || viewer ? null : () => setStarting("team")} />`
       : null}
   >${snap.state
       ? html`<${GoalStrip} tabs=${goal.tabs} archived=${goal.archived} active=${activeTab} onSelect=${showTab}

@@ -122,6 +122,7 @@ export function ManagerBar({ snap, manager, send, inputRef, autoFocus = true, ve
   // Set at once on a send, so a second Enter before the page has redrawn does not send again.
   const busy = useRef(false);
 
+  // The one-time autoFocus below is spent on a bar that first mounts hidden: the drawer box has the keyboard then.
   const enabled = !!manager && !snap.remote;
   useEffect(() => {
     if (!autoFocus || !enabled || focused.current) return;
