@@ -13,7 +13,7 @@
 import { useEffect, useRef, useState } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
 import { composing, LIST } from "./keys.js";
-import { trapTab } from "./Updates.js";
+import { trapTab } from "./focus.js";
 import {
   INTRO_WORDS, SAFETY_WORDS, SIGNATURE_WORDS, announcement, buttonsFor, installCommand, listCommand, openCommand, planCommand, planOf, rowsOf,
   startCommand, stateWords, stopCommand, uninstallCommand,

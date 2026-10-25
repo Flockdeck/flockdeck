@@ -59,10 +59,15 @@ export function browseOf(msg) {
   return { path: msg.path, parent: text(msg.parent), isRepo: msg.isRepo === true, entries: dirs(msg.entries), places: dirs(msg.places), error: text(msg.error) };
 }
 
+/** cleanPath is a path as typed or pasted: trimmed, and without the quotes a file manager puts round a path with spaces. */
+export function cleanPath(p) {
+  return String(p || "").trim().replace(/^"(.*)"$/, "$1").trim();
+}
+
 /** isAbsolute says a path is a full one, as the desktop requires of a project:
  *  a drive, a UNC share, or a rooted Unix path. */
 export function isAbsolute(p) {
-  const s = String(p || "").trim().replace(/^"(.*)"$/, "$1");
+  const s = cleanPath(p);
   return /^[A-Za-z]:[\\/]/.test(s) || s.startsWith("\\\\") || s.startsWith("/");
 }
 

@@ -48,6 +48,8 @@ export function Team({ team: teamMsg, tasks: tasksMsg, messages: messagesMsg, re
   const [full, setFull] = useState({});
   const [finishedShown, setFinishedShown] = useState(false);
   const reqs = useRef(0);
+  // The ids of the messages whose whole text was asked for. A push is judged only by those it carries.
+  const wholeOut = useRef(new Set());
   const pending = useRef(new Map());
   const floor = useRef(resultMsg ? resultMsg.seq : 0);
   const tasksFloor = useRef(tasksMsg ? tasksMsg.seq : 0);
@@ -59,6 +61,8 @@ export function Team({ team: teamMsg, tasks: tasksMsg, messages: messagesMsg, re
     const ok = send(c) !== false;
     setProblem(ok ? "" : "The request could not be sent. Check the connection.");
     if (ok) pending.current.set(c.req, kind);
+    if (ok) setSaid("");
+    if (ok && kind === "whole") wholeOut.current.add(c.msgId);
     return ok;
   };
   const next = () => "u" + ++reqs.current;
@@ -82,6 +86,19 @@ export function Team({ team: teamMsg, tasks: tasksMsg, messages: messagesMsg, re
     if (kind === "send") setText("");
     if (kind === "status") setNote("");
   }, [resultMsg && resultMsg.seq]);
+  // A project that cannot be read any more has no whole list to keep.
+  useEffect(() => { if (gone) setFinishedShown(false); }, [gone]);
+  const tabKey = (e) => {
+    const ids = ["tasks", "messages", "agents"];
+    const i = ids.indexOf(tab);
+    const j = e.key === "ArrowRight" ? (i + 1) % 3 : e.key === "ArrowLeft" ? (i + 2) % 3 : e.key === "Home" ? 0 : e.key === "End" ? 2 : -1;
+    if (j < 0) return;
+    e.preventDefault();
+    setTab(ids[j]);
+    setSaid("");
+    const b = e.currentTarget.parentNode && e.currentTarget.parentNode.querySelector("#team-tab-" + ids[j]);
+    if (b) b.focus();
+  };
   // The whole list of tasks, for Show finished.
   useEffect(() => {
     if (tasksMsg && tasksMsg.seq > tasksFloor.current) {
@@ -94,7 +111,19 @@ export function Team({ team: teamMsg, tasks: tasksMsg, messages: messagesMsg, re
     if (!messagesMsg || messagesMsg.seq <= msgFloor.current) return;
     msgFloor.current = messagesMsg.seq;
     const ms = (Array.isArray(messagesMsg.messages) ? messagesMsg.messages : []).map(messageOf);
-    if (ms.length === 1 && ms[0].id && !ms[0].cut) setFull((f) => ({ ...f, [ms[0].id]: ms[0].text }));
+    const asked = wholeOut.current;
+    let failed = false;
+    for (const m of ms) {
+      if (!m.id || !asked.has(m.id)) continue;
+      asked.delete(m.id);
+      if (m.cut) failed = true;
+      else setFull((f) => ({ ...f, [m.id]: m.text }));
+    }
+    // An empty answer is the desk saying the message is not there.
+    if (failed || (ms.length === 0 && asked.size)) {
+      if (!failed) asked.clear();
+      setProblem("The whole message could not be shown. It may be too long or no longer there.");
+    }
   }, [messagesMsg && messagesMsg.seq]);
 
   const allTasks = team ? (finishedShown && tasksMsg ? mergeTasks(team.tasks, (Array.isArray(tasksMsg.tasks) ? tasksMsg.tasks : []).map(taskOf)) : team.tasks) : [];
@@ -262,20 +291,22 @@ export function Team({ team: teamMsg, tasks: tasksMsg, messages: messagesMsg, re
   return html`
     <${Dialog} id="team" title=${"Team" + (team && team.project ? ", " + team.project : "")} onClose=${onClose} focus="#team-tab-tasks" wide>
       <div class="team-tabs" role="tablist" aria-label="Team">
-        <button type="button" role="tab" class=${"team-tab" + (tab === "tasks" ? " is-active" : "")} id="team-tab-tasks" aria-selected=${tab === "tasks" ? "true" : "false"} onClick=${() => setTab("tasks")}>
+        <button type="button" role="tab" class=${"team-tab" + (tab === "tasks" ? " is-active" : "")} id="team-tab-tasks" aria-selected=${tab === "tasks" ? "true" : "false"} aria-controls="team-panel" tabindex=${tab === "tasks" ? "0" : "-1"} onKeyDown=${tabKey} onClick=${() => { setTab("tasks"); setSaid(""); }}>
           Tasks${team && team.counts.open ? " (" + team.counts.open + " open)" : ""}</button>
-        <button type="button" role="tab" class=${"team-tab" + (tab === "messages" ? " is-active" : "")} id="team-tab-messages" aria-selected=${tab === "messages" ? "true" : "false"} onClick=${() => setTab("messages")}>
+        <button type="button" role="tab" class=${"team-tab" + (tab === "messages" ? " is-active" : "")} id="team-tab-messages" aria-selected=${tab === "messages" ? "true" : "false"} aria-controls="team-panel" tabindex=${tab === "messages" ? "0" : "-1"} onKeyDown=${tabKey} onClick=${() => { setTab("messages"); setSaid(""); }}>
           Messages${unseen ? " (" + unseen + " new)" : ""}</button>
-        <button type="button" role="tab" class=${"team-tab" + (tab === "agents" ? " is-active" : "")} id="team-tab-agents" aria-selected=${tab === "agents" ? "true" : "false"} onClick=${() => setTab("agents")}>
+        <button type="button" role="tab" class=${"team-tab" + (tab === "agents" ? " is-active" : "")} id="team-tab-agents" aria-selected=${tab === "agents" ? "true" : "false"} aria-controls="team-panel" tabindex=${tab === "agents" ? "0" : "-1"} onKeyDown=${tabKey} onClick=${() => { setTab("agents"); setSaid(""); }}>
           Agents${team && team.roster.length ? " (" + team.roster.length + ")" : ""}</button>
       </div>
       ${problem ? html`<p class="dialog-note dialog-note--error" id="team-problem" role="alert">${problem}</p>` : null}
       ${said ? html`<p class="dialog-note" id="team-said" role="status">${said}</p>` : null}
       ${gone ? html`<p class="dialog-note dialog-note--error" id="team-gone" role="alert">${gone}</p>` : null}
       ${!team && !gone ? html`<p class="dialog-note" id="team-loading" role="status">Reading the team…</p>` : null}
-      ${team && tab === "tasks" ? tasksTab() : null}
-      ${team && tab === "messages" ? messagesTab() : null}
-      ${team && tab === "agents" ? agentsTab() : null}
+      <div id="team-panel" role="tabpanel" aria-labelledby=${"team-tab-" + tab}>
+        ${team && tab === "tasks" ? tasksTab() : null}
+        ${team && tab === "messages" ? messagesTab() : null}
+        ${team && tab === "agents" ? agentsTab() : null}
+      </div>
       <datalist id="team-targets">${targets.map((t) => html`<option key=${t} value=${t}></option>`)}</datalist>
       <div class="dialog-foot">
         <button type="button" class="dialog-btn" onClick=${onClose}>Close</button>

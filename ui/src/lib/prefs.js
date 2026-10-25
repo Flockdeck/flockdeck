@@ -343,3 +343,9 @@ export function setting(name, value, current = null, caps = null) {
       return null;
   }
 }
+
+/** REFUSAL_MS is how long after a settings change an error notice is taken as its refusal. */
+export const REFUSAL_MS = 5000;
+
+/** refusesChange says whether a notice is the answer to a change sent at `at`: an error that comes in time. */
+export const refusesChange = (notice, at, now) => !!notice && !!notice.error && now - at < REFUSAL_MS;

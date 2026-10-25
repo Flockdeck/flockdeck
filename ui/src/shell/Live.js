@@ -29,7 +29,8 @@ import { Home, sameProject, rosterOf } from "./Home.js";
 import { Start } from "./Start.js";
 import { Confirm } from "./Confirm.js";
 import { LIST } from "./keys.js";
-import { Updates, trapTab } from "./Updates.js";
+import { Updates } from "./Updates.js";
+import { trapTab } from "./focus.js";
 import { GoalStrip, ViewBar } from "./GoalStrip.js";
 import { SOLO, activeTabOf, archiveTab, canStep, goalTabsOf, moveTab, renameTab, restoreTab, scopeFeed, scopeModel, stepTab, tabsKeysOf, tabsStateOf } from "../graph/GoalTabs.js";
 import { Settings } from "./Settings.js";
@@ -51,7 +52,7 @@ import { HISTORY_REMOTE_WORDS } from "../lib/history.js";
 import { capsOf, hasCap } from "../lib/apiversion.js";
 import { CHANGES_TEAM_CAP } from "../lib/changesteam.js";
 import { DESK_FILES_WORDS, STRUCTURED_RECORD_WORDS, acknowledged, canTranscribe } from "../lib/paneinfo.js";
-import { FONT_DEFAULT, FONT_MAX, FONT_MIN, PATCH_WAIT_MS, applyLook, prefsOf, reducedMotion, addPending, latestOf, settledPending, setting, termOptionsOf } from "../lib/prefs.js";
+import { FONT_DEFAULT, FONT_MAX, FONT_MIN, PATCH_WAIT_MS, applyLook, prefsOf, reducedMotion, addPending, latestOf, refusesChange, settledPending, setting, termOptionsOf } from "../lib/prefs.js";
 import { RELAY_WORDS, quitQuestion, updateOf } from "../lib/updates.js";
 import { catalogOf, newTabCommand, tabsOf } from "../lib/lifecycle.js";
 import { RELAY_WORDS as HELPER_RELAY_WORDS } from "../lib/helpers.js";
@@ -256,9 +257,11 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     setPatch((p) => settledPending(p, kept_prefs, before));
   }, [kept_prefs]);
   // Only a refusal ends the wait: any other notice ("Agent finished") is about
-  // something else, and the change goes on waiting for its answer.
+  // something else, and the change goes on waiting for its answer. An error that
+  // comes long after the change was sent is about something else too.
+  const changedAt = useRef(0);
   useEffect(() => {
-    if (snap.notice && snap.notice.error) setPatch({});
+    if (refusesChange(snap.notice, changedAt.current, Date.now())) setPatch({});
   }, [noticeSeq]);
   // A change nothing ever answers (another window set the same setting to
   // something else) does not stay on screen for good.
@@ -287,6 +290,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     const s = setting(name, value, { ...(kept_prefs || {}), ...latestOf(patch) }, capsOf(kept.current.hello));
     if (!s) return false;
     send(s.command);
+    changedAt.current = Date.now();
     setPatch((p) => addPending(p, s.patch));
     return true;
   };
