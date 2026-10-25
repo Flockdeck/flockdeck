@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { managerTimeline, maybeCut, mailFloor, isManager, timelineEntries, EDGE_CUT, EDGE_CAP } from "../src/graph/ManagerTimeline.js";
+import { managerTimeline, maybeCut, mailFloor, isManager, timelineEntries, withFloor, EDGE_CUT, EDGE_CAP } from "../src/graph/ManagerTimeline.js";
 import { buildGraphModel } from "../src/graph/model.js";
 
 const node = (pane, name, extra = {}) => ({ pane, name, role: pane === "m" ? "manager" : "worker", status: "working", activity: "working", ...extra });
@@ -91,4 +91,25 @@ test("isManager and timelineEntries", () => {
   const es = timelineEntries(managerTimeline({ entries: [{ id: "e1", ts: T(1), kind: "reply" }], model, manager: "m" }));
   assert.deepEqual(es.map((e) => [e.id, e.kind]), [["e1", "reply"], ["m:1", "mail"]]);
   assert.equal(es[1].label, "api");
+});
+
+test("the floor notice sits before the first entry at or after the floor, so older entries page in above it", () => {
+  const floor = Date.parse(T(10));
+  const es = [{ id: "a", ts: T(1) }, { id: "b", ts: T(12) }, { id: "c", ts: T(20) }];
+  assert.deepEqual(withFloor(es, floor, floor).map((e) => e.id), ["a", "mail-floor", "b", "c"]);
+  assert.deepEqual(withFloor(es.slice(1), floor, floor).map((e) => e.id), ["mail-floor", "b", "c"]);
+  assert.deepEqual(withFloor(es.slice(0, 1), floor, floor).map((e) => e.id), ["a", "mail-floor"], "all entries older: at the end");
+  assert.equal(withFloor(es, null).length, 3);
+  const old = withFloor(es, floor, floor + 3 * 86400000)[1].text;
+  assert.match(old, /^Mail from before .*\d.* is not shown\.$/);
+  assert.notEqual(old, withFloor(es, floor, floor)[1].text, "a floor that is not today names its day");
+});
+
+test("an entry with no id gets its key, a mail with no sender says an agent, an empty event is left out", () => {
+  const model = graph([mail(1, "zz", "m", T(5), "hi")]);
+  const out = managerTimeline({ entries: [{ ts: T(1) }], model, manager: "m", events: [{ kind: "ship", pane: "a", text: "  ", at: Date.parse(T(3)) }] });
+  assert.equal(out.some((x) => x.kind === "event"), false);
+  const es = timelineEntries(out);
+  assert.equal(es[0].id, "c:#0");
+  assert.ok(es[1].label);
 });
