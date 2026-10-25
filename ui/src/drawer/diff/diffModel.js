@@ -73,7 +73,7 @@ export function pairMarks(oldText, newText) {
 
 /** showControls makes the characters that reorder or hide text visible as <U+202E>, so a name or a line cannot read differently from what it is. */
 export function showControls(value) {
-  return String(value == null ? "" : value).replace(/[‎‏؜‪-‮⁦-⁩]/g, (c) => "<U+" + c.charCodeAt(0).toString(16).toUpperCase().padStart(4, "0") + ">");
+  return String(value == null ? "" : value).replace(/[\u00ad\u200b-\u200f\u061c\u202a-\u202e\u2060\u2066-\u2069\ufeff]/g, (c) => "<U+" + c.charCodeAt(0).toString(16).toUpperCase().padStart(4, "0") + ">");
 }
 
 /** segments cuts text at marks into { text, mark } runs, so a view can draw the marked words apart. */
