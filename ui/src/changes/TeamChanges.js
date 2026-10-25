@@ -10,15 +10,28 @@
 import { useEffect, useRef, useState } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
 import { ChangesList, NO_BRANCHES_WORDS, READING_WORDS, nameOf, words } from "./ChangesList.js";
+import { BranchHeader } from "./BranchHeader.js";
+import { MergeGate, useGateActions } from "../drawer/diff/MergeGate.js";
+import { actsFor, gateActsFor } from "../drawer/diff/gateModel.js";
 import { CHANGES_RELAY_WORDS, CHANGES_VIEWER_WORDS } from "../lib/changesteam.js";
 
-function Detail({ branch: b, names, onBack, backRef }) {
+/** BranchGate is the merge gate of one branch: the drawer's MergeGate with the actions it sends through the store. win says what this window may do ({ viewer, relay, caps }). */
+function BranchGate({ branch, names, win, reviewers, flowIn }) {
+  const flow = useGateActions({ branch, send: flowIn.send, result: flowIn.result, connected: flowIn.connected, session: flowIn.session });
+  const others = reviewers.filter((r) => r.pane !== branch.pane);
+  return html`<${MergeGate} branch=${branch} canAct=${gateActsFor(win)} canCheck=${actsFor("changesChecks", win)} flow=${flow}
+    nameOf=${(p) => nameOf(names, p)} reviewer=${others.length ? others[0].pane : ""} />`;
+}
+
+function Detail({ branch: b, names, onBack, backRef, win, reviewers, flowIn, git, onRemote, onDismiss }) {
   return html`<section class="ct-detail" aria-label=${"Changes of " + nameOf(names, b.pane)}>
     <button type="button" class="ct-back drawer-btn" ref=${backRef} onClick=${onBack}>Back to the list</button>
     <h3 class="ct-detail-title">${nameOf(names, b.pane)} <span class="ct-branch">${words(b.branch, 120)}</span></h3>
     ${b.error
       ? html`<p class="view-note ct-error" role="alert">${words(b.error, 200)}</p>`
-      : html`<ul class="ct-filelist">
+      : html`<${BranchHeader} branch=${b} names=${names} git=${git} onRemote=${onRemote} onDismiss=${onDismiss} />
+        ${b.gate ? html`<${BranchGate} key=${b.pane} branch=${b} names=${names} win=${win} reviewers=${reviewers} flowIn=${flowIn} />` : null}
+        <ul class="ct-filelist">
         ${b.files.map((f) => html`<li key=${f.path}><span class="ct-status">${words(f.status, 2)}</span> <span class="ct-path">${f.oldPath ? words(f.oldPath, 200) + " to " : ""}${words(f.path, 200)}</span> <span class="ct-sr">${f.added} added, ${f.removed} removed</span><span aria-hidden="true"><span class="ct-added">+${f.added}</span> <span class="ct-removed">-${f.removed}</span></span></li>`)}
       </ul>`}
     ${b.omitted ? html`<p class="view-note">${b.omitted} more files are not listed.</p>` : null}
@@ -34,7 +47,7 @@ export function statusOf({ data, remote, viewer, gone }) {
 }
 
 /** TeamChanges draws a changesTeam push (lib/changesteam.js). gone is the watch's refusal, if any; viewer is a window that may not use the desk's commands. */
-export function TeamChanges({ data, names, remote, viewer, gone }) {
+export function TeamChanges({ data, names, remote, viewer, gone, caps = [], reviewers = [], result = null, connected = true, session = null, git = null, store = null }) {
   const [picked, setPicked] = useState("");
   const [detail, setDetail] = useState(false);
   const root = useRef(null);
@@ -60,7 +73,9 @@ export function TeamChanges({ data, names, remote, viewer, gone }) {
     const cur = data.branches.find((b) => b.pane === picked) || data.branches[0];
     body = html`<div class=${"ct-view" + (detail ? " is-detail" : "")} ref=${root}>
       <${ChangesList} branches=${data.branches} names=${names} selected=${cur.pane} onPick=${(p) => { asked.current = "open"; setPicked(p); setDetail(true); }} />
-      <${Detail} branch=${cur} names=${names} backRef=${backRef} onBack=${() => { asked.current = "back"; setDetail(false); }} />
+      <${Detail} branch=${cur} names=${names} backRef=${backRef} onBack=${() => { asked.current = "back"; setDetail(false); }}
+        win=${{ viewer: !!viewer, relay: !!remote, caps }} reviewers=${reviewers} flowIn=${{ send: store ? (c) => store.send(c) : null, result, connected, session }}
+        git=${git} onRemote=${store ? (a) => store.branchRemote(a, cur.pane, cur.cwd) : null} onDismiss=${store ? () => store.clearBranchGit() : null} />
     </div>`;
   }
   return html`<div class="ct-root">${live}${body}</div>`;

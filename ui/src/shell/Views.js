@@ -13,7 +13,7 @@ import { Changes, NO_TREE_WORDS } from "../drawer/Changes.js";
 import { STATES, teamOf, TEAM_RELAY_WORDS } from "../lib/team.js";
 import { TeamChanges } from "../changes/TeamChanges.js";
 import { CHANGES_TEAM_CAP } from "../lib/changesteam.js";
-import { hasCap } from "../lib/apiversion.js";
+import { capsOf, hasCap } from "../lib/apiversion.js";
 import { isViewer } from "../lib/role.js";
 
 /** VIEWS are the views of the switch, in the order it shows them. */
@@ -80,19 +80,26 @@ export function Board({ team: teamMsg, gone = "", remote = false, onOpenPane, on
   </div>`;
 }
 
+/** reviewersOf are the agents that can be asked to review a branch: agent panes, not shells, the manager first. */
+export function reviewersOf(nodes) {
+  return nodes.filter((n) => n && n.pane && !n.shell).sort((a, b) => (b.role === "manager") - (a.role === "manager")).map((n) => ({ pane: n.pane, name: n.name || n.pane }));
+}
+
 /** ChangesView is the Changes tab of the drawer as a view of its own: for the open
  *  agent when it has a directory, else the manager, else the first agent that has
  *  one. The agent can be changed here. nodes are the graph's nodes, statePanes the
  *  state push's panes (they carry the directory). */
 export function ChangesView(props) {
   // A desktop that offers the team-wide list gets it; an older one gets one agent's tree.
-  const { nodes, snap } = props;
+  const { nodes, snap, store } = props;
   if (!hasCap(snap.hello, CHANGES_TEAM_CAP)) return html`<${OneTreeChanges} ...${props} />`;
   const names = {};
   for (const n of nodes) names[n.pane] = n.name || n.pane;
   return html`<div class="view view--changes">
     <div class="view-head"><h2 class="view-title">Changes</h2></div>
-    <${TeamChanges} data=${snap.changesTeam} names=${names} remote=${!!snap.remote} viewer=${isViewer(snap)} gone=${snap.changesTeamGone} />
+    <${TeamChanges} data=${snap.changesTeam} names=${names} remote=${!!snap.remote} viewer=${isViewer(snap)} gone=${snap.changesTeamGone} store=${store}
+      caps=${capsOf(snap.hello)} reviewers=${reviewersOf(nodes)}
+      result=${snap.changesTeamResult} connected=${snap.connection === "open"} session=${snap.session} git=${snap.branchGit} />
   </div>`;
 }
 
