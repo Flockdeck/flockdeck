@@ -191,23 +191,26 @@ func TestParseUnifiedCutsAtTheLimitAndKeepsTheCountsTrue(t *testing.T) {
 }
 
 func TestWordDiffMarksWhatChanged(t *testing.T) {
-	o, n := wordDiff("if now.Sub(last) > window {", "if now.Sub(last) >= window {")
+	oldLine, newLine := "if now.Sub(last) > window {", "if now.Sub(last) < window {"
+	o, n := wordDiff(oldLine, newLine)
 	if len(o) != 1 || len(n) != 1 {
 		t.Fatalf("old %v new %v", o, n)
 	}
-	if got := string([]rune("if now.Sub(last) > window {")[o[0][0]:o[0][1]]); got != ">" {
+	if got := string([]rune(oldLine)[o[0][0]:o[0][1]]); got != ">" {
 		t.Errorf("old mark is %q", got)
 	}
-	if got := string([]rune("if now.Sub(last) >= window {")[n[0][0]:n[0][1]]); got != ">=" {
+	if got := string([]rune(newLine)[n[0][0]:n[0][1]]); got != "<" {
 		t.Errorf("new mark is %q", got)
+	}
+	// A character added is marked on the new side only.
+	o, n = wordDiff("a > b", "a >= b")
+	if len(o) != 0 || len(n) != 1 {
+		t.Errorf("an added character: old %v new %v", o, n)
 	}
 	// Positions count code points, not bytes.
 	o, _ = wordDiff("héllo wörld", "héllo wörlds")
-	if len(o) != 0 {
-		// "wörld" and "wörlds" are different tokens; the old side is marked.
-		if got := string([]rune("héllo wörld")[o[0][0]:o[0][1]]); got != "wörld" {
-			t.Errorf("old mark is %q", got)
-		}
+	if len(o) != 1 || string([]rune("héllo wörld")[o[0][0]:o[0][1]]) != "wörld" {
+		t.Errorf("code point marks: %v", o)
 	}
 }
 
