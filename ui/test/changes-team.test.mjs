@@ -160,6 +160,13 @@ test("the branch rows are one tab stop and the arrow keys, Home and End move bet
     assert.equal(box.findAll(".ct-row").filter((r) => r.getAttribute("tabindex") === "0")[0].getAttribute("data-pane"), rows[0].getAttribute("data-pane"));
     rows[0].keydown("ArrowUp");
     assert.equal(dom.document.activeElement, rows[0], "stops at the top");
+    rows[0].keydown("ArrowDown", { ctrlKey: true });
+    assert.equal(dom.document.activeElement, rows[0], "a key with ctrl held is left alone");
+    const other = rows[rows.length - 1].getAttribute("data-pane");
+    render(html`<${ChangesList} branches=${changesTeamOf(mixed()).branches} names=${names} selected=${other} onPick=${(p) => picked.push(p)} />`, box);
+    await settle();
+    const now = box.findAll(".ct-row").filter((r) => r.getAttribute("tabindex") === "0");
+    assert.deepEqual(now.map((r) => r.getAttribute("data-pane")), [other], "a row opened from outside takes the tab stop");
   } finally {
     restore();
   }

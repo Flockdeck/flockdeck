@@ -1,7 +1,7 @@
 // The team-wide Changes view's list: one row per agent's branch, the ones that need a
 // person first. Drawn from the changesTeam push (lib/changesteam.js); every string in
 // it is drawn as text.
-import { useRef, useState } from "../vendor/hooks.mjs";
+import { useEffect, useRef, useState } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
 import { clip } from "../graph/Node.js";
 import { showControls } from "../drawer/diff/diffModel.js";
@@ -66,10 +66,12 @@ export function ChangesList({ branches, names, selected, onPick }) {
   const rows = sortBranches(branches);
   const [active, setActive] = useState("");
   const ul = useRef(null);
+  // The row opened from outside (a jump from a comment, a push) takes the tab stop.
+  useEffect(() => { if (selected) setActive(selected); }, [selected]);
   const stop = rows.some((b) => b.pane === active) ? active : rows.some((b) => b.pane === selected) ? selected : rows.length ? rows[0].pane : "";
   const onKey = (e) => {
     const k = e.key;
-    if (!ul.current || !["ArrowDown", "ArrowUp", "Home", "End"].includes(k)) return;
+    if (!ul.current || e.ctrlKey || e.altKey || e.metaKey || !["ArrowDown", "ArrowUp", "Home", "End"].includes(k)) return;
     const btns = Array.from(ul.current.querySelectorAll(".ct-row"));
     const at = btns.indexOf(e.target);
     if (at < 0) return;
