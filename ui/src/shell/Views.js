@@ -14,6 +14,7 @@ import { STATES, teamOf, TEAM_RELAY_WORDS } from "../lib/team.js";
 import { TeamChanges } from "../changes/TeamChanges.js";
 import { CHANGES_TEAM_CAP } from "../lib/changesteam.js";
 import { hasCap } from "../lib/apiversion.js";
+import { isViewer } from "../lib/role.js";
 
 /** VIEWS are the views of the switch, in the order it shows them. */
 export const VIEWS = [["board", "Board"], ["changes", "Changes"], ["replay", "Replay"]];
@@ -91,7 +92,7 @@ export function ChangesView(props) {
   for (const n of nodes) names[n.pane] = n.name || n.pane;
   return html`<div class="view view--changes">
     <div class="view-head"><h2 class="view-title">Changes</h2></div>
-    <${TeamChanges} data=${snap.changesTeam} names=${names} remote=${!!snap.remote} gone=${snap.changesTeamGone} />
+    <${TeamChanges} data=${snap.changesTeam} names=${names} remote=${!!snap.remote} viewer=${isViewer(snap)} gone=${snap.changesTeamGone} />
   </div>`;
 }
 

@@ -546,7 +546,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     return () => store.unwatchTeam();
   }, [teamOpen, view === "board" || view === "deps", selected]);
   // The team-wide Changes view keeps a watch on the project chosen in the rail while it is shown and the desktop offers it.
-  const changesTeam = view === "changes" && hasCap(snap.hello, CHANGES_TEAM_CAP) && !snap.remote;
+  const changesTeam = view === "changes" && hasCap(snap.hello, CHANGES_TEAM_CAP) && !snap.remote && !viewer;
   useEffect(() => {
     if (!changesTeam) return undefined;
     store.watchChangesTeam(selected);

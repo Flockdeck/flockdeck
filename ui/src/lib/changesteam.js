@@ -7,6 +7,8 @@
 export const CHANGES_TEAM_CAP = "changesTeam";
 export const CHANGES_RELAY_WORDS = "The team-wide Changes view is used on the machine Flockdeck runs on, not from a window reached through the relay.";
 
+export const CHANGES_VIEWER_WORDS = "The team-wide Changes view needs full access to Flockdeck. This window can look but not use it.";
+
 const str = (v) => (typeof v === "string" ? v : "");
 const count = (v) => (Number.isInteger(v) && v > 0 ? v : 0);
 const list = (v) => (Array.isArray(v) ? v : []);
@@ -53,8 +55,9 @@ export function branchOf(b) {
     upstream: str(x.upstream), ahead: count(x.ahead), behind: count(x.behind), uncommitted: count(x.uncommitted), untracked: count(x.untracked),
     lastCommit: last, taskId: str(x.taskId), pr, omitted: count(x.omitted),
     files: list(x.files).map(fileOf).filter((f) => f.path),
-    checks: list(x.checks).filter((c) => c && CHECK_STATES.has(c.state)).map((c) => ({ name: str(c.name), state: c.state, summary: str(c.summary), source: str(c.source), atSha: str(c.atSha) })),
-    reviews: list(x.reviews).filter((r) => r && REVIEW_STATES.has(r.state)).map((r) => ({ reviewer: str(r.reviewer), state: r.state, note: str(r.note), atSha: str(r.atSha), stale: r.stale === true })),
+    // A state this page does not know is kept as "unknown" and counts as needing a look, not as fine.
+    checks: list(x.checks).filter((c) => c && typeof c === "object").map((c) => ({ name: str(c.name), state: CHECK_STATES.has(c.state) ? c.state : "unknown", summary: str(c.summary), source: str(c.source), atSha: str(c.atSha) })),
+    reviews: list(x.reviews).filter((r) => r && typeof r === "object").map((r) => ({ reviewer: str(r.reviewer), state: REVIEW_STATES.has(r.state) ? r.state : "unknown", note: str(r.note), atSha: str(r.atSha), stale: r.stale === true })),
     comments: list(x.comments).map(commentOf).filter((c) => c.id),
     gate,
   };
@@ -79,8 +82,13 @@ export function attentionOf(b) {
   const kinds = b.gate ? b.gate.blockers.map((k) => k.kind) : [];
   if (kinds.includes("conflict") || b.files.some((f) => f.conflictWith.length)) return { rank: RANK.conflict, key: "conflict", text: "Conflicts" };
   if (b.checks.some((c) => c.state === "fail")) return { rank: RANK.checks, key: "checks", text: "Checks failing" };
+  if (b.checks.some((c) => c.state === "unknown")) return { rank: RANK.checks, key: "checks", text: "Check status unclear" };
   if (b.reviews.some((r) => r.state === "changes" && !r.stale)) return { rank: RANK.review, key: "review", text: "Changes requested" };
+  if (b.reviews.some((r) => r.state === "unknown")) return { rank: RANK.review, key: "review", text: "Review status unclear" };
   if (kinds.includes("comments") || b.comments.some((c) => c.state === "open")) return { rank: RANK.comments, key: "comments", text: "Open comments" };
+  // A gate blocked only by checks that have not finished, or by commits not on the remote, still says why.
+  if (kinds.includes("checks")) return { rank: RANK.checks, key: "checks", text: "Checks not passing" };
+  if (kinds.includes("unpushed")) return { rank: RANK.comments, key: "unpushed", text: "Not pushed" };
   if (b.gate && (b.gate.state === "ready" || b.gate.state === "approved")) return { rank: RANK.ready, key: "ready", text: b.gate.state === "approved" ? "Approved" : "Ready" };
   return { rank: RANK.rest, key: "rest", text: "" };
 }
@@ -136,3 +144,9 @@ export function conflictPanes(b) {
 
 /** isStale says a push is no newer than the one drawn: the same project and a revision not above it. */
 export const isStale = (cur, next) => !!cur && !!next && cur.root === next.root && next.rev > 0 && next.rev <= cur.rev;
+
+/** sameRoot compares a root the desktop names with the one asked for. The desktop spells a root its own way, so slashes, a trailing one and case are not told apart. */
+export function sameRoot(a, b) {
+  const norm = (s) => String(s || "").replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+  return norm(a) === norm(b);
+}

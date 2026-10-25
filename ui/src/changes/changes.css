@@ -35,7 +35,7 @@
 .ct-partial { grid-column: 1 / -1; }
 
 /* A phone, or a narrow main column: the list and the detail are two screens. */
-@container main (max-width: 680px) {
+@container ctview (max-width: 680px) {
   .ct-view { grid-template-columns: minmax(0, 1fr); }
   .ct-view .ct-detail { display: none; }
   .ct-view.is-detail .ct-list { display: none; }
@@ -43,3 +43,7 @@
   .ct-back { display: inline-block; }
   .ct-lines, .ct-bar, .ct-files { display: none; }
 }
+.ct-chip--unpushed { background: var(--waiting-subtle); border-color: var(--waiting-line); color: var(--waiting); }
+.ct-sr { border: 0; clip: rect(0 0 0 0); height: 1px; margin: -1px; overflow: hidden; padding: 0; position: absolute; white-space: nowrap; width: 1px; }
+.view--changes { container: ctview / inline-size; }
+.ct-live:empty { display: none; }

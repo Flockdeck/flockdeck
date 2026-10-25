@@ -29,7 +29,7 @@ test("a push is read defensively and an unreadable tree keeps its error", () => 
   assert.equal(odd.rev, 0);
   assert.equal(odd.branches.length, 1);
   assert.deepEqual(odd.branches[0].files, []);
-  assert.deepEqual(odd.branches[0].checks, []);
+  assert.deepEqual(odd.branches[0].checks.map((c) => c.state), ["unknown"], "a state this page does not know is kept and not taken for fine");
   assert.equal(odd.branches[0].gate.state, "blocked");
 });
 

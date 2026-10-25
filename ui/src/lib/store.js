@@ -170,7 +170,7 @@
 import { createSocket } from "./socket.js";
 import { clientHello, mismatchNotice, unsupportedNotice } from "./apiversion.js";
 import { mergeKeys, readsKeyFiles } from "./keytable.js";
-import { changesTeamOf, isStale } from "./changesteam.js";
+import { changesTeamOf, isStale, sameRoot } from "./changesteam.js";
 
 /** DESK_ONLY_CODE is the code the desktop puts on the refusal it gives a window
  *  reached through the relay (internal/server/teamui.go, teamDeskOnlyCode).
@@ -320,6 +320,8 @@ export function createStore(opts) {
   let watchingTeam = null;
   // The project last asked for with watchChangesTeam, or null when none.
   let watchingChanges = null;
+  // True from a watch being sent until its first push is drawn: a new watch starts its revisions again, so none is skipped as old.
+  let changesFresh = false;
   let outcomeSeq = 0;
   let batonSeq = 0;
   let addressSeq = 0;
@@ -379,6 +381,7 @@ export function createStore(opts) {
   }
 
   function sendChangesWatch() {
+    changesFresh = true;
     return socket.send({ cmd: "changesWatch", root: watchingChanges, req: "w" + ++reqSeq });
   }
 
@@ -486,7 +489,11 @@ export function createStore(opts) {
         // A push in flight when the watch was dropped is not wanted, nor one the page already drew (the revision is not newer).
         if (watchingChanges !== null && !snap.remote) {
           const next = changesTeamOf(msg);
-          if (next && !isStale(snap.changesTeam, next)) set({ changesTeam: next, changesTeamGone: null });
+          // Only the project that is watched ("" is the one on screen, whose root cannot be compared).
+          if (next && (watchingChanges === "" || sameRoot(next.root, watchingChanges)) && (changesFresh || !isStale(snap.changesTeam, next))) {
+            changesFresh = false;
+            set({ changesTeam: next, changesTeamGone: null });
+          }
         }
         break;
       case "changesResult":
