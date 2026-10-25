@@ -129,7 +129,7 @@ export function Changes({ cwd, git = "", snap, store }) {
           : null}
       </span>
     </div>
-    ${busy ? html`<p class="chg-busy" role="status">${"Working: " + clip(busy, 40) + "…"}</p>` : null}
+    <p class="chg-busy" role="status">${busy ? "Working: " + clip(busy, 40) + "…" : ""}</p>
     ${note && note.text ? html`<p class=${"chg-note" + (note.error ? " chg-error" : "")} role=${note.error ? "alert" : "status"}>${clip(text(note.text), 2000)}</p>` : null}
     ${snap.gitWarn ? html`<${GitWarn} key=${snap.gitWarn.seq} warn=${snap.gitWarn} store=${store} />` : null}
     ${files.length === 0 && !ch.omitted ? html`<p class="chg-empty chg-state"><strong>Nothing has changed.</strong><span>Edits in this working tree appear here. Refresh to check again.</span></p>` : html`<${Files} files=${files} selected=${picked} onPick=${pick} />`}

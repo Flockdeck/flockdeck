@@ -226,6 +226,21 @@ test("the + menu: Home and End go to the first and last item, Tab closes it", ()
     assert.equal(m.container.find(".tabs-menu"), null, "Tab left the menu open");
   }));
 
+test("archiving a middle goal puts focus on its neighbouring tab", () =>
+  withPage({}, async (m) => {
+    await m.connect();
+    const doc = m.container.ownerDocument;
+    assert.deepEqual(m.ids(), [ONE, TWO, "solo"]);
+    await m.click(m.tabs()[0].find(".tab-close"));
+    await settle();
+    assert.deepEqual(m.ids(), [TWO, "solo"]);
+    assert.equal(doc.activeElement, m.tabs()[0].find('[role="tab"]'), "focus did not go to the tab that took its place");
+    await m.click(m.tabs()[0].find(".tab-close"));
+    await settle();
+    assert.deepEqual(m.ids(), ["solo"]);
+    assert.equal(doc.activeElement, m.tabs()[0].find('[role="tab"]'), "focus did not go to Solo, the last tab");
+  }));
+
 test("a name and an order kept in the preferences are used", () =>
   withPage({ ui: { tabs: { names: { [TWO]: "Tests" }, order: [TWO, ONE] } } }, async (m) => {
     await m.connect();

@@ -65,8 +65,7 @@ export function Task({ node, snap, store, onOpenPane = null, onClose }) {
       <span class="task-state">${clip(text((t && t.state) || chip.state), 40)}</span>
       <button type="button" class="drawer-btn task-close" onClick=${onClose}>Hide task</button>
     </header>
-    ${remote ? html`<p class="task-empty" role="status">${ON_DESKTOP_WORDS}</p>` : null}
-    ${!remote && !t && d && d.state === "loading" ? html`<p class="task-empty" role="status">${LOADING_WORDS}</p>` : null}
+    <p class="task-empty" role="status">${remote ? ON_DESKTOP_WORDS : !t && d && d.state === "loading" ? LOADING_WORDS : ""}</p>
     ${!remote && d && d.state === "error" ? html`<p class="task-empty task-error" role="alert">${clip(text(d.error), 300)}</p>` : null}
     ${!remote && !d && note ? html`<p class="task-empty task-error" role="alert">${note}</p>` : null}
     ${t
