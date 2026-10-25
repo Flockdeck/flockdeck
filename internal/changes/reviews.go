@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -84,7 +85,7 @@ func LoadReviews(path string) (ReviewState, error) {
 	var raw ReviewState
 	if buf.Len() > reviewStateMB || json.Unmarshal(buf.Bytes(), &raw) != nil {
 		if buf.Len() <= reviewStateMB {
-			_ = os.WriteFile(path+".bad", buf.Bytes(), 0o600)
+			keepBadCopy(path, buf.Bytes())
 		}
 		return ReviewState{}, errors.New("the review file is damaged; a copy was kept as " + path + ".bad")
 	}
@@ -107,6 +108,26 @@ func LoadReviews(path string) (ReviewState, error) {
 		out.Reviews = out.Reviews[:MaxReviews]
 	}
 	return out, nil
+}
+
+// keepBadCopy saves a damaged file beside it as <path>.bad. A copy that is already
+// there with other content is not written over: the next free <path>.bad.N is used
+// (up to nine), and a copy with the same content is not written again.
+func keepBadCopy(path string, data []byte) {
+	for i := 0; i < 10; i++ {
+		name := path + ".bad"
+		if i > 0 {
+			name += "." + strconv.Itoa(i)
+		}
+		old, err := os.ReadFile(name)
+		if errors.Is(err, os.ErrNotExist) {
+			_ = os.WriteFile(name, data, 0o600)
+			return
+		}
+		if err == nil && bytes.Equal(old, data) {
+			return
+		}
+	}
 }
 
 // CleanNote keeps the line breaks and tabs of a note and drops every other
@@ -156,10 +177,20 @@ func (s ReviewState) Save(path string) error {
 	return nil
 }
 
-// BranchExists says whether the repository at cwd has a local branch of that name.
-func BranchExists(ctx context.Context, cwd, branch string) bool {
-	_, err := git(ctx, cwd, "rev-parse", "--verify", "--quiet", "--end-of-options", "refs/heads/"+branch)
-	return err == nil
+// LiveBranches lists the local branches of the repository at cwd with one git
+// call. A caller that cannot get the list must treat no branch as gone.
+func LiveBranches(ctx context.Context, cwd string) (map[string]bool, error) {
+	out, err := git(ctx, cwd, "for-each-ref", "--format=%(refname:short)", "refs/heads")
+	if err != nil {
+		return nil, err
+	}
+	live := map[string]bool{}
+	for _, l := range strings.Split(out, "\n") {
+		if l = strings.TrimSpace(l); l != "" {
+			live[l] = true
+		}
+	}
+	return live, nil
 }
 
 // Set records a review of branch by reviewer, replacing that reviewer's earlier

@@ -126,7 +126,7 @@ func (s *Server) withChecksAndReviews(t *changes.Team, root, project string) {
 	if _, statePath, err := changesFiles(root, project); err == nil {
 		reviewsMu.Lock()
 		// A damaged file shows as no reviews here; the commands that would write over it refuse.
-		state, _ = changes.LoadReviews(statePath)
+		state = s.loadReviews(statePath)
 		reviewsMu.Unlock()
 	}
 	keep := map[string]bool{}
@@ -141,6 +141,24 @@ func (s *Server) withChecksAndReviews(t *changes.Team, root, project string) {
 		b.Checks, b.Reviews = &checks, &reviews
 	}
 	s.checks.forget(keep)
+}
+
+// damagedReviews holds the state files already reported as damaged, so that one
+// notice is sent for a file and not one for every push. It is guarded by reviewsMu.
+var damagedReviews = map[string]bool{}
+
+// loadReviews loads the state file at path, with reviewsMu held. A damaged file
+// is an empty state and one notice to the windows until it loads again.
+func (s *Server) loadReviews(path string) changes.ReviewState {
+	st, err := changes.LoadReviews(path)
+	switch {
+	case err == nil:
+		delete(damagedReviews, path)
+	case !damagedReviews[path]:
+		damagedReviews[path] = true
+		s.notifyAll("Reviews are not shown: "+err.Error(), true)
+	}
+	return st
 }
 
 // sameSha says whether a window's sha and the head are the same commit. A window
@@ -307,13 +325,20 @@ func (s *Server) changesRunChecks(c *controlClient, cmd command) {
 			// result that claims more than it saw. A process that wants to deceive can
 			// change files back before this look.
 			actx, acancel := context.WithTimeout(ctx, changesReadLimit)
-			if nb, nd := readHead(actx, cmd.ID, cwd); nb.Error == "" {
-				switch {
-				case nb.HeadSha != head:
-					res = changes.Check{Name: d.Name, State: "queued", Source: "local", AtSha: nb.HeadSha}
-				case nd && !res.Worktree:
+			nb, nd := readHead(actx, cmd.ID, cwd)
+			switch {
+			case nb.Error != "":
+				// Not looked at again, so not confirmed: a pass is marked as a worktree
+				// result and anything else is queued.
+				if res.State == "pass" {
 					res.MarkDirty()
+				} else {
+					res = changes.Check{Name: d.Name, State: "queued", Source: "local", AtSha: head}
 				}
+			case nb.HeadSha != head:
+				res = changes.Check{Name: d.Name, State: "queued", Source: "local", AtSha: nb.HeadSha}
+			case nd && !res.Worktree:
+				res.MarkDirty()
 			}
 			acancel()
 			s.checks.put(cmd.ID, res)
@@ -376,7 +401,7 @@ func (s *Server) changesRequestReview(c *controlClient, cmd command) {
 		changesRefuse(c, cmd, "badRequest", sendErr.Error())
 		return
 	}
-	err := recordReview(cwd, root, project, b.Branch, changes.Review{Reviewer: cmd.Reviewer, State: "requested", At: time.Now().UTC().Format(time.RFC3339), AtSha: b.HeadSha})
+	err := s.recordReview(cwd, root, project, b.Branch, changes.Review{Reviewer: cmd.Reviewer, State: "requested", At: time.Now().UTC().Format(time.RFC3339), AtSha: b.HeadSha})
 	if err != nil {
 		changesRefuse(c, cmd, "badRequest", "the request was sent but could not be recorded: "+err.Error())
 		return
@@ -385,24 +410,53 @@ func (s *Server) changesRequestReview(c *controlClient, cmd command) {
 }
 
 // recordReview adds a review to the project's state file. A state file that is
-// damaged is not written over (see changes.LoadReviews).
-func recordReview(cwd, root, project, branch string, r changes.Review) error {
+// damaged is not written over (see changes.LoadReviews). A branch counts as gone
+// only if no checkout of the project has it; if any checkout cannot be listed,
+// none is gone.
+func (s *Server) recordReview(cwd, root, project, branch string, r changes.Review) error {
 	_, statePath, err := changesFiles(root, project)
 	if err != nil {
 		return err
 	}
+	live := s.liveBranches(cwd, root)
 	reviewsMu.Lock()
 	defer reviewsMu.Unlock()
 	st, err := changes.LoadReviews(statePath)
 	if err != nil {
 		return err
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), changesReadLimit)
-	defer cancel()
-	if err := st.Set(branch, r, func(br string) bool { return !changes.BranchExists(ctx, cwd, br) }); err != nil {
+	var gone func(string) bool
+	if live != nil {
+		gone = func(br string) bool { return !live[br] }
+	}
+	if err := st.Set(branch, r, gone); err != nil {
 		return err
 	}
 	return st.Save(statePath)
+}
+
+// liveBranches is the local branches of every checkout of the project, listed
+// before the reviews lock is taken. It is nil when any listing fails.
+func (s *Server) liveBranches(cwd, root string) map[string]bool {
+	cwds := []string{cwd}
+	for _, p := range s.changesTargetOf(root).panes {
+		if !slices.Contains(cwds, p.Cwd) {
+			cwds = append(cwds, p.Cwd)
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), changesReadLimit)
+	defer cancel()
+	all := map[string]bool{}
+	for _, d := range cwds {
+		live, err := changes.LiveBranches(ctx, d)
+		if err != nil {
+			return nil
+		}
+		for b := range live {
+			all[b] = true
+		}
+	}
+	return all
 }
 
 // personReviewer is who a review by the window is recorded as.
@@ -440,7 +494,7 @@ func (s *Server) changesSubmitReview(c *controlClient, cmd command) {
 		changesRefuse(c, cmd, "noBranch", "no such pane")
 		return
 	}
-	err := recordReview(cwd, root, project, b.Branch, changes.Review{Reviewer: personReviewer, State: cmd.State, Note: cmd.Note, At: time.Now().UTC().Format(time.RFC3339), AtSha: b.HeadSha})
+	err := s.recordReview(cwd, root, project, b.Branch, changes.Review{Reviewer: personReviewer, State: cmd.State, Note: cmd.Note, At: time.Now().UTC().Format(time.RFC3339), AtSha: b.HeadSha})
 	if err != nil {
 		changesRefuse(c, cmd, "badRequest", "the review could not be recorded: "+err.Error())
 		return
