@@ -180,7 +180,7 @@ export function PlusMenu({ children, dot = false }) {
       return;
     }
     // Tab leaves the menu: it closes and the next stop is the one after the + button.
-    if (e.key === "Tab") {
+    if (e.key === LIST.tab) {
       close(true);
       return;
     }
