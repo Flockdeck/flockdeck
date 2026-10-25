@@ -109,9 +109,11 @@ export function Start({ mode, catalog, project, send, onClose }) {
       ", with your goal as its task. Nothing else starts now. The manager then starts the helpers it needs, at most " + TEAM_HELPER_CAP + " open at a time."
     : "Opens an agent tab on the agent you choose. Write a task, or choose a role, to start the agent in " +
       (project ? project.name : "the project") + " with that task instead.";
-
   return html`
-    <div class="dialog-scrim" onMouseDown=${(e) => e.target === e.currentTarget && onClose()}>
+    <div class="dialog-scrim" onMouseDown=${(e) => {
+      // A click outside does not throw away a goal that has been typed; Cancel and Escape still close.
+      if (e.target === e.currentTarget && task.trim() === "") onClose();
+    }}>
       <div class="dialog" role="dialog" aria-modal="true" aria-labelledby="start-title" ref=${rootRef} onKeyDown=${onKeyDown}>
         <h2 id="start-title" class="dialog-title">${TITLES[mode] || TITLES.agent}</h2>
         <p class="dialog-note" id="start-explain">${explain}</p>

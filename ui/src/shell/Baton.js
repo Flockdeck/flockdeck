@@ -16,7 +16,7 @@ import { useEffect, useMemo, useRef, useState } from "../vendor/hooks.mjs";
 import { useInert } from "./inert.js";
 import { html } from "../html.js";
 import { composing, LIST } from "./keys.js";
-import { trapTab } from "./Start.js";
+import { trapTab } from "./focus.js";
 import {
   DIRTY_WORDS, SCRUB_WORDS, WAIT_MS, choices, marksIn, marksWords, pickOf, providerCheck, providerWords, restartCommand, saveCommand, startCommand,
   startProblem, startValue,

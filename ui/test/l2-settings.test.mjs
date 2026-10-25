@@ -518,3 +518,60 @@ test("Agents & models: a window with no catalog says so", () =>
     await m.openSettings("agents");
     assert.match(m.container.find(".settings-panel").textContent, /Reading the agents/);
   }));
+
+test("a viewer's Settings has none of the sections whose controls the desktop refuses", async () => {
+  const { Settings, VIEWER_HIDDEN } = await import("../src/shell/Settings.js");
+  const { render } = await import("../src/vendor/preact.mjs");
+  const { html } = await import("../src/html.js");
+  const { createDom, install, settle } = await import("./dom.mjs");
+  const dom = createDom();
+  const restore = install(dom);
+  const box = dom.document.createElement("div");
+  dom.body.appendChild(box);
+  try {
+    const tabs = async (ctx, first) => {
+      render(html`<${Settings} prefs=${{}} change=${() => {}} section=${first} onClose=${() => {}} ctx=${ctx} />`, box);
+      await settle();
+      return box.findAll(".settings-tab").map((b) => b.getAttribute("data-section"));
+    };
+    await settle();
+    const all = await tabs({}, "general");
+    const viewer = await tabs({ viewer: true }, "keys");
+    for (const id of VIEWER_HIDDEN) {
+      assert.ok(all.includes(id), id + " for the desk");
+      assert.ok(!viewer.includes(id), id + " hidden for a viewer");
+    }
+    assert.ok(viewer.includes("general") && viewer.includes("appearance"));
+    assert.equal(box.find('[aria-selected="true"]').getAttribute("data-section"), "general", "a hidden section asked for opens General");
+  } finally {
+    render(null, box);
+    restore();
+  }
+});
+
+test("a viewer's Settings says so, and a section hidden once the role arrives gives way to General", async () => {
+  const { Settings } = await import("../src/shell/Settings.js");
+  const { render } = await import("../src/vendor/preact.mjs");
+  const { html } = await import("../src/html.js");
+  const { createDom, install, settle } = await import("./dom.mjs");
+  const dom = createDom();
+  const restore = install(dom);
+  const box = dom.document.createElement("div");
+  dom.body.appendChild(box);
+  try {
+    const draw = (ctx) => render(html`<${Settings} prefs=${{}} change=${() => {}} onClose=${() => {}} ctx=${ctx} />`, box);
+    draw({ send: () => true });
+    await settle();
+    assert.equal(box.find("#settings-viewer"), null);
+    box.find("#settings-tab-keys").click();
+    await settle();
+    assert.equal(box.find('[aria-selected="true"]').getAttribute("data-section"), "keys");
+    draw({ viewer: true, send: () => true });
+    await settle();
+    assert.equal(box.find('[aria-selected="true"]').getAttribute("data-section"), "general", "keys is not a section of a viewer");
+    assert.match(box.find("#settings-viewer").textContent, /can only view/);
+  } finally {
+    render(null, box);
+    restore();
+  }
+});

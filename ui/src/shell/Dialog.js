@@ -6,7 +6,7 @@
 import { useEffect, useRef } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
 import { composing, LIST } from "./keys.js";
-import { trapTab } from "./Start.js";
+import { trapTab } from "./focus.js";
 import { useInert } from "./inert.js";
 
 /** Dialog draws its children in the frame. id names the title for a screen

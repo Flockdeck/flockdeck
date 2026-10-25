@@ -1,6 +1,7 @@
 // The team-wide Changes view's list: one row per agent's branch, the ones that need a
 // person first. Drawn from the changesTeam push (lib/changesteam.js); every string in
 // it is drawn as text.
+import { useEffect, useRef, useState } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
 import { clip } from "../graph/Node.js";
 import { showControls } from "../drawer/diff/diffModel.js";
@@ -37,12 +38,12 @@ export function Lines({ added, removed }) {
   return html`<span class="ct-lines"><span class="ct-sr">${added} added, ${removed} removed</span><span aria-hidden="true"><span class="ct-added">+${added}</span> <span class="ct-removed">-${removed}</span></span></span>`;
 }
 
-function Row({ branch: b, names, selected, onPick }) {
+function Row({ branch: b, names, selected, stop, onPick, onActive }) {
   const at = attentionOf(b);
   const lines = b.files.reduce((n, f) => [n[0] + f.added, n[1] + f.removed], [0, 0]);
   const clash = conflictPanes(b);
   return html`<li>
-    <button type="button" class=${"ct-row ct-row--" + at.key + (selected ? " is-open" : "")} data-pane=${b.pane} aria-current=${selected ? "true" : undefined} onClick=${() => onPick(b.pane)}>
+    <button type="button" class=${"ct-row ct-row--" + at.key + (selected ? " is-open" : "")} data-pane=${b.pane} tabindex=${stop ? 0 : -1} aria-current=${selected ? "true" : undefined} onFocus=${() => onActive(b.pane)} onClick=${() => onPick(b.pane)}>
       <span class="ct-agent">${nameOf(names, b.pane)}</span>
       ${b.error
         ? html`<span class="ct-branch ct-branch--error">${words(b.error, 160)}</span>`
@@ -56,14 +57,34 @@ function Row({ branch: b, names, selected, onPick }) {
   </li>`;
 }
 
-/** ChangesList draws the branches, attention first. selected is a pane id; onPick gets one. */
+/**
+ * ChangesList draws the branches, attention first. selected is a pane id; onPick gets one.
+ * The rows are one tab stop: the row last focused (else the open one, else the first) is
+ * in the tab order, and Up, Down, Home and End move between rows.
+ */
 export function ChangesList({ branches, names, selected, onPick }) {
   const rows = sortBranches(branches);
+  const [active, setActive] = useState("");
+  const ul = useRef(null);
+  // The row opened from outside (a jump from a comment, a push) takes the tab stop.
+  useEffect(() => { if (selected) setActive(selected); }, [selected]);
+  const stop = rows.some((b) => b.pane === active) ? active : rows.some((b) => b.pane === selected) ? selected : rows.length ? rows[0].pane : "";
+  const onKey = (e) => {
+    const k = e.key;
+    if (!ul.current || e.ctrlKey || e.altKey || e.metaKey || !["ArrowDown", "ArrowUp", "Home", "End"].includes(k)) return;
+    const btns = Array.from(ul.current.querySelectorAll(".ct-row"));
+    const at = btns.indexOf(e.target);
+    if (at < 0) return;
+    const to = k === "Home" ? 0 : k === "End" ? btns.length - 1 : Math.max(0, Math.min(btns.length - 1, at + (k === "ArrowDown" ? 1 : -1)));
+    e.preventDefault();
+    btns[to].focus();
+    setActive(btns[to].getAttribute("data-pane") || "");
+  };
   const t = totalsOf(branches);
   return html`<div class="ct-list">
     <p class="ct-totals">${plural(t.branches, "branch", "branches")}, ${plural(t.files, "file", "files")}, <${Lines} added=${t.added} removed=${t.removed} />${t.attention ? html`, <span class="ct-need">${t.attention} need${t.attention === 1 ? "s" : ""} attention</span>` : null}</p>
-    <ul class="ct-rows" aria-label="Branches">
-      ${rows.map((b) => html`<${Row} key=${b.pane} branch=${b} names=${names} selected=${b.pane === selected} onPick=${onPick} />`)}
+    <ul class="ct-rows" aria-label="Branches" ref=${ul} onKeyDown=${onKey}>
+      ${rows.map((b) => html`<${Row} key=${b.pane} branch=${b} names=${names} selected=${b.pane === selected} stop=${b.pane === stop} onPick=${onPick} onActive=${setActive} />`)}
     </ul>
   </div>`;
 }

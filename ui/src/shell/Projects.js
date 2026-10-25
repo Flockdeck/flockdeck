@@ -13,7 +13,7 @@ import { useEffect, useRef, useState } from "../vendor/hooks.mjs";
 import { useInert } from "./inert.js";
 import { html } from "../html.js";
 import { composing, LIST } from "./keys.js";
-import { trapTab } from "./Start.js";
+import { trapTab } from "./focus.js";
 import { Confirm } from "./Confirm.js";
 import * as P from "../lib/projects.js";
 
@@ -84,7 +84,9 @@ export function Projects({ open, recents: recentsMsg, browse: browseMsg, root, s
     else setClosing(p.root);
   };
   const target = path !== null ? path : browse ? browse.path : "";
-  const pickFolder = (folder) => {
+  const pickFolder = (typed) => {
+    // What is sent is the path as it was checked: no quotes round it, no spaces at its ends.
+    const folder = P.cleanPath(typed);
     if (!folder) return;
     if (!P.isAbsolute(folder)) {
       setProblem("A project has to be named by its full path");
@@ -244,7 +246,7 @@ export function Projects({ open, recents: recentsMsg, browse: browseMsg, root, s
             <button type="button" class="dialog-btn" disabled=${!browse || !browse.parent} onClick=${() => { setPath(null); send(P.browseCommand(browse.parent)); }}>Up</button>
             <input id="browse-path" type="text" class="dialog-field" aria-label="Folder" placeholder="Type or paste a path, then press Enter" value=${target}
               onInput=${(e) => setPath(e.target.value)}
-              onKeyDown=${(e) => { if (e.key === LIST.accept) { e.preventDefault(); setPath(null); send(P.browseCommand(e.target.value)); } }} />
+              onKeyDown=${(e) => { if (e.key === LIST.accept) { e.preventDefault(); setPath(null); send(P.browseCommand(P.cleanPath(e.target.value))); } }} />
             <button type="button" id="browse-open" class="dialog-btn dialog-btn--primary" disabled=${!target} onClick=${() => pickFolder(target)}>${adding ? "Add this folder" : "Open this folder"}</button>
           </div>
           ${problem ? html`<p class="dialog-note dialog-note--error" role="alert">${problem}</p>` : null}

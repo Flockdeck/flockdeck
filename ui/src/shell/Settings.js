@@ -14,7 +14,7 @@ import { useEffect, useRef, useState } from "../vendor/hooks.mjs";
 import { useInert } from "./inert.js";
 import { html } from "../html.js";
 import { composing, LIST } from "./keys.js";
-import { trapTab } from "./Start.js";
+import { trapTab } from "./focus.js";
 import { Row, Switch } from "./Controls.js";
 import { Notify } from "./Notify.js";
 import { Keys } from "./ApiKeys.js";
@@ -40,8 +40,12 @@ export const SECTIONS = [["general", "General"], ["appearance", "Appearance"], [
  *  pair and outcome answers, the tunnel's status, remote (this window came through
  *  the relay), copy, news (a notice since the dialog opened) and the notification
  *  permission with onAsk and the machine's name. */
+/** VIEWER_HIDDEN are the sections whose controls all send commands the desktop refuses a viewer. */
+export const VIEWER_HIDDEN = ["wake", "keys", "remote", "agents", "routing", "keyboard"];
+
 export function Settings({ prefs, change, onClose, section: first = "general", ctx = {} }) {
-  const [section, setSection] = useState(SECTIONS.some(([id]) => id === first) ? first : "general");
+  const sections = ctx.viewer ? SECTIONS.filter(([id]) => !VIEWER_HIDDEN.includes(id)) : SECTIONS;
+  const [section, setSection] = useState(sections.some(([id]) => id === first) ? first : "general");
   const rootRef = useRef(null);
   useInert(rootRef);
   const tabRef = useRef(null);
@@ -64,17 +68,21 @@ export function Settings({ prefs, change, onClose, section: first = "general", c
       trapTab(e, rootRef.current);
     }
   };
-  const chosen = SECTIONS.findIndex(([id]) => id === section);
+  // A section hidden after the role arrived (a viewer) gives way to General.
+  const shown = sections.some(([id]) => id === section) ? section : "general";
+  const chosen = sections.findIndex(([id]) => id === shown);
   const onTabKey = (e) => {
     if (composing(e)) return;
     const by = e.key === LIST.down || e.key === LIST.right ? 1 : e.key === LIST.up || e.key === LIST.left ? -1 : 0;
-    if (!by) return;
+    // Home and End go to the first and last section.
+    const edge = e.key === LIST.home ? 0 : e.key === LIST.end ? sections.length - 1 : -1;
+    if (!by && edge < 0) return;
     e.preventDefault();
     e.stopPropagation();
-    setSection(SECTIONS[(chosen + by + SECTIONS.length) % SECTIONS.length][0]);
+    const next = edge >= 0 ? sections[edge][0] : sections[(chosen + by + sections.length) % sections.length][0];
+    setSection(next);
     // The new tab takes the keyboard once it is the one in the tab order.
     const root = rootRef.current;
-    const next = SECTIONS[(chosen + by + SECTIONS.length) % SECTIONS.length][0];
     const btn = root && [...root.querySelectorAll("button")].find((b) => b.getAttribute("data-section") === next);
     if (btn) btn.focus();
   };
@@ -84,27 +92,28 @@ export function Settings({ prefs, change, onClose, section: first = "general", c
         <h2 id="settings-title" class="dialog-title">Settings</h2>
         <div class="settings-body">
           <div class="settings-nav" role="tablist" aria-label="Settings sections" aria-orientation="vertical">
-            ${SECTIONS.map(([id, label]) => html`
-              <button type="button" role="tab" class=${"settings-tab" + (id === section ? " is-active" : "")} id=${"settings-tab-" + id}
-                data-section=${id} aria-selected=${id === section ? "true" : "false"} aria-controls="settings-panel"
-                tabindex=${id === section ? "0" : "-1"} ref=${id === section ? tabRef : null}
+            ${sections.map(([id, label]) => html`
+              <button type="button" role="tab" class=${"settings-tab" + (id === shown ? " is-active" : "")} id=${"settings-tab-" + id}
+                data-section=${id} aria-selected=${id === shown ? "true" : "false"} aria-controls="settings-panel"
+                tabindex=${id === shown ? "0" : "-1"} ref=${id === shown ? tabRef : null}
                 onKeyDown=${onTabKey} onClick=${() => setSection(id)}>${label}</button>`)}
           </div>
-          <div class="settings-panel" role="tabpanel" id="settings-panel" aria-labelledby=${"settings-tab-" + section}>
-            ${section === "general" ? html`<${General} prefs=${prefs} change=${change} radar=${ctx.radar || null} remote=${!!ctx.remote} />` : null}
-            ${section === "appearance" ? html`<${Appearance} prefs=${prefs} change=${change} />` : null}
-            ${section === "terminal" ? html`<${Terminal} prefs=${prefs} change=${change} />` : null}
-            ${section === "notifications"
+          <div class="settings-panel" role="tabpanel" id="settings-panel" aria-labelledby=${"settings-tab-" + shown}>
+            ${ctx.viewer ? html`<p class="set-about" id="settings-viewer" role="status">This device can only view. Changes made here are refused.</p>` : null}
+            ${shown === "general" ? html`<${General} prefs=${prefs} change=${change} radar=${ctx.radar || null} remote=${!!ctx.remote} />` : null}
+            ${shown === "appearance" ? html`<${Appearance} prefs=${prefs} change=${change} />` : null}
+            ${shown === "terminal" ? html`<${Terminal} prefs=${prefs} change=${change} />` : null}
+            ${shown === "notifications"
               ? html`<${Notify} prefs=${prefs} change=${change} permission=${ctx.permission || "unsupported"} machine=${ctx.machine || ""} pushError=${ctx.pushError || ""}
                   onAsk=${ctx.onAsk || (() => {})} />`
               : null}
-            ${section === "keys" ? html`<${Keys} keys=${ctx.keys || null} remote=${!!ctx.remote} send=${ctx.send} news=${ctx.news || ""} jev=${ctx.jev || null} />` : null}
-            ${section === "status" ? html`<${JevStatus} prefs=${prefs} change=${change} remote=${!!ctx.remote} jev=${ctx.jev || null} send=${ctx.send} />` : null}
-            ${section === "routing" ? html`<${Routing} agents=${ctx.agents || null} project=${ctx.project || ""} send=${ctx.send} />` : null}
-            ${section === "agents" ? html`<${AgentSettings} agents=${ctx.agents || null} project=${ctx.project || ""} answer=${ctx.addressAnswer || null} remote=${!!ctx.remote} send=${ctx.send} />` : null}
-            ${section === "wake" ? html`<${Wake} wake=${prefs.wake} agents=${ctx.agents || null} panes=${ctx.panes || []} remote=${!!ctx.remote} send=${ctx.send} />` : null}
-            ${section === "keyboard" ? html`<${Keybindings} keys=${ctx.table || null} send=${ctx.send} page=${ctx.page || null} onRecording=${ctx.onRecording} />` : null}
-            ${section === "remote"
+            ${shown === "keys" ? html`<${Keys} keys=${ctx.keys || null} remote=${!!ctx.remote} send=${ctx.send} news=${ctx.news || ""} jev=${ctx.jev || null} />` : null}
+            ${shown === "status" ? html`<${JevStatus} prefs=${prefs} change=${change} remote=${!!ctx.remote} jev=${ctx.jev || null} send=${ctx.send} />` : null}
+            ${shown === "routing" ? html`<${Routing} agents=${ctx.agents || null} project=${ctx.project || ""} send=${ctx.send} />` : null}
+            ${shown === "agents" ? html`<${AgentSettings} agents=${ctx.agents || null} project=${ctx.project || ""} answer=${ctx.addressAnswer || null} remote=${!!ctx.remote} send=${ctx.send} />` : null}
+            ${shown === "wake" ? html`<${Wake} wake=${prefs.wake} agents=${ctx.agents || null} panes=${ctx.panes || []} remote=${!!ctx.remote} send=${ctx.send} />` : null}
+            ${shown === "keyboard" ? html`<${Keybindings} keys=${ctx.table || null} send=${ctx.send} page=${ctx.page || null} onRecording=${ctx.onRecording} />` : null}
+            ${shown === "remote"
               ? html`<${Remote} status=${ctx.status || null} roster=${ctx.roster || null} pair=${ctx.pair || null} outcome=${ctx.outcome || null} remote=${!!ctx.remote}
                   send=${ctx.send} copy=${ctx.copy || (() => {})} forget=${ctx.forgetPair || (() => {})} news=${ctx.news || ""} />`
               : null}
@@ -195,16 +204,22 @@ function Terminal({ prefs, change }) {
   const [familyError, setFamilyError] = useState("");
   const [lines, setLines] = useState(null);
   const [linesError, setLinesError] = useState("");
+  // Enter, change and blur can all fire for one edit before the state below has caught up: an edit is sent once.
+  const sentOnce = useRef({ family: null, lines: null });
   const applyFamily = () => {
-    if (family === null) return;
+    if (family === null || sentOnce.current.family === family) return;
+    sentOnce.current.family = family;
     const sent = change("fontFamily", family);
+    if (!sent) sentOnce.current.family = null;
     setFamilyError(sent ? "" : WHY.fontFamily);
     if (sent) setFamily(null);
   };
   const applyLines = () => {
-    if (lines === null) return;
+    if (lines === null || sentOnce.current.lines === lines) return;
+    sentOnce.current.lines = lines;
     const n = Number(lines);
     const sent = lines.trim() !== "" && change("scrollback", n);
+    if (!sent) sentOnce.current.lines = null;
     setLinesError(sent ? "" : WHY.scrollback);
     if (sent) setLines(null);
   };
@@ -238,7 +253,7 @@ function Terminal({ prefs, change }) {
     <${Row} id="set-font-family" label="Font" about="Any monospaced font on this computer, by its name. Empty is the default." error=${familyError}>
       <input type="text" class="dialog-field" id="set-font-family-field" placeholder="Default" autocomplete="off" spellcheck="false"
         list="set-fonts" aria-labelledby="set-font-family-label" aria-describedby="set-font-family-about" aria-invalid=${familyError ? "true" : undefined}
-        value=${family !== null ? family : prefs.fontFamily} onInput=${(e) => setFamily(e.target.value)}
+        value=${family !== null ? family : prefs.fontFamily} onInput=${(e) => { sentOnce.current.family = null; setFamily(e.target.value); }}
         onKeyDown=${enter(applyFamily)} onChange=${applyFamily} onBlur=${applyFamily} />
       <datalist id="set-fonts">${FONT_SUGGESTIONS.map((f) => html`<option key=${f} value=${f}></option>`)}</datalist>
     <//>
@@ -248,7 +263,7 @@ function Terminal({ prefs, change }) {
         ${counts.map((n) => html`<option key=${n} value=${String(n)}>${n.toLocaleString("en") + " lines"}</option>`)}
       </select>
       <input type="number" class="dialog-field" id="set-scrollback-custom" min=${SCROLLBACK_MIN} max=${SCROLLBACK_MAX} aria-label="Scrollback, a number of lines"
-        placeholder="Other number of lines" value=${lines !== null ? lines : ""} onInput=${(e) => setLines(e.target.value)}
+        placeholder="Other number of lines" value=${lines !== null ? lines : ""} onInput=${(e) => { sentOnce.current.lines = null; setLines(e.target.value); }}
         onKeyDown=${enter(applyLines)} onChange=${applyLines} onBlur=${applyLines} />
     <//>
     <${Row} id="set-cursor" label="Cursor" about="The shape of the cursor in every terminal.">
