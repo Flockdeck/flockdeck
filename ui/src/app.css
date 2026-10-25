@@ -576,9 +576,9 @@ button { font: inherit; color: inherit; }
 .palette-row.is-current { background: var(--accent-subtle); }
 .palette-row--off { color: var(--fg-dim); cursor: default; }
 .palette-name { flex: 1 1 auto; min-width: 0; }
-.palette-note { font-size: 11px; color: var(--fg-faint); }
+.palette-note { font-size: 11px; color: var(--fg-dim); }
 .palette-keys { font: 11px/1.4 var(--mono); color: var(--fg-dim); }
-.palette-group { padding: 8px 12px 2px; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--fg-faint); list-style: none; }
+.palette-group { padding: 8px 12px 2px; font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--fg-dim); list-style: none; }
 .palette-empty { padding: 10px 12px; color: var(--fg-dim); }
 
 /* The help. */
@@ -603,7 +603,6 @@ button { font: inherit; color: inherit; }
   box-shadow: var(--shadow-3);
   overflow: hidden;
 }
-.help-sentinel { position: absolute; width: 0; height: 0; overflow: hidden; }
 .help-nav {
   display: flex;
   flex-direction: column;
@@ -670,7 +669,7 @@ button { font: inherit; color: inherit; }
   .rail { scrollbar-width: none; }
   .rail::-webkit-scrollbar { display: none; }
   .rail-list { flex-direction: row; }
-  .rail-item { width: auto; min-height: 40px; white-space: nowrap; }
+  .rail-item { width: auto; min-height: 40px; white-space: nowrap; max-width: 80vw; }
   .rail-item.is-active { box-shadow: inset 0 -3px 0 var(--accent); }
   .palette-input { font-size: 16px; }
   .help { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); height: 92vh; }

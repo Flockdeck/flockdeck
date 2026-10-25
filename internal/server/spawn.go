@@ -685,6 +685,7 @@ func (s *Server) installSpawnHandler() {
 			return hooks.SpawnResult{}, in.err
 		}
 		cwd := in.cwd
+		uncommitted := 0
 
 		// A helper in a role that works on its own branch gets a worktree and a
 		// branch unless it was told not to: two agents in one checkout are what
@@ -803,6 +804,12 @@ func (s *Server) installSpawnHandler() {
 				}
 				req.Branch = uniqueBranch(workspace.BranchNameFor(req.Task), taken, nil)
 			}
+			// What is uncommitted in the parent's checkout is not in a worktree cut
+			// from its HEAD; counted before the cut so the caller can be told.
+			if autoTree {
+				uncommitted = gitx.StatusOf(cwd).Dirty + gitx.StatusOf(cwd).Untracked
+			}
+			from := cwd
 			made, err := s.ws.PrepareWorktreeNew(cwd, req.Branch)
 			if err != nil {
 				if autoTree {
@@ -810,7 +817,7 @@ func (s *Server) installSpawnHandler() {
 				}
 				return hooks.SpawnResult{}, err
 			}
-			cwd = made.Path
+			cwd = workspace.SameSubdir(from, made.Path)
 			// Only what this request made is this request's to take away again if the
 			// helper then does not start (the lock above is held, so nothing else is in
 			// it), and only if it is as it was left: see DiscardMade.
@@ -870,7 +877,7 @@ func (s *Server) installSpawnHandler() {
 		if r.err != nil {
 			return hooks.SpawnResult{}, cleanup(r.err)
 		}
-		res := hooks.SpawnResult{PaneID: r.id, Cwd: cwd, Role: req.Role, Branch: req.Branch}
+		res := hooks.SpawnResult{PaneID: r.id, Cwd: cwd, Role: req.Role, Branch: req.Branch, Uncommitted: uncommitted}
 		if req.TaskID != "" {
 			// The helper is running already, so a task that cannot be given to it
 			// (the caller may not edit it) is said, not undone.

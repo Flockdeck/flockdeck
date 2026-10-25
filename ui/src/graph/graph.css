@@ -55,12 +55,12 @@
 }
 
 .gnode-state {
-  fill: var(--fg-faint);
+  fill: var(--fg-dim);
   font-size: 11px;
 }
 
 .gnode-role {
-  fill: var(--fg-faint);
+  fill: var(--fg-dim);
   font-size: 11px;
 }
 
@@ -420,7 +420,7 @@
   stroke-dasharray: 5 3;
 }
 .gnode-msgs {
-  fill: var(--fg-faint);
+  fill: var(--fg-dim);
   font-size: 11px;
 }
 .gnode-und {

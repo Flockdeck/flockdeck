@@ -6,7 +6,8 @@
 import { useEffect, useMemo, useRef, useState } from "../vendor/hooks.mjs";
 import { h } from "../vendor/preact.mjs";
 import { html } from "../html.js";
-import { composing, listMove } from "./keys.js";
+import { composing, listMove, LIST } from "./keys.js";
+import { trapTab } from "./focus.js";
 import { keySections, keysEntry, searchPages } from "../lib/help.js";
 
 /** NOT_YET is what the keys page says of an action this window does not run. */
@@ -124,8 +125,14 @@ export function Help({ keys, implemented, load, slug = "", onClose }) {
     if (content.current && content.current.scrollTo) content.current.scrollTo(0, 0);
   };
 
+  const root = useRef(null);
   const onKeyDown = (e) => {
     if (composing(e)) return;
+    if (e.key === LIST.tab && root.current) {
+      // Tab stays inside the dialog, as in Dialog.js.
+      trapTab(e, root.current);
+      return;
+    }
     const move = listMove(e, at, hits.length);
     if (move === "cancel") {
       e.preventDefault();
@@ -136,11 +143,6 @@ export function Help({ keys, implemented, load, slug = "", onClose }) {
       setShown(hits[move].page.slug);
     }
   };
-
-  // Two sentinels keep Tab inside the dialog: past the last control it comes
-  // back to the search box, and before the first it goes to the page.
-  const toSearch = () => search.current && search.current.focus();
-  const toContent = () => content.current && content.current.focus();
 
   let body = null;
   if (!loaded) {
@@ -158,8 +160,7 @@ export function Help({ keys, implemented, load, slug = "", onClose }) {
 
   return html`
     <div class="help-scrim" onMouseDown=${(e) => e.target === e.currentTarget && onClose && onClose()}>
-      <div class="help" role="dialog" aria-modal="true" aria-label="Help" onKeyDown=${onKeyDown}>
-        <span tabindex="0" class="help-sentinel" aria-hidden="true" onFocus=${toContent}></span>
+      <div class="help" role="dialog" aria-modal="true" aria-label="Help" ref=${root} onKeyDown=${onKeyDown}>
         <nav class="help-nav" aria-label="Help contents">
           <input
             ref=${search}
@@ -189,7 +190,6 @@ export function Help({ keys, implemented, load, slug = "", onClose }) {
             : null}
         </nav>
         <div class="help-content" ref=${content} tabindex="0" aria-label=${page ? page.title : "Help"} data-page=${page ? page.slug : ""}>${body}</div>
-        <span tabindex="0" class="help-sentinel" aria-hidden="true" onFocus=${toSearch}></span>
       </div>
     </div>`;
 }

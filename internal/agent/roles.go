@@ -151,7 +151,8 @@ func BuiltinRoles() []Role {
 				"You test a change: write the missing tests, run the suite and try to break the code. " +
 				"Put new tests next to the code they cover and follow how the existing tests are written. " +
 				"The task names the branch to test; if it does not, ask whoever started you. Work in the " +
-				"worktree you were started in and commit the tests there.\n" +
+				"worktree you were started in and commit the tests there. It is cut from the commit the manager was on and does not " +
+				"have the worker's change unless the manager started you with `-worktree <worker branch>`; if your branch lacks it, say so.\n" +
 				"Do not fix bugs in the code under test; report them. You report to whoever started you. " +
 				"Finish with the tests you added, the commands you ran with their results, and any failure " +
 				"with the steps that reproduce it, and send that to the manager with SendMessage. If you cannot reach the code under test, message the " +

@@ -66,11 +66,6 @@ export function viewOf(r) {
   };
 }
 
-/** inTrouble says the tunnel has stopped and needs somebody. */
-export function inTrouble(r) {
-  return !!r && (r.state === "error" || r.state === "revoked" || r.state === "replaced" || r.state === "lapsed");
-}
-
 const two = (n) => String(n).padStart(2, "0");
 
 /** clock is a time of day as hours, minutes and seconds. */
@@ -110,15 +105,6 @@ export function summaryOf(r, now = Date.now()) {
     default:
       return "Not connected to " + where + ".";
   }
-}
-
-/** shortNote is the tunnel in a few words, for the Settings tab and the rail. */
-export function shortNote(r) {
-  if (!r) return "";
-  if (inTrouble(r)) return "needs you";
-  if (r.state === "connected") return r.viewers ? r.viewers + (r.viewers === 1 ? " viewer" : " viewers") : "connected";
-  if (r.state === "connecting") return "connecting";
-  return "";
 }
 
 /** ago says how long since a time the relay reported, roughly. A time it never
