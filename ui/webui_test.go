@@ -85,3 +85,32 @@ func TestDirFSIsOffUnlessAFolderWithAPageIsNamed(t *testing.T) {
 		t.Fatalf("index.html = %q, %v", b, err)
 	}
 }
+
+func TestDirFSTakesOffTheQuotesAndSpacesCmdKeeps(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "my ui")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for name, v := range map[string]string{
+		"plain":          dir,
+		"double quotes":  `"` + dir + `"`,
+		"single quotes":  `'` + dir + `'`,
+		"trailing space": dir + " ",
+		"spaces":         "  " + dir + "  ",
+		"quotes, spaces": ` "` + dir + `" `,
+	} {
+		t.Setenv(DirEnv, v)
+		if _, ok := DirFS(); !ok {
+			t.Errorf("%s: %q is not taken", name, v)
+		}
+	}
+	for name, v := range map[string]string{"one quote": `"` + dir, "other quotes": `"` + dir + `'`, "only quotes": `""`} {
+		t.Setenv(DirEnv, v)
+		if _, ok := DirFS(); ok {
+			t.Errorf("%s: %q is taken", name, v)
+		}
+	}
+}

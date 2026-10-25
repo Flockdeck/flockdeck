@@ -9,12 +9,14 @@ package webui
 import (
 	"bytes"
 	"embed"
+	"fmt"
 	"io"
 	"io/fs"
 	"log"
 	"mime"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -77,16 +79,31 @@ const DirEnv = "FLOCKDECK_UI_DIR"
 // folder cannot be used it says why and returns false, so the program starts
 // with the files built into it. The files are sent as they are, not joined.
 func DirFS() (fs.FS, bool) {
-	dir := os.Getenv(DirEnv)
+	dir := folderOf(os.Getenv(DirEnv))
 	if dir == "" {
 		return nil, false
 	}
 	if _, err := os.Stat(filepath.Join(dir, "index.html")); err != nil {
-		log.Printf("webui: %s=%q is ignored, there is no index.html in it (%v); serving the front end built into this program", DirEnv, dir, err)
+		hint := ""
+		if _, err := os.Stat(filepath.Join(dir, "src", "index.html")); err == nil {
+			hint = fmt.Sprintf(" (%s has one: did you mean that folder?)", filepath.Join(dir, "src"))
+		}
+		log.Printf("webui: %s=%q is ignored, there is no index.html in it%s (%v); serving the front end built into this program", DirEnv, dir, hint, err)
 		return nil, false
 	}
 	log.Printf("webui: serving the front end from %s (%s), not the one built into this program; windows reached through the relay still get the built-in one", dir, DirEnv)
 	return os.DirFS(dir), true
+}
+
+// folderOf is the folder a value of FLOCKDECK_UI_DIR names. Windows' cmd.exe keeps
+// the quotes of `set X="C:\my files"` and any space before the end of the line in
+// the value, so a pair of quotes and the spaces around them are taken off.
+func folderOf(v string) string {
+	v = strings.TrimSpace(v)
+	if n := len(v); n >= 2 && (v[0] == '"' || v[0] == '\'') && v[n-1] == v[0] {
+		v = strings.TrimSpace(v[1 : n-1])
+	}
+	return v
 }
 
 var (
