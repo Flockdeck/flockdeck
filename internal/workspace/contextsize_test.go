@@ -99,7 +99,7 @@ func sections(text string) (heads []string, sizes []int) {
 // on purpose, with the reason in the commit, rather than to make a test pass.
 var briefingCeiling = map[string]int{
 	"":         10500,
-	"manager":  14500, // was 15250 until the repeated paragraphs in the role and Starting agents were cut; was 15120: one sentence saying the two mail-reading commands need no approval; was 15050: how to find a helper's name and what its idle notice means; was 14750: SendMessage guidance replaces the msg send paragraph and the manager passes its name on; was 14500: the inbox stream the briefing teaches every agent to arm; was 13950: the manager role now carries the whole delegation loop
+	"manager":  14750, // was 14500 until the pane label line (118 bytes) and the -name rule on spawn (about 90 bytes) were added (about 215 in all); was 15250 until the repeated paragraphs in the role and Starting agents were cut; was 15120: one sentence saying the two mail-reading commands need no approval; was 15050: how to find a helper's name and what its idle notice means; was 14750: SendMessage guidance replaces the msg send paragraph and the manager passes its name on; was 14500: the inbox stream the briefing teaches every agent to arm; was 13950: the manager role now carries the whole delegation loop
 	"worker":   10200, // was 10000: the line pointing at a knowledge bundle (224 bytes), which the size cases now include, plus 32 bytes for the reworded acknowledgement sentence (256 in all)
 	"reviewer": 9900,  // was 9700: the same 256 bytes
 }

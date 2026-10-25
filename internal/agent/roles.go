@@ -53,6 +53,10 @@ type Role struct {
 	Plain bool `json:"plain,omitempty"`
 }
 
+// paneLabelLine is the sentence every built-in briefing carries, near its start,
+// that tells the agent to label its pane.
+const paneLabelLine = "Label your pane for the work, not your role: `flockdeck pane-name \"<2-5 words>\"` at the start and when the work changes.\n"
+
 // BuiltinRoles are the roles Flockdeck ships. A user's agents.json can change one
 // by id or add roles of its own; see mergeRoles.
 func BuiltinRoles() []Role {
@@ -64,11 +68,12 @@ func BuiltinRoles() []Role {
 				"is the user's go-ahead to plan it, put it on the board, start helpers, review what they hand back " +
 				"and report: do those steps in order without asking before each one. Do not wait to be told to " +
 				"start helpers; starting them is your job.\n" +
+				paneLabelLine +
 				"1. Break the request into tasks. For anything bigger than one obvious change, start a planner " +
 				"(`spawn -role planner`) and wait for its steps; otherwise write the tasks yourself. Put each on the " +
 				"board with `flockdeck task add <title> -body <details> -role worker`, with enough detail to stand on " +
 				"its own.\n" +
-				"2. Start an agent for each task with `spawn -role <role>`. A worker, tester or docs helper gets its own worktree and branch automatically (`spawn` prints them); " +
+				"2. Start an agent for each task with `spawn -role <role>`; add `-name \"<the PR or topic, 2-5 words>\"` to every spawn, a planner included (the pane's label). A worker, tester or docs helper gets its own worktree and branch automatically (`spawn` prints them); " +
 				"`-worktree <branch>` names it, `-no-worktree` shares your checkout. Planners and reviewers share it. Assign the task (`flockdeck task assign <id> " +
 				"<pane id or role>`; the pane id is in the output of `spawn` and `flockdeck team -json`, and a role leaves " +
 				"the task to whichever pane in it moves it first) before the " +
@@ -98,6 +103,7 @@ func BuiltinRoles() []Role {
 		{
 			ID: "planner", Name: "Planner", Description: "Reads the code and writes the steps for a change. Does not change anything.", Worktree: WorktreeReadOnly,
 			Briefing: "Arm `flockdeck inbox -follow` first, under the Monitor tool (see Messages).\n" +
+				paneLabelLine +
 				"You turn a request into a plan someone else can carry out. Read the code the work " +
 				"touches, then write down the steps in order, the files each one changes, what could go " +
 				"wrong and how to tell the work is done. Name the open questions instead of guessing.\n" +
@@ -111,6 +117,7 @@ func BuiltinRoles() []Role {
 		{
 			ID: "worker", Name: "Worker", Description: "Carries out one task on a branch of its own and commits it.", Worktree: WorktreeOwn,
 			Briefing: "Arm `flockdeck inbox -follow` first, under the Monitor tool (see Messages).\n" +
+				paneLabelLine +
 				"You carry out one task. Whoever started you should have given you a worktree and branch of " +
 				"your own with `-worktree`; check with `git branch --show-current` and say so if you are on " +
 				"the main checkout. Make the change the task asks for, run the tests that cover it, and " +
@@ -132,6 +139,7 @@ func BuiltinRoles() []Role {
 		{
 			ID: "reviewer", Name: "Reviewer", Description: "Reads a branch and reports what is wrong with it. Does not edit.", Worktree: WorktreeReadOnly,
 			Briefing: "Arm `flockdeck inbox -follow` first, under the Monitor tool (see Messages).\n" +
+				paneLabelLine +
 				"You review a change someone else made. Read the diff and the code around it, check it " +
 				"does what the task asked, and look for bugs, missing cases and tests that do not test " +
 				"anything.\n" +
@@ -148,6 +156,7 @@ func BuiltinRoles() []Role {
 		{
 			ID: "tester", Name: "Tester", Description: "Writes and runs tests for a change and reports failures.", Worktree: WorktreeOwn,
 			Briefing: "Arm `flockdeck inbox -follow` first, under the Monitor tool (see Messages).\n" +
+				paneLabelLine +
 				"You test a change: write the missing tests, run the suite and try to break the code. " +
 				"Put new tests next to the code they cover and follow how the existing tests are written. " +
 				"The task names the branch to test; if it does not, ask whoever started you. Work in the " +
@@ -165,6 +174,7 @@ func BuiltinRoles() []Role {
 		{
 			ID: "docs", Name: "Docs", Description: "Writes and corrects documentation for a change that already exists.", Worktree: WorktreeOwn,
 			Briefing: "Arm `flockdeck inbox -follow` first, under the Monitor tool (see Messages).\n" +
+				paneLabelLine +
 				"You write and correct documentation for a change that already exists. Read the code " +
 				"first and write only what it does, with commands and examples you have checked. The task " +
 				"names the branch the change is on; if it does not, ask whoever started you. Commit the " +
