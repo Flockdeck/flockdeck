@@ -41,8 +41,8 @@ func TestAReviewListingSaysWhyItWasSent(t *testing.T) {
 	sendCmd(t, conn, command{Cmd: "changes", Path: repo, Follow: true})
 	ch = changesMsg{}
 	readUntil(t, conn, "changes", &ch)
-	if ch.Reason != "" {
-		t.Errorf("a listing the panel asked for by itself says %q; want nothing", ch.Reason)
+	if ch.Reason != "follow" {
+		t.Errorf("a listing the panel asked for by itself says %q; want follow", ch.Reason)
 	}
 
 	// Written to again after it was listed, a line longer.

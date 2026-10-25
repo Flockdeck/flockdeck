@@ -675,7 +675,13 @@ export function createStore(opts) {
         // The listing again after an action in the tree on screen is taken too.
         if (typeof msg.path === "string" && msg.path !== changesAsked && !(snap.changes && msg.cwd === snap.changes.cwd)) break;
         const { type, path, ...rest } = msg;
-        set({ changes: rest, changesBusy: "", gitWarn: null });
+        // The desk says why it sent the listing (internal/server/changes.go, Reason). "follow" is the panel's own re-read: it
+        // changes the listing and nothing else, so a git-settings question on screen and an action under way stay. "gitwarn"
+        // is the tree sent with a question, which stays open (after a commit that went through and then asked about its push
+        // it also says committed: true). Any other listing ends what the window had out.
+        if (msg.reason === "follow") set({ changes: rest });
+        else if (msg.reason === "gitwarn") set({ changes: rest, changesBusy: "" });
+        else set({ changes: rest, changesBusy: "", gitWarn: null });
         break;
       }
       case "diff": {
@@ -878,10 +884,12 @@ export function createStore(opts) {
       return true;
     },
     /** requestDiff asks for one file's diff in the tree last listed. */
-    requestDiff(file) {
+    requestDiff(file, again = false) {
       if (!snap.changes || typeof file !== "string" || !file) return false;
       if (!socket.send({ cmd: "diff", path: snap.changes.cwd, text: file })) return false;
-      set({ diff: { cwd: snap.changes.cwd, file, text: "", error: "", loading: true } });
+      // A re-read of the diff on screen keeps its text until the new one comes, so the view is not swapped for a loading line.
+      const keep = again && snap.diff && snap.diff.file === file && snap.diff.cwd === snap.changes.cwd ? snap.diff.text : "";
+      set({ diff: { cwd: snap.changes.cwd, file, text: keep, error: "", loading: true } });
       return true;
     },
     /** commitChanges commits the listing as it was last drawn. It sends the files

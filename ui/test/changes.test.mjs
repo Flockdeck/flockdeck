@@ -130,6 +130,79 @@ test("a commit with no message shows the reason and the message is sent when the
   });
 });
 
+test("no follow is sent while the git question is on screen, and the question takes the keyboard", async () => {
+  const st = fakeStore();
+  const dom = createDom();
+  const restore = install(dom);
+  try {
+    const box = dom.document.createElement("div");
+    dom.body.appendChild(box);
+    const warn = { seq: 1, intro: "It runs hooks.", items: ["hook"], text: "x" };
+    const again = (git, s) => render(html`<${Changes} cwd="/r" git=${git} snap=${s} store=${st} />`, box);
+    again("1/0/0/0", { changes: ch() });
+    await settle();
+    again("1/0/0/0", { changes: ch(), gitWarn: warn });
+    await settle();
+    assert.equal(dom.document.activeElement, box.querySelector(".chg-warn"), "the question did not take focus");
+    assert.equal(box.querySelector(".chg-warn").getAttribute("role"), "alertdialog");
+    again("2/0/0/0", { changes: ch(), gitWarn: warn });
+    await settle();
+    assert.equal(st.calls.filter((c) => c[0] === "changes" && c[2] === true).length, 0, "a follow was sent with the question open");
+  } finally {
+    restore();
+  }
+});
+
+test("answering the git question puts the keyboard back where it was", async () => {
+  const st = fakeStore();
+  const dom = createDom();
+  const restore = install(dom);
+  try {
+    const box = dom.document.createElement("div");
+    dom.body.appendChild(box);
+    const warn = { seq: 1, intro: "It runs hooks.", items: ["hook"], text: "x" };
+    const again = (s) => render(html`<${Changes} cwd="/r" git="1" snap=${s} store=${st} />`, box);
+    again({ changes: ch() });
+    await settle();
+    const commit = box.querySelector(".chg-refresh");
+    commit.focus();
+    again({ changes: ch(), gitWarn: warn });
+    await settle();
+    assert.equal(dom.document.activeElement, box.querySelector(".chg-warn"));
+    again({ changes: ch() });
+    await settle();
+    assert.equal(dom.document.activeElement, commit, "focus was lost with the question");
+  } finally {
+    restore();
+  }
+});
+
+test("the open diff is read again after the listing changes, and closed when its file is gone", async () => {
+  const st = fakeStore();
+  const dom = createDom();
+  const restore = install(dom);
+  try {
+    const box = dom.document.createElement("div");
+    dom.body.appendChild(box);
+    const draw = (snap) => render(html`<${Changes} cwd="/r" git="1" snap=${snap} store=${st} />`, box);
+    draw({ changes: ch({ files: [file("a.go"), file("b.go")] }) });
+    await settle();
+    box.querySelectorAll(".chg-file-btn")[0].click();
+    await settle();
+    assert.deepEqual(st.calls.at(-1), ["diff", "a.go"]);
+    assert.equal(box.querySelector(".chg-diff").getAttribute("role"), "region");
+    const before = st.calls.length;
+    draw({ changes: ch({ files: [file("a.go", { added: 5 }), file("b.go")] }) });
+    await settle();
+    assert.deepEqual(st.calls.slice(before), [["diff", "a.go"]], "a listing that still has the file did not refresh its diff");
+    draw({ changes: ch({ files: [file("b.go")] }) });
+    await settle();
+    assert.equal(box.querySelector(".chg-diff"), null, "the diff of a file no longer listed stayed open");
+  } finally {
+    restore();
+  }
+});
+
 test("push, pull and fetch go to the store, and are disabled while an action is out", async () => {
   await mount({ changes: ch() }, (box, st) => {
     box.querySelector(".chg-push").click();
