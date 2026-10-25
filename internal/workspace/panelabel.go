@@ -246,6 +246,7 @@ type renameTrail struct {
 	timer *time.Timer
 	info  RenameInfo
 	who   string
+	at    time.Time
 }
 
 // renameQuiet is how long a burst of renames must be quiet before its last state is told.
@@ -271,15 +272,9 @@ func (w *Workspace) recordRename(actor, id, old, label string, burst int) {
 	info := RenameInfo{Actor: actor, ActorName: w.DisplayName(actor), Target: id, Was: team.PlainName(old, team.MaxPaneLabel), Now: label, N: 1}
 	w.mu.Lock()
 	notify := w.renameNotify
-	if burst > 1 {
-		if w.renameTrails == nil {
-			w.renameTrails = map[string]*renameTrail{}
-		}
-		t := w.renameTrails[id]
-		if t == nil {
-			t = &renameTrail{info: info}
-			w.renameTrails[id] = t
-		}
+	// Renames by the pane itself count toward the limit but start no trail: the first
+	// rename by another pane is then told at once, as the first of its burst.
+	if t := w.renameTrails[id]; burst > 1 && t != nil && time.Since(t.at) < renameWindow {
 		t.info.Actor, t.info.ActorName, t.info.Target, t.info.Now, t.who = actor, info.ActorName, id, label, who
 		t.info.N = burst
 		if t.timer != nil {
@@ -293,8 +288,11 @@ func (w *Workspace) recordRename(actor, id, old, label string, burst int) {
 	if w.renameTrails == nil {
 		w.renameTrails = map[string]*renameTrail{}
 	}
-	w.renameTrails[id] = &renameTrail{info: info}
+	w.renameTrails[id] = &renameTrail{info: info, at: time.Now()}
 	w.mu.Unlock()
+	if w.Pane(id) == nil {
+		return
+	}
 	if w.team.inbox != nil {
 		text := fmt.Sprintf("Pane name changed. Set by %s, as the command reported its pane id. Was %q, now %q.", who, info.Was, label)
 		if label == "" {
@@ -307,6 +305,19 @@ func (w *Workspace) recordRename(actor, id, old, label string, burst int) {
 	}
 }
 
+// stopRenames stops the timers of pending rename notices and forgets who was to be
+// told, so none fires into a workspace that is closing.
+func (w *Workspace) stopRenames() {
+	w.mu.Lock()
+	for _, t := range w.renameTrails {
+		if t.timer != nil {
+			t.timer.Stop()
+		}
+	}
+	w.renameTrails, w.renameNotify = nil, nil
+	w.mu.Unlock()
+}
+
 // tellRenameBurst tells the last state of a burst of renames, once it is quiet.
 func (w *Workspace) tellRenameBurst(id string) {
 	w.mu.Lock()
@@ -314,7 +325,7 @@ func (w *Workspace) tellRenameBurst(id string) {
 	delete(w.renameTrails, id)
 	notify := w.renameNotify
 	w.mu.Unlock()
-	if t == nil || t.timer == nil {
+	if t == nil || t.timer == nil || w.Pane(id) == nil {
 		return
 	}
 	if w.team.inbox != nil {

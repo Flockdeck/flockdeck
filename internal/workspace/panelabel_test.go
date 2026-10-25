@@ -310,3 +310,38 @@ func TestEveryRenameIsLoggedAndTheLastOfABurstIsTold(t *testing.T) {
 		t.Errorf("the pane was not told its latest name: %+v", c.inbox(t, c.w1, true))
 	}
 }
+
+func TestNoBurstNoticeForAPaneThatClosedOrAWorkspaceThatClosed(t *testing.T) {
+	old := renameQuiet
+	renameQuiet = 20 * time.Millisecond
+	defer func() { renameQuiet = old }()
+	c := newCrew(t)
+	var mu sync.Mutex
+	told := 0
+	c.ws.SetRenameNotifier(func(RenameInfo) { mu.Lock(); told++; mu.Unlock() })
+	count := func() int { mu.Lock(); defer mu.Unlock(); return told }
+
+	for _, name := range []string{"a", "b", "c"} {
+		if _, err := c.ws.SetPaneLabel(c.lead, c.w1, name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !c.ws.ClosePaneByID(c.w1) {
+		t.Fatal("pane did not close")
+	}
+	time.Sleep(150 * time.Millisecond)
+	if got := count(); got != 1 {
+		t.Errorf("%d notices after the pane closed, want only the first", got)
+	}
+
+	for _, name := range []string{"x", "y"} {
+		if _, err := c.ws.SetPaneLabel(c.lead, c.w2, name); err != nil {
+			t.Fatal(err)
+		}
+	}
+	c.ws.Close()
+	time.Sleep(150 * time.Millisecond)
+	if got := count(); got != 2 {
+		t.Errorf("%d notices after Close, want the two first-of-burst ones", got)
+	}
+}

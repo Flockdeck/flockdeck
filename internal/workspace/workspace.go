@@ -3712,6 +3712,7 @@ func (w *Workspace) applyGit(key string, st gitx.Status, late bool) {
 func (w *Workspace) Close() {
 	// The wake service types into panes, so it stops before they are destroyed.
 	w.stopWake()
+	w.stopRenames()
 	if w.claudeSvc != nil {
 		w.claudeSvc.Stop()
 	}
