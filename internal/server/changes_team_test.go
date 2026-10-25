@@ -122,3 +122,32 @@ func TestASecondReadOfTheSameKindIsRefusedAsBusy(t *testing.T) {
 		t.Errorf("after the first read ended: %+v, want it to run (and find no pane)", m)
 	}
 }
+
+func TestDiffCommandsRefuseWhatTheyCannotAnswer(t *testing.T) {
+	srv, _ := newTestServer(t)
+	for name, c := range map[string]struct {
+		cmd  command
+		code string
+	}{
+		"hunks no file":   {command{Cmd: "diffHunks", Req: "r", ID: "p1"}, "badRequest"},
+		"hunks no id":     {command{Cmd: "diffHunks", Req: "r", File: "a.txt"}, "badRequest"},
+		"hunks no pane":   {command{Cmd: "diffHunks", Req: "r", ID: "nope", File: "a.txt"}, "noBranch"},
+		"context no file": {command{Cmd: "diffContext", Req: "r", ID: "p1"}, "badRequest"},
+		"context no pane": {command{Cmd: "diffContext", Req: "r", ID: "nope", File: "a.txt", From: 1, To: 2}, "noBranch"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			cl := &controlClient{out: make(chan []byte, 8)}
+			srv.handleCommand(cl, c.cmd)
+			m := answerOf(t, cl)
+			if m.Type != "changesResult" || m.Op != c.cmd.Cmd || m.Req != "r" || m.OK || m.Code != c.code {
+				t.Errorf("answer = %+v, want a %s refusal", m, c.code)
+			}
+		})
+	}
+	cl := &controlClient{out: make(chan []byte, 8)}
+	cl.beginRead(changesBusyDiff)
+	srv.handleCommand(cl, command{Cmd: "diffHunks", Req: "r", ID: "p1", File: "a.txt"})
+	if m := answerOf(t, cl); m.Code != "busy" {
+		t.Errorf("a second diff: %+v, want busy", m)
+	}
+}

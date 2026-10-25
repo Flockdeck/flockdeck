@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jmwri/flockdeck/internal/changes"
+	"github.com/jmwri/flockdeck/internal/tasks"
 )
 
 // The team-wide branch list (docs/changes-api.md, sections 2 and 3): changesWatch,
@@ -38,6 +39,16 @@ type changesFilesMsg struct {
 	changes.Files
 }
 
+type diffHunksMsg struct {
+	Type string `json:"type"`
+	changes.DiffHunks
+}
+
+type diffContextMsg struct {
+	Type string `json:"type"`
+	changes.DiffContext
+}
+
 // changesWatcher is a window's watch: stopping it ends its goroutine.
 type changesWatcher struct {
 	root   string
@@ -50,6 +61,8 @@ type changesWatcher struct {
 const (
 	changesBusySnapshot uint32 = 1 << iota
 	changesBusyPage
+	changesBusyDiff
+	changesBusyContext
 )
 
 // beginRead marks a read of kind bit as running for the window, and says false
@@ -109,12 +122,38 @@ func (s *Server) changesTargetOf(root string) changesTarget {
 			t.project = p.Name
 		}
 	}
+	taskOf := s.changesTasks(resolved)
 	for _, p := range panes {
 		if agents[p.ID] && p.Cwd != "" {
-			t.panes = append(t.panes, changes.PaneRef{ID: p.ID, Cwd: p.Cwd})
+			t.panes = append(t.panes, changes.PaneRef{ID: p.ID, Cwd: p.Cwd, TaskID: taskOf[p.ID]})
 		}
 	}
 	return t
+}
+
+// changesTasks maps each pane of the project to the task it is working on: the
+// newest of its tasks that is assigned, in progress or in review. Without a board
+// it is empty.
+func (s *Server) changesTasks(root string) map[string]string {
+	out := map[string]string{}
+	board, err := s.ws.TeamBoard(root)
+	if err != nil || board == nil {
+		return out
+	}
+	list, _, err := board.List(tasks.Filter{})
+	if err != nil {
+		return out
+	}
+	newest := map[string]time.Time{}
+	for _, t := range list {
+		if t.OwnerPane == "" || (t.State != tasks.Assigned && t.State != tasks.InProgress && t.State != tasks.InReview) {
+			continue
+		}
+		if at, ok := newest[t.OwnerPane]; !ok || t.Updated.After(at) || (t.Updated.Equal(at) && t.ID > out[t.OwnerPane]) {
+			newest[t.OwnerPane], out[t.OwnerPane] = t.Updated, t.ID
+		}
+	}
+	return out
 }
 
 // changesCommand answers the commands of the team-wide branch list. A window
@@ -134,6 +173,10 @@ func (s *Server) changesCommand(c *controlClient, cmd command) {
 		go s.changesSnapshot(c, cmd)
 	case "filesPage":
 		go s.changesFilesPage(c, cmd)
+	case "diffHunks":
+		go s.changesDiffHunks(c, cmd)
+	case "diffContext":
+		go s.changesDiffContext(c, cmd)
 	}
 }
 
@@ -316,4 +359,60 @@ func (s *Server) changesPaneCwd(c *controlClient, cmd command) (string, bool) {
 		return "", false
 	}
 	return cwd, true
+}
+
+// changesDiffHunks answers diffHunks.
+func (s *Server) changesDiffHunks(c *controlClient, cmd command) {
+	if !c.beginRead(changesBusyDiff) {
+		changesRefuse(c, cmd, "busy", changesBusyText)
+		return
+	}
+	defer c.endRead(changesBusyDiff)
+	if cmd.ID == "" || cmd.File == "" {
+		changesRefuse(c, cmd, "badRequest", "id and file are required")
+		return
+	}
+	cwd, ok := s.changesPaneCwd(c, cmd)
+	if !ok {
+		return
+	}
+	n := changes.DefaultContext
+	if cmd.Context != nil {
+		n = *cmd.Context
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), changesReadLimit)
+	defer cancel()
+	d, ref := changes.Diff(ctx, cmd.ID, cwd, changes.DiffRequest{File: cmd.File, Against: cmd.Against, Context: n, IgnoreWhitespace: cmd.IgnoreWhitespace})
+	if ref != nil {
+		changesRefuse(c, cmd, ref.Code, ref.Msg)
+		return
+	}
+	d.Req = cmd.Req
+	c.sendJSON(diffHunksMsg{Type: "diffHunks", DiffHunks: d})
+}
+
+// changesDiffContext answers diffContext.
+func (s *Server) changesDiffContext(c *controlClient, cmd command) {
+	if !c.beginRead(changesBusyContext) {
+		changesRefuse(c, cmd, "busy", changesBusyText)
+		return
+	}
+	defer c.endRead(changesBusyContext)
+	if cmd.ID == "" || cmd.File == "" {
+		changesRefuse(c, cmd, "badRequest", "id and file are required")
+		return
+	}
+	cwd, ok := s.changesPaneCwd(c, cmd)
+	if !ok {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), changesReadLimit)
+	defer cancel()
+	d, ref := changes.ReadContext(ctx, cmd.ID, cwd, cmd.File, cmd.Against, cmd.Side, cmd.From, cmd.To)
+	if ref != nil {
+		changesRefuse(c, cmd, ref.Code, ref.Msg)
+		return
+	}
+	d.Req = cmd.Req
+	c.sendJSON(diffContextMsg{Type: "diffContext", DiffContext: d})
 }

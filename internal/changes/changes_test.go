@@ -41,6 +41,7 @@ func repo(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
 	runGit(t, dir, "init", "-q", "-b", "main")
+	runGit(t, dir, "config", "core.autocrlf", "false")
 	write(t, dir, "a.txt", "one\ntwo\nthree\n")
 	write(t, dir, "b.txt", "keep\n")
 	write(t, dir, "old.txt", strings.Repeat("line of a file to rename\n", 20))

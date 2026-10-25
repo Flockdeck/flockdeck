@@ -4,6 +4,7 @@
   "pane": "5dc771c1",
   "path": "docs/limits.png",
   "against": "merge-base",
+  "headSha": "a1b2c3d4e5f60718293a4b5c6d7e8f9012345678",
   "binary": true,
   "sizeBefore": 48210,
   "sizeAfter": 51377,

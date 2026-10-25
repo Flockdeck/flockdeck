@@ -20,7 +20,7 @@ var changesCommands = []string{
 
 // changesBuilt are the commands of the contract the server answers; the rest are
 // refused by changesPlanned. A command moves here in the change that builds it.
-var changesBuilt = []string{"changesWatch", "changesUnwatch", "changesSnapshot", "filesPage"}
+var changesBuilt = []string{"changesWatch", "changesUnwatch", "changesSnapshot", "filesPage", "diffHunks", "diffContext"}
 
 // changesCaps are the names the hello's api.caps will list as the parts are built.
 // A cap is added in the change that builds what it names, and is not offered to a
@@ -28,7 +28,7 @@ var changesBuilt = []string{"changesWatch", "changesUnwatch", "changesSnapshot",
 var changesCaps = []string{"changesTeam", "changesDiff", "changesComments", "changesChecks", "changesGate"}
 
 // changesMessages are the messages of the contract the server does not send yet.
-var changesMessages = []string{"diffHunks", "diffContext"}
+var changesMessages = []string{}
 
 // changesCapsFor is the caps of the contract a window is told of: none for a
 // window through the relay, which is refused all of it.

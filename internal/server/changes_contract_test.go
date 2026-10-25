@@ -158,7 +158,7 @@ func TestChangesDocumentNamesEverything(t *testing.T) {
 		t.Fatal(err)
 	}
 	doc := string(raw)
-	for _, n := range slices.Concat(changesCommands, changesCaps, changesMessages, []string{"changesResult", "changesTeam", "changesFiles"}) {
+	for _, n := range slices.Concat(changesCommands, changesCaps, changesMessages, []string{"changesResult", "changesTeam", "changesFiles", "diffHunks", "diffContext"}) {
 		if !strings.Contains(doc, "`"+n+"`") {
 			t.Errorf("docs/changes-api.md does not name `%s`", n)
 		}
@@ -203,7 +203,7 @@ func TestChangesDocumentNamesEverything(t *testing.T) {
 
 // No cap of the contract is listed until it is built.
 func TestChangesCapsAreNotListedYet(t *testing.T) {
-	built := []string{"changesTeam"}
+	built := []string{"changesTeam", "changesDiff"}
 	for _, n := range changesCaps {
 		if slices.Contains(apiCaps, n) != slices.Contains(built, n) {
 			t.Errorf("api.caps and what is built disagree about %s", n)

@@ -140,6 +140,7 @@ var relayDeskOnly = map[string]string{
 	"paneInfo": "refused to a relay window", "paneMatches": "refused to a relay window", "paneSend": "refused to a relay window",
 	"noticeWithdraw": "an approval for windows on this machine only",
 	"changesTeam":    "the changes view is refused to a relay window", "changesFiles": "the changes view is refused to a relay window",
+	"diffHunks": "the changes view is refused to a relay window", "diffContext": "the changes view is refused to a relay window",
 }
 
 // messageType reads the type of a marshalled message. Every message here is a

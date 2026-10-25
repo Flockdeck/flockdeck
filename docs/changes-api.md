@@ -156,11 +156,21 @@ find `changesDiff` in the caps keeps using it.
 - `totalLines` counts the whole diff. When the diff is cut, `hunks` holds the
   first lines and `truncated` says how many lines and bytes it kept. The limits
   are 5000 lines and 1 MiB.
+- `headSha` is the commit the branch's HEAD was on when the diff was made, and
+  `worktree` is true when the new side is the working tree and the file differs
+  there from that commit, so the diff holds uncommitted changes. A comment written
+  on this diff takes `headSha` as its `atSha`; when `worktree` is set its new-side
+  line numbers are the working tree's, which the head may not have. `worktree` is
+  never set for `against` `head`.
 - A binary file has `binary`, `sizeBefore`, `sizeAfter` and no hunks. A rename
   has `oldPath`. `eolChange` means the line endings changed; if that is the only
   change there are no hunks.
 - `diffContext` returns the unchanged lines between two hunks, or after the last
-  one, on one side: at most 200 at a time, and `eof` says the file ended.
+  one, on one side: at most 200 at a time, and `eof` says the file ended. Each
+  line carries the number of the side asked for (`oldNo` for `old`, `newNo` for
+  `new`).
+- A diff whose text git writes past 16 MiB is an `error`, "the diff is too
+  large to read". Past 5000 lines or 1 MiB of text it is cut as above.
 - An `error` replaces everything but `type`, `req`, `pane` and `path`.
 - The path is checked before git or the disk is touched. It must be one of the
   branch's listed files (a renamed file by either of its paths), is cleaned, and
@@ -169,6 +179,18 @@ find `changesDiff` in the caps keeps using it.
   link (its target text), never followed, so a link pointing outside the
   checkout shows the path it points to and nothing from there. `diffContext`
   reads the same way.
+- A read of the working tree is refused as `badRequest` when a directory above
+  the file is a symbolic link or a junction, even one that stays inside the
+  checkout (a link to `.git`, say). Limits of that check:
+  - git, not Flockdeck, reads the working tree for `diffHunks`. The check is made
+    before git runs and again after, and the output is dropped if a directory was
+    swapped in between. A process that can write inside the checkout can still
+    swap one while git runs and not be noticed if it swaps it back.
+  - A Windows reparse point that is not a symbolic link or junction, such as a
+    OneDrive placeholder, is refused too, with the same message, which is wrong
+    for that case.
+  - A hard link to a file outside the checkout reads as a regular file of the
+    checkout. A hard link cannot be told from the file itself.
 
 ## 5. Comments
 

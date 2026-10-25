@@ -324,14 +324,14 @@
     {
       "name": "diffContext",
       "access": "full",
-      "since": "1.3",
-      "status": "planned"
+      "since": "1.5",
+      "status": "stable"
     },
     {
       "name": "diffHunks",
       "access": "full",
-      "since": "1.3",
-      "status": "planned"
+      "since": "1.5",
+      "status": "stable"
     },
     {
       "name": "dismissTip",
@@ -1461,16 +1461,16 @@
     {
       "name": "diffContext",
       "relay": "deskOnly",
-      "why": "the changes view is refused to a relay window (docs/changes-api.md, section 9)",
-      "since": "1.3",
-      "status": "planned"
+      "why": "the changes view is refused to a relay window",
+      "since": "1.5",
+      "status": "stable"
     },
     {
       "name": "diffHunks",
       "relay": "deskOnly",
-      "why": "the changes view is refused to a relay window (docs/changes-api.md, section 9)",
-      "since": "1.3",
-      "status": "planned"
+      "why": "the changes view is refused to a relay window",
+      "since": "1.5",
+      "status": "stable"
     },
     {
       "name": "ghChecks",

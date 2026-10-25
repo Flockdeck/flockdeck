@@ -464,6 +464,8 @@ func git(ctx context.Context, dir string, args ...string) (string, error) {
 	}
 	ctx, cancel := context.WithTimeout(ctx, 25*time.Second)
 	defer cancel()
+	// A path is a path and not a pattern: a file named "*.go" or ":(top)x" is that file.
+	args = append([]string{"--literal-pathspecs"}, args...)
 	return gitx.ReadOnlyCapped(ctx, dir, maxGitOutput, args...)
 }
 
