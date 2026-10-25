@@ -174,8 +174,7 @@
   max-width: 100%;
   margin: 8px 0 10px;
   padding: 2px;
-  overflow-x: auto;
-  scrollbar-width: thin;
+  flex-wrap: wrap;
   background: var(--bg-inset);
   border: 1px solid var(--line-subtle);
   border-radius: var(--radius);
@@ -226,7 +225,7 @@
 /* Phone width: the view switch wraps to a second line instead of scrolling, and the
    goal tabs keep scrolling without a bar of their own. Neither makes the page wider. */
 @media (max-width: 640px) {
-  .viewbar { display: grid; grid-template-columns: repeat(3, 1fr); width: auto; overflow-x: visible; }
+  .viewbar { display: grid; grid-template-columns: repeat(3, 1fr); width: auto; }
   .tabs-view { text-align: center; }
   .goaltabs-list { scrollbar-width: none; }
   .goaltabs-list::-webkit-scrollbar { display: none; }
