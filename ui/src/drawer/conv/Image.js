@@ -46,7 +46,8 @@ export function imageWords(e) {
 /** ImageBody is what an opened image row shows: the picture, or why not. */
 export function ImageBody({ entry: e, detail }) {
   const [big, setBig] = useState(false);
-  if (!detail) return null;
+  // No detail yet is an empty region, not nothing: the words of the first state then arrive as a change.
+  if (!detail) return html`<p class="conv-detail-state" role="status"></p>`;
   const data = detail.detail && typeof detail.detail.data === "string" ? detail.detail.data : "";
   const src = detail.state === "loading" || detail.state === "gone" ? "" : imageSrc(e.mediaType, data);
   const tooBig = !!src && decodedBytes(data) > MAX_IMAGE_BYTES;

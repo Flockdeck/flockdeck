@@ -142,6 +142,17 @@ test("push, pull and fetch go to the store, and are disabled while an action is 
   assert.equal((out.match(/disabled/g) || []).length >= 5, true, "buttons were live while a push ran");
 });
 
+test("the busy status region stays in the page and changes its words in place", () =>
+  mount({ changes: ch() }, async (box, st, again) => {
+    const region = box.querySelector(".chg-busy");
+    assert.ok(region, "no region while nothing is out");
+    assert.equal(region.textContent, "");
+    again({ changes: ch(), changesBusy: "push" });
+    await settle();
+    assert.equal(box.querySelector(".chg-busy"), region, "the region was replaced");
+    assert.ok(region.textContent.includes("Working: push"));
+  }));
+
 test("a tree with no remote offers no push, pull or commit and push", () => {
   const out = draw({ changes: ch({ hasRemote: false }) });
   assert.ok(!out.includes("chg-push") && !out.includes("chg-commit-push"));

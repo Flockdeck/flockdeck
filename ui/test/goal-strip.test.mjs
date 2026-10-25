@@ -226,19 +226,19 @@ test("the + menu: Home and End go to the first and last item, Tab closes it", ()
     assert.equal(m.container.find(".tabs-menu"), null, "Tab left the menu open");
   }));
 
-test("archiving the last goal leaves focus on a tab, not on the page body", () =>
+test("archiving a middle goal puts focus on its neighbouring tab", () =>
   withPage({}, async (m) => {
     await m.connect();
     const doc = m.container.ownerDocument;
-    const plus = () => m.container.find(".tabs-plus");
-    // Archive both goals: the last one has Solo as a neighbour, so go until only Solo is left.
+    assert.deepEqual(m.ids(), [ONE, TWO, "solo"]);
     await m.click(m.tabs()[0].find(".tab-close"));
     await settle();
+    assert.deepEqual(m.ids(), [TWO, "solo"]);
+    assert.equal(doc.activeElement, m.tabs()[0].find('[role="tab"]'), "focus did not go to the tab that took its place");
     await m.click(m.tabs()[0].find(".tab-close"));
     await settle();
     assert.deepEqual(m.ids(), ["solo"]);
-    assert.ok(doc.activeElement, "focus fell to nothing");
-    assert.notEqual(doc.activeElement, doc.body);
+    assert.equal(doc.activeElement, m.tabs()[0].find('[role="tab"]'), "focus did not go to Solo, the last tab");
   }));
 
 test("a name and an order kept in the preferences are used", () =>

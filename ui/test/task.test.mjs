@@ -81,6 +81,23 @@ test("a remote window shows the chip only and asks for nothing", () => mount(asy
   assert.ok(!out.includes("secret text"), "task text was drawn in a remote window");
 }));
 
+test("the loading status region stays in the page and changes its words in place", () => mount(async (box) => {
+  const st = fakeTaskStore();
+  const draw2 = (snap) => render(html`<${Task} node=${node()} snap=${snap} store=${st} onClose=${() => {}} />`, box);
+  draw2({ taskDetail: null });
+  await settle();
+  const region = box.querySelector(".task-empty");
+  assert.ok(region, "no region before the answer");
+  draw2({ taskDetail: { id: "T9", req: "t1", state: "loading", task: null, error: "" } });
+  await settle();
+  assert.equal(box.querySelector(".task-empty"), region, "the region was replaced");
+  assert.ok(region.textContent.length > 0);
+  draw2(ok(view()));
+  await settle();
+  assert.equal(box.querySelector(".task-empty"), region);
+  assert.equal(region.textContent, "");
+}));
+
 test("the desk asks for the task on opening and lets go on closing", () => mount(async (box) => {
   const st = fakeTaskStore();
   render(html`<${Task} node=${node()} snap=${{ taskDetail: null }} store=${st} onClose=${() => {}} />`, box);
