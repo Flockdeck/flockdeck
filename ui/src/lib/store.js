@@ -255,6 +255,9 @@ const GRAPH_OPS = new Set(["graphSnapshot", "graphWatch", "graphUnwatch"]);
 const TEAM_COMMANDS = ["teamSnapshot", "teamWatch", "teamUnwatch", "taskList", "taskGet", "taskAdd", "taskAssign", "taskStatus", "taskNote", "taskBranch", "taskPrune", "msgList", "msgSend", "msgSeen", "teamClose"];
 const TEAM_OPS = new Set(TEAM_COMMANDS.filter((c) => c !== "teamWatch" && c !== "teamUnwatch"));
 
+/** LOAD_MS is how long a request for older messages, an entry's detail or a search is waited on before it is given up. */
+const LOAD_MS = 20000;
+
 /** RESULTS_KEPT is how many answers to the Changes view's commands changesTeamResults holds. */
 const RESULTS_KEPT = 50;
 /** CHANGES_TEAM_COMMANDS are the team-wide Changes view's (docs/changes-api.md): the watch, the files and the diffs, comments, checks, reviews and the merge gate. All are the desk's. */
@@ -342,6 +345,20 @@ export function createStore(opts) {
   let watchingPane = null;
   // The pane whose conversation is open, or null.
   let watchingConv = null;
+  // The open of the conversation has been sent and its page has not come: the answer has no request id, so an older
+  // page asked for now would take it for the page before the entries held.
+  let convOpenOut = false;
+  let loadSeq = 0;
+  /** guardLoad ends a load that has had no answer (a request the desk dropped or refused on a live connection) after LOAD_MS: fail(token) says whether it is still the one waited on, and gives it up. */
+  const guardLoad = (stillWaiting, giveUp) => {
+    const at = ++loadSeq;
+    const t = setTimeout(() => { if (stillWaiting(at)) giveUp(); }, LOAD_MS);
+    if (t && typeof t.unref === "function") t.unref();
+    return at;
+  };
+  let olderTok = 0;
+  let searchTok = 0;
+  const detailTok = new Map();
   // The permission cards an answer was sent for, so a second view of one cannot send another.
   const askedCards = new Set();
   const cardKey = (c) => [c.id, c.cardSeq, c.requestId].map((p) => String(p == null ? "" : p)).join("");
@@ -412,7 +429,8 @@ export function createStore(opts) {
     const cmd = { cmd: "conversationOpen", id: watchingConv };
     // After a reconnect the desktop is asked only for what came since.
     if (c && c.entries.length > 0) cmd.after = c.entries[c.entries.length - 1].id;
-    return socket.send(cmd);
+    convOpenOut = socket.send(cmd);
+    return convOpenOut;
   }
 
   // A watch goes out only with the hello, and never in a remote window, so an unwatch
@@ -463,7 +481,15 @@ export function createStore(opts) {
           sendConversationOpen();
           if (!remote) {
             for (const entry of Object.keys(snap.details)) if (snap.details[entry].state === "loading") socket.send({ cmd: "conversationDetail", id: watchingConv, entry });
-            if (snap.search && snap.search.state === "loading") socket.send({ cmd: "conversationSearch", id: watchingConv, q: snap.search.q });
+            // A search that was done on the connection that has gone is asked again: the conversation may have grown.
+            if (snap.search && snap.search.q) {
+              if (snap.search.state !== "loading") set({ search: { q: snap.search.q, state: "loading", matches: [], more: false } });
+              socket.send({ cmd: "conversationSearch", id: watchingConv, q: snap.search.q });
+              const id = watchingConv;
+              const tok = ++searchTok;
+              guardLoad(() => searchTok === tok && watchingConv === id && !!snap.search && snap.search.state === "loading",
+                () => set({ search: { ...snap.search, state: "done", matches: [], more: false, failed: true } }));
+            }
           }
         }
         break;
@@ -641,6 +667,7 @@ export function createStore(opts) {
       case "conversationPage": {
         const c = snap.conversation;
         if (watchingConv === null || msg.id !== watchingConv || !c) break;
+        convOpenOut = false;
         if (msg.supported !== true) {
           set({ conversation: { ...c, supported: false, entries: [], atStart: true, older: "idle", refused: "" } });
           break;
@@ -971,6 +998,7 @@ export function createStore(opts) {
       if (!id || watchingConv === id) return false;
       if (watchingConv !== null && snap.hello) socket.send({ cmd: "conversationClose", id: watchingConv });
       watchingConv = id;
+      convOpenOut = false;
       set({ conversation: { id, supported: null, entries: [], atStart: false, older: "idle", refused: "" }, details: nullMap(), search: null });
       if (snap.hello) sendConversationOpen();
       return true;
@@ -980,8 +1008,14 @@ export function createStore(opts) {
     olderConversation() {
       const c = snap.conversation;
       if (watchingConv === null || !c || c.supported !== true || c.atStart || c.older === "loading" || c.entries.length === 0) return false;
+      // Until the open's page has come, an older page's answer could not be told from it.
+      if (convOpenOut) return false;
       if (!socket.send({ cmd: "conversationOlder", id: watchingConv, before: c.entries[0].id })) return false;
       set({ conversation: { ...c, older: "loading" } });
+      const id = watchingConv;
+      const tok = ++olderTok;
+      guardLoad(() => olderTok === tok && watchingConv === id && !!snap.conversation && snap.conversation.older === "loading",
+        () => set({ conversation: { ...snap.conversation, older: "idle" } }));
       return true;
     },
     /** requestDetail asks for the full body of one entry of the open conversation:
@@ -1000,6 +1034,15 @@ export function createStore(opts) {
       while (keys.length >= MAX_DETAILS) delete items[keys.shift()];
       Object.defineProperty(items, entry, { value: { state: "loading", n: ++detailSeq }, enumerable: true, writable: true, configurable: true });
       set({ details: items });
+      const id = watchingConv;
+      const tok = ++loadSeq;
+      detailTok.set(entry, tok);
+      guardLoad(() => watchingConv === id && detailTok.get(entry) === tok && !!snap.details[entry] && snap.details[entry].state === "loading",
+        () => {
+          const now = nullMap(snap.details);
+          Object.defineProperty(now, entry, { value: { ...snap.details[entry], state: "gone" }, enumerable: true, writable: true, configurable: true });
+          set({ details: now });
+        });
       return true;
     },
     /** requestTask asks the desktop for one task of the project on screen: its
@@ -1094,6 +1137,10 @@ export function createStore(opts) {
       }
       if (watchingConv === null || snap.remote || !socket.send({ cmd: "conversationSearch", id: watchingConv, q: text })) return false;
       set({ search: { q: text, state: "loading", matches: [], more: false } });
+      const id = watchingConv;
+      const tok = ++searchTok;
+      guardLoad(() => searchTok === tok && watchingConv === id && !!snap.search && snap.search.state === "loading",
+        () => set({ search: { ...snap.search, state: "done", matches: [], more: false, failed: true } }));
       return true;
     },
     clearSearch() {
@@ -1103,6 +1150,7 @@ export function createStore(opts) {
       if (watchingConv === null) return;
       const was = watchingConv;
       watchingConv = null;
+      convOpenOut = false;
       if (snap.hello) socket.send({ cmd: "conversationClose", id: was });
       set({ conversation: null, details: nullMap(), search: null });
     },
