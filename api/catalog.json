@@ -1398,7 +1398,8 @@
     },
     {
       "name": "changesChecks",
-      "relay": "scrub",
+      "relay": "deskOnly",
+      "why": "the commands of a check file are for the person at the desk, and confirmChecks is refused to a relay window",
       "since": "1.8",
       "status": "stable"
     },
