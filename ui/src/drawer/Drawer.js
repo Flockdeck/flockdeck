@@ -88,7 +88,7 @@ export function hasTerminal(node, pane) {
 /** Drawer is the component. store is the store of store.js; node and pane are the
  *  graph node and the state push's entry for it. terminalOptions reach the
  *  terminal, which is how a test gives it fakes for xterm and the socket. */
-function DrawerBody({ store, snap = null, node, pane = null, now, maximised = false, onClose, onToggleMax, onOpenPane = null, terminalOptions = null, life = null, tx = null, onInfo = null, findAsk = 0, tabAsk = null, order = [], onStartTeam = null, helpers = [], layout = "side", onLayout = null, team = null }) {
+function DrawerBody({ store, snap = null, node, pane = null, now, maximised = false, onClose, onToggleMax, onOpenPane = null, terminalOptions = null, life = null, tx = null, onInfo = null, findAsk = 0, tabAsk = null, order = [], onStartTeam = null, helpers = [], layout = "side", onLayout = null, team = null, onBox = null }) {
   const rootRef = useRef(null);
   const terminalRef = useRef(null);
   // The terminal's controller once it is made, for the search bar, and the search
@@ -197,6 +197,13 @@ function DrawerBody({ store, snap = null, node, pane = null, now, maximised = fa
   // tab's id stays the same so the keys and asks that name it still reach it.
   const tabs = ["terminal"].concat(hasConv ? ["conversation"] : [], hasChanges ? ["changes"] : []);
   const shown = tabs.includes(tab) ? tab : "terminal";
+  // Whether the Conversation tab shows its own message box, so the page can drop the home bar for the same manager.
+  const hasBox = hasConv && shown === "conversation" && terminal && !state.remote && !isViewer(state) && !node.shell;
+  useEffect(() => {
+    if (!onBox) return undefined;
+    onBox(hasBox ? node.pane : "");
+    return () => onBox("");
+  }, [hasBox, node.pane]);
   const tabRefs = useRef({});
   const tabKeys = (e) => {
     if (tabs.length < 2 || (e.key !== "ArrowLeft" && e.key !== "ArrowRight") || e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return;

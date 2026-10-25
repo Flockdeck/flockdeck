@@ -510,6 +510,8 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
   // count. Before any graph there is no bar, so "no manager" is not said while
   // the graph is still being read.
   const barRef = useRef(null);
+  // The pane whose Conversation tab shows its own message box: for the manager, that box is the bar, so the bar steps aside.
+  const [boxPane, setBoxPane] = useState("");
   // The feed is for a team with a manager, and gives its place to the drawer while that is open.
   const showFeed = !!current && !snap.graphGone && !node && current.teams.length > 0;
   // What the outline's decision blocks answer with. A relayed view has no store to answer with.
@@ -524,7 +526,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
         onRestart: snap.remote || viewer ? null : (p) => { const n = current.byPane.get(p); if (n) life.begin("restart", n, (statePanes || {})[p] || null); },
       }
     : null;
-  const bar = current && !snap.graphGone && managerOf(current)
+  const bar = current && !snap.graphGone && managerOf(current) && managerOf(current).pane !== boxPane
     ? html`<${ManagerBar} snap=${snap} manager=${managerOf(current)} send=${(c) => store.send(c)} inputRef=${barRef} lead=${true} />`
     : null;
 
@@ -599,7 +601,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     nextNeedsYou: () => jumpNeedsYou(nextNeedsYou),
     prevNeedsYou: () => jumpNeedsYou(prevNeedsYou),
     managerBar: () => {
-      const el = barRef.current;
+      const el = barRef.current || (boxPane && page && page.document ? page.document.querySelector("#drawer-panel-conversation .structured-input") : null);
       if (el && el.focus) el.focus();
     },
     settings: () => openSettings("general"),
@@ -762,7 +764,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     drawer=${node
       ? html`<${Drawer} store=${store} snap=${snap} node=${node} pane=${pane} now=${Date.now()} maximised=${drawer.maximised}
           onClose=${drawer.close} onToggleMax=${drawer.toggleMax} terminalOptions=${termProps} life=${viewer ? null : life}
-          tx=${tx} onInfo=${openInfo} findAsk=${findAsk} tabAsk=${tabAsk} onOpenPane=${drawer.open} order=${order} helpers=${helperNames} layout=${orient} onLayout=${toggleLayout} team=${current ? { model: current, events: feed ? feed.entries : [] } : null} onStartTeam=${snap.remote || viewer ? null : () => setStarting("team")} />`
+          tx=${tx} onInfo=${openInfo} findAsk=${findAsk} tabAsk=${tabAsk} onOpenPane=${drawer.open} order=${order} helpers=${helperNames} layout=${orient} onLayout=${toggleLayout} onBox=${setBoxPane} team=${current ? { model: current, events: feed ? feed.entries : [] } : null} onStartTeam=${snap.remote || viewer ? null : () => setStarting("team")} />`
       : null}
   >${snap.state
       ? html`<${GoalStrip} tabs=${goal.tabs} archived=${goal.archived} active=${activeTab} onSelect=${showTab}

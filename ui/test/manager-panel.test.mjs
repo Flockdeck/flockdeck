@@ -57,4 +57,28 @@ test("copied text for mail and events", () => {
 test("a mail or event row with missing fields draws without throwing", () => {
   assert.match(renderToString(html`<${Row} entry=${{ id: "m:2", kind: "mail" }} />`), /From an agent/);
   assert.doesNotThrow(() => renderToString(html`<${Row} entry=${{ id: "e:2", kind: "event" }} />`));
+
+test("the drawer says when its own message box is showing, so the home bar can step aside", async () => {
+  const { createDom, install, settle } = await import("./dom.mjs");
+  const { render } = await import("../src/vendor/preact.mjs");
+  const dom = createDom();
+  const restore = install(dom);
+  try {
+    const box = dom.document.createElement("div");
+    dom.body.appendChild(box);
+    const st = fakeStore({ hello: { type: "hello" }, conversation: conv("m"), state: paneState({ m: {} }) });
+    const node = { pane: "m", kind: "terminal", structured: false, name: "mgr", role: "manager", agent: "claude", shell: false, status: "working", activity: "working", since: "2026-10-25T09:00:00Z" };
+    const seen = [];
+    render(html`<${Drawer} store=${st} node=${node} now=${NOW} team=${{ model, events: [] }} onBox=${(p) => seen.push(p)} />`, box);
+    await settle();
+    assert.equal(seen[seen.length - 1], "", "the terminal tab has no box");
+    box.querySelector("#drawer-tab-conversation").click();
+    await settle();
+    assert.equal(seen[seen.length - 1], "m");
+    render(null, box);
+    await settle();
+    assert.equal(seen[seen.length - 1], "", "closing the drawer gives the bar back");
+  } finally {
+    restore();
+  }
 });
