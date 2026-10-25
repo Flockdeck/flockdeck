@@ -508,7 +508,8 @@ async function secondCheck(browser, url, ex, rate) {
   const way = async (label, how) => {
     const { page, ok } = await load(browser, url, ex.graph.nodes.length, rate);
     if (!ok) { out[label] = { error: "the page did not draw" }; await page.close(); return; }
-    await sleep(300);
+    // The rows are drawn before the page's handlers are all in on a slow machine; a click in that gap does nothing.
+    await sleep(rate > 1 ? 1200 : 400);
     // Marks the time of the pointer or key event, and the first moment the text is in the drawer.
     await page.eval(`(() => {
       window.__t = { down: null, shown: null };
