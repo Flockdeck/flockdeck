@@ -80,7 +80,7 @@ var agentTypeExempt = map[string]string{
 	"internal/workspace/panekind.go":         "terminalRuntime, the terminal's implementation of PaneRuntime. Unguarded: TerminalPermissionOptions compares the agent id with \"claude\"",
 	"internal/workspace/structuredpane.go":   "structuredRuntime, the structured implementation of PaneRuntime, and its start. Unguarded: it reads the pane's session to start",
 	"internal/workspace/team.go":             "idle and exit notes read off a pane's session",
-	"internal/workspace/claudestate.go":      "reads Claude Code's own session file for a Claude terminal pane and checks the pane's session against it; nothing else names the agent",
+	"internal/workspace/claudestate.go":      "reads Claude Code's own session file for a Claude terminal pane and checks the pane's session against it, and supplies the typed wake's idle word; nothing else names the agent",
 }
 
 // agentTypeFiles are the files to scan: every non-test Go file of the packages

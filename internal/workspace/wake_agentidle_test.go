@@ -196,6 +196,11 @@ func TestAWakeIsDroppedIfTheAgentGoesBusyBeforeTheLine(t *testing.T) {
 func TestNoEnterIsSentIfThePaneChangesAfterTheLine(t *testing.T) {
 	cases := map[string]func(r *wakeRig, w *agentWord){
 		"agent went busy": func(r *wakeRig, w *agentWord) { w.mu.Lock(); w.word.Idle = false; w.mu.Unlock() },
+		"idle began again": func(r *wakeRig, w *agentWord) {
+			w.mu.Lock()
+			w.word.Since = w.word.Since.Add(2 * time.Second)
+			w.mu.Unlock()
+		},
 		"another idle record": func(r *wakeRig, w *agentWord) {
 			w.mu.Lock()
 			w.word.Since = w.word.Since.Add(time.Second)

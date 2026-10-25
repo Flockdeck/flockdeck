@@ -458,9 +458,11 @@ inbox itself are in [The command line](#cli).
 An idle Claude Code pane is woken from Claude's own record of its state, the `sessions/<pid>.json` file
 it keeps in its config folder: only when that file is the one for the pane's own process and
 conversation and says the agent has been idle for five seconds, nobody has pressed a key in the
-pane since, and the pane's own status is idle. The line is still the fixed sentence. Anyone who can write
-to that folder can forge an idle record, which gets the pane at most that one line while it has
-unread mail and every other condition and limit holds.
+pane since, the pane's own status is idle, the pane's hooks have reported, and its output has
+not changed for five seconds. The line is still the fixed sentence. Anyone who can write
+to that folder can forge an idle record, which gets the pane at most one line a minute, and three
+in a row until the agent reads its mail, while it has unread mail and every other condition and
+limit holds.
 
 The built-in roles say when to use messages: the manager writes to the agents it started to
 answer a question or change a task, and planners, workers, reviewers, testers and docs agents

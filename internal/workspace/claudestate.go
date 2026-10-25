@@ -39,9 +39,12 @@ const (
 //
 // The pane's own process id is the key: Flockdeck starts claude directly (on
 // Windows claude.exe is the child of flockdeck.exe, checked on a launched pane),
-// so Session.Pid is the pid Claude Code names its file after. A file is used only
-// when it is also the pane's conversation and the process that started when the
-// file says it did.
+// so Session.Pid is the pid Claude Code names its file after. The typed wake uses a
+// file only when it is the pane's own (ownEntry): its conversation, and the
+// process that started when the file says it did where the file gives a start time
+// and the platform reports one, otherwise a last change not before the session
+// began, less 30 s. The status reconcile may also use a file found by conversation
+// alone, since the hooks' newer word still beats it.
 type claudeStateService struct {
 	// panes is the live Claude panes: the session, its conversation id.
 	panes func() []claudeStatePane

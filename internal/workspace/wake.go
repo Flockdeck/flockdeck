@@ -26,8 +26,9 @@ import (
 //
 // Three off switches (global, per agent type, per pane) are kept in the
 // preferences and read through WakeSettings. Everything is on until one is
-// switched off, and still only for an agent whose rule is tested, or a structured
-// pane.
+// switched off, and still only for an agent whose rule is tested, a structured
+// pane, or a Claude pane whose own session file says it is idle (AgentWord), which
+// needs no screen rule.
 
 // Conditions and limits. All conditions must hold.
 const (
