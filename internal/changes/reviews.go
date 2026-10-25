@@ -141,11 +141,14 @@ func keepBadCopy(path string, data []byte) string {
 // CleanNote keeps the line breaks and tabs of a note and drops every other
 // control, format and line or paragraph separator character, then cuts it to
 // MaxNote characters.
-func CleanNote(s string) string {
+func CleanNote(s string) string { return CleanText(s, MaxNote) }
+
+// CleanText is CleanNote with a limit of max characters.
+func CleanText(s string, max int) string {
 	var b strings.Builder
 	n := 0
 	for _, r := range s {
-		if n >= MaxNote {
+		if n >= max {
 			break
 		}
 		if r != '\n' && r != '\t' && (unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || unicode.Is(unicode.Zl, r) || unicode.Is(unicode.Zp, r)) {
@@ -164,6 +167,12 @@ func (s ReviewState) Save(path string) error {
 	if err != nil {
 		return err
 	}
+	return writeAtomic(path, data)
+}
+
+// writeAtomic writes data to path through a temporary file in the same directory
+// and a rename over the old file.
+func writeAtomic(path string, data []byte) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}

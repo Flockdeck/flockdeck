@@ -56,7 +56,7 @@ type Branch struct {
 	Omitted     int         `json:"omitted,omitempty"`
 	Checks      *[]Check    `json:"checks,omitempty"`
 	Reviews     *[]Review   `json:"reviews,omitempty"`
-	Comments    *[]struct{} `json:"comments,omitempty"`
+	Comments    *[]Comment  `json:"comments,omitempty"`
 	Error       string      `json:"error,omitempty"`
 
 	// all is every file when Files was cut to the limit, for the conflict check and
