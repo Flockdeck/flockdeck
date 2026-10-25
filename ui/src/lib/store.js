@@ -171,7 +171,7 @@ import { createSocket } from "./socket.js";
 import { clientHello, mismatchNotice, unsupportedNotice } from "./apiversion.js";
 import { mergeKeys, readsKeyFiles } from "./keytable.js";
 import { changesTeamOf, isStale, sameRoot } from "./changesteam.js";
-import { applyReply, readOf, MAX_READS } from "./changesdiffs.js";
+import { applyReply, readOf, readKey, statOf, touch, dropDiffs, pruneDiffs, dropErrors, diffKey, MAX_READS } from "./changesdiffs.js";
 
 /** DESK_ONLY_CODE is the code the desktop puts on the refusal it gives a window
  *  reached through the relay (internal/server/teamui.go, teamDeskOnlyCode).
@@ -444,7 +444,7 @@ export function createStore(opts) {
         const remote = !!msg.remote;
         // A new hello starts the connection over. What a graph command
         // refused before is tried again unless this window is remote.
-        set({ hello: msg, remote, graphRefused: remote, graphError: null, radar: null, session: ++sessionSeq });
+        set({ hello: msg, remote, graphRefused: remote, graphError: null, radar: null, session: ++sessionSeq, changesDiffs: dropErrors(snap.changesDiffs) });
         // A server that offers the key table as keys.json plus changes is read that way.
         if (readsKeyFiles(msg)) keysFromFiles();
         // Tell the desktop which API this page speaks; it answers only if they do not match.
@@ -504,7 +504,8 @@ export function createStore(opts) {
           // Only the project that is watched ("" is the one on screen, whose root cannot be compared).
           if (next && (watchingChanges === "" || sameRoot(next.root, watchingChanges)) && (changesFresh || !isStale(snap.changesTeam, next))) {
             changesFresh = false;
-            set({ changesTeam: next, changesTeamGone: null });
+            // The diffs of a branch that has left the listing are not kept.
+            set({ changesTeam: next, changesTeamGone: null, changesDiffs: pruneDiffs(snap.changesDiffs, next.branches.map((b) => b.pane)) });
           }
         }
         break;
@@ -905,16 +906,37 @@ export function createStore(opts) {
     },
     /** readChangesDiff asks for a file's diff (diffHunks) or the unchanged lines between two hunks (diffContext;
      *  gap is the gap they are for). The answer is kept in changesDiffs under the pane and path, with drawnSha, the
-     *  head of the branch listing at the moment of asking (the reply carries none). Returns the req, or "" when
-     *  nothing was sent. */
+     *  head of the branch listing at the moment of asking (the reply carries none, unless the desk adds one). Nothing is
+     *  read for a branch the listing does not have. Returns the req (the one already out, for the same thing), or ""
+     *  when nothing was sent. */
     readChangesDiff(fields, gap = "") {
       if (!fields || (fields.cmd !== "diffHunks" && fields.cmd !== "diffContext") || snap.remote || !snap.hello || watchingChanges === null) return "";
-      if (changesReads.size >= MAX_READS) return "";
+      // Nothing is read for a branch the listing does not have: there is no head to say the diff was read at.
       const b = snap.changesTeam ? snap.changesTeam.branches.find((x) => x.pane === fields.id) : null;
+      if (!b || !b.headSha) return "";
+      const file = b.files.find((f) => f.path === fields.file);
+      const entry = snap.changesDiffs[diffKey(fields.id, fields.file)];
+      if (fields.cmd === "diffContext" && !entry) return "";
+      const read = readOf(fields, b.headSha, gap, statOf(file), entry ? entry.seq : 0);
+      // One read of the same thing is waited on at a time: a second ask gets the first one's req.
+      const key = readKey(read);
+      for (const [req, r] of changesReads) if (readKey(r) === key) return req;
+      if (changesReads.size >= MAX_READS) return "";
       const req = "r" + ++reqSeq;
       if (!socket.send({ ...fields, req })) return "";
-      changesReads.set(req, readOf(fields, b ? b.headSha : "", gap));
+      changesReads.set(req, read);
       return req;
+    },
+    /** touchChangesDiff marks a held diff as used now, so it is the last to be dropped for room. */
+    touchChangesDiff(pane, path) {
+      const next = touch(snap.changesDiffs, pane, path, ++changesDiffSeq);
+      if (next !== snap.changesDiffs) set({ changesDiffs: next });
+    },
+    /** dropChangesDiffs lets go of a branch's held diffs (or one file's), and of the reads still out for them. */
+    dropChangesDiffs(pane, path = null) {
+      for (const [req, r] of changesReads) if (r.pane === pane && (path === null || r.path === path)) changesReads.delete(req);
+      const next = dropDiffs(snap.changesDiffs, pane, path);
+      if (next !== snap.changesDiffs) set({ changesDiffs: next });
     },
     unwatchChangesTeam() {
       if (watchingChanges !== null && watchSent()) socket.send({ cmd: "changesUnwatch" });

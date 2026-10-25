@@ -371,3 +371,12 @@ test("a viewer that first mounts with no file draws once the file arrives, narro
     restore();
   }
 });
+
+test("a gap whose lines could not be read says so on the gap", () => {
+  const out = renderToString(html`<${DiffViewer} file=${listing(hunksFile)} hunks=${hunksFile} onContext=${() => {}} contextErrors=${{ "h0:g": "gone" }} />`);
+  assert.doesNotMatch(out, /dv-gap-err/, "no error for a gap that is not there");
+  const ids = [...out.matchAll(/data-row="([^"]*g[^"]*)"/g)].map((m) => m[1]);
+  assert.ok(ids.length, "there are gaps");
+  const errs = Object.fromEntries(ids.map((id) => [id, "gone"]));
+  assert.match(renderToString(html`<${DiffViewer} file=${listing(hunksFile)} hunks=${hunksFile} onContext=${() => {}} contextErrors=${errs} />`), /dv-gap-err" role="alert">gone/);
+});

@@ -20,6 +20,10 @@
 //   listed comment with no delivery has not been written to the owner yet. When the
 //   desk answers ok, the comment it holds replaces that one, and it is kept until
 //   the desk's own listing has it.
+// - A composer belongs to the diff it was opened on. When diffId changes (the diff was
+//   read again, or went stale because the branch moved) the composer closes, its text
+//   kept for that place, so a comment typed against old hunks is never sent with the new
+//   head. The caller gives diffId 0 or -1 while there is no current diff.
 // - If the connection drops (connected goes false, or session changes) while a
 //   comment, resolve or reopen is out, the wait ends with a message to check the
 //   listing; the text is kept and nothing is sent again by itself.
@@ -57,6 +61,12 @@ export function flowReducer(s, a) {
       if (isAdd(s)) return s;
       const drafts = { ...s.drafts };
       delete drafts[keyOf(s.composing)];
+      return { ...s, composing: null, draft: "", drafts, error: "" };
+    }
+    case "stale": {
+      if (!s.composing) return s;
+      const drafts = { ...s.drafts };
+      if (s.draft) drafts[keyOf(s.composing)] = s.draft;
       return { ...s, composing: null, draft: "", drafts, error: "" };
     }
     case "refused":
@@ -124,7 +134,7 @@ const newReq = () => "cm" + Date.now().toString(36) + (++counter).toString(36);
  *   errors (by comment id), closing (ids with a resolve or reopen out),
  *   open(target), setDraft(text), cancel(), submit(), close(id), reopen(id).
  */
-export function useCommentFlow({ pane = "", drawnSha = "", send = null, result = null, results = null, comments = [], connected = true, session = null }) {
+export function useCommentFlow({ pane = "", drawnSha = "", send = null, result = null, results = null, comments = [], connected = true, session = null, diffId = 0 }) {
   const [s, dispatch] = useReducer(flowReducer, initialFlow);
   const seen = useRef(new WeakSet());
   useEffect(() => {
@@ -146,6 +156,15 @@ export function useCommentFlow({ pane = "", drawnSha = "", send = null, result =
     }
     dispatch({ type: "dropped" });
   }, [connected === false, session]);
+
+  const diffFirst = useRef(true);
+  useEffect(() => {
+    if (diffFirst.current) {
+      diffFirst.current = false;
+      return;
+    }
+    dispatch({ type: "stale" });
+  }, [diffId]);
 
   const write = (cmd, pending) => {
     if (!send || !send(cmd)) return false;

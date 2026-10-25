@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { FakeWebSocket, harness, hello } from "./fakes.mjs";
-import { applyReply, readOf, diffKey, MAX_DIFFS } from "../src/lib/changesdiffs.js";
+import { applyReply, readOf, diffKey, MAX_DIFFS, MAX_LINES, trim, touch, dropDiffs, pruneDiffs, dropErrors } from "../src/lib/changesdiffs.js";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixture = (name) => JSON.parse(readFileSync(join(here, "..", "..", "api", "fixtures", "built-changes-" + name + ".json"), "utf8"));
@@ -54,7 +54,7 @@ test("unchanged lines are added to the gap they were asked for, and an answer to
   const r3 = store.readChangesDiff({ cmd: "diffContext", id: API, file: FILE, side: "new", from: 62, to: 64 }, "g1");
   ws.frame({ ...context(), req: r3 });
   const got = store.getState().changesDiffs[diffKey(API, FILE)].context.g1;
-  assert.equal(got.lines.length, 6);
+  assert.equal(got.lines.length, 3, "the same lines asked twice are drawn once");
   assert.equal(got.eof, false);
   const before = store.getState().changesDiffs;
   ws.frame({ ...context(), req: "nobody" });
@@ -107,4 +107,64 @@ test("the model keeps the newest files only", () => {
   assert.equal(Object.keys(diffs).length, MAX_DIFFS);
   assert.equal(diffs[diffKey("p", "f0")], undefined);
   assert.ok(diffs[diffKey("p", "f" + (MAX_DIFFS + 4))]);
+});
+
+test("only one read of the same thing is out, and a context read needs the diff it belongs to and the listing's head", async () => {
+  const { store, ws } = await up();
+  assert.equal(store.readChangesDiff({ cmd: "diffContext", id: API, file: FILE, side: "new", from: 1, to: 3 }, "g1"), "", "no diff held yet");
+  const a = store.readChangesDiff({ cmd: "diffHunks", id: API, file: FILE });
+  const b = store.readChangesDiff({ cmd: "diffHunks", id: API, file: FILE });
+  assert.equal(a, b, "the second ask is the first one's req");
+  assert.equal(ws.commands("diffHunks").length, 1);
+  ws.frame({ ...hunks(), req: a });
+  const c = store.readChangesDiff({ cmd: "diffContext", id: API, file: FILE, side: "new", from: 59, to: 61 }, "g1");
+  assert.equal(store.readChangesDiff({ cmd: "diffContext", id: API, file: FILE, side: "new", from: 59, to: 61 }, "g1"), c);
+  assert.equal(store.readChangesDiff({ cmd: "diffHunks", id: "nobody", file: FILE }), "", "not in the listing: no head to read at");
+});
+
+test("a context answer for a diff that was read again in between is dropped", async () => {
+  const { store, ws } = await up();
+  const a = store.readChangesDiff({ cmd: "diffHunks", id: API, file: FILE });
+  ws.frame({ ...hunks(), req: a });
+  const c = store.readChangesDiff({ cmd: "diffContext", id: API, file: FILE, side: "new", from: 59, to: 61 }, "g1");
+  store.dropChangesDiffs(API, FILE);
+  const a2 = store.readChangesDiff({ cmd: "diffHunks", id: API, file: FILE });
+  ws.frame({ ...hunks(), req: a2 });
+  ws.frame({ ...context(), req: c });
+  assert.deepEqual(store.getState().changesDiffs[diffKey(API, FILE)].context, {}, "the old entry's lines are not in the new one");
+});
+
+test("a failed context read is said on its gap, and a good one clears it", () => {
+  let diffs = applyReply({}, readOf({ cmd: "diffHunks", id: "p", file: "f" }, "h", "", "1:1"), { type: "diffHunks", hunks: [] }, 1);
+  const read = readOf({ cmd: "diffContext", id: "p", file: "f" }, "h", "g1", "1:1", 1);
+  diffs = applyReply(diffs, read, { type: "diffContext", error: "gone" }, 2);
+  assert.equal(diffs[diffKey("p", "f")].contextErrors.g1, "gone");
+  diffs = applyReply(diffs, read, { type: "diffContext", lines: [{ t: "ctx", text: "a", oldNo: 1, newNo: 1 }], eof: true }, 3);
+  assert.equal(diffs[diffKey("p", "f")].contextErrors.g1, undefined);
+  assert.equal(diffs[diffKey("p", "f")].context.g1.eof, true);
+});
+
+test("the diffs are bounded by lines, the least recently used goes first, and the head the desk names wins", () => {
+  const big = (n) => ({ type: "diffHunks", hunks: [{ lines: new Array(n).fill({ t: "ctx", text: "x" }) }] });
+  let diffs = {};
+  diffs = applyReply(diffs, readOf({ cmd: "diffHunks", id: "p", file: "a" }, "h"), big(MAX_LINES / 2), 1);
+  diffs = applyReply(diffs, readOf({ cmd: "diffHunks", id: "p", file: "b" }, "h"), big(MAX_LINES / 2), 2);
+  diffs = touch(diffs, "p", "a", 3);
+  diffs = applyReply(diffs, readOf({ cmd: "diffHunks", id: "p", file: "c" }, "h"), big(100), 4);
+  assert.ok(diffs[diffKey("p", "a")], "used last, kept");
+  assert.equal(diffs[diffKey("p", "b")], undefined, "least recently used, dropped");
+  assert.ok(diffs[diffKey("p", "c")]);
+  assert.equal(applyReply({}, readOf({ cmd: "diffHunks", id: "p", file: "d" }, "listing"), { type: "diffHunks", hunks: [], headSha: "named" }, 1)[diffKey("p", "d")].drawnSha, "named");
+});
+
+test("a branch's entries go when it leaves the listing, errors go after a hello, and a drop takes one file or all", () => {
+  let diffs = {};
+  for (const [pane, file] of [["p", "a"], ["p", "b"], ["q", "a"]]) diffs = applyReply(diffs, readOf({ cmd: "diffHunks", id: pane, file }, "h"), { type: "diffHunks", hunks: [] }, 1);
+  assert.deepEqual(Object.keys(pruneDiffs(diffs, ["p"])).sort(), [diffKey("p", "a"), diffKey("p", "b")]);
+  assert.deepEqual(Object.keys(dropDiffs(diffs, "p", "a")).sort(), [diffKey("p", "b"), diffKey("q", "a")]);
+  assert.deepEqual(Object.keys(dropDiffs(diffs, "p")), [diffKey("q", "a")]);
+  const bad = applyReply(diffs, readOf({ cmd: "diffHunks", id: "p", file: "a" }, "h"), { type: "diffHunks", error: "x" }, 2);
+  assert.equal(dropErrors(bad)[diffKey("p", "a")], undefined);
+  assert.ok(dropErrors(bad)[diffKey("p", "b")]);
+  assert.equal(trim(diffs), diffs);
 });
