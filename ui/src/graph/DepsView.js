@@ -49,9 +49,9 @@ export function breakText(names) {
   return "These agents are waiting on each other and none can move: " + names.join(", ") + ". Please break the loop.";
 }
 
-function Chip({ c, onLink }) {
+function Chip({ c, onLink, stop = false, onFocus = null }) {
   return c.to
-    ? html`<button type="button" class=${"tree-chip tree-chip--" + c.kind + " is-link"} tabindex="-1" onClick=${(e) => { e.stopPropagation(); onLink(c.to); }}>${c.text}</button>`
+    ? html`<button type="button" class=${"tree-chip tree-chip--" + c.kind + " is-link"} tabindex=${stop ? "0" : "-1"} onFocus=${(e) => { e.stopPropagation(); if (onFocus) onFocus(); }} onClick=${(e) => { e.stopPropagation(); onLink(c.to); }}>${c.text}</button>`
     : html`<span class=${"tree-chip tree-chip--" + c.kind}>${c.text}</span>`;
 }
 
@@ -242,7 +242,7 @@ function DepRow({ r, stop, cls = "", onFocus, onToggle, onLink = null, glyph, id
     <span class="tree-c deps-ttl" title=${title}>${clip(title, 160)}${sub ? html` <span class="deps-sub">${sub}</span>` : null}</span>
     <span class="deps-more">
       <span class="tree-c deps-own" title=${owner ? owner.name : undefined}>${owner ? html`<span class=${"tree-glyph tree-glyph--" + owner.state} aria-hidden="true"></span> ${clip(owner.name, 14)}` : ownerWords ? html`<span class="deps-none">${ownerWords}</span>` : null}</span>
-      ${chips.length > 0 ? html`<span class="tree-chips">${chips.map((c) => html`<${Chip} key=${c.kind + c.text} c=${c} onLink=${onLink} />`)}</span>` : null}
+      ${chips.length > 0 ? html`<span class="tree-chips">${chips.map((c) => html`<${Chip} key=${c.kind + c.text} c=${c} onLink=${onLink} stop=${stop} onFocus=${onFocus} />`)}</span>` : null}
     </span>
     ${est !== "" || fin !== "" ? html`<span class="tree-c deps-est">${est}</span><span class="tree-c deps-fin">${fin}</span>` : null}
   </div>`;
@@ -267,7 +267,7 @@ function WaitRow({ w, now, model, stop, onFocus, onOpen, onLink }) {
     <span class=${"tree-glyph tree-glyph--" + (w.kind === "loop" ? "exited" : w.kind === "you" ? "waiting" : "idle")} aria-hidden="true"></span>
     <span class="tree-c deps-tk">${w.kind === "you" ? "you" : w.kind === "overlap" ? "files" : "wait"}</span>
     <span class="tree-c deps-ttl"><b>${clip(from, 24)}</b> <span class="deps-sub">${word}</span> <b>${clip(to, 24)}</b>${w.why ? html` <span class="deps-sub">for ${clip(w.why, 120)}</span>` : null}</span>
-    <span class="deps-more">${chips.length > 0 ? html`<span class="tree-chips">${chips.map((c) => html`<${Chip} key=${c.kind + c.text} c=${c} onLink=${onLink} />`)}</span>` : null}</span>
+    <span class="deps-more">${chips.length > 0 ? html`<span class="tree-chips">${chips.map((c) => html`<${Chip} key=${c.kind + c.text} c=${c} onLink=${onLink} stop=${stop} onFocus=${onFocus} />`)}</span>` : null}</span>
     <span class="tree-c deps-age">${ageOf(w.since, now)}</span>
   </div>`;
 }

@@ -232,6 +232,21 @@ export function Tree({ model, onOpen = null, open = "", decisions = null, tasks 
       }
       return;
     }
+    // A letter goes to the next row (after this one, round the end) whose name starts with it.
+    if (e.key.length === 1 && e.key !== " ") {
+      const at = rows.findIndex((r) => r.pane === pane);
+      const want = e.key.toLowerCase();
+      for (let i = 1; i < rows.length; i++) {
+        const r = rows[(at + i) % rows.length];
+        if (labelOf(model, r.pane).toLowerCase().startsWith(want)) {
+          e.preventDefault();
+          setFocus(r.pane);
+          focusNode(e.currentTarget, r.pane);
+          return;
+        }
+      }
+      return;
+    }
     const fold = foldOf(rows, pane, e.key);
     if (fold) {
       e.preventDefault();

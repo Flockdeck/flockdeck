@@ -26,7 +26,7 @@ test("the blocks follow the row of their agent and sit outside the treeitems", (
   const at = (s) => out.indexOf(s);
   assert.ok(at('data-pane="api"') > -1);
   assert.ok(at('data-decision="permission"') > at('role="treeitem"'), "after a row");
-  assert.match(out, /<div class="tree-decs" role="presentation" data-pane="api">/);
+  assert.match(out, /<div class="tree-decs" role="group" aria-label="Decisions for api" data-pane="api">/);
   assert.equal((out.match(/data-decision="conflict"/g) || []).length, 1, "a conflict under its first pane only");
   assert.ok(!/tree-decs[^>]*data-pane="cfg"/.test(out));
 });

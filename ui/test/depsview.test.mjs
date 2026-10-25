@@ -202,3 +202,20 @@ test("when no task names a team nothing is scoped, so there is no unassigned row
     m.done();
   }
 });
+
+test("the link chips of the row the keyboard is on are in the tab order, the others are not", async () => {
+  const m = await mount();
+  try {
+    const chips = (k) => m.row(k).findAll(".is-link");
+    assert.ok(chips("T4").length > 0, "T4 is blocked by T2 and has a link chip");
+    assert.ok(chips("T4").every((c) => c.attributes.tabindex === "-1"));
+    m.row("GOAL").keydown("ArrowDown");
+    await settle();
+    m.row("T7").keydown("ArrowDown");
+    await settle();
+    assert.ok(chips("T4").every((c) => c.attributes.tabindex === "0"));
+    assert.ok(chips("T7").every((c) => c.attributes.tabindex === "-1"));
+  } finally {
+    m.done();
+  }
+});
