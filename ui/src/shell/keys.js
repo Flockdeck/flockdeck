@@ -16,7 +16,7 @@ const PLUS = "+";
 const EQUALS = "=";
 /** A key the table writes with a symbol or a word of its own, the keys a
  *  recorded binding is not made of, and the ones a terminal leaves to the page. */
-const NAMED = { ArrowLeft: "←", ArrowRight: "→", ArrowUp: "↑", ArrowDown: "↓", " ": "Space", Escape: "Esc" };
+const NAMED = { ArrowLeft: "←", ArrowRight: "→", ArrowUp: "↑", ArrowDown: "↓", " ": "Space", Escape: "Esc", Delete: "Del" };
 const MODIFIER_KEYS = ["Control", "Shift", "Alt", "Meta", "OS"];
 const FUNCTION_KEY = /^F([1-9]|1[0-9])$/;
 const PAGE_KEYS = ["Esc", "Tab"];
@@ -178,7 +178,7 @@ export function recorded(e) {
 
 /** keycaps splits a binding into the parts to draw as keys. */
 export function keycaps(spec) {
-  return spec ? spec.split("+").map((p) => p.trim()).filter(Boolean) : [];
+  return spec ? spec.split("+").map((p) => p.trim()).filter(Boolean).map((p) => NAMED[p] || p) : [];
 }
 
 /** listMove is what a keydown does in a list: the index it moves to, "accept",
