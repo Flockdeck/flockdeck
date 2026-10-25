@@ -479,3 +479,15 @@ test("outdated shows on open comments only and says the line may have changed", 
   assert.match(renderToString(html`<${Thread} comments=${[c()]} headSha="bbb" />`), /outdated: line may have changed/);
   assert.doesNotMatch(renderToString(html`<${Thread} comments=${[c({ state: "resolved" })]} headSha="bbb" />`), /outdated/);
 });
+
+test("when the diff is read again the composer closes and its text is kept for that place", () => {
+  const t = { file: "f", side: "new", line: 3 };
+  let s = flowReducer(initialFlow, { type: "open", target: t });
+  s = flowReducer(s, { type: "draft", text: "typed on old hunks" });
+  s = flowReducer(s, { type: "stale" });
+  assert.equal(s.composing, null);
+  assert.equal(s.draft, "");
+  s = flowReducer(s, { type: "open", target: t });
+  assert.equal(s.draft, "typed on old hunks");
+  assert.equal(flowReducer(initialFlow, { type: "stale" }), initialFlow);
+});

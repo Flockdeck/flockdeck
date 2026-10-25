@@ -18,6 +18,7 @@
 //     is no "+" and no column for it: the diff is read-only.
 //   context: the unchanged lines fetched so far, { [gap id]: { lines, eof } }, kept
 //     by the caller, which adds each `diffContext` reply to it.
+//   contextErrors: { [gap id]: text } says on that gap that its lines could not be read.
 //   onContext(gapId, ask): called by a "Show N unchanged lines" button, with the
 //     diffContext request to make ({ side, from, to }).
 //   flow: the state of review comments (commentFlow.js's useCommentFlow). With it
@@ -119,11 +120,12 @@ function Plus({ file, line, side, notes, onComment, rid, active, onActive, descr
     onFocus=${() => onActive(rid)} onClick=${() => onComment({ file, side, line })}>+</button></td>`;
 }
 
-function Gap({ row, cols, onContext }) {
+function Gap({ row, cols, onContext, error = "" }) {
   const where = row.to === null ? " from line " + row.from : " (lines " + row.from + " to " + row.to + ")";
   const label = row.count === null ? "Show the unchanged lines below" + where : "Show " + plural(row.count, "unchanged line", "unchanged lines") + where;
   return html`<tr class="dv-gap" data-row=${row.id}><td colspan=${cols}>
     <button type="button" class="dv-gapbtn" disabled=${!onContext} onClick=${() => onContext && onContext(row.id, row.ask)}>${label}</button>
+    ${error ? html` <span class="dv-gap-err" role="alert">${showControls(clip(text(error), 200))}</span>` : null}
   </td></tr>`;
 }
 
@@ -195,7 +197,7 @@ function Inline({ keys, path, at, flow, headSha, nameOf, cols, wrap = false, rea
 }
 
 /** DiffViewer draws one file: its header, which folds it, and its diff. */
-export function DiffViewer({ branch = "", file = null, hunks = null, layout = "unified", narrow = null, comments: given = NONE, onComment: onCommentGiven = null, flow = null, readOnly = false, headSha = "", nameOf = null, context = NO_CONTEXT, onContext = null, collapsed = null, onToggle = null }) {
+export function DiffViewer({ branch = "", file = null, hunks = null, layout = "unified", narrow = null, comments: given = NONE, onComment: onCommentGiven = null, flow = null, readOnly = false, headSha = "", nameOf = null, context = NO_CONTEXT, contextErrors = NO_CONTEXT, onContext = null, collapsed = null, onToggle = null }) {
   const comments = flow ? flow.comments : given;
   const path = file ? text(file.path) : "";
   const uidRef = useRef(null);
@@ -365,7 +367,7 @@ export function DiffViewer({ branch = "", file = null, hunks = null, layout = "u
             <tbody>${page.rows.map((r) => (r.type === "hunk"
               ? html`<${Hunk} key=${r.id} row=${r} cols=${cols} />`
               : r.type === "gap"
-                ? html`<${Gap} key=${r.id} row=${r} cols=${cols} onContext=${onContext ? askContext : null} />`
+                ? html`<${Gap} key=${r.id} row=${r} cols=${cols} onContext=${onContext ? askContext : null} error=${contextErrors[r.id] || ""} />`
                 : lay === "split"
                   ? [html`<${SplitRow} key=${r.id} row=${r} uid=${uid} file=${path} notes=${notes} onComment=${onComment} active=${stop} onActive=${setActive} />`,
                      html`<${Inline} key=${r.id + ":cm"} keys=${[r.left && r.left !== r.right ? lineKey(r.left.anchor.side, r.left.anchor.line) : "", r.right ? lineKey(r.right.anchor.side, r.right.anchor.line) : ""].filter(Boolean)} path=${path} at=${at} flow=${flow} headSha=${headSha} nameOf=${nameOf} cols=${cols} readOnly=${readOnly} />`]
