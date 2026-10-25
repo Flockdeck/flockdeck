@@ -177,7 +177,7 @@ test("a key with a modifier, an unknown key and Esc are left to the page", async
   try {
     m.row("m").focus();
     assert.equal(m.row("m").keydown("ArrowDown", { ctrlKey: true }).defaultPrevented, false);
-    assert.equal(m.row("m").keydown("a").defaultPrevented, false);
+    assert.equal(m.row("m").keydown("F5").defaultPrevented, false);
     assert.equal(m.row("m").keydown("Escape").defaultPrevented, false);
   } finally {
     m.done();
@@ -529,4 +529,27 @@ test("the stuck chip writes its time as the Age column does", () => {
   assert.equal(chip(300), "stuck 5h");
   assert.equal(chip(5472), "stuck 3d");
   assert.equal(ageOf(new Date(NOW - 5472 * 60000).toISOString(), NOW), "3d");
+});
+
+test("a letter moves to the next row whose name starts with it, round the end, and leaves other keys alone", async () => {
+  const m = await mount();
+  try {
+    m.row("m").focus();
+    assert.equal(m.row("m").keydown("d").defaultPrevented, true);
+    await settle();
+    assert.equal(m.dom.document.activeElement, m.row("down"));
+    m.row("down").keydown("I");
+    await settle();
+    assert.equal(m.dom.document.activeElement, m.row("idle"));
+    m.row("idle").keydown("w");
+    await settle();
+    assert.equal(m.dom.document.activeElement, m.row("work"));
+    m.row("work").keydown("m");
+    await settle();
+    assert.equal(m.dom.document.activeElement, m.row("m"), "round the end");
+    assert.equal(m.row("m").keydown("z").defaultPrevented, false, "no row starts with z");
+    assert.equal(m.dom.document.activeElement, m.row("m"));
+  } finally {
+    m.done();
+  }
 });
