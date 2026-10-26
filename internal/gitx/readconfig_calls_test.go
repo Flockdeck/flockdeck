@@ -19,17 +19,17 @@ import (
 func TestEveryCallThatComparesTheWorkingTreeIsAccountedFor(t *testing.T) {
 	words := []string{"status", "diff", "add", "update-index", "stash", "diff-files", "diff-index", "ls-files", "--modified"}
 	want := map[string]map[string]int{
-		"changes.go": {"status": 2, "diff": 2, "ls-files": 1},
-		"commit.go": {"status": 2, "diff": 1, "add": 2},
-		"indexrefresh.go": {"update-index": 1},
-		"made.go": {"status": 1, "ls-files": 2},
-		"merge.go": {"status": 2, "ls-files": 1},
-		"programs.go": {"ls-files": 1},
-		"snapshot.go": {"diff": 1, "add": 2, "update-index": 1, "diff-index": 1, "ls-files": 4, "--modified": 1},
-		"status.go": {"status": 2, "ls-files": 1},
-		"worktree.go": {"add": 2},
-		"../changes/diff.go": {"diff": 2, "add": 3, "ls-files": 2},
-		"../changes/read.go": {"status": 1, "diff": 4, "add": 1, "update-index": 1, "stash": 1, "diff-files": 1, "diff-index": 1, "ls-files": 2},
+		"changes.go":          {"status": 2, "diff": 2, "ls-files": 1},
+		"commit.go":           {"status": 2, "diff": 1, "add": 2},
+		"indexrefresh.go":     {"update-index": 1},
+		"made.go":             {"status": 1, "ls-files": 2},
+		"merge.go":            {"status": 2, "ls-files": 1},
+		"programs.go":         {"ls-files": 1},
+		"snapshot.go":         {"diff": 1, "add": 2, "update-index": 1, "diff-index": 1, "ls-files": 4, "--modified": 1},
+		"status.go":           {"status": 2, "ls-files": 1},
+		"worktree.go":         {"add": 2},
+		"../changes/diff.go":  {"diff": 2, "add": 3, "ls-files": 2},
+		"../changes/read.go":  {"status": 1, "diff": 4, "add": 1, "update-index": 1, "stash": 1, "diff-files": 1, "diff-index": 1, "ls-files": 2},
 		"../changes/types.go": {"status": 1},
 	}
 	for _, dir := range []string{".", "../changes"} {
