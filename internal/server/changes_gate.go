@@ -320,27 +320,9 @@ func (s *Server) changesMergeBranch(c *controlClient, cmd command) {
 	if errors.Is(err, gitx.ErrTipUnknown) {
 		tip, err, tipKnown = b.HeadSha, nil, false
 	}
-	var unsafe *gitx.UnsafeConfigError
-	var partly *gitx.PartlyUpdatedError
-	switch {
-	case errors.As(err, &unsafe):
-		changesRefuse(c, cmd, "notClean", unsafe.Error())
-		return
-	case errors.Is(err, gitx.ErrNotClean), errors.Is(err, gitx.ErrWrongBranch):
-		why := "it is on another branch"
-		if r := gitx.NotCleanReason(err); r != "" {
-			why = r
-		}
-		changesRefuse(c, cmd, "notClean", "The checkout of "+changes.CleanText(b.Base, 200)+" cannot take a merge now: "+changes.CleanLine(why, 400)+". Nothing was merged.")
-		return
-	case errors.As(err, &partly):
-		changesRefuse(c, cmd, "badRequest", firstWords(partly.Error())+". Look at the checkout of "+changes.CleanText(b.Base, 200)+" before trying again.")
-		return
-	case errors.Is(err, gitx.ErrNotFastForward):
-		changesRefuse(c, cmd, "notFastForward", changes.CleanText(b.Base, 200)+" has moved in a way that neither a fast-forward nor a clean merge can take. Nothing was merged.")
-		return
-	case err != nil:
-		changesRefuse(c, cmd, "badRequest", "The merge failed: "+firstWords(err.Error()))
+	if err != nil {
+		code, text := mergeRefusal(b.Base, err)
+		changesRefuse(c, cmd, code, text)
 		return
 	}
 	now := time.Now().UTC().Format(time.RFC3339)
@@ -358,11 +340,43 @@ func (s *Server) changesMergeBranch(c *controlClient, cmd command) {
 	s.tellManager(root, fmt.Sprintf("Merged %s at %s into %s; %s.",
 		changes.CleanText(b.Branch, 200), shortSha(b.HeadSha), changes.CleanText(b.Base, 200), now2))
 	if lerr != nil {
-		changesRefuse(c, cmd, "badRequest", "The branch was merged, but the merge could not be recorded: "+lerr.Error())
+		logf("merged %s at %s but the approval file could not be written: %v", b.Branch, shortSha(b.HeadSha), lerr)
+		changesRefuse(c, cmd, "mergedNotRecorded", "The branch was merged into "+changes.CleanText(b.Base, 200)+", but the approval file could not be written, so the gate does not show it as merged.")
 		return
 	}
 	g := changes.Gate{State: "merged", Blockers: []changes.Blocker{}, MergeSha: tip}
 	c.sendJSON(gateResult(cmd, &g))
+}
+
+// mergeRefusal is the code and words that a mergeBranch refusal is answered with
+// for what gitx.MergeInto returned.
+func mergeRefusal(base string, err error) (code, text string) {
+	base = changes.CleanText(base, 200)
+	var unsafe *gitx.UnsafeConfigError
+	var partly *gitx.PartlyUpdatedError
+	switch {
+	case errors.As(err, &unsafe):
+		return "notClean", unsafe.Error()
+	case errors.Is(err, gitx.ErrNotClean), errors.Is(err, gitx.ErrWrongBranch):
+		why := "it is on another branch"
+		if r := gitx.NotCleanReason(err); r != "" {
+			why = r
+		}
+		return "notClean", "The checkout of " + base + " cannot take a merge now: " + changes.CleanLine(why, 400) + ". Nothing was merged."
+	case errors.As(err, &partly):
+		return "partlyUpdated", "The merge did not finish and the checkout of " + base + " may be partly updated: " + firstLineOf(partly.Err.Error()) + ". Look at that checkout before trying again."
+	case errors.Is(err, gitx.ErrNotFastForward):
+		return "notFastForward", base + " has moved in a way that neither a fast-forward nor a clean merge can take. Nothing was merged."
+	}
+	return "failed", "The merge failed and nothing was changed: " + firstLineOf(err.Error())
+}
+
+// firstLineOf is the first line of git's words, cleaned and short. It can still
+// name a path of the checkout, which is why these answers are for the desktop
+// window only.
+func firstLineOf(s string) string {
+	line, _, _ := strings.Cut(strings.TrimSpace(s), "\n")
+	return changes.CleanLine(line, 200)
 }
 
 func fullSha(s string) bool { return len(s) == 40 || len(s) == 64 }
