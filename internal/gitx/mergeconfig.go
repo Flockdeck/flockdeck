@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"unicode"
 )
 
 // A repository's own configuration (.git/config, and config.worktree of a linked
@@ -36,7 +37,19 @@ var lfsData = regexp.MustCompile(`^lfs\.(repositoryformatversion|url|pushurl|con
 type UnsafeConfigError struct{ Key string }
 
 func (e *UnsafeConfigError) Error() string {
-	return fmt.Sprintf("The repository's own configuration sets %s, which would run a program during the merge. Nothing was merged. Remove it from the repository's config, or merge by hand.", e.Key)
+	return fmt.Sprintf("The repository's own configuration sets %s, which would run a program during the merge. Nothing was merged. Remove it from the repository's config, or merge by hand.", cleanKey(e.Key))
+}
+
+// cleanKey is a configuration key as it can be shown: the subsection of a key is
+// whatever the repository's config says, so control, bidirectional and other format
+// characters are removed and the length is limited.
+func cleanKey(k string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.Is(unicode.Cf, r) {
+			return -1
+		}
+		return r
+	}, clean(k, 200))
 }
 
 // UnsafeConfig reports the first setting of dir's repository-local or worktree

@@ -340,7 +340,8 @@ func (s *Server) changesMergeBranch(c *controlClient, cmd command) {
 	s.tellManager(root, fmt.Sprintf("Merged %s at %s into %s; %s.",
 		changes.CleanText(b.Branch, 200), shortSha(b.HeadSha), changes.CleanText(b.Base, 200), now2))
 	if lerr != nil {
-		changesRefuse(c, cmd, "mergedNotRecorded", "The branch was merged into "+changes.CleanText(b.Base, 200)+", but the merge could not be recorded, so the gate does not show it as merged: "+changes.CleanLine(lerr.Error(), 400))
+		logf("merged %s at %s but the approval file could not be written: %v", b.Branch, shortSha(b.HeadSha), lerr)
+		changesRefuse(c, cmd, "mergedNotRecorded", "The branch was merged into "+changes.CleanText(b.Base, 200)+", but the approval file could not be written, so the gate does not show it as merged.")
 		return
 	}
 	g := changes.Gate{State: "merged", Blockers: []changes.Blocker{}, MergeSha: tip}
@@ -363,11 +364,19 @@ func mergeRefusal(base string, err error) (code, text string) {
 		}
 		return "notClean", "The checkout of " + base + " cannot take a merge now: " + changes.CleanLine(why, 400) + ". Nothing was merged."
 	case errors.As(err, &partly):
-		return "partlyUpdated", "The merge did not finish and the checkout of " + base + " may be partly updated: " + changes.CleanLine(partly.Err.Error(), 400) + ". Look at that checkout before trying again."
+		return "partlyUpdated", "The merge did not finish and the checkout of " + base + " may be partly updated: " + firstLineOf(partly.Err.Error()) + ". Look at that checkout before trying again."
 	case errors.Is(err, gitx.ErrNotFastForward):
 		return "notFastForward", base + " has moved in a way that neither a fast-forward nor a clean merge can take. Nothing was merged."
 	}
-	return "failed", "The merge failed and nothing was changed: " + changes.CleanLine(err.Error(), 400)
+	return "failed", "The merge failed and nothing was changed: " + firstLineOf(err.Error())
+}
+
+// firstLineOf is the first line of git's words, cleaned and short. It can still
+// name a path of the checkout, which is why these answers are for the desktop
+// window only.
+func firstLineOf(s string) string {
+	line, _, _ := strings.Cut(strings.TrimSpace(s), "\n")
+	return changes.CleanLine(line, 200)
 }
 
 func fullSha(s string) bool { return len(s) == 40 || len(s) == 64 }
