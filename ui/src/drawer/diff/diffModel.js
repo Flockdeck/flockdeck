@@ -76,11 +76,13 @@ export function pairMarks(oldText, newText) {
 // symbols (the Hangul and halfwidth fillers, the braille blank, the combining grapheme joiner), and the tag
 // characters, which carry text no one sees. Spaces that look like a space (U+00A0, U+3000 and so on) are left alone: they
 // are ordinary in prose, and a view that must show them does so itself (gateModel's oneLine).
-const HIDDEN = /[\u00ad\u034f\u061c\u115f\u1160\u200b-\u200f\u2028-\u202e\u2060\u2066-\u2069\u2800\u3164\ufeff\uffa0\u{e0000}-\u{e007f}]/gu;
+// The one use of tag characters that is text people see is the flag of England, Scotland and Wales: U+1F3F4, the tags
+// for gbeng, gbsct or gbwls, and U+E007F. Those three exact sequences are left whole; any other tag text is marked.
+const FLAG = /(\u{1f3f4}\u{e0067}\u{e0062}(?:\u{e0065}\u{e006e}\u{e0067}|\u{e0073}\u{e0063}\u{e0074}|\u{e0077}\u{e006c}\u{e0073})\u{e007f})|[\u00ad\u034f\u061c\u115f\u1160\u200b-\u200f\u2028-\u202e\u2060\u2066-\u2069\u2800\u3164\ufeff\uffa0\u{e0000}-\u{e007f}]/gu;
 
 /** showControls makes the characters that reorder or hide text visible as <U+202E>, so a name or a line cannot read differently from what it is. */
 export function showControls(value) {
-  return String(value == null ? "" : value).replace(HIDDEN, (c) => "<U+" + c.codePointAt(0).toString(16).toUpperCase().padStart(4, "0") + ">");
+  return String(value == null ? "" : value).replace(FLAG, (c, flag) => flag ? c : "<U+" + c.codePointAt(0).toString(16).toUpperCase().padStart(4, "0") + ">");
 }
 
 /** segments cuts text at marks into { text, mark } runs, so a view can draw the marked words apart. */
