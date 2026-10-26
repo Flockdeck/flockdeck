@@ -260,8 +260,9 @@ func TestACleanFilterSeesTheUsersLocale(t *testing.T) {
 	dir := wt["wa"]
 	write(t, dir, "filter.sh", "case \"$LC_ALL\" in *UTF-8*) cat;; *) echo \"locale is $LC_ALL\" >&2; exit 1;; esac\n")
 	write(t, dir, ".gitattributes", "*.loc filter=loc\n")
-	gitRun(t, dir, "config", "filter.loc.clean", "sh ./filter.sh")
-	gitRun(t, dir, "config", "filter.loc.required", "true")
+	// The filter is in a global configuration of the test's: one in the checkout's own is
+	// refused.
+	withGlobalFilter(t, "loc", "clean = sh ./filter.sh", "required = true")
 	write(t, dir, "x.loc", "content\n")
 	editLine(t, dir, "a.txt", 4, "edited")
 	snap, _, err := snapOf(t, repo, dir, true)

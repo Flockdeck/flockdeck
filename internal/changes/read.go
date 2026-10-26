@@ -44,6 +44,12 @@ const tooMany = "too many changes to list"
 // every window and every watch.
 var gitSlots = make(chan struct{}, gitReads)
 
+// ConfigRefusal says whether a Branch.Error is the reason given for a checkout
+// that is not read because its configuration names a program (see read).
+func ConfigRefusal(msg string) bool {
+	return strings.HasPrefix(msg, "its config runs programs: ")
+}
+
 // Read reads one pane's checkout. maxFiles caps the files listed (the rest are
 // counted in Omitted); zero lists them all, for filesPage. A checkout that cannot
 // be read is a Branch with only Pane, Cwd and Error.
@@ -67,6 +73,17 @@ func read(ctx context.Context, pane, cwd string, maxFiles int) (Branch, string) 
 			return fail("not a git repository")
 		}
 		return fail("could not read the repository: " + firstLine(err.Error()))
+	}
+	// Comparing the working tree with the index runs a clean filter, and the
+	// repository's configuration is written by whoever works in the checkout. Not
+	// reading is an unreadable branch with a fixed reason, which the gate treats as
+	// no gate; the check is made again on every read, so removing the key clears it.
+	if err := gitx.UnsafeReadConfig(ctx, cwd); err != nil {
+		var unsafe *gitx.UnsafeReadConfigError
+		if errors.As(err, &unsafe) {
+			return fail(unsafe.Error())
+		}
+		return fail("could not read the repository's configuration")
 	}
 	common, _ := gitx.CommonDir(cwd)
 	st := gitx.StatusOf(cwd)
@@ -182,7 +199,7 @@ func baseOf(ctx context.Context, cwd, own string) (name, id string, err error) {
 // changes since the merge base and the uncommitted ones together, a file in both
 // once, and the untracked files.
 func filesOf(ctx context.Context, cwd, baseSha string) ([]File, error) {
-	raw, err := git(ctx, cwd, "diff", "--raw", "-z", "-M", "--no-color", "--no-ext-diff", "--end-of-options", baseSha)
+	raw, err := git(ctx, cwd, "diff", "--raw", "-z", "-M", "--no-color", "--no-ext-diff", "--no-textconv", "--ignore-submodules=dirty", "--end-of-options", baseSha)
 	if err != nil {
 		return nil, err
 	}
@@ -192,7 +209,7 @@ func filesOf(ctx context.Context, cwd, baseSha string) ([]File, error) {
 		byPath[f.Path] = i
 	}
 
-	num, err := git(ctx, cwd, "diff", "--numstat", "-z", "-M", "--no-color", "--no-ext-diff", "--end-of-options", baseSha)
+	num, err := git(ctx, cwd, "diff", "--numstat", "-z", "-M", "--no-color", "--no-ext-diff", "--no-textconv", "--ignore-submodules=dirty", "--end-of-options", baseSha)
 	if err != nil {
 		return nil, err
 	}
@@ -464,9 +481,63 @@ func git(ctx context.Context, dir string, args ...string) (string, error) {
 	}
 	ctx, cancel := context.WithTimeout(ctx, 25*time.Second)
 	defer cancel()
+	if comparesWorkingTree(args) {
+		if err := gitx.UnsafeReadConfig(ctx, dir); err != nil {
+			return "", err
+		}
+	}
 	// A path is a path and not a pattern: a file named "*.go" or ":(top)x" is that file.
 	args = append([]string{"--literal-pathspecs"}, args...)
 	return gitx.ReadOnlyCapped(ctx, dir, maxGitOutput, args...)
+}
+
+// comparesWorkingTree says whether git run with args looks at the files of the
+// working tree and so runs a clean filter on them: status and the commands that
+// refresh or add, and a diff that does not name the index or two revisions (a diff
+// of one revision, or of none, is against the working tree).
+func comparesWorkingTree(args []string) bool {
+	if len(args) == 0 {
+		return false
+	}
+	switch args[0] {
+	case "status", "diff-files", "diff-index", "add", "update-index", "stash":
+		return true
+	case "diff":
+		revs := 0
+		after := false
+		for _, a := range args[1:] {
+			switch {
+			case a == "--cached" || a == "--staged":
+				return false
+			case a == "--end-of-options":
+				after = true
+			case a == "--":
+				return revs < 2
+			case after:
+				revs++
+			}
+		}
+		return revs < 2
+	case "ls-files":
+		// It compares the working tree for any option but the ones known not to
+		// (-mo, -om and --modified are all spellings of the one that does).
+		for _, a := range args[1:] {
+			if a == "--" {
+				break
+			}
+			if strings.HasPrefix(a, "-") && !lsFilesReadsNoFiles[a] {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// lsFilesReadsNoFiles are the options of ls-files that list the index or the
+// untracked files and read no tracked file of the working tree.
+var lsFilesReadsNoFiles = map[string]bool{
+	"-z": true, "-s": true, "--stage": true, "-v": true, "-o": true, "--others": true,
+	"--exclude-standard": true, "-c": true, "--cached": true, "-u": true, "--unmerged": true,
 }
 
 func firstLine(s string) string {

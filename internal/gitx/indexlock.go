@@ -150,8 +150,12 @@ func gateFor(dir string) *indexGate {
 // rewrite it beside others like it, and returns what ends it. It waits, for
 // indexReaderWait in all, while a writer is running or a drain is up, looking
 // again each time one ends, and then goes ahead. The error is ctx's, if it ended
-// the wait first.
+// the wait first, or says that the checkout's configuration names a program that
+// reading the working tree would run (see UnsafeReadConfig).
 func readIndex(ctx context.Context, dir string) (release func(), err error) {
+	if err := UnsafeReadConfig(ctx, dir); err != nil {
+		return nil, err
+	}
 	g := gateFor(dir)
 	deadline := time.Now().Add(indexReaderWait)
 	for {

@@ -6,13 +6,13 @@ import (
 	"testing"
 )
 
-// TestPaneHeadersLeaveWorkInsideASubmoduleToTheReviewPanel covers the status
-// the pane headers read every refresh. Finding uncommitted work inside a
-// submodule costs a git status of its own inside every submodule, every time,
-// for work that cannot be committed from the repository around it; the review
-// panel still counts it. A submodule moved to another commit is the outer
-// repository's change, and the headers still count that.
-func TestPaneHeadersLeaveWorkInsideASubmoduleToTheReviewPanel(t *testing.T) {
+// TestStatusLeavesWorkInsideASubmoduleOut covers the status the pane headers and the
+// review panel read every refresh. Finding uncommitted work inside a submodule costs
+// a git status of its own inside every submodule, every time, which reads that
+// submodule's own configuration, for work that cannot be committed from the
+// repository around it. A submodule moved to another commit is the outer
+// repository's change, and both still count that.
+func TestStatusLeavesWorkInsideASubmoduleOut(t *testing.T) {
 	inner := newRepo(t)
 	outer := newRepo(t)
 	add := exec.Command("git", "-c", "protocol.file.allow=always",
@@ -28,8 +28,8 @@ func TestPaneHeadersLeaveWorkInsideASubmoduleToTheReviewPanel(t *testing.T) {
 	gitRun(t, mod, "config", "commit.gpgsign", "false")
 
 	write(t, mod, "README.md", "hello\nchanged inside the submodule\n")
-	if st := StatusOf(outer); st.Dirty != 1 {
-		t.Fatalf("the review panel's status is %+v, want the work inside the submodule counted", st)
+	if st := StatusOf(outer); st.Dirty != 0 || st.Untracked != 0 {
+		t.Fatalf("the review panel's status is %+v, want the work inside the submodule left out", st)
 	}
 	st, err := StatusWithin(outer, commandTimeout)
 	if err != nil {

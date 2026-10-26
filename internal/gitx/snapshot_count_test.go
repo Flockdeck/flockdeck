@@ -44,8 +44,8 @@ func TestTheGitProcessesOfCopyingAPaneAreTheOnesTheDocsSay(t *testing.T) {
 	commitAll(t, wt["wb"], "work")
 
 	got, err := snapshotCommands(t, repo, wt["wa"], true)
-	if err != nil || len(got) != 11 {
-		t.Errorf("a pane with uncommitted work: %d processes (%v), err %v, want 11", len(got), got, err)
+	if err != nil || len(got) != 13 {
+		t.Errorf("a pane with uncommitted work: %d processes (%v), err %v, want 13", len(got), got, err)
 	}
 	got, err = snapshotCommands(t, repo, wt["wb"], false)
 	if err != nil || len(got) != 4 {
@@ -57,13 +57,13 @@ func TestTheGitProcessesOfCopyingAPaneAreTheOnesTheDocsSay(t *testing.T) {
 	t.Cleanup(func() { copyIndexFn = old })
 	copyIndexFn = func(from, to string) error { return os.ErrPermission }
 	got, err = snapshotCommands(t, repo, wt["wa"], true)
-	if err != nil || len(got) != 14 {
-		t.Errorf("index rebuilt from HEAD: %d processes (%v), err %v, want 14", len(got), got, err)
+	if err != nil || len(got) != 16 {
+		t.Errorf("index rebuilt from HEAD: %d processes (%v), err %v, want 16", len(got), got, err)
 	}
 	gitRun(t, wt["wc"], "config", "core.sparseCheckout", "true")
 	editLine(t, wt["wc"], "a.txt", 4, "edited")
 	got, err = snapshotCommands(t, repo, wt["wc"], true)
-	if err == nil || len(got) != 4 {
-		t.Errorf("a sparse checkout whose index cannot be copied: %d processes (%v), err %v, want 4 and an error", len(got), got, err)
+	if err == nil || len(got) != 6 {
+		t.Errorf("a sparse checkout whose index cannot be copied: %d processes (%v), err %v, want 6 and an error", len(got), got, err)
 	}
 }

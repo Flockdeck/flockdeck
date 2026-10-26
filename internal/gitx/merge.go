@@ -196,7 +196,7 @@ func MergeInto(ctx context.Context, dir, base, sha, message string) (string, err
 	if op := midOperation(gitDir); op != "" {
 		return "", notCleanBecause("it is in the middle of " + op)
 	}
-	dirty, _, err := runCapture(ctx, commandTimeout, dir, "status", "--porcelain", "--untracked-files=no")
+	dirty, _, err := runCapture(ctx, commandTimeout, dir, "status", "--porcelain", "--untracked-files=no", "--ignore-submodules=dirty")
 	if err != nil {
 		return "", err
 	}
@@ -257,7 +257,7 @@ func MergeInto(ctx context.Context, dir, base, sha, message string) (string, err
 			if _, serr := os.Stat(filepath.Join(gitDir, "index.lock")); serr == nil {
 				return "", &PartlyUpdatedError{Err: err}
 			}
-			if left, _, derr := runCapture(fctx, commandTimeout, dir, "status", "--porcelain", "--untracked-files=no"); derr != nil || strings.TrimSpace(left) != "" {
+			if left, _, derr := runCapture(fctx, commandTimeout, dir, "status", "--porcelain", "--untracked-files=no", "--ignore-submodules=dirty"); derr != nil || strings.TrimSpace(left) != "" {
 				return "", &PartlyUpdatedError{Err: err}
 			}
 			return "", err

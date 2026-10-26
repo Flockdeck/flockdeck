@@ -61,7 +61,7 @@ func changes(dir string, limit int) ([]FileChange, error) {
 		return nil, lerr
 	}
 	err := retryIndex(func() (e error) {
-		out, e = runIndex(context.Background(), dir, "status", "--porcelain", "--untracked-files=all", "-z")
+		out, e = runIndex(context.Background(), dir, "status", "--porcelain", "--untracked-files=all", "--ignore-submodules=dirty", "-z")
 		return e
 	})
 	done()
@@ -210,7 +210,7 @@ func numstat(ctx context.Context, dir string, against ...string) (map[string]lin
 	// --find-renames pins what is paired to renames, whatever diff.renames
 	// says: with "copies" set there, a copied file was counted against the
 	// file it came from, 0/0, though the commit adds all of it.
-	args := append([]string{"diff", "--numstat", "-z", "--no-ext-diff", "--no-textconv", "--find-renames"}, against...)
+	args := append([]string{"diff", "--numstat", "-z", "--no-ext-diff", "--no-textconv", "--ignore-submodules=dirty", "--find-renames"}, against...)
 	var out string
 	err := retryIndex(func() (e error) {
 		out, e = runIndex(ctx, dir, args...)
@@ -517,7 +517,7 @@ func pathspec(path string) string { return ":(literal)" + path }
 // through, by subject -- "> fix the parser", "<" for one it went back past --
 // where the default was two forty-character hashes that said nothing of what
 // changed, and nothing of a bump being undone.
-var diffFlags = []string{"--no-color", "--no-ext-diff", "--no-textconv", "--find-renames", "--src-prefix=a/", "--dst-prefix=b/", "--submodule=log"}
+var diffFlags = []string{"--no-color", "--no-ext-diff", "--no-textconv", "--ignore-submodules=dirty", "--find-renames", "--src-prefix=a/", "--dst-prefix=b/", "--submodule=log"}
 
 // gitDiff runs a diff with those flags ahead of the caller's arguments, and
 // returns it cut down to what the panel is sent.
@@ -585,7 +585,10 @@ func isWholeFileAddition(diff string) bool {
 // file that never existed before, which is rare among the files anyone
 // clicks.
 func renameSource(dir, path string) string {
-	out, err := run(dir, "status", "--porcelain", "--untracked-files=no", "-z")
+	if UnsafeReadConfig(context.Background(), dir) != nil {
+		return ""
+	}
+	out, err := run(dir, "status", "--porcelain", "--untracked-files=no", "--ignore-submodules=dirty", "-z")
 	if err != nil {
 		return ""
 	}

@@ -481,7 +481,7 @@ func TestIndexKeyIsCachedAndBounded(t *testing.T) {
 func TestUnusedIndexGatesArePruned(t *testing.T) {
 	oldTTL, oldEvery := gateTTL, gateSweepEvery
 	t.Cleanup(func() { gateTTL, gateSweepEvery = oldTTL, oldEvery })
-	a, b := t.TempDir(), t.TempDir()
+	a, b := t.TempDir(), newRepo(t) // readIndex reads the configuration first, so b is a repository
 	ga, gb := gateFor(a), gateFor(b)
 	_ = ga
 	held, _ := readIndex(context.Background(), b) // b is in use
