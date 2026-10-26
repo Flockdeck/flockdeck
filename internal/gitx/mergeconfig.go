@@ -29,7 +29,7 @@ const unsafeConfigKeys = `^(merge\..*\.driver|filter\..*\.(smudge|clean|process)
 // install --local` write. The filter is let through, so every other lfs.* key is
 // refused: an extension, a custom transfer agent or anything added later runs a
 // program, and an unknown key fails closed.
-var lfsData = regexp.MustCompile(`^lfs\.(repositoryformatversion|url|pushurl|concurrenttransfers|fetchinclude|fetchexclude|locksverify|setlockablereadonly|activitytimeout|dialtimeout|keepalive|tlstimeout|.*\.(access|locksverify))$`)
+var lfsData = regexp.MustCompile(`^lfs\.(repositoryformatversion|url|pushurl|concurrenttransfers|fetchinclude|fetchexclude|locksverify|setlockablereadonly|activitytimeout|dialtimeout|keepalive|tlstimeout|[a-z][a-z0-9+.-]*://.*\.(access|locksverify))$`)
 
 // UnsafeConfigError says which setting of the repository's own configuration would
 // run a program during a merge.

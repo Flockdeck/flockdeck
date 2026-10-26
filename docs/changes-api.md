@@ -456,7 +456,10 @@ merges, so the conflict blocker is then not worked out. This is a list of the ke
 does, and it is checked at one moment: an agent running as the user can write the
 configuration between the check and the merge. Like the rest of the gate it is a
 process control among cooperating agents (section 6). The person's own global and
-system configuration is not looked at. `notClean` also covers a checkout with files
+system configuration is not looked at. Not blocked: `lfs.url` and `lfs.pushurl`, which
+choose the server a Git LFS download contacts; an `ssh://` value makes git-lfs run ssh
+to a host the repository chose, with the person's keys. There is no check of the
+scheme, which would refuse legitimate ssh LFS repositories. `notClean` also covers a checkout with files
 marked assume-unchanged or skip-worktree (a sparse checkout marks files so), which a
 merge could overwrite without a change showing; the answer names the file. The merge is not stopped when the window closes the request: it
 runs to the end. If it fails part way, the base is looked at again; a commit that is

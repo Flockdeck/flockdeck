@@ -72,6 +72,11 @@ func TestARepositoryThatConfiguresAProgramIsNotMergedOrPredicted(t *testing.T) {
 			installLFSFilters(t, dir)
 			gitRun(t, dir, "config", "lfs.somethingnew", "touch "+m)
 		},
+		"lfs access on something that is not a url": func(t *testing.T, dir, m string) {
+			installLFSFilters(t, dir)
+			gitRun(t, dir, "config", "lfs.extension.evil.access", "touch "+m)
+			gitRun(t, dir, "config", "lfs.customtransfer.evil.locksverify", "touch "+m)
+		},
 		"ask pass": func(t *testing.T, dir, m string) {
 			installLFSFilters(t, dir)
 			gitRun(t, dir, "config", "core.askPass", "touch "+m)
