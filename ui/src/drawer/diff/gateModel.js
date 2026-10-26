@@ -209,6 +209,10 @@ export function gateConfirmWords(kind, { branch = "", head = "", base = "" } = {
 /** gateRefusalWords is what to say for a changesResult that was not ok. For mergeBranch the desk's own sentence is the answer. */
 export function gateRefusalWords(msg) {
   const m = isObject(msg) ? msg : {};
+  // notFound for the checks is about the check file ("write one at <path>", "the check file has no checks"), not a reviewer.
+  if ((text(m.op) === "confirmChecks" || text(m.op) === "runChecks") && m.code === "notFound") {
+    return clipText(showControls(text(m.error)), 400) || "There is no check file for this project, or it holds no check.";
+  }
   if (text(m.op) === "mergeBranch") {
     const said = clipText(showControls(text(m.error)), 600);
     if (said) return said;
