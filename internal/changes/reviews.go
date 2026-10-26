@@ -210,6 +210,13 @@ func LiveBranches(ctx context.Context, cwd string) (map[string]bool, error) {
 	return live, nil
 }
 
+// NotARepo says whether err from LiveBranches is git saying that cwd is not in a
+// repository. It is the one failure that means the directory has no branches; any
+// other failure leaves them unknown.
+func NotARepo(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "not a git repository")
+}
+
 // Set records a review of branch by reviewer, replacing that reviewer's earlier
 // one of the branch.
 //

@@ -4,7 +4,9 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -502,7 +504,21 @@ func (s *Server) liveBranches(cwd, root string) map[string]bool {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), changesReadLimit)
 	defer cancel()
-	return unionBranches(cwds, func(d string) (map[string]bool, error) { return changes.LiveBranches(ctx, d) })
+	return unionBranches(cwds, func(d string) (map[string]bool, error) { return liveBranchesOf(ctx, d) })
+}
+
+// liveBranchesOf lists the branches of the checkout at d. A pane whose directory is
+// not in a repository, or is gone, has none, and is not a reason to treat every
+// branch as live; any other failure is still an error.
+func liveBranchesOf(ctx context.Context, d string) (map[string]bool, error) {
+	if _, err := os.Stat(d); errors.Is(err, os.ErrNotExist) {
+		return map[string]bool{}, nil
+	}
+	live, err := changes.LiveBranches(ctx, d)
+	if changes.NotARepo(err) {
+		return map[string]bool{}, nil
+	}
+	return live, err
 }
 
 // unionBranches is the branches listed in any of the checkouts, or nil when a
