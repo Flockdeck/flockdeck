@@ -2,7 +2,7 @@
 
 The tests in `ui/test` draw the Changes view with a fake socket. This script is for the parts they cannot show: the real desktop app, a real repository and a real merge. It takes about 30 minutes. The commands are the server's, described in [changes-api.md](changes-api.md) sections 5 to 7.
 
-Run it against a scratch repository, never a real one: step 9 merges into the base branch, and step 11 writes a check file into Flockdeck's config directory, which you delete at the end.
+Run it against a scratch repository, never a real one: step 9 merges into the base branch, and step 12 writes a check file into Flockdeck's config directory, which you delete at the end.
 
 ## Set up
 
@@ -32,7 +32,7 @@ Expect: one row, `agent/a`, with no files and no gate blockers except `empty` ("
    Expect: the box shows "Sending...", then the comment appears under the line with "You to <agent name>", then "Delivered" (or "Read" once the agent reads it) and "Open". The agent's pane gets a message that names the branch, the file and the line. The file row and the gate show "1 open comment", and the gate is blocked.
 3. Press Resolve.
    Expect: the comment says "Resolved" and offers Reopen; the gate row says no open comments and the blocker goes. Press Reopen: it is open and the gate is blocked again. Resolve it once more.
-4. Press "+" on a line, type text, then commit another change in `scratch-a` before you press Send.
+4. Press "+" on a line, type text, then commit and push another change in `scratch-a` before you press Send (an unpushed commit would block Approve at step 6).
    Expect: the box closes with a note that the branch changed, and the text is still there when you open the same "+" again. Sending it against the new head works. Existing comments now say "on an earlier commit" (a warning chip with "the line may have changed" while they are open).
 5. In `scratch-a` edit line 4 of `notes.txt` and do not commit. Look at the diff.
    Expect: a note that the file has uncommitted changes. Lines on the new side have no "+"; old-side lines and "Comment on this file" still do. Commit and push; the "+" returns.
@@ -60,13 +60,13 @@ Expect: one row, `agent/a`, with no files and no gate blockers except `empty` ("
 
 ## Warnings
 
-10. `mergedNotRecorded`: before you press "Confirm and merge" on a ready branch, make Flockdeck's `changes` folder in its config directory read-only (on Windows: `icacls <folder> /deny %USERNAME%:(W)`, and `/remove:d %USERNAME%` afterwards). The merge succeeds but cannot be written down.
-    Expect: a "Warning" box in the gate with the desk's sentence and the branch name, a Dismiss button, and "Merge into main" off while it is up. A new push does not clear it. Dismiss puts the keyboard on the main button.
+10. `mergedNotRecorded`: Approve and Merge both write the gate file (`<key>.gate.json`, through a temporary file in the `changes` folder), so the folder can only be made read-only after the approval. Create a fresh branch (`git worktree add ../scratch-c -b agent/c`, a new pane, commit and push a change) because `agent/a` is merged. Approve it, then make Flockdeck's `changes` folder in its config directory read-only: on Windows in cmd, `icacls <folder> /deny %USERNAME%:(W)` and afterwards `icacls <folder> /remove:d %USERNAME%` (PowerShell needs the argument quoted); on macOS and Linux `chmod a-w <folder>` and afterwards `chmod u+w <folder>`. Press "Merge into main" and confirm. The merge succeeds but cannot be written down.
+    Expect: a "Warning" box in the gate with the desk's sentence and the branch name, a Dismiss button, and "Merge into main" off while it is up. A new push does not clear it. Dismiss puts the keyboard on the main button. The gate still reads Approved because it could not be updated: do not press Merge again, and delete `agent/c`'s gate file in clean-up.
 11. `partlyUpdated` needs git to fail part way through a merge, which cannot be provoked reliably by hand. Skip it; the unit tests draw it. If you do see it, expect the same warning box, with Merge still available.
 
 ## Checks
 
-12. Press "Run checks" with no check file.
+12. (Needs the fix in PR #682 until it merges: before it, the window words this refusal as a missing reviewer.) Press "Run checks" with no check file.
     Expect: an error with the path of the file to write. Create it there:
     `{ "checks": [{ "name": "unit", "cmd": "git --version" }] }`
 13. Press "Run checks" again.
@@ -74,12 +74,12 @@ Expect: one row, `agent/a`, with no files and no gate blockers except `empty` ("
     Expect: "Checks started.", then the check appears as running and then passing for the head. A new commit makes it queued for the new head.
 14. Edit the check file to `"cmd": "git --version && echo hi"` while the question is open, then press Confirm.
     Expect: the question shows the new command with a note that the file changed, and nothing runs until you confirm again.
-15. Put a control character in a command. In the JSON write a tab as `\t` (allowed) and a line break as `\n` (refused):
-    `"cmd": "echo a\nb"`
-    Expect: no question; an error that names the check and the character, and nothing runs. Do the same with a zero-width space (U+200B) and a right-to-left override (U+202E): both are refused. Put a no-break space (U+00A0) in a command: either it is refused the same way, or the question shows `<U+00A0>` in its place. Write down which.
+15. Put odd characters in a command. Write them as JSON escapes so you can see them in the file. A tab (\t) and a no-break space are allowed; a line break is not.
+    First `"cmd": "echo hi"` with a real no-break space (U+00A0) typed inside the command, between the two words (one at either end is trimmed away). Expect: it is not refused, and the question shows `<U+00A0>` where it is. The check will fail when run; that is fine.
+    Then, one at a time, `"cmd": "echo a\nb"`, `"cmd": "echo a\u200bb"`, `"cmd": "echo a\u202eb"`, `"cmd": "echo a\u2028b"` and `"cmd": "echo a\u2029b"`. Expect: no question for any of them, an error that names the check and the character, and nothing runs.
 16. Restart Flockdeck and press "Run checks" with the original file.
     Expect: the question appears again, because the confirmation is only kept in memory.
 
 ## Clean up
 
-Delete the check file, restore the `changes` folder's permissions, remove the worktrees (`git worktree remove`) and delete `scratch`, `scratch-a`, `scratch-b` and `scratch-remote.git`. Comments and approvals are kept in `changes/<project>-<8 hex>.*.json`, so delete those for the scratch project too.
+Delete the check file, restore the `changes` folder's permissions, remove the worktrees (`git worktree remove`) and delete `scratch`, `scratch-a`, `scratch-b` and `scratch-remote.git`. Comments, approvals and the check file are kept in `changes/<project>-<8 hex>.*.json` and `changes/<project>-<8 hex>.json` (the check file has no middle part), so delete those for the scratch project too, including the gate file of `agent/c`.
