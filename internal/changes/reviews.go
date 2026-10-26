@@ -7,6 +7,7 @@ import (
 	"errors"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
@@ -212,9 +213,33 @@ func LiveBranches(ctx context.Context, cwd string) (map[string]bool, error) {
 
 // NotARepo says whether err from LiveBranches is git saying that cwd is not in a
 // repository. It is the one failure that means the directory has no branches; any
-// other failure leaves them unknown.
-func NotARepo(err error) bool {
-	return err != nil && strings.Contains(err.Error(), "not a git repository")
+// other failure leaves them unknown. Git prints the same words for a repository it
+// cannot use (a damaged .git/HEAD, a linked worktree whose admin directory is
+// missing), and whoever can write .git can make that on purpose, so it counts only
+// when git exited 128 and no .git entry, file or directory, exists at cwd or any
+// parent: an entry that exists means the repository is there and unknown.
+func NotARepo(err error, cwd string) bool {
+	var exit *exec.ExitError
+	if err == nil || !errors.As(err, &exit) || exit.ExitCode() != 128 {
+		return false
+	}
+	if !strings.Contains(err.Error(), "not a git repository") {
+		return false
+	}
+	dir, perr := filepath.Abs(cwd)
+	if perr != nil {
+		return false
+	}
+	for {
+		if _, serr := os.Lstat(filepath.Join(dir, ".git")); !errors.Is(serr, os.ErrNotExist) {
+			return false // present, or could not be told
+		}
+		up := filepath.Dir(dir)
+		if up == dir {
+			return true
+		}
+		dir = up
+	}
 }
 
 // Set records a review of branch by reviewer, replacing that reviewer's earlier

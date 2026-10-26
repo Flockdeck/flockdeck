@@ -30,6 +30,21 @@ func TestLiveBranchesOfSkipsADirectoryWithNoRepositoryButNotOtherFailures(t *tes
 			t.Errorf("%s: %v, %v", name, got, err)
 		}
 	}
+	// A .git that exists means a repository that git cannot use, which is unknown,
+	// not gone: an agent that can write .git could otherwise make its branches vanish.
+	pointing := t.TempDir()
+	if err := os.WriteFile(filepath.Join(pointing, ".git"), []byte("gitdir: "+filepath.ToSlash(filepath.Join(pointing, "nowhere"))+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	emptyGit := t.TempDir()
+	if err := os.Mkdir(filepath.Join(emptyGit, ".git"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for name, dir := range map[string]string{"a .git file pointing nowhere": pointing, "an empty .git directory": emptyGit} {
+		if got, err := liveBranchesOf(ctx, dir); err == nil {
+			t.Errorf("%s: %v, nil error, want an error", name, got)
+		}
+	}
 	// A pane outside any repository no longer stops branches from being counted
 	// as gone: the repository's own branches are still listed.
 	union := unionBranches([]string{w.cwd, t.TempDir()}, func(d string) (map[string]bool, error) { return liveBranchesOf(ctx, d) })

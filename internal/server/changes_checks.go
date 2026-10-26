@@ -509,13 +509,16 @@ func (s *Server) liveBranches(cwd, root string) map[string]bool {
 
 // liveBranchesOf lists the branches of the checkout at d. A pane whose directory is
 // not in a repository, or is gone, has none, and is not a reason to treat every
-// branch as live; any other failure is still an error.
+// branch as live; any other failure is still an error. A path that cannot be found
+// counts as gone, which includes a drive that is unplugged or offline on Windows
+// (ERROR_PATH_NOT_FOUND matches os.ErrNotExist); the cost is only that a review
+// request or dismissal of a branch is evicted earlier.
 func liveBranchesOf(ctx context.Context, d string) (map[string]bool, error) {
 	if _, err := os.Stat(d); errors.Is(err, os.ErrNotExist) {
 		return map[string]bool{}, nil
 	}
 	live, err := changes.LiveBranches(ctx, d)
-	if changes.NotARepo(err) {
+	if changes.NotARepo(err, d) {
 		return map[string]bool{}, nil
 	}
 	return live, err
