@@ -31,11 +31,18 @@ func (e *UnsafeReadConfigError) Error() string {
 	return fmt.Sprintf("its config runs programs: %s", cleanKey(e.Key))
 }
 
+// ConfigUnreadableError says the repository's configuration could not be read, so it
+// is not known whether it names a program. Callers refuse as they do for a setting.
+type ConfigUnreadableError struct{ Err error }
+
+func (e *ConfigUnreadableError) Error() string { return e.Err.Error() }
+func (e *ConfigUnreadableError) Unwrap() error { return e.Err }
+
 // UnsafeReadConfig reports the first setting of dir's repository-local or worktree
 // configuration that would run a program when git compares the working tree with
 // the index, or nil when there is none. An error that is not an
-// *UnsafeReadConfigError means the configuration could not be read, which callers
-// must treat as not safe.
+// *UnsafeReadConfigError is a *ConfigUnreadableError: the configuration could not be
+// read, which callers must treat as not safe.
 //
 // The answer holds for readConfigTTL, so that the several git calls of one read pass
 // ask once. It is a check at one moment, as the merge's is: a process control among
@@ -47,7 +54,7 @@ func UnsafeReadConfig(ctx context.Context, dir string) error {
 	}
 	entries, err := configEntries(ctx, dir, unsafeReadKeys)
 	if err != nil {
-		return err // not kept: a read that failed is asked again
+		return &ConfigUnreadableError{Err: err} // not kept: a read that failed is asked again
 	}
 	for _, e := range entries {
 		if !allowedConfig(e[0], e[1]) {

@@ -53,7 +53,8 @@ func (s Status) HasChanges() bool { return s.Dirty > 0 || s.Untracked > 0 }
 func StatusOf(dir string) Status {
 	st, err := statusWithin(dir, commandTimeout)
 	var unsafe *UnsafeReadConfigError
-	if errors.As(err, &unsafe) {
+	var unread *ConfigUnreadableError
+	if errors.As(err, &unsafe) || errors.As(err, &unread) {
 		st.Unreadable = true
 	}
 	return st
@@ -274,8 +275,16 @@ func submoduleWork(dir string, paths ...string) []string {
 // submoduleConfigUnsafe says whether a submodule among paths (or any, when none are
 // given) has its own configuration naming a program that comparing its working tree
 // would run, or whether the submodules cannot be listed. The superproject's check does
-// not see a submodule's own configuration, .git/modules/<name>/config.
+// not see a submodule's own configuration, .git/modules/<name>/config, and a status
+// that looks inside submodules goes on into theirs, so each initialised submodule is
+// searched in turn, to a depth of maxSubmoduleDepth; deeper is refused.
 func submoduleConfigUnsafe(dir string, paths []string) bool {
+	return submodulesUnsafe(dir, paths, 0)
+}
+
+const maxSubmoduleDepth = 4
+
+func submodulesUnsafe(dir string, paths []string, depth int) bool {
 	args := []string{"ls-files", "--stage", "-z"}
 	if len(paths) > 0 {
 		args = append(args, "--")
@@ -296,10 +305,11 @@ func submoduleConfigUnsafe(dir string, paths []string) bool {
 		if !ok {
 			continue
 		}
-		if _, serr := os.Stat(filepath.Join(dir, filepath.FromSlash(path), ".git")); serr != nil {
+		sub := filepath.Join(dir, filepath.FromSlash(path))
+		if _, serr := os.Stat(filepath.Join(sub, ".git")); serr != nil {
 			continue // not initialised: nothing to run
 		}
-		if UnsafeReadConfig(context.Background(), filepath.Join(dir, filepath.FromSlash(path))) != nil {
+		if depth >= maxSubmoduleDepth || UnsafeReadConfig(context.Background(), sub) != nil || submodulesUnsafe(sub, nil, depth+1) {
 			return true
 		}
 	}

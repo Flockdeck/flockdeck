@@ -190,3 +190,59 @@ func TestASubmodulesOwnConfigIsNotRunByAReadOfTheRepositoryAroundIt(t *testing.T
 		t.Error("the submodule's clean filter ran")
 	}
 }
+
+// A status that looks inside submodules goes on into theirs, so a submodule of a
+// submodule is checked too (.git/modules/<a>/modules/<b>/config).
+func TestANestedSubmodulesOwnConfigIsNotRun(t *testing.T) {
+	leaf := newRepo(t)
+	writeIn(t, leaf, ".gitattributes", "* filter=evil\n")
+	gitRun(t, leaf, "add", "-A")
+	gitRun(t, leaf, "commit", "-q", "-m", "attributes")
+	middle := newRepo(t)
+	file := []string{"-c", "protocol.file.allow=always"}
+	if out, err := exec.Command("git", append(append([]string{"-C", middle}, file...), "submodule", "add", "--", filepath.ToSlash(leaf), "leaf")...).CombinedOutput(); err != nil {
+		t.Skipf("submodules are not usable here: %v: %s", err, out)
+	}
+	gitRun(t, middle, "commit", "-q", "-m", "add the leaf")
+	outer := newRepo(t)
+	gitRun(t, outer, append(file, "submodule", "add", "-q", "--", filepath.ToSlash(middle), "mid")...)
+	gitRun(t, outer, "-c", "protocol.file.allow=always", "submodule", "update", "--init", "--recursive", "-q")
+	gitRun(t, outer, "commit", "-q", "-m", "add the middle")
+
+	leafDir := filepath.Join(outer, "mid", "leaf")
+	if _, err := os.Stat(filepath.Join(leafDir, ".git")); err != nil {
+		t.Skipf("nested submodules are not usable here: %v", err)
+	}
+	m := marker(t)
+	gitRun(t, leafDir, "config", "filter.evil.clean", "touch "+m+" && cat")
+	writeIn(t, leafDir, "README.md", "hello and a good deal more\n")
+
+	if submoduleWorkNames := submoduleWork(outer, "mid"); len(submoduleWorkNames) != 0 {
+		t.Errorf("submoduleWork = %v, want nothing while a nested submodule's config names a program", submoduleWorkNames)
+	}
+	if !submoduleConfigUnsafe(outer, nil) {
+		t.Error("the nested submodule's config was not found")
+	}
+	if _, err := os.Stat(m); err == nil {
+		t.Error("the nested submodule's clean filter ran")
+	}
+	// And one that is fine is not refused.
+	gitRun(t, leafDir, "config", "--unset", "filter.evil.clean")
+	if submoduleConfigUnsafe(outer, nil) {
+		t.Error("a nested submodule with nothing to run was refused")
+	}
+}
+
+func TestACheckoutWhoseConfigCannotBeReadIsUnreadableNotEmpty(t *testing.T) {
+	dir := newRepo(t)
+	if err := os.WriteFile(filepath.Join(dir, ".git", "config"), []byte("[core\n\tbare = false\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var unread *ConfigUnreadableError
+	if err := UnsafeReadConfig(context.Background(), dir); !errors.As(err, &unread) {
+		t.Fatalf("UnsafeReadConfig = %v, want a ConfigUnreadableError", err)
+	}
+	if st := StatusOf(dir); !st.Unreadable {
+		t.Errorf("status = %+v, want an unreadable checkout, not one with nothing changed", st)
+	}
+}
