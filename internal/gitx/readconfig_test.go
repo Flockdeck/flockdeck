@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -259,4 +260,25 @@ func TestACheckoutWhoseConfigCannotBeReadIsUnreadableNotEmpty(t *testing.T) {
 	if st := StatusOf(dir); !st.Unreadable {
 		t.Errorf("status = %+v, want an unreadable checkout, not one with nothing changed", st)
 	}
+}
+
+// withGlobalFilter gives the test a global git configuration (the person's own, which
+// the check of a repository does not look at) with the filter name, for a test of what
+// a clean filter is given or how long it takes. A filter in a repository's own
+// configuration is refused. It cannot be used by a parallel test.
+func withGlobalFilter(t *testing.T, name string, lines ...string) {
+	t.Helper()
+	base, err := os.ReadFile(os.Getenv("GIT_CONFIG_GLOBAL"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := string(base) + "[filter " + strconv.Quote(name) + "]" + "\n"
+	for _, l := range lines {
+		cfg += "	" + l + "\n"
+	}
+	path := filepath.Join(t.TempDir(), "gitconfig")
+	if err := os.WriteFile(path, []byte(cfg), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("GIT_CONFIG_GLOBAL", path)
 }

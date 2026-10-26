@@ -39,11 +39,6 @@ func runTests(m *testing.M) int {
 	// ended, so git's automatic gc and maintenance, which can detach and run in the
 	// background after many commits, are switched off for every test repository.
 	config := "[user]\n\tname = Test\n\temail = test@example.com\n[commit]\n\tgpgsign = false\n" +
-		// Filters of the person (global configuration, which a repository check does not
-		// look at) for the tests of what a clean filter is given or how long it takes; the
-		// script is in the checkout. A filter in a repository's own configuration is refused.
-		"[filter \"gitxloc\"]\n\tclean = sh ./filter.sh\n\trequired = true\n" +
-		"[filter \"gitxslow\"]\n\tclean = sh .git/gitxslow.sh\n" +
 		"[gc]\n\tauto = 0\n\tautoDetach = false\n[maintenance]\n\tauto = false\n"
 	if err := os.WriteFile(global, []byte(config), 0o600); err != nil {
 		fmt.Fprintln(os.Stderr, "gitx tests:", err)

@@ -18,7 +18,6 @@ import (
 // was, rather than come back empty like a checkout git had nothing to say
 // about: the pane headers tell the two apart.
 func TestStatusWithinSaysWhenGitDidNotAnswer(t *testing.T) {
-	t.Parallel()
 	if !Available() {
 		t.Skip("git is not installed")
 	}
@@ -60,13 +59,14 @@ func TestStatusWithinSaysWhenGitDidNotAnswer(t *testing.T) {
 			}
 		}
 	})
-	// The filter is in the test's global configuration (main_test.go), running the
-	// script from the checkout: one in the checkout's own is refused.
+	// The filter is in a global configuration of the test's, running the script from
+	// the checkout: one in the checkout's own is refused.
+	withGlobalFilter(t, "slow", "clean = sh .git/gitxslow.sh")
 	if err := os.WriteFile(filepath.Join(repo, ".git", "gitxslow.sh"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	_ = hook
-	if err := os.WriteFile(filepath.Join(repo, ".git", "info", "attributes"), []byte("README.md filter=gitxslow\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(repo, ".git", "info", "attributes"), []byte("README.md filter=slow\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	later := time.Now().Add(time.Hour)
