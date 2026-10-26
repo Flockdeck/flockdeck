@@ -16,7 +16,8 @@ import { createDom, install, settle } from "./dom.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixture = (name) => JSON.parse(readFileSync(join(here, "..", "..", "api", "fixtures", "built-changes-" + name + ".json"), "utf8"));
-const hunksFile = fixture("04-diff-hunks");
+// The fixture is a diff of uncommitted changes (worktree true); most tests here are about a committed one.
+const hunksFile = { ...fixture("04-diff-hunks"), worktree: false };
 const added = fixture("13-result-comment-added");
 const deskOnly = fixture("14-result-desk-only");
 const headMoved = fixture("11-result-head-moved");
@@ -73,6 +74,22 @@ test("a refusal says what happened, from the fixtures' codes", () => {
   assert.match(refusalWords({ code: "unsupported" }), /does not take review comments yet/);
   assert.match(refusalWords({ code: "badRequest", error: "No such line." }), /No such line/);
   assert.match(refusalWords(null), /not sent/);
+});
+
+test("every refusal the desk gives a comment is worded, and its own sentence is shown as clipped text", () => {
+  assert.match(refusalWords({ code: "noBranch", error: "x" }), /no longer on a branch, so nothing was sent/);
+  assert.match(refusalWords({ code: "notFound", error: "x" }), /comment is gone/);
+  const long = "line past the end " + "é".repeat(600);
+  const out = refusalWords({ code: "badRequest", error: long });
+  assert.equal(Array.from(out).length, 400);
+  assert.ok(out.endsWith("…"));
+  assert.equal(refusalWords({ code: "badRequest", error: "a‮b" }), "a<U+202E>b");
+  assert.equal(refusalWords({ code: "badRequest", error: "" }), "The desk did not accept that comment.");
+  const astral = "😀".repeat(500);
+  assert.ok(refusalWords({ code: "badRequest", error: astral }).isWellFormed());
+  for (const e of ["500 open comments on this branch", "the inbox of api is full", "the comment file is damaged"]) {
+    assert.equal(refusalWords({ code: "badRequest", error: e }), e);
+  }
 });
 
 test("the flow: a comment is shown as sending, then replaced by the desk's, which stays until it is listed", () => {
@@ -220,7 +237,7 @@ test("a comment from the desk shows under its line with its delivery and state, 
 test("a comment written at an earlier head says it is outdated, and a refused resolve says so on the comment", async () => {
   const m = await mountHost({ send: () => true, comments: [{ ...added.comment, atSha: "0000000" }] });
   try {
-    assert.match(m.box.textContent, /outdated/);
+    assert.match(m.box.textContent, /on an earlier commit/);
   } finally {
     m.done();
   }
@@ -475,9 +492,11 @@ test("an agent is marked as an agent, so no name reads as You; text and place sh
   assert.doesNotMatch(renderToString(html`<${Thread} comments=${[c()]} headSha="aaa" />`), /dv-agent/);
 });
 
-test("outdated shows on open comments only and says the line may have changed", () => {
-  assert.match(renderToString(html`<${Thread} comments=${[c()]} headSha="bbb" />`), /outdated: line may have changed/);
-  assert.doesNotMatch(renderToString(html`<${Thread} comments=${[c({ state: "resolved" })]} headSha="bbb" />`), /outdated/);
+test("a comment whose atSha is not the head reads as being on an earlier commit, whatever its state", () => {
+  assert.match(renderToString(html`<${Thread} comments=${[c()]} headSha="bbb" />`), /on an earlier commit/);
+  assert.match(renderToString(html`<${Thread} comments=${[c({ state: "resolved" })]} headSha="bbb" />`), /on an earlier commit/);
+  assert.doesNotMatch(renderToString(html`<${Thread} comments=${[c()]} headSha="aaa" />`), /earlier commit/);
+  assert.doesNotMatch(renderToString(html`<${Thread} comments=${[c()]} headSha="" />`), /earlier commit/);
 });
 
 test("when the diff is read again the composer closes and its text is kept for that place", () => {
@@ -490,4 +509,27 @@ test("when the diff is read again the composer closes and its text is kept for t
   s = flowReducer(s, { type: "open", target: t });
   assert.equal(s.draft, "typed on old hunks");
   assert.equal(flowReducer(initialFlow, { type: "stale" }), initialFlow);
+});
+
+test("the flow: each refusal of commentAdd keeps the text and the box, and nothing is listed", () => {
+  const cases = [
+    ["headMoved", "x", /new commit since you looked/],
+    ["badRequest", "line 900 is past the end of the file", /line 900 is past the end/],
+    ["badRequest", "this branch has 500 open comments", /500 open comments/],
+    ["badRequest", "the inbox of api is full", /inbox of api is full/],
+    ["noBranch", "x", /no longer on a branch/],
+    ["deskOnly", "x", /not from this window/],
+    ["unsupported", "x", /does not take review comments/],
+  ];
+  for (const [code, error, want] of cases) {
+    let s = flowReducer(initialFlow, { type: "open", target: { file: "a.go", side: "new", line: 5 } });
+    s = flowReducer(s, { type: "draft", text: "fix it" });
+    s = flowReducer(s, { type: "sent", req: "r1", pending: { kind: "add", target: s.composing, text: "fix it", at: "t" } });
+    s = flowReducer(s, { type: "result", msg: { type: "changesResult", req: "r1", op: "commentAdd", ok: false, code, error } });
+    assert.match(s.error, want, code);
+    assert.equal(s.draft, "fix it", code);
+    assert.notEqual(s.composing, null, code);
+    assert.deepEqual(mergeComments([], s), [], code);
+    assert.deepEqual(s.pending, {}, code);
+  }
 });

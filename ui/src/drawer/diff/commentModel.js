@@ -8,6 +8,7 @@
 // "woken" | "read", absent while the message is being written), createdAt,
 // fixedAtSha }. Everything in it is text from the desk or an agent.
 import { showControls } from "./diffModel.js";
+import { clipText } from "./gateModel.js";
 
 /** MAX_COMMENT is the longest comment the desk takes, in characters. */
 export const MAX_COMMENT = 4096;
@@ -90,6 +91,9 @@ export function closeCommand(cmd, { pane, commentId, req }) {
   return { cmd: cmd === "commentReopen" ? "commentReopen" : "commentResolve", id: pane, commentId, req };
 }
 
+// said is the desk's own sentence, as text: invisible characters shown and at most 400 code points.
+const said = (v) => clipText(showControls(text(v)), 400);
+
 /** refusalWords is what to say to the person for a changesResult that was not ok. */
 export function refusalWords(msg) {
   const m = isObject(msg) ? msg : {};
@@ -98,7 +102,8 @@ export function refusalWords(msg) {
     case "deskOnly": return "Review comments are added on the machine Flockdeck runs on, not from this window.";
     case "unsupported": return "This version of Flockdeck does not take review comments yet.";
     case "notFound": return "That comment is gone.";
-    case "badRequest": return text(m.error) || "The desk did not accept that comment.";
-    default: return text(m.error) || "The comment was not sent.";
+    case "noBranch": return "That pane is no longer on a branch, so nothing was sent.";
+    case "badRequest": return said(m.error) || "The desk did not accept that comment.";
+    default: return said(m.error) || "The comment was not sent.";
   }
 }

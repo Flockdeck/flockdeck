@@ -13,7 +13,8 @@ import { createDom, install, settle } from "./dom.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixture = (name) => JSON.parse(readFileSync(join(here, "..", "..", "api", "fixtures", "built-changes-" + name + ".json"), "utf8"));
-const hunksFile = fixture("04-diff-hunks");
+// The fixture is a diff of uncommitted changes (worktree true); most tests here are about a committed one.
+const hunksFile = { ...fixture("04-diff-hunks"), worktree: false };
 const truncated = fixture("05-diff-truncated");
 const binary = fixture("06-diff-binary");
 const rename = fixture("07-diff-rename");
@@ -379,4 +380,24 @@ test("a gap whose lines could not be read says so on the gap", () => {
   assert.ok(ids.length, "there are gaps");
   const errs = Object.fromEntries(ids.map((id) => [id, "gone"]));
   assert.match(renderToString(html`<${DiffViewer} file=${listing(hunksFile)} hunks=${hunksFile} onContext=${() => {}} contextErrors=${errs} />`), /dv-gap-err" role="alert">gone/);
+});
+
+test("a diff that holds uncommitted changes has no + on its new side, and says why; the old side and the file stay open", () => {
+  const props = { file: listing(hunksFile), onComment: () => {} };
+  const plus = (out) => (out.match(/class="dv-plus"/g) || []).length;
+  const plain = view({ ...props, hunks: { ...hunksFile, worktree: false } });
+  const dirty = view({ ...props, hunks: { ...hunksFile, worktree: true } });
+  assert.ok(plus(plain) > 0);
+  assert.match(plain, /Comment on line \d+ of /);
+  assert.doesNotMatch(plain, /uncommitted changes/);
+  assert.doesNotMatch(dirty, /aria-label="Comment on line \d+ of /);
+  assert.match(dirty, /aria-label="Comment on old line \d+ of /);
+  assert.ok(plus(dirty) < plus(plain));
+  assert.match(dirty, /uncommitted changes/);
+  assert.match(dirty, /Comment on this file/);
+  for (const layout of ["split"]) {
+    const out = view({ ...props, layout, narrow: false, hunks: { ...hunksFile, worktree: true } });
+    assert.doesNotMatch(out, /aria-label="Comment on line \d+ of /);
+    assert.match(out, /aria-label="Comment on old line \d+ of /);
+  }
 });

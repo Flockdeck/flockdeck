@@ -11,8 +11,7 @@
 //   showWhere }: each comment with who wrote it and to whom (an agent's name has an
 //   "agent" chip, so no name reads as the person's "You"), how far it got
 //   ("Sending…", "Delivered", "Read"), its state (open, fixed, resolved,
-//   dismissed), "outdated" for an open comment when the branch has moved on since
-//   it was written, and Resolve or Reopen. With no onResolve or onReopen the
+//   dismissed), "on an earlier commit" when the branch has moved on since it was written, and Resolve or Reopen. With no onResolve or onReopen the
 //   buttons are not drawn (read-only); one comment's button is off while its
 //   command is out (closing[id]).
 // - CommentDrawer { comments, headSha, nameOf, onJump, onResolve, onReopen }: open
@@ -74,7 +73,7 @@ function Card({ c, headSha, error, closing = false, nameOf, onResolve, onReopen,
   const delivery = deliveryOf(c);
   const mine = c.author === "you";
   const name = (p) => showControls(clip(text(nameOf ? nameOf(p) : p), 40));
-  const outdated = isOutdated(c, headSha) && state === "open";
+  const outdated = isOutdated(c, headSha);
   const done = state !== "open";
   const canAct = !c.pending && !!c.id;
   return html`<li class=${"dv-cmt" + (done ? " is-done" : "")} data-state=${state}>
@@ -84,7 +83,7 @@ function Card({ c, headSha, error, closing = false, nameOf, onResolve, onReopen,
       <span>${mine ? "You" : html`<span class="dv-chip dv-agent">agent</span> <bdi>${name(c.author)}</bdi>`}${c.to ? html` to <bdi>${name(c.to)}</bdi>` : null}</span>
       ${c.author === "you" ? html`<span class=${"dv-chip dv-delivery dv-delivery--" + delivery}>${DELIVERY_WORDS[delivery]}</span>` : null}
       <span class=${"dv-chip dv-state dv-state--" + state}>${STATE_WORDS[state]}</span>
-      ${outdated ? html`<span class="dv-chip dv-chip--warn" title="The branch has new commits since this was written; the line may have changed">outdated: line may have changed</span>` : null}
+      ${outdated ? html`<span class="dv-chip dv-chip--warn" title="The branch has new commits since this was written; the line may have changed">on an earlier commit</span>` : null}
       ${canAct && state === "open" && onResolve ? html`<button type="button" class="drawer-btn dv-resolve" disabled=${closing} aria-label=${"Resolve the comment on " + whereWords(c)} onClick=${() => onResolve && onResolve(c.id)}>Resolve</button>` : null}
       ${canAct && onReopen && (state === "resolved" || state === "dismissed" || state === "fixed") ? html`<button type="button" class="drawer-btn dv-reopen" disabled=${closing} aria-label=${"Reopen the comment on " + whereWords(c)} onClick=${() => onReopen && onReopen(c.id)}>Reopen</button>` : null}
     </p>
