@@ -177,7 +177,7 @@ func (s *Server) changesCommand(c *controlClient, cmd command) {
 		go s.changesDiffHunks(c, cmd)
 	case "diffContext":
 		go s.changesDiffContext(c, cmd)
-	case "commentAdd", "commentResolve", "commentReopen", "runChecks", "confirmChecks", "requestReview", "submitReview":
+	case "commentAdd", "commentResolve", "commentReopen", "runChecks", "confirmChecks", "requestReview", "submitReview", "approveMerge", "unapproveMerge", "mergeBranch":
 		// These act for the person: they run commands, write a review as the person's
 		// and send a message in Flockdeck's name. Like approveBaton they are taken only
 		// from a connection that opened as a page of the window (with an Origin). An
@@ -199,6 +199,12 @@ func (s *Server) changesCommand(c *controlClient, cmd command) {
 			go s.changesConfirmChecks(c, cmd)
 		case "requestReview":
 			go s.changesRequestReview(c, cmd)
+		case "approveMerge":
+			go s.changesApproveMerge(c, cmd)
+		case "unapproveMerge":
+			go s.changesUnapproveMerge(c, cmd)
+		case "mergeBranch":
+			go s.changesMergeBranch(c, cmd)
 		default:
 			go s.changesSubmitReview(c, cmd)
 		}

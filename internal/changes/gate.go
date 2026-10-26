@@ -184,9 +184,12 @@ type GateInput struct {
 	// Required is the names of the checks the project defines; nil when it has no
 	// check file. A defined check with no result counts as not run.
 	Required []string
-	Checks   []Check
-	Reviews  []Review
-	Comments []Comment
+	// ChecksError is why the check file could not be read, when it exists and could
+	// not: a project whose checks cannot be listed is not let through.
+	ChecksError string
+	Checks      []Check
+	Reviews     []Review
+	Comments    []Comment
 	// Unmergeable is true when the branch does not merge into its base without a
 	// conflict. It is false when that is not known, so a git that cannot say does
 	// not block a branch; mergeBranch refuses a conflict itself.
@@ -220,6 +223,9 @@ func ComputeGate(in GateInput) Gate {
 	byName := map[string]Check{}
 	for _, c := range in.Checks {
 		byName[c.Name] = c
+	}
+	if in.ChecksError != "" {
+		add("checks", "the check file cannot be read: %s", in.ChecksError)
 	}
 	names := in.Required
 	if names == nil {
