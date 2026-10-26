@@ -107,15 +107,16 @@ export const reviewCommand = ({ pane, reviewer, note = "", req }) => ({ cmd: "re
 
 const NAME_CLIP = 60;
 
-/** oneLine shows a command or a name as a single line of text: line breaks, other control characters and the spaces
- *  that look like a space but are not one (no-break, en and em spaces, the ideographic space) are
- *  drawn as marks rather than acted on, and the hidden ones the page marks everywhere (showControls). */
 /** clipText cuts a text to at most max code points, ending in an ellipsis, so a surrogate pair is never split. */
 export function clipText(v, max) {
   const chars = Array.from(String(v == null ? "" : v));
   return chars.length <= max ? chars.join("") : chars.slice(0, Math.max(0, max - 1)).join("") + "…";
 }
 
+/** oneLine shows a command or a name as a single line of text: the hidden characters the page marks everywhere
+ *  (showControls), line breaks, other control characters and the spaces that look like a space but are not one
+ *  (no-break, en and em spaces, the ideographic space) are drawn as marks rather than acted on. The odd spaces are
+ *  marked here and not in showControls because a command is where a space that is not one matters; in prose they are ordinary. */
 function oneLine(v, max = Infinity) {
   const t = showControls(text(v))
     .replace(/[\r\n]+/g, " <LF> ")
