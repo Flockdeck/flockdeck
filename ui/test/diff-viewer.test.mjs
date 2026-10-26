@@ -395,9 +395,7 @@ test("a diff that holds uncommitted changes has no + on its new side, and says w
   assert.ok(plus(dirty) < plus(plain));
   assert.match(dirty, /uncommitted changes/);
   assert.match(dirty, /Comment on this file/);
-  for (const layout of ["split"]) {
-    const out = view({ ...props, layout, narrow: false, hunks: { ...hunksFile, worktree: true } });
-    assert.doesNotMatch(out, /aria-label="Comment on line \d+ of /);
-    assert.match(out, /aria-label="Comment on old line \d+ of /);
-  }
+  const split = view({ ...props, layout: "split", narrow: false, hunks: { ...hunksFile, worktree: true } });
+  assert.doesNotMatch(split, /aria-label="Comment on line \d+ of /);
+  assert.match(split, /aria-label="Comment on old line \d+ of /);
 });

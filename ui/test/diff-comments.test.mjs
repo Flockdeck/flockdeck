@@ -12,6 +12,7 @@ import { useCommentFlow, flowReducer, initialFlow, mergeComments } from "../src/
 import {
   checkComment, deliveryOf, stateOf, isOutdated, commentsAt, forDrawer, whereWords, addCommand, closeCommand, refusalWords, lineKey, MAX_COMMENT,
 } from "../src/drawer/diff/commentModel.js";
+import { commentsSummary } from "../src/drawer/diff/gateModel.js";
 import { createDom, install, settle } from "./dom.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
@@ -494,7 +495,13 @@ test("an agent is marked as an agent, so no name reads as You; text and place sh
 
 test("a comment whose atSha is not the head reads as being on an earlier commit, whatever its state", () => {
   assert.match(renderToString(html`<${Thread} comments=${[c()]} headSha="bbb" />`), /on an earlier commit/);
-  assert.match(renderToString(html`<${Thread} comments=${[c({ state: "resolved" })]} headSha="bbb" />`), /on an earlier commit/);
+  const done = renderToString(html`<${Thread} comments=${[c({ state: "resolved" })]} headSha="bbb" />`);
+  assert.match(done, /on an earlier commit/);
+  assert.doesNotMatch(done, /dv-chip--warn/, "a done comment is by design on an earlier commit: no warning tone");
+  assert.doesNotMatch(done, /may have changed/);
+  const open = renderToString(html`<${Thread} comments=${[c()]} headSha="bbb" />`);
+  assert.match(open, /dv-chip--warn/);
+  assert.match(open, />on an earlier commit: the line may have changed</, "the reason is in the visible text");
   assert.doesNotMatch(renderToString(html`<${Thread} comments=${[c()]} headSha="aaa" />`), /earlier commit/);
   assert.doesNotMatch(renderToString(html`<${Thread} comments=${[c()]} headSha="" />`), /earlier commit/);
 });
@@ -532,4 +539,13 @@ test("the flow: each refusal of commentAdd keeps the text and the box, and nothi
     assert.deepEqual(mergeComments([], s), [], code);
     assert.deepEqual(s.pending, {}, code);
   }
+});
+
+test("the gate's open count is the drawer's Open section, for every state including one the desk adds later", () => {
+  for (const state of ["open", "fixed", "resolved", "dismissed", "rebased", "", undefined, null, 7]) {
+    const comments = [c({ id: "a", state }), c({ id: "b", state: "open" }), c({ id: "d", state: "resolved" })];
+    assert.equal(commentsSummary({ comments }).open, forDrawer(comments).open.length, String(state));
+  }
+  assert.equal(commentsSummary({ comments: [c({ state: "rebased" })] }).open, 1, "an unknown state is open in both");
+  assert.equal(commentsSummary({ comments: [c({ state: "fixed" }), c({ state: "dismissed" })] }).open, 0);
 });

@@ -8,7 +8,6 @@
 // "woken" | "read", absent while the message is being written), createdAt,
 // fixedAtSha }. Everything in it is text from the desk or an agent.
 import { showControls } from "./diffModel.js";
-import { clipText } from "./gateModel.js";
 
 /** MAX_COMMENT is the longest comment the desk takes, in characters. */
 export const MAX_COMMENT = 4096;
@@ -92,7 +91,10 @@ export function closeCommand(cmd, { pane, commentId, req }) {
 }
 
 // said is the desk's own sentence, as text: invisible characters shown and at most 400 code points.
-const said = (v) => clipText(showControls(text(v)), 400);
+const said = (v) => {
+  const chars = Array.from(showControls(text(v)));
+  return chars.length <= 400 ? chars.join("") : chars.slice(0, 399).join("") + "…";
+};
 
 /** refusalWords is what to say to the person for a changesResult that was not ok. */
 export function refusalWords(msg) {

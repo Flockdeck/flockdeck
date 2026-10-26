@@ -8,6 +8,7 @@
 // [{ kind, text }], approvedBy, approvedAt, approvedSha, mergeSha }.
 
 import { showControls } from "./diffModel.js";
+import { stateOf } from "./commentModel.js";
 
 const isObject = (v) => !!v && typeof v === "object" && !Array.isArray(v);
 const list = (v) => (Array.isArray(v) ? v : []);
@@ -63,9 +64,9 @@ export function reviewSummary(branch) {
   return { tone: "none", who: "", note: "", state: stale ? "stale" : "none" };
 }
 
-/** commentsSummary counts the comments still open. */
+/** commentsSummary counts the comments still open: the same rule as the comment drawer's Open section (a state this window does not know is open). */
 export function commentsSummary(branch) {
-  const open = list(isObject(branch) ? branch.comments : []).filter((c) => isObject(c) && (c.state === undefined || c.state === "open")).length;
+  const open = list(isObject(branch) ? branch.comments : []).filter((c) => isObject(c) && stateOf(c) === "open").length;
   return { open, tone: open ? "fail" : "pass" };
 }
 
