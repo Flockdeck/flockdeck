@@ -231,14 +231,18 @@ too, so the author `you` is a record and not proof.
   owner says so (a later commit on the branch that the owner reports); only the
   person sets `resolved`, with `commentResolve`. `commentReopen` makes a comment
   open again. Open comments block the merge.
-- A comment is at most 4096 characters, a branch keeps at most 500 (the 501st is
-  `badRequest`), and the store keeps at most 5000, dropping the oldest resolved or
-  dismissed comment to make room and refusing when every one is open. A `file` must
+- A comment is at most 4096 characters, a branch has at most 500 open comments (the 501st is
+  `badRequest`; resolved and dismissed ones do not count), and the store keeps at
+  most 5000 and at most 8 MiB as written, dropping the oldest resolved or dismissed
+  comment to make room and refusing when every one is open. A store that has been
+  written can always be read back. A `file` must
   be one of the branch's files (by its new or its old path). The line must exist on
   the side named: from 1 to the number of lines the file has at the head (`new`) or
   at the merge base (`old`), or 0 for the whole file. A line past the end, a side the
   file does not have (the old side of an added file) and a file too large to read
-  are `badRequest`. The text loses control and format characters, and the
+  are `badRequest`. The count is of the committed file: a diff of uncommitted
+  changes numbers the working tree, so a line that exists only there is not accepted
+  until it is committed. The text loses control and format characters, and the
   line breaks and tabs stay.
 - The server sets `open`. `commentResolve` makes an open or fixed comment
   `resolved`, and is harmless on one already closed. `commentReopen` makes any
@@ -432,7 +436,7 @@ the branch's `gate.state` is `merged` and `mergeSha` is the new tip of the base.
 | --- | --- |
 | Branches in a push | 60 |
 | Files listed for a branch | 2000, the rest through `filesPage` (200 a page by default, 500 at most) |
-| Comments for a branch | 500, each 4096 characters |
+| Open comments for a branch | 500, each 4096 characters |
 | Diff | 5000 lines and 1 MiB, then `truncated` |
 | Lines from one `diffContext` | 200 |
 | A review's note | 2000 characters |

@@ -65,7 +65,7 @@ func commentText(branch, path, side string, line int, sha, text string) string {
 		where = fmt.Sprintf("on line %d (%s side)", line, side)
 	}
 	return fmt.Sprintf("Review comment on %s, in %s %s, at %s. Quoted, from the person at the window:\n%s\nFix it and commit. The person closes comments; a comment you have dealt with stays open until they do.",
-		changes.CleanText(branch, 200), changes.CleanText(path, 400), where, shortSha(sha), indent(changes.CleanText(text, changes.MaxComment)))
+		changes.CleanLine(branch, 200), changes.CleanLine(path, 400), where, shortSha(sha), indent(changes.CleanText(text, changes.MaxComment)))
 }
 
 // commentWork is what a comment command needs once its pane is found: the

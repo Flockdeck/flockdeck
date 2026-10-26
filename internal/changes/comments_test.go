@@ -92,6 +92,11 @@ func TestABranchKeepsAtMost500AndAFullStoreDropsAClosedCommentFirst(t *testing.T
 	if _, err := st.Add("other", sampleComment("a.go"), 1000); err != nil {
 		t.Errorf("another branch is refused: %v", err)
 	}
+	// Closed comments do not count against the branch.
+	st.Comments[0].State = "resolved"
+	if _, err := st.Add("feat", sampleComment("a.go"), 1001); err != nil {
+		t.Errorf("a branch with a closed comment is stuck: %v", err)
+	}
 	// A store at its limit makes room by dropping the oldest closed comment, and
 	// refuses when every comment is open.
 	var full CommentState
@@ -164,7 +169,69 @@ func TestSideLinesCountsTheLinesOfAFileAtACommit(t *testing.T) {
 			t.Errorf("%s = %d, %v, %v, want %d", name, n, ok, err, want)
 		}
 	}
+	if _, ok, err := SideLines(context.Background(), dir, strings.Repeat("0", 40), "a.txt"); err == nil || ok {
+		t.Errorf("a revision that does not exist is not a file that is missing: %v, %v", ok, err)
+	}
+	if _, ok, err := SideLines(context.Background(), dir, head, "."); err != nil || ok {
+		t.Errorf("a directory: %v, %v", ok, err)
+	}
 	if _, ok, err := SideLines(context.Background(), dir, head, "missing.txt"); err != nil || ok {
 		t.Errorf("a file that is not there: %v, %v", ok, err)
+	}
+}
+
+func TestAStoreIsNeverSavedLargerThanItCanBeRead(t *testing.T) {
+	// "<" is written as six bytes, the worst a byte can be.
+	text := strings.Repeat("<", MaxComment)
+	var st CommentState
+	var last error
+	for i := 0; i < MaxComments; i++ {
+		c := sampleComment(strings.Repeat("p", 1000))
+		c.Text = text
+		if _, last = st.Add("b"+strconv.Itoa(i/100), c, i+1); last != nil {
+			break
+		}
+	}
+	if last != ErrTooManyComments || len(st.Comments) == 0 {
+		t.Fatalf("a store of maximum comments stopped with %v after %d", last, len(st.Comments))
+	}
+	p := filepath.Join(t.TempDir(), "c.json")
+	if err := st.Save(p); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	got, err := LoadComments(p)
+	if err != nil || len(got.Comments) != len(st.Comments) {
+		t.Fatalf("loaded %d of %d: %v", len(got.Comments), len(st.Comments), err)
+	}
+	// With one closed, a new comment makes room by dropping it.
+	st.Comments[3].State = "resolved"
+	n := len(st.Comments)
+	c := sampleComment("x")
+	c.Text = text
+	if _, err := st.Add("new", c, 1); err != nil || len(st.Comments) != n {
+		t.Errorf("a closed comment did not make room: %v, %d of %d", err, len(st.Comments), n)
+	}
+	if err := st.Save(p); err != nil {
+		t.Errorf("save after: %v", err)
+	}
+	// Save itself refuses what it could not read back.
+	big := st
+	big.Comments = append([]commentRecord{}, st.Comments...)
+	big.Comments = append(big.Comments, big.Comments...)
+	if err := big.Save(p); err != ErrTooManyComments {
+		t.Errorf("an oversize save: %v", err)
+	}
+}
+
+func TestAPathKeepsItsSpacesWhenRead(t *testing.T) {
+	now := time.Now().UTC().Format(time.RFC3339)
+	p := filepath.Join(t.TempDir(), "c.json")
+	body := `{"next":1,"comments":[{"branch":"feat","id":"c1","pane":"p1","path":"dir/a  b.txt","side":"new","line":2,"atSha":"` + testSha + `","text":"x","author":"you","to":"p1","state":"open","createdAt":"` + now + `"}]}`
+	if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	st, err := LoadComments(p)
+	if err != nil || len(st.Comments) != 1 || st.Comments[0].Path != "dir/a  b.txt" {
+		t.Errorf("loaded %+v, %v", st, err)
 	}
 }

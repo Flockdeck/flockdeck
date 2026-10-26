@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // Review comments (docs/changes-api.md, section 5). A comment is on one line of
@@ -23,11 +24,16 @@ const (
 	MaxComment        = 4096
 	MaxBranchComments = 500
 	MaxComments       = 5000
-	commentFileLimit  = 8 << 20
+	// commentSaveLimit is the most Save writes; commentFileLimit is the most
+	// LoadComments reads. The read limit is above the write limit, so that a store
+	// that was saved can always be read back.
+	commentSaveLimit = 8 << 20
+	commentFileLimit = 16 << 20
 )
 
-// ErrTooManyComments is returned when a branch already has MaxBranchComments, or
-// the store has MaxComments and none of them is closed.
+// ErrTooManyComments is returned when a branch already has MaxBranchComments open
+// comments, or the store is full (MaxComments, or the size Save will write) and
+// none of them is closed.
 var ErrTooManyComments = errors.New("there are too many comments; resolve some first")
 
 // Comment is one comment, in the shape of the schema's comment.
@@ -104,7 +110,7 @@ func LoadComments(path string) (CommentState, error) {
 	for _, r := range raw.Comments {
 		r.Branch = cleanLine(r.Branch, 256)
 		r.Pane = cleanLine(r.Pane, 64)
-		r.Path = cleanLine(r.Path, 1024)
+		r.Path = cleanPath(r.Path, 1024)
 		r.Author = cleanLine(r.Author, 64)
 		r.To = cleanLine(r.To, 64)
 		r.Text = CleanText(r.Text, MaxComment)
@@ -140,18 +146,70 @@ func (s CommentState) Save(path string) error {
 	if err != nil {
 		return err
 	}
+	if len(data) > commentSaveLimit {
+		return ErrTooManyComments
+	}
 	return writeAtomic(path, data)
 }
 
+// cleanPath removes control, format and line-separator characters from a path and
+// nothing else: a path may hold spaces, and a window matches it to a file's path.
+func cleanPath(s string, max int) string {
+	var b strings.Builder
+	n := 0
+	for _, r := range s {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || unicode.Is(unicode.Zl, r) || unicode.Is(unicode.Zp, r) {
+			continue
+		}
+		if n >= max {
+			break
+		}
+		b.WriteRune(r)
+		n++
+	}
+	return b.String()
+}
+
+// CleanLine is a single line of text: runs of white space become one space, and
+// control and format characters are removed. It is for a name that goes into a
+// message beside text a person can read as instructions.
+func CleanLine(s string, max int) string { return cleanLine(s, max) }
+
+// mayExceed says whether the store could be larger than Save writes, from a bound
+// that needs no serialising: JSON writes a byte as at most six.
+func (s CommentState) mayExceed() bool {
+	n := 0
+	for _, r := range s.Comments {
+		n += 6*(len(r.Text)+len(r.Path)+len(r.Branch)) + 800
+	}
+	return n > commentSaveLimit
+}
+
+// oldestClosed is the index of the oldest resolved or dismissed comment other than
+// skip, or -1.
+func (s CommentState) oldestClosed(skip int) int {
+	drop := -1
+	for i, r := range s.Comments {
+		if i == skip || (r.State != "resolved" && r.State != "dismissed") {
+			continue
+		}
+		if drop < 0 || r.CreatedAt < s.Comments[drop].CreatedAt {
+			drop = i
+		}
+	}
+	return drop
+}
+
 // Add records c as a comment of branch, carried by message msgID, and returns it
-// with its id. It is open, and its Delivery is not kept. A branch keeps at most
-// MaxBranchComments. When the store holds MaxComments, the oldest resolved or
+// with its id. It is open, and its Delivery is not kept. A branch has at most
+// MaxBranchComments open comments (closed ones do not count). When the store holds
+// MaxComments, or would be too large for Save to write, the oldest resolved or
 // dismissed comment is dropped to make room; if there is none, nothing is
 // recorded.
 func (s *CommentState) Add(branch string, c Comment, msgID int) (Comment, error) {
 	n := 0
 	for _, r := range s.Comments {
-		if r.Branch == branch {
+		if r.Branch == branch && (r.State == "open" || r.State == "fixed") {
 			n++
 		}
 	}
@@ -159,14 +217,7 @@ func (s *CommentState) Add(branch string, c Comment, msgID int) (Comment, error)
 		return Comment{}, ErrTooManyComments
 	}
 	if len(s.Comments) >= MaxComments {
-		drop := -1
-		for i, r := range s.Comments {
-			if r.State == "resolved" || r.State == "dismissed" {
-				if drop < 0 || r.CreatedAt < s.Comments[drop].CreatedAt {
-					drop = i
-				}
-			}
-		}
+		drop := s.oldestClosed(-1)
 		if drop < 0 {
 			return Comment{}, ErrTooManyComments
 		}
@@ -180,7 +231,26 @@ func (s *CommentState) Add(branch string, c Comment, msgID int) (Comment, error)
 	c.ID = "c" + strconv.Itoa(s.Next)
 	s.Next++
 	s.Comments = append(s.Comments, commentRecord{Branch: branch, MsgID: msgID, Comment: c})
-	return c, nil
+	// What Save writes must stay under its limit: closed comments make room first.
+	for {
+		if !s.mayExceed() {
+			return c, nil
+		}
+		data, err := json.MarshalIndent(s, "", "  ")
+		if err == nil && len(data) <= commentSaveLimit {
+			return c, nil
+		}
+		drop := s.oldestClosed(len(s.Comments) - 1)
+		if err != nil || drop < 0 {
+			s.Comments = s.Comments[:len(s.Comments)-1]
+			s.Next--
+			if err != nil {
+				return Comment{}, err
+			}
+			return Comment{}, ErrTooManyComments
+		}
+		s.Comments = append(s.Comments[:drop], s.Comments[drop+1:]...)
+	}
 }
 
 // ErrNoComment is returned for an id the store does not have on that branch.
@@ -235,9 +305,16 @@ func (s CommentState) For(branch, pane string, delivery func(to string, msgID in
 func (s CommentState) HasComments() bool { return len(s.Comments) > 0 }
 
 // SideLines is the number of lines the file at path has at the commit rev, and
-// whether it is there at all. A file too large to read is an error.
+// whether it is there at all (as a file). A failed lookup is an error, which is not
+// the same as a file that is not there; so is a file too large to read.
 func SideLines(ctx context.Context, cwd, rev, path string) (lines int, exists bool, err error) {
-	if _, err := git(ctx, cwd, "cat-file", "-e", rev+":"+path); err != nil {
+	listed, err := git(ctx, cwd, "ls-tree", "--full-tree", "-z", "--end-of-options", rev, "--", path)
+	if err != nil {
+		return 0, false, err
+	}
+	// "<mode> blob <id> TAB <path>"; a directory or a submodule is not a file to count.
+	meta, _, _ := strings.Cut(listed, "\t")
+	if f := strings.Fields(meta); len(f) < 3 || f[1] != "blob" {
 		return 0, false, nil
 	}
 	out, err := git(ctx, cwd, "cat-file", "blob", rev+":"+path)
