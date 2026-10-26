@@ -31,7 +31,7 @@ today and not an error.
 | `changesGate` | `approveMerge`, `unapproveMerge`, `mergeBranch` and the `gate` of each branch. Without it `gate` is absent. |
 
 A cap is added to `api.caps` in the change that builds what it names.
-`changesTeam` came with API 1.5. A window
+`changesTeam` came with API 1.5, the gate with 1.10. A window
 reached through the relay is sent none of the five (section 9).
 
 ## 2. Commands
@@ -393,15 +393,15 @@ head, and `merged` once the branch is in its base. The blockers, by `kind`:
 
 | Kind | Blocks when |
 | --- | --- |
-| `checks` | A check is failing, or running, queued or missing for the head. A pass with `worktree` true ran on uncommitted files and counts as missing. |
-| `conflict` | Another branch changes one of the same paths, or the branch does not merge into its base without a conflict. |
+| `checks` | A check is failing, or running, queued or missing for the head. A pass with `worktree` true ran on uncommitted files and counts as missing. Every check in the project's check file is required; a check file that exists and cannot be read blocks too. |
+| `conflict` | Another branch changes one of the same paths, or git says the branch does not merge into its base without a conflict. A git too old to say (before 2.38) does not block here; `mergeBranch` refuses a conflict itself. |
 | `review` | A review that is not stale asks for changes. A missing review does not block. |
 | `comments` | A comment is open. |
 | `unpushed` | The head is not on the upstream. |
 | `empty` | The branch has no commits of its own. |
 
 `approveMerge` takes the pane, `expectSha` and optionally `branch`. It records an
-approval of that head and tells the manager. It does not merge. It is refused,
+approval of that head and tells the pane that has the `manager` role, if there is one. It does not merge. It is refused,
 and nothing is recorded, when:
 
 - the pane or branch is unknown (`noBranch`);
@@ -418,17 +418,37 @@ These are checked in that order and the first is reported. The `changesResult`
 carries the branch's `gate`. A later commit drops the approval, and so does any blocker that appears after it
 (a check that fails, a comment, a conflict, a review asking for changes): the
 gate goes back to `blocked` and `mergeBranch` refuses. `unapproveMerge`
-withdraws one.
+withdraws one, and answers with the gate whether or not there was one.
+
+The approval is kept in `changes/<project>-<8 hex>.gate.json` beside the review
+state, and dropped from the file as well when it stops holding, so that a blocker
+that appears and goes again does not bring an old approval back. It is dropped
+only for a branch that was read: a checkout that cannot be read keeps what it had.
+The same file lists the heads that were merged. A damaged file is handled like the
+review state: a copy is kept, one notice is sent, and the commands refuse.
 
 `mergeBranch` takes the pane and `expectSha`. It takes the repository's lock,
 reads the head again, and refuses (`notApproved`, or `headMoved`) unless the gate
 is `approved` for that head. It then merges `expectSha` itself (`git merge
-<expectSha>`, never the branch name, which could have moved) into `base` in the
-project's main checkout by fast-forward when it can and by a merge commit when it cannot.
-It never forces, never touches a dirty checkout (`notClean`), never merges a
-base that has moved in a way a fast-forward or a clean merge cannot take
-(`notFastForward`), and records what it did in the activity log. After a merge
-the branch's `gate.state` is `merged` and `mergeSha` is the new tip of the base.
+<expectSha>`, never the branch name, which could have moved) into `base`, in the
+worktree that has `base` checked out, by fast-forward when it can and by a merge
+commit when it cannot. `base` must be a local branch checked out in some worktree of
+the repository; if not, the answer is `notClean`. It never forces; it never
+touches a checkout with changes to tracked files, with a merge, rebase,
+cherry-pick or revert in progress, or on another branch (`notClean`); and it never
+merges a base that has moved in a way neither a fast-forward nor a clean merge can
+take (`notFastForward`; a merge that conflicts is aborted and the checkout is left
+as it was). The repository's hooks do not run. Only one merge runs at a time in a
+repository. Uncommitted files in the branch's own checkout are not part of the
+commit and are not merged.
+
+What it did is recorded in the gate file and sent to the manager, if there is one.
+After a merge the branch's `gate.state` is `merged` and `mergeSha` is the new tip
+of the base; `merged` is shown for as long as the merged head is still in the base.
+
+The gate is a process control among cooperating agents (section 6): these
+commands are taken only from a window page, and an agent running as the user can
+still run `git merge` itself.
 
 ## 8. Limits
 
