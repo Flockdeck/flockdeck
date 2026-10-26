@@ -123,7 +123,7 @@ test("a relay window sends none of the Changes commands and says so", async () =
   const ws = FakeWebSocket.last;
   ws.open();
   ws.frame(hello({ remote: true }));
-  for (const c of ["changesWatch", "changesUnwatch", "changesSnapshot", "filesPage", "diffHunks", "diffContext", "commentAdd", "commentResolve", "commentReopen", "runChecks", "requestReview", "submitReview", "approveMerge", "unapproveMerge", "mergeBranch"]) {
+  for (const c of ["changesWatch", "changesUnwatch", "changesSnapshot", "filesPage", "diffHunks", "diffContext", "commentAdd", "commentResolve", "commentReopen", "runChecks", "confirmChecks", "requestReview", "submitReview", "approveMerge", "unapproveMerge", "mergeBranch"]) {
     assert.equal(store.send({ cmd: c }), false, c);
   }
   assert.equal(store.watchChangesTeam("/work/project"), false);

@@ -9,7 +9,7 @@ import { html } from "../src/html.js";
 import { MergeGate, useGateActions } from "../src/drawer/diff/MergeGate.js";
 import {
   gateActsFor, actsFor, gateOf, checksSummary, checksWords, reviewSummary, commentsSummary, conflictSummary, otherBlockers, approveState,
-  approveCommand, unapproveCommand, checksCommand, reviewCommand, gateRefusalWords,
+  approveCommand, unapproveCommand, checksCommand, reviewCommand, gateRefusalWords, clipText, checksListOf,
 } from "../src/drawer/diff/gateModel.js";
 import { createDom, install, settle } from "./dom.mjs";
 
@@ -123,9 +123,9 @@ test("an approved gate says by whom and at which head, and that it does not merg
   assert.match(draw({ branch: { ...cart, gate: { state: "merged", blockers: [], mergeSha: "0123456789abcdef" } }, canAct: true, flow: { busy: "" } }), /Merged[\s\S]*01234567/);
 });
 
-function Host({ send, result, branch }) {
-  const flow = useGateActions({ branch, send, result });
-  return html`<${MergeGate} branch=${branch} canAct=${true} canCheck=${true} flow=${flow} reviewer="ec776492" nameOf=${(p) => p} />`;
+function Host({ send, result, branch, checks, connected = true, session = null }) {
+  const flow = useGateActions({ branch, send, result, checks, connected, session });
+  return html`<${MergeGate} branch=${branch} canAct=${true} canCheck=${true} flow=${flow} reviewer="ec776492" nameOf=${(p) => p} project="shop" />`;
 }
 
 async function mountHost(props) {
@@ -196,7 +196,8 @@ test("Run again and Ask to review send their commands, and Withdraw sends unappr
   try {
     m.box.find(".dv-gate-run").click();
     await settle();
-    assert.equal(sent[0].cmd, "runChecks");
+    assert.equal(sent[0].cmd, "confirmChecks", "Run checks asks to see the commands first");
+    assert.equal(sent.some((c) => c.cmd === "runChecks"), false);
     m.draw({ send, branch: api, result: { type: "changesResult", req: sent[0].req, op: "runChecks", ok: true } });
     await settle();
     m.box.find(".dv-gate-ask").click();
@@ -313,4 +314,353 @@ test("Run checks and Ask to review need the checks cap, not the gate's", () => {
   assert.doesNotMatch(out, /dv-gate-run|dv-gate-ask/);
   assert.match(draw({ branch: api, canAct: true, canCheck: true, flow, reviewer: "ec776492" }), /dv-gate-run/);
   assert.equal(actsFor("changesChecks", { caps: ["changesGate"] }), false);
+});
+
+// ---- the confirm step for the commands of the check file (docs/changes-api.md, section 6)
+
+// The shapes are the fixtures the desk is held to (api/fixtures 15 to 17); a test changes only the req and what it is about.
+const checksFx = fixture("15-checks-to-confirm");
+const notConfirmedFx = fixture("16-result-not-confirmed");
+const changedFx = fixture("17-result-changed");
+const listing = (req, over = {}) => ({ ...checksFx, req, ...over });
+const lastOf = (sent, cmd) => sent.filter((c) => c.cmd === cmd).pop();
+
+async function reading(extra = {}) {
+  const sent = [];
+  const send = (c) => { sent.push(c); return true; };
+  const m = await mountHost({ send, branch: api, ...extra });
+  m.box.find(".dv-gate-run").click();
+  await settle();
+  return { m, sent, send };
+}
+
+test("Run checks shows the commands, the project and where they run, and sends nothing more until the person confirms", async () => {
+  const { m, sent, send } = await reading();
+  try {
+    assert.deepEqual(sent.map((c) => c.cmd), ["confirmChecks"]);
+    assert.equal(sent[0].confirm, undefined);
+    assert.match(m.box.textContent, /Working/);
+    m.draw({ send, branch: api, checks: listing(sent[0].req) });
+    await settle();
+    const q = m.box.find(".confirm");
+    assert.match(q.textContent, /Run these checks\?/);
+    assert.match(q.textContent, /Project: shop/);
+    assert.match(q.textContent, /unit/);
+    assert.match(q.textContent, /go test \.\/\.\.\./);
+    assert.equal(q.findAll(".confirm-cmd").length, 2, "each command is in a monospace element");
+    assert.match(q.textContent, /go vet \.\/\.\.\./);
+    assert.match(q.textContent, /run code from that checkout/);
+    assert.deepEqual(sent.map((c) => c.cmd), ["confirmChecks"], "reading is not confirming");
+  } finally {
+    m.done();
+  }
+});
+
+test("only a press on Confirm sends the hash, once, and the checks run when the desk took it", async () => {
+  const { m, sent, send } = await reading();
+  try {
+    m.draw({ send, branch: api, checks: listing(sent[0].req) });
+    await settle();
+    const btn = m.box.find(".dialog-btn--danger");
+    btn.click();
+    btn.click();
+    await settle();
+    const confirms = sent.filter((c) => c.confirm);
+    assert.equal(confirms.length, 1, "a second press in the same tick sends nothing");
+    assert.equal(confirms[0].hash, "6d1f0c2a9b4e8f3d5a7c1e0b2d4f6a8c9e1b3d5f7a9c0e2b4d6f8a1c3e5b7d90");
+    assert.deepEqual([confirms[0].id, confirms[0].branch], [api.pane, api.branch]);
+    assert.equal(m.box.find(".confirm"), null, "the question is gone once it is answered for");
+    assert.equal(sent.some((c) => c.cmd === "runChecks"), false, "not before the desk took it");
+    m.draw({ send, branch: api, checks: listing(sent[0].req), result: { type: "changesResult", req: confirms[0].req, op: "confirmChecks", ok: true } });
+    await settle();
+    assert.equal(sent.filter((c) => c.cmd === "runChecks").length, 1);
+    m.draw({ send, branch: api, checks: listing(sent[0].req), result: { type: "changesResult", req: lastOf(sent, "runChecks").req, op: "runChecks", ok: true } });
+    await settle();
+    assert.match(m.box.textContent, /Checks started\./);
+  } finally {
+    m.done();
+  }
+});
+
+test("a file edited while the question was open shows its new commands and sends nothing", async () => {
+  const { m, sent, send } = await reading();
+  try {
+    m.draw({ send, branch: api, checks: listing(sent[0].req) });
+    await settle();
+    m.box.find(".dialog-btn--danger").click();
+    await settle();
+    const confirmReq = sent.filter((c) => c.confirm)[0].req;
+    m.draw({ send, branch: api, checks: listing(sent[0].req), result: { ...changedFx, req: confirmReq } });
+    await settle();
+    const reread = sent[sent.length - 1];
+    assert.deepEqual([reread.cmd, reread.confirm], ["confirmChecks", undefined], "it asks to read the file again");
+    m.draw({ send, branch: api, checks: listing(reread.req, { commands: [{ name: "unit", cmd: "go test ./... -race" }], hash: "f".repeat(64) }) });
+    await settle();
+    const q = m.box.find(".confirm");
+    assert.match(q.textContent, /check file changed after it was shown/);
+    assert.match(q.textContent, /-race/);
+    assert.equal(sent.filter((c) => c.confirm).length, 1, "the old confirmation is not sent again");
+    assert.equal(sent.some((c) => c.cmd === "runChecks"), false);
+    m.box.find(".dialog-btn--danger").click();
+    await settle();
+    assert.equal(sent.filter((c) => c.confirm).pop().hash, "f".repeat(64), "only the new list is confirmed, by its own hash");
+  } finally {
+    m.done();
+  }
+});
+
+test("Cancel and Escape drop the question and send nothing, and Run checks can be asked again", async () => {
+  const { m, sent, send } = await reading();
+  try {
+    m.draw({ send, branch: api, checks: listing(sent[0].req) });
+    await settle();
+    const cancel = m.box.findAll(".dialog-btn").find((b) => b.textContent === "Cancel");
+    assert.equal(m.box.ownerDocument.activeElement, cancel, "the keyboard starts on Cancel, so a stray Enter does not confirm");
+    m.box.find(".confirm").dispatch("keydown", { key: "Escape", ctrlKey: false, shiftKey: false, altKey: false });
+    await settle();
+    assert.equal(m.box.find(".confirm"), null);
+    assert.equal(sent.filter((c) => c.confirm || c.cmd === "runChecks").length, 0);
+    assert.equal(m.box.find(".dv-gate-run").disabled, false, "Run checks can be asked again");
+  } finally {
+    m.done();
+  }
+});
+
+test("a question is dropped when the branch changes or the connection drops", async () => {
+  const a = await reading();
+  try {
+    a.m.draw({ send: a.send, branch: api, checks: listing(a.sent[0].req) });
+    await settle();
+    a.m.draw({ send: a.send, branch: { ...api, branch: "agent/other" }, checks: listing(a.sent[0].req) });
+    await settle();
+    assert.equal(a.m.box.find(".confirm"), null);
+    assert.match(a.m.box.textContent, /question about its checks was dropped/);
+    assert.equal(a.sent.filter((c) => c.confirm).length, 0);
+  } finally {
+    a.m.done();
+  }
+  const b = await reading();
+  try {
+    b.m.draw({ send: b.send, branch: api, checks: listing(b.sent[0].req) });
+    await settle();
+    b.m.draw({ send: b.send, branch: api, checks: listing(b.sent[0].req), connected: false });
+    await settle();
+    assert.equal(b.m.box.find(".confirm"), null);
+    assert.match(b.m.box.textContent, /connection dropped/);
+  } finally {
+    b.m.done();
+  }
+});
+
+test("commands that are already confirmed run without a question; an answer for another ask is ignored", async () => {
+  const { m, sent, send } = await reading();
+  try {
+    m.draw({ send, branch: api, checks: listing("someone-else") });
+    await settle();
+    assert.equal(m.box.find(".confirm"), null, "not ours");
+    m.draw({ send, branch: api, checks: listing(sent[0].req, { pinned: true }) });
+    await settle();
+    assert.equal(m.box.find(".confirm"), null);
+    assert.equal(lastOf(sent, "runChecks").cmd, "runChecks");
+    assert.equal(sent.filter((c) => c.confirm).length, 0);
+  } finally {
+    m.done();
+  }
+});
+
+test("a refusal from the desk is said in its words and ends the question", async () => {
+  const { m, sent, send } = await reading();
+  try {
+    m.draw({ send, branch: api, result: { type: "changesResult", req: sent[0].req, op: "confirmChecks", ok: false, code: "badRequest", error: 'the command of check "unit" holds the character U+202E, which the window cannot show as it would run; remove it from the check file' } });
+    await settle();
+    assert.match(m.box.find(".dv-live").textContent, /holds the character U\+202E/);
+    assert.equal(m.box.find(".confirm"), null);
+    assert.equal(sent.some((c) => c.cmd === "runChecks"), false);
+  } finally {
+    m.done();
+  }
+  const n = await reading();
+  try {
+    n.m.draw({ send: n.send, branch: api, checks: listing(n.sent[0].req, { pinned: true }) });
+    await settle();
+    n.m.draw({ send: n.send, branch: api, checks: listing(n.sent[0].req, { pinned: true }), result: { ...notConfirmedFx, req: lastOf(n.sent, "runChecks").req } });
+    await settle();
+    assert.match(n.m.box.find(".dv-live").textContent, /have not been confirmed/);
+  } finally {
+    n.m.done();
+  }
+});
+
+test("the commands are drawn as text, with line breaks and hidden characters made visible", async () => {
+  const { m, sent, send } = await reading();
+  try {
+    m.draw({ send, branch: api, checks: listing(sent[0].req, { commands: [{ name: "<b>x</b>", cmd: "echo a" + String.fromCharCode(10) + "rm -rf /" + String.fromCharCode(0x202e) }] }) });
+    await settle();
+    const q = m.box.find(".confirm");
+    assert.equal(q.find("b"), null);
+    assert.match(q.textContent, /<b>x<\/b>/);
+    assert.match(q.find("code").textContent, /^echo a <LF> rm -rf \/<U\+202E>$/);
+  } finally {
+    m.done();
+  }
+});
+
+test("a command is shown whole: a thousand characters, and more than twenty commands, are not cut", async () => {
+  const { m, sent, send } = await reading();
+  try {
+    const long = "go test " + "x".repeat(992);
+    assert.equal(long.length, 1000);
+    const many = Array.from({ length: 25 }, (_, i) => ({ name: "c" + i, cmd: "cmd" + i }));
+    m.draw({ send, branch: api, checks: listing(sent[0].req, { commands: [{ name: "long", cmd: long }, ...many] }) });
+    await settle();
+    const codes = m.box.find(".confirm").findAll("code");
+    assert.equal(codes.length, 26, "every command is listed");
+    assert.equal(codes[0].textContent, long, "no truncation and no ellipsis");
+    assert.equal(codes[25].textContent, "cmd24");
+  } finally {
+    m.done();
+  }
+});
+
+test("an ok for the reading is never a reason to run: only a press on Confirm lets the checks run", async () => {
+  const { m, sent, send } = await reading();
+  try {
+    m.draw({ send, branch: api, result: { type: "changesResult", req: sent[0].req, op: "confirmChecks", ok: true } });
+    await settle();
+    assert.equal(sent.some((c) => c.cmd === "runChecks"), false, "an ok for the read's req sends nothing");
+    assert.match(m.box.find(".dv-live").textContent, /not asked for, so the checks were not run/);
+    assert.equal(m.box.find(".confirm"), null);
+  } finally {
+    m.done();
+  }
+});
+
+test("when the question closes the keyboard goes back to Run checks", async () => {
+  const { m, sent, send } = await reading();
+  try {
+    m.draw({ send, branch: api, checks: listing(sent[0].req) });
+    await settle();
+    m.box.find(".confirm").dispatch("keydown", { key: "Escape", ctrlKey: false, shiftKey: false, altKey: false });
+    await settle();
+    assert.equal(m.box.ownerDocument.activeElement, m.box.find(".dv-gate-run"), "after Cancel");
+  } finally {
+    m.done();
+  }
+  const b = await reading();
+  try {
+    b.m.draw({ send: b.send, branch: api, checks: listing(b.sent[0].req) });
+    await settle();
+    b.m.box.find(".dialog-btn--danger").click();
+    await settle();
+    const confirmReq = b.sent.filter((c) => c.confirm)[0].req;
+    b.m.draw({ send: b.send, branch: api, result: { type: "changesResult", req: confirmReq, op: "confirmChecks", ok: true } });
+    await settle();
+    b.m.draw({ send: b.send, branch: api, result: { type: "changesResult", req: lastOf(b.sent, "runChecks").req, op: "runChecks", ok: true } });
+    await settle();
+    assert.equal(b.m.box.ownerDocument.activeElement, b.m.box.find(".dv-gate-run"), "after Confirm, once the checks have started");
+  } finally {
+    b.m.done();
+  }
+});
+
+test("a listing with no hash is not the same fault as one with no command", async () => {
+  const { m, sent, send } = await reading();
+  try {
+    m.draw({ send, branch: api, checks: listing(sent[0].req, { hash: "" }) });
+    await settle();
+    assert.match(m.box.find(".dv-live").textContent, /without a way to confirm them/);
+    assert.equal(m.box.find(".confirm"), null);
+  } finally {
+    m.done();
+  }
+  const n = await reading();
+  try {
+    n.m.draw({ send: n.send, branch: api, checks: listing(n.sent[0].req, { commands: [] }) });
+    await settle();
+    assert.match(n.m.box.find(".dv-live").textContent, /no command to run/);
+  } finally {
+    n.m.done();
+  }
+  assert.deepEqual(checksListOf({ type: "changesChecks", commands: [], hash: "h" }), { fault: "commands" });
+  assert.deepEqual(checksListOf({ type: "changesChecks", commands: [{ name: "a", cmd: "b" }], hash: "" }), { fault: "hash" });
+});
+
+test("after notConfirmed, pressing Run checks reads the file again; nothing is retried by itself", async () => {
+  const { m, sent, send } = await reading();
+  try {
+    m.draw({ send, branch: api, checks: listing(sent[0].req, { pinned: true }) });
+    await settle();
+    const run = lastOf(sent, "runChecks");
+    const before = sent.length;
+    m.draw({ send, branch: api, checks: listing(sent[0].req, { pinned: true }), result: { ...notConfirmedFx, req: run.req } });
+    await settle();
+    assert.equal(sent.length, before, "nothing is sent by itself");
+    m.box.find(".dv-gate-run").click();
+    await settle();
+    const again = sent[sent.length - 1];
+    assert.deepEqual([again.cmd, again.confirm], ["confirmChecks", undefined], "a fresh read");
+    assert.notEqual(again.req, sent[0].req);
+  } finally {
+    m.done();
+  }
+});
+
+test("a list that is pinned after a changed note still asks", async () => {
+  const { m, sent, send } = await reading();
+  try {
+    m.draw({ send, branch: api, checks: listing(sent[0].req) });
+    await settle();
+    m.box.find(".dialog-btn--danger").click();
+    await settle();
+    const confirmReq = sent.filter((c) => c.confirm)[0].req;
+    m.draw({ send, branch: api, result: { ...changedFx, req: confirmReq } });
+    await settle();
+    const reread = sent[sent.length - 1];
+    m.draw({ send, branch: api, checks: listing(reread.req, { pinned: true, hash: "e".repeat(64) }) });
+    await settle();
+    assert.ok(m.box.find(".confirm"), "it asks");
+    assert.equal(sent.some((c) => c.cmd === "runChecks"), false);
+  } finally {
+    m.done();
+  }
+});
+
+test("control characters that expand past a thousand characters leave the command whole, and 21 commands are all drawn", async () => {
+  const { m, sent, send } = await reading();
+  try {
+    const cmd = "echo " + String.fromCharCode(0x202e).repeat(300);
+    const twentyOne = Array.from({ length: 21 }, (_, i) => ({ name: "n" + i, cmd: "c" + i }));
+    m.draw({ send, branch: api, checks: listing(sent[0].req, { commands: [{ name: "x", cmd }, ...twentyOne] }) });
+    await settle();
+    const codes = m.box.find(".confirm").findAll("code");
+    assert.equal(codes.length, 22);
+    assert.equal(codes[0].textContent, "echo " + "<U+202E>".repeat(300));
+    assert.ok(codes[0].textContent.length > 2000 && !codes[0].textContent.includes("…"));
+  } finally {
+    m.done();
+  }
+});
+
+test("a clip never splits a character made of two code units, and a long desk error is bounded", () => {
+  const pair = String.fromCodePoint(0x1f600);
+  assert.equal(clipText(pair.repeat(5), 3), pair + pair + "…");
+  assert.equal(clipText("short", 10), "short");
+  const words = gateRefusalWords({ code: "failed", error: pair.repeat(1000) });
+  assert.equal(Array.from(words).length, 400);
+  assert.ok(!/[\ud800-\udbff]$/.test(words.slice(0, -1)), "no lone half of a pair");
+});
+
+test("odd spaces in a command are drawn as marks, and the box does not hide its tail", async () => {
+  const { m, sent, send } = await reading();
+  try {
+    const cmd = "echo a" + String.fromCharCode(0xa0).repeat(3) + "b" + String.fromCharCode(0x3000) + "c" + String.fromCharCode(0x202f) + "d";
+    m.draw({ send, branch: api, checks: listing(sent[0].req, { commands: [{ name: "x", cmd }] }) });
+    await settle();
+    assert.equal(m.box.find("code").textContent, "echo a<U+00A0><U+00A0><U+00A0>b<U+3000>c<U+202F>d");
+  } finally {
+    m.done();
+  }
+  const css = readFileSync(join(here, "..", "src", "shell", "start.css"), "utf8");
+  const rule = css.split("\n").find((l) => l.startsWith(".confirm-cmd")) || "";
+  assert.ok(rule && !/max-height|overflow:\s*(auto|scroll|hidden)/.test(rule), "a long command makes the box taller; it is never scrolled out of sight");
 });

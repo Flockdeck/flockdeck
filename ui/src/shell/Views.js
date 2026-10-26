@@ -99,7 +99,7 @@ export function ChangesView(props) {
     <div class="view-head"><h2 class="view-title">Changes</h2></div>
     <${TeamChanges} data=${snap.changesTeam} names=${names} remote=${!!snap.remote} viewer=${isViewer(snap)} gone=${snap.changesTeamGone} store=${store}
       caps=${capsOf(snap.hello)} reviewers=${reviewersOf(nodes)}
-      result=${snap.changesTeamResult} connected=${snap.connection === "open"} session=${snap.session} git=${snap.branchGit}
+      result=${snap.changesTeamResult} checks=${snap.changesChecks} connected=${snap.connection === "open"} session=${snap.session} git=${snap.branchGit}
       diffs=${snap.changesDiffs} results=${snap.changesTeamResults} />
   </div>`;
 }

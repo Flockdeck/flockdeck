@@ -68,6 +68,8 @@
 }
 .confirm-title { margin: 0; font-weight: 600; }
 .confirm-line { margin: 0; font-size: 12px; color: var(--fg); overflow-wrap: anywhere; }
+.confirm-name { display: block; font-weight: 600; }
+.confirm-cmd { display: block; font-family: var(--mono, ui-monospace, monospace); white-space: pre-wrap; overflow-wrap: anywhere; padding: 4px 6px; background: var(--bg-2, rgba(127, 127, 127, 0.12)); border-radius: 4px; }
 .confirm-foot { display: flex; gap: 8px; margin-top: 4px; }
 
 /* The goal strip: one row of tabs with the "+" after them. The tabs scroll

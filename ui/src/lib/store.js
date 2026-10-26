@@ -261,7 +261,7 @@ const LOAD_MS = 20000;
 /** RESULTS_KEPT is how many answers to the Changes view's commands changesTeamResults holds. */
 const RESULTS_KEPT = 50;
 /** CHANGES_TEAM_COMMANDS are the team-wide Changes view's (docs/changes-api.md): the watch, the files and the diffs, comments, checks, reviews and the merge gate. All are the desk's. */
-const CHANGES_TEAM_COMMANDS = ["changesWatch", "changesUnwatch", "changesSnapshot", "filesPage", "diffHunks", "diffContext", "commentAdd", "commentResolve", "commentReopen", "runChecks", "requestReview", "submitReview", "approveMerge", "unapproveMerge", "mergeBranch"];
+const CHANGES_TEAM_COMMANDS = ["changesWatch", "changesUnwatch", "changesSnapshot", "filesPage", "diffHunks", "diffContext", "commentAdd", "commentResolve", "commentReopen", "runChecks", "confirmChecks", "requestReview", "submitReview", "approveMerge", "unapproveMerge", "mergeBranch"];
 
 /** DESK_ONLY says a command is one a remote window may not send: the graph
  *  commands, the structured pane ones, permissionAnswer, paneSend, MACHINE_ONLY,
@@ -275,7 +275,7 @@ const initial = () => ({
   hello: null, remote: false, state: null,
   graph: null, graphGone: null, graphRefused: false, graphError: null,
   notice: null, versions: null, helpers: null, helperPlan: null, recents: null, browse: null, batonDraft: null, batonSaved: null, batonError: null, agentAddress: null,
-  approvals: [], detached: false, sent: null, started: null, structured: null, structuredError: null, cancelError: null, answer: null, asking: null, conversation: null, details: nullMap(), search: null, taskDetail: null, changes: null, diff: null, gitWarn: null, changesBusy: "", changesNote: null, history: null, paneInfo: null, paneMatches: null, keys: null, jevKey: null, radar: null, worktrees: null, agentsList: null, team: null, teamGone: null, teamTasks: null, teamMessages: null, teamResult: null, teamRefused: false, changesTeam: null, changesTeamGone: null, changesTeamRefused: false, changesTeamResult: null, changesTeamResults: [], changesDiffs: {}, branchGit: null, session: 0, remoteDevices: null, remotePair: null, remoteOutcome: null, dropped: 0,
+  approvals: [], detached: false, sent: null, started: null, structured: null, structuredError: null, cancelError: null, answer: null, asking: null, conversation: null, details: nullMap(), search: null, taskDetail: null, changes: null, diff: null, gitWarn: null, changesBusy: "", changesNote: null, history: null, paneInfo: null, paneMatches: null, keys: null, jevKey: null, radar: null, worktrees: null, agentsList: null, team: null, teamGone: null, teamTasks: null, teamMessages: null, teamResult: null, teamRefused: false, changesTeam: null, changesTeamGone: null, changesTeamRefused: false, changesTeamResult: null, changesTeamResults: [], changesChecks: null, changesDiffs: {}, branchGit: null, session: 0, remoteDevices: null, remotePair: null, remoteOutcome: null, dropped: 0,
 });
 
 /** upsert returns entries with each of the new ones in place of the one with its
@@ -562,6 +562,10 @@ export function createStore(opts) {
         set({ changesDiffs: applyReply(snap.changesDiffs, read, msg, ++changesDiffSeq) });
         break;
       }
+      case "changesChecks":
+        // The commands of the check file, for the person to confirm. Kept as they came, for the gate that asked (by req).
+        if (watchingChanges !== null && !snap.remote) set({ changesChecks: { ...msg, seq: ++changesResultSeq } });
+        break;
       case "changesResult":
         // A read the desk refused (deskOnly, badRequest, unsupported) answers as a result: it is the read's, not the view's last command.
         if (changesReads.has(msg.req)) {
@@ -933,7 +937,7 @@ export function createStore(opts) {
       const was = watchingChanges;
       watchingChanges = String(root || "");
       // Branches of another project are not drawn while the new ones are read.
-      set({ changesTeamGone: null, changesTeamRefused: false, ...(was !== null && was !== watchingChanges ? { changesTeam: null, changesDiffs: {}, changesTeamResults: [] } : {}) });
+      set({ changesTeamGone: null, changesTeamRefused: false, ...(was !== null && was !== watchingChanges ? { changesTeam: null, changesDiffs: {}, changesTeamResults: [], changesChecks: null } : {}) });
       if (was !== watchingChanges) changesReads.clear();
       if (snap.hello) sendChangesWatch();
       return true;
@@ -989,7 +993,7 @@ export function createStore(opts) {
       if (watchingChanges !== null && watchSent()) socket.send({ cmd: "changesUnwatch" });
       watchingChanges = null;
       changesReads.clear();
-      if (snap.changesTeam || Object.keys(snap.changesDiffs).length || snap.changesTeamResults.length) set({ changesTeam: null, changesDiffs: {}, changesTeamResults: [] });
+      if (snap.changesTeam || Object.keys(snap.changesDiffs).length || snap.changesTeamResults.length || snap.changesChecks) set({ changesTeam: null, changesDiffs: {}, changesTeamResults: [], changesChecks: null });
     },
     /** watchStructured asks for the structured messages of one pane, now and
      *  whenever it changes, for its permission card. It replaces the pane watched
