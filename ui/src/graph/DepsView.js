@@ -11,7 +11,7 @@
 // Home and End, Right and Left to unfold, fold and move to the parent, Enter or
 // Space opens the owner's drawer. Every text here is an agent's or a person's and
 // is drawn as text.
-import { useRef, useState } from "../vendor/hooks.mjs";
+import { useEffect, useRef, useState } from "../vendor/hooks.mjs";
 import { Fragment } from "../vendor/preact.mjs";
 import { html } from "../html.js";
 import { composing } from "../shell/keys.js";
@@ -21,7 +21,7 @@ import { clip, stateOf } from "./Node.js";
 import { managerOf, outcomeOf, sendTo, NOT_CONNECTED_WORDS } from "./ManagerBar.js";
 import { labelOf, taskOfTeam, taskLabelOf } from "./model.js";
 import { GOAL, IDLE, scopeTasks, teamOfTask, isReady, openBlockers, planOf, loopsOf, waitsOf, minutesWords } from "./deps.js";
-import { stepOf, foldOf, ageOf } from "./Tree.js";
+import { stepOf, foldOf, ageOf, TICK_MS } from "./Tree.js";
 
 /** The key of the folded row of open tasks no team runs, shown when the view is scoped to one team. */
 const NOTEAM = "NOTEAM";
@@ -62,6 +62,12 @@ export function Deps({ team: teamMsg, model = null, whole = null, remote = false
   const [asked, setAsked] = useState({});
   // The asks that are out, by id and stamp, set at the click: asked is state and is read as it was drawn, so a second click before the redraw would send the text twice.
   const inflight = useRef({});
+  // The ages move on their own, as the outline's do.
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), TICK_MS);
+    return () => clearInterval(id);
+  }, []);
   const ref = useRef(null);
   if (remote) return html`<div class="view view--deps"><p class="view-note">${TEAM_RELAY_WORDS}</p></div>`;
   const team = teamOf(teamMsg);
@@ -214,7 +220,6 @@ export function Deps({ team: teamMsg, model = null, whole = null, remote = false
   const waitHead = waits.length > 0
     ? html`<${DepRow} key="W" r=${{ key: "W", depth: 0, kids: waits.length, folded: folded.has("W") }} stop=${stop === "W"} onFocus=${() => setFocus("W")} onToggle=${toggle} glyph="idle" id="" title="Who waits on whom" sub="agents, not tasks" />`
     : null;
-  const now = Date.now();
   const ringNames = (ring) => ring.map((p) => nameOf(model, p));
   return html`<div class="view view--deps">
     <div class="view-head">
@@ -283,7 +288,8 @@ function WaitRow({ w, now, model, stop, onFocus, onOpen, onLink }) {
   const chips = [];
   if (w.kind === "loop") {
     chips.push({ kind: "down", text: "loop", to: "" });
-    chips.push({ kind: "wait", text: "the other half", to: "w-" + w.to + "-" + w.from });
+    // The row that exists after this one: the other half of a ring of two, else the next edge round.
+    chips.push({ kind: "wait", text: w.size > 2 ? "the next one" : "the other half", to: w.next });
   }
   if (w.kind === "you") chips.push({ kind: "ask", text: "needs you", to: "" });
   const tone = w.kind === "loop" ? "tree-row--down" : w.kind === "you" ? "tree-row--ask" : "";

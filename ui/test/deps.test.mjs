@@ -115,6 +115,18 @@ test("waitsOf puts rings first, then what waits on you, then overlaps, then plai
   assert.deepEqual(waitsOf(buildGraphModel(null)), []);
 });
 
+test("every row of a ring says which row follows it, and that row exists", () => {
+  const m = buildGraphModel(graph([node("m"), node("a", { waitingOn: waits("b") }), node("b", { waitingOn: waits("c") }), node("c", { waitingOn: waits("a") }),
+    node("x", { waitingOn: waits("y") }), node("y", { waitingOn: waits("x") })]));
+  const rows = waitsOf(m).filter((w) => w.kind === "loop");
+  const keys = new Set(rows.map((w) => w.key));
+  assert.equal(rows.length, 5);
+  for (const w of rows) assert.ok(keys.has(w.next), w.key + " is followed by " + w.next);
+  assert.deepEqual(rows.filter((w) => w.size === 2).map((w) => [w.key, w.next]).sort(), [["w-x-y", "w-y-x"], ["w-y-x", "w-x-y"]], "in a ring of two the next row is the other half");
+  const three = rows.filter((w) => w.size === 3).map((w) => w.from + ">" + w.to + " then " + w.next);
+  assert.deepEqual(three.sort(), ["a>b then w-b-c", "b>c then w-c-a", "c>a then w-a-b"]);
+});
+
 test("tasks nobody has, nothing waits on and nothing blocks are one folded group, last", () => {
   const many = [T("A", "in-progress", [], { ownerPane: "x" }), T("B", "planned", ["A"])];
   for (let i = 0; i < 50; i++) many.push(T("I" + i, "planned"));

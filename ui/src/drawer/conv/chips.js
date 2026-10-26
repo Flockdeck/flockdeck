@@ -19,13 +19,26 @@ const SKIP = new Set(["code", "pre", "a", "button"]);
 
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, (c) => "\\" + c);
 
+/** ambiguousNames are the names more than one pane has: a chip for one would open whichever pane was listed last, so they get none. */
+function ambiguousNames(names) {
+  const panes = new Map();
+  for (const n of names || []) {
+    if (!n || typeof n.name !== "string" || !n.pane) continue;
+    const name = n.name.trim();
+    if (!panes.has(name)) panes.set(name, new Set());
+    panes.get(name).add(n.pane);
+  }
+  return new Set([...panes].filter(([, p]) => p.size > 1).map(([name]) => name));
+}
+
 /** patternOf is the regex that finds any of the names as whole words, or null when none can be a chip. Longer names come first, so "api-gateway" wins over "api". */
 export function patternOf(names) {
   const usable = [];
   const seen = new Set();
+  const shared = ambiguousNames(names);
   for (const n of names || []) {
     const name = n && typeof n.name === "string" ? n.name.trim() : "";
-    if (name.length < MIN_NAME || seen.has(name) || !n.pane) continue;
+    if (name.length < MIN_NAME || seen.has(name) || !n.pane || shared.has(name)) continue;
     seen.add(name);
     usable.push(name);
     if (usable.length >= MAX_NAMES) break;

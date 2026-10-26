@@ -279,6 +279,16 @@ test("chips: a pane that waits on a helper that is not a row has a plain chip, a
   assert.equal(out[0].to, "");
 });
 
+test("chips: two conflicts with the same other pane give one overlap chip, so a row's keys are unique", () => {
+  const g = proto();
+  g.teams[0].needs.push({ id: "c2", kind: "conflict", pane: "ask", other: "idle", time: "2026-10-24T08:22:00Z", text: "cfg/other.yaml" });
+  const m = model(g);
+  const out = chipsOf(m, m.byPane.get("ask"), needsOf(m, "ask"), NOW);
+  assert.equal(out.filter((c) => c.kind === "overlap").length, 1);
+  const keys = out.map((c) => c.kind + (c.to || c.text));
+  assert.equal(new Set(keys).size, keys.length);
+});
+
 test("link chips are buttons that name their row, plain chips are not", () => {
   const out = renderToString(html`<${Tree} model=${model(proto())} />`);
   assert.equal((out.match(/<button[^>]*tree-chip/g) || []).length, 3, "overlaps x2 and waiting on work");

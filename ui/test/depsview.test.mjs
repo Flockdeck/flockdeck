@@ -59,6 +59,48 @@ test("a ring of agents gets the deadlock block", () => {
   assert.ok(/class="tree-c deps-age">\d+[mh]|class="tree-c deps-age">now/.test(out), "the wait rows carry an age");
 });
 
+test("a ring of three links to the next edge of the ring, a ring of two to the other half", () => {
+  const three = model([node("mgr", { role: "manager" }), node("a", { waitingOn: waits("b") }), node("b", { waitingOn: waits("c") }), node("c", { waitingOn: waits("a") })]);
+  const out3 = renderToString(html`<${Deps} team=${push(tasks())} model=${three} send=${() => true} />`);
+  assert.ok(out3.includes("the next one"));
+  assert.ok(!out3.includes("the other half"));
+  const two = model([node("mgr", { role: "manager" }), node("api", { waitingOn: waits("tests") }), node("tests", { waitingOn: waits("api") })]);
+  const out2 = renderToString(html`<${Deps} team=${push(tasks())} model=${two} send=${() => true} />`);
+  assert.ok(out2.includes("the other half"));
+  assert.ok(!out2.includes("the next one"));
+});
+
+test("the ages tick every 30 seconds and stop with the view", async () => {
+  const real = { setInterval: globalThis.setInterval, clearInterval: globalThis.clearInterval, now: Date.now };
+  const timers = new Map();
+  let id = 0;
+  let clock = Date.parse("2026-10-24T08:10:00Z");
+  globalThis.setInterval = (fn, ms) => { timers.set(++id, { fn, ms }); return id; };
+  globalThis.clearInterval = (n) => timers.delete(n);
+  Date.now = () => clock;
+  const ring = model([node("mgr", { role: "manager" }), node("api", { waitingOn: waits("tests") }), node("tests", { waitingOn: waits("api") })]);
+  try {
+    const m = await mount({ model: ring });
+    try {
+      assert.deepEqual([...timers.values()].map((t) => t.ms), [30000]);
+      const ages = () => m.box.findAll(".deps-age").map((e) => e.textContent).join();
+      const before = ages();
+      assert.match(before, /10m/);
+      clock += 30 * 60000;
+      [...timers.values()][0].fn();
+      await settle();
+      assert.match(ages(), /40m/);
+      assert.notEqual(ages(), before);
+    } finally {
+      m.done();
+    }
+    assert.equal(timers.size, 0, "the timer went with the view");
+  } finally {
+    Object.assign(globalThis, { setInterval: real.setInterval, clearInterval: real.clearInterval });
+    Date.now = real.now;
+  }
+});
+
 test("an ask is ready again when what it was about changes", async () => {
   const m = await mount();
   try {

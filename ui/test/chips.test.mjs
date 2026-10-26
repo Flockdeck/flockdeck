@@ -17,6 +17,16 @@ test("a whole-word helper name in a reply is a chip, and the longer name wins", 
   assert.doesNotMatch(out, />api-gateway<\/button>-gateway/);
 });
 
+test("a name two helpers have is not a chip, since it would open the one listed last", () => {
+  const list = [{ pane: "p1", name: "worker" }, { pane: "p2", name: "worker" }, { pane: "p3", name: "docs" }];
+  assert.equal(patternOf(list).source.includes("worker"), false);
+  const out = draw("worker and docs", list);
+  assert.equal((out.match(/class="conv-chip"/g) || []).length, 1);
+  assert.match(out, /title="Open docs"/);
+  // One pane listed twice under one name is not ambiguous.
+  assert.equal((draw("worker", [{ pane: "p1", name: "worker" }, { pane: "p1", name: "worker" }]).match(/class="conv-chip"/g) || []).length, 1);
+});
+
 test("a name inside another word, or a name that is too short, is not a chip", () => {
   const out = draw("The apis are a mess; docsify is not docs-ish, and a is not a chip.");
   assert.doesNotMatch(out, /conv-chip/);

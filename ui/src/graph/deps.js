@@ -259,7 +259,7 @@ export function loopsOf(model) {
 }
 
 /**
- * waitsOf are the waits between agents as rows: { key, kind, from, to, why }.
+ * waitsOf are the waits between agents as rows: { key, kind, from, to, why }, and for a ring also size (panes in it) and next (the key of the row after this one).
  * kind is "loop" (a ring), "you" (the pane asks the person), "overlap" (two panes
  * on the same file) or "agent" (a plain wait on another pane), in that order.
  */
@@ -271,7 +271,8 @@ export function waitsOf(model) {
     for (let i = 0; i < r.length; i++) {
       ring.add(r[i]);
       const n = model.byPane.get(r[i]);
-      rows.loop.push({ key: "w-" + r[i] + "-" + r[(i + 1) % r.length], kind: "loop", from: r[i], to: r[(i + 1) % r.length], why: n.waitingOn.text || "", since: n.since });
+      // next is the row of the following edge of the ring: for a ring of two, the other half.
+      rows.loop.push({ key: "w-" + r[i] + "-" + r[(i + 1) % r.length], kind: "loop", from: r[i], to: r[(i + 1) % r.length], size: r.length, next: "w-" + r[(i + 1) % r.length] + "-" + r[(i + 2) % r.length], why: n.waitingOn.text || "", since: n.since });
     }
   }
   const seen = new Set();
