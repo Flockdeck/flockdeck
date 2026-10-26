@@ -43,7 +43,7 @@ func TestAMergeRefusalHasTheCodeThatNamesWhatHappened(t *testing.T) {
 	if _, text := mergeRefusal("main", errors.New("fatal: first\nsecond line")); strings.Contains(text, "second") {
 		t.Errorf("more than the first line: %q", text)
 	}
-	if code, text := mergeRefusal("ma\nin", errors.New("x"));strings.Contains(text, "\n") || code != "failed" {
+	if code, text := mergeRefusal("ma\nin", errors.New("x")); strings.Contains(text, "\n") || code != "failed" {
 		t.Errorf("a branch name put a line break in the words: %q", text)
 	}
 }
