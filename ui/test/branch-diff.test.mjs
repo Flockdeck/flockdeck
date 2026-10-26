@@ -17,7 +17,7 @@ const fixture = (name) => JSON.parse(readFileSync(join(here, "..", "..", "api", 
 const team = changesTeamOf(fixture("01-team-mixed"));
 const api = team.branches.find((b) => b.pane === "5dc771c1");
 const FILE = "internal/limit/limit.go";
-const hunks = fixture("04-diff-hunks");
+const hunks = { ...fixture("04-diff-hunks"), worktree: false };
 const FULL = { viewer: false, relay: false, caps: ["changesDiff", "changesComments", "changesChecks", "changesGate"] };
 
 function fakeStore() {

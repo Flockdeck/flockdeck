@@ -110,9 +110,9 @@ function Code({ line, id }) {
   return html`<span id=${id}>${segments(t, line.marks).map((s, i) => (s.mark ? html`<mark key=${i}>${s.text}</mark>` : s.text))}</span>`;
 }
 
-function Plus({ file, line, side, notes, onComment, rid, active, onActive, describedBy }) {
+function Plus({ file, line, side, notes, onComment, rid, active, onActive, describedBy, wt = false }) {
   if (!onComment) return null;
-  if (typeof line !== "number") return html`<td class="dv-p"></td>`;
+  if (typeof line !== "number" || (wt && side === "new")) return html`<td class="dv-p"></td>`;
   const n = notes.get(lineKey(side, line)) || 0;
   const where = (side === "old" ? "old line " : "line ") + line + " of " + showControls(file);
   return html`<td class="dv-p"><button type="button" class="dv-plus" data-rid=${rid} tabindex=${active === rid ? 0 : -1} aria-describedby=${describedBy}
@@ -135,11 +135,11 @@ function Hunk({ row, cols }) {
   return html`<tr class="dv-hunk" data-row=${row.id}><td colspan=${cols}>${range ? html`<span class="dv-range">${range}</span> ` : null}${showControls(clip(text(row.header), 300))}</td></tr>`;
 }
 
-function UnifiedRow({ row, uid, file, notes, onComment, active, onActive }) {
+function UnifiedRow({ row, uid, file, notes, onComment, active, onActive, wt }) {
   const mark = notes.get(lineKey(row.anchor.side, row.anchor.line)) || 0;
   const cid = uid + "-" + row.id;
   return html`<tr class=${"dv-row dv-row--" + row.t + (mark ? " has-comment" : "")} data-row=${row.id}>
-    <${Plus} file=${file} line=${row.anchor.line} side=${row.anchor.side} notes=${notes} onComment=${onComment} rid=${row.id} active=${active} onActive=${onActive} describedBy=${cid} />
+    <${Plus} file=${file} line=${row.anchor.line} side=${row.anchor.side} notes=${notes} onComment=${onComment} rid=${row.id} active=${active} onActive=${onActive} describedBy=${cid} wt=${wt} />
     <td class="dv-n">${row.oldNo == null ? "" : row.oldNo}</td>
     <td class="dv-n">${row.newNo == null ? "" : row.newNo}</td>
     <td class="dv-sg"><span aria-hidden="true">${SIGN[row.t]}</span><span class="dv-sr">${SIGN_WORD[row.t]}</span></td>
@@ -147,11 +147,11 @@ function UnifiedRow({ row, uid, file, notes, onComment, active, onActive }) {
   </tr>`;
 }
 
-function Side({ line, which, uid, file, notes, onComment, active, onActive, withPlus, rid }) {
+function Side({ line, which, uid, file, notes, onComment, active, onActive, withPlus, rid, wt }) {
   const tds = [];
   if (withPlus) {
     tds.push(line && withPlus === "yes"
-      ? html`<${Plus} key="p" file=${file} line=${line.anchor.line} side=${line.anchor.side} notes=${notes} onComment=${onComment} rid=${rid} active=${active} onActive=${onActive} describedBy=${uid + "-" + line.id + which} />`
+      ? html`<${Plus} key="p" file=${file} line=${line.anchor.line} side=${line.anchor.side} notes=${notes} onComment=${onComment} rid=${rid} active=${active} onActive=${onActive} describedBy=${uid + "-" + line.id + which} wt=${wt} />`
       : html`<td key="p" class="dv-p"></td>`);
   }
   if (!line) return html`${tds}<td class="dv-n dv-e"></td><td class="dv-c dv-e"></td>`;
@@ -160,19 +160,19 @@ function Side({ line, which, uid, file, notes, onComment, active, onActive, with
     <td class=${"dv-c dv-" + line.t}><span class="dv-sgn" aria-hidden="true">${SIGN[line.t]}</span><span class="dv-sr">${SIGN_WORD[line.t]}</span><${Code} line=${line} id=${uid + "-" + line.id + which} /></td>`;
 }
 
-function SplitRow({ row, uid, file, notes, onComment, active, onActive }) {
+function SplitRow({ row, uid, file, notes, onComment, active, onActive, wt }) {
   const same = row.left === row.right;
   const commentable = !!onComment;
   return html`<tr class="dv-row" data-row=${row.id}>
-    <${Side} line=${row.left} which="l" uid=${uid} file=${file} notes=${notes} onComment=${onComment} active=${active} onActive=${onActive} withPlus=${commentable ? (same ? "empty" : "yes") : ""} rid=${row.id + ":l"} />
-    <${Side} line=${row.right} which="r" uid=${uid} file=${file} notes=${notes} onComment=${onComment} active=${active} onActive=${onActive} withPlus=${commentable ? "yes" : ""} rid=${row.id + ":r"} />
+    <${Side} line=${row.left} which="l" uid=${uid} file=${file} notes=${notes} onComment=${onComment} active=${active} onActive=${onActive} withPlus=${commentable ? (same ? "empty" : "yes") : ""} rid=${row.id + ":l"} wt=${wt} />
+    <${Side} line=${row.right} which="r" uid=${uid} file=${file} notes=${notes} onComment=${onComment} active=${active} onActive=${onActive} withPlus=${commentable ? "yes" : ""} rid=${row.id + ":r"} wt=${wt} />
   </tr>`;
 }
 
 /** plusIds are the keys of the "+" buttons of the rows drawn, in order. */
-function plusIds(rows, split) {
+function plusIds(rows, split, wt = false) {
   const out = [];
-  const ok = (l) => !!l && typeof l.anchor.line === "number";
+  const ok = (l) => !!l && typeof l.anchor.line === "number" && !(wt && l.anchor.side === "new");
   for (const r of rows) {
     if (r.type === "line") {
       if (ok(r)) out.push(r.id);
@@ -199,6 +199,8 @@ function Inline({ keys, path, at, flow, headSha, nameOf, cols, wrap = false, rea
 /** DiffViewer draws one file: its header, which folds it, and its diff. */
 export function DiffViewer({ branch = "", file = null, hunks = null, layout = "unified", narrow = null, comments: given = NONE, onComment: onCommentGiven = null, flow = null, readOnly = false, headSha = "", nameOf = null, context = NO_CONTEXT, contextErrors = NO_CONTEXT, onContext = null, collapsed = null, onToggle = null }) {
   const comments = flow ? flow.comments : given;
+  // The new side of a diff that holds uncommitted changes is numbered by the working tree, and the desk takes comments on committed lines only.
+  const wt = !!(hunks && hunks.worktree === true);
   const path = file ? text(file.path) : "";
   const uidRef = useRef(null);
   if (!uidRef.current) uidRef.current = "dv" + ++counter;
@@ -251,7 +253,7 @@ export function DiffViewer({ branch = "", file = null, hunks = null, layout = "u
     return m;
   }, [comments, path, oldPath]);
   const page = useMemo(() => pageRows(rows, pages), [rows, pages]);
-  const ids = useMemo(() => plusIds(page.rows, lay === "split"), [page, lay]);
+  const ids = useMemo(() => plusIds(page.rows, lay === "split", wt), [page, lay, wt]);
   const stop = ids.includes(active) ? active : ids[0] || "";
   // Comments whose line is not drawn: they are not lost, they go above the diff.
   const unplaced = useMemo(() => {
@@ -304,6 +306,7 @@ export function DiffViewer({ branch = "", file = null, hunks = null, layout = "u
   else if (flags.empty) note = html`<p class="dv-note">Nothing changed in this file.</p>`;
   else if (flags.renamed && !rows.length) note = html`<p class="dv-note">Renamed with no change to the lines.</p>`;
   else if (flags.modeChange && !rows.length) note = html`<p class="dv-note">Only the file mode changed.</p>`;
+  const wtNote = wt && onComment && rows.length ? html`<p class="dv-note dv-wt">This file has uncommitted changes. Lines on the new side can be commented once they are committed; old lines and the whole file can be now.</p>` : null;
 
   const onKey = (e) => {
     const k = e.key;
@@ -358,6 +361,7 @@ export function DiffViewer({ branch = "", file = null, hunks = null, layout = "u
         : null}
       ${renamed ? html`<p class="dv-note">Renamed from <span class="dv-mono">${pathText(from)}</span>. Only the changed lines are shown.</p>` : null}
       ${note}
+      ${wtNote}
       ${rows.length
         ? html`${onComment ? html`<button type="button" class="dv-skip drawer-btn" onClick=${() => endRef.current && endRef.current.focus()}>Skip this diff</button>` : null}
           <div class="dv-scroll"><table class=${"dv-tbl dv-tbl--" + lay} aria-label=${"Changed lines of " + showControls(path)} onKeyDown=${onKey}>
@@ -369,9 +373,9 @@ export function DiffViewer({ branch = "", file = null, hunks = null, layout = "u
               : r.type === "gap"
                 ? html`<${Gap} key=${r.id} row=${r} cols=${cols} onContext=${onContext ? askContext : null} error=${contextErrors[r.id] || ""} />`
                 : lay === "split"
-                  ? [html`<${SplitRow} key=${r.id} row=${r} uid=${uid} file=${path} notes=${notes} onComment=${onComment} active=${stop} onActive=${setActive} />`,
+                  ? [html`<${SplitRow} key=${r.id} row=${r} uid=${uid} file=${path} notes=${notes} onComment=${onComment} active=${stop} onActive=${setActive} wt=${wt} />`,
                      html`<${Inline} key=${r.id + ":cm"} keys=${[r.left && r.left !== r.right ? lineKey(r.left.anchor.side, r.left.anchor.line) : "", r.right ? lineKey(r.right.anchor.side, r.right.anchor.line) : ""].filter(Boolean)} path=${path} at=${at} flow=${flow} headSha=${headSha} nameOf=${nameOf} cols=${cols} readOnly=${readOnly} />`]
-                  : [html`<${UnifiedRow} key=${r.id} row=${r} uid=${uid} file=${path} notes=${notes} onComment=${onComment} active=${stop} onActive=${setActive} />`,
+                  : [html`<${UnifiedRow} key=${r.id} row=${r} uid=${uid} file=${path} notes=${notes} onComment=${onComment} active=${stop} onActive=${setActive} wt=${wt} />`,
                      html`<${Inline} key=${r.id + ":cm"} keys=${[lineKey(r.anchor.side, r.anchor.line)]} path=${path} at=${at} flow=${flow} headSha=${headSha} nameOf=${nameOf} cols=${cols} readOnly=${readOnly} />`]))}</tbody>
           </table></div>
           <p ref=${endRef} tabindex="-1" class="dv-end">${"End of the diff of " + showControls(path) + "."}</p>`
