@@ -199,7 +199,7 @@ func baseOf(ctx context.Context, cwd, own string) (name, id string, err error) {
 // changes since the merge base and the uncommitted ones together, a file in both
 // once, and the untracked files.
 func filesOf(ctx context.Context, cwd, baseSha string) ([]File, error) {
-	raw, err := git(ctx, cwd, "diff", "--raw", "-z", "-M", "--no-color", "--no-ext-diff", "--no-textconv", "--end-of-options", baseSha)
+	raw, err := git(ctx, cwd, "diff", "--raw", "-z", "-M", "--no-color", "--no-ext-diff", "--no-textconv", "--ignore-submodules=dirty", "--end-of-options", baseSha)
 	if err != nil {
 		return nil, err
 	}
@@ -209,7 +209,7 @@ func filesOf(ctx context.Context, cwd, baseSha string) ([]File, error) {
 		byPath[f.Path] = i
 	}
 
-	num, err := git(ctx, cwd, "diff", "--numstat", "-z", "-M", "--no-color", "--no-ext-diff", "--no-textconv", "--end-of-options", baseSha)
+	num, err := git(ctx, cwd, "diff", "--numstat", "-z", "-M", "--no-color", "--no-ext-diff", "--no-textconv", "--ignore-submodules=dirty", "--end-of-options", baseSha)
 	if err != nil {
 		return nil, err
 	}

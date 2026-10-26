@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -31,13 +32,18 @@ func editedRepo(t *testing.T) (dir, feat string) {
 
 // readEntryPoints calls each way the program reads a checkout without being asked
 // to change it. None of them may run a program the repository's configuration names.
-func readEntryPoints(t *testing.T, dir, feat string) {
+func readEntryPoints(t *testing.T, dir, feat string, diffs ...string) {
 	t.Helper()
+	if len(diffs) == 0 {
+		diffs = []string{"tracked.txt"}
+	}
 	ctx := context.Background()
 	StatusOf(dir)
 	_, _ = StatusWithin(dir, commandTimeout)
 	_, _ = Changes(dir)
-	_, _ = Diff(dir, "tracked.txt")
+	for _, p := range diffs {
+		_, _ = Diff(dir, p)
+	}
 	_, _ = numstat(ctx, dir)
 	_, _ = numstat(ctx, dir, "HEAD")
 	common, err := CommonDir(dir)
@@ -145,5 +151,39 @@ func TestTheKeyInAReadRefusalIsShownCleaned(t *testing.T) {
 	}
 	if !strings.HasPrefix(text, "its config runs programs: filter.ev") {
 		t.Errorf("text = %q", text)
+	}
+}
+
+// A worktree status or diff of the superproject starts a status inside every
+// initialised submodule, which reads that submodule's own configuration
+// (.git/modules/<name>/config), and the check of the superproject's does not see it.
+func TestASubmodulesOwnConfigIsNotRunByAReadOfTheRepositoryAroundIt(t *testing.T) {
+	inner := newRepo(t)
+	writeIn(t, inner, ".gitattributes", "* filter=evil\n")
+	gitRun(t, inner, "add", "-A")
+	gitRun(t, inner, "commit", "-q", "-m", "attributes")
+	outer := newRepo(t)
+	add := exec.Command("git", "-c", "protocol.file.allow=always", "submodule", "add", "--", filepath.ToSlash(inner), "mod")
+	add.Dir = outer
+	if out, err := add.CombinedOutput(); err != nil {
+		t.Skipf("submodules are not usable here: %v: %s", err, out)
+	}
+	gitRun(t, outer, "commit", "-q", "-m", "add the submodule")
+	gitRun(t, outer, "checkout", "-q", "-b", "feat")
+	feat := commitIn(t, outer, "feat.txt", "feat\n", "feat")
+	gitRun(t, outer, "checkout", "-q", "main")
+
+	mod := filepath.Join(outer, "mod")
+	m := marker(t)
+	gitRun(t, mod, "config", "filter.evil.clean", "touch "+m+" && cat")
+	writeIn(t, mod, "README.md", "hello and a good deal more\n")
+	writeIn(t, outer, "tracked.txt", "x\n")
+
+	if err := UnsafeReadConfig(context.Background(), outer); err != nil {
+		t.Fatalf("the repository around it has nothing to refuse: %v", err)
+	}
+	readEntryPoints(t, outer, feat, "tracked.txt", "mod")
+	if _, err := os.Stat(m); err == nil {
+		t.Error("the submodule's clean filter ran")
 	}
 }

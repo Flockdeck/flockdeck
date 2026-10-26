@@ -210,7 +210,7 @@ func Diff(ctx context.Context, pane, cwd string, req DiffRequest) (DiffHunks, *R
 		// file has no uncommitted change.
 		out.Worktree = untracked
 		if !untracked {
-			if o, err := git(ctx, cwd, append([]string{"diff", "--name-only", "-z", "--no-ext-diff", "--end-of-options", b.HeadSha, "--"}, paths...)...); err == nil && strings.ReplaceAll(o, "\x00", "") != "" {
+			if o, err := git(ctx, cwd, append([]string{"diff", "--name-only", "-z", "--no-ext-diff", "--ignore-submodules=dirty", "--end-of-options", b.HeadSha, "--"}, paths...)...); err == nil && strings.ReplaceAll(o, "\x00", "") != "" {
 				out.Worktree = true
 			}
 		}
@@ -249,7 +249,7 @@ func Diff(ctx context.Context, pane, cwd string, req DiffRequest) (DiffHunks, *R
 	case against == "head" && f.Status == "A" && !tracked(ctx, cwd, f.Path):
 		// Added in the working tree only: nothing is committed.
 	default:
-		flags := []string{"-M", "-U" + strconv.Itoa(contextArg(n)), "--no-color", "--no-ext-diff", "--no-textconv"}
+		flags := []string{"-M", "-U" + strconv.Itoa(contextArg(n)), "--no-color", "--no-ext-diff", "--no-textconv", "--ignore-submodules=dirty"}
 		if req.IgnoreWhitespace {
 			flags = append(flags, "-w")
 		}

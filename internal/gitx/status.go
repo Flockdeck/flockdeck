@@ -57,13 +57,9 @@ func StatusOf(dir string) Status {
 // timeout to finish in. When it does not, git is stopped, the Status is empty,
 // and errors.Is(err, context.DeadlineExceeded) holds.
 //
-// It does not look inside submodules. Finding work left uncommitted in one
-// means a git status of its own inside every submodule, every refresh, and
-// that work cannot be committed from here anyway; the review panel, which
-// reads StatusOf, still says so. A submodule moved to another commit is this
-// repository's change, and is still counted.
+// It does not look inside submodules (see statusWithin).
 func StatusWithin(dir string, timeout time.Duration) (Status, error) {
-	return statusWithin(dir, timeout, "--ignore-submodules=dirty")
+	return statusWithin(dir, timeout)
 }
 
 // statusWithin is StatusWithin with extra options for git status.
@@ -78,7 +74,14 @@ func statusWithin(dir string, timeout time.Duration, opts ...string) (Status, er
 	// collapses a new directory into one entry, so a pane header claiming one
 	// untracked file sat above a review panel -- which asks for "all" --
 	// listing the thirty inside it.
-	args := append([]string{"status", "--porcelain=v2", "--branch", "--untracked-files=all"}, opts...)
+	// Not inside submodules: finding work left uncommitted in one means a git
+	// status of its own inside every submodule, every refresh, which reads that
+	// submodule's own configuration (.git/modules/<name>/config, written by whoever
+	// works in the checkout) and runs its clean filters, and the check of this
+	// repository's configuration does not see it. That work cannot be committed from
+	// here anyway. A submodule moved to another commit is this repository's change,
+	// and is still counted.
+	args := append([]string{"status", "--porcelain=v2", "--branch", "--untracked-files=all", "--ignore-submodules=dirty"}, opts...)
 	var out string
 	err := retryIndex(func() (e error) {
 		var buf bytes.Buffer
@@ -225,6 +228,11 @@ func isCommitID(s string) bool {
 // name that is not plain ASCII, and a commit refused for work inside the
 // submodule "süb" said the work was inside "s\303\274b".
 func submoduleWork(dir string, paths ...string) []string {
+	// It does look inside the submodules, and that runs their configuration (see
+	// statusWithin), so it is not done while this repository's names a program.
+	if UnsafeReadConfig(context.Background(), dir) != nil || submoduleConfigUnsafe(dir, paths) {
+		return nil
+	}
 	args := []string{"status", "--porcelain=v2", "--ignore-submodules=none", "-z"}
 	if len(paths) > 0 {
 		args = append(args, "--")
@@ -252,6 +260,41 @@ func submoduleWork(dir string, paths ...string) []string {
 		}
 	}
 	return names
+}
+
+// submoduleConfigUnsafe says whether a submodule among paths (or any, when none are
+// given) has its own configuration naming a program that comparing its working tree
+// would run, or whether the submodules cannot be listed. The superproject's check does
+// not see a submodule's own configuration, .git/modules/<name>/config.
+func submoduleConfigUnsafe(dir string, paths []string) bool {
+	args := []string{"ls-files", "--stage", "-z"}
+	if len(paths) > 0 {
+		args = append(args, "--")
+		for _, p := range paths {
+			args = append(args, pathspec(p))
+		}
+	}
+	out, err := run(dir, args...)
+	if err != nil {
+		return true
+	}
+	for _, rec := range strings.Split(out, "\x00") {
+		mode, rest, ok := strings.Cut(rec, " ")
+		if !ok || mode != "160000" {
+			continue
+		}
+		_, path, ok := strings.Cut(rest, "\t")
+		if !ok {
+			continue
+		}
+		if _, serr := os.Stat(filepath.Join(dir, filepath.FromSlash(path), ".git")); serr != nil {
+			continue // not initialised: nothing to run
+		}
+		if UnsafeReadConfig(context.Background(), filepath.Join(dir, filepath.FromSlash(path))) != nil {
+			return true
+		}
+	}
+	return false
 }
 
 // Branch is a local branch and where it stands against its upstream.
