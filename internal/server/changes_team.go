@@ -177,19 +177,22 @@ func (s *Server) changesCommand(c *controlClient, cmd command) {
 		go s.changesDiffHunks(c, cmd)
 	case "diffContext":
 		go s.changesDiffContext(c, cmd)
-	case "runChecks", "confirmChecks", "requestReview", "submitReview":
+	case "commentAdd", "commentResolve", "commentReopen", "runChecks", "confirmChecks", "requestReview", "submitReview":
 		// These act for the person: they run commands, write a review as the person's
 		// and send a message in Flockdeck's name. Like approveBaton they are taken only
 		// from a connection that opened as a page of the window (with an Origin). An
-		// agent's token is accepted by the socket too, and an agent can set an Origin,
-		// so this raises the bar and does not close it. Until the window has a
-		// credential an agent cannot get, a recorded review is not proof that the
-		// person made it (docs/changes-api.md, section 6).
+		// agent can read the instance token from instance.json and set an Origin, so
+		// this is a process control among cooperating agents and not a boundary: a
+		// recorded review is a record, not proof (docs/changes-api.md, section 6).
 		if !c.page {
 			changesRefuse(c, cmd, "deskOnly", "This is taken only from the Flockdeck window on this machine")
 			return
 		}
 		switch cmd.Cmd {
+		case "commentAdd":
+			go s.changesCommentAdd(c, cmd)
+		case "commentResolve", "commentReopen":
+			go s.changesCommentMove(c, cmd)
 		case "runChecks":
 			go s.changesRunChecks(c, cmd)
 		case "confirmChecks":

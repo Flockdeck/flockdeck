@@ -205,13 +205,23 @@ branch's `headSha` as outdated.
 
 `commentAdd` finds the owner of the file (`owner`, else the branch's pane),
 writes the comment into that pane's inbox as an ordinary message from the
-person, and records it. The message names the branch, the file and the line, quotes the
+person, and records it. Today every file's owner is the branch's pane. The message names the branch, the file and the line, quotes the
 comment and names its author. `to` is that pane. The owner sees it as it would
 any message. It carries the person's tag only when the command came from a
 window; a comment or sign-off an agent adds through another path is attributed to
 that pane and never to the person. `commentAdd` needs `expectSha` (the head the
 person looked at) and answers `headMoved` if the branch has moved on. An unknown
-`commentId` is `notFound`.
+`commentId` is `notFound`. Nothing is sent when a comment is refused, and
+nothing is recorded when the message could not be sent (the owner's inbox is
+full, say). A comment store that is damaged is not written over: it is kept as
+`<name>.comments.json.bad` (or `.bad.1` and so on), `commentAdd`, `commentResolve`
+and `commentReopen` answer `badRequest` with an error, and the branches show no
+comments until the person has dealt with it, with one notice to the window.
+
+A comment is sent as the person only because it came from a window page on this
+machine. That is the limit described in section 6 ("Who may send these commands"):
+an agent that holds the instance token and sets an `Origin` can send the command
+too, so the author `you` is a record and not proof.
 
 - `delivery` reuses the graph's message states, in the same order: `queued`,
   `notified`, `woken`, `read`. It is absent while the message is being written,
@@ -221,10 +231,31 @@ person looked at) and answers `headMoved` if the branch has moved on. An unknown
   owner says so (a later commit on the branch that the owner reports); only the
   person sets `resolved`, with `commentResolve`. `commentReopen` makes a comment
   open again. Open comments block the merge.
-- A comment is at most 4096 characters, a branch keeps at most 500, and a path
-  must be one of the branch's files. A comment on a line a diff does not have is
-  refused as `badRequest`.
-- Comments are kept with the project's team data and survive a restart.
+- A comment is at most 4096 characters, a branch has at most 500 open comments (the 501st is
+  `badRequest`; resolved and dismissed ones do not count), and the store keeps at
+  most 5000 and at most 8 MiB as written, dropping the oldest resolved or dismissed
+  comment to make room and refusing when every one is open. A store that has been
+  written can always be read back. A `file` must
+  be one of the branch's files (by its new or its old path). The line must exist on
+  the side named: from 1 to the number of lines the file has at the head (`new`) or
+  at the merge base (`old`), or 0 for the whole file. A line past the end, a side the
+  file does not have (the old side of an added file) and a file too large to read
+  are `badRequest`. The count is of the committed file: a diff of uncommitted
+  changes numbers the working tree, so a line that exists only there is not accepted
+  until it is committed. The text loses control and format characters, and the
+  line breaks and tabs stay.
+- The server sets `open`. `commentResolve` makes an open or fixed comment
+  `resolved`, and is harmless on one already closed. `commentReopen` makes any
+  comment `open` and drops `fixedAtSha`. Nothing sets `fixed` or `dismissed` yet:
+  there is no command for the owner to report a fix, so only the person closes
+  a comment, and a comment the store holds in either state is shown as it is.
+- `delivery` is read from the inbox each time the branches are pushed, with the
+  message id kept in the store, and is not written to the file. A message that is
+  no longer in the inbox leaves `delivery` absent.
+- Comments are kept in `changes/<project name>-<8 hex>.comments.json` in the config
+  directory, beside the review state, written the same way, and survive a restart.
+  Each is kept with its branch name, so it survives the pane's id, and `pane` is the
+  branch's pane now.
 
 ## 6. Checks and reviews
 
@@ -299,21 +330,28 @@ is reported `queued`, and one that saw a tree that became dirty is marked
 `worktree`. That is an honesty check and not a boundary; a process that wants to
 deceive can put the files back before the second look.
 
-Who may start a check. `runChecks`, `confirmChecks`, `requestReview` and `submitReview` are
-taken only from a connection that opened as a page of the window on this machine
-(with an `Origin`), as `approveBaton` is, and refused as `deskOnly` otherwise.
-That raises the bar and does not close it: an agent's pane token is accepted by
-the same socket, and an agent can set an `Origin`. Until the window has a
-credential an agent cannot get, an agent on this machine can run the person's
-checks, and a recorded review is not proof that the person made it. The merge
-commands (`approveMerge`, `mergeBranch`, section 7) must not ship before that
-credential exists. The check file is in the config directory, so an agent that
-can write there can plant commands in it. The pin makes that show: a changed
-file is not run until the person has read and confirmed it. It does not stop an
-agent that sends `confirmChecks` itself with its pane token and an `Origin`;
-that needs the same credential, and until it exists the pin guards against a
-file that changed after the person read it and not against an agent on this
-machine.
+Who may send these commands. `commentAdd`, `commentResolve`, `commentReopen`,
+`runChecks`, `confirmChecks`, `requestReview` and `submitReview`, and the merge
+commands of section 7, are taken only from a connection that opened as a page of
+the window on this machine (with an `Origin`), as `approveBaton` is, and refused
+as `deskOnly` otherwise. This is a process control among cooperating agents. It
+is not a security boundary, and the person chose it over a passphrase or a
+hardware key. The control socket's token is the instance token in `instance.json`
+in the config directory, which any process of the same user can read, so an agent
+can read it, open the socket and set an `Origin`. An agent running as the user can
+also run the person's checks directly, write to the check file, or run `git merge`
+itself. What the commands give is a record: a decision of the person made in the
+window is written down, bound to the exact head they looked at, and a merge made
+through Flockdeck is refused unless that record supports it. A comment, review or
+approval whose author is `you` is therefore not proof that the person made it
+against an agent that chooses to forge one.
+
+The check file is in the config directory, so an agent that can write there can
+plant commands in it. The confirmation makes that show: a changed file is not run
+until the person has read and confirmed it. It does not stop an agent that sends
+`confirmChecks` itself through the socket as above; until the person chooses a
+stronger credential, it guards against a file that changed after the person read
+it and not against an agent that means to deceive.
 
 A CI result has `source` `ci` and a `url`; a result an agent reports has `source`
 `agent`. Neither is built in this version.
@@ -398,7 +436,7 @@ the branch's `gate.state` is `merged` and `mergeSha` is the new tip of the base.
 | --- | --- |
 | Branches in a push | 60 |
 | Files listed for a branch | 2000, the rest through `filesPage` (200 a page by default, 500 at most) |
-| Comments for a branch | 500, each 4096 characters |
+| Open comments for a branch | 500, each 4096 characters |
 | Diff | 5000 lines and 1 MiB, then `truncated` |
 | Lines from one `diffContext` | 200 |
 | A review's note | 2000 characters |

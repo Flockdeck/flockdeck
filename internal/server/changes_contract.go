@@ -3,6 +3,8 @@ package server
 import (
 	"encoding/json"
 	"slices"
+
+	"github.com/jmwri/flockdeck/internal/changes"
 )
 
 // The team-wide changes view (docs/changes-api.md, api/schema/changes.schema.json)
@@ -20,7 +22,7 @@ var changesCommands = []string{
 
 // changesBuilt are the commands of the contract the server answers; the rest are
 // refused by changesPlanned. A command moves here in the change that builds it.
-var changesBuilt = []string{"changesWatch", "changesUnwatch", "changesSnapshot", "filesPage", "diffHunks", "diffContext", "runChecks", "confirmChecks", "requestReview", "submitReview"}
+var changesBuilt = []string{"changesWatch", "changesUnwatch", "changesSnapshot", "filesPage", "diffHunks", "diffContext", "commentAdd", "commentResolve", "commentReopen", "runChecks", "confirmChecks", "requestReview", "submitReview"}
 
 // changesCaps are the names the hello's api.caps will list as the parts are built.
 // A cap is added in the change that builds what it names, and is not offered to a
@@ -59,6 +61,8 @@ type changesResultMsg struct {
 	OK    bool   `json:"ok"`
 	Code  string `json:"code,omitempty"`
 	Error string `json:"error,omitempty"`
+	// Comment is the comment commentAdd, commentResolve and commentReopen answer with.
+	Comment *changes.Comment `json:"comment,omitempty"`
 }
 
 // changesPlanned refuses a command of the contract: to a window through the relay

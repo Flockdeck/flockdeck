@@ -1660,11 +1660,10 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 	case "graphSnapshot", "graphWatch", "graphUnwatch":
 		s.graphCommand(c, cmd)
 		return
-	case "changesWatch", "changesUnwatch", "changesSnapshot", "filesPage", "diffHunks", "diffContext", "runChecks", "confirmChecks", "requestReview", "submitReview":
+	case "changesWatch", "changesUnwatch", "changesSnapshot", "filesPage", "diffHunks", "diffContext", "commentAdd", "commentResolve", "commentReopen", "runChecks", "confirmChecks", "requestReview", "submitReview":
 		s.changesCommand(c, cmd)
 		return
-	case "commentAdd", "commentResolve", "commentReopen",
-		"approveMerge", "unapproveMerge", "mergeBranch":
+	case "approveMerge", "unapproveMerge", "mergeBranch":
 		s.changesPlanned(c, cmd)
 		return
 	case "structuredSnapshot", "structuredWatch", "structuredUnwatch", "structuredCancel":

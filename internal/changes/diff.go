@@ -717,3 +717,10 @@ func missingAtCommit(ctx context.Context, cwd, rev, rel string) bool {
 	o, err := git(ctx, cwd, "ls-tree", "-z", "--end-of-options", rev, "--", rel)
 	return err == nil && o == ""
 }
+
+// BranchFile reads the checkout and finds one of the branch's files by either of
+// its paths, or says why not. It is for a command that points at a file, as a
+// diff does.
+func BranchFile(ctx context.Context, pane, cwd, file string) (Branch, File, *Refusal) {
+	return checkedFile(ctx, pane, cwd, file)
+}

@@ -117,15 +117,21 @@ func (r *checkRuns) of(pane, head string) []changes.Check {
 // reviewsMu serialises changes to the review state files.
 var reviewsMu sync.Mutex
 
-// withChecksAndReviews puts the server's checks and the saved reviews in the
-// branches of a read team.
+// withChecksAndReviews puts the server's checks and the saved reviews and
+// comments in the branches of a read team.
 func (s *Server) withChecksAndReviews(t *changes.Team, root, project string) {
 	var state changes.ReviewState
+	var comments changes.CommentState
 	if _, statePath, err := changesFiles(root, project); err == nil {
 		reviewsMu.Lock()
 		// A damaged file shows as no reviews here; the commands that would write over it refuse.
 		state = s.loadReviews(statePath)
+		comments = s.loadComments(commentsPath(statePath))
 		reviewsMu.Unlock()
+	}
+	var delivery func(to string, id int) string
+	if comments.HasComments() {
+		delivery = s.commentDeliveries(root)
 	}
 	keep := map[string]bool{}
 	for i := range t.Branches {
@@ -136,7 +142,8 @@ func (s *Server) withChecksAndReviews(t *changes.Team, root, project string) {
 		}
 		checks := s.checks.of(b.Pane, b.HeadSha)
 		reviews := state.For(b.Branch, b.HeadSha)
-		b.Checks, b.Reviews = &checks, &reviews
+		list := comments.For(b.Branch, b.Pane, delivery)
+		b.Checks, b.Reviews, b.Comments = &checks, &reviews, &list
 	}
 	s.checks.forget(keep)
 }
@@ -517,9 +524,10 @@ func unionBranches(cwds []string, list func(cwd string) (map[string]bool, error)
 const personReviewer = "the person"
 
 // changesSubmitReview answers submitReview. changesCommand takes it only from a
-// connection that opened as a page of the window; an agent that sets an Origin
-// can still send it with its pane token, so a review recorded as the person's is
-// not proof that the person made it until the window has a credential of its own.
+// connection that opened as a page of the window. This is a process control among
+// cooperating agents: an agent that reads the instance token from instance.json and
+// sets an Origin can send it too, so a review recorded as the person's is a record
+// and not proof (docs/changes-api.md, section 6, "Who may send these commands").
 func (s *Server) changesSubmitReview(c *controlClient, cmd command) {
 	switch cmd.State {
 	case "approved", "changes", "dismissed":
