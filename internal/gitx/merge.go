@@ -11,6 +11,11 @@ import (
 	"strings"
 )
 
+// This file is on scanfs_enforce_test.go's notTheScan list: it stats git's own lock
+// and operation files in the checkout that has the base. That is safe only while it
+// never reads a file's contents or lists a directory; if it ever does, take it off
+// the list and send the call through scanfs.go.
+
 // The merge of a reviewed branch into its base (docs/changes-api.md, section 7).
 // Nothing here takes a branch name to merge: the caller names the commit, so a
 // branch that moves after it was approved is not the thing merged.

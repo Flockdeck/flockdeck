@@ -73,7 +73,7 @@ Which command answers with which code:
 | `checksNotPassing`, `conflicts`, `openComments`, `reviewChangesRequested`, `unpushed`, `empty` | `approveMerge`, in that order. |
 | `notApproved` | `mergeBranch`, when the gate is not approved for that head. |
 | `busy` | `changesSnapshot`, `filesPage`, `diffHunks` and `diffContext`, when the same window still has an earlier request of that kind being answered. One of each kind runs at a time for a window. `runChecks` is also `busy` while the branch's checks are running. |
-| `notClean`, `notFastForward`, `failed` | `mergeBranch`. |
+| `notClean`, `notFastForward`, `failed`, `partlyUpdated`, `mergedNotRecorded` | `mergeBranch`: `failed` when git refused the merge and changed nothing; `partlyUpdated` when it failed part way and the base checkout may be partly updated, so the person must look at it before trying again; `mergedNotRecorded` when the branch was merged but the merge could not be written to the gate file, so the gate does not show `merged`. |
 
 The fields these commands use, besides `cmd`:
 
