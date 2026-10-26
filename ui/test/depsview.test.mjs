@@ -21,7 +21,7 @@ const tasks = (est = true) => [
   T("T11", "planned", ["T1"], { estimateMin: est ? 5 : 0 }),
   T("T12", "planned", ["T6"], { estimateMin: est ? 5 : 0 }),
 ];
-const node = (pane, over = {}) => ({ pane, kind: "terminal", depth: 0, team: "t", name: pane, role: "worker", status: "working", activity: "working", waitingOn: { kind: "none" }, since: "2026-10-24T08:00:00Z", ...over });
+const node = (pane, over = {}) => ({ pane, kind: "terminal", depth: 0, team: "t", name: pane, role: "worker", status: "working", activity: "working", waitingOn: { kind: "none" }, since: new Date(Date.now() - 3600000).toISOString(), ...over });
 const waits = (ref) => ({ kind: "helpers", ref, text: "" });
 const model = (nodes) => buildGraphModel({ type: "graph", root: "/r", project: "api", teams: [{ id: "t", manager: "mgr", goal: "Ship the API", members: nodes.map((n) => n.pane), needs: [] }], nodes, edges: [], solo: [], soloNeeds: [] });
 const plain = [node("mgr", { role: "manager" }), node("ci"), node("api")];
@@ -74,11 +74,13 @@ test("the ages tick every 30 seconds and stop with the view", async () => {
   const real = { setInterval: globalThis.setInterval, clearInterval: globalThis.clearInterval, now: Date.now };
   const timers = new Map();
   let id = 0;
-  let clock = Date.parse("2026-10-24T08:10:00Z");
+  // The clock is held at today, and the wait started ten minutes before it, so the age is the same whatever the date.
+  let clock = real.now();
+  const since = new Date(clock - 10 * 60000).toISOString();
   globalThis.setInterval = (fn, ms) => { timers.set(++id, { fn, ms }); return id; };
   globalThis.clearInterval = (n) => timers.delete(n);
   Date.now = () => clock;
-  const ring = model([node("mgr", { role: "manager" }), node("api", { waitingOn: waits("tests") }), node("tests", { waitingOn: waits("api") })]);
+  const ring = model([node("mgr", { role: "manager", since }), node("api", { waitingOn: waits("tests"), since }), node("tests", { waitingOn: waits("api"), since })]);
   try {
     const m = await mount({ model: ring });
     try {
