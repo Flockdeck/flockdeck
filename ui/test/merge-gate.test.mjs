@@ -1113,3 +1113,29 @@ test("the approval or merge question and the checks question are never open toge
     m.done();
   }
 });
+
+test("notFound for the checks is about the check file, not a reviewer, whichever command got it", async () => {
+  const missing = "there is no check file for this project; write one at C:/cfg/changes/shop-1a2b3c4d.json";
+  const empty = "the check file has no checks";
+  for (const op of ["confirmChecks", "runChecks"]) {
+    assert.equal(gateRefusalWords({ op, code: "notFound", error: missing }), missing, op);
+    assert.equal(gateRefusalWords({ op, code: "notFound", error: empty }), empty, op);
+    assert.match(gateRefusalWords({ op, code: "notFound" }), /no check file/, op + " with no sentence");
+    assert.doesNotMatch(gateRefusalWords({ op, code: "notFound", error: missing }), /reviewer/, op);
+  }
+  assert.equal(Array.from(gateRefusalWords({ op: "confirmChecks", code: "notFound", error: "y".repeat(900) })).length, 400);
+  assert.ok(gateRefusalWords({ op: "runChecks", code: "notFound", error: "a" + String.fromCharCode(0x202e) + "b" }).includes("<U+202E>"));
+  assert.match(gateRefusalWords({ op: "requestReview", code: "notFound" }), /not an agent pane/, "a missing reviewer keeps its words");
+  assert.match(gateRefusalWords({ code: "notFound" }), /not an agent pane/);
+  for (const error of [missing, empty]) {
+    const { m, sent } = await reading();
+    try {
+      m.draw({ send: () => true, branch: api, result: { type: "changesResult", req: sent[0].req, op: "confirmChecks", ok: false, code: "notFound", error } });
+      await settle();
+      assert.equal(m.box.find(".dv-live").textContent, error);
+      assert.equal(m.box.find(".confirm"), null);
+    } finally {
+      m.done();
+    }
+  }
+});
