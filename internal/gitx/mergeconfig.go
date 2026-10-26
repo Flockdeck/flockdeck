@@ -3,7 +3,6 @@ package gitx
 import (
 	"context"
 	"fmt"
-	"regexp"
 	"strings"
 )
 
@@ -12,20 +11,18 @@ import (
 // A merge reads trees and writes files and commits, and several settings make git
 // run a program of the repository's choosing while it does: a merge driver on a
 // content conflict, a clean, smudge or process filter when a file is written, and a
-// signing program when a commit is made. Hooks are turned off for every command
+// signing program when a commit is made. Git LFS's filter is let through, but not
+// the settings that make it run a program of the repository's choosing while it
+// downloads (a custom transfer agent, a credential helper, an ssh or proxy command). Hooks are turned off for every command
 // (see configFor). These are refused before a merge is made or predicted.
 //
 // The person's own configuration, global and system, is not looked at: it is theirs.
 
 // unsafeConfigKeys are the keys that name a program or pull in more configuration.
+// It is a list of the keys known to do this, not a guarantee that no other does.
 // The match is git's own (an extended regular expression over the lower-cased
 // section and variable names).
-const unsafeConfigKeys = `^(merge\..*\.driver|filter\..*\.(smudge|clean|process)|gpg\..*program|include.*)$`
-
-// lfsFilter is the one program a filter may name: Git LFS's own commands, as it
-// installs them. Anything else in the value, a second command after a separator
-// included, is not this.
-var lfsFilter = regexp.MustCompile(`^git-lfs (clean|smudge|filter-process)( --skip)?( -- %f)?$`)
+const unsafeConfigKeys = `^(merge\..*\.driver|filter\..*\.(smudge|clean|process)|gpg\..*program|include.*|lfs\.customtransfer\..*|lfs\.standalonetransferagent|credential\..*helper|core\.sshcommand|core\.gitproxy|diff\..*\.textconv|diff\.external)$`
 
 // UnsafeConfigError says which setting of the repository's own configuration would
 // run a program during a merge.
@@ -53,7 +50,7 @@ func UnsafeConfig(ctx context.Context, dir string) error {
 			if key == "" {
 				continue
 			}
-			if strings.HasPrefix(key, "filter.") && lfsFilter.MatchString(strings.TrimSpace(value)) {
+			if strings.HasPrefix(key, "filter.") && StandardLFSFilter(key, strings.TrimSpace(value)) {
 				continue
 			}
 			return &UnsafeConfigError{Key: key}

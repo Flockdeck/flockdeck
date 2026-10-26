@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -122,10 +123,10 @@ func (e *PartlyUpdatedError) Unwrap() error { return e.Err }
 // hiddenFromStatus says whether the checkout has a file that status does not
 // compare: one marked assume-unchanged or skip-worktree, which a merge may
 // overwrite without it showing as a change.
-func hiddenFromStatus(ctx context.Context, dir string) (bool, error) {
+func hiddenFromStatus(ctx context.Context, dir string) (path string, hidden bool, err error) {
 	out, err := ReadOnlyCapped(ctx, dir, 64<<20, "ls-files", "-v", "-z")
 	if err != nil {
-		return false, err
+		return "", false, err
 	}
 	for _, entry := range strings.Split(out, "\x00") {
 		if entry == "" {
@@ -134,10 +135,19 @@ func hiddenFromStatus(ctx context.Context, dir string) (bool, error) {
 		// The tag is one letter: H for an ordinary file, S for skip-worktree, and a
 		// lower-case letter for assume-unchanged.
 		if t := entry[0]; t == 'S' || (t >= 'a' && t <= 'z') {
-			return true, nil
+			return strings.TrimSpace(entry[1:]), true, nil
 		}
 	}
-	return false, nil
+	return "", false, nil
+}
+
+// notCleanBecause is ErrNotClean with the reason, for the person to read.
+func notCleanBecause(reason string) error { return fmt.Errorf("%w: %s", ErrNotClean, reason) }
+
+// NotCleanReason is the reason an ErrNotClean came with, or "".
+func NotCleanReason(err error) string {
+	_, reason, _ := strings.Cut(err.Error(), ErrNotClean.Error()+": ")
+	return reason
 }
 
 // MergeInto merges commit sha into the branch base, which dir must have checked
@@ -175,20 +185,23 @@ func MergeInto(ctx context.Context, dir, base, sha, message string) (string, err
 		return "", err
 	}
 	gitDir = strings.TrimSpace(gitDir)
-	if _, serr := os.Stat(filepath.Join(gitDir, "index.lock")); serr == nil || midOperation(gitDir) != "" {
-		return "", ErrNotClean
+	if _, serr := os.Stat(filepath.Join(gitDir, "index.lock")); serr == nil {
+		return "", notCleanBecause("git has the index locked")
+	}
+	if op := midOperation(gitDir); op != "" {
+		return "", notCleanBecause("it is in the middle of " + op)
 	}
 	dirty, _, err := runCapture(ctx, commandTimeout, dir, "status", "--porcelain", "--untracked-files=no")
 	if err != nil {
 		return "", err
 	}
 	if strings.TrimSpace(dirty) != "" {
-		return "", ErrNotClean
+		return "", notCleanBecause("tracked files have changes")
 	}
-	if hidden, err := hiddenFromStatus(ctx, dir); err != nil {
+	if path, hidden, err := hiddenFromStatus(ctx, dir); err != nil {
 		return "", err
 	} else if hidden {
-		return "", ErrNotClean
+		return "", notCleanBecause("the file " + strconv.Quote(path) + " is marked assume-unchanged or skip-worktree, which a sparse checkout does too, so a merge could overwrite it unseen")
 	}
 	if _, _, err := runCapture(ctx, commandTimeout, dir, "rev-parse", "--verify", "-q", sha+"^{commit}"); err != nil {
 		return "", errors.New("the commit is not in the repository")
@@ -215,16 +228,22 @@ func MergeInto(ctx context.Context, dir, base, sha, message string) (string, err
 	mctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), networkTimeout)
 	defer cancel()
 	if ff {
-		_, _, err = runCapture(mctx, networkTimeout, dir, "merge", "--ff-only", "--no-gpg-sign", "--end-of-options", sha)
+		_, _, err = runCapture(mctx, networkTimeout, dir, "merge", "--ff-only", "--no-stat", "--no-gpg-sign", "--end-of-options", sha)
 	} else {
-		_, _, err = runCapture(mctx, networkTimeout, dir, "merge", "--no-ff", "--no-edit", "--no-gpg-sign", "-m", message, "--end-of-options", sha)
+		_, _, err = runCapture(mctx, networkTimeout, dir, "merge", "--no-ff", "--no-edit", "--no-stat", "--no-gpg-sign", "-m", message, "--end-of-options", sha)
 	}
 	// Looked at on a fresh deadline: the one the merge ran under may be what ran out.
 	fctx, fcancel := context.WithTimeout(context.WithoutCancel(ctx), commandTimeout)
 	defer fcancel()
 	if err != nil {
 		if _, serr := os.Stat(filepath.Join(gitDir, "MERGE_HEAD")); serr == nil {
-			_, _, _ = runCapture(fctx, commandTimeout, dir, "merge", "--abort")
+			_, _, aerr := runCapture(fctx, commandTimeout, dir, "merge", "--abort")
+			if _, serr := os.Stat(filepath.Join(gitDir, "MERGE_HEAD")); aerr != nil || serr == nil {
+				if aerr == nil {
+					aerr = errors.New("the merge could not be aborted")
+				}
+				return "", &PartlyUpdatedError{Err: aerr}
+			}
 			return "", ErrNotFastForward
 		}
 		if merged, aerr := IsAncestor(fctx, dir, sha, "HEAD"); aerr == nil && merged {

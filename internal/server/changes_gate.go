@@ -316,8 +316,9 @@ func (s *Server) changesMergeBranch(c *controlClient, cmd command) {
 	tip, err := gitx.MergeInto(ctx, baseDir, b.Base, b.HeadSha, msg)
 	// A merge that is made but whose new tip cannot be read is still a merge: it is
 	// recorded, with the approved head standing in for the tip.
+	tipKnown := true
 	if errors.Is(err, gitx.ErrTipUnknown) {
-		tip, err = b.HeadSha, nil
+		tip, err, tipKnown = b.HeadSha, nil, false
 	}
 	var unsafe *gitx.UnsafeConfigError
 	var partly *gitx.PartlyUpdatedError
@@ -326,7 +327,11 @@ func (s *Server) changesMergeBranch(c *controlClient, cmd command) {
 		changesRefuse(c, cmd, "notClean", unsafe.Error())
 		return
 	case errors.Is(err, gitx.ErrNotClean), errors.Is(err, gitx.ErrWrongBranch):
-		changesRefuse(c, cmd, "notClean", "The checkout of "+changes.CleanText(b.Base, 200)+" has uncommitted changes, files git is told not to compare, an operation in progress, or is on another branch. Nothing was merged.")
+		why := "it is on another branch"
+		if r := gitx.NotCleanReason(err); r != "" {
+			why = r
+		}
+		changesRefuse(c, cmd, "notClean", "The checkout of "+changes.CleanText(b.Base, 200)+" cannot take a merge now: "+firstWords(why)+". Nothing was merged.")
 		return
 	case errors.As(err, &partly):
 		changesRefuse(c, cmd, "badRequest", firstWords(partly.Error())+". Look at the checkout of "+changes.CleanText(b.Base, 200)+" before trying again.")
@@ -346,8 +351,12 @@ func (s *Server) changesMergeBranch(c *controlClient, cmd command) {
 		lerr = st.Save(gatePath(statePath))
 	}
 	reviewsMu.Unlock()
-	s.tellManager(root, fmt.Sprintf("Merged %s at %s into %s; %s is now at %s.",
-		changes.CleanText(b.Branch, 200), shortSha(b.HeadSha), changes.CleanText(b.Base, 200), changes.CleanText(b.Base, 200), shortSha(tip)))
+	now2 := fmt.Sprintf("%s is now at %s", changes.CleanText(b.Base, 200), shortSha(tip))
+	if !tipKnown {
+		now2 = "the new tip of " + changes.CleanText(b.Base, 200) + " could not be read"
+	}
+	s.tellManager(root, fmt.Sprintf("Merged %s at %s into %s; %s.",
+		changes.CleanText(b.Branch, 200), shortSha(b.HeadSha), changes.CleanText(b.Base, 200), now2))
 	if lerr != nil {
 		changesRefuse(c, cmd, "badRequest", "The branch was merged, but the merge could not be recorded: "+lerr.Error())
 		return

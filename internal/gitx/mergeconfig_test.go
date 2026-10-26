@@ -19,6 +19,9 @@ func conflictingRepo(t *testing.T) (dir, feat string) {
 	gitRun(t, dir, "add", "-A")
 	gitRun(t, dir, "commit", "-q", "-m", "attributes")
 	gitRun(t, dir, "checkout", "-q", "-b", "feat")
+	// A pointer to an object that is not in this repository: Git LFS would fetch it
+	// when the file is written.
+	writeIn(t, dir, "obj.bin", "version https://git-lfs.github.com/spec/v1\noid sha256:"+strings.Repeat("a", 64)+"\nsize 12\n")
 	feat = commitIn(t, dir, "README.md", "from feat\n", "feat")
 	gitRun(t, dir, "checkout", "-q", "main")
 	commitIn(t, dir, "README.md", "from main\n", "main")
@@ -53,6 +56,32 @@ func TestARepositoryThatConfiguresAProgramIsNotMergedOrPredicted(t *testing.T) {
 			writeIn(t, filepath.Dir(other), "more.cfg", "[merge \"evil\"]\n\tdriver = touch "+m+"\n")
 			gitRun(t, dir, "config", "include.path", filepath.ToSlash(other))
 		},
+		"lfs custom transfer agent": func(t *testing.T, dir, m string) {
+			installLFSFilters(t, dir)
+			gitRun(t, dir, "config", "lfs.customtransfer.evil.path", "touch "+m)
+		},
+		"lfs standalone transfer agent": func(t *testing.T, dir, m string) {
+			installLFSFilters(t, dir)
+			gitRun(t, dir, "config", "lfs.standalonetransferagent", "evil")
+		},
+		"credential helper": func(t *testing.T, dir, m string) {
+			installLFSFilters(t, dir)
+			gitRun(t, dir, "config", "credential.helper", "!touch "+m)
+		},
+		"ssh command": func(t *testing.T, dir, m string) {
+			installLFSFilters(t, dir)
+			gitRun(t, dir, "config", "core.sshCommand", "touch "+m)
+		},
+		"git proxy": func(t *testing.T, dir, m string) {
+			installLFSFilters(t, dir)
+			gitRun(t, dir, "config", "core.gitProxy", "touch "+m)
+		},
+		"diff textconv": func(t *testing.T, dir, m string) {
+			gitRun(t, dir, "config", "diff.evil.textconv", "touch "+m)
+		},
+		"diff external": func(t *testing.T, dir, m string) {
+			gitRun(t, dir, "config", "diff.external", "touch "+m)
+		},
 		"filter that only starts as LFS": func(t *testing.T, dir, m string) {
 			gitRun(t, dir, "config", "filter.evil.smudge", "git-lfs smudge -- %f && touch "+m)
 		},
@@ -78,8 +107,9 @@ func TestARepositoryThatConfiguresAProgramIsNotMergedOrPredicted(t *testing.T) {
 	}
 }
 
-func TestLFSFiltersAndAnUnsignedMergeAreAllowed(t *testing.T) {
-	dir := newRepo(t)
+// installLFSFilters sets the filters as Git LFS installs them.
+func installLFSFilters(t *testing.T, dir string) {
+	t.Helper()
 	for k, v := range map[string]string{
 		"filter.lfs.clean":   "git-lfs clean -- %f",
 		"filter.lfs.smudge":  "git-lfs smudge -- %f",
@@ -87,6 +117,11 @@ func TestLFSFiltersAndAnUnsignedMergeAreAllowed(t *testing.T) {
 	} {
 		gitRun(t, dir, "config", k, v)
 	}
+}
+
+func TestLFSFiltersAndAnUnsignedMergeAreAllowed(t *testing.T) {
+	dir := newRepo(t)
+	installLFSFilters(t, dir)
 	if err := UnsafeConfig(context.Background(), dir); err != nil {
 		t.Fatalf("git-lfs filters: %v", err)
 	}

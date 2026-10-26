@@ -446,12 +446,18 @@ What runs during a merge is git and nothing the repository adds. The repository'
 hooks do not run, and the merge commit is not signed. A repository whose own
 configuration (`.git/config`, and the worktree's `config.worktree`) names a merge
 driver, a `clean`, `smudge` or `process` filter other than Git LFS's own commands,
-a signing program (`gpg.program` and its variants) or an `include` is refused with
+a signing program (`gpg.program` and its variants), an `include`, a diff `textconv`
+or `diff.external`, or a setting that makes a download run a program of the
+repository's choosing (`lfs.customtransfer.*`, `lfs.standalonetransferagent`, a
+credential helper, `core.sshCommand`, `core.gitProxy`) is refused with
 `notClean`, and the same check keeps `gate` from asking git whether the branch
-merges, so the conflict blocker is then not worked out. The person's own global and
+merges, so the conflict blocker is then not worked out. This is a list of the keys known to run a program, not a guarantee that no other
+does, and it is checked at one moment: an agent running as the user can write the
+configuration between the check and the merge. Like the rest of the gate it is a
+process control among cooperating agents (section 6). The person's own global and
 system configuration is not looked at. `notClean` also covers a checkout with files
-marked assume-unchanged or skip-worktree, which a merge could overwrite without a
-change showing. The merge is not stopped when the window closes the request: it
+marked assume-unchanged or skip-worktree (a sparse checkout marks files so), which a
+merge could overwrite without a change showing; the answer names the file. The merge is not stopped when the window closes the request: it
 runs to the end. If it fails part way, the base is looked at again; a commit that is
 in the base after all counts as merged, and otherwise the answer says the base
 checkout may be partly updated and should be looked at. If the merge was made but
