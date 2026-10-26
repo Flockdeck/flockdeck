@@ -64,8 +64,9 @@ test("an ask is ready again when what it was about changes", async () => {
   try {
     m.box.findAll(".deps-start-btn")[0].click();
     await settle();
+    await m.answer();
     assert.ok(m.box.textContent.includes("Manager asked"));
-    render(html`<${Deps} team=${push(tasks().map((t) => (t.id === "T11" ? { ...t, state: "assigned", ownerPane: "api" } : t)))} model=${model(plain)} send=${() => true} />`, m.box);
+    render(html`<${Deps} team=${push(tasks().map((t) => (t.id === "T11" ? { ...t, state: "assigned", ownerPane: "api" } : t)))} model=${model(plain)} send=${() => true} snap=${{ connection: "open", notice: null, sent: null, hello: null }} />`, m.box);
     await settle();
     assert.ok(!m.box.textContent.includes("Manager asked"));
   } finally {
@@ -88,10 +89,21 @@ async function mount(over = {}) {
   dom.body.appendChild(box);
   const sent = [];
   const opened = [];
-  render(html`<${Deps} team=${push(tasks())} model=${model(plain)} onOpen=${(p) => opened.push(p)} send=${(m) => { sent.push(m); return true; }} ...${over} />`, box);
+  // The store's snapshot as the view reads it; answer() is the desk taking the last text sent, and the view draws again on the next render.
+  const snap = { connection: "open", notice: null, sent: null, hello: null };
+  render(html`<${Deps} team=${push(tasks())} model=${model(plain)} onOpen=${(p) => opened.push(p)} send=${(m) => { sent.push(m); return true; }} snap=${snap} ...${over} />`, box);
   await settle();
   const row = (k) => box.findAll(".tree-row").find((e) => e.attributes["data-pane"] === k);
-  return { box, row, sent, opened, done: () => { render(null, box); restore(); } };
+  const own = over.snap || snap;
+  let seq = 0;
+  const answer = async (to = sent[sent.length - 1]) => {
+    own.sent = { seq: ++seq, id: to.id, queued: true, shell: false, req: to.req };
+    row("GOAL").keydown("ArrowLeft");
+    await settle();
+    row("GOAL").keydown("ArrowRight");
+    await settle();
+  };
+  return { box, row, sent, opened, answer, done: () => { render(null, box); restore(); } };
 }
 
 test("one tab stop, arrows move it, Right and Left fold, Enter opens the owner", async () => {
@@ -126,7 +138,55 @@ test("Ask to start sends the manager the task and says so", async () => {
     assert.equal(m.sent[0].cmd, "paneSend");
     assert.equal(m.sent[0].id, "mgr");
     assert.ok(m.sent[0].text.includes("T11"));
+    await m.answer();
     assert.ok(m.box.textContent.includes("Manager asked"));
+    // A later send elsewhere replaces the snapshot's latest answer; this one stays asked.
+    m.sent.push({ id: "other", req: "x" });
+    await m.answer();
+    assert.ok(m.box.textContent.includes("Manager asked"), "it went back to sending");
+  } finally {
+    m.done();
+  }
+});
+
+test("two presses of Ask to start before the page is drawn again ask the manager once", async () => {
+  const snap = { connection: "open", notice: null, sent: null, hello: null };
+  const m = await mount({ snap });
+  try {
+    const btn = () => m.box.findAll(".deps-start-btn")[0];
+    btn().click();
+    btn().click();
+    await settle();
+    assert.equal(m.sent.length, 1);
+  } finally {
+    m.done();
+  }
+});
+
+test("Ask to start says the manager was asked only when the desk took it, and shows a refusal", async () => {
+  const snap = { connection: "open", notice: null, sent: null, hello: null };
+  const m = await mount({ snap });
+  try {
+    const btn = () => m.box.findAll(".deps-start-btn")[0];
+    btn().click();
+    await settle();
+    assert.equal(m.sent.length, 1);
+    assert.equal(typeof m.sent[0].req, "string");
+    assert.ok(!m.box.textContent.includes("Manager asked"), "the desk has not answered");
+    assert.equal(btn().getAttribute("aria-disabled"), "true");
+    assert.equal(btn().disabled, false, "it waits without losing the focus");
+    btn().click();
+    await settle();
+    assert.equal(m.sent.length, 1, "a press while it waits sends nothing");
+    // The desk refuses; the next render reads the snapshot.
+    snap.notice = { seq: 1, error: true, text: "mgr is not taking text now." };
+    m.row("GOAL").keydown("ArrowLeft");
+    await settle();
+    m.row("GOAL").keydown("ArrowRight");
+    await settle();
+    assert.ok(!m.box.textContent.includes("Manager asked"));
+    assert.ok(m.box.textContent.includes("mgr is not taking text now."));
+    assert.notEqual(btn().getAttribute("aria-disabled"), "true", "it can be asked again");
   } finally {
     m.done();
   }

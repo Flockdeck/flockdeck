@@ -18,7 +18,7 @@ import { composing } from "../shell/keys.js";
 import { focusNode } from "../drawer/state.js";
 import { teamOf, TEAM_RELAY_WORDS, isFinished as stateFinished } from "../lib/team.js";
 import { clip, stateOf } from "./Node.js";
-import { managerOf } from "./ManagerBar.js";
+import { managerOf, outcomeOf, sendTo, NOT_CONNECTED_WORDS } from "./ManagerBar.js";
 import { labelOf, taskOfTeam, taskLabelOf } from "./model.js";
 import { GOAL, IDLE, scopeTasks, teamOfTask, isReady, openBlockers, planOf, loopsOf, waitsOf, minutesWords } from "./deps.js";
 import { stepOf, foldOf, ageOf } from "./Tree.js";
@@ -56,10 +56,12 @@ function Chip({ c, onLink, stop = false, onFocus = null }) {
 }
 
 /** Deps draws the view. team is the store's team push, model the graph model (or null), remote says the window is reached through the relay. */
-export function Deps({ team: teamMsg, model = null, whole = null, remote = false, onOpen = null, send = null }) {
+export function Deps({ team: teamMsg, model = null, whole = null, remote = false, onOpen = null, send = null, snap = null }) {
   const [folded, setFolded] = useState(() => new Set([IDLE, NOTEAM]));
   const [focus, setFocus] = useState("");
   const [asked, setAsked] = useState({});
+  // The asks that are out, by id and stamp, set at the click: asked is state and is read as it was drawn, so a second click before the redraw would send the text twice.
+  const inflight = useRef({});
   const ref = useRef(null);
   if (remote) return html`<div class="view view--deps"><p class="view-note">${TEAM_RELAY_WORDS}</p></div>`;
   const team = teamOf(teamMsg);
@@ -97,10 +99,35 @@ export function Deps({ team: teamMsg, model = null, whole = null, remote = false
     focusNode(ref.current, key);
   };
   // An ask is remembered with what it was about (a task's state, a ring's panes); when that changes the button is ready again.
-  const sentOf = (id, stamp) => (asked[id] && asked[id].stamp === stamp ? (asked[id].ok ? "sent" : "failed") : "");
+  // The answer to the ask is the desk's: "sent" only once it took the text, "failed" for a refusal or a socket that did not take it, and the button is ready again after a failure.
+  const outcomeFor = (id, stamp) => {
+    const a = asked[id];
+    if (!a || a.stamp !== stamp) return null;
+    const settle = (o) => {
+      if (o.kind === "refused" && inflight.current[id] === stamp) delete inflight.current[id];
+      return o;
+    };
+    if (!a.mark) return settle({ kind: "refused", text: NOT_CONNECTED_WORDS });
+    // Once the desk has taken the text it stays sent, whatever it answers next (the snapshot keeps only the latest).
+    if (a.sent) return a.sent;
+    const o = snap ? outcomeOf(snap, a.mark) : { kind: "sending", text: "Sending…" };
+    if (o.kind === "sent") a.sent = o;
+    return settle(o);
+  };
+  const sentOf = (id, stamp) => {
+    const o = outcomeFor(id, stamp);
+    return !o ? "" : o.kind === "refused" ? "failed" : o.kind;
+  };
+  const failedWords = (id, stamp) => {
+    const o = outcomeFor(id, stamp);
+    return o && o.kind === "refused" ? clip(o.text, 160) : "";
+  };
   const askManager = (id, stamp, text) => {
-    if (!manager || !send) return;
-    setAsked((a) => ({ ...a, [id]: { stamp, ok: send({ cmd: "paneSend", id: manager.pane, text }) } }));
+    if (!manager || !send || !snap) return;
+    const now = sentOf(id, stamp);
+    if (now === "sent" || now === "sending" || inflight.current[id] === stamp) return;
+    inflight.current[id] = stamp;
+    setAsked((a) => ({ ...a, [id]: { stamp, mark: sendTo(send, snap, manager.pane, text) } }));
   };
   const onKeyDown = (e) => {
     if (e.defaultPrevented || composing(e) || e.ctrlKey || e.altKey || e.shiftKey || e.metaKey) return;
@@ -167,8 +194,8 @@ export function Deps({ team: teamMsg, model = null, whole = null, remote = false
       ? html`<div class="deps-start" style=${"--depth:" + Math.min(r.depth, 12)} role="group" aria-label=${"Ready to start " + t.id}>
           <p class="deps-start-kind">Ready to start <span>all blockers merged</span></p>
           <p><b>${t.id}</b> ${clip(t.title, 120)} has no open blockers and nobody on it.</p>
-          <button type="button" class="deps-start-btn deps-start-btn--main" disabled=${!manager || !send || sentOf(r.key, t.state) === "sent"} onClick=${() => askManager(r.key, t.state, startText(t))}>${sentOf(r.key, t.state) === "sent" ? "Manager asked" : manager ? "Ask " + manager.name + " to start it" : "No manager to ask"}</button>
-          ${sentOf(r.key, t.state) === "failed" ? html`<span class="view-note" role="status">Not connected, so the manager was not asked.</span>` : null}
+          <button type="button" class="deps-start-btn deps-start-btn--main" disabled=${!manager || !send || !snap} aria-disabled=${sentOf(r.key, t.state) === "sent" || sentOf(r.key, t.state) === "sending" ? "true" : undefined} onClick=${() => askManager(r.key, t.state, startText(t))}>${sentOf(r.key, t.state) === "sent" ? "Manager asked" : manager ? "Ask " + manager.name + " to start it" : "No manager to ask"}</button>
+          ${sentOf(r.key, t.state) === "failed" ? html`<span class="view-note" role="alert">${failedWords(r.key, t.state)}</span>` : null}
         </div>`
       : null;
     // A task another team runs is marked with that team's own task, not the raw owner.
@@ -209,7 +236,8 @@ export function Deps({ team: teamMsg, model = null, whole = null, remote = false
       <p class="deps-deadlock-kind">Deadlock</p>
       <p>${ringNames(ring).map((n) => n + " waits on ").join("")}${ringNames(ring)[0]}. None of them can move.</p>
       <div class="deps-deadlock-acts">
-        <button type="button" class="deps-start-btn deps-start-btn--main" disabled=${!manager || !send || sentOf("ring" + i, ring.join()) === "sent"} onClick=${() => askManager("ring" + i, ring.join(), breakText(ringNames(ring)))}>${sentOf("ring" + i, ring.join()) === "sent" ? "Manager asked" : manager ? "Ask " + manager.name + " to break the loop" : "No manager to ask"}</button>
+        <button type="button" class="deps-start-btn deps-start-btn--main" disabled=${!manager || !send || !snap} aria-disabled=${sentOf("ring" + i, ring.join()) === "sent" || sentOf("ring" + i, ring.join()) === "sending" ? "true" : undefined} onClick=${() => askManager("ring" + i, ring.join(), breakText(ringNames(ring)))}>${sentOf("ring" + i, ring.join()) === "sent" ? "Manager asked" : manager ? "Ask " + manager.name + " to break the loop" : "No manager to ask"}</button>
+        ${sentOf("ring" + i, ring.join()) === "failed" ? html`<span class="view-note" role="alert">${failedWords("ring" + i, ring.join())}</span>` : null}
         ${onOpen ? html`<button type="button" class="deps-open" onClick=${() => onOpen(ring[0])}>Open ${nameOf(model, ring[0])}</button>` : null}
       </div>
     </div>`)}

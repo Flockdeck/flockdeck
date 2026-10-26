@@ -83,7 +83,12 @@ test("a question's option button sends that label to its pane, once", async () =
     btns[0].click();
     btns[1].click();
     await settle();
-    assert.deepEqual(a.ws.commands("paneSend"), [{ cmd: "paneSend", id: "cfg", text: "flags/" }]);
+    const sent = a.ws.commands("paneSend");
+    assert.deepEqual(sent.map(({ req, ...rest }) => rest), [{ cmd: "paneSend", id: "cfg", text: "flags/" }]);
+    assert.equal(typeof sent[0].req, "string", "the send carries a req, so its answer can be told from another's");
+    a.ws.frame({ type: "paneSend", id: "cfg", queued: true, shell: false, req: sent[0].req });
+    await settle();
+    assert.match(a.container.textContent, /Sent “flags\/”/, "the card names the choice that was sent, not the second press");
   } finally {
     await a.done();
   }
@@ -173,6 +178,9 @@ test("Ask mgr to reassign sends once, then says the manager was asked", async ()
     const sent = a.ws.commands("paneSend");
     assert.equal(sent.length, 1);
     assert.equal(sent[0].id, "m");
+    assert.notEqual(btn().textContent, "Manager asked", "the desk has not taken it yet");
+    a.ws.frame({ type: "paneSend", id: "m", queued: true, shell: false, req: sent[0].req });
+    await settle();
     assert.equal(btn().textContent, "Manager asked");
   } finally {
     await a.done();
