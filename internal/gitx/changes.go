@@ -585,6 +585,9 @@ func isWholeFileAddition(diff string) bool {
 // file that never existed before, which is rare among the files anyone
 // clicks.
 func renameSource(dir, path string) string {
+	if UnsafeReadConfig(context.Background(), dir) != nil {
+		return ""
+	}
 	out, err := run(dir, "status", "--porcelain", "--untracked-files=no", "-z")
 	if err != nil {
 		return ""

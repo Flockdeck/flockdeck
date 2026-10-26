@@ -1,6 +1,7 @@
 package gitx
 
 import (
+	"context"
 	"fmt"
 	"io/fs"
 	"os"
@@ -45,6 +46,9 @@ func DeleteBranchAt(repoDir, branch, commit string) error {
 // staged, and no file git does not know of, ignored files included (git status leaves
 // them out unless it is asked).
 func IsClean(dir string) (bool, error) {
+	if err := UnsafeReadConfig(context.Background(), dir); err != nil {
+		return false, err
+	}
 	out, err := run(dir, "status", "--porcelain", "--untracked-files=all", "--ignored=matching")
 	if err != nil {
 		return false, err

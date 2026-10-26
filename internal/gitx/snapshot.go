@@ -243,6 +243,13 @@ func Snapshot(ctx context.Context, dir string, s *Scratch, base string, dirty bo
 	if !s.usable() {
 		return Snap{}, errNoScratch
 	}
+	if dirty {
+		// Copying the working tree adds every file to the scratch index, which runs
+		// a clean filter on each.
+		if err := UnsafeReadConfig(ctx, dir); err != nil {
+			return Snap{}, err
+		}
+	}
 	out, err := runEnvOut(ctx, dir, nil, "rev-parse", "--git-dir", "HEAD")
 	if err != nil {
 		return Snap{}, err

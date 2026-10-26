@@ -71,6 +71,9 @@ func statusWithin(dir string, timeout time.Duration, opts ...string) (Status, er
 	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 	var st Status
+	if err := UnsafeReadConfig(ctx, dir); err != nil {
+		return st, err
+	}
 	// --untracked-files=all matters for the number, not the listing: "normal"
 	// collapses a new directory into one entry, so a pane header claiming one
 	// untracked file sat above a review panel -- which asks for "all" --

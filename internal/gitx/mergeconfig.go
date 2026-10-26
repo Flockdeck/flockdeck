@@ -55,10 +55,18 @@ func cleanKey(k string) string {
 // configEntries lists the keys and values of dir's repository-local and worktree
 // configuration that match the regular expression. An error means the configuration
 // could not be read, which callers must treat as not safe.
+//
+// One process answers in the usual case: config.worktree is read only when the
+// local configuration turns it on, as git itself does (without it, --worktree is
+// --local).
 func configEntries(ctx context.Context, dir, pattern string) ([][2]string, error) {
 	var entries [][2]string
+	perWorktree := false
 	for _, scope := range []string{"--local", "--worktree"} {
-		out, _, err := runCapture(ctx, commandTimeout, dir, "config", scope, "-z", "--get-regexp", pattern)
+		if scope == "--worktree" && !perWorktree {
+			break
+		}
+		out, _, err := runCapture(ctx, commandTimeout, dir, "config", scope, "-z", "--get-regexp", "("+pattern+")|"+worktreeConfigKey)
 		if err != nil {
 			if exitCode(err) == 1 {
 				continue // no such key
@@ -67,12 +75,29 @@ func configEntries(ctx context.Context, dir, pattern string) ([][2]string, error
 		}
 		for _, entry := range strings.Split(out, "\x00") {
 			key, value, _ := strings.Cut(entry, "\n")
-			if key != "" {
+			switch {
+			case key == "":
+			case key == "extensions.worktreeconfig":
+				perWorktree = perWorktree || scope == "--local" && isTrue(value)
+			default:
 				entries = append(entries, [2]string{key, value})
 			}
 		}
 	}
 	return entries, nil
+}
+
+// worktreeConfigKey is the setting that makes git read config.worktree.
+const worktreeConfigKey = `^extensions\.worktreeconfig$`
+
+// isTrue is git's reading of a boolean that is set to true, with the spellings it
+// accepts. A key with no value is true too.
+func isTrue(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "", "true", "yes", "on", "1":
+		return true
+	}
+	return false
 }
 
 // allowedConfig says whether a key that matched is one the repository may have:

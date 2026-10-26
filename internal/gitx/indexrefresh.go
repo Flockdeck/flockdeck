@@ -82,6 +82,11 @@ func RefreshIndexCtx(ctx context.Context, dir string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	// Refreshing runs a clean filter on each file whose time changed. Refusing here
+	// is not a failed refresh, which would back the next ones off.
+	if err := UnsafeReadConfig(ctx, dir); err != nil {
+		return err
+	}
 	g := gateFor(dir)
 	if g.backedOff() || g.refreshing() {
 		return ErrIndexBusy
