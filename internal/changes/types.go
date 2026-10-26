@@ -57,7 +57,9 @@ type Branch struct {
 	Checks      *[]Check    `json:"checks,omitempty"`
 	Reviews     *[]Review   `json:"reviews,omitempty"`
 	Comments    *[]Comment  `json:"comments,omitempty"`
-	Error       string      `json:"error,omitempty"`
+	// Gate is where the branch stands against the merge gate; the server writes it.
+	Gate  *Gate  `json:"gate,omitempty"`
+	Error string `json:"error,omitempty"`
 
 	// all is every file when Files was cut to the limit, for the conflict check and
 	// for filesPage.

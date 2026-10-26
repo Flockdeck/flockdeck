@@ -107,6 +107,7 @@ var notTheScan = map[string]string{
 	"status.go":       "status of the working tree the pane is in",
 	"worktree.go":     "creates, lists and removes the worktrees Flockdeck itself makes",
 	"bases.go":        "reads the checkout's branches",
+	"merge.go":        "merges an approved commit in the checkout that has the base branch, and looks at git's lock and operation files in its git directory",
 }
 
 func TestOnlyTheFileSystemLayerTouchesTheDisk(t *testing.T) {

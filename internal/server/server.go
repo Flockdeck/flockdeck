@@ -28,6 +28,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/jmwri/flockdeck/internal/changes"
 	"github.com/jmwri/flockdeck/internal/helpers"
 	"github.com/jmwri/flockdeck/internal/keytable"
 	"github.com/jmwri/flockdeck/internal/spend"
@@ -89,6 +90,8 @@ type Server struct {
 	checks checkRuns
 	// pins is the check commands the person confirmed (changes_pin.go).
 	pins checkPins
+	// facts remembers what git said of a branch for the merge gate (changes_gate.go).
+	facts changes.FactCache
 
 	// structuredPane turns a pane id into a pane an agent drives over ACP, for
 	// permissionAnswer; nil until the workspace sets it, and then no pane is one.

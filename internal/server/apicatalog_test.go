@@ -27,7 +27,7 @@ const apiCatalogPath = "../../api/catalog.json"
 // command or message raises the major; one that adds raises the minor.
 const (
 	apiMajor = 1
-	apiMinor = 9
+	apiMinor = 10
 )
 
 // addedIn names the minor version a command arrived in; any other is 1.0.
@@ -55,6 +55,8 @@ func init() {
 	addedIn["confirmChecks"], addedIn["changesChecks"] = "1.8", "1.8"
 	// Comments came with the changesComments cap (1.9).
 	addedIn["commentAdd"], addedIn["commentResolve"], addedIn["commentReopen"] = "1.9", "1.9", "1.9"
+	// The gate came with the changesGate cap (1.10).
+	addedIn["approveMerge"], addedIn["unapproveMerge"], addedIn["mergeBranch"] = "1.10", "1.10", "1.10"
 }
 
 func sinceOf(name string) string {

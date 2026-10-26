@@ -146,6 +146,7 @@ func (s *Server) withChecksAndReviews(t *changes.Team, root, project string) {
 		b.Checks, b.Reviews, b.Comments = &checks, &reviews, &list
 	}
 	s.checks.forget(keep)
+	s.withGates(t, root, project)
 }
 
 // damagedReviews holds the state files already reported as damaged, so that one
