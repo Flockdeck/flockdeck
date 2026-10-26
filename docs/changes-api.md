@@ -393,10 +393,10 @@ head, and `merged` once the branch is in its base. The blockers, by `kind`:
 
 | Kind | Blocks when |
 | --- | --- |
-| `checks` | A check is failing, or running, queued or missing for the head. A pass with `worktree` true ran on uncommitted files and counts as missing. Every check in the project's check file is required; a check file that exists and cannot be read blocks too. |
-| `conflict` | Another branch changes one of the same paths, or git says the branch does not merge into its base without a conflict. A git too old to say (before 2.38) does not block here; `mergeBranch` refuses a conflict itself. |
+| `checks` | A check is failing, or running, queued or missing for the head. A pass with `worktree` true ran on uncommitted files and counts as missing. Every check in the project's check file is required; a check file that exists and cannot be read blocks too. The file is the person's own list: a project without one has no required check, and only results that exist are held. |
+| `conflict` | Another branch changes one of the same paths, or git says the branch does not merge into its base without a conflict. A git too old to say (before 2.38), or a repository whose own configuration is refused as below, does not block here; `mergeBranch` refuses a conflict itself. |
 | `review` | A review that is not stale asks for changes. A missing review does not block. |
-| `comments` | A comment is open. |
+| `comments` | A comment is open. Only a record: `resolved` can be set by `commentResolve` or by editing the comment file, so this is a step in the process and not a protection against an agent. |
 | `unpushed` | The head is not on the upstream. |
 | `empty` | The branch has no commits of its own. |
 
@@ -438,9 +438,28 @@ touches a checkout with changes to tracked files, with a merge, rebase,
 cherry-pick or revert in progress, or on another branch (`notClean`); and it never
 merges a base that has moved in a way neither a fast-forward nor a clean merge can
 take (`notFastForward`; a merge that conflicts is aborted and the checkout is left
-as it was). The repository's hooks do not run. Only one merge runs at a time in a
+as it was). Only one merge runs at a time in a
 repository. Uncommitted files in the branch's own checkout are not part of the
 commit and are not merged.
+
+What runs during a merge is git and nothing the repository adds. The repository's
+hooks do not run, and the merge commit is not signed. A repository whose own
+configuration (`.git/config`, and the worktree's `config.worktree`) names a merge
+driver, a `clean`, `smudge` or `process` filter other than Git LFS's own commands,
+a signing program (`gpg.program` and its variants) or an `include` is refused with
+`notClean`, and the same check keeps `gate` from asking git whether the branch
+merges, so the conflict blocker is then not worked out. The person's own global and
+system configuration is not looked at. `notClean` also covers a checkout with files
+marked assume-unchanged or skip-worktree, which a merge could overwrite without a
+change showing. The merge is not stopped when the window closes the request: it
+runs to the end. If it fails part way, the base is looked at again; a commit that is
+in the base after all counts as merged, and otherwise the answer says the base
+checkout may be partly updated and should be looked at. If the merge was made but
+the new tip could not be read, `mergeSha` is the merged head itself.
+
+The lock covers Flockdeck's own merges. Another process working in the base
+checkout between the gate and the merge is not locked out; git's own `index.lock`
+protects the moment of writing.
 
 What it did is recorded in the gate file and sent to the manager, if there is one.
 After a merge the branch's `gate.state` is `merged` and `mergeSha` is the new tip

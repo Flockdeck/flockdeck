@@ -55,6 +55,11 @@ func MergesCleanly(ctx context.Context, dir, a, b string) (clean, known bool) {
 	if ok, _, known := MergeTreeSupport(); !known || !ok {
 		return false, false
 	}
+	// A merge driver in the repository's own configuration would run on a conflict.
+	// Without being sure there is none, git is not asked.
+	if UnsafeConfig(ctx, dir) != nil {
+		return false, false
+	}
 	common, err := CommonDir(dir)
 	if err != nil {
 		return false, false
@@ -101,11 +106,57 @@ func CheckoutOf(ctx context.Context, dir, branch string) (string, bool) {
 	return "", false
 }
 
+// ErrTipUnknown is returned when the merge was made but the base's new tip could
+// not be read afterwards.
+var ErrTipUnknown = errors.New("the merge was made, but the new tip of the base could not be read")
+
+// PartlyUpdatedError is returned when a merge failed after it may have begun to
+// write the base checkout, and git left it neither as it was nor finished.
+type PartlyUpdatedError struct{ Err error }
+
+func (e *PartlyUpdatedError) Error() string {
+	return "the merge did not finish and the base checkout may be partly updated: " + e.Err.Error()
+}
+func (e *PartlyUpdatedError) Unwrap() error { return e.Err }
+
+// hiddenFromStatus says whether the checkout has a file that status does not
+// compare: one marked assume-unchanged or skip-worktree, which a merge may
+// overwrite without it showing as a change.
+func hiddenFromStatus(ctx context.Context, dir string) (bool, error) {
+	out, err := ReadOnlyCapped(ctx, dir, 64<<20, "ls-files", "-v", "-z")
+	if err != nil {
+		return false, err
+	}
+	for _, entry := range strings.Split(out, "\x00") {
+		if entry == "" {
+			continue
+		}
+		// The tag is one letter: H for an ordinary file, S for skip-worktree, and a
+		// lower-case letter for assume-unchanged.
+		if t := entry[0]; t == 'S' || (t >= 'a' && t <= 'z') {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // MergeInto merges commit sha into the branch base, which dir must have checked
 // out, and returns the base's new tip. It fast-forwards when it can and makes a
 // merge commit with message when it cannot, and it never forces, resets or
-// deletes anything. The repository's hooks do not run. A conflict is aborted and
-// reported as ErrNotFastForward, leaving the checkout as it was.
+// deletes anything.
+//
+// What runs: git itself. The repository's hooks do not run, the commit is not
+// signed, and the merge is refused (an *UnsafeConfigError) while the repository's
+// own configuration names a merge driver, a filter other than Git LFS's, a signing
+// program or an include. A conflict is aborted and reported as ErrNotFastForward,
+// leaving the checkout as it was. It is refused (ErrNotClean) while the checkout has
+// changes to tracked files, files git is told not to compare, or a merge, rebase,
+// cherry-pick or revert in progress.
+//
+// The merge itself is given its own deadline and not ctx's: a merge stopped part
+// way through writing files leaves the checkout worse than one that is let finish.
+// If it fails, the base is looked at again: a commit that is in the base after all
+// is a merge that was made.
 func MergeInto(ctx context.Context, dir, base, sha, message string) (string, error) {
 	// Only a full commit id: a name, an abbreviation or anything git could read as an
 	// option is not a commit that was approved.
@@ -116,11 +167,15 @@ func MergeInto(ctx context.Context, dir, base, sha, message string) (string, err
 	if err != nil || strings.TrimSpace(cur) != base {
 		return "", ErrWrongBranch
 	}
+	if err := UnsafeConfig(ctx, dir); err != nil {
+		return "", err
+	}
 	gitDir, _, err := runCapture(ctx, commandTimeout, dir, "rev-parse", "--absolute-git-dir")
 	if err != nil {
 		return "", err
 	}
-	if _, serr := os.Stat(filepath.Join(strings.TrimSpace(gitDir), "index.lock")); serr == nil || midOperation(strings.TrimSpace(gitDir)) != "" {
+	gitDir = strings.TrimSpace(gitDir)
+	if _, serr := os.Stat(filepath.Join(gitDir, "index.lock")); serr == nil || midOperation(gitDir) != "" {
 		return "", ErrNotClean
 	}
 	dirty, _, err := runCapture(ctx, commandTimeout, dir, "status", "--porcelain", "--untracked-files=no")
@@ -128,6 +183,11 @@ func MergeInto(ctx context.Context, dir, base, sha, message string) (string, err
 		return "", err
 	}
 	if strings.TrimSpace(dirty) != "" {
+		return "", ErrNotClean
+	}
+	if hidden, err := hiddenFromStatus(ctx, dir); err != nil {
+		return "", err
+	} else if hidden {
 		return "", ErrNotClean
 	}
 	if _, _, err := runCapture(ctx, commandTimeout, dir, "rev-parse", "--verify", "-q", sha+"^{commit}"); err != nil {
@@ -142,27 +202,46 @@ func MergeInto(ctx context.Context, dir, base, sha, message string) (string, err
 	if err != nil {
 		return "", err
 	}
-	if ff {
-		_, _, err = runCapture(ctx, networkTimeout, dir, "merge", "--ff-only", "--end-of-options", sha)
-	} else {
+	if !ff {
 		if clean, known := MergesCleanly(ctx, dir, tip, sha); known && !clean {
 			return "", ErrNotFastForward
 		}
-		_, _, err = runCapture(ctx, networkTimeout, dir, "merge", "--no-ff", "--no-edit", "-m", message, "--end-of-options", sha)
-		if err != nil {
-			// Whatever the merge left half done is undone; its own failure is the answer.
-			if _, serr := os.Stat(filepath.Join(strings.TrimSpace(gitDir), "MERGE_HEAD")); serr == nil {
-				_, _, _ = runCapture(ctx, commandTimeout, dir, "merge", "--abort")
-				return "", ErrNotFastForward
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+
+	// From here on the checkout is written to.
+	mctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), networkTimeout)
+	defer cancel()
+	if ff {
+		_, _, err = runCapture(mctx, networkTimeout, dir, "merge", "--ff-only", "--no-gpg-sign", "--end-of-options", sha)
+	} else {
+		_, _, err = runCapture(mctx, networkTimeout, dir, "merge", "--no-ff", "--no-edit", "--no-gpg-sign", "-m", message, "--end-of-options", sha)
+	}
+	// Looked at on a fresh deadline: the one the merge ran under may be what ran out.
+	fctx, fcancel := context.WithTimeout(context.WithoutCancel(ctx), commandTimeout)
+	defer fcancel()
+	if err != nil {
+		if _, serr := os.Stat(filepath.Join(gitDir, "MERGE_HEAD")); serr == nil {
+			_, _, _ = runCapture(fctx, commandTimeout, dir, "merge", "--abort")
+			return "", ErrNotFastForward
+		}
+		if merged, aerr := IsAncestor(fctx, dir, sha, "HEAD"); aerr == nil && merged {
+			err = nil // it was made
+		} else {
+			if _, serr := os.Stat(filepath.Join(gitDir, "index.lock")); serr == nil {
+				return "", &PartlyUpdatedError{Err: err}
 			}
+			if left, _, derr := runCapture(fctx, commandTimeout, dir, "status", "--porcelain", "--untracked-files=no"); derr != nil || strings.TrimSpace(left) != "" {
+				return "", &PartlyUpdatedError{Err: err}
+			}
+			return "", err
 		}
 	}
+	out, _, err := runCapture(fctx, commandTimeout, dir, "rev-parse", "--verify", "HEAD")
 	if err != nil {
-		return "", err
-	}
-	out, _, err := runCapture(ctx, commandTimeout, dir, "rev-parse", "--verify", "HEAD")
-	if err != nil {
-		return "", err
+		return "", ErrTipUnknown
 	}
 	return strings.TrimSpace(out), nil
 }

@@ -314,9 +314,22 @@ func (s *Server) changesMergeBranch(c *controlClient, cmd command) {
 	}
 	msg := fmt.Sprintf("Merge branch %q into %s", changes.CleanText(b.Branch, 200), changes.CleanText(b.Base, 200))
 	tip, err := gitx.MergeInto(ctx, baseDir, b.Base, b.HeadSha, msg)
+	// A merge that is made but whose new tip cannot be read is still a merge: it is
+	// recorded, with the approved head standing in for the tip.
+	if errors.Is(err, gitx.ErrTipUnknown) {
+		tip, err = b.HeadSha, nil
+	}
+	var unsafe *gitx.UnsafeConfigError
+	var partly *gitx.PartlyUpdatedError
 	switch {
+	case errors.As(err, &unsafe):
+		changesRefuse(c, cmd, "notClean", unsafe.Error())
+		return
 	case errors.Is(err, gitx.ErrNotClean), errors.Is(err, gitx.ErrWrongBranch):
-		changesRefuse(c, cmd, "notClean", "The checkout of "+changes.CleanText(b.Base, 200)+" has uncommitted changes, an operation in progress, or is on another branch. Nothing was merged.")
+		changesRefuse(c, cmd, "notClean", "The checkout of "+changes.CleanText(b.Base, 200)+" has uncommitted changes, files git is told not to compare, an operation in progress, or is on another branch. Nothing was merged.")
+		return
+	case errors.As(err, &partly):
+		changesRefuse(c, cmd, "badRequest", firstWords(partly.Error())+". Look at the checkout of "+changes.CleanText(b.Base, 200)+" before trying again.")
 		return
 	case errors.Is(err, gitx.ErrNotFastForward):
 		changesRefuse(c, cmd, "notFastForward", changes.CleanText(b.Base, 200)+" has moved in a way that neither a fast-forward nor a clean merge can take. Nothing was merged.")
