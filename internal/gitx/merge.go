@@ -75,6 +75,18 @@ func MergesCleanly(ctx context.Context, dir, a, b string) (clean, known bool) {
 	return false, false
 }
 
+func fullHex(s string) bool {
+	if len(s) != 40 && len(s) != 64 {
+		return false
+	}
+	for _, r := range s {
+		if !(r >= '0' && r <= '9' || r >= 'a' && r <= 'f') {
+			return false
+		}
+	}
+	return true
+}
+
 // CheckoutOf is the path of the worktree that has branch checked out, if one does.
 func CheckoutOf(ctx context.Context, dir, branch string) (string, bool) {
 	list, err := listCtx(ctx, dir)
@@ -95,6 +107,11 @@ func CheckoutOf(ctx context.Context, dir, branch string) (string, bool) {
 // deletes anything. The repository's hooks do not run. A conflict is aborted and
 // reported as ErrNotFastForward, leaving the checkout as it was.
 func MergeInto(ctx context.Context, dir, base, sha, message string) (string, error) {
+	// Only a full commit id: a name, an abbreviation or anything git could read as an
+	// option is not a commit that was approved.
+	if !fullHex(sha) {
+		return "", errors.New("the commit must be a full commit id")
+	}
 	cur, _, err := runCapture(ctx, commandTimeout, dir, "symbolic-ref", "--short", "-q", "HEAD")
 	if err != nil || strings.TrimSpace(cur) != base {
 		return "", ErrWrongBranch
