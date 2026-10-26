@@ -1158,6 +1158,30 @@ test("Remote: a request that could not be sent is said, and not shown as waiting
   }
 });
 
+test("Remote: a dropped connection lets go of what was being waited for, and the roster is asked for again when it is back", async () => {
+  const r = await direct({ connection: "open" });
+  try {
+    r.container.find("#remote-disable").click();
+    await settle();
+    r.container.find(".confirm").findAll("button").find((b) => /^Turn off$/.test(b.textContent)).click();
+    await settle();
+    assert.match(r.container.find("#remote-disable").textContent, /Turning it off/, "it waits for the answer");
+    r.sent.length = 0;
+    r.draw({ connection: "waiting" });
+    await settle();
+    assert.doesNotMatch(r.container.find("#remote-disable").textContent, /Turning it off/, "the answer went with the connection");
+    assert.deepEqual(r.sent, [], "nothing is asked while it is down");
+    r.draw({ connection: "open" });
+    await settle();
+    assert.deepEqual(r.sent, [{ cmd: "remoteDevices" }], "asked for once when it is back");
+    r.draw({ connection: "open" });
+    await settle();
+    assert.equal(r.sent.length, 1, "and not again for a render");
+  } finally {
+    r.done();
+  }
+});
+
 test("remote: a link or code with no expiry is shown for ten minutes from arrival, and a join line is built only from plain text", () => {
   const now = Date.parse("2026-10-24T12:00:00Z");
   const p = { url: "https://x/p/1", expiresAt: "", arrived: now };

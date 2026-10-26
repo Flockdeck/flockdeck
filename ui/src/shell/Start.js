@@ -21,6 +21,7 @@ import { useInert } from "./inert.js";
 import { html } from "../html.js";
 import { composing, LIST } from "./keys.js";
 import { trapTab } from "./focus.js";
+import { NOT_SENT_WORDS } from "../lib/projects.js";
 import {
   defaultValue, managerRole, newTabCommand, optionsOf, presetTaskFor, roleOptions, roleTreeDefault, splitValue, startAgentCommand, startProblem, TEAM_HELPER_CAP, TEAM_PRESETS,
 } from "../lib/lifecycle.js";
@@ -42,7 +43,9 @@ export function Start({ mode, catalog, project, send, onClose }) {
   const team = mode === "team";
   const role = team ? managerRole(catalog) : null;
   const options = useMemo(() => optionsOf(catalog), [catalog]);
-  const [pick, setPick] = useState(() => defaultValue(catalog));
+  // The box follows the catalog, whose agents can arrive after the dialog opens, until the person chooses.
+  const [chosen, setChosen] = useState(null);
+  const pick = chosen !== null ? chosen : defaultValue(catalog);
   const [roleId, setRoleId] = useState("");
   const [preset, setPreset] = useState("");
   const [task, setTask] = useState("");
@@ -74,10 +77,13 @@ export function Start({ mode, catalog, project, send, onClose }) {
       setProblem(why || "There is no manager role in the catalog, so there is nothing to start a team with.");
       return;
     }
-    if (!team && !roleId && !task.trim() && !inTree) {
-      send(newTabCommand({ kind: "agent", agent, model }));
-    } else {
-      send(startAgentCommand({ root, agent, model, task: task.trim(), role: team ? "manager" : roleId, worktree: inTree }));
+    const cmd = !team && !roleId && !task.trim() && !inTree
+      ? newTabCommand({ kind: "agent", agent, model })
+      : startAgentCommand({ root, agent, model, task: task.trim(), role: team ? "manager" : roleId, worktree: inTree });
+    // A command the socket did not take leaves the dialog open, with the goal that was typed.
+    if (send(cmd) === false) {
+      setProblem(NOT_SENT_WORDS);
+      return;
     }
     onClose();
   };
@@ -120,7 +126,7 @@ export function Start({ mode, catalog, project, send, onClose }) {
         ${catalog.err ? html`<p class="dialog-note dialog-note--warn" role="status">${catalog.err}</p>` : null}
         ${noAgents ? html`<p class="dialog-note dialog-note--warn" role="status">${catalog.err ? "" : "The desktop has not sent the list of agents, so none can be started from this window."}</p>` : null}
         <label class="dialog-label" for="start-agent">${team ? "Manager agent and model" : "Agent and model"}</label>
-        <select id="start-agent" class="dialog-field" ref=${first} value=${pick} onChange=${(e) => setPick(e.target.value)} disabled=${noAgents}>
+        <select id="start-agent" class="dialog-field" ref=${first} value=${pick} onChange=${(e) => setChosen(e.target.value)} disabled=${noAgents}>
           ${groups.map((g) => html`<optgroup key=${g.name} label=${g.name}>
             ${g.items.map((o) => html`<option key=${o.value} value=${o.value} disabled=${o.disabled}>${o.label}</option>`)}
           </optgroup>`)}

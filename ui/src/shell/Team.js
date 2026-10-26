@@ -24,11 +24,17 @@ import {
 
 const NEW_TASK = { title: "", body: "", role: "", branch: "" };
 
+/** ONE_AT_A_TIME are the sends that change something: asked again before the answer they would add the task or send the message twice. */
+const ONE_AT_A_TIME = ["add", "note", "status", "assign", "branch", "send", "prune", "close"];
+
+/** PENDING_MS is how long a send waits for its answer before the button is ready again; an answer lost with a dropped connection does not lock it for good. */
+export const PENDING_MS = 20000;
+
 /** Team is the dialog. team is the store's team push, tasks its latest taskList
  *  answer, messages its latest msgList answer and result its latest answer to a
  *  command that changed something. gone is the reason the project can no longer be
  *  read, root the project asked for, send the store's send. */
-export function Team({ team: teamMsg, tasks: tasksMsg, messages: messagesMsg, result: resultMsg, gone, root, send, onClose, clock = () => Date.now() }) {
+export function Team({ team: teamMsg, tasks: tasksMsg, messages: messagesMsg, result: resultMsg, gone, root, connection = "", send, onClose, clock = () => Date.now() }) {
   const team = teamOf(teamMsg);
   const [tab, setTab] = useState("tasks");
   const [open, setOpen] = useState("");
@@ -51,6 +57,25 @@ export function Team({ team: teamMsg, tasks: tasksMsg, messages: messagesMsg, re
   // The ids of the messages whose whole text was asked for. A push is judged only by those it carries.
   const wholeOut = useRef(new Set());
   const pending = useRef(new Map());
+  // The timers that free a send whose answer does not come, by req: one is cleared when its answer comes, all when the dialog closes.
+  const timers = useRef(new Map());
+  // The kinds of send that have no answer yet, for the buttons.
+  const [waiting, setWaiting] = useState(() => new Set());
+  const syncWaiting = () => setWaiting(new Set(pending.current.values()));
+  const forgetPending = () => {
+    for (const t of timers.current.values()) clearTimeout(t);
+    timers.current.clear();
+    pending.current.clear();
+    syncWaiting();
+  };
+  useEffect(() => () => { for (const t of timers.current.values()) clearTimeout(t); timers.current.clear(); }, []);
+  // A connection that changed took the answers that were being waited for with it: the buttons are ready again, not after the wait.
+  const linked = useRef(connection);
+  useEffect(() => {
+    const was = linked.current;
+    linked.current = connection;
+    if (connection !== was && connection && was) forgetPending();
+  }, [connection]);
   const floor = useRef(resultMsg ? resultMsg.seq : 0);
   const tasksFloor = useRef(tasksMsg ? tasksMsg.seq : 0);
   const msgFloor = useRef(messagesMsg ? messagesMsg.seq : 0);
@@ -58,11 +83,19 @@ export function Team({ team: teamMsg, tasks: tasksMsg, messages: messagesMsg, re
 
   const go = (c, kind) => {
     if (!c) return false;
+    if (ONE_AT_A_TIME.includes(kind) && [...pending.current.values()].includes(kind)) return false;
     const ok = send(c) !== false;
     setProblem(ok ? "" : "The request could not be sent. Check the connection.");
-    if (ok) pending.current.set(c.req, kind);
-    if (ok) setSaid("");
-    if (ok && kind === "whole") wholeOut.current.add(c.msgId);
+    if (ok) {
+      pending.current.set(c.req, kind);
+      syncWaiting();
+      timers.current.set(c.req, setTimeout(() => {
+        timers.current.delete(c.req);
+        if (pending.current.delete(c.req)) syncWaiting();
+      }, PENDING_MS));
+      setSaid("");
+      if (kind === "whole") wholeOut.current.add(c.msgId);
+    }
     return ok;
   };
   const next = () => "u" + ++reqs.current;
@@ -76,6 +109,9 @@ export function Team({ team: teamMsg, tasks: tasksMsg, messages: messagesMsg, re
     const kind = pending.current.get(r.req);
     if (kind === undefined) return;
     pending.current.delete(r.req);
+    clearTimeout(timers.current.get(r.req));
+    timers.current.delete(r.req);
+    syncWaiting();
     setSaid(r.ok ? resultWords(r) : "");
     setProblem(r.ok ? "" : resultWords(r));
     if (!r.ok) return;
@@ -165,12 +201,12 @@ export function Team({ team: teamMsg, tasks: tasksMsg, messages: messagesMsg, re
       <div class="team-row">
         <input type="text" class="dialog-field" id="team-note" aria-label=${needNote ? "Note (needed for some moves)" : "Note"} placeholder=${needNote ? "Note (needed for some moves)" : "Note"}
           value=${note} autocomplete="off" onInput=${(e) => setNote(e.target.value)} onKeyDown=${key(() => go(noteCommand(at, t.id, note, next()), "note"))} />
-        <button type="button" class="dialog-btn" id="team-note-add" disabled=${!note.trim()} onClick=${() => go(noteCommand(at, t.id, note, next()), "note")}>Add note</button>
+        <button type="button" class="dialog-btn" id="team-note-add" disabled=${!note.trim() || waiting.has("note")} onClick=${() => go(noteCommand(at, t.id, note, next()), "note")}>Add note</button>
       </div>
       ${live.moves.length
         ? html`<div class="team-row" role="group" aria-label="Move this task">
             ${live.moves.map((m) => html`<button type="button" class="dialog-btn team-move" data-to=${m.to} key=${m.to}
-              title=${m.needNote ? "Needs a note" : undefined} disabled=${m.needNote && !note.trim()}
+              title=${m.needNote ? "Needs a note" : undefined} disabled=${(m.needNote && !note.trim()) || waiting.has("status")}
               onClick=${() => go(statusCommand(at, live, m.to, note, next()), "status")}>${"Move to " + stateName(m.to).toLowerCase()}</button>`)}
           </div>`
         : null}
@@ -178,14 +214,14 @@ export function Team({ team: teamMsg, tasks: tasksMsg, messages: messagesMsg, re
         ? html`<div class="team-row">
             <input type="text" class="dialog-field" id="team-assign" list="team-targets" aria-label="Give to a role, a name or a pane" placeholder="Give to a role, a name or a pane"
               value=${assign} autocomplete="off" onInput=${(e) => setAssign(e.target.value)} onKeyDown=${key(() => go(assignCommand(at, t.id, assign, next()), "assign"))} />
-            <button type="button" class="dialog-btn" id="team-assign-go" disabled=${!assign.trim()} onClick=${() => go(assignCommand(at, t.id, assign, next()), "assign")}>Give</button>
+            <button type="button" class="dialog-btn" id="team-assign-go" disabled=${!assign.trim() || waiting.has("assign")} onClick=${() => go(assignCommand(at, t.id, assign, next()), "assign")}>Give</button>
           </div>`
         : null}
       ${live.canEdit
         ? html`<div class="team-row">
             <input type="text" class="dialog-field" id="team-branch" aria-label="Branch" placeholder="Branch" value=${branch} autocomplete="off" spellcheck="false"
               onInput=${(e) => setBranch(e.target.value)} onKeyDown=${key(() => go(branchCommand(at, t.id, branch, next()), "branch"))} />
-            <button type="button" class="dialog-btn" id="team-branch-go" disabled=${branch.trim() === t.branch} onClick=${() => go(branchCommand(at, t.id, branch, next()), "branch")}>Set branch</button>
+            <button type="button" class="dialog-btn" id="team-branch-go" disabled=${branch.trim() === t.branch || waiting.has("branch")} onClick=${() => go(branchCommand(at, t.id, branch, next()), "branch")}>Set branch</button>
           </div>`
         : null}
     </div>`;
@@ -232,7 +268,7 @@ export function Team({ team: teamMsg, tasks: tasksMsg, messages: messagesMsg, re
         onInput=${(e) => setForm({ ...form, role: e.target.value })} />
       <input type="text" class="dialog-field" id="team-new-branch" aria-label="Branch" placeholder="Branch (optional)" value=${form.branch} autocomplete="off" spellcheck="false"
         onInput=${(e) => setForm({ ...form, branch: e.target.value })} />
-      <button type="button" class="dialog-btn dialog-btn--primary" id="team-add" disabled=${!form.title.trim()} onClick=${() => go(addTaskCommand(at, form, next()), "add")}>Add task</button>
+      <button type="button" class="dialog-btn dialog-btn--primary" id="team-add" disabled=${!form.title.trim() || waiting.has("add")} onClick=${() => go(addTaskCommand(at, form, next()), "add")}>Add task</button>
     </div>`;
 
   const messagesTab = () => html`
@@ -240,7 +276,7 @@ export function Team({ team: teamMsg, tasks: tasksMsg, messages: messagesMsg, re
       <input type="text" class="dialog-field" id="team-to" list="team-targets" aria-label="To a role, a name or a pane" placeholder="To a role, a name or a pane" value=${target}
         autocomplete="off" onInput=${(e) => setTarget(e.target.value)} />
       <textarea class="dialog-field" id="team-text" aria-label="Message" placeholder="Message" rows="3" value=${text} onInput=${(e) => setText(e.target.value)}></textarea>
-      <button type="button" class="dialog-btn dialog-btn--primary" id="team-send" disabled=${!target.trim() || !text.trim()}
+      <button type="button" class="dialog-btn dialog-btn--primary" id="team-send" disabled=${!target.trim() || !text.trim() || waiting.has("send")}
         onClick=${() => go(sendMessageCommand(at, target, text, next()), "send")}>Send message</button>
     </div>
     ${team.messages.length === 0 ? html`<p class="dialog-note" id="team-no-messages">No messages yet.</p>` : null}

@@ -37,7 +37,7 @@ const NEW_MOVE = { open: false, relay: "", invite: "", join: "" };
  *  latest answers, remote says this window was reached through the relay, send is
  *  the store's send and copy(text, what) puts text on the clipboard. news is the
  *  latest notice since the dialog opened. tickMs, pollMs and clock are for tests. */
-export function Remote({ status, roster, pair, outcome, remote, send, copy, forget = () => {}, news = "", tickMs = 1000, pollMs = POLL_MS, clock = () => Date.now() }) {
+export function Remote({ status, roster, pair, outcome, remote, connection = "", send, copy, forget = () => {}, news = "", tickMs = 1000, pollMs = POLL_MS, clock = () => Date.now() }) {
   const [now, setNow] = useState(clock());
   const [busy, setBusy] = useState(null);
   const [asking, setAsking] = useState(null);
@@ -78,6 +78,19 @@ export function Remote({ status, roster, pair, outcome, remote, send, copy, forg
   useEffect(() => {
     if (send(devicesCommand()) === false) setProblem("The request could not be sent. Check the connection.");
   }, []);
+  // When the connection drops, the answers that were being waited for are not coming: the busy states are let go. When it is back, the roster is asked for again, since what it holds may be out of date.
+  const linked = useRef(connection);
+  useEffect(() => {
+    const was = linked.current;
+    linked.current = connection;
+    if (connection === was || !connection) return;
+    if (connection !== "open") {
+      setBusy(null);
+      setWanting("");
+    } else if (was !== "") {
+      send(devicesCommand());
+    }
+  }, [connection]);
   // The name field takes the keyboard when it opens.
   const renamingKey = renaming ? renaming.kind + ":" + renaming.id : "";
   useEffect(() => {

@@ -793,6 +793,42 @@ test("renaming an open project goes through its group, a remembered one through 
     assert.deepEqual(m.sent("renameProject"), [{ cmd: "renameProject", root: "/r/one", text: "" }]);
   }));
 
+test("a command the socket did not take leaves the dialog open, says so, and keeps the name that was typed", () =>
+  withPage({}, async (m) => {
+    await openProjects(m);
+    m.clear();
+    await m.click(m.container.find('[aria-label="Rename alpha"]'));
+    await m.fill(".proj-name-input", "Alpha Two");
+    FakeWebSocket.last.readyState = 3;
+    await m.click(m.container.find(".proj-save"));
+    assert.ok(dlg(m), "the dialog was closed on a rename that was not sent");
+    assert.match(dlg(m).find(".dialog-note--error").textContent, new RegExp(P.NOT_SENT_WORDS));
+    assert.equal(m.container.find(".proj-name-input").value ?? m.container.find(".proj-name-input").attributes.value, "Alpha Two", "the draft is kept");
+    assert.equal(m.sent("renameGroup").length, 0);
+    // A button that acts at once says so too, and the words go when a send is taken.
+    await m.click(m.container.find('[aria-label="Archive one"]'));
+    assert.match(dlg(m).find(".dialog-note--error").textContent, new RegExp(P.NOT_SENT_WORDS));
+    FakeWebSocket.last.readyState = 1;
+    await m.click(m.container.find(".proj-save"));
+    assert.deepEqual(m.sent("renameGroup"), [{ cmd: "renameGroup", root: "/work/a", text: "Alpha Two" }]);
+    assert.equal(dlg(m).find(".dialog-note--error"), null, "a send that was taken clears the words");
+  }));
+
+test("the name box takes the keyboard when the rename starts, and not again as the name is typed", () =>
+  withPage({}, async (m) => {
+    await openProjects(m);
+    await m.click(m.container.find('[aria-label="Rename alpha"]'));
+    const box = m.container.find(".proj-name-input");
+    assert.equal(m.dom.document.activeElement, box);
+    const focused = box.focusCalls;
+    await m.fill(".proj-name-input", "A");
+    await m.fill(".proj-name-input", "Al");
+    await m.fill(".proj-name-input", "Alp");
+    assert.equal(m.container.find(".proj-name-input"), box, "the same box");
+    assert.equal(box.focusCalls, focused, "each render took the keyboard again");
+    assert.equal(m.dom.document.activeElement, box);
+  }));
+
 test("Escape in a name being edited ends the edit and leaves the dialog", () =>
   withPage({}, async (m) => {
     await openProjects(m);

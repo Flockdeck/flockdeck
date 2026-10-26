@@ -11,7 +11,7 @@ import { render } from "../src/vendor/preact.mjs";
 import { html } from "../src/html.js";
 import { Live } from "../src/shell/Live.js";
 import { OPEN_AN_AGENT_WORDS } from "../src/shell/Live.js";
-import { WORKTREE_WORDS } from "../src/shell/Start.js";
+import { WORKTREE_WORDS, Start } from "../src/shell/Start.js";
 import { Header } from "../src/drawer/Header.js";
 import { renderToString } from "./vendor/render-to-string.mjs";
 import { LOCKED_WORDS } from "../src/drawer/Lifecycle.js";
@@ -311,6 +311,47 @@ test("the start dialog opens an agent tab on the agent chosen when there is no t
     assert.equal(m.container.find(".dialog"), null, "the dialog closes");
     assert.equal(m.sent("startAgent").length, 0);
   }));
+
+test("the start dialog stays open with the goal that was typed when the socket did not take the command", () =>
+  withPage({}, async (m) => {
+    await m.connect();
+    m.clear();
+    await openPlus(m);
+    await m.click(m.byText(".tabs-btn", /Choose agent/));
+    await fill(m, "#start-task", "  write the tests  ");
+    FakeWebSocket.last.readyState = 3;
+    await m.click(m.byText(".dialog-btn", /^Start$/));
+    assert.ok(m.container.find(".dialog"), "the dialog was closed on a command that was not sent");
+    assert.match(m.container.find(".dialog-note--error").textContent, /Not connected/);
+    assert.equal(valueIn(m.container.find("#start-task")), "  write the tests  ");
+    assert.equal(m.sent("startAgent").length, 0);
+    FakeWebSocket.last.readyState = 1;
+    await m.click(m.byText(".dialog-btn", /^Start$/));
+    assert.equal(m.sent("startAgent").length, 1);
+    assert.equal(m.container.find(".dialog"), null);
+  }));
+
+test("the start dialog's agent follows a catalog that arrives late, until the person chooses", async () => {
+  const dom = createDom();
+  const restore = install(dom);
+  const box = dom.document.createElement("div");
+  dom.body.appendChild(box);
+  try {
+    const draw = (catalog) => render(html`<${Start} mode="agent" catalog=${catalogOf({ agents: catalog })} project=${null} send=${() => true} onClose=${() => {}} />`, box);
+    draw({ items: [], roles: [], default: { agent: "", model: "" } });
+    await settle();
+    draw(CATALOG);
+    await settle();
+    assert.equal(valueIn(box.find("#start-agent")), valueOf("claude", "opus"), "the select stayed blank");
+    await choose({ container: box, click: async () => {} }, "#start-agent", valueOf("claude", "sonnet"));
+    draw({ ...CATALOG, default: { agent: "claude", model: "opus" } });
+    await settle();
+    assert.equal(valueIn(box.find("#start-agent")), valueOf("claude", "sonnet"), "a choice is kept");
+  } finally {
+    render(null, box);
+    restore();
+  }
+});
 
 test("a task, or a role, starts the agent in the project itself through startAgent unless a worktree is asked for", () =>
   withPage({}, async (m) => {

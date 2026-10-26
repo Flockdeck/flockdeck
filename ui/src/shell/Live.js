@@ -743,6 +743,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     panes: current ? current.nodes.filter((n) => !n.shell).map((n) => ({ pane: n.pane, name: n.name || n.pane, agent: n.agent })) : [],
     project: ((kept.current.state.projects || []).find((p) => p.active) || {}).name || "",
     roster: snap.remoteDevices,
+    connection: snap.connection,
     pair: snap.remotePair,
     forgetPair: () => store.clearPair(),
     radar: snap.radar || { unavailable: kept.current.hello.radarUnavailable || "", checking: !!kept.current.hello.radarChecking },
@@ -853,7 +854,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     <${Toasts} toasts=${toasts} onOpen=${(id) => { drawer.open(id); setToasts((cur) => cur.filter((t) => t.id !== id)); }} onDismiss=${(id) => setToasts((cur) => cur.filter((t) => t.id !== id))} />
     <${Approvals} approvals=${snap.approvals} dismissed=${putAway} send=${send} onDismiss=${(id) => setPutAway((s) => new Set(s).add(id))} />
     ${teamOpen
-      ? html`<${Team} team=${snap.team} tasks=${snap.teamTasks} messages=${snap.teamMessages} result=${snap.teamResult} root=${selected}
+      ? html`<${Team} team=${snap.team} tasks=${snap.teamTasks} messages=${snap.teamMessages} result=${snap.teamResult} root=${selected} connection=${snap.connection}
           gone=${snap.teamGone ? snap.teamGone.error || "This project can no longer be read." : snap.teamRefused ? TEAM_RELAY_WORDS : ""}
           send=${send} onClose=${() => setTeamOpen(false)} />`
       : null}
