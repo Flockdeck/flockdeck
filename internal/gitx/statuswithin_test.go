@@ -60,8 +60,13 @@ func TestStatusWithinSaysWhenGitDidNotAnswer(t *testing.T) {
 			}
 		}
 	})
-	gitRun(t, repo, "config", "filter.slow.clean", "'"+filepath.ToSlash(hook)+"'")
-	if err := os.WriteFile(filepath.Join(repo, ".git", "info", "attributes"), []byte("README.md filter=slow\n"), 0o644); err != nil {
+	// The filter is in the test's global configuration (main_test.go), running the
+	// script from the checkout: one in the checkout's own is refused.
+	if err := os.WriteFile(filepath.Join(repo, ".git", "gitxslow.sh"), []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	_ = hook
+	if err := os.WriteFile(filepath.Join(repo, ".git", "info", "attributes"), []byte("README.md filter=gitxslow\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	later := time.Now().Add(time.Hour)

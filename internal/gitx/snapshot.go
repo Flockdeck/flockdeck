@@ -249,6 +249,11 @@ func Snapshot(ctx context.Context, dir string, s *Scratch, base string, dirty bo
 		if err := UnsafeReadConfig(ctx, dir); err != nil {
 			return Snap{}, err
 		}
+		// git add -A looks inside the submodules it finds, which runs their own
+		// configuration (see statusWithin).
+		if submoduleConfigUnsafe(dir, nil) {
+			return Snap{}, &UnsafeReadConfigError{Key: "a submodule's config"}
+		}
 	}
 	out, err := runEnvOut(ctx, dir, nil, "rev-parse", "--git-dir", "HEAD")
 	if err != nil {

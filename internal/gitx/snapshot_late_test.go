@@ -259,9 +259,9 @@ func TestACleanFilterSeesTheUsersLocale(t *testing.T) {
 	repo, wt := radarRepo(t, "wa")
 	dir := wt["wa"]
 	write(t, dir, "filter.sh", "case \"$LC_ALL\" in *UTF-8*) cat;; *) echo \"locale is $LC_ALL\" >&2; exit 1;; esac\n")
-	write(t, dir, ".gitattributes", "*.loc filter=loc\n")
-	gitRun(t, dir, "config", "filter.loc.clean", "sh ./filter.sh")
-	gitRun(t, dir, "config", "filter.loc.required", "true")
+	write(t, dir, ".gitattributes", "*.loc filter=gitxloc\n")
+	// The filter is in the test's global configuration (main_test.go): one in the
+	// checkout's own is refused.
 	write(t, dir, "x.loc", "content\n")
 	editLine(t, dir, "a.txt", 4, "edited")
 	snap, _, err := snapOf(t, repo, dir, true)

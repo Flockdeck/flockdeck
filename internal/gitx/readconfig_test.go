@@ -31,21 +31,13 @@ func editedRepo(t *testing.T) (dir, feat string) {
 }
 
 // readEntryPoints calls each way the program reads a checkout without being asked
-// to change it. None of them may run a program the repository's configuration names.
-func readEntryPoints(t *testing.T, dir, feat string, diffs ...string) {
+// to change it, and says which one ran the program of the marker file m, if any.
+func readEntryPoints(t *testing.T, dir, feat, m string, diffs ...string) {
 	t.Helper()
 	if len(diffs) == 0 {
 		diffs = []string{"tracked.txt"}
 	}
 	ctx := context.Background()
-	StatusOf(dir)
-	_, _ = StatusWithin(dir, commandTimeout)
-	_, _ = Changes(dir)
-	for _, p := range diffs {
-		_, _ = Diff(dir, p)
-	}
-	_, _ = numstat(ctx, dir)
-	_, _ = numstat(ctx, dir, "HEAD")
 	common, err := CommonDir(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -55,8 +47,30 @@ func readEntryPoints(t *testing.T, dir, feat string, diffs ...string) {
 		t.Fatal(err)
 	}
 	defer func() { _ = s.Close() }()
-	_, _ = Snapshot(ctx, dir, s, BaseOf(ctx, dir), true)
-	_, _ = MergeInto(ctx, dir, "main", feat, "merge")
+	steps := []struct {
+		name string
+		call func()
+	}{
+		{"StatusOf", func() { StatusOf(dir) }},
+		{"StatusWithin", func() { _, _ = StatusWithin(dir, commandTimeout) }},
+		{"Changes", func() { _, _ = Changes(dir) }},
+		{"lineCounts", func() { lineCounts(ctx, dir) }},
+		{"Snapshot", func() { _, _ = Snapshot(ctx, dir, s, BaseOf(ctx, dir), true) }},
+		{"MergeInto", func() { _, _ = MergeInto(ctx, dir, "main", feat, "merge") }},
+	}
+	for _, p := range diffs {
+		steps = append(steps, struct {
+			name string
+			call func()
+		}{"Diff " + p, func() { _, _ = Diff(dir, p) }})
+	}
+	for _, step := range steps {
+		step.call()
+		if _, err := os.Stat(m); err == nil {
+			t.Errorf("%s ran the program", step.name)
+			_ = os.Remove(m)
+		}
+	}
 }
 
 func TestARepositoryThatConfiguresAProgramIsNotReadWithIt(t *testing.T) {
@@ -96,7 +110,7 @@ func TestARepositoryThatConfiguresAProgramIsNotReadWithIt(t *testing.T) {
 		if st := StatusOf(dir); !st.Unreadable || st.Branch != "" {
 			t.Errorf("%s: status = %+v, want an unreadable checkout and nothing else", name, st)
 		}
-		readEntryPoints(t, dir, feat)
+		readEntryPoints(t, dir, feat, m)
 		if _, err := os.Stat(m); err == nil {
 			t.Errorf("%s: the program ran", name)
 		}
@@ -185,7 +199,7 @@ func TestASubmodulesOwnConfigIsNotRunByAReadOfTheRepositoryAroundIt(t *testing.T
 	if err := UnsafeReadConfig(context.Background(), outer); err != nil {
 		t.Fatalf("the repository around it has nothing to refuse: %v", err)
 	}
-	readEntryPoints(t, outer, feat, "tracked.txt", "mod")
+	readEntryPoints(t, outer, feat, m, "tracked.txt", "mod")
 	if _, err := os.Stat(m); err == nil {
 		t.Error("the submodule's clean filter ran")
 	}
