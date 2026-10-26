@@ -61,7 +61,7 @@ Expect: one row, `agent/a`, with no files and no gate blockers except `empty` ("
 ## Warnings
 
 10. `mergedNotRecorded`: Approve and Merge both write the gate file (`<key>.gate.json`, through a temporary file in the `changes` folder), so the folder can only be made read-only after the approval. Create a fresh branch (`git worktree add ../scratch-c -b agent/c`, a new pane, commit and push a change) because `agent/a` is merged. Approve it, then make Flockdeck's `changes` folder in its config directory read-only: on Windows in cmd, `icacls <folder> /deny %USERNAME%:(W)` and afterwards `icacls <folder> /remove:d %USERNAME%` (PowerShell needs the argument quoted); on macOS and Linux `chmod a-w <folder>` and afterwards `chmod u+w <folder>`. Press "Merge into main" and confirm. The merge succeeds but cannot be written down.
-    Expect: a "Warning" box in the gate with the desk's sentence and the branch name, a Dismiss button, and "Merge into main" off while it is up. A new push does not clear it. Dismiss puts the keyboard on the main button. The gate still reads Approved because it could not be updated: do not press Merge again, and delete `agent/c`'s gate file in clean-up.
+    Expect: a "Warning" box in the gate with the desk's sentence and the branch name, a Dismiss button, and "Merge into main" off while it is up. A new push does not clear it. Dismiss puts the keyboard on the main button. The gate still reads Approved because it could not be updated: do not press Merge again, and delete the gate file in clean-up.
 11. `partlyUpdated` needs git to fail part way through a merge, which cannot be provoked reliably by hand. Skip it; the unit tests draw it. If you do see it, expect the same warning box, with Merge still available.
 
 ## Checks
@@ -75,11 +75,11 @@ Expect: one row, `agent/a`, with no files and no gate blockers except `empty` ("
 14. Edit the check file to `"cmd": "git --version && echo hi"` while the question is open, then press Confirm.
     Expect: the question shows the new command with a note that the file changed, and nothing runs until you confirm again.
 15. Put odd characters in a command. Write them as JSON escapes so you can see them in the file. A tab (\t) and a no-break space are allowed; a line break is not.
-    First `"cmd": "echo hi"` with a real no-break space (U+00A0) typed inside the command, between the two words (one at either end is trimmed away). Expect: it is not refused, and the question shows `<U+00A0>` where it is. The check will fail when run; that is fine.
+    First `"cmd": "echo\u00a0hi"`, which the parser turns into a no-break space (U+00A0) inside the command. Expect: it is not refused, and the question shows `<U+00A0>` where it is. The check will fail when run; that is fine.
     Then, one at a time, `"cmd": "echo a\nb"`, `"cmd": "echo a\u200bb"`, `"cmd": "echo a\u202eb"`, `"cmd": "echo a\u2028b"` and `"cmd": "echo a\u2029b"`. Expect: no question for any of them, an error that names the check and the character, and nothing runs.
 16. Restart Flockdeck and press "Run checks" with the original file.
     Expect: the question appears again, because the confirmation is only kept in memory.
 
 ## Clean up
 
-Delete the check file, restore the `changes` folder's permissions, remove the worktrees (`git worktree remove`) and delete `scratch`, `scratch-a`, `scratch-b` and `scratch-remote.git`. Comments, approvals and the check file are kept in `changes/<project>-<8 hex>.*.json` and `changes/<project>-<8 hex>.json` (the check file has no middle part), so delete those for the scratch project too, including the gate file of `agent/c`.
+Delete the check file, restore the `changes` folder's permissions, remove the worktrees (`git worktree remove`) and delete `scratch`, `scratch-a`, `scratch-b`, `scratch-c` and `scratch-remote.git`. Comments, approvals and the check file are kept in `changes/<project>-<8 hex>.*.json` and `changes/<project>-<8 hex>.json` (the check file has no middle part), so delete those for the scratch project too, including the gate file of `agent/c`.
