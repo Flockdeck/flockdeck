@@ -3,6 +3,8 @@ package gitx
 import (
 	"context"
 	"fmt"
+	"sync"
+	"time"
 )
 
 // Reading a checkout is not harmless either. To say whether a tracked file changed,
@@ -34,15 +36,56 @@ func (e *UnsafeReadConfigError) Error() string {
 // the index, or nil when there is none. An error that is not an
 // *UnsafeReadConfigError means the configuration could not be read, which callers
 // must treat as not safe.
+//
+// The answer holds for readConfigTTL, so that the several git calls of one read pass
+// ask once. It is a check at one moment, as the merge's is: a process control among
+// cooperating agents, not protection against an agent that writes the config between
+// the check and the read.
 func UnsafeReadConfig(ctx context.Context, dir string) error {
+	if recentReadConfig(dir) {
+		return nil
+	}
 	entries, err := configEntries(ctx, dir, unsafeReadKeys)
 	if err != nil {
-		return err
+		return err // not kept: a read that failed is asked again
 	}
 	for _, e := range entries {
 		if !allowedConfig(e[0], e[1]) {
 			return &UnsafeReadConfigError{Key: e[0]}
 		}
 	}
+	keepReadConfig(dir)
 	return nil
+}
+
+// readConfigTTL is how long a clean answer of UnsafeReadConfig is kept. A refusal is
+// asked again each time, so that taking the setting away reads the checkout at once.
+// Tests that change a configuration and ask again set it to zero.
+var readConfigTTL = 2 * time.Second
+
+var (
+	readConfigMu   sync.Mutex
+	readConfigSeen = map[string]time.Time{}
+)
+
+func recentReadConfig(dir string) bool {
+	if readConfigTTL <= 0 {
+		return false
+	}
+	readConfigMu.Lock()
+	defer readConfigMu.Unlock()
+	at, ok := readConfigSeen[dir]
+	return ok && time.Since(at) <= readConfigTTL
+}
+
+func keepReadConfig(dir string) {
+	if readConfigTTL <= 0 {
+		return
+	}
+	readConfigMu.Lock()
+	defer readConfigMu.Unlock()
+	if len(readConfigSeen) > 256 {
+		clear(readConfigSeen)
+	}
+	readConfigSeen[dir] = time.Now()
 }

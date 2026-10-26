@@ -134,6 +134,19 @@ copies), `binary` with `sizeBefore` and `sizeAfter`, `generated`, `modeChange`,
   is an entry with the `error` "too many changes to list". Line counts of untracked
   files are kept between polls and read again only when a file's size or time
   changed; past 64 MiB read in one poll, the rest are listed with no count.
+- A checkout whose own configuration (`.git/config`, and `config.worktree` when it is
+  turned on) sets a clean or process filter that is not the standard one of Git LFS, a
+  setting that makes Git LFS run a program of the repository's choosing (any `lfs.*` key
+  other than the plain data ones), or an `include`, is not read: comparing the working tree
+  with the index runs a clean filter on each file, with no click. It is an entry with the
+  `error` "its config runs programs: " and the key, and the gate treats it as having no
+  gate. The check is made again on each read, so removing the key reads the checkout; one
+  notice is sent for a change. Text conversions, external diffs and smudge filters are not
+  refused: every diff here passes `--no-textconv` and `--no-ext-diff`, and a smudge filter
+  runs when files are written, not when they are read. Like the merge check it is made
+  at one moment, and is a process control among cooperating agents (section 6), not
+  protection against an agent running as the user, which can write the configuration
+  between the check and the read. A read that cannot read the configuration is refused too.
 - `generated` is decided by path: lockfiles (`go.sum`, `package-lock.json`,
   `yarn.lock`, `pnpm-lock.yaml`, `Cargo.lock`), directories named `vendor` or
   `node_modules`, and names ending `.min.js`, `.min.css` or `.pb.go`.

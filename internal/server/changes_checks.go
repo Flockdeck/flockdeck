@@ -139,6 +139,7 @@ func (s *Server) withChecksAndReviews(t *changes.Team, root, project string) {
 	for i := range t.Branches {
 		b := &t.Branches[i]
 		keep[b.Pane] = true
+		s.noteConfigRefusal(b)
 		if b.Error != "" || b.Checks == nil {
 			continue
 		}
@@ -178,6 +179,31 @@ func firstDamage(path string, err error) bool {
 	}
 	damagedReviews[path] = true
 	return true
+}
+
+// refusedConfigs holds, by pane, the checkouts already reported as not read
+// because their configuration names a program, so that one notice is sent for a
+// change and not one for every push. It is guarded by refusedConfigsMu.
+var (
+	refusedConfigsMu sync.Mutex
+	refusedConfigs   = map[string]string{}
+)
+
+// noteConfigRefusal sends one notice when a checkout starts to be refused for the
+// setting in its configuration, and again if the setting changes; a read that
+// succeeds clears it. The reason is already cleaned (see gitx.UnsafeReadConfigError).
+func (s *Server) noteConfigRefusal(b *changes.Branch) {
+	refusedConfigsMu.Lock()
+	defer refusedConfigsMu.Unlock()
+	if !changes.ConfigRefusal(b.Error) {
+		delete(refusedConfigs, b.Pane)
+		return
+	}
+	if refusedConfigs[b.Pane] == b.Error {
+		return
+	}
+	refusedConfigs[b.Pane] = b.Error
+	s.notifyAllOr("A checkout is not read: "+b.Error+". Remove it from the repository's config to read it again.", "A checkout is not read because its config runs programs", true)
 }
 
 // sameSha says whether a window's sha and the head are the same commit. A window

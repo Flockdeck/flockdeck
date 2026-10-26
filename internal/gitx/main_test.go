@@ -24,6 +24,7 @@ func TestMain(m *testing.M) {
 
 func runTests(m *testing.M) int {
 	depth.Guard()
+	readConfigTTL = 0 // tests change a configuration and ask again
 	if os.Getenv("GITX_FAKE_GIT") == "1" {
 		return fakeGit() // this binary, copied to a file named git (see indexrefresh_test.go)
 	}
