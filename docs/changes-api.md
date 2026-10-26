@@ -219,9 +219,9 @@ and `commentReopen` answer `badRequest` with an error, and the branches show no
 comments until the person has dealt with it, with one notice to the window.
 
 A comment is sent as the person only because it came from a window page on this
-machine. That is the limit described in section 6: an agent that sets an `Origin`
-can send the command too, and until the window has a credential an agent cannot
-get, the author `you` is not proof that the person wrote the comment.
+machine. That is the limit described in section 6 ("Who may send these commands"):
+an agent that holds the instance token and sets an `Origin` can send the command
+too, so the author `you` is a record and not proof.
 
 - `delivery` reuses the graph's message states, in the same order: `queued`,
   `notified`, `woken`, `read`. It is absent while the message is being written,
@@ -326,21 +326,28 @@ is reported `queued`, and one that saw a tree that became dirty is marked
 `worktree`. That is an honesty check and not a boundary; a process that wants to
 deceive can put the files back before the second look.
 
-Who may start a check. `runChecks`, `confirmChecks`, `requestReview` and `submitReview` are
-taken only from a connection that opened as a page of the window on this machine
-(with an `Origin`), as `approveBaton` is, and refused as `deskOnly` otherwise.
-That raises the bar and does not close it: an agent's pane token is accepted by
-the same socket, and an agent can set an `Origin`. Until the window has a
-credential an agent cannot get, an agent on this machine can run the person's
-checks, and a recorded review is not proof that the person made it. The merge
-commands (`approveMerge`, `mergeBranch`, section 7) must not ship before that
-credential exists. The check file is in the config directory, so an agent that
-can write there can plant commands in it. The pin makes that show: a changed
-file is not run until the person has read and confirmed it. It does not stop an
-agent that sends `confirmChecks` itself with its pane token and an `Origin`;
-that needs the same credential, and until it exists the pin guards against a
-file that changed after the person read it and not against an agent on this
-machine.
+Who may send these commands. `commentAdd`, `commentResolve`, `commentReopen`,
+`runChecks`, `confirmChecks`, `requestReview` and `submitReview`, and the merge
+commands of section 7, are taken only from a connection that opened as a page of
+the window on this machine (with an `Origin`), as `approveBaton` is, and refused
+as `deskOnly` otherwise. This is a process control among cooperating agents. It
+is not a security boundary, and the person chose it over a passphrase or a
+hardware key. The control socket's token is the instance token in `instance.json`
+in the config directory, which any process of the same user can read, so an agent
+can read it, open the socket and set an `Origin`. An agent running as the user can
+also run the person's checks directly, write to the check file, or run `git merge`
+itself. What the commands give is a record: a decision of the person made in the
+window is written down, bound to the exact head they looked at, and a merge made
+through Flockdeck is refused unless that record supports it. A comment, review or
+approval whose author is `you` is therefore not proof that the person made it
+against an agent that chooses to forge one.
+
+The check file is in the config directory, so an agent that can write there can
+plant commands in it. The confirmation makes that show: a changed file is not run
+until the person has read and confirmed it. It does not stop an agent that sends
+`confirmChecks` itself through the socket as above; until the person chooses a
+stronger credential, it guards against a file that changed after the person read
+it and not against an agent that means to deceive.
 
 A CI result has `source` `ci` and a `url`; a result an agent reports has `source`
 `agent`. Neither is built in this version.

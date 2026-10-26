@@ -524,9 +524,10 @@ func unionBranches(cwds []string, list func(cwd string) (map[string]bool, error)
 const personReviewer = "the person"
 
 // changesSubmitReview answers submitReview. changesCommand takes it only from a
-// connection that opened as a page of the window; an agent that sets an Origin
-// can still send it with its pane token, so a review recorded as the person's is
-// not proof that the person made it until the window has a credential of its own.
+// connection that opened as a page of the window. This is a process control among
+// cooperating agents: an agent that reads the instance token from instance.json and
+// sets an Origin can send it too, so a review recorded as the person's is a record
+// and not proof (docs/changes-api.md, section 6, "Who may send these commands").
 func (s *Server) changesSubmitReview(c *controlClient, cmd command) {
 	switch cmd.State {
 	case "approved", "changes", "dismissed":

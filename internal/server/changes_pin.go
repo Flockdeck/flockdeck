@@ -16,8 +16,8 @@ import (
 // The confirmed hash is kept in memory, per check file, and is forgotten when
 // Flockdeck restarts. A file beside the check file would let an agent that can
 // plant the check file compute the hash and plant the pin too. What is left open
-// is an agent that sends confirmChecks itself with its pane token and an Origin;
-// that needs a credential of the window's own.
+// is an agent that sends confirmChecks itself with the instance token and an
+// Origin; the gate is a process control (docs/changes-api.md, section 6).
 
 // checkPins is the hash of the commands the person confirmed, by check file.
 type checkPins struct {
