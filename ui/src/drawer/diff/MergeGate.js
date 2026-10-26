@@ -12,8 +12,10 @@
 //   desk answered with. Without it the buttons are not drawn.
 // - nameOf(pane): the name drawn for a reviewer; reviewer: the pane the "Ask to
 //   review" button asks, when there is one to ask.
-// "Approve merge" sends the approval and tells the manager; it does not merge. It
-// is disabled with the reason beside it, named by aria-describedby, while the gate
+// "Approve merge" asks first (branch, short head, base), then sends the approval and tells the manager; it does not
+// merge. Once approved for the head shown, "Merge into <base>" asks again and sends mergeBranch with that head; a
+// merge that left a checkout partly updated, or was made but not recorded, is drawn as a warning that stays until
+// dismissed (it is not an error). Approve is disabled with the reason beside it, named by aria-describedby, while the gate
 // is blocked. Every state is a word as well as a colour. One status line stays in
 // the page, empty first, and is filled with what the last action did.
 import { useEffect, useRef, useState } from "../../vendor/hooks.mjs";
@@ -23,7 +25,7 @@ import { clip } from "../../graph/Node.js";
 import { showControls } from "./diffModel.js";
 import {
   gateOf, checksSummary, checksWords, reviewSummary, commentsSummary, conflictSummary, otherBlockers, approveState,
-  approveCommand, unapproveCommand, checksCommand, confirmChecksCommand, reviewCommand, gateRefusalWords, checksListOf, confirmWords,
+  approveCommand, unapproveCommand, mergeCommand, mergeState, gateConfirmWords, warningWords, shortSha, WARNING_CODES, checksCommand, confirmChecksCommand, reviewCommand, gateRefusalWords, checksListOf, confirmWords,
 } from "./gateModel.js";
 
 const text = (v) => (typeof v === "string" ? v : v == null ? "" : String(v));
@@ -32,6 +34,8 @@ const NOT_CONNECTED = "Not connected to Flockdeck. Nothing was sent.";
 const DROPPED = "The connection dropped; check the gate before trying again.";
 const NO_HEAD = "This branch has no known head, so nothing was approved. Wait for the next update.";
 const MOVED = "The branch changed; waiting for the update.";
+const GATE_STALE = "The branch changed, so the question was closed. Nothing was sent.";
+const NOT_APPROVED = "The branch is not approved for the commit shown, so there is nothing to merge.";
 const CHANGED_NOTE = "The check file changed after it was shown. These are its commands now; nothing was confirmed.";
 const STALE = "The branch changed, so the question about its checks was dropped. Press Run checks to ask again.";
 const NO_COMMANDS = "The check file has no command to run.";
@@ -66,7 +70,7 @@ const newReq = () => "gt" + Date.now().toString(36) + (++counter).toString(36);
  * One press sends once: a second press before the answer is ignored.
  */
 export function useGateActions({ branch = null, send = null, result = null, connected = true, session = null, checks = null }) {
-  const [s, setS] = useState({ busy: "", req: "", error: "", said: "", override: null, movedFrom: "", sentSha: "", ask: null });
+  const [s, setS] = useState({ busy: "", req: "", error: "", said: "", override: null, movedFrom: "", sentSha: "", ask: null, gask: null, warn: "" });
   // A press sets this before the state it causes is drawn, so a second press in the same tick finds it.
   const inflight = useRef(false);
   const first = useRef(true);
@@ -76,7 +80,7 @@ export function useGateActions({ branch = null, send = null, result = null, conn
       if (connected !== false) return;
     }
     inflight.current = false;
-    setS((p) => (p.req || p.ask ? { ...p, busy: "", req: "", error: DROPPED, said: "", override: null, ask: null } : p));
+    setS((p) => (p.req || p.ask || p.gask ? { ...p, busy: "", req: "", error: DROPPED, said: "", override: null, ask: null, gask: null } : p));
   }, [connected === false, session]);
   // A question about the checks belongs to the branch it was asked for.
   const branchName = text(branch && branch.branch);
@@ -87,6 +91,14 @@ export function useGateActions({ branch = null, send = null, result = null, conn
       return { ...p, busy: "", req: "", ask: null, error: STALE, said: "" };
     });
   }, [branchName]);
+  // A question about an approval or a merge belongs to the branch and the head it was asked for.
+  const headNow = text(branch && branch.headSha);
+  useEffect(() => {
+    setS((p) => {
+      if (!p.gask || (p.gask.branch === branchName && p.gask.head === headNow)) return p;
+      return { ...p, gask: null, error: GATE_STALE, said: "" };
+    });
+  }, [branchName, headNow]);
   const seen = useRef(null);
   useEffect(() => {
     if (!result || result === seen.current || !s.req || result.req !== s.req) return;
@@ -108,10 +120,13 @@ export function useGateActions({ branch = null, send = null, result = null, conn
       }
       return;
     }
+    // A merge that went wrong in a way the person must act on is a warning, not a refusal: it stays until it is dismissed.
+    const warning = op === "mergeBranch" && WARNING_CODES.includes(text(result.code));
     setS((p) => ({
       ...p, busy: "", req: "",
-      error: result.ok ? "" : gateRefusalWords(result),
-      said: result.ok ? (op === "approveMerge" ? "Approved. The manager has been told." : op === "unapproveMerge" ? "Approval withdrawn." : op === "runChecks" ? "Checks started." : op === "requestReview" ? "Review asked for." : "Done.") : "",
+      error: result.ok || warning ? "" : gateRefusalWords(result),
+      warn: warning ? warningWords(result) : p.warn,
+      said: result.ok && !warning ? (op === "approveMerge" ? "Approved. The manager has been told." : op === "unapproveMerge" ? "Approval withdrawn." : op === "mergeBranch" ? "Merged." : op === "runChecks" ? "Checks started." : op === "requestReview" ? "Review asked for." : "Done.") : "",
       override: result.code === "headMoved" ? p.override : isObject(result.gate) ? result.gate : p.override,
       movedFrom: result.code === "headMoved" ? p.sentSha : p.movedFrom,
     }));
@@ -144,7 +159,7 @@ export function useGateActions({ branch = null, send = null, result = null, conn
       setS((p) => ({ ...p, error: NOT_CONNECTED, said: "", ask: null }));
       return false;
     }
-    setS((p) => ({ ...p, busy, req: cmd.req, sentSha: text(cmd.expectSha), error: "", said: "", ...(extra || {}) }));
+    setS((p) => ({ ...p, busy, req: cmd.req, sentSha: text(cmd.expectSha), error: "", said: "", warn: cmd.cmd === "mergeBranch" ? "" : p.warn, ...(extra || {}) }));
     return true;
   };
   const go = (cmd, busy, extra = null) => (s.busy ? false : sendNow(cmd, busy, extra));
@@ -155,9 +170,34 @@ export function useGateActions({ branch = null, send = null, result = null, conn
     said: s.said,
     gate: s.override,
     moved: !!s.movedFrom && s.movedFrom === text(branch && branch.headSha),
-    approve: () => (!branch || typeof branch.headSha !== "string" || !branch.headSha
-      ? (setS((p) => ({ ...p, error: NO_HEAD, said: "" })), false)
-      : go(approveCommand({ ...ids(), expectSha: branch.headSha }), "approveMerge")),
+    // Approve and merge are questions first. The press that confirms sends the head the question was asked about.
+    gask: s.gask,
+    warn: s.warn,
+    dismissWarn: () => setS((p) => (p.warn ? { ...p, warn: "" } : p)),
+    askApprove: () => {
+      if (s.busy) return false;
+      if (!branch || typeof branch.headSha !== "string" || !branch.headSha) {
+        setS((p) => ({ ...p, error: NO_HEAD, said: "" }));
+        return false;
+      }
+      setS((p) => ({ ...p, error: "", said: "", gask: { kind: "approve", branch: branchName, head: branch.headSha, base: text(branch.base) } }));
+      return true;
+    },
+    askMerge: () => {
+      const m = mergeState(branch, true);
+      if (s.busy || !m.enabled) {
+        if (!s.busy) setS((p) => ({ ...p, error: m.why || NOT_APPROVED, said: "" }));
+        return false;
+      }
+      setS((p) => ({ ...p, error: "", said: "", gask: { kind: "merge", branch: branchName, head: branch.headSha, base: text(branch.base) } }));
+      return true;
+    },
+    confirmGate: () => {
+      const a = s.gask;
+      if (!a || !a.head) return false;
+      const cmd = (a.kind === "merge" ? mergeCommand : approveCommand)({ ...ids(), expectSha: a.head });
+      return sendNow(cmd, a.kind === "merge" ? "mergeBranch" : "approveMerge", { gask: null });
+    },
     withdraw: () => go(unapproveCommand(ids()), "unapproveMerge"),
     ask: s.ask && s.ask.phase === "asking" ? s.ask : null,
     runChecks: () => go(confirmChecksCommand(ids()), "confirmChecks", { ask: { phase: "reading", branch: branchName, note: "" } }),
@@ -168,7 +208,7 @@ export function useGateActions({ branch = null, send = null, result = null, conn
     },
     cancel: () => {
       inflight.current = false;
-      setS((p) => (p.ask ? { ...p, busy: "", req: "", ask: null } : p));
+      setS((p) => (p.ask || p.gask ? { ...p, ...(p.ask ? { busy: "", req: "", ask: null } : {}), gask: null } : p));
     },
     askReview: (reviewer) => go(reviewCommand({ ...ids(), reviewer }), "requestReview"),
   };
@@ -187,17 +227,24 @@ function Row({ label, tone, children, action }) {
 export function MergeGate({ branch = null, canAct = false, canCheck = false, flow = null, nameOf = null, reviewer = "", project = "" }) {
   const [said, setSaid] = useState("");
   // When the question closes, the keyboard goes back to the button that opened it (once it is enabled again).
+  // For an approval or a merge it goes to the main button of the footer, or to the gate itself when that button is gone (after a merge).
   const runRef = useRef(null);
-  const wantFocus = useRef(false);
+  const mainRef = useRef(null);
+  const boxRef = useRef(null);
+  const wantFocus = useRef("");
   const asking = !!(flow && flow.ask);
+  const gasking = !!(flow && flow.gask);
   const busy = !!(flow && flow.busy);
   useEffect(() => {
-    if (asking) wantFocus.current = true;
+    if (asking) wantFocus.current = "run";
+    else if (gasking) wantFocus.current = "main";
     else if (wantFocus.current && !busy) {
-      wantFocus.current = false;
-      if (runRef.current && runRef.current.focus) runRef.current.focus();
+      const which = wantFocus.current;
+      wantFocus.current = "";
+      const el = (which === "run" ? runRef.current : mainRef.current) || boxRef.current;
+      if (el && el.focus) el.focus();
     }
-  }, [asking, busy]);
+  }, [asking, gasking, busy]);
   const status = flow ? flow.error || flow.said || (flow.busy ? "Working…" : "") : "";
   useEffect(() => { setSaid(status); }, [status]);
   if (!isObject(branch)) return null;
@@ -209,6 +256,7 @@ export function MergeGate({ branch = null, canAct = false, canCheck = false, flo
   const conflict = conflictSummary(view);
   const moved = !!(flow && flow.moved);
   const approve = { ...approveState(view, canAct && !!flow && !flow.busy && !moved), ...(moved ? { enabled: false, why: MOVED } : {}) };
+  const merge = { ...mergeState(view, canAct && !!flow && !flow.busy && !moved), ...(moved ? { enabled: false } : {}) };
   const name = (p) => showControls(clip(text(nameOf ? nameOf(p) : p), 40));
   const act = canAct && !!flow;
   const actChecks = canCheck && !!flow;
@@ -216,7 +264,7 @@ export function MergeGate({ branch = null, canAct = false, canCheck = false, flo
   const stateWords = g.state === "blocked" ? (g.blockers.length ? g.blockers.length + " blocking" : "Blocked") : g.state === "ready" ? "Ready" : g.state === "approved" ? "Approved" : "Merged";
   const btn = (cls, label, onClick, aria, ref = null) => html`<button type="button" class=${"drawer-btn " + cls} ref=${ref} disabled=${!!flow.busy} aria-label=${aria || label} onClick=${onClick}>${label}</button>`;
 
-  return html`<section class="dv-gate" role="group" aria-label=${"Merge gate for " + showControls(clip(text(branch.branch), 80))}>
+  return html`<section class="dv-gate" role="group" tabindex="-1" ref=${boxRef} aria-label=${"Merge gate for " + showControls(clip(text(branch.branch), 80))}>
     <div class="dv-gate-h"><b>Merge gate</b><span class=${"dv-chip dv-gate-state dv-gate-state--" + g.state}>${stateWords}</span>
       ${canAct ? null : html`<span class="dv-gate-ro">Read-only here</span>`}</div>
     <ul class="dv-gate-rows" aria-label="What the gate checks">
@@ -233,14 +281,24 @@ export function MergeGate({ branch = null, canAct = false, canCheck = false, flo
     ${actChecks && flow.ask
       ? html`<${Confirm} title="Run these checks?" words=${confirmWords(flow.ask, project)} label="Confirm and run" onConfirm=${flow.confirm} onCancel=${flow.cancel} />`
       : null}
+    ${act && flow.gask
+      ? html`<${Confirm} title=${flow.gask.kind === "merge" ? "Merge this branch?" : "Approve this merge?"} words=${gateConfirmWords(flow.gask.kind, flow.gask)}
+          label=${flow.gask.kind === "merge" ? "Confirm and merge" : "Confirm and approve"} onConfirm=${flow.confirmGate} onCancel=${flow.cancel} />`
+      : null}
+    ${flow && flow.warn
+      ? html`<div class="dv-gate-warn" role="alert"><span class="dv-chip dv-chip--warn">Warning</span> <bdi>${flow.warn}</bdi>
+          <button type="button" class="drawer-btn dv-gate-dismiss" onClick=${flow.dismissWarn}>Dismiss</button></div>`
+      : null}
     <div class="dv-gate-f">
       ${approve.kind === "merged"
         ? html`<span class="dv-chip dv-tone dv-tone--pass">Merged</span>${g.mergeSha ? html` <span class="dv-mono">${text(g.mergeSha).slice(0, 8)}</span>` : null}`
         : act
-          ? html`<button type="button" class=${"drawer-btn dv-gate-approve" + (approve.kind === "approved" ? " is-approved" : "")} disabled=${!approve.enabled} aria-describedby=${whyId}
-              onClick=${() => (approve.kind === "approved" ? flow.withdraw() : flow.approve())}>${approve.label}</button>`
+          ? approve.kind === "approved"
+            ? html`<button type="button" class="drawer-btn dv-gate-merge" ref=${mainRef} disabled=${!merge.enabled} aria-describedby=${whyId} onClick=${flow.askMerge}>${merge.label}</button>
+                <button type="button" class="drawer-btn dv-gate-withdraw is-approved" disabled=${!approve.enabled} onClick=${flow.withdraw}>${approve.label}</button>`
+            : html`<button type="button" class="drawer-btn dv-gate-approve" ref=${mainRef} disabled=${!approve.enabled} aria-describedby=${whyId} onClick=${flow.askApprove}>${approve.label}</button>`
           : null}
-      <span class="dv-gate-why" id=${whyId}>${approve.kind === "approved" ? "Approved" + (g.approvedBy ? " by " + name(g.approvedBy) : "") + (g.approvedSha ? " at " + text(g.approvedSha).slice(0, 8) : "") + ". The manager merges it; this does not." : approve.why}</span>
+      <span class="dv-gate-why" id=${whyId}>${approve.kind === "approved" ? "Approved" + (g.approvedBy ? " by " + name(g.approvedBy) : "") + (g.approvedSha ? " at " + shortSha(g.approvedSha) : "") + "." + (merge.why ? " " + merge.why : "") : approve.why}</span>
     </div>
     <p class="dv-live" role="status">${said}</p>
   </section>`;

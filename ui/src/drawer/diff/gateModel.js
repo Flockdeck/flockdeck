@@ -97,7 +97,23 @@ export function approveState(branch, canAct) {
   return { kind: blocked ? "blocked" : "ready", enabled: !!canAct && !blocked, label: "Approve merge", why };
 }
 
+/**
+ * mergeState says whether the merge control is on: the gate is approved and the approval is for the head the window
+ * shows. { enabled, label, why }. The desk checks again; this keeps a press from being offered that it would refuse.
+ */
+export function mergeState(branch, canAct) {
+  const g = gateOf(branch);
+  const base = isObject(branch) ? oneLine(branch.base, 60) : "";
+  const label = "Merge into " + (base || "the base");
+  if (g.state !== "approved") return { enabled: false, label, why: "" };
+  const head = isObject(branch) ? text(branch.headSha) : "";
+  if (!head || text(g.approvedSha) !== head) return { enabled: false, label, why: "The approval is for an earlier commit than the branch has now, so it cannot be merged. Withdraw it and approve again." };
+  if (!base) return { enabled: false, label, why: "The desk did not say which branch this merges into." };
+  return { enabled: !!canAct, label, why: "" };
+}
+
 export const approveCommand = ({ pane, branch, expectSha, req }) => ({ cmd: "approveMerge", id: pane, branch, expectSha, req });
+export const mergeCommand = ({ pane, branch, expectSha, req }) => ({ cmd: "mergeBranch", id: pane, branch, expectSha, req });
 export const unapproveCommand = ({ pane, branch, req }) => ({ cmd: "unapproveMerge", id: pane, branch, req });
 export const checksCommand = ({ pane, branch, names = [], req }) => ({ cmd: "runChecks", id: pane, branch, names, req });
 // confirmChecks without confirm only asks for the commands; with confirm and the hash that was shown it records them (section 6).
@@ -151,9 +167,58 @@ export function confirmWords(ask, project) {
   return out;
 }
 
-/** gateRefusalWords is what to say for a changesResult that was not ok. */
+/** WARNING_CODES are the answers to mergeBranch that are not plain refusals: something happened that the person has to know. */
+export const WARNING_CODES = ["partlyUpdated", "mergedNotRecorded"];
+
+/** warningWords is what to say for a mergeBranch answer in WARNING_CODES: the desk's own sentence, with a fallback. */
+export function warningWords(msg) {
+  const m = isObject(msg) ? msg : {};
+  const said = clipText(showControls(text(m.error)), 600);
+  if (said) return said;
+  return m.code === "partlyUpdated"
+    ? "The merge failed part way, so the checkout of the base branch may be partly updated. Look at that checkout before you try again."
+    : "The branch was merged, but Flockdeck could not record it, so the gate will not show it as merged.";
+}
+
+/** shortSha is the first 8 characters of a commit id, as text. */
+export const shortSha = (v) => oneLine(text(v).slice(0, 8));
+
+/**
+ * gateConfirmWords are the sentences of the question before an approval or a merge: the branch, the short head and the base,
+ * and what the press does. They are the page's words around the names, which come from the repository and are marked.
+ */
+export function gateConfirmWords(kind, { branch = "", head = "", base = "" } = {}) {
+  const b = oneLine(branch, 120) || "this branch";
+  const into = oneLine(base, 120) || "its base";
+  const sha = shortSha(head);
+  if (kind === "merge") {
+    return [
+      "Merge " + b + " at " + sha + " into " + into + ".",
+      "This merges exactly that commit into " + into + ", in the checkout that has " + into + " checked out, so the working tree of that checkout changes.",
+      "It makes a merge commit if " + into + " cannot be fast-forwarded. It pushes nothing.",
+    ];
+  }
+  return [
+    "Approve " + b + " at " + sha + " to be merged into " + into + ".",
+    "This records your approval of that commit and tells the manager. It does not merge. A later commit on the branch drops the approval.",
+  ];
+}
+
+/** gateRefusalWords is what to say for a changesResult that was not ok. For mergeBranch the desk's own sentence is the answer. */
 export function gateRefusalWords(msg) {
   const m = isObject(msg) ? msg : {};
+  if (text(m.op) === "mergeBranch") {
+    const said = clipText(showControls(text(m.error)), 600);
+    if (said) return said;
+    switch (m.code) {
+      case "headMoved": return "The branch has a new commit since you looked, so nothing was merged. Look at it again.";
+      case "notApproved": return "The branch is not approved for this commit, so nothing was merged.";
+      case "notClean": return "The checkout of the base branch is not clean, so nothing was merged.";
+      case "notFastForward": return "The base branch has moved in a way that cannot be merged cleanly, so nothing was merged.";
+      case "failed": return "Git refused the merge. Nothing changed.";
+      default: break;
+    }
+  }
   switch (m.code) {
     case "headMoved": return "The branch has a new commit since you looked, so nothing was approved. Look at it again.";
     case "deskOnly": return "The gate is used on the machine Flockdeck runs on, not from this window.";
