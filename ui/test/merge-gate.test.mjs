@@ -938,3 +938,178 @@ test("the question words mark hidden characters in names and keep long ones shor
   assert.ok(Array.from(gateConfirmWords("merge", { branch: "y".repeat(500), head: "h", base: "main" })[0]).length < 200);
   assert.equal(mergeCommand({ pane: "p", branch: "b", expectSha: "s", req: "r" }).cmd, "mergeBranch");
 });
+
+// ---- review fixes: the question follows the branch, the base and the gate; warnings follow the branch; focus
+const key = (m, name) => m.box.find(name);
+
+test("a confirm in the tick between a branch switch and the closing effect sends nothing", async () => {
+  for (const kind of ["approve", "merge"]) {
+    const sent = [];
+    const send = (c) => { sent.push(c); return true; };
+    const first = kind === "merge" ? appr : cart;
+    const m = await mountHost({ send, branch: first });
+    try {
+      m.box.find(kind === "merge" ? ".dv-gate-merge" : ".dv-gate-approve").click();
+      await settle();
+      const btn = m.box.find(".confirm").find(".dialog-btn--danger");
+      // Another pane's branch on the same commit: the head alone would not tell them apart.
+      const other = { ...first, pane: "other-pane", branch: "agent/other" };
+      m.draw({ send, branch: other });
+      btn.click();
+      assert.equal(sent.length, 0, kind + ": nothing is sent for the new branch");
+      await settle();
+      assert.equal(m.box.find(".confirm"), null);
+      assert.match(m.box.find(".dv-live").textContent, /question was closed/);
+    } finally {
+      m.done();
+    }
+  }
+});
+
+test("the merge question closes when the pushed base changes, and a confirm in that tick sends nothing", async () => {
+  const sent = [];
+  const send = (c) => { sent.push(c); return true; };
+  const m = await mountHost({ send, branch: appr });
+  try {
+    await pressMerge(m);
+    assert.match(m.box.find(".confirm").textContent, /into main/);
+    m.draw({ send, branch: { ...appr, base: "release" } });
+    m.box.find(".confirm").find(".dialog-btn--danger").click();
+    assert.equal(sent.length, 0, "the person confirmed main, the desk would merge into release");
+    await settle();
+    assert.equal(m.box.find(".confirm"), null);
+    assert.match(m.box.find(".dv-live").textContent, /question was closed/);
+    assert.equal(m.box.find(".dv-gate-merge").textContent, "Merge into release");
+  } finally {
+    m.done();
+  }
+});
+
+test("a question closes when the gate stops holding for the same head: merge when the approval goes, approve when it blocks", async () => {
+  const sent = [];
+  const send = (c) => { sent.push(c); return true; };
+  const m = await mountHost({ send, branch: appr });
+  try {
+    await pressMerge(m);
+    m.draw({ send, branch: { ...appr, gate: { state: "blocked", blockers: [{ kind: "comments", text: "1 open comment" }] } } });
+    await settle();
+    assert.equal(m.box.find(".confirm"), null);
+    assert.match(m.box.find(".dv-live").textContent, /question was closed/);
+    assert.equal(sent.length, 0);
+  } finally {
+    m.done();
+  }
+  const a = await mountHost({ send, branch: cart });
+  try {
+    a.box.find(".dv-gate-approve").click();
+    await settle();
+    assert.ok(a.box.find(".confirm"));
+    a.draw({ send, branch: { ...cart, gate: { state: "blocked", blockers: [{ kind: "checks", text: "a check is failing" }] } } });
+    a.box.find(".confirm");
+    await settle();
+    assert.equal(a.box.find(".confirm"), null);
+    assert.equal(sent.length, 0);
+  } finally {
+    a.done();
+  }
+});
+
+test("a warning belongs to the branch it was sent for", async () => {
+  const { m, sent, send } = await asking();
+  try {
+    await pressMerge(m);
+    await confirmGate(m.box);
+    m.draw({ send, branch: appr, result: mergeResult(sent[0].req, { code: "partlyUpdated", error: "main may be partly updated" }) });
+    await settle();
+    assert.match(m.box.find(".dv-gate-warn").textContent, /agent\/cart-totals: main may be partly updated/);
+    m.draw({ send, branch: { ...appr, branch: "agent/other" } });
+    await settle();
+    assert.equal(m.box.find(".dv-gate-warn"), null, "another branch of the pane does not show it");
+    m.draw({ send, branch: appr });
+    await settle();
+    assert.ok(m.box.find(".dv-gate-warn"), "it is still there for its own branch");
+  } finally {
+    m.done();
+  }
+});
+
+test("after mergedNotRecorded Merge stays off while the warning is up; after partlyUpdated it can be tried again", async () => {
+  const { m, sent, send } = await asking();
+  try {
+    await pressMerge(m);
+    await confirmGate(m.box);
+    m.draw({ send, branch: appr, result: mergeResult(sent[0].req, { code: "mergedNotRecorded", error: "merged, not recorded", ok: true }) });
+    await settle();
+    assert.equal(m.box.find(".dv-gate-merge").disabled, true);
+    assert.match(m.box.find(".dv-gate-why").textContent, /merged, but the gate has not recorded it/);
+    m.box.find(".dv-gate-merge").click();
+    await settle();
+    assert.equal(m.box.find(".confirm"), null);
+    assert.equal(sent.filter((c) => c.cmd === "mergeBranch").length, 1);
+  } finally {
+    m.done();
+  }
+  const p = await asking();
+  try {
+    await pressMerge(p.m);
+    await confirmGate(p.m.box);
+    p.m.draw({ send: p.send, branch: appr, result: mergeResult(p.sent[0].req, { code: "partlyUpdated", error: "partly updated" }) });
+    await settle();
+    assert.equal(p.m.box.find(".dv-gate-merge").disabled, false, "retryable");
+  } finally {
+    p.m.done();
+  }
+});
+
+test("the keyboard goes to the main button after Withdraw and after Dismiss", async () => {
+  const sent = [];
+  const send = (c) => { sent.push(c); return true; };
+  const m = await mountHost({ send, branch: appr });
+  try {
+    m.box.find(".dv-gate-withdraw").click();
+    await settle();
+    m.draw({ send, branch: appr, result: { type: "changesResult", req: sent[0].req, op: "unapproveMerge", ok: true, gate: { state: "ready", blockers: [] } } });
+    await settle();
+    assert.equal(m.box.find(".dv-gate-withdraw"), null);
+    assert.equal(m.box.ownerDocument.activeElement, m.box.find(".dv-gate-approve"), "Withdraw was replaced by Approve and the keyboard followed");
+  } finally {
+    m.done();
+  }
+  const w = await asking();
+  try {
+    await pressMerge(w.m);
+    await confirmGate(w.m.box);
+    w.m.draw({ send: w.send, branch: appr, result: mergeResult(w.sent[0].req, { code: "partlyUpdated", error: "partly" }) });
+    await settle();
+    w.m.box.find(".dv-gate-dismiss").click();
+    await settle();
+    assert.equal(w.m.box.find(".dv-gate-warn"), null);
+    assert.equal(w.m.box.ownerDocument.activeElement, w.m.box.find(".dv-gate-merge"));
+  } finally {
+    w.m.done();
+  }
+});
+
+test("the approval or merge question and the checks question are never open together", async () => {
+  const sent = [];
+  const send = (c) => { sent.push(c); return true; };
+  const branch = { ...cart, checks: [] };
+  const m = await mountHost({ send, branch });
+  try {
+    m.box.find(".dv-gate-approve").click();
+    await settle();
+    assert.match(m.box.find(".confirm").textContent, /Approve this merge/);
+    m.box.find(".dv-gate-run").click();
+    await settle();
+    assert.equal(m.box.findAll(".confirm").length, 0, "Run checks closed the approval question");
+    m.draw({ send, branch, checks: listing(sent[0].req) });
+    await settle();
+    assert.match(m.box.find(".confirm").textContent, /Run these checks/);
+    m.box.find(".dv-gate-approve").click();
+    await settle();
+    assert.equal(m.box.findAll(".confirm").length, 1);
+    assert.match(m.box.find(".confirm").textContent, /Approve this merge/, "the approval question replaced the checks question");
+  } finally {
+    m.done();
+  }
+});

@@ -196,6 +196,7 @@ export function gateConfirmWords(kind, { branch = "", head = "", base = "" } = {
       "Merge " + b + " at " + sha + " into " + into + ".",
       "This merges exactly that commit into " + into + ", in the checkout that has " + into + " checked out, so the working tree of that checkout changes.",
       "It makes a merge commit if " + into + " cannot be fast-forwarded. It pushes nothing.",
+      "Hooks do not run and the commit is not signed. The merge is refused if the repository's own configuration names a program to run.",
     ];
   }
   return [
