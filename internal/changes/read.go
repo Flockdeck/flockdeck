@@ -519,13 +519,25 @@ func comparesWorkingTree(args []string) bool {
 		}
 		return revs < 2
 	case "ls-files":
+		// It compares the working tree for any option but the ones known not to
+		// (-mo, -om and --modified are all spellings of the one that does).
 		for _, a := range args[1:] {
-			if a == "-m" || a == "--modified" || a == "-d" || a == "--deleted" {
+			if a == "--" {
+				break
+			}
+			if strings.HasPrefix(a, "-") && !lsFilesReadsNoFiles[a] {
 				return true
 			}
 		}
 	}
 	return false
+}
+
+// lsFilesReadsNoFiles are the options of ls-files that list the index or the
+// untracked files and read no tracked file of the working tree.
+var lsFilesReadsNoFiles = map[string]bool{
+	"-z": true, "-s": true, "--stage": true, "-v": true, "-o": true, "--others": true,
+	"--exclude-standard": true, "-c": true, "--cached": true, "-u": true, "--unmerged": true,
 }
 
 func firstLine(s string) string {

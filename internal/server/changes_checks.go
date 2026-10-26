@@ -139,7 +139,7 @@ func (s *Server) withChecksAndReviews(t *changes.Team, root, project string) {
 	for i := range t.Branches {
 		b := &t.Branches[i]
 		keep[b.Pane] = true
-		s.noteConfigRefusal(b)
+		s.noteConfigRefusal(root, project, b)
 		if b.Error != "" || b.Checks == nil {
 			continue
 		}
@@ -149,6 +149,7 @@ func (s *Server) withChecksAndReviews(t *changes.Team, root, project string) {
 		b.Checks, b.Reviews, b.Comments = &checks, &reviews, &list
 	}
 	s.checks.forget(keep)
+	forgetConfigRefusals(root, project, keep)
 	s.withGates(t, root, project)
 }
 
@@ -181,29 +182,44 @@ func firstDamage(path string, err error) bool {
 	return true
 }
 
-// refusedConfigs holds, by pane, the checkouts already reported as not read
-// because their configuration names a program, so that one notice is sent for a
-// change and not one for every push. It is guarded by refusedConfigsMu.
+// refusedConfigs holds the checkouts already reported as not read because their
+// configuration names a program, so that one notice is sent for a change and not one
+// for every push. It is guarded by refusedConfigsMu.
 var (
 	refusedConfigsMu sync.Mutex
-	refusedConfigs   = map[string]string{}
+	refusedConfigs   = map[refusedPane]string{}
 )
+
+type refusedPane struct{ root, project, pane string }
 
 // noteConfigRefusal sends one notice when a checkout starts to be refused for the
 // setting in its configuration, and again if the setting changes; a read that
 // succeeds clears it. The reason is already cleaned (see gitx.UnsafeReadConfigError).
-func (s *Server) noteConfigRefusal(b *changes.Branch) {
+func (s *Server) noteConfigRefusal(root, project string, b *changes.Branch) {
 	refusedConfigsMu.Lock()
 	defer refusedConfigsMu.Unlock()
+	k := refusedPane{root, project, b.Pane}
 	if !changes.ConfigRefusal(b.Error) {
-		delete(refusedConfigs, b.Pane)
+		delete(refusedConfigs, k)
 		return
 	}
-	if refusedConfigs[b.Pane] == b.Error {
+	if refusedConfigs[k] == b.Error {
 		return
 	}
-	refusedConfigs[b.Pane] = b.Error
+	refusedConfigs[k] = b.Error
 	s.notifyAllOr("A checkout is not read: "+b.Error+". Remove it from the repository's config to read it again.", "A checkout is not read because its config runs programs", true)
+}
+
+// forgetConfigRefusals drops the records of the project's panes that are no longer in
+// its push.
+func forgetConfigRefusals(root, project string, keep map[string]bool) {
+	refusedConfigsMu.Lock()
+	defer refusedConfigsMu.Unlock()
+	for k := range refusedConfigs {
+		if k.root == root && k.project == project && !keep[k.pane] {
+			delete(refusedConfigs, k)
+		}
+	}
 }
 
 // sameSha says whether a window's sha and the head are the same commit. A window

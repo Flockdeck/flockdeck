@@ -93,6 +93,9 @@ func TestARepositoryThatConfiguresAProgramIsNotReadWithIt(t *testing.T) {
 		if err := UnsafeReadConfig(context.Background(), dir); !errors.As(err, &unsafe) {
 			t.Errorf("%s: UnsafeReadConfig = %v", name, err)
 		}
+		if st := StatusOf(dir); !st.Unreadable || st.Branch != "" {
+			t.Errorf("%s: status = %+v, want an unreadable checkout and nothing else", name, st)
+		}
 		readEntryPoints(t, dir, feat)
 		if _, err := os.Stat(m); err == nil {
 			t.Errorf("%s: the program ran", name)
@@ -127,7 +130,7 @@ func TestARepositoryWithoutAProgramToRunOnAReadIsReadAsBefore(t *testing.T) {
 			t.Errorf("%s: UnsafeReadConfig = %v", name, err)
 		}
 		st := StatusOf(dir)
-		if st.Branch != "main" || st.Dirty != 1 {
+		if st.Unreadable || st.Branch != "main" || st.Dirty != 1 {
 			t.Errorf("%s: status = %+v, want main with one changed file", name, st)
 		}
 		if ch, err := Changes(dir); err != nil || len(ch) != 1 || ch[0].Path != "tracked.txt" {

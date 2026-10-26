@@ -140,8 +140,14 @@ copies), `binary` with `sizeBefore` and `sizeAfter`, `generated`, `modeChange`,
   other than the plain data ones), or an `include`, is not read: comparing the working tree
   with the index runs a clean filter on each file, with no click. It is an entry with the
   `error` "its config runs programs: " and the key, and the gate treats it as having no
-  gate. The check is made again on each read, so removing the key reads the checkout; one
-  notice is sent for a change. Text conversions, external diffs and smudge filters are not
+  gate. A refusal is checked again on each read, so removing the key reads the checkout
+  at once; a clean answer is kept for two seconds, so a setting written after it is seen
+  by the next read after that. One notice is sent for a change. The review panel and the
+  pane headers no longer show uncommitted work inside a submodule (a submodule moved to
+  another commit is still shown): looking inside runs the submodule's own configuration,
+  which is not the one checked, so these reads pass `--ignore-submodules=dirty`. The
+  button that asks whether a checkout is entirely clean (`IsClean`) still looks inside
+  and is made by the person. Text conversions, external diffs and smudge filters are not
   refused: every diff here passes `--no-textconv` and `--no-ext-diff`, and a smudge filter
   runs when files are written, not when they are read. Like the merge check it is made
   at one moment, and is a process control among cooperating agents (section 6), not

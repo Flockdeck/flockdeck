@@ -1773,6 +1773,9 @@ func runSpawn(args []string) error {
 		started = append(started, "on branch", res.Branch)
 	}
 	fmt.Println(started...)
+	if res.UncommittedUnknown {
+		fmt.Println("your checkout was not read, because its config runs programs, so any uncommitted files in it are not known; they are not in this worktree")
+	}
 	if res.Uncommitted > 0 {
 		fmt.Printf("%d uncommitted files in your checkout are not in this worktree; commit them first if the helper needs them\n", res.Uncommitted)
 	}

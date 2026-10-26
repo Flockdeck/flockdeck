@@ -686,6 +686,7 @@ func (s *Server) installSpawnHandler() {
 		}
 		cwd := in.cwd
 		uncommitted := 0
+		uncommittedUnknown := false
 
 		// A helper in a role that works on its own branch gets a worktree and a
 		// branch unless it was told not to: two agents in one checkout are what
@@ -809,6 +810,7 @@ func (s *Server) installSpawnHandler() {
 			if autoTree {
 				st := gitx.StatusOf(cwd)
 				uncommitted = st.Dirty + st.Untracked
+				uncommittedUnknown = st.Unreadable
 			}
 			from := cwd
 			made, err := s.ws.PrepareWorktreeNew(cwd, req.Branch)
@@ -879,7 +881,7 @@ func (s *Server) installSpawnHandler() {
 		if r.err != nil {
 			return hooks.SpawnResult{}, cleanup(r.err)
 		}
-		res := hooks.SpawnResult{PaneID: r.id, Cwd: cwd, Role: req.Role, Branch: req.Branch, Uncommitted: uncommitted}
+		res := hooks.SpawnResult{PaneID: r.id, Cwd: cwd, Role: req.Role, Branch: req.Branch, Uncommitted: uncommitted, UncommittedUnknown: uncommittedUnknown}
 		if req.TaskID != "" {
 			// The helper is running already, so a task that cannot be given to it
 			// (the caller may not edit it) is said, not undone.

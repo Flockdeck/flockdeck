@@ -3,6 +3,7 @@ package gitx
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -35,6 +36,10 @@ type Status struct {
 	// Dirty counts tracked files with changes; Untracked counts new files.
 	Dirty     int
 	Untracked int
+	// Unreadable marks a checkout that was not read because its configuration names
+	// a program that comparing the working tree would run (see UnsafeReadConfig).
+	// Everything else is empty, so it is not a checkout with nothing changed.
+	Unreadable bool
 }
 
 // HasChanges reports whether anything is uncommitted.
@@ -46,7 +51,11 @@ func (s Status) HasChanges() bool { return s.Dirty > 0 || s.Untracked > 0 }
 // counts alongside the file entries, which avoids the several invocations the
 // same information would otherwise take.
 func StatusOf(dir string) Status {
-	st, _ := statusWithin(dir, commandTimeout)
+	st, err := statusWithin(dir, commandTimeout)
+	var unsafe *UnsafeReadConfigError
+	if errors.As(err, &unsafe) {
+		st.Unreadable = true
+	}
 	return st
 }
 

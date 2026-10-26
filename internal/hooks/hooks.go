@@ -1040,6 +1040,10 @@ type SpawnResult struct {
 	// helper was given a worktree by default. The worktree is cut from the parent's
 	// HEAD, so none of them are in it.
 	Uncommitted int `json:"uncommitted,omitempty"`
+	// UncommittedUnknown is set when the parent's checkout was not read, because its
+	// configuration names a program that reading it would run, so Uncommitted is not 0
+	// but not known.
+	UncommittedUnknown bool `json:"uncommittedUnknown,omitempty"`
 	// BatonID and BatonPath say which baton the helper was started from and
 	// where it is kept, when it was started from one, so the caller can read it
 	// with `flockdeck baton show`.
