@@ -31,7 +31,7 @@ today and not an error.
 | `changesGate` | `approveMerge`, `unapproveMerge`, `mergeBranch` and the `gate` of each branch. Without it `gate` is absent. |
 
 A cap is added to `api.caps` in the change that builds what it names.
-`changesTeam` came with API 1.5, the gate with 1.10. A window
+`changesTeam` came with API 1.5, the gate with 1.10, the merge codes `partlyUpdated` and `mergedNotRecorded` with 1.11. A window
 reached through the relay is sent none of the five (section 9).
 
 ## 2. Commands
