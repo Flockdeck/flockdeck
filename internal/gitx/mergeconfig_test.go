@@ -60,6 +60,25 @@ func TestARepositoryThatConfiguresAProgramIsNotMergedOrPredicted(t *testing.T) {
 			installLFSFilters(t, dir)
 			gitRun(t, dir, "config", "lfs.customtransfer.evil.path", "touch "+m)
 		},
+		"lfs extension smudge": func(t *testing.T, dir, m string) {
+			installLFSFilters(t, dir)
+			gitRun(t, dir, "config", "lfs.extension.evil.smudge", "touch "+m)
+		},
+		"lfs extension clean": func(t *testing.T, dir, m string) {
+			installLFSFilters(t, dir)
+			gitRun(t, dir, "config", "lfs.extension.evil.clean", "touch "+m)
+		},
+		"an lfs key nobody listed": func(t *testing.T, dir, m string) {
+			installLFSFilters(t, dir)
+			gitRun(t, dir, "config", "lfs.somethingnew", "touch "+m)
+		},
+		"ask pass": func(t *testing.T, dir, m string) {
+			installLFSFilters(t, dir)
+			gitRun(t, dir, "config", "core.askPass", "touch "+m)
+		},
+		"diff command": func(t *testing.T, dir, m string) {
+			gitRun(t, dir, "config", "diff.evil.command", "touch "+m)
+		},
 		"lfs standalone transfer agent": func(t *testing.T, dir, m string) {
 			installLFSFilters(t, dir)
 			gitRun(t, dir, "config", "lfs.standalonetransferagent", "evil")
@@ -116,6 +135,23 @@ func installLFSFilters(t *testing.T, dir string) {
 		"filter.lfs.process": "git-lfs filter-process",
 	} {
 		gitRun(t, dir, "config", k, v)
+	}
+}
+
+func TestTheDataKeysGitLFSWritesAreAllowed(t *testing.T) {
+	dir := newRepo(t)
+	installLFSFilters(t, dir)
+	for k, v := range map[string]string{
+		"lfs.repositoryformatversion": "0",
+		"lfs.url":                     "https://example.com/x.git/info/lfs",
+		"lfs.concurrenttransfers":     "3",
+		"lfs.https://example.com/x.git/info/lfs.access":      "basic",
+		"lfs.https://example.com/x.git/info/lfs.locksverify": "true",
+	} {
+		gitRun(t, dir, "config", k, v)
+	}
+	if err := UnsafeConfig(context.Background(), dir); err != nil {
+		t.Errorf("data keys of Git LFS: %v", err)
 	}
 }
 

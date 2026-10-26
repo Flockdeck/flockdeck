@@ -331,7 +331,7 @@ func (s *Server) changesMergeBranch(c *controlClient, cmd command) {
 		if r := gitx.NotCleanReason(err); r != "" {
 			why = r
 		}
-		changesRefuse(c, cmd, "notClean", "The checkout of "+changes.CleanText(b.Base, 200)+" cannot take a merge now: "+firstWords(why)+". Nothing was merged.")
+		changesRefuse(c, cmd, "notClean", "The checkout of "+changes.CleanText(b.Base, 200)+" cannot take a merge now: "+changes.CleanLine(why, 400)+". Nothing was merged.")
 		return
 	case errors.As(err, &partly):
 		changesRefuse(c, cmd, "badRequest", firstWords(partly.Error())+". Look at the checkout of "+changes.CleanText(b.Base, 200)+" before trying again.")

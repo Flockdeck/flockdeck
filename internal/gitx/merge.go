@@ -201,7 +201,7 @@ func MergeInto(ctx context.Context, dir, base, sha, message string) (string, err
 	if path, hidden, err := hiddenFromStatus(ctx, dir); err != nil {
 		return "", err
 	} else if hidden {
-		return "", notCleanBecause("the file " + strconv.Quote(path) + " is marked assume-unchanged or skip-worktree, which a sparse checkout does too, so a merge could overwrite it unseen")
+		return "", notCleanBecause("the file " + strconv.Quote(path) + " is marked assume-unchanged or skip-worktree (a sparse checkout does this too)")
 	}
 	if _, _, err := runCapture(ctx, commandTimeout, dir, "rev-parse", "--verify", "-q", sha+"^{commit}"); err != nil {
 		return "", errors.New("the commit is not in the repository")

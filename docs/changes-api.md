@@ -446,10 +446,11 @@ What runs during a merge is git and nothing the repository adds. The repository'
 hooks do not run, and the merge commit is not signed. A repository whose own
 configuration (`.git/config`, and the worktree's `config.worktree`) names a merge
 driver, a `clean`, `smudge` or `process` filter other than Git LFS's own commands,
-a signing program (`gpg.program` and its variants), an `include`, a diff `textconv`
-or `diff.external`, or a setting that makes a download run a program of the
-repository's choosing (`lfs.customtransfer.*`, `lfs.standalonetransferagent`, a
-credential helper, `core.sshCommand`, `core.gitProxy`) is refused with
+a signing program (`gpg.program` and its variants), an `include`, a diff `textconv`,
+`command` or `external`, or a setting that makes a download run a program of the
+repository's choosing (any `lfs.*` key other than the plain data ones Git LFS writes,
+such as `lfs.url`, a credential helper, `core.askPass`, `core.sshCommand`,
+`core.gitProxy`) is refused with
 `notClean`, and the same check keeps `gate` from asking git whether the branch
 merges, so the conflict blocker is then not worked out. This is a list of the keys known to run a program, not a guarantee that no other
 does, and it is checked at one moment: an agent running as the user can write the

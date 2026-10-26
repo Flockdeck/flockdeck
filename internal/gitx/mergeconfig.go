@@ -3,6 +3,7 @@ package gitx
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 )
 
@@ -13,8 +14,8 @@ import (
 // content conflict, a clean, smudge or process filter when a file is written, and a
 // signing program when a commit is made. Git LFS's filter is let through, but not
 // the settings that make it run a program of the repository's choosing while it
-// downloads (a custom transfer agent, a credential helper, an ssh or proxy command). Hooks are turned off for every command
-// (see configFor). These are refused before a merge is made or predicted.
+// downloads (any lfs.* key but plain data, a credential helper, an ask-pass, an ssh
+// or proxy command). Hooks are turned off for every command (see configFor). These are refused before a merge is made or predicted.
 //
 // The person's own configuration, global and system, is not looked at: it is theirs.
 
@@ -22,7 +23,13 @@ import (
 // It is a list of the keys known to do this, not a guarantee that no other does.
 // The match is git's own (an extended regular expression over the lower-cased
 // section and variable names).
-const unsafeConfigKeys = `^(merge\..*\.driver|filter\..*\.(smudge|clean|process)|gpg\..*program|include.*|lfs\.customtransfer\..*|lfs\.standalonetransferagent|credential\..*helper|core\.sshcommand|core\.gitproxy|diff\..*\.textconv|diff\.external)$`
+const unsafeConfigKeys = `^(merge\..*\.driver|filter\..*\.(smudge|clean|process)|gpg\..*program|include.*|lfs\..*|credential\..*helper|core\.(sshcommand|gitproxy|askpass)|diff\..*\.(textconv|command)|diff\.external)$`
+
+// lfsData are the keys of Git LFS that are only data, which Git LFS and `git lfs
+// install --local` write. The filter is let through, so every other lfs.* key is
+// refused: an extension, a custom transfer agent or anything added later runs a
+// program, and an unknown key fails closed.
+var lfsData = regexp.MustCompile(`^lfs\.(repositoryformatversion|url|pushurl|concurrenttransfers|fetchinclude|fetchexclude|locksverify|setlockablereadonly|activitytimeout|dialtimeout|keepalive|tlstimeout|.*\.(access|locksverify))$`)
 
 // UnsafeConfigError says which setting of the repository's own configuration would
 // run a program during a merge.
@@ -51,6 +58,9 @@ func UnsafeConfig(ctx context.Context, dir string) error {
 				continue
 			}
 			if strings.HasPrefix(key, "filter.") && StandardLFSFilter(key, strings.TrimSpace(value)) {
+				continue
+			}
+			if lfsData.MatchString(key) {
 				continue
 			}
 			return &UnsafeConfigError{Key: key}
