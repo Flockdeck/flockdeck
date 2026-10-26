@@ -312,9 +312,18 @@ func SideLines(ctx context.Context, cwd, rev, path string) (lines int, exists bo
 	if err != nil {
 		return 0, false, err
 	}
-	// "<mode> blob <id> TAB <path>"; a directory or a submodule is not a file to count.
-	meta, _, _ := strings.Cut(listed, "\t")
-	if f := strings.Fields(meta); len(f) < 3 || f[1] != "blob" {
+	// Entries are "<mode> <type> <id> TAB <path>" ended by a NUL. Only an entry for
+	// exactly this path that is a blob is a file to count: a pathspec such as "." or
+	// a directory lists other entries.
+	isBlob := false
+	for _, entry := range strings.Split(listed, "\x00") {
+		meta, name, found := strings.Cut(entry, "\t")
+		if f := strings.Fields(meta); found && name == path && len(f) >= 3 && f[1] == "blob" {
+			isBlob = true
+			break
+		}
+	}
+	if !isBlob {
 		return 0, false, nil
 	}
 	out, err := git(ctx, cwd, "cat-file", "blob", rev+":"+path)
