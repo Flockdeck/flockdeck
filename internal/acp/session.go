@@ -212,6 +212,10 @@ type AgentCapabilities struct {
 	// List, Resume and Fork are the session capabilities (sessionCapabilities in
 	// the schema): the agent has the method when the key is present.
 	List, Resume, Fork bool
+	// Rewind says the agent is one of Flockdeck's own adapters and has the
+	// extension in rewind.go: it names the turns of a session by a token the
+	// client sends, can truncate a session to a turn, and can fork one at a turn.
+	Rewind bool
 
 	Raw json.RawMessage
 }
@@ -223,6 +227,7 @@ func parseCapabilities(raw json.RawMessage) AgentCapabilities {
 		PromptCapabilities PromptCapabilities `json:"promptCapabilities"`
 		MCPCapabilities    MCPCapabilities    `json:"mcpCapabilities"`
 		SessionCaps        map[string]any     `json:"sessionCapabilities"`
+		Meta               map[string]any     `json:"_meta"`
 	}
 	// Fields of the wrong type are skipped one by one, as with updates.
 	_ = json.Unmarshal(raw, &w)
@@ -230,6 +235,10 @@ func parseCapabilities(raw json.RawMessage) AgentCapabilities {
 	_, c.List = w.SessionCaps["list"]
 	_, c.Resume = w.SessionCaps["resume"]
 	_, c.Fork = w.SessionCaps["fork"]
+	if ext, ok := w.Meta[ExtKey].(map[string]any); ok {
+		v, _ := ext["rewind"].(float64)
+		c.Rewind = v == ExtVersion
+	}
 	return c
 }
 

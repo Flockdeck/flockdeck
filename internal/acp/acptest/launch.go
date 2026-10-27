@@ -264,3 +264,6 @@ func WithSignIn(mode, url string) Option {
 		}
 	}
 }
+
+// WithRewind gives the agent the rewind extension and session/fork (rewind.go).
+func WithRewind() Option { return withSession("rewind") }

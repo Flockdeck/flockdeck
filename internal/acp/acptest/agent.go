@@ -193,6 +193,8 @@ type agent struct {
 	// chosen holds the settings the client changed, by "mode", "model", "fast"
 	// and so on; the session shape reports them as current.
 	chosen map[string]string
+	// turnTokens are the turn tokens prompts carried, oldest first (rewind.go).
+	turnTokens []string
 }
 
 func newAgent() *agent {
@@ -341,6 +343,7 @@ func (a *agent) handle(m msg) {
 			}
 			caps["sessionCapabilities"] = sc
 		}
+		a.rewindCaps(caps)
 		res := map[string]any{
 			"protocolVersion":   1,
 			"agentCapabilities": caps,
@@ -427,6 +430,8 @@ func (a *agent) handle(m msg) {
 		a.result(m.ID, res)
 	case m.Method == "session/load" || m.Method == "session/resume":
 		a.reopen(m)
+	case a.hasSessionOpt("rewind") && (m.Method == "session/fork" || m.Method == "_flockdeck/rewind" || m.Method == "_flockdeck/forkpoint"):
+		a.rewindCall(m)
 	case m.Method == "session/cancel":
 		select {
 		case a.cancels <- struct{}{}:
@@ -766,6 +771,7 @@ func (a *agent) prompt(id, params json.RawMessage, n int) {
 		} `json:"prompt"`
 	}
 	_ = json.Unmarshal(params, &p)
+	a.noteTurn(params)
 	sid, ask := p.SessionID, ""
 	var blocks []string
 	for _, b := range p.Prompt {
@@ -801,6 +807,10 @@ func (a *agent) prompt(id, params json.RawMessage, n int) {
 
 	case "whoami":
 		a.chunk(sid, "session="+sid)
+		done("end_turn")
+
+	case "turns":
+		a.chunk(sid, "turns="+a.turnList())
 		done("end_turn")
 
 	case "plain":
