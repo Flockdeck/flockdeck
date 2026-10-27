@@ -23,6 +23,6 @@ So nothing in flockdeck-remote has to change before these fields are removed. Th
 
 A removal is a change that raises `api.major` in `catalog.json`, deletes the field from the schema and `docs/team-graph.md`, regenerates the golden file, and removes the entry from `deprecatedFields` in `internal/server/apiversion.go`. `TestDeprecatedFieldsAreStillSent` fails until the entry is removed, which is the point.
 
-## Removed in 1.13
+## Removed in 1.14
 
-The command `setAgentAddress` and the message `agentAddress` were removed in 1.13 together with the API agents (Anthropic, OpenAI, Google and OpenAI-compatible) and the address fields of the agent list. The per-token model prices in the agent list went too. This was a minor bump, not a major one, because nothing but the settings picker in the desktop interface sent or read them. A server answers `setAgentAddress` as `unsupported`, like any command it has no handler for. A client that still sends it gets that answer and should stop.
+The command `setAgentAddress` and the message `agentAddress` were removed in 1.14 together with the API agents (Anthropic, OpenAI, Google and OpenAI-compatible) and the address fields of the agent list. The per-token model prices in the agent list went too. This was a minor bump, not a major one, because nothing but the settings picker in the desktop interface sent or read them. A server answers `setAgentAddress` as `unsupported`, like any command it has no handler for. A client that still sends it gets that answer and should stop.
