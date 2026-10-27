@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -133,7 +134,7 @@ func TestFilesCandidatesWithATraversalAreRefused(t *testing.T) {
 	if err != nil {
 		t.Skip("no relative path on this volume")
 	}
-	got, _ := pickFiles(dir, []string{filepath.ToSlash(rel), "../x.txt", "a/../../x.txt", "/etc/passwd", "C:/Windows/win.ini", `a\..\x`, "a//b", "./ok.txt", "ok.txt"}, "")
+	got, _ := pickFiles(context.Background(), dir, []string{filepath.ToSlash(rel), "../x.txt", "a/../../x.txt", "/etc/passwd", "C:/Windows/win.ini", `a\..\x`, "a//b", "./ok.txt", "ok.txt"}, "")
 	if !slices.Equal(got, []string{"ok.txt"}) {
 		t.Errorf("got %v", got)
 	}
@@ -257,5 +258,50 @@ func TestStructuredFilesAreRateLimited(t *testing.T) {
 	}
 	if last.Error != structuredFilesBusy {
 		t.Errorf("the last answer: %+v", last)
+	}
+}
+
+func TestFilesNamesWithAColonOrADeviceNameAreRefused(t *testing.T) {
+	for _, bad := range []string{"a:b", "dir/file.txt:stream", "CON", "con.txt", "dir/NUL", "dir/aux.tar.gz", "COM1", "lpt9.log", "Com5.x", "name.", "dir/name ", "dir./x", "CONIN$", "nul .txt"} {
+		if plainPath(bad) {
+			t.Errorf("%q is plain", bad)
+		}
+	}
+	for _, ok := range []string{"console.go", "COM10", "COM0", "lpt.go", "com.go", "a.b/c", "auxiliary.txt"} {
+		if !plainPath(ok) {
+			t.Errorf("%q was refused", ok)
+		}
+	}
+}
+
+func TestFilesAPickWithACancelledContextStopsAtOnce(t *testing.T) {
+	cands := make([]string, 100000)
+	for i := range cands {
+		cands[i] = fmt.Sprintf("d/f%06d.txt", i)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	got, cut := pickFiles(ctx, t.TempDir(), cands, "f")
+	if len(got) != 0 || !cut {
+		t.Errorf("%d names, cut %v", len(got), cut)
+	}
+}
+
+func TestFilesAMatchLateInAHugeListIsFound(t *testing.T) {
+	dir := t.TempDir()
+	writeTree(t, dir, "zz/needle_target.txt")
+	cands := make([]string, 0, 60001)
+	for i := 0; i < 60000; i++ {
+		cands = append(cands, fmt.Sprintf("src/file%06d.go", i))
+	}
+	cands = append(cands, "zz/needle_target.txt")
+	got, _ := pickFiles(context.Background(), dir, cands, "needle")
+	if !slices.Equal(got, []string{"zz/needle_target.txt"}) {
+		t.Errorf("got %v", got)
+	}
+	// Matches past the collection bound are said to be cut, and no more than the answer's limit is returned.
+	got, cut := pickFiles(context.Background(), dir, cands, "file")
+	if len(got) > structuredFilesMax || !cut {
+		t.Errorf("%d names, cut %v", len(got), cut)
 	}
 }

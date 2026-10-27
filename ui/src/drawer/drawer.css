@@ -279,6 +279,7 @@
 .structured-prompt { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; }
 .structured-input { flex: 1 1 240px; resize: vertical; font: inherit; color: var(--fg); background: var(--bg-inset); border: 1px solid var(--line-strong); border-radius: var(--radius); padding: 6px 8px; }
 .structured-input::placeholder { color: var(--fg-dim); }
+.mention-note { flex: 1 0 100%; margin: 0; }
 .mention-path { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .structured-attach { flex: none; }
 .slash-menu { flex: 1 0 100%; margin: 0; padding: 4px; list-style: none; max-height: 220px; overflow-y: auto; background: var(--bg-inset); border: 1px solid var(--line-strong); border-radius: var(--radius); }

@@ -4,16 +4,25 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { render } from "../src/vendor/preact.mjs";
 import { html } from "../src/html.js";
-import { Structured, FILES_DELAY_MS, IMAGE_UNSUPPORTED_WORDS, IMAGE_WAITING_WORDS } from "../src/drawer/Structured.js";
+import { Structured, FILES_DELAY_MS, SAVE_DELAY_MS, IMAGE_UNSUPPORTED_WORDS, IMAGE_WAITING_WORDS } from "../src/drawer/Structured.js";
 import {
   sendKey, rowsFor, ROWS_MAX, pushHistory, HISTORY_MAX, ENTRY_MAX, DRAFT_MAX, PANES_MAX, recall, NO_RECALL,
-  onFirstLine, onLastLine, mentionAt, mentionText, insertMention, cleanFiles, loadComposer, saveComposer, forgetComposerMemory,
+  onFirstLine, onLastLine, mentionAt, mentionText, insertMention, cleanFiles, loadComposer, saveComposer, pruneComposer, forgetComposerMemory,
 } from "../src/drawer/composerModel.js";
-import { planImage, imageName, attachNote, pickImages, prepareImage, SEND_MAX, SOURCE_MAX, ImageError } from "../src/drawer/imageAttach.js";
+import { sizeOf, tooBig, DIM_REFUSE, planImage, imageName, attachNote, pickImages, prepareImage, SEND_MAX, SOURCE_MAX, ImageError } from "../src/drawer/imageAttach.js";
 import { createDom, install, settle } from "./dom.mjs";
 import { fakeStore } from "./termfakes.mjs";
 
 // ---------------------------------------------------------------- the model
+
+// A PNG header that declares w by h, which is all sizeOf reads.
+function pngHead(w, h) {
+  const b = new Uint8Array(33);
+  b.set([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52]);
+  new DataView(b.buffer).setUint32(16, w);
+  new DataView(b.buffer).setUint32(20, h);
+  return b.buffer;
+}
 
 test("Enter and Ctrl+Enter send, Shift+Enter is a new line, and a composing key is not taken", () => {
   assert.equal(sendKey({ key: "Enter" }), "send");
@@ -182,14 +191,14 @@ test("pictures: the type and size decide the route, and names are cut to a file 
   assert.deepEqual(pickImages(null), []);
   const small = { type: "image/png", size: 3, name: "s.png", arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer };
   assert.deepEqual(await prepareImage(small, null), { name: "s.png", mediaType: "image/png", data: "AQID" });
-  await assert.rejects(prepareImage({ type: "image/png", size: SEND_MAX + 1, name: "big.png" }, null), ImageError);
+  await assert.rejects(prepareImage({ type: "image/png", size: SEND_MAX + 1, name: "big.png", arrayBuffer: async () => pngHead(4000, 3000) }, null), ImageError);
   await assert.rejects(prepareImage({ type: "application/pdf", size: 5, name: "x" }, null), ImageError);
   // A large one is scaled down by the browser's own calls; a result still too large is refused.
   const env = (size) => ({
     createImageBitmap: async () => ({ width: 4000, height: 3000, close() {} }),
     makeCanvas: () => ({ draw() {}, toBlob: async () => ({ size, arrayBuffer: async () => new Uint8Array(size).buffer }) }),
   });
-  const big = { type: "image/png", size: SEND_MAX + 1, name: "big.png" };
+  const big = { type: "image/png", size: SEND_MAX + 1, name: "big.png", arrayBuffer: async () => pngHead(4000, 3000) };
   assert.equal((await prepareImage(big, env(10))).mediaType, "image/jpeg");
   await assert.rejects(prepareImage(big, env(SEND_MAX + 1)), ImageError);
 });
@@ -423,7 +432,8 @@ test("a refusal or an error from the desk is said in the list and the box still 
     m.box().enter("@z");
     await m.wait(FILES_DELAY_MS + 80);
     await m.set({ files: files(lastAsk(m).req, [], { error: "The pane's directory could not be read" }) });
-    assert.match(m.container.find(".mention-menu").textContent, /directory could not be read/);
+    assert.match(m.container.find(".mention-note").textContent, /directory could not be read/);
+    assert.equal(m.container.find(".mention-menu"), null, "an empty list was drawn");
     m.box().keydown("Enter");
     assert.deepEqual(sentTexts(m), ["@z"]);
   } finally {
@@ -513,4 +523,110 @@ test("a picture the desk refuses, one that is not a picture and a dropped one ar
   } finally {
     await m.done();
   }
+});
+
+test("a picture whose header declares too many pixels is refused before anything decodes it", async () => {
+  assert.deepEqual(sizeOf(pngHead(640, 480)), { w: 640, h: 480 });
+  assert.deepEqual(sizeOf(new Uint8Array([0x47, 0x49, 0x46, 0x38, 0x39, 0x61, 0x40, 0x01, 0xf0, 0x00])), { w: 320, h: 240 });
+  assert.deepEqual(sizeOf(new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 0, 4, 0, 0, 0xff, 0xc0, 0, 11, 8, 0x01, 0xe0, 0x02, 0x80, 3])), { w: 640, h: 480 });
+  const webp = new Uint8Array(30);
+  webp.set([0x52, 0x49, 0x46, 0x46, 0, 0, 0, 0, 0x57, 0x45, 0x42, 0x50, 0x56, 0x50, 0x38, 0x58]);
+  webp.set([0x0f, 0x27, 0x00, 0x1f, 0x4e, 0x00], 24);
+  assert.deepEqual(sizeOf(webp), { w: 10000, h: 20000 });
+  assert.equal(sizeOf(new Uint8Array([1, 2, 3])), null);
+  assert.equal(tooBig({ w: DIM_REFUSE + 1, h: 10 }), true);
+  assert.equal(tooBig({ w: 7000, h: 7000 }), true, "49 megapixels");
+  assert.equal(tooBig({ w: 6000, h: 6000 }), false);
+  assert.equal(tooBig({ w: 0, h: 5 }), true);
+  let decoded = 0;
+  const env = { createImageBitmap: async () => { decoded++; return { width: 1, height: 1 }; }, makeCanvas: () => { throw new Error("drawn"); } };
+  const file = (w, h, size) => ({ type: "image/png", size, name: "x.png", arrayBuffer: async () => pngHead(w, h), slice() { return this; } });
+  await assert.rejects(prepareImage(file(30000, 30000, SEND_MAX + 1), env), /too many pixels/);
+  await assert.rejects(prepareImage(file(30000, 30000, 100), env), /too many pixels/, "a small file declaring a huge picture");
+  assert.equal(decoded, 0, "a picture was decoded before its size was checked");
+  await assert.rejects(prepareImage({ type: "image/png", size: SEND_MAX + 1, name: "y", arrayBuffer: async () => new Uint8Array(40).buffer }, env), /size could not be read/);
+});
+
+test("Enter sends while the list is open until a name is chosen with an arrow key; Tab takes the highlighted name", async () => {
+  const m = await mount();
+  try {
+    m.box().enter("see @ma");
+    await m.wait(FILES_DELAY_MS + 80);
+    await m.set({ files: files(lastAsk(m).req, ["main.go", "make.go"]) });
+    assert.deepEqual(names(m), ["main.go", "make.go"]);
+    assert.equal(m.container.find(".mention-menu").childNodes.every((c) => c.getAttribute("role") === "option"), true, "something other than an option is in the listbox");
+    assert.equal(m.box().keydown("Tab").defaultPrevented, true);
+    await settle();
+    assert.equal(m.box().value, "see @main.go ");
+    // Without a choice Enter sends the prompt as it stands.
+    m.box().enter("fix @ma");
+    await m.wait(FILES_DELAY_MS + 80);
+    await m.set({ files: files(lastAsk(m).req, ["main.go"]) });
+    assert.deepEqual(names(m), ["main.go"]);
+    assert.equal(m.box().keydown("Enter").defaultPrevented, true);
+    assert.deepEqual(sentTexts(m), ["fix @ma"]);
+  } finally {
+    await m.done();
+  }
+});
+
+test("in the wait after a keystroke the previous word's list is not shown and cannot be chosen from", async () => {
+  const m = await mount();
+  try {
+    m.box().enter("@m");
+    await m.wait(FILES_DELAY_MS + 80);
+    await m.set({ files: files(lastAsk(m).req, ["main.go"]) });
+    assert.deepEqual(names(m), ["main.go"]);
+    m.box().enter("@ma");
+    await settle();
+    assert.deepEqual(names(m), [], "the list of the old word stayed");
+    assert.equal(m.box().keydown("Tab").defaultPrevented, false);
+    assert.equal(m.box().value, "@ma");
+    // The reply to the old ask does not turn up for the new word either.
+    await m.wait(FILES_DELAY_MS + 80);
+    assert.deepEqual(names(m), []);
+    await m.set({ files: files(lastAsk(m).req, ["make.go"]) });
+    assert.deepEqual(names(m), ["make.go"]);
+  } finally {
+    await m.done();
+  }
+});
+
+test("the draft is written to storage once after typing stops, and when the box goes away", async () => {
+  const writes = [];
+  const data = new Map();
+  globalThis.localStorage = { getItem: (k) => data.get(k) ?? null, setItem: (k, v) => { if (k.includes(":p3")) writes.push(v); data.set(k, v); }, removeItem: (k) => data.delete(k) };
+  try {
+    let m = await mount();
+    for (const t of ["a", "ab", "abc", "abcd"]) {
+      m.box().enter(t);
+      await settle();
+    }
+    assert.equal(writes.length, 0, "written on each keystroke");
+    await m.wait(SAVE_DELAY_MS + 100);
+    assert.equal(writes.length, 1);
+    assert.equal(JSON.parse(writes[0]).draft, "abcd");
+    m.box().enter("abcde");
+    await settle();
+    await m.done();
+    assert.equal(JSON.parse(writes[writes.length - 1]).draft, "abcde", "the draft in the box was lost when it went away");
+  } finally {
+    delete globalThis.localStorage;
+  }
+});
+
+test("what is kept for a pane that is no longer open is dropped when the box opens", async () => {
+  const data = new Map();
+  const storage = { getItem: (k) => data.get(k) ?? null, setItem: (k, v) => { data.set(k, v); }, removeItem: (k) => data.delete(k) };
+  forgetComposerMemory();
+  saveComposer("gone", { draft: "old", history: ["x"] }, storage);
+  saveComposer("p3", { draft: "mine", history: [] }, storage);
+  pruneComposer([], storage);
+  assert.equal(data.has("flockdeck.composer.v1:gone"), true, "an empty list of panes pruned everything");
+  pruneComposer(["p3", "other"], storage);
+  assert.equal(data.has("flockdeck.composer.v1:gone"), false);
+  assert.equal(data.has("flockdeck.composer.v1:p3"), true);
+  forgetComposerMemory();
+  assert.equal(loadComposer("gone", storage).draft, "");
+  assert.equal(loadComposer("p3", storage).draft, "mine");
 });

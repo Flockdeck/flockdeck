@@ -45,7 +45,10 @@ const (
 
 // structuredFilesScanMax is how many entries are looked at, from git or from a
 // walk. A variable so a test can lower it.
-var structuredFilesScanMax = 50000
+var structuredFilesScanMax = 200000
+
+// structuredFilesHitsMax is how many matches are collected to be ranked before the scan stops.
+const structuredFilesHitsMax = 500
 
 // structuredFilesMsg answers structuredFiles. Files are slash-separated paths
 // relative to the pane's directory, best match first. More says the list was
@@ -121,13 +124,14 @@ func listPaneFiles(dir, q string) ([]string, bool, error) {
 	if cands == nil {
 		cands, over = walkCandidates(ctx, root)
 	}
-	files, cut := pickFiles(root, cands, q)
+	files, cut := pickFiles(ctx, root, cands, q)
 	return files, over || cut, nil
 }
 
 // gitCandidates is the files git lists in root (tracked, and not ignored), or
 // nil when root is not in a working tree, git is missing or its list is too
-// large to hold. over says more than structuredFilesScanMax were listed.
+// large to hold. All of what git wrote (at most structuredFilesGitBytes) is returned, so the query is
+// applied to every name and a file late in git's order is found.
 func gitCandidates(ctx context.Context, root string) ([]string, bool) {
 	if !gitx.Available() {
 		return nil, false
@@ -140,9 +144,6 @@ func gitCandidates(ctx context.Context, root string) ([]string, bool) {
 	for _, one := range strings.Split(out, "\x00") {
 		if one == "" {
 			continue
-		}
-		if len(list) == structuredFilesScanMax {
-			return list, true
 		}
 		list = append(list, one)
 	}
@@ -203,21 +204,30 @@ func walkCandidates(ctx context.Context, root string) ([]string, bool) {
 	return list, false
 }
 
-// pickFiles ranks the candidates that match q and returns the best
-// structuredFilesMax that are regular files inside root. cut says there were
-// more matches than that.
-func pickFiles(root string, cands []string, q string) ([]string, bool) {
+// pickFiles looks at every candidate, collects up to structuredFilesHitsMax that match q, ranks them
+// and returns the best structuredFilesMax that are regular files inside root. cut says there were more
+// matches than that or the context ended first.
+func pickFiles(ctx context.Context, root string, cands []string, q string) ([]string, bool) {
 	lq := strings.ToLower(q)
 	type hit struct {
 		path string
 		rank int
 	}
 	var hits []hit
-	for _, p := range cands {
+	cut := false
+	for i, p := range cands {
+		if i%256 == 0 && ctx.Err() != nil {
+			cut = true
+			break
+		}
 		if !plainPath(p) {
 			continue
 		}
 		if r, ok := rankPath(strings.ToLower(p), lq); ok {
+			if len(hits) == structuredFilesHitsMax {
+				cut = true
+				break
+			}
 			hits = append(hits, hit{p, r})
 		}
 	}
@@ -236,11 +246,14 @@ func pickFiles(root string, cands []string, q string) ([]string, bool) {
 		if len(out) == structuredFilesMax {
 			return out, true
 		}
+		if ctx.Err() != nil {
+			return out, true
+		}
 		if insideRegular(root, h.path) {
 			out = append(out, h.path)
 		}
 	}
-	return out, false
+	return out, cut
 }
 
 // plainPath says a name is one a window may be sent as text: relative, with no
@@ -249,18 +262,33 @@ func plainPath(p string) bool {
 	if p == "" || len(p) > structuredFilesPathMax || !utf8.ValidString(p) {
 		return false
 	}
-	if strings.HasPrefix(p, "/") || strings.Contains(p, `\`) || filepath.VolumeName(p) != "" {
+	if strings.HasPrefix(p, "/") || strings.ContainsAny(p, `\:`) || filepath.VolumeName(p) != "" {
 		return false
 	}
 	if strings.IndexFunc(p, unicode.IsControl) >= 0 {
 		return false
 	}
 	for _, el := range strings.Split(p, "/") {
-		if el == "" || el == "." || el == ".." {
+		if el == "" || el == "." || el == ".." || strings.HasSuffix(el, ".") || strings.HasSuffix(el, " ") || reservedName(el) {
 			return false
 		}
 	}
 	return true
+}
+
+// reservedName says el is a name Windows treats as a device, with or without an extension. The names are
+// refused on every system, so a listing made on one is safe to use on another.
+func reservedName(el string) bool {
+	base := strings.ToUpper(el)
+	if i := strings.IndexByte(base, '.'); i >= 0 {
+		base = base[:i]
+	}
+	base = strings.TrimRight(base, " ")
+	switch base {
+	case "CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$":
+		return true
+	}
+	return len(base) == 4 && (strings.HasPrefix(base, "COM") || strings.HasPrefix(base, "LPT")) && base[3] >= '1' && base[3] <= '9'
 }
 
 // rankPath scores a lower-cased path against a lower-cased query: 0 when the

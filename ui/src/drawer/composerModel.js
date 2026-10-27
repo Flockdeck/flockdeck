@@ -191,6 +191,22 @@ export function saveComposer(pane, rec, storage = defaultStorage()) {
   });
 }
 
+/** pruneComposer drops what is kept for the panes not in live (the ids of the panes that are open),
+ *  from memory and from storage. A call with no panes does nothing, so a window that has not been told
+ *  its panes yet keeps everything. */
+export function pruneComposer(live, storage = defaultStorage()) {
+  if (!Array.isArray(live) || live.length === 0) return;
+  const open = new Set(live);
+  for (const pane of [...memory.keys()]) if (!open.has(pane)) memory.delete(pane);
+  if (!storage) return;
+  guarded(() => {
+    const order = guarded(() => JSON.parse(storage.getItem(INDEX) || "[]"), []);
+    const kept = (Array.isArray(order) ? order : []).filter((p) => okPane(p) && open.has(p));
+    for (const p of Array.isArray(order) ? order : []) if (typeof p === "string" && !open.has(p)) storage.removeItem(PREFIX + p);
+    storage.setItem(INDEX, JSON.stringify(kept));
+  });
+}
+
 /** forgetComposerMemory empties what is held in memory; a test uses it to start from storage. */
 export function forgetComposerMemory() {
   memory.clear();

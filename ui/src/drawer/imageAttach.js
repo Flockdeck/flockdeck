@@ -15,6 +15,11 @@ export const SEND_MAX = 600 * 1024;
 /** SOURCE_MAX is the largest picture that is read at all. */
 export const SOURCE_MAX = 25 * 1024 * 1024;
 export const SIDE_MAX = 1600;
+/** DIM_REFUSE and PIXELS_REFUSE are the sides and the area, in pixels, above which a picture is refused before it is decoded: a
+ *  small file can declare a huge image, and decoding it takes memory in proportion to the pixels. */
+export const DIM_REFUSE = 8000;
+export const PIXELS_REFUSE = 40e6;
+export const HEAD_BYTES = 256 * 1024;
 export const NAME_MAX = 80;
 
 /** ImageError is a failure whose message is fit to show the person. Anything else that goes wrong is
@@ -27,6 +32,43 @@ export function planImage(type, size) {
   if (!IMAGE_TYPES.includes(type) || !Number.isFinite(size) || size <= 0 || size > SOURCE_MAX) return "refuse";
   return size <= SEND_MAX ? "send" : "scale";
 }
+
+/** sizeOf reads the width and height a picture declares in its header: { w, h }, or null when the
+ *  bytes are not a header of PNG, GIF, JPEG or WebP this can read. It looks at the bytes, not at the
+ *  type the browser reported. */
+export function sizeOf(bytes) {
+  const b = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  const u16 = (i) => (b[i] << 8) | b[i + 1];
+  const u32 = (i) => ((b[i] * 0x1000000) + (b[i + 1] << 16) + (b[i + 2] << 8) + b[i + 3]);
+  const ascii = (i, n) => String.fromCharCode(...b.subarray(i, i + n));
+  if (b.length >= 24 && b[0] === 0x89 && ascii(1, 3) === "PNG") return { w: u32(16), h: u32(20) };
+  if (b.length >= 10 && ascii(0, 3) === "GIF") return { w: b[6] | (b[7] << 8), h: b[8] | (b[9] << 8) };
+  if (b.length >= 30 && ascii(0, 4) === "RIFF" && ascii(8, 4) === "WEBP") {
+    const kind = ascii(12, 4);
+    if (kind === "VP8X") return { w: 1 + (b[24] | (b[25] << 8) | (b[26] << 16)), h: 1 + (b[27] | (b[28] << 8) | (b[29] << 16)) };
+    if (kind === "VP8L") {
+      const v = b[21] | (b[22] << 8) | (b[23] << 16) | (b[24] * 0x1000000);
+      return { w: 1 + (v & 0x3fff), h: 1 + ((v >>> 14) & 0x3fff) };
+    }
+    if (kind === "VP8 ") return { w: (b[26] | (b[27] << 8)) & 0x3fff, h: (b[28] | (b[29] << 8)) & 0x3fff };
+    return null;
+  }
+  if (b.length >= 4 && b[0] === 0xff && b[1] === 0xd8) {
+    let i = 2;
+    while (i + 9 < b.length) {
+      if (b[i] !== 0xff) { i++; continue; }
+      const m = b[i + 1];
+      if (m === 0xff) { i++; continue; }
+      if (m >= 0xc0 && m <= 0xcf && m !== 0xc4 && m !== 0xc8 && m !== 0xcc) return { w: u16(i + 7), h: u16(i + 5) };
+      if (m === 0xd8 || (m >= 0xd0 && m <= 0xd7) || m === 0x01) { i += 2; continue; }
+      i += 2 + u16(i + 2);
+    }
+  }
+  return null;
+}
+
+/** tooBig says a declared size is past what is decoded. */
+export const tooBig = (d) => d.w < 1 || d.h < 1 || d.w > DIM_REFUSE || d.h > DIM_REFUSE || d.w * d.h > PIXELS_REFUSE;
 
 /** imageName is a short name for the saved file: the picture's own name cut to NAME_MAX characters
  *  without path parts or control characters, or "image" when it has none. */
@@ -79,7 +121,12 @@ export async function prepareImage(file, env = browserEnv()) {
   if (plan === "refuse") throw new ImageError("That is not a picture the agent can take");
   let blob = file;
   let mediaType = file.type;
+  // The header says how many pixels there are; look before anything decodes the picture.
+  const head = typeof file.slice === "function" ? file.slice(0, HEAD_BYTES) : file;
+  const dims = sizeOf(await head.arrayBuffer());
+  if (dims && tooBig(dims)) throw new ImageError("That picture is too many pixels to attach");
   if (plan === "scale") {
+    if (!dims) throw new ImageError("That picture's size could not be read");
     if (!env || !env.createImageBitmap) throw new ImageError("This window cannot scale a large picture down");
     blob = await scaled(file, env);
     mediaType = "image/jpeg";

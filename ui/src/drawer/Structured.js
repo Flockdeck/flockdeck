@@ -41,8 +41,10 @@
 //   draft and the last 50 prompts are kept per pane in this window's storage, so they survive a
 //   switch of tab. A prompt over 8 KiB is sent but not kept.
 // - "@" after white space opens a list of file names under the pane's directory (structuredFiles,
-//   which reads names only and honours .gitignore). Choosing one writes "@path" into the text; the
-//   file is not read here. A window reached through the relay has no list.
+//   which reads names only and honours .gitignore). The list is shown only for the word as it stands
+//   (the reply to the ask made for it). Tab takes the highlighted name; Enter takes one only after an
+//   arrow key or the mouse has chosen it, and otherwise sends. Choosing one writes "@path" into the
+//   text; the file is not read here. A window reached through the relay has no list.
 // - When the agent takes images (capabilities.image of the push), a picture pasted, dropped or chosen
 //   with Attach image is saved by the desktop (attachImage) and its path goes into the text as
 //   "[image: path]", for the agent to read. One picture at a time is in flight.
@@ -58,7 +60,7 @@ import { Conversation } from "./Conversation.js";
 import { Icon, toolKind } from "./conv/rows.js";
 import { menuOf, flatten, insertText, keyOf, selectedIndex, OWN_COMMANDS } from "./slashModel.js";
 import { controlsOf, controlFor, setMessage, ownCommandsFor, parseSetting } from "./settingsModel.js";
-import { sendKey, rowsFor, pushHistory, recall, NO_RECALL, onFirstLine, onLastLine, mentionAt, insertMention, cleanFiles, loadComposer, saveComposer } from "./composerModel.js";
+import { sendKey, rowsFor, pushHistory, recall, NO_RECALL, onFirstLine, onLastLine, mentionAt, insertMention, cleanFiles, loadComposer, saveComposer, pruneComposer } from "./composerModel.js";
 import { prepareImage, pickImages, attachNote, ImageError, IMAGE_TYPES } from "./imageAttach.js";
 
 /** SEND_NOT_SENT_WORDS is what the prompt box says when the store did not send the text; the draft stays. */
@@ -73,6 +75,8 @@ let filesSeq = 0;
 export const FILES_DELAY_MS = 120;
 /** ATTACH_WAIT_MS is how long a picture is waited for before the box takes another. */
 export const ATTACH_WAIT_MS = 15000;
+/** SAVE_DELAY_MS is how long the draft waits after the last change before it is written to storage. */
+export const SAVE_DELAY_MS = 300;
 export const IMAGE_NOT_SENT_WORDS = "Not connected to Flockdeck, so the picture was not sent.";
 export const IMAGE_WAITING_WORDS = "Wait for the first picture to attach.";
 export const IMAGE_FAILED_WORDS = "That picture could not be read.";
@@ -142,7 +146,7 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
   // The mention list: the key of the chosen name, the draft whose list was closed with Escape, and the names asked for.
   const [fileKey, setFileKey] = useState(null);
   const [filesClosedFor, setFilesClosedFor] = useState(null);
-  const askedFiles = useRef("");
+  const askedFiles = useRef({ req: "", q: null });
   // Pictures: the one in flight, what the last attempt said, and the newest result already handled.
   const [imageNote, setImageNote] = useState("");
   const attaching = useRef(false);
@@ -176,19 +180,41 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
     setDraft("");
     setMark(null);
   }, [taken, mark]);
+  // The draft is written 300 ms after the last change, and at once when the box goes away.
+  const unsaved = useRef(false);
+  const saveTimer = useRef(null);
+  const latest = useRef({ draft, pane });
+  latest.current = { draft, pane };
+  const flushSave = () => {
+    clearTimeout(saveTimer.current);
+    if (!unsaved.current) return;
+    unsaved.current = false;
+    saveComposer(latest.current.pane, { draft: latest.current.draft, history: history.current });
+  };
   useEffect(() => {
-    saveComposer(pane, { draft, history: history.current });
+    unsaved.current = true;
+    clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(flushSave, SAVE_DELAY_MS);
     // A draft the person has edited after recalling a prompt is no longer that recall.
     if (recalling.current.nav.at >= 0 && draft !== recalling.current.text) recalling.current = { nav: NO_RECALL, text: null };
   }, [draft, pane, taken]);
+  useEffect(() => flushSave, []);
+  // What is kept for a pane that is no longer open goes.
+  useEffect(() => {
+    const panes = snap && snap.state && snap.state.panes;
+    if (panes && typeof panes === "object" && Object.keys(panes).length) pruneComposer(Object.keys(panes));
+  }, []);
   const sendingNow = !!outcome && outcome.kind === "sending";
   const mention = desk && !sendingNow ? mentionAt(draft, caret === null ? draft.length : caret) : null;
   const mentionQuery = mention ? mention.query : null;
   useEffect(() => {
+    setFileKey(null);
+  }, [mentionQuery]);
+  useEffect(() => {
     if (!desk || mentionQuery === null) return;
     const t = setTimeout(() => {
       const req = "f" + ++filesSeq;
-      askedFiles.current = req;
+      askedFiles.current = { req, q: mentionQuery };
       store.send({ cmd: "structuredFiles", id: pane, q: mentionQuery, req });
     }, FILES_DELAY_MS);
     return () => clearTimeout(t);
@@ -311,7 +337,9 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
   };
   // The names the mention list shows: those of the reply to the latest ask, while the @ word is still being typed.
   const reply = snap ? snap.files : null;
-  const fresh = !!mention && !!reply && reply.id === pane && reply.req === askedFiles.current && reply.req !== "";
+  // Fresh: the reply to the ask made for the word as it stands. In the wait after a keystroke the list is
+  // the previous word's, so it is not shown and nothing from it can be chosen.
+  const fresh = !!mention && !!reply && reply.id === pane && reply.req !== "" && reply.req === askedFiles.current.req && askedFiles.current.q === mentionQuery;
   const filesOpen = !!mention && filesClosedFor !== draft;
   const names = filesOpen && fresh ? cleanFiles(reply.files) : [];
   const nameAt = names.length ? Math.max(0, names.indexOf(fileKey)) : -1;
@@ -363,7 +391,9 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
         const down = e.key === "ArrowDown";
         setFileKey(names[(nameAt + (down ? 1 : names.length - 1)) % names.length]);
         return;
-      } else if (((e.key === "Enter" && !e.shiftKey) || e.key === "Tab") && nameAt >= 0) {
+      } else if ((e.key === "Tab" && !e.shiftKey || e.key === "Enter" && !e.shiftKey && fileKey !== null) && nameAt >= 0) {
+        // Tab takes the highlighted name; Enter takes one only after an arrow key or the mouse chose it,
+        // so a prompt that ends in an @ word can be sent with Enter.
         e.preventDefault();
         pickName(names[nameAt]);
         return;
@@ -449,15 +479,15 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
                 </div>
                 <p class="sr-only" role="status">${items.length === 1 ? "1 command" : items.length + " commands"}</p>`
               : null}
-            ${names.length || (filesOpen && fresh && reply.error)
+            ${names.length
               ? html`<div class="slash-menu mention-menu" role="listbox" aria-label="Files" id=${"mention-" + pane}>
                   ${names.map((n, i) => html`<div id=${"mention-" + pane + "-" + i} role="option" class=${"slash-item" + (i === nameAt ? " slash-item--on" : "")} aria-selected=${i === nameAt ? "true" : "false"} data-mention=${n}
                     onMouseDown=${(e) => e.preventDefault()} onMouseEnter=${() => setFileKey(n)} onClick=${() => pickName(n)}><span class="slash-name mention-path" dir="auto">${n}</span></div>`)}
-                  ${reply.more ? html`<p class="slash-group">More files match. Type more of the name.</p>` : null}
-                  ${reply.error ? html`<p class="slash-group" role="status">${showControls(clip(String(reply.error), 200))}</p>` : null}
                 </div>
                 <p class="sr-only" role="status">${names.length === 1 ? "1 file" : names.length + " files"}</p>`
               : null}
+            ${filesOpen && fresh && reply.more ? html`<p class="slash-group mention-note">More files match. Type more of the name.</p>` : null}
+            ${filesOpen && fresh && reply.error ? html`<p class="slash-group mention-note" role="status">${showControls(clip(String(reply.error), 200))}</p>` : null}
             <textarea ref=${box} class="structured-input" aria-label="Message to the agent" placeholder="Enter sends, Shift+Enter adds a line" rows=${rowsFor(draft)} value=${draft}
               role=${menu || names.length ? "combobox" : undefined} aria-expanded=${menu || names.length ? "true" : undefined} aria-autocomplete=${menu || names.length ? "list" : undefined} aria-controls=${menu ? "slash-" + pane : names.length ? "mention-" + pane : undefined} aria-activedescendant=${menu && at >= 0 ? optId(at) : names.length ? "mention-" + pane + "-" + nameAt : undefined}
               onKeyDown=${onKey} onKeyUp=${(e) => setCaret(caretOf(e.target)[0])} onClick=${(e) => setCaret(caretOf(e.target)[0])}
