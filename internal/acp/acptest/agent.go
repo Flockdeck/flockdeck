@@ -810,6 +810,12 @@ func (a *agent) prompt(id, params json.RawMessage, n int) {
 			a.update(sid, map[string]any{"sessionUpdate": "tool_call_update", "toolCallId": "call-1", "status": "failed"})
 		}
 		a.chunk(sid, fmt.Sprintf("outcome=%s option=%s", o.Outcome.Outcome, o.Outcome.OptionID))
+		var withMeta struct {
+			Meta json.RawMessage `json:"_meta"`
+		}
+		if json.Unmarshal(raw, &withMeta) == nil && len(withMeta.Meta) > 0 {
+			a.chunk(sid, "meta="+string(withMeta.Meta))
+		}
 		if word == "perm-str" {
 			a.chunk(sid, "id-echo="+string(rid))
 		}
