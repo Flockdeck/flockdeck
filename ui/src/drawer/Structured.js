@@ -481,7 +481,7 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
         : null}
       <${Conversation} conv=${conv} onOlder=${onOlder} details=${details} onDetail=${onDetail} pending=${pending}
         search=${search} onSearch=${onSearch} onClearSearch=${onClearSearch} className="structured-log" />
-      ${desk ? html`<${QueueList} rows=${queue} pane=${pane} store=${store} result=${queueResult} working=${st.status === "working"} />` : null}
+      ${desk ? html`<${QueueList} rows=${queue} pane=${pane} store=${store} result=${queueResult} working=${st.status === "working"} focusBox=${() => box.current && box.current.focus && box.current.focus()} />` : null}
       ${desk
         ? html`<form class="structured-prompt" onSubmit=${submit}>
             ${menu

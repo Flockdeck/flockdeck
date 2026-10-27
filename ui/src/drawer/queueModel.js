@@ -11,7 +11,7 @@ export const QUEUE_TEXT_MAX = 2000;
 export const PEER_MAX = 100;
 
 const cutLine = (s, n) => {
-  const t = typeof s === "string" ? s.slice(0, n + 1).replace(/[\p{C}\s]+/gu, " ").trim() : "";
+  const t = typeof s === "string" ? s.slice(0, n + 1).replace(/\p{Cf}/gu, "").replace(/[\p{C}\s]+/gu, " ").trim() : "";
   const cps = Array.from(t);
   return cps.length > n ? cps.slice(0, n - 1).join("") + "…" : t;
 };
@@ -31,19 +31,25 @@ export function queueOf(st) {
   const seen = new Set();
   for (const q of list) {
     if (!q || !Number.isInteger(q.id) || q.id <= 0 || seen.has(q.id)) continue;
-    if (q.kind !== "user" && q.kind !== "mail") continue;
+    if (q.kind !== "user" && q.kind !== "mail" && q.kind !== "flockdeck") continue;
     seen.add(q.id);
     const mail = q.kind === "mail";
+    const system = q.kind === "flockdeck";
+    const own = q.kind === "user";
     const clipped = q.clipped === true;
     out.push({
       id: q.id,
       pos: out.length + 1,
       mail,
+      system,
       peer: mail ? cutLine(q.peer, PEER_MAX) : "",
+      // text is for drawing: whitespace folded and format characters removed. raw is what the push carried, the
+      // person's own text exactly, and is what an edit starts from, so saving it changes nothing the person typed.
       text: cutText(q.text, QUEUE_TEXT_MAX),
+      raw: own && typeof q.text === "string" ? q.text : "",
       clipped,
-      editable: !mail && !clipped,
-      removable: !mail,
+      editable: own && !clipped,
+      removable: own,
     });
   }
   return out;

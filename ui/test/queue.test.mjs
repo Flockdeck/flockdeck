@@ -269,3 +269,110 @@ test("Stop drops the queue as before, Stop and keep queue keeps it, and the pane
     await none.done();
   }
 });
+
+// ---------------------------------------------------------------- review fixes
+
+const RAW = "\tfunc() {\n    x  :=  1\n}\n\u{1F468}‍\u{1F469}‍\u{1F467} a‌b";
+
+test("an edit starts from the text the push carried, so saving it unchanged sends the same text", async () => {
+  const [r] = queueOf(push({ queue: [row(7, "user", RAW)] }));
+  assert.equal(r.raw, RAW, "the raw text was normalised");
+  assert.notEqual(r.text, RAW, "the display text should be folded");
+  const m = await mount(queued(row(7, "user", RAW)));
+  try {
+    m.item(7).find(".queue-edit-btn").click();
+    await settle();
+    m.item(7).find(".queue-save").click();
+    assert.equal(cmds(m, "structuredQueueEdit")[0].text, RAW);
+  } finally {
+    await m.done();
+  }
+});
+
+test("a prompt from Flockdeck is labelled, cannot be edited or removed and does not make Clear available", async () => {
+  const rows = queueOf(push({ queue: [row(3, "flockdeck", "opening brief")] }));
+  assert.deepEqual([rows[0].system, rows[0].editable, rows[0].removable, rows[0].mail], [true, false, false, false]);
+  assert.equal(queueMessage("p3", rows, "edit", 3, "x", "q"), null);
+  assert.equal(queueMessage("p3", rows, "remove", 3, "", "q"), null);
+  assert.equal(queueMessage("p3", rows, "clear", 0, "", "q"), null);
+  const m = await mount(queued(row(3, "flockdeck", "opening brief"), row(4, "user", "mine")));
+  try {
+    const it = m.item(3);
+    assert.equal(it.getAttribute("data-kind"), "flockdeck");
+    assert.equal(it.find(".queue-system").textContent.trim(), "From Flockdeck");
+    assert.equal(it.find(".queue-edit-btn"), null);
+    assert.equal(it.find(".queue-remove"), null);
+    assert.ok(it.find(".queue-send-now"));
+    assert.ok(m.item(4).find(".queue-edit-btn"), "the person's own prompt lost its Edit");
+  } finally {
+    await m.done();
+  }
+});
+
+test("direction and format characters from another agent are not drawn", () => {
+  const [r] = queueOf(push({ queue: [row(1, "mail", "ok‮ evil⁦ x‍", { peer: "le‮ad⁩er" })] }));
+  assert.equal(r.peer, "leader");
+  assert.ok(!/[​-‏‪-‮⁦-⁩]/.test(r.text), r.text);
+});
+
+test("after Remove the focus goes to the next row, and to the prompt box when none is left", async () => {
+  const dom = createDom();
+  const restore = install(dom);
+  const container = dom.document.createElement("div");
+  dom.body.appendChild(container);
+  const store = fakeStore({ connection: "open", hello: { type: "hello" }, state: {} });
+  const cur = { st: queued(row(7, "user", "a"), row(9, "user", "b")) };
+  const draw = () => render(html`<${Structured} pane="p3" snap=${store.getState()} st=${cur.st} store=${store} desk=${true} queueResult=${null} />`, container);
+  draw();
+  await settle();
+  try {
+    container.find('[data-queue-item="7"]').find(".queue-remove").click();
+    cur.st = queued(row(9, "user", "b"));
+    draw();
+    await settle();
+    const at = dom.document.activeElement;
+    assert.ok(at && container.find('[data-queue-item="9"]').contains(at), "the focus did not move to the next row");
+    container.find('[data-queue-item="9"]').find(".queue-remove").click();
+    cur.st = push({ status: "working" });
+    draw();
+    await settle();
+    assert.equal(dom.document.activeElement, container.find(".structured-input"), "the focus did not reach the prompt box");
+  } finally {
+    render(null, container);
+    await settle();
+    restore();
+  }
+});
+
+test("closing an edit with Escape or Cancel puts the focus back on that row's Edit button", async () => {
+  const m = await mount(queued(row(7, "user", "a")));
+  try {
+    m.item(7).find(".queue-edit-btn").click();
+    await settle();
+    m.item(7).find(".queue-edit").keydown("Escape");
+    await settle();
+    const doc = m.container.ownerDocument;
+    assert.equal(doc.activeElement, m.item(7).find(".queue-edit-btn"));
+    m.item(7).find(".queue-edit-btn").click();
+    await settle();
+    m.item(7).find(".queue-cancel").click();
+    await settle();
+    assert.equal(doc.activeElement, m.item(7).find(".queue-edit-btn"));
+  } finally {
+    await m.done();
+  }
+});
+
+test("a refusal note goes when the list changes", async () => {
+  const m = await mount(queued(row(7, "user", "a"), row(9, "user", "b")));
+  try {
+    m.item(7).find(".queue-remove").click();
+    const [c] = cmds(m, "structuredQueueRemove");
+    await m.answer({ id: "p3", req: c.req, ok: false, error: "That prompt has already been sent or removed" });
+    assert.ok(m.container.find(".structured-queue").textContent.includes("already been sent"));
+    await m.push(queued(row(9, "user", "b")));
+    assert.ok(!m.container.find(".structured-queue").textContent.includes("already been sent"), "the old refusal stayed");
+  } finally {
+    await m.done();
+  }
+});
