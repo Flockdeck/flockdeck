@@ -55,8 +55,8 @@ cover both.
 
 A pane's header names what is in it, such as `claude · sonnet` or `codex · gpt-5.6-sol`,
 beside its branch. [Agents and models](#agents) explains the picker, what changes when
-an agent cannot report its own status, and how to add one of your own. For the
-API agents, and for Claude Code where its status line is read, the header also
+an agent cannot report its own status, and how to add one of your own. For
+Claude Code, where its status line is read, the header also
 estimates what the conversation has spent and shows how near a usage limit it
 is; [Spend and limits](#spend) says how, and when Claude Code's are read.
 

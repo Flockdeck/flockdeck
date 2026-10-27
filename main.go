@@ -251,7 +251,7 @@ func main() {
 		printAgents(os.Stdout)
 		return
 	}
-	// `keys` is where an API agent's key is set, and it reads the key from
+	// `keys` is where an API key is set, and it reads the key from
 	// stdin so that it never lands in shell history.
 	if len(os.Args) > 1 && os.Args[1] == "keys" {
 		if err := runKeys(os.Args[2:]); err != nil {
@@ -549,7 +549,7 @@ func usage(fs *flag.FlagSet) {
 	fmt.Fprintf(out, "  %s=<url>\n", remote.RelayEnv)
 	fmt.Fprintf(out, "        the relay Flockdeck Remote goes through, instead of the default one\n")
 	fmt.Fprintf(out, "  FLOCKDECK_API_KEY=<key>\n")
-	fmt.Fprintf(out, "        the key any API agent uses when neither its own variables nor a key\n")
+	fmt.Fprintf(out, "        the key an agent uses when neither its own variables nor a key\n")
 	fmt.Fprintf(out, "        stored with `flockdeck keys set` hold one\n")
 	fmt.Fprintf(out, "  %s / %s / %s=<value>\n", remoteNameEnv, remoteJoinEnv, remoteInviteEnv)
 	fmt.Fprintf(out, "        the defaults for remote enable's -name, -join and -invite, for a first-boot script\n")

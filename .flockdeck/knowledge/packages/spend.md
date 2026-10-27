@@ -7,7 +7,7 @@ tags: [cost, usage]
 timestamp: 2026-10-19T00:00:00Z
 code_paths: [internal/spend/spend.go]
 ---
-Holds what agents report about spend. Nothing is fetched: reports arrive over the loopback hook server. Used by the root program, `internal/chat`, `internal/hooks`, `internal/server`.
+Holds what agents report about spend. Nothing is fetched: reports arrive over the loopback hook server. Used by the root program, `internal/hooks`, `internal/server`.
 
 | Name | Role |
 |---|---|

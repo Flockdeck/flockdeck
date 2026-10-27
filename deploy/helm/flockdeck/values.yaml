@@ -129,9 +129,9 @@ remote:
   # (each is mounted with optional: true).
   existingSecret: ""
 
-# The key an API agent uses when neither its own variables nor
+# The fallback API key, used when neither an agent's own variables nor
 # `flockdeck keys set` (persisted in persistence.state, so set once and kept)
-# hold one (-> $FLOCKDECK_API_KEY).
+# hold one (-> $FLOCKDECK_API_KEY). No catalog agent takes a key yet.
 apiKey:
   value: ""
   # A Secret of your own with the key named below, in place of value.

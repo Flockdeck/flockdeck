@@ -13,12 +13,10 @@ you, so you can tell which one needs you without opening them all.
 agents are working are sped up 3x; typing and everything else is real time.*
 
 Claude Code is the default agent. Codex, Gemini CLI, Aider, opencode and Cursor's
-agent run the same way, and Flockdeck also has its own chat client for talking to
-a model API directly, including a local Ollama or any other OpenAI-compatible
-endpoint. A CLI agent uses whatever login it already has. An API agent needs a key,
-which `flockdeck keys` stores.
+agent run the same way. A CLI agent uses whatever login it already has. `flockdeck
+keys` stores API keys, but no agent in the catalog takes one yet.
 
-Direction (27 Oct 2026): Flockdeck is moving to run every agent over the Agent Client Protocol, with no terminal-pane agents. `flockdeck chat` and the task board are planned for removal, and Aider is planned to be dropped. None of that has shipped. See [docs/acp-direction.md](docs/acp-direction.md).
+Direction (27 Oct 2026): Flockdeck is moving to run every agent over the Agent Client Protocol, with no terminal-pane agents. The task board is planned for removal, and Aider is planned to be dropped. None of that has shipped. See [docs/acp-direction.md](docs/acp-direction.md).
 
 ## Install
 
@@ -91,7 +89,6 @@ filled in from the key table when the page is shown.
 - [Panes and tabs](ui/help/pages/panes.md) and
   [rearranging what is already running](ui/help/pages/rearranging.md)
 - [Agents and models](ui/help/pages/agents.md), including routing and API keys
-- [Running Ornith models](ui/help/pages/ornith.md)
 - [Knowing who needs you](ui/help/pages/status.md), including
   [auto-approve read-only](ui/help/pages/auto-approve.md)
 - [The team views](ui/help/pages/views.md): Team, Dependencies, Board and goal tabs
@@ -148,4 +145,4 @@ which ships inside every release archive beside the binary.
 
 The agents Flockdeck runs are separate programs and are not redistributed with it.
 Claude Code, Codex, Gemini CLI, Aider, opencode and Cursor's agent each keep their
-own licences and terms, as do the model APIs the built-in client talks to.
+own licences and terms.

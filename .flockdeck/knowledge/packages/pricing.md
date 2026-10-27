@@ -7,7 +7,7 @@ tags: [cost, models]
 timestamp: 2026-10-19T00:00:00Z
 code_paths: [internal/pricing/pricing.go]
 ---
-Only place the app states a price. Used by `internal/chat`, `internal/route`, `internal/server`.
+Only place the app states a price. Used by `internal/route`.
 
 | Name | Role |
 |---|---|

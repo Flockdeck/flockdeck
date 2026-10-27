@@ -9,7 +9,7 @@ code_paths: [internal/route/route.go, internal/route/files.go, internal/route/lo
 ---
 # internal/route
 
-Decides which model a spawn or a chat turn runs on. Deciding reads no file and makes no request; the caller records the result on the pane.
+Decides which model a spawn or a turn runs on. Deciding reads no file and makes no request; the caller records the result on the pane.
 
 ## API
 

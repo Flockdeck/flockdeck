@@ -141,10 +141,8 @@ tells you what the agent is doing, not only that it is busy.
 For an agent that can report its own lifecycle, this is not screen scraping.
 Claude Code is launched with a generated `--settings` file registering its
 lifecycle hooks (`UserPromptSubmit`, `PreToolUse`, `Notification`, `Stop` and
-the rest), and an API agent, which is Flockdeck's own chat client, reports the same
-events itself. For Claude Code each event re-invokes this same binary in a
-hidden mode; the chat client sends its own. Either way the report reaches the
-application over the loopback interface.
+the rest). Each event re-invokes this same binary in a hidden mode, and the
+report reaches the application over the loopback interface.
 
 Status therefore reflects what the agent is doing, not what
 its output happens to look like. Those settings are additive: your own

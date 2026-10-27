@@ -137,11 +137,11 @@ func NeedsNoKey(s Spec) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
-// FallbackKeyEnv is Flockdeck's own variable, which any API agent reads a key
-// from when nothing of its own holds one.
+// FallbackKeyEnv is Flockdeck's own variable, which any agent that takes a key
+// reads it from when nothing of its own holds one.
 const FallbackKeyEnv = "FLOCKDECK_API_KEY"
 
-// KeyNames are the environment variables an API agent's key is looked for in,
+// KeyNames are the environment variables an agent's key is looked for in,
 // split where the key stored for it with `flockdeck keys set` is looked at:
 // first before it, last after it. It is the one order the
 // keys dialog, `flockdeck keys` and the picker all go by:
@@ -191,8 +191,7 @@ func KeyNames(s Spec) (first, last []string) {
 // vendor's own where it talks to anybody else.
 //
 // A built-in keeps the vendor's variable in its entry when it is pointed at a
-// gateway -- `flockdeck keys endpoint` and the picker's address field change
-// the address and nothing else -- so an OPENAI_API_KEY exported for OpenAI was
+// gateway -- the endpoint was changed on its own, with nothing else changed -- so an OPENAI_API_KEY exported for OpenAI was
 // sent to the gateway with every request, ahead of the key stored for it.
 // Everything that looks for a key, or tells a pane where to, goes through this.
 func OwnKeyEnv(api APISpec) []string {

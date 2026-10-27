@@ -140,7 +140,7 @@ func (s BatonSource) Readable() bool {
 
 // activity reads what the conversation did, for the two agents that have a
 // reader: a followed Claude Code conversation, with full command lines, and
-// the chat client's stream, with the lines as its labels keep them.
+// any other agent's stream, with the lines as its labels keep them.
 func (s BatonSource) activity() baton.Activity {
 	if ex, ok := transcript.ExporterFor(s.Spec); ok {
 		// Reduced as the events arrive, so a long session is not held in memory

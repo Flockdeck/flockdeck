@@ -19,8 +19,8 @@ import (
 
 // BatonProvider names the company an agent sends what it is given to, so a baton
 // handed from one agent to another can say when that changes. It is the vendor's
-// wire for an API agent (with the endpoint when the agent talks to one of its own)
-// and the program for a CLI, and "" when it is not known: a CLI that has been
+// wire for an agent with an API block (with the endpoint when the agent talks to
+// one of its own) and the program for a CLI, and "" when it is not known: a CLI that has been
 // pointed at a gateway or a cloud's copy of a model sends what it is given to
 // whoever runs that.
 func BatonProvider(spec agent.Spec) string {

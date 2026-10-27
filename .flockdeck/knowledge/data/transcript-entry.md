@@ -5,11 +5,11 @@ description: The agent-neutral entry shape that transcript streams produce for a
 resource: internal/session/transcript/stream.go
 tags: [transcript, conversation, entry, json]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/session/transcript/stream.go, internal/session/transcript/claude_stream.go, internal/session/transcript/chat_stream.go, internal/session/transcript/image.go, internal/server/conversation.go]
+code_paths: [internal/session/transcript/stream.go, internal/session/transcript/claude_stream.go, internal/session/transcript/image.go, internal/server/conversation.go]
 ---
 # Conversation stream entry
 
-An `Entry` is one trimmed event of a conversation. Each adapter (`claudeStream`, `chatStream`) translates its own file format into entries; `StreamFor(spec, sessionID)` returns a `Stream` or false for an agent with no adapter. The server pages the entries to a client ([conversation commands](/api/ws-commands-conversation.md)). Entries are not stored on disk; they are rebuilt from the transcript ([session transcript readers](/packages/session-transcript.md)).
+An `Entry` is one trimmed event of a conversation. Each adapter (`claudeStream`) translates its own file format into entries; `StreamFor(spec, sessionID)` returns a `Stream` or false for an agent with no adapter. The server pages the entries to a client ([conversation commands](/api/ws-commands-conversation.md)). Entries are not stored on disk; they are rebuilt from the transcript ([session transcript readers](/packages/session-transcript.md)).
 
 ## Fields
 
@@ -44,6 +44,5 @@ Kinds: `prompt`, `reply`, `thinking`, `tool`, `subagent`, `compaction`, `notice`
 ## Adapter behaviour
 
 - Claude: a tool call becomes a `running` entry that is updated in place when its result arrives. Labels are `Edited x`, `Wrote x`, `Read x`, `Ran <first line, 60 chars>`, `Searched for <pattern>`. Edit, MultiEdit and Write calls carry a unified diff built from the call's input. The tools `Agent` and `Task` become subagent entries. User text is classified by `noticeRules`: system reminders, hook output and caveats are dropped; slash-command lines are shown as is; task notifications, cross-session messages, system notifications and a compaction resume note become one-line notices with the original as detail. A line marked human by Claude Code is always a prompt. `Reset()` is always false because a Claude `/clear` changes the session id.
-- Chat: only prompt, reply and tool lines produce entries. A tool counts as `error` when its text starts with one of six fixed phrases such as "the tool failed:" or "not run:". A `clear` line empties the stream and makes `Reset()` return true once.
 - Light mode (`SetLight(true)`) returns new entries from `Refresh` but retains none.
 - Images: only png, jpeg, gif and webp are accepted; others (svg above all) are refused so a crafted transcript cannot inject markup.

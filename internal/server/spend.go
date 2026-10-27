@@ -8,8 +8,7 @@ import (
 )
 
 // installUsageHandler takes what the panes' agents say they have spent -- a
-// chat pane after every call, a Claude pane on every refresh of its status
-// line -- into the book the pane headers are drawn from.
+// Claude pane on every refresh of its status line -- into the book the pane headers are drawn from.
 //
 // The book keeps its own lock, so a report is recorded where it arrives, on
 // the hook server's goroutine, and the windows are woken to show it rather

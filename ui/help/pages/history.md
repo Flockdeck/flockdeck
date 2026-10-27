@@ -17,7 +17,6 @@ on one transcript would fight.
 The list is read from each agent's own stored conversations rather than from
 anything Flockdeck keeps. Claude Code's are listed, so Claude Code
 conversations from sessions that had nothing to do with this application are
-in it too, and so are those of the model APIs spoken to through Flockdeck's
-built-in chat client. A conversation resumed from it opens with the agent that
+in it too. A conversation resumed from it opens with the agent that
 held it. Other agents' conversations are not listed, since Flockdeck cannot
 read where they keep them.

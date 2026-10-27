@@ -9,4 +9,4 @@ code_paths: [main.go]
 ---
 Seeds the default of [flockdeck](/cli/flockdeck.md) `-agent`; a flag wins. The value is checked against the catalog only for a run that starts an agent, so a stale value does not stop `flockdeck -quit`.
 
-It has its own name because `FLOCKDECK_AGENT` is already read by each pane's [chat](/cli/chat.md) process to learn which agent it is. Reusing that name would give every pane's chat the service's default agent.
+It has its own name because [FLOCKDECK_AGENT](/config/flockdeck-agent.md) is already set in each pane's environment to the agent that pane runs. Reusing that name would give every pane the service's default agent.

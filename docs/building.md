@@ -12,8 +12,8 @@ make dist       # binaries for all six supported platforms
 Where there is no `make`, as on many Windows machines, `go build .` builds the same
 program. On Windows add `-ldflags -H=windowsgui`, as the Makefile does, so that it
 opens without a console window behind it. `make build` on Windows also builds
-`flockdeck-chat.exe`, the same program linked for the console, which is what an API
-agent's pane runs there. The Windows release carries both.
+`flockdeck-chat.exe`, the same program linked for the console, which the hook and
+status line commands Claude Code runs use there. The Windows release carries both.
 
 The Windows build needs no C toolchain and cross-compiles from any machine. The
 Linux and macOS window is drawn through cgo (GTK 4 and WebKitGTK, Cocoa), so a

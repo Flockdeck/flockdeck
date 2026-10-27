@@ -2,6 +2,11 @@
 
 > A historical design record from the multi-agent work; the code and README
 > are current where they differ.
+>
+> The `api` runner, `flockdeck chat` (`internal/chat`) and the built-in API
+> agents described below were removed in October 2026. Only the key store
+> (`internal/apikey`, `internal/creds`) remains. Read every mention of them as
+> history.
 
 This is the contract for the work that makes Flockdeck orchestrate **any coding
 agent** — any CLI, and any model API spoken to directly — with the model chosen

@@ -21,4 +21,4 @@ JSON `UsageReport`: a `spend.Report` plus `token`. Report fields: `session` (the
 
 ## Notes
 
-Separate from `/hook` because usage is not a lifecycle event and changes no pane status. Senders are an agent's own loop (the chat client after each API call, Claude Code's status line on each tick), so the client uses a caller-set timeout and a missing app only loses the figure. The package that interprets it is [spend](/packages/spend.md).
+Separate from `/hook` because usage is not a lifecycle event and changes no pane status. The sender is the agent's own status line (Claude Code's, on each tick), so the client uses a caller-set timeout and a missing app only loses the figure. The package that interprets it is [spend](/packages/spend.md).

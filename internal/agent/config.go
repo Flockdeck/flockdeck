@@ -237,8 +237,8 @@ func writeConfig(dir string, f *File) error {
 		return fmt.Errorf("encode %s: %w", ConfigName, err)
 	}
 	// The state directory's own atomic write: a temporary file flushed and
-	// renamed into place, 0600 -- an OpenAI-compatible entry may carry a
-	// private endpoint -- and one save of the file at a time. Its rename waits
+	// renamed into place, 0600 -- an entry may carry a private
+	// endpoint or an env value -- and one save of the file at a time. Its rename waits
 	// out whatever has the file open for a moment. A plain rename failed on
 	// Windows with "Access is denied" whenever the virus scanner, another
 	// instance or a picker reading the catalog had agents.json open, and the

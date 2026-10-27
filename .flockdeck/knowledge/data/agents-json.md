@@ -27,11 +27,11 @@ Any other top-level key is kept in `File.Extra` and written back, so saving a de
 ## Reading rules
 
 - A missing, empty or whitespace-only file is "no file". A leading UTF-8 BOM is removed.
-- A parse error gives `Catalog.Notice` plus the built-ins; the app still starts. A file that cannot be parsed is never written over (`SetDefaults`, `SetBaseURL` return the error).
-- Problems in individual entries (no id, bad token name, bad tier, unknown field, unusable runner) are collected into one notice and cost only that entry. Unknown fields are reported except retired ones (`switch`).
+- A parse error gives `Catalog.Notice` plus the built-ins; the app still starts. A file that cannot be parsed is never written over (`SetDefaults` and `SetRouting` return the error).
+- Problems in individual entries (no id, bad token name, bad tier, unknown field, unusable runner, an `api` block or the runner `api`) are collected into one notice and cost only that entry. Unknown fields are reported except retired ones (`switch`).
 
 ## Writing rules
 
-Writes are atomic (temp file then rename through `store.WriteAtomic`, mode 0600), serialised by a process-wide mutex, with HTML escaping off and two-space indent. `SetBaseURL` accepts only `http`/`https` addresses with a host and no user info, and puts the address on the last entry for the agent while clearing it from earlier entries. See [write rules](/gotchas/agents-json-write-rules.md).
+Writes are atomic (temp file then rename through `store.WriteAtomic`, mode 0600), serialised by a process-wide mutex, with HTML escaping off and two-space indent. See [write rules](/gotchas/agents-json-write-rules.md).
 
 Routing policy is never read from a file in a repository ([routing policy source](/security/routing-policy-source.md)).

@@ -139,8 +139,8 @@ See `values.yaml`, commented inline. The notable groups:
   top-level flags, taken as env vars (`FLOCKDECK_DIR`,
   `FLOCKDECK_START_AGENT`, `FLOCKDECK_FRESH`, `FLOCKDECK_SHELL_FIRST`,
   `FLOCKDECK_SOLO`); `flockdeck -h` in the image documents each.
-- `remote.*` -- relay enrolment (see above); `apiKey.*` -- the fallback key
-  an API agent uses.
+- `remote.*` -- relay enrolment (see above); `apiKey.*` -- the fallback API
+  key. No catalog agent takes a key yet.
 - `allowedHosts` -- extra names flockdeck answers to: an Ingress hostname, a
   NodePort or LoadBalancer address. Set as part of `FLOCKDECK_ALLOWED_HOSTS`
   next to the Service's names.

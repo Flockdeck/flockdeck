@@ -268,7 +268,6 @@ These are safety and security controls the new interface has to send. The list i
 | `selectRepo` | done |  |
 | `selectTab` | replaced | sent as `uiPrefs`. Goal tabs, shown by number or step; the active one is kept |
 | `sendPrompt` | replaced | sent as `paneSend`. Prompting one pane; prompting all is cut |
-| `setAgentAddress` | done |  |
 | `setAgentDefault` | done |  |
 | `setDeviceRole` | done |  |
 | `setKeybinding` | done |  |

@@ -54,8 +54,7 @@ not grow back unnoticed.
 
 ## How it is delivered
 
-Claude Code and the API agents have a session-start hook, and the built-in chat
-client has one too. The briefing is one more lifecycle event, `SessionStart`,
+Claude Code has a session-start hook. The briefing is one more lifecycle event, `SessionStart`,
 answered by the same loopback server that receives the status events. The reply
 goes back as `additionalContext`, which is the supported way to add to a session,
 so nothing is typed into the terminal and none of the user's settings are
@@ -124,9 +123,6 @@ Mail is delivered on three channels instead.
   counted as told when the reply is built, and a hook that times out loses the reply, so an
   unread message is announced again as a reminder after `team.Renotify` (five minutes), at
   most `team.MaxReminders` times.
-  `flockdeck chat` (the API-key agents) has `caps.hooks` and gets the same replies: the
-  reporter returns them and the session adds them to the system prompt of that turn's requests
-  (`session.hold`), so the notice reaches the model.
   A working agent gets it with its next tool result. An idle agent has no hook to answer
   until the user's next prompt, so it gets it then. `Stop` is not used: its reply can only
   block the stop and force another turn, which would start work nobody asked for.
@@ -203,13 +199,12 @@ points to is data from another agent.
 
 Reading mail needs no approval. `review.MailRead` allows exactly `flockdeck inbox [-all] [-json]`
 and `flockdeck inbox read [-json] <id>` (the flag goes before the id, which is one to nine digits) in every pane, whether or not
-auto-approve is on, and the built-in chat client runs the same two forms without asking
-(`readsFlockdeckMail` in `internal/chat/tool/command.go` calls it). The briefing gives these forms
+auto-approve is on. The briefing gives these forms
 when the program is run as `flockdeck`; with a path to the binary the command does not match and is
 asked about. `-wait`, `-follow`, sending, every other subcommand, any metacharacter or quote, a command
 over 4 KiB, and a working directory holding any entry named `flockdeck` or starting with `flockdeck.` (any letter
 case) are all asked about. A built flockdeck binary in the working directory therefore makes every mail read ask, and so does any `flockdeck.*` file there: a project that builds a binary into its root, or keeps such files in it, switches the allowance off for that directory. The directory is read in batches and refused above 100,000 entries, and trailing dots and spaces in a name are ignored.
-The word `flockdeck` must also resolve to this application: it is looked up on the PATH the pane or chat client was
+The word `flockdeck` must also resolve to this application: it is looked up on the PATH the pane was
 started with (an empty or relative entry is taken from the working directory), and the command is allowed only if
 what is found is the running executable or sits in its directory. A program of that name earlier on the PATH (a
 writable directory, a virtual environment's or `node_modules` bin) is asked about, as is a PATH with no `flockdeck`
@@ -218,7 +213,7 @@ The check runs when the hook fires, not when the command runs, and it sees the P
 one the agent has set since; a shell function or alias named `flockdeck` cannot be seen from the command string. The check
 sits in `Workspace.reviewTool` ahead of the auto-approve setting, for a known pane with a current launch
 id only, and does not count towards `AutoApproved`. It applies to agents whose hooks send PreToolUse
-reviews (Claude Code) and to the chat client; other CLI agents keep their own approval modes.
+reviews (Claude Code); other CLI agents keep their own approval modes.
 
 ## The task board
 

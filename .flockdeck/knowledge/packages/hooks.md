@@ -29,7 +29,7 @@ The application installs handlers with `SetContextHandler`, `SetNoticeHandler`, 
 
 ## Clients
 
-`Emit` (reads Claude Code's hook JSON from stdin, posts it, 3 second timeout), `Spawn`, `PeerName`, `Close`, `Team`, `Msg`, `Inbox`, `ReadMessage`, `Task`, `Report`. [chat](/packages/chat.md) calls `Emit` with a nil stdin to report its own lifecycle.
+`Emit` (reads Claude Code's hook JSON from stdin, posts it, 3 second timeout), `Spawn`, `PeerName`, `Close`, `Team`, `Msg`, `Inbox`, `ReadMessage`, `Task`, `Report`.
 
 ## Other
 

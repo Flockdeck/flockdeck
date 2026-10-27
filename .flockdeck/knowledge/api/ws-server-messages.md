@@ -21,7 +21,7 @@ Each message is a JSON object with a `type`. Sent by `controlClient.send`, which
 | `artifacts` | `artifacts_consent.go` | `available`, `v`; tells a relay window artifacts were switched on or off for its device |
 | `detached` | `control.go` | reply to `detach` |
 | `agentStarted` | `spawn.go` | `paneId`, `id` |
-| `agents`, `agentAddress` | `agents.go` | agent overview, address change |
+| `agents` | `agents.go` | agent overview |
 | `keys` | `keys.go` | API key status list |
 | `jevKey` | `jevkey.go` | whether a key env var or stored key exists |
 | `browse`, `recents` | `browse.go` | folder listing, recent projects |

@@ -26,7 +26,6 @@ Test file abbreviations:
 - **W**: `internal/workspace/statusmatrix_test.go`
 - **H**: `internal/hooks/statusmatrix_test.go`
 - **V**: `internal/server/statusmatrix_test.go`
-- **G**: `internal/chat/statusmatrix_test.go`
 
 ## The status model
 
@@ -54,7 +53,7 @@ A status is decided in one of two ways:
 
    Steps 3 to 5 are one call, `Session.ApplyEvent`, which also tracks the turn (see the end of section C). Every event reaches it, including those `StatusForEvent` maps to no status.
 
-   The first event that changes status sets `hooksSeen`, and so does a `SessionStart` (any source but `compact`), which also settles a pane the hooks have not yet spoken for at idle (A16, D12). From then on the output-based guesses below are switched off for that pane. The chat client (`internal/chat/lifecycle.go`) posts the same event names through the same `Emit` function.
+   The first event that changes status sets `hooksSeen`, and so does a `SessionStart` (any source but `compact`), which also settles a pane the hooks have not yet spoken for at idle (A16, D12). From then on the output-based guesses below are switched off for that pane.
 2. **Output inference (fallback).** This applies to shells, to agents whose Spec reports no lifecycle, and to a hooked agent before its first `SessionStart` or status-changing event (for good, if its hooks never arrive). It reads the pane's output in `Session.publish`:
    - Bytes arriving mean `working`, except output that is only the program drawing itself (`Session.ownRedraw`): its first screen, within `startupGrace` (5 s) of starting with nothing typed, leaves it `starting`; a redraw within `resizeEcho` (1 s) of Flockdeck resizing it, with nothing typed since, leaves it as it was (D14–D17). Output that goes on past either window is `working`, and a pane already working stays so.
    - `quietBeforeIdle` (3 s) of silence means `idle`.
@@ -78,7 +77,7 @@ A status is decided in one of two ways:
 | A8 | `PermissionDenied` | working (the turn goes on); marks the turn as denied | `StatusForEvent` + `ResolveBlocked` | ✓ | S |
 | A9 | `Notification` `permission_prompt` | waiting, keeping the tool | 〃 | ✓ | S, H |
 | A10 | `Notification` `idle_prompt` | no change when idle, waiting or blocked; see C14 for a pane still showing working | `StatusForEvent` gives `ok=false`; `ApplyEvent` turns a *working* pane idle (C14) | ✓ | S, H |
-| A11 | `Notification` `elicitation_dialog`, `agent_needs_input`, unknown types, or the chat client naming a tool | waiting | `StatusForEvent` | ✓ | S, H |
+| A11 | `Notification` `elicitation_dialog`, `agent_needs_input`, unknown types | waiting | `StatusForEvent` | ✓ | S, H |
 | A12 | `Notification` with no type (Claude Code older than 2.1.269) | waiting | 〃 | ✓ on an idle pane (see B17) | S, H |
 | A13 | `Notification` `auth_success`, `elicitation_complete`, `elicitation_response`, `agent_completed`, `computer_use_exit` | not reported at all | dropped in `Emit` (`finishedNotifications`) | ✓ | H |
 | A14 | `Stop` | idle, or blocked (see B9) | `StatusForEvent` + `ResolveBlocked` | ✓ | S, H |
@@ -94,8 +93,8 @@ The events in A5–A8, A15 and A18 are only subscribed to on Claude Code 2.1.269
 
 | Row | Situation | Expected | How it is signalled today | ✓? | Test |
 |---|---|---|---|---|---|
-| B1 | A prompt and a turn with no tools | working, then idle | UserPromptSubmit, then Stop | ✓ | S `TestStatusMatrixTurns`, G G1 |
-| B2 | A turn with tools | working (detail = the running tool, cleared between tools), then idle | Pre/PostToolUse, then Stop | ✓ | S, W, G G2 |
+| B1 | A prompt and a turn with no tools | working, then idle | UserPromptSubmit, then Stop | ✓ | S `TestStatusMatrixTurns` |
+| B2 | A turn with tools | working (detail = the running tool, cleared between tools), then idle | Pre/PostToolUse, then Stop | ✓ | S, W |
 | B3 | Parallel tool calls with interleaved Pre and Post events | working throughout, then idle | 〃 | ✓ | S |
 | B4 | Permission prompt answered **Yes** with Enter | waiting(tool), then working(tool) the moment Enter is pressed, then PostToolUse, then idle at Stop | `Write` treats Enter as the answer to a `toolQuestion` | ✓ | S `TestStatusMatrixKeyboard`, existing `TestEnterAnswersAPermissionPrompt` |
 | B5 | Permission prompt answered **No** (arrow keys, then Enter) | idle: Claude Code returns to its prompt with no Stop | Enter gives working; `settleAnswered` gives idle after 10 s with no hook and no output | ✓ | S, existing `TestARefusedPermissionPromptGoesBackToIdle` |
@@ -116,7 +115,6 @@ The events in A5–A8, A15 and A18 are only subscribed to on Claude Code 2.1.269
 | B20 | Foreground subagent (Task): its tool calls fire hooks under the pane's session | working until the parent turn's Stop, then idle, with nothing left counted | Pre/Post events plus SubagentStart/Stop bookkeeping | ✓ | S, W |
 | B21 | **Background subagent** that is still working after the parent turn's Stop | **steadily** idle (or blocked, if the turn ended on a denial), with BackgroundTasks > 0, through every one of its tool calls; waiting while it asks the user something, and back to idle once that same subagent's call goes on; BackgroundTasks back to 0 once it ends | A subagent's tool events carry `agent_id` (Claude Code 2.1.283). Once the turn is closed, `ApplyEvent` shows none of them: the pane stays on what the Stop left and reports no change. A subagent's question or permission prompt is still shown, naming the tool it kept back. Only the asking subagent's next Post event ends the wait. The subagent is counted from SubagentStart until SubagentStop, its `<task-notification>` or a Stop that no longer lists it (section G). A Claude Code that sends no `agent_id` falls back to the stray-PreToolUse counting below: working while each call runs, then back to the Stop's status. | ✓ | S `B21`, `TestStatusMatrixBackgroundSubagentIsSteady`, W `B21` |
 | B22 | Background shell (`run_in_background` Bash) | idle once the turn ends, with BackgroundTasks = 1 **until the command ends**, however it ends | Counted from its PostToolUse (`backgroundTaskId`). Ended by KillShell/TaskStop, by the `<task-notification>` UserPromptSubmit Claude Code sends when it ends, or by a Stop whose `background_tasks` no longer lists it. `/clear` forgets it. See section G. | ✓ | H `TestEmitReportsBackgroundWork`, `TestEmitReportsWhatAStopSaysIsStillRunning`, W `B22`, `closefinished_test.go` |
-| B23 | Flockdeck chat client turns | same as B1, B2, B4 and B5: working, waiting(tool) at a question, working again whether allowed or refused, idle at the end (also after an interrupt, and after an API key is found) | `reporter` sends events synchronously, in order, from one goroutine | ✓ | G `TestStatusMatrixChatTurns`, existing `declinedstatus_test.go` |
 
 ## C. Ordering, races and lost events
 

@@ -39,14 +39,8 @@ start it again so that it sees the change.
 
 ## An agent is greyed out in the picker
 
-For a CLI agent, its command is not on your `PATH`; the line under it says
-where to get it. For an API agent, no key was found: nothing in the
-environment variables it looks at, and nothing in Flockdeck's own store. `flockdeck
-keys set <agent>` reads one from stdin, and [Agents and models](#agents) covers the
-rest. The OpenAI-compatible endpoint ships with no address, because none would
-be right for everybody: pick it, and the picker asks for one. It shows as
-available once it has a key, or at once when that address is on this machine
-and needs none. Unavailable agents are shown rather than hidden, so that an
+An agent's command is not on your `PATH`; the line under it says
+where to get it. Unavailable agents are shown rather than hidden, so that an
 agent you have not installed is a visible choice.
 
 ## A pane is dead, with a Restart button

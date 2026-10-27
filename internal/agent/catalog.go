@@ -127,7 +127,7 @@ func Merge(f *File) *Catalog {
 			// over the elements already there and carries on past a value of the
 			// wrong kind, so an entry dropped below for one bad field had already
 			// written its lists into the built-in's own: Claude stopped stripping
-			// CLAUDECODE, and an API agent looked for its key somewhere else.
+			// CLAUDECODE, and an agent that takes a key looked for it somewhere else.
 			merged.StripEnv, merged.Env = slices.Clone(builtin.StripEnv), slices.Clone(builtin.Env)
 			merged.Patterns.Waiting = slices.Clone(builtin.Patterns.Waiting)
 			merged.Patterns.Idle = slices.Clone(builtin.Patterns.Idle)

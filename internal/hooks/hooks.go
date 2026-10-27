@@ -863,14 +863,14 @@ func clip(s string, n int) string {
 // What it returns is the pane briefing and, for a PreToolUse call, whether
 // auto-review has decided it needs no prompt at all -- see Response and
 // SetReviewHandler. An agent reporting its own lifecycle rather than being
-// wrapped in a hook command — Flockdeck's chat client does — calls this with
-// a nil stdin and shows what comes back the same way.
+// wrapped in a hook command can call this with a nil stdin and show what comes
+// back the same way.
 //
 // It is deliberately forgiving: a hook that fails must never block or break
 // the session it is reporting on.
 func Emit(stdin io.Reader, endpoint, token, sessionID, event string) (Response, error) {
 	// Which start of the pane this is comes from the environment, where the
-	// pane put it: the hook and Flockdeck's chat client both run inside it.
+	// pane put it: the hook runs inside it.
 	p := payload{Event: Event{SessionID: sessionID, Event: event, Launch: os.Getenv(LaunchEnv)}, Token: token}
 
 	if stdin != nil {

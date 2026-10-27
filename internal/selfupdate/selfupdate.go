@@ -886,7 +886,7 @@ func Discard(dir string) {
 // Windows the console twin beside it (chatName) with the staged one.
 //
 // The two go in together or not at all: a new program beside an old twin, or
-// the other way round, would run a chat client of another version in its
+// the other way round, would run a console program of another version in its
 // panes. So the twin goes in first and is taken back out if the program then
 // cannot be put in, and the update stays staged for the next attempt.
 func Apply(dir, exePath string) error {
@@ -1078,15 +1078,15 @@ func copyFile(src, dst string) error {
 // A release carries the twin, but the first update to one is put in place by
 // the release before it, whose updater knows only the program, and an
 // installation made by an install script of before, or by `go install`, has
-// none either: without one an API agent's pane is blank. And a program
+// none either: without one the hook and status line commands do not run. And a program
 // replaced by any route that leaves the twin as it was — a copy by hand, an
-// updater of before — would have its panes run a chat client of another
+// updater of before — would have its panes run a console program of another
 // version, whose hook events, prompts and transcripts can have drifted.
 //
 // Only a file of exactly that name in the program's own directory is ever
 // written, never through a link, a reparse point or anything else that is
 // not a regular file. The new twin is written beside it and renamed over it;
-// a twin a chat pane is running from cannot be renamed over on Windows, and
+// a twin a running hook or status line command is using cannot be renamed over on Windows, and
 // is left for the next start, the pane working on meanwhile. It does nothing
 // off Windows, for the twin itself, or for a program that is not a GUI build,
 // which runs in a pane as it is.
@@ -1144,7 +1144,7 @@ func EnsureChatTwin(exePath string) error {
 		err = rename(tmp.Name(), twin)
 	}
 	if err != nil {
-		// Most often a chat pane running from the twin, which Windows will
+		// Most often a hook command running from the twin, which Windows will
 		// not let anything be renamed over. The rename waits out a moment's
 		// hold, a scanner's on the file just written, and gives up on this
 		// after a second; the next start tries again.

@@ -16,7 +16,7 @@ Takes no flags; `printAgents` runs without parsing any. Extra arguments are igno
 ## Output
 
 - A note when the user's `agents.json` could not be read.
-- One block per agent that is not hidden: `<id> - <name>  [<state>[, default]]`, a `models:` line, and for an agent that is not available an `install:` line (`set up:` for an API agent) with the entry's install hint.
+- One block per agent that is not hidden: `<id> - <name>  [<state>[, default]]`, a `models:` line, and for an agent that is not available an `install:` line with the entry's install hint.
 - A closing line pointing at `flockdeck -agent <id>` and `flockdeck spawn --agent <id> --model <model> <task>` ([spawn](/cli/spawn.md)).
 - Then the roles a helper can be started as (`printRoles`), when any exist.
 

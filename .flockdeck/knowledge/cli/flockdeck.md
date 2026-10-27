@@ -27,16 +27,16 @@ code_paths: [main.go, cli_update.go, console_unix.go, console_windows.go, consol
 
 ## Dispatch order
 
-`main` checks `os.Args[1]` in this order: `help`, `hook`, `statusline`, [spawn](/cli/spawn.md), [baton](/cli/baton.md), [peer-name](/cli/peer-name.md), [close](/cli/close.md), [team](/cli/team.md), [msg](/cli/msg.md), [inbox](/cli/inbox.md), [task](/cli/task.md), [recordings](/cli/recordings.md), [agents](/cli/agents.md), [chat](/cli/chat.md), [keys](/cli/keys.md), [remote](/cli/remote.md), [update](/cli/update.md), [helpers](/cli/helpers.md). The first match runs and returns. [hook](/cli/hook.md) and [statusline](/cli/statusline.md) are hidden: panes run them, not people. Anything else falls through to the flags above.
+`main` checks `os.Args[1]` in this order: `help`, `hook`, `statusline`, [spawn](/cli/spawn.md), [baton](/cli/baton.md), [peer-name](/cli/peer-name.md), [close](/cli/close.md), [team](/cli/team.md), [msg](/cli/msg.md), [inbox](/cli/inbox.md), [task](/cli/task.md), [recordings](/cli/recordings.md), [agents](/cli/agents.md), [keys](/cli/keys.md), [remote](/cli/remote.md), [update](/cli/update.md), [helpers](/cli/helpers.md). The first match runs and returns. [hook](/cli/hook.md) and [statusline](/cli/statusline.md) are hidden: panes run them, not people. Anything else falls through to the flags above.
 
 ## help
 
-`flockdeck help` prints the top-level usage and exits 0. `flockdeck help <subcommand>` is rewritten to `<subcommand> -h` for the 15 subcommands from `spawn` to `helpers` (not `hook` or `statusline`). Any other word prints the top-level usage.
+`flockdeck help` prints the top-level usage and exits 0. `flockdeck help <subcommand>` is rewritten to `<subcommand> -h` for the 14 subcommands from `spawn` to `helpers` (not `hook` or `statusline`). Any other word prints the top-level usage.
 
 ## Behaviour
 
-- Every subcommand except `chat` first calls `useConsole()`, which on Windows attaches the parent terminal (no-op on Unix).
-- A subcommand error prints `flockdeck <name>: <error>` to stderr and exits 1, unless the error is `errReported` (the flag set already printed it). `chat` and `keys` always print the error.
+- `main` calls `useConsole()` before anything else, which on Windows attaches the parent terminal (no-op on Unix).
+- A subcommand error prints `flockdeck <name>: <error>` to stderr and exits 1, unless the error is `errReported` (the flag set already printed it). `keys` always prints the error.
 - A leftover argument after the flags prints `unrecognised argument "<arg>"` and the usage, and exits 2. It adds a hint when the argument is an existing directory (`flockdeck -C <dir>`) or a flag name.
 - An unknown `-agent` id exits 2. An agent that is not installed prints a warning and continues.
 - `-quit` with no instance running prints "nothing is running, so there is nothing to stop" and exits 0. Otherwise it reads the instance record in the state directory, checks the instance with `server.Identify`, and asks it to quit.

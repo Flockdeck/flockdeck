@@ -14,12 +14,12 @@ One entry of the catalog in [agent](/packages/agent.md). JSON names are the keys
 | Field | JSON | Meaning |
 |---|---|---|
 | `ID`, `Name` | `id`, `name` | Id is matched exactly (case-sensitive). Name defaults to the id |
-| `Runner` | `runner` | `cli` (external command in the pane's pseudo-terminal) or `api` (Flockdeck's own `flockdeck chat`) |
+| `Runner` | `runner` | `cli` (external command in the pane's pseudo-terminal) or `acp` (structured agent run through an adapter). The `api` runner was removed; an agents.json entry that asks for it is refused |
 | `Exe` | `exe` | Program to look for on PATH, for `cli` |
 | `Args`, `ResumeArgs` | `args`, `resumeArgs` | Argument template; resume replaces it when reattaching |
 | `Models`, `DefaultModel` | `models`, `defaultModel` | `Model{id, name, note, tier}`; tier is `small`, `mid` or `top`; empty default leaves the choice to the agent |
 | `Env`, `StripEnv` | `env`, `stripEnv` | Variables added to, and removed from, the pane environment. `$VAR` in an `env` value is expanded; the name is not |
-| `API` | `api` | `{wire, baseURL, keyEnv}`; wire is `anthropic`, `openai` or `gemini` |
+| `API` | `api` | `{wire, baseURL, keyEnv}`; wire is `anthropic`, `openai` or `gemini`. No catalog entry has one now and agents.json may not carry one (the entry is refused); the shape stays for the key store and key check, and for per-agent keys (T202) |
 | `Caps` | `caps` | `hooks`, `resume`, `transcript`, `trust`, `context` (`hook`, `prompt`, `task` or `none`) |
 | `Patterns` | `patterns` | `waiting` and `idle` regular expressions, used only when `caps.hooks` is false |
 | `Install` | `install` | Text shown when the agent is not available |

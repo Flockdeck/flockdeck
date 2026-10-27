@@ -17,14 +17,9 @@ agent you have not got is shown greyed with where to get it rather than
 hidden: somebody who has never installed Codex should still learn that Flockdeck
 would run it. Expand an agent for its models, with its default marked. A
 model carries its tier where it has a fixed one (**small**, **mid** or **top**: how capable, and so how
-costly, it is among that agent's own models). A model of an API agent shows its published
-price per million tokens, in and out, with the day it was read. A command-line
-agent's models show no price: the same model may be billed per token or
-covered by a subscription, and only you know which. Every price comes from one
-table compiled into Flockdeck, each rate with the day it was read from the
-provider's own pricing page. It changes with releases; nothing is fetched. The
-chat's status line and the estimates in the pane header are priced from the
-same table. At the
+costly, it is among that agent's own models). A model shows no price: the same
+model may be billed per token or covered by a subscription, and only you know
+which. At the
 foot of the picker, **Set as default for** makes the choice stick, either for
 this project or for every project, so the one-keystroke split keeps doing the
 right thing. **Use the default for every project** removes this project's own
@@ -32,46 +27,27 @@ choice.
 
 The pane header names what is running, beside the branch and in the same dim
 weight: `claude · sonnet`, `codex · gpt-5.6-sol`. A shell pane shows nothing there,
-because there is nothing to choose. For the API agents, and for Claude Code
-where its status line is read, it is followed by what the conversation has
-spent and how near its usage limit it is; [Spend and limits](#spend) explains
-the figures.
+because there is nothing to choose. For Claude Code, where its status line is
+read, it is followed by what the conversation has spent and how near its usage
+limit it is; [Spend and limits](#spend) explains the figures.
 
-## Two kinds of agent
+## Agents are programs
 
-**CLI agents** are the tools you would run in a terminal yourself: Claude Code,
+Agents are the tools you would run in a terminal yourself: Claude Code,
 Codex, Gemini, Aider, opencode, Cursor's agent. Flockdeck runs the command in the
 pane's pseudo-terminal, so it behaves exactly as it does anywhere else and uses
 whatever login that tool already has. Nothing is installed for you; an agent
 whose command is not on your `PATH` is the greyed kind.
 
-**API agents** talk to a model API directly. There is no wrapper CLI, no node
-and no Python: Flockdeck runs its own chat client, `flockdeck chat`, in the pane. It is
-a real terminal chat client with streamed answers, a status line showing the
-model, its token counts and, for a model in the price table, the running cost,
-and tools for reading files, editing them and
-running commands. The ones that write a file or run a command ask before they
-act. A command can be let through for the rest of the session by answering
-*always*, and so can edits to files (except inside `.git` or `.hg`). *Always*
-is not offered for a
-command that can run anything at all (a shell, `git config`, `npm exec`,
-`docker run`), and a command with an option that writes a file wherever it
-says or runs a program it names, such as `git log --output` or
-`go test -exec`, is asked about even after *always*. Anthropic, OpenAI and
-Google are built in, and so is a plain OpenAI-compatible endpoint, which is how
-a local server (Ollama, LM Studio, vLLM) or a gateway becomes an agent.
-
-The price table holds Anthropic's, OpenAI's and Google's models. A model is
-priced only when its id is one the table names, or a dated snapshot of one
-such as `claude-haiku-4-5-20251001`; any other id, including one that only
-begins like a priced model, is shown in tokens with no dollars, because a
-made-up price is worse than none. An API agent given an address of its own,
-such as a gateway's, is not priced at all, since what it charges is not the
-vendor's list price.
+Flockdeck no longer has a chat client of its own for talking to a model API
+directly. The `flockdeck chat` command, and the Anthropic, OpenAI, Google and
+OpenAI-compatible agents built on it, were removed. An `agents.json` entry that
+still has an `api` block, or `"runner": "api"`, is refused with a notice saying
+so.
 
 ## Structured agents (beta)
 
-> Direction (27 Oct 2026): structured agents are where Flockdeck is heading: every agent over ACP, with no terminal-pane agents, no `flockdeck chat` API agents, no inbox or typed wake, and no task board. Those are planned removals, not removed yet. Agents without native ACP will get an adapter built into the `flockdeck` binary, without Node. See docs/acp-direction.md in the repository.
+> Direction (27 Oct 2026): structured agents are where Flockdeck is heading: every agent over ACP, with no terminal-pane agents, no inbox or typed wake, and no task board. Those are planned removals, not removed yet. Agents without native ACP will get an adapter built into the `flockdeck` binary, without Node. See docs/acp-direction.md in the repository.
 
 A structured agent is one Flockdeck talks to over the Agent Client Protocol
 instead of in a terminal. Its pane has no screen: the drawer
@@ -138,43 +114,6 @@ What to know before you use one:
 - **Nothing is recorded or exported.** Recording and export are not available for a
   structured pane yet.
 
-## An endpoint's address
-
-The OpenAI-compatible endpoint ships with no address, because none would be
-right for everybody, so it waits under **not installed** until it has one.
-Pick it and the picker asks for the address there and then: type where the
-model server answers, starting `http://` or `https://` (`http://127.0.0.1:11434/v1`
-for Ollama, `http://127.0.0.1:1234/v1` for LM Studio), and press `Enter`.
-`Escape` puts the field away without saving anything.
-
-How much of the address to give depends on the path. For an OpenAI-compatible
-endpoint, `/v1` is added only to a bare address such as
-`http://127.0.0.1:11434`. An address with a path of its own (`.../v1`, or a
-gateway's `https://gateway.example/openai`) is taken as the whole of the API's
-root, and nothing is added to it. So give the path your server or gateway
-documents, `/v1` included where it has one. For the Anthropic and Gemini
-agents, the API's version is added unless the address already ends in it. A
-request's full address pasted in, ending `/chat/completions`, `/messages` or
-`/models`, has that part taken off first.
-
-An address on this machine needs no key, so a local model server is offered
-the moment its address is saved. One anywhere else, such as a gateway, needs a
-key as well, set under [[action:apiKeys]].
-
-Any other API agent that has been given an address (one of your own, or a
-built-in pointed at a proxy) shows it beside its name. Open the agent with the
-right arrow and choose its **Address** row to change it. Saved empty, the
-address is taken away, and a built-in goes back to its vendor's own.
-
-An address that is not one is refused under the field, with what to type
-instead: `localhost:11434` is answered with `http://localhost:11434`. An
-address with a name or password in it is refused too, because it is shown in
-the picker; the key goes under [[action:apiKeys]]. A pane already running
-keeps the address it started with, until the old one cannot be reached: then
-it asks the new address instead, and says so. From a terminal, `flockdeck
-keys endpoint <agent> <address>` does the same, and `default` in place of the
-address goes back to the vendor's own.
-
 ## Not every agent can do everything
 
 Most of what Flockdeck does beyond drawing a terminal depends on the agent
@@ -193,8 +132,8 @@ capability is missing Flockdeck falls back rather than failing: status comes fro
 the terminal bell and a quiet timer; resume is not
 attempted, and the pane starts fresh.
 
-Of the built-in agents, Claude Code and the four API agents report their own
-lifecycle and answer the start-up hook. Codex, Gemini CLI, Aider, opencode and
+Of the built-in agents, Claude Code reports its own
+lifecycle and answers the start-up hook. Codex, Gemini CLI, Aider, opencode and
 Cursor Agent are read from their terminals, but are still briefed: the briefing
 is put in front of their opening task, once, and is not refreshed. Codex,
 Gemini CLI, opencode and Cursor Agent get it even in a pane opened by hand with
@@ -210,34 +149,25 @@ Aider is handed its opening task with `--message`, which Aider treats as a
 single message, so a pane started with a task (by `flockdeck spawn`, say) may end when
 the task does.
 
-## Keys, for the API agents
+## API keys
 
-A CLI agent uses the login it already has, and Flockdeck never sees it. An API
-agent needs a key, which is looked for in that agent's own environment
-variables first (`ANTHROPIC_API_KEY`, `OPENAI_API_KEY` and the rest), then in
-Flockdeck's own store, and last in `FLOCKDECK_API_KEY`, which any API agent
-reads. A vendor's own variable is read only by an agent talking to that
-vendor's own address: a built-in given a gateway's or a proxy's address is
-never sent the key you exported for the vendor, and uses the one stored for it.
+A CLI agent uses the login it already has, and Flockdeck never sees it. Flockdeck
+keeps a store for API keys, and can ask an endpoint whether it takes one, but no
+built-in agent uses a key today: the agents that did were removed with
+`flockdeck chat`. The store stays for agents that take a key later, so the
+commands and [[action:apiKeys]] still work, and list nothing to set until there
+is one.
 
 | Command | What it does |
 | --- | --- |
-| `flockdeck keys set openai` | Reads the key from stdin, so it misses shell history |
+| `flockdeck keys set <agent>` | Reads the key from stdin, so it misses shell history |
 | `flockdeck keys list` | Which agents have one, not what it is |
-| `flockdeck keys clear openai` | Forgets the one Flockdeck stored |
-| `flockdeck keys check openai` | Asks the agent's endpoint whether it takes the key a pane would use |
-
-Or set them from the window: [[action:apiKeys]], in the command palette, or
-**API keys** in the settings, lists every API agent with **set** or **not
-set** beside it (and, for one that is not, the environment variables it would
-look in), and offers **Set…** (**Replace…** once one is set) and, for a key
-Flockdeck stored, **Clear**.
+| `flockdeck keys clear <agent>` | Forgets the one Flockdeck stored |
+| `flockdeck keys check <agent>` | Asks the agent's endpoint whether it takes the key |
 
 Keys are kept in `keys.json` in the state directory, readable only by you. A
-key reaches exactly one place: the environment of the chat process for the pane
-that needs it. It is never logged, never written into a saved layout and never
-shown, and the interface will not read one back to you. An endpoint that needs no key at all, such
-as a local server on loopback, counts as available without one.
+key is never logged, never written into a saved layout and never shown, and the
+interface will not read one back to you.
 
 ## Adding your own: agents.json
 
@@ -255,14 +185,10 @@ Support/flockdeck` on macOS, `~/.config/flockdeck` on Linux.
   "agents": [
     { "id": "claude", "defaultModel": "sonnet" },
     {
-      "id": "local",
-      "name": "Local llama",
-      "runner": "api",
-      "api": {
-        "wire": "openai",
-        "baseURL": "http://127.0.0.1:11434/v1"
-      },
-      "models": [{ "id": "qwen3-coder" }]
+      "id": "mine",
+      "name": "My agent",
+      "exe": "my-agent",
+      "models": [{ "id": "fast" }, { "id": "careful" }]
     }
   ]
 }
@@ -277,9 +203,6 @@ is named in the notice and ignored.
 
 The file is read fresh every time the picker opens, so editing it by hand takes
 effect without a restart.
-
-[Running Ornith models](#ornith) has a worked example of an agent of your own
-pointed at a self-hosted model.
 
 ## Roles
 
@@ -553,10 +476,9 @@ Routing moves work between the models of the agent the run is on, and only
 between models whose tier it knows. It sends work to another agent only when
 you turn on **Let a rule send work to another agent**, in the same place, and
 a rule names that agent's `model` and `agent`. A rule like that could send test
-runs to a local model through an OpenAI-compatible endpoint, say. Even then,
+runs to a cheaper agent, say. Even then,
 only a new helper moves, never a conversation already under
-way. The other agent has to be installed or keyed and trusted for the project,
-and, if it has an address of its own, something has to be answering there. The
+way. The other agent has to be installed and trusted for the project. The
 pane header's tooltip names the agent and model it would otherwise have used.
 Claude Code's **Default** is whatever the CLI is set to, which might be its
 smallest model or its largest, so routing leaves work on it alone: make a
@@ -625,11 +547,7 @@ Saving a default from a Flockdeck that has no routing (0.2.10 or older)
 writes a project's entry back without its `routing`, so a project's policy is
 lost that way.
 
-**Routing makes no request** unless you turn on **Let a rule send work to
-another agent**: then, before moving work to an agent with an address of its
-own, it opens a connection to that address, and closes it at once without
-sending anything, to check something is listening. Otherwise it decides from
-these rules alone. The routed mark on a pane travels only as the
+**Routing makes no request.** It decides from these rules alone. The routed mark on a pane travels only as the
 rest of the pane's state does, to your own paired devices when Flockdeck Remote
 is on. Helpers and first prompts are not logged. An older version
 that routed fan-out rows kept its choices in `routing.jsonl` in the state

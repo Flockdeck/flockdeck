@@ -140,8 +140,7 @@ const homePrefix = "flockdeck-test-home-"
 
 // sweptPrefixes are the names of the directories sweepStale removes: the home
 // Main makes, and the state and wait folders that tests make in the temp
-// directory themselves (internal/workspace, internal/server and
-// internal/chat/tool) and that a killed run leaves behind just the same.
+// directory themselves (internal/workspace and internal/server) and that a killed run leaves behind just the same.
 var sweptPrefixes = []string{homePrefix, "flockdeck-state-", "flockdeck-wait-"}
 
 func sweepable(name string) bool {

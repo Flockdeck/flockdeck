@@ -114,7 +114,7 @@ func (l Launch) argv() ([]string, error) {
 
 // chatTwin is the console build of Flockdeck that a Windows release ships
 // beside flockdeck.exe, for the hook and status line commands Claude Code runs.
-// Its name is from the removed `flockdeck chat`, the first thing to need it.
+// Its name is from the removed `flockdeck chat`, which first needed it.
 const chatTwin = "flockdeck-chat.exe"
 
 // ChatExe returns the program a hook or status line command runs: Flockdeck's

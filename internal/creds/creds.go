@@ -4,7 +4,7 @@
 // package is built around keeping it in as few places as possible. A key is
 // looked for in the variables the user already keeps it in, then in Flockdeck's
 // own store, and last in FLOCKDECK_API_KEY; whatever is found reaches exactly one place, the
-// environment of the `flockdeck chat` process for the pane that needs it. Nothing
+// environment of the agent's process for the pane that needs it. Nothing
 // else in the application is ever handed the value. The interface, the CLI and
 // the snapshot code are given a Status instead, which says that there is a key
 // and where it came from and never what it is.
@@ -90,7 +90,7 @@ func (k Key) GoString() string { return "creds.Key{" + k.String() + "}" }
 // nobody enjoys. FLOCKDECK_API_KEY is the exception, being every agent's: a
 // key stored for this one is the more particular answer.
 //
-// It is the chat client's own order, so what the keys dialog and `flockdeck
+// It is the order a pane would use, so what the keys dialog and `flockdeck
 // keys` say is in use is what a pane sends.
 func Resolve(spec agent.Spec) Key {
 	first, last := agent.KeyNames(spec)

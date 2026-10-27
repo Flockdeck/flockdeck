@@ -4,15 +4,12 @@
 * [acp manifest](acp-manifest.md) - The adapters and exact versions a Flockdeck release is tested with for ACP agents, the Node check, and the canary handshake.
 * [acp bridge](acp-bridge.md) - Turns the ACP update stream into transcript entries, with throttled hand-out and bounded memory.
 * [agent](agent.md) - Catalog of the coding agents, roles and routing policy Flockdeck can start in a pane.
+* [apikey](apikey.md) - Finds the API key stored or exported for an agent and asks the agent's endpoint whether it accepts it.
 * [appwindow](appwindow.md) - Opens Flockdeck's UI in a native Wails webview window and offers browser and file-manager helpers.
 * [artifacts](artifacts.md) - Path-confinement core that turns a file on this machine into something a remote device may be shown read-only.
 * [baton pruning](baton-prune.md) - How stored batons and their overflow files are aged out safely, and how damaged records and a wrong clock stop it.
 * [baton](baton.md) - Builds, scrubs, stores and frames the handoff document that carries work from one agent to the next.
 * [channel](channel.md) - Private per-instance local channel (Unix socket or Windows named pipe) answering identify and window requests.
-* [chat model listing and /model](chat-model-listing.md) - How the chat client asks an endpoint which models it has and how /model lists, numbers and matches them.
-* [chat rendering and width](chat-rendering.md) - How the chat client wraps a streamed answer to the pane, picks out markdown, counts display width and neutralises control characters.
-* [chat streaming parsers](chat-streaming-parsers.md) - The three vendor wires in the chat client, how each reads a streamed answer, and what they share.
-* [chat](chat.md) - Flockdeck's own terminal chat client that talks straight to a model API and runs as an agent pane.
 * [creds](creds.md) - Resolves the API key an agent needs and keeps it out of logs, JSON and the UI.
 * [e2e](e2e.md) - End-to-end encryption of one terminal socket between a paired browser and this desktop.
 * [ghcli](ghcli.md) - GitHub access by running the gh command-line tool: PRs, issues, CI checks, repo info, login and install.
@@ -38,7 +35,7 @@
 * [selfupdate](selfupdate.md) - Finds, downloads, verifies, stages and applies new Flockdeck releases.
 * [server](server.md) - The loopback HTTP and WebSocket server that serves the embedded front end and drives the workspace for every window, local or remote.
 * [session hook events and status mapping](session-status-mapping.md) - Which Claude Code hook events a pane subscribes to by version, and how StatusForEvent and ApplyEvent turn events into a pane status.
-* [session transcript readers](session-transcript.md) - The transcript subpackage that finds, lists, tails and exports stored agent conversations, with Claude Code and chat readers.
+* [session transcript readers](session-transcript.md) - The transcript subpackage that finds, lists, tails and exports stored agent conversations, with a Claude Code reader.
 * [session resource usage](session-usage.md) - How a pane's CPU share and memory are measured across its process tree, per platform.
 * [session](session.md) - One pane's process on a PTY: launch, output fan-out and replay, status tracking, hook settings, trust inheritance and process-tree shutdown.
 * [spend](spend.md) - In-memory book of per-pane token and cost totals and per-account usage windows.

@@ -13,7 +13,8 @@ Terminal emulation happens in the browser; this package owns the process, fans o
 
 | Symbol | Role |
 |---|---|
-| `Launch` / `Launch.Config()` | Resolves an `agent.Spec`, model, pane id, cwd and prompt into a `Config` (argv, env, settings file). API agents run `flockdeck chat` (on Windows the console twin `flockdeck-chat.exe` beside the exe, see [Windows chat twin](/gotchas/windows-chat-console-twin.md)) |
+| `Launch` / `Launch.Config()` | Resolves an `agent.Spec`, model, pane id, cwd and prompt into a `Config` (argv, env, settings file). |
+| `ChatExe(selfExe)` | The program a hook or status-line command runs: on Windows the console twin `flockdeck-chat.exe` beside the exe when present, see [Windows console twin](/gotchas/windows-chat-console-twin.md) |
 | `Start(Config)` -> `*Session` | Spawn on a PTY; `Kind` is `KindAgent` (alias `KindClaude`) or `KindShell` |
 | `Subscribe`, `SubscribeFrom(epoch, off)`, `Unsubscribe`, `Write`, `WriteString`, `Resize`, `Close` | Viewer fan-out and input |
 | `Status` | starting, working, waiting, blocked, idle, exited; `NeedsAttention` is waiting or blocked |
@@ -31,7 +32,7 @@ Replay buffer 512 KiB per pane; per-viewer backlog 512 chunks or 2 MiB, past whi
 
 ## Environment of a pane
 
-`EnvStripping` removes Claude session markers (`agent.ClaudeStripEnv` plus the catalog union), `FLOCKDECK_BASE_URL/WIRE/KEY_ENV` (and legacy `PERCH_` forms), and on non-Windows terminal-identity variables (`TERM_PROGRAM`, `TMUX`, ...), then sets `TERM=xterm-256color`, `COLORTERM=truecolor`. Later layers win and duplicates are dropped, so a catalog entry cannot shadow `FLOCKDECK_*`. See [pane environment](/config/flockdeck-pane.md).
+`EnvStripping` removes Claude session markers (`agent.ClaudeStripEnv` plus the catalog union), and on non-Windows terminal-identity variables (`TERM_PROGRAM`, `TMUX`, ...), then sets `TERM=xterm-256color`, `COLORTERM=truecolor`. Later layers win and duplicates are dropped, so a catalog entry cannot shadow `FLOCKDECK_*`. See [pane environment](/config/flockdeck-pane.md).
 
 Windows specifics: npm `.cmd` shims are run as `node script` directly; other batch files go through `cmd.exe` with a hand-built command line, shortened to 8191 (batch) or 32767 characters; pane processes live in a job object; `KillTree` ends console processes only. On Unix a pane is a session leader; close sends hangup to the session, then kills. See [pane shutdown](/gotchas/pane-process-tree-shutdown.md).
 

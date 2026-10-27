@@ -1,6 +1,6 @@
 # The command line
 
-> Direction (27 Oct 2026): Flockdeck is moving to run every agent over ACP. `inbox`, `msg`, the typed wake line, `wake`, `chat` and `task` below are planned removals, not removed yet; new agents will not use them. See docs/acp-direction.md in the repository.
+> Direction (27 Oct 2026): Flockdeck is moving to run every agent over ACP. `inbox`, `msg`, the typed wake line, `wake` and `task` below are planned removals, not removed yet; new agents will not use them. See docs/acp-direction.md in the repository.
 
 Once it is running you rarely need the command line: projects are opened and
 switched from inside the window. These are what is left.
@@ -307,8 +307,7 @@ in quotes, made of letters, digits, spaces and `.-_()` only, and cut to 32 chara
 the name and 16 for the role, so the role tells apart two panes that share a directory name.
 It never holds message text. A working agent reads it with its next tool result. An agent
 that is idle has no hook to answer until it gets a prompt, so it reads the notice with the
-next one, which is usually yours. Flockdeck's own chat agents (API-key agents) get the same
-notice added to the model's context for that turn.
+next one, which is usually yours.
 
 The reply to a hook can be lost, for instance when the hook is interrupted. A message that
 is still unread five minutes after its notice is announced again as a reminder, at most
@@ -574,19 +573,19 @@ running.
 
 ## keys
 
-An API agent (one Flockdeck talks to directly rather than through a CLI of its
-own) needs a key. It is looked for in that agent's own environment variables
-first, then in `keys.json` in the state directory, and last in
-`FLOCKDECK_API_KEY`. A vendor's own variable, such as `OPENAI_API_KEY`, is read
-only while the agent talks to that vendor's own address.
+Flockdeck keeps a store for API keys and can ask an endpoint whether it takes one.
+No built-in agent uses a key today, since the agents that talked to a model API
+directly were removed with `flockdeck chat`, so `flockdeck keys list` shows
+nothing until an agent that takes one is added. Where there is one, its key is
+looked for in the agent's own environment variables first, then in `keys.json` in
+the state directory, and last in `FLOCKDECK_API_KEY`.
 
 | Command | What it does |
 | --- | --- |
-| `flockdeck keys set openai` | Reads the key from stdin, so it misses shell history |
+| `flockdeck keys set <agent>` | Reads the key from stdin, so it misses shell history |
 | `flockdeck keys list` | Which agents have one, not what it is |
-| `flockdeck keys clear openai` | Forgets the one Flockdeck stored |
-| `flockdeck keys check openai` | Asks the agent's endpoint whether it takes the key a pane would use |
-| `flockdeck keys endpoint <agent> <url>` | Points an API agent at another address; `default` in place of the address goes back to the vendor's own, and no address at all prints the one it uses now |
+| `flockdeck keys clear <agent>` | Forgets the one Flockdeck stored |
+| `flockdeck keys check <agent>` | Asks the agent's endpoint whether it takes the key |
 
 Nothing here ever prints a key back, and neither does the interface.
 
@@ -732,25 +731,6 @@ Reach this machine's agents from another device, through a relay.
 A running instance is told when `enable`, `disable`, `remove`, `delete-account` or `move` changes
 anything, and connects, disconnects or switches relay on the spot. [Flockdeck Remote](#remote) has the rest.
 
-## chat
-
-```sh
-flockdeck chat
-```
-
-This is the terminal chat client Flockdeck runs in a pane for an API agent, the
-one that talks to a model API itself, with no wrapper CLI, no node and no
-Python. It is told which agent, which model and which session to be; the pane
-fills all three in, which is why you meet it as a pane rather than type it. Run
-outside a pane it still works, but there is nothing listening for the lifecycle
-events it reports, so nothing turns amber when it wants you. It has flags of its
-own for setting it up by hand (which wire to speak, the base URL, the model,
-and which environment variable holds the key) and lists them when asked for
-help, for talking to an endpoint from a plain terminal. On
-Windows, run it as `flockdeck-chat chat`: `flockdeck.exe` is built without a
-console, so it has nowhere to draw the conversation, and `flockdeck-chat.exe`
-beside it is the same program built with one.
-
 ## update
 
 | Command | What it does |
@@ -879,13 +859,10 @@ command line and asks before it downloads anything.
 | --- | --- |
 | `FLOCKDECK_UPDATE` | `off` stops updating in the background: no checks, and nothing already downloaded is put in place |
 | `FLOCKDECK_RELAY` | Which relay `flockdeck remote enable` uses when `-relay` is not given |
-| `FLOCKDECK_API_KEY` | A key for any API agent, used when neither its own variables nor a key stored with `flockdeck keys set` hold one |
+| `FLOCKDECK_API_KEY` | A key for any agent that takes one, used when neither its own variables nor a key stored with `flockdeck keys set` hold one |
 | `FLOCKDECK_DIR`, `FLOCKDECK_START_AGENT` | The equivalents of `-C` and `-agent` |
 | `FLOCKDECK_FRESH`, `FLOCKDECK_SHELL_FIRST`, `FLOCKDECK_NO_WINDOW`, `FLOCKDECK_DETACH`, `FLOCKDECK_SOLO` | Set to `1` or `true` (any case), the equivalents of `-new`, `-shell`, `-no-window`, `-detach` and `-solo`, for a service's environment; a flag given on the command line wins |
 | `FLOCKDECK_REMOTE_INVITE`, `FLOCKDECK_REMOTE_JOIN`, `FLOCKDECK_REMOTE_NAME` | The defaults for `-invite`, `-join` and `-name` of `flockdeck remote enable` |
-| `FLOCKDECK_WIRE` | The request shape `flockdeck chat` uses when its wire flag is not given: `anthropic`, `openai` or `gemini`. Flockdeck sets none of these three and strips them from every pane it starts, so they do nothing in the shell that starts Flockdeck; they apply to a `flockdeck chat` you run by hand, or when an agent in `agents.json` puts them back through its `env` |
-| `FLOCKDECK_BASE_URL` | The endpoint `flockdeck chat` talks to when its base URL flag is not given |
-| `FLOCKDECK_KEY_ENV` | The variable names, separated by commas, `flockdeck chat` reads an API key from when its key-env flag is not given |
 | `FLOCKDECK_DETACHED` | Set by Flockdeck on the copy that the detach option starts; not for you to set |
 | `FLOCKDECK_API` | Where Flockdeck listens for its panes. Set for you |
 | `FLOCKDECK_TOKEN` | The secret that goes with it. Set for you |
@@ -907,7 +884,6 @@ still read both, so a prompt or a script written against the old names keeps
 working. They will be removed after 17 April 2027. Until then a command you run that
 has to fall back to a `PERCH_*` name prints one line per name on stderr saying
 which `FLOCKDECK_*` name to set instead; the hook and the status line, which run
-on every event, fall back without saying anything. `flockdeck chat` also accepts
-`PERCH_WIRE`, `PERCH_BASE_URL`, `PERCH_KEY_ENV`, `PERCH_AGENT` and `PERCH_MODEL` until then. `FLOCKDECK_AGENT`,
+on every event, fall back without saying anything. `FLOCKDECK_AGENT`,
 `FLOCKDECK_MODEL`, `FLOCKDECK_ROLE` and `FLOCKDECK_LAUNCH` are newer and have
 only the one name in a pane.

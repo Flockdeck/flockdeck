@@ -7,7 +7,6 @@
 * [Background work counts only on evidence](background-work-verification.md) - An idle agent with background tasks reads as working only while the work is verified, and ends only on stored evidence.
 * [A baton must fit a Windows command line](baton-prompt-size-budget.md) - The baton prompt is a command-line argument, so its size is budgeted below the 32,767-character Windows cap.
 * [Unix socket path length and placement](channel-socket-path-length.md) - sun_path limits and logout behaviour decide where the local channel socket may live.
-* [Chat endpoint addresses](chat-endpoint-addresses.md) - How the chat client joins a configured base address with each API's path, and how it picks up a changed address.
 * [Claude session variables are stripped from panes](claude-env-stripping.md) - Variables a running Claude Code session injects are removed so a pane does not think it is a nested child.
 * [Conflict radar throttles and fail-safes](conflict-radar-limits.md) - When the workspace runs the conflict radar, and how it backs off on slow or vanished checkouts.
 * [The token cookie is named per port](cookie-named-per-port.md) - Cookies ignore ports, so each instance names its cookie flockdeck_token_<port>.
@@ -28,6 +27,6 @@
 * [Legacy state directory and layout file names](state-dir-renamed-from-perch.md) - Earlier builds used a different directory name and unnormalized layout hashes; the store adopts both on load.
 * [Task board corrupt-file and version handling](task-board-file-recovery.md) - A damaged tasks.json is set aside and the board restarts empty, while a newer-format file blocks writes.
 * [Unreadable or damaged state files are moved aside, not overwritten](unreadable-state-files-are-set-aside.md) - Layouts, projects, session, groups and prefs that fail to read or parse are renamed with a suffix so a fresh save cannot destroy them.
-* [Windows needs a console-linked twin binary](windows-chat-console-twin.md) - An API agent pane runs the chat client, which needs a console program on Windows.
+* [Windows needs a console-linked twin binary](windows-chat-console-twin.md) - The Windows release ships a console build beside the GUI one for the commands Claude Code runs and the update step.
 * [The workspace is touched from one goroutine only](workspace-goroutine-only.md) - Every read or write of the workspace must go through Server.do or ask; direct access from a connection goroutine races.
 * [Worktree handling for spawned helpers](worktree-spawn-and-cleanup.md) - How spawn reuses, creates, names and rolls back git worktrees, and the checks that avoid data loss.

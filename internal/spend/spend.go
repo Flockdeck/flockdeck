@@ -5,8 +5,7 @@
 // paying per token wants money; somebody on a subscription pays the same
 // whatever happens and is stopped by a usage window instead, so for them the
 // headline is how much of the window is used and when it resets. Both numbers
-// come from the agents themselves -- Flockdeck's own chat client counts every
-// call it makes, and Claude Code hands its status line the session's cost and
+// come from the agents themselves -- Claude Code hands its status line the session's cost and
 // the subscription's windows -- and nothing here is fetched from anywhere: the
 // figures arrive over the loopback hook server and never leave the machine.
 //

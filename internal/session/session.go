@@ -1261,7 +1261,7 @@ func (s *Session) CompactionStatus(event, source string) (Status, string, bool) 
 // that has the pane working (or already waiting) by then, so an untyped
 // Notification landing on a pane the hooks have left idle, with no background
 // work that could be asking on its own, is the nudge. The one that names a
-// tool is Flockdeck's own chat client asking permission, which is never one.
+// tool is an agent asking permission, which is never one.
 func (s *Session) IsStaleNudge(event, tool, notificationType string) bool {
 	if event != "Notification" || tool != "" || notificationType != "" {
 		return false

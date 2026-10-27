@@ -171,7 +171,7 @@ func ActivityFromEvents(evs []transcript.ExportEvent) Activity {
 }
 
 // ActivityFromEntries reads Activity out of a conversation's stream entries,
-// which is the form the chat client's is read in. A command is only as long as
+// which is the form an agent without an exporter is read in. A command is only as long as
 // the entry's label keeps it.
 func ActivityFromEntries(entries []transcript.Entry) Activity {
 	var a Activity

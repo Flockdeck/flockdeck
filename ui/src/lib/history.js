@@ -63,8 +63,7 @@ export function statsOf(c) {
 }
 
 /** resumeCommand is what resuming one row sends. The agent the listing says kept
- *  the conversation is the one it reopens with: every API agent's conversations
- *  are stored in one place. A conversation already open in a pane is not resumed. */
+ *  the conversation is the one it reopens with. A conversation already open in a pane is not resumed. */
 export function resumeCommand(listing, c) {
   if (!listing || !c || c.open) return null;
   const cmd = { cmd: "resumeConversation", id: c.id, path: listing.cwd, text: c.summary };
