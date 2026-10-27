@@ -156,7 +156,7 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, d
             ${outcome && outcome.kind === "refused" ? html`<p class="structured-note structured-note--unsent structured-note--send" role="alert">${showControls(clip(outcome.text, 300))}</p>` : null}
             ${sendFailed === pane ? html`<p class="structured-note structured-note--unsent structured-note--send" role="alert">${SEND_NOT_SENT_WORDS}</p>` : null}
             ${stopFailed === pane ? html`<p class="structured-note structured-note--unsent" role="status">${STOP_NOT_SENT_WORDS}</p>` : null}
-            ${cancelError && cancelError.id === pane ? html`<p class="structured-note" role="status">${clip(String(cancelError.error || ""), 300)}</p>` : null}
+            ${cancelError && cancelError.id === pane ? html`<p class="structured-note" role="status">${showControls(clip(String(cancelError.error || ""), 300))}</p>` : null}
           </form>`
         : null}
     </div>

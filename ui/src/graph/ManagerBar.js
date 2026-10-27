@@ -267,8 +267,7 @@ export function ManagerBar({ snap, manager, send, inputRef, autoFocus = true, ve
       onKeyDown=${onKeyDown}
     />
     <button class="mbar-send" type="button" disabled=${sending} onClick=${submit}>Send</button>
-    ${state === "refused"
-      ? html`<span key="refused" class="mbar-status mbar-status--error" role="alert">${showControls(say.text)}</span>`
-      : html`<span key="status" class="mbar-status" role="status">${say ? say.text : ""}</span>`}
+    <span key="status" class="mbar-status" role="status">${state === "refused" ? "" : say ? say.text : ""}</span>
+    ${state === "refused" ? html`<span key="refused" class="mbar-status mbar-status--error" role="alert">${showControls(say.text)}</span>` : null}
   </div>`;
 }

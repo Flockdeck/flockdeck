@@ -42,7 +42,7 @@ async function mount() {
     push: async (msg) => { ws().frame(msg); await settle(); },
     top: () => container.find(".top"),
     input: () => container.find(".mbar-input"),
-    status: () => (container.find(".mbar-status") || { textContent: "" }).textContent,
+    status: () => (container.find(".mbar-status--error") || container.find(".mbar-status") || { textContent: "" }).textContent,
     sends: () => ws().commands("paneSend"),
     done: () => { render(null, container); store.stop(); restore(); },
   };

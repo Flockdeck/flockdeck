@@ -243,7 +243,7 @@ test("a question shows its text and options as text, and the box sends the answe
     await settle();
     assert.deepEqual(m.ws().commands("paneSend").map(({ req, ...c }) => c), [{ cmd: "paneSend", id: CART, text: "  Backfill, all of them " }]);
     await m.push({ type: "notice", text: "That pane is no longer open", error: true });
-    assert.equal(m.card().find(".mbar-status").textContent, "That pane is no longer open");
+    assert.equal((m.card().find(".mbar-status--error") || m.card().find(".mbar-status")).textContent, "That pane is no longer open");
   }));
 
 // --------------------------------------------------------- structured pane
