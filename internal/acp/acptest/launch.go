@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -143,7 +144,9 @@ func Command(t testing.TB, opts ...Option) (path string, args []string, env []st
 // project settings, and with a cwd under the profile it found the user's own
 // skills. On Windows the temp directory is under the profile, so the drive's
 // root is used; if a directory cannot be made there, t.TempDir is the
-// fallback. It is removed when the test ends.
+// fallback. It is removed when the test ends. A test that is killed or times
+// out skips that cleanup, so the first call in a process also sweeps what
+// earlier runs left behind (see sweepStale).
 func SessionDir(t testing.TB) string {
 	t.Helper()
 	// The profile cannot be asked for: the test isolation redirects it. The
@@ -157,8 +160,15 @@ func SessionDir(t testing.TB) string {
 		if root == "" {
 			continue
 		}
-		dir, err := os.MkdirTemp(root, "flockdeck-acp-")
+		sweepOnce.Do(func() { sweepStale(root, time.Now(), staleAfter) })
+		dir, err := os.MkdirTemp(root, scratchPrefix)
 		if err != nil {
+			continue
+		}
+		// The marker says the folder is ours, so a later sweep may remove it
+		// with what an agent wrote into it.
+		if err := os.WriteFile(filepath.Join(dir, scratchMarker), nil, 0o600); err != nil {
+			_ = os.RemoveAll(dir)
 			continue
 		}
 		t.Cleanup(func() { _ = os.RemoveAll(dir) })
@@ -169,6 +179,41 @@ func SessionDir(t testing.TB) string {
 		return abs
 	}
 	return t.TempDir()
+}
+
+const (
+	scratchPrefix = "flockdeck-acp-"
+	scratchMarker = ".flockdeck-acp-scratch"
+	staleAfter    = 24 * time.Hour
+)
+
+var sweepOnce sync.Once
+
+// sweepStale removes scratch folders directly under root that are older than
+// maxAge: those that hold the marker (with everything in them) and those that
+// are empty, which an earlier version left. A folder with other content and no
+// marker is not ours to touch, and neither is a link or a file with the same
+// name. It is best effort and ignores every error.
+func sweepStale(root string, now time.Time, maxAge time.Duration) {
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if !strings.HasPrefix(e.Name(), scratchPrefix) {
+			continue
+		}
+		dir := filepath.Join(root, e.Name())
+		fi, err := os.Lstat(dir)
+		if err != nil || !fi.IsDir() || fi.Mode()&os.ModeSymlink != 0 || now.Sub(fi.ModTime()) < maxAge {
+			continue
+		}
+		if m, err := os.Lstat(filepath.Join(dir, scratchMarker)); err == nil && m.Mode().IsRegular() {
+			_ = os.RemoveAll(dir)
+			continue
+		}
+		_ = os.Remove(dir) // fails unless the folder is empty
+	}
 }
 
 func volumeRoot() string {

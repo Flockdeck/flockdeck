@@ -24,7 +24,7 @@ func TestLineShowsRolePeerAgentStatusAndSelf(t *testing.T) {
 	if got, want := r[0].Line(), `pane p-mgr: manager "api", claude · opus, working (you)`; got != want {
 		t.Errorf("self line = %q, want %q", got, want)
 	}
-	if got, want := r[1].Line(), `pane p-w1: worker "worker-1" (pane name "api-fix"), claude, idle`; got != want {
+	if got, want := r[1].Line(), `pane p-w1: worker "worker-1" (pane name "api-fix"), session name "worker-1", claude, idle`; got != want {
 		t.Errorf("peer line = %q, want %q", got, want)
 	}
 	if got, want := r[5].Line(), `pane p-none: no role "scratch", claude, working`; got != want {

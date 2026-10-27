@@ -26,6 +26,10 @@ The prompt form says the briefing is sent once and gives the snapshot time. It a
 
 This pane (directory, branch, worktree or subdirectory of the project root, repo name for multi-repo projects, tab pane count, task, baton); Your role (only for a pane started with a role); The other agents; Your team; Messages; Task board; What Flockdeck can do; Starting agents; Flockdeck from the shell; The user's view. Team, Messages, Task board and the spawn sections need `CanSpawn` (the hook server exists) and a non-shell pane.
 
+## Messaging
+
+`PaneContext.SendMessage` is set from `Caps.Hooks` (Claude Code today). For such a pane the Messages section documents SendMessage only and leaves out `msg send`; the pane facts tell the agent to report its ListAgents name with `flockdeck peer-name`. `PaneContext.Parent` is `Pane.Parent`, and `writeManager` finds that pane in `Team` and prints its reported session name (`Member.Peer`), or says it has none. Flockdeck cannot learn session names itself; they are cleared at restart. `Member.Line` prints `session name "..."` when a peer name is set. Other terminal agents keep the `msg send` row.
+
 ## Limits
 
 | Constant | Value | Meaning |

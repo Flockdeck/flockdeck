@@ -765,7 +765,7 @@ func TestSpawnExamplesNameACommandThatExists(t *testing.T) {
 // actually run, quoted the same way the spawn examples are.
 func TestPeerNameMentionIsGatedOnTheHookServer(t *testing.T) {
 	exe := filepath.Join("C:", "Program Files", "flockdeck", "flockdeck.exe")
-	withHooks := PaneContext{PaneName: "one", CanSpawn: true, SpawnCommand: exe}.Render()
+	withHooks := PaneContext{PaneName: "one", CanSpawn: true, SendMessage: true, SpawnCommand: exe}.Render()
 	if !strings.Contains(withHooks, `"`+exe+`" peer-name <name>`) {
 		t.Errorf("the briefing does not mention peer-name, quoted for a path with a space:\n%s", withHooks)
 	}
@@ -773,7 +773,12 @@ func TestPeerNameMentionIsGatedOnTheHookServer(t *testing.T) {
 		t.Errorf("the briefing does not say how an agent would learn its own peer name:\n%s", withHooks)
 	}
 
-	withoutHooks := PaneContext{PaneName: "one", CanSpawn: false}.Render()
+	// An agent without SendMessage has no session name to report.
+	if noTool := (PaneContext{PaneName: "one", CanSpawn: true, SpawnCommand: exe}).Render(); strings.Contains(noTool, "peer-name") {
+		t.Errorf("an agent without SendMessage was told to report a peer name: %s", noTool)
+	}
+
+	withoutHooks := PaneContext{PaneName: "one", CanSpawn: false, SendMessage: true}.Render()
 	if strings.Contains(withoutHooks, "peer-name") {
 		t.Errorf("a pane with no hook server was told to report a peer name it could not:\n%s", withoutHooks)
 	}
