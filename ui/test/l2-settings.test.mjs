@@ -425,7 +425,7 @@ test("the catalog is read into choices and the two defaults", () => {
   assert.equal(modelsOf(null).ready, false);
   assert.equal(modelsOf({ err: "no file" }).err, "no file");
   const groups = groupsOf(m.options);
-  assert.deepEqual(groups.map((g) => g.name), ["Claude Code", "My model", "Codex (not installed, see npm i -g codex)"]);
+  assert.deepEqual(groups.map((g) => g.name), ["Claude Code", "My model", "Codex (unavailable)"]);
   assert.equal(groups[2].items[0].disabled, true);
 });
 
