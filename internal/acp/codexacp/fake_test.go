@@ -27,6 +27,7 @@ const (
 	envNoTurn = "FD_CODEXACP_TURNDELAY" // milliseconds before the turn/start response
 	envErr    = "FD_CODEXACP_ERR"       // a method that is answered with an error
 	envSlow   = "FD_CODEXACP_SLOWSTART" // milliseconds before the thread/start response
+	envEcho   = "FD_CODEXACP_ECHO"      // JSON members added to the thread/start and thread/resume results
 	envStderr = "FD_CODEXACP_STDERR"    // a line written to stderr at start
 )
 
@@ -59,12 +60,21 @@ func note(method string, params string) step {
 
 func answer(method string, params map[string]any) any {
 	switch method {
+	case "thread/start", "thread/resume":
+		res := map[string]any{"thread": map[string]any{"id": "thr-1"}, "model": "gpt-fake", "cwd": "x"}
+		if method == "thread/resume" {
+			res["thread"] = map[string]any{"id": params["threadId"]}
+		}
+		if e := os.Getenv(envEcho); e != "" {
+			var extra map[string]any
+			_ = json.Unmarshal([]byte(e), &extra)
+			for k, v := range extra {
+				res[k] = v
+			}
+		}
+		return res
 	case "initialize":
 		return map[string]any{"userAgent": "fake-codex/0.0.0"}
-	case "thread/start":
-		return map[string]any{"thread": map[string]any{"id": "thr-1"}, "model": "gpt-fake", "cwd": "x"}
-	case "thread/resume":
-		return map[string]any{"thread": map[string]any{"id": params["threadId"]}, "model": "gpt-fake"}
 	case "model/list":
 		return map[string]any{"data": []any{
 			map[string]any{"id": "gpt-fake", "model": "gpt-fake", "displayName": "GPT Fake", "description": "the default"},

@@ -16,7 +16,11 @@ The code is in `internal/acp/codexacp`. The route is researched in
 
 No real Codex has run against this adapter. The machine it was built on has no
 `codex`, so there was no schema from `codex app-server generate-json-schema`
-either. The wire shapes come from the route document and from what I remember of
+either. A check of the approval policy and sandbox on 27 Oct 2026 (task T220) also
+found no `codex` on the machine (not on `PATH`, not in the npm directory), so it was a
+review of the code against the app-server protocol as documented, plus tests on the
+fake. Under "Policy review" below, each point says what was checked and what is still
+open. The wire shapes come from the route document and from what I remember of
 the app-server's v2 protocol, and the tests run against a fake app-server that
 replays those shapes. A real session is the first thing to do before this
 adapter is offered. The parts most likely to be wrong are listed under
@@ -75,7 +79,9 @@ Three modes, each an approval policy and a sandbox:
 
 The mode with no sandbox and no questions is left out on purpose, as
 `bypassPermissions` is in the Claude adapter. A mode change applies from the next
-turn. The models come from `model/list`. Reasoning effort is not offered yet.
+turn. `/review` sends no policy of its own and runs under the one the last turn
+carried, so a `/review` after a mode change is refused with an error until a normal
+turn has been sent. `/compact` runs no tools and is not held back. The models come from `model/list`. Reasoning effort is not offered yet.
 
 ### Slash commands
 
@@ -215,10 +221,42 @@ These were not checked against a real codex:
 - Whether a codex that is not logged in fails the first turn with `unauthorized`, as the
   adapter assumes, or fails earlier. There is no `authenticate` method yet.
 - That the `thread/start` and `thread/resume` results echo the approval policy and
-  sandbox that took effect, as `approvalPolicy` and `sandbox`. The adapter does not check
-  them (a TODO in `openSession`): a codex that ignored the mode would run with more
-  rights than the person chose, so this has to be checked on a real codex.
+  sandbox that took effect, as `approvalPolicy` (a string) and `sandbox` (a string or an
+  object with `type`). When they are present the adapter compares them with the mode and
+  fails the session if either is looser, or if the sandbox reports network access; when
+  they are absent nothing is checked. If a real codex sends neither, the check does
+  nothing and the policy rests on the parameters alone.
 - Approvals from a sub-agent's thread would carry another thread id and are refused.
+
+## Policy review
+
+Read against the protocol, not run. Checked, and what it means:
+
+- `thread/start`, `thread/resume` and `turn/start` all carry the mode's approval policy and
+  sandbox, so a user's `config.toml` does not set them. `session/new` and `session/resume`
+  fail with "Codex is unavailable" if the answer reports something looser (new in this
+  change).
+- In `auto` and `read-only` the policy is `on-request`: codex decides when to ask, and the
+  sandbox is what stops a command. A command the model asks to run outside the sandbox
+  arrives as `item/commandExecution/requestApproval` and gets a card. In `ask`
+  (`untrusted`) codex asks for anything it does not consider known-safe, which includes
+  commands it reads as safe reads; those run without a card.
+- What runs without asking in `auto`: commands inside the sandbox, which can write the
+  working directory and codex's usual temporary directories, with no network. `.git`
+  handling and the temp directories are codex's choice and were not seen.
+- Every approval method the adapter knows is answered `accept` only for an option it
+  offered; everything else is `decline` or `cancel`, or a JSON-RPC error for methods it
+  does not know. The legacy v1 approval requests get an error, which codex reads as a
+  denial.
+- `review/start` and `thread/compact/start` carry no policy. The adapter now refuses
+  `/review` while the mode differs from the one the last turn was sent with.
+- Cancel sends `turn/interrupt` and, after 15 seconds, ends the codex process tree. Exit
+  ends the process on every path (see "Limits and exit").
+
+Still to run on a real codex: a command outside the sandbox raising a card, a rejected
+card, the echo fields above, `turn/interrupt` mid-command, `thread/resume` in a new
+adapter process, and a Windows run, where the sandbox may need setup first
+(`windowsSandbox/setupStart`) and may be weaker than on other systems.
 
 ## Not done
 
