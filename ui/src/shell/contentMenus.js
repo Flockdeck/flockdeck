@@ -7,6 +7,8 @@
 // so a disabled button, a guard and a viewer's refusal are the ones the button has.
 // An item that copies reads the text from the element or an attribute on it.
 
+import { NO_SUMMARY_WORDS } from "../drawer/conv/rows.js";
+
 const text = (el) => String((el && el.textContent) || "").trim();
 const first = (el, sel) => (el && el.querySelector ? el.querySelector(sel) : null);
 const all = (el, sel) => (el && el.querySelectorAll ? Array.from(el.querySelectorAll(sel)) : []);
@@ -37,11 +39,16 @@ const task = (el, ctx) => {
   ];
 };
 
-const message = (el, ctx) => [
-  pressing("whole", "Show all", first(el, ".team-whole")),
-  pressing("seen", "Mark seen", first(el, ".team-seen")),
-  copying(ctx, "copy-text", "Copy message", text(first(el, ".team-body")), "the message"),
-];
+const message = (el, ctx) => {
+  const whole = first(el, ".team-whole");
+  // A cut message is drawn with an ellipsis that is not part of what was said.
+  const body = text(first(el, ".team-body"));
+  return [
+    pressing("whole", "Show all", whole),
+    pressing("seen", "Mark seen", first(el, ".team-seen")),
+    copying(ctx, "copy-text", "Copy message", whole ? body.replace(/…$/, "") : body, "the message"),
+  ];
+};
 
 const rosterRow = (el, ctx) => {
   const pane = attr(el, "data-pane");
@@ -74,12 +81,13 @@ function convText(el) {
 const convRow = (el, ctx) => {
   const head = first(el, ".conv-tool-head");
   if (head) {
+    const summary = text(first(el, ".conv-tool-summary"));
     const open = attr(head, "aria-expanded") === "true";
     return [
       pressing("toggle", open ? "Collapse" : "Expand", head),
       { separator: true },
       copying(ctx, "copy-title", "Copy title", text(first(el, ".conv-tool-title")), "the title"),
-      copying(ctx, "copy-summary", "Copy summary", text(first(el, ".conv-tool-summary")), "the summary"),
+      copying(ctx, "copy-summary", "Copy summary", summary === NO_SUMMARY_WORDS ? "" : summary, "the summary"),
     ];
   }
   return [copying(ctx, "copy-text", "Copy text", convText(el), "the text")];

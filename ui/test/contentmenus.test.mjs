@@ -69,7 +69,7 @@ test("a message offers Show all only when it was cut, and copies its text", asyn
     const m = p.menu(".team-body");
     assert.deepEqual(labels(m.items), ["Show all", "Mark seen", "Copy message"]);
     m.items[2].run();
-    assert.equal(p.copied[0][0], "Done with the parser.…");
+    assert.equal(p.copied[0][0], "Done with the parser.");
   } finally {
     p.done();
   }
@@ -139,4 +139,14 @@ test("a Markdown link opens and copies its address; a review comment copies its 
 test("nothing to copy and no clipboard leave no items", () => {
   const el = { getAttribute: (k) => (k === "data-path" ? "x.go" : null), querySelector: () => null };
   assert.deepEqual(build("diffFile", el, { keys: [], implemented: [] }), []);
+});
+
+test("an open tool row with no summary does not offer to copy the placeholder", async () => {
+  const e = { kind: "tool", id: "e3", name: "Bash", label: "go vet", status: "ok" };
+  const p = await page(html`<ul><${Row} entry=${e} open=${true} onToggle=${() => {}} /></ul>`);
+  try {
+    assert.deepEqual(labels(p.menu(".conv-tool-title").items), ["Collapse", "Copy title"]);
+  } finally {
+    p.done();
+  }
 });
