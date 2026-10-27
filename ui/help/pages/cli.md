@@ -574,11 +574,11 @@ running.
 ## keys
 
 Flockdeck keeps a store for API keys and can ask an endpoint whether it takes one.
-No built-in agent uses a key today, since the agents that talked to a model API
-directly were removed with `flockdeck chat`, so `flockdeck keys list` shows
-nothing until an agent that takes one is added. Where there is one, its key is
-looked for in the agent's own environment variables first, then in `keys.json` in
-the state directory, and last in `FLOCKDECK_API_KEY`.
+An agent with a login of its own needs none. For a structured agent that reads
+one (Gemini CLI, Codex), a key stored here is set in that agent's environment
+when its pane starts, and nowhere else. A variable exported in Flockdeck's own
+environment counts only if the agent's entry lists it in `passEnv`; the
+vendor's usual variable and `FLOCKDECK_API_KEY` are not read for these agents.
 
 | Command | What it does |
 | --- | --- |

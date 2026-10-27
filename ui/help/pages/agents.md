@@ -169,12 +169,17 @@ the task does.
 
 ## API keys
 
-A CLI agent uses the login it already has, and Flockdeck never sees it. Flockdeck
-keeps a store for API keys, and can ask an endpoint whether it takes one, but no
-built-in agent uses a key today: the agents that did were removed with
-`flockdeck chat`. The store stays for agents that take a key later, so the
-commands and [[action:apiKeys]] still work, and list nothing to set until there
-is one.
+An agent uses the login it already has, and Flockdeck never sees it. A key is
+optional: an agent starts without one. Where you set one, in [[action:apiKeys]]
+or with `flockdeck keys set`, Flockdeck puts it in the environment of that
+agent's process under the variable the agent reads (`GEMINI_API_KEY` for Gemini
+CLI, `OPENAI_API_KEY` for Codex) and in no other process, recording or message.
+It is read when a pane starts, so a pane already running keeps what it had.
+opencode keeps its own provider logins and has no key here.
+
+A key you exported in the environment Flockdeck runs in reaches an agent only if
+the agent's entry lists that variable in `passEnv`. Without that, an
+`OPENAI_API_KEY` you set for another tool does not move Codex off its login.
 
 | Command | What it does |
 | --- | --- |

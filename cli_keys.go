@@ -307,17 +307,37 @@ func storedKey(agentID string) string {
 // The key is found by apikey.KeyFor, given the options a pane of the
 // agent starts with and the store: the agent's own variables, then its stored
 // key, then FLOCKDECK_API_KEY (agent.KeyNames). A pane is handed the stored key under the
-// agent's first variable (creds.Env), which is empty when there is none, so it
-// finds the same one.
+// agent's key variable (creds.StoredKey), which is empty when there is none, so
+// it finds the same one. A structured agent's key is found by creds.Resolve alone.
 func keysCheck(agentID string, out io.Writer) error {
 	spec, err := keyAgentSpec(agentID)
 	if err != nil {
 		return err
 	}
-	apikey.KeyStore = storedKey
-	key, from := apikey.KeyFor(apikey.Target{
-		Agent: spec.ID, Wire: spec.API.Wire, BaseURL: spec.API.BaseURL, KeyEnv: spec.API.KeyEnv,
-	})
+	var key, from string
+	if spec.Runner == agent.RunnerACP {
+		// A structured agent is given the key stored for it, or one of its key
+		// variables that its passEnv lets through: not the vendor's usual
+		// variable, and not FLOCKDECK_API_KEY. Asking about any other key would
+		// check one the agent never gets.
+		if k := creds.Resolve(spec); k.Set() {
+			key = k.Secret()
+			from = "stored with `flockdeck keys set " + agentID + "`"
+			if k.Source == creds.SourceEnv {
+				from = "from " + k.Env
+			}
+		}
+	} else {
+		apikey.KeyStore = storedKey
+		key, from = apikey.KeyFor(apikey.Target{
+			Agent: spec.ID, Wire: spec.API.Wire, BaseURL: spec.API.BaseURL, KeyEnv: spec.API.KeyEnv,
+		})
+	}
+	if key != "" && !creds.Usable(key) {
+		// The agent is not given a key like this, so it is not asked about.
+		fmt.Fprintf(out, "%s: %s\n", agentID, creds.ErrUnusable)
+		return nil
+	}
 	if key == "" {
 		fmt.Fprintf(out, "%s: %s\n", agentID, creds.StatusOf(spec).Describe())
 		return nil
@@ -395,10 +415,10 @@ func isMsysPtyName(name string) bool {
 // user's agents.json merged in, of which creds.StatusAll keeps those that take
 // one.
 //
-// No catalog entry takes a key since `flockdeck chat` and the API runners were
-// removed, so `flockdeck keys` has nothing to list until board task T202 gives
-// agents keys that are passed to their adapters. It is a variable so that the
-// tests can stand in for those agents.
+// The agents that take a key are the built-in structured ones that can use an
+// API key in place of their own login (agent.Spec.ACPKeyEnv); the key is passed
+// to that agent's process only. It is a variable so that the tests can stand in
+// for those agents.
 var keysAgents = func() []agent.Spec {
 	return agent.Load().Specs
 }

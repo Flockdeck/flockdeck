@@ -13,7 +13,7 @@ code_paths: [cli_keys.go, cli_keys_echo_unix.go, cli_keys_echo_windows.go, cli_k
 
 ## Current state
 
-No built-in agent takes a key since `flockdeck chat` and the API runners were removed, and an agents.json entry with an `api` block is refused. `keys list` therefore shows only keys already stored under an id that is not in the catalog, `set` and `check` refuse every id and name the agents that take a key, of which there are none. `clear <id>` still removes a stored key. Board task T202 turns these keys into per-agent keys that are passed to adapters; the command is kept for it.
+The agents that take a key are the built-in structured ones with an `api` block (`gemini-acp`, `codex-acp`); an agents.json entry with an `api` block is refused. `set` and `check` refuse every other id and name the agents that take a key. `clear <id>` removes a stored key for any id. A stored key is set in the agent's environment when its pane starts (T202).
 
 ## Subcommands
 
@@ -31,7 +31,7 @@ No built-in agent takes a key since `flockdeck chat` and the API runners were re
 
 - The key is never an argument and never printed back. After `set`, on a terminal, the key is checked with `apikey.CheckKey` against the endpoint with a 10 second timeout. A refused key says so; an unreachable endpoint does not fail the store.
 - If the agent's key variable is set in the environment, `set` warns that the variable wins over the stored key.
-- Key lookup order is the agent's own environment variables, then the stored key, then `FLOCKDECK_API_KEY` (see `agent.KeyNames`). Nothing hands a stored key to a pane at present; that comes with T202.
+- For a structured agent the key is the first of its key variables that its `passEnv` lets through, else the stored key (`creds.Resolve`). The vendor's usual variable and `FLOCKDECK_API_KEY` are not read for it. `check` asks about that key.
 - `set` and `check` for an id that takes no key fail and list the ones that do.
 
 ## Where it runs

@@ -2,9 +2,9 @@
 // the agent's endpoint whether it takes one.
 //
 // It is what was left of the removed `flockdeck chat` client that
-// `flockdeck keys` and Settings still use. Nothing here starts a pane. Board
-// task T202 turns these keys into per-agent keys handed to adapters; until
-// then KeyStore, KeyFor and CheckKey have no caller outside the keys command.
+// `flockdeck keys` and Settings still use. Nothing here starts a pane: a pane's
+// agent is given its stored key by the structured runtime (creds.StoredKey),
+// and `flockdeck keys check` asks CheckKey whether the endpoint takes it.
 package apikey
 
 import (

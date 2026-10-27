@@ -64,9 +64,10 @@ it.
   where `agents.json` is, since that is where they are edited, and **Clear
   routing history** empties that log, which nothing adds to now.
   [Agents and models](#agents) has the rest.
-- **API keys**: set, replace or clear the key an agent uses. No built-in agent
-  takes one today, so the list of agents is empty until one does. A key is
-  never shown once it is set. Keys are set and cleared only at the desk: a
+- **API keys**: set, replace or clear the key an agent uses. A key is
+  optional, and an agent with a login of its own uses that without one. The
+  list shows the agents that can take a key, and a key set here goes to that
+  agent's process only. A key is never shown once it is set. Keys are set and cleared only at the desk: a
   window reached through the relay shows which are set, and no more. Below the
   agents, **TypeSafe API key** is where you paste, replace or clear the key
   that **Let TypeSafe's Jev help read pane status** needs. The field is masked

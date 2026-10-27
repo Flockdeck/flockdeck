@@ -12,6 +12,7 @@ import (
 
 	"github.com/jmwri/flockdeck/internal/acp/bridge"
 	"github.com/jmwri/flockdeck/internal/agent"
+	"github.com/jmwri/flockdeck/internal/creds"
 	"github.com/jmwri/flockdeck/internal/session"
 	"github.com/jmwri/flockdeck/internal/session/transcript"
 	"github.com/jmwri/flockdeck/internal/spend"
@@ -111,6 +112,7 @@ func (w *Workspace) startStructured(p *Pane, spec agent.Spec) {
 	resume := p.savedSession
 	w.mu.RUnlock()
 	opts := structured.Options{Spec: spec, Cwd: p.Cwd, MCPServers: w.mcpServersFor(p, spec), ResumeSession: resume,
+		Key: creds.StoredKey(spec),
 		OnTurn: func(e structured.TurnEvent) { w.promptTurn(p.ID, gen, e) }}
 	if cmdFor != nil {
 		opts.Command = cmdFor(spec)

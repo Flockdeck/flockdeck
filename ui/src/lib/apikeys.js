@@ -9,9 +9,11 @@
 // keyClear from such a window, and the desktop refuses them as well.
 
 export const KEYS_INTRO =
-  "Agents that talk to a model API need a key. One already exported in your environment is used where it is. " +
-  "Anything set here is kept, unencrypted, in Flockdeck's own file in your user folder, and passed only to the pane that needs it " +
-  "(the program in that pane, and anything it starts, can read it).";
+  "A key is optional: an agent with a login of its own uses that when none is set here. " +
+  "A key set here is passed to that agent's process and to nothing else, for panes started after it is set. " +
+  "One exported in your environment reaches the agent only if the agent's entry in agents.json lists it in passEnv. " +
+  "Anything set here is kept, unencrypted, in Flockdeck's own file in your user folder " +
+  "(the agent, and anything it starts, can read it).";
 
 export const KEYS_RELAY_WORDS =
   "Keys are set and cleared on the machine Flockdeck runs on. One typed in a window reached through the relay would pass through the relay, which can read what passes through it.";

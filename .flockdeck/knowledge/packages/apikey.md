@@ -7,7 +7,7 @@ tags: [security, secrets, keys]
 timestamp: 2026-10-27T00:00:00Z
 code_paths: [internal/apikey/apikey.go, internal/apikey/check.go]
 ---
-What was left of the removed `flockdeck chat` client after the chat client and the API runners went. It starts no pane. Board task T202 turns these keys into per-agent keys that are passed to adapters; until then `KeyStore`, `KeyFor` and `CheckKey` have no caller outside `flockdeck keys`.
+What was left of the removed `flockdeck chat` client after the chat client and the API runners went. It starts no pane. A pane's agent is given its stored key by the structured runtime (`creds.StoredKey`, T202); `KeyStore`, `KeyFor` and `CheckKey` serve `flockdeck keys`.
 
 ## Main API
 

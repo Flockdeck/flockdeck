@@ -178,6 +178,9 @@ const FallbackKeyEnv = "FLOCKDECK_API_KEY"
 // exported for OpenAI proper is not a reason to offer it, so it has only its
 // own names, which are none, and its stored key.
 func KeyNames(s Spec) (first, last []string) {
+	if s.Runner == RunnerACP {
+		return acpKeyNames(s), nil
+	}
 	if len(s.API.KeyEnv) == 0 && s.API.BaseURL == "" {
 		return nil, nil
 	}
@@ -193,6 +196,26 @@ func KeyNames(s Spec) (first, last []string) {
 		return first, nil
 	}
 	return first, []string{FallbackKeyEnv}
+}
+
+// acpKeyNames are the variables a structured agent's key is looked for in
+// before the stored one: those of its key variables that its passEnv lets
+// through to it. A variable exported for some other tool (ANTHROPIC_API_KEY is
+// the usual one) is not the agent's key unless the entry says it is passed,
+// because the agent would otherwise be silently moved off its own login by a
+// key it was never given. FLOCKDECK_API_KEY and the vendor's usual variable are
+// not read for it either: a key for one vendor must not be sent to another.
+func acpKeyNames(s Spec) []string {
+	var out []string
+	for _, name := range s.API.KeyEnv {
+		if reservedEnv(name) || !envNameRe.MatchString(name) {
+			continue
+		}
+		if slices.ContainsFunc(s.ACP.PassEnv, func(p string) bool { return sameEnvName(p, name) }) {
+			out = append(out, name)
+		}
+	}
+	return out
 }
 
 // OwnKeyEnv are the variables an entry names for its key, as far as it may be

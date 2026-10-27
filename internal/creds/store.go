@@ -151,6 +151,9 @@ func Set(agentID, key string) error {
 	if key == "" {
 		return errors.New("the key is empty")
 	}
+	if !Usable(key) {
+		return ErrUnusable
+	}
 	storeMu.Lock()
 	defer storeMu.Unlock()
 	keys, err := load()

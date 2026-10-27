@@ -22,7 +22,7 @@ Describes what a pane can run. A pane is a shell or an agent; an agent is a `Spe
 | `Role`, `BuiltinRoles()`, `Catalog.MayStart`, `Catalog.Choose` | Roles: [agent role](/data/agent-role.md) |
 | `RoutingPolicy`, `Catalog.RoutingFor`, `SetRouting` | Routing settings, consumed by [route](/packages/route.md); see [routing policy](/data/routing-policy.md) |
 | `Available`, `Refresh` | Whether an agent can start now (its program, or its adapter's command, is on PATH) |
-| `KeyNames`, `OwnKeyEnv`, `VendorsOwn`, `TakesKey` | API key lookup order for a spec with an `API` block. No built-in has one and agents.json may not add one, so nothing takes a key until T202 gives agents their own; `flockdeck keys` and `internal/apikey` still use these |
+| `KeyNames`, `OwnKeyEnv`, `VendorsOwn`, `TakesKey` | API key lookup for a spec with an `API` block. `gemini-acp` and `codex-acp` have one; agents.json may not add one. For a structured spec `KeyNames` returns only the key variables its `passEnv` passes, and `ACPKeyEnv` is the one variable a stored key is set in |
 | `Spec.ACPAdapter()`, `Spec.ACPPassEnv(environ)` | A `RunnerACP` entry names a manifest adapter in `ACP.Adapter`; `ACPPassEnv` returns exactly the variables `ACP.PassEnv` lists. `Catalog.Structured` (set by the builder from the `structuredPanes` pref; agents.json does not carry it) is the opt-in that lets `Visible` list structured entries |
 | `SetDefaults` | Atomic edit of the default agent and model in agents.json |
 

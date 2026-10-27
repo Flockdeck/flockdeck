@@ -7,7 +7,7 @@ tags: [security, secrets, keys]
 timestamp: 2026-10-19T00:00:00Z
 code_paths: [internal/creds/creds.go, internal/creds/jevkey.go, internal/creds/store.go]
 ---
-Finds the API key for an agent `Spec` and stores keys the user saves. The value is read by `flockdeck keys` and by the baton scrubber, which removes known keys from handoff text. `Env` builds the entry a pane would receive, but nothing calls it since the API runners were removed; board task T202 hands a stored key to an agent's adapter instead.
+Finds the API key for an agent `Spec` and stores keys the user saves. The value is read by `flockdeck keys` and by the baton scrubber, which removes known keys from handoff text. `StoredKey` is the key the workspace hands to `structured.Options.Key`, which sets it in the adapter's environment under `Spec.ACPKeyEnv` and nowhere else (T202).
 
 ## Main API
 
@@ -15,7 +15,8 @@ Finds the API key for an agent `Spec` and stores keys the user saves. The value 
 |---|---|
 | `Resolve(spec)` | Returns a `Key`. Order: the Spec's own env variables (from `agent.KeyNames`), then the store entry under the Spec id, then `FLOCKDECK_API_KEY`. |
 | `Key` | Unexported `secret`; `Secret()` is the only way to the value. `String` gives "set (ENV_NAME)" or "set (store)"; `GoString` is redacted too. |
-| `Env(spec)` | Env entries for a pane: only for a stored key, under the first own variable name. A key already in the environment is inherited, not re-exported. No caller until T202. |
+| `StoredKey(spec)` | The stored key for a structured agent that has a key variable; "" otherwise, for a key from the environment, for a control character in it, or over 4 KiB. |
+| `Env(spec)` | `StoredKey` as a `NAME=value` entry under `Spec.ACPKeyEnv`. |
 | `Status` | JSON-safe view: agent, name, set, source ("env" or "store"), env variable name. |
 | `Set`, `Clear`, `Has`, `Names` | Manage the store. `Set` trims, rejects empty keys and ids beginning with "@". |
 | `JevKey`, `SetJevKey`, `ClearJevKey`, `HasJevKey` | The TypeSafe key, stored under the reserved id `@typesafe`; hidden from `Names`. |

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"slices"
 	"sync"
 
@@ -8,8 +9,8 @@ import (
 	"github.com/jmwri/flockdeck/internal/creds"
 )
 
-// keysMsg answers the API keys dialog: every agent that talks to a model API,
-// whether it has a key and where that key came from. Never the key itself --
+// keysMsg answers the API keys dialog: every visible agent that can take an API
+// key, whether it has one and where that key came from. Never the key itself --
 // creds.Status has nowhere to put one.
 type keysMsg struct {
 	Type  string         `json:"type"`
@@ -24,16 +25,20 @@ var keyWrites sync.Mutex
 // like every other read of it; the key store is a file, and is read off it.
 func (s *Server) listKeys(c *controlClient) {
 	specs, ok := ask(s, func() []agent.Spec {
-		specs, _ := s.ws.Agents()
-		return specs
+		return slices.Clone(s.ws.Catalog().Specs)
 	})
 	if !ok {
 		return
 	}
 	go func() {
 		defer s.surviveFor(c, "reading the API keys")
-		visible := slices.DeleteFunc(slices.Clone(specs), func(sp agent.Spec) bool { return sp.Hidden })
-		items := creds.StatusAll(visible)
+		// An agent the picker does not offer is listed only when it has a stored key, so that the
+		// key can be changed or cleared; the rest are listed as the picker does.
+		structuredOn := s.ws.Catalog().Structured
+		listed := slices.DeleteFunc(specs, func(sp agent.Spec) bool {
+			return !sp.OfferedInPicker(structuredOn) && !creds.Has(sp.ID)
+		})
+		items := creds.StatusAll(listed)
 		// A key stored for an agent that has since left the catalog has no row
 		// of its own, and a key nobody can see is a key nobody can clear.
 		// A store that cannot be read makes every stored key read as not set,
@@ -59,12 +64,22 @@ func (s *Server) setKey(c *controlClient, agentID, key string) {
 	if keysAtTheDesk(c) {
 		return
 	}
+	// A key stored under an id nothing reads is one the agent never gets, and
+	// the dialog would say it was saved. The id must be a catalog agent that
+	// takes a key. Clearing is not held to this: a key stored for an agent
+	// that has since left the catalog can still be cleared.
+	if spec, ok := s.ws.Catalog().Find(agentID); !ok || !spec.TakesKey() {
+		c.notify("That agent does not take a key", true)
+		return
+	}
 	go func() {
 		defer s.surviveFor(c, "saving a key")
 		keyWrites.Lock()
 		err := creds.Set(agentID, key)
 		keyWrites.Unlock()
-		if err != nil {
+		if errors.Is(err, creds.ErrUnusable) {
+			c.notify(creds.ErrUnusable.Error(), true)
+		} else if err != nil {
 			c.notify("Could not save the key: "+err.Error(), true)
 		} else {
 			c.notify(s.savedKeyNotice(agentID), false)

@@ -651,6 +651,7 @@ func redactOnce(s string) string {
 	if len(s) > MaxRedactBytes {
 		return endHead(redactOnce(s[:capCut(s)]))
 	}
+	s = redactKnown(s)
 	spans := findOthers(s, true)
 	if len(spans) > 0 {
 		var b strings.Builder
