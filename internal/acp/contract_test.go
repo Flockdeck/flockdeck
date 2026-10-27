@@ -27,6 +27,7 @@ type recorder struct {
 	notify  chan struct{}
 	perm    func(ctx context.Context, req PermissionRequest) string
 	perms   []PermissionRequest
+	answers json.RawMessage
 }
 
 func newRecorder() *recorder { return &recorder{notify: make(chan struct{}, 4096)} }
@@ -772,5 +773,41 @@ func TestACancelRightAfterThePromptEndsTheTurn(t *testing.T) {
 		case <-time.After(5 * time.Second):
 			t.Fatalf("turn %d: the turn did not end after a cancel sent right behind the prompt", i)
 		}
+	}
+}
+
+// PermissionAnswers makes a recorder an AnswerHandler: it answers as Permission
+// does, with the answers in r.answers.
+func (r *recorder) PermissionAnswers(ctx context.Context, req PermissionRequest) (string, json.RawMessage) {
+	id := r.Permission(ctx, req)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return id, r.answers
+}
+
+func TestAnswersGoBackInMetaWithASelectedOption(t *testing.T) {
+	const answers = `[{"question":0,"selected":[1]}]`
+	for _, tc := range []struct {
+		name   string
+		option string
+		answer string
+		report string
+	}{
+		{"selected", "allow-1", answers, `outcome=selected option=allow-1meta={"flockdeck":{"answers":` + answers + `}}`},
+		{"no answers", "allow-1", "", "outcome=selected option=allow-1"},
+		{"invalid json", "allow-1", `[{"question":`, "outcome=selected option=allow-1"},
+		{"cancelled", "", answers, "outcome=cancelled option="},
+		{"an option the agent did not offer", "made-up", answers, "outcome=cancelled option="},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			r := newRecorder()
+			r.perm = func(context.Context, PermissionRequest) string { return tc.option }
+			r.answers = json.RawMessage(tc.answer)
+			c, sid := start(t, r)
+			prompt(t, c, sid, "perm")
+			if got := r.text(); got != tc.report {
+				t.Errorf("the agent saw %q, want %q", got, tc.report)
+			}
+		})
 	}
 }

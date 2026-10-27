@@ -19,6 +19,7 @@ package structured
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -96,6 +97,9 @@ var (
 	ErrStale = errors.New("structured: no such open permission request")
 	// ErrBadOption is returned by Answer for an option the request did not offer.
 	ErrBadOption = errors.New("structured: the request has no such option")
+	// ErrBadAnswers is returned by AnswerQuestions for answers that do not fit
+	// the questions of the card, or that come with an option that takes none.
+	ErrBadAnswers = errors.New("structured: the answers do not fit the questions")
 	// ErrNoItem is returned by the queue calls when no prompt with that id is
 	// waiting: it was sent, removed or dropped, or belongs to another runtime.
 	ErrNoItem = errors.New("structured: no such prompt is waiting")
@@ -427,7 +431,7 @@ var itemSeq atomic.Int64
 
 type waiter struct {
 	card bridge.Card
-	ch   chan string
+	ch   chan bridge.Reply
 }
 
 // Start begins starting the agent and returns at once; Snapshot says how it is
@@ -447,10 +451,14 @@ func Start(ctx context.Context, opts Options) (*Runtime, error) {
 	if opts.Environ == nil {
 		opts.Environ = os.Environ()
 	}
+	bcfg := opts.Bridge
+	// Only Flockdeck's own Claude Code adapter asks questions; a test that
+	// runs its own program says so in Bridge.
+	bcfg.AcceptQuestions = bcfg.AcceptQuestions || (opts.Command == nil && opts.Spec.ACPOwnClaude())
 	rctx, cancel := context.WithCancel(ctx)
 	r := &Runtime{
 		opts:    opts,
-		br:      bridge.New(opts.Bridge),
+		br:      bridge.New(bcfg),
 		ctx:     rctx,
 		cancel:  cancel,
 		done:    make(chan struct{}),
@@ -776,20 +784,28 @@ func (r *Runtime) Interrupt() error {
 // Answer chooses an option of the oldest open request with this id. Prefer
 // AnswerCard, which also names the card.
 func (r *Runtime) Answer(requestID, optionID string) error {
-	return r.answer(0, requestID, optionID)
+	return r.answer(0, requestID, optionID, nil)
 }
 
 // AnswerCard chooses an option of the open request whose card has this Seq and
 // agent request id. An answer for any other card, even one with the same
 // request id, is ErrStale.
 func (r *Runtime) AnswerCard(seq uint64, requestID, optionID string) error {
+	return r.AnswerQuestions(seq, requestID, optionID, nil)
+}
+
+// AnswerQuestions is AnswerCard for a question card: it also gives the answers
+// to its questions. Answers go with an allowing option of a question card and
+// with nothing else; they are checked against the card here and ErrBadAnswers is
+// what is returned for ones that do not fit, with the card left open.
+func (r *Runtime) AnswerQuestions(seq uint64, requestID, optionID string, answers []bridge.Answer) error {
 	if seq == 0 {
 		return ErrStale
 	}
-	return r.answer(seq, requestID, optionID)
+	return r.answer(seq, requestID, optionID, answers)
 }
 
-func (r *Runtime) answer(seq uint64, requestID, optionID string) error {
+func (r *Runtime) answer(seq uint64, requestID, optionID string, answers []bridge.Answer) error {
 	r.mu.Lock()
 	var w *waiter
 	for _, c := range r.waiters {
@@ -802,10 +818,10 @@ func (r *Runtime) answer(seq uint64, requestID, optionID string) error {
 		r.mu.Unlock()
 		return ErrStale
 	}
-	ok := false
+	ok, allows, kind := false, false, ""
 	for _, o := range w.card.Options {
 		if o.OptionID == optionID {
-			ok = true
+			ok, allows, kind = true, o.Kind == bridge.AllowOnce, o.Kind
 			break
 		}
 	}
@@ -813,9 +829,25 @@ func (r *Runtime) answer(seq uint64, requestID, optionID string) error {
 		r.mu.Unlock()
 		return ErrBadOption
 	}
+	if w.card.Kind == bridge.QuestionKind && !allows && strings.HasPrefix(kind, "allow") {
+		// Another way of allowing is no way of answering a question.
+		r.mu.Unlock()
+		return ErrBadAnswers
+	}
+	if w.card.Kind == bridge.QuestionKind && allows || len(answers) > 0 {
+		// Answers fit a question card answered with allow_once, and nothing
+		// else; without them such a card cannot be allowed, and one whose
+		// questions did not parse (so it has none) cannot be allowed at all.
+		checked, err := bridge.CheckAnswers(w.card.Questions, answers)
+		if err != nil || !allows {
+			r.mu.Unlock()
+			return ErrBadAnswers
+		}
+		answers = checked
+	}
 	r.removeWaiterLocked(w)
 	r.mu.Unlock()
-	w.ch <- optionID // buffered, and one answer per waiter
+	w.ch <- bridge.Reply{OptionID: optionID, Answers: answers} // buffered, and one answer per waiter
 	r.notify()
 	return nil
 }
@@ -831,19 +863,19 @@ func (r *Runtime) removeWaiterLocked(w *waiter) {
 
 // ask is the bridge's answer function: it waits for Answer, or for the request
 // to stop needing one.
-func (r *Runtime) ask(ctx context.Context, card bridge.Card) string {
-	w := &waiter{card: card, ch: make(chan string, 1)}
+func (r *Runtime) ask(ctx context.Context, card bridge.Card) bridge.Reply {
+	w := &waiter{card: card, ch: make(chan bridge.Reply, 1)}
 	r.mu.Lock()
 	if r.closed {
 		r.mu.Unlock()
-		return ""
+		return bridge.Reply{}
 	}
 	r.waiters = append(r.waiters, w)
 	r.mu.Unlock()
 	r.notify()
 	select {
-	case id := <-w.ch:
-		return id
+	case rep := <-w.ch:
+		return rep
 	case <-ctx.Done():
 	case <-r.ctx.Done():
 	}
@@ -852,7 +884,7 @@ func (r *Runtime) ask(ctx context.Context, card bridge.Card) string {
 	r.removeWaiterLocked(w)
 	r.mu.Unlock()
 	r.notify()
-	return ""
+	return bridge.Reply{}
 }
 
 // Detail returns what an entry has beyond what Snapshot shows: a tool's full
@@ -929,7 +961,7 @@ func (r *Runtime) finish(p Phase) {
 	r.lose(dropped)
 	for _, w := range waiters {
 		select {
-		case w.ch <- "":
+		case w.ch <- bridge.Reply{}:
 		default:
 		}
 	}
@@ -961,6 +993,16 @@ func (r *Runtime) set(p Phase, err string, setup *Setup) {
 type handler struct {
 	acp.Handler
 	r *Runtime
+}
+
+// PermissionAnswers is what makes the handler an acp.AnswerHandler: it passes
+// the request to the handler it wraps, with its answers if that one gives
+// them.
+func (h handler) PermissionAnswers(ctx context.Context, req acp.PermissionRequest) (string, json.RawMessage) {
+	if a, ok := h.Handler.(acp.AnswerHandler); ok {
+		return a.PermissionAnswers(ctx, req)
+	}
+	return h.Handler.Permission(ctx, req), nil
 }
 
 func (h handler) Update(u acp.Update) {
@@ -1202,7 +1244,7 @@ func (r *Runtime) launch() bool {
 		Args:            cmd.Args,
 		Dir:             r.opts.Cwd,
 		Env:             cmd.env,
-		Handler:         handler{Handler: r.br.Handler(r.ask), r: r},
+		Handler:         handler{Handler: r.br.AnswerHandler(r.ask), r: r},
 		OnProtocolError: func(string) { r.protoErrs.Add(1); r.notify() },
 		ClientName:      "flockdeck",
 	}

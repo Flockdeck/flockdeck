@@ -42,6 +42,11 @@ const (
 	// structuredCommandCut its command.
 	structuredCardCut    = 300
 	structuredCommandCut = 500
+	// structuredBodyCut, structuredDiffCut and structuredQuestionCut bound the
+	// text of a card: the plan, the diff, a question or an option's description.
+	structuredBodyCut     = 32 << 10
+	structuredDiffCut     = 64 << 10
+	structuredQuestionCut = 2 << 10
 	// structuredErrCut is how many characters the cleaned error keeps.
 	structuredErrCut = 200
 	// The session state: how many of each is sent, and the cut of each text.
@@ -95,6 +100,25 @@ type structuredCard struct {
 	Command   string             `json:"command,omitempty"`
 	Options   []structuredOption `json:"options"`
 	Clipped   bool               `json:"clipped,omitempty"`
+	// Body is the text the request shows about its call, such as the plan of
+	// ExitPlanMode; Diff the unified diff of the edit it asks about. Both are
+	// plain text, to be drawn as text. Questions are those of a question card,
+	// which is answered with the answers to them.
+	Body      string               `json:"body,omitempty"`
+	Diff      string               `json:"diff,omitempty"`
+	Questions []structuredQuestion `json:"questions,omitempty"`
+}
+
+type structuredQuestion struct {
+	Header      string                 `json:"header,omitempty"`
+	Question    string                 `json:"question"`
+	MultiSelect bool                   `json:"multiSelect,omitempty"`
+	Options     []structuredQuestionOp `json:"options"`
+}
+
+type structuredQuestionOp struct {
+	Label       string `json:"label"`
+	Description string `json:"description,omitempty"`
 }
 
 type structuredUsage struct {
@@ -269,6 +293,25 @@ func buildStructured(id string, sn structured.Snapshot) structuredMsg {
 			field(&opt.Name, o.Name, 100)
 			field(&opt.Kind, o.Kind, 100)
 			card.Options = append(card.Options, opt)
+		}
+		textField := func(p *string, from string, max int) {
+			var c bool
+			*p, c = clipStructured(from, max)
+			cl = cl || c
+		}
+		textField(&card.Body, c.Body, structuredBodyCut)
+		textField(&card.Diff, c.Diff, structuredDiffCut)
+		for _, q := range c.Questions {
+			sq := structuredQuestion{MultiSelect: q.MultiSelect, Options: []structuredQuestionOp{}}
+			field(&sq.Header, q.Header, structuredCardCut)
+			textField(&sq.Question, q.Question, structuredQuestionCut)
+			for _, o := range q.Options {
+				var so structuredQuestionOp
+				field(&so.Label, o.Label, structuredCardCut)
+				textField(&so.Description, o.Description, structuredQuestionCut)
+				sq.Options = append(sq.Options, so)
+			}
+			card.Questions = append(card.Questions, sq)
 		}
 		card.Clipped = cl
 		m.Card = card

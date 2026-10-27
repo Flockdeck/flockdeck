@@ -344,6 +344,9 @@ type ToolCall struct {
 	Status     string          `json:"status,omitempty"`
 	RawInput   json.RawMessage `json:"rawInput,omitempty"`
 	Locations  []Location      `json:"locations,omitempty"`
+	// Content is what the request shows about the call: the diff of an edit,
+	// the plan of ExitPlanMode.
+	Content []ToolContent `json:"content,omitempty"`
 }
 
 // PermissionRequest is an agent's session/request_permission.

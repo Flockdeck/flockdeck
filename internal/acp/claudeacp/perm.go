@@ -3,6 +3,7 @@ package claudeacp
 import (
 	"bytes"
 	"encoding/json"
+	"strings"
 )
 
 const (
@@ -66,9 +67,18 @@ func (ss *session) handleControlRequest(l line) {
 		return
 	}
 	if req.ToolName == "AskUserQuestion" {
-		ss.respond(l.RequestID, map[string]any{"behavior": "deny",
-			"message": "Questions are not supported in this client. Ask the user in plain text instead."})
+		ss.handleQuestion(l.RequestID, req.ToolUseID, req.Input)
 		return
+	}
+	if req.ToolName == "ExitPlanMode" {
+		// The person approves the plan, so a request without one is not shown.
+		var in struct {
+			Plan string `json:"plan"`
+		}
+		if json.Unmarshal(req.Input, &in) != nil || strings.TrimSpace(in.Plan) == "" {
+			ss.respond(l.RequestID, map[string]any{"behavior": "deny", "message": "Exiting plan mode needs the plan to be shown to the user. Present the plan again."})
+			return
+		}
 	}
 	key := ruleKey(req.ToolName, req.Input)
 	ss.mu.Lock()
@@ -97,21 +107,52 @@ func (ss *session) handleControlRequest(l line) {
 	if len(d.content) > 0 {
 		call["content"] = d.content
 	}
-	op := &openPerm{abandoned: make(chan struct{})}
-	ss.mu.Lock()
-	ss.perms[l.RequestID] = op
-	ss.mu.Unlock()
-	defer func() {
-		ss.mu.Lock()
-		delete(ss.perms, l.RequestID)
-		ss.mu.Unlock()
-	}()
-
 	options := []any{map[string]any{"optionId": optAllow, "name": "Allow", "kind": "allow_once"}}
 	if canAlways(req.ToolName) {
 		options = append(options, map[string]any{"optionId": optAllowAlways, "name": "Always allow this command", "kind": "allow_always"})
 	}
 	options = append(options, map[string]any{"optionId": optReject, "name": "Reject", "kind": "reject_once"})
+	res, ok := ss.askPermission(l.RequestID, call, options)
+	if !ok {
+		return
+	}
+	switch {
+	case !res.selected:
+		ss.respond(l.RequestID, map[string]any{"behavior": "deny", "message": "The permission request was cancelled."})
+	case res.optionID == optAllow:
+		ss.allow(l.RequestID, toolID, req.Input)
+	case res.optionID == optAllowAlways && canAlways(req.ToolName):
+		ss.mu.Lock()
+		ss.allowed[key] = true
+		ss.mu.Unlock()
+		ss.allow(l.RequestID, toolID, req.Input)
+	default: // reject, or an option that was not offered
+		ss.respond(l.RequestID, map[string]any{"behavior": "deny", "message": "The user rejected this tool call."})
+	}
+}
+
+// permResult is the client's answer to a permission request. selected is false
+// for a cancelled one or one that cannot be read. answers is the client's
+// _meta.flockdeck.answers, raw.
+type permResult struct {
+	selected bool
+	optionID string
+	answers  json.RawMessage
+}
+
+// askPermission sends session/request_permission for the control request and
+// waits for the client. ok is false when no answer is due: claude retracted the
+// request, the turn was cancelled, or the session ended.
+func (ss *session) askPermission(requestID string, call map[string]any, options []any) (res permResult, ok bool) {
+	op := &openPerm{abandoned: make(chan struct{})}
+	ss.mu.Lock()
+	ss.perms[requestID] = op
+	ss.mu.Unlock()
+	defer func() {
+		ss.mu.Lock()
+		delete(ss.perms, requestID)
+		ss.mu.Unlock()
+	}()
 	id, ch := ss.srv.request("session/request_permission", map[string]any{
 		"sessionId": ss.id,
 		"toolCall":  call,
@@ -123,7 +164,7 @@ func (ss *session) handleControlRequest(l line) {
 		// both channels can be ready at once.
 		select {
 		case <-op.abandoned:
-			return
+			return res, false
 		default:
 		}
 		var out struct {
@@ -131,21 +172,17 @@ func (ss *session) handleControlRequest(l line) {
 				Outcome  string `json:"outcome"`
 				OptionID string `json:"optionId"`
 			} `json:"outcome"`
+			Meta struct {
+				Flockdeck struct {
+					Answers json.RawMessage `json:"answers"`
+				} `json:"flockdeck"`
+			} `json:"_meta"`
 		}
 		_ = json.Unmarshal(m.Result, &out)
-		switch {
-		case m.Error != nil || out.Outcome.Outcome != "selected":
-			ss.respond(l.RequestID, map[string]any{"behavior": "deny", "message": "The permission request was cancelled."})
-		case out.Outcome.OptionID == optAllow:
-			ss.allow(l.RequestID, toolID, req.Input)
-		case out.Outcome.OptionID == optAllowAlways && canAlways(req.ToolName):
-			ss.mu.Lock()
-			ss.allowed[key] = true
-			ss.mu.Unlock()
-			ss.allow(l.RequestID, toolID, req.Input)
-		default: // reject, or an option that was not offered
-			ss.respond(l.RequestID, map[string]any{"behavior": "deny", "message": "The user rejected this tool call."})
+		if m.Error == nil && out.Outcome.Outcome == "selected" {
+			res = permResult{selected: true, optionID: out.Outcome.OptionID, answers: out.Meta.Flockdeck.Answers}
 		}
+		return res, true
 	case <-op.abandoned:
 		// claude retracted the request, or the turn was cancelled: it needs no
 		// answer, and the client has answered cancelled itself.
@@ -153,6 +190,7 @@ func (ss *session) handleControlRequest(l line) {
 	case <-ss.dead:
 		ss.srv.forget(id)
 	}
+	return res, false
 }
 
 func (ss *session) allow(requestID, toolID string, input json.RawMessage) {

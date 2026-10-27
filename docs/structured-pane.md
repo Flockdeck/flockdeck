@@ -80,7 +80,7 @@ refused in the same words, so a window probing for ids learns nothing: the `team
 | `err` | The last thing that went wrong, as one cleaned line. It says what last went wrong and not that something is wrong now; show it with the phase and status. |
 | `setup` | While the phase is `needs setup`: `kind` (`login`; before API 1.16 also `node` and `install`), a `message` (the cause) and a `fix` (what to do about it, when there is advice). |
 | `plan` | The agent's plan rows. |
-| `card` | The permission request that is open, with the agent's options. Answer it with `permissionAnswer`. |
+| `card` | The permission request that is open, with the agent's options. Answer it with `permissionAnswer`. Since API 1.22 it can also carry `body` (the text the request shows about its call, such as the plan of a request to leave plan mode, cut to 32 KiB), `diff` (the unified diff of the edit it asks about, cut to 64 KiB) and `questions` (see below). `body` and `diff` are plain text from the agent: draw them as text, in a block that says they are the agent's. |
 | `usage` | `used` and `size` of the context, and `cost` and `currency` when the agent reports one. |
 | `title` | The session's title, when the agent set one. |
 | `commands` | The slash commands the agent offers: `name`, and `description` and `hint` when it gave them. |
@@ -144,6 +144,7 @@ push, they are for a window on this machine; a window through the relay is refus
 | Config options | 32 options of at most 500 values each, with descriptions cut to 400 bytes. |
 | `planMarkdown` | 64 KiB. |
 | Permission card | 300 bytes for each field, 500 for the command, and the agent's options with 100 bytes for each field. |
+| Card text (API 1.22) | `body` 32 KiB, `diff` 64 KiB; a question or an option's description 2 KiB, a header or an option label 300 bytes; at most 4 questions with at most 8 options each. |
 | `err` | 200 characters. |
 | `conversationDetail` text and diff | 64 KiB each. |
 | `structuredFiles` | 50 names of at most 300 bytes in an answer; 40 asks in 10 seconds for each window; 4 MiB of git's list, 50,000 entries walked, 5 seconds. |
@@ -216,6 +217,23 @@ running pane is not ended by it. Today the built-in entry that is offered is `op
 (opencode, structured). The Gemini and Codex entries are hidden until they have been checked end to
 end. There is no entry for Claude Code yet; a Go adapter for it is in progress (T204, see
 [ACP direction](acp-direction.md)). [ACP adapters](acp-adapters.md) lists the tested versions.
+
+**Questions.** A card of kind `question` is a question the agent asks the person (Claude Code's
+`AskUserQuestion`). Only Flockdeck's own Claude Code adapter may ask one: for any other agent a request of kind
+`question` is made an ordinary card with kind `other`, with its own options and command. Answers go only with an option of
+kind exactly `allow_once`; an `allow_always` or other allowing option on a question card is refused. Its `questions` are `{header, question, multiSelect, options: [{label, description}]}`, at
+most 4, each with at most 8 options, all plain text from the agent. The person picks options and may type text
+of their own for any question. The card has an allowing option (the Claude adapter offers `answer`, "Send
+answers") and a refusing one ("Skip"). `permissionAnswer` takes an extra field `answers`, one entry for
+each question, in any order: `{question, selected, other}`, where `question` is the question's position in
+`questions`, `selected` the positions of the options chosen, and `other` the text typed (at most 2000
+bytes). Every question needs exactly one entry with something chosen or typed, a question without
+`multiSelect` takes one thing only (an option or text), and positions may not repeat or be out of range. A
+command with answers that do not fit is refused with "The answers do not fit the questions on the card" and
+the card stays open. `answers` goes with the allowing option of a question card and with nothing else; the
+refusing option has none. The adapter hands the answers to the agent and denies the tool call for
+anything that does not fit, with a fixed message. The agent is told what the person chose by the label it
+sent, never by text Flockdeck cut.
 
 **Approval happens at the desk.** A permission request is answered from a window on the machine
 Flockdeck runs on, by choosing one of the options the agent offered (`permissionAnswer`). Nothing

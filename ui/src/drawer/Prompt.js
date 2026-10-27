@@ -29,6 +29,7 @@ import { clip } from "../graph/Node.js";
 import { showControls } from "./diff/diffModel.js";
 import { shownName } from "../graph/model.js";
 import { ManagerBar } from "../graph/ManagerBar.js";
+import { QuestionForm } from "./questions.js";
 
 /** KEYS is what each terminal choice types: Yes is Enter, the default of Claude
  *  Code's prompt, and No is Esc, its own "No, and tell Claude what to do
@@ -81,6 +82,10 @@ function Details({ permission }) {
     ${permission.command ? html`<pre class="prompt-command" aria-label="Command">${permission.command}</pre>` : null}
     ${permission.file ? html`<p class="prompt-file"><span class="prompt-label">File</span> <code>${permission.file}</code></p>` : null}
     ${permission.description ? html`<p class="prompt-desc">${permission.description}</p>` : null}
+    ${permission.body
+      ? html`<p class="prompt-label">${permission.kind === "switch_mode" ? "Plan, from the agent" : "From the agent"}</p>
+          <pre class="prompt-body" aria-label=${permission.kind === "switch_mode" ? "Plan" : "Text from the agent"}>${permission.body}</pre>`
+      : null}
     ${diff
       ? html`<pre class="prompt-diff" aria-label="Changes">${diff.rows.map((r) => html`<span class=${"prompt-diff-" + r.kind}>${r.text}</span>`)}</pre>
           ${diff.more > 0 ? html`<p class="prompt-more">${diff.more} more lines are on the desktop.</p>` : null}`
@@ -174,10 +179,18 @@ export function PermissionCard({ node, card, snap, store, tail = null, tabIndex 
   const reply = mine && (!asked || mine.seq > asked.after) ? mine : null;
   const refused = reply && !reply.ok && reply.error ? showControls(clip(String(reply.error), 300)) : "";
   const done = !!asked && !refused;
-  const options = Array.isArray(card.options) ? card.options.filter((o) => o && typeof o.id === "string") : [];
-  const answer = (opt) => {
+  const all = Array.isArray(card.options) ? card.options.filter((o) => o && typeof o.id === "string") : [];
+  const asksQuestions = Array.isArray(card.questions) && card.questions.length > 0;
+  // A question card is allowed by the one option of kind allow_once, with answers. One without
+  // questions, or an option of any other kind (allow_always), is never an Allow on it.
+  const allows = (o) => o.kind === "allow_once";
+  const isQuestion = card.kind === "question" || asksQuestions;
+  const options = isQuestion ? all.filter((o) => !String(o.kind || "").startsWith("allow") || (asksQuestions && allows(o))) : all;
+  const answer = (opt, answers) => {
     if (remote || done) return;
-    const sent = store.send({ cmd: "permissionAnswer", id: node.pane, cardSeq: card.seq, requestId: card.requestId, optionId: opt.id });
+    const cmd = { cmd: "permissionAnswer", id: node.pane, cardSeq: card.seq, requestId: card.requestId, optionId: opt.id };
+    if (answers) cmd.answers = answers;
+    const sent = store.send(cmd);
     if (sent) {
       setNote("");
     } else {
@@ -189,6 +202,9 @@ export function PermissionCard({ node, card, snap, store, tail = null, tabIndex 
     <${PermissionBody} permission=${card} />
     ${remote
       ? null
+      : asksQuestions
+      ? html`<${QuestionForm} key=${card.seq + ":" + card.requestId} card=${card} done=${done} tabIndex=${tabIndex} allow=${options.find(allows)} refuse=${options.find((o) => !allows(o))}
+          onSend=${(opt, a) => { if (a) answer(opt, a); }} onSkip=${(opt) => answer(opt)} />${tail}`
       : html`<div class="prompt-choices" role="group" aria-label="Choices">
           ${options.map((o) => html`<button type="button" class=${"prompt-choice prompt-choice--" + String(o.kind || "")} data-option=${o.id} data-kind=${o.kind || ""} tabindex=${tabIndex} disabled=${done} onClick=${() => answer(o)}>${clip(o.name || o.id, 80)}</button>`)}${tail}
         </div>`}
@@ -201,7 +217,7 @@ export function PermissionCard({ node, card, snap, store, tail = null, tabIndex 
  *  was asked: the strip's card, the same component, under its own heading. */
 export function StreamPermission({ node, card, snap, store }) {
   return html`<section class="prompt prompt--stream" role="region" aria-label="Permission asked here" data-prompt="permission">
-    <h3 class="prompt-title">${"Permission: " + clip(card.tool || "tool", 80)}</h3>
+    <h3 class="prompt-title">${(Array.isArray(card.questions) && card.questions.length > 0 ? "Question: " : "Permission: ") + clip(card.tool || "tool", 80)}</h3>
     <${PermissionCard} node=${node} card=${card} snap=${snap} store=${store} />
   </section>`;
 }
@@ -241,7 +257,7 @@ export function Prompt({ node, pane = null, snap, store, sendKeys, terminal = tr
     const card = s && s.card ? s.card : null;
     if (card) {
       id = idOf("s", card.seq, card.requestId);
-      title = "Permission: " + (card.tool || "tool");
+      title = (Array.isArray(card.questions) && card.questions.length > 0 ? "Question: " : "Permission: ") + (card.tool || "tool");
       body = html`<${PermissionCard} key=${id} node=${node} card=${card} snap=${snap} store=${store} />`;
     } else if (pane && pane.permission) {
       id = idOf("sp", pane.permission.tool, pane.permission.command, pane.permission.file);

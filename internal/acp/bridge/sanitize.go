@@ -73,6 +73,10 @@ func dropRune(r rune) bool {
 		return true
 	case r >= 0x202a && r <= 0x202e, r >= 0x2066 && r <= 0x2069:
 		return true
+	case r >= 0x206a && r <= 0x206f, r >= 0xfff9 && r <= 0xfffc: // deprecated format characters, interlinear annotation and object replacement
+		return true
+	case r == 0x00ad, r == 0x034f, r == 0x180e, r == 0x115f, r == 0x3164, r == 0x2800: // soft hyphen, joiner, fillers, blank braille
+		return true
 	}
 	return false
 }
@@ -116,6 +120,11 @@ func skipEscape(s string, i int) int {
 	}
 	return i
 }
+
+// Line is line for another package: the one-line, cleaned and cut text a card
+// shows for a label. An adapter that gives a label back to its agent gives this,
+// so that what the person chose is what the agent is told.
+func Line(s string, max int) string { return line(s, max) }
 
 // line is the first line of a cleaned s, cut to max runes: for labels, names,
 // ids and paths, which must not carry controls or span lines.

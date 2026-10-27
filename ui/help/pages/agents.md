@@ -170,6 +170,12 @@ What to know before you use one:
   relay is told its name, status, directory, branch, project, agent and model, and
   no text the agent wrote. Nothing is answered for you; a request still open when you stop the turn, close or restart
   the pane or quit is answered *cancelled*.
+- **A card shows what you are approving.** A request to leave plan mode shows the
+  plan, and a request to edit a file shows the diff. Both are text the agent wrote,
+  drawn as plain text and cut when long. When the agent asks you questions (Claude
+  Code does), the card lists them with their options. Choose one or more, or type
+  your own answer, and press *Send answers*; *Skip* tells the agent you did not
+  answer.
 - **opencode is started to ask, which a repository can override.** opencode, as
   shipped, runs commands and edits files without a question, so Flockdeck starts it
   with `bash` and `edit` set to ask, and each arrives as a permission card. This

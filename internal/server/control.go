@@ -17,6 +17,7 @@ import (
 
 	"github.com/coder/websocket"
 
+	"github.com/jmwri/flockdeck/internal/acp/bridge"
 	"github.com/jmwri/flockdeck/internal/layout"
 	"github.com/jmwri/flockdeck/internal/session"
 	"github.com/jmwri/flockdeck/internal/spend"
@@ -575,7 +576,10 @@ type command struct {
 	CardSeq   uint64 `json:"cardSeq"`
 	RequestID string `json:"requestId"`
 	OptionID  string `json:"optionId"`
-	Base      string `json:"base"`
+	// Answers are permissionAnswer's answers to the questions of a question
+	// card: {question, selected, other} for each, by position on the card.
+	Answers []bridge.Answer `json:"answers"`
+	Base    string          `json:"base"`
 	Force     bool   `json:"force"`
 	Push      bool   `json:"push"`
 	// File, Against, Context, IgnoreWhitespace, Side, Line, CommentID, Names,

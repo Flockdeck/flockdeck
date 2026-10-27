@@ -72,6 +72,15 @@ type Handler interface {
 	Permission(ctx context.Context, req PermissionRequest) (optionID string)
 }
 
+// AnswerHandler is a Handler that can also give the agent more than an option
+// id: Answers is sent as _meta.flockdeck.answers of the response, next to the
+// outcome. It is for a request that asks the person questions. A Handler that
+// does not implement it answers with the option id alone.
+type AnswerHandler interface {
+	Handler
+	PermissionAnswers(ctx context.Context, req PermissionRequest) (optionID string, answers json.RawMessage)
+}
+
 // Config describes the agent to start.
 type Config struct {
 	// Path is the agent's executable, and must be absolute. Args follow it.
@@ -682,11 +691,14 @@ func (c *Client) callUpdate(u Update) {
 }
 
 // callPermission asks the handler, which may panic. A panic answers cancelled.
-func (c *Client) callPermission(ctx context.Context, req PermissionRequest) (optionID string) {
+func (c *Client) callPermission(ctx context.Context, req PermissionRequest) (optionID string, answers json.RawMessage) {
 	defer func() {
 		if recover() != nil {
-			optionID = ""
+			optionID, answers = "", nil
 		}
 	}()
-	return c.cfg.Handler.Permission(ctx, req)
+	if h, ok := c.cfg.Handler.(AnswerHandler); ok {
+		return h.PermissionAnswers(ctx, req)
+	}
+	return c.cfg.Handler.Permission(ctx, req), nil
 }

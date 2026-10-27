@@ -74,9 +74,36 @@ that did not offer it, the adapter treats it as Allow.
 
 A card answered "cancelled" is denied. A request that claude retracts, or that a
 cancel overtakes, is dropped without an answer, also when the client's answer
-arrived at the same moment. `AskUserQuestion` is denied with a message telling the
-model to ask in plain text. Any other control request from claude is answered with
+arrived at the same moment. Any other control request from claude is answered with
 an error so it does not wait.
+
+The real shape of an `ExitPlanMode` request was captured from `claude` 2.1.312 in plan mode
+(27 Oct 2026): `input` is `{"plan": "<the plan as markdown text>", "planFilePath": "<path of the plan file under ~/.claude/plans>"}`, and the request has
+`"requires_user_interaction": true`. The plan text is in `plan`; the file path is not read. There was no `allowedPrompts` field in that capture.
+
+`ExitPlanMode` goes to the client with the plan as text content of the tool call
+(cut at 64 KiB here and at 32 KiB on the card). A request with no plan text is denied
+with a fixed message and no card, so a plan is never approved unseen. The same
+holds for an edit: the tool call of a permission request carries the diff.
+
+`AskUserQuestion` is a card too. The request goes out as `session/request_permission` with the
+tool call kind `question` and the input as `rawInput`, and two options: `answer` (allow once)
+and `reject`. The client answers `answer` with `_meta.flockdeck.answers`, a list of
+`{question, selected, other}` that name each question and option by position. The adapter
+checks them against the input it kept (every question once, positions in range and not
+repeated, one thing for a question without `multiSelect`, `other` at most 2000 bytes) and
+allows the call with `updatedInput` set to the input plus `answers`, an object from the
+text of each question to the labels chosen, joined by ", ", and any text typed. Claude reads
+that object as the person's answer. The input is denied with a fixed message, and no card is
+made, unless it has one to four questions with distinct non-empty texts, at most eight
+options each with distinct non-empty labels that do not hold ", ", and text within the caps
+(question and description 2000 bytes, label and header 200). The label given back to claude is the label as the card shows it (cleaned of control, format and bidi
+characters and cut to one line), so what the person chose is what claude is told; a label that cleans to nothing, or
+to the same as another's, or that holds ", ", is a refusal of the whole request. Skip is denied with "The user
+declined to answer the questions.", and a cancelled card or answers that do not fit with "The
+question was cancelled." The answers format was taken from Claude Code's documented
+`AskUserQuestion` tool input and has not been run against a real `claude`; the fake claude
+covers the adapter side.
 
 ### Prompts during a turn
 
@@ -277,8 +304,8 @@ before a user's claude updates.
   the client has to decide where such updates show, and a turn that starts in the
   few milliseconds between the check and the write is taken for the prompt's.
 - Steering a running turn with a second message (above).
-- Questions (`AskUserQuestion`) and the plan-approval flow of `ExitPlanMode` beyond
-  a normal permission card.
+- Approving a plan with automatic acceptance of edits: Allow on `ExitPlanMode` is a plain
+  allow, and a mode change claude reports afterwards is passed on.
 - `bypassPermissions` mode, API-key login and `authenticate`, delegating Bash and file
   access to the client's terminal and file system.
 - Tool output while a tool runs: claude sends it at completion only.
