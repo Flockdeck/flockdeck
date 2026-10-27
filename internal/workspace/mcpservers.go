@@ -26,6 +26,9 @@ const (
 	// MCPTokenEnv is the one variable of Flockdeck's own that an entry carries,
 	// on Flockdeck's entry only: the pane's token.
 	MCPTokenEnv = "FLOCKDECK_TOKEN"
+	// MCPAPIEnv is the address of Flockdeck's loopback API, which the server
+	// calls with the token. It is not secret.
+	MCPAPIEnv = "FLOCKDECK_API"
 
 	maxMCPServers = 16
 	maxMCPArgs    = 64
@@ -79,8 +82,11 @@ func (w *Workspace) mcpServersFor(p *Pane, spec agent.Spec) []acp.MCPServer {
 				exe = os.Executable
 			}
 			if path, err := exe(); err == nil && path != "" {
-				own = &acp.MCPServer{Name: FlockdeckMCPName, Command: path, Args: []string{"mcp-server"},
-					Env: []acp.EnvVar{{Name: MCPTokenEnv, Value: tok}}}
+				env := []acp.EnvVar{{Name: MCPTokenEnv, Value: tok}}
+				if w.hookSrv != nil {
+					env = append(env, acp.EnvVar{Name: MCPAPIEnv, Value: w.hookSrv.BaseURL()})
+				}
+				own = &acp.MCPServer{Name: FlockdeckMCPName, Command: path, Args: []string{"mcp-server"}, Env: env}
 			}
 		}
 	}

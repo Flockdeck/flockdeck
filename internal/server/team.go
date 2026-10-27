@@ -29,6 +29,9 @@ func (s *Server) installTeamHandlers() {
 	// call. An idle agent is woken by the workspace's wake service with one
 	// fixed typed line. HookNotice is safe from any goroutine.
 	hookSrv.SetNoticeHandler(s.ws.HookNotice)
+	// Each structured pane's Flockdeck MCP server gets a token for that pane
+	// alone. The run's shared token is never handed to one.
+	s.ws.UseMCPToken(hookSrv.IssuePaneToken)
 	hookSrv.SetTeamHandler(func(req hooks.TeamRequest) (hooks.TeamResult, error) {
 		out, ok := ask(s, func() outcome[[]team.Member] {
 			m, err := s.ws.Roster(req.Pane)

@@ -106,6 +106,15 @@ func main() {
 		runStatusline(os.Args[2:])
 		return
 	}
+	// `mcp-server` is Flockdeck's MCP server (send_message, list_peers) for a
+	// structured pane's agent. Hidden: the agent starts it from its mcpServers.
+	if len(os.Args) > 1 && os.Args[1] == "mcp-server" {
+		if err := runMCPServer(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "flockdeck mcp-server:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	// `acp-adapter` is Flockdeck's own ACP adapter for an agent with no ACP of
 	// its own. Hidden: the ACP client starts it.
 	if len(os.Args) > 1 && os.Args[1] == "acp-adapter" {
