@@ -174,3 +174,15 @@ func TestSettingRequestsWaitingOnTheAgentAreBounded(t *testing.T) {
 		t.Errorf("%d took and %d were refused; want %d and %d", ok, refused, maxSettingCalls, n-maxSettingCalls)
 	}
 }
+
+// An agent that takes a mode and says nothing more is shown in the new mode.
+func TestAModeTheAgentTookIsShownWithoutAnUpdate(t *testing.T) {
+	r := begin(t, fakeOptions(t, acptest.WithModes(), acptest.WithQuietModeChanges()))
+	ready(t, r)
+	if err := r.SetMode("yolo"); err != nil {
+		t.Fatal(err)
+	}
+	if m := r.Snapshot().Session.Modes.Current; m != "yolo" {
+		t.Errorf("mode = %q, want yolo", m)
+	}
+}

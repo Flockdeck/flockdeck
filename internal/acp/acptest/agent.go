@@ -87,7 +87,7 @@ const (
 	envShape  = "FLOCKDECK_ACPTEST_SHAPE"
 	// envSetLog is a file the agent appends the params of each setting request
 	// to. envSetOpts+"_bare" answers session/set_config_option with no
-	// options, and envSetOpts+"_bool" adds a boolean option to the config shape.
+	// options, envSetOpts+"_quiet" sends no current_mode_update after set_mode, and envSetOpts+"_bool" adds a boolean option to the config shape.
 	envSetLog  = "FLOCKDECK_ACPTEST_SETLOG"
 	envSetOpts = "FLOCKDECK_ACPTEST_SETOPTS"
 	// envSessions is a comma list of session/load, session/resume and the ids
@@ -525,7 +525,9 @@ func (a *agent) setting(m msg) {
 		a.mu.Lock()
 		a.chosen["mode"] = p.ModeID
 		a.mu.Unlock()
-		a.update(p.SessionID, map[string]any{"sessionUpdate": "current_mode_update", "currentModeId": p.ModeID})
+		if !a.setOpt("quiet") {
+			a.update(p.SessionID, map[string]any{"sessionUpdate": "current_mode_update", "currentModeId": p.ModeID})
+		}
 		a.result(m.ID, map[string]any{})
 	case "session/set_model":
 		if shape != "modes" || !has("gem-pro", "gem-flash")(p.ModelID) {

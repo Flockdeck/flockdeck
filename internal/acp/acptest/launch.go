@@ -57,6 +57,10 @@ func WithRefusedSettings() Option { return withSetOpt("refuse") }
 // WithSlowSettings makes the agent take 300 ms over each setting request.
 func WithSlowSettings() Option { return withSetOpt("slow") }
 
+// WithQuietModeChanges makes the agent send no current_mode_update after it
+// takes a mode, which the protocol allows.
+func WithQuietModeChanges() Option { return withSetOpt("quiet") }
+
 func withSetOpt(name string) Option {
 	return func(l *launch) { l.env = append(l.env, envSetOpts+"_"+name+"=1") }
 }
