@@ -536,6 +536,38 @@ test("a link whose text looks like a host, or a host and path, shows the real ho
   assert.ok(!out.includes("(github.com)"), "a text naming the host it links to, with or without www, shows nothing");
 });
 
+test("a look-alike host in the link text, with a letter from another alphabet, shows the real host", () => {
+  const out = md("[gіthub.com/org](https://evil.example/x) and [gіthub.com](https://xn--gthub-n2e.com/y) and [github.com](https://github.com/o)");
+  assert.equal(out.split("(evil.example)").length - 1, 1, out);
+  assert.equal(out.split("md-linkhost").length - 1, 1, "a look-alike that points at its own punycode host, or a plain host, got a host: " + out);
+});
+
+test("a bare look-alike whose odd letter is in the last label, or a host in another alphabet, shows the real host in its xn-- form", () => {
+  const cyrO = String.fromCharCode(0x43e);
+  const out = md("[github.c" + cyrO + "m](https://evil.example/x) and [пример.рф](https://evil.example/y)");
+  assert.equal(out.split("(evil.example)").length - 1, 2, out);
+  const toLook = md("[github.com](https://gіthub.com/z)");
+  assert.ok(toLook.includes("(xn--gthub-n2e.com)"), "the host shown for an address in another alphabet is its punycode form: " + toLook);
+});
+
+test("invisible characters and combining marks in link text do not hide a host from the check", () => {
+  const zw = String.fromCharCode(0x200b), acute = String.fromCharCode(0x301);
+  const out = md("[git" + zw + "hub.com](https://evil.example/a) and [e" + acute + "xample.com](https://evil.example/b) and [git" + zw + "hub.com](https://github.com/o)");
+  assert.equal(out.split("(evil.example)").length - 1, 2, out);
+  assert.equal(out.split("md-linkhost").length - 1, 2, "the same host with an invisible character shows nothing: " + out);
+});
+
+test("text with a user name in front of the host shows where the link goes", () => {
+  const out = md("[https://github.com@evil.test/](https://evil.test/) and [https://user@ok.test/](https://ok.test/)");
+  assert.equal(out.split("md-linkhost").length - 1, 2, out);
+  assert.equal(out.split("(evil.test)").length - 1, 1, out);
+});
+
+test("German words that have a dot in them are not taken for a host", () => {
+  const out = md("[Datei.txt](https://evil.example/a) and [Ich mag Äpfel.Danke](https://evil.example/b) and [Äpfel.Danke](https://evil.example/c)");
+  assert.equal(out.split("md-linkhost").length - 1, 0, out);
+});
+
 test("a file name as link text is not taken for a host", () => {
   const out = md("[main.go](https://github.com/o/r/blob/main/main.go) [README.md](https://github.com/o/r) [config.json](https://example.org/c) [Node.js](https://nodejs.org) [install.sh](https://github.com/o/r/install.sh)");
   assert.equal(out.split("md-linkhost").length - 1, 0, out);
