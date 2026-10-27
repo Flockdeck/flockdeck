@@ -343,7 +343,7 @@ function looksLikeHost(t) {
  *  address, or looks like a host or a host and a path, for another host, so the
  *  real destination is shown beside it; "" when the text is not an address or
  *  names the same host. A text with a user name in front of its host
- *  ("https://github.com@evil.test/") reads as the name, so it always shows
+ *  (a scheme, then github.com@evil.test) reads as the name, so it always shows
  *  the host. */
 function disguisedHost(text, target) {
   const t = hostText(text);
