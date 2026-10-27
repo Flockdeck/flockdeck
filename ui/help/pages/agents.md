@@ -54,6 +54,13 @@ instead of in a terminal. Its pane has no screen: the drawer
 shows its conversation, a box to send it a prompt and a Stop button. Today the one offered is
 opencode (structured). There is none for Claude Code.
 
+Type `/` at the start of the prompt box to list the commands the agent offers, with
+their argument hints. Keep typing to filter, move with the arrow keys, and press Enter
+or Tab to choose one, or Escape to close the list. A choice only writes `/name ` into
+the box: the agent runs the command when you send the text. Flockdeck's own commands
+(today `/stop`) are listed first, under their own heading, and run at once. The list
+is whatever the agent advertises, so it differs between agents.
+
 It is off until you turn it on. Put `"structuredPanes": true` in `prefs.json`
 in the state directory (there is no setting for it in the window); until then
 the picker does not offer a structured agent. Turning it off again takes effect

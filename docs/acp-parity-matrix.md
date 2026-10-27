@@ -66,7 +66,7 @@ Commands that do work only inside the TUI process (themes, key bindings, termina
 
 | Action | In which TUI | Status | Provided by |
 | --- | --- | --- | --- |
-| `/` menu with filter and argument hints | all | missing | ACP `available_commands_update` plus client UI |
+| `/` menu with filter and argument hints | all | present in the structured drawer (T210); Flockdeck's own group has only `/stop` until mode, model and session commands exist | ACP `available_commands_update` plus client UI |
 | Run an agent-advertised command (custom commands, skills, `/init`, `/review`, `/security-review`, `/simplify`, `/loop`, `/goal`, `/batch`) | all | missing | ACP: prompt text. Whether built-ins are advertised depends on the adapter. Claude's built-ins live in the CLI, not the SDK, so a Flockdeck Claude adapter must implement each one it wants |
 | `/help` | all | partial: Flockdeck's own help, not the agent's commands | client |
 | `/theme`, `/color`, `/statusline`, `/tui`, `/keybindings`, `/scroll-speed`, `/terminal-setup`, `/vim`, `/editor`, `/themes`, `/stickers`, `/radio`, `/mobile`, `/passes`, `/powerup`, `/release-notes`, `/docs`, `/privacy`, `/upgrade`, `/about`, `/bug`, `/feedback` | various | n/a: about the TUI or the vendor, not the work | no |
