@@ -136,6 +136,10 @@ func describeTool(name string, input json.RawMessage, cwd, display string) toolD
 		}
 	case "ExitPlanMode":
 		d.kind, d.title = "switch_mode", "Exit plan mode"
+		// The plan is what is being approved: it goes with the request, as text.
+		if plan := str(in, "plan"); strings.TrimSpace(plan) != "" {
+			d.content = []any{map[string]any{"type": "content", "content": map[string]any{"type": "text", "text": capText(plan)}}}
+		}
 	case "TodoWrite":
 		var todos []struct {
 			Content string `json:"content"`
