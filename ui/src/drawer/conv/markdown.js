@@ -315,8 +315,8 @@ const HTTP_URL = /^https?:[/][/]/i;
 
 const link = (href, kids) => h("a", { href, target: "_blank", rel: "noopener noreferrer", "data-ctx": "link" }, ...kids);
 
-/** HOST_TEXT is link text that reads as a host, or a host and a path: "github.com/org/repo". The last label is letters, so a version such as "v1.2" is not one. */
-const HOST_TEXT = /^[\w-]+(\.[\w-]+)*\.([a-z]{2,})(\/\S*)?$/i;
+/** HOST_TEXT is link text that reads as a host, or a host and a path: "github.com/org/repo". The labels may be letters of any alphabet, so a look-alike such as "gіthub.com" (Cyrillic і) is one, and is compared by the punycode host `new URL` gives it. The last label is letters, so a version such as "v1.2" is not one. */
+const HOST_TEXT = /^[\p{L}\p{N}_-]+(\.[\p{L}\p{N}_-]+)*\.(\p{L}{2,})(\/\S*)?$/iu;
 
 /** HOST_ENDINGS are the endings a bare name (no path) must have to read as a host, so a file name such as main.go, README.md or Node.js does not. */
 const HOST_ENDINGS = new Set(["com", "org", "net", "io", "dev", "app", "ai", "co", "gov", "edu", "info", "me", "xyz", "cloud", "uk", "de", "fr", "nl", "eu", "us", "ca", "au", "ru", "cn", "jp", "in", "br", "it", "es", "se", "tv", "so"]);

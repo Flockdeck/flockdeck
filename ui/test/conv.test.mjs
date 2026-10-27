@@ -536,6 +536,12 @@ test("a link whose text looks like a host, or a host and path, shows the real ho
   assert.ok(!out.includes("(github.com)"), "a text naming the host it links to, with or without www, shows nothing");
 });
 
+test("a look-alike host in the link text, with a letter from another alphabet, shows the real host", () => {
+  const out = md("[gіthub.com/org](https://evil.example/x) and [gіthub.com](https://xn--gthub-n2e.com/y) and [github.com](https://github.com/o)");
+  assert.equal(out.split("(evil.example)").length - 1, 1, out);
+  assert.equal(out.split("md-linkhost").length - 1, 1, "a look-alike that points at its own punycode host, or a plain host, got a host: " + out);
+});
+
 test("a file name as link text is not taken for a host", () => {
   const out = md("[main.go](https://github.com/o/r/blob/main/main.go) [README.md](https://github.com/o/r) [config.json](https://example.org/c) [Node.js](https://nodejs.org) [install.sh](https://github.com/o/r/install.sh)");
   assert.equal(out.split("md-linkhost").length - 1, 0, out);
