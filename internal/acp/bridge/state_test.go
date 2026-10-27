@@ -302,3 +302,21 @@ func TestConfigValueSetChangesTheListAsItStands(t *testing.T) {
 		t.Errorf("config = %+v", got)
 	}
 }
+
+// A flockdeck_notice names its notice by code and the words are the bridge's: a
+// code that is not in the table, or text sent along, adds nothing.
+func TestNoticeCodesGiveFixedText(t *testing.T) {
+	b := New(Config{})
+	b.Update(acp.Update{Kind: acp.UpdateNotice, NoticeCode: "untested_version"})
+	b.Update(acp.Update{Kind: acp.UpdateNotice, NoticeCode: "new_conversation"})
+	b.Update(acp.Update{Kind: acp.UpdateNotice, NoticeCode: "SECRET words"})
+	b.Update(acp.Update{Kind: acp.UpdateNotice})
+	var got []string
+	for _, e := range b.Snapshot() {
+		got = append(got, e.Kind+":"+e.Text)
+	}
+	want := []string{"notice:This Claude version has not been tested with Flockdeck", "notice:Started a new conversation."}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Errorf("entries = %q, want %q", got, want)
+	}
+}

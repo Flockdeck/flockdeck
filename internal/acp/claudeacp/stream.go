@@ -4,7 +4,9 @@ import (
 	"bufio"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -53,8 +55,25 @@ type line struct {
 	Model          string `json:"model"`
 	PermissionMode string `json:"permissionMode"`
 
+	// assistant: the code of an API error message ("rate_limit", "server_error")
+	Error json.RawMessage `json:"error"`
+
+	// rate_limit_event
+	RateLimit *rateLimitInfo `json:"rate_limit_info"`
+
+	// system/compact_boundary
+	CompactMeta *struct {
+		Trigger    string `json:"trigger"`
+		PreTokens  int64  `json:"pre_tokens"`
+		PostTokens int64  `json:"post_tokens"`
+	} `json:"compact_metadata"`
+
+	// conversation_reset
+	NewConversationID string `json:"new_conversation_id"`
+
 	// result
-	IsError      bool    `json:"is_error"`
+	APIErrorStatus int     `json:"api_error_status"`
+	IsError        bool    `json:"is_error"`
 	Result       string  `json:"result"`
 	StopReason   string  `json:"stop_reason"`
 	TerminalReas string  `json:"terminal_reason"`
@@ -114,9 +133,22 @@ func (ss *session) readLoop(r io.Reader) {
 func (ss *session) handleLine(l line) {
 	switch l.Type {
 	case "system":
-		if l.Subtype == "init" {
+		switch l.Subtype {
+		case "init":
 			ss.handleInit(l)
+		case "compact_boundary":
+			ss.handleCompact(l)
 		}
+	case "rate_limit_event":
+		if l.RateLimit != nil && l.RateLimit.Status == "rejected" {
+			ss.mu.Lock()
+			ss.facts.rejected, ss.facts.resetsAt = true, l.RateLimit.ResetsAt
+			ss.mu.Unlock()
+		}
+	case "conversation_reset":
+		// /clear: claude goes on under a new session id, which arrives in the
+		// next init line (adopt).
+		ss.srv.update(ss.id, map[string]any{"sessionUpdate": "flockdeck_notice", "code": "new_conversation"})
 	case "stream_event":
 		ss.handleStream(l)
 	case "assistant":
@@ -222,6 +254,9 @@ func (ss *session) handleAssistant(l line) {
 	if !l.nested() && l.Message.Usage != nil {
 		ss.lastUsed = l.Message.Usage.context()
 	}
+	if code := errString(l.Error); code != "" && !l.nested() {
+		ss.facts.apiError = code
+	}
 	ss.mu.Unlock()
 	for _, b := range blocks {
 		switch b.Type {
@@ -316,6 +351,8 @@ func (ss *session) handleResult(l line) {
 	ss.window = window
 	t := ss.cur
 	cancelled := t != nil && t.cancelled
+	facts := ss.facts
+	ss.facts = turnFacts{}
 	ss.busy = false
 	ss.idle.Broadcast()
 	ss.mu.Unlock()
@@ -329,9 +366,9 @@ func (ss *session) handleResult(l line) {
 	if t == nil {
 		return // the end of a turn claude started on its own
 	}
-	stop, err := classify(l, cancelled)
+	stop, err := classify(l, facts, cancelled)
 	if err != nil && err.Code != codeAuthRequired {
-		ss.srv.logf("the turn failed: %s", clip(l.Result, 500))
+		ss.srv.logf("the turn failed (%v): %s", err.Data, clip(l.Result, 500))
 	}
 	select {
 	case t.done <- turnResult{stop: stop, err: err}:
@@ -341,22 +378,18 @@ func (ss *session) handleResult(l line) {
 }
 
 // classify turns a result line into an ACP stop reason or an error.
-func classify(l line, cancelled bool) (string, *rpcErr) {
+func classify(l line, f turnFacts, cancelled bool) (string, *rpcErr) {
 	switch {
 	case cancelled:
 		return "cancelled", nil
 	case l.IsError:
-		low := strings.ToLower(l.Result)
-		if strings.Contains(low, "/login") || strings.Contains(low, "not logged in") || strings.Contains(low, "invalid api key") {
-			return "", &rpcErr{Code: codeAuthRequired, Message: "Authentication required"}
-		}
-		return "", &rpcErr{Code: codeInternal, Message: "the turn failed"}
+		return "", failure(l, f)
 	case l.TerminalReas == "aborted_tools" || l.TerminalReas == "aborted_streaming":
 		return "cancelled", nil
 	case l.Subtype == "error_max_turns" || l.TerminalReas == "max_turns":
 		return "max_turn_requests", nil
 	case l.Subtype == "error_during_execution":
-		return "", &rpcErr{Code: codeInternal, Message: "the turn failed"}
+		return "", failure(l, f)
 	case l.StopReason == "max_tokens":
 		return "max_tokens", nil
 	case l.StopReason == "refusal":
@@ -370,4 +403,23 @@ func clip(s string, n int) string {
 		return s
 	}
 	return s[:n] + "…"
+}
+
+// handleCompact tells the client claude compacted its context, for /compact and
+// for an automatic compaction alike. The words are ours; only the two token
+// counts are claude's, as numbers.
+func (ss *session) handleCompact(l line) {
+	msg := "Context compacted."
+	if m := l.CompactMeta; m != nil && m.PreTokens > 0 && m.PostTokens >= 0 && m.PreTokens < 1<<40 && m.PostTokens < 1<<40 {
+		msg = fmt.Sprintf("Context compacted: %s to %s tokens.", groupDigits(m.PreTokens), groupDigits(m.PostTokens))
+	}
+	ss.srv.update(ss.id, map[string]any{"sessionUpdate": "compaction", "status": "completed", "message": msg})
+}
+
+func groupDigits(n int64) string {
+	s := strconv.FormatInt(n, 10)
+	for i := len(s) - 3; i > 0; i -= 3 {
+		s = s[:i] + "," + s[i:]
+	}
+	return s
 }

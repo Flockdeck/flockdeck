@@ -24,6 +24,7 @@ const (
 	envScript  = "FD_CLAUDEACP_SCRIPT"
 	envLog     = "FD_CLAUDEACP_LOG"
 	envAdapt   = "FD_CLAUDEACP_ADAPTER"
+	envVersion = "FD_CLAUDEACP_VERSION"   // what `--version` prints
 	envDelay   = "FD_CLAUDEACP_INITDELAY" // milliseconds before the initialize answer
 	envCtlErr  = "FD_CLAUDEACP_CTLERR"    // a control subtype that is answered with an error
 	envCtlErr2 = "FD_CLAUDEACP_CTLERR2"   // and a second one
@@ -82,6 +83,14 @@ func runFake() {
 		out.Unlock()
 	}
 	var logMu sync.Mutex
+	if len(os.Args) == 2 && os.Args[1] == "--version" {
+		v := os.Getenv(envVersion)
+		if v == "" {
+			v = "2.1.311 (Claude Code)"
+		}
+		fmt.Println(v)
+		return
+	}
 	logf := func(format string, a ...any) {
 		logMu.Lock()
 		defer logMu.Unlock()

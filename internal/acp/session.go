@@ -23,6 +23,9 @@ const (
 	// so the fields read are a best guess; see Compaction.
 	UpdateCompaction       = "compaction"
 	UpdateCompactionUpdate = "compaction_update"
+	// UpdateNotice is a Flockdeck adapter's request for a fixed notice. It carries
+	// a code, never text: the bridge owns the wording (NoticeText in the bridge).
+	UpdateNotice = "flockdeck_notice"
 )
 
 // Command is one slash command an agent offers.

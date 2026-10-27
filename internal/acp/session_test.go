@@ -281,3 +281,10 @@ func TestTheFakeAgentAnswersAnUnknownMethod(t *testing.T) {
 		t.Errorf("stop = %q", stop)
 	}
 }
+
+func TestNoticeUpdateKeepsOnlyTheCode(t *testing.T) {
+	u := decodeUpdate("s", json.RawMessage(`{"sessionUpdate":"flockdeck_notice","code":"untested_version","message":"SECRET"}`))
+	if u.Kind != UpdateNotice || u.NoticeCode != "untested_version" {
+		t.Errorf("update = %+v", u)
+	}
+}

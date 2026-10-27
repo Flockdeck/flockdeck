@@ -1487,9 +1487,10 @@ func (r *Runtime) loop() {
 				// queue is kept.
 				// What the agent said about it is not kept or shown: the text is
 				// the agent's, and it is fixed here.
-				r.br.TurnEnd("failed: " + agentError)
+				text := failureText(err, time.Now())
+				r.br.TurnEnd("failed: " + text)
 				r.mu.Lock()
-				r.err = agentError
+				r.err = text
 				r.mu.Unlock()
 				r.notify()
 				continue
