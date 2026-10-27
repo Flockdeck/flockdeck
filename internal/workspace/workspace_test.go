@@ -919,13 +919,13 @@ func TestUseAgentOutranksTheCatalogDefault(t *testing.T) {
 		t.Fatalf("default agent = %q, want the catalog's own to begin with", def)
 	}
 
-	w.UseAgent("openai")
-	if _, def := w.Agents(); def != "openai" {
+	w.UseAgent("codex")
+	if _, def := w.Agents(); def != "codex" {
 		t.Errorf("default agent = %q, want the one -agent named", def)
 	}
 	spec, ok := w.specFor("", "")
-	if !ok || spec.ID != "openai" {
-		t.Errorf("a pane with no agent of its own resolved to %q (found %v), want openai", spec.ID, ok)
+	if !ok || spec.ID != "codex" {
+		t.Errorf("a pane with no agent of its own resolved to %q (found %v), want codex", spec.ID, ok)
 	}
 
 	// A pane that names its own agent still wins: a restored layout knows what

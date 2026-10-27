@@ -40,10 +40,10 @@ func twoProjects(t *testing.T) (*Server, *workspace.Workspace, string, string) {
 			t.Fatal(err)
 		}
 	}
-	if _, ok := ws.Catalog().Find("anthropic"); !ok {
-		t.Skip("no built-in API agent to open the second project on")
+	if _, ok := ws.Catalog().Find("codex"); !ok {
+		t.Skip("no built-in codex agent to open the second project on")
 	}
-	if err := setAgentDefault(hidden, agentChoice{Agent: "anthropic"}); err != nil {
+	if err := setAgentDefault(hidden, agentChoice{Agent: "codex"}); err != nil {
 		t.Fatal(err)
 	}
 	ws.ReloadAgents()
