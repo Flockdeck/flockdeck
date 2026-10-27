@@ -121,8 +121,8 @@ ACP carries these as `modes` and `configOptions` in the `session/new` response, 
 | Live output of a long shell command | all | partial: only what the agent puts in tool content | ACP `terminal` content, needs the `terminal` capability |
 | File edits as diffs, `/diff` | Claude, Gemini | present: tool diffs plus the Changes tab, which goes beyond the TUI | n/a |
 | Task checklist (Ctrl+T) | Claude | partial: plan received, not drawn | client |
-| Context usage and its breakdown (`/context`) | Claude, Codex `/status` | partial: used and size shown; no breakdown | `usage_update` for the totals; breakdown: adapter only |
-| Cost and token stats (`/cost`, `/usage`, `/stats`) | Claude, Gemini | partial: cost shows when the agent reports it; no per-model or per-tool stats | `usage_update` cost; per-turn usage in the prompt response (check stability); stats screens are client |
+| Context usage and its breakdown (`/context`) | Claude, Codex `/status` | partial (T216): header meter (bar and share) with a detail of used, window, left and cost; no breakdown, because `usage_update` has none | `usage_update` for the totals; breakdown: adapter only |
+| Cost and token stats (`/cost`, `/usage`, `/stats`) | Claude, Gemini | partial (T216): cost shows in the header and the detail when the agent reports it, and says "Not reported" when it does not; no token split, no per-model or per-tool stats, because `usage_update` carries none | `usage_update` cost; per-turn usage in the prompt response (check stability); stats screens are client |
 | Plan limits and rate limits (`/usage`, `/status`, `/rate-limit-options`) | Claude, Codex | missing | no ACP field. A Flockdeck adapter can send a notice or an extension notification |
 | Wait for a limit reset and continue | Claude | missing | client: schedule a re-prompt; low priority |
 
@@ -130,8 +130,8 @@ ACP carries these as `modes` and `configOptions` in the `session/new` response, 
 
 | Action | In which TUI | Status | Provided by |
 | --- | --- | --- | --- |
-| Copy the last response (`/copy`, `/copy N`) | Claude, Gemini | partial: toolbar Copy copies the loaded entries as text; no per-message copy | client |
-| Export the conversation (`/export`, `/chat share`) | Claude, Gemini, opencode | missing, and the toolbar says so | client: serialise the bridge entries to Markdown or JSON; or ACP `session/load` replay if the agent's own history is wanted |
+| Copy the last response (`/copy`, `/copy N`) | Claude, Gemini | present (T216): toolbar Copy for the loaded entries, Copy last reply, a Copy button on each reply, and Copy on each code block | client |
+| Export the conversation (`/export`, `/chat share`) | Claude, Gemini, opencode | present (T216): Export in the conversation bar writes a Markdown file into a folder the person names (`structuredExport`, API 1.20), redacted, with mail marked and thinking only if chosen. Desk only. No JSON form | client: serialise the bridge entries to Markdown or JSON; or ACP `session/load` replay if the agent's own history is wanted |
 | Save and restore a named checkpoint | Gemini `/chat save` | missing | client, with session load |
 | Search the conversation | Claude (Ctrl+R is history, transcript search), others | present: `conversationSearch` | n/a |
 | Scroll back through long history | all | present: pages, Older | n/a |
@@ -162,7 +162,7 @@ By how often a user hits them and how little of it exists:
 7. Rewind, undo, edit-previous-message and fork. No ACP method; needs git snapshots plus a Flockdeck-written adapter that can truncate history.
 8. Clear and new conversation, plus compaction commands and notices.
 9. `!` shell escape, and background tasks (`terminal/*`).
-10. Export, per-message copy, usage and cost detail (`/usage`, `/stats`), plan drawing and task checklist.
+10. Export, per-message copy and usage detail (done, T216); plan drawing and task checklist are still open.
 
 Not in the ten but large: config and settings editing (skills, plugins, hooks, permission rules, MCP status) and the Claude and Codex adapters themselves, since most Claude and Codex commands live in the CLI, not the SDK, and a Flockdeck adapter has to re-implement the ones the user needs.
 
