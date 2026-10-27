@@ -350,7 +350,7 @@ func TestABadPermissionProbeIsRefused(t *testing.T) {
 
 // Flockdeck's own adapter may name the agent it drives; nothing else may.
 func TestOnlyFlockdecksOwnAdapterMayNameClaude(t *testing.T) {
-	own := `{"id":"claude","name":"Claude Code","command":"flockdeck","args":["acp-adapter","claude"],"minVersion":"2.1.311","testedWith":"2.1.311","testedOn":"2026-10-27","hidden":true,"note":"n"}`
+	own := `{"id":"claude","name":"Claude Code","command":"flockdeck","args":["acp-adapter","claude"],"drives":"claude","minVersion":"2.1.311","testedWith":"2.1.311","testedOn":"2026-10-27","hidden":true,"note":"n"}`
 	if _, err := Parse([]byte(wrap(goodAdapter, own))); err != nil {
 		t.Fatalf("the own adapter: %v", err)
 	}
@@ -366,6 +366,31 @@ func TestOnlyFlockdecksOwnAdapterMayNameClaude(t *testing.T) {
 	} {
 		if _, err := Parse([]byte(wrap(goodAdapter, bad))); err == nil {
 			t.Errorf("%s: accepted", name)
+		}
+	}
+}
+
+// drives is for Flockdeck's own adapters only: a command other than flockdeck,
+// or a program name that is not plain, is refused.
+func TestDrivesIsForOwnAdaptersOnly(t *testing.T) {
+	own := `{"id":"codex-go","name":"Codex","command":"flockdeck","args":["acp-adapter","codex"],"drives":"codex","minVersion":"0.0.0","testedWith":"0.0.0","testedOn":"2026-10-27","hidden":true,"note":"n"}`
+	if _, err := Parse([]byte(wrap(goodAdapter, own))); err != nil {
+		t.Fatalf("the own adapter: %v", err)
+	}
+	for name, bad := range map[string]string{
+		"another command": strings.Replace(own, `"command":"flockdeck"`, `"command":"other"`, 1),
+		"a path":          strings.Replace(own, `"drives":"codex"`, `"drives":"../codex"`, 1),
+		"a space":         strings.Replace(own, `"drives":"codex"`, `"drives":"co dex"`, 1),
+	} {
+		if _, err := Parse([]byte(wrap(goodAdapter, bad))); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
+	}
+	m := Default()
+	for id, want := range map[string]string{"claude": "claude", "codex-go": "codex"} {
+		a, ok := m.Lookup(id)
+		if !ok || a.Drives != want {
+			t.Errorf("%s drives %q, want %q", id, a.Drives, want)
 		}
 	}
 }

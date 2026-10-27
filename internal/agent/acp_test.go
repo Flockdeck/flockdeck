@@ -108,11 +108,29 @@ func TestClaudeACPAvailability(t *testing.T) {
 	if !Available(s) {
 		t.Error("unavailable with claude on PATH and no flockdeck on PATH")
 	}
-	// Codex's own adapter is not given this rule.
+	// Neither one stands in for the other.
 	cx, _ := Merge(&File{}).Find("codex-acp")
 	stubProbes(t, map[string]bool{"claude": true})
 	if Available(cx) {
 		t.Error("codex-acp became available because claude is installed")
+	}
+	stubProbes(t, map[string]bool{"codex": true})
+	if Available(s) {
+		t.Error("claude-acp became available because codex is installed")
+	}
+}
+
+// codex-acp is available when codex is installed, and only then, for the same
+// reason: its command is the flockdeck binary.
+func TestCodexACPAvailability(t *testing.T) {
+	s, _ := Merge(&File{}).Find("codex-acp")
+	stubProbes(t, map[string]bool{"flockdeck": true})
+	if Available(s) {
+		t.Error("available with flockdeck on PATH and no codex")
+	}
+	stubProbes(t, map[string]bool{"codex": true})
+	if !Available(s) {
+		t.Error("unavailable with codex on PATH and no flockdeck on PATH")
 	}
 }
 
