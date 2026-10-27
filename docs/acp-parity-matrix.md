@@ -52,7 +52,7 @@ The drawer (`Structured.js`) has a context and cost line, the conversation, a te
 | `@file` mention with autocomplete | all four | partial (T212): `@` opens a picker over the pane's files (`structuredFiles`, API 1.18) and inserts `@path` as text; the file is not attached as a `resource_link` or embedded | client for the picker over the pane's directory; ACP `resource_link` content block (baseline in the spec) or inline text; `embeddedContext` capability if the file contents are sent |
 | `@dir` mention, opencode `@alias` reference roots | Gemini, opencode | missing | client, same route |
 | `@session` message to another Claude session | Claude | missing | no: Flockdeck's own mail replaces it (T182) |
-| `!` shell escape: run a command, output joins the conversation | Claude, Gemini, opencode | missing for structured panes | client: Flockdeck runs the command in the pane's directory and sends the output as context in the next prompt. ACP `terminal/*` is for the agent's use, not this |
+| `!` shell escape: run a command, output joins the conversation | Claude, Gemini, opencode | present (T214, API 1.20): `!cmd` in the prompt box runs in the pane's directory in a Flockdeck-owned shell as the person, with an allowlisted environment and a ten-minute limit; output streams into a list under the conversation as plain text, with Stop, Remove and Send to agent. A command is never sent to the agent unless the person presses Send to agent. Ended when the pane closes. One line only, desk only | client, `internal/shellrun`. ACP `terminal/*` is for the agent's use, not this |
 | Paste or attach an image | Claude (Ctrl+V chips), Codex (`-i`, paste), Gemini (@ path), opencode (not documented) | partial (T212): paste, drop or Attach image saves the picture (`attachImage`) and puts `[image: path]` in the text for the agent to read, when `capabilities.image` is set; `Client.Prompt` still sends text blocks only, so no ACP image block yet | ACP image content block, gated by `promptCapabilities.image`; UI paste handler is client. The conversation already has an image row type |
 | Attach other media (audio, PDF) | Gemini via `@` | missing | ACP `promptCapabilities.audio` / `embeddedContext` |
 | Voice dictation | Claude `/voice` | missing | no (browser speech input is possible, low value) |
@@ -107,7 +107,7 @@ ACP carries these as `modes` and `configOptions` in the `session/new` response, 
 | Edit an earlier user message and resend | Claude, Codex | missing | same as rewind |
 | Rename the session | Claude, Codex, opencode | partial: Flockdeck has pane rename, not linked to the agent's session title | ACP `session_info_update` (title from the agent); rename itself is client |
 | Side question that does not enter the history (`/btw`, `/side`) | Claude, Codex | missing | no ACP method. A second session with a copy of the context is possible in a Flockdeck adapter; low priority |
-| Background tasks and shells (Ctrl+B, `/tasks`, `/shells`) | Claude, Gemini | missing | ACP `terminal/*` if the client advertises `terminal` and owns command execution (a large change that also moves the permission gate); otherwise tool output only |
+| Background tasks and shells (Ctrl+B, `/tasks`, `/shells`) | Claude, Gemini | missing for the agent's own background commands; the person's `!` commands run, list and stop (T214) | Decision, T214: Flockdeck does not advertise the ACP `terminal` capability, so an agent never calls `terminal/create` and there is nothing in `tool_call_update` `terminal` content to list. Advertising it would make Flockdeck run the agent's commands, which moves the permission gate from the agent to Flockdeck and needs its own task (process table, output limits, release, kill on close, a permission decision per command). Until then a command the agent backgrounds stays inside the agent (Claude's `run_in_background` Bash runs in the Claude process, which the Go adapter does not expose; I did not check Codex) and shows only as tool output. The adapters could report such tasks as a Flockdeck extension; not built |
 | Subagent activity | Claude, Gemini, opencode | partial: tool rows show, nesting depends on the agent's tool calls; not checked | ACP tool calls; agent-side |
 | Session recap (`/recap`) | Claude | missing | agent-advertised command |
 
@@ -118,7 +118,7 @@ ACP carries these as `modes` and `configOptions` in the `session/new` response, 
 | Streaming reply text, markdown | all | present | `agent_message_chunk` |
 | Thinking blocks; toggle visibility (`/thinking`, Ctrl+O) | Claude, opencode | partial: thinking rows show, no toggle | `agent_thought_chunk` (received); toggle is client |
 | Tool calls with output and diffs; expand | all | present | `tool_call`, `tool_call_update` |
-| Live output of a long shell command | all | partial: only what the agent puts in tool content | ACP `terminal` content, needs the `terminal` capability |
+| Live output of a long shell command | all | partial: only what the agent puts in tool content. The person's own `!` command streams its output (T214) | ACP `terminal` content, needs the `terminal` capability (not advertised, see background tasks) |
 | File edits as diffs, `/diff` | Claude, Gemini | present: tool diffs plus the Changes tab, which goes beyond the TUI | n/a |
 | Task checklist (Ctrl+T) | Claude | partial: plan received, not drawn | client |
 | Context usage and its breakdown (`/context`) | Claude, Codex `/status` | partial (T216): header meter (bar and share) with a detail of used, window, left and cost; no breakdown, because `usage_update` has none | `usage_update` for the totals; breakdown: adapter only |
@@ -161,7 +161,7 @@ By how often a user hits them and how little of it exists:
 6. Visible, editable queue (done, T213, T199); key bindings for interrupt are still missing.
 7. Rewind, undo, edit-previous-message and fork. No ACP method; needs git snapshots plus a Flockdeck-written adapter that can truncate history.
 8. Clear and new conversation, plus compaction commands and notices.
-9. `!` shell escape, and background tasks (`terminal/*`).
+9. `!` shell escape (done, T214) and background tasks (`terminal/*`: the capability is not advertised; the agent's own background commands are not listed).
 10. Export, per-message copy and usage detail (done, T216); plan drawing and task checklist are still open.
 
 Not in the ten but large: config and settings editing (skills, plugins, hooks, permission rules, MCP status) and the Claude and Codex adapters themselves, since most Claude and Codex commands live in the CLI, not the SDK, and a Flockdeck adapter has to re-implement the ones the user needs.

@@ -65,6 +65,8 @@ import { QueueList } from "./QueueList.js";
 import { UsageMeter } from "./UsageMeter.js";
 import { ExportPanel } from "./ExportPanel.js";
 import { queueOf, stopMessage } from "./queueModel.js";
+import { ShellList } from "./ShellList.js";
+import { shellText, shellOf, shellRunMessage, shellWait, SHELL_EMPTY_WORDS, SHELL_ONE_LINE_WORDS, SHELL_NOT_SENT_WORDS, SHELL_NO_ANSWER_WORDS } from "./shellModel.js";
 import { prepareImage, pickImages, attachNote, ImageError, IMAGE_TYPES } from "./imageAttach.js";
 
 /** SEND_NOT_SENT_WORDS is what the prompt box says when the store did not send the text; the draft stays. */
@@ -75,6 +77,7 @@ export const STOP_NOT_SENT_WORDS = "Not connected to Flockdeck, so Stop was not 
 let cancelSeq = 0;
 let settingSeq = 0;
 let filesSeq = 0;
+let shellRunSeq = 0;
 /** FILES_DELAY_MS is how long the box waits after the last keystroke of a mention before asking for names. */
 export const FILES_DELAY_MS = 120;
 /** ATTACH_WAIT_MS is how long a picture is waited for before the box takes another. */
@@ -136,7 +139,7 @@ export function activityOf(st, entries = []) {
  *  first one; error is the store's structuredError; desk is false in a window
  *  reached through the relay. snap is the store's snapshot, which carries the
  *  desk's answer to a send. */
-export function Structured({ pane, snap, st, error = null, cancelError = null, settingError = null, queueResult = null, exportResult = null, desk = true, store, conv = null, onOlder = null, details = null, onDetail = null, pending = null, search = null, onSearch = null, onClearSearch = null }) {
+export function Structured({ pane, snap, st, error = null, cancelError = null, settingError = null, queueResult = null, shellResult = null, exportResult = null, desk = true, store, conv = null, onOlder = null, details = null, onDetail = null, pending = null, search = null, onSearch = null, onClearSearch = null }) {
   // The draft and the history are kept per pane (composerModel.js), so they outlive this component.
   const kept = useRef(null);
   if (kept.current === null) kept.current = loadComposer(pane);
@@ -167,6 +170,33 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
   const [sendFailed, setSendFailed] = useState("");
   // The pane whose export panel is open.
   const [exporting, setExporting] = useState("");
+  // A "!" command in flight: its req, and what the last one was refused with. The draft stays until the desk has taken it.
+  const [shellReq, setShellReq] = useState("");
+  const [shellNote, setShellNote] = useState("");
+  useEffect(() => {
+    if (!shellReq || !shellResult || shellResult.req !== shellReq) return;
+    setShellReq("");
+    if (shellResult.ok) {
+      history.current = pushHistory(history.current, sentText.current);
+      recalling.current = { nav: NO_RECALL, text: null };
+      setDraft("");
+      setShellNote("");
+    } else {
+      setShellNote(clip(String(shellResult.error || ""), 200));
+    }
+  }, [shellResult]);
+  // No answer within shellWait.ms, or the socket went away, ends the wait, so "!" cannot stay stuck; the text stays.
+  const connected = !snap || !snap.connection || snap.connection === "open";
+  useEffect(() => {
+    if (!shellReq) return;
+    if (!connected) {
+      setShellReq("");
+      setShellNote(SHELL_NO_ANSWER_WORDS);
+      return;
+    }
+    const t = setTimeout(() => { setShellReq(""); setShellNote(SHELL_NO_ANSWER_WORDS); }, shellWait.ms);
+    return () => clearTimeout(t);
+  }, [shellReq, connected]);
   // What the last change of a setting got that the desk did not say: { pane, text }.
   const [settingNote, setSettingNote] = useState(null);
   const settingsEl = useRef(null);
@@ -216,7 +246,7 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
     if (panes && typeof panes === "object" && Object.keys(panes).length) pruneComposer(Object.keys(panes));
   }, []);
   const sendingNow = !!outcome && outcome.kind === "sending";
-  const mention = desk && !sendingNow ? mentionAt(draft, caret === null ? draft.length : caret) : null;
+  const mention = desk && !sendingNow && !draft.startsWith("!") ? mentionAt(draft, caret === null ? draft.length : caret) : null;
   const mentionQuery = mention ? mention.query : null;
   useEffect(() => {
     setFileKey(null);
@@ -274,6 +304,21 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
     if (e && e.preventDefault) e.preventDefault();
     const text = draft.trim();
     if (!text || busy.current) return;
+    // A "!" first runs the rest as the person's own command, never the agent's. A leading space sends it to the agent instead.
+    const bang = shellText(draft);
+    if (bang !== null) {
+      if (shellReq) return;
+      const req = "hr" + ++shellRunSeq;
+      const msg = shellRunMessage(pane, bang, req);
+      if (!msg) setShellNote(bang === "" ? SHELL_EMPTY_WORDS : SHELL_ONE_LINE_WORDS);
+      else if (!store.send(msg)) setShellNote(SHELL_NOT_SENT_WORDS);
+      else {
+        sentText.current = text;
+        setShellReq(req);
+        setShellNote("");
+      }
+      return;
+    }
     // A leading space sends the text to the agent as it is, so an agent's own /mode command can still be reached.
     const asked = /^\s/.test(draft) ? null : parseSetting(text, controls);
     if (asked) {
@@ -322,7 +367,7 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
     setSettingNote(ok ? null : { pane, text: SET_NOT_SENT_WORDS });
     return ok;
   };
-  const menu = desk && !sending && closedFor !== draft ? menuOf(draft, st.commands, ownCommandsFor(OWN_COMMANDS, controls)) : null;
+  const menu = desk && !sending && !draft.startsWith("!") && closedFor !== draft ? menuOf(draft, st.commands, ownCommandsFor(OWN_COMMANDS, controls)) : null;
   const items = flatten(menu);
   // The chosen row is found by its command, so a list that changes under the person does not move it; -1 is none.
   const at = menu ? selectedIndex(items, selKey, menu.query) : -1;
@@ -487,6 +532,7 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
         : null}
       <${Conversation} conv=${conv} onOlder=${onOlder} details=${details} onDetail=${onDetail} pending=${pending}
         search=${search} onSearch=${onSearch} onClearSearch=${onClearSearch} canExport=${desk} onExport=${() => setExporting(pane)} className="structured-log" />
+      ${desk ? html`<${ShellList} rows=${shellOf(st)} pane=${pane} store=${store} result=${shellResult} />` : null}
       ${desk ? html`<${QueueList} rows=${queue} pane=${pane} store=${store} result=${queueResult} working=${st.status === "working"} focusBox=${() => box.current && box.current.focus && box.current.focus()} />` : null}
       ${desk
         ? html`<form class="structured-prompt" onSubmit=${submit}>
@@ -510,7 +556,7 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
               role=${menu || names.length ? "combobox" : undefined} aria-expanded=${menu || names.length ? "true" : undefined} aria-autocomplete=${menu || names.length ? "list" : undefined} aria-controls=${menu ? "slash-" + pane : names.length ? "mention-" + pane : undefined} aria-activedescendant=${menu && at >= 0 ? optId(at) : names.length ? "mention-" + pane + "-" + nameAt : undefined}
               onKeyDown=${onKey} onKeyUp=${(e) => setCaret(caretOf(e.target)[0])} onClick=${(e) => setCaret(caretOf(e.target)[0])}
               onPaste=${(e) => onPicture(e.clipboardData, e)} onDragOver=${(e) => { if (imageOk && e.dataTransfer && pickImages(e.dataTransfer).length) e.preventDefault(); }} onDrop=${(e) => onPicture(e.dataTransfer, e)}
-              readOnly=${outcome && outcome.kind === "sending"} aria-busy=${outcome && outcome.kind === "sending" ? "true" : undefined} onInput=${(e) => { setDraft(e.target.value); setCaret(caretOf(e.target)[0]); setSendFailed(""); if (outcome && outcome.kind === "refused") setMark(null); }}></textarea>
+              readOnly=${outcome && outcome.kind === "sending"} aria-busy=${outcome && outcome.kind === "sending" ? "true" : undefined} onInput=${(e) => { setDraft(e.target.value); setCaret(caretOf(e.target)[0]); setSendFailed(""); setShellNote(""); if (outcome && outcome.kind === "refused") setMark(null); }}></textarea>
             <button ref=${sendBtn} type="submit" class="drawer-btn structured-send" disabled=${draft.trim() === "" || (outcome && outcome.kind === "sending")}>Send</button>
             <button type="button" class="drawer-btn structured-stop" onClick=${() => stop(false)}>Stop</button>
             ${queue.length ? html`<button type="button" class="drawer-btn structured-stop-keep" title="Ends the current turn and sends the waiting prompts" onClick=${() => stop(true)}>Stop, keep queue</button>` : null}
@@ -522,6 +568,8 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
             ${imageNote ? html`<p class="structured-note" role="status">${showControls(clip(imageNote, 200))}</p>` : null}
             ${outcome && outcome.kind === "refused" ? html`<p class="structured-note structured-note--unsent structured-note--send" role="alert">${showControls(clip(outcome.text, 300))}</p>` : null}
             ${sendFailed === pane ? html`<p class="structured-note structured-note--unsent structured-note--send" role="alert">${SEND_NOT_SENT_WORDS}</p>` : null}
+            ${draft.startsWith("!") ? html`<p class="structured-note structured-note--hint" data-shell-hint="on">Runs in this folder as you. The agent is not asked and does not see it unless you send the output.</p>` : null}
+            ${shellNote && draft.startsWith("!") ? html`<p class="structured-note structured-note--unsent" role="alert" data-shell-note="on">${showControls(shellNote)}</p>` : null}
             ${stopping === pane ? html`<p class="structured-note" role="status" data-stopping="on">Stopping the turn.</p>` : null}
             ${st.status === "working" && !stopping ? html`<p class="structured-note structured-note--hint" data-queue-hint="on">The agent is working. What you send now waits in the queue.</p>` : null}
             ${stopFailed === pane ? html`<p class="structured-note structured-note--unsent" role="status">${STOP_NOT_SENT_WORDS}</p>` : null}

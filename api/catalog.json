@@ -1,7 +1,7 @@
 {
   "api": {
     "major": 1,
-    "minor": 20
+    "minor": 21
   },
   "frames": [
     {
@@ -1154,6 +1154,30 @@
       "name": "structuredSet",
       "access": "full",
       "since": "1.17",
+      "status": "stable"
+    },
+    {
+      "name": "structuredShellRemove",
+      "access": "full",
+      "since": "1.21",
+      "status": "stable"
+    },
+    {
+      "name": "structuredShellRun",
+      "access": "full",
+      "since": "1.21",
+      "status": "stable"
+    },
+    {
+      "name": "structuredShellSend",
+      "access": "full",
+      "since": "1.21",
+      "status": "stable"
+    },
+    {
+      "name": "structuredShellStop",
+      "access": "full",
+      "since": "1.21",
       "status": "stable"
     },
     {

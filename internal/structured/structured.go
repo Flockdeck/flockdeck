@@ -38,6 +38,7 @@ import (
 	"github.com/jmwri/flockdeck/internal/acp/permprobe"
 	"github.com/jmwri/flockdeck/internal/agent"
 	"github.com/jmwri/flockdeck/internal/record"
+	"github.com/jmwri/flockdeck/internal/shellrun"
 	"github.com/jmwri/flockdeck/internal/session/transcript"
 )
 
@@ -291,6 +292,9 @@ type Snapshot struct {
 	Queued int
 	// Queue lists them, the next to be sent first.
 	Queue []QueueItem
+	// Shell is the person's own commands, run with "!" in the composer: the
+	// oldest first, output raw (shellrun.Text makes it plain text).
+	Shell []shellrun.Run
 	// Err is the last thing that went wrong, cleaned. After an exit it says
 	// only that the agent is unavailable: what it wrote to stderr is not kept
 	// for display. It is
@@ -325,6 +329,9 @@ type Runtime struct {
 	wake   chan struct{}
 
 	protoErrs atomic.Int64
+
+	// shell runs the person's own commands (shell.go). It is closed with the pane.
+	shell *shellrun.Manager
 
 	mu      sync.Mutex
 	phase   Phase
@@ -439,6 +446,7 @@ func Start(ctx context.Context, opts Options) (*Runtime, error) {
 		stopTap: make(chan struct{}),
 		tapDone: make(chan struct{}),
 	}
+	r.shell = shellrun.New(opts.Cwd, opts.Environ, r.notify)
 	go r.run()
 	// ctx ending closes it, though nobody called Close.
 	go func() {
@@ -845,6 +853,7 @@ func (r *Runtime) Snapshot() Snapshot {
 		Phase:  r.phase,
 		Queued: len(r.queue),
 		Queue:  r.queueItemsLocked(),
+		Shell:  r.shell.List(),
 		Err:    r.err,
 		Agent:  r.agentNm,
 
@@ -911,6 +920,10 @@ func (r *Runtime) finish(p Phase) {
 		}
 	}
 	r.cancel()
+	if p == PhaseClosed {
+		// The person's commands end with the pane, not when the agent does.
+		r.shell.Close()
+	}
 	r.notify()
 }
 

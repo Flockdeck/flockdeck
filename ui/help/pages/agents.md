@@ -103,6 +103,18 @@ not read your text while it works. Stop ends the turn and drops the whole queue;
 queue ends the turn and goes on to the next prompt. Mail beyond the 16 the pane holds waits
 in the inbox and is not listed until there is room.
 
+Start a line with `!` to run a command yourself: `!git status` runs in this pane's folder, as you, and
+shows its output in a list under the conversation. The agent is not asked and does not see it; press Send to
+agent on a command to give the agent the command and the end of its output as a prompt. One line only, and a
+command ends by itself after ten minutes. Stop ends one sooner, and closing the pane ends all of them. The
+command sees your usual PATH but none of Flockdeck's own variables or any stored API key. To send the agent
+a prompt that starts with `!`, put a space before it. A window reached through the relay has no `!`.
+On Windows a windowed program such as `!notepad` is not ended by Stop or by closing the pane, and
+console output in a non-ASCII code page can show as replacement characters. Send to agent puts the
+output in a fenced block marked as program output, without further scrubbing, so read it first.
+Commands an agent starts in the background are not listed: Flockdeck does not run the agent's commands
+for it, so they show only as the agent's tool output.
+
 When the agent takes images, paste one into the box, drop one on it, or press Attach
 image. Flockdeck saves the picture in its own state folder, not in your checkout, and
 writes `[image: path]` into the text for the agent to read. A large picture is scaled

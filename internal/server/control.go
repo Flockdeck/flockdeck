@@ -1674,7 +1674,7 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 	case "changesWatch", "changesUnwatch", "changesSnapshot", "filesPage", "diffHunks", "diffContext", "commentAdd", "commentResolve", "commentReopen", "runChecks", "confirmChecks", "requestReview", "submitReview", "approveMerge", "unapproveMerge", "mergeBranch":
 		s.changesCommand(c, cmd)
 		return
-	case "structuredSnapshot", "structuredWatch", "structuredUnwatch", "structuredCancel", "structuredSet", "structuredFiles", "structuredQueueEdit", "structuredQueueRemove", "structuredQueueClear", "structuredQueueSendNow", "structuredExport":
+	case "structuredSnapshot", "structuredWatch", "structuredUnwatch", "structuredCancel", "structuredSet", "structuredFiles", "structuredQueueEdit", "structuredQueueRemove", "structuredQueueClear", "structuredQueueSendNow", "structuredExport", "structuredShellRun", "structuredShellStop", "structuredShellRemove", "structuredShellSend":
 		s.structuredCommand(c, cmd)
 		return
 	case "worktrees":
