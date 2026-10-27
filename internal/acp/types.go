@@ -156,6 +156,9 @@ type Update struct {
 
 	// Compaction is set for compaction and compaction_update.
 	Compaction *Compaction
+
+	// NoticeCode is set for flockdeck_notice: the code of a fixed notice.
+	NoticeCode string
 }
 
 // decodeUpdate builds an Update from the update object. It never fails: the
@@ -250,6 +253,12 @@ func decodeUpdate(sessionID string, raw json.RawMessage) Update {
 		}
 		_ = json.Unmarshal(raw, &w)
 		u.Compaction = &Compaction{Status: w.Status, Message: firstNonEmpty(w.Message, w.Text, blockOrString(w.Content))}
+	case UpdateNotice:
+		var w struct {
+			Code string `json:"code"`
+		}
+		_ = json.Unmarshal(raw, &w)
+		u.NoticeCode = w.Code
 	case UpdateUsage:
 		var w struct {
 			Used *int64 `json:"used"`

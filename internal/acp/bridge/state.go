@@ -193,10 +193,24 @@ func (b *Bridge) sessionUpdate(u acp.Update) bool {
 		}
 		b.closeMerges()
 		b.add(transcript.Entry{Kind: transcript.KindNotice, Text: text})
+	case acp.UpdateNotice:
+		// The agent names a notice by code; the words are Flockdeck's. An
+		// unknown code is dropped.
+		if text, ok := noticeTexts[u.NoticeCode]; ok {
+			b.closeMerges()
+			b.add(transcript.Entry{Kind: transcript.KindNotice, Text: text})
+		}
 	default:
 		return false
 	}
 	return true
+}
+
+// noticeTexts are the notices an adapter can ask for with a flockdeck_notice
+// update, by code.
+var noticeTexts = map[string]string{
+	"untested_version": "This Claude version has not been tested with Flockdeck",
+	"new_conversation": "Started a new conversation.",
 }
 
 func cleanModes(m *acp.Modes) *acp.Modes {

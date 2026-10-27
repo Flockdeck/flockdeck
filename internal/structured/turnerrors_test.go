@@ -2,6 +2,8 @@ package structured
 
 import (
 	"context"
+	"errors"
+	"strconv"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -179,5 +181,74 @@ func TestLinesTheRecordingMissedAreWrittenAsGaps(t *testing.T) {
 	}
 	if noted != lost {
 		t.Errorf("the recording notes %d lost lines, the client dropped %d", noted, lost)
+	}
+}
+
+// A prompt error whose data names one of the fixed classes ends the turn with
+// that class's wording, and a usage limit shows its reset time in the local
+// zone. Nothing the agent wrote in the error reaches the user.
+func TestFailureClassEndsTheTurnWithFixedText(t *testing.T) {
+	r := begin(t, fakeOptions(t))
+	if err := r.Send("limit-class"); err != nil {
+		t.Fatal(err)
+	}
+	s := until(t, r, "the failed turn", func(s Snapshot) bool { return idle(s) && s.Err != "" })
+	if !strings.HasPrefix(s.Err, "Usage limit reached, resets at ") || strings.Contains(s.Err, "SECRET") {
+		t.Errorf("Err = %q", s.Err)
+	}
+	if !strings.Contains(notices(s), "Turn ended: failed: "+s.Err) || strings.Contains(notices(s), "SECRET") {
+		t.Errorf("notices = %q, Err = %q", notices(s), s.Err)
+	}
+	if s.Phase != PhaseReady {
+		t.Errorf("phase = %q", s.Phase)
+	}
+
+	// A class that is not ours is the generic line, and its reset time is ignored.
+	if err := r.Send("forged-class"); err != nil {
+		t.Fatal(err)
+	}
+	s = until(t, r, "the forged class", func(s Snapshot) bool { return idle(s) && s.Err == agentError })
+	if strings.Contains(notices(s), "SECRET") || strings.Contains(s.Err, "SECRET") {
+		t.Errorf("agent text reached the user: %q %q", notices(s), s.Err)
+	}
+}
+
+func TestFailureText(t *testing.T) {
+	now := time.Date(2026, 10, 27, 14, 0, 0, 0, time.UTC)
+	rpc := func(data string) error {
+		return &acp.RPCError{Code: -32603, Message: "SECRET", Data: []byte(data)}
+	}
+	at := func(d time.Duration) string { return strconv.FormatInt(now.Add(d).Unix(), 10) }
+	tests := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{"no data", &acp.RPCError{Code: -32603, Message: "SECRET"}, agentError},
+		{"not an rpc error", errors.New("SECRET"), agentError},
+		{"bad json", rpc(`{"class":`), agentError},
+		{"unknown class", rpc(`{"class":"SECRET"}`), agentError},
+		{"a class is not an object key of ours", rpc(`{"class":"__proto__"}`), agentError},
+		{"context", rpc(`{"class":"context_full"}`), failureTexts[ClassContext]},
+		{"outage", rpc(`{"class":"outage","resetsAt":` + at(time.Hour) + `}`), failureTexts[ClassOutage]},
+		{"refused", rpc(`{"class":"refused"}`), failureTexts[ClassRefused]},
+		{"limit without a time", rpc(`{"class":"usage_limit"}`), "Usage limit reached"},
+		{"limit later today", rpc(`{"class":"usage_limit","resetsAt":` + at(90*time.Minute) + `}`), "Usage limit reached, resets at 15:30"},
+		{"limit another day", rpc(`{"class":"usage_limit","resetsAt":` + at(30*time.Hour) + `}`), "Usage limit reached, resets at Wed 28 Oct 20:00"},
+		{"limit already past", rpc(`{"class":"usage_limit","resetsAt":` + at(-time.Minute) + `}`), "Usage limit reached"},
+		{"limit too far away", rpc(`{"class":"usage_limit","resetsAt":` + at(40*24*time.Hour) + `}`), "Usage limit reached"},
+		{"limit in milliseconds", rpc(`{"class":"usage_limit","resetsAt":` + at(time.Hour) + `000}`), "Usage limit reached"},
+		{"limit time as text", rpc(`{"class":"usage_limit","resetsAt":"3pm SECRET"}`), agentError},
+		{"limit negative", rpc(`{"class":"usage_limit","resetsAt":-5}`), "Usage limit reached"},
+	}
+	for _, tc := range tests {
+		if got := failureText(tc.err, now); got != tc.want {
+			t.Errorf("%s: %q, want %q", tc.name, got, tc.want)
+		}
+	}
+	// the data is bounded
+	big := rpc(`{"class":"context_full","pad":"` + strings.Repeat("x", 600) + `"}`)
+	if got := failureText(big, now); got != agentError {
+		t.Errorf("oversized data: %q", got)
 	}
 }

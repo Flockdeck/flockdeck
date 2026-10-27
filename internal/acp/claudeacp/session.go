@@ -109,6 +109,7 @@ type session struct {
 	sawInit   bool
 	lastLine  time.Time // when claude last wrote a line
 	commands  []map[string]any
+	facts     turnFacts // what claude said about the running turn, for its result
 }
 
 // openSession handles session/new and, with resume, session/resume: claude is
@@ -167,7 +168,7 @@ func (s *server) openSession(m rpcMsg, resume bool) {
 		s.replyErr(m.ID, &rpcErr{Code: codeInternal, Message: unavailable})
 		return
 	}
-	models := ss.initialize()
+	models, herr := ss.initialize()
 	select {
 	case <-ss.dead:
 		s.logf("claude exited before the session started: %v", ss.exitErr.Load())
@@ -175,6 +176,14 @@ func (s *server) openSession(m rpcMsg, resume bool) {
 		s.replyErr(m.ID, &rpcErr{Code: codeInternal, Message: unavailable})
 		return
 	default:
+	}
+	if herr != nil {
+		// The control protocol did not answer as the adapter expects: claude
+		// changed it, or is not claude. Nothing is guessed.
+		s.logf("the control protocol handshake failed: %v", herr)
+		ss.close()
+		s.replyErr(m.ID, &rpcErr{Code: codeInternal, Message: unavailable})
+		return
 	}
 	s.mu.Lock()
 	if s.closed {
@@ -194,6 +203,7 @@ func (s *server) openSession(m rpcMsg, resume bool) {
 	s.sessions[ss.id] = ss
 	s.mu.Unlock()
 	go ss.worker()
+	tested, _ := s.versionTested()
 
 	res := map[string]any{
 		"sessionId": ss.id,
@@ -203,6 +213,9 @@ func (s *server) openSession(m rpcMsg, resume bool) {
 		res["models"] = map[string]any{"currentModelId": ss.model, "availableModels": models}
 	}
 	s.reply(m.ID, res)
+	if !tested {
+		s.update(ss.id, map[string]any{"sessionUpdate": "flockdeck_notice", "code": "untested_version"})
+	}
 	if len(ss.commands) > 0 {
 		s.update(ss.id, map[string]any{"sessionUpdate": "available_commands_update", "availableCommands": ss.commands})
 	}
@@ -303,14 +316,20 @@ func (ss *session) adopt(reported string) {
 	}
 	id := u.String()
 	ss.srv.logf("claude reports session %s for the session opened as %s", id, ss.id)
+	ss.mu.Lock()
+	old := ss.claudeID
+	ss.claudeID = id
+	ss.mu.Unlock()
 	ss.srv.mu.Lock()
+	// A newer id replaces the earlier alias, so /clear after /clear does not
+	// leave every id claude ever reported pointing at this session.
+	if old != "" && old != id && ss.srv.sessions[old] == ss {
+		delete(ss.srv.sessions, old)
+	}
 	if ss.srv.sessions[id] == nil {
 		ss.srv.sessions[id] = ss
 	}
 	ss.srv.mu.Unlock()
-	ss.mu.Lock()
-	ss.claudeID = id
-	ss.mu.Unlock()
 }
 
 func (ss *session) markDead() {
@@ -337,12 +356,12 @@ func (ss *session) drainStderr(r io.Reader) {
 }
 
 // initialize sends claude's initialize control request and reads the commands,
-// models and mode out of the answer. A failure leaves the defaults.
-func (ss *session) initialize() []map[string]any {
+// models and mode out of the answer. An error, no answer in time, or an answer
+// that is not a JSON object is a failed handshake.
+func (ss *session) initialize() ([]map[string]any, error) {
 	resp, err := ss.control("initialize", nil)
 	if err != nil {
-		ss.srv.logf("initialize: %v", err)
-		return nil
+		return nil, err
 	}
 	var r struct {
 		Commands []struct {
@@ -358,7 +377,9 @@ func (ss *session) initialize() []map[string]any {
 		Mode        string `json:"permissionMode"`
 		CurrentMode string `json:"currentMode"`
 	}
-	_ = json.Unmarshal(resp, &r)
+	if err := json.Unmarshal(resp, &r); err != nil {
+		return nil, fmt.Errorf("initialize: the answer is not an object: %w", err)
+	}
 	for _, c := range r.Commands {
 		name := strings.TrimPrefix(c.Name, "/")
 		if name == "" {
@@ -395,7 +416,7 @@ func (ss *session) initialize() []map[string]any {
 			}
 		}
 	}
-	return models
+	return models, nil
 }
 
 // write sends one JSON line to claude's stdin.
@@ -536,6 +557,7 @@ func (ss *session) runPrompt(r *promptReq) {
 	}
 	t := &turn{done: make(chan turnResult, 1), finished: make(chan struct{})}
 	ss.cur = t
+	ss.facts = turnFacts{}
 	ss.mu.Unlock()
 	defer close(t.finished)
 

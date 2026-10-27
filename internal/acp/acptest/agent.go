@@ -32,6 +32,8 @@
 //	stderr-flood  4 MiB on stderr in one line, then plain
 //	spam-perm   fifty permission requests at once, reports how many were answered
 //	ratelimit   answers the prompt with the JSON-RPC error -32603 "rate limit exceeded"
+//	limit-class answers with -32603 and data {"class":"usage_limit","resetsAt":<two hours on>}
+//	forged-class answers with -32603 "SECRET-AGENT-TEXT" and a class that is not one of the fixed ones
 //	env         reports its whole environment, one NAME=VALUE per line, in one chunk
 //	deaf-perm   asks for permission and stops reading stdin
 //	whoami      reports the session id the prompt came on, as "session=ID", then end_turn
@@ -930,6 +932,14 @@ func (a *agent) prompt(id, params json.RawMessage, n int) {
 
 	case "ratelimit":
 		a.rpcError(id, -32603, "rate limit exceeded")
+
+	case "limit-class":
+		a.send(map[string]any{"jsonrpc": "2.0", "id": id, "error": map[string]any{"code": -32603, "message": "SECRET-AGENT-TEXT limit",
+			"data": map[string]any{"class": "usage_limit", "resetsAt": time.Now().Add(2 * time.Hour).Unix()}}})
+
+	case "forged-class":
+		a.send(map[string]any{"jsonrpc": "2.0", "id": id, "error": map[string]any{"code": -32603, "message": "SECRET-AGENT-TEXT",
+			"data": map[string]any{"class": "SECRET-AGENT-TEXT forged", "resetsAt": 1}}})
 
 	case "env":
 		env := os.Environ()

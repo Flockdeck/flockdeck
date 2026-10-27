@@ -682,7 +682,7 @@ func TestClassify(t *testing.T) {
 		{"login", line{IsError: true, Result: "Not logged in · Please run /login"}, false, "", codeAuthRequired},
 	}
 	for _, tc := range tests {
-		stop, err := classify(tc.l, tc.cancelled)
+		stop, err := classify(tc.l, turnFacts{}, tc.cancelled)
 		code := 0
 		if err != nil {
 			code = err.Code

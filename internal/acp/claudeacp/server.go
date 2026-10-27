@@ -124,6 +124,7 @@ const unavailable = "Claude Code is unavailable"
 type rpcErr struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
+	Data    any    `json:"data,omitempty"`
 }
 
 func (e *rpcErr) Error() string { return e.Message }
@@ -147,6 +148,16 @@ type server struct {
 	clientRQ map[int64]chan rpcMsg // requests we made to the client, by id
 	nextReq  atomic.Int64
 	wg       sync.WaitGroup
+
+	verOnce sync.Once
+	verOK   bool
+	verText string
+}
+
+// versionTested checks the installed claude's version, once per adapter process.
+func (s *server) versionTested() (bool, string) {
+	s.verOnce.Do(func() { s.verOK, s.verText = s.checkVersion() })
+	return s.verOK, s.verText
 }
 
 // Run serves ACP on in and out until in ends or ctx is done, then closes every
