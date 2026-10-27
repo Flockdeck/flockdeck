@@ -775,8 +775,7 @@ func TestPeerNameMentionIsGatedOnTheHookServer(t *testing.T) {
 
 	// An agent without SendMessage has no session name to report.
 	if noTool := (PaneContext{PaneName: "one", CanSpawn: true, SpawnCommand: exe}).Render(); strings.Contains(noTool, "peer-name") {
-		t.Errorf("an agent without SendMessage was told to report a peer name:
-%s", noTool)
+		t.Errorf("an agent without SendMessage was told to report a peer name: %s", noTool)
 	}
 
 	withoutHooks := PaneContext{PaneName: "one", CanSpawn: false, SendMessage: true}.Render()
