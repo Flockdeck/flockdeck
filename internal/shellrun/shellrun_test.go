@@ -256,7 +256,7 @@ func TestTextIsPlain(t *testing.T) {
 		{"progress", "10%\r50%\r100%\ndone\n", "100%\ndone\n"},
 		{"crlf", "a\r\nb\r\n", "a\nb\n"},
 		{"bidi", "abc‮def⁦g​h", "abcdefgh"},
-		{"controls", "a\x00b\x07c\x08d\x7fe\x85f\td", "abcdef\td"},
+		{"controls", "a\x00b\x07c\x08d\x7fe\u0085f\td", "abcdef\td"},
 		{"separators", "a b c", "abc"},
 		{"invalid utf8", "a\xffb", "a�b"},
 		{"lone esc at end", "a\x1b", "a"},
