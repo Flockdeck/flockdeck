@@ -450,10 +450,14 @@ func Start(ctx context.Context, opts Options) (*Runtime, error) {
 	if opts.Environ == nil {
 		opts.Environ = os.Environ()
 	}
+	bcfg := opts.Bridge
+	// Only Flockdeck's own Claude Code adapter asks questions; a test that
+	// runs its own program says so in Bridge.
+	bcfg.AcceptQuestions = bcfg.AcceptQuestions || (opts.Command == nil && opts.Spec.ACPOwnClaude())
 	rctx, cancel := context.WithCancel(ctx)
 	r := &Runtime{
 		opts:    opts,
-		br:      bridge.New(opts.Bridge),
+		br:      bridge.New(bcfg),
 		ctx:     rctx,
 		cancel:  cancel,
 		done:    make(chan struct{}),
@@ -813,10 +817,10 @@ func (r *Runtime) answer(seq uint64, requestID, optionID string, answers []bridg
 		r.mu.Unlock()
 		return ErrStale
 	}
-	ok, allows := false, false
+	ok, allows, kind := false, false, ""
 	for _, o := range w.card.Options {
 		if o.OptionID == optionID {
-			ok, allows = true, strings.HasPrefix(o.Kind, "allow")
+			ok, allows, kind = true, o.Kind == bridge.AllowOnce, o.Kind
 			break
 		}
 	}
@@ -824,9 +828,15 @@ func (r *Runtime) answer(seq uint64, requestID, optionID string, answers []bridg
 		r.mu.Unlock()
 		return ErrBadOption
 	}
-	if len(w.card.Questions) > 0 && allows || len(answers) > 0 {
-		// Answers fit a question card answered with an allowing option, and
-		// nothing else; without them such a card cannot be allowed.
+	if w.card.Kind == bridge.QuestionKind && !allows && strings.HasPrefix(kind, "allow") {
+		// Another way of allowing is no way of answering a question.
+		r.mu.Unlock()
+		return ErrBadAnswers
+	}
+	if w.card.Kind == bridge.QuestionKind && allows || len(answers) > 0 {
+		// Answers fit a question card answered with allow_once, and nothing
+		// else; without them such a card cannot be allowed, and one whose
+		// questions did not parse (so it has none) cannot be allowed at all.
 		checked, err := bridge.CheckAnswers(w.card.Questions, answers)
 		if err != nil || !allows {
 			r.mu.Unlock()

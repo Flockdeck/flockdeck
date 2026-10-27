@@ -13,9 +13,11 @@ func textContent(s string) acp.ToolContent {
 	return acp.ToolContent{Type: "content", Content: &acp.ContentBlock{Type: "text", Text: s}}
 }
 
+// openCard opens the request on a bridge for Flockdeck's own Claude adapter, the
+// one that takes questions.
 func openCard(t *testing.T, req acp.PermissionRequest) Card {
 	t.Helper()
-	b, _ := newBridge(Config{})
+	b, _ := newBridge(Config{AcceptQuestions: true})
 	return b.PermissionOpen(req)
 }
 
@@ -146,7 +148,7 @@ func TestCheckAnswers(t *testing.T) {
 
 func answerQuestion(t *testing.T, kind string, reply Reply) (string, json.RawMessage) {
 	t.Helper()
-	b, _ := newBridge(Config{})
+	b, _ := newBridge(Config{AcceptQuestions: true})
 	h := b.AnswerHandler(func(context.Context, Card) Reply { return reply })
 	return h.PermissionAnswers(context.Background(), questionReq(questionsInput, kind))
 }

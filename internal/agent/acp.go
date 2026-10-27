@@ -133,6 +133,13 @@ func (s Spec) ACPAdapter() (manifest.Adapter, bool) {
 	return manifest.Default().Lookup(s.ACP.Adapter)
 }
 
+// ACPOwnClaude says this Spec starts Flockdeck's own adapter for Claude Code,
+// the one adapter whose questions Flockdeck draws as a form.
+func (s Spec) ACPOwnClaude() bool {
+	a, ok := s.ACPAdapter()
+	return ok && manifest.OwnClaude(a)
+}
+
 // ACPLaunchEnv is the environment the manifest says Flockdeck sets for the
 // adapter this Spec starts, as name=value. It is added after ACPPassEnv and wins
 // over it: a name the user's environment also passes is set to this value.

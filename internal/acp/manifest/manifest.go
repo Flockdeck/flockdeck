@@ -446,6 +446,9 @@ func ownAdapter(a Adapter) bool {
 		len(a.LaunchEnv) == 0 && a.PermissionProbe == nil
 }
 
+// OwnClaude reports whether a is Flockdeck's own adapter for Claude Code.
+func OwnClaude(a Adapter) bool { return ownAdapter(a) }
+
 func hasControl(s string) bool {
 	for _, r := range s {
 		if r < 0x20 || r == 0x7f {

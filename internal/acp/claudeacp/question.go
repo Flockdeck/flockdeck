@@ -3,6 +3,8 @@ package claudeacp
 import (
 	"encoding/json"
 	"strings"
+
+	"github.com/jmwri/flockdeck/internal/acp/bridge"
 )
 
 // AskUserQuestion is answered through the client: the request goes out as a
@@ -36,6 +38,9 @@ type askQuestion struct {
 		Label       string `json:"label"`
 		Description string `json:"description"`
 	} `json:"options"`
+	// shown is each option's label as the card shows it: cleaned and on one
+	// line. It is what claude is told the person chose.
+	shown []string
 }
 
 // parseAsk reads the input of AskUserQuestion. ok is false for anything that is
@@ -49,7 +54,8 @@ func parseAsk(input json.RawMessage) ([]askQuestion, bool) {
 		return nil, false
 	}
 	texts := map[string]bool{}
-	for _, q := range in.Questions {
+	for qi := range in.Questions {
+		q := &in.Questions[qi]
 		// The answers are keyed by the text of the question.
 		if strings.TrimSpace(q.Question) == "" || len(q.Question) > maxAskQuestion || len(q.Header) > maxAskLabel || len(q.Options) > maxAskOptions || texts[q.Question] {
 			return nil, false
@@ -57,12 +63,15 @@ func parseAsk(input json.RawMessage) ([]askQuestion, bool) {
 		texts[q.Question] = true
 		labels := map[string]bool{}
 		for _, o := range q.Options {
-			// A label is what comes back, so two alike or one that holds the
+			// A label is what comes back, as the card shows it, so two alike
+			// once cleaned, one that cleans to nothing, or one that holds the
 			// separator could not be told apart in the answer.
-			if strings.TrimSpace(o.Label) == "" || len(o.Label) > maxAskLabel || len(o.Description) > maxAskQuestion || labels[o.Label] || strings.Contains(o.Label, ", ") {
+			shown := bridge.Line(o.Label, maxAskLabel)
+			if shown == "" || len(o.Label) > maxAskLabel || len(o.Description) > maxAskQuestion || labels[shown] || strings.Contains(shown, ", ") {
 				return nil, false
 			}
-			labels[o.Label] = true
+			labels[shown] = true
+			q.shown = append(q.shown, shown)
 		}
 	}
 	return in.Questions, true
@@ -101,7 +110,7 @@ func askAnswers(qs []askQuestion, raw json.RawMessage) (map[string]string, bool)
 				return nil, false
 			}
 			got[s] = true
-			parts = append(parts, q.Options[s].Label)
+			parts = append(parts, q.shown[s])
 		}
 		if other != "" {
 			parts = append(parts, other)

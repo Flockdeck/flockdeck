@@ -114,6 +114,11 @@ type Config struct {
 	// summaries, labels). Past it the oldest entries other than prompts are
 	// dropped. Default 64 MiB.
 	TextBudget int
+	// AcceptQuestions says the agent is one whose requests of kind QuestionKind
+	// are drawn as a form of questions: Flockdeck's own Claude Code adapter. For
+	// any other agent a request of that kind is an ordinary one, with the kind
+	// "other": its options and its command are all the person is shown.
+	AcceptQuestions bool
 }
 
 // Usage is what the agent last reported with usage_update: tokens in the
@@ -506,8 +511,11 @@ func (b *Bridge) open(req acp.PermissionRequest) (Card, map[string]string) {
 	}
 	cardContent(&c, req.ToolCall.Content)
 	if c.Kind == QuestionKind {
-		c.Questions = parseQuestions(req.ToolCall.RawInput)
-		c.Command = ""
+		if b.cfg.AcceptQuestions {
+			c.Questions = parseQuestions(req.ToolCall.RawInput)
+		} else {
+			c.Kind = "other"
+		}
 	}
 	b.mu.Lock()
 	c.Seq = nextCardSeq()
@@ -589,14 +597,15 @@ func (h handler) PermissionAnswers(ctx context.Context, req acp.PermissionReques
 	// A question card is answered with its answers, or refused with none. An
 	// allowing option without answers that fit, or answers on a refusal, are
 	// cancelled: the agent is never told something the person did not say.
-	allows := false
+	allows, otherAllow := false, false
 	for _, o := range card.Options {
 		if o.OptionID == reply.OptionID {
-			allows = strings.HasPrefix(o.Kind, "allow")
+			allows = o.Kind == AllowOnce
+			otherAllow = !allows && strings.HasPrefix(o.Kind, "allow")
 		}
 	}
 	if !allows {
-		if len(reply.Answers) > 0 {
+		if len(reply.Answers) > 0 || otherAllow {
 			return "", nil
 		}
 		return id, nil

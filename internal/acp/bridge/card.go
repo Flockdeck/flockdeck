@@ -19,12 +19,20 @@ const (
 	// cutRoom is left under a cap for the note that says text was cut.
 	cutRoom = 32
 
+	// maxCardDiffs bounds how many edits of one request are compared: each is
+	// a line-by-line comparison.
+	maxCardDiffs = 8
+
 	maxQuestions       = 4
 	maxQuestionOptions = 8
 	questionTextCap    = 2000 // bytes of a question or an option's description
 	// MaxOtherBytes is the most a person's free-text answer keeps.
 	MaxOtherBytes = 2000
 )
+
+// AllowOnce is the kind of the one option that answers a question card with
+// answers. A card with no option of exactly this kind cannot be allowed.
+const AllowOnce = "allow_once"
 
 // QuestionKind is the Kind of a tool call that asks the person questions. Only
 // a request of this kind is read for questions.
@@ -166,6 +174,7 @@ func btoi(b bool) int {
 func cardContent(c *Card, content []acp.ToolContent) {
 	var texts []string
 	var diff string
+	diffs := 0
 	for _, t := range content {
 		switch t.Type {
 		case "content":
@@ -173,10 +182,19 @@ func cardContent(c *Card, content []acp.ToolContent) {
 				texts = append(texts, t.Content.Text)
 			}
 		case "diff":
-			path, newText := line(t.Path, 1024), clean(capBytes(t.NewText, cardDiffCap))
 			if len(diff) >= cardDiffCap {
 				continue
 			}
+			if diffs == maxCardDiffs {
+				diff += "\n[more edits not shown]\n"
+				diffs++
+				continue
+			}
+			if diffs > maxCardDiffs {
+				continue
+			}
+			diffs++
+			path, newText := line(t.Path, 1024), clean(capBytes(t.NewText, cardDiffCap))
 			if t.OldText == nil {
 				diff += transcript.WriteDiff(path, newText)
 			} else {

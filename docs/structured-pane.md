@@ -219,7 +219,9 @@ end. There is no entry for Claude Code yet; a Go adapter for it is in progress (
 [ACP direction](acp-direction.md)). [ACP adapters](acp-adapters.md) lists the tested versions.
 
 **Questions.** A card of kind `question` is a question the agent asks the person (Claude Code's
-`AskUserQuestion`). Its `questions` are `{header, question, multiSelect, options: [{label, description}]}`, at
+`AskUserQuestion`). Only Flockdeck's own Claude Code adapter may ask one: for any other agent a request of kind
+`question` is made an ordinary card with kind `other`, with its own options and command. Answers go only with an option of
+kind exactly `allow_once`; an `allow_always` or other allowing option on a question card is refused. Its `questions` are `{header, question, multiSelect, options: [{label, description}]}`, at
 most 4, each with at most 8 options, all plain text from the agent. The person picks options and may type text
 of their own for any question. The card has an allowing option (the Claude adapter offers `answer`, "Send
 answers") and a refusing one ("Skip"). `permissionAnswer` takes an extra field `answers`, one entry for

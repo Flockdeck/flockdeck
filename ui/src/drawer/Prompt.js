@@ -181,9 +181,11 @@ export function PermissionCard({ node, card, snap, store, tail = null, tabIndex 
   const done = !!asked && !refused;
   const all = Array.isArray(card.options) ? card.options.filter((o) => o && typeof o.id === "string") : [];
   const asksQuestions = Array.isArray(card.questions) && card.questions.length > 0;
-  const allows = (o) => String(o.kind || "").startsWith("allow");
-  // A question card without questions cannot be allowed: nothing could be answered.
-  const options = card.kind === "question" && !asksQuestions ? all.filter((o) => !allows(o)) : all;
+  // A question card is allowed by the one option of kind allow_once, with answers. One without
+  // questions, or an option of any other kind (allow_always), is never an Allow on it.
+  const allows = (o) => o.kind === "allow_once";
+  const isQuestion = card.kind === "question" || asksQuestions;
+  const options = isQuestion ? all.filter((o) => !String(o.kind || "").startsWith("allow") || (asksQuestions && allows(o))) : all;
   const answer = (opt, answers) => {
     if (remote || done) return;
     const cmd = { cmd: "permissionAnswer", id: node.pane, cardSeq: card.seq, requestId: card.requestId, optionId: opt.id };
@@ -201,7 +203,7 @@ export function PermissionCard({ node, card, snap, store, tail = null, tabIndex 
     ${remote
       ? null
       : asksQuestions
-      ? html`<${QuestionForm} card=${card} done=${done} tabIndex=${tabIndex} allow=${options.find(allows)} refuse=${options.find((o) => !allows(o))}
+      ? html`<${QuestionForm} key=${card.seq + ":" + card.requestId} card=${card} done=${done} tabIndex=${tabIndex} allow=${options.find(allows)} refuse=${options.find((o) => !allows(o))}
           onSend=${(opt, a) => { if (a) answer(opt, a); }} onSkip=${(opt) => answer(opt)} />${tail}`
       : html`<div class="prompt-choices" role="group" aria-label="Choices">
           ${options.map((o) => html`<button type="button" class=${"prompt-choice prompt-choice--" + String(o.kind || "")} data-option=${o.id} data-kind=${o.kind || ""} tabindex=${tabIndex} disabled=${done} onClick=${() => answer(o)}>${clip(o.name || o.id, 80)}</button>`)}${tail}

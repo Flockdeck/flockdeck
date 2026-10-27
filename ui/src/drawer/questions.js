@@ -76,6 +76,7 @@ export function QuestionForm({ card, allow, refuse, done, tabIndex = undefined, 
   const [state, setState] = useState(() => blank(questions));
   const why = problem(questions, state);
   return html`<div class="prompt-questions">
+    <div class="prompt-qlist">
     ${questions.map((q, qi) => {
       const s = state[qi] || { selected: [], other: "" };
       const kind = q.multiSelect ? "checkbox" : "radio";
@@ -92,7 +93,8 @@ export function QuestionForm({ card, allow, refuse, done, tabIndex = undefined, 
         </label>
       </fieldset>`;
     })}
-    <div class="prompt-choices" role="group" aria-label="Choices">
+    </div>
+    <div class="prompt-choices prompt-qfoot" role="group" aria-label="Choices">
       ${allow ? html`<button type="button" class="prompt-choice prompt-choice--allow_once prompt-send" data-option=${allow.id} disabled=${done || !!why} tabindex=${tabIndex} onClick=${() => onSend(allow, answers(questions, state))}>${SEND_WORDS}</button>` : null}
       ${refuse ? html`<button type="button" class="prompt-choice prompt-choice--reject_once prompt-skip" data-option=${refuse.id} disabled=${done} tabindex=${tabIndex} onClick=${() => onSkip(refuse)}>${SKIP_WORDS}</button>` : null}
     </div>
