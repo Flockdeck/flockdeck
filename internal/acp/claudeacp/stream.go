@@ -75,12 +75,12 @@ type line struct {
 	// result
 	APIErrorStatus int     `json:"api_error_status"`
 	IsError        bool    `json:"is_error"`
-	Result       string  `json:"result"`
-	StopReason   string  `json:"stop_reason"`
-	TerminalReas string  `json:"terminal_reason"`
-	TotalCostUSD float64 `json:"total_cost_usd"`
-	Usage        *usage  `json:"usage"`
-	ModelUsage   map[string]struct {
+	Result         string  `json:"result"`
+	StopReason     string  `json:"stop_reason"`
+	TerminalReas   string  `json:"terminal_reason"`
+	TotalCostUSD   float64 `json:"total_cost_usd"`
+	Usage          *usage  `json:"usage"`
+	ModelUsage     map[string]struct {
 		ContextWindow int64 `json:"contextWindow"`
 	} `json:"modelUsage"`
 }
