@@ -36,8 +36,7 @@ func (s *Server) listKeys(c *controlClient) {
 		// key can be changed or cleared; the rest are listed as the picker does.
 		structuredOn := s.ws.Catalog().Structured
 		listed := slices.DeleteFunc(specs, func(sp agent.Spec) bool {
-			offered := !sp.Hidden && (sp.Runner != agent.RunnerACP || structuredOn)
-			return !offered && !creds.Has(sp.ID)
+			return !sp.OfferedInPicker(structuredOn) && !creds.Has(sp.ID)
 		})
 		items := creds.StatusAll(listed)
 		// A key stored for an agent that has since left the catalog has no row

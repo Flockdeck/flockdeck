@@ -369,3 +369,9 @@ func Group(token string, values ...string) Arg {
 func (s Spec) OffersWakeText() bool {
 	return s.Caps.TextWake || s.Runner == RunnerACP
 }
+
+// OfferedInPicker says the agent picker lists this agent: it is not hidden,
+// and an agent behind a protocol is listed only while structured panes are on.
+func (s Spec) OfferedInPicker(structuredOn bool) bool {
+	return !s.Hidden && (s.Runner != RunnerACP || structuredOn)
+}
