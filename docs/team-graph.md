@@ -155,7 +155,7 @@ root need not be a manager: any pane that started helpers is one.
 | `status` | The session's status: `starting`, `working`, `waiting`, `blocked`, `idle`, `exited`, or `unknown`. |
 | `activity` | What the pane is drawn as doing: `waiting`, `blocked`, `working`, `idle`, `starting`, `exited` or `failed`. Background work that is still running keeps an idle agent reading as `working`. Empty for none. |
 | `since` | When the current status began (RFC 3339). Absent for a pane with no session. |
-| `live` | The agent's current tool detail, or else its latest reply, on one line cut to 140 characters. |
+| `live` | The agent's current tool detail on one line cut to 140 characters. When there is none, a pane that is not working (`activity` is not `working`) shows its latest reply instead; a working pane shows no reply, since that is the previous turn. A pane with background work still running counts as working, so it shows none either. |
 | `branch`, `dirty`, `untracked`, `ahead`, `behind` | The checkout's branch and its counts of changed files, untracked files, and commits ahead of and behind upstream. Counts are absent at 0. |
 | `task` | The pane's current task: its `id`, its `title` cut to 120 characters, and its `state` (`planned`, `assigned`, `in-progress`, `in-review`, `done`, `blocked` or `cancelled`). It is the pane's own open task, in progress first, else in review, else assigned, else blocked. |
 | `unread` | Messages waiting unread in the pane's inbox. Absent at 0. |
