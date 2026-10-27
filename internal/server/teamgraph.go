@@ -81,8 +81,10 @@ type graphNodeView struct {
 	Activity string `json:"activity"`
 	// Since is when the status began, RFC 3339, left out when unknown.
 	Since string `json:"since,omitempty"`
-	// Live is the current tool detail, or else the latest reply, on one line of
-	// at most graphLiveCut characters.
+	// Live is the current tool detail on one line of at most graphLiveCut
+	// characters. With none, a pane that is not working shows its latest reply;
+	// a working pane (background work still running counts) shows none, as the
+	// reply is the previous turn.
 	Live      string         `json:"live,omitempty"`
 	Branch    string         `json:"branch,omitempty"`
 	Dirty     int            `json:"dirty,omitempty"`
