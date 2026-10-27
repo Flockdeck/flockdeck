@@ -324,10 +324,10 @@ const HOST_ENDINGS = new Set(["com", "org", "net", "io", "dev", "app", "ai", "co
 /** hostText is link text as a host reads it: trimmed, with the format characters (zero-width and the like) that a host drops taken out, and composed so a letter and its accent are one, and with the ideographic full stops (U+3002, U+FF0E, U+FF61) that `new URL` reads as a dot made into one. */
 const hostText = (text) => String(text || "").trim().replace(/\p{Cf}/gu, "").replace(/[\u3002\uff0e\uff61]/g, ".").normalize("NFC");
 
-/** unicodeEnding says a bare name ends in a label that is not plain ASCII, so it is a host in an alphabet of its own (example.рф) or a look-alike of an ending such as "com" (with a Cyrillic о): the host `new URL` gives ends in an xn-- label. A capitalised word of the Latin script (Wörter.Über, Datei.Übung, Fix.École) is not: a host is written in lower case, and a look-alike that mixes in another script (a Cyrillic С in Сom) is not all Latin, so it still is. */
+/** unicodeEnding says a bare name ends in a label that is not plain ASCII, so it is a host in an alphabet of its own (example.рф) or a look-alike of an ending such as "com" (with a Cyrillic о): the host `new URL` gives ends in an xn-- label. A capitalised word whose letters are ASCII letters with accents (Wörter.Über, Datei.Übung, Fix.École) is not: taking the accents off leaves plain ASCII. A look-alike letter has no such decomposition (the Cyrillic С in Сom, ᴏ, ɔ, ɡ, ı), so it is, however it is capitalised. */
 function unicodeEnding(t) {
   const last = t.split("/")[0].split(".").pop();
-  if (/^\p{Lu}[\p{Ll}\p{M}]*$/u.test(last) && /^[\p{Script=Latin}\p{M}]+$/u.test(last)) return false;
+  if (/^\p{Lu}[\p{Ll}\p{M}]*$/u.test(last) && /^[A-Za-z]+$/.test(last.normalize("NFD").replace(/\p{M}/gu, ""))) return false;
   try {
     return new URL("https://" + t).host.toLowerCase().split(/[:/]/)[0].split(".").pop().startsWith("xn--");
   } catch {

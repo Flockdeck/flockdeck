@@ -568,6 +568,13 @@ test("a capitalised word of the Latin script after the dot is not taken for a ho
   assert.equal(out.split("md-linkhost").length - 1, 0, out);
   const cyr = md("[github." + String.fromCharCode(0x421) + "om](https://evil.example/d)");
   assert.equal(cyr.split("(evil.example)").length - 1, 1, "a capital Cyrillic C in the ending hid a look-alike: " + cyr);
+  // Latin-script look-alike letters have no decomposition to ASCII, so capitalising the label does not hide them.
+  const like = (cp) => md("[Github.Or" + String.fromCharCode(cp) + "](https://evil.example/e)");
+  assert.equal(like(0x261).split("(evil.example)").length - 1, 1, "Github.Or + U+0261 gave no warning");
+  assert.equal(like(0x131).split("(evil.example)").length - 1, 1, "Github.Or + dotless i gave no warning");
+  const com = (cp) => md("[Github.C" + String.fromCharCode(cp) + "m](https://evil.example/f)");
+  assert.equal(com(0x1d0f).split("(evil.example)").length - 1, 1, "Github.C + U+1D0F + m gave no warning");
+  assert.equal(com(0x254).split("(evil.example)").length - 1, 1, "Github.C + U+0254 + m gave no warning");
 });
 
 test("punycode text, with the hyphens and digits of its last label, is a host", () => {
