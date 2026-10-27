@@ -72,6 +72,8 @@ type session struct {
 	id  string
 	cwd string
 
+	// claudeID is the id claude reported when it is not ss.id, else "".
+	claudeID string
 	// resume says claude is started with --resume id, not --session-id id.
 	resume bool
 
@@ -285,6 +287,30 @@ func (ss *session) busyWatchdog() {
 			return
 		}
 	}
+}
+
+// adopt notes the session id claude reports in its init line. claude 2.1.311
+// keeps the id it is given for --session-id and --resume, so this is normally
+// the id the client has. If it ever differs, the session is also reachable
+// under claude's id (a resume of it is refused as open, a prompt for it is
+// taken), and the difference is logged. The id arrives with the first turn,
+// after session/new and session/resume have answered, and ACP has no update
+// that changes a session's id, so the client keeps the one it was given.
+func (ss *session) adopt(reported string) {
+	u, err := uuid.Parse(reported)
+	if err != nil || u.String() == ss.id {
+		return
+	}
+	id := u.String()
+	ss.srv.logf("claude reports session %s for the session opened as %s", id, ss.id)
+	ss.srv.mu.Lock()
+	if ss.srv.sessions[id] == nil {
+		ss.srv.sessions[id] = ss
+	}
+	ss.srv.mu.Unlock()
+	ss.mu.Lock()
+	ss.claudeID = id
+	ss.mu.Unlock()
 }
 
 func (ss *session) markDead() {

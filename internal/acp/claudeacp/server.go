@@ -318,8 +318,13 @@ func (s *server) closeAll() {
 	s.mu.Lock()
 	s.closed = true
 	var all []*session
+	seen := map[*session]bool{}
 	for _, ss := range s.sessions {
-		all = append(all, ss)
+		// A session adopted under claude's id is listed twice.
+		if !seen[ss] {
+			seen[ss] = true
+			all = append(all, ss)
+		}
 	}
 	s.mu.Unlock()
 	var wg sync.WaitGroup

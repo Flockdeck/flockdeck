@@ -184,6 +184,9 @@ type Bridge struct {
 	// replaying is set between BeginReplay and EndReplay: only then are updates
 	// marked as replay taken in.
 	replaying bool
+	// liveSeen is set when an update that is not replay has come in while
+	// replaying is set.
+	liveSeen bool
 	pending   []Card
 	plan     []acp.PlanEntry
 	usage    Usage
@@ -557,6 +560,12 @@ func (b *Bridge) Update(u acp.Update) {
 		b.replayUpdate(u)
 		return
 	}
+	if b.replaying && !b.liveSeen {
+		// The first update that is not replay: whatever it adds starts a new
+		// entry, not more of the last one replayed.
+		b.liveSeen = true
+		b.closeMerges()
+	}
 	b.update(u)
 }
 
@@ -623,7 +632,8 @@ func (b *Bridge) chunk(u acp.Update, kind string) {
 		it = b.items[n-1]
 	} else {
 		b.closeMerges()
-		it = b.add(transcript.Entry{Kind: kind})
+		// The only prompt chunks that get here are a replay's.
+		it = b.add(transcript.Entry{Kind: kind, Replayed: kind == transcript.KindPrompt})
 		it.merges = kind
 	}
 	it.dirty = true

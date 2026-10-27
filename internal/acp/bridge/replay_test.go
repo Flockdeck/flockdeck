@@ -137,3 +137,30 @@ func TestNoticeIsOneCleanedLine(t *testing.T) {
 		t.Errorf("entries = %+v", got)
 	}
 }
+
+func TestReplayedPromptsAreMarked(t *testing.T) {
+	b, _ := newBridge(Config{})
+	b.BeginReplay()
+	feedHistory(b)
+	b.EndReplay()
+	b.TurnStart("typed now")
+	for _, e := range b.Snapshot() {
+		if e.Kind == transcript.KindPrompt && e.Replayed != (e.Text != "typed now") {
+			t.Errorf("prompt %q has Replayed = %v", e.Text, e.Replayed)
+		}
+	}
+}
+
+func TestALiveChunkDuringTheWindowDoesNotJoinTheLastReplayedReply(t *testing.T) {
+	b, _ := newBridge(Config{})
+	b.BeginReplay()
+	b.Update(replayed(text(acp.UpdateAgentMessageChunk, "old answer")))
+	// The answer to session/load was read, and the agent's next reply began,
+	// before EndReplay ran.
+	b.Update(text(acp.UpdateAgentMessageChunk, "live"))
+	b.EndReplay()
+	got := b.Snapshot()
+	if kinds(got) != "reply,reply" || got[0].Markdown != "old answer" || got[1].Markdown != "live" {
+		t.Errorf("entries = %+v", got)
+	}
+}

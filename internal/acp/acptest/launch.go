@@ -56,6 +56,15 @@ func WithKnownSessions(ids ...string) Option {
 // then one more message and exit, as an agent that dies part-way does.
 func WithReplayThenExit() Option { return withSession("replay-hang") }
 
+// WithLateReplay makes session/new slow (600ms) and a session/load of a known id send one replayed message,
+// never answer, and keep sending replayed messages (the text "LATE") for about a
+// second, as an agent that is slow to load does after the client has given up.
+func WithLateReplay() Option { return withSession("late-replay") }
+
+// WithLoadRefused makes session/load fail with an error for every id, while
+// session/resume works for the ids the agent knows.
+func WithLoadRefused() Option { return withSession("load-refused") }
+
 // withSession adds one item to the agent's list of session options.
 func withSession(item string) Option {
 	return func(l *launch) {

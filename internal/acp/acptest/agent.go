@@ -329,6 +329,11 @@ func (a *agent) handle(m msg) {
 			a.rpcError(m.ID, -32000, "Authentication required")
 			return
 		}
+		if a.hasSessionOpt("late-replay") {
+			// The new session is slow to come, so the replay that is still being
+			// sent arrives while the client does not know its id.
+			time.Sleep(600 * time.Millisecond)
+		}
 		res := map[string]any{"sessionId": "sess-1"}
 		a.sessionShape(res)
 		a.result(m.ID, res)
@@ -466,6 +471,20 @@ func (a *agent) reopen(m msg) {
 		return
 	}
 	sid := p.SessionID
+	if method == "load" && a.hasSessionOpt("load-refused") {
+		a.rpcError(m.ID, -32603, "load failed: SECRET-AGENT-TEXT")
+		return
+	}
+	if method == "load" && a.hasSessionOpt("late-replay") {
+		a.update(sid, map[string]any{"sessionUpdate": "agent_message_chunk", "content": textBlock("first ")})
+		go func() {
+			for i := 0; i < 10; i++ {
+				time.Sleep(100 * time.Millisecond)
+				a.update(sid, map[string]any{"sessionUpdate": "agent_message_chunk", "content": textBlock("LATE")})
+			}
+		}()
+		return
+	}
 	if method == "load" {
 		// A real agent replays it all before it answers.
 		a.update(sid, map[string]any{"sessionUpdate": "user_message_chunk", "content": textBlock("first question")})

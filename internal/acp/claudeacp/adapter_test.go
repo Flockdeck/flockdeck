@@ -803,3 +803,20 @@ func TestSessionResumeOfAnIdClaudeDoesNotKnow(t *testing.T) {
 		t.Errorf("got %+v", r)
 	}
 }
+
+// claude is expected to keep the id it is given. If it reports another, the
+// session is reachable under both and the new id is not opened a second time.
+func TestSessionIdClaudeReportsIsAdopted(t *testing.T) {
+	const asked = "0b7e1f0e-5c2a-4a3e-9d7a-6f1f3f0b9c11"
+	const other = "7a1d2c3b-4e5f-4a6b-8c9d-0e1f2a3b4c5d"
+	h := newHarness(t, []step{expect(`"role":"user"`),
+		emit(strings.Replace(lInit, `"session_id":"SID"`, `"session_id":"`+other+`"`, 1)), emit(lResultOK)})
+	r := h.call("session/resume", map[string]any{"sessionId": asked, "cwd": h.cwd, "mcpServers": []any{}})
+	if r.Error != nil {
+		t.Fatalf("resume = %+v", r.Error)
+	}
+	stopReason(t, h.await(h.promptText(asked, "hi")))
+	if r := h.call("session/resume", map[string]any{"sessionId": other, "cwd": h.cwd, "mcpServers": []any{}}); r.Error == nil {
+		t.Error("the id claude reported was opened as a second session")
+	}
+}

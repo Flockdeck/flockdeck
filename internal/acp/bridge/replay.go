@@ -20,7 +20,7 @@ func (b *Bridge) BeginReplay() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.resetItems()
-	b.replaying = true
+	b.replaying, b.liveSeen = true, false
 }
 
 // EndReplay ends the replay, whether session/load succeeded or not. A tool the

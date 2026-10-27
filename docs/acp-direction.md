@@ -50,6 +50,7 @@ T184 (decision doc) is covered by this page. T67 is the review of ACP-1.
 
 - Phones. Structured data is refused over the relay, so a phone shows less once every agent is structured. No decision yet.
 - The plain Shell pane and user-written `agents.json` CLI entries. Decision 1 says no terminal fallback; whether a bare shell pane stays is not decided.
+- Resume gaps found in review of T189, left as they are: replay marking needs the update's `sessionId` to equal the id sent to `session/load`, so an agent that leaves it out of replay updates has them taken as live (agent text shows as replies and the user turns are lost; it fails soft and has no security effect). The Claude adapter's "already open" check is per adapter process, so two panes with the same saved id run two `claude --resume` on one conversation.
 - Claude `session/load`. Resume is built (`session/resume`, T189) but Claude sends no history, so a resumed Claude pane shows an empty transcript. Replaying needs Claude's session files, which are not a stable format.
 - Claude's stdio control protocol is found by experiment, not documented. It needs a pinned version range and CI probes.
 - Codex: how Flockdeck finds a pinned Codex binary without Node, whether the app-server accepts messages carrying `"jsonrpc":"2.0"`, Windows sandbox setup, and resume replay.

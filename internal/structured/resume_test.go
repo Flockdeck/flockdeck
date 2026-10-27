@@ -3,6 +3,9 @@ package structured
 import (
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/jmwri/flockdeck/internal/acp"
 
 	"github.com/jmwri/flockdeck/internal/acp/acptest"
 )
@@ -137,3 +140,52 @@ func TestSessionIdIsKeptWhileTheAgentStarts(t *testing.T) {
 	}
 }
 
+func TestALateReplayAfterATimedOutLoadIsNotTaken(t *testing.T) {
+	o := resumeOptions(t, "old-1", acptest.WithSessionLoad(), acptest.WithKnownSessions("old-1"), acptest.WithLateReplay())
+	o.Client = func(c *acp.Config) { c.LoadTimeout = 300 * time.Millisecond }
+	r := begin(t, o)
+	s := until(t, r, "ready", idle)
+	if s.Resume != ResumeFailed {
+		t.Fatalf("resume = %q", s.Resume)
+	}
+	// The agent keeps streaming for another second; none of it is shown.
+	time.Sleep(1500 * time.Millisecond)
+	s = r.Snapshot()
+	if all := entriesAll(s); strings.Contains(all, "LATE") || strings.Contains(all, "first") {
+		t.Errorf("a late replay reached the transcript: %q", all)
+	}
+	if n := notices(s); n != ResumeFailedText+"\n" || len(s.Entries) != 1 {
+		t.Errorf("entries = %+v", s.Entries)
+	}
+	// No answer came, so the layout keeps the id it had; the live session is the new one.
+	if r.SessionID() != "old-1" || s.SessionID != "sess-1" {
+		t.Errorf("save %q, live %q", r.SessionID(), s.SessionID)
+	}
+}
+
+func entriesAll(s Snapshot) string {
+	var b strings.Builder
+	for _, e := range s.Entries {
+		b.WriteString(e.Text + e.Markdown + "\n")
+	}
+	return b.String()
+}
+
+func TestAnAgentThatRefusesLoadIsAskedToResume(t *testing.T) {
+	r := begin(t, resumeOptions(t, "old-1", acptest.WithSessionLoad(), acptest.WithSessionResume(), acptest.WithLoadRefused(), acptest.WithKnownSessions("old-1")))
+	s := until(t, r, "ready", idle)
+	if s.Resume != ResumeResumed || s.SessionID != "old-1" || len(s.Entries) != 0 {
+		t.Fatalf("resume = %q, session = %q, entries = %d", s.Resume, s.SessionID, len(s.Entries))
+	}
+	if all := entriesAll(s) + s.Err; strings.Contains(all, "SECRET-AGENT-TEXT") {
+		t.Error("the agent's error text reached the pane")
+	}
+}
+
+func TestADefiniteRefusalReplacesTheSavedId(t *testing.T) {
+	r := begin(t, resumeOptions(t, "stale", acptest.WithSessionLoad(), acptest.WithKnownSessions("other")))
+	s := until(t, r, "ready", idle)
+	if s.Resume != ResumeFailed || r.SessionID() != s.SessionID {
+		t.Errorf("resume = %q, save %q, live %q", s.Resume, r.SessionID(), s.SessionID)
+	}
+}

@@ -333,13 +333,22 @@ session before it makes a new one:
   transcript without bound). A tool the old session left running is shown with no status.
 - Else, if the agent has `sessionCapabilities.resume`, it sends `session/resume`. No history comes, so
   the transcript starts empty while the agent still has the conversation.
+- If `session/load` is answered with an error and the agent has `resume`, `session/resume` is tried
+  next. A load that gets no answer within `LoadTimeout` is not followed by a resume: the agent may
+  still be sending the replay.
 - If the agent has neither, or the call fails for any reason other than the agent exiting, needing a
   login or being closed (a stale or unknown id, for one), a new session is made and the conversation
   gets the notice "Could not resume, started a new session." That text is fixed. What the agent said
-  about the failure is not shown.
+  about the failure is not shown. After a failure with no answer (a timeout) the id of that session
+  is dead: nothing the agent sends for it later is taken, so a replay that arrives late does not
+  reach the transcript.
+- A prompt entry made from a replay is marked `Replayed` (Go only, not in the window protocol). It is
+  the agent's text and not words typed in the pane, so the baton leaves it out of the prompts it
+  carries.
 
-The layout keeps the id while the agent is still starting or could not start, and takes the new id
-after a fallback. A layout saved before the id was kept starts a new session without a notice.
+The layout keeps the id while the agent is still starting or could not start, and after a reopen that
+got no answer (timeout), because the agent may still have that conversation. It takes the new id after
+the agent answered with an error. A layout saved before the id was kept starts a new session without a notice.
 
 **A restart** starts a fresh session, and does not resume: it is the person asking for a new one. The earlier entries stay, then a notice that the agent was
 restarted, then the new session's (section 3). A restart that cannot start the new agent keeps them
