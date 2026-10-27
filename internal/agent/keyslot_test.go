@@ -15,7 +15,7 @@ func acpKeySpec(passEnv ...string) Spec {
 // The built-ins that can use an API key name the variable their agent reads;
 // opencode keeps its own provider logins and has no slot.
 func TestBuiltinKeySlots(t *testing.T) {
-	want := map[string]string{"gemini-acp": "GEMINI_API_KEY", "codex-acp": "OPENAI_API_KEY", "opencode-acp": ""}
+	want := map[string]string{"gemini-acp": "GEMINI_API_KEY", "codex-acp": "OPENAI_API_KEY", "claude-acp": "ANTHROPIC_API_KEY", "opencode-acp": ""}
 	for _, s := range Builtins() {
 		w, ok := want[s.ID]
 		if !ok {
