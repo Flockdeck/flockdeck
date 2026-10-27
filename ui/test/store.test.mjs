@@ -372,6 +372,18 @@ test("a structuredCancel refusal is kept for the drawer, the next one that works
   assert.equal(store.getState().graphError, null, "a cancel refusal was taken for a graph error");
 });
 
+test("a structuredExport answer is kept with the pane it was sent for, and a refusal carries no path", async () => {
+  const { store, ws } = await up();
+  ws.frame(hello());
+  assert.equal(store.getState().exportResult, null);
+  assert.equal(store.send({ cmd: "structuredExport", id: "p3", req: "x1", dir: "C:\out", thinking: false }), true);
+  ws.frame({ type: "teamResult", req: "x1", op: "structuredExport", ok: true, path: "C:\out\f.md", entries: 4, redacted: 1, warning: "cut" });
+  assert.deepEqual(store.getState().exportResult, { id: "p3", req: "x1", ok: true, error: "", path: "C:\out\f.md", entries: 4, redacted: 1, warning: "cut" });
+  assert.equal(store.send({ cmd: "structuredExport", id: "p4", req: "x2", dir: "d" }), true);
+  ws.frame({ type: "teamResult", req: "x2", op: "structuredExport", ok: false, error: "That folder is not a full path to a folder that exists", path: "leak" });
+  assert.deepEqual(store.getState().exportResult, { id: "p4", req: "x2", ok: false, error: "That folder is not a full path to a folder that exists", path: "", entries: 0, redacted: 0, warning: "" });
+});
+
 test("a remote window cannot send structuredCancel", async () => {
   const { store, ws } = await up();
   ws.frame(hello({ remote: true }));

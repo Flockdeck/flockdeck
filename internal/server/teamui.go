@@ -260,6 +260,11 @@ type teamResultMsg struct {
 	Pruned  int           `json:"pruned,omitempty"`
 	Sent    int           `json:"sent,omitempty"`
 	Warning string        `json:"warning,omitempty"`
+	// Path, Entries and Redacted answer structuredExport: the file written, how
+	// many entries it holds and how many values the redactor replaced.
+	Path     string `json:"path,omitempty"`
+	Entries  int    `json:"entries,omitempty"`
+	Redacted int    `json:"redacted,omitempty"`
 	// Pane and Message name the message a mark-seen changed.
 	Pane    string `json:"pane,omitempty"`
 	Message int    `json:"message,omitempty"`

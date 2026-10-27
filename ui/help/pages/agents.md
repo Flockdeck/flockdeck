@@ -109,6 +109,29 @@ writes `[image: path]` into the text for the agent to read. A large picture is s
 down first, and one picture is attached at a time. Agents that do not take images get
 no Attach image button and say so if you paste one.
 
+The header shows how much of the agent's context window is used, as a bar and a
+percentage; press it for the figures: tokens used, the window, what is left, and the cost
+if the agent reports one. These are the numbers the agent last sent. A figure it did not
+send says "Not reported", and tokens in and out and a breakdown of the context are not
+shown, because the agent's report does not have them. Each reply has a Copy button, and
+Copy last reply in the conversation bar copies the newest one as plain text; a code block
+has its own Copy.
+
+Export, in the conversation bar, saves the conversation as a Markdown file. Type the full
+path of a folder that exists; Flockdeck makes a new file there named `flockdeck-` and the pane's
+name and the time, never replacing one, and says where. The file holds your prompts, the
+agent's replies, each tool call with its summary, helper reports, notices, and mail from other
+agents, marked as mail with who sent it and whether it was delivered. It leaves out tool output,
+diffs and images, and the agent's thinking unless you tick the box (only what Flockdeck still
+holds is included). Every line of the conversation is quoted in the file, so nothing the agent
+wrote can look like a turn of yours, and images and HTML in it are written as text so that a
+viewer does not load them. Links and code fences are left as they were. The file takes the
+folder's permissions, so on Windows it is not private. A folder on a network share is refused. Secrets are replaced with `[REDACTED: ...]` marks by the
+same redactor batons use: the values in the pane's environment, the keys Flockdeck holds, the
+checkout's `.env` files and the shapes of keys. It is a filter, so read the file before you
+share it. Export is on the machine Flockdeck runs on; a window reached through the relay has
+no Export.
+
 It is off until you turn it on. Put `"structuredPanes": true` in `prefs.json`
 in the state directory (there is no setting for it in the window); until then
 the picker does not offer a structured agent. Turning it off again takes effect

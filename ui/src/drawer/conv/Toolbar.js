@@ -16,6 +16,7 @@ import { useState } from "../../vendor/hooks.mjs";
 import { html } from "../../html.js";
 import { copyText } from "./markdown.js";
 import { conversationText } from "./text.js";
+import { lastReply } from "./CopyReply.js";
 
 export const NO_MATCH_WORDS = "No matches.";
 export const SEARCH_LOADING_WORDS = "Searching…";
@@ -63,6 +64,9 @@ export function Toolbar({ entries, search = null, onSearch, onClear, onJump, can
       setCopied(ok ? "Copied " + entries.length + (entries.length === 1 ? " entry" : " entries") + " that are loaded." : "Couldn't copy.");
     });
   };
+  const doCopyLast = () => {
+    copy(lastReply(entries)).then((ok) => setCopied(ok ? "Copied the last reply." : "Couldn't copy."));
+  };
   const needle = search ? Array.from(search.q.trim()).length : 0;
   return html`<div class="conv-toolbar" role="group" aria-label="Search and copy the conversation">
     <form class="conv-search" role="search" onSubmit=${submit}>
@@ -72,6 +76,7 @@ export function Toolbar({ entries, search = null, onSearch, onClear, onJump, can
     </form>
     <button type="button" class="drawer-btn conv-copy" disabled=${entries.length === 0} onClick=${doCopy}>Copy</button>
     ${canExport && onExport ? html`<button type="button" class="drawer-btn conv-export" onClick=${onExport}>Export</button>` : html`<span class="conv-toolbar-note conv-export-note">${EXPORT_UNAVAILABLE_WORDS}</span>`}
+    <button type="button" class="drawer-btn conv-copy-last" disabled=${lastReply(entries) === ""} onClick=${doCopyLast}>Copy last reply</button>
     <span class="conv-toolbar-note conv-copied" role="status">${copied}</span>
     <span class="conv-toolbar-note conv-search-note" role="status">${note}</span>
     <p class="conv-results-note" role="status">${search ? (search.state === "loading" ? SEARCH_LOADING_WORDS : search.failed ? SEARCH_FAILED_WORDS : search.matches.length === 0 ? NO_MATCH_WORDS : "") : ""}</p>

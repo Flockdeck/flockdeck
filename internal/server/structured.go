@@ -406,6 +406,8 @@ func (s *Server) structuredCommand(c *controlClient, cmd command) {
 		s.do(func() { s.structuredFiles(c, cmd) })
 	case "structuredQueueEdit", "structuredQueueRemove", "structuredQueueClear", "structuredQueueSendNow":
 		s.do(func() { s.structuredQueue(c, cmd) })
+	case "structuredExport":
+		s.do(func() { s.structuredExport(c, cmd) })
 	case "structuredWatch":
 		s.do(func() { s.structuredWatch(c, cmd) })
 	case "structuredUnwatch":
