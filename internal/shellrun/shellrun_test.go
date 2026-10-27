@@ -255,10 +255,10 @@ func TestTextIsPlain(t *testing.T) {
 		{"cursor", "a\x1b[2K\x1b[1Ab", "ab"},
 		{"progress", "10%\r50%\r100%\ndone\n", "100%\ndone\n"},
 		{"crlf", "a\r\nb\r\n", "a\nb\n"},
-		{"bidi", "abc‮def⁦g​h", "abcdefgh"},
+		{"bidi", "abc\u202edef\u2066g\u200bh", "abcdefgh"},
 		{"controls", "a\x00b\x07c\x08d\x7fe\u0085f\td", "abcdef\td"},
-		{"separators", "a b c", "abc"},
-		{"invalid utf8", "a\xffb", "a�b"},
+		{"separators", "a\u2028b\u2029c", "abc"},
+		{"invalid utf8", "a\xffb", "a\ufffdb"},
 		{"lone esc at end", "a\x1b", "a"},
 	}
 	for _, c := range cases {

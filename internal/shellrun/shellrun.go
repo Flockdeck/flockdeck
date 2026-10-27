@@ -394,7 +394,7 @@ func (s *sink) Write(p []byte) (int, error) {
 // separators are dropped. What comes back holds only text that is safe to draw
 // and to send on as a prompt.
 func Text(b []byte) string {
-	s := strings.ToValidUTF8(string(b), "�")
+	s := strings.ToValidUTF8(string(b), "\ufffd")
 	var out strings.Builder
 	var line []rune
 	flush := func() {

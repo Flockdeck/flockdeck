@@ -73,7 +73,7 @@ func shellLine(s string) bool {
 			return false
 		}
 	}
-	return !strings.ContainsAny(s, "  ")
+	return !strings.ContainsAny(s, "\u2028\u2029")
 }
 
 // structuredShell runs structuredShellRun, structuredShellStop,

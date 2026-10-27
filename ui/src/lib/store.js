@@ -87,6 +87,8 @@
 //                    being the pane it was sent for, or null; the queue list matches it by req
 //   exportResult     the latest answer to structuredExport as { id, req, ok, error, path, entries, redacted,
 //                    warning }, id being the pane it was sent for, or null; the export panel matches it by req
+//   shellResult      the latest answer to a structuredShell* command as { id, req, ok, error }, id
+//                    being the pane it was sent for, or null; the "!" list matches it by req
 //   files            the latest structuredFiles reply { id, req, q, files, more, error }, or the
 //                    refusal of one as the same with files empty; the prompt box matches it by req
 //   attached         the latest attachImageResult as { id, path, error, seq }, or null
@@ -284,7 +286,7 @@ const initial = () => ({
   hello: null, remote: false, state: null,
   graph: null, graphGone: null, graphRefused: false, graphError: null,
   notice: null, versions: null, helpers: null, helperPlan: null, recents: null, browse: null, batonDraft: null, batonSaved: null, batonError: null,
-  approvals: [], detached: false, sent: null, started: null, structured: null, structuredError: null, cancelError: null, settingError: null, queueResult: null, exportResult: null, files: null, attached: null, answer: null, asking: null, conversation: null, details: nullMap(), search: null, taskDetail: null, changes: null, diff: null, gitWarn: null, changesBusy: "", changesNote: null, history: null, paneInfo: null, paneMatches: null, keys: null, jevKey: null, radar: null, worktrees: null, agentsList: null, team: null, teamGone: null, teamTasks: null, teamMessages: null, teamResult: null, teamRefused: false, changesTeam: null, changesTeamGone: null, changesTeamRefused: false, changesTeamResult: null, changesTeamResults: [], changesChecks: null, changesDiffs: {}, branchGit: null, session: 0, remoteDevices: null, remotePair: null, remoteOutcome: null, dropped: 0,
+  approvals: [], detached: false, sent: null, started: null, structured: null, structuredError: null, cancelError: null, settingError: null, queueResult: null, shellResult: null, exportResult: null, files: null, attached: null, answer: null, asking: null, conversation: null, details: nullMap(), search: null, taskDetail: null, changes: null, diff: null, gitWarn: null, changesBusy: "", changesNote: null, history: null, paneInfo: null, paneMatches: null, keys: null, jevKey: null, radar: null, worktrees: null, agentsList: null, team: null, teamGone: null, teamTasks: null, teamMessages: null, teamResult: null, teamRefused: false, changesTeam: null, changesTeamGone: null, changesTeamRefused: false, changesTeamResult: null, changesTeamResults: [], changesChecks: null, changesDiffs: {}, branchGit: null, session: 0, remoteDevices: null, remotePair: null, remoteOutcome: null, dropped: 0,
 });
 
 /** upsert returns entries with each of the new ones in place of the one with its
@@ -355,6 +357,8 @@ export function createStore(opts) {
   const queuePanes = new Map();
   // The same for structuredExport.
   const exportPanes = new Map();
+  // The same for the structuredShell commands.
+  const shellPanes = new Map();
   // The count that tells one attachImageResult from the one before it.
   let attachSeq = 0;
   // The structured pane last asked for with watchStructured, or null.
@@ -668,6 +672,11 @@ export function createStore(opts) {
           exportPanes.delete(msg.req);
           set({ exportResult: { id, req: String(msg.req || ""), ok: !!msg.ok, error: msg.ok ? "" : String(msg.error || ""), path: msg.ok ? String(msg.path || "") : "", entries: msg.ok && Number.isInteger(msg.entries) ? msg.entries : 0, redacted: msg.ok && Number.isInteger(msg.redacted) ? msg.redacted : 0, warning: msg.ok ? String(msg.warning || "") : "" } });
         }
+        if (typeof msg.op === "string" && msg.op.startsWith("structuredShell")) {
+          const id = shellPanes.get(msg.req) || "";
+          shellPanes.delete(msg.req);
+          set({ shellResult: { id, req: String(msg.req || ""), ok: !!msg.ok, error: msg.ok ? "" : String(msg.error || "") } });
+        }
         if (msg.op === "structuredSet") {
           const id = settingPanes.get(msg.req) || "";
           settingPanes.delete(msg.req);
@@ -938,6 +947,10 @@ export function createStore(opts) {
       if (sent && cmd.cmd === "structuredExport" && cmd.req) {
         if (exportPanes.size >= 20) exportPanes.delete(exportPanes.keys().next().value);
         exportPanes.set(cmd.req, String(cmd.id || ""));
+      }
+      if (sent && typeof cmd.cmd === "string" && cmd.cmd.startsWith("structuredShell") && cmd.req) {
+        if (shellPanes.size >= 20) shellPanes.delete(shellPanes.keys().next().value);
+        shellPanes.set(cmd.req, String(cmd.id || ""));
       }
       if (sent && cmd.cmd === "structuredSet" && cmd.req) {
         if (settingPanes.size >= 20) settingPanes.delete(settingPanes.keys().next().value);
