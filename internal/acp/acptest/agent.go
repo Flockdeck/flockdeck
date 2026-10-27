@@ -78,13 +78,15 @@ import (
 const McpRecordFile = ".acptest-mcpservers"
 
 const (
-	envAgent  = "FLOCKDECK_ACPTEST_AGENT"
-	envAuth   = "FLOCKDECK_ACPTEST_AUTH"
-	envMarker = "FLOCKDECK_ACPTEST_MARKER"
-	envMute   = "FLOCKDECK_ACPTEST_MUTE"
-	envDeaf   = "FLOCKDECK_ACPTEST_DEAF"
-	envSlow   = "FLOCKDECK_ACPTEST_SLOWSTART"
-	envShape  = "FLOCKDECK_ACPTEST_SHAPE"
+	envAgent   = "FLOCKDECK_ACPTEST_AGENT"
+	envAuth    = "FLOCKDECK_ACPTEST_AUTH"
+	envAuthn   = "FLOCKDECK_ACPTEST_AUTHENTICATE"
+	envAuthLog = "FLOCKDECK_ACPTEST_AUTHENTICATE_LOG"
+	envMarker  = "FLOCKDECK_ACPTEST_MARKER"
+	envMute    = "FLOCKDECK_ACPTEST_MUTE"
+	envDeaf    = "FLOCKDECK_ACPTEST_DEAF"
+	envSlow    = "FLOCKDECK_ACPTEST_SLOWSTART"
+	envShape   = "FLOCKDECK_ACPTEST_SHAPE"
 	// envSetLog is a file the agent appends the params of each setting request
 	// to. envSetOpts+"_bare" answers session/set_config_option with no
 	// options, envSetOpts+"_quiet" sends no current_mode_update after set_mode, and envSetOpts+"_bool" adds a boolean option to the config shape.
@@ -334,6 +336,24 @@ func (a *agent) handle(m msg) {
 		}
 		a.result(m.ID, res)
 	case m.Method == "authenticate":
+		if f := os.Getenv(envAuthLog); f != "" {
+			if h, err := os.OpenFile(f, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600); err == nil {
+				_, _ = h.WriteString("authenticate\n")
+				_ = h.Close()
+			}
+		}
+		switch os.Getenv(envAuthn) {
+		case "hang":
+			return // never answers
+		case "fail":
+			a.rpcError(m.ID, -32000, "SECRET-AGENT-TEXT key refused")
+			return
+		case "exit":
+			os.Exit(3)
+		case "ignore":
+			a.result(m.ID, map[string]any{}) // answers, but stays unauthenticated
+			return
+		}
 		a.mu.Lock()
 		a.authed = true
 		a.mu.Unlock()

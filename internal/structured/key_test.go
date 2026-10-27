@@ -9,7 +9,9 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
+	"github.com/jmwri/flockdeck/internal/acp"
 	"github.com/jmwri/flockdeck/internal/acp/acptest"
 	"github.com/jmwri/flockdeck/internal/acp/manifest"
 	"github.com/jmwri/flockdeck/internal/agent"
@@ -222,4 +224,87 @@ func TestAKeyAnswersALoginRequestOnlyWhenTheEntryNamesTheMethod(t *testing.T) {
 			until(t, r, "the "+string(want)+" phase", func(s Snapshot) bool { return s.Phase == want })
 		})
 	}
+}
+
+func keyedFake(t *testing.T, aopts ...acptest.Option) Options {
+	t.Helper()
+	o := fakeOptions(t, aopts...)
+	o.Spec = keySpec("gemini")
+	o.Spec.ACP.KeyMethod = "api-key"
+	o.Key = testKey
+	o.Environ = []string{}
+	return o
+}
+
+func authCalls(t *testing.T, log string) int {
+	t.Helper()
+	b, _ := os.ReadFile(log)
+	return strings.Count(string(b), "authenticate")
+}
+
+// The reopen path: a saved session is loaded, the agent wants a login, and the
+// key answers it. The session is the saved one, not a new one.
+func TestAKeyAnswersALoginRequestOnReopen(t *testing.T) {
+	log := filepath.Join(t.TempDir(), "auth.log")
+	o := keyedFake(t, acptest.WithAuth("new"), acptest.WithSessionLoad(), acptest.WithKnownSessions("saved-1"), acptest.WithAuthenticate("ok", log))
+	o.ResumeSession = "saved-1"
+	r := begin(t, o)
+	s := until(t, r, "the ready phase", func(s Snapshot) bool { return s.Phase == PhaseReady })
+	if got := authCalls(t, log); got != 1 {
+		t.Errorf("authenticate was called %d times, want 1", got)
+	}
+	if r.SessionID() != "saved-1" {
+		t.Errorf("session = %q, want the saved one (state %+v)", r.SessionID(), s.Phase)
+	}
+}
+
+// An agent that answers authenticate and still wants a login is asked once, and
+// the pane says the key was not accepted.
+func TestAKeyThatIsNotAcceptedIsSaidInFixedText(t *testing.T) {
+	for _, mode := range []string{"ignore", "fail"} {
+		t.Run(mode, func(t *testing.T) {
+			log := filepath.Join(t.TempDir(), "auth.log")
+			r := begin(t, keyedFake(t, acptest.WithAuth("new"), acptest.WithAuthenticate(mode, log)))
+			s := until(t, r, "the setup state", func(s Snapshot) bool { return s.Phase == PhaseSetup })
+			if s.Setup == nil || s.Setup.Message != keyRefused || s.Err != keyRefused || len(s.Setup.Methods) != 2 {
+				t.Fatalf("setup = %+v, err %q", s.Setup, s.Err)
+			}
+			if strings.Contains(fmt.Sprintf("%+v", s), "SECRET-AGENT-TEXT") {
+				t.Error("the agent's own words reached the state")
+			}
+			if got := authCalls(t, log); got != 1 {
+				t.Errorf("authenticate was called %d times, want 1", got)
+			}
+		})
+	}
+}
+
+// An agent that exits during authenticate has exited; it has not asked for a
+// login.
+func TestAnExitDuringAuthenticateIsTheExitedPhase(t *testing.T) {
+	r := begin(t, keyedFake(t, acptest.WithAuth("new"), acptest.WithAuthenticate("exit", "")))
+	s := until(t, r, "the exited phase", func(s Snapshot) bool { return s.Phase == PhaseExited || s.Phase == PhaseSetup })
+	if s.Phase != PhaseExited {
+		t.Errorf("phase = %s, want %s", s.Phase, PhaseExited)
+	}
+}
+
+// An agent that never answers authenticate is given up on after the setup
+// timeout, and the key is said not to have been accepted.
+func TestAnAuthenticateThatNeverAnswersTimesOut(t *testing.T) {
+	o := keyedFake(t, acptest.WithAuth("new"), acptest.WithAuthenticate("hang", ""))
+	o.Client = func(c *acp.Config) { c.SetupTimeout = 500 * time.Millisecond }
+	r := begin(t, o)
+	s := until(t, r, "the setup state", func(s Snapshot) bool { return s.Phase == PhaseSetup })
+	if s.Setup == nil || s.Setup.Message != keyRefused {
+		t.Errorf("setup = %+v", s.Setup)
+	}
+}
+
+// A key is not used for a method the entry does not name a key variable for.
+func TestAKeyLoginNeedsTheEntryToNameAKeyVariable(t *testing.T) {
+	o := keyedFake(t, acptest.WithAuth("new"))
+	o.Spec.API.KeyEnv = nil
+	r := begin(t, o)
+	until(t, r, "the setup state", func(s Snapshot) bool { return s.Phase == PhaseSetup })
 }

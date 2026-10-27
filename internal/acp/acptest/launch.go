@@ -23,6 +23,19 @@ func WithAuth(at string) Option {
 	return func(l *launch) { l.env = append(l.env, envAuth+"="+at) }
 }
 
+// WithAuthenticate changes how the agent answers authenticate: "hang" never
+// answers, "fail" answers with an error, "exit" exits, "ignore" answers success
+// but stays unauthenticated. Each call is appended as a line to the file at
+// log, when it is not empty, so a test can count them.
+func WithAuthenticate(mode, log string) Option {
+	return func(l *launch) {
+		l.env = append(l.env, envAuthn+"="+mode)
+		if log != "" {
+			l.env = append(l.env, envAuthLog+"="+log)
+		}
+	}
+}
+
 // WithConfigOptions makes session/new list a model and a mode as config options
 // and initialize claim the capabilities of a fuller agent, as opencode and Codex
 // do.

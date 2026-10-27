@@ -225,13 +225,20 @@ func runLive(t *testing.T, path string, args []string) {
 	if _, err := c2.Initialize(ctx); err != nil {
 		t.Fatalf("second initialize: %v", err)
 	}
-	if caps.Resume {
-		_, err = c2.ResumeSession(ctx, sid, dir, nil)
-	} else {
+	// The runtime's order: session/load first, and session/resume when there
+	// is no load or the load was refused.
+	err = ErrUnsupported
+	if caps.LoadSession {
 		_, err = c2.LoadSession(ctx, sid, dir, nil)
+		if err != nil {
+			t.Logf("session/load: %v", err)
+		}
+	}
+	if err != nil && caps.Resume {
+		_, err = c2.ResumeSession(ctx, sid, dir, nil)
 	}
 	if err != nil {
-		t.Fatalf("resume (resume %v, load %v): %v", caps.Resume, caps.LoadSession, err)
+		t.Fatalf("reopen (load %v, resume %v): %v", caps.LoadSession, caps.Resume, err)
 	}
 	rec2.reset()
 	pctx, stop = turn()

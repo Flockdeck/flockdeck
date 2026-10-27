@@ -227,7 +227,7 @@ func codexACPSpec() Spec {
 	return Spec{
 		ID: "codex-acp", Name: "Codex (structured)", Runner: RunnerACP, Hidden: true,
 		API: APISpec{Wire: "openai", KeyEnv: []string{"OPENAI_API_KEY"}},
-		ACP: ACPSpec{Adapter: "codex-go", Auth: AuthExternal, Login: "Run `codex login` in a terminal.", PassEnv: homeEnv()},
+		ACP: ACPSpec{Adapter: "codex-go", Auth: AuthExternal, Login: "Run `codex login` in a terminal.", PassEnv: homeEnv(), MCP: true},
 	}
 }
 

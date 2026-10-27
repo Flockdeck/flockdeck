@@ -120,6 +120,11 @@ manifest instead of a program, and says what the agent may see:
   logs in. When the agent asks, the pane shows the methods it offered and the
   entry's `login` text, which is stripped of control characters and cut at 300
   characters.
+- `keyMethod` is the id of the authentication method an agent takes its key under: when the agent asks for
+  a login and a key is stored, Flockdeck calls `authenticate` once with it and tries again. 1 to 64 characters
+  of `a-z`, `0-9`, dot, underscore and hyphen; anything else is dropped with a notice. It only has an effect
+  on an entry that has a key variable, which only built-ins have, and only if the agent listed the method
+  at initialize. `gemini-acp` has `gemini-api-key`.
 - `passEnv` is the whole list of variables the agent gets from Flockdeck's
   environment, on top of the few that let it find programs and a temp folder
   (`acp.MinimalEnv`), and it holds at most 64 names. Keys and tokens are not
@@ -208,7 +213,8 @@ What exists for the check:
   already there; keys are removed from the environment), then does initialize, `session/new`, a one-word prompt
   that plants a word, a shell command that must produce a permission request (always rejected, so nothing
   runs), a cancel of a long turn, and a second client that resumes (`session/resume`, else `session/load`)
-  and asks for the word back. When `session/new` asks for authentication it records the offered methods and
+  and asks for the word back. It reopens the way the runtime does: `session/load` first, then `session/resume`
+  when there is no load or it was refused. When `session/new` asks for authentication it records the offered methods and
   skips, which is the "tested up to the auth step" result. Run it with
   `go test -tags acp_live -run TestLiveAgents -v ./internal/acp`; Codex also needs `FLOCKDECK_LIVE_BIN` set to a
   built `flockdeck`. Here it skipped both agents as not installed.
@@ -223,17 +229,20 @@ Gemini CLI, reviewed against its source (`packages/cli/src/acp` in google-gemini
   selected auth type, which `gemini` sets when the user signs in. A key in the environment is not enough: the
   client has to call `authenticate`. Flockdeck never did. Fixed: the entry has `keyMethod` (`gemini-api-key`),
   and when `session/new` or a reopen asks for a login, a key is stored and the agent listed that method, the
-  runtime authenticates once with it and tries again. Side effect to know about: Gemini writes the chosen
+  runtime authenticates once with it and tries again. The call is bounded by the setup timeout. If it is refused,
+  fails, times out or the agent still wants a login, the pane says "The stored key was not accepted" (in fixed
+  text) and does not try again; an exit during it is the exited state. Side effect to know about: Gemini writes the chosen
   method to the user's own `~/.gemini/settings.json`.
 - Permission requests carry `allow_once`, `allow_always` and `reject_once` options; the card shows them as
   sent.
-- It accepts per-session `mcpServers` (stdio, http, sse), but `gemini-acp` has no `mcp: true`, so the
-  Flockdeck MCP server is not passed. That is mail wiring and is left to the task that owns it.
+- It accepts per-session `mcpServers` (stdio, http, sse), but `gemini-acp` has no `mcp: true` on purpose, so
+  the Flockdeck MCP server is not passed until the live test passes for Gemini.
 
 Codex, through `flockdeck acp-adapter codex`: only checked against the fake app-server in
 `internal/acp/codexacp`. Not checked: `codex app-server` starting on Windows, `thread/start` and `turn/start`
-shapes, the approval request shapes, interrupt, and `thread/resume`. `codex-acp` has no `mcp: true` either,
-although the adapter handles `mcpServers`.
+shapes, the approval request shapes, interrupt, and `thread/resume`. `codex-acp` has `mcp: true`, since the
+adapter handles `mcpServers` (tested against the fake), so the Flockdeck MCP server entry reaches it. The
+entry is still hidden.
 
 Not unhidden: neither agent. Unhide `gemini-acp` and `codex-acp` after `TestLiveAgents` passes for them on a
 machine with the agent and a login.

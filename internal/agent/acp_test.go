@@ -468,3 +468,29 @@ func TestASpecKnowsTheEnvironmentTheManifestSetsForItsAdapter(t *testing.T) {
 		t.Errorf("a terminal entry sets %v", env)
 	}
 }
+
+// keyMethod is trimmed, and dropped with a notice when it is not a plain id.
+func TestKeyMethodIsValidated(t *testing.T) {
+	c := Merge(&File{Agents: []json.RawMessage{
+		json.RawMessage(`{"id":"x","runner":"acp","acp":{"adapter":"opencode","keyMethod":" api-key "}}`),
+		json.RawMessage(`{"id":"y","runner":"acp","acp":{"adapter":"opencode","keyMethod":"Bad Method"}}`),
+		json.RawMessage(`{"id":"z","runner":"acp","acp":{"adapter":"opencode","keyMethod":"` + strings.Repeat("a", 65) + `"}}`),
+	}})
+	if x, _ := c.Find("x"); x.ACP.KeyMethod != "api-key" {
+		t.Errorf("x keyMethod = %q", x.ACP.KeyMethod)
+	}
+	for _, id := range []string{"y", "z"} {
+		if s, _ := c.Find(id); s.ACP.KeyMethod != "" {
+			t.Errorf("%s keyMethod = %q, want it dropped", id, s.ACP.KeyMethod)
+		}
+		if !strings.Contains(c.Notice, `agent "`+id+`": acp keyMethod`) {
+			t.Errorf("notice %q does not mention %s", c.Notice, id)
+		}
+	}
+	if g, _ := Merge(&File{}).Find("gemini-acp"); g.ACP.KeyMethod != "gemini-api-key" {
+		t.Errorf("gemini-acp keyMethod = %q", g.ACP.KeyMethod)
+	}
+	if cx, _ := Merge(&File{}).Find("codex-acp"); !cx.ACP.MCP {
+		t.Error("codex-acp takes MCP servers")
+	}
+}
