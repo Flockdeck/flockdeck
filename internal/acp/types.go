@@ -127,6 +127,29 @@ type Update struct {
 	Used *int64
 	Size *int64
 	Cost *Cost
+
+	// Commands is set for available_commands_update: the whole list, which
+	// replaces the last one. Non-nil, possibly empty, when the update has it.
+	Commands []Command
+
+	// ModeID is set for current_mode_update.
+	ModeID string
+
+	// ConfigOptions is set for config_option_update: the whole list, which
+	// replaces the last one. Non-nil, possibly empty, when the update has it.
+	ConfigOptions []ConfigOption
+
+	// InfoTitle and InfoUpdatedAt are set for session_info_update when it names
+	// them. A title of null in the update is an empty, non-nil InfoTitle: the
+	// agent cleared it.
+	InfoTitle     *string
+	InfoUpdatedAt *string
+
+	// PlanMarkdown is set for plan_update.
+	PlanMarkdown string
+
+	// Compaction is set for compaction and compaction_update.
+	Compaction *Compaction
 }
 
 // decodeUpdate builds an Update from the update object. It never fails: the
@@ -175,6 +198,52 @@ func decodeUpdate(sessionID string, raw json.RawMessage) Update {
 		if json.Unmarshal(raw, &w) == nil {
 			u.Plan = w.Entries
 		}
+	case UpdateAvailableCommands:
+		var w struct {
+			Commands json.RawMessage `json:"availableCommands"`
+		}
+		_ = json.Unmarshal(raw, &w)
+		if c := bytes.TrimSpace(w.Commands); len(c) > 0 && c[0] == '[' {
+			u.Commands = []Command{}
+			_ = json.Unmarshal(c, &u.Commands)
+		}
+	case UpdateCurrentMode:
+		var w struct {
+			ID string `json:"currentModeId"`
+		}
+		_ = json.Unmarshal(raw, &w)
+		u.ModeID = w.ID
+	case UpdateConfigOption:
+		var w struct {
+			Options json.RawMessage `json:"configOptions"`
+		}
+		_ = json.Unmarshal(raw, &w)
+		u.ConfigOptions = decodeConfigOptions(w.Options)
+	case UpdateSessionInfo:
+		var w struct {
+			Title     json.RawMessage `json:"title"`
+			UpdatedAt json.RawMessage `json:"updatedAt"`
+		}
+		_ = json.Unmarshal(raw, &w)
+		u.InfoTitle = nullableText(w.Title)
+		u.InfoUpdatedAt = nullableText(w.UpdatedAt)
+	case UpdatePlanUpdate:
+		var w struct {
+			Content  json.RawMessage `json:"content"`
+			Markdown string          `json:"markdown"`
+			Text     string          `json:"text"`
+		}
+		_ = json.Unmarshal(raw, &w)
+		u.PlanMarkdown = firstNonEmpty(blockOrString(w.Content), w.Markdown, w.Text)
+	case UpdateCompaction, UpdateCompactionUpdate:
+		var w struct {
+			Status  string          `json:"status"`
+			Message string          `json:"message"`
+			Text    string          `json:"text"`
+			Content json.RawMessage `json:"content"`
+		}
+		_ = json.Unmarshal(raw, &w)
+		u.Compaction = &Compaction{Status: w.Status, Message: firstNonEmpty(w.Message, w.Text, blockOrString(w.Content))}
 	case UpdateUsage:
 		var w struct {
 			Used *int64 `json:"used"`
@@ -186,6 +255,51 @@ func decodeUpdate(sessionID string, raw json.RawMessage) Update {
 		}
 	}
 	return u
+}
+
+// nullableText reads a JSON string that may be null or absent: nil when absent,
+// an empty string for null, the string otherwise.
+func nullableText(raw json.RawMessage) *string {
+	raw = bytes.TrimSpace(raw)
+	switch {
+	case len(raw) == 0:
+		return nil
+	case string(raw) == "null":
+		s := ""
+		return &s
+	}
+	var s string
+	if json.Unmarshal(raw, &s) != nil {
+		return nil
+	}
+	return &s
+}
+
+// blockOrString is the text of a value that is either a string or a text
+// content block.
+func blockOrString(raw json.RawMessage) string {
+	raw = bytes.TrimSpace(raw)
+	if len(raw) == 0 {
+		return ""
+	}
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		return s
+	}
+	var b ContentBlock
+	if json.Unmarshal(raw, &b) == nil && b.Type == "text" {
+		return b.Text
+	}
+	return ""
+}
+
+func firstNonEmpty(s ...string) string {
+	for _, v := range s {
+		if v != "" {
+			return v
+		}
+	}
+	return ""
 }
 
 // PermissionOption is one choice offered by session/request_permission. The
@@ -249,10 +363,11 @@ type AgentInfo struct {
 // InitResult is the agent's reply to initialize.
 type InitResult struct {
 	ProtocolVersion int `json:"protocolVersion"`
-	// AgentCapabilities is kept raw: the client reads none of it yet.
-	AgentCapabilities json.RawMessage `json:"agentCapabilities,omitempty"`
-	AgentInfo         *AgentInfo      `json:"agentInfo,omitempty"`
-	AuthMethods       []AuthMethod    `json:"authMethods,omitempty"`
+	// AgentCapabilities is the raw block. Capabilities is the same, read.
+	AgentCapabilities json.RawMessage   `json:"agentCapabilities,omitempty"`
+	Capabilities      AgentCapabilities `json:"-"`
+	AgentInfo         *AgentInfo        `json:"agentInfo,omitempty"`
+	AuthMethods       []AuthMethod      `json:"authMethods,omitempty"`
 }
 
 // EnvVar is one environment variable for an MCP server.

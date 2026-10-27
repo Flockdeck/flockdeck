@@ -66,6 +66,7 @@ func TestStructuredMessagesFitTheSchema(t *testing.T) {
 		"busy": {Phase: structured.PhaseReady, Status: bridge.StatusWorking, Activity: "Run go test", Queued: 2,
 			Plan:  []acp.PlanEntry{{Content: "write the test", Status: "in_progress", Priority: "high"}},
 			Usage: bridge.Usage{Used: 1234, Size: 200000, Cost: 0.0042, Currency: "USD"}},
+		"session": {Phase: structured.PhaseReady, Status: bridge.StatusIdle, Session: structuredSessionFixture(long)},
 		"card": {Phase: structured.PhaseReady, Status: bridge.StatusWaiting,
 			Pending: &bridge.Card{Seq: 9, RequestID: "r", Tool: "Write", Kind: "edit", Summary: long, File: "a.txt", Command: long,
 				Options: []acp.PermissionOption{{OptionID: "a", Name: "Allow", Kind: "allow_once"}}}},

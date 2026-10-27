@@ -7,6 +7,7 @@
 // start it with. Which behaviour a prompt gets is chosen by its first word:
 //
 //	plain       two message chunks, end_turn
+//	state       the session-state updates (commands, mode, config options, title, markdown plan, replayed user message, compaction, usage)
 //	tool        a tool call with updates, array content, usage, end_turn
 //	perm        a permission request with a numeric id; the outcome is reported
 //	perm-str    the same with the string id "perm-abc"; reports whether the id came back as a string
@@ -34,6 +35,10 @@
 //	env         reports its whole environment, one NAME=VALUE per line, in one chunk
 //	deaf-perm   asks for permission and stops reading stdin
 //	grandchild  starts a process of its own that sleeps for a minute, reports its id as "pid=N", then end_turn
+//
+// An unknown request gets error -32601, as a real agent that lacks the method does.
+// WithConfigOptions and WithModes give session/new the two shapes of session
+// state agents use.
 //
 // WithMute makes an agent that reads and never answers.
 //
@@ -71,6 +76,7 @@ const (
 	envMute   = "FLOCKDECK_ACPTEST_MUTE"
 	envDeaf   = "FLOCKDECK_ACPTEST_DEAF"
 	envSlow   = "FLOCKDECK_ACPTEST_SLOWSTART"
+	envShape  = "FLOCKDECK_ACPTEST_SHAPE"
 )
 
 // ArgAgent, as an argument, also makes a process the fake agent. A test of how
@@ -238,9 +244,17 @@ func (a *agent) handle(m msg) {
 			}
 		}
 	case m.Method == "initialize":
+		caps := map[string]any{"loadSession": false, "promptCapabilities": map[string]any{}, "futureCapability": map[string]any{"x": 1}}
+		if os.Getenv(envShape) != "" {
+			caps = map[string]any{"loadSession": true,
+				"promptCapabilities":  map[string]any{"image": true, "embeddedContext": true},
+				"mcpCapabilities":     map[string]any{"http": true},
+				"sessionCapabilities": map[string]any{"list": map[string]any{}, "fork": map[string]any{}},
+			}
+		}
 		res := map[string]any{
 			"protocolVersion":   1,
-			"agentCapabilities": map[string]any{"loadSession": false, "promptCapabilities": map[string]any{}, "futureCapability": map[string]any{"x": 1}},
+			"agentCapabilities": caps,
 			"agentInfo":         map[string]any{"name": "acptest", "version": "0.0.1"},
 			"authMethods":       []any{},
 		}
@@ -279,12 +293,46 @@ func (a *agent) handle(m msg) {
 			a.rpcError(m.ID, -32000, "Authentication required")
 			return
 		}
-		a.result(m.ID, map[string]any{"sessionId": "sess-1"})
+		res := map[string]any{"sessionId": "sess-1"}
+		switch os.Getenv(envShape) {
+		case "config":
+			// The shape opencode and Codex use: settings are config options.
+			res["configOptions"] = []any{
+				map[string]any{"id": "model", "name": "Model", "category": "model", "type": "select", "currentValue": "big", "options": []any{
+					map[string]any{"value": "big", "name": "Big", "description": "The large one"},
+					map[string]any{"value": "small", "name": "Small"},
+				}},
+				map[string]any{"id": "mode", "name": "Mode", "category": "mode", "type": "select", "currentValue": "build", "options": []any{
+					map[string]any{"group": "agents", "name": "Agents", "options": []any{
+						map[string]any{"value": "build", "name": "Build"},
+						map[string]any{"value": "plan", "name": "Plan"},
+					}},
+				}},
+			}
+		case "modes":
+			// The shape Gemini uses: a modes block and a models block.
+			res["modes"] = map[string]any{"currentModeId": "default", "availableModes": []any{
+				map[string]any{"id": "default", "name": "Default", "description": "Asks before it edits"},
+				map[string]any{"id": "yolo", "name": "YOLO"},
+			}}
+			res["models"] = map[string]any{"currentModelId": "gem-pro", "availableModels": []any{
+				map[string]any{"modelId": "gem-pro", "name": "Gem Pro"},
+				map[string]any{"modelId": "gem-flash", "name": "Gem Flash", "description": "Quick"},
+			}}
+		}
+		a.result(m.ID, res)
 	case m.Method == "session/cancel":
 		select {
 		case a.cancels <- struct{}{}:
 		default:
 		}
+	case m.Method != "" && len(m.ID) == 0:
+		// A notification the agent does not know is dropped, as the protocol says.
+	case m.Method != "" && m.Method != "session/prompt":
+		// A request it does not know. Every method that is not one of the cases
+		// above and below is unknown to it, as it is to a real agent that has not
+		// implemented it (set_mode, set_config_option, session/list, ...).
+		a.rpcError(m.ID, -32601, "method not found: "+m.Method)
 	case m.Method == "session/prompt":
 		if a.needsAuth("prompt") {
 			a.rpcError(m.ID, -32000, "Authentication required")
@@ -462,6 +510,26 @@ func (a *agent) prompt(id, params json.RawMessage, n int) {
 			map[string]any{"content": "Run tests", "priority": "medium", "status": "pending"},
 			map[string]any{"content": "Something odd", "priority": "urgent", "status": "paused"},
 		}})
+		done("end_turn")
+
+	case "state":
+		// The updates that carry session state, in the shapes agents send them,
+		// and a replayed user message.
+		a.update(sid, map[string]any{"sessionUpdate": "available_commands_update", "availableCommands": []any{
+			map[string]any{"name": "compact", "description": "Summarise the conversation"},
+			map[string]any{"name": "review", "description": "Review a change", "input": map[string]any{"hint": "branch or commit"}},
+		}})
+		a.update(sid, map[string]any{"sessionUpdate": "current_mode_update", "currentModeId": "yolo"})
+		a.update(sid, map[string]any{"sessionUpdate": "config_option_update", "configOptions": []any{
+			map[string]any{"id": "model", "name": "Model", "category": "model", "type": "select", "currentValue": "small", "options": []any{
+				map[string]any{"value": "big", "name": "Big"}, map[string]any{"value": "small", "name": "Small"}}},
+		}})
+		a.update(sid, map[string]any{"sessionUpdate": "session_info_update", "title": "Fix the parser", "updatedAt": "2026-10-27T09:00:00Z"})
+		a.update(sid, map[string]any{"sessionUpdate": "plan_update", "content": textBlock("1. Read the code\n2. Fix it")})
+		a.update(sid, map[string]any{"sessionUpdate": "user_message_chunk", "content": textBlock("echo of the prompt")})
+		a.update(sid, map[string]any{"sessionUpdate": "compaction", "status": "completed", "message": "Compacted 80 messages."})
+		a.update(sid, map[string]any{"sessionUpdate": "usage_update", "used": 90, "size": 1000})
+		a.chunk(sid, "state sent")
 		done("end_turn")
 
 	case "unknown":

@@ -250,6 +250,7 @@ type Client struct {
 	handlers      sync.WaitGroup
 	closed        bool
 	authMethods   []AuthMethod
+	caps          AgentCapabilities
 	errTail       []byte
 
 	loopDone   chan struct{} // the read loop has ended

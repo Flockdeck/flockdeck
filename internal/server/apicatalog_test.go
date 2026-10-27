@@ -27,7 +27,7 @@ const apiCatalogPath = "../../api/catalog.json"
 // command or message raises the major; one that adds raises the minor.
 const (
 	apiMajor = 1
-	apiMinor = 11
+	apiMinor = 12
 )
 
 // addedIn names the minor version a command arrived in; any other is 1.0.

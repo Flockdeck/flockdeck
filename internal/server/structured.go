@@ -44,6 +44,13 @@ const (
 	structuredCommandCut = 500
 	// structuredErrCut is how many characters the cleaned error keeps.
 	structuredErrCut = 200
+	// The session state: how many of each is sent, and the cut of each text.
+	structuredCommandsMax = 200
+	structuredChoicesMax  = 500
+	structuredConfigMax   = 32
+	structuredValuesMax   = 500
+	structuredDescCut     = 400
+	structuredMarkdownCut = 64 << 10
 	// maxStructuredWatches is how many panes may be watched at once, over all
 	// windows.
 	maxStructuredWatches = 16
@@ -98,6 +105,58 @@ type structuredSetup struct {
 	Fix     string `json:"fix,omitempty"`
 }
 
+// structuredCommand is one slash command the agent offers.
+type structuredCommandRow struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	Hint        string `json:"hint,omitempty"`
+}
+
+// structuredChoice is one mode or model on offer.
+type structuredChoice struct {
+	ID          string `json:"id"`
+	Name        string `json:"name,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
+// structuredChoices is a mode or model block: the current id and what is on
+// offer.
+type structuredChoices struct {
+	Current   string             `json:"current,omitempty"`
+	Available []structuredChoice `json:"available"`
+}
+
+type structuredConfigValue struct {
+	Value       string `json:"value"`
+	Name        string `json:"name,omitempty"`
+	Description string `json:"description,omitempty"`
+	Group       string `json:"group,omitempty"`
+}
+
+// structuredConfigOption is one setting the agent exposes (model, effort, mode).
+type structuredConfigOption struct {
+	ID          string                  `json:"id"`
+	Name        string                  `json:"name,omitempty"`
+	Description string                  `json:"description,omitempty"`
+	Category    string                  `json:"category,omitempty"`
+	Control     string                  `json:"type,omitempty"`
+	Current     string                  `json:"current"`
+	Values      []structuredConfigValue `json:"values"`
+}
+
+// structuredCapabilities is what the agent said it can do at initialize.
+type structuredCapabilities struct {
+	LoadSession     bool `json:"loadSession"`
+	Image           bool `json:"image"`
+	Audio           bool `json:"audio"`
+	EmbeddedContext bool `json:"embeddedContext"`
+	MCPHTTP         bool `json:"mcpHttp"`
+	MCPSSE          bool `json:"mcpSse"`
+	ListSessions    bool `json:"listSessions"`
+	ResumeSession   bool `json:"resumeSession"`
+	ForkSession     bool `json:"forkSession"`
+}
+
 // structuredMsg is what structuredSnapshot answers with and what a watching
 // window is pushed. Gone is the last message of a watch whose pane has closed.
 type structuredMsg struct {
@@ -115,6 +174,14 @@ type structuredMsg struct {
 	Plan     []structuredPlanRow `json:"plan"`
 	Card     *structuredCard     `json:"card,omitempty"`
 	Usage    structuredUsage     `json:"usage"`
+
+	Title        string                   `json:"title,omitempty"`
+	Commands     []structuredCommandRow   `json:"commands,omitempty"`
+	Modes        *structuredChoices       `json:"modes,omitempty"`
+	Models       *structuredChoices       `json:"models,omitempty"`
+	ConfigOpts   []structuredConfigOption `json:"configOptions,omitempty"`
+	PlanMarkdown string                   `json:"planMarkdown,omitempty"`
+	Capabilities *structuredCapabilities  `json:"capabilities,omitempty"`
 }
 
 // clipStructured makes s fit for a window and cuts it to at most max bytes. It
@@ -200,7 +267,86 @@ func buildStructured(id string, sn structured.Snapshot) structuredMsg {
 		m.Card = card
 	}
 
+	buildStructuredSession(&m, sn)
 	return m
+}
+
+// buildStructuredSession adds what the agent exposes for the session. It sends
+// nothing the agent did not offer, so a field is absent rather than empty.
+func buildStructuredSession(m *structuredMsg, sn structured.Snapshot) {
+	ss := sn.Session
+	m.Title, _ = clipLine(ss.Title, structuredCardCut)
+	m.PlanMarkdown, _ = clipStructured(ss.PlanMarkdown, structuredMarkdownCut)
+	for i, c := range ss.Commands {
+		if i == structuredCommandsMax {
+			break
+		}
+		row := structuredCommandRow{}
+		row.Name, _ = clipLine(c.Name, structuredCardCut)
+		row.Description, _ = clipLine(c.Description, structuredDescCut)
+		row.Hint, _ = clipLine(c.Hint, structuredCardCut)
+		m.Commands = append(m.Commands, row)
+	}
+	if b := ss.Modes; b != nil {
+		ch := &structuredChoices{Available: []structuredChoice{}}
+		ch.Current, _ = clipLine(b.Current, structuredCardCut)
+		for i, v := range b.Available {
+			if i == structuredChoicesMax {
+				break
+			}
+			c := structuredChoice{}
+			c.ID, _ = clipLine(v.ID, structuredCardCut)
+			c.Name, _ = clipLine(v.Name, structuredCardCut)
+			c.Description, _ = clipLine(v.Description, structuredDescCut)
+			ch.Available = append(ch.Available, c)
+		}
+		m.Modes = ch
+	}
+	if b := ss.Models; b != nil {
+		ch := &structuredChoices{Available: []structuredChoice{}}
+		ch.Current, _ = clipLine(b.Current, structuredCardCut)
+		for i, v := range b.Available {
+			if i == structuredChoicesMax {
+				break
+			}
+			c := structuredChoice{}
+			c.ID, _ = clipLine(v.ID, structuredCardCut)
+			c.Name, _ = clipLine(v.Name, structuredCardCut)
+			c.Description, _ = clipLine(v.Description, structuredDescCut)
+			ch.Available = append(ch.Available, c)
+		}
+		m.Models = ch
+	}
+	for i, o := range ss.ConfigOptions {
+		if i == structuredConfigMax {
+			break
+		}
+		kind, _ := clipLine(o.Type, 40)
+		opt := structuredConfigOption{Values: []structuredConfigValue{}, Control: kind}
+		opt.ID, _ = clipLine(o.ID, structuredCardCut)
+		opt.Name, _ = clipLine(o.Name, structuredCardCut)
+		opt.Description, _ = clipLine(o.Description, structuredDescCut)
+		opt.Category, _ = clipLine(o.Category, 40)
+		opt.Current, _ = clipLine(o.Current, structuredCardCut)
+		for j, v := range o.Values {
+			if j == structuredValuesMax {
+				break
+			}
+			val := structuredConfigValue{}
+			val.Value, _ = clipLine(v.Value, structuredCardCut)
+			val.Name, _ = clipLine(v.Name, structuredCardCut)
+			val.Description, _ = clipLine(v.Description, structuredDescCut)
+			val.Group, _ = clipLine(v.Group, structuredCardCut)
+			opt.Values = append(opt.Values, val)
+		}
+		m.ConfigOpts = append(m.ConfigOpts, opt)
+	}
+	if sn.Phase == structured.PhaseReady {
+		c := ss.Capabilities
+		m.Capabilities = &structuredCapabilities{LoadSession: c.LoadSession, Image: c.Prompt.Image, Audio: c.Prompt.Audio,
+			EmbeddedContext: c.Prompt.EmbeddedContext, MCPHTTP: c.MCP.HTTP, MCPSSE: c.MCP.SSE,
+			ListSessions: c.List, ResumeSession: c.Resume, ForkSession: c.Fork}
+	}
 }
 
 // structuredSnapshotOf is the state of the structured pane id for a window: the

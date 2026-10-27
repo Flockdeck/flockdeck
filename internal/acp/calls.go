@@ -285,10 +285,20 @@ func (c *Client) Initialize(ctx context.Context) (InitResult, error) {
 	if r.AuthMethods == nil {
 		r.AuthMethods = []AuthMethod{}
 	}
+	r.Capabilities = parseCapabilities(r.AgentCapabilities)
 	c.mu.Lock()
 	c.authMethods = r.AuthMethods
+	c.caps = r.Capabilities
 	c.mu.Unlock()
 	return r, nil
+}
+
+// Capabilities is what the agent said it can do at initialize. It is the zero
+// value until Initialize has succeeded.
+func (c *Client) Capabilities() AgentCapabilities {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.caps
 }
 
 // Authenticate asks the agent to authenticate with one of the methods it
@@ -298,29 +308,36 @@ func (c *Client) Authenticate(ctx context.Context, methodID string) error {
 	return c.call(ctx, "authenticate", map[string]any{"methodId": methodID}, nil)
 }
 
-// NewSession starts a session. cwd must be absolute. mcpServers may be nil.
-// If the agent has no login this returns an *AuthRequiredError (some agents
-// refuse here, others at the first prompt). It gives up after
-// Config.SetupTimeout.
+// NewSession starts a session and returns its id. See NewSessionInfo for the
+// rest of the reply.
 func (c *Client) NewSession(ctx context.Context, cwd string, mcpServers []MCPServer) (string, error) {
+	r, err := c.NewSessionInfo(ctx, cwd, mcpServers)
+	return r.SessionID, err
+}
+
+// NewSessionInfo starts a session. cwd must be absolute. mcpServers may be nil.
+// Besides the id it returns the modes, models and config options the agent
+// lists for the session; an agent that lists none leaves them empty. If the
+// agent has no login this returns an *AuthRequiredError (some agents refuse
+// here, others at the first prompt). It gives up after Config.SetupTimeout.
+func (c *Client) NewSessionInfo(ctx context.Context, cwd string, mcpServers []MCPServer) (SessionNew, error) {
 	if !filepath.IsAbs(cwd) {
-		return "", fmt.Errorf("acp: the session cwd %q is not absolute", cwd)
+		return SessionNew{}, fmt.Errorf("acp: the session cwd %q is not absolute", cwd)
 	}
 	if mcpServers == nil {
 		mcpServers = []MCPServer{}
 	}
 	ctx, cancel := c.setup(ctx)
 	defer cancel()
-	var r struct {
-		SessionID string `json:"sessionId"`
+	var raw json.RawMessage
+	if err := c.call(ctx, "session/new", map[string]any{"cwd": cwd, "mcpServers": mcpServers}, &raw); err != nil {
+		return SessionNew{}, err
 	}
-	if err := c.call(ctx, "session/new", map[string]any{"cwd": cwd, "mcpServers": mcpServers}, &r); err != nil {
-		return "", err
-	}
+	r := decodeSessionNew(raw)
 	if r.SessionID == "" {
-		return "", errors.New("acp: session/new returned no sessionId")
+		return SessionNew{}, errors.New("acp: session/new returned no sessionId")
 	}
-	return r.SessionID, nil
+	return r, nil
 }
 
 // Prompt sends one text prompt and blocks until the turn ends, returning the

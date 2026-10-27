@@ -21,8 +21,13 @@
 //   - Tool output is capped (transcript.ToolOutputCap) in the entry's summary
 //     and the full text is kept for Detail.
 //   - Unknown update kinds and content block types produce no entry and no
-//     error. Subagent, compaction and image entries are not produced: ACP gave
-//     nothing for them.
+//     error. Subagent and image entries are not produced: ACP gave nothing for
+//     them.
+//   - Session state is kept apart from the conversation (state.go): the slash
+//     commands, the mode, the models and config options, the markdown plan and
+//     the title. A compaction notice is a notice entry. A user_message_chunk
+//     outside a turn is a prompt entry (a replayed history); inside one it is
+//     the agent echoing the prompt TurnStart already recorded, and is ignored.
 //
 // Everything in the traffic comes from the agent and is treated as hostile: every
 // string is cleaned of control characters, ESC sequences and bidi marks and
@@ -179,6 +184,8 @@ type Bridge struct {
 	pending  []Card
 	plan     []acp.PlanEntry
 	usage    Usage
+	state    SessionState
+	seeded   seeded
 	detail   int
 	inline   int
 	dropped  int
@@ -559,6 +566,10 @@ func (b *Bridge) Update(u acp.Update) {
 		for _, p := range u.Plan[:n] {
 			b.plan = append(b.plan, acp.PlanEntry{Content: line(p.Content, labelCap), Priority: line(p.Priority, 40), Status: line(p.Status, 40)})
 		}
+	case acp.UpdateUserMessageChunk:
+		// Ignored. Our own prompt is recorded by TurnStart, the client never
+		// loads a session so there is no history to replay, and an entry made
+		// here would look like something the person typed.
 	case acp.UpdateUsage:
 		if u.Used != nil {
 			b.usage.Used = *u.Used
@@ -569,8 +580,10 @@ func (b *Bridge) Update(u acp.Update) {
 		if u.Cost != nil && !math.IsNaN(u.Cost.Amount) && !math.IsInf(u.Cost.Amount, 0) {
 			b.usage.Cost, b.usage.Currency = u.Cost.Amount, line(u.Cost.Currency, 16)
 		}
+	default:
+		// Session state, or a kind this bridge does not map, which is ignored.
+		b.sessionUpdate(u)
 	}
-	// Anything else is a kind this bridge does not map; it is ignored.
 	b.enforce()
 }
 
@@ -602,6 +615,11 @@ func (b *Bridge) chunk(u acp.Update, kind string) {
 	}
 	it.dirty = true
 	switch kind {
+	case transcript.KindPrompt:
+		if room := maxText - len(it.e.Text); room > 0 {
+			it.e.Text += capBytes(text, room)
+			b.reinline(it)
+		}
 	case transcript.KindReply:
 		if room := maxText - len(it.e.Markdown); room > 0 {
 			it.e.Markdown += capBytes(text, room)

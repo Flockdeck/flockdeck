@@ -21,6 +21,19 @@ func WithAuth(at string) Option {
 	return func(l *launch) { l.env = append(l.env, envAuth+"="+at) }
 }
 
+// WithConfigOptions makes session/new list a model and a mode as config options
+// and initialize claim the capabilities of a fuller agent, as opencode and Codex
+// do.
+func WithConfigOptions() Option {
+	return func(l *launch) { l.env = append(l.env, envShape+"=config") }
+}
+
+// WithModes makes session/new send a modes block and a models block, as Gemini
+// does, and initialize claim the capabilities of a fuller agent.
+func WithModes() Option {
+	return func(l *launch) { l.env = append(l.env, envShape+"=modes") }
+}
+
 // WithMarker makes the hold-perm scenario write the outcome it received to
 // path.
 func WithMarker(path string) Option {

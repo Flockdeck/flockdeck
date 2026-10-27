@@ -65,6 +65,14 @@ refused in the same words, so a window probing for ids learns nothing: the `team
 | `plan` | The agent's plan rows. |
 | `card` | The permission request that is open, with the agent's options. Answer it with `permissionAnswer`. |
 | `usage` | `used` and `size` of the context, and `cost` and `currency` when the agent reports one. |
+| `title` | The session's title, when the agent set one. |
+| `commands` | The slash commands the agent offers: `name`, and `description` and `hint` when it gave them. |
+| `modes`, `models` | The `current` id and the `available` choices (`id`, `name`, `description`) of the block the agent sent with `session/new` (Gemini sends both). Absent when it sent none. If the agent sends a `current_mode_update` before any modes block, `modes` has the `current` id and an empty `available`. |
+| `configOptions` | The settings the agent exposes (opencode and Codex: model, effort, mode): `id`, `name`, `category`, `type`, the `current` value as text and the `values` it can take (`value`, `name`, `description`, `group`). |
+| `planMarkdown` | A plan the agent sent as markdown (Codex `plan_update`). `plan` holds rows. A pane can have either. The markdown may contain remote images or links, so a window must not load images automatically. |
+| `capabilities` | What the agent said it can do at initialize, while the phase is `ready`: `loadSession`, `image`, `audio`, `embeddedContext`, `mcpHttp`, `mcpSse`, `listSessions`, `resumeSession`, `forkSession`. |
+
+The session fields (`title`, `commands`, `modes`, `models`, `configOptions`, `planMarkdown`, `capabilities`) came with API 1.12, and a server that names `structuredSession` in its `caps` sends them. Agents differ in what they offer: opencode and Codex put the model, effort and mode in `configOptions`; Gemini sends `modes` and `models` and no config options. A window draws whatever is present and treats an absent field as "the agent offers none". The set of values for `configOptions` is the agent's and changes mid-session (a `config_option_update` replaces the whole list), so a window reads the current list each time instead of caching it. Changing a mode, model or setting is not a command yet.
 
 Every text in the message is untrusted: it is what the agent, a tool or a
 file said. Draw it as plain text or as sanitised markdown, never as HTML. A card or a plan
@@ -106,6 +114,10 @@ push, they are for a window on this machine; a window through the relay is refus
 | Pushes of a watched pane | At most one every 500 milliseconds. A change inside the gap is sent when it is up. The reply to `structuredWatch` counts as a push. |
 | Pushes with no change | None. A push identical to the last one sent to the window is not sent. A window whose queue was full is sent it again. |
 | Plan | 100 rows, each cut to 200 bytes. |
+| Commands | 200, with the description cut to 400 bytes. |
+| Modes and models | 500 choices each. |
+| Config options | 32 options of at most 500 values each, with descriptions cut to 400 bytes. |
+| `planMarkdown` | 64 KiB. |
 | Permission card | 300 bytes for each field, 500 for the command, and the agent's options with 100 bytes for each field. |
 | `err` | 200 characters. |
 | `conversationDetail` text and diff | 64 KiB each. |
