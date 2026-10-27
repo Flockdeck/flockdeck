@@ -26,6 +26,7 @@ import { useEffect, useRef, useState } from "../vendor/hooks.mjs";
 import { isViewer, VIEWER_WORDS } from "../lib/role.js";
 import { html } from "../html.js";
 import { clip } from "../graph/Node.js";
+import { showControls } from "./diff/diffModel.js";
 import { shownName } from "../graph/model.js";
 import { ManagerBar } from "../graph/ManagerBar.js";
 
@@ -152,7 +153,8 @@ function TerminalPermission({ permission, sendKeys, waitMs = ANSWER_WAIT_MS, vie
           ${options.map((o) => html`<button type="button" class=${"prompt-choice prompt-choice--" + String(o.kind || "")} data-option=${o.id} disabled=${!!sent || viewer} onClick=${() => choose(o)}>${clip(o.name || o.id, 80)}</button>`)}
         </div>`
       : html`<p class="prompt-more">${IN_TERMINAL_WORDS}</p>`}
-    <p class=${"prompt-status" + (note ? " prompt-status--error" : "")} role=${note ? "alert" : "status"}>${viewer ? VIEWER_WORDS : sent ? (sent.written ? "Sent “" + clip(sent.name, 80) + "”. Waiting for the agent." : "Sending “" + clip(sent.name, 80) + "”…") : note}</p>
+    <p key="status" class="prompt-status" role="status">${viewer ? VIEWER_WORDS : sent ? (sent.written ? "Sent “" + clip(sent.name, 80) + "”. Waiting for the agent." : "Sending “" + clip(sent.name, 80) + "”…") : ""}</p>
+    ${!viewer && !sent && note ? html`<p key="refused" class="prompt-status prompt-status--error" role="alert">${note}</p>` : null}
   `;
 }
 
@@ -170,7 +172,7 @@ export function PermissionCard({ node, card, snap, store, tail = null, tabIndex 
   const asked = k && k.id === node.pane && k.cardSeq === card.seq && k.requestId === card.requestId ? k : null;
   const mine = a && a.id === node.pane && a.cardSeq === card.seq && a.requestId === card.requestId ? a : null;
   const reply = mine && (!asked || mine.seq > asked.after) ? mine : null;
-  const refused = reply && !reply.ok && reply.error ? String(reply.error) : "";
+  const refused = reply && !reply.ok && reply.error ? showControls(clip(String(reply.error), 300)) : "";
   const done = !!asked && !refused;
   const options = Array.isArray(card.options) ? card.options.filter((o) => o && typeof o.id === "string") : [];
   const answer = (opt) => {
@@ -190,7 +192,8 @@ export function PermissionCard({ node, card, snap, store, tail = null, tabIndex 
       : html`<div class="prompt-choices" role="group" aria-label="Choices">
           ${options.map((o) => html`<button type="button" class=${"prompt-choice prompt-choice--" + String(o.kind || "")} data-option=${o.id} data-kind=${o.kind || ""} tabindex=${tabIndex} disabled=${done} onClick=${() => answer(o)}>${clip(o.name || o.id, 80)}</button>`)}${tail}
         </div>`}
-    <p class=${"prompt-status" + (refused || note ? " prompt-status--error" : "")} role=${refused || note ? "alert" : "status"}>${says}</p>
+    <p key="status" class="prompt-status" role="status">${refused || note ? "" : says}</p>
+    ${refused || note ? html`<p key="refused" class="prompt-status prompt-status--error" role="alert">${refused || note}</p>` : null}
   `;
 }
 
@@ -244,7 +247,7 @@ export function Prompt({ node, pane = null, snap, store, sendKeys, terminal = tr
       id = idOf("sp", pane.permission.tool, pane.permission.command, pane.permission.file);
       title = "Permission: " + (pane.permission.tool || "tool");
       body = html`<${PermissionBody} permission=${pane.permission} />
-        <p class="prompt-status" role="status">${snap.remote ? DESK_WORDS : snap.structuredError ? "The request could not be loaded: " + clip(snap.structuredError.error, 200) : "Loading the request…"}</p>`;
+        <p class="prompt-status" role="status">${snap.remote ? DESK_WORDS : snap.structuredError ? "The request could not be loaded: " + showControls(clip(snap.structuredError.error, 200)) : "Loading the request…"}</p>`;
     }
   } else if (kind === "permission") {
     const p = pane.permission;

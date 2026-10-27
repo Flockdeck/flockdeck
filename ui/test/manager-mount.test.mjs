@@ -51,30 +51,36 @@ async function mount() {
 
 test("there is no bar until the graph of the project has been read", async () => {
   const m = await mount();
-  assert.equal(m.container.find(".mbar"), null);
-  await m.connect();
-  await m.push(stateMsg());
-  assert.equal(m.container.find(".mbar"), null, "the bar was drawn while the graph was being read");
-  assert.match(m.top().textContent, /alpha/, "the strip lost its title");
-  await m.push(fixture(F1));
-  assert.ok(m.container.find(".composer").find(".mbar"), "no bar in the bottom bar");
-  m.done();
+  try {
+    assert.equal(m.container.find(".mbar"), null);
+    await m.connect();
+    await m.push(stateMsg());
+    assert.equal(m.container.find(".mbar"), null, "the bar was drawn while the graph was being read");
+    assert.match(m.top().textContent, /alpha/, "the strip lost its title");
+    await m.push(fixture(F1));
+    assert.ok(m.container.find(".composer").find(".mbar"), "no bar in the bottom bar");
+  } finally {
+    m.done();
+  }
 });
 
 test("text typed in the bar goes out as paneSend to the manager's id, exactly", async () => {
   const m = await mount();
-  await m.connect();
-  await m.push(stateMsg());
-  await m.push(fixture(F1));
-  const text = "  /status then !ls  ";
-  m.input().enter(text);
-  await settle();
-  m.input().keydown("Enter");
-  await settle();
-  assert.deepEqual(m.sends().map(({ req, ...c }) => c), [{ cmd: "paneSend", id: MANAGER, text }]);
-  await m.push({ type: "paneSend", id: MANAGER, queued: true, shell: false });
-  assert.equal(m.status(), "Sent. The manager reads it when its turn ends.");
-  m.done();
+  try {
+    await m.connect();
+    await m.push(stateMsg());
+    await m.push(fixture(F1));
+    const text = "  /status then !ls  ";
+    m.input().enter(text);
+    await settle();
+    m.input().keydown("Enter");
+    await settle();
+    assert.deepEqual(m.sends().map(({ req, ...c }) => c), [{ cmd: "paneSend", id: MANAGER, text }]);
+    await m.push({ type: "paneSend", id: MANAGER, queued: true, shell: false });
+    assert.equal(m.status(), "Sent. The manager reads it when its turn ends.");
+  } finally {
+    m.done();
+  }
 });
 
 test("each refusal of the desk shows as its notice", async () => {
@@ -87,157 +93,184 @@ test("each refusal of the desk shows as its notice", async () => {
     "That pane already has as many prompts waiting as it takes, so the text was not sent. Try again when it has worked through them",
   ];
   const m = await mount();
-  await m.connect();
-  await m.push(stateMsg());
-  await m.push(fixture(F1));
-  for (const words of refusals) {
-    m.input().enter("go");
+  try {
+    await m.connect();
+    await m.push(stateMsg());
+    await m.push(fixture(F1));
+    for (const words of refusals) {
+      m.input().enter("go");
+      await settle();
+      m.input().keydown("Enter");
+      await settle();
+      await m.push({ type: "notice", text: words, error: true });
+      assert.equal(m.status(), words);
+    }
+    assert.equal(m.sends().length, refusals.length);
+    // The desk's wording for an empty text, stopped in the page.
+    m.input().enter("   ");
     await settle();
     m.input().keydown("Enter");
     await settle();
-    await m.push({ type: "notice", text: words, error: true });
-    assert.equal(m.status(), words);
+    assert.equal(m.status(), EMPTY_WORDS);
+    assert.equal(m.sends().length, refusals.length);
+  } finally {
+    m.done();
   }
-  assert.equal(m.sends().length, refusals.length);
-  // The desk's wording for an empty text, stopped in the page.
-  m.input().enter("   ");
-  await settle();
-  m.input().keydown("Enter");
-  await settle();
-  assert.equal(m.status(), EMPTY_WORDS);
-  assert.equal(m.sends().length, refusals.length);
-  m.done();
 });
 
 test("the bar is the default place the keyboard goes, once the graph names a manager", async () => {
   const m = await mount();
-  await m.connect();
-  await m.push(stateMsg());
-  assert.notEqual(m.dom.document.activeElement, m.input());
-  await m.push(fixture(F1));
-  assert.equal(m.dom.document.activeElement, m.input());
-  // A later push does not take it back.
-  m.input().blur();
-  await m.push(fixture(F1));
-  assert.notEqual(m.dom.document.activeElement, m.input());
-  m.done();
+  try {
+    await m.connect();
+    await m.push(stateMsg());
+    assert.notEqual(m.dom.document.activeElement, m.input());
+    await m.push(fixture(F1));
+    assert.equal(m.dom.document.activeElement, m.input());
+    // A later push does not take it back.
+    m.input().blur();
+    await m.push(fixture(F1));
+    assert.notEqual(m.dom.document.activeElement, m.input());
+  } finally {
+    m.done();
+  }
 });
 
 test("the region keys still move the keyboard from the bar to the rail and the main area", async () => {
   const m = await mount();
-  await m.connect({ keys: fakeKeys });
-  await m.push(stateMsg());
-  await m.push(fixture(F1));
-  assert.equal(m.dom.document.activeElement, m.input());
-  const f6 = () => m.dom.window.dispatch("keydown", { key: "F6", ctrlKey: false, shiftKey: false, altKey: false });
-  f6();
-  await settle();
-  const rail = m.container.find(".rail");
-  assert.ok(rail.contains(m.dom.document.activeElement), "F6 from the bar did not reach the rail");
-  f6();
-  await settle();
-  assert.equal(m.dom.document.activeElement, m.container.find(".main"), "the second F6 did not reach the main area");
-  m.done();
+  try {
+    await m.connect({ keys: fakeKeys });
+    await m.push(stateMsg());
+    await m.push(fixture(F1));
+    assert.equal(m.dom.document.activeElement, m.input());
+    const f6 = () => m.dom.window.dispatch("keydown", { key: "F6", ctrlKey: false, shiftKey: false, altKey: false });
+    f6();
+    await settle();
+    const rail = m.container.find(".rail");
+    assert.ok(rail.contains(m.dom.document.activeElement), "F6 from the bar did not reach the rail");
+    f6();
+    await settle();
+    assert.equal(m.dom.document.activeElement, m.container.find(".main"), "the second F6 did not reach the main area");
+  } finally {
+    m.done();
+  }
 });
 
 test("a project with no manager has no bottom bar at all", async () => {
   const m = await mount();
-  await m.connect();
-  await m.push(stateMsg());
-  await m.push(solo("/work/a"));
-  assert.equal(m.container.find(".mbar"), null);
-  assert.equal(m.container.find(".composer"), null, "no empty strip either");
-  assert.equal(m.sends().length, 0);
-  m.done();
+  try {
+    await m.connect();
+    await m.push(stateMsg());
+    await m.push(solo("/work/a"));
+    assert.equal(m.container.find(".mbar"), null);
+    assert.equal(m.container.find(".composer"), null, "no empty strip either");
+    assert.equal(m.sends().length, 0);
+  } finally {
+    m.done();
+  }
 });
 
 test("changing project drops the bar until the new project's graph is read, and it then sends to the new manager", async () => {
   const m = await mount();
-  await m.connect();
-  await m.push(stateMsg());
-  await m.push(fixture(F1));
-  const rail = m.container.findAll("button").find((b) => b.attributes["data-root"] === "/work/b");
-  rail.click();
-  await settle();
-  assert.equal(m.container.find(".mbar"), null);
-  // The old project's push, still in flight, does not bring it back.
-  await m.push(fixture(F1, "/work/a"));
-  assert.equal(m.container.find(".mbar"), null);
-  const b = fixture("02-eight-helpers-permission-and-question", "/work/b");
-  await m.push(b);
-  m.input().enter("hi");
-  await settle();
-  m.input().keydown("Enter");
-  await settle();
-  assert.deepEqual(m.sends().map((c) => c.id), [b.teams[0].manager]);
-  m.done();
+  try {
+    await m.connect();
+    await m.push(stateMsg());
+    await m.push(fixture(F1));
+    const rail = m.container.findAll("button").find((b) => b.attributes["data-root"] === "/work/b");
+    rail.click();
+    await settle();
+    assert.equal(m.container.find(".mbar"), null);
+    // The old project's push, still in flight, does not bring it back.
+    await m.push(fixture(F1, "/work/a"));
+    assert.equal(m.container.find(".mbar"), null);
+    const b = fixture("02-eight-helpers-permission-and-question", "/work/b");
+    await m.push(b);
+    m.input().enter("hi");
+    await settle();
+    m.input().keydown("Enter");
+    await settle();
+    assert.deepEqual(m.sends().map((c) => c.id), [b.teams[0].manager]);
+  } finally {
+    m.done();
+  }
 });
 
 test("a project that can no longer be read has no bar", async () => {
   const m = await mount();
-  await m.connect();
-  await m.push(stateMsg());
-  await m.push(fixture(F1));
-  await m.push({ type: "teamGone", root: "/work/a", error: "gone" });
-  assert.equal(m.container.find(".mbar"), null);
-  m.done();
+  try {
+    await m.connect();
+    await m.push(stateMsg());
+    await m.push(fixture(F1));
+    await m.push({ type: "teamGone", root: "/work/a", error: "gone" });
+    assert.equal(m.container.find(".mbar"), null);
+  } finally {
+    m.done();
+  }
 });
 
 test("a window through the relay shows no bar and sends no paneSend", async () => {
   const m = await mount();
-  await m.connect({ remote: true });
-  await m.push(stateMsg());
-  await m.push(fixture(F1));
-  assert.equal(m.container.find(".mbar"), null);
-  assert.match(m.top().textContent, /alpha/);
-  assert.equal(m.sends().length, 0);
-  m.done();
+  try {
+    await m.connect({ remote: true });
+    await m.push(stateMsg());
+    await m.push(fixture(F1));
+    assert.equal(m.container.find(".mbar"), null);
+    assert.match(m.top().textContent, /alpha/);
+    assert.equal(m.sends().length, 0);
+  } finally {
+    m.done();
+  }
 });
 
 test("after a switch the bar is never drawn with the old project's manager, even for one frame", async () => {
   const m = await mount();
-  await m.connect();
-  await m.push(stateMsg());
-  await m.push(fixture(F1));
-  assert.ok(m.input());
-  // Every commit of the bar, with the props it was given. A commit with the
-  // props it had before is Preact skipping an unchanged bar, not a new draw.
-  const drawn = [];
-  const before = options.diffed;
-  let known = null;
-  options.diffed = (vnode) => {
-    if (vnode.type === ManagerBar) drawn.push(vnode.props);
-    if (before) before(vnode);
-  };
   try {
+    await m.connect();
+    await m.push(stateMsg());
     await m.push(fixture(F1));
-    known = drawn[drawn.length - 1];
-    drawn.length = 0;
-    const rail = m.container.findAll("button").find((b) => b.attributes["data-root"] === "/work/b");
-    rail.click();
-    await settle();
+    assert.ok(m.input());
+    // Every commit of the bar, with the props it was given. A commit with the
+    // props it had before is Preact skipping an unchanged bar, not a new draw.
+    const drawn = [];
+    const before = options.diffed;
+    let known = null;
+    options.diffed = (vnode) => {
+      if (vnode.type === ManagerBar) drawn.push(vnode.props);
+      if (before) before(vnode);
+    };
+    try {
+      await m.push(fixture(F1));
+      known = drawn[drawn.length - 1];
+      drawn.length = 0;
+      const rail = m.container.findAll("button").find((b) => b.attributes["data-root"] === "/work/b");
+      rail.click();
+      await settle();
+    } finally {
+      options.diffed = before;
+    }
+    const fresh = drawn.filter((p) => p !== known).map((p) => p.manager && p.manager.pane);
+    assert.ok(!fresh.includes(MANAGER), "the bar was drawn for project B with project A's manager");
+    assert.equal(m.container.find(".mbar"), null);
   } finally {
-    options.diffed = before;
+    m.done();
   }
-  const fresh = drawn.filter((p) => p !== known).map((p) => p.manager && p.manager.pane);
-  assert.ok(!fresh.includes(MANAGER), "the bar was drawn for project B with project A's manager");
-  assert.equal(m.container.find(".mbar"), null);
-  m.done();
 });
 
 test("the box keeps the keyboard while a send is open", async () => {
   const m = await mount();
-  await m.connect();
-  await m.push(stateMsg());
-  await m.push(fixture(F1));
-  m.input().enter("hi");
-  await settle();
-  m.input().keydown("Enter");
-  await settle();
-  assert.equal(m.sends().length, 1);
-  assert.equal(m.dom.document.activeElement, m.input());
-  // A browser drops the keyboard from a focused input that becomes disabled (the
-  // fake document does not), so the box must be read-only, not disabled.
-  assert.equal(m.input().attributes.disabled, undefined, "the box was disabled while a send was open");
-  m.done();
+  try {
+    await m.connect();
+    await m.push(stateMsg());
+    await m.push(fixture(F1));
+    m.input().enter("hi");
+    await settle();
+    m.input().keydown("Enter");
+    await settle();
+    assert.equal(m.sends().length, 1);
+    assert.equal(m.dom.document.activeElement, m.input());
+    // A browser drops the keyboard from a focused input that becomes disabled (the
+    // fake document does not), so the box must be read-only, not disabled.
+    assert.equal(m.input().attributes.disabled, undefined, "the box was disabled while a send was open");
+  } finally {
+    m.done();
+  }
 });

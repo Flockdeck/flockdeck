@@ -410,3 +410,12 @@ test("a refusal is a new alert, not the status line turned into one, and its wor
     assert.equal(status.attributes.role, "status");
     assert.match(alert.textContent, /gone <U\+202E>txet/);
   }));
+
+test("while a refusal shows, the status line is empty, so the words are announced once", () =>
+  withBar(async (a) => {
+    await a.type("hello");
+    await a.submit();
+    await a.frame({ type: "notice", text: "gone for now", error: true });
+    assert.equal(a.container.find(".mbar-status--error").textContent, "gone for now");
+    assert.equal(a.container.find(".mbar-status").textContent, "", "the words are in the status line too, and would be announced twice");
+  }));
