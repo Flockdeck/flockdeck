@@ -434,7 +434,7 @@ func (a *agent) prompt(id, params json.RawMessage, n int) {
 	// last block is the message body and says what to do, the first only names the
 	// sender.
 	if len(blocks) > 1 && strings.HasPrefix(ask, "Flockdeck message from") {
-		ask = blocks[len(blocks)-1]
+		ask = strings.TrimPrefix(blocks[len(blocks)-1], "Text of the message: ")
 	}
 	word, _, _ := strings.Cut(ask, " ")
 	done := func(reason string) { a.result(id, map[string]any{"stopReason": reason}) }

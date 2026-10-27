@@ -188,3 +188,26 @@ func TestTaggedPromptsFillTheQueueAndStopAtItsBound(t *testing.T) {
 		t.Errorf("past the bound: %v", err)
 	}
 }
+
+// A turn ended by Cancel is reported as asked; one that ends by itself is not.
+func TestAskedMarksOnlyATurnCancelWasCalledDuring(t *testing.T) {
+	var l turnLog
+	r := begin(t, taggedOptions(t, &l))
+	if err := r.SendTagged(1, "plain"); err != nil {
+		t.Fatal(err)
+	}
+	if e := l.waitFor(t, TurnEnded, 1); e.Asked {
+		t.Errorf("a turn nobody cancelled is asked: %+v", e)
+	}
+	if err := r.SendTagged(2, "slow"); err != nil {
+		t.Fatal(err)
+	}
+	until(t, r, "the turn to run", func(s Snapshot) bool { return strings.Contains(replies(s), "working...") })
+	if err := r.Cancel(); err != nil {
+		t.Fatal(err)
+	}
+	e := l.waitFor(t, TurnEnded, 2)
+	if !e.Asked || e.Stop != "cancelled" {
+		t.Errorf("event = %+v", e)
+	}
+}

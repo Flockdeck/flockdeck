@@ -385,16 +385,3 @@ func TestDeliveryEventsCarryTheStopReasonAndAttempt(t *testing.T) {
 		t.Errorf("first delivery attempt = %d", events[1].Attempt)
 	}
 }
-
-// Unread counts the prompt route by delivery and the terminal route by read.
-func TestUnreadMeansNotDeliveredOnThePromptRoute(t *testing.T) {
-	s, _ := promptStore()
-	m := sendTo(t, s, "p2", "hi")
-	if len(s.List("p2", false)) != 1 || s.NewestUnread("p2") != m.ID {
-		t.Fatal("a queued prompt message is not unread")
-	}
-	s.Deliver("p2", m.ID)
-	if len(s.List("p2", false)) != 0 || s.NewestUnread("p2") != 0 {
-		t.Error("a delivered prompt message is still unread")
-	}
-}

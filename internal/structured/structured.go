@@ -207,6 +207,9 @@ type TurnEvent struct {
 	Tag  int
 	// Stop is the stop reason of a TurnEnded, as the agent sent it.
 	Stop string
+	// Asked is set on a TurnEnded when Cancel was called while the turn ran, so
+	// the stop was asked for and did not happen by itself.
+	Asked bool
 }
 
 // AuthMethod is a way of signing in that the agent listed.
@@ -280,6 +283,9 @@ type Runtime struct {
 	err     string
 	agentNm string
 	queue   []queued
+	// inTurn says a prompt is with the agent, and asked that Cancel was called
+	// during it.
+	inTurn, asked bool
 	closed  bool
 	client  *acp.Client
 	session string
@@ -426,6 +432,9 @@ func (r *Runtime) send(tag int, blocks ...string) error {
 func (r *Runtime) Cancel() error {
 	r.mu.Lock()
 	c, sid, phase := r.client, r.session, r.phase
+	if r.inTurn {
+		r.asked = true
+	}
 	dropped := r.dropQueueLocked()
 	r.mu.Unlock()
 	r.lose(dropped)
@@ -964,10 +973,17 @@ func (r *Runtime) loop() {
 				return
 			}
 		}
+		r.mu.Lock()
+		r.inTurn, r.asked = true, false
+		r.mu.Unlock()
 		r.br.TurnStart(strings.Join(q.blocks, "\n"))
 		r.notify()
 		r.turnEvent(TurnEvent{What: TurnBegan, Tag: q.tag})
 		stop, err := c.PromptBlocks(r.ctx, r.session, q.blocks...)
+		r.mu.Lock()
+		asked := r.asked
+		r.inTurn, r.asked = false, false
+		r.mu.Unlock()
 		if err != nil {
 			r.turnEvent(TurnEvent{What: TurnLost, Tag: q.tag})
 			if r.ctx.Err() != nil {
@@ -991,7 +1007,7 @@ func (r *Runtime) loop() {
 			return
 		}
 		r.br.TurnEnd(stop)
-		r.turnEvent(TurnEvent{What: TurnEnded, Tag: q.tag, Stop: stop})
+		r.turnEvent(TurnEvent{What: TurnEnded, Tag: q.tag, Stop: stop, Asked: asked})
 		r.notify()
 	}
 }

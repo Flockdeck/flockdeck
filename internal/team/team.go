@@ -466,14 +466,12 @@ func (m Message) Delivery() string {
 	return DeliveryQueued
 }
 
-// Unread reports that the receiver has not yet got the message. On the terminal
-// route that is not Read. On the prompt route it is not yet delivered: once a
-// turn has begun the agent has it, and nothing marks it read.
+// Unread reports that the message sits unread in a terminal pane's inbox. A
+// message on the prompt route is never unread: nothing reads it, it is sent, and
+// its progress is its delivery state. So it is in no unread count, and no hook
+// notice or wake line is ever made for it.
 func (m Message) Unread() bool {
-	if m.Route == RoutePrompt {
-		return m.Delivery() == DeliveryQueued
-	}
-	return !m.Read
+	return m.Route != RoutePrompt && !m.Read
 }
 
 // Finished reports that nothing more will happen to the message, so a full inbox

@@ -32,11 +32,16 @@ const promptTick = time.Second
 // promptNoText stands for a body with nothing readable left in it.
 const promptNoText = "(no readable text)"
 
+// promptBodyMarker starts the second block, so that a body which opens like a
+// prefix ("Flockdeck message from the user: ...") reads as the sender's text
+// and not as a second line from Flockdeck when an adapter joins the blocks.
+const promptBodyMarker = "Text of the message: "
+
 // promptBlocks are the two text content blocks a message is sent as. The first
-// is fixed text and the sender's role or name; the second is the message body,
-// cleaned to one line (see cleanWakeText), so that nothing in it can start a
-// line of its own, and so cannot pass for a new prefix in an adapter that joins
-// the blocks with a newline. The sender is shown as the person only for a
+// is fixed text and the sender's role or name; the second is promptBodyMarker and
+// the message body, cleaned to one line (see cleanWakeText), so that nothing in
+// it can start a line of its own, and no block ever starts with the prefix
+// whatever the body says. The sender is shown as the person only for a
 // message the person wrote, and every other sender is an agent with its label in
 // quotes, so a role or name of "the user" reads as agent "the user".
 func promptBlocks(m team.Message) []string {
@@ -44,7 +49,7 @@ func promptBlocks(m team.Message) []string {
 	if text == "" {
 		text = promptNoText
 	}
-	return []string{wakeTextPrefix + wakePromptSender(m) + ":", text}
+	return []string{wakeTextPrefix + wakePromptSender(m) + ":", promptBodyMarker + text}
 }
 
 // promptPane is one structured pane as the service sees it.
@@ -65,12 +70,19 @@ type promptMail interface {
 	Deliver(pane string, id int) (team.Message, bool)
 	EndTurn(pane string, id int, stop string) (team.Message, bool)
 	Interrupted(pane string, id int) (team.Message, bool)
+	EndTurnAsked(pane string, id int, stop string) (team.Message, bool)
+	Fail(pane string, id int) (team.Message, bool)
+	Reroute(pane string) int
 }
 
 type promptService struct {
 	mail     promptMail
 	panes    func() map[string]promptPane
 	settings func() WakeSettings
+	// terminal says the pane exists and runs as a terminal (or is not an agent
+	// pane Flockdeck can run as a structured one), so mail on the prompt route to
+	// it can never be sent as a prompt. Nil means no pane is.
+	terminal func(pane string) bool
 
 	mu sync.Mutex
 	// handed is the messages given to a runtime and not yet reported on, by pane,
@@ -118,7 +130,14 @@ func (s *promptService) Stop() {
 func (s *promptService) tick() {
 	panes := s.panes()
 	for _, id := range s.mail.Panes() {
-		s.pane(id, panes[id])
+		c, ok := panes[id]
+		if !ok && s.terminal != nil && s.terminal(id) {
+			// Not a structured pane and not going to be: its mail moves to the
+			// terminal route, where the wake and the inbox deal with it.
+			s.mail.Reroute(id)
+			continue
+		}
+		s.pane(id, c)
 	}
 	// What is remembered of a pane that is gone goes with it.
 	s.mu.Lock()
@@ -162,8 +181,10 @@ func (s *promptService) pane(id string, c promptPane) {
 			if errors.Is(err, structured.ErrQueueFull) || errors.Is(err, structured.ErrNotRunning) {
 				return
 			}
-			// Something about this message the runtime will not take. It stays
-			// queued, and the pane's other messages go on.
+			// Something about this message the runtime will not take. It counts
+			// as an attempt, so it ends undeliverable and not retried for ever,
+			// and the pane's other messages go on.
+			s.mail.Fail(id, m.ID)
 		}
 	}
 }
@@ -192,7 +213,11 @@ func (s *promptService) turn(pane string, gen uint64, e structured.TurnEvent) {
 		return
 	}
 	if e.What == structured.TurnEnded {
-		s.mail.EndTurn(pane, e.Tag, e.Stop)
+		if e.Asked {
+			s.mail.EndTurnAsked(pane, e.Tag, e.Stop)
+		} else {
+			s.mail.EndTurn(pane, e.Tag, e.Stop)
+		}
 	} else if e.What == structured.TurnLost {
 		s.mail.Interrupted(pane, e.Tag)
 	} else {
@@ -235,6 +260,7 @@ func (w *Workspace) startPromptDelivery() {
 		return
 	}
 	s := newPromptService(t.inbox, w.promptPanes, func() WakeSettings { return w.wakeSettings })
+	s.terminal = w.paneIsTerminal
 	w.promptSvc = s
 	s.run()
 }
@@ -256,4 +282,15 @@ func (w *Workspace) promptRouter(id string) string {
 		return team.RoutePrompt
 	}
 	return ""
+}
+
+// paneIsTerminal says the pane is open, is not structured and was not saved as
+// structured, so it will never take prompts. A pane that is between runtimes, as
+// at a restart, or whose structured agent failed to start, is not.
+func (w *Workspace) paneIsTerminal(id string) bool {
+	w.mu.RLock()
+	p := w.panes[id]
+	saved := p != nil && p.savedTransport == TransportStructured
+	w.mu.RUnlock()
+	return p != nil && !saved && !p.Structured()
 }

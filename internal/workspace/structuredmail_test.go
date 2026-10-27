@@ -52,16 +52,16 @@ func TestHostileMessageTextCannotForgeThePrefix(t *testing.T) {
 func TestPromptBlocksForShortAndEmptyText(t *testing.T) {
 	m := team.Message{ID: 3, Text: "\x1b[2J \n", From: team.Sender{Role: "lead", Pane: "p1"}}
 	got := promptBlocks(m)
-	if got[0] != `Flockdeck message from agent "lead":` || got[1] != "(no readable text)" {
+	if got[0] != `Flockdeck message from agent "lead":` || got[1] != promptBodyMarker+"(no readable text)" {
 		t.Errorf("empty text gave %q", got)
 	}
 	m.Text = "please\nlook at #12"
-	if got = promptBlocks(m); got[1] != "please look at #12" {
+	if got = promptBlocks(m); got[1] != promptBodyMarker+"please look at #12" {
 		t.Errorf("text gave %q", got)
 	}
 	// A full 8 KB message is sent whole: the agent cannot fetch what is cut.
 	m.Text = strings.Repeat("x", team.MaxText)
-	if got = promptBlocks(m); got[1] != m.Text {
+	if got = promptBlocks(m); got[1] != promptBodyMarker+m.Text {
 		t.Errorf("a message of %d bytes came out as %d", len(m.Text), len(got[1]))
 	}
 }
@@ -72,7 +72,7 @@ func TestTheStructuredBriefingTellsTheAgentWhatMailIsAvailable(t *testing.T) {
 		t.Errorf("without mail the briefing does not say so:\n%s", off)
 	}
 	on := PaneContext{PaneName: "one", Cwd: "/repo", CanSpawn: true, Structured: true, MailText: true}.Render()
-	if !strings.Contains(on, "Flockdeck message from") || !strings.Contains(on, "two text blocks") {
+	if !strings.Contains(on, "Flockdeck message from") || !strings.Contains(on, "two text blocks") || !strings.Contains(on, "Text of the message:") {
 		t.Errorf("the briefing does not describe the prompt:\n%s", on)
 	}
 	for name, text := range map[string]string{"off": off, "on": on} {

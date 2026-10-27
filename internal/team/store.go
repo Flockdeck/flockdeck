@@ -210,6 +210,13 @@ func (s *Store) Read(pane string, id int) (Message, error) {
 		if box[i].ID != id {
 			continue
 		}
+		if box[i].Route == RoutePrompt {
+			// Read means something only for a terminal pane. A message sent as a
+			// prompt is returned as it is, with no mark and no event.
+			m := box[i]
+			s.mu.Unlock()
+			return m, nil
+		}
 		changed := !box[i].Read
 		box[i].Read = true
 		stamped := box[i].ReadAt.IsZero() && changed
@@ -485,6 +492,65 @@ func (s *Store) Deliver(pane string, id int) (Message, bool) {
 func (s *Store) EndTurn(pane string, id int, stop string) (Message, bool) {
 	reason, handled := Outcome(stop)
 	return s.end(pane, id, reason, handled)
+}
+
+// EndTurnAsked is EndTurn for a turn that ended because the person asked for it
+// to stop. A cancelled stop reason then counts as handled, with the reason kept:
+// the person chose to stop it, and sending the message again would undo that.
+// Any other stop reason is judged as EndTurn judges it.
+func (s *Store) EndTurnAsked(pane string, id int, stop string) (Message, bool) {
+	reason, handled := Outcome(stop)
+	return s.end(pane, id, reason, handled || reason == StopCancelled)
+}
+
+// Fail records an attempt to send a queued message that failed before any turn
+// began, because the runtime would not take it. It counts as an attempt, so a
+// message that is refused every time ends undeliverable after MaxAttempts
+// instead of being tried for ever.
+func (s *Store) Fail(pane string, id int) (Message, bool) {
+	s.mu.Lock()
+	i := s.find(pane, id)
+	if i < 0 || s.boxes[pane][i].Route != RoutePrompt || s.boxes[pane][i].Delivery() != DeliveryQueued {
+		s.mu.Unlock()
+		return Message{}, false
+	}
+	m := &s.boxes[pane][i]
+	now := s.now()
+	m.Attempts++
+	m.StopReason = StopInterrupted
+	if m.Attempts >= MaxAttempts {
+		m.GaveUpAt = now
+	}
+	out := *m
+	s.mu.Unlock()
+	s.emit(Event{Kind: EventDelivery, ID: out.ID, State: out.Delivery(), Time: now, Stop: StopInterrupted, Attempt: out.Attempts})
+	s.notify()
+	return out, true
+}
+
+// Reroute moves the unfinished messages of a pane that are on the prompt route
+// to the terminal route, for a pane that turned out not to be structured (it
+// came back as a terminal, or its agent changed). They are unread terminal mail
+// from then on. A message already handled or given up on stays as it was.
+// It returns how many moved.
+func (s *Store) Reroute(pane string) int {
+	s.mu.Lock()
+	n := 0
+	box := s.boxes[pane]
+	for i := range box {
+		m := &box[i]
+		if m.Route != RoutePrompt || m.Finished() {
+			continue
+		}
+		m.Route = ""
+		m.DeliveredAt, m.StopReason, m.Attempts = time.Time{}, "", 0
+		n++
+	}
+	s.mu.Unlock()
+	if n > 0 {
+		s.notify()
+	}
+	return n
 }
 
 // Interrupted records that the turn carrying a delivered message did not end:

@@ -59,6 +59,7 @@ export function messageOf(m) {
   return {
     id: num(x.id), from, system: x.system === true, to: str(x.to), toName: str(x.toName), toRole: str(x.toRole), time: str(x.time),
     text: str(x.text), cut: x.cut === true, read: x.read === true, seen: x.seen === true,
+    delivery: str(x.delivery), route: str(x.route), stopReason: str(x.stopReason), attempts: num(x.attempts),
   };
 }
 

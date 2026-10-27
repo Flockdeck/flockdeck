@@ -136,7 +136,7 @@ func TestAMessageGoesQueuedDeliveredHandled(t *testing.T) {
 	if tags := r.fake.tags(); len(tags) != 1 || tags[0] != m.ID {
 		t.Fatalf("handed over %v, want [%d]", tags, m.ID)
 	}
-	if len(r.fake.sent[0].blocks) != 2 || !strings.HasPrefix(r.fake.sent[0].blocks[0], wakeTextPrefix) || r.fake.sent[0].blocks[1] != "please look at #12" {
+	if len(r.fake.sent[0].blocks) != 2 || !strings.HasPrefix(r.fake.sent[0].blocks[0], wakeTextPrefix) || r.fake.sent[0].blocks[1] != promptBodyMarker+"please look at #12" {
 		t.Errorf("blocks = %q", r.fake.sent[0].blocks)
 	}
 	// Given to the runtime is not delivered: no turn has begun.
@@ -442,6 +442,7 @@ func promptWorkspace(t *testing.T) (*Workspace, string, *promptService) {
 	ws, lead, _ := structuredCrew(t)
 	ws.stopPromptDelivery()
 	svc := newPromptService(ws.team.inbox, ws.promptPanes, func() WakeSettings { return wakeAllOn{} })
+	svc.terminal = ws.paneIsTerminal
 	ws.promptSvc = svc
 	return ws, lead, svc
 }
@@ -542,37 +543,6 @@ func TestAMessageDuringARunningTurnIsQueuedBehindIt(t *testing.T) {
 	})
 	if got := messageOf(ws, id, m.ID); got.Attempts != 1 {
 		t.Errorf("attempts = %d: the dropped hand-over counted", got.Attempts)
-	}
-}
-
-// A turn cancelled while it carries the message returns it to the queue with the
-// reason kept; the third cancel gives up.
-func TestACancelledTurnRequeuesTheMessageUntilTheCap(t *testing.T) {
-	ws, lead, svc := promptWorkspace(t)
-	id := spawnStructured(t, ws, lead, "plain")
-	statusWithin(t, ws, id, session.StatusIdle)
-	m := sendMail(t, ws, id, "slow")
-	for attempt := 1; attempt <= team.MaxAttempts; attempt++ {
-		tickUntil(t, svc, "the turn to carry the message", func() bool {
-			return messageOf(ws, id, m.ID).Delivery() == team.DeliveryDelivered
-		})
-		if err := ws.StructuredRuntime(id).Cancel(); err != nil {
-			t.Fatal(err)
-		}
-		want := team.DeliveryQueued
-		if attempt == team.MaxAttempts {
-			want = team.DeliveryUndeliverable
-		}
-		tickUntilNoHandover(t, svc, func() bool { return messageOf(ws, id, m.ID).Delivery() == want })
-		got := messageOf(ws, id, m.ID)
-		if got.StopReason != "cancelled" || got.Attempts != attempt {
-			t.Fatalf("attempt %d: %+v", attempt, got)
-		}
-	}
-	statusWithin(t, ws, id, session.StatusIdle)
-	svc.tick()
-	if n, _ := prompts(ws, id); n != 1+team.MaxAttempts {
-		t.Errorf("%d prompts reached the agent, want %d", n, 1+team.MaxAttempts)
 	}
 }
 
