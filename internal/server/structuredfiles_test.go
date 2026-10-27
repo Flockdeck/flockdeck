@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/jmwri/flockdeck/internal/record/schemacheck"
 	"github.com/jmwri/flockdeck/internal/session"
 )
 
@@ -207,6 +208,22 @@ func TestStructuredFilesCommand(t *testing.T) {
 	var m structuredFilesMsg
 	if err := json.Unmarshal(raw, &m); err != nil || m.Type != "structuredFiles" || m.Req != "f1" || m.Q != "alp" || m.Error != "" || !slices.Equal(m.Files, []string{"pkg/alpha.go"}) {
 		t.Fatalf("%s", raw)
+	}
+
+	// The answer fits the schema's definition of it, and a message with another field does not.
+	schema, err := schemacheck.Load(structuredSchemaPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	def, _ := schema["$defs"].(map[string]any)["filesMessage"].(map[string]any)
+	root := schemacheck.Schema{"$defs": schema["$defs"]}
+	for k, v := range def {
+		root[k] = v
+	}
+	checkStructured(t, "the files answer", root, raw)
+	bad, _ := json.Marshal(map[string]any{"type": "structuredFiles", "id": "p", "q": "", "files": []string{}, "surprise": 1})
+	if len(root.Validate(bad)) == 0 {
+		t.Error("the schema accepts a field it does not name")
 	}
 
 	// A pane that is not a structured pane is refused in the words every structured command uses.

@@ -30,6 +30,21 @@
     "capabilities": { "$ref": "#/$defs/capabilities" }
   },
   "$defs": {
+    "filesMessage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "id", "q", "files"],
+      "description": "The answer to structuredFiles (since API 1.18), not the document root: file names for the prompt box's @ picker. Names are slash-separated paths relative to the pane's directory, best match first, at most 50, each valid UTF-8 without control characters and at most 300 bytes. Only names are read, never contents.",
+      "properties": {
+        "type": { "const": "structuredFiles" },
+        "id": { "type": "string", "minLength": 1 },
+        "req": { "type": "string", "description": "The window's token, copied from the command." },
+        "q": { "type": "string", "description": "The query as it was matched: cut to 200 bytes, without control characters." },
+        "files": { "type": "array", "maxItems": 50, "items": { "type": "string", "minLength": 1, "maxLength": 300 } },
+        "more": { "const": true, "description": "Present when the list was cut by the limit on names or by the limit on entries read." },
+        "error": { "type": "string", "minLength": 1, "description": "Fixed text, when the directory could not be read or the window asked too often. Then files is empty." }
+      }
+    },
     "command": {
       "type": "object",
       "additionalProperties": false,

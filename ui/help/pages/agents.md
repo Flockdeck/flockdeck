@@ -72,6 +72,29 @@ confirm first, by either route, and the pane shows its warning while it is in th
 `/mode` and `/model` replace an agent command of the same name; to send the agent its own,
 start the text with a space.
 
+The prompt box takes several lines. Enter sends (so does Ctrl or Command with Enter) and
+Shift+Enter adds a line; there is no setting to swap them. The box grows to ten lines.
+Up, with the caret on the first line, steps back through the prompts you sent to this
+pane, and Down steps forward again to the text you were writing. The draft and the last
+50 prompts are kept for each pane in this window's storage, so they are still there after
+you switch tabs or close the drawer; a prompt over 8 KiB is sent but not remembered, and
+the records of the 30 panes you used last are kept. They are plain text on this machine,
+so clear them with the browser data of the window if you pasted something private.
+
+Type `@` at the start of a word to list files under the pane's working directory. In a
+git checkout the list is what git tracks or does not ignore, so `.gitignore` is honoured;
+elsewhere it is a bounded walk that skips hidden folders and `node_modules`. At most 50
+names are shown, best match first, and "More files match" says there are more. Choosing
+one writes `@relative/path ` into the text; Flockdeck does not read the file, so the
+agent opens it. Links are never followed or listed. A window reached through the relay
+has no file list.
+
+When the agent takes images, paste one into the box, drop one on it, or press Attach
+image. Flockdeck saves the picture in its own state folder, not in your checkout, and
+writes `[image: path]` into the text for the agent to read. A large picture is scaled
+down first, and one picture is attached at a time. Agents that do not take images get
+no Attach image button and say so if you paste one.
+
 It is off until you turn it on. Put `"structuredPanes": true` in `prefs.json`
 in the state directory (there is no setting for it in the window); until then
 the picker does not offer a structured agent. Turning it off again takes effect

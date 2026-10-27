@@ -39,7 +39,7 @@
 //   adds a line; the box grows to ten lines (composerModel.js). Up on the first line steps back
 //   through the prompts this pane was sent, Down forward to the draft that was being written. The
 //   draft and the last 50 prompts are kept per pane in this window's storage, so they survive a
-//   switch of tab and a restart. A prompt over 8 KiB is sent but not kept.
+//   switch of tab. A prompt over 8 KiB is sent but not kept.
 // - "@" after white space opens a list of file names under the pane's directory (structuredFiles,
 //   which reads names only and honours .gitignore). Choosing one writes "@path" into the text; the
 //   file is not read here. A window reached through the relay has no list.
@@ -324,7 +324,11 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
     setSendFailed("");
     if (box.current && box.current.focus) box.current.focus();
   };
-  const caretOf = (el) => (typeof el.selectionStart === "number" ? [el.selectionStart, typeof el.selectionEnd === "number" ? el.selectionEnd : el.selectionStart] : [el.value.length, el.value.length]);
+  const caretOf = (el) => {
+    if (typeof el.selectionStart === "number") return [el.selectionStart, typeof el.selectionEnd === "number" ? el.selectionEnd : el.selectionStart];
+    const end = typeof el.value === "string" ? el.value.length : draft.length;
+    return [end, end];
+  };
   const recallTo = (e, dir) => {
     const r = recall(history.current, recalling.current.nav, dir, draft);
     if (!r) return;
