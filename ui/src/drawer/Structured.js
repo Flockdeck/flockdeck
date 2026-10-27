@@ -19,6 +19,9 @@
 //   commands) and Flockdeck's own in a group of their own (slashModel.js).
 //   Arrow keys move, Enter or Tab choose, Escape closes. An agent command is
 //   written into the box as text and sent like any other; Flockdeck's runs here.
+//   The first agent row is chosen by default; one of Flockdeck's only when its
+//   name is exactly what was typed, so Enter on "/p" cannot run /stop. Keys that
+//   belong to an input method's composition are left alone.
 //
 // Everything on a row came from an agent, a tool or a person, and none of it is
 // put into the page as markup.
@@ -29,7 +32,7 @@ import { showControls } from "./diff/diffModel.js";
 import { outcomeOf, sendTo } from "../graph/ManagerBar.js";
 import { Conversation } from "./Conversation.js";
 import { Icon, toolKind } from "./conv/rows.js";
-import { menuOf, flatten, insertText } from "./slashModel.js";
+import { menuOf, flatten, insertText, keyOf, selectedIndex } from "./slashModel.js";
 
 /** SEND_NOT_SENT_WORDS is what the prompt box says when the store did not send the text; the draft stays. */
 export const SEND_NOT_SENT_WORDS = "Not connected to Flockdeck, so the text was not sent.";
@@ -97,7 +100,7 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, d
   const box = useRef(null);
   const sendBtn = useRef(null);
   // The menu's chosen row, and the draft whose menu was closed with Escape.
-  const [sel, setSel] = useState(0);
+  const [selKey, setSelKey] = useState(null);
   const [closedFor, setClosedFor] = useState(null);
   const outcome = mark ? outcomeOf(snap || {}, mark) : null;
   if (!outcome || outcome.kind !== "sending") busy.current = false;
@@ -145,7 +148,8 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, d
   const sending = !!outcome && outcome.kind === "sending";
   const menu = desk && !sending && closedFor !== draft ? menuOf(draft, st.commands) : null;
   const items = flatten(menu);
-  const at = items.length ? Math.min(sel, items.length - 1) : 0;
+  // The chosen row is found by its command, so a list that changes under the person does not move it; -1 is none.
+  const at = menu ? selectedIndex(items, selKey, menu.query) : -1;
   const choose = (it) => {
     if (it.group === "own") {
       setDraft("");
@@ -153,28 +157,32 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, d
     } else {
       setDraft(insertText(it));
     }
-    setSel(0);
+    setSelKey(null);
     setSendFailed("");
     if (box.current && box.current.focus) box.current.focus();
   };
   const onKey = (e) => {
     if (!menu) return;
+    // A key that belongs to an input method's composition is the method's, not the menu's.
+    if (e.isComposing || e.keyCode === 229) return;
     if (e.key === "ArrowDown" || e.key === "ArrowUp") {
       e.preventDefault();
-      setSel((at + (e.key === "ArrowDown" ? 1 : items.length - 1)) % items.length);
-    } else if ((e.key === "Enter" && !e.shiftKey) || e.key === "Tab") {
+      const down = e.key === "ArrowDown";
+      setSelKey(keyOf(items[at < 0 ? (down ? 0 : items.length - 1) : (at + (down ? 1 : items.length - 1)) % items.length]));
+    } else if (((e.key === "Enter" && !e.shiftKey) || e.key === "Tab") && at >= 0) {
       e.preventDefault();
       choose(items[at]);
     } else if (e.key === "Escape") {
       e.preventDefault();
+      e.stopPropagation();
       setClosedFor(draft);
     }
   };
   const optId = (i) => "slash-" + pane + "-" + i;
-  const row = (it, i) => html`<li id=${optId(i)} role="option" class=${"slash-item" + (i === at ? " slash-item--on" : "")} aria-selected=${i === at ? "true" : "false"} data-slash=${it.name}
-    onMouseDown=${(e) => e.preventDefault()} onClick=${() => choose(it)}>
+  const row = (it, i) => html`<div id=${optId(i)} role="option" class=${"slash-item" + (i === at ? " slash-item--on" : "")} aria-selected=${i === at ? "true" : "false"} data-slash=${it.name}
+    onMouseDown=${(e) => e.preventDefault()} onMouseEnter=${() => setSelKey(keyOf(it))} onClick=${() => choose(it)}>
     <span class="slash-name">/${it.name}</span>${it.hint ? html`<span class="slash-hint">${it.hint}</span>` : null}${it.description ? html`<span class="slash-desc">${it.description}</span>` : null}
-  </li>`;
+  </div>`;
   return html`
     <div class="structured" data-structured-pane=${pane}>
       <div class="structured-facts">
@@ -192,15 +200,14 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, d
       ${desk
         ? html`<form class="structured-prompt" onSubmit=${submit}>
             ${menu
-              ? html`<ul class="slash-menu" role="listbox" aria-label="Commands" id=${"slash-" + pane}>
-                  ${menu.own.length ? html`<li class="slash-group" role="presentation">Flockdeck</li>` : null}
-                  ${menu.own.map((c, i) => row({ ...c, group: "own" }, i))}
-                  ${menu.agent.length ? html`<li class="slash-group" role="presentation">From the agent</li>` : null}
-                  ${menu.agent.map((c, i) => row({ ...c, group: "agent" }, menu.own.length + i))}
-                </ul>`
+              ? html`<div class="slash-menu" role="listbox" aria-label="Commands" id=${"slash-" + pane}>
+                  ${menu.own.length ? html`<div role="group" aria-label="Flockdeck"><p class="slash-group" aria-hidden="true">Flockdeck</p>${menu.own.map((c, i) => row({ ...c, group: "own" }, i))}</div>` : null}
+                  ${menu.agent.length ? html`<div role="group" aria-label="From the agent"><p class="slash-group" aria-hidden="true">From the agent</p>${menu.agent.map((c, i) => row({ ...c, group: "agent" }, menu.own.length + i))}</div>` : null}
+                </div>
+                <p class="sr-only" role="status">${items.length === 1 ? "1 command" : items.length + " commands"}</p>`
               : null}
             <textarea ref=${box} class="structured-input" aria-label="Message to the agent" rows="2" value=${draft}
-              role=${menu ? "combobox" : undefined} aria-expanded=${menu ? "true" : undefined} aria-controls=${menu ? "slash-" + pane : undefined} aria-activedescendant=${menu ? optId(at) : undefined} onKeyDown=${onKey} readOnly=${outcome && outcome.kind === "sending"} aria-busy=${outcome && outcome.kind === "sending" ? "true" : undefined} onInput=${(e) => { setDraft(e.target.value); setSel(0); setSendFailed(""); if (outcome && outcome.kind === "refused") setMark(null); }}></textarea>
+              role=${menu ? "combobox" : undefined} aria-expanded=${menu ? "true" : undefined} aria-autocomplete=${menu ? "list" : undefined} aria-controls=${menu ? "slash-" + pane : undefined} aria-activedescendant=${menu && at >= 0 ? optId(at) : undefined} onKeyDown=${onKey} readOnly=${outcome && outcome.kind === "sending"} aria-busy=${outcome && outcome.kind === "sending" ? "true" : undefined} onInput=${(e) => { setDraft(e.target.value); setSendFailed(""); if (outcome && outcome.kind === "refused") setMark(null); }}></textarea>
             <button ref=${sendBtn} type="submit" class="drawer-btn structured-send" disabled=${draft.trim() === "" || (outcome && outcome.kind === "sending")}>Send</button>
             <button type="button" class="drawer-btn structured-stop" onClick=${stop}>Stop</button>
             ${outcome && outcome.kind === "refused" ? html`<p class="structured-note structured-note--unsent structured-note--send" role="alert">${showControls(clip(outcome.text, 300))}</p>` : null}
