@@ -33,9 +33,9 @@ func TestUnreadableKeyStoreIsReported(t *testing.T) {
 
 // TestKeysDialogIsAnswered covers the API keys dialog, which asked a server
 // that had no answer for it and sat on "Loading…" for good -- leaving the
-// command line as the only way to give an API agent its key. No catalog agent
-// takes a key now, so the dialog starts empty and a key stored for an id the
-// catalog does not have is listed on a row of its own, where it can be cleared.
+// command line as the only way to give an API agent its key. The built-in agents
+// that take a key are hidden for now, so the dialog starts empty; a key stored
+// for one is listed on a row of its own, where it can be cleared.
 func TestKeysDialogIsAnswered(t *testing.T) {
 	srv, _ := newTestServer(t)
 	conn := dialControl(t, srv)
@@ -44,9 +44,9 @@ func TestKeysDialogIsAnswered(t *testing.T) {
 	var msg keysMsg
 	readUntil(t, conn, "keys", &msg)
 	if len(msg.Items) != 0 {
-		t.Fatalf("the dialog was offered %+v, though no catalog agent takes a key", msg.Items)
+		t.Fatalf("the dialog was offered %+v, though every agent that takes a key is hidden", msg.Items)
 	}
-	const agentID = "stand-in"
+	const agentID = "gemini-acp"
 
 	find := func(m keysMsg) creds.Status {
 		for _, st := range m.Items {
@@ -70,5 +70,23 @@ func TestKeysDialogIsAnswered(t *testing.T) {
 		if st.Agent == agentID {
 			t.Fatalf("after clearing the key the dialog shows %+v", st)
 		}
+	}
+}
+
+// A key is saved only for an agent in the catalog that takes one. One stored
+// under any other id is read by nothing, and the dialog would say it was saved.
+func TestAKeyForAnAgentThatTakesNoneIsRefused(t *testing.T) {
+	srv, _ := newTestServer(t)
+	conn := dialControl(t, srv)
+	for _, id := range []string{"no-such-agent", "opencode-acp", "claude", "", "@typesafe"} {
+		sendCmd(t, conn, command{Cmd: "keySet", ID: id, Text: "sk-test-not-a-real-key"})
+		var note noticeMsg
+		readUntil(t, conn, "notice", &note)
+		if !note.Error || note.Text != "That agent does not take a key" {
+			t.Errorf("a key for %q was answered %+v", id, note)
+		}
+	}
+	if names, _ := creds.Names(); len(names) != 0 {
+		t.Errorf("the store holds %v after refused saves", names)
 	}
 }

@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"unicode"
 
 	"github.com/jmwri/flockdeck/internal/agent"
 )
@@ -113,28 +114,48 @@ func fromEnv(names []string) Key {
 	return Key{}
 }
 
-// Env returns the environment entries that carry the key to the one process
-// that needs it, ready to append to that process's environment.
+// maxKeyLen is the longest stored key handed to an agent. No vendor's key is
+// near it; it keeps a pasted file from being put in a process environment.
+const maxKeyLen = 4 << 10
+
+// StoredKey is the key to put in the environment of the structured agent this
+// Spec starts, and "" when there is none to put there. Only a key stored with
+// Settings or `flockdeck keys set` for this agent's id is returned, and only
+// for an agent that has a key variable (agent.Spec.ACPKeyEnv).
 //
-// A key already in the environment needs no entry: the pane inherits it, and
-// writing it out again would only put a second copy of the value somewhere.
-// A stored key is exported under the first name the Spec lists, which is the
-// vendor's own conventional variable.
-//
-// A Spec with no names of its own has nowhere to put a stored key, and gets
-// nothing rather than an invented variable name. Nor is a stored key put under the vendor's variable for a Spec
-// talking to somebody else, where it would be read as the key for the vendor.
-//
-// Nothing calls it since the API runners were removed: no pane is started with
-// a key in its environment. Board task T202 hands a stored key to an agent's
-// adapter instead.
-func Env(spec agent.Spec) []string {
+// A key the user exported in Flockdeck's own environment is not returned: it
+// reaches the agent through the entry's passEnv or not at all. That keeps a
+// variable exported for some other tool from moving an agent off its own login.
+// A stored value with a control character in it, or longer than maxKeyLen, is
+// not returned either; the agent then starts without a key.
+func StoredKey(spec agent.Spec) string {
+	if spec.ACPKeyEnv() == "" {
+		return ""
+	}
 	k := Resolve(spec)
-	own := agent.OwnKeyEnv(spec.API)
-	if !k.Set() || k.Source != SourceStore || len(own) == 0 {
+	if k.Source != SourceStore {
+		return ""
+	}
+	v := k.Secret()
+	if len(v) > maxKeyLen || strings.ContainsFunc(v, unicode.IsControl) {
+		return ""
+	}
+	return v
+}
+
+// Env returns the environment entry that carries the stored key to the one
+// process that needs it, ready to append to that process's environment, or nil.
+// It is the variable agent.Spec.ACPKeyEnv names and no other.
+//
+// The structured runtime sets the same entry itself, from StoredKey, after it
+// has built the rest of the environment; this is the form for a caller that
+// wants to see what would be set.
+func Env(spec agent.Spec) []string {
+	v := StoredKey(spec)
+	if v == "" {
 		return nil
 	}
-	return []string{own[0] + "=" + k.Secret()}
+	return []string{spec.ACPKeyEnv() + "=" + v}
 }
 
 // Status is everything about a key that may be shown, sent to the front end or
@@ -172,7 +193,7 @@ func StatusOf(spec agent.Spec) Status {
 		Set:       k.Set(),
 		Source:    k.Source,
 		Env:       k.Env,
-		Vars:      agent.OwnKeyEnv(spec.API),
+		Vars:      keyVars(spec),
 		NotNeeded: agent.NeedsNoKey(spec),
 		Stored:    k.Source == SourceStore || Has(spec.ID),
 	}
@@ -211,4 +232,14 @@ func (s Status) Describe() string {
 	default:
 		return "set (stored by flockdeck)"
 	}
+}
+
+// keyVars are the variables a key for this agent may be exported in and reach
+// it. For a structured agent that is only those its passEnv lets through.
+func keyVars(spec agent.Spec) []string {
+	if spec.Runner == agent.RunnerACP {
+		first, _ := agent.KeyNames(spec)
+		return first
+	}
+	return agent.OwnKeyEnv(spec.API)
 }

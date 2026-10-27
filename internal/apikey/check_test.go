@@ -45,6 +45,11 @@ func TestCheckKeyReportsTheStatusAndNeverTheVendorsWords(t *testing.T) {
 			if err != nil && strings.Contains(err.Error(), "abcdefghijkl") {
 				t.Errorf("the error quotes the key: %v", err)
 			}
+			// Nor does it carry any of the endpoint's own words: the error is
+			// the text a bug report gets.
+			if err != nil && (strings.Contains(err.Error(), "Incorrect") || strings.Contains(err.Error(), "bad request") || strings.Contains(err.Error(), "nope") || strings.Contains(err.Error(), "not valid")) {
+				t.Errorf("the error repeats the endpoint's words: %v", err)
+			}
 		})
 	}
 }

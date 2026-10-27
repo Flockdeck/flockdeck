@@ -517,3 +517,60 @@ func TestKeysCheckFindsTheKeyTheWayAPaneDoes(t *testing.T) {
 		t.Errorf("a key was printed:\n%s", out)
 	}
 }
+
+// builtinKeyAgents stands in for the catalog with the built-in structured
+// agents, the ones that take a key now.
+func builtinKeyAgents(t *testing.T) {
+	t.Helper()
+	was := keysAgents
+	t.Cleanup(func() { keysAgents = was })
+	keysAgents = func() []agent.Spec { return agent.Merge(nil).Specs }
+}
+
+// A structured agent is checked on the key it would be given: not on the
+// vendor's usual variable and not on FLOCKDECK_API_KEY, which it never gets.
+func TestKeysForTheBuiltinStructuredAgents(t *testing.T) {
+	isolateKeys(t)
+	builtinKeyAgents(t)
+	t.Setenv("GEMINI_API_KEY", "sk-exported-gemini")
+	t.Setenv("GOOGLE_API_KEY", "sk-exported-google")
+	t.Setenv("OPENAI_API_KEY", "sk-exported-openai")
+	t.Setenv("FLOCKDECK_API_KEY", "sk-shared")
+
+	out, err := runKeysCmd(t, "", "check", "gemini-acp")
+	if err != nil || !strings.Contains(out, "gemini-acp: not set") {
+		t.Errorf("check with only exported variables: %v\n%s", err, out)
+	}
+	if strings.Contains(out, "sk-") {
+		t.Errorf("a key was printed:\n%s", out)
+	}
+
+	// Only the agents that read a key are listed, and a key is not required.
+	out, err = runKeysCmd(t, "", "list")
+	if err != nil || !strings.Contains(out, "gemini-acp") || !strings.Contains(out, "codex-acp") || strings.Contains(out, "opencode-acp") {
+		t.Errorf("list: %v\n%s", err, out)
+	}
+	if strings.Contains(out, "set (from") {
+		t.Errorf("an exported variable the agent is not passed counts as its key:\n%s", out)
+	}
+
+	// A key for an agent that takes none, or for no agent, is refused before
+	// the key is read.
+	for _, id := range []string{"opencode-acp", "claude", "gemini", "nonesuch"} {
+		out, err := runKeysCmd(t, "sk-should-not-be-read\n", "set", id)
+		if err == nil || strings.Contains(out+err.Error(), "sk-should-not-be-read") {
+			t.Errorf("set %s: %v\n%s", id, err, out)
+		}
+	}
+	if names, _ := creds.Names(); len(names) != 0 {
+		t.Errorf("the store holds %v", names)
+	}
+
+	if _, err := runKeysCmd(t, "sk-stored-gemini\n", "set", "gemini-acp"); err != nil {
+		t.Fatal(err)
+	}
+	out, _ = runKeysCmd(t, "", "list")
+	if !strings.Contains(out, "stored by flockdeck") || strings.Contains(out, "sk-stored-gemini") {
+		t.Errorf("list after set:\n%s", out)
+	}
+}

@@ -8,8 +8,8 @@ import (
 	"github.com/jmwri/flockdeck/internal/creds"
 )
 
-// keysMsg answers the API keys dialog: every agent that talks to a model API,
-// whether it has a key and where that key came from. Never the key itself --
+// keysMsg answers the API keys dialog: every visible agent that can take an API
+// key, whether it has one and where that key came from. Never the key itself --
 // creds.Status has nowhere to put one.
 type keysMsg struct {
 	Type  string         `json:"type"`
@@ -57,6 +57,14 @@ func (s *Server) listKeys(c *controlClient) {
 // again.
 func (s *Server) setKey(c *controlClient, agentID, key string) {
 	if keysAtTheDesk(c) {
+		return
+	}
+	// A key stored under an id nothing reads is one the agent never gets, and
+	// the dialog would say it was saved. The id must be a catalog agent that
+	// takes a key. Clearing is not held to this: a key stored for an agent
+	// that has since left the catalog can still be cleared.
+	if spec, ok := s.ws.Catalog().Find(agentID); !ok || !spec.TakesKey() {
+		c.notify("That agent does not take a key", true)
 		return
 	}
 	go func() {

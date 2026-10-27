@@ -107,6 +107,21 @@ func inMinimalEnv(name string) bool {
 	return false
 }
 
+// ACPKeyEnv is the one variable the key stored for this agent is set in, in the
+// environment of the adapter and nowhere else. It is the first name of
+// API.KeyEnv, and "" for an agent that takes no key, that is not structured, or
+// whose name is not a plain variable name or is one Flockdeck reserves.
+func (s Spec) ACPKeyEnv() string {
+	if s.Runner != RunnerACP || len(s.API.KeyEnv) == 0 {
+		return ""
+	}
+	name := s.API.KeyEnv[0]
+	if !envNameRe.MatchString(name) || reservedEnv(name) || inMinimalEnv(name) {
+		return ""
+	}
+	return name
+}
+
 // ACPAdapter returns the manifest entry a structured Spec starts.
 func (s Spec) ACPAdapter() (manifest.Adapter, bool) {
 	if s.Runner != RunnerACP {

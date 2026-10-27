@@ -149,6 +149,12 @@ type Options struct {
 	Cwd string
 	// Environ is where Spec.ACP.PassEnv is read from. Nil means os.Environ().
 	Environ []string
+	// Key is the API key stored for this agent. It is set in the environment of
+	// the agent's process under the one variable Spec.ACPKeyEnv names, after
+	// the launch check has run, and nowhere else: not in the recording, the
+	// snapshot, the command line or the check's environment. It is ignored for
+	// a Spec with no such variable. Empty means the agent uses its own login.
+	Key string
 	// MCPServers are given to the session when Spec.ACP.MCP says the agent
 	// takes them; otherwise they are not sent.
 	MCPServers []acp.MCPServer
@@ -730,7 +736,7 @@ func (r *Runtime) resolve() (Command, *Setup, error) {
 	if c := r.opts.Command; c != nil {
 		cmd := *c
 		if cmd.env == nil {
-			cmd.env = r.env()
+			cmd.env = r.withKey(r.env())
 		}
 		return cmd, nil, nil
 	}
@@ -771,7 +777,27 @@ func (r *Runtime) resolve() (Command, *Setup, error) {
 	if pp, ok := r.opts.Spec.ACPPermissionProbe(); ok {
 		env = r.checkPermissions(path, pp, a, env)
 	}
-	return Command{Path: path, Args: append([]string(nil), a.Args...), env: env}, nil, nil
+	// The key goes in last, so the launch check, which starts another program,
+	// never sees it.
+	return Command{Path: path, Args: append([]string(nil), a.Args...), env: r.withKey(env)}, nil, nil
+}
+
+// withKey adds the agent's key to env under the variable the entry names for
+// it, replacing a variable of that name already there. Nothing is added when
+// the entry names no variable or there is no key, and the name is never taken
+// from anywhere but the entry.
+func (r *Runtime) withKey(env []string) []string {
+	name := r.opts.Spec.ACPKeyEnv()
+	if name == "" || r.opts.Key == "" {
+		return env
+	}
+	out := make([]string, 0, len(env)+1)
+	for _, kv := range env {
+		if n, _, _ := strings.Cut(kv, "="); !strings.EqualFold(n, name) {
+			out = append(out, kv)
+		}
+	}
+	return append(out, name+"="+r.opts.Key)
 }
 
 // ownCommand is the command of the adapters Flockdeck builds into its own

@@ -154,21 +154,24 @@ func TestEnv(t *testing.T) {
 		{name: "no key at all"},
 		{
 			name:     "already exported, so nothing to add",
-			exportAs: "FLOCKDECK_TEST_KEY_A",
+			exportAs: "TEST_ENV_KEY_A",
 			stored:   "saved",
 		},
 		{
 			name:   "a stored key goes under the first name",
 			stored: "saved",
-			want:   []string{"FLOCKDECK_TEST_KEY_A=saved"},
+			want:   []string{"TEST_ENV_KEY_A=saved"},
 		},
 	}
-	spec := apiSpec("anthropic", "FLOCKDECK_TEST_KEY_A", "FLOCKDECK_TEST_KEY_B")
+	spec := apiSpec("anthropic", "TEST_ENV_KEY_A", "TEST_ENV_KEY_B")
+	// A structured agent that passes its key variables on.
+	spec.Runner = agent.RunnerACP
+	spec.ACP.PassEnv = []string{"TEST_ENV_KEY_A", "TEST_ENV_KEY_B"}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			isolateConfig(t)
-			t.Setenv("FLOCKDECK_TEST_KEY_A", "")
-			t.Setenv("FLOCKDECK_TEST_KEY_B", "")
+			t.Setenv("TEST_ENV_KEY_A", "")
+			t.Setenv("TEST_ENV_KEY_B", "")
 			if tt.exportAs != "" {
 				t.Setenv(tt.exportAs, "exported")
 			}

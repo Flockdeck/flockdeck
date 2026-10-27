@@ -22,6 +22,8 @@ Built, on origin/main:
 
 Built: the Flockdeck MCP server with `send_message` and `list_peers` (T186, [Flockdeck MCP server](flockdeck-mcp-server.md)). It records a message in the receiver's inbox as before; delivery to the receiver as a prompt is T187. Mail shows in the conversation of a structured pane as `message` entries, received and sent, with their delivery state (T188, API 1.14, [structured pane](structured-pane.md)).
 
+Built (T202): per-agent API keys. A key stored in Settings or with `flockdeck keys set` is set in the adapter's environment under the one variable the catalog names for that agent (Gemini CLI `GEMINI_API_KEY`, Codex `OPENAI_API_KEY`) and reaches no other process, recording or message. A key is never required. The Claude adapter has a catalog entry only when T191 lands; it takes `ANTHROPIC_API_KEY` the same way ([adapters](acp-adapters.md)).
+
 Built (T189): saved session id per structured pane, `session/load` with replay handling and `session/resume` in the client and runtime, fallback to a new session with a fixed notice ([structured pane](structured-pane.md)). Claude's adapter resumes; Codex's already did; neither loads.
 
 Built, hidden: the Go adapter for Claude Code (T204, [Claude Code adapter](acp-claude-adapter.md)) and the Go adapter for Codex (T206, [Codex adapter](acp-codex-adapter.md); built from the route document and a fake app-server, never run against a real codex). In progress: the capability spike per agent (T208).

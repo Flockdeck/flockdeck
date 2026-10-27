@@ -120,9 +120,11 @@ type Arg struct {
 }
 
 // APISpec describes the model API an agent's key is for: which wire it speaks,
-// where it is, and which variables carry its key. No catalog entry has one
-// now (Merge refuses an "api" block); it stays as the shape board task T202's
-// per-agent keys are built on, and `flockdeck keys` reads it.
+// where it is, and which variables carry its key. A built-in structured agent
+// that can use an API key in place of its own login carries one: Wire says
+// which endpoint `flockdeck keys check` asks, and the first KeyEnv name is the
+// variable a stored key is set in for that agent's process (ACPKeyEnv). Merge
+// refuses an "api" block in agents.json, so only a built-in has one.
 type APISpec struct {
 	// Wire is the shape of the endpoint's API, which the key check speaks:
 	// "anthropic", "openai" or "gemini". An OpenAI-compatible endpoint --
@@ -287,8 +289,8 @@ func onlyToken(s string) string {
 }
 
 // TakesKey reports whether the entry describes a model API that a key is for.
-// No catalog entry does now (Merge refuses an "api" block), so nothing is
-// offered a key until board task T202 gives agents their own.
+// Only the built-in structured agents that read one from their environment do.
+// A key is never required: an agent with a login of its own starts without one.
 func (s Spec) TakesKey() bool {
 	return s.API.Wire != "" || s.API.BaseURL != "" || len(s.API.KeyEnv) > 0
 }

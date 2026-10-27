@@ -122,6 +122,20 @@ manifest instead of a program, and says what the agent may see:
   name `acp.MinimalEnv` already gives (`PATH` and the like) is not passed twice.
   Names are compared exactly on Linux and macOS and without regard to case on
   Windows.
+- An API key is optional and is not part of the entry. A built-in that can use
+  one carries an `api` block (agents.json cannot: an `api` block is refused)
+  whose first `keyEnv` name is the one variable a key stored with Settings or
+  `flockdeck keys set` is set in: `GEMINI_API_KEY` for Gemini CLI,
+  `OPENAI_API_KEY` for Codex. The runtime sets it in the adapter's environment
+  after the launch check has run and nowhere else; the Go adapters pass their
+  environment on to claude and codex (minus `FLOCKDECK_` and `PERCH_`
+  variables), so a key reaches the agent that way. opencode has no slot: it
+  keeps its own provider logins. A variable exported in Flockdeck's environment
+  is the agent's key only if `passEnv` lists it, and `FLOCKDECK_API_KEY` and
+  the vendor's usual variable are not read. Not verified against a real
+  agent: that Gemini CLI in `--acp` mode uses `GEMINI_API_KEY` without an
+  `authenticate` call (the client sends none), and that `codex app-server` uses
+  `OPENAI_API_KEY` without `account/login/start`.
 - `mcp` says whether the agent takes per-session `mcpServers`.
 
 The list sent in `session/new` is built per pane by the workspace
