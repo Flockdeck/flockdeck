@@ -174,6 +174,25 @@ test("a text the desk refuses is said and stays in the box, and can be sent agai
     assert.equal(m.container.find(".structured-input").value, "");
   }));
 
+test("Send is off while a send is out, the refusal is an alert and goes when the text is edited", () =>
+  with_(push(), {}, async (m) => {
+    const send = () => m.container.find(".structured-send");
+    const off = () => send().disabled === true || send().getAttribute("disabled") !== null;
+    m.container.find(".structured-input").enter("run the tests");
+    await settle();
+    assert.equal(off(), false);
+    m.container.find(".structured-prompt").dispatch("submit");
+    await settle();
+    assert.equal(off(), true, "Send stayed on while the desk had not answered");
+    await refused(m, m.store.sent[0], "That agent is gone, so the text was not sent.");
+    assert.equal(off(), false, "Send stayed off after a refusal");
+    assert.equal(m.container.find(".structured-note--send").attributes.role, "alert");
+    m.container.find(".structured-input").enter("run the tests again");
+    await settle();
+    assert.equal(m.container.find(".structured-note--send"), null, "the refusal stayed after the text was edited");
+    assert.equal(m.container.find(".structured-input").value, "run the tests again");
+  }));
+
 test("a text whose connection dropped before the desk answered is said and stays in the box", () =>
   with_(push(), {}, async (m) => {
     m.container.find(".structured-input").enter("run the tests");
