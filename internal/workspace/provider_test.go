@@ -144,10 +144,9 @@ func TestTheAgentsOwnEnvBlockAndClaudeSettingsAreRead(t *testing.T) {
 
 // An endpoint is said by its host, never with the user, password, path or query.
 func TestAProviderIsShownByHostOnly(t *testing.T) {
-	api := agent.Spec{ID: "gw", Runner: agent.RunnerAPI, API: agent.APISpec{Wire: "openai", BaseURL: "https:" + "//user:sekret@gw.example:8443/v1?key=abc"}}
-	got := BatonProviderShown(api, "")
-	if got != "openai via gw.example" {
-		t.Errorf("BatonProviderShown = %q", got)
+	got := HostOf("https:" + "//user:sekret@gw.example:8443/v1?key=abc")
+	if got != "gw.example" {
+		t.Errorf("HostOf = %q", got)
 	}
 	for _, bad := range []string{"sekret", "user", "8443", "abc", "/v1"} {
 		if strings.Contains(got, bad) {

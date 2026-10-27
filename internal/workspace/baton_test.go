@@ -220,8 +220,6 @@ func TestBatonProviderNamesTheCompany(t *testing.T) {
 		{agent.Spec{ID: "claude-work", Exe: `C:\Tools\claude.exe`}, "anthropic"},
 		{agent.Spec{ID: "claude-posix", Exe: "/usr/local/bin/claude"}, "anthropic"},
 		{agent.Spec{ID: "codex", Exe: "codex"}, "openai"},
-		{agent.Spec{ID: "gpt", Runner: agent.RunnerAPI, API: agent.APISpec{Wire: "openai"}}, "openai"},
-		{agent.Spec{ID: "local", Runner: agent.RunnerAPI, API: agent.APISpec{Wire: "openai", BaseURL: "http://localhost:11434/v1"}}, "openai via http://localhost:11434/v1"},
 		{agent.Spec{ID: "mine", Exe: "mytool"}, "mytool"},
 	} {
 		if got := BatonProvider(c.spec); got != c.want {
@@ -365,42 +363,6 @@ func TestPrepareBatonUsesThePanesOwnScrubber(t *testing.T) {
 	}
 	if !strings.Contains(other.Prompt, "pane-only-secret-value-42") {
 		t.Error("the fallback scrubber knew a secret it had no way to know")
-	}
-}
-
-// The keys Flockdeck holds are looked up when the scrubber is made, off the
-// workspace goroutine, and still reach it.
-func TestABatonSourceScrubberKnowsTheAPIKeys(t *testing.T) {
-	batonAgents(t)
-	dir, err := store.Dir()
-	if err != nil {
-		t.Fatal(err)
-	}
-	body := `{"version": 1, "agents": [
-		{"id": "gosession", "name": "Go session", "exe": "go", "args": [{"value": "{{session}}"}], "caps": {"resume": true}},
-		{"id": "apikeyed", "name": "An API agent", "runner": "api", "api": {"wire": "openai", "keyEnv": ["BATON_TEST_KEY_ENV"]}}]}`
-	if err := os.WriteFile(filepath.Join(dir, agent.ConfigName), []byte(body), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("BATON_TEST_KEY_ENV", "zzcustomkeyvalue1234")
-	root := t.TempDir()
-	ws := newTestWorkspace(t, root)
-	ws.NewTabWith(Choice{Kind: session.KindClaude, Agent: "gosession"}, root, "")
-	p := ws.FocusedPane()
-	src, err := ws.BatonSource(p.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	found := false
-	for _, sp := range src.APISpecs {
-		found = found || sp.ID == "apikeyed"
-	}
-	if !found {
-		t.Fatalf("the API agent is not in the source: %d specs", len(src.APISpecs))
-	}
-	got, _ := src.Scrubber().Scrub("the key was zzcustomkeyvalue1234 today")
-	if strings.Contains(got, "zzcustomkeyvalue1234") {
-		t.Errorf("the API key reached the text: %q", got)
 	}
 }
 

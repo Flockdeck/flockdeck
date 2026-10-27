@@ -51,12 +51,6 @@ type Sources struct {
 
 // BatonProviderWith is BatonProviderDetail with Sources.
 func BatonProviderWith(spec agent.Spec, cwd string, src Sources) (provider, why string) {
-	if spec.Runner == agent.RunnerAPI {
-		if spec.API.BaseURL != "" {
-			return spec.API.Wire + " via " + spec.API.BaseURL, ""
-		}
-		return spec.API.Wire, ""
-	}
 	vendor := vendorOf(spec)
 	if why, over := gatewayOverride(vendor, spec, append([]string{cwd}, src.Dirs...), src.Settings, src.Unknown); over {
 		return "", why

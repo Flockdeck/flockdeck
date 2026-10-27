@@ -91,12 +91,12 @@ func (w *Workspace) BatonSource(paneID string) (BatonSource, error) {
 	}, nil
 }
 
-// apiSpecs are the agents in the catalog that talk to a model API. It reads the
+// apiSpecs are the agents in the catalog that have a key (agent.Spec.TakesKey). It reads the
 // catalog and nothing else.
 func (w *Workspace) apiSpecs() []agent.Spec {
 	var out []agent.Spec
 	for _, spec := range w.agents().Specs {
-		if spec.Runner == agent.RunnerAPI {
+		if spec.TakesKey() {
 			out = append(out, spec)
 		}
 	}
