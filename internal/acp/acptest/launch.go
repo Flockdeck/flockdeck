@@ -54,6 +54,9 @@ func WithBareSettingReplies() Option { return withSetOpt("bare") }
 // WithRefusedSettings makes the agent refuse every setting request, whatever the value.
 func WithRefusedSettings() Option { return withSetOpt("refuse") }
 
+// WithSlowSettings makes the agent take 300 ms over each setting request.
+func WithSlowSettings() Option { return withSetOpt("slow") }
+
 func withSetOpt(name string) Option {
 	return func(l *launch) { l.env = append(l.env, envSetOpts+"_"+name+"=1") }
 }

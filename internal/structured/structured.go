@@ -325,6 +325,8 @@ type Runtime struct {
 	// when a reopen failed without an answer from the agent (a timeout).
 	keep    string
 	waiters []*waiter
+	// settingCalls is how many setting requests are with the agent.
+	settingCalls int
 	subs    map[int]chan struct{}
 	nextSub int
 	rec     Recorder

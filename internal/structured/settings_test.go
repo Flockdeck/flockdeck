@@ -148,3 +148,29 @@ func TestSettingsNeedARunningAgent(t *testing.T) {
 		t.Errorf("SetConfig after Close = %v, want ErrNotRunning", err)
 	}
 }
+
+// Setting requests that wait on the agent are bounded, so a caller cannot pile
+// up goroutines behind a slow agent.
+func TestSettingRequestsWaitingOnTheAgentAreBounded(t *testing.T) {
+	r := begin(t, fakeOptions(t, acptest.WithModes(), acptest.WithSlowSettings()))
+	ready(t, r)
+	const n = 8
+	errs := make(chan error, n)
+	for i := 0; i < n; i++ {
+		go func() { errs <- r.SetMode("yolo") }()
+	}
+	ok, refused := 0, 0
+	for i := 0; i < n; i++ {
+		switch err := <-errs; {
+		case err == nil:
+			ok++
+		case errors.Is(err, ErrSettingFailed):
+			refused++
+		default:
+			t.Errorf("err = %v", err)
+		}
+	}
+	if ok != maxSettingCalls || refused != n-maxSettingCalls {
+		t.Errorf("%d took and %d were refused; want %d and %d", ok, refused, maxSettingCalls, n-maxSettingCalls)
+	}
+}

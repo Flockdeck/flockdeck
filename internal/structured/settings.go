@@ -20,6 +20,11 @@ var (
 	ErrSettingFailed = errors.New("structured: the agent did not change the setting")
 )
 
+// maxSettingCalls is how many setting requests may wait on the agent at once.
+// More are refused, so a caller that sends them faster than the agent answers
+// does not pile up goroutines.
+const maxSettingCalls = 4
+
 // live returns the client and session id to send a setting to.
 func (r *Runtime) live() (*acp.Client, string, error) {
 	r.mu.Lock()
@@ -27,7 +32,18 @@ func (r *Runtime) live() (*acp.Client, string, error) {
 	if r.closed || r.phase != PhaseReady || r.client == nil || r.session == "" {
 		return nil, "", ErrNotRunning
 	}
+	if r.settingCalls >= maxSettingCalls {
+		return nil, "", ErrSettingFailed
+	}
+	r.settingCalls++
 	return r.client, r.session, nil
+}
+
+// settingDone ends the call live began.
+func (r *Runtime) settingDone() {
+	r.mu.Lock()
+	r.settingCalls--
+	r.mu.Unlock()
 }
 
 func settingFailed(err error) error {
@@ -45,6 +61,7 @@ func (r *Runtime) SetMode(id string) error {
 	if err != nil {
 		return err
 	}
+	defer r.settingDone()
 	m := r.br.Session().Modes
 	if m == nil || !slices.ContainsFunc(m.Available, func(v acp.Mode) bool { return v.ID == id }) {
 		return ErrNoSuchSetting
@@ -64,6 +81,7 @@ func (r *Runtime) SetModel(id string) error {
 	if err != nil {
 		return err
 	}
+	defer r.settingDone()
 	m := r.br.Session().Models
 	if m == nil || !slices.ContainsFunc(m.Available, func(v acp.Model) bool { return v.ID == id }) {
 		return ErrNoSuchSetting
@@ -84,6 +102,7 @@ func (r *Runtime) SetConfig(configID, value string) error {
 	if err != nil {
 		return err
 	}
+	defer r.settingDone()
 	opts := r.br.Session().ConfigOptions
 	i := slices.IndexFunc(opts, func(o acp.ConfigOption) bool { return o.ID == configID })
 	if i < 0 {

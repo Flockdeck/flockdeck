@@ -57,6 +57,8 @@ func init() {
 	addedIn["commentAdd"], addedIn["commentResolve"], addedIn["commentReopen"] = "1.9", "1.9", "1.9"
 	// The gate came with the changesGate cap (1.10).
 	addedIn["approveMerge"], addedIn["unapproveMerge"], addedIn["mergeBranch"] = "1.10", "1.10", "1.10"
+	// Changing a structured pane's mode, model or settings came with structuredSettings (1.16).
+	addedIn["structuredSet"] = "1.16"
 }
 
 func sinceOf(name string) string {
