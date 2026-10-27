@@ -37,6 +37,56 @@ var modes = []modeDef{
 		"untrusted", "workspace-write", map[string]any{"type": "workspaceWrite", "writableRoots": []any{}, "networkAccess": false}},
 }
 
+// policyExceeds says why the approval policy and sandbox codex reports for a
+// thread are not what the mode asked for, or "" when they are the same or
+// stricter (codex may be held to a stricter policy by its own configuration). A
+// member that is missing, null, or in a form this adapter does not know counts as
+// looser: nothing is assumed about what codex did not say. Only the kind of
+// sandbox and its network access are compared. Writable roots, read access and
+// the like are not: every turn/start sends the explicit policy, which replaces
+// whatever the thread started with.
+func policyExceeds(m modeDef, approval, sandbox json.RawMessage) string {
+	approvals := map[string]int{"untrusted": 0, "on-failure": 1, "on-request": 2, "never": 3}
+	sandboxes := map[string]int{"read-only": 0, "readOnly": 0, "workspace-write": 1, "workspaceWrite": 1}
+	if isNull(approval) {
+		return "no approval policy reported"
+	}
+	var a string
+	if json.Unmarshal(approval, &a) != nil {
+		return "approval policy in an unknown form"
+	}
+	got, ok := approvals[a]
+	if !ok || got > approvals[m.approval] {
+		return "approval policy"
+	}
+	if isNull(sandbox) {
+		return "no sandbox reported"
+	}
+	var kind string
+	var network json.RawMessage
+	if json.Unmarshal(sandbox, &kind) != nil {
+		var o struct {
+			Type    string          `json:"type"`
+			Network json.RawMessage `json:"networkAccess"`
+		}
+		if json.Unmarshal(sandbox, &o) != nil {
+			return "sandbox in an unknown form"
+		}
+		kind, network = o.Type, o.Network
+		if kind == "workspaceWrite" && network == nil {
+			return "sandbox network access not reported"
+		}
+	}
+	rank, ok := sandboxes[kind]
+	if !ok || rank > sandboxes[m.sandbox] {
+		return "sandbox"
+	}
+	if network != nil && strings.TrimSpace(string(network)) != "false" {
+		return "sandbox network access"
+	}
+	return ""
+}
+
 func findMode(id string) (modeDef, bool) {
 	for _, m := range modes {
 		if m.id == id {
@@ -105,8 +155,10 @@ type session struct {
 	gen      int
 	done     map[string]turnResult // turns that ended before we knew their id was ours
 	mode     modeDef
-	model    string // the model shown as current
-	modelSet bool   // the person chose a model: send it with every turn
+	policyMu sync.Mutex // orders a mode change against the write of a /review
+	applied  string     // id of the mode codex last ran a turn under; guarded by mu
+	model    string     // the model shown as current
+	modelSet bool       // the person chose a model: send it with every turn
 	models   map[string]bool
 	items    map[string]*itemState
 	perms    map[string]*openPerm // codex's requests awaiting an answer, by request id
@@ -216,7 +268,9 @@ func (s *server) openSession(m rpcMsg, resume bool) {
 		Thread struct {
 			ID string `json:"id"`
 		} `json:"thread"`
-		Model string `json:"model"`
+		Model          string          `json:"model"`
+		ApprovalPolicy json.RawMessage `json:"approvalPolicy"`
+		Sandbox        json.RawMessage `json:"sandbox"`
 	}
 	if err == nil {
 		err = json.Unmarshal(raw, &started)
@@ -233,12 +287,13 @@ func (s *server) openSession(m rpcMsg, resume bool) {
 		s.replyErr(m.ID, &rpcErr{Code: codeInternal, Message: unavailable})
 		return
 	}
-	// TODO(real codex): the thread/start and thread/resume results should echo the
-	// policy that took effect, as `approvalPolicy` and `sandbox` (a string or an
-	// object, not known). Compare them with ss.mode.approval and ss.mode.sandbox
-	// and fail the session when they differ, so that a codex which ignored the mode
-	// cannot run with more rights than the person chose. Not done: the field names
-	// are a guess until a real codex has been seen.
+	if why := policyExceeds(ss.mode, started.ApprovalPolicy, started.Sandbox); why != "" {
+		ss.logf("%s: codex runs with more rights than the mode: %s", method, why)
+		ss.close()
+		s.replyErr(m.ID, &rpcErr{Code: codeInternal, Message: unavailable})
+		return
+	}
+	ss.applied = ss.mode.id
 	ss.id = started.Thread.ID
 	ss.idv.Store(ss.id)
 	ss.model = started.Model
@@ -275,6 +330,8 @@ func (s *server) openSession(m rpcMsg, resume bool) {
 	s.reply(m.ID, res)
 	s.update(ss.id, map[string]any{"sessionUpdate": "available_commands_update", "availableCommands": commands})
 }
+
+var errStaleMode = errors.New("mode changed since the last turn")
 
 // threadIDRe is what a thread id looks like: codex uses UUIDs, and the id is
 // used as the ACP session id and in nothing else, but it is checked all the same.
@@ -372,6 +429,13 @@ func (ss *session) write(v any) error {
 // call sends a request to codex and waits for the response with its id. The
 // error text is for the adapter's log; it is never sent to the client.
 func (ss *session) call(method string, params any) (json.RawMessage, error) {
+	return ss.callGated(method, params, nil)
+}
+
+// callGated is call with a check that runs before the request is written. If gate
+// returns an error nothing is sent. Otherwise the lock gate took is released once
+// the request has been written, before the answer is awaited.
+func (ss *session) callGated(method string, params any, gate func() (func(), error)) (json.RawMessage, error) {
 	id := ss.nextID.Add(1)
 	ch := make(chan rpcMsg, 1)
 	ss.mu.Lock()
@@ -382,7 +446,17 @@ func (ss *session) call(method string, params any) (json.RawMessage, error) {
 		delete(ss.pending, id)
 		ss.mu.Unlock()
 	}()
-	if err := ss.write(map[string]any{"id": id, "method": method, "params": params}); err != nil {
+	release := func() {}
+	if gate != nil {
+		rel, err := gate()
+		if err != nil {
+			return nil, err
+		}
+		release = rel
+	}
+	err := ss.write(map[string]any{"id": id, "method": method, "params": params})
+	release()
+	if err != nil {
 		return nil, fmt.Errorf("%s: %w", method, err)
 	}
 	timer := time.NewTimer(ss.srv.opts.ControlTimeout)
@@ -408,6 +482,9 @@ func (ss *session) setMode(id string) *rpcErr {
 		return &rpcErr{Code: codeInvalidParams, Message: "unknown mode"}
 	}
 	// Codex takes the policy with each turn, so this applies from the next.
+	// policyMu keeps it from landing between the check and the write of a review.
+	ss.policyMu.Lock()
+	defer ss.policyMu.Unlock()
 	ss.mu.Lock()
 	ss.mode = m
 	ss.mu.Unlock()
@@ -551,16 +628,18 @@ func (ss *session) worker() {
 	}
 }
 
-func (ss *session) turnParams(r *promptReq) (string, map[string]any) {
+// turnParams builds the request for a prompt. For a turn it also returns the id
+// of the mode the request carries, which is in force once codex has accepted it.
+func (ss *session) turnParams(r *promptReq) (string, map[string]any, string) {
 	switch r.kind {
 	case "compact":
-		return "thread/compact/start", map[string]any{"threadId": ss.id}
+		return "thread/compact/start", map[string]any{"threadId": ss.id}, ""
 	case "review":
 		target := map[string]any{"type": "uncommittedChanges"}
 		if r.text != "" {
 			target = map[string]any{"type": "custom", "instructions": r.text}
 		}
-		return "review/start", map[string]any{"threadId": ss.id, "target": target, "delivery": "inline"}
+		return "review/start", map[string]any{"threadId": ss.id, "target": target, "delivery": "inline"}, ""
 	}
 	ss.mu.Lock()
 	mode, model, set := ss.mode, ss.model, ss.modelSet
@@ -574,7 +653,7 @@ func (ss *session) turnParams(r *promptReq) (string, map[string]any) {
 	if set {
 		p["model"] = model
 	}
-	return "turn/start", p
+	return "turn/start", p, mode.id
 }
 
 func (ss *session) runPrompt(r *promptReq) {
@@ -589,8 +668,37 @@ func (ss *session) runPrompt(r *promptReq) {
 	ss.mu.Unlock()
 	defer close(t.finished)
 
-	method, params := ss.turnParams(r)
-	raw, err := ss.call(method, params)
+	method, params, modeID := ss.turnParams(r)
+	var gate func() (func(), error)
+	if r.kind == "review" {
+		// review/start carries no policy: it runs under the one the last turn was
+		// sent with. After a mode change that is not the mode the person sees. The
+		// check and the write are one step with respect to setMode.
+		gate = func() (func(), error) {
+			ss.policyMu.Lock()
+			ss.mu.Lock()
+			stale := ss.mode.id != ss.applied
+			ss.mu.Unlock()
+			if stale {
+				ss.policyMu.Unlock()
+				return nil, errStaleMode
+			}
+			return ss.policyMu.Unlock, nil
+		}
+	}
+	raw, err := ss.callGated(method, params, gate)
+	if errors.Is(err, errStaleMode) {
+		ss.mu.Lock()
+		ss.cur = nil
+		ss.mu.Unlock()
+		ss.srv.replyErr(r.id, &rpcErr{Code: codeInvalidParams, Message: "the mode changed; send a message before /review so it takes effect"})
+		return
+	}
+	if err == nil && modeID != "" {
+		ss.mu.Lock()
+		ss.applied = modeID
+		ss.mu.Unlock()
+	}
 	var res turnResult
 	if err != nil {
 		ss.logf("%v", err)
