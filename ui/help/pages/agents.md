@@ -66,7 +66,11 @@ other setting it offers, such as the effort. Pick a value to change it. The sele
 shows what the agent reports, so a change the agent refused leaves the old value in
 place. `/mode` and `/model` appear in Flockdeck's group for the agents that offer them:
 choosing one moves you to its selector, and typing `/mode plan` and sending sets the
-mode without a prompt. A value that is not on the agent's list is not sent.
+mode without a prompt. A value that is not on the agent's list is not sent. A change to
+a mode that reads as running without asking (such as a YOLO or bypass mode) asks you to
+confirm first, by either route, and the pane shows its warning while it is in that mode.
+`/mode` and `/model` replace an agent command of the same name; to send the agent its own,
+start the text with a space.
 
 It is off until you turn it on. Put `"structuredPanes": true` in `prefs.json`
 in the state directory (there is no setting for it in the window); until then
