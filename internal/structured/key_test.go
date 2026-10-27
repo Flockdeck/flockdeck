@@ -192,3 +192,34 @@ func TestTheKeyIsRegisteredWithTheRedactor(t *testing.T) {
 		t.Errorf("a key for an agent with no slot was registered: %q", got)
 	}
 }
+
+// An agent that wants its key through an authenticate call (Gemini CLI) is
+// authenticated once with the entry's KeyMethod when a key is stored, and is
+// otherwise left in the login state.
+func TestAKeyAnswersALoginRequestOnlyWhenTheEntryNamesTheMethod(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		method string
+		key    string
+		ready  bool
+	}{
+		{"key and method", "api-key", testKey, true},
+		{"no key", "api-key", "", false},
+		{"no method", "", testKey, false},
+		{"method the agent did not list", "gemini-api-key", testKey, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			o := fakeOptions(t, acptest.WithAuth("new"))
+			o.Spec = keySpec("gemini")
+			o.Spec.ACP.KeyMethod = tc.method
+			o.Key = tc.key
+			o.Environ = []string{}
+			r := begin(t, o)
+			want := PhaseSetup
+			if tc.ready {
+				want = PhaseReady
+			}
+			until(t, r, "the "+string(want)+" phase", func(s Snapshot) bool { return s.Phase == want })
+		})
+	}
+}

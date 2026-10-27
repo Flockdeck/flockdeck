@@ -333,10 +333,10 @@ type Runtime struct {
 	waiters []*waiter
 	// settingCalls is how many setting requests are with the agent.
 	settingCalls int
-	subs    map[int]chan struct{}
-	nextSub int
-	rec     Recorder
-	tapSeen int64
+	subs         map[int]chan struct{}
+	nextSub      int
+	rec          Recorder
+	tapSeen      int64
 	// permRan says the launch check of the agent's permissions has run, and
 	// permUnasked what it found; permNote says in a few words how it went.
 	permRan, permUnasked bool
@@ -962,6 +962,9 @@ func (r *Runtime) launch() bool {
 		mcp = r.opts.MCPServers
 	}
 	created, resume, err := r.open(c, init.Capabilities, mcp)
+	if err != nil && r.authWithKey(c, init, err) {
+		created, resume, err = r.open(c, init.Capabilities, mcp)
+	}
 	if err != nil {
 		r.fail(c, err)
 		return false
@@ -976,6 +979,23 @@ func (r *Runtime) launch() bool {
 	r.mu.Unlock()
 	r.notify()
 	return true
+}
+
+// authWithKey answers an agent's request for a login with the stored API key,
+// once, for an agent that reads the key from its environment only after the
+// client asks for that method (the entry's KeyMethod). It reports whether the
+// agent accepted, so the caller tries again. The method must be one the agent
+// listed at initialize; a refusal leaves the original error to be shown.
+func (r *Runtime) authWithKey(c *acp.Client, init acp.InitResult, err error) bool {
+	m := r.opts.Spec.ACP.KeyMethod
+	if m == "" || r.opts.Key == "" || !acp.IsAuthRequired(err) {
+		return false
+	}
+	listed := false
+	for _, am := range init.AuthMethods {
+		listed = listed || am.ID == m
+	}
+	return listed && c.Authenticate(r.ctx, m) == nil
 }
 
 // SessionID is the id for the owner to save for resuming this pane's session.

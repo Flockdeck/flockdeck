@@ -217,7 +217,7 @@ func geminiACPSpec() Spec {
 	return Spec{
 		ID: "gemini-acp", Name: "Gemini CLI (structured)", Runner: RunnerACP, Hidden: true,
 		API: APISpec{Wire: "gemini", KeyEnv: []string{"GEMINI_API_KEY"}},
-		ACP: ACPSpec{Adapter: "gemini", Auth: AuthExternal, Login: "Run `gemini` once in a terminal and sign in.", PassEnv: homeEnv()},
+		ACP: ACPSpec{Adapter: "gemini", Auth: AuthExternal, Login: "Run `gemini` once in a terminal and sign in.", PassEnv: homeEnv(), KeyMethod: "gemini-api-key"},
 	}
 }
 
