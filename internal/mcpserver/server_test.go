@@ -266,3 +266,44 @@ func TestNoBackendIsRefused(t *testing.T) {
 		t.Error("Run started with no backend")
 	}
 }
+
+// The real backend carries the pane's token to a real hook server and the
+// sender is the pane the token was issued for.
+func TestAPIBackendCallsFlockdeckAsThePaneOfTheToken(t *testing.T) {
+	srv, err := hooks.Serve(func(hooks.Event) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer srv.Close()
+	var from string
+	srv.SetMsgHandler(func(r hooks.MsgRequest) (hooks.MsgResult, error) {
+		from = r.Pane
+		return hooks.MsgResult{Sent: []hooks.Sent{{ID: 9, Pane: "p2", To: "rev"}}}, nil
+	})
+	srv.SetTeamHandler(func(r hooks.TeamRequest) (hooks.TeamResult, error) {
+		return hooks.TeamResult{Members: []team.Member{{Pane: r.Pane, Name: "n", Status: "idle", Self: true}}}, nil
+	})
+	tok := srv.IssuePaneToken("pA")
+	got := run(t, API{URL: srv.BaseURL(), Token: tok}, initLine, call(2, "send_message", `{"to":"rev","text":"hi"}`), call(3, "list_peers", `{}`),
+		call(4, "send_message", `{"to":"rev","text":"hi","pane":"pB"}`))
+	if text, isErr := toolText(t, got[1]); isErr || !strings.Contains(text, `"id":9`) || from != "pA" {
+		t.Errorf("send = %q %v, sender %q", text, isErr, from)
+	}
+	if text, isErr := toolText(t, got[2]); isErr || !strings.Contains(text, `"pane":"pA"`) {
+		t.Errorf("peers = %q %v", text, isErr)
+	}
+	if errCode(got[3]) != -32602 {
+		t.Errorf("a spoofed call = %+v", got[3])
+	}
+	// A wrong token is a tool error that does not repeat the token.
+	got = run(t, API{URL: srv.BaseURL(), Token: "wrongtoken-abc"}, initLine, call(2, "send_message", `{"to":"rev","text":"hi"}`))
+	if text, isErr := toolText(t, got[1]); !isErr || strings.Contains(text, "wrongtoken-abc") {
+		t.Errorf("wrong token = %q %v", text, isErr)
+	}
+	// And so is a Flockdeck that is gone.
+	srv.Close()
+	got = run(t, API{URL: srv.BaseURL(), Token: tok}, initLine, call(2, "list_peers", `{}`))
+	if text, isErr := toolText(t, got[1]); !isErr || strings.Contains(text, tok) {
+		t.Errorf("closed server = %q %v", text, isErr)
+	}
+}

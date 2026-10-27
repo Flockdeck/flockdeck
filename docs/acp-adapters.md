@@ -156,10 +156,12 @@ relative `command` is resolved against the pane's working directory, not
 Flockdeck's. The recording of a stream (`internal/record`) replaces the `env` and
 `headers` values and the `args` of every server in a `session/new`.
 
-Flockdeck's own entry needs a token scoped to its own pane. `hookSrv.Token()` is
-one token for the whole server, so passing it to `UseMCPToken` as it is would
-hand one pane's agent a credential that works for every pane. Until a per-pane
-token exists (T186) `UseMCPToken` is not called and no pane gets the entry.
+Flockdeck's own entry carries a token scoped to its own pane, issued by
+`hooks.Server.IssuePaneToken` each time the pane's session starts. It is not
+`hookSrv.Token()`, which is one token for the whole server and would work for
+every pane. The entry also has `FLOCKDECK_API`, the loopback address of the
+API; that value is not secret. The server and its tools are in
+[Flockdeck MCP server](flockdeck-mcp-server.md).
 
 An adapter built into the `flockdeck` binary is started from the running
 program's path and not by looking `flockdeck` up on PATH, and is also given
