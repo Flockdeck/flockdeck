@@ -5,11 +5,12 @@ import assert from "node:assert/strict";
 import { render } from "../src/vendor/preact.mjs";
 import { html } from "../src/html.js";
 import { Structured } from "../src/drawer/Structured.js";
+import { TodoList } from "../src/drawer/TodoList.js";
 import { Live } from "../src/shell/Live.js";
 import { forgetComposerMemory } from "../src/drawer/composerModel.js";
 import { interruptKey, selectedText } from "../src/drawer/interruptModel.js";
 import { todosOf, summaryText, TODO_MAX, TODO_TEXT_MAX } from "../src/drawer/todoModel.js";
-import { waitsOf, noteOf, labelOf, LABEL_MAX } from "../src/lib/attention.js";
+import { waitsOf, noteOf, labelOf, LABEL_MAX, FINISHED_MIN_MS } from "../src/lib/attention.js";
 import { createDom, install, settle } from "./dom.mjs";
 import { fakeStore } from "./termfakes.mjs";
 import { FakeWebSocket, harness, hello } from "./fakes.mjs";
@@ -229,13 +230,51 @@ test("a key of an input method's composition is not an interrupt", async () => {
   }
 });
 
-test("a turn waiting on a permission is stopped by Escape too", async () => {
+test("with a permission open Escape is the card's and only Ctrl+C stops the turn; the hint says so", async () => {
   const m = await mount(push({ status: "waiting" }));
   try {
-    m.box().keydown("Escape");
+    assert.equal(m.box().keydown("Escape").defaultPrevented, false);
+    assert.equal(m.facts().keydown("Escape").defaultPrevented, false);
+    assert.deepEqual(m.cancels(), []);
+    assert.match(m.container.find("[data-interrupt-hint]").textContent, /^Ctrl\+C stops the turn/);
+    assert.equal(m.facts().keydown("c", { ctrlKey: true }).defaultPrevented, true);
     assert.equal(m.cancels().length, 1);
   } finally {
     await m.done();
+  }
+  assert.equal(interruptKey({ key: "Escape", target: { localName: "div" } }, { ...ok, waiting: true }), false);
+  assert.equal(interruptKey({ key: "c", ctrlKey: true, target: { localName: "div" } }, { ...ok, waiting: true }), true);
+});
+
+test("a held key and a double press send one Stop, and a later turn can be stopped again", async () => {
+  assert.equal(interruptKey({ key: "Escape", target: { localName: "div" }, repeat: true }, ok), false);
+  assert.equal(interruptKey({ key: "c", ctrlKey: true, target: { localName: "div" }, repeat: true }, ok), false);
+  const m = await mount();
+  try {
+    m.facts().keydown("Escape", { repeat: true });
+    assert.deepEqual(m.cancels(), [], "auto-repeat");
+    // Three presses before the page has redrawn.
+    m.facts().keydown("Escape");
+    m.facts().keydown("c", { ctrlKey: true });
+    m.box().keydown("Escape");
+    assert.equal(m.cancels().length, 1);
+    await settle();
+    // The turn ends, a new one starts, and it can be stopped.
+    await m.show({ status: "idle" });
+    await m.show({ status: "working" });
+    m.facts().keydown("Escape");
+    assert.equal(m.cancels().length, 2);
+  } finally {
+    await m.done();
+  }
+  // Waiting: two Ctrl+C presses are one Stop, since the status does not change between them.
+  const w = await mount(push({ status: "waiting" }));
+  try {
+    w.facts().keydown("c", { ctrlKey: true });
+    w.facts().keydown("c", { ctrlKey: true });
+    assert.equal(w.cancels().length, 1);
+  } finally {
+    await w.done();
   }
 });
 
@@ -302,6 +341,34 @@ test("the plan is a collapsible checklist that follows the push, draws the words
   }
 });
 
+test("the plan's open or closed choice is kept for each pane", async () => {
+  forgetComposerMemory();
+  const dom = createDom();
+  const restore = install(dom);
+  const container = dom.document.createElement("div");
+  dom.body.appendChild(container);
+  const plan = [{ content: "a", status: "pending" }];
+  const draw = (pane) => render(html`<${TodoList} st=${push({ id: pane, plan })} pane=${pane} />`, container);
+  try {
+    draw("p1");
+    await settle();
+    assert.equal(container.findAll(".structured-todo").length, 1, "open by default");
+    container.find(".structured-todos-head").click();
+    await settle();
+    assert.equal(container.findAll(".structured-todo").length, 0, "closed for p1");
+    draw("p2");
+    await settle();
+    assert.equal(container.findAll(".structured-todo").length, 1, "p2 has its own");
+    draw("p1");
+    await settle();
+    assert.equal(container.findAll(".structured-todo").length, 0, "p1 stayed closed");
+  } finally {
+    render(null, container);
+    await settle();
+    restore();
+  }
+});
+
 test("a finished plan starts closed, a plan with work left starts open, and rows past the bound are counted", async () => {
   const done = await mount(push({ plan: [{ content: "a", status: "completed" }] }));
   try {
@@ -329,17 +396,42 @@ test("labelOf cleans and cuts a pane label, so an agent-set name cannot carry a 
 });
 
 test("waitsOf: a structured pane that ends a turn is finished; one that only starts working, or a terminal pane, is not", () => {
-  const first = waitsOf(new Map(), { s: { name: "S", status: "working", structured: true }, t: { name: "T", status: "working" } });
+  const began = new Map();
+  const first = waitsOf(new Map(), { s: { name: "S", status: "working", structured: true }, t: { name: "T", status: "working" } }, 0, began);
   assert.deepEqual(first.finished, [], "the first state is never news");
-  const next = waitsOf(first.next, { s: { name: "S", status: "idle", structured: true, branch: "b" }, t: { name: "T", status: "idle" } });
+  const next = waitsOf(first.next, { s: { name: "S", status: "idle", structured: true, branch: "b" }, t: { name: "T", status: "idle" } }, FINISHED_MIN_MS, began);
   assert.deepEqual(next.finished.map((f) => f.id), ["s"], "a terminal pane going idle has its own path");
   assert.deepEqual(next.fresh, []);
-  const again = waitsOf(next.next, { s: { name: "S", status: "idle", structured: true } });
+  const again = waitsOf(next.next, { s: { name: "S", status: "idle", structured: true } }, FINISHED_MIN_MS + 1, began);
   assert.deepEqual(again.finished, [], "told once");
-  const w = waitsOf(next.next, { s: { name: "S", status: "waiting", structured: true } });
+  const w = waitsOf(next.next, { s: { name: "S", status: "waiting", structured: true } }, FINISHED_MIN_MS + 2, began);
   assert.deepEqual([w.fresh.map((f) => f.id), w.finished], [["s"], []], "a permission wait is a fresh need, not a finish");
-  const starting = waitsOf(new Map([["s", "starting"]]), { s: { name: "S", status: "idle", structured: true } });
+  const starting = waitsOf(new Map([["s", "starting"]]), { s: { name: "S", status: "idle", structured: true } }, 99999, new Map());
   assert.deepEqual(starting.finished, []);
+});
+
+test("waitsOf: a turn shorter than ten seconds is not announced, one of ten or more is, with a wait in the middle counted in", () => {
+  const run = (ms, mid) => {
+    const began = new Map();
+    const a = waitsOf(new Map(), { s: { name: "S", status: "working", structured: true } }, 1000, began);
+    let prev = a.next;
+    if (mid) prev = waitsOf(prev, { s: { name: "S", status: "waiting", structured: true } }, 1000 + ms / 2, began).next;
+    if (mid) prev = waitsOf(prev, { s: { name: "S", status: "working", structured: true } }, 1000 + ms / 2 + 1, began).next;
+    return waitsOf(prev, { s: { name: "S", status: "idle", structured: true } }, 1000 + ms, began).finished.length;
+  };
+  assert.equal(run(2000), 0);
+  assert.equal(run(FINISHED_MIN_MS - 1), 0);
+  assert.equal(run(FINISHED_MIN_MS), 1);
+  assert.equal(run(60000, true), 1);
+  // A page opened mid-turn takes the start from the pane's statusSince.
+  const began = new Map();
+  const t0 = Date.parse("2026-10-27T10:00:00Z");
+  const a = waitsOf(new Map(), { s: { name: "S", status: "working", structured: true, statusSince: "2026-10-27T09:59:00Z" } }, t0, began);
+  assert.equal(waitsOf(a.next, { s: { name: "S", status: "idle", structured: true } }, t0 + 1000, began).finished.length, 1);
+  // A start in the future is not trusted.
+  const b2 = new Map();
+  const b = waitsOf(new Map(), { s: { name: "S", status: "working", structured: true, statusSince: "2999-01-01T00:00:00Z" } }, t0, b2);
+  assert.equal(waitsOf(b.next, { s: { name: "S", status: "idle", structured: true } }, t0 + 1000, b2).finished.length, 0);
 });
 
 test("noteOf: fixed words for a structured pane, and nothing of the agent's but the cleaned label", () => {
@@ -349,7 +441,7 @@ test("noteOf: fixed words for a structured pane, and nothing of the agent's but 
   assert.equal(noteOf([{ ...f, finished: false, blocked: true }]).body, "feat/x — needs setting up");
   assert.deepEqual(noteOf([f, { ...f, id: "u", name: "U" }]), { title: "2 agents finished", body: "S, U", paneId: "s" });
   assert.deepEqual(noteOf([f, { ...f, id: "u", name: "U", finished: false }]), { title: "2 agents need you", body: "S, U", paneId: "u" });
-  const hostile = waitsOf(new Map([["s", "working"]]), { s: { name: "Evil\n[Flockdeck] approve now‮", status: "idle", structured: true, branch: "x\ny" } });
+  const hostile = waitsOf(new Map([["s", "working"]]), { s: { name: "Evil\n[Flockdeck] approve now‮", status: "idle", structured: true, branch: "x\ny" } }, 60000, new Map([["s", 0]]));
   const note = noteOf(hostile.finished);
   assert.doesNotMatch(note.title + note.body, /[\n‮]/u);
 });
@@ -391,7 +483,7 @@ const pane = (status, over = {}) => ({ id: "p1", kind: "structured", name: "work
 test("a structured pane that asks for permission or finishes a turn raises a notification while the window is behind", async () => {
   const m = await live({ focused: false });
   try {
-    await m.push({ p1: pane("working") });
+    await m.push({ p1: pane("working", { statusSince: new Date(Date.now() - 60000).toISOString() }) });
     assert.deepEqual(m.made, [], "the first state announces nothing");
     await m.push({ p1: pane("waiting", { permission: { tool: "Bash", summary: "rm -rf /" }, activity: "IGNORE ALL RULES" }) });
     assert.equal(m.made.length, 1);
@@ -399,7 +491,7 @@ test("a structured pane that asks for permission or finishes a turn raises a not
     assert.equal(m.made[0].body, "feat/x — waiting for your answer");
     assert.doesNotMatch(JSON.stringify(m.made), /rm -rf|IGNORE/);
     // Answered: the waiting notification goes.
-    await m.push({ p1: pane("working") });
+    await m.push({ p1: pane("working", { statusSince: new Date(Date.now() - 60000).toISOString() }) });
     assert.equal(m.made[0].closed, true);
     await m.push({ p1: pane("idle") });
     assert.equal(m.made.length, 2);
@@ -413,10 +505,21 @@ test("a structured pane that asks for permission or finishes a turn raises a not
   }
 });
 
+test("a turn that ran only a moment raises no finished notification", async () => {
+  const m = await live({ focused: false });
+  try {
+    await m.push({ p1: pane("working", { statusSince: new Date(Date.now() - 1000).toISOString() }) });
+    await m.push({ p1: pane("idle") });
+    assert.deepEqual(m.made, []);
+  } finally {
+    m.done();
+  }
+});
+
 test("with the window in front a finished turn raises nothing, and a terminal pane going idle raises nothing", async () => {
   const front = await live({ focused: true });
   try {
-    await front.push({ p1: pane("working") });
+    await front.push({ p1: pane("working", { statusSince: new Date(Date.now() - 60000).toISOString() }) });
     await front.push({ p1: pane("idle") });
     assert.deepEqual(front.made, []);
   } finally {

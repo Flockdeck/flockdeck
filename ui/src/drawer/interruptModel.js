@@ -11,19 +11,21 @@
 
 /** INTERRUPT_HINT is said under the prompt box while a turn runs. */
 export const INTERRUPT_HINT = "Esc stops the turn. Ctrl+C stops it when no text is selected.";
+/** INTERRUPT_HINT_WAITING is said while a permission request is open: Esc is the card's then. */
+export const INTERRUPT_HINT_WAITING = "Ctrl+C stops the turn when no text is selected.";
 
 const FIELDS = new Set(["input", "select", "option"]);
 
 const tagOf = (t) => (t && typeof t.localName === "string" ? t.localName.toLowerCase() : "");
 
 /** interruptKey says whether the key event e stops the turn. ctx is:
- *  working (the pane has a turn running or waiting on an answer), desk (a window on the desk),
+ *  working (the pane has a turn running or waiting on an answer), waiting (it is the latter), desk (a window on the desk),
  *  draft (the prompt box text), menuOpen (the slash or mention list is showing), dialogOpen (a
  *  confirmation or the export panel is showing), stopping (a Stop is already out) and
  *  selected (text is selected anywhere on the page). Anything missing is a no. */
 export function interruptKey(e, ctx) {
   if (!e || typeof e !== "object" || !ctx || typeof ctx !== "object") return false;
-  if (e.isComposing || e.keyCode === 229 || e.defaultPrevented) return false;
+  if (e.isComposing || e.keyCode === 229 || e.defaultPrevented || e.repeat) return false;
   if (ctx.desk !== true || ctx.working !== true || ctx.stopping === true) return false;
   if (ctx.menuOpen === true || ctx.dialogOpen === true) return false;
   if (e.shiftKey || e.altKey || e.metaKey) return false;
@@ -32,7 +34,8 @@ export function interruptKey(e, ctx) {
   if (e.target && e.target.isContentEditable === true) return false;
   const inBox = tag === "textarea";
   if (e.key === "Escape") {
-    if (e.ctrlKey) return false;
+    // With a permission request open Escape is the card's (deny); only Ctrl+C stops the turn then.
+    if (e.ctrlKey || ctx.waiting === true) return false;
     // In the prompt box Escape belongs to the text until there is none.
     return !inBox || (typeof ctx.draft === "string" && ctx.draft === "");
   }

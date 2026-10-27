@@ -51,7 +51,9 @@
 //
 // - Escape stops a running turn, and so does Ctrl+C when no text is selected (interruptModel.js): both
 //   send what Stop sends, keeping the waiting prompts (the person did not ask to lose them; Stop drops them).
-//   Escape in the box is the box's own until it is empty, and a menu, the settings dialogs, a select or the
+//   Escape in the box is the box's own until it is empty, and with a permission request open Escape is the
+//   card's (only Ctrl+C stops the turn then); a held key and a second press before the redraw send once;
+//   and a menu, the settings dialogs, a select or the
 //   search field keep their Escape.
 // - The agent's plan (the push's plan) is a collapsible checklist above the conversation (TodoList.js).
 //
@@ -73,7 +75,7 @@ import { ExportPanel } from "./ExportPanel.js";
 import { queueOf, stopMessage } from "./queueModel.js";
 import { ShellList } from "./ShellList.js";
 import { TodoList } from "./TodoList.js";
-import { interruptKey, selectedText, INTERRUPT_HINT } from "./interruptModel.js";
+import { interruptKey, selectedText, INTERRUPT_HINT, INTERRUPT_HINT_WAITING } from "./interruptModel.js";
 import { shellText, shellOf, shellRunMessage, shellWait, SHELL_EMPTY_WORDS, SHELL_ONE_LINE_WORDS, SHELL_NOT_SENT_WORDS, SHELL_NO_ANSWER_WORDS } from "./shellModel.js";
 import { prepareImage, pickImages, attachNote, ImageError, IMAGE_TYPES } from "./imageAttach.js";
 
@@ -172,6 +174,12 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
   const [stopFailed, setStopFailed] = useState("");
   // The pane whose Stop was sent while a turn ran; it clears when the push says the turn is over.
   const [stopping, setStopping] = useState("");
+  // The pane a key-sent Stop is out for, set at once so a second press before the page redraws sends nothing;
+  // it goes when the turn is no longer running or waiting.
+  const keyStop = useRef("");
+  useEffect(() => {
+    if (!st || (st.status !== "working" && st.status !== "waiting")) keyStop.current = "";
+  }, [st && st.status]);
   useEffect(() => {
     if (stopping && (!st || st.status !== "working")) setStopping("");
   }, [stopping, st && st.status]);
@@ -353,6 +361,7 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
     setStopFailed(ok ? "" : pane);
     // The turn ends when the agent says so, which may be a moment after the press.
     setStopping(ok && st.status === "working" ? pane : "");
+    return ok;
   };
   const queue = queueOf(st);
   const sending = !!outcome && outcome.kind === "sending";
@@ -488,13 +497,13 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
     const el = e && e.target;
     const win = el && el.ownerDocument ? el.ownerDocument.defaultView : null;
     const ctx = {
-      desk, working: st.status === "working" || st.status === "waiting", draft, stopping: stopping === pane,
+      desk, working: st.status === "working" || st.status === "waiting", waiting: st.status === "waiting", draft, stopping: stopping === pane || keyStop.current === pane,
       menuOpen: !!menu || names.length > 0, dialogOpen: (!!confirming && confirming.pane === pane) || exporting === pane,
       selected: selectedText(win, el),
     };
     if (!interruptKey(e, ctx)) return;
     e.preventDefault();
-    stop(queue.length > 0);
+    if (stop(queue.length > 0)) keyStop.current = pane;
   };
   const attach = async (file) => {
     if (!file) return;
@@ -593,7 +602,7 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
             ${sendFailed === pane ? html`<p class="structured-note structured-note--unsent structured-note--send" role="alert">${SEND_NOT_SENT_WORDS}</p>` : null}
             ${draft.startsWith("!") ? html`<p class="structured-note structured-note--hint" data-shell-hint="on">Runs in this folder as you. The agent is not asked and does not see it unless you send the output.</p>` : null}
             ${shellNote && draft.startsWith("!") ? html`<p class="structured-note structured-note--unsent" role="alert" data-shell-note="on">${showControls(shellNote)}</p>` : null}
-            ${(st.status === "working" || st.status === "waiting") && stopping !== pane ? html`<p class="structured-note structured-note--hint" data-interrupt-hint="on">${INTERRUPT_HINT}</p>` : null}
+            ${(st.status === "working" || st.status === "waiting") && stopping !== pane ? html`<p class="structured-note structured-note--hint" data-interrupt-hint="on">${st.status === "waiting" ? INTERRUPT_HINT_WAITING : INTERRUPT_HINT}</p>` : null}
             ${stopping === pane ? html`<p class="structured-note" role="status" data-stopping="on">Stopping the turn.</p>` : null}
             ${st.status === "working" && !stopping ? html`<p class="structured-note structured-note--hint" data-queue-hint="on">The agent is working. What you send now waits in the queue.</p>` : null}
             ${stopFailed === pane ? html`<p class="structured-note structured-note--unsent" role="status">${STOP_NOT_SENT_WORDS}</p>` : null}

@@ -104,14 +104,14 @@ queue ends the turn and goes on to the next prompt. Mail beyond the 16 the pane 
 in the inbox and is not listed until there is room.
 
 While a turn runs, Esc stops it, and so does Ctrl+C when no text is selected (with text selected it
-copies). Unlike the Stop button these keep the prompts waiting in the queue, so the next one is sent. Esc
+copies). While the agent waits on a permission, Esc belongs to the permission and only Ctrl+C stops the turn. Unlike the Stop button these keep the prompts waiting in the queue, so the next one is sent. Esc
 does nothing while a menu is open or the box has text in it. The box says so while the agent works.
 
 When the agent keeps a plan or todo list, it is shown above the conversation as a checklist: how many are
 done and which is in progress, and each item with its state. Click the Plan line to close or open it.
 
 When a window is behind another, a structured agent that asks for a permission or needs setting up raises a
-desktop notification "needs you", and one that finishes a turn raises "finished". The notification names the pane and its branch and
+desktop notification "needs you", and one that finishes a turn of ten seconds or more raises "finished". The notification names the pane and its branch and
 never what the agent asked or said. Phones paired through Flockdeck Remote are not pushed for a
 structured agent, because they cannot answer it; they see the pane as waiting in the list.
 

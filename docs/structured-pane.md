@@ -185,9 +185,10 @@ this. There is no setting for the send key.
 
 Escape stops a running turn, and so does Ctrl+C when no text is selected (T227). Both send
 `structuredCancel` with `keepQueue` set when prompts are waiting, so the waiting prompts are not lost the way
-they are with the Stop button; the button still drops the queue. They work while the pane is working or waiting
-on a permission (the request is answered cancelled, never allowed), from an empty prompt box or from anywhere
-else in the drawer. They are left alone when a slash or file list is open (Escape closes the list), when the
+they are with the Stop button; the button still drops the queue. Escape works while the pane is working; Ctrl+C works while it is working or waiting on a permission (the request
+is answered cancelled, never allowed). With a permission open Escape is left to the card, and the hint then
+says only Ctrl+C. Both work from an empty prompt box or from anywhere else in the drawer. A held key (auto-repeat)
+is ignored, and several presses before the page redraws send one Stop; it can be sent again once the turn has ended. They are left alone when a slash or file list is open (Escape closes the list), when the
 box holds text (Escape belongs to the text; Ctrl+C with text selected is Copy), when a select, the search
 field, the export panel or a mode confirmation has the key, during an input method's composition, in a
 window reached through the relay, and once a Stop is out. Command+C is Copy. While a turn runs the box
@@ -197,8 +198,8 @@ shows the hint "Esc stops the turn". Double Escape is not bound (rewind, T215). 
 The agent's plan (the push's `plan`, from TodoWrite or the plan updates of the protocol) is drawn above the
 conversation as a collapsible checklist (T228, `drawer/TodoList.js`, `todoModel.js`): a head line with
 "N of M done" and the row in progress, and under it each row with its status (to do, in progress, done). It
-starts open while something is left and closed when all is done, and the person's choice stays until the pane
-changes. At most 50 rows are drawn (the push carries at most 100) with "N more not shown" after them, each
+starts open while something is left and closed when all is done, and the person's choice is kept for each pane
+(the last 30). At most 50 rows are drawn (the push carries at most 100) with "N more not shown" after them, each
 cut to 200 characters on one line, control and invisible characters removed, drawn as text. It follows every
 push. The markdown plan (`planMarkdown`) is not drawn.
 
@@ -304,7 +305,7 @@ A terminal opencode pane is not started this way and keeps its own configuration
 - Desktop notifications work as they do for a terminal pane (`lib/attention.js`, `shell/Live.js`): a pane that
   asks for a permission becomes status waiting, and a pane that needs setup becomes blocked, so each raises
   "NAME needs you" with the fixed body "waiting for your answer" or "needs setting up" while the window is
-  behind another, and counts in the tab title and icon. A structured pane that ends a turn (working, then
+  behind another, and counts in the tab title and icon. A structured pane that ends a turn of ten seconds or more (working, then
   idle) raises "NAME finished" with the body "ready for your next message", only while the window is behind
   another, and does not count as waiting. The notification carries the pane's name and branch, cleaned and
   cut to 60 characters, and no text of the agent's: not the tool, the command or the activity. The setting is

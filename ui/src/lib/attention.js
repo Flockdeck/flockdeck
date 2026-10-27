@@ -77,6 +77,8 @@ export function permissionWords(state) {
 }
 
 export const LABEL_MAX = 60;
+/** FINISHED_MIN_MS is how long a turn has to have run for its end to be announced. */
+export const FINISHED_MIN_MS = 10000;
 
 /** labelOf is a pane name or branch fit for a notification: format and control characters
  *  gone, white space one space, cut to LABEL_MAX characters. It is empty when nothing is left. */
@@ -92,8 +94,10 @@ export function labelOf(v) {
  *  time is never fresh: arriving at a workspace where three agents are already
  *  waiting is not news that they just stopped. finished are the structured panes
  *  whose turn just ended (working before, idle now); they are kept apart because
- *  they do not wait on anyone. */
-export function waitsOf(before, panes) {
+ *  they do not wait on anyone, and only a turn that ran FINISHED_MIN_MS or more is
+ *  announced. began (id to the time the turn was first seen working; the page keeps it
+ *  between calls) times that, from the pane's statusSince when it has one. */
+export function waitsOf(before, panes, now = Date.now(), began = new Map()) {
   const next = new Map();
   const fresh = [];
   const finished = [];
@@ -104,7 +108,15 @@ export function waitsOf(before, panes) {
     const was = before.get(id);
     const needs = status === "waiting" || status === "blocked";
     const row = { id, name: labelOf(v.name) || "An agent", branch: labelOf(v.branch), blocked: status === "blocked", structured: v.structured === true };
-    if (v.structured === true && was === "working" && status === "idle") finished.push({ ...row, finished: true });
+    if (v.structured === true) {
+      if (status === "working" && !began.has(id)) {
+        const at = typeof v.statusSince === "string" ? Date.parse(v.statusSince) : NaN;
+        began.set(id, Number.isFinite(at) && at <= now ? at : now);
+      }
+      const ran = began.has(id) ? now - began.get(id) : 0;
+      if (was === "working" && status === "idle" && ran >= FINISHED_MIN_MS) finished.push({ ...row, finished: true });
+      if (status !== "working" && status !== "waiting" && status !== "blocked") began.delete(id);
+    }
     if (!needs || was === undefined || was === "waiting" || was === "blocked") continue;
     fresh.push(row);
   }

@@ -449,6 +449,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
   // another. The first state seen is only remembered, never announced.
   const waits = useRef(new Map());
   const lastNote = useRef(null);
+  const turnBegan = useRef(new Map());
   // Whether the notification on screen is one of an agent waiting, which goes when the wait is answered,
   // and not one of a turn that ended, which stays until it is clicked or replaced.
   const lastNoteWaits = useRef(false);
@@ -459,7 +460,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
   }, [statePanes]);
   useEffect(() => {
     const panes = kept.current.state.panes;
-    const { fresh, finished, next } = waitsOf(waits.current, panes);
+    const { fresh, finished, next } = waitsOf(waits.current, panes, Date.now(), turnBegan.current);
     waits.current = next;
     const waiting = new Set([...next].filter(([, v]) => v === "waiting" || v === "blocked").map(([id]) => id));
     setToasts((cur) => keepWaiting(cur, waiting));
