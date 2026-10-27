@@ -144,14 +144,14 @@ func TestRenderStopsAtTheSizeLimit(t *testing.T) {
 
 func TestWriteNewStaysInsideTheFolderAndNeverReplaces(t *testing.T) {
 	dir := t.TempDir()
-	p1, err := WriteNew(dir, "../../evil/..\\x", []byte("one"))
+	p1, err := WriteNew(dir, "../../evil/..\\x", "20260101-000000", []byte("one"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if filepath.Dir(p1) != mustEval(t, dir) || strings.Contains(filepath.Base(p1), "..") {
 		t.Errorf("wrote %q", p1)
 	}
-	p2, err := WriteNew(dir, "../../evil/..\\x", []byte("two"))
+	p2, err := WriteNew(dir, "../../evil/..\\x", "20260101-000000", []byte("two"))
 	if err != nil || p2 == p1 {
 		t.Fatalf("second = %q, %v", p2, err)
 	}
@@ -176,7 +176,7 @@ func TestWriteNewRefusesWhatIsNotAFullPathToAFolder(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, d := range map[string]string{"empty": "", "relative": "sub", "dots": "..", "missing": filepath.Join(dir, "nope"), "a file": file, "nul": dir + "\x00"} {
-		if p, err := WriteNew(d, "x", []byte("a")); err == nil {
+		if p, err := WriteNew(d, "x", "t", []byte("a")); err == nil {
 			t.Errorf("%s: wrote %q", name, p)
 		}
 	}

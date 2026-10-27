@@ -38,7 +38,7 @@ export function ExportPanel({ pane, store, result = null, onClose }) {
   return html`<form class="export-panel" aria-label="Export the conversation" onSubmit=${save}>
     <p class="export-includes">${EXPORT_INCLUDES_WORDS}</p>
     <label class="export-field"><span>Folder</span>
-      <input type="text" class="export-dir" value=${dir} maxlength="1024" spellcheck="false" placeholder="C:\Users\you\Documents" onInput=${(e) => { setDir(e.target.value); setNote(""); }} /></label>
+      <input type="text" class="export-dir" value=${dir} maxlength="1024" spellcheck="false" autocomplete="off" placeholder="C:\Users\you\Documents" onInput=${(e) => { setDir(e.target.value); setNote(""); }} /></label>
     <label class="export-field export-check"><input type="checkbox" class="export-thinking" checked=${thinking} onChange=${(e) => setThinking(e.target.checked)} /><span>Include the agent's thinking, where it is still held</span></label>
     <div class="export-actions">
       <button type="submit" class="drawer-btn export-save" disabled=${waiting}>Save as Markdown</button>

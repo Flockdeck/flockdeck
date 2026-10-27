@@ -137,6 +137,50 @@ func (s BatonSource) Scrubber() *baton.Scrubber {
 	return baton.NewScrubber(vals...)
 }
 
+// ErrRedactor is returned by CheckedScrubber when what the scrubber is made from
+// could not be read in full.
+var ErrRedactor = errors.New("the redactor could not be set up")
+
+// CheckedScrubber is Scrubber for a caller that must not go on with a scrubber
+// that is missing a layer: it fails when the key store cannot be listed, or a
+// .env file of the checkout (or of its repository root) exists and cannot be
+// read whole, or is over the 1 MiB the scrubber reads. Scrubber itself skips
+// those quietly. Like Scrubber it reads the key store, so it is not for the
+// workspace goroutine.
+func (s BatonSource) CheckedScrubber() (*baton.Scrubber, error) {
+	if _, err := creds.Names(); err != nil {
+		return nil, ErrRedactor
+	}
+	dirs := []string{s.Pane.Cwd}
+	if root, err := gitx.Root(s.Pane.Cwd); err == nil && filepath.Clean(root) != filepath.Clean(s.Pane.Cwd) {
+		dirs = append(dirs, root)
+	}
+	for _, dir := range dirs {
+		files, err := filepath.Glob(filepath.Join(dir, ".env*"))
+		if err != nil {
+			return nil, ErrRedactor
+		}
+		for _, f := range files {
+			fi, err := os.Lstat(f)
+			if err != nil {
+				return nil, ErrRedactor
+			}
+			if !fi.Mode().IsRegular() {
+				continue
+			}
+			if fi.Size() > 1<<20 {
+				return nil, ErrRedactor
+			}
+			fh, err := os.Open(f)
+			if err != nil {
+				return nil, ErrRedactor
+			}
+			fh.Close()
+		}
+	}
+	return s.Scrubber(), nil
+}
+
 // Readable reports whether the agent keeps a conversation Flockdeck can read.
 // A baton from one that does not is built from git and the pane's task alone,
 // and says so.

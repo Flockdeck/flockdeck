@@ -127,6 +127,7 @@ test("exportMessage needs a folder and sends only the fields the desk reads", ()
 
 test("resultWords says where the file went and what was replaced, or the desk's refusal", () => {
   const ok = resultWords({ ok: true, path: "C:\\out\\f.md", entries: 12, redacted: 2, warning: "" });
+  assert.ok(resultWords({ ok: true, path: "p", entries: 1, redacted: 0, warning: "Some text was too large" }).words.includes("Some text was too large"));
   assert.ok(ok.ok && ok.words.includes("Saved 12 entries to C:\\out\\f.md") && ok.words.includes("2 values were replaced") && ok.words.includes("Read it before you share it"));
   assert.ok(resultWords({ ok: true, path: "p", entries: 1, redacted: 0 }).words.includes("Nothing was replaced"));
   const no = resultWords({ ok: false, error: "Name a folder\u0000 to save into" });

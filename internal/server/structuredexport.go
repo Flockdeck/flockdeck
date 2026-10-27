@@ -60,8 +60,19 @@ func (s *Server) structuredExport(c *controlClient, cmd command) {
 	id, dir, req, thinking := cmd.ID, cmd.Dir, cmd.Req, cmd.Thinking
 	go func() {
 		defer structuredExporting.Delete(id)
-		defer s.surviveFor(c, "exporting a conversation")
-		sc := src.Scrubber().WithDeadline(time.Now().Add(structuredExportBudget))
+		// A panic is still answered, so that the window does not wait for ever.
+		defer func() {
+			if r := recover(); r != nil {
+				s.reportPanic(c, "exporting a conversation", r)
+				refuse(c, cmd, errStructured(structuredExportFailed))
+			}
+		}()
+		base, err := src.CheckedScrubber()
+		if err != nil {
+			refuse(c, cmd, errStructured(structuredExportNoScrub))
+			return
+		}
+		sc := base.WithDeadline(time.Now().Add(structuredExportBudget))
 		opts := mdexport.Options{
 			Title:    title,
 			Agent:    agentID,
@@ -78,22 +89,30 @@ func (s *Server) structuredExport(c *controlClient, cmd command) {
 				return d.Text, ok
 			}
 		}
-		res, err := mdexport.Render(entries, opts)
+		res, err := exportRender(entries, opts)
 		var path string
 		if err == nil {
-			path, err = mdexport.WriteNew(dir, title+"-"+time.Now().Format("20060102-150405"), []byte(res.Markdown))
+			path, err = mdexport.WriteNew(dir, title, time.Now().Format("20060102-150405"), []byte(res.Markdown))
 		}
 		if err != nil {
 			refuse(c, cmd, errStructured(exportWords(err)))
 			return
 		}
 		m := teamResultMsg{Type: "teamResult", Req: req, Op: "structuredExport", OK: true, Path: path, Entries: res.Entries, Redacted: res.Redactions}
+		var warn []string
 		if res.Cut {
-			m.Warning = "The file was cut at the size limit and later entries are left out"
+			warn = append(warn, "The file was cut at the size limit and later entries are left out")
 		}
+		if mdexport.ScrubbedAway(res.Markdown) > 0 {
+			warn = append(warn, "Some text was too large or took too long to redact, so it was replaced with a mark and is not in the file")
+		}
+		m.Warning = strings.Join(warn, ". ")
 		c.sendJSON(m)
 	}()
 }
+
+// exportRender is mdexport.Render; a test replaces it.
+var exportRender = mdexport.Render
 
 // exportWords is the fixed text for a failed export.
 func exportWords(err error) string {

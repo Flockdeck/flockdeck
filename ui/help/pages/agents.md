@@ -124,7 +124,9 @@ agent's replies, each tool call with its summary, helper reports, notices, and m
 agents, marked as mail with who sent it and whether it was delivered. It leaves out tool output,
 diffs and images, and the agent's thinking unless you tick the box (only what Flockdeck still
 holds is included). Every line of the conversation is quoted in the file, so nothing the agent
-wrote can look like a turn of yours. Secrets are replaced with `[REDACTED: ...]` marks by the
+wrote can look like a turn of yours, and images and HTML in it are written as text so that a
+viewer does not load them. Links and code fences are left as they were. The file takes the
+folder's permissions, so on Windows it is not private. A folder on a network share is refused. Secrets are replaced with `[REDACTED: ...]` marks by the
 same redactor batons use: the values in the pane's environment, the keys Flockdeck holds, the
 checkout's `.env` files and the shapes of keys. It is a filter, so read the file before you
 share it. Export is on the machine Flockdeck runs on; a window reached through the relay has

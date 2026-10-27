@@ -77,7 +77,7 @@ func Render(entries []transcript.Entry, o Options) (Result, error) {
 	}
 	line := func(s string) string { return code(scrub(oneLine(s, lineCut))) }
 
-	b.WriteString("# " + plain(oneLine(scrub(oneLine(o.Title, 120)), 120), "Flockdeck conversation") + "\n\n")
+	b.WriteString("# " + code(plain(oneLine(scrub(oneLine(o.Title, 120)), 120), "Flockdeck conversation")) + "\n\n")
 	if a := oneLine(o.Agent, 60); a != "" {
 		b.WriteString("Agent: " + code(a) + "  \n")
 	}
@@ -91,7 +91,7 @@ func Render(entries []transcript.Entry, o Options) (Result, error) {
 		b.WriteString(", thinking")
 	}
 	b.WriteString(". Secrets the redactor knows were replaced with [REDACTED: kind] marks. It is a filter, so read the file before sharing it.\n\n")
-	b.WriteString("Every line that begins with \"> \" is quoted from the conversation. Headings are written by Flockdeck.\n")
+	b.WriteString("Every line that begins with \"> \" is quoted from the conversation, with images and HTML neutralised: \"![\" is written \"\\![\" and \"<\" is written \"&lt;\". Links and code fences are left as they were. Headings are written by Flockdeck.\n")
 
 	for _, e := range entries {
 		block := renderEntry(e, o, scrub, line, &r)
@@ -183,6 +183,10 @@ func renderEntry(e transcript.Entry, o Options, scrub func(string) string, line 
 	return ""
 }
 
+// ScrubbedAway counts the marks that say the redactor gave up on a text for its
+// size or time (the scrubber's too-large-to-scrub kind).
+func ScrubbedAway(md string) int { return strings.Count(md, "[REDACTED: too-large-to-scrub]") }
+
 func status(s string) string {
 	switch s {
 	case transcript.StatusRunning, transcript.StatusOK, transcript.StatusError:
@@ -269,6 +273,9 @@ func quote(s string) string {
 		}
 		return r
 	}, s)
+	// Image syntax would load a remote picture when the file is opened in a viewer,
+	// and raw HTML can do more; both are written as the text they are.
+	s = strings.ReplaceAll(strings.ReplaceAll(s, "![", "\\!["), "<", "&lt;")
 	var b strings.Builder
 	for _, l := range strings.Split(strings.TrimRight(s, "\n"), "\n") {
 		if l == "" {
