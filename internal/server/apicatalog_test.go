@@ -71,6 +71,9 @@ func init() {
 	addedIn["structuredInfo"] = "1.23"
 	// Signing in from a structured pane came with structuredSignIn (1.24).
 	addedIn["structuredSignIn"], addedIn["structuredSignInCancel"] = "1.24", "1.24"
+	// Going back to an earlier prompt and forking at one came with structuredRewind and structuredFork (1.25).
+	addedIn["structuredRewind"] = "1.25"
+	addedIn["structuredFork"] = "1.25"
 	// The person's own shell commands came with structuredShell (1.21).
 	for _, n := range []string{"structuredShellRun", "structuredShellStop", "structuredShellRemove", "structuredShellSend"} {
 		addedIn[n] = "1.21"

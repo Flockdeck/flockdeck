@@ -141,6 +141,16 @@ shown, because the agent's report does not have them. Each reply has a Copy butt
 Copy last reply in the conversation bar copies the newest one as plain text; a code block
 has its own Copy.
 
+Going back and forking (the claude and codex agents only; other agents do not show it): type
+`/rewind` or `/fork` in the prompt box. The list shows the prompts you can go back to. "Go back to before
+this" asks first, then removes that prompt and everything after it from the conversation and from the agent,
+and puts the prompt's text in the box to edit and send again. It does not put back files the agent changed.
+"Fork from before this" and "Fork the whole conversation" start a new pane beside this one, labelled Fork, with
+the conversation up to that point; this pane is not changed. Both wait until the agent is idle. The first
+prompt, and a prompt that follows a stopped turn, have no point before them. A fork works in the same folder
+as the original, so two agents can edit the same files, and its window starts empty. Both are on the machine
+Flockdeck runs on.
+
 Export, in the conversation bar, saves the conversation as a Markdown file. Type the full
 path of a folder that exists; Flockdeck makes a new file there named `flockdeck-` and the pane's
 name and the time, never replacing one, and says where. The file holds your prompts, the

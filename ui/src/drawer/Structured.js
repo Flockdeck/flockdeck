@@ -74,6 +74,7 @@ import { UsageMeter } from "./UsageMeter.js";
 import { ExportPanel } from "./ExportPanel.js";
 import { InfoPanel } from "./InfoPanel.js";
 import { needsSignIn } from "./infoModel.js";
+import { RewindPanel } from "./RewindPanel.js";
 import { queueOf, stopMessage } from "./queueModel.js";
 import { ShellList } from "./ShellList.js";
 import { TodoList } from "./TodoList.js";
@@ -151,7 +152,7 @@ export function activityOf(st, entries = []) {
  *  first one; error is the store's structuredError; desk is false in a window
  *  reached through the relay. snap is the store's snapshot, which carries the
  *  desk's answer to a send. */
-export function Structured({ pane, snap, st, error = null, cancelError = null, settingError = null, queueResult = null, shellResult = null, exportResult = null, infoResult = null, signInResult = null, desk = true, store, conv = null, onOlder = null, details = null, onDetail = null, pending = null, search = null, onSearch = null, onClearSearch = null }) {
+export function Structured({ pane, snap, st, error = null, cancelError = null, settingError = null, queueResult = null, shellResult = null, exportResult = null, infoResult = null, signInResult rewindResult = null, desk = true, store, conv = null, onOlder = null, details = null, onDetail = null, pending = null, search = null, onSearch = null, onClearSearch = null }) {
   // The draft and the history are kept per pane (composerModel.js), so they outlive this component.
   const kept = useRef(null);
   if (kept.current === null) kept.current = loadComposer(pane);
@@ -190,6 +191,8 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
   const [exporting, setExporting] = useState("");
   // The pane whose agent info is open.
   const [infoFor, setInfoFor] = useState("");
+  // The pane whose rewind and fork panel is open.
+  const [rewinding, setRewinding] = useState("");
   // A "!" command in flight: its req, and what the last one was refused with. The draft stays until the desk has taken it.
   const [shellReq, setShellReq] = useState("");
   const [shellNote, setShellNote] = useState("");
@@ -388,7 +391,7 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
     setSettingNote(ok ? null : { pane, text: SET_NOT_SENT_WORDS });
     return ok;
   };
-  const menu = desk && !sending && !draft.startsWith("!") && closedFor !== draft ? menuOf(draft, st.commands, ownCommandsFor(OWN_COMMANDS, controls)) : null;
+  const menu = desk && !sending && !draft.startsWith("!") && closedFor !== draft ? menuOf(draft, st.commands, ownCommandsFor(OWN_COMMANDS, controls, !!st.capabilities && st.capabilities.rewind === true)) : null;
   const items = flatten(menu);
   // The chosen row is found by its command, so a list that changes under the person does not move it; -1 is none.
   const at = menu ? selectedIndex(items, selKey, menu.query) : -1;
@@ -397,6 +400,7 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
       setDraft("");
       if (it.id === "stop") stop(false);
       if (it.id === "info") setInfoFor(pane);
+      if (it.id === "rewind" || it.id === "fork") setRewinding(pane);
       if (it.id === "mode" || it.id === "model") {
         const c = controlFor(controls, it.id);
         const el = c && settingsEl.current && settingsEl.current.querySelector ? settingsEl.current.querySelector('[data-setting="' + c.key + '"]') : null;
@@ -503,7 +507,7 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
     const win = el && el.ownerDocument ? el.ownerDocument.defaultView : null;
     const ctx = {
       desk, working: st.status === "working" || st.status === "waiting", waiting: st.status === "waiting", draft, stopping: stopping === pane || keyStop.current === pane,
-      menuOpen: !!menu || names.length > 0, dialogOpen: (!!confirming && confirming.pane === pane) || exporting === pane,
+      menuOpen: !!menu || names.length > 0, dialogOpen: (!!confirming && confirming.pane === pane) || exporting === pane || rewinding === pane,
       selected: selectedText(win, el),
     };
     if (!interruptKey(e, ctx)) return;
@@ -559,6 +563,7 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
       </div>
       <${TodoList} st=${st} pane=${pane} />
       ${desk && (infoFor === pane || needsSignIn(st)) ? html`<${InfoPanel} pane=${pane} st=${st} store=${store} result=${infoResult} signInResult=${signInResult} onClose=${() => setInfoFor("")} />` : null}
+      ${desk && rewinding === pane ? html`<${RewindPanel} pane=${pane} store=${store} st=${st} entries=${conv && conv.entries ? conv.entries : []} result=${rewindResult} onText=${(t) => { setDraft(t); if (box.current && box.current.focus) box.current.focus(); }} onClose=${() => setRewinding("")} />` : null}
       ${desk && exporting === pane ? html`<${ExportPanel} pane=${pane} store=${store} result=${exportResult} onClose=${() => setExporting("")} />` : null}
       ${controls.length
         ? html`<div class="structured-settings" ref=${settingsEl} role="group" aria-label="Agent settings">

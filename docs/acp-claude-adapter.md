@@ -272,6 +272,17 @@ To move the pin: install the new claude, run the canary by hand
 list. The weekly canary also runs the newest claude, so a protocol change shows up there
 before a user's claude updates.
 
+## Rewind and fork
+
+The adapter advertises `agentCapabilities._meta["flockdeck.dev"] = {"rewind":1}` and `sessionCapabilities.fork`.
+`session/prompt` takes a turn token in `_meta["flockdeck.dev"].turn`, which becomes the user message's
+`uuid`; the adapter keeps the uuid of the last assistant message of each turn that ended by itself.
+`_flockdeck/forkpoint` answers `{at}`, the previous turn's last uuid. `session/fork` starts claude with
+`--resume SRC [--resume-session-at AT] --fork-session --session-id NEW`. `_flockdeck/rewind` starts a
+second claude with `--resume ID --resume-session-at AT` on the same id, puts the mode and model back, and
+ends the first; it is refused while a turn or a queued prompt is there. The turns are kept in memory, so
+turns from before an adapter restart cannot be named.
+
 ## Not done
 
 - `session/resume` starts claude with `--resume <id>` in place of `--session-id <id>` and

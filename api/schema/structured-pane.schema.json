@@ -18,6 +18,7 @@
     "queued": { "type": "integer", "minimum": 1, "description": "How many prompts wait behind the running turn. Absent when none do." },
     "queue": { "type": "array", "minItems": 1, "maxItems": 16, "items": { "$ref": "#/$defs/queueItem" }, "description": "The prompts waiting behind the running turn, the next to be sent first (since API 1.19). Same length as queued; absent when none wait." },
     "shell": { "type": "array", "minItems": 1, "maxItems": 8, "items": { "$ref": "#/$defs/shellItem" }, "description": "The person's own commands, run with ! in the prompt box, the oldest first (since API 1.20). Not the agent's: they never reach it unless the person sends one's output. Absent when there are none." },
+    "rewindPoints": { "type": "array", "minItems": 1, "maxItems": 200, "items": { "type": "string" }, "description": "The ids of the prompt entries the conversation can be taken back to, oldest first, the newest 200 at most (since API 1.24). A prompt is listed when the turn before it ended by itself. Absent when the agent cannot go back or no prompt qualifies. Name the prompt by this id in structuredRewind and structuredFork." },
     "err": { "type": "string", "minLength": 1, "description": "The last thing that went wrong, on one line, without control characters, cut to 200 characters. It says what last went wrong and not that something is wrong now: show it with the phase and status. Absent when nothing has." },
     "setup": { "$ref": "#/$defs/setup" },
     "plan": { "type": "array", "items": { "$ref": "#/$defs/planRow" }, "description": "The agent's plan, at most 100 rows. Empty, never absent." },
@@ -139,7 +140,7 @@
     "capabilities": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["loadSession", "image", "audio", "embeddedContext", "mcpHttp", "mcpSse", "listSessions", "resumeSession", "forkSession"],
+      "required": ["loadSession", "image", "audio", "embeddedContext", "mcpHttp", "mcpSse", "listSessions", "resumeSession", "forkSession", "rewind"],
       "description": "What the agent said it can do at initialize. Present while the phase is ready. A capability the agent did not claim is false. Since API 1.12.",
       "properties": {
         "loadSession": { "type": "boolean", "description": "It can load an earlier session (session/load)." },
@@ -150,7 +151,8 @@
         "mcpSse": { "type": "boolean", "description": "It takes MCP servers over SSE." },
         "listSessions": { "type": "boolean", "description": "It lists its stored sessions." },
         "resumeSession": { "type": "boolean", "description": "It can resume a session without replaying it." },
-        "forkSession": { "type": "boolean", "description": "It can fork a session." }
+        "forkSession": { "type": "boolean", "description": "It can fork a session." },
+        "rewind": { "type": "boolean", "description": "It is one of Flockdeck's own adapters and can go back to an earlier prompt and fork at one (structuredRewind, structuredFork). Since API 1.24." }
       }
     },
     "setup": {

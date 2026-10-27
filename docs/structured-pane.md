@@ -33,6 +33,8 @@ A window sends a command as one JSON object with a `cmd` field, over its control
 | `structuredShellStop` | `id`, `req`, `item` | Ends run `item` and what it started. | yes | refused |
 | `structuredShellRemove` | `id`, `req`, `item` | Forgets a run that has ended; a running one is refused. | yes | refused |
 | `structuredShellSend` | `id`, `req`, `item` | Queues one prompt for the agent holding the command and its output (the newest 16 KB, as plain text), after a fixed first line. This is the only way a person's command reaches the agent. | yes | refused |
+| `structuredRewind` | `id`, `req`, `entry`, `confirm` | Takes the conversation back to before the prompt entry `entry` (API 1.24, cap `structuredRewind`): the prompt and everything after it leave the conversation and the agent's own history. Refused without `confirm: true`, with a fixed text saying what is removed. `entry` is an id from `rewindPoints`; anything else, and a prompt with no earlier point, is refused. Refused while a turn runs or prompts wait, and for an agent without `capabilities.rewind`. Files the agent changed are not touched. Answers with a `teamResult` whose `text` is the removed prompt's text (cut to 16 KiB) for the window to put back in the prompt box, or an `error` with fixed text. The windows watching the pane start the conversation again. One rewind or fork of a pane runs at a time. | yes | refused |
+| `structuredFork` | `id`, `req`, `entry` | Starts a new structured pane beside `id` with the conversation up to before the prompt entry `entry`, or all of it when `entry` is empty (API 1.24, cap `structuredRewind`). The new pane has the same directory, agent and model, the label `Fork`, and no opening prompt; its agent resumes the forked session. The original is not changed. If the fork cannot be made the new pane starts a new session and says so. Answers with a `teamResult` whose `pane` is the new pane's id, or an `error` with fixed text. | yes | refused |
 
 The shell commands name a run by its `item` id from the push. Refusals have fixed text and none carries output or agent text: "Type a command after the !", "A command is one line, with no control characters", "That command is too long", "Too many commands are running. Stop one first", "That command is no longer listed", "Stop that command before removing it", "The command could not be started", "That pane is closed", and "The agent is not running, so it cannot be sent the output". A run is the person's command, not the agent's: it shows in the push's `shell` list and nowhere in the conversation, and the agent learns of it only through `structuredShellSend`. Closing the pane ends every run and what each started (a process that left its session on Unix, or a windowed program on Windows, is not reached). Windows windowed programs (`!notepad`, `!code .`) are left running by Stop, by closing the pane and by the ten-minute limit, by design: only console programs and what they start are ended there. `cmd.exe` writes output in the OEM code page, so non-ASCII text can show as replacement characters. Send to agent puts the output in a fenced block, with a fence longer than any run of backticks in the output and a fixed line saying it is program output and not instructions; the output itself is not scrubbed beyond what the window shows (plain text), as a pasted prompt would not be. Flockdeck does not advertise the ACP `terminal` capability, so an agent cannot start commands in the client and no agent-started background command can be listed here (see the [parity matrix](acp-parity-matrix.md)).
 
@@ -91,7 +93,8 @@ refused in the same words, so a window probing for ids learns nothing: the `team
 | `modes`, `models` | The `current` id and the `available` choices (`id`, `name`, `description`) of the block the agent sent with `session/new` (Gemini sends both). Absent when it sent none. If the agent sends a `current_mode_update` before any modes block, `modes` has the `current` id and an empty `available`. |
 | `configOptions` | The settings the agent exposes (opencode and Codex: model, effort, mode): `id`, `name`, `category`, `type`, the `current` value as text and the `values` it can take (`value`, `name`, `description`, `group`). |
 | `planMarkdown` | A plan the agent sent as markdown (Codex `plan_update`). `plan` holds rows. A pane can have either. The markdown may contain remote images or links, so a window must not load images automatically. |
-| `capabilities` | What the agent said it can do at initialize, while the phase is `ready`: `loadSession`, `image`, `audio`, `embeddedContext`, `mcpHttp`, `mcpSse`, `listSessions`, `resumeSession`, `forkSession`. |
+| `capabilities` | What the agent said it can do at initialize, while the phase is `ready`: `loadSession`, `image`, `audio`, `embeddedContext`, `mcpHttp`, `mcpSse`, `listSessions`, `resumeSession`, `forkSession`, `rewind` (API 1.24: one of Flockdeck's own adapters, which can go back to an earlier prompt and fork at one). |
+| `rewindPoints` | The ids of the prompt entries the conversation can be taken back to, oldest first, at most the newest 200 (API 1.24). A prompt is listed when the turn before it ended by itself, so the first prompt and one after a stopped turn are not. Absent when the agent cannot go back. Name a prompt by this id in `structuredRewind` and `structuredFork`; never by its place. |
 
 The session fields (`title`, `commands`, `modes`, `models`, `configOptions`, `planMarkdown`, `capabilities`) came with API 1.12, and a server that names `structuredSession` in its `caps` sends them. Agents differ in what they offer: opencode and Codex put the model, effort and mode in `configOptions`; Gemini sends `modes` and `models` and no config options. A window draws whatever is present and treats an absent field as "the agent offers none". The set of values for `configOptions` is the agent's and changes mid-session (a `config_option_update` replaces the whole list), so a window reads the current list each time instead of caching it. `structuredSet` changes them. A boolean option is a `configOptions` entry with `type` `boolean`; it is set with the value `true` or `false`.
 
@@ -478,7 +481,28 @@ the agent answered with an error. A layout saved before the id was kept starts a
 restarted, then the new session's (section 3). A restart that cannot start the new agent keeps them
 too.
 
-## 7. What is not covered
+## 7. Going back and forking
+
+The drawer's `/rewind` and `/fork` (and the list they open) use `structuredRewind` and `structuredFork`.
+They are offered only when `capabilities.rewind` is true. Third-party agents never have it, because
+ACP has no method to cut a conversation and Flockdeck does not fake one.
+
+Flockdeck gives every prompt it sends a token, a lowercase UUID, in the prompt's `_meta["flockdeck.dev"].turn`.
+It is sent only to an agent that advertised `agentCapabilities._meta["flockdeck.dev"].rewind` at
+initialize, which today is `flockdeck acp-adapter claude` and `codex`. The token and the other
+extension payloads (`_flockdeck/forkpoint`, `_flockdeck/rewind`, `session/fork` with `_meta` `at`) carry
+no conversation text. "Before prompt P" means P and everything after it go; there is no point before the
+first prompt or after a turn that did not end by itself, and turns from before a resume are unknown.
+
+- Claude: the token is the user message's `uuid`. Fork is `--resume SRC --resume-session-at AT --fork-session`;
+  rewind starts a second claude on the same session at that message.
+- Codex: fork is `thread/fork` then `thread/rollback`; rewind is `thread/rollback`. A turn that was
+  not a plain prompt (`/compact`, `/review`) in the dropped range refuses the point. Not run against a real codex.
+
+A fork shares the original's working directory, so two agents may edit the same files. The new pane's
+window shows the fork notice but not the earlier turns.
+
+## 8. What is not covered
 
 - Export of a structured pane's conversation.
 - A phone, or any window through the relay.

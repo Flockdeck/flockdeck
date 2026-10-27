@@ -412,3 +412,15 @@ test("paneSend is desk only in the store, and goes in a window on the desk", asy
   assert.equal(remote.store.send({ cmd: "paneSend", id: "p1", text: "hi" }), false);
   assert.equal(remote.ws.sent.filter((c) => c.cmd === "paneSend").length, 0);
 });
+
+test("a structuredRewind or structuredFork answer is kept with the pane it was sent for", async () => {
+  const { store, ws } = await up();
+  ws.frame(hello());
+  assert.equal(store.getState().rewindResult, null);
+  assert.equal(store.send({ cmd: "structuredRewind", id: "p3", req: "r1", entry: "e3", confirm: true }), true);
+  ws.frame({ type: "teamResult", req: "r1", op: "structuredRewind", ok: true, text: "second" });
+  assert.deepEqual(store.getState().rewindResult, { id: "p3", req: "r1", op: "structuredRewind", ok: true, error: "", text: "second", pane: "" });
+  assert.equal(store.send({ cmd: "structuredFork", id: "p4", req: "r2", entry: "" }), true);
+  ws.frame({ type: "teamResult", req: "r2", op: "structuredFork", ok: false, error: "The conversation could not be forked", text: "leak" });
+  assert.deepEqual(store.getState().rewindResult, { id: "p4", req: "r2", op: "structuredFork", ok: false, error: "The conversation could not be forked", text: "", pane: "" });
+});

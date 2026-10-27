@@ -202,6 +202,17 @@ own. The client must pass what codex reads its login and settings from (`HOME` o
 environment has none of them. `FLOCKDECK_CODEX_BIN` names the executable when it is not
 on `PATH`.
 
+## Rewind and fork
+
+The adapter advertises the same extension as the claude one (`flockdeck.dev`, `rewind: 1`) and
+`sessionCapabilities.fork`. It keeps the turn tokens of the turns it ran, in order, and whether each was a
+plain prompt. `_flockdeck/forkpoint` answers `rbN`, N being the number of turns from the chosen one to the
+end. `session/fork` is `thread/fork` of the source thread, then `thread/rollback` with `numTurns` N on the new
+thread. `_flockdeck/rewind` is `thread/rollback` on the live thread, refused while a turn or a queued prompt
+is there. A `/compact` or `/review` in the range that would go refuses the point, as does a turn from before
+a resume. None of this has been run against a real codex: the wire is from the route document and the fake
+app-server, and is listed under Unverified.
+
 ## Unverified
 
 These were not checked against a real codex:
