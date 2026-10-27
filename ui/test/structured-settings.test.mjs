@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { render } from "../src/vendor/preact.mjs";
 import { html } from "../src/html.js";
 import { Structured } from "../src/drawer/Structured.js";
-import { controlsOf, controlFor, setMessage, offered, parseSetting, ownCommandsFor, CONTROLS_MAX, CHOICES_MAX, LABEL_MAX } from "../src/drawer/settingsModel.js";
+import { looksUnasked, controlsOf, controlFor, setMessage, offered, parseSetting, ownCommandsFor, CONTROLS_MAX, CHOICES_MAX, LABEL_MAX } from "../src/drawer/settingsModel.js";
 import { OWN_COMMANDS } from "../src/drawer/slashModel.js";
 import { createDom, install, settle } from "./dom.mjs";
 import { fakeStore } from "./termfakes.mjs";
@@ -185,6 +185,112 @@ test("'/mode plan' in the box sets the mode instead of going to the agent", asyn
     assert.equal(m.store.sent.length, 1, "an unknown mode was sent");
     assert.equal(box().value, "/mode yolo", "the draft was lost");
     assert.match(m.container.find(".structured-note").textContent, /Choices: Default, Plan/);
+  } finally {
+    await m.done();
+  }
+});
+
+const risky = {
+  modes: { current: "default", available: [{ id: "default", name: "Default" }, { id: "yolo", name: "YOLO" }, { id: "acceptEdits", name: "Accept edits", description: "Edit files without asking; still ask for commands" }] },
+};
+
+test("looksUnasked agrees with the desk's list of words", () => {
+  const cases = [["yolo", "YOLO", "", true], ["bypassPermissions", "", "", true], ["full-access", "Full access", "Never ask, no sandbox", true], ["x", "Custom", "Runs everything without asking", true],
+    ["dontAsk", "", "", true], ["default", "Default", "Asks before it edits", false], ["plan", "Plan", "Plan only; no edits or commands", false],
+    ["acceptEdits", "Accept edits", "Edit files without asking; still ask for commands", false], ["auto", "Auto", "Edit files in the project and run commands there; ask before anything else", false]];
+  for (const [id, name, desc, want] of cases) assert.equal(looksUnasked(id, name, desc), want, id);
+  assert.deepEqual(controlsOf(risky)[0].choices.map((c) => c.unasked), [false, true, false]);
+});
+
+test("a mode that runs without asking is confirmed first, from the selector", async () => {
+  const m = await mount(risky);
+  try {
+    const sel = m.container.find('[data-setting="mode"]');
+    sel.value = "yolo";
+    sel.dispatch("change");
+    await settle();
+    assert.deepEqual(m.store.sent, [], "the change went out before the confirm");
+    assert.match(m.container.find(".structured-confirm").textContent, /without asking/);
+    m.container.find(".structured-confirm-no").click();
+    await settle();
+    assert.equal(m.container.find(".structured-confirm"), null);
+    assert.deepEqual(m.store.sent, []);
+    sel.value = "yolo";
+    sel.dispatch("change");
+    await settle();
+    m.container.find(".structured-confirm-yes").click();
+    await settle();
+    assert.deepEqual(m.store.sent.map((c) => [c.cmd, c.kind, c.value]), [["structuredSet", "mode", "yolo"]]);
+    assert.equal(m.container.find(".structured-confirm"), null);
+  } finally {
+    await m.done();
+  }
+});
+
+test("'/mode yolo' does not apply on Enter without the same confirm", async () => {
+  const m = await mount(risky);
+  try {
+    const box = () => m.container.find(".structured-input");
+    box().enter("/mode yolo");
+    await settle();
+    m.container.find(".structured-prompt").dispatch("submit");
+    await settle();
+    assert.deepEqual(m.store.sent, [], "/mode yolo was sent without a confirm");
+    assert.ok(m.container.find(".structured-confirm"));
+    m.container.find(".structured-confirm-yes").click();
+    await settle();
+    assert.deepEqual(m.store.sent.map((c) => [c.cmd, c.value]), [["structuredSet", "yolo"]]);
+  } finally {
+    await m.done();
+  }
+});
+
+test("a mode that still asks is not confirmed", async () => {
+  const m = await mount(risky);
+  try {
+    const sel = m.container.find('[data-setting="mode"]');
+    sel.value = "acceptEdits";
+    sel.dispatch("change");
+    await settle();
+    assert.equal(m.container.find(".structured-confirm"), null);
+    assert.equal(m.store.sent.length, 1);
+  } finally {
+    await m.done();
+  }
+});
+
+test("a confirm for a value the agent has since dropped sends nothing", async () => {
+  const m = await mount(risky);
+  try {
+    const sel = m.container.find('[data-setting="mode"]');
+    sel.value = "yolo";
+    sel.dispatch("change");
+    await settle();
+    const dom = m.container;
+    // The agent replaces its list: yolo is no longer on it.
+    const st = { type: "structured", id: "p3", kind: "structured", plan: [], usage: { used: 0, size: 0 }, commands: [], modes: { current: "default", available: [{ id: "default" }] } };
+    render(html`<${Structured} pane="p3" snap=${m.store.getState()} st=${st} store=${m.store} desk=${true} />`, dom);
+    await settle();
+    m.container.find(".structured-confirm-yes")?.click();
+    await settle();
+    assert.deepEqual(m.store.sent, []);
+  } finally {
+    await m.done();
+  }
+});
+
+test("a text that starts with a space goes to the agent even when it reads as /mode", async () => {
+  const m = await mount(geminiLike);
+  try {
+    const box = () => m.container.find(".structured-input");
+    box().enter(" /mode plan");
+    await settle();
+    m.container.find(".structured-prompt").dispatch("submit");
+    await settle();
+    assert.ok(m.store.sent.every((c) => c.cmd !== "structuredSet"), "the leading space did not skip /mode");
+    assert.equal(m.store.sent.length, 1);
+    assert.equal(m.store.sent[0].cmd, "paneSend");
+    assert.equal(m.store.sent[0].text, "/mode plan");
   } finally {
     await m.done();
   }

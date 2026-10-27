@@ -22,6 +22,21 @@ const cut = (s, n) => {
 // A value is sent as the agent wrote it, so one that would have to be cut or cleaned is not offered.
 const plain = (v) => typeof v === "string" && v !== "" && v.length <= VALUE_MAX && !/[\p{C}\r\n]/u.test(v);
 
+const ASKED_MODES = ["accept-edits", "acceptedits", "accept_edits", "accept edits"];
+const UNASKED_WORDS = ["yolo", "bypass", "dangerous", "auto-approve", "auto approve", "autoapprove", "accept-all", "accept all", "acceptall",
+  "full-access", "full access", "full_access", "fullaccess", "dontask", "dont-ask", "don't ask", "without asking", "without approval",
+  "without permission", "without prompting", "never ask", "no approval", "skip permission"];
+
+/** looksUnasked says a choice, by its id, name and description, reads as one that lets the agent run commands or
+ *  edit files without asking. It mirrors LooksUnasked in internal/structured/settings.go, which marks the pane. A
+ *  guess from words: a change that reads this way is confirmed before it is sent. */
+export function looksUnasked(id, name, description) {
+  const head = (String(id || "") + " " + String(name || "")).toLowerCase();
+  if (ASKED_MODES.some((w) => head.includes(w))) return false;
+  const all = head + " " + String(description || "").toLowerCase();
+  return UNASKED_WORDS.some((w) => all.includes(w));
+}
+
 function choicesOf(list, valueKey) {
   const out = [];
   const seen = new Set();
@@ -30,7 +45,8 @@ function choicesOf(list, valueKey) {
     const c = list[i];
     if (!c || !plain(c[valueKey]) || seen.has(c[valueKey])) continue;
     seen.add(c[valueKey]);
-    out.push({ value: c[valueKey], label: cut(c.name, LABEL_MAX) || cut(c[valueKey], LABEL_MAX), group: cut(c.group, LABEL_MAX), description: cut(c.description, 160) });
+    out.push({ value: c[valueKey], label: cut(c.name, LABEL_MAX) || cut(c[valueKey], LABEL_MAX), group: cut(c.group, LABEL_MAX), description: cut(c.description, 160),
+      unasked: looksUnasked(c[valueKey], c.name, c.description) });
   }
   return out;
 }
@@ -55,7 +71,7 @@ export function controlsOf(st) {
     if (!o || !plain(o.id)) continue;
     let choices;
     if (o.type === "boolean") {
-      choices = [{ value: "true", label: "On", group: "", description: "" }, { value: "false", label: "Off", group: "", description: "" }];
+      choices = [{ value: "true", label: "On", group: "", description: "", unasked: false }, { value: "false", label: "Off", group: "", description: "", unasked: false }];
     } else if (o.type === "select") {
       choices = choicesOf(o.values, "value");
     } else continue;

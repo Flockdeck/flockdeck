@@ -30,7 +30,10 @@
 //   back and the desk's refusal is said under the box. /mode and /model are
 //   Flockdeck's commands for the two the agent offers: choosing one moves to its
 //   selector, and "/mode plan" sets it from the box. Only a value from the
-//   current list is sent.
+//   current list is sent. A value that reads as running without asking (looksUnasked)
+//   is confirmed first, whichever way it was chosen; the pane's unasked warning then
+//   follows the mode from the desk's side. Sending a text that starts with a space
+//   skips /mode and /model and goes to the agent as typed.
 //
 // Everything on a row came from an agent, a tool or a person, and none of it is
 // put into the page as markup.
@@ -110,6 +113,8 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
   // What the last change of a setting got that the desk did not say: { pane, text }.
   const [settingNote, setSettingNote] = useState(null);
   const settingsEl = useRef(null);
+  // A change to a value that reads as running without asking, waiting for the person's yes: { pane, key, value, label }.
+  const [confirming, setConfirming] = useState(null);
   // The send in flight: the mark outcomeOf follows. Set at once, so a second Send before the page has redrawn does not send again.
   const [mark, setMark] = useState(null);
   const busy = useRef(false);
@@ -148,7 +153,8 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
     if (e && e.preventDefault) e.preventDefault();
     const text = draft.trim();
     if (!text || busy.current) return;
-    const asked = parseSetting(text, controls);
+    // A leading space sends the text to the agent as it is, so an agent's own /mode command can still be reached.
+    const asked = /^\s/.test(draft) ? null : parseSetting(text, controls);
     if (asked) {
       if (asked.error) {
         setSettingNote({ pane, text: asked.error });
@@ -172,12 +178,20 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
   };
   const sending = !!outcome && outcome.kind === "sending";
   const controls = desk ? controlsOf(st) : [];
-  const change = (control, value) => {
+  // Every route to a change (a selector, "/mode yolo") comes through here, so a confirm cannot be skipped by one of them.
+  const change = (control, value, confirmed = false) => {
     const msg = setMessage(pane, control, value, "s" + ++settingSeq);
     if (!msg) {
       setSettingNote({ pane, text: "That is not on the agent's list any more." });
       return false;
     }
+    const choice = control.choices.find((o) => o.value === value);
+    if (!confirmed && choice && choice.unasked) {
+      setSettingNote(null);
+      setConfirming({ pane, key: control.key, value, label: control.label + " to " + choice.label });
+      return true;
+    }
+    setConfirming(null);
     const ok = store.send(msg);
     setSettingNote(ok ? null : { pane, text: SET_NOT_SENT_WORDS });
     return ok;
@@ -271,6 +285,17 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
             ${outcome && outcome.kind === "refused" ? html`<p class="structured-note structured-note--unsent structured-note--send" role="alert">${showControls(clip(outcome.text, 300))}</p>` : null}
             ${sendFailed === pane ? html`<p class="structured-note structured-note--unsent structured-note--send" role="alert">${SEND_NOT_SENT_WORDS}</p>` : null}
             ${stopFailed === pane ? html`<p class="structured-note structured-note--unsent" role="status">${STOP_NOT_SENT_WORDS}</p>` : null}
+            ${confirming && confirming.pane === pane
+              ? html`<div class="structured-note structured-confirm" role="alert" data-confirm=${confirming.key}>
+                  <span>Change ${confirming.label}? The agent may then run commands and edit files without asking.</span>
+                  <button type="button" class="drawer-btn structured-confirm-yes" onClick=${() => {
+                    const c = controls.find((x) => x.key === confirming.key);
+                    if (c) change(c, confirming.value, true);
+                    else { setConfirming(null); setSettingNote({ pane, text: "That is not on the agent's list any more." }); }
+                  }}>Change it</button>
+                  <button type="button" class="drawer-btn structured-confirm-no" onClick=${() => setConfirming(null)}>Cancel</button>
+                </div>`
+              : null}
             ${settingNote && settingNote.pane === pane ? html`<p class="structured-note structured-note--unsent" role="status">${showControls(clip(settingNote.text, 300))}</p>` : null}
             ${settingError && settingError.id === pane ? html`<p class="structured-note" role="status">${showControls(clip(String(settingError.error || ""), 300))}</p>` : null}
             ${cancelError && cancelError.id === pane ? html`<p class="structured-note" role="status">${showControls(clip(String(cancelError.error || ""), 300))}</p>` : null}
