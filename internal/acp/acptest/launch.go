@@ -61,6 +61,9 @@ func WithSlowSettings() Option { return withSetOpt("slow") }
 // takes a mode, which the protocol allows.
 func WithQuietModeChanges() Option { return withSetOpt("quiet") }
 
+// WithSilentSettings makes the agent never answer a setting request.
+func WithSilentSettings() Option { return withSetOpt("silent") }
+
 func withSetOpt(name string) Option {
 	return func(l *launch) { l.env = append(l.env, envSetOpts+"_"+name+"=1") }
 }

@@ -290,3 +290,15 @@ func TestAModelSetOnAnAgentWithNoModelsIsDropped(t *testing.T) {
 		t.Errorf("models = %+v, want none", b.Session().Models)
 	}
 }
+
+func TestConfigValueSetChangesTheListAsItStands(t *testing.T) {
+	b := New(Config{})
+	b.ConfigSet([]acp.ConfigOption{{ID: "a", Current: "1"}, {ID: "b", Current: "1"}})
+	b.ConfigSet([]acp.ConfigOption{{ID: "b", Current: "1"}, {ID: "c", Current: "1"}}) // the agent replaced it
+	b.ConfigValueSet("b", "2")
+	b.ConfigValueSet("a", "2") // gone: not put back
+	got := b.Session().ConfigOptions
+	if len(got) != 2 || got[0].ID != "b" || got[0].Current != "2" || got[1].Current != "1" {
+		t.Errorf("config = %+v", got)
+	}
+}

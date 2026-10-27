@@ -105,6 +105,18 @@ func (b *Bridge) ConfigSet(opts []acp.ConfigOption) {
 	b.sessionUpdate(acp.Update{Kind: acp.UpdateConfigOption, ConfigOptions: opts})
 }
 
+// ConfigValueSet gives the config option id the current value, in the list as it
+// stands. An option that is not there is left out.
+func (b *Bridge) ConfigValueSet(id, value string) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for i := range b.state.ConfigOptions {
+		if b.state.ConfigOptions[i].ID == id {
+			b.state.ConfigOptions[i].Current = line(value, labelCap)
+		}
+	}
+}
+
 // Session returns the session state as it stands.
 func (b *Bridge) Session() SessionState {
 	b.mu.Lock()

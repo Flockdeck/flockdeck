@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"slices"
+	"strings"
 
 	"github.com/jmwri/flockdeck/internal/acp"
 )
@@ -39,6 +40,16 @@ func (r *Runtime) live() (*acp.Client, string, error) {
 	return r.client, r.session, nil
 }
 
+// same says the session a setting was checked against is still the pane's. The
+// lists are read after live and before the request, so a session replaced in
+// between (a restart) would otherwise be checked against one session's lists
+// and sent to another.
+func (r *Runtime) same(c *acp.Client, sid string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.client == c && r.session == sid && !r.closed && r.phase == PhaseReady
+}
+
 // settingDone ends the call live began.
 func (r *Runtime) settingDone() {
 	r.mu.Lock()
@@ -63,7 +74,7 @@ func (r *Runtime) SetMode(id string) error {
 	}
 	defer r.settingDone()
 	m := r.br.Session().Modes
-	if m == nil || !slices.ContainsFunc(m.Available, func(v acp.Mode) bool { return v.ID == id }) {
+	if m == nil || !slices.ContainsFunc(m.Available, func(v acp.Mode) bool { return v.ID == id }) || !r.same(c, sid) {
 		return ErrNoSuchSetting
 	}
 	if err := c.SetMode(r.ctx, sid, id); err != nil {
@@ -83,7 +94,7 @@ func (r *Runtime) SetModel(id string) error {
 	}
 	defer r.settingDone()
 	m := r.br.Session().Models
-	if m == nil || !slices.ContainsFunc(m.Available, func(v acp.Model) bool { return v.ID == id }) {
+	if m == nil || !slices.ContainsFunc(m.Available, func(v acp.Model) bool { return v.ID == id }) || !r.same(c, sid) {
 		return ErrNoSuchSetting
 	}
 	if err := c.SetModel(r.ctx, sid, id); err != nil {
@@ -122,16 +133,70 @@ func (r *Runtime) SetConfig(configID, value string) error {
 	default:
 		return ErrNoSuchSetting
 	}
+	if !r.same(c, sid) {
+		return ErrNoSuchSetting
+	}
 	got, err := c.SetConfigOption(r.ctx, sid, configID, value, boolean)
 	if err != nil {
 		return settingFailed(err)
 	}
 	if got == nil {
-		// The agent did not send its options back: keep ours with the one change.
-		opts[i].Current = value
-		got = opts
+		// The agent did not send its options back: the change goes into the
+		// list as it is now, which an update may have replaced meanwhile.
+		r.br.ConfigValueSet(configID, value)
+	} else {
+		r.br.ConfigSet(got)
 	}
-	r.br.ConfigSet(got)
 	r.notify()
 	return nil
+}
+
+// LooksUnasked says a mode or option value, by its id, name and description,
+// reads as one that lets the agent run commands or edit files without asking.
+// It is a guess from words: an agent may name such a mode anything. A value
+// whose id or name is an accept-edits mode is not counted, since that mode
+// still asks for commands.
+func LooksUnasked(id, name, description string) bool {
+	head := strings.ToLower(id + " " + name)
+	for _, ok := range []string{"accept-edits", "acceptedits", "accept_edits", "accept edits"} {
+		if strings.Contains(head, ok) {
+			return false
+		}
+	}
+	all := head + " " + strings.ToLower(description)
+	for _, w := range unaskedWords {
+		if strings.Contains(all, w) {
+			return true
+		}
+	}
+	return false
+}
+
+var unaskedWords = []string{"yolo", "bypass", "dangerous", "auto-approve", "auto approve", "autoapprove", "accept-all", "accept all",
+	"acceptall", "full-access", "full access", "full_access", "fullaccess", "dontask", "dont-ask", "don't ask", "without asking",
+	"without approval", "without permission", "without prompting", "never ask", "no approval", "skip permission"}
+
+// settingsUnasked says the mode the agent is in now, or the current value of
+// one of its select options, reads as one that runs without asking. It follows
+// the agent's own changes as well as the person's.
+func (r *Runtime) settingsUnasked() bool {
+	s := r.br.Session()
+	if m := s.Modes; m != nil {
+		for _, v := range m.Available {
+			if v.ID == m.Current && LooksUnasked(v.ID, v.Name, v.Description) {
+				return true
+			}
+		}
+	}
+	for _, o := range s.ConfigOptions {
+		if o.Type != "select" {
+			continue
+		}
+		for _, v := range o.Values {
+			if v.Value == o.Current && LooksUnasked(v.Value, v.Name, v.Description) {
+				return true
+			}
+		}
+	}
+	return false
 }

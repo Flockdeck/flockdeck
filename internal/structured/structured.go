@@ -832,13 +832,18 @@ func (r *Runtime) checkPermissions(path string, pp manifest.PermissionProbe, a m
 // Unasked says the agent may run commands or edit files without a permission
 // request. For an adapter with a launch check it is what the check found once it
 // has run, and until then the manifest's word; for any other, the manifest's.
+// A current mode or setting that reads as running without asking (LooksUnasked)
+// makes it true as well.
 func (r *Runtime) Unasked() bool {
 	r.mu.Lock()
-	defer r.mu.Unlock()
+	base := r.opts.Spec.RunsWithoutAsking()
 	if r.permRan {
-		return r.permUnasked
+		base = r.permUnasked
 	}
-	return r.opts.Spec.RunsWithoutAsking()
+	r.mu.Unlock()
+	// A mode that runs without asking counts, whether the person chose it or the
+	// agent did, until the pane is in another.
+	return base || r.settingsUnasked()
 }
 
 // PermissionNote says in a few words how the launch check of the permissions went.

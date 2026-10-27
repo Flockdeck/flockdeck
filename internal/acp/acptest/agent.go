@@ -509,6 +509,10 @@ func (a *agent) setting(m msg) {
 		}
 	}
 	shape := os.Getenv(envShape)
+	if a.setOpt("silent") {
+		time.Sleep(time.Minute)
+		return
+	}
 	if a.setOpt("slow") {
 		time.Sleep(300 * time.Millisecond)
 	}

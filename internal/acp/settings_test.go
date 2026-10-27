@@ -104,3 +104,10 @@ func TestSettingValuesAreCheckedBeforeSending(t *testing.T) {
 		t.Errorf("the agent was sent %q for values that were refused", got)
 	}
 }
+
+func TestTheSetupTimeoutHasADefault(t *testing.T) {
+	c, _ := start(t, newRecorder())
+	if c.cfg.SetupTimeout <= 0 {
+		t.Errorf("SetupTimeout = %v; a setting request could wait for ever", c.cfg.SetupTimeout)
+	}
+}

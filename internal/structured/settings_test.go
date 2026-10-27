@@ -6,7 +6,9 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/jmwri/flockdeck/internal/acp"
 	"github.com/jmwri/flockdeck/internal/acp/acptest"
 )
 
@@ -184,5 +186,109 @@ func TestAModeTheAgentTookIsShownWithoutAnUpdate(t *testing.T) {
 	}
 	if m := r.Snapshot().Session.Modes.Current; m != "yolo" {
 		t.Errorf("mode = %q, want yolo", m)
+	}
+}
+
+func TestLooksUnasked(t *testing.T) {
+	for _, c := range []struct {
+		id, name, desc string
+		want           bool
+	}{
+		{"yolo", "YOLO", "", true},
+		{"bypassPermissions", "", "", true},
+		{"full-access", "Full access", "Never ask, no sandbox", true},
+		{"x", "Custom", "Runs everything without asking", true},
+		{"dontAsk", "", "", true},
+		{"default", "Default", "Asks before it edits", false},
+		{"plan", "Plan", "Plan only; no edits or commands", false},
+		{"read-only", "Read only", "Ask before anything that changes them", false},
+		{"acceptEdits", "Accept edits", "Edit files without asking; still ask for commands", false},
+		{"auto", "Auto", "Edit files in the project and run commands there; ask before anything else", false},
+	} {
+		if got := LooksUnasked(c.id, c.name, c.desc); got != c.want {
+			t.Errorf("LooksUnasked(%q, %q, %q) = %v, want %v", c.id, c.name, c.desc, got, c.want)
+		}
+	}
+}
+
+// The unasked marking follows the mode: a mode that runs without asking turns it
+// on, and going back to an asking one turns it off.
+func TestUnaskedFollowsTheMode(t *testing.T) {
+	r := begin(t, fakeOptions(t, acptest.WithModes()))
+	ready(t, r)
+	if r.Unasked() {
+		t.Fatal("the default mode reads as unasked")
+	}
+	if err := r.SetMode("yolo"); err != nil {
+		t.Fatal(err)
+	}
+	if !r.Unasked() {
+		t.Error("yolo is not marked as running without asking")
+	}
+	if err := r.SetMode("default"); err != nil {
+		t.Fatal(err)
+	}
+	if r.Unasked() {
+		t.Error("the mark stayed after the mode went back")
+	}
+}
+
+// A request the agent never answers ends at the timeout and gives its slot back.
+func TestAnUnansweredSettingEndsAtTheTimeoutAndFreesItsSlot(t *testing.T) {
+	o := fakeOptions(t, acptest.WithModes(), acptest.WithSilentSettings())
+	o.Client = func(c *acp.Config) { c.SetupTimeout = 300 * time.Millisecond }
+	r := begin(t, o)
+	ready(t, r)
+	for i := 0; i < maxSettingCalls+2; i++ {
+		start := time.Now()
+		if err := r.SetMode("yolo"); !errors.Is(err, ErrSettingFailed) {
+			t.Fatalf("call %d: err = %v", i, err)
+		}
+		// A refusal for want of a slot would come at once.
+		if d := time.Since(start); d < 200*time.Millisecond {
+			t.Fatalf("call %d returned after %v, before the timeout", i, d)
+		}
+	}
+	r.mu.Lock()
+	n := r.settingCalls
+	r.mu.Unlock()
+	if n != 0 {
+		t.Errorf("%d slots are still held", n)
+	}
+}
+
+func TestClosingTheRuntimeEndsACallInFlight(t *testing.T) {
+	r := begin(t, fakeOptions(t, acptest.WithModes(), acptest.WithSilentSettings()))
+	ready(t, r)
+	done := make(chan error, 1)
+	go func() { done <- r.SetMode("yolo") }()
+	time.Sleep(300 * time.Millisecond)
+	_ = r.Close()
+	select {
+	case err := <-done:
+		if err == nil {
+			t.Error("the call succeeded on a closed runtime")
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("the call did not end when the runtime was closed")
+	}
+	r.mu.Lock()
+	n := r.settingCalls
+	r.mu.Unlock()
+	if n != 0 {
+		t.Errorf("%d slots are still held", n)
+	}
+}
+
+func TestASessionThatChangedIsNotTheOneChecked(t *testing.T) {
+	r := begin(t, fakeOptions(t, acptest.WithModes()))
+	ready(t, r)
+	c, sid, err := r.live()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer r.settingDone()
+	if !r.same(c, sid) || r.same(c, sid+"-other") || r.same(nil, sid) {
+		t.Error("same does not tell the session it checked from another")
 	}
 }
