@@ -65,15 +65,34 @@ func wakePromptSender(m team.Message) string {
 	if m.From.User {
 		return "the user"
 	}
-	label := cleanWakeText(m.From.Role)
-	if label == "" {
-		label = cleanWakeText(m.From.Name)
-	}
-	label = cutRunes(strings.ReplaceAll(label, `"`, ""), wakeTextRoleMax)
+	label := wakeAgentLabel(m)
 	if label == "" {
 		return "an unnamed agent"
 	}
 	return `agent "` + label + `"`
+}
+
+// wakeAgentLabel is the label of an agent sender: its role, else its name,
+// cleaned to one line, without quotes and cut. It is empty for a sender with
+// neither.
+func wakeAgentLabel(m team.Message) string {
+	label := cleanWakeText(m.From.Role)
+	if label == "" {
+		label = cleanWakeText(m.From.Name)
+	}
+	return cutRunes(strings.ReplaceAll(label, `"`, ""), wakeTextRoleMax)
+}
+
+// mailPeerLabel is how the conversation names the sender of mail received: the
+// person, or the agent's label.
+func mailPeerLabel(m team.Message) string {
+	if m.From.User {
+		return "the user"
+	}
+	if label := wakeAgentLabel(m); label != "" {
+		return label
+	}
+	return "an unnamed agent"
 }
 
 // cleanWakeText turns s into one line of plain text. Terminal escape sequences

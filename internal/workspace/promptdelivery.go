@@ -45,11 +45,16 @@ const promptBodyMarker = "Text of the message: "
 // message the person wrote, and every other sender is an agent with its label in
 // quotes, so a role or name of "the user" reads as agent "the user".
 func promptBlocks(m team.Message) []string {
-	text := cleanWakeText(m.Text)
-	if text == "" {
-		text = promptNoText
+	return []string{wakeTextPrefix + wakePromptSender(m) + ":", promptBodyMarker + promptBody(m)}
+}
+
+// promptBody is the message body as the agent is sent it and the conversation
+// shows it: one clean line of plain text.
+func promptBody(m team.Message) string {
+	if text := cleanWakeText(m.Text); text != "" {
+		return text
 	}
-	return []string{wakeTextPrefix + wakePromptSender(m) + ":", promptBodyMarker + text}
+	return promptNoText
 }
 
 // promptPane is one structured pane as the service sees it.
@@ -59,7 +64,10 @@ type promptPane struct {
 	// Gen identifies the runtime. It differs after a restart.
 	Gen   uint64
 	Alive func() bool
-	Send  func(tag int, blocks ...string) error
+	// Send hands the runtime a prompt for message tag, from the sender labelled
+	// peer, whose cleaned body is body. The runtime shows it in the conversation
+	// as that message.
+	Send func(tag int, peer, body string, blocks ...string) error
 }
 
 // promptMail is what the service needs of the inboxes. *team.Store is one.
@@ -176,7 +184,7 @@ func (s *promptService) pane(id string, c promptPane) {
 		}
 		s.handed[id][m.ID] = c.Gen
 		s.mu.Unlock()
-		if err := c.Send(m.ID, promptBlocks(m)...); err != nil {
+		if err := c.Send(m.ID, mailPeerLabel(m), promptBody(m), promptBlocks(m)...); err != nil {
 			s.forget(id, m.ID)
 			if errors.Is(err, structured.ErrQueueFull) || errors.Is(err, structured.ErrNotRunning) {
 				return
@@ -240,7 +248,7 @@ func (w *Workspace) promptPanes() map[string]promptPane {
 			continue
 		}
 		out[p.ID] = promptPane{ID: p.ID, Agent: p.Agent, Gen: sr.gen, Alive: sr.Alive,
-			Send: sr.rt.SendTagged}
+			Send: sr.rt.SendMail}
 	}
 	return out
 }

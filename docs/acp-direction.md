@@ -20,7 +20,7 @@ Built, on origin/main:
 - The adapter manifest, the Node check and the weekly canary ([acp-adapters.md](acp-adapters.md)).
 - Message delivery states in `internal/team`. A message to a terminal pane has queued, notified, woken and read, and the text wake; these belong to the mail path decision 3 retires. A message to a structured pane is a `session/prompt` with its own states: queued, delivered, handled, undeliverable, with the stop reason stored and a retry cap ([structured pane](structured-pane.md)).
 
-Built: the Flockdeck MCP server with `send_message` and `list_peers` (T186, [Flockdeck MCP server](flockdeck-mcp-server.md)). It records a message in the receiver's inbox as before; delivery to the receiver as a prompt is T187.
+Built: the Flockdeck MCP server with `send_message` and `list_peers` (T186, [Flockdeck MCP server](flockdeck-mcp-server.md)). It records a message in the receiver's inbox as before; delivery to the receiver as a prompt is T187. Mail shows in the conversation of a structured pane as `message` entries, received and sent, with their delivery state (T188, API 1.14, [structured pane](structured-pane.md)).
 
 Built (T189): saved session id per structured pane, `session/load` with replay handling and `session/resume` in the client and runtime, fallback to a new session with a fixed notice ([structured pane](structured-pane.md)). Claude's adapter resumes; Codex's already did; neither loads.
 
@@ -39,7 +39,7 @@ Planned, by board task:
 | Area | Tasks |
 | --- | --- |
 | Adapters | T204 Claude (built, hidden), T206 Codex, T207 generic "agent unavailable" state in place of the Node check, T191 Claude manifest entry and canary, T192 Gemini and Codex end to end |
-| Mail | T185 fill `mcpServers`, T186 Flockdeck MCP server, T187 delivery states and audit log, T188 mail in the conversation view, T199 messaging parity, T196 retire typed wake |
+| Mail | T185 fill `mcpServers`, T186 Flockdeck MCP server, T187 delivery states and audit log, T199 messaging parity, T196 retire typed wake |
 | Removals | T201 remove `flockdeck chat`, T203 remove the task board, T202 API keys in Settings |
 | Switch to default | T189 session/load and resume, T195 default to structured |
 | Parity | T208 spike (in progress), T209 bridge reads all session updates, T210 slash menu, T211 model, effort and mode, T212 composer, T213 queue, T214 shell escape and background tasks, T215 rewind and fork, T216 export and usage, T217 config surfaces |

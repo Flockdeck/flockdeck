@@ -7,6 +7,9 @@
 // - A prompt is the person's words, drawn as text.
 // - A reply is the agent's words, drawn as sanitised Markdown (markdown.js); over
 //   MAX_REPLY characters the rest is left out and the row says how much.
+// - A message is mail between agents (kind "message"): a message from a peer, or one
+//   this agent sent, with its delivery state. Its words are plain text on a row of
+//   their own and are never drawn as the person's turn, whatever they say.
 // - A thought is one line (how long it ran, or how long it was).
 // - A tool call is a row with an icon for its kind, its title and its status.
 //   Opening it (a click, or Enter on the row) shows its summary and its output or
@@ -56,6 +59,19 @@ const ICONS = {
 
 export function Icon({ kind }) {
   return html`<svg class=${"conv-icon conv-icon--" + kind} viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false"><path d=${ICONS[kind] || ICONS.other} fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" /></svg>`;
+}
+
+/** DELIVERY_WORDS are the four delivery states of a message row. Any other value is not shown. */
+export const DELIVERY_WORDS = { queued: "Queued", delivered: "Delivered", handled: "Handled", undeliverable: "Not delivered" };
+
+// Controls, line breaks and bidirectional marks: a label is one plain line.
+// eslint-disable-next-line no-control-regex
+const NOT_PLAIN = /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060-\u2069\ufeff]/g;
+
+/** plainLabel is a peer's label as one clean line of at most 60 characters. */
+export function plainLabel(v, fallback) {
+  const s = String(v == null ? "" : v).replace(NOT_PLAIN, " ").replace(/\s+/g, " ").trim();
+  return clip(s || fallback, 60);
 }
 
 const text = (v) => (typeof v === "string" ? v : v == null ? "" : String(v));
@@ -127,6 +143,14 @@ export function Row({ entry: e, open = false, onToggle = null, detail = null, ne
       return html`<li class="conv-row conv-note" data-kind="compaction" data-entry=${nested ? null : e.id} tabindex="-1">${typeof e.turns === "number" ? "Conversation compacted (" + e.turns + " turns)" : "Conversation compacted"}</li>`;
     case "notice":
       return html`<li class="conv-row conv-note" data-kind="notice" data-entry=${nested ? null : e.id} tabindex="-1">${clip(text(e.text), 400)}</li>`;
+    case "message": {
+      const out = e.dir === "out";
+      const state = Object.prototype.hasOwnProperty.call(DELIVERY_WORDS, e.delivery) ? e.delivery : "";
+      return html`<li class=${"conv-row conv-message conv-message--" + (out ? "out" : "in") + (state === "undeliverable" ? " is-failed" : "")} data-ctx="convRow" data-kind="message" data-entry=${nested ? null : e.id} tabindex="-1">
+        <span class="conv-who">${(out ? "Message to " : "Message from ") + plainLabel(e.peer, out ? "another agent" : "an agent")}${state ? html` <span class="conv-mail-chip">${DELIVERY_WORDS[state]}</span>` : null}</span>
+        <p class="conv-text">${clip(text(e.text), MAX_TEXT)}</p>
+      </li>`;
+    }
     case "mail":
       return html`<li class=${"conv-row conv-mail" + (e.waiting ? " is-waiting" : "")} data-ctx="convRow" data-kind="mail" data-entry=${nested ? null : e.id} tabindex="-1">
         <span class="conv-who">${"From " + clip(text(e.label) || text(e.from) || "an agent", 60)}${e.waiting ? html` <span class="conv-mail-chip">not read yet</span>` : null}</span>

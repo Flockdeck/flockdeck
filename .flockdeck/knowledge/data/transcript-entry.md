@@ -25,8 +25,9 @@ JSON names and which kinds use them:
 | `description`, `report`, `status`, `hasDetail` | subagent | |
 | `turns` | compaction | |
 | `mediaType`, `bytes`, `width`, `height` | image | `hasDetail` is always true |
+| `dir`, `peer`, `msg`, `delivery`, `text` | message | Mail between agents, structured panes only. `dir` is `in` or `out`, `delivery` one of `queued`, `delivered`, `handled`, `undeliverable`; changes in place |
 
-Kinds: `prompt`, `reply`, `thinking`, `tool`, `subagent`, `compaction`, `notice`, `image`.
+Kinds: `prompt`, `reply`, `thinking`, `tool`, `subagent`, `compaction`, `notice`, `image`, `message`.
 
 ## Detail
 

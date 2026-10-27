@@ -2,6 +2,7 @@
 // the desktop stored: the entries loaded so far, with a tool as its label and
 // summary and an image as its description.
 import { imageWords } from "./Image.js";
+import { DELIVERY_WORDS, plainLabel } from "./rows.js";
 
 const text = (v) => (typeof v === "string" ? v : v == null ? "" : String(v));
 
@@ -14,6 +15,11 @@ export function entryText(e) {
     case "tool": return "Tool: " + [text(e.label) || text(e.name), text(e.summary)].filter(Boolean).join(" - ") + (e.status ? " [" + text(e.status) + "]" : "");
     case "subagent": return "Helper: " + (text(e.description) || text(e.name)) + (e.status ? " [" + text(e.status) + "]" : "") + (e.report ? "\n" + text(e.report) : "");
     case "compaction": return "(conversation compacted)";
+    case "message": {
+      const out = e.dir === "out";
+      const state = Object.prototype.hasOwnProperty.call(DELIVERY_WORDS, e.delivery) ? " [" + DELIVERY_WORDS[e.delivery] + "]" : "";
+      return (out ? "Message to " : "Message from ") + plainLabel(e.peer, out ? "another agent" : "an agent") + state + ": " + text(e.text);
+    }
     case "mail": return "From " + (text(e.label) || text(e.from)) + ": " + text(e.text);
     case "event": return "(" + text(e.text) + ")";
     case "notice": return "(" + text(e.text) + ")";

@@ -349,6 +349,9 @@ type Runtime struct {
 type queued struct {
 	blocks []string
 	tag    int
+	// mail is set for a prompt that carries a message from a peer. The
+	// conversation shows it as that message and not as something the person typed.
+	mail *bridge.Mail
 }
 
 type waiter struct {
@@ -437,7 +440,38 @@ func (r *Runtime) SendTagged(tag int, blocks ...string) error {
 	return r.send(tag, blocks...)
 }
 
+// SendMail is SendTagged for a prompt that carries a message from a peer. The tag
+// is the message's id. The conversation shows the prompt as a message from peer
+// with the body text, and never as a turn of the person's, whatever the body or
+// the blocks say. The blocks are what the agent is sent.
+func (r *Runtime) SendMail(tag int, peer, body string, blocks ...string) error {
+	if tag <= 0 {
+		return errors.New("structured: a mail prompt needs a positive tag")
+	}
+	return r.sendMail(tag, &bridge.Mail{ID: tag, Peer: peer, Text: body, State: "delivered"}, blocks...)
+}
+
 func (r *Runtime) send(tag int, blocks ...string) error {
+	return r.sendMail(tag, nil, blocks...)
+}
+
+// NoteSent shows in the conversation that this session sent message id to peer.
+// A message already shown is not shown twice.
+func (r *Runtime) NoteSent(id int, peer, body, state string) {
+	r.br.MailSent(bridge.Mail{ID: id, Peer: peer, Text: body, State: state})
+	r.notify()
+}
+
+// NoteMailState moves the entries of message id, received or sent by this
+// session, to a new delivery state. It does nothing for a message the
+// conversation does not show.
+func (r *Runtime) NoteMailState(id int, state string) {
+	if r.br.MailState(id, state) {
+		r.notify()
+	}
+}
+
+func (r *Runtime) sendMail(tag int, mail *bridge.Mail, blocks ...string) error {
 	size := 0
 	for _, b := range blocks {
 		size += len(b)
@@ -457,7 +491,7 @@ func (r *Runtime) send(tag int, blocks ...string) error {
 		r.mu.Unlock()
 		return ErrQueueFull
 	}
-	r.queue = append(r.queue, queued{blocks: slices.Clone(blocks), tag: tag})
+	r.queue = append(r.queue, queued{blocks: slices.Clone(blocks), tag: tag, mail: mail})
 	r.mu.Unlock()
 	select {
 	case r.wake <- struct{}{}:
@@ -1130,7 +1164,11 @@ func (r *Runtime) loop() {
 		r.mu.Lock()
 		r.inTurn, r.asked = true, false
 		r.mu.Unlock()
-		r.br.TurnStart(strings.Join(q.blocks, "\n"))
+		if q.mail != nil {
+			r.br.MailReceived(*q.mail)
+		} else {
+			r.br.TurnStart(strings.Join(q.blocks, "\n"))
+		}
 		r.notify()
 		r.turnEvent(TurnEvent{What: TurnBegan, Tag: q.tag})
 		stop, err := c.PromptBlocks(r.ctx, r.session, q.blocks...)
