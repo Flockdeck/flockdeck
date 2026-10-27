@@ -65,6 +65,13 @@ func answer(method string, params map[string]any) any {
 		if method == "thread/resume" {
 			res["thread"] = map[string]any{"id": params["threadId"]}
 		}
+		// A real codex reports what took effect: the policy it was asked for.
+		res["approvalPolicy"] = params["approvalPolicy"]
+		if params["sandbox"] == "read-only" {
+			res["sandbox"] = map[string]any{"type": "readOnly"}
+		} else {
+			res["sandbox"] = map[string]any{"type": "workspaceWrite", "writableRoots": []any{}, "networkAccess": false}
+		}
 		if e := os.Getenv(envEcho); e != "" {
 			var extra map[string]any
 			_ = json.Unmarshal([]byte(e), &extra)

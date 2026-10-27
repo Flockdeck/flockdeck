@@ -81,7 +81,11 @@ The mode with no sandbox and no questions is left out on purpose, as
 `bypassPermissions` is in the Claude adapter. A mode change applies from the next
 turn. `/review` sends no policy of its own and runs under the one the last turn
 carried, so a `/review` after a mode change is refused with an error until a normal
-turn has been sent. `/compact` runs no tools and is not held back. The models come from `model/list`. Reasoning effort is not offered yet.
+turn has been sent. The check and the write of `review/start` are one step with respect
+to a mode change, so a change cannot land in between. `/compact` runs no tools and is
+not held back.
+
+The models come from `model/list`. Reasoning effort is not offered yet.
 
 ### Slash commands
 
@@ -220,12 +224,13 @@ These were not checked against a real codex:
 - That `serverRequest/resolved` carries `requestId` in the same form as the request's id.
 - Whether a codex that is not logged in fails the first turn with `unauthorized`, as the
   adapter assumes, or fails earlier. There is no `authenticate` method yet.
-- That the `thread/start` and `thread/resume` results echo the approval policy and
-  sandbox that took effect, as `approvalPolicy` (a string) and `sandbox` (a string or an
-  object with `type`). When they are present the adapter compares them with the mode and
-  fails the session if either is looser, or if the sandbox reports network access; when
-  they are absent nothing is checked. If a real codex sends neither, the check does
-  nothing and the policy rests on the parameters alone.
+- That the `thread/start` and `thread/resume` results report the approval policy and
+  sandbox that took effect, as `approvalPolicy` (a string) and `sandbox` (a string, or an
+  object with `type` and, for `workspaceWrite`, `networkAccess`). The adapter requires both:
+  a result without them, with them null, or in a form it does not know is treated as
+  unavailable, and so is one that is looser than the mode or has `networkAccess` set to
+  anything but `false`. A codex that omits these members will therefore not open a session
+  until this has been checked against a real one.
 - Approvals from a sub-agent's thread would carry another thread id and are refused.
 
 ## Policy review
@@ -234,8 +239,12 @@ Read against the protocol, not run. Checked, and what it means:
 
 - `thread/start`, `thread/resume` and `turn/start` all carry the mode's approval policy and
   sandbox, so a user's `config.toml` does not set them. `session/new` and `session/resume`
-  fail with "Codex is unavailable" if the answer reports something looser (new in this
-  change).
+  fail with "Codex is unavailable" if the answer reports something looser or reports
+  nothing (the reason goes to the log only). Only the approval policy, the kind of sandbox
+  and its network access are compared. Writable roots, read access, `excludeSlashTmp` and
+  `approvalsReviewer` are not: every `turn/start` sends the explicit policy, which replaces
+  what the thread started with, so a difference there lasts until the first turn and
+  cannot widen anything the mode names.
 - In `auto` and `read-only` the policy is `on-request`: codex decides when to ask, and the
   sandbox is what stops a command. A command the model asks to run outside the sandbox
   arrives as `item/commandExecution/requestApproval` and gets a card. In `ask`
