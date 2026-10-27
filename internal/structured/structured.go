@@ -171,6 +171,9 @@ type Options struct {
 	// check. Probe replaces how PATH and Node are looked at.
 	Command *Command
 	Probe   *manifest.Probe
+	// Executable is the path of the running program, which is what an adapter
+	// of Flockdeck's own is started from. Nil means os.Executable. It is for tests.
+	Executable func() (string, error)
 
 	// Bridge tunes the transcript bridge; the zero value works.
 	Bridge bridge.Config
@@ -210,8 +213,9 @@ type Snapshot struct {
 	Entries  []transcript.Entry
 	// Queued is how many prompts wait behind the running turn.
 	Queued int
-	// Err is the last thing that went wrong, cleaned. After an exit it holds
-	// the last three lines the agent wrote to stderr, joined with " / ". It is
+	// Err is the last thing that went wrong, cleaned. After an exit it says
+	// only that the agent is unavailable: what it wrote to stderr is not kept
+	// for display. It is
 	// kept after later turns succeed, so it says what last went wrong and not
 	// that something is wrong now: a UI shows it with the phase and status,
 	// never alone as the current state.
@@ -599,7 +603,19 @@ func (r *Runtime) resolve() (Command, *Setup, error) {
 	if probe.LookPath != nil {
 		look = probe.LookPath
 	}
-	path, err := look(a.Command)
+	own := a.Command == ownCommand
+	var path string
+	var err error
+	if own {
+		// Flockdeck's own adapter is a subcommand of the program that is running.
+		// A `flockdeck` found on PATH could be another version, or not ours.
+		path, err = r.executable()
+	} else {
+		path, err = look(a.Command)
+	}
+	if err != nil && own {
+		return Command{}, nil, errors.New("the agent is unavailable")
+	}
 	if err != nil {
 		msg := fmt.Sprintf("%s was not found on PATH", a.Command)
 		install := r.opts.Spec.Install
@@ -616,10 +632,45 @@ func (r *Runtime) resolve() (Command, *Setup, error) {
 		path = abs
 	}
 	env := r.env()
+	if own {
+		env = append(env, r.homeEnv()...)
+	}
 	if pp, ok := r.opts.Spec.ACPPermissionProbe(); ok {
 		env = r.checkPermissions(path, pp, a, env)
 	}
 	return Command{Path: path, Args: append([]string(nil), a.Args...), env: env}, nil, nil
+}
+
+// ownCommand is the command of the adapters Flockdeck builds into its own
+// binary.
+const ownCommand = "flockdeck"
+
+// executable is the running program's path, absolute with links resolved.
+func (r *Runtime) executable() (string, error) {
+	exe := r.opts.Executable
+	if exe == nil {
+		exe = os.Executable
+	}
+	path, err := exe()
+	if err != nil {
+		return "", err
+	}
+	if abs, err := filepath.Abs(path); err == nil {
+		path = abs
+	}
+	if real, err := filepath.EvalSymlinks(path); err == nil {
+		path = real
+	}
+	return path, nil
+}
+
+// homeEnv is where the user's home directory and settings are, which an adapter
+// of Flockdeck's own needs to find the agent's login and configuration. They
+// are read from the options' environment like any passed variable, and only
+// the adapters Flockdeck builds are given them.
+func (r *Runtime) homeEnv() []string {
+	s := agent.Spec{ACP: agent.ACPSpec{PassEnv: []string{"HOME", "USERPROFILE", "APPDATA"}}}
+	return s.ACPPassEnv(r.opts.Environ)
 }
 
 // checkPermissions reads what the agent resolves in the pane's directory, sets
@@ -671,7 +722,8 @@ func (r *Runtime) launch() bool {
 		if setup != nil {
 			r.set(PhaseSetup, setup.Message, setup)
 		} else {
-			r.set(PhaseFailed, clean(err.Error(), errCap), nil)
+			// The error is ours, but is shown as the fixed text all the same.
+			r.set(PhaseFailed, unavailable, nil)
 		}
 		return false
 	}
@@ -709,7 +761,7 @@ func (r *Runtime) launch() bool {
 	}
 	c, err := acp.Start(cfg)
 	if err != nil {
-		r.set(PhaseFailed, clean(err.Error(), errCap), nil)
+		r.set(PhaseFailed, unavailable, nil)
 		return false
 	}
 	r.mu.Lock()
@@ -764,7 +816,7 @@ func (r *Runtime) fail(c *acp.Client, err error) {
 	var exit *acp.ExitError
 	switch {
 	case errors.As(err, &auth):
-		s := &Setup{Kind: SetupLogin, Message: clean(auth.Message, errCap), Login: clean(r.opts.Spec.ACP.Login, errCap)}
+		s := &Setup{Kind: SetupLogin, Message: signIn, Login: clean(r.opts.Spec.ACP.Login, errCap)}
 		for _, m := range auth.Methods {
 			s.Methods = append(s.Methods, AuthMethod{ID: clean(m.ID, fieldCap), Name: clean(m.Name, fieldCap), Description: clean(m.Description, errCap)})
 		}
@@ -778,7 +830,8 @@ func (r *Runtime) fail(c *acp.Client, err error) {
 		case <-c.Done():
 			r.set(PhaseExited, exitText(c.StderrTail()), nil)
 		default:
-			r.set(PhaseFailed, clean(err.Error(), errCap), nil)
+			// err can carry an RPC error message written by the agent.
+			r.set(PhaseFailed, unavailable, nil)
 		}
 	}
 }
@@ -913,28 +966,16 @@ func (r *Runtime) finalPhase() Phase {
 	return r.phase
 }
 
-// exitText is what a pane shows of an agent that ended: the last three lines
-// it wrote to stderr, cleaned, joined with " / ", and the end of them if they
-// are longer than the cap. stderr is the agent's, so nothing in it is trusted.
-func exitText(stderr string) string {
-	var lines []string
-	for _, l := range strings.Split(stderr, "\n") {
-		if t := clean(l, errCap); t != "" {
-			lines = append(lines, t)
-		}
-	}
-	if len(lines) > 3 {
-		lines = lines[len(lines)-3:]
-	}
-	text := strings.Join(lines, " / ")
-	if r := []rune(text); len(r) > errCap {
-		text = "…" + string(r[len(r)-errCap:])
-	}
-	if text == "" {
-		return "the agent exited"
-	}
-	return "the agent exited: " + text
-}
+// exitText is what a pane shows of an agent that ended. It is the same words
+// whatever the agent wrote: stderr is the agent's, may name its own
+// dependencies, paths or keys, and is not shown to the user.
+func exitText(string) string { return unavailable }
+
+// unavailable is all the user is told of an agent that did not start or ended.
+const unavailable = "the agent is unavailable"
+
+// signIn is shown when the agent wants a login. It is our wording, not the agent's.
+const signIn = "sign in to the agent"
 
 // clean makes a string from the agent fit to show: invalid UTF-8, control
 // characters and Unicode format characters (bidi overrides, zero-width marks)

@@ -50,17 +50,14 @@ var ErrClosed = errors.New("acp: client closed")
 
 // ExitError is returned to calls that were waiting when the agent's output
 // ended, which is what the agent exiting or crashing looks like. Stderr is the
-// last of what the agent wrote there.
+// last of what the agent wrote there. It is for logs and tests: Error does not
+// include it, so that it cannot reach a message shown to the user by way of an
+// error's text.
 type ExitError struct {
 	Stderr string
 }
 
-func (e *ExitError) Error() string {
-	if e.Stderr == "" {
-		return "acp: the agent closed its output"
-	}
-	return "acp: the agent closed its output; stderr: " + e.Stderr
-}
+func (e *ExitError) Error() string { return "acp: the agent closed its output" }
 
 // UnsupportedVersionError is returned by Initialize when the agent answers with
 // a protocol version this client does not speak.

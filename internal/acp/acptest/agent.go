@@ -47,6 +47,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
@@ -57,6 +58,11 @@ import (
 	"github.com/jmwri/flockdeck/internal/sysproc"
 	"github.com/jmwri/flockdeck/internal/testiso/depth"
 )
+
+// McpRecordFile is a file name in a session's working directory. If the file
+// exists when session/new arrives, the agent writes the mcpServers it was sent
+// to it as JSON.
+const McpRecordFile = ".acptest-mcpservers"
 
 const (
 	envAgent  = "FLOCKDECK_ACPTEST_AGENT"
@@ -260,6 +266,14 @@ func (a *agent) handle(m msg) {
 		if p.McpServers == nil {
 			a.rpcError(m.ID, -32602, "mcpServers must be an array")
 			return
+		}
+		// A test that wants to see the servers it was sent makes this file first;
+		// the agent fills it with the mcpServers array as it arrived.
+		if f := filepath.Join(p.Cwd, McpRecordFile); p.Cwd != "" {
+			if _, err := os.Stat(f); err == nil {
+				b, _ := json.Marshal(p.McpServers)
+				_ = os.WriteFile(f, b, 0o600)
+			}
 		}
 		if a.needsAuth("new") {
 			a.rpcError(m.ID, -32000, "Authentication required")

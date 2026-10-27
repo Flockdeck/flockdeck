@@ -18,6 +18,9 @@ var envNameRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 // under both). No entry can pass one on, whatever the case of its name.
 var reservedEnvPrefixes = []string{"FLOCKDECK_", "PERCH_"}
 
+// ReservedEnv says name is one of Flockdeck's own variables, in any case.
+func ReservedEnv(name string) bool { return reservedEnv(name) }
+
 func reservedEnv(name string) bool {
 	up := strings.ToUpper(name)
 	for _, p := range reservedEnvPrefixes {

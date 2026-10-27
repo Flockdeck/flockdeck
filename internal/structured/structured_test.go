@@ -375,8 +375,8 @@ func TestTheAgentExitingMidTurn(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := until(t, r, "the exit", func(s Snapshot) bool { return s.Phase == PhaseExited })
-	if !strings.Contains(s.Err, "exiting on request") {
-		t.Errorf("err = %q, want the agent's last stderr line", s.Err)
+	if s.Err != "the agent is unavailable" {
+		t.Errorf("err = %q, want only that the agent is unavailable, never its stderr", s.Err)
 	}
 	if s.Status != "" {
 		t.Errorf("status = %q after an exit", s.Status)
@@ -398,8 +398,8 @@ func TestTheAgentExitingWhileIdle(t *testing.T) {
 	}
 	until(t, r, "the turn to end", func(s Snapshot) bool { return strings.Contains(replies(s), "bye") })
 	s := until(t, r, "the exit", func(s Snapshot) bool { return s.Phase == PhaseExited })
-	if !strings.Contains(s.Err, "exiting while idle") {
-		t.Errorf("err = %q, want the agent's last stderr line", s.Err)
+	if s.Err != "the agent is unavailable" {
+		t.Errorf("err = %q, want only that the agent is unavailable, never its stderr", s.Err)
 	}
 	if s.Status != "" || s.Pending != nil || s.Queued != 0 {
 		t.Errorf("state after an idle exit: status %q, pending %v, queued %d", s.Status, s.Pending, s.Queued)
@@ -498,7 +498,7 @@ func TestAMissingProgramIsASetupStateThatSaysHowToGetIt(t *testing.T) {
 	o.Spec.Runner, o.Spec.ACP.Adapter = agent.RunnerACP, "not-in-the-manifest"
 	r3 := begin(t, o)
 	s = until(t, r3, "the failure", func(s Snapshot) bool { return s.Phase == PhaseFailed })
-	if !strings.Contains(s.Err, "not in the manifest") {
+	if s.Err != unavailable {
 		t.Errorf("err = %q", s.Err)
 	}
 }
@@ -781,12 +781,6 @@ func TestCleanAndExitText(t *testing.T) {
 		if got := clean(tc.in, n); got != tc.want {
 			t.Errorf("clean(%q) = %q, want %q", tc.in, got, tc.want)
 		}
-	}
-	if got := exitText("noise\n\x1b[2Jthe real last line\x07\n\n"); got != "the agent exited: noise / [2Jthe real last line" {
-		t.Errorf("exitText = %q", got)
-	}
-	if got := exitText(""); got != "the agent exited" {
-		t.Errorf("exitText of nothing = %q", got)
 	}
 }
 

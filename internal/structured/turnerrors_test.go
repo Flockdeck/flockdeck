@@ -68,7 +68,7 @@ func TestSetupTextFromTheAgentIsCleaned(t *testing.T) {
 		t.Fatalf("snapshot = %+v", s)
 	}
 	m := s.Setup.Methods[0]
-	for what, got := range map[string]string{"id": m.ID, "name": m.Name, "description": m.Description, "message": s.Setup.Message, "login": s.Setup.Login, "err": s.Err} {
+	for what, got := range map[string]string{"id": m.ID, "name": m.Name, "description": m.Description, "login": s.Setup.Login} {
 		if strings.ContainsAny(got, "\x1b\x07") || strings.ContainsRune(got, 0x202e) || strings.ContainsRune(got, 0x200b) {
 			t.Errorf("%s was kept with control or format characters: %q", what, got)
 		}
@@ -78,29 +78,45 @@ func TestSetupTextFromTheAgentIsCleaned(t *testing.T) {
 	}
 }
 
+// The agent's own words for a login or a failure are never shown: a sign-in
+// request says our fixed text, and any other error from initialize or
+// session/new says only that the agent is unavailable.
+func TestAgentErrorTextNeverReachesTheUser(t *testing.T) {
+	const secret = "token sk-ant-123 at C:/Users/someone"
+	run := func(err error) Snapshot {
+		r := &Runtime{
+			ctx:   context.Background(),
+			phase: PhaseStarting,
+			subs:  map[int]chan struct{}{},
+			br:    bridge.New(bridge.Config{}),
+			opts:  Options{Spec: agent.Spec{}},
+		}
+		r.fail(&acp.Client{}, err)
+		return r.Snapshot()
+	}
+	s := run(&acp.AuthRequiredError{Method: "session/new", Message: secret})
+	if s.Phase != PhaseSetup || s.Setup == nil || s.Setup.Message != signIn || s.Err != signIn {
+		t.Errorf("auth: %+v", s)
+	}
+	s = run(&acp.RPCError{Code: -32603, Message: secret})
+	if s.Phase != PhaseFailed || s.Err != unavailable {
+		t.Errorf("default branch: phase %v, err %q", s.Phase, s.Err)
+	}
+}
+
 func TestCleanRemovesFormatCharacters(t *testing.T) {
 	if got := clean("zero"+string(rune(0x200b))+"width"+string(rune(0xfeff))+" "+string(rune(0x202e))+"bidi", 100); got != "zerowidth bidi" {
 		t.Errorf("clean = %q", got)
 	}
 }
 
-// An exit shows the last three lines the agent wrote, not only the last.
-func TestExitTextKeepsTheLastThreeLines(t *testing.T) {
-	got := exitText("one\ntwo\n\nthree\n  four  \nfive\n")
-	if got != "the agent exited: three / four / five" {
-		t.Errorf("exitText = %q", got)
-	}
-	if got := exitText("only"); got != "the agent exited: only" {
-		t.Errorf("exitText = %q", got)
-	}
-	long := strings.Repeat("a", 200) + "\n" + strings.Repeat("b", 200) + "\n" + strings.Repeat("c", 200)
-	got = exitText(long)
-	body := strings.TrimPrefix(got, "the agent exited: ")
-	if n := len([]rune(body)); n > errCap+1 {
-		t.Errorf("%d runes, over the cap of %d", n, errCap)
-	}
-	if !strings.HasSuffix(body, strings.Repeat("c", 200)) || !strings.HasPrefix(body, "…") {
-		t.Errorf("the end of the text should be kept: %q", body)
+// An exit says only that the agent is unavailable. What the agent wrote to
+// stderr is never shown, whatever it holds.
+func TestExitTextNeverShowsStderr(t *testing.T) {
+	for _, in := range []string{"", "only", "Error: Cannot find module 'node-fetch', needs Node 20, key sk-ant-123", strings.Repeat("a", 5000)} {
+		if got := exitText(in); got != "the agent is unavailable" {
+			t.Errorf("exitText(%.30q) = %q", in, got)
+		}
 	}
 }
 
