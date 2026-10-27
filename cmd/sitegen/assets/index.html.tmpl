@@ -70,10 +70,8 @@
     <li>Claude Code</li>
     <li>Codex</li>
     <li>Gemini CLI</li>
-    <li>Aider</li>
     <li>opencode</li>
     <li>Cursor Agent</li>
-    <li>Ollama and any OpenAI-compatible API</li>
   </ul>
 </section>
 
@@ -197,9 +195,9 @@
     <div class="card">
       <span class="g">agents · models</span>
       <h3>Any agent, any model</h3>
-      <p>Claude Code, Codex, Gemini, Aider, opencode and Cursor Agent. Or talk to
-         a model API directly, including local Ollama and any OpenAI-compatible
-         endpoint. Pick one per pane, and set a default for each project.</p>
+      <p>Claude Code, Codex, Gemini CLI, opencode and more, run side by side
+         over the Agent Client Protocol. Pick one per pane, and set a default
+         for each project.</p>
     </div>
     <div class="card">
       <span class="g">routing</span>
@@ -219,8 +217,7 @@
     <div class="card">
       <span class="g">spend · limits</span>
       <h3>See what each agent spends</h3>
-      <p>API agent panes estimate what each conversation has cost. Claude Code
-         panes show what they've used and how close a subscription is to its
+      <p>Claude Code panes show what they've used and how close a subscription is to its
          five-hour and weekly limits, where you have a status line of your own
          or once you turn it on in Settings. It's all worked out on your
          machine.</p>
@@ -315,8 +312,8 @@
       <span class="g">full app</span>
       <h3>The complete Flockdeck</h3>
       <p>Every pane, every status and the agent picker. Claude Code
-         and Flockdeck's own chat client open as a conversation, not a raw
-         terminal, and the full interface is one tap away. Attach a photo or
+         opens as a conversation, not a raw terminal, and the full interface is
+         one tap away. Attach a photo or
          several, straight from the camera, and long replies, code and diffs
          fold so you're not scrolling past them.</p>
     </div>
@@ -530,10 +527,10 @@ make package    <span class="c"># archives for all six platforms</span></code></
     </details>
     <details>
       <summary>Which agents does it work with?</summary>
-      <p>Claude Code, Codex, Gemini CLI, Aider, opencode and Cursor Agent out of
-         the box. It can also talk to Anthropic, OpenAI and Google models
-         directly, or to any OpenAI-compatible endpoint such as Ollama. Any
-         other command-line agent can be added in <code>agents.json</code>.</p>
+      <p>Claude Code, Codex, Gemini CLI and opencode, with more to come. Flockdeck
+         runs each one over the Agent Client Protocol (ACP), so they sit side by
+         side in the same window. It doesn't install agents: one that isn't
+         installed on your machine is listed as unavailable.</p>
     </details>
     <details>
       <summary>Does my code leave my machine?</summary>
@@ -542,27 +539,21 @@ make package    <span class="c"># archives for all six platforms</span></code></
          Flockdeck's own connections are dl.flockdeck.ai to check for updates,
          with GitHub as a mirror; the relay, if you turn on Flockdeck Remote;
          your git remotes, when you push, pull or fetch, and GitHub through the
-         <code>gh</code> command if you use its features; each model provider
-         you've given a key, to check the key and list its models; and
-         TypeSafe, only if you turn on its optional status detection. The exception is the built-in API
-         agents: they send your conversations to the model provider you
-         choose, with your own key. The cost estimates add no
-         connection of their own. The <a href="privacy.html">privacy
+         <code>gh</code> command if you use its features; and
+         TypeSafe, only if you turn on its optional status detection. The cost
+         estimates add no connection of their own. The <a href="privacy.html">privacy
          policy</a> has the details, and <a href="trust.html">trust &amp;
          privacy</a> has the short version, including how that compares to
          other coding assistants.</p>
     </details>
     <details>
       <summary>Do I need API keys?</summary>
-      <p>Not for command-line agents. Claude Code and the others use the login
-         they already have. You only need a key to talk to a model API directly,
-         and <code>flockdeck keys</code> stores it for you.</p>
+      <p>Not to start. Claude Code and the others use the login they already
+         have.</p>
     </details>
     <details>
       <summary>Are the cost figures my bill?</summary>
-      <p>No, they're estimates. An API agent's tokens are priced from a dated
-         table of the providers' published prices, built into the app. Claude
-         Code's figures come from its status line, by default only where you
+      <p>No, they're estimates. Claude Code's figures come from its status line, by default only where you
          have one of your own: on an API key it shows its own estimate, and on
          a subscription the pane leads with your five-hour and weekly limits
          instead. Flockdeck works all of it out on your machine and sends it
@@ -572,7 +563,7 @@ make package    <span class="c"># archives for all six platforms</span></code></
     <details>
       <summary>Can I use it from my phone?</summary>
       <p>Yes. Turn on Flockdeck Remote and pair your phone with a QR code. A
-         Claude Code pane, or Flockdeck's own chat client, opens as a
+         Claude Code pane opens as a
          conversation rather than a raw terminal: Markdown replies, diffs,
          and a question or permission prompt answered with a tap, even
          straight from the list of what's waiting. Long replies and code fold
