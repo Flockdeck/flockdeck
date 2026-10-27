@@ -627,6 +627,9 @@ type Server struct {
 	onPeerName func(PeerNameRequest) error
 	onClose    func(CloseRequest) (CloseResult, error)
 	onTeam     teamHandlers
+	paneTok    paneTokens
+	// mcpNow is the clock of the MCP rate limits; nil is time.Now. For tests.
+	mcpNow func() time.Time
 }
 
 // SessionStart is the lifecycle event a pane's agent fires as it starts,
@@ -713,6 +716,8 @@ func Serve(on func(Event)) (*Server, error) {
 	mux.HandleFunc("/inbox", s.handleInbox())
 	mux.HandleFunc("/pane-name", s.handlePaneName())
 	mux.HandleFunc("/task", s.handleTask())
+	mux.HandleFunc(PathMCPSend, s.handleMCPSend)
+	mux.HandleFunc(PathMCPPeers, s.handleMCPPeers)
 	s.srv = &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 
 	go func() { _ = s.srv.Serve(ln) }()

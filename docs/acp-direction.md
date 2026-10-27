@@ -20,6 +20,8 @@ Built, on origin/main:
 - The adapter manifest, the Node check and the weekly canary ([acp-adapters.md](acp-adapters.md)).
 - Message delivery states in `internal/team` (queued, notified, woken, read) and the text wake. These belong to the mail path decision 3 retires.
 
+Built: the Flockdeck MCP server with `send_message` and `list_peers` (T186, [Flockdeck MCP server](flockdeck-mcp-server.md)). It records a message in the receiver's inbox as before; delivery to the receiver as a prompt is T187.
+
 Built, hidden: the Go adapter for Claude Code (T204, [Claude Code adapter](acp-claude-adapter.md)) and the Go adapter for Codex (T206, [Codex adapter](acp-codex-adapter.md); built from the route document and a fake app-server, never run against a real codex). In progress: the capability spike per agent (T208).
 
 Researched, not built:

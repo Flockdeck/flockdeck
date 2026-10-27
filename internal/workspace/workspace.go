@@ -2611,6 +2611,10 @@ func (w *Workspace) destroyPane(id string) {
 	w.forgetRenames(id)
 	w.mu.Unlock()
 	w.forgetTeam(id)
+	// The pane's MCP token is good for nothing once the pane is gone.
+	if w.hookSrv != nil {
+		w.hookSrv.RevokePaneToken(id)
+	}
 	w.notePaneClosed(id)
 }
 

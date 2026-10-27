@@ -106,6 +106,15 @@ func main() {
 		runStatusline(os.Args[2:])
 		return
 	}
+	// `mcp-server` is Flockdeck's MCP server (send_message, list_peers) for a
+	// structured pane's agent. Hidden: the agent starts it from its mcpServers.
+	if len(os.Args) > 1 && os.Args[1] == "mcp-server" {
+		if err := runMCPServer(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "flockdeck mcp-server:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	// `acp-adapter` is Flockdeck's own ACP adapter for an agent with no ACP of
 	// its own. Hidden: the ACP client starts it.
 	if len(os.Args) > 1 && os.Args[1] == "acp-adapter" {
@@ -523,6 +532,8 @@ func usage(fs *flag.FlagSet) {
 	fmt.Fprintf(out, "  wake [status | on | off] [-agent id | -pane id]\n")
 	fmt.Fprintf(out, "        the off switches for typed wake (global, per agent type, per pane) and the\n")
 	fmt.Fprintf(out, "        last wake events; on and off are refused inside a pane\n")
+	fmt.Fprintf(out, "  mcp-server\n")
+	fmt.Fprintf(out, "        flockdeck's MCP server (send_message, list_peers); an agent starts it from its mcpServers, not you\n")
 	fmt.Fprintf(out, "  agents\n")
 	fmt.Fprintf(out, "        list the agents flockdeck can run, with their models\n")
 	fmt.Fprintf(out, "  chat [flags]\n")
