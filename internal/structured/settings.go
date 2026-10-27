@@ -180,6 +180,9 @@ var unaskedWords = []string{"yolo", "bypass", "dangerous", "auto-approve", "auto
 // one of its select options, reads as one that runs without asking. It follows
 // the agent's own changes as well as the person's.
 func (r *Runtime) settingsUnasked() bool {
+	if r.br == nil {
+		return false
+	}
 	s := r.br.Session()
 	if m := s.Modes; m != nil {
 		for _, v := range m.Available {

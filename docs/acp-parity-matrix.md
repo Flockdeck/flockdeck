@@ -74,7 +74,7 @@ Commands that do work only inside the TUI process (themes, key bindings, termina
 
 ## 3. Models, modes and settings
 
-ACP carries these as `modes` and `configOptions` in the `session/new` response, `session/set_mode`, `session/set_config_option`, `current_mode_update` and `config_option_update`. Models are normally a config option (a select with the category "model"); a separate `session/set_model` existed as an unstable method (check stability). Flockdeck now reads the response and the updates (structured pane push) and sends `session/set_mode`, `session/set_model` and `session/set_config_option` (T211, API 1.16); the rows below say what each action has today.
+ACP carries these as `modes` and `configOptions` in the `session/new` response, `session/set_mode`, `session/set_config_option`, `current_mode_update` and `config_option_update`. Models are normally a config option (a select with the category "model"); a separate `session/set_model` existed as an unstable method (check stability). Flockdeck now reads the response and the updates (structured pane push) and sends `session/set_mode`, `session/set_model` and `session/set_config_option` (T211, API 1.17); the rows below say what each action has today.
 
 | Action | In which TUI | Status | Provided by |
 | --- | --- | --- | --- |
