@@ -351,6 +351,69 @@ type Message struct {
 	NotifiedAt time.Time `json:"notifiedAt,omitzero"`
 	WokenAt    time.Time `json:"wokenAt,omitzero"`
 	ReadAt     time.Time `json:"readAt,omitzero"`
+
+	// Route is how the message reaches its receiver: empty for a terminal pane,
+	// which is told it has mail and reads it with `inbox read`, and RoutePrompt for
+	// a structured pane, which is sent the message as a session/prompt. A message
+	// on the prompt route has its own states (see Delivery), and Read, Notified and
+	// Woken mean nothing for it. A snapshot from before the field existed loads
+	// with the empty route, which is what every message was then.
+	Route string `json:"route,omitempty"`
+	// DeliveredAt is when the prompt was sent and its turn began. It is cleared
+	// again when the message goes back to the queue.
+	DeliveredAt time.Time `json:"deliveredAt,omitzero"`
+	// EndedAt is when the turn that carried the message ended in a way that counts
+	// as handled (see Outcome). GaveUpAt is when the message was given up on after
+	// MaxAttempts turns that did not.
+	EndedAt  time.Time `json:"endedAt,omitzero"`
+	GaveUpAt time.Time `json:"gaveUpAt,omitzero"`
+	// StopReason is how the newest turn that carried the message ended, one of
+	// the StopReasons, or StopInterrupted when the agent went away or refused the
+	// prompt before a turn ended. It is never the agent's own text.
+	StopReason string `json:"stopReason,omitempty"`
+	// Attempts is how many turns the message has begun. It is what MaxAttempts
+	// caps, so a message that keeps being cancelled or refused, or that an agent
+	// keeps dying on, is not sent for ever.
+	Attempts int `json:"attempts,omitempty"`
+}
+
+// RoutePrompt is the Route of a message sent to a structured pane as a prompt.
+const RoutePrompt = "prompt"
+
+// MaxAttempts is how many turns a message on the prompt route may begin before
+// it is given up on as undeliverable.
+const MaxAttempts = 3
+
+// The stop reasons a message can carry: the five the protocol defines, and two
+// of Flockdeck's own.
+const (
+	StopEndTurn         = "end_turn"
+	StopMaxTokens       = "max_tokens"
+	StopMaxTurnRequests = "max_turn_requests"
+	StopRefusal         = "refusal"
+	StopCancelled       = "cancelled"
+	// StopUnknown stands for a stop reason the protocol does not define.
+	StopUnknown = "unknown"
+	// StopInterrupted is not a stop reason: the agent exited, or the prompt was
+	// refused with an error, so no turn ended.
+	StopInterrupted = "interrupted"
+)
+
+// Outcome says what a turn's stop reason means for the message it carried. reason
+// is the stop reason as stored: the protocol's own five, else StopUnknown, so
+// text an agent chose never reaches a message. handled is true when the message
+// is done with: end_turn, and also max_tokens and max_turn_requests, where the
+// agent did read and act on the message and ran into a limit, so sending it again
+// would repeat the work. refusal, cancelled and anything unknown return it to the
+// queue.
+func Outcome(stop string) (reason string, handled bool) {
+	switch stop {
+	case StopEndTurn, StopMaxTokens, StopMaxTurnRequests:
+		return stop, true
+	case StopRefusal, StopCancelled:
+		return stop, false
+	}
+	return StopUnknown, false
 }
 
 // The delivery states of a message, in the order a message normally passes
@@ -364,12 +427,34 @@ const (
 	DeliveryWoken = "woken"
 	// DeliveryRead: the agent ran `inbox read` for it.
 	DeliveryRead = "read"
+	// DeliveryDelivered (prompt route): the message was sent as a prompt and the
+	// turn began. It is not yet known what the agent did with it.
+	DeliveryDelivered = "delivered"
+	// DeliveryHandled (prompt route): the turn ended and counts as handled.
+	DeliveryHandled = "handled"
+	// DeliveryUndeliverable (prompt route): MaxAttempts turns did not handle it.
+	DeliveryUndeliverable = "undeliverable"
 )
 
 // Delivery is the newest state the message has reached. The states can be
 // reached out of order, a wake before the notice for instance, and the newest
 // is the furthest along in the order above, not the last one marked.
+//
+// On the prompt route the states are queued, delivered, handled and
+// undeliverable, and a message goes back from delivered to queued when its turn
+// was cancelled or refused or the agent went away.
 func (m Message) Delivery() string {
+	if m.Route == RoutePrompt {
+		switch {
+		case !m.GaveUpAt.IsZero():
+			return DeliveryUndeliverable
+		case !m.EndedAt.IsZero():
+			return DeliveryHandled
+		case !m.DeliveredAt.IsZero():
+			return DeliveryDelivered
+		}
+		return DeliveryQueued
+	}
 	switch {
 	case m.Read || !m.ReadAt.IsZero():
 		return DeliveryRead
@@ -379,6 +464,27 @@ func (m Message) Delivery() string {
 		return DeliveryNotified
 	}
 	return DeliveryQueued
+}
+
+// Unread reports that the receiver has not yet got the message. On the terminal
+// route that is not Read. On the prompt route it is not yet delivered: once a
+// turn has begun the agent has it, and nothing marks it read.
+func (m Message) Unread() bool {
+	if m.Route == RoutePrompt {
+		return m.Delivery() == DeliveryQueued
+	}
+	return !m.Read
+}
+
+// Finished reports that nothing more will happen to the message, so a full inbox
+// may drop it and a restart may forget it once it is old: read on the terminal
+// route, handled or undeliverable on the prompt route.
+func (m Message) Finished() bool {
+	if m.Route == RoutePrompt {
+		d := m.Delivery()
+		return d == DeliveryHandled || d == DeliveryUndeliverable
+	}
+	return m.Read
 }
 
 // System reports that Flockdeck wrote the message, not another agent.

@@ -18,11 +18,9 @@ import (
 // message text, only at a prompt a tested built-in rule recognises, and only
 // while nobody is at the keyboard.
 //
-// A structured pane is the one exception to the rule. It has no screen to read:
-// it is idle when the protocol says its turn has ended, so no recognition rule is
-// needed or tested, and the line goes as a prompt (wakeStructured). That is
-// intended while structured panes are a beta and opt-in (the structuredPanes
-// preference). Every other condition, limit and switch below applies to it.
+// A structured pane is not woken by this service. It has no screen to type into,
+// and its mail is sent as prompts by the prompt delivery service
+// (promptdelivery.go).
 //
 // Three off switches (global, per agent type, per pane) are kept in the
 // preferences and read through WakeSettings. Everything is on until one is
@@ -203,9 +201,6 @@ type wakeCandidate struct {
 	// screen rule, which for Claude Code is not tested; every other condition and
 	// limit still applies.
 	AgentIdle func() (AgentWord, bool)
-	// Deliver sends the line as a prompt over a protocol, for a pane with no
-	// terminal. Nil means the line is typed into Sess.
-	Deliver func(line string) error
 }
 
 // wakeService decides, for each agent pane with unread mail, whether to type
@@ -338,12 +333,6 @@ func (s *wakeService) consider(c wakeCandidate) string {
 	}
 	if !s.settings().WakeEnabled(c.Agent, c.ID) {
 		return "switched off"
-	}
-	if c.Deliver != nil && !text {
-		// A pane sent prompts has no command to read mail with, so without the
-		// text there is nothing a wake could tell it that it could act on, and
-		// each one would spend a turn.
-		return "no text wake for a pane that cannot read mail"
 	}
 	now := s.now()
 	if st, _ := c.Sess.Status(); st != session.StatusIdle {
@@ -503,14 +492,7 @@ func (s *wakeService) fire(c wakeCandidate, id int, text bool, r session.WakeRea
 	if text {
 		if m, ok := s.message(c.ID, id); ok {
 			line = wakeTextLine(m)
-			if c.Deliver != nil {
-				line = wakeTextPrompt(m)
-			}
 		}
-	}
-	if c.Deliver != nil {
-		s.deliver(c, id, line, text, r, at)
-		return
 	}
 	if err := c.Sess.WriteStringFrom(session.InputFlockdeck, line); err != nil {
 		// Backed off, so a pane that cannot be written to is not tried every tick.
@@ -606,30 +588,6 @@ func (s *wakeService) beforeEnter(c wakeCandidate, w AgentWord) bool {
 	return !c.Sess.WakeReading().Forbidden
 }
 
-// deliver sends the line to a pane with no terminal as a prompt. A prompt is
-// taken or refused whole, so there is no Enter to miss and no line left in an
-// input box: the message is marked woken when the prompt was accepted, and a
-// refusal backs the pane off for the minute.
-//
-// With text the prompt holds the message, so it counts as read once accepted:
-// the agent has no command to read it with, and nothing else would clear it.
-func (s *wakeService) deliver(c wakeCandidate, id int, line string, text bool, r session.WakeReading, at time.Time) {
-	if err := c.Deliver(line); err != nil {
-		s.undo(c, at, true)
-		return
-	}
-	s.mail.MarkWoken(c.ID, id)
-	if text {
-		_, _ = s.mail.Read(c.ID, id)
-	}
-	if s.record != nil {
-		s.record(team.Event{
-			Kind: team.EventWake, ID: id, Time: s.now(), Pane: c.ID, Agent: c.Agent,
-			Rule: r.Version, RuleSource: r.Source, Line: line,
-		})
-	}
-}
-
 // message finds an unread message of the pane by id.
 func (s *wakeService) message(pane string, id int) (team.Message, bool) {
 	for _, m := range s.mail.List(pane, false) {
@@ -693,25 +651,18 @@ func (w *Workspace) stopWake() {
 	}
 }
 
-// wakeCandidates lists the agent panes that have a running session, and the
-// structured panes, which have a runtime in place of one.
+// wakeCandidates lists the agent panes that have a running session. A structured
+// pane has none and is not listed: its mail is sent by the prompt delivery
+// service.
 func (w *Workspace) wakeCandidates() []wakeCandidate {
 	w.mu.RLock()
 	defer w.mu.RUnlock()
 	var out []wakeCandidate
 	for _, p := range w.panes {
-		if p.Kind != session.KindAgent || p.Sess == nil && !p.Structured() {
+		if p.Kind != session.KindAgent || p.Sess == nil {
 			continue
 		}
 		p := p
-		if sr, ok := w.Runtime(p).(*structuredRuntime); ok {
-			// No terminal: the line goes as a prompt, and only when the agent is
-			// idle between turns. A pane waiting on a permission request is not
-			// idle, so it is not woken.
-			out = append(out, wakeCandidate{ID: p.ID, Agent: p.Agent, Root: p.Root, Sess: wakeStructured{sr}, Deliver: sr.Wake,
-				Claim: func() bool { return w.claimSend(p) }, Release: func() { w.releaseSend(p) }})
-			continue
-		}
 		spec, _ := w.agents().Find(p.Agent)
 		cand := wakeCandidate{ID: p.ID, Agent: p.Agent, Root: p.Root, Sess: p.Sess, TextOK: spec.Caps.TextWake,
 			Claim: func() bool { return w.claimSend(p) }, Release: func() { w.releaseSend(p) }}

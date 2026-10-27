@@ -344,12 +344,24 @@ func (c *Client) NewSessionInfo(ctx context.Context, cwd string, mcpServers []MC
 // stop reason. Updates arrive on the Handler meanwhile. Cancel ends the turn
 // early with StopCancelled. A turn can be long, so only ctx bounds it.
 func (c *Client) Prompt(ctx context.Context, sessionID, text string) (string, error) {
+	return c.PromptBlocks(ctx, sessionID, text)
+}
+
+// PromptBlocks is Prompt with the prompt in several text content blocks, in the
+// order given. Every agent takes text blocks, and a prompt with more than one
+// keeps them apart, so a sender's words can be kept out of the block that says
+// who the sender is.
+func (c *Client) PromptBlocks(ctx context.Context, sessionID string, blocks ...string) (string, error) {
 	var r struct {
 		StopReason string `json:"stopReason"`
 	}
+	content := make([]any, 0, len(blocks))
+	for _, b := range blocks {
+		content = append(content, map[string]any{"type": "text", "text": b})
+	}
 	err := c.call(ctx, "session/prompt", map[string]any{
 		"sessionId": sessionID,
-		"prompt":    []any{map[string]any{"type": "text", "text": text}},
+		"prompt":    content,
 	}, &r)
 	return r.StopReason, err
 }

@@ -482,6 +482,7 @@ type Workspace struct {
 	// wakeSvc types the wake line into idle agent panes; wakeSettings says where
 	// it may.
 	wakeSvc      *wakeService
+	promptSvc    *promptService
 	claudeSvc    *claudeStateService
 	wakeSettings WakeSettings
 	// pendingTitles holds titles a pane asked for from the hook goroutine,
@@ -707,6 +708,7 @@ func New(opts Options) (*Workspace, error) {
 	w.loadMessages()
 	w.wakeSettings = newPrefsWake()
 	w.startWake()
+	w.startPromptDelivery()
 	w.startClaudeState()
 	w.SetWake(opts.OnWake)
 	_ = store.TouchRecent(root)
@@ -3722,6 +3724,7 @@ func (w *Workspace) applyGit(key string, st gitx.Status, late bool) {
 func (w *Workspace) Close() {
 	// The wake service types into panes, so it stops before they are destroyed.
 	w.stopWake()
+	w.stopPromptDelivery()
 	w.stopRenames()
 	if w.claudeSvc != nil {
 		w.claudeSvc.Stop()

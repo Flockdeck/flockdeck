@@ -47,6 +47,11 @@ type Event struct {
 	To   string `json:"to,omitempty"`
 	// State is the delivery state of a delivery event.
 	State string `json:"state,omitempty"`
+	// Stop and Attempt belong to a delivery event on the prompt route: how the
+	// turn ended (one of the stop reasons of Message.StopReason) and how many
+	// turns the message has begun.
+	Stop    string `json:"stop,omitempty"`
+	Attempt int    `json:"attempt,omitempty"`
 
 	// The rest belong to a wake event, which is the record of a line Flockdeck
 	// typed into a pane. None of it is message text: ID names the message.
