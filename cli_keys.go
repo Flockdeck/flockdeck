@@ -15,7 +15,7 @@ import (
 	"time"
 
 	"github.com/jmwri/flockdeck/internal/agent"
-	"github.com/jmwri/flockdeck/internal/chat"
+	"github.com/jmwri/flockdeck/internal/apikey"
 	"github.com/jmwri/flockdeck/internal/creds"
 )
 
@@ -43,7 +43,7 @@ func runKeys(args []string) error {
 	return keysCmd(args, k)
 }
 
-// `flockdeck keys` is dispatched by main, beside `hook`, `spawn` and `chat`.
+// `flockdeck keys` is dispatched by main, beside `hook` and `spawn`.
 
 // keysIO is where the subcommand reads the key from and writes its output to,
 // gathered so the command can be driven by a test without a terminal. A nil
@@ -273,13 +273,13 @@ func checkKey(agentID, key string, out io.Writer) (refused bool) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	switch err := chat.CheckKey(ctx, spec.API.Wire, spec.API.BaseURL, key); {
+	switch err := apikey.CheckKey(ctx, spec.API.Wire, spec.API.BaseURL, key); {
 	case err == nil:
 		fmt.Fprintf(out, "checked: the API accepted it\n")
-	case errors.Is(err, chat.ErrKeyRefused):
+	case errors.Is(err, apikey.ErrKeyRefused):
 		fmt.Fprintf(out, "but %v: check it was copied whole, and run this again to replace it\n", err)
 		return true
-	case errors.Is(err, chat.ErrUnreachable):
+	case errors.Is(err, apikey.ErrUnreachable):
 		where := "the vendor's endpoint"
 		if spec.API.BaseURL != "" {
 			where = redactURL(spec.API.BaseURL)
@@ -321,26 +321,30 @@ func keysClear(agentID string, out io.Writer) error {
 	return nil
 }
 
+// storedKey is the key `flockdeck keys set` stored for an agent, or "". It is
+// apikey.KeyStore for `flockdeck keys check`.
+func storedKey(agentID string) string {
+	return creds.Resolve(agent.Spec{ID: agentID}).Secret()
+}
+
 // keysCheck asks the agent's endpoint whether it takes the key a pane would
 // use now -- from the environment or the store, whichever wins -- and says
 // where that key comes from, never what it is. A pane told its key was
 // refused, with one key in the environment and another stored, otherwise left
 // nobody able to say which of the two it was.
 //
-// The key is found by the chat's own lookup, given the options a pane of the
+// The key is found by apikey.KeyFor, given the options a pane of the
 // agent starts with and the store: the agent's own variables, then its stored
-// key, then FLOCKDECK_API_KEY (agent.KeyNames). A pane finds the same one,
-// whether the chat reads the store itself or is handed the stored key under
-// the agent's first variable (creds.Env), since that variable is empty when it
-// is. The chat used to look in FLOCKDECK_API_KEY before the store, so this
-// checked that variable while a pane, handed its stored key, sent that.
+// key, then FLOCKDECK_API_KEY (agent.KeyNames). A pane is handed the stored key under the
+// agent's first variable (creds.Env), which is empty when there is none, so it
+// finds the same one.
 func keysCheck(agentID string, out io.Writer) error {
 	spec, err := keyAgentSpec(agentID)
 	if err != nil {
 		return err
 	}
-	chat.KeyStore = storedKey
-	key, from := chat.KeyFor(chat.Options{
+	apikey.KeyStore = storedKey
+	key, from := apikey.KeyFor(apikey.Target{
 		Agent: spec.ID, Wire: spec.API.Wire, BaseURL: spec.API.BaseURL, KeyEnv: spec.API.KeyEnv,
 	})
 	if key == "" {

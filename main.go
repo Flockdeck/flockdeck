@@ -1,9 +1,9 @@
 // Command flockdeck is a desktop application for running several coding agents
 // at once.
 //
-// It runs each agent — a CLI such as Claude Code, Codex or Gemini, or its own
-// chat client talking to a model API — in a real pseudo-terminal, so every
-// agent behaves exactly as it does in a normal terminal, and presents them in a
+// It runs each agent — a CLI such as Claude Code, Codex or Gemini — in a real
+// pseudo-terminal, so every agent behaves exactly as it does in a normal
+// terminal, and presents them in a
 // window with tabs and split panes, per-pane status, layout persistence, git
 // worktrees and broadcast input.
 package main
@@ -72,12 +72,7 @@ var openBrowser = appwindow.OpenDefault
 const windowGrace = 3 * time.Second
 
 func main() {
-	// Not for `chat`: a pane is started by a Flockdeck that may still hold the
-	// terminal it was run from with -no-window, and the chat would appear there
-	// instead of in the pane.
-	if len(os.Args) < 2 || os.Args[1] != "chat" {
-		useConsole()
-	}
+	useConsole()
 
 	// `help` is what somebody who has never run the program types first, and
 	// they were told it was an unrecognised argument, with exit status 2,
@@ -256,17 +251,6 @@ func main() {
 		printAgents(os.Stdout)
 		return
 	}
-	// `chat` is Flockdeck's own chat client, which is what an API agent's pane
-	// runs. It is started by the pane rather than by a person, and it is a
-	// subcommand for the same reason `hook` is: one artifact to ship, and a
-	// pane that can run Flockdeck can run everything Flockdeck does.
-	if len(os.Args) > 1 && os.Args[1] == "chat" {
-		if err := runChat(os.Args[2:]); err != nil {
-			fmt.Fprintln(os.Stderr, "flockdeck chat:", err)
-			os.Exit(1)
-		}
-		return
-	}
 	// `keys` is where an API agent's key is set, and it reads the key from
 	// stdin so that it never lands in shell history.
 	if len(os.Args) > 1 && os.Args[1] == "keys" {
@@ -401,7 +385,7 @@ func helpArgs(rest []string) (args []string, top bool) {
 	switch {
 	case len(rest) == 0:
 		return nil, true
-	case map[string]bool{"spawn": true, "baton": true, "peer-name": true, "pane-name": true, "close": true, "team": true, "msg": true, "inbox": true, "task": true, "recordings": true, "agents": true, "chat": true, "keys": true, "knowledge": true, "wake": true, "remote": true, "update": true, "helpers": true}[rest[0]]:
+	case map[string]bool{"spawn": true, "baton": true, "peer-name": true, "pane-name": true, "close": true, "team": true, "msg": true, "inbox": true, "task": true, "recordings": true, "agents": true, "keys": true, "knowledge": true, "wake": true, "remote": true, "update": true, "helpers": true}[rest[0]]:
 		return []string{rest[0], "-h"}, false
 	}
 	return nil, true
@@ -418,18 +402,16 @@ type cliFlags struct {
 // Environment variables behind the top-level flags, for a systemd unit, a
 // container ENTRYPOINT or a Helm env: block that would rather set these once
 // in a manifest than assemble an argv. Each seeds its flag's default before
-// flag.Parse runs (the pattern internal/chat/flags.go already uses and
-// already tests: "a flag beats the environment"), so a flag actually given on
+// flag.Parse runs ("a flag beats the environment"), so a flag actually given on
 // the command line still wins. None of these carries a secret, so pattern 1
 // (seed-then-parse) is safe here -- flag.PrintDefaults would otherwise print
 // it for -h and for any bad flag.
 //
 // FLOCKDECK_AGENT is deliberately not reused for -agent: it is already the
-// name a pane's own process reads to know which agent it is
-// (internal/chat/flags.go's paneEnv("AGENT")), read unconditionally from the
-// process environment regardless of who set it. Seeding -agent's default from
-// FLOCKDECK_AGENT would also be read by every pane's `flockdeck chat`
-// invocation, corrupting per-pane agent identity with whatever the service
+// name a pane's own process reads to know which agent it is, read
+// unconditionally from the process environment regardless of who set it.
+// Seeding -agent's default from FLOCKDECK_AGENT would also be read by every
+// pane's own flockdeck process, corrupting per-pane agent identity with whatever the service
 // was launched with -- so the default-agent-for-new-panes setting here gets
 // its own name instead.
 const (
@@ -536,8 +518,6 @@ func usage(fs *flag.FlagSet) {
 	fmt.Fprintf(out, "        flockdeck's MCP server (send_message, list_peers); an agent starts it from its mcpServers, not you\n")
 	fmt.Fprintf(out, "  agents\n")
 	fmt.Fprintf(out, "        list the agents flockdeck can run, with their models\n")
-	fmt.Fprintf(out, "  chat [flags]\n")
-	fmt.Fprintf(out, "        flockdeck's own chat client, which an API agent's pane runs; chat -h for its flags\n")
 	fmt.Fprintf(out, "  keys [list|set <agent>|clear <agent>|check <agent>|endpoint <agent> [<url> | default]]\n")
 	fmt.Fprintf(out, "        the API keys agents talk to a model API with\n")
 	fmt.Fprintf(out, "  remote enable [-relay <url>] [-name <name>] [-join <code>] [-invite <code>]\n")

@@ -192,10 +192,8 @@ func TestKeysClear(t *testing.T) {
 	}
 }
 
-// `flockdeck chat` run by hand has no pane to hand it a stored key, and its
-// error without one tells the user to run `flockdeck keys set`: the key that
-// sets has to be the one it then finds.
-func TestAChatStartedByHandFindsAStoredKey(t *testing.T) {
+// A key stored with `flockdeck keys set` is the one the store hands back.
+func TestKeysSetStoresTheKeyTheStoreHandsBack(t *testing.T) {
 	isolateKeys(t)
 	if _, err := runKeysCmd(t, "sk-stored\n", "set", "anthropic"); err != nil {
 		t.Fatalf("keys set: %v", err)
@@ -225,21 +223,6 @@ func TestKeysSaysWhichAgentsTakeAKey(t *testing.T) {
 	}
 	if _, err := runKeysCmd(t, "sk-x\n", "set", "anthropic"); err != nil {
 		t.Errorf("a known id was refused: %v", err)
-	}
-}
-
-// /model lists what the pane's agent offers, which comes from the catalog.
-func TestAChatIsOfferedItsAgentsModels(t *testing.T) {
-	isolateKeys(t)
-	var ids []string
-	for _, m := range catalogModels("anthropic") {
-		ids = append(ids, m.ID)
-	}
-	if !strings.Contains(strings.Join(ids, " "), "claude-") {
-		t.Errorf("the Claude API agent offers %q", ids)
-	}
-	if got := catalogModels("no-such-agent"); len(got) != 0 {
-		t.Errorf("an unknown agent offers %+v", got)
 	}
 }
 
@@ -303,25 +286,6 @@ func TestKeysSetSaysWhenTheKeyIsUsed(t *testing.T) {
 	}
 	if !strings.Contains(out, "already running") {
 		t.Errorf("keys set did not say when the key takes effect:\n%s", out)
-	}
-}
-
-// A stored key reaches the pane in its environment; the variable carrying it
-// is found so that commands the model runs do not inherit it. A key the user
-// exported themselves, and nothing stored, is left alone.
-func TestTheVariableCarryingAStoredKeyIsFound(t *testing.T) {
-	isolateKeys(t)
-	if got := storedKeyVars("anthropic"); got != nil {
-		t.Errorf("found %q with nothing stored", got)
-	}
-	if err := creds.Set("anthropic", "sk-stored"); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("ANTHROPIC_API_KEY", "sk-stored")
-	t.Setenv("OPENAI_API_KEY", "sk-users-own")
-	got := strings.Join(storedKeyVars("anthropic"), " ")
-	if !strings.Contains(got, "ANTHROPIC_API_KEY") || strings.Contains(got, "OPENAI_API_KEY") {
-		t.Errorf("storedKeyVars = %q, want the variable carrying the stored key and no other", got)
 	}
 }
 

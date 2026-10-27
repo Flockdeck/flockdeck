@@ -6,21 +6,21 @@ import (
 	"testing"
 
 	"github.com/jmwri/flockdeck/internal/agent"
-	"github.com/jmwri/flockdeck/internal/chat"
+	"github.com/jmwri/flockdeck/internal/apikey"
 	"github.com/jmwri/flockdeck/internal/creds"
 )
 
 // TestEveryPlaceFindsTheKeyAPaneSends: the keys dialog, `flockdeck keys` and
-// the pane's environment go by creds.Resolve, and a pane sends what the chat's
-// own lookup finds. Both follow the one order -- the agent's own variables,
+// the pane's environment go by creds.Resolve, and a pane sends what apikey.KeyFor
+// finds. Both follow the one order -- the agent's own variables,
 // never its vendor's where it talks to somebody else; then its stored key;
 // then FLOCKDECK_API_KEY -- whichever of those hold a key, for a built-in at
 // its vendor, a built-in pointed at a gateway, and an agent of the user's own
 // with a variable of its own.
 func TestEveryPlaceFindsTheKeyAPaneSends(t *testing.T) {
-	saved := chat.KeyStore
-	t.Cleanup(func() { chat.KeyStore = saved })
-	chat.KeyStore = storedKey
+	saved := apikey.KeyStore
+	t.Cleanup(func() { apikey.KeyStore = saved })
+	apikey.KeyStore = storedKey
 
 	const (
 		inVar    = "sk-test-in-its-variable"
@@ -77,12 +77,12 @@ func TestEveryPlaceFindsTheKeyAPaneSends(t *testing.T) {
 					t.Errorf("creds.Resolve found %s, want %s", said[got], said[want])
 				}
 				// The pane: its environment gains what creds.Env hands it, and
-				// its chat is started with the names chatArgs writes.
+				// its key is looked up from the names it is given.
 				for _, kv := range creds.Env(tc.spec) {
 					name, value, _ := strings.Cut(kv, "=")
 					t.Setenv(name, value)
 				}
-				got, _ := chat.KeyFor(chat.Options{Agent: tc.spec.ID, Wire: tc.spec.API.Wire,
+				got, _ := apikey.KeyFor(apikey.Target{Agent: tc.spec.ID, Wire: tc.spec.API.Wire,
 					BaseURL: tc.spec.API.BaseURL, KeyEnv: agent.OwnKeyEnv(tc.spec.API)})
 				if got != want {
 					t.Errorf("a pane sends %s, want %s", said[got], said[want])
