@@ -124,9 +124,9 @@ type Arg struct {
 // now (Merge refuses an "api" block); it stays as the shape board task T202's
 // per-agent keys are built on, and `flockdeck keys` reads it.
 type APISpec struct {
-	// Wire is the request shape: "anthropic", "openai" or "gemini". An
-	// OpenAI-compatible endpoint -- Ollama, LM Studio, vLLM, a gateway -- is
-	// "openai" with a BaseURL of its own.
+	// Wire is the shape of the endpoint's API, which the key check speaks:
+	// "anthropic", "openai" or "gemini". An OpenAI-compatible endpoint --
+	// Ollama, LM Studio, vLLM, a gateway -- is "openai" with a BaseURL of its own.
 	Wire string `json:"wire,omitempty"`
 	// BaseURL is the endpoint root; empty means the vendor's own.
 	BaseURL string `json:"baseURL,omitempty"`

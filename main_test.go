@@ -648,7 +648,7 @@ func TestUsageNamesTheEnvironment(t *testing.T) {
 // Each top-level flag that has an environment equivalent takes its default
 // from the environment, but a flag actually given on the command line still
 // wins -- the same "seed the default, then parse" pattern, and the same
-// guarantee, internal/chat/flags.go already has and tests.
+// guarantee.
 func TestTopLevelFlagsTakeTheirDefaultFromTheEnvironment(t *testing.T) {
 	t.Setenv(dirEnv, "/srv/project")
 	t.Setenv(startAgentEnv, "codex")
@@ -724,11 +724,10 @@ func TestDirWasGiven(t *testing.T) {
 	}
 }
 
-// FLOCKDECK_AGENT is already taken -- it is what a pane's own `flockdeck chat`
-// reads to know which agent it is (internal/chat's paneEnv("AGENT")). The
-// default-agent-for-new-panes setting must not reuse it, or a service started
-// with FLOCKDECK_AGENT set would have every pane's own chat process read it
-// too, corrupting per-pane agent identity.
+// FLOCKDECK_AGENT is already taken -- it is how a pane's process knows which
+// agent it is. The default-agent-for-new-panes setting must not reuse it, or a
+// service started with FLOCKDECK_AGENT set would have every pane's process read
+// it too, corrupting per-pane agent identity.
 func TestStartAgentEnvDoesNotCollideWithThePaneHandshakeVar(t *testing.T) {
 	if startAgentEnv == "FLOCKDECK_AGENT" {
 		t.Fatal("startAgentEnv must not be FLOCKDECK_AGENT: that name is already the pane-side agent-identity handshake variable")

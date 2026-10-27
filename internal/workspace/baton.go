@@ -103,15 +103,25 @@ func (w *Workspace) apiSpecs() []agent.Spec {
 	return out
 }
 
-// keyValues are the API keys Flockdeck can see for the agents in its catalog,
-// from the environment and from its own store. It reads the key store, so it is
-// not for the workspace goroutine.
+// keyValues are the API keys Flockdeck can see, from the environment and from
+// its own store. It reads the key store, so it is not for the workspace
+// goroutine.
 func (w *Workspace) keyValues() []string { return keyValuesOf(w.apiSpecs()) }
 
+// keyValuesOf are the keys of the given agents, from the environment and the
+// store, and every key in the store whether or not the catalog has an agent for
+// it: a key saved for an agent that has since left the catalog is still a
+// secret, and must not reach a baton or a handoff.
 func keyValuesOf(specs []agent.Spec) []string {
 	var out []string
 	for _, spec := range specs {
 		if k := creds.Resolve(spec); k.Set() {
+			out = append(out, k.Secret())
+		}
+	}
+	ids, _ := creds.Names()
+	for _, id := range ids {
+		if k := creds.Resolve(agent.Spec{ID: id}); k.Set() {
 			out = append(out, k.Secret())
 		}
 	}

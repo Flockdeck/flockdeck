@@ -9,7 +9,7 @@ code_paths: [ui/help/help.go, ui/help/keys.go, ui/help/render.go]
 ---
 ## Pages
 
-`pages/*.md` are embedded with `go:embed` and rendered once on first use (Markdown to HTML via goldmark, external links post-processed). `Pages()` returns `Page` {slug, title (first heading), summary (first paragraph), html, text (words only, for search)}; `Slugs()` lists them. Order is a hard-coded list (getting-started, panes, agents, ornith, status, auto-approve, spend, rearranging, broadcast, worktrees, changes, github, history, baton, baton-details, recording, projects, persistence, remote, settings, shortcuts, cli, troubleshooting); a test keeps it level with the files present.
+`pages/*.md` are embedded with `go:embed` and rendered once on first use (Markdown to HTML via goldmark, external links post-processed). `Pages()` returns `Page` {slug, title (first heading), summary (first paragraph), html, text (words only, for search)}; `Slugs()` lists them. Order is a hard-coded list (getting-started, panes, agents, status, auto-approve, spend, rearranging, broadcast, worktrees, changes, github, history, baton, baton-details, recording, projects, persistence, remote, settings, shortcuts, cli, troubleshooting); a test keeps it level with the files present.
 
 Pages use placeholders expanded at render time: `[[key:ID]]` inline shortcut, `{{keys}}` or `{{keys:Section}}` shortcut table, and `[[action:ID]]` (the binding, or the bold action name if it has none).
 

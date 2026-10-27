@@ -45,10 +45,21 @@ func unknownFields(id string, raw json.RawMessage) []string {
 // command-line agent, an entry with an "api" block or the runner "api" would
 // start a program named for its id. It is refused whole and the built-in it was
 // written over stays as it was.
+//
+// An entry that names one of the removed built-ins (anthropic, openai, google,
+// openai-compatible) and gives no program is refused the same way: it was a
+// setting for that built-in, and read on its own it would become a command-line
+// agent that starts a program named for the id.
+// removedBuiltins are the ids of the agents that ran on the API runner.
+var removedBuiltins = map[string]bool{"anthropic": true, "openai": true, "google": true, "openai-compatible": true}
+
 func retiredAPI(id string, raw json.RawMessage) string {
 	var keys map[string]json.RawMessage
 	if json.Unmarshal(raw, &keys) != nil {
 		return ""
+	}
+	if _, hasExe := keys["exe"]; !hasExe && removedBuiltins[id] {
+		return fmt.Sprintf("agent %q: the API runner (flockdeck chat) was removed, so this entry is ignored", id)
 	}
 	for key, v := range keys {
 		var runner string

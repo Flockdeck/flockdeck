@@ -608,13 +608,21 @@ func TestAnAPIEntryIsRefused(t *testing.T) {
 		json.RawMessage(`{"id": "codex", "runner": "api", "hidden": true}`),
 		json.RawMessage(`{"id": "claude", "api": {"keyEnv": ["MINE"]}, "defaultModel": "opus"}`),
 		json.RawMessage(`{"id": "mine", "exe": "mine"}`),
+		json.RawMessage(`{"id": "openai", "models": [{"id": "gpt-x"}]}`),
+		json.RawMessage(`{"id": "google", "exe": "google-cli"}`),
 	}})
+	if _, ok := c.Find("openai"); ok {
+		t.Error("a settings entry for the removed openai built-in became a command-line agent")
+	}
+	if _, ok := c.Find("google"); !ok {
+		t.Error("an entry with a program of its own was refused for borrowing a removed id")
+	}
 	for _, id := range []string{"local", "shouty"} {
 		if _, ok := c.Find(id); ok {
 			t.Errorf("the API entry %q was added as a command-line agent", id)
 		}
 	}
-	for _, id := range []string{"local", "shouty", "codex", "claude"} {
+	for _, id := range []string{"local", "shouty", "codex", "claude", "openai"} {
 		if !strings.Contains(c.Notice, `agent "`+id+`": the API runner (flockdeck chat) was removed`) {
 			t.Errorf("notice %q should say %q was refused", c.Notice, id)
 		}

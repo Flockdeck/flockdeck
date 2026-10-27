@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"github.com/jmwri/flockdeck/internal/creds"
 	"os"
 	"path/filepath"
 	"strings"
@@ -363,6 +364,26 @@ func TestPrepareBatonUsesThePanesOwnScrubber(t *testing.T) {
 	}
 	if !strings.Contains(other.Prompt, "pane-only-secret-value-42") {
 		t.Error("the fallback scrubber knew a secret it had no way to know")
+	}
+}
+
+// A key saved with `flockdeck keys set` is scrubbed from a baton's text even
+// though no catalog agent takes a key any more.
+func TestABatonSourceScrubberKnowsKeysSavedForNoCatalogAgent(t *testing.T) {
+	batonAgents(t)
+	if err := creds.Set("anthropic", "zzstoredkeyvalue5678"); err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	ws := newTestWorkspace(t, root)
+	ws.NewTabWith(Choice{Kind: session.KindClaude, Agent: "gosession"}, root, "")
+	src, err := ws.BatonSource(ws.FocusedPane().ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := src.Scrubber().Scrub("the key was zzstoredkeyvalue5678 today")
+	if strings.Contains(got, "zzstoredkeyvalue5678") {
+		t.Errorf("the stored key reached the text: %q", got)
 	}
 }
 

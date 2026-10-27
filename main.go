@@ -518,7 +518,7 @@ func usage(fs *flag.FlagSet) {
 	fmt.Fprintf(out, "        flockdeck's MCP server (send_message, list_peers); an agent starts it from its mcpServers, not you\n")
 	fmt.Fprintf(out, "  agents\n")
 	fmt.Fprintf(out, "        list the agents flockdeck can run, with their models\n")
-	fmt.Fprintf(out, "  keys [list|set <agent>|clear <agent>|check <agent>|endpoint <agent> [<url> | default]]\n")
+	fmt.Fprintf(out, "  keys [list|set <agent>|clear <agent>|check <agent>]\n")
 	fmt.Fprintf(out, "        the API keys agents talk to a model API with\n")
 	fmt.Fprintf(out, "  remote enable [-relay <url>] [-name <name>] [-join <code>] [-invite <code>]\n")
 	fmt.Fprintf(out, "        enrol this machine with a relay, so another device can reach its agents\n")

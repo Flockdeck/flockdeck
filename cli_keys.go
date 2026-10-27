@@ -104,9 +104,7 @@ func keysUsage(out io.Writer) {
 	fmt.Fprintf(out, "  set <agent>    read a key from standard input and store it\n")
 	fmt.Fprintf(out, "  clear <agent>  forget a stored key\n")
 	fmt.Fprintf(out, "  check <agent>  ask the agent's endpoint whether it takes the key a pane would use\n")
-	fmt.Fprintf(out, "  endpoint <agent> [<url> | default]\n")
-	fmt.Fprintf(out, "                 show the address an agent talks to, or change it: a local\n")
-	fmt.Fprintf(out, "                 model server, a gateway; default goes back to the vendor's\n\n")
+	fmt.Fprintf(out, "\n")
 	fmt.Fprintf(out, "The key is read from standard input so it stays out of your shell history.\n")
 	fmt.Fprintf(out, "An agent whose key is already exported in the environment needs none of this.\n")
 }
@@ -142,25 +140,8 @@ func keysList(out io.Writer) error {
 			width = len(s.Agent)
 		}
 	}
-	// Where an agent talks to somewhere other than its vendor, that is said
-	// beside its key: the two are what decide whether a pane can answer, and
-	// this listing is where somebody checking either one looks.
-	endpoints := map[string]string{}
-	for _, s := range specs {
-		endpoints[s.ID] = s.API.BaseURL
-	}
 	for _, s := range statuses {
-		line := s.Describe()
-		if u := endpoints[s.Agent]; u != "" {
-			if s.NotNeeded && !s.Set {
-				// Already said to talk to a model on this machine; the
-				// address says which, rather than saying it again.
-				line += ", at " + redactURL(u)
-			} else {
-				line += "; talks to " + redactURL(u)
-			}
-		}
-		fmt.Fprintf(out, "%-*s  %s\n", width, s.Agent, line)
+		fmt.Fprintf(out, "%-*s  %s\n", width, s.Agent, s.Describe())
 	}
 	return nil
 }
