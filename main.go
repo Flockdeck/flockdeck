@@ -1174,6 +1174,7 @@ func run(opts options) error {
 	ws.SetWake(srv.Wake)
 	ws.SetConversationHook(srv.ConversationHookEvent)
 	ws.SetPaneClosedHook(srv.PaneClosed)
+	ws.SetSessionMovedHook(srv.SessionMoved)
 	// Helper apps: ended if a crashed run left one, and stopped on the way out.
 	beginStoppingHelpers := startHelpers(srv)
 	waitForHelpers := func() {}

@@ -8,6 +8,7 @@ import (
 	"github.com/jmwri/flockdeck/internal/acp"
 
 	"github.com/jmwri/flockdeck/internal/acp/acptest"
+	"github.com/jmwri/flockdeck/internal/agent"
 )
 
 func resumeOptions(t *testing.T, id string, aopts ...acptest.Option) Options {
@@ -187,5 +188,150 @@ func TestADefiniteRefusalReplacesTheSavedId(t *testing.T) {
 	s := until(t, r, "ready", idle)
 	if s.Resume != ResumeFailed || r.SessionID() != s.SessionID {
 		t.Errorf("resume = %q, save %q, live %q", s.Resume, r.SessionID(), s.SessionID)
+	}
+}
+
+// Flockdeck's own Claude adapter can move the id a pane is resumed by (after
+// /clear, claude continues under a new one). Prompts still go to the session
+// the pane has; the id for the layout is the new one. Another agent saying the
+// same, or an id that is not a UUID, changes nothing.
+func TestAdapterMovesTheSavedSessionID(t *testing.T) {
+	const moved = "11111111-2222-4333-8444-555555555555"
+	claude := func(t *testing.T) Options {
+		o := fakeOptions(t)
+		o.Spec.Runner = agent.RunnerACP
+		o.Spec.ACP.Adapter = "claude"
+		return o
+	}
+	t.Run("own claude adapter", func(t *testing.T) {
+		r := begin(t, claude(t))
+		first := until(t, r, "ready", idle).SessionID
+		if err := r.Send("moved-session"); err != nil {
+			t.Fatal(err)
+		}
+		until(t, r, "the turn", func(s Snapshot) bool { return idle(s) && strings.Contains(replies(s), "moved") })
+		if got := r.SessionID(); got != moved {
+			t.Errorf("SessionID() = %q, want %q", got, moved)
+		}
+		// prompts still use the original session
+		if err := r.Send("whoami"); err != nil {
+			t.Fatal(err)
+		}
+		s := until(t, r, "whoami", func(s Snapshot) bool { return idle(s) && strings.Contains(replies(s), "session=") })
+		if !strings.Contains(replies(s), "session="+first) {
+			t.Errorf("a prompt went to a different session than %q: %q", first, replies(s))
+		}
+	})
+	t.Run("another agent", func(t *testing.T) {
+		r := begin(t, fakeOptions(t))
+		first := until(t, r, "ready", idle).SessionID
+		if err := r.Send("moved-session"); err != nil {
+			t.Fatal(err)
+		}
+		until(t, r, "the turn", func(s Snapshot) bool { return idle(s) && strings.Contains(replies(s), "moved") })
+		if got := r.SessionID(); got != first {
+			t.Errorf("SessionID() = %q, want the live %q", got, first)
+		}
+	})
+	t.Run("not a UUID", func(t *testing.T) {
+		r := begin(t, claude(t))
+		first := until(t, r, "ready", idle).SessionID
+		if err := r.Send("moved-bad"); err != nil {
+			t.Fatal(err)
+		}
+		until(t, r, "the turn", func(s Snapshot) bool { return idle(s) && strings.Contains(replies(s), "moved") })
+		if got := r.SessionID(); got != first {
+			t.Errorf("SessionID() = %q, want the live %q", got, first)
+		}
+	})
+}
+
+func claudeRuntime(session, keep string) (*Runtime, *int) {
+	calls := new(int)
+	return &Runtime{
+		opts: Options{
+			Spec:           agent.Spec{Runner: agent.RunnerACP, ACP: agent.ACPSpec{Adapter: "claude"}},
+			OnSessionMoved: func() { *calls++ },
+		},
+		session: session, keep: keep,
+	}, calls
+}
+
+// noteMoved accepts the id in any UUID spelling and keeps the canonical one, and
+// tells the owner only when the id to save changed. It is called outside the
+// lock: the callback reads SessionID.
+func TestNoteMovedNormalisesAndTellsOnChange(t *testing.T) {
+	const canon = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+	r, calls := claudeRuntime("live", "")
+	var seen string
+	r.opts.OnSessionMoved = func() { *calls++; seen = r.SessionID() }
+	r.noteMoved("{AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE}")
+	r.noteMoved(canon)
+	if *calls != 1 || seen != canon || r.SessionID() != canon {
+		t.Errorf("calls %d, seen %q, SessionID %q; want one call and %q", *calls, seen, r.SessionID(), canon)
+	}
+	r.noteMoved("11111111-2222-4333-8444-555555555555")
+	if *calls != 2 {
+		t.Errorf("a different id was not told: %d calls", *calls)
+	}
+}
+
+// With no live session there is nothing to move, and nobody is told.
+func TestNoteMovedNeedsALiveSession(t *testing.T) {
+	r, calls := claudeRuntime("", "")
+	r.opts.ResumeSession = "asked-for"
+	r.noteMoved("11111111-2222-4333-8444-555555555555")
+	if r.SessionID() != "asked-for" || *calls != 0 {
+		t.Errorf("SessionID %q, %d calls", r.SessionID(), *calls)
+	}
+}
+
+// A pane whose reopen was never answered keeps that id in the layout, until the
+// live session moves.
+func TestMovedWinsOverKeep(t *testing.T) {
+	r, _ := claudeRuntime("live", "kept-old")
+	if r.SessionID() != "kept-old" {
+		t.Fatalf("SessionID = %q", r.SessionID())
+	}
+	r.noteMoved("11111111-2222-4333-8444-555555555555")
+	if r.SessionID() != "11111111-2222-4333-8444-555555555555" {
+		t.Errorf("SessionID = %q after the move", r.SessionID())
+	}
+}
+
+type recHandler struct {
+	acp.Handler
+	got []acp.Update
+}
+
+func (h *recHandler) Update(u acp.Update) { h.got = append(h.got, u) }
+
+// The update is taken by the runtime and not passed to the transcript bridge.
+func TestSessionIDUpdateIsNotPassedOn(t *testing.T) {
+	r, _ := claudeRuntime("live", "")
+	rec := &recHandler{}
+	h := handler{Handler: rec, r: r}
+	h.Update(acp.Update{SessionID: "live", Kind: acp.UpdateSessionID, NewSessionID: "11111111-2222-4333-8444-555555555555"})
+	h.Update(acp.Update{SessionID: "live", Kind: acp.UpdateAgentMessageChunk})
+	if len(rec.got) != 1 || rec.got[0].Kind != acp.UpdateAgentMessageChunk {
+		t.Errorf("passed on: %+v", rec.got)
+	}
+	if r.SessionID() != "11111111-2222-4333-8444-555555555555" {
+		t.Errorf("SessionID = %q", r.SessionID())
+	}
+}
+
+func TestAdapterUpperCaseIDIsNormalised(t *testing.T) {
+	o := fakeOptions(t)
+	o.Spec.Runner = agent.RunnerACP
+	o.Spec.ACP.Adapter = "claude"
+	r := begin(t, o)
+	until(t, r, "ready", idle)
+	if err := r.Send("moved-upper"); err != nil {
+		t.Fatal(err)
+	}
+	until(t, r, "the turn", func(s Snapshot) bool { return idle(s) && strings.Contains(replies(s), "moved") })
+	if got := r.SessionID(); got != "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee" {
+		t.Errorf("SessionID() = %q", got)
 	}
 }

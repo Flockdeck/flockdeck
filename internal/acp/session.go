@@ -26,6 +26,10 @@ const (
 	// UpdateNotice is a Flockdeck adapter's request for a fixed notice. It carries
 	// a code, never text: the bridge owns the wording (NoticeText in the bridge).
 	UpdateNotice = "flockdeck_notice"
+	// UpdateSessionID is a Flockdeck adapter telling the client the id to save
+	// for resuming the session, after the agent moved the conversation to a new
+	// one (Claude's /clear). The session keeps the id it has for prompts.
+	UpdateSessionID = "flockdeck_session"
 )
 
 // Command is one slash command an agent offers.

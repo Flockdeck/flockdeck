@@ -32,6 +32,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/google/uuid"
+
 	"github.com/jmwri/flockdeck/internal/acp"
 	"github.com/jmwri/flockdeck/internal/acp/bridge"
 	"github.com/jmwri/flockdeck/internal/acp/manifest"
@@ -204,6 +206,13 @@ type Options struct {
 	// block for long. Nil means nobody is told.
 	OnTurn func(TurnEvent)
 
+	// OnSessionMoved is called when Flockdeck's own Claude adapter moves the
+	// session id to resume by (Runtime.SessionID changes), so that the owner can
+	// save it at once. It is called outside the runtime's lock, from the
+	// goroutine that reads the agent's updates, and must not block for long.
+	// Nil means nobody is told.
+	OnSessionMoved func()
+
 	// Bridge tunes the transcript bridge; the zero value works.
 	Bridge bridge.Config
 	// Client lets a test shorten the client's waits.
@@ -351,7 +360,12 @@ type Runtime struct {
 	dead map[string]struct{}
 	// keep is the id a layout should keep in place of the live session's, set
 	// when a reopen failed without an answer from the agent (a timeout).
-	keep    string
+	keep string
+	// moved is the id the agent's own adapter said to save in place of the live
+	// session's (see noteMoved). Empty until it does. launch clears it when it
+	// settles on a session, so that an update that came while the session was
+	// being reopened does not outlive it.
+	moved   string
 	waiters []*waiter
 	// settingCalls is how many setting requests are with the agent.
 	settingCalls int
@@ -960,8 +974,40 @@ func (h handler) Update(u acp.Update) {
 	if dead || (u.SessionID != "" && sid != "" && u.SessionID != sid) {
 		return
 	}
+	if u.Kind == acp.UpdateSessionID {
+		h.r.noteMoved(u.NewSessionID)
+		return
+	}
 	h.Handler.Update(u)
 	h.r.notify()
+}
+
+// ownClaudeAdapter is the manifest id of Flockdeck's Claude adapter, the only
+// agent trusted to say which id a session is to be resumed by.
+const ownClaudeAdapter = "claude"
+
+// noteMoved takes the id Flockdeck's Claude adapter gives for resuming the
+// session after claude moved the conversation to a new one (/clear). Any other
+// agent's update of this kind is ignored, and so is an id that is not a UUID:
+// the id ends up in the saved layout and on a command line. Prompts still go to
+// the session id the pane has.
+func (r *Runtime) noteMoved(id string) {
+	if a, ok := r.opts.Spec.ACPAdapter(); !ok || a.ID != ownClaudeAdapter {
+		return
+	}
+	u, err := uuid.Parse(id)
+	if err != nil {
+		return
+	}
+	r.mu.Lock()
+	changed := r.session != "" && r.moved != u.String()
+	if changed {
+		r.moved = u.String()
+	}
+	r.mu.Unlock()
+	if changed && r.opts.OnSessionMoved != nil {
+		r.opts.OnSessionMoved()
+	}
 }
 
 // run starts the agent and then runs the turns until something ends them.
@@ -1222,6 +1268,7 @@ func (r *Runtime) launch() bool {
 	r.br.SessionNew(created)
 	r.mu.Lock()
 	r.session = created.SessionID
+	r.moved = ""
 	r.resume = resume
 	if r.phase == PhaseStarting {
 		r.phase = PhaseReady
@@ -1276,6 +1323,11 @@ func (r *Runtime) failKey(c *acp.Client, init acp.InitResult, err error) {
 func (r *Runtime) SessionID() string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	// moved is about the live session, so it wins over keep, which is the id of
+	// a reopen that was never answered.
+	if r.moved != "" {
+		return r.moved
+	}
 	if r.keep != "" {
 		return r.keep
 	}

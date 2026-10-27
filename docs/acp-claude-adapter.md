@@ -196,10 +196,24 @@ a `user` line on the same process.
   `new_conversation_id`), the next `init` line carries a new `session_id`, and the
   conversation that follows has no memory of the one before. The adapter sends a
   `flockdeck_notice` update with the code `new_conversation`, which the bridge shows as
-  "Started a new conversation." The ACP session id the client holds stays the old
-  one: ACP has no update that changes it, and `adopt` only makes the new id reachable. A
-  pane that is restored later resumes the old conversation, from before the `/clear`.
-  That is not handled.
+  "Started a new conversation." The ACP session id the client prompts with stays the old
+  one: ACP has no update that changes it, and `adopt` only makes the new id reachable.
+  The adapter also sends a `flockdeck_session` update with `newSessionId`, once for each
+  id claude reports that differs from the last. The structured runtime
+  (`noteMoved`) takes it only from the `claude` adapter of the manifest and only when the
+  id is a UUID, and returns it from `SessionID()`, the id a layout saves. A pane restored
+  after a `/clear` resumes the new conversation. Prompts in the running pane still go to
+  the id it has. The next `/clear` moves the id again; the alias of the one before is
+  dropped.
+  The runtime calls `Options.OnSessionMoved` when the id to save changes (outside its
+  lock); the workspace passes it to the server, which saves the layouts at once, so a
+  crash right after `/clear` does not restore the old id. If the runtime holds an id from
+  an unanswered reopen, the moved id wins over it.
+
+  A fork or a rewind (T215) that makes claude report another session id would send the
+  same update. That is intended only if the pane goes on following the new conversation;
+  a fork that leaves the pane on the original conversation must not send it, or a
+  restored pane would resume the fork.
 
 So the slash menu offers all three, and no Flockdeck-side "new conversation" action was
 added. If a later claude stops honouring `/clear` under `-p`, the entry has to be hidden

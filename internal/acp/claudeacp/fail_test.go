@@ -171,6 +171,7 @@ func TestCompactAndClearAreShown(t *testing.T) {
 		expect(`"/clear2"`),
 		emit(reset(idB)), emit(initFor(idB)), emit(clearResult(idB)),
 		expect(`"viaB"`),
+		emit(initFor(idB)), // the same id again says nothing new
 		emit(clearResult(idB)),
 	})
 	sid := h.start()
@@ -193,6 +194,7 @@ func TestCompactAndClearAreShown(t *testing.T) {
 	}
 	var compaction, notice map[string]any
 	var usage []map[string]any
+	var moved []any
 	for _, u := range h.updates() {
 		switch u["sessionUpdate"] {
 		case "compaction":
@@ -203,7 +205,14 @@ func TestCompactAndClearAreShown(t *testing.T) {
 			}
 		case "usage_update":
 			usage = append(usage, u)
+		case "flockdeck_session":
+			moved = append(moved, u["newSessionId"])
 		}
+	}
+	// The client is told each new id once, so that the pane saves the one to
+	// resume by.
+	if len(moved) != 2 || moved[0] != idA || moved[1] != idB {
+		t.Errorf("flockdeck_session updates = %v, want [%s %s]", moved, idA, idB)
 	}
 	if compaction == nil || compaction["message"] != "Context compacted: 30,874 to 10,612 tokens." {
 		t.Errorf("compaction = %v", compaction)

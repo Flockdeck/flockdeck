@@ -653,6 +653,10 @@ type Workspace struct {
 	// same way onWake is, and nil until the server installs itself.
 	onPaneClosed atomic.Pointer[func(string)]
 
+	// onSessionMoved is called with a pane's id when its agent's session id to
+	// resume by changed (see SetSessionMovedHook).
+	onSessionMoved atomic.Pointer[func(string)]
+
 	// recentTouches queues projects switched to for touchRecent's background
 	// writer, and recentOnce starts that writer the first time it is needed.
 	// See touchRecent.
@@ -800,6 +804,18 @@ func (w *Workspace) wakeConversation(paneID string) {
 // torn down, for the same reason SetWake exists: the server needs the
 // workspace built before it can register itself.
 func (w *Workspace) SetPaneClosedHook(fn func(paneID string)) { w.onPaneClosed.Store(&fn) }
+
+// SetSessionMovedHook installs the callback told a pane's id when the id its
+// layout saves for resuming the agent changed (Claude's /clear), so that the
+// server can save the layout without waiting for its interval. It is called
+// from the pane's runtime goroutine and must not block.
+func (w *Workspace) SetSessionMovedHook(fn func(paneID string)) { w.onSessionMoved.Store(&fn) }
+
+func (w *Workspace) noteSessionMoved(paneID string) {
+	if fn := w.onSessionMoved.Load(); fn != nil && *fn != nil {
+		(*fn)(paneID)
+	}
+}
 
 func (w *Workspace) notePaneClosed(paneID string) {
 	if fn := w.onPaneClosed.Load(); fn != nil && *fn != nil {
