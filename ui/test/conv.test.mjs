@@ -607,6 +607,20 @@ test("link text written in full-width letters is a host as new URL reads it", ()
   assert.equal(prose.includes("md-linkhost"), false, "ordinary prose in full-width letters showed a host: " + prose);
 });
 
+test("text that folds to something a host cannot hold is still read as the host new URL reads", () => {
+  for (const cp of [0xbd, 0xbc, 0x2153, 0x13f, 0x140]) {
+    const t = String.fromCharCode(cp) + ".com";
+    const out = md("[" + t + "](https://evil.example/a)");
+    assert.equal(out.split("(evil.example)").length - 1, 1, "no warning for U+" + cp.toString(16) + ".com: " + out);
+  }
+});
+
+test("prose that only folds to something host-like is not taken for a host", () => {
+  const dots = String.fromCharCode(0x2026), lig = String.fromCharCode(0xfb01), leader = String.fromCharCode(0x2024);
+  const out = md("[Wait" + dots + "ok](https://evil.example/a) and [a" + dots + "b.com](https://evil.example/b) and [" + lig + "le.txt](https://evil.example/c) and [Fig" + leader + "1](https://evil.example/d)");
+  assert.equal(out.includes("md-linkhost"), false, out);
+});
+
 test("German words that have a dot in them are not taken for a host", () => {
   const out = md("[Datei.txt](https://evil.example/a) and [Ich mag Äpfel.Danke](https://evil.example/b) and [Äpfel.Danke](https://evil.example/c)");
   assert.equal(out.split("md-linkhost").length - 1, 0, out);
