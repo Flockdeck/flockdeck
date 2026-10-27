@@ -11,7 +11,7 @@ import (
 func (ss *session) dispatch(b []byte) {
 	var m rpcMsg
 	if json.Unmarshal(b, &m) != nil {
-		ss.srv.logf("ignored a line from codex that is not JSON")
+		ss.logf("ignored a line from codex that is not JSON")
 		return
 	}
 	switch {
@@ -116,6 +116,9 @@ func (ss *session) handleNotification(m rpcMsg) {
 	if json.Unmarshal(m.Params, &p) != nil || !ss.mine(p.ThreadID) {
 		return
 	}
+	if (m.Method == "turn/started" || m.Method == "turn/completed") && p.ThreadID == "" {
+		return // the start and end of a turn must say whose it is
+	}
 	switch m.Method {
 	case "turn/started":
 		ss.mu.Lock()
@@ -184,7 +187,7 @@ func (ss *session) handleNotification(m rpcMsg) {
 			op.abandon()
 		}
 	case "error":
-		ss.srv.logf("codex reported an error: %s", clip(p.Error.Message, 500))
+		ss.logf("codex reported an error: %s", clip(p.Error.Message, 500))
 	}
 }
 
@@ -242,7 +245,7 @@ func (ss *session) classifyTurn(status, msg, name string) turnResult {
 	case "interrupted":
 		return turnResult{stop: "cancelled"}
 	case "failed":
-		ss.srv.logf("the turn failed (%s): %s", name, clip(msg, 500))
+		ss.logf("the turn failed (%s): %s", name, clip(msg, 500))
 		switch name {
 		case "unauthorized":
 			return turnResult{err: &rpcErr{Code: codeAuthRequired, Message: "Authentication required"}}

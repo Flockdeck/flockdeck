@@ -71,6 +71,7 @@ type turn struct {
 	id        string // codex's id for the turn, once known
 	done      chan turnResult
 	finished  chan struct{} // closed by runPrompt when it is done with the turn
+	gen       int           // ss.gen when the turn began
 	cancelled bool
 	interrupt bool // an interrupt was sent
 }
@@ -113,6 +114,8 @@ type session struct {
 	skills   map[string]string    // skill name to path
 	lastUsed int64
 	window   int64
+	secrets  []string     // values from the MCP servers, kept out of the log
+	imgBytes int64        // bytes of images staged so far
 	idv      atomic.Value // the thread id as a string, readable while the session is still starting
 }
 
@@ -154,6 +157,7 @@ func (s *server) openSession(m rpcMsg, resume bool) {
 		s.replyErr(m.ID, &rpcErr{Code: codeInvalidParams, Message: err.Error()})
 		return
 	}
+	secrets := mcpSecrets(p.McpServers)
 	ss := &session{
 		srv: s, cwd: p.Cwd,
 		reaped: make(chan struct{}), dead: make(chan struct{}), quit: make(chan struct{}),
@@ -162,12 +166,12 @@ func (s *server) openSession(m rpcMsg, resume bool) {
 		pending: map[int64]chan rpcMsg{}, done: map[string]turnResult{},
 		items: map[string]*itemState{}, perms: map[string]*openPerm{}, allowed: map[string]bool{},
 		skills: map[string]string{}, models: map[string]bool{},
-		mode: modes[0],
+		mode: modes[0], secrets: secrets,
 	}
 	// From here on every failure ends with ss.close: it kills codex and removes
 	// the session's files.
 	if err := ss.start(); err != nil {
-		s.logf("start codex: %v", err)
+		ss.logf("start codex: %v", err)
 		ss.close()
 		s.replyErr(m.ID, &rpcErr{Code: codeInternal, Message: unavailable})
 		return
@@ -189,7 +193,7 @@ func (s *server) openSession(m rpcMsg, resume bool) {
 		s.mu.Unlock()
 	}()
 	if err := ss.handshake(); err != nil {
-		s.logf("codex handshake: %v", err)
+		ss.logf("codex handshake: %v", err)
 		ss.close()
 		s.replyErr(m.ID, &rpcErr{Code: codeInternal, Message: unavailable})
 		return
@@ -224,11 +228,17 @@ func (s *server) openSession(m rpcMsg, resume bool) {
 		err = errors.New("codex resumed a different thread")
 	}
 	if err != nil {
-		s.logf("%s: %v", method, err)
+		ss.logf("%s: %v", method, err)
 		ss.close()
 		s.replyErr(m.ID, &rpcErr{Code: codeInternal, Message: unavailable})
 		return
 	}
+	// TODO(real codex): the thread/start and thread/resume results should echo the
+	// policy that took effect, as `approvalPolicy` and `sandbox` (a string or an
+	// object, not known). Compare them with ss.mode.approval and ss.mode.sandbox
+	// and fail the session when they differ, so that a codex which ignored the mode
+	// cannot run with more rights than the person chose. Not done: the field names
+	// are a guess until a real codex has been seen.
 	ss.id = started.Thread.ID
 	ss.idv.Store(ss.id)
 	ss.model = started.Model
@@ -236,7 +246,7 @@ func (s *server) openSession(m rpcMsg, resume bool) {
 	commands := ss.listCommands()
 	select {
 	case <-ss.dead:
-		s.logf("codex exited before the session started: %v", ss.exitErr.Load())
+		ss.logf("codex exited before the session started: %v", ss.exitErr.Load())
 		ss.close()
 		s.replyErr(m.ID, &rpcErr{Code: codeInternal, Message: unavailable})
 		return
@@ -297,7 +307,7 @@ func (ss *session) start() error {
 	go ss.drainStderr(stderr)
 	go func() {
 		if err := readLines(stdout, maxCodexLine, ss.dispatch); err != nil {
-			ss.srv.logf("reading from codex: %v; ending the session", err)
+			ss.logf("reading from codex: %v; ending the session", err)
 			ss.kill()
 		}
 		waited := make(chan error, 1)
@@ -330,7 +340,7 @@ func (ss *session) drainStderr(r io.Reader) {
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 64<<10), 1<<20)
 	for sc.Scan() {
-		ss.srv.logf("codex: %s", sc.Text())
+		ss.logf("codex: %s", sc.Text())
 	}
 	_, _ = io.Copy(io.Discard, r)
 }
@@ -419,7 +429,7 @@ func (ss *session) setModel(id string) *rpcErr {
 func (ss *session) listModels() []map[string]any {
 	raw, err := ss.call("model/list", map[string]any{})
 	if err != nil {
-		ss.srv.logf("%v", err)
+		ss.logf("%v", err)
 		return nil
 	}
 	var r struct {
@@ -466,7 +476,7 @@ func (ss *session) listCommands() []map[string]any {
 	out := append([]map[string]any{}, fixedCommands...)
 	raw, err := ss.call("skills/list", map[string]any{"cwds": []string{ss.cwd}})
 	if err != nil {
-		ss.srv.logf("%v", err)
+		ss.logf("%v", err)
 		return out
 	}
 	var r struct {
@@ -574,7 +584,7 @@ func (ss *session) runPrompt(r *promptReq) {
 		ss.srv.reply(r.id, map[string]any{"stopReason": "cancelled"})
 		return
 	}
-	t := &turn{done: make(chan turnResult, 1), finished: make(chan struct{})}
+	t := &turn{done: make(chan turnResult, 1), finished: make(chan struct{}), gen: ss.gen}
 	ss.cur = t
 	ss.mu.Unlock()
 	defer close(t.finished)
@@ -583,7 +593,7 @@ func (ss *session) runPrompt(r *promptReq) {
 	raw, err := ss.call(method, params)
 	var res turnResult
 	if err != nil {
-		ss.srv.logf("%v", err)
+		ss.logf("%v", err)
 		ss.mu.Lock()
 		cancelled := t.cancelled
 		ss.mu.Unlock()
@@ -602,25 +612,66 @@ func (ss *session) runPrompt(r *promptReq) {
 		if started.Turn.ID != "" {
 			ss.setTurnID(t, started.Turn.ID)
 		}
-		select {
-		case res = <-t.done:
-		case <-ss.dead:
-			select {
-			case res = <-t.done: // the result was read just before the exit
-			default:
-				res = turnResult{err: &rpcErr{Code: codeInternal, Message: "the agent stopped during the turn"}}
-			}
-		}
+		res = ss.awaitTurn(t, r.kind != "turn")
 	}
 	ss.mu.Lock()
 	ss.cur = nil
 	ss.items = map[string]*itemState{}
+	ss.done = map[string]turnResult{}
 	ss.mu.Unlock()
 	if res.err != nil {
 		ss.srv.replyErr(r.id, res.err)
 		return
 	}
 	ss.srv.reply(r.id, map[string]any{"stopReason": res.stop})
+}
+
+// awaitTurn waits for the end of the turn. /compact and /review answer before
+// any turn is announced; if codex never names a turn within ControlTimeout of
+// the answer, nothing was started and the prompt ends instead of waiting for ever.
+func (ss *session) awaitTurn(t *turn, bounded bool) turnResult {
+	stopped := turnResult{err: &rpcErr{Code: codeInternal, Message: "the agent stopped during the turn"}}
+	var idle <-chan time.Time
+	noID := func() bool { ss.mu.Lock(); defer ss.mu.Unlock(); return t.id == "" }
+	if bounded && noID() {
+		tm := time.NewTimer(ss.srv.opts.ControlTimeout)
+		defer tm.Stop()
+		idle = tm.C
+	}
+	for {
+		select {
+		case res := <-t.done:
+			return res
+		case <-ss.quit:
+			return stopped
+		case <-ss.dead:
+			select {
+			case res := <-t.done: // the result was read just before the exit
+				return res
+			default:
+				return stopped
+			}
+		case <-idle:
+			idle = nil
+			if noID() {
+				ss.logf("codex announced no turn after the request; ending the prompt")
+				return turnResult{stop: "end_turn"}
+			}
+		}
+	}
+}
+
+// logf logs for this session, with the secrets the client handed over (MCP
+// server env and header values) taken out.
+func (ss *session) logf(format string, a ...any) {
+	if ss.srv.opts.Stderr == io.Discard {
+		return
+	}
+	line := fmt.Sprintf(format, a...)
+	for _, sec := range ss.secrets {
+		line = strings.ReplaceAll(line, sec, "[redacted]")
+	}
+	ss.srv.logf("%s", line)
 }
 
 // setTurnID records codex's id for the running turn, which arrives with the
@@ -657,12 +708,15 @@ func (ss *session) setTurnID(t *turn, id string) {
 
 func (ss *session) interrupt(turnID string) {
 	if _, err := ss.call("turn/interrupt", map[string]any{"threadId": ss.id, "turnId": turnID}); err != nil {
-		ss.srv.logf("%v", err)
+		ss.logf("%v", err)
 	}
 }
 
 // finishTurn is the end of a turn: turn/completed.
 func (ss *session) finishTurn(turnID string, res turnResult) {
+	if turnID == "" {
+		return
+	}
 	ss.mu.Lock()
 	t := ss.cur
 	if t == nil || t.id != turnID {
@@ -681,7 +735,7 @@ func (ss *session) finishTurn(turnID string, res turnResult) {
 	select {
 	case t.done <- res:
 	default:
-		ss.srv.logf("a second end for one turn was dropped")
+		ss.logf("a second end for one turn was dropped")
 	}
 }
 
@@ -723,7 +777,7 @@ func (ss *session) cancel() {
 		case <-ss.dead:
 		case <-ss.quit:
 		case <-time.After(ss.srv.opts.CancelGrace):
-			ss.srv.logf("the interrupt did not end the turn; ending codex")
+			ss.logf("the interrupt did not end the turn; ending codex")
 			ss.kill()
 		}
 	}()

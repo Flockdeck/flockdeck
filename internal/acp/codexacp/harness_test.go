@@ -31,6 +31,25 @@ type harness struct {
 	runErr   error
 	stopOnce sync.Once
 	cancel   context.CancelFunc
+	errlog   logBuf
+}
+
+// logBuf keeps what the adapter wrote to its stderr.
+type logBuf struct {
+	mu sync.Mutex
+	b  strings.Builder
+}
+
+func (l *logBuf) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.Write(p)
+}
+
+func (l *logBuf) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.String()
 }
 
 type hopts struct {
@@ -39,6 +58,7 @@ type hopts struct {
 	codexPath string
 	maxCodex  int
 	maxClient int
+	control   time.Duration
 }
 
 func newHarness(t *testing.T, steps []step, opts ...hopts) *harness {
@@ -69,6 +89,9 @@ func newHarness(t *testing.T, steps []step, opts ...hopts) *harness {
 		maxClientLine = o.maxClient
 		t.Cleanup(func() { maxClientLine = old })
 	}
+	if o.control == 0 {
+		o.control = 10 * time.Second
+	}
 	inR, inW := io.Pipe()
 	outR, outW := io.Pipe()
 	h := &harness{t: t, in: inW, log: logPath, cwd: t.TempDir(), stopped: make(chan struct{})}
@@ -78,7 +101,7 @@ func newHarness(t *testing.T, steps []step, opts ...hopts) *harness {
 	go func() {
 		h.runErr = Run(ctx, inR, outW, Options{
 			CodexPath: o.codexPath, Env: env, Version: "test",
-			Stderr: testWriter{t}, ControlTimeout: 10 * time.Second, CancelGrace: o.grace,
+			Stderr: io.MultiWriter(testWriter{t}, &h.errlog), ControlTimeout: o.control, CancelGrace: o.grace,
 		})
 		outW.Close()
 		close(h.stopped)

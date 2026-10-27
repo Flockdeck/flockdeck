@@ -1,6 +1,7 @@
 package codexacp
 
 import (
+	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
@@ -22,6 +23,26 @@ const (
 	maxImages = 16
 	maxBlocks = 256
 )
+
+// maxSessionImageBytes is the most image data one session stages. A variable so
+// that a test can use a small one.
+var maxSessionImageBytes int64 = 200 << 20
+
+// imageOK reports whether data starts like an image of the declared type. The
+// declared type alone is a claim.
+func imageOK(mime string, b []byte) bool {
+	switch strings.ToLower(mime) {
+	case "image/png":
+		return bytes.HasPrefix(b, []byte("\x89PNG\r\n\x1a\n"))
+	case "image/jpeg":
+		return bytes.HasPrefix(b, []byte{0xff, 0xd8, 0xff})
+	case "image/gif":
+		return bytes.HasPrefix(b, []byte("GIF87a")) || bytes.HasPrefix(b, []byte("GIF89a"))
+	case "image/webp":
+		return len(b) >= 12 && string(b[:4]) == "RIFF" && string(b[8:12]) == "WEBP"
+	}
+	return false
+}
 
 // sweepImageDirs removes the image directories of sessions whose adapter was
 // killed before it could clean up. Only those a week old are touched, so
@@ -61,10 +82,16 @@ func (ss *session) stageImage(mime, data string) (string, error) {
 	if len(raw) > maxImage {
 		return "", errors.New("the image is too large")
 	}
+	if !imageOK(mime, raw) {
+		return "", errors.New("the image is not of the type it says")
+	}
 	ss.imgMu.Lock()
 	defer ss.imgMu.Unlock()
 	if closedCh(ss.quit) {
 		return "", errors.New("the session is closed")
+	}
+	if ss.imgBytes+int64(len(raw)) > maxSessionImageBytes {
+		return "", errors.New("this session has been sent too many images")
 	}
 	if ss.imgDir == "" {
 		dir, err := os.MkdirTemp("", imgDirPrefix+"*") // mode 0700
@@ -84,6 +111,11 @@ func (ss *session) stageImage(mime, data string) (string, error) {
 		_ = os.Remove(path)
 		return "", errors.New("could not store the image")
 	}
+	ss.imgBytes += int64(len(raw))
+	// Keep the directory young while the session uses it, so that the sweep of
+	// old directories leaves a live session's alone.
+	now := time.Now()
+	_ = os.Chtimes(ss.imgDir, now, now)
 	return path, nil
 }
 
@@ -249,4 +281,44 @@ func mcpConfig(servers []json.RawMessage) (map[string]any, error) {
 		}
 	}
 	return cfg, nil
+}
+
+func add2(out *[]string, v string) {
+	if len(v) >= 4 {
+		*out = append(*out, v)
+	}
+}
+
+// mcpSecrets are the values in the MCP servers of a session/new that must not
+// reach a log: environment and header values. A very short value is left alone,
+// as replacing it would mangle every line.
+func mcpSecrets(servers []json.RawMessage) []string {
+	var out []string
+	for _, raw := range servers {
+		var s struct {
+			Env     []struct{ Value string } `json:"env"`
+			Headers []struct{ Value string } `json:"headers"`
+		}
+		if json.Unmarshal(raw, &s) != nil {
+			continue
+		}
+		add := func(v string) {
+			if len(v) >= 4 {
+				out = append(out, v)
+			}
+			// "Bearer <token>": the token alone is as secret as the whole.
+			for _, part := range strings.Fields(v) {
+				if part != v {
+					add2(&out, part)
+				}
+			}
+		}
+		for _, kv := range s.Env {
+			add(kv.Value)
+		}
+		for _, kv := range s.Headers {
+			add(kv.Value)
+		}
+	}
+	return out
 }

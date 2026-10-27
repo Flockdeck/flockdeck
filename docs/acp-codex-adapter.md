@@ -50,13 +50,16 @@ Messages to codex leave out the `"jsonrpc"` member, as codex's own do.
 
 ### Tool calls
 
-A command is `execute`, unless codex's command actions are all reads (`read`) or
+A command's card shows its first line as the title; the whole command is in
+`rawInput`. A command is `execute`, unless codex's command actions are all reads (`read`) or
 all listings and searches (`search`). A file change is `edit`. For an added file
 the diff is the file's content, for a deleted file the old content, and for an
 update codex's unified diff is shown as text. MCP tools, dynamic tools, web search
 and sub-agent activity are shown with a title. A command's output is sent as it
 arrives, at most every 200 ms, and the full output follows with the completed
-item. Output and diffs are cut at 64 KiB and 256 KiB. Items are matched by their
+item. Output and diffs are cut at 64 KiB and 256 KiB. A file change of more than 50 files, or with a
+file whose diff was cut, shows "N more files are not shown" and is declined, not
+asked about: the card could not show what the person would be allowing. Items are matched by their
 id, never by position, so results that finish out of order land on the right
 call.
 
@@ -92,6 +95,11 @@ It is not offered when the request has a network context, or any member the
 adapter does not know about. A file change and an extra-permissions request are
 asked about each time.
 
+A card appears only while a prompt of ours is running: a request that arrives with
+no turn, after a `session/cancel`, or after the turn's generation changed is
+refused with `cancel` and never shown. An extra-permissions request longer than the
+2,000 bytes the card shows is refused, not granted.
+
 Everything fails closed. A refusal is `decline`. A request that names another
 thread, has no item id, arrives when 32 are already waiting, or is of a kind the
 adapter does not know gets a refusal or a JSON-RPC error. An answer of "cancelled",
@@ -103,7 +111,9 @@ for, for the turn; a refusal grants nothing.
 On `session/cancel` every waiting card is refused with `cancel` and withdrawn, then
 the turn is interrupted. An answer from the client that arrives afterwards is
 dropped. If codex settles a request itself (`serverRequest/resolved`) the card is
-withdrawn without an answer. Questions the model asks (`item/tool/requestUserInput`),
+withdrawn without an answer. "Withdrawn" is a statement by the adapter: the card
+stays on the client until the person closes it, and an Allow given afterwards is
+dropped. Questions the model asks (`item/tool/requestUserInput`),
 MCP elicitations and the legacy `applyPatchApproval` and `execCommandApproval`
 forms get an error.
 
@@ -118,6 +128,12 @@ before codex has told us the turn's id is held and sent when the id arrives.
 Codex's `turn/steer` could fold a second message into the running turn. The adapter
 does not use it, for the reason given in the [Claude adapter](acp-claude-adapter.md).
 
+### Compact and review
+
+These two answer before any turn is announced, and the prompt ends with the turn that
+follows. If codex names no turn within 30 seconds of its answer, the adapter takes it
+that nothing started and ends the prompt with `end_turn`.
+
 ### Cancel
 
 If the turn has not ended 15 seconds after the interrupt, the adapter ends the
@@ -125,11 +141,12 @@ codex process and the prompt fails; later prompts in that session fail too.
 
 ### Images and MCP servers
 
-An image block is decoded, checked (PNG, JPEG, GIF or WebP, 20 MiB, 16 per prompt)
-and written to a file in a directory of its own (`flockdeck-codex-img-*`, private to
+An image block is decoded and checked: PNG, JPEG, GIF or WebP, 20 MiB, 16 per prompt,
+200 MiB per session, and the first bytes must match the declared type. It is written to a file in a directory of its own (`flockdeck-codex-img-*`, private to
 the user, files mode 0600). Codex gets a `localImage` item with the path. The
-directory is removed when the session ends, and one a week old, left by an adapter
-that was killed, is removed at the next start. A resource link and an embedded text
+directory is removed when the session ends. The session touches it whenever it adds
+an image, and one that has not been touched for a week, left by an adapter that was
+killed, is removed at the next start. A resource link and an embedded text
 resource become text. Audio is refused.
 
 MCP servers in `session/new` go to codex as `config.mcp_servers` in the
@@ -157,6 +174,14 @@ end and logged. Codex is ended on every exit path: a failed start, a session tha
 still starting when the adapter is told to stop, input that ends, an interrupt that
 does not work, and SIGTERM, SIGHUP on Unix or an interrupt, which close every session
 first. `Run` returns when its context is done whether or not its input is still open.
+
+### Logs
+
+The adapter's stderr holds codex's own error text and stderr lines, with the
+environment and header values of the session's MCP servers replaced by
+`[redacted]` (values under four characters are left, and a `Bearer <token>` value
+is redacted as a whole and as the token). It is a log and nothing else. The client's
+`ExitError` carries the tail of it, and that tail must never be shown to a person.
 
 ### Environment
 
@@ -189,6 +214,10 @@ These were not checked against a real codex:
 - That `serverRequest/resolved` carries `requestId` in the same form as the request's id.
 - Whether a codex that is not logged in fails the first turn with `unauthorized`, as the
   adapter assumes, or fails earlier. There is no `authenticate` method yet.
+- That the `thread/start` and `thread/resume` results echo the approval policy and
+  sandbox that took effect, as `approvalPolicy` and `sandbox`. The adapter does not check
+  them (a TODO in `openSession`): a codex that ignored the mode would run with more
+  rights than the person chose, so this has to be checked on a real codex.
 - Approvals from a sub-agent's thread would carry another thread id and are refused.
 
 ## Not done

@@ -114,6 +114,7 @@ func toolStatus(s, def string) string {
 }
 
 type toolDesc struct {
+	truncated bool // what is shown is not all of what codex will do
 	title     string
 	kind      string
 	rawInput  any
@@ -176,7 +177,7 @@ func (ss *session) describe(it *item) toolDesc {
 		}
 	case "fileChange":
 		d.kind, d.title = "edit", "Edit files"
-		d.content, d.locations = ss.fileChanges(it.Changes)
+		d.content, d.locations, d.truncated = ss.fileChanges(it.Changes)
 		if len(d.locations) == 1 {
 			d.title = "Edit " + d.locations[0]["path"].(string)
 		} else if len(d.locations) > 1 {
@@ -234,17 +235,18 @@ func kindName(raw json.RawMessage) string {
 // fileChanges turns the changes of a file change item into ACP content and
 // locations. Codex gives the contents of a file it adds or deletes as the
 // diff, and a unified diff for an update; an update is shown as that text.
-func (ss *session) fileChanges(raw json.RawMessage) ([]any, []map[string]any) {
+func (ss *session) fileChanges(raw json.RawMessage) ([]any, []map[string]any, bool) {
 	var changes []struct {
 		Path string          `json:"path"`
 		Kind json.RawMessage `json:"kind"`
 		Diff string          `json:"diff"`
 	}
 	if json.Unmarshal(raw, &changes) != nil {
-		return nil, nil
+		return nil, nil, false
 	}
 	var content []any
 	var locs []map[string]any
+	truncated := false
 	for _, c := range changes {
 		if len(locs) >= maxChanges {
 			break
@@ -252,6 +254,7 @@ func (ss *session) fileChanges(raw json.RawMessage) ([]any, []map[string]any) {
 		path := ss.abs(c.Path)
 		locs = append(locs, map[string]any{"path": path})
 		text := capText(c.Diff, maxDiffText)
+		truncated = truncated || len(c.Diff) > maxDiffText
 		switch kindName(c.Kind) {
 		case "add":
 			content = append(content, map[string]any{"type": "diff", "path": path, "oldText": nil, "newText": text})
@@ -261,7 +264,11 @@ func (ss *session) fileChanges(raw json.RawMessage) ([]any, []map[string]any) {
 			content = append(content, map[string]any{"type": "content", "content": textContent(path + "\n" + text)})
 		}
 	}
-	return content, locs
+	if more := len(changes) - len(locs); more > 0 {
+		truncated = true
+		content = append(content, map[string]any{"type": "content", "content": textContent(itoa(more) + " more files are not shown")})
+	}
+	return content, locs, truncated
 }
 
 func strList(raw json.RawMessage) []string {
@@ -407,7 +414,7 @@ func (ss *session) itemCompleted(it *item) {
 				u["rawOutput"] = raw
 			}
 		case "fileChange":
-			if content, _ := ss.fileChanges(it.Changes); len(content) > 0 {
+			if content, _, _ := ss.fileChanges(it.Changes); len(content) > 0 {
 				u["content"] = content
 			}
 		default:
@@ -461,7 +468,7 @@ func (ss *session) patchUpdated(id string, changes json.RawMessage) {
 	if !ok {
 		return
 	}
-	if content, locs := ss.fileChanges(changes); len(content) > 0 {
+	if content, locs, _ := ss.fileChanges(changes); len(content) > 0 {
 		ss.emit(map[string]any{"sessionUpdate": "tool_call_update", "toolCallId": id, "content": content, "locations": locs})
 	}
 }

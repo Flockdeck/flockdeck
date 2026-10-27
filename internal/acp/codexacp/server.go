@@ -87,7 +87,9 @@ func (o *Options) defaults() {
 // cleanEnv drops Flockdeck's own variables: codex has no use for them and a
 // pane's session or token names should not reach a model's tools.
 func cleanEnv(env []string) []string {
-	var out []string
+	// Not nil, even when every variable is dropped: a nil Env on an exec.Cmd
+	// means the parent's environment.
+	out := []string{}
 	for _, kv := range env {
 		// Windows names are not case sensitive, so neither is this.
 		up := strings.ToUpper(kv)

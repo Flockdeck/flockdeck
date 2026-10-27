@@ -249,7 +249,7 @@ func TestImageIsAFileThatIsRemoved(t *testing.T) {
 		expect(`"method":"turn/start"`), startedTurn(), endTurn("completed"),
 	})
 	sid := h.start()
-	png := base64.StdEncoding.EncodeToString([]byte("\x89PNG-fake"))
+	png := base64.StdEncoding.EncodeToString([]byte("\x89PNG\r\n\x1a\nfake"))
 	r := h.call("session/prompt", map[string]any{"sessionId": sid, "prompt": []any{
 		map[string]any{"type": "text", "text": "what is this"},
 		map[string]any{"type": "image", "data": png, "mimeType": "image/png"},
@@ -269,7 +269,7 @@ func TestImageIsAFileThatIsRemoved(t *testing.T) {
 	}
 	path := msg.Params.Input[1]["path"].(string)
 	b, err := os.ReadFile(path)
-	if err != nil || string(b) != "\x89PNG-fake" {
+	if err != nil || string(b) != "\x89PNG\r\n\x1a\nfake" {
 		t.Fatalf("image file: %q, %v", b, err)
 	}
 	if !strings.HasSuffix(path, ".png") {

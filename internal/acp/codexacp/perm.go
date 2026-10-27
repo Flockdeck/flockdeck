@@ -35,6 +35,10 @@ var canAlwaysKeys = map[string]bool{
 	"proposedExecpolicyAmendment": true, "proposedNetworkPolicyAmendments": true, "availableDecisions": true,
 }
 
+// maxShownPermissions is how much of an extra-permissions request the card shows.
+// A request longer than that is refused, not granted unseen.
+const maxShownPermissions = 2000
+
 // openPerm is a request from codex waiting for an answer. Whoever answers
 // first wins: the client's answer, a cancel, or nothing if codex withdraws it.
 type openPerm struct {
@@ -112,10 +116,11 @@ func (ss *session) handleRequest(m rpcMsg) {
 	case "item/permissions/requestApproval":
 		none := map[string]any{"permissions": map[string]any{}, "scope": "turn"}
 		d := toolDesc{kind: "other", title: "Extra permissions",
-			content: textBlock(strings.TrimSpace(p.Reason + "\n" + capText(string(p.Permissions), 2000)))}
+			content: textBlock(strings.TrimSpace(p.Reason + "\n" + capText(string(p.Permissions), maxShownPermissions)))}
 		a := approval{threadID: p.ThreadID, itemID: p.ItemID, call: d, deny: none, cancel: none}
-		if isNull(p.Permissions) {
-			// Nothing is named, so there is nothing to grant.
+		if isNull(p.Permissions) || len(p.Permissions) > maxShownPermissions {
+			// Nothing is named, or more than the card shows: there is nothing
+			// the person could have agreed to, so nothing is granted.
 			a.allow = none
 		} else {
 			a.allow = map[string]any{"permissions": p.Permissions, "scope": "turn"}
@@ -159,6 +164,19 @@ func (ss *session) ask(m rpcMsg, a approval) {
 	}
 	key := string(*m.ID)
 	ss.mu.Lock()
+	// A card appears only for the turn that is running: none after a cancel,
+	// and none when no prompt of ours is waiting.
+	if t := ss.cur; t == nil || t.cancelled || t.gen != ss.gen {
+		ss.mu.Unlock()
+		op.answer(ss, a.cancel)
+		return
+	}
+	if st := ss.items[a.itemID]; st != nil && st.desc != nil && st.desc.truncated {
+		// The card could not show all of it.
+		ss.mu.Unlock()
+		op.answer(ss, a.deny)
+		return
+	}
 	if len(ss.perms) >= maxPerms || ss.perms[key] != nil {
 		ss.mu.Unlock()
 		op.answer(ss, a.deny)
