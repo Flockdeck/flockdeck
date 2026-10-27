@@ -3,12 +3,14 @@ package claudeacp
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"io"
 	"strings"
 )
 
-// maxLine is the longest line read from claude. A tool result can be large.
-const maxLine = 64 << 20
+// maxLine is the longest line read from claude. A tool result can be large; a
+// line past this ends the session, and is never held in memory whole.
+var maxLine = 16 << 20
 
 type block struct {
 	Type      string          `json:"type"`
@@ -66,21 +68,39 @@ func (l line) nested() bool {
 	return p != "" && p != "null"
 }
 
+// readLoop reads claude's lines, never holding more than maxLine of one. A line
+// that long, or a read that fails, ends claude: it would otherwise sit blocked
+// on a pipe nobody reads and the session would hang.
 func (ss *session) readLoop(r io.Reader) {
-	br := bufio.NewReaderSize(r, 1<<20)
+	br := bufio.NewReaderSize(r, 64<<10)
+	var buf []byte
 	for {
-		raw, err := br.ReadBytes('\n')
-		if len(raw) > maxLine {
+		chunk, err := br.ReadSlice('\n')
+		if len(buf)+len(chunk) > maxLine {
 			ss.srv.logf("a line from claude was over %d bytes; ending the session", maxLine)
+			ss.kill()
 			return
 		}
-		if len(strings.TrimSpace(string(raw))) > 0 {
+		buf = append(buf, chunk...)
+		if errors.Is(err, bufio.ErrBufferFull) {
+			continue
+		}
+		if len(strings.TrimSpace(string(buf))) > 0 {
 			var l line
-			if json.Unmarshal(raw, &l) == nil {
+			if json.Unmarshal(buf, &l) == nil {
 				ss.handleLine(l)
 			}
 		}
+		if cap(buf) > 1<<20 {
+			buf = nil
+		} else {
+			buf = buf[:0]
+		}
 		if err != nil {
+			if !errors.Is(err, io.EOF) {
+				ss.srv.logf("reading from claude: %v; ending the session", err)
+				ss.kill()
+			}
 			return
 		}
 	}
@@ -131,6 +151,11 @@ func (ss *session) handleLine(l line) {
 // is passed on.
 func (ss *session) handleInit(l line) {
 	ss.mu.Lock()
+	if ss.cur == nil {
+		// claude begins a turn that no prompt of ours started: a finished
+		// background task. Prompts wait for its result.
+		ss.busy = true
+	}
 	changed := l.PermissionMode != "" && l.PermissionMode != ss.mode && knownMode(l.PermissionMode)
 	if changed {
 		ss.mode = l.PermissionMode
@@ -285,6 +310,8 @@ func (ss *session) handleResult(l line) {
 	ss.window = window
 	t := ss.cur
 	cancelled := t != nil && t.cancelled
+	ss.busy = false
+	ss.idle.Broadcast()
 	ss.mu.Unlock()
 	if window > 0 {
 		u := map[string]any{"sessionUpdate": "usage_update", "used": used, "size": window}
@@ -297,9 +324,13 @@ func (ss *session) handleResult(l line) {
 		return // the end of a turn claude started on its own
 	}
 	stop, err := classify(l, cancelled)
+	if err != nil && err.Code != codeAuthRequired {
+		ss.srv.logf("the turn failed: %s", clip(l.Result, 500))
+	}
 	select {
 	case t.done <- turnResult{stop: stop, err: err}:
 	default:
+		ss.srv.logf("a second result for one turn was dropped")
 	}
 }
 
@@ -313,7 +344,7 @@ func classify(l line, cancelled bool) (string, *rpcErr) {
 		if strings.Contains(low, "/login") || strings.Contains(low, "not logged in") || strings.Contains(low, "invalid api key") {
 			return "", &rpcErr{Code: codeAuthRequired, Message: "Authentication required"}
 		}
-		return "", &rpcErr{Code: codeInternal, Message: clip(l.Result, 500)}
+		return "", &rpcErr{Code: codeInternal, Message: "the turn failed"}
 	case l.TerminalReas == "aborted_tools" || l.TerminalReas == "aborted_streaming":
 		return "cancelled", nil
 	case l.Subtype == "error_max_turns" || l.TerminalReas == "max_turns":

@@ -49,6 +49,7 @@ type turnResult struct {
 
 type turn struct {
 	done      chan turnResult
+	finished  chan struct{} // closed by runPrompt when it is done with the turn
 	cancelled bool
 }
 
@@ -87,6 +88,8 @@ type session struct {
 	queue chan *promptReq
 
 	mu        sync.Mutex
+	idle      *sync.Cond                      // on mu: claude finished a turn it started itself, a cancel, or the session ended
+	busy      bool                            // claude is in a turn that no prompt of ours started
 	waiters   map[string]chan json.RawMessage // our control requests, by request_id
 	cur       *turn
 	gen       int
@@ -123,6 +126,7 @@ func (s *server) newSession(m rpcMsg) {
 		streamed: map[string]bool{}, allowed: map[string]bool{}, perms: map[string]*openPerm{},
 		mode: "default", model: "default",
 	}
+	ss.idle = sync.NewCond(&ss.mu)
 	var err error
 	if ss.mcpFile, err = writeMCPConfig(p.McpServers); err != nil {
 		s.replyErr(m.ID, &rpcErr{Code: codeInvalidParams, Message: err.Error()})
@@ -133,7 +137,7 @@ func (s *server) newSession(m rpcMsg) {
 		ss.cleanup()
 		// The reason stays on stderr: the person is told only that the agent is
 		// not available.
-		s.replyErr(m.ID, &rpcErr{Code: codeInternal, Message: "Claude Code is unavailable"})
+		s.replyErr(m.ID, &rpcErr{Code: codeInternal, Message: unavailable})
 		return
 	}
 	models := ss.initialize()
@@ -141,11 +145,18 @@ func (s *server) newSession(m rpcMsg) {
 	case <-ss.dead:
 		s.logf("claude exited before the session started: %v", ss.exitErr.Load())
 		ss.cleanup()
-		s.replyErr(m.ID, &rpcErr{Code: codeInternal, Message: "Claude Code is unavailable"})
+		s.replyErr(m.ID, &rpcErr{Code: codeInternal, Message: unavailable})
 		return
 	default:
 	}
 	s.mu.Lock()
+	if s.closed {
+		// The adapter was told to stop while this session was starting.
+		s.mu.Unlock()
+		ss.close()
+		s.replyErr(m.ID, &rpcErr{Code: codeInternal, Message: unavailable})
+		return
+	}
 	s.sessions[ss.id] = ss
 	s.mu.Unlock()
 	go ss.worker()
@@ -206,14 +217,27 @@ func (ss *session) start() error {
 	return nil
 }
 
-func (ss *session) markDead() { ss.deadOne.Do(func() { close(ss.dead) }) }
+func (ss *session) markDead() {
+	ss.deadOne.Do(func() { close(ss.dead) })
+	ss.wake()
+}
 
+// wake lets a prompt that waits for claude's own turn look again.
+func (ss *session) wake() {
+	ss.mu.Lock()
+	ss.idle.Broadcast()
+	ss.mu.Unlock()
+}
+
+// drainStderr logs claude's stderr. It never stops reading: a claude that
+// cannot write to a full pipe would stop too.
 func (ss *session) drainStderr(r io.Reader) {
 	sc := bufio.NewScanner(r)
 	sc.Buffer(make([]byte, 64<<10), 1<<20)
 	for sc.Scan() {
 		ss.srv.logf("claude: %s", sc.Text())
 	}
+	_, _ = io.Copy(io.Discard, r)
 }
 
 // initialize sends claude's initialize control request and reads the commands,
@@ -334,7 +358,8 @@ func (ss *session) setMode(id string) *rpcErr {
 		return &rpcErr{Code: codeInvalidParams, Message: "unknown mode " + id}
 	}
 	if _, err := ss.control("set_permission_mode", map[string]any{"mode": id}); err != nil {
-		return &rpcErr{Code: codeInternal, Message: err.Error()}
+		ss.srv.logf("set_permission_mode: %v", err)
+		return &rpcErr{Code: codeInternal, Message: "the agent could not change the mode"}
 	}
 	ss.mu.Lock()
 	ss.mode = id
@@ -348,12 +373,22 @@ func (ss *session) setModel(id string) *rpcErr {
 		return &rpcErr{Code: codeInvalidParams, Message: "modelId is required"}
 	}
 	if _, err := ss.control("set_model", map[string]any{"model": id}); err != nil {
-		return &rpcErr{Code: codeInternal, Message: err.Error()}
+		ss.srv.logf("set_model: %v", err)
+		return &rpcErr{Code: codeInternal, Message: "the agent could not change the model"}
 	}
 	ss.mu.Lock()
 	ss.model = id
 	ss.mu.Unlock()
 	return nil
+}
+
+func closedCh(c <-chan struct{}) bool {
+	select {
+	case <-c:
+		return true
+	default:
+		return false
+	}
 }
 
 func (ss *session) enqueue(r *promptReq) {
@@ -387,14 +422,26 @@ func (ss *session) worker() {
 
 func (ss *session) runPrompt(r *promptReq) {
 	ss.mu.Lock()
+	// A turn claude started on its own (a finished background task) ends with
+	// a result of its own. A message written meanwhile would be folded into
+	// that turn and its result taken for ours, so wait for it.
+	for ss.busy && r.gen == ss.gen && !closedCh(ss.dead) && !closedCh(ss.quit) {
+		ss.idle.Wait()
+	}
 	if r.gen != ss.gen {
 		ss.mu.Unlock()
 		ss.srv.reply(r.id, map[string]any{"stopReason": "cancelled"})
 		return
 	}
-	t := &turn{done: make(chan turnResult, 1)}
+	if closedCh(ss.dead) {
+		ss.mu.Unlock()
+		ss.srv.replyErr(r.id, &rpcErr{Code: codeInternal, Message: "the agent has stopped"})
+		return
+	}
+	t := &turn{done: make(chan turnResult, 1), finished: make(chan struct{})}
 	ss.cur = t
 	ss.mu.Unlock()
+	defer close(t.finished)
 
 	err := ss.write(map[string]any{"type": "user", "message": map[string]any{"role": "user", "content": r.content}})
 	var res turnResult
@@ -432,6 +479,7 @@ func (ss *session) cancel() {
 	for _, p := range ss.perms {
 		p.abandon()
 	}
+	ss.idle.Broadcast()
 	ss.mu.Unlock()
 	if t == nil {
 		return
@@ -443,11 +491,16 @@ func (ss *session) cancel() {
 	}()
 	go func() {
 		select {
-		case <-t.done:
+		case <-t.finished:
 		case <-ss.dead:
 		case <-time.After(ss.srv.opts.CancelGrace):
-			ss.srv.logf("the interrupt did not end the turn; ending claude")
-			ss.kill()
+			ss.mu.Lock()
+			same := ss.cur == t
+			ss.mu.Unlock()
+			if same {
+				ss.srv.logf("the interrupt did not end the turn; ending claude")
+				ss.kill()
+			}
 		}
 	}()
 }
@@ -465,6 +518,7 @@ func (ss *session) close() {
 		return
 	}
 	close(ss.quit)
+	ss.wake()
 	ss.mu.Lock()
 	for _, p := range ss.perms {
 		p.abandon()
@@ -484,6 +538,6 @@ func (ss *session) close() {
 
 func (ss *session) cleanup() {
 	if ss.mcpFile != "" {
-		_ = os.Remove(ss.mcpFile)
+		_ = os.RemoveAll(filepath.Dir(ss.mcpFile))
 	}
 }

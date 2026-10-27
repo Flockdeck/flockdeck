@@ -2,7 +2,6 @@ package claudeacp
 
 import (
 	"encoding/json"
-	"strings"
 )
 
 const (
@@ -11,19 +10,29 @@ const (
 	optReject      = "reject"
 )
 
-// ruleKey is what an "allow always" answer is remembered by. A shell command
-// is remembered exactly, so that one approval does not cover other commands.
-// Every other tool is remembered by name: allowing Edit always means every edit
-// of the session, as acceptEdits would.
+// canAlways reports whether a tool may be allowed for the rest of the session.
+// Only a shell command may: the rule is the command with all its input, so it
+// covers that call and no other. A rule for an edit tool, WebFetch, Agent or an
+// MCP tool would cover calls the person never saw (a path outside the project,
+// .claude/settings.json, any URL, any prompt), so those cards offer Allow and
+// Reject only. acceptEdits mode is the way to stop being asked about edits.
+func canAlways(tool string) bool { return tool == "Bash" || tool == "PowerShell" }
+
+// ruleKey is what an "allow always" answer is remembered by: the tool and its
+// whole input except the description, in canonical form. A later call that
+// differs in any other field (dangerouslyDisableSandbox, run_in_background,
+// timeout) is a different call and is asked about.
 func ruleKey(tool string, input json.RawMessage) string {
-	if tool == "Bash" || tool == "PowerShell" {
-		var in struct {
-			Command string `json:"command"`
-		}
-		_ = json.Unmarshal(input, &in)
-		return tool + "\x00" + strings.TrimSpace(in.Command)
+	var m map[string]any
+	if json.Unmarshal(input, &m) != nil {
+		return tool + "\x00" + string(input)
 	}
-	return tool
+	delete(m, "description")
+	b, err := json.Marshal(m) // map keys are sorted
+	if err != nil {
+		return tool + "\x00" + string(input)
+	}
+	return tool + "\x00" + string(b)
 }
 
 func (ss *session) respond(requestID string, payload map[string]any) {
@@ -58,7 +67,7 @@ func (ss *session) handleControlRequest(l line) {
 	}
 	key := ruleKey(req.ToolName, req.Input)
 	ss.mu.Lock()
-	always := ss.allowed[key]
+	always := canAlways(req.ToolName) && ss.allowed[key]
 	ss.mu.Unlock()
 	toolID := req.ToolUseID
 	if toolID == "" {
@@ -93,21 +102,25 @@ func (ss *session) handleControlRequest(l line) {
 		ss.mu.Unlock()
 	}()
 
-	always1 := "Always allow " + req.ToolName
-	if req.ToolName == "Bash" || req.ToolName == "PowerShell" {
-		always1 = "Always allow this command"
+	options := []any{map[string]any{"optionId": optAllow, "name": "Allow", "kind": "allow_once"}}
+	if canAlways(req.ToolName) {
+		options = append(options, map[string]any{"optionId": optAllowAlways, "name": "Always allow this command", "kind": "allow_always"})
 	}
+	options = append(options, map[string]any{"optionId": optReject, "name": "Reject", "kind": "reject_once"})
 	id, ch := ss.srv.request("session/request_permission", map[string]any{
 		"sessionId": ss.id,
 		"toolCall":  call,
-		"options": []any{
-			map[string]any{"optionId": optAllow, "name": "Allow", "kind": "allow_once"},
-			map[string]any{"optionId": optAllowAlways, "name": always1, "kind": "allow_always"},
-			map[string]any{"optionId": optReject, "name": "Reject", "kind": "reject_once"},
-		},
+		"options":   options,
 	})
 	select {
 	case m := <-ch:
+		// A response that raced a cancel or a retraction is dropped, not sent:
+		// both channels can be ready at once.
+		select {
+		case <-op.abandoned:
+			return
+		default:
+		}
 		var out struct {
 			Outcome struct {
 				Outcome  string `json:"outcome"`
@@ -120,12 +133,12 @@ func (ss *session) handleControlRequest(l line) {
 			ss.respond(l.RequestID, map[string]any{"behavior": "deny", "message": "The permission request was cancelled."})
 		case out.Outcome.OptionID == optAllow:
 			ss.allow(l.RequestID, toolID, req.Input)
-		case out.Outcome.OptionID == optAllowAlways:
+		case out.Outcome.OptionID == optAllowAlways && canAlways(req.ToolName):
 			ss.mu.Lock()
 			ss.allowed[key] = true
 			ss.mu.Unlock()
 			ss.allow(l.RequestID, toolID, req.Input)
-		default:
+		default: // reject, or an option that was not offered
 			ss.respond(l.RequestID, map[string]any{"behavior": "deny", "message": "The user rejected this tool call."})
 		}
 	case <-op.abandoned:

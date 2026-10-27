@@ -462,64 +462,8 @@ func TestPermissionRequestShape(t *testing.T) {
 	for _, o := range p.Options {
 		opts = append(opts, o.OptionID+"/"+o.Kind)
 	}
-	if !reflect.DeepEqual(opts, []string{"allow/allow_once", "allow_always/allow_always", "reject/reject_once"}) {
+	if !reflect.DeepEqual(opts, []string{"allow/allow_once", "reject/reject_once"}) {
 		t.Errorf("options = %v", opts)
-	}
-}
-
-func TestAllowAlways(t *testing.T) {
-	second := strings.Replace(strings.Replace(lPermWrite, "perm-1", "perm-2", 1), "toolu_W1", "toolu_W2", 1)
-	other := strings.Replace(strings.Replace(strings.Replace(lPermWrite, "perm-1", "perm-3", 1), "toolu_W1", "toolu_B3", 1),
-		`"tool_name":"Write","display_name":"Write","input":{"file_path":"C:\\scratch\\a.txt","content":"hi"}`, `"tool_name":"Bash","display_name":"Bash","input":{"command":"rm -rf x"}`, 1)
-	bash := func(id, rid, cmd string) string {
-		return `{"type":"control_request","request_id":"` + rid + `","request":{"subtype":"can_use_tool","tool_name":"Bash","input":{"command":"` + cmd + `"},"tool_use_id":"` + id + `"}}`
-	}
-	_ = other
-	h := newHarness(t, []step{expect(`"role":"user"`),
-		emit(lPermWrite), expect(`"request_id":"perm-1"`),
-		emit(second), expect(`"request_id":"perm-2"`),
-		emit(bash("toolu_X1", "perm-4", "ls")), expect(`"request_id":"perm-4"`),
-		emit(bash("toolu_X2", "perm-5", "ls")), expect(`"request_id":"perm-5"`),
-		emit(bash("toolu_X3", "perm-6", "rm -rf x")), expect(`"request_id":"perm-6"`),
-		emit(lResultOK)})
-	var answers []string
-	var mu = make(chan struct{}, 1)
-	h.onReq = func(m rpcMsg) any {
-		mu <- struct{}{}
-		defer func() { <-mu }()
-		var p struct {
-			ToolCall struct {
-				ID string `json:"toolCallId"`
-			} `json:"toolCall"`
-		}
-		_ = json.Unmarshal(m.Params, &p)
-		answers = append(answers, p.ToolCall.ID)
-		switch p.ToolCall.ID {
-		case "toolu_W1", "toolu_X1":
-			return outcome("allow_always")
-		}
-		return outcome("reject")
-	}
-	sid := h.start()
-	stopReason(t, h.await(h.promptText(sid, "go")))
-	// Write is asked once and then allowed by name; "ls" is allowed for the
-	// same command only, so "rm -rf x" is asked.
-	if want := []string{"toolu_W1", "toolu_X1", "toolu_X3"}; !reflect.DeepEqual(answers, want) {
-		t.Errorf("the client was asked about %v, want %v", answers, want)
-	}
-	log := readLog(h.log)
-	count := func(rid, behavior string) bool {
-		for _, l := range log {
-			if strings.Contains(l, `"request_id":"`+rid+`"`) && strings.Contains(l, `"behavior":"`+behavior+`"`) {
-				return true
-			}
-		}
-		return false
-	}
-	for rid, b := range map[string]string{"perm-1": "allow", "perm-2": "allow", "perm-4": "allow", "perm-5": "allow", "perm-6": "deny"} {
-		if !count(rid, b) {
-			t.Errorf("%s was not answered %s", rid, b)
-		}
 	}
 }
 
@@ -783,18 +727,6 @@ func TestDescribeTool(t *testing.T) {
 	}
 	if d := describeTool("Write", json.RawMessage(`{"file_path":"/no/such/file","content":"x"}`), "/", ""); d.content[0].(map[string]any)["oldText"] != nil {
 		t.Errorf("a new file has an old text: %v", d.content)
-	}
-}
-
-func TestRuleKey(t *testing.T) {
-	if ruleKey("Bash", json.RawMessage(`{"command":" ls "}`)) != ruleKey("Bash", json.RawMessage(`{"command":"ls"}`)) {
-		t.Error("whitespace around a command makes a new rule")
-	}
-	if ruleKey("Bash", json.RawMessage(`{"command":"ls"}`)) == ruleKey("Bash", json.RawMessage(`{"command":"ls -la"}`)) {
-		t.Error("two commands share a rule")
-	}
-	if ruleKey("Write", json.RawMessage(`{"file_path":"a"}`)) != ruleKey("Write", json.RawMessage(`{"file_path":"b"}`)) {
-		t.Error("file tools are remembered by name")
 	}
 }
 

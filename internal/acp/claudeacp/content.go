@@ -5,8 +5,31 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
+	"time"
 )
+
+const mcpDirPrefix = "flockdeck-mcp-"
+
+// sweepMCPDirs removes the config directories of sessions whose adapter was
+// killed before it could clean up. Only those a day old are touched, so another
+// adapter's live session is left alone.
+func sweepMCPDirs() {
+	tmp := os.TempDir()
+	entries, err := os.ReadDir(tmp)
+	if err != nil {
+		return
+	}
+	for _, e := range entries {
+		if !strings.HasPrefix(e.Name(), mcpDirPrefix) {
+			continue
+		}
+		if info, err := e.Info(); err == nil && time.Since(info.ModTime()) > 24*time.Hour {
+			_ = os.RemoveAll(filepath.Join(tmp, e.Name()))
+		}
+	}
+}
 
 // promptContent turns the blocks of a session/prompt into the content blocks of
 // a stream-json user message. Text and images map one to one. An embedded text
@@ -108,14 +131,16 @@ func writeMCPConfig(servers []json.RawMessage) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	f, err := os.CreateTemp("", "flockdeck-mcp-*.json")
+	// The file holds tokens (env values, headers): a directory of its own,
+	// private to the user, that is removed whole with the session.
+	dir, err := os.MkdirTemp("", mcpDirPrefix+"*")
 	if err != nil {
 		return "", err
 	}
-	defer f.Close()
-	if _, err := f.Write(b); err != nil {
-		os.Remove(f.Name())
+	path := filepath.Join(dir, "mcp.json")
+	if err := os.WriteFile(path, b, 0o600); err != nil {
+		os.RemoveAll(dir)
 		return "", err
 	}
-	return f.Name(), nil
+	return path, nil
 }

@@ -53,13 +53,23 @@ tool calls of a subagent are shown; its text is not.
 
 ### Permissions
 
-Each card offers Allow, Always allow and Reject. "Always allow" is kept by the
-adapter for the life of the session and is not written to any settings file.
-For Bash and PowerShell it covers that exact command; for every other tool it
-covers the tool, so Always allow on Edit allows every edit until the session ends.
-A card answered "cancelled", or a request claude retracts, is denied or dropped.
-`AskUserQuestion` is denied with a message telling the model to ask in plain text.
-Any other control request from claude is answered with an error so it does not wait.
+Each card offers Allow and Reject. A shell command (Bash, PowerShell) also offers
+"Always allow this command". The adapter keeps that rule for the life of the
+session, in memory only. The rule is the tool and its whole input except the
+description, so the same command with `dangerouslyDisableSandbox`,
+`run_in_background` or a different timeout is a different call and is asked about.
+
+No other tool gets an always option. A rule for Edit, Write, WebFetch, Agent or an
+MCP tool would also cover calls nobody saw: a path outside the project,
+`.claude/settings.json` or `.git/hooks`, any URL, any prompt. To stop being asked
+about edits, use the acceptEdits mode. If a client sends `allow_always` for a card
+that did not offer it, the adapter treats it as Allow.
+
+A card answered "cancelled" is denied. A request that claude retracts, or that a
+cancel overtakes, is dropped without an answer, also when the client's answer
+arrived at the same moment. `AskUserQuestion` is denied with a message telling the
+model to ask in plain text. Any other control request from claude is answered with
+an error so it does not wait.
 
 ### Prompts during a turn
 
@@ -81,11 +91,23 @@ prompt fails; later prompts in that session fail too.
 
 ### Errors
 
-If `claude` cannot be started or exits during `session/new`, the error is
-"Claude Code is unavailable". The reason goes to the adapter's stderr only. A
-result that says the login is missing becomes error `-32000` "Authentication
-required", which the client turns into its authentication state. A claude that
-exits mid-turn fails the prompt.
+An error sent to the client never carries text from claude. If `claude` cannot be
+started or exits during `session/new`, the error is "Claude Code is unavailable".
+A failed turn is "the turn failed", a refused model or mode change is "the agent
+could not change the model" or "...the mode", and a claude that exits mid-turn
+fails the prompt with "the agent stopped during the turn". The detail goes to the
+adapter's stderr only. A result that says the login is missing becomes error
+`-32000` "Authentication required", which the client turns into its
+authentication state.
+
+The client's `ExitError` puts the tail of the adapter's stderr into its message
+when the adapter itself exits; whoever shows that to a person should not show the
+stderr part.
+
+A line from claude longer than 16 MiB ends the session: claude is killed, the
+running prompt fails and later prompts fail. The line is never held whole in
+memory. The adapter stops cleanly on an interrupt, and on SIGTERM and SIGHUP on
+Unix, closing every session first.
 
 ### Environment
 
@@ -93,8 +115,10 @@ The adapter starts claude in the environment it was given, minus every `FLOCKDEC
 and `PERCH_` variable. The client must pass what claude reads its login from
 (`HOME` or `USERPROFILE`, `APPDATA`); the client's default environment has none of
 them. `FLOCKDECK_CLAUDE_BIN` names the executable when it is not on `PATH`.
-MCP servers in `session/new` are written to a temporary file for `--mcp-config` and
-removed when the session ends; claude's account connectors still load.
+MCP servers in `session/new` are written to `mcp.json` in a private temporary
+directory (`flockdeck-mcp-*`) for `--mcp-config`. The directory is removed when the
+session ends, and a directory a day old, left by an adapter that was killed, is
+removed at the next start. claude's account connectors still load.
 
 ## Not done
 
@@ -104,10 +128,12 @@ removed when the session ends; claude's account connectors still load.
   format that is not a stable contract. Two cheaper options: support resume without
   replay (the pane keeps its own record), or replay from Flockdeck's recording.
 - Turns claude starts on its own, such as a finished background task. The adapter
-  keeps reading after `result`, so their updates are forwarded as `session/update`
-  while no prompt is running, but their `result` is dropped. A result that arrives
-  during a prompt would end that prompt early. ACP has no turn without a prompt;
-  the client has to decide where such updates show.
+  notices the turn from its `init` line and forwards its updates as `session/update`
+  while no prompt is running. A prompt that arrives meanwhile waits for that turn's
+  result before it is written to claude, so it gets a result of its own (a cancel
+  answers it cancelled). What is still open: ACP has no turn without a prompt, so
+  the client has to decide where such updates show, and a turn that starts in the
+  few milliseconds between the check and the write is taken for the prompt's.
 - Steering a running turn with a second message (above).
 - Questions (`AskUserQuestion`) and the plan-approval flow of `ExitPlanMode` beyond
   a normal permission card.

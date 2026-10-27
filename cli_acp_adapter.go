@@ -21,7 +21,7 @@ func runACPAdapter(args []string) error {
 	if len(args) != 1 || args[0] != "claude" {
 		return fmt.Errorf("usage: flockdeck acp-adapter claude")
 	}
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	ctx, stop := signal.NotifyContext(context.Background(), stopSignals()...)
 	defer stop()
 	return claudeacp.Run(ctx, os.Stdin, os.Stdout, claudeacp.Options{
 		ClaudePath: os.Getenv("FLOCKDECK_CLAUDE_BIN"),

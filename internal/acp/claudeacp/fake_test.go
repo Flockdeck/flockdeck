@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -19,10 +20,13 @@ import (
 // arguments, are written to a log file for the test to read.
 
 const (
-	envFake   = "FD_CLAUDEACP_FAKE"
-	envScript = "FD_CLAUDEACP_SCRIPT"
-	envLog    = "FD_CLAUDEACP_LOG"
-	envAdapt  = "FD_CLAUDEACP_ADAPTER"
+	envFake    = "FD_CLAUDEACP_FAKE"
+	envScript  = "FD_CLAUDEACP_SCRIPT"
+	envLog     = "FD_CLAUDEACP_LOG"
+	envAdapt   = "FD_CLAUDEACP_ADAPTER"
+	envDelay   = "FD_CLAUDEACP_INITDELAY" // milliseconds before the initialize answer
+	envCtlErr  = "FD_CLAUDEACP_CTLERR"    // a control subtype that is answered with an error
+	envCtlErr2 = "FD_CLAUDEACP_CTLERR2"   // and a second one
 )
 
 type step struct {
@@ -109,13 +113,20 @@ func runFake() {
 				}
 				if json.Unmarshal([]byte(s), &m) == nil && m.Type == "control_request" {
 					sub, _ := m.Request["subtype"].(string)
-					b, _ := json.Marshal(map[string]any{"type": "control_response", "response": map[string]any{
-						"subtype": "success", "request_id": m.RequestID, "response": controlAnswer(sub, m.Request)}})
+					if ms, _ := strconv.Atoi(os.Getenv(envDelay)); ms > 0 && sub == "initialize" {
+						time.Sleep(time.Duration(ms) * time.Millisecond)
+					}
+					resp := map[string]any{"subtype": "success", "request_id": m.RequestID, "response": controlAnswer(sub, m.Request)}
+					if sub == os.Getenv(envCtlErr) || sub == os.Getenv(envCtlErr2) {
+						resp = map[string]any{"subtype": "error", "request_id": m.RequestID, "error": "SECRET-claude-detail in " + sub}
+					}
+					b, _ := json.Marshal(map[string]any{"type": "control_response", "response": resp})
 					write(string(b))
 				}
 				lines <- s
 			}
 			if err != nil {
+				logf("STDIN_CLOSED")
 				close(lines)
 				return
 			}

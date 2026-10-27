@@ -158,7 +158,7 @@ func (a Adapter) check() error {
 	case !idRe.MatchString(a.ID):
 		return errors.New("id must be lower case letters, digits and hyphens")
 	case mentionsClaude(a) && !ownAdapter(a):
-		return errors.New("the only adapter that may name Claude Code is Flockdeck's own: command flockdeck, no npm package, no Node")
+		return errors.New("the only adapter that may name Claude Code is Flockdeck's own: id claude, hidden, `flockdeck acp-adapter claude`, no npm package, no Node, no launchEnv")
 	case a.Name == "" || a.Command == "" || a.Install == "":
 		return errors.New("name, command and install are required")
 	case len(a.Name) > 60 || len(a.Install) > 400 || len(a.Note) > 400 || hasControl(a.Name+a.Install+a.Note):
@@ -441,12 +441,15 @@ func mentionsClaude(a Adapter) bool {
 	return false
 }
 
-// ownAdapter reports whether a is an adapter that is part of the flockdeck
-// binary: it starts flockdeck itself, installs nothing and needs no Node. Such
-// an entry may name the agent it drives. Third-party adapters for Claude Code
-// stay refused.
+// ownAdapter reports whether a is Flockdeck's own adapter for Claude Code: this
+// exact shape, the flockdeck binary run as `flockdeck acp-adapter claude`, with
+// nothing installed, no Node, no launch environment and no probe. Only that
+// entry may name the agent. Third-party adapters for Claude Code stay refused.
 func ownAdapter(a Adapter) bool {
-	return a.Command == "flockdeck" && a.Package == "" && a.Pin == "" && !a.NeedsNode && a.Hidden
+	return a.ID == "claude" && a.Command == "flockdeck" &&
+		len(a.Args) == 2 && a.Args[0] == "acp-adapter" && a.Args[1] == "claude" &&
+		a.Package == "" && a.Pin == "" && !a.NeedsNode && a.Hidden &&
+		len(a.LaunchEnv) == 0 && a.PermissionProbe == nil
 }
 
 func hasControl(s string) bool {

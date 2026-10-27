@@ -363,7 +363,11 @@ func TestOnlyFlockdecksOwnAdapterMayNameClaude(t *testing.T) {
 		"another command": strings.Replace(own, `"command":"flockdeck"`, `"command":"claude-acp"`, 1),
 		"an npm package":  strings.Replace(own, `"needsNode":false`, `"needsNode":false,"package":"@zed-industries/claude-agent-acp"`, 1),
 		"a pin":           strings.Replace(strings.Replace(own, `"minVersion":"2.1.311"`, `"pin":"2.1.311"`, 1), `"needsNode":false`, `"needsNode":false,"package":"x"`, 1),
-		"needs node":      strings.Replace(strings.Replace(own, `"needsNode":false`, `"needsNode":true,"minNode":"20.0.0"`, 1), `"hidden":true,`, `"hidden":true,`, 1),
+		"needs node":      strings.Replace(own, `"needsNode":false`, `"needsNode":true,"minNode":"20.0.0"`, 1),
+		"other args":      strings.Replace(own, `"args":["acp-adapter","claude"]`, `"args":["hook","claude"]`, 1),
+		"extra args":      strings.Replace(own, `"args":["acp-adapter","claude"]`, `"args":["acp-adapter","claude","--x"]`, 1),
+		"another id":      strings.Replace(own, `"id":"claude"`, `"id":"claude-own"`, 1),
+		"a launch env":    strings.Replace(own, `"hidden":true,`, `"hidden":true,"runsWithoutAsking":true,"launchEnv":{"X":"1"},"permissionProbe":{"args":["a"],"agent":"b","setting":"X","tools":["t"]},`, 1),
 	} {
 		if _, err := Parse([]byte(wrap(goodAdapter, bad))); err == nil {
 			t.Errorf("%s: accepted", name)

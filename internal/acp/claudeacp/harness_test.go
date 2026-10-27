@@ -63,9 +63,10 @@ func newHarness(t *testing.T, steps []step) *harness {
 	return newHarnessWith(t, exe, steps)
 }
 
-func newHarnessWith(t *testing.T, claudePath string, steps []step) *harness {
+func newHarnessWith(t *testing.T, claudePath string, steps []step, extraEnv ...string) *harness {
 	t.Helper()
 	env, logPath := fakeEnv(t, steps)
+	env = append(env, extraEnv...)
 	inR, inW := io.Pipe()
 	outR, outW := io.Pipe()
 	h := &harness{t: t, in: inW, log: logPath, cwd: t.TempDir(), stopped: make(chan struct{})}

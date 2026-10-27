@@ -88,7 +88,9 @@ func (o *Options) defaults() {
 func cleanEnv(env []string) []string {
 	var out []string
 	for _, kv := range env {
-		if strings.HasPrefix(kv, "FLOCKDECK_") || strings.HasPrefix(kv, "PERCH_") {
+		// Windows names are not case sensitive, so neither is this.
+		up := strings.ToUpper(kv)
+		if strings.HasPrefix(up, "FLOCKDECK_") || strings.HasPrefix(up, "PERCH_") {
 			continue
 		}
 		out = append(out, kv)
@@ -103,6 +105,10 @@ const (
 	codeInternal       = -32603
 	codeAuthRequired   = -32000
 )
+
+// unavailable is the only thing a person is told when claude cannot be
+// started. What went wrong goes to the adapter's stderr.
+const unavailable = "Claude Code is unavailable"
 
 type rpcErr struct {
 	Code    int    `json:"code"`
@@ -125,6 +131,7 @@ type server struct {
 	omu  sync.Mutex
 
 	mu       sync.Mutex
+	closed   bool // closeAll has run: a session that finishes starting now is closed
 	sessions map[string]*session
 	clientRQ map[int64]chan rpcMsg // requests we made to the client, by id
 	nextReq  atomic.Int64
@@ -135,6 +142,7 @@ type server struct {
 // returns nil when in ended cleanly.
 func Run(ctx context.Context, in io.Reader, out io.Writer, o Options) error {
 	o.defaults()
+	sweepMCPDirs()
 	s := &server{
 		opts:     o,
 		out:      bufio.NewWriterSize(out, 1<<16),
@@ -166,6 +174,7 @@ func Run(ctx context.Context, in io.Reader, out io.Writer, o Options) error {
 	}
 	s.closeAll()
 	s.wg.Wait()
+	s.closeAll() // a session/new that was starting when the first call ran
 	return readErr
 }
 
@@ -287,6 +296,7 @@ func (s *server) session(id string) *session {
 
 func (s *server) closeAll() {
 	s.mu.Lock()
+	s.closed = true
 	var all []*session
 	for _, ss := range s.sessions {
 		all = append(all, ss)
