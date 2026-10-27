@@ -66,7 +66,7 @@ export const DELIVERY_WORDS = { queued: "Queued", delivered: "Delivered", handle
 
 // Controls, line breaks and bidirectional marks: a label is one plain line.
 // eslint-disable-next-line no-control-regex
-const NOT_PLAIN = /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u2060-\u2069\ufeff]/g;
+const NOT_PLAIN = /[\u0000-\u001f\u007f-\u009f\u200b-\u200f\u2028-\u202e\u00ad\u061c\u180e\u2060-\u2069\u3164\ufeff]/g;
 
 /** plainLabel is a peer's label as one clean line of at most 60 characters. */
 export function plainLabel(v, fallback) {

@@ -150,3 +150,24 @@ func TestALongSenderLabelIsCutInAStructuredPrompt(t *testing.T) {
 		}
 	}
 }
+
+// A peer that calls itself the user is shown as an agent, in the label of mail
+// received and of the recipient of mail sent, whatever the case or spacing.
+func TestAPeerNamedTheUserIsNotShownAsThePerson(t *testing.T) {
+	for _, name := range []string{"the user", "User", "  THE USER ", "user"} {
+		m := team.Message{ID: 1, Text: "x", From: team.Sender{Role: name, Pane: "p9"}}
+		got := mailPeerLabel(m)
+		if got == "the user" || strings.ToLower(strings.TrimSpace(got)) == "user" || !strings.HasPrefix(got, "agent: ") {
+			t.Errorf("role %q labelled %q", name, got)
+		}
+		if notThePerson(name) == name {
+			t.Errorf("recipient label %q was not rewritten", name)
+		}
+	}
+	if got := mailPeerLabel(team.Message{ID: 1, Text: "x", From: team.UserSender()}); got != "the user" {
+		t.Errorf("the person is labelled %q", got)
+	}
+	if got := mailPeerLabel(team.Message{ID: 1, Text: "x", From: team.Sender{Role: "lead", Pane: "p1"}}); got != "lead" {
+		t.Errorf("lead is labelled %q", got)
+	}
+}

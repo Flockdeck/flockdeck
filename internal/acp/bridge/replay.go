@@ -64,6 +64,7 @@ func (b *Bridge) Notice(text string) []transcript.Entry {
 func (b *Bridge) resetItems() {
 	b.items = nil
 	b.tools = map[[sha256.Size]byte]*item{}
+	b.mails = nil
 	b.detail, b.inline, b.detailFrom = 0, 0, b.seq
 	b.inFlight = false
 }
@@ -106,6 +107,9 @@ func (b *Bridge) trimReplay() {
 		b.inline -= it.inl
 		if it.keyed {
 			delete(b.tools, it.key)
+		}
+		if it.e.Kind == transcript.KindMessage {
+			delete(b.mails, mailKey{it.e.MsgID, it.e.Dir})
 		}
 		b.dropped++
 	}

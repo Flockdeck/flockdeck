@@ -57,7 +57,7 @@ func (w *Workspace) mailRecipientLabel(to string) string {
 	if label == "" {
 		return "another agent"
 	}
-	return label
+	return notThePerson(label)
 }
 
 // showMailState moves the entries of the message in the conversations that hold

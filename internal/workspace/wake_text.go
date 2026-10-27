@@ -90,9 +90,19 @@ func mailPeerLabel(m team.Message) string {
 		return "the user"
 	}
 	if label := wakeAgentLabel(m); label != "" {
-		return label
+		return notThePerson(label)
 	}
 	return "an unnamed agent"
+}
+
+// notThePerson rewrites a label that would read as the person, so that an agent
+// that calls itself "user" or "the user" is shown as an agent.
+func notThePerson(label string) string {
+	switch strings.ToLower(strings.TrimSpace(label)) {
+	case "user", "the user":
+		return "agent: " + label
+	}
+	return label
 }
 
 // cleanWakeText turns s into one line of plain text. Terminal escape sequences

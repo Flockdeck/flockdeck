@@ -61,3 +61,10 @@ test("copied text names a message as one, not as the person", () => {
   assert.equal(all, "You: hi\n\nMessage from lead [Handled]: hello");
   assert.ok(!entryText({ ...e, text: "You: x" }).startsWith("You:"));
 });
+
+test("blank and invisible characters are stripped from a peer label", () => {
+  for (const ch of ["\u00ad", "\u061c", "\u180e", "\u3164", "\u200b", "\ufeff"]) {
+    assert.equal(plainLabel("a" + ch + "b", "z"), "a b", "U+" + ch.charCodeAt(0).toString(16));
+  }
+  assert.equal(plainLabel("\u3164\u00ad", "z"), "z");
+});
