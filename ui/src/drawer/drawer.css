@@ -275,6 +275,13 @@
 .structured-prompt { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; }
 .structured-input { flex: 1 1 240px; resize: vertical; font: inherit; color: var(--fg); background: var(--bg-inset); border: 1px solid var(--line-strong); border-radius: var(--radius); padding: 6px 8px; }
 .structured-input::placeholder { color: var(--fg-dim); }
+.slash-menu { flex: 1 0 100%; margin: 0; padding: 4px; list-style: none; max-height: 220px; overflow-y: auto; background: var(--bg-inset); border: 1px solid var(--line-strong); border-radius: var(--radius); }
+.slash-group { margin: 0; padding: 4px 6px 2px; font-size: 11px; color: var(--fg-dim); text-transform: uppercase; letter-spacing: 0.04em; }
+.slash-item { display: flex; gap: 8px; align-items: baseline; padding: 4px 6px; border-radius: var(--radius); cursor: pointer; }
+.slash-item--on, .slash-item:hover { background: var(--bg-hover, rgba(127, 127, 127, 0.18)); }
+.slash-name { font-family: var(--mono, monospace); white-space: nowrap; }
+.slash-hint { color: var(--fg-dim); white-space: nowrap; }
+.slash-desc { color: var(--fg-dim); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .structured-note--live:empty { position: absolute; }
 .structured-note { flex: 1 1 100%; margin: 0; color: var(--waiting); font-size: 12px; }
 
