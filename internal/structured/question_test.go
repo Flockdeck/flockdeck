@@ -23,7 +23,7 @@ func questionOptions(t *testing.T) Options {
 // would be answered with, once the test answers the card.
 func askQuestions(t *testing.T, r *Runtime) (card bridge.Card, result chan [2]string) {
 	t.Helper()
-	h := handler{AnswerHandler: r.br.AnswerHandler(r.ask), r: r}
+	h := handler{Handler: r.br.AnswerHandler(r.ask), r: r}
 	result = make(chan [2]string, 1)
 	go func() {
 		id, meta := h.PermissionAnswers(context.Background(), acp.PermissionRequest{RequestID: "9", SessionID: "s",
@@ -102,7 +102,7 @@ func TestQuestionCardCanBeSkipped(t *testing.T) {
 func TestMalformedQuestionCardIsRefusedNotAllowed(t *testing.T) {
 	r := begin(t, questionOptions(t))
 	until(t, r, "a session", func(s Snapshot) bool { return s.Phase == PhaseReady })
-	h := handler{AnswerHandler: r.br.AnswerHandler(r.ask), r: r}
+	h := handler{Handler: r.br.AnswerHandler(r.ask), r: r}
 	result := make(chan [2]string, 1)
 	go func() {
 		id, meta := h.PermissionAnswers(context.Background(), acp.PermissionRequest{RequestID: "9", SessionID: "s",
@@ -133,7 +133,7 @@ func TestMalformedQuestionCardIsRefusedNotAllowed(t *testing.T) {
 func TestOnlyAllowOnceTakesAnswers(t *testing.T) {
 	r := begin(t, questionOptions(t))
 	until(t, r, "a session", func(s Snapshot) bool { return s.Phase == PhaseReady })
-	h := handler{AnswerHandler: r.br.AnswerHandler(r.ask), r: r}
+	h := handler{Handler: r.br.AnswerHandler(r.ask), r: r}
 	go h.PermissionAnswers(context.Background(), acp.PermissionRequest{RequestID: "9", SessionID: "s",
 		ToolCall: acp.ToolCall{Kind: bridge.QuestionKind, RawInput: json.RawMessage(runtimeQuestions)},
 		Options:  []acp.PermissionOption{{OptionID: "always", Name: "Always", Kind: "allow_always"}, {OptionID: "reject", Name: "Skip", Kind: "reject_once"}}})

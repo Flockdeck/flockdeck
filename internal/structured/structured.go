@@ -19,6 +19,7 @@ package structured
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -990,8 +991,18 @@ func (r *Runtime) set(p Phase, err string, setup *Setup) {
 
 // handler is the bridge's handler with a signal after each update.
 type handler struct {
-	acp.AnswerHandler
+	acp.Handler
 	r *Runtime
+}
+
+// PermissionAnswers is what makes the handler an acp.AnswerHandler: it passes
+// the request to the handler it wraps, with its answers if that one gives
+// them.
+func (h handler) PermissionAnswers(ctx context.Context, req acp.PermissionRequest) (string, json.RawMessage) {
+	if a, ok := h.Handler.(acp.AnswerHandler); ok {
+		return a.PermissionAnswers(ctx, req)
+	}
+	return h.Handler.Permission(ctx, req), nil
 }
 
 func (h handler) Update(u acp.Update) {
@@ -1009,7 +1020,7 @@ func (h handler) Update(u acp.Update) {
 		h.r.noteMoved(u.NewSessionID)
 		return
 	}
-	h.AnswerHandler.Update(u)
+	h.Handler.Update(u)
 	h.r.notify()
 }
 
@@ -1233,7 +1244,7 @@ func (r *Runtime) launch() bool {
 		Args:            cmd.Args,
 		Dir:             r.opts.Cwd,
 		Env:             cmd.env,
-		Handler:         handler{AnswerHandler: r.br.AnswerHandler(r.ask), r: r},
+		Handler:         handler{Handler: r.br.AnswerHandler(r.ask), r: r},
 		OnProtocolError: func(string) { r.protoErrs.Add(1); r.notify() },
 		ClientName:      "flockdeck",
 	}

@@ -897,7 +897,7 @@ func TestAnUpdateForAnotherSessionIsDropped(t *testing.T) {
 	r.mu.Lock()
 	sid := r.session
 	r.mu.Unlock()
-	h := handler{AnswerHandler: r.br.AnswerHandler(r.ask), r: r}
+	h := handler{Handler: r.br.AnswerHandler(r.ask), r: r}
 	chunk := func(id, text string) acp.Update {
 		return acp.Update{SessionID: id, Kind: acp.UpdateAgentMessageChunk, Content: &acp.ContentBlock{Type: "text", Text: text}}
 	}
