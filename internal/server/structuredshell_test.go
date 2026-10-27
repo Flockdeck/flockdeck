@@ -111,7 +111,7 @@ func TestShellRunRefusesWhatIsNotACommand(t *testing.T) {
 		"echo a\r\necho b":        structuredShellOneLine,
 		"echo \x00hi":             structuredShellOneLine,
 		"echo \x1b[31mhi":         structuredShellOneLine,
-		"echo a\u2028echo b":           structuredShellOneLine,
+		"echo a\u2028echo b":      structuredShellOneLine,
 		strings.Repeat("a", 5000): structuredShellLong,
 	} {
 		if res := e.shellOp(t, e.c, command{Cmd: "structuredShellRun", Text: text}); res.OK || res.Error != want {

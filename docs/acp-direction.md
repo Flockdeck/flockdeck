@@ -28,6 +28,8 @@ Built (T189): saved session id per structured pane, `session/load` with replay h
 
 Built, hidden: the Go adapter for Claude Code (T204, [Claude Code adapter](acp-claude-adapter.md)) and the Go adapter for Codex (T206, [Codex adapter](acp-codex-adapter.md); built from the route document and a fake app-server, never run against a real codex). In progress: the capability spike per agent (T208).
 
+Built (T214, API 1.20): the `!` shell escape of a structured pane, run by `internal/shellrun` and ended with the pane. Flockdeck does not advertise the ACP `terminal` capability; see the [parity matrix](acp-parity-matrix.md) for why background tasks the agent starts are not listed.
+
 Researched, not built:
 
 - [Claude headless spike](claude-headless-spike.md): `claude -p --input-format stream-json --output-format stream-json` supports permissions, interrupt, mid-turn messages, resume, images, MCP servers and slash commands, so a Go adapter needs no Node. The control protocol is thinly documented, and resume cannot replay history without reading Claude's session files.
