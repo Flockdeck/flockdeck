@@ -260,7 +260,7 @@ func (s *Server) conversationOpen(c *controlClient, paneID, after string) {
 		}
 		pc.stream.Refresh()
 		// Drained, not read: a stream built just now from the whole file may
-		// have passed over a past /clear (a chat pane's own, which keeps the
+		// have passed over a past /clear (an agent's own, which keeps the
 		// same session id -- see Stream.Reset) on its way to the end, and
 		// that is not news to a client that is only now opening the pane for
 		// the first time. pageFor's own cursor-mismatch fallback already
@@ -532,7 +532,7 @@ func (s *Server) refreshConversation(paneID string, pc *paneConvo) {
 		s.notePreview(paneID, changed)
 	}
 	// A conversation can be replaced in place under an unchanged session id
-	// -- a chat pane's own /clear, which (unlike Claude Code's) never gets a
+	// -- an agent's own /clear that (unlike Claude Code's) never gets a
 	// new one; see Stream.Reset. A client already watching must be told to
 	// drop what it has, the same as the session-id-changed branch above,
 	// rather than have this arrive as an append underneath stale entries

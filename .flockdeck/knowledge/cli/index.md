@@ -2,13 +2,12 @@
 
 * [flockdeck agents](agents.md) - Prints the catalog of agents Flockdeck can run, with models, install state and roles.
 * [flockdeck baton](baton.md) - Lists and prints batons, the handoff documents agents write for each other.
-* [flockdeck chat](chat.md) - Flockdeck's own chat client, which a pane running an API agent starts.
 * [flockdeck close](close.md) - Closes another pane, or every finished pane, from inside a pane.
 * [flockdeck](flockdeck.md) - The root command: opens the workspace and window, or dispatches to a subcommand.
 * [flockdeck helpers](helpers.md) - Installs, uninstalls, starts, stops and opens helper apps.
 * [flockdeck hook](hook.md) - Hidden subcommand a Claude Code pane runs on each lifecycle event to report back to the instance.
 * [flockdeck inbox](inbox.md) - Lists, waits for, streams and reads the messages other agents sent to this pane.
-* [flockdeck keys](keys.md) - Stores, clears and checks the API keys that API agents use, and sets their endpoints.
+* [flockdeck keys](keys.md) - Stores, clears, lists and checks the API keys saved for agents.
 * [flockdeck msg](msg.md) - Sends a message to another agent in the same project.
 * [flockdeck pane-name](pane-name.md) - Names a pane for the work it does, so the window and other agents call it that.
 * [flockdeck peer-name](peer-name.md) - Tells the instance the name another Claude session would use to address this pane.

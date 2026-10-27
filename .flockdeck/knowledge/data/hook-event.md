@@ -9,7 +9,7 @@ code_paths: [internal/hooks/hooks.go, internal/record/redact.go]
 ---
 # Event
 
-JSON body of [POST /hook](/api/hooks-hook.md) (with `token` added). Event names are Claude Code's own; other agents, including [chat](/packages/chat.md), reuse them: `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `Stop`, `StopFailure`, `Notification`, `PreCompact`, `PostCompact`, `SessionEnd`, and the synthetic `Interrupted`.
+JSON body of [POST /hook](/api/hooks-hook.md) (with `token` added). Event names are Claude Code's own; other agents reuse them: `SessionStart`, `UserPromptSubmit`, `PreToolUse`, `PostToolUse`, `PostToolUseFailure`, `Stop`, `StopFailure`, `Notification`, `PreCompact`, `PostCompact`, `SessionEnd`, and the synthetic `Interrupted`.
 
 | JSON | Meaning |
 |---|---|

@@ -44,8 +44,7 @@ type Launch struct {
 	// transcript is there to be resumed -- is the caller's question to answer
 	// before it gets here, because only the caller can read the transcript.
 	Resume bool
-	// SelfExe is Flockdeck's own binary: the hook command an agent calls back on,
-	// and the program itself for an API runner, whose pane runs `flockdeck chat`.
+	// SelfExe is Flockdeck's own binary: the hook command an agent calls back on.
 	SelfExe string
 	// SettingsDir is where the generated settings file is written, for an agent
 	// whose arguments ask to be handed one.
@@ -107,15 +106,6 @@ func (l Launch) argv() ([]string, error) {
 		Pane:     l.ID,
 	})
 
-	// An API agent is Flockdeck's own chat client: BuildArgv deliberately leaves
-	// the program off, because only something holding the running binary's
-	// path knows where to find it again.
-	if l.Spec.Runner == agent.RunnerAPI {
-		if l.SelfExe == "" {
-			return nil, fmt.Errorf("agent %s talks to an API, which needs Flockdeck's own binary to run", l.Spec.ID)
-		}
-		argv = append([]string{ChatExe(l.SelfExe), "chat"}, argv...)
-	}
 	if len(argv) == 0 {
 		return nil, fmt.Errorf("agent %s has no command to run", l.Spec.ID)
 	}
@@ -123,16 +113,16 @@ func (l Launch) argv() ([]string, error) {
 }
 
 // chatTwin is the console build of Flockdeck that a Windows release ships
-// beside flockdeck.exe, for API agents' panes to run.
+// beside flockdeck.exe, for the hook and status line commands Claude Code runs.
+// Its name is from the removed `flockdeck chat`, which first needed it.
 const chatTwin = "flockdeck-chat.exe"
 
-// ChatExe returns the program an API agent's pane runs: Flockdeck's own
-// binary, or on Windows the console build shipped beside it.
+// ChatExe returns the program a hook or status line command runs: Flockdeck's
+// own binary, or on Windows the console build shipped beside it.
 //
 // A release for Windows is linked as a GUI program (-H=windowsgui), so that
 // starting it opens no console window, and Windows attaches no console to a
-// GUI program even inside a pseudo-console: `flockdeck.exe chat` in a pane
-// printed nothing and read nothing. A build without the twin -- a plain `go
+// GUI program. A build without the twin -- a plain `go
 // build` makes a console program -- runs itself as before.
 func ChatExe(selfExe string) string { return chatExeFor(runtime.GOOS, selfExe) }
 
@@ -171,13 +161,7 @@ func (l Launch) paneVars() []string {
 // installed. The explanation carries the Spec's own Install line, because the
 // answer to "codex is not on PATH" is wherever Codex comes from, and only the
 // catalog knows that.
-//
-// An API agent has nothing to find: it runs Flockdeck's own binary, which is
-// already running.
 func Look(spec agent.Spec) (string, error) {
-	if spec.Runner == agent.RunnerAPI {
-		return "", nil
-	}
 	if spec.Exe == "" {
 		return "", fmt.Errorf("agent %s names no command to run", spec.ID)
 	}
@@ -200,8 +184,7 @@ func Look(spec agent.Spec) (string, error) {
 // lifecycle to Flockdeck, and returns its path.
 //
 // An agent that reports no lifecycle gets none. Neither does one that reports
-// its own without being handed a file to say where -- `flockdeck chat` is told in
-// its environment -- because the path is only ever used as an argument, and
+// its own without being handed a file to say where, because the path is only ever used as an argument, and
 // writing one anyway would leave a file in the state directory for every pane
 // ever opened that nothing would read.
 func Settings(spec agent.Spec, dir, sessionID, selfExe, endpoint string) (string, error) {
@@ -212,8 +195,7 @@ func Settings(spec agent.Spec, dir, sessionID, selfExe, endpoint string) (string
 }
 
 // WantsSettings reports whether an agent's arguments ever refer to a settings
-// file -- Claude Code's do, and `flockdeck chat`'s, which is told where to
-// report in its environment, do not.
+// file -- Claude Code's do.
 func WantsSettings(spec agent.Spec) bool {
 	return mentionsToken(spec.Args, "settings") || mentionsToken(spec.ResumeArgs, "settings")
 }
@@ -262,18 +244,6 @@ func StripEnvUnion(specs []agent.Spec) []string {
 // They are stripped whatever else is: a caller with a catalog to hand passes
 // the union of StripEnv across it on top of them.
 var defaultStripEnv = agent.ClaudeStripEnv()
-
-// chatEndpointEnv are the variables `flockdeck chat` takes its wire, address
-// and key names from where no flag says them, under both spellings it reads.
-// Set in the environment Flockdeck itself was started from -- to try a local
-// model by hand, say -- every API pane inherited them, and a vendor's pane,
-// given no --base-url of its own, sent its requests and its key to that
-// address instead. A pane meant to have them is given them in its Spec.Env,
-// which is added after the inherited environment is stripped.
-var chatEndpointEnv = []string{
-	"FLOCKDECK_BASE_URL", "FLOCKDECK_WIRE", "FLOCKDECK_KEY_ENV",
-	"PERCH_BASE_URL", "PERCH_WIRE", "PERCH_KEY_ENV",
-}
 
 // terminalEnv is what a pane is told about the terminal it runs in, and what
 // it inherits about another terminal that has to go, on a given platform.
@@ -337,8 +307,8 @@ func envFrom(goos string, base, strip, extra []string) []string {
 		extra = layerEnv(termSet, extra)
 	}
 
-	drop := make(map[string]bool, len(defaultStripEnv)+len(chatEndpointEnv)+len(termStrip)+len(strip)+len(extra))
-	for _, name := range append(append(append(slices.Clip(defaultStripEnv), chatEndpointEnv...), termStrip...), strip...) {
+	drop := make(map[string]bool, len(defaultStripEnv)+len(termStrip)+len(strip)+len(extra))
+	for _, name := range append(append(slices.Clip(defaultStripEnv), termStrip...), strip...) {
 		drop[envKey(name)] = true
 	}
 	for _, kv := range extra {

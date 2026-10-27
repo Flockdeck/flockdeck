@@ -5,10 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 
 	"github.com/jmwri/flockdeck/internal/store"
@@ -239,8 +237,8 @@ func writeConfig(dir string, f *File) error {
 		return fmt.Errorf("encode %s: %w", ConfigName, err)
 	}
 	// The state directory's own atomic write: a temporary file flushed and
-	// renamed into place, 0600 -- an OpenAI-compatible entry may carry a
-	// private endpoint -- and one save of the file at a time. Its rename waits
+	// renamed into place, 0600 -- an entry may carry a private
+	// endpoint or an env value -- and one save of the file at a time. Its rename waits
 	// out whatever has the file open for a moment. A plain rename failed on
 	// Windows with "Access is denied" whenever the virus scanner, another
 	// instance or a picker reading the catalog had agents.json open, and the
@@ -299,150 +297,4 @@ func SetDefaults(dir, project string, d Defaults) error {
 		}
 	}
 	return writeConfig(dir, f)
-}
-
-// SetBaseURL records the address of an API agent's endpoint in agents.json.
-//
-// It is the one thing the OpenAI-compatible entry needs before it can be used
-// -- a local model's address -- and it could be given only by editing the
-// file by hand. An entry for the agent is changed in place, keeping everything
-// else it says; one is added when there is none. An empty address takes the
-// one recorded away.
-//
-// Where the agent has more than one entry the last is the one given the
-// address, because entries are merged in order and the last one's address is
-// the one used: an address written into an earlier entry was saved without
-// error and changed nothing. Every other entry for the agent has its address
-// taken out, since each is merged over the one before: an address an earlier
-// entry gave, which the last never mentions, was still the one panes used
-// after being told the vendor's own was back.
-//
-// It is what the picker's address field and `flockdeck keys endpoint` both
-// save with.
-func SetBaseURL(dir, id, baseURL string) error {
-	baseURL = strings.TrimSpace(baseURL)
-	if err := CheckBaseURL(baseURL); err != nil {
-		return err
-	}
-	configMu.Lock()
-	defer configMu.Unlock()
-	f, err := readConfig(dir)
-	if err != nil {
-		// As with a default: a file that cannot be read is not written over.
-		return err
-	}
-	ofAgent := func(raw json.RawMessage) bool {
-		var head struct {
-			ID string `json:"id"`
-		}
-		return json.Unmarshal(raw, &head) == nil && head.ID == id
-	}
-	last := -1
-	for i, raw := range f.Agents {
-		if ofAgent(raw) {
-			last = i
-		}
-	}
-	for i, raw := range f.Agents {
-		if !ofAgent(raw) {
-			continue
-		}
-		address := ""
-		if i == last {
-			address = baseURL
-		}
-		if f.Agents[i], err = withBaseURL(raw, address); err != nil {
-			return fmt.Errorf("agent %q in %s: %w", id, ConfigName, err)
-		}
-	}
-	if last >= 0 {
-		return writeConfig(dir, f)
-	}
-	if baseURL == "" {
-		return nil
-	}
-	entry, err := marshalUnescaped(map[string]any{"id": id, "api": map[string]string{"baseURL": baseURL}})
-	if err != nil {
-		return err
-	}
-	f.Agents = append(f.Agents, entry)
-	return writeConfig(dir, f)
-}
-
-// withBaseURL is an agents.json entry with its api's address set to address,
-// or taken out where address is "" -- and its api with it, where nothing else
-// is left there. Everything else in the entry is kept as it was written, and
-// an entry with no address to take out is left exactly as it was.
-//
-// The key is matched without regard to case, as the decoder matches it. A
-// "baseUrl" written by hand was left beside the "baseURL" set here, sorted
-// after it when the file was written back, and so was the one read: setting
-// the address and taking it away both reported success and changed nothing.
-func withBaseURL(raw json.RawMessage, address string) (json.RawMessage, error) {
-	var entry map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &entry); err != nil {
-		return nil, err
-	}
-	api := map[string]json.RawMessage{}
-	if a, ok := entry["api"]; ok && json.Unmarshal(a, &api) != nil {
-		return nil, errors.New(`its "api" is not an object, so the address was not written`)
-	}
-	had := false
-	for key := range api {
-		if strings.EqualFold(key, "baseURL") {
-			delete(api, key)
-			had = true
-		}
-	}
-	if address == "" && !had {
-		return raw, nil
-	}
-	if address != "" {
-		v, err := marshalUnescaped(address)
-		if err != nil {
-			return nil, err
-		}
-		api["baseURL"] = v
-	}
-	if len(api) == 0 {
-		delete(entry, "api")
-	} else {
-		v, err := marshalUnescaped(api)
-		if err != nil {
-			return nil, err
-		}
-		entry["api"] = v
-	}
-	return marshalUnescaped(entry)
-}
-
-// CheckBaseURL says whether an address is one an endpoint can have, and when
-// it is not, what to type instead. An empty address is fine: it means the
-// vendor's own.
-//
-// The picker shows this to whoever typed the address, so it says what to type
-// rather than what was wrong with it. What people type is nearly always the
-// address their model server printed, without its http:// -- "localhost:11434"
-// -- and that is answered with the address it should have been.
-func CheckBaseURL(baseURL string) error {
-	if baseURL == "" {
-		return nil
-	}
-	u, err := url.Parse(baseURL)
-	if err == nil && (u.Scheme == "http" || u.Scheme == "https") && u.Host != "" {
-		if u.User != nil {
-			// Said without repeating the address, which has a secret in it, and
-			// refused because the address is shown back in the picker and sent
-			// on every pane's command line, where a key is not.
-			return errors.New("the address has a name or password in it; give it without one, and set the key under API keys… instead")
-		}
-		return nil
-	}
-	const example = "type the whole address, starting http:// or https://, as in http://127.0.0.1:11434/v1"
-	if !strings.Contains(baseURL, "://") {
-		if v, err := url.Parse("http://" + baseURL); err == nil && v.Host != "" && !strings.ContainsAny(baseURL, " \t") {
-			return fmt.Errorf("%q has no http:// in front: type http://%s", baseURL, baseURL)
-		}
-	}
-	return fmt.Errorf("%q is not an address an endpoint can have: %s", baseURL, example)
 }

@@ -4,7 +4,7 @@
 // package is built around keeping it in as few places as possible. A key is
 // looked for in the variables the user already keeps it in, then in Flockdeck's
 // own store, and last in FLOCKDECK_API_KEY; whatever is found reaches exactly one place, the
-// environment of the `flockdeck chat` process for the pane that needs it. Nothing
+// environment of the agent's process for the pane that needs it. Nothing
 // else in the application is ever handed the value. The interface, the CLI and
 // the snapshot code are given a Status instead, which says that there is a key
 // and where it came from and never what it is.
@@ -90,7 +90,7 @@ func (k Key) GoString() string { return "creds.Key{" + k.String() + "}" }
 // nobody enjoys. FLOCKDECK_API_KEY is the exception, being every agent's: a
 // key stored for this one is the more particular answer.
 //
-// It is the chat client's own order, so what the keys dialog and `flockdeck
+// It is the order a pane would use, so what the keys dialog and `flockdeck
 // keys` say is in use is what a pane sends.
 func Resolve(spec agent.Spec) Key {
 	first, last := agent.KeyNames(spec)
@@ -119,13 +119,15 @@ func fromEnv(names []string) Key {
 // A key already in the environment needs no entry: the pane inherits it, and
 // writing it out again would only put a second copy of the value somewhere.
 // A stored key is exported under the first name the Spec lists, which is the
-// vendor's own conventional variable, so `flockdeck chat` finds it by resolving
-// the same Spec at the other end rather than by learning a second convention.
+// vendor's own conventional variable.
 //
 // A Spec with no names of its own has nowhere to put a stored key, and gets
-// nothing rather than an invented variable name; its chat reads the store
-// itself. Nor is a stored key put under the vendor's variable for a Spec
+// nothing rather than an invented variable name. Nor is a stored key put under the vendor's variable for a Spec
 // talking to somebody else, where it would be read as the key for the vendor.
+//
+// Nothing calls it since the API runners were removed: no pane is started with
+// a key in its environment. Board task T202 hands a stored key to an agent's
+// adapter instead.
 func Env(spec agent.Spec) []string {
 	k := Resolve(spec)
 	own := agent.OwnKeyEnv(spec.API)
@@ -178,12 +180,12 @@ func StatusOf(spec agent.Spec) Status {
 }
 
 // StatusAll reports on every Spec that could want a key, in the order given.
-// A Spec that is not an API runner is skipped: a CLI keeps its own credentials
-// and Flockdeck has no business offering to hold them.
+// A Spec with no API block is skipped: a CLI keeps its own credentials and
+// Flockdeck has no business offering to hold them.
 func StatusAll(specs []agent.Spec) []Status {
 	out := make([]Status, 0, len(specs))
 	for _, s := range specs {
-		if s.Runner != agent.RunnerAPI {
+		if !s.TakesKey() {
 			continue
 		}
 		out = append(out, StatusOf(s))

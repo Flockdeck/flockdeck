@@ -37,7 +37,7 @@ func storePath(t *testing.T) string {
 // apiSpec is the shape of Spec this package cares about: an id and the
 // variables a key may arrive in.
 func apiSpec(id string, env ...string) agent.Spec {
-	return agent.Spec{ID: id, Name: id, Runner: agent.RunnerAPI,
+	return agent.Spec{ID: id, Name: id,
 		API: agent.APISpec{Wire: "anthropic", KeyEnv: env}}
 }
 
@@ -127,10 +127,10 @@ func TestResolveOrder(t *testing.T) {
 }
 
 // A Spec with no KeyEnv names has nothing to read from the environment, and a
-// Spec that is not an API runner is never asked about at all.
+// Spec that takes no key is never asked about at all.
 func TestResolveWithoutKeyEnv(t *testing.T) {
 	isolateConfig(t)
-	spec := agent.Spec{ID: "local", Runner: agent.RunnerAPI}
+	spec := agent.Spec{ID: "local"}
 	if got := Resolve(spec); got.Set() {
 		t.Errorf("a spec with no key anywhere resolved to %v", got)
 	}
@@ -189,7 +189,7 @@ func TestEnv(t *testing.T) {
 		if err := Set("local", "saved"); err != nil {
 			t.Fatalf("Set: %v", err)
 		}
-		if got := Env(agent.Spec{ID: "local", Runner: agent.RunnerAPI}); got != nil {
+		if got := Env(agent.Spec{ID: "local"}); got != nil {
 			t.Errorf("Env invented a variable name: %v", got)
 		}
 	})
@@ -393,7 +393,7 @@ func TestStatus(t *testing.T) {
 
 	got := StatusAll(specs)
 	if len(got) != 2 {
-		t.Fatalf("StatusAll returned %d entries, want only the API runners: %+v", len(got), got)
+		t.Fatalf("StatusAll returned %d entries, want only the agents that take a key: %+v", len(got), got)
 	}
 	if got[0].Agent != "anthropic" || !got[0].Set || got[0].Source != SourceEnv || got[0].Env != "FLOCKDECK_TEST_KEY_A" {
 		t.Errorf("anthropic status = %+v", got[0])

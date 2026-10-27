@@ -144,8 +144,7 @@ func TestModelIsAskedForOnlyWhenThereIsOne(t *testing.T) {
 
 // TestSettingsOnlyForAnAgentHandedOne keeps the state directory from filling up
 // with files nothing reads. An agent that reports its lifecycle without being
-// handed a settings file -- `flockdeck chat`, told where to report in its
-// environment -- must not have one written for it.
+// handed a settings file must not have one written for it.
 func TestSettingsOnlyForAnAgentHandedOne(t *testing.T) {
 	tests := []struct {
 		name string
@@ -156,14 +155,6 @@ func TestSettingsOnlyForAnAgentHandedOne(t *testing.T) {
 			name: "hooks and a settings argument",
 			spec: claudeLaunchSpec(),
 			want: true,
-		},
-		{
-			name: "hooks it reports by itself",
-			spec: agent.Spec{
-				ID: "anthropic", Runner: agent.RunnerAPI,
-				Args: []agent.Arg{agent.Group("session", "--session", "{{session}}")},
-				Caps: agent.Caps{Hooks: true, Resume: true},
-			},
 		},
 		{
 			name: "no hooks at all",
@@ -188,7 +179,8 @@ func TestSettingsOnlyForAnAgentHandedOne(t *testing.T) {
 	}
 }
 
-// TestChatRunsTheConsoleBuildOnWindows covers the Windows release, whose
+// TestChatRunsTheConsoleBuildOnWindows (ChatExe, named for the removed chat
+// client) covers the Windows release, whose
 // flockdeck.exe is a GUI program Windows gives no console even inside a
 // pseudo-console: an API agent's pane runs the console build shipped beside
 // it, and a build without one runs itself.
@@ -213,31 +205,6 @@ func TestChatRunsTheConsoleBuildOnWindows(t *testing.T) {
 	}
 }
 
-// TestAPIRunnerRunsFlockdeckItself covers the runner that has no CLI to find: the
-// pane runs Flockdeck's own binary, which only the caller can name.
-func TestAPIRunnerRunsFlockdeckItself(t *testing.T) {
-	spec := agent.Spec{
-		ID: "openai", Runner: agent.RunnerAPI,
-		Args: []agent.Arg{
-			agent.Lit("--agent"), agent.Lit("openai"),
-			agent.Group("model", "--model", "{{model}}"),
-			agent.Group("session", "--session", "{{session}}"),
-		},
-	}
-	cfg, err := Launch{Spec: spec, Model: "gpt-5", ID: testSession, SelfExe: "/opt/flockdeck"}.Config()
-	if err != nil {
-		t.Fatalf("config: %v", err)
-	}
-	want := []string{"/opt/flockdeck", "chat", "--agent", "openai", "--model", "gpt-5", "--session", testSession}
-	if !slices.Equal(cfg.Argv, want) {
-		t.Errorf("argv  = %q\nwant = %q", cfg.Argv, want)
-	}
-
-	if _, err := (Launch{Spec: spec, ID: testSession}).Config(); err == nil {
-		t.Error("an API pane with no binary to run should say so rather than starting nothing")
-	}
-}
-
 // TestLookSaysWhereAnAgentComesFrom covers the message somebody sees when they
 // pick an agent their machine does not have. The install line is the Spec's,
 // because only the catalog knows where Codex comes from.
@@ -255,11 +222,6 @@ func TestLookSaysWhereAnAgentComesFrom(t *testing.T) {
 		}
 	}
 
-	// An API agent runs Flockdeck itself, so there is nothing on PATH to find and
-	// nothing to complain about.
-	if _, err := Look(agent.Spec{ID: "anthropic", Runner: agent.RunnerAPI}); err != nil {
-		t.Errorf("an API agent needs nothing installed: %v", err)
-	}
 }
 
 // TestStripEnvComesFromTheSpecs is the other half of a pane being a clean

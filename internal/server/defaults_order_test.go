@@ -15,8 +15,8 @@ import (
 // was saved. A save now waits for any other to finish.
 func TestDefaultsSavedAtOnceDoNotLoseEachOther(t *testing.T) {
 	srv, ws := newTestServer(t)
-	if _, ok := ws.Catalog().Find("anthropic"); !ok {
-		t.Skip("no built-in anthropic agent")
+	if _, ok := ws.Catalog().Find("codex"); !ok {
+		t.Skip("no built-in codex agent")
 	}
 	path, err := agent.ConfigPath()
 	if err != nil {
@@ -36,10 +36,10 @@ func TestDefaultsSavedAtOnceDoNotLoseEachOther(t *testing.T) {
 	go func() {
 		defer close(done)
 		srv.applyAgentDefault(&controlClient{out: make(chan []byte, 8)},
-			command{Cmd: "setAgentDefault", Agent: "anthropic", Target: "all"})
+			command{Cmd: "setAgentDefault", Agent: "codex", Target: "all"})
 	}()
 	time.Sleep(300 * time.Millisecond)
-	written := saved() == "anthropic"
+	written := saved() == "codex"
 	defaultWrites.Unlock()
 	if written {
 		t.Fatal("a default was written while another save had the file")
@@ -50,7 +50,7 @@ func TestDefaultsSavedAtOnceDoNotLoseEachOther(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("the save never finished")
 	}
-	if saved() != "anthropic" {
+	if saved() != "codex" {
 		t.Fatal("the default was not saved")
 	}
 }

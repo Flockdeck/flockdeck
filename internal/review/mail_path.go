@@ -12,7 +12,7 @@ import (
 // MailRead allows the word flockdeck only if it resolves, on Path, to Self or
 // to a file in Self's directory.
 //
-// Path is the PATH the pane or the chat client was started with. The agent can
+// Path is the PATH the pane was started with. The agent can
 // change its own shell's PATH afterwards (a virtual environment, a prompt that
 // exports it), which Flockdeck cannot see, so this narrows what is allowed and
 // does not close it: a shell function or alias named flockdeck is not visible

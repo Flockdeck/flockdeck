@@ -31,7 +31,7 @@ func flockdeckEnvNames(t *testing.T) []string {
 
 	pane := regexp.MustCompile(`paneEnv\("([A-Z0-9_]+)"\)`)
 	var sources []string
-	for _, dir := range []string{".", "internal/chat"} {
+	for _, dir := range []string{"."} {
 		files, _ := filepath.Glob(filepath.Join(dir, "*.go"))
 		sources = append(sources, files...)
 	}

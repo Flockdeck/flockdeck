@@ -42,16 +42,6 @@ func TestBuiltinsAreWellFormed(t *testing.T) {
 				if !slices.Contains(argv, "do the thing") {
 					t.Errorf("the opening task never reaches the agent: %q", argv)
 				}
-			case RunnerAPI:
-				if spec.API.Wire == "" {
-					t.Fatal("an API agent needs a wire format")
-				}
-				if len(argv) < 2 || argv[0] != "--agent" || argv[1] != spec.ID {
-					t.Fatalf("an API agent must tell `flockdeck chat` which entry to read, got %q", argv)
-				}
-				if !spec.Caps.Hooks || !spec.Caps.Resume || !spec.Caps.Transcript {
-					t.Errorf("`flockdeck chat` supports all three, so its agents should say so: %+v", spec.Caps)
-				}
 			case RunnerACP:
 				if _, ok := spec.ACPAdapter(); !ok {
 					t.Fatalf("a structured agent must name an adapter of the manifest, got %q", spec.ACP.Adapter)
@@ -165,26 +155,15 @@ func TestMerge(t *testing.T) {
 			},
 		},
 		{
-			name: "an unknown id is a new agent, from the design's own example",
-			file: `{"version":1,"agents":[{"id":"local","name":"Local llama","runner":"api",
-				"api":{"wire":"openai","baseURL":"http://127.0.0.1:11434/v1"},
-				"models":[{"id":"qwen3-coder"}]}]}`,
+			name: "an unknown id is a new agent",
+			file: `{"version":1,"agents":[{"id":"local","name":"Local","exe":"local-agent","models":[{"id":"m1"}]}]}`,
 			check: func(t *testing.T, c *Catalog) {
 				local, ok := c.Find("local")
 				if !ok {
 					t.Fatal("the new agent is missing")
 				}
-				if local.Runner != RunnerAPI || local.API.BaseURL != "http://127.0.0.1:11434/v1" {
+				if local.Runner != RunnerCLI || local.Exe != "local-agent" {
 					t.Fatalf("local = %+v", local)
-				}
-				// It named no arguments, so it gets the chat client's, which
-				// is the only way `flockdeck chat` learns whose endpoint to use.
-				argv := BuildArgv(local, false, Tokens{Session: "s"})
-				if len(argv) < 2 || argv[0] != "--agent" || argv[1] != "local" {
-					t.Errorf("argv = %q", argv)
-				}
-				if !local.Caps.Hooks || !local.Caps.Transcript {
-					t.Errorf("an API entry runs `flockdeck chat`, so it has its capabilities: %+v", local.Caps)
 				}
 				if _, ok := c.Find("claude"); !ok {
 					t.Error("adding an agent must not remove the built-ins")
@@ -264,28 +243,6 @@ func TestNormalize(t *testing.T) {
 				}
 			},
 		},
-		{
-			name:  "an endpoint with no runner named is an API agent",
-			entry: `{"id":"gw","api":{"baseURL":"https://gw.example/v1"}}`,
-			check: func(t *testing.T, s Spec) {
-				if s.Runner != RunnerAPI {
-					t.Errorf("runner = %q, want api", s.Runner)
-				}
-				if s.API.Wire != "openai" {
-					t.Errorf("wire = %q, want the format nearly every gateway speaks", s.API.Wire)
-				}
-			},
-		},
-		{
-			name:  "an API entry that writes its own arguments keeps them",
-			entry: `{"id":"gw","runner":"api","args":[{"value":"--agent"},{"value":"other"}]}`,
-			check: func(t *testing.T, s Spec) {
-				argv := BuildArgv(s, false, Tokens{})
-				if !slices.Equal(argv, []string{"--agent", "other"}) {
-					t.Errorf("argv = %q", argv)
-				}
-			},
-		},
 	}
 
 	for _, tt := range tests {
@@ -345,7 +302,7 @@ func TestResolve(t *testing.T) {
 			// The default model belongs to the default agent, so choosing
 			// another agent must not hand it Claude's model id.
 			name: "choosing an agent with no model falls to that agent's own",
-			id:   "anthropic", wantAgent: "anthropic", wantMd: "claude-sonnet-5",
+			id:   "gemini", wantAgent: "gemini", wantMd: "",
 		},
 		{
 			name: "an agent that is no longer in the catalog opens as the default",
@@ -472,13 +429,12 @@ func TestOverlaidListsDoNotInheritBuiltinElements(t *testing.T) {
 // TestAnEntryThatCannotBeUsedLeavesTheBuiltinAsItWas: the decoder fills a list
 // by writing over the elements already there and carries on past a value of
 // the wrong kind, so an entry dropped for one bad field had already written its
-// lists into the built-in's own. Claude stopped stripping CLAUDECODE, and an
-// API agent stopped looking for its key where the built-in said.
+// lists into the built-in's own. Claude stopped stripping CLAUDECODE.
 func TestAnEntryThatCannotBeUsedLeavesTheBuiltinAsItWas(t *testing.T) {
 	c := Merge(&File{Agents: []json.RawMessage{
 		json.RawMessage(`{"id": "claude", "stripEnv": ["FOO"], "env": ["A=1"], "patterns": {"idle": ["x"]}, "models": "oops"}`),
-		json.RawMessage(`{"id": "anthropic", "api": {"keyEnv": ["MINE"]}, "caps": "oops"}`),
-		json.RawMessage(`{"id": "google", "api": {"keyEnv": ["ONE", "TWO"]}, "hidden": "oops"}`),
+		json.RawMessage(`{"id": "codex", "env": ["B=2"], "caps": "oops"}`),
+		json.RawMessage(`{"id": "gemini", "stripEnv": ["ONE", "TWO"], "hidden": "oops"}`),
 	}})
 	for _, want := range normalizeAll(Builtins()) {
 		got, _ := c.Find(want.ID)
@@ -486,7 +442,7 @@ func TestAnEntryThatCannotBeUsedLeavesTheBuiltinAsItWas(t *testing.T) {
 			t.Errorf("built-in %q changed by an entry that was dropped:\n got %+v\nwant %+v", want.ID, got, want)
 		}
 	}
-	for _, id := range []string{"claude", "anthropic", "google"} {
+	for _, id := range []string{"claude", "codex", "gemini"} {
 		if !strings.Contains(c.Notice, `agent "`+id+`"`) {
 			t.Errorf("notice %q should name the dropped entry %q", c.Notice, id)
 		}
@@ -562,18 +518,18 @@ func TestHidingClaudeWithNoDefaultOpensTheFirstAgentOffered(t *testing.T) {
 }
 
 // TestUnknownAgentFieldsAreNamed: a key in the wrong place used to do nothing
-// and say nothing, which left an endpoint greyed out with no clue why.
+// and say nothing.
 func TestUnknownAgentFieldsAreNamed(t *testing.T) {
 	c := Merge(&File{Agents: []json.RawMessage{
-		json.RawMessage(`{"id": "openai-compatible", "baseURL": "http://gw/v1", "modles": []}`),
-		json.RawMessage(`{"id": "claude", "defaultModel": "sonnet", "api": {"baseURL": "http://x"}}`),
+		json.RawMessage(`{"id": "codex", "baseURL": "http://gw/v1", "modles": []}`),
+		json.RawMessage(`{"id": "claude", "defaultModel": "sonnet"}`),
 	}})
-	for _, want := range []string{`"baseURL" belongs inside "api"`, `"modles" is not something an agent has`} {
+	for _, want := range []string{`"baseURL" is not something an agent has`, `"modles" is not something an agent has`} {
 		if !strings.Contains(c.Notice, want) {
 			t.Errorf("notice %q should say %s", c.Notice, want)
 		}
 	}
-	if strings.Contains(c.Notice, "defaultModel") || strings.Contains(c.Notice, `"api" is`) {
+	if strings.Contains(c.Notice, "defaultModel") {
 		t.Errorf("a field an agent has was reported: %q", c.Notice)
 	}
 	// The entry is still used: a key this build does not know may be one a
@@ -583,15 +539,15 @@ func TestUnknownAgentFieldsAreNamed(t *testing.T) {
 	}
 }
 
-// TestRunnerIsSettledIntoOneThereIs: "API" in capitals matched neither runner
-// and started a pane whose command line began "--agent", with no program.
+// TestRunnerIsSettledIntoOneThereIs: a runner that is neither is decided the
+// way a missing one is.
 func TestRunnerIsSettledIntoOneThereIs(t *testing.T) {
 	c := Merge(&File{Agents: []json.RawMessage{
-		json.RawMessage(`{"id": "caps", "runner": "API", "api": {"baseURL": "http://localhost:1/v1"}}`),
+		json.RawMessage(`{"id": "caps", "runner": "CLI", "exe": "caps-agent"}`),
 		json.RawMessage(`{"id": "odd", "runner": "shell", "exe": "odd-agent"}`),
 	}})
-	if s, _ := c.Find("caps"); s.Runner != RunnerAPI {
-		t.Errorf("runner = %q, want api", s.Runner)
+	if s, _ := c.Find("caps"); s.Runner != RunnerCLI {
+		t.Errorf("runner = %q, want cli", s.Runner)
 	}
 	odd, _ := c.Find("odd")
 	if odd.Runner != RunnerCLI || BuildArgv(odd, false, Tokens{})[0] != "odd-agent" {
@@ -641,31 +597,44 @@ func TestUnknownTokensAreNamed(t *testing.T) {
 	}
 }
 
-// TestAnAPIEntryWithModelsButNoDefaultTakesTheFirst: an API has no model it is
-// already set to, and the help page's own example lists models without a
-// default, so its panes were started asking for none.
-func TestAnAPIEntryWithModelsButNoDefaultTakesTheFirst(t *testing.T) {
+// TestAnAPIEntryIsRefused: the API runner started `flockdeck chat`, which is
+// gone. Read as a command-line agent an entry with an "api" block would start a
+// program named for its id, so it is refused whole, and a built-in it was
+// written over stays as it was.
+func TestAnAPIEntryIsRefused(t *testing.T) {
 	c := Merge(&File{Agents: []json.RawMessage{
-		json.RawMessage(`{"id": "local", "name": "Local llama", "runner": "api", "api": {"wire": "openai", "baseURL": "http://127.0.0.1:11434/v1"}, "models": [{"id": "qwen3-coder"}, {"id": "llama3"}]}`),
-		json.RawMessage(`{"id": "mycli", "exe": "mycli", "models": [{"id": "big"}]}`),
+		json.RawMessage(`{"id": "local", "api": {"wire": "openai", "baseURL": "http://127.0.0.1:11434/v1"}}`),
+		json.RawMessage(`{"id": "shouty", "runner": "API", "exe": "x"}`),
+		json.RawMessage(`{"id": "codex", "runner": "api", "hidden": true}`),
+		json.RawMessage(`{"id": "claude", "api": {"keyEnv": ["MINE"]}, "defaultModel": "opus"}`),
+		json.RawMessage(`{"id": "mine", "exe": "mine"}`),
+		json.RawMessage(`{"id": "openai", "models": [{"id": "gpt-x"}]}`),
+		json.RawMessage(`{"id": "google", "exe": "google-cli"}`),
 	}})
-	if s, _ := c.Find("local"); s.DefaultModel != "qwen3-coder" {
-		t.Errorf("default model = %q, want the first listed", s.DefaultModel)
+	if _, ok := c.Find("openai"); ok {
+		t.Error("a settings entry for the removed openai built-in became a command-line agent")
 	}
-	// A command-line agent's empty default means whatever it is set to.
-	if s, _ := c.Find("mycli"); s.DefaultModel != "" {
-		t.Errorf("a CLI agent's default model = %q, want it left to the CLI", s.DefaultModel)
+	if _, ok := c.Find("google"); !ok {
+		t.Error("an entry with a program of its own was refused for borrowing a removed id")
 	}
-}
-
-// TestAnAPIEntryListingTheEndpointsOwnChoiceFirstKeepsIt: a model of empty id
-// is how an entry asks for whatever the endpoint defaults to.
-func TestAnAPIEntryListingTheEndpointsOwnChoiceFirstKeepsIt(t *testing.T) {
-	c := Merge(&File{Agents: []json.RawMessage{
-		json.RawMessage(`{"id": "gw", "api": {"baseURL": "https://gw.example/v1"}, "models": [{"id": "", "name": "Default"}, {"id": "big"}]}`),
-	}})
-	if s, _ := c.Find("gw"); s.DefaultModel != "" {
-		t.Errorf("default model = %q, want the endpoint's own choice kept", s.DefaultModel)
+	for _, id := range []string{"local", "shouty"} {
+		if _, ok := c.Find(id); ok {
+			t.Errorf("the API entry %q was added as a command-line agent", id)
+		}
+	}
+	for _, id := range []string{"local", "shouty", "codex", "claude", "openai"} {
+		if !strings.Contains(c.Notice, `agent "`+id+`": the API runner (flockdeck chat) was removed`) {
+			t.Errorf("notice %q should say %q was refused", c.Notice, id)
+		}
+	}
+	if s, _ := c.Find("codex"); s.Hidden {
+		t.Error("a refused entry still changed the built-in it was written over")
+	}
+	if s, _ := c.Find("claude"); s.DefaultModel == "opus" {
+		t.Error("a refused entry still changed the built-in it was written over")
+	}
+	if _, ok := c.Find("mine"); !ok {
+		t.Error("an entry beside the refused ones was lost")
 	}
 }
 
@@ -708,68 +677,6 @@ func TestEnvValuesAreExpanded(t *testing.T) {
 	want := []string{"TOOLS=/opt/base/bin:/opt/base/lib", "$KEEP=as written", "NOVAR=100%"}
 	if !slices.Equal(s.Env, want) {
 		t.Errorf("env = %q, want %q", s.Env, want)
-	}
-}
-
-// TestAnAPIAgentTellsTheChatClientItsEndpoint: the chat client reads nothing
-// from the catalog, so an OpenAI, Gemini or local-model pane took its
-// defaults -- the Anthropic wire, at Anthropic's address -- and sent its
-// request and its stored key there.
-func TestAnAPIAgentTellsTheChatClientItsEndpoint(t *testing.T) {
-	c := Merge(&File{Agents: []json.RawMessage{
-		json.RawMessage(`{"id": "local", "api": {"baseURL": "http://127.0.0.1:11434/v1"}, "models": [{"id": "qwen3-coder"}]}`),
-		json.RawMessage(`{"id": "anthropic", "api": {"baseURL": "https://proxy.example/v1"}}`),
-	}})
-	has := func(argv []string, flag, value string) bool {
-		for i := 0; i+1 < len(argv); i++ {
-			if argv[i] == flag && argv[i+1] == value {
-				return true
-			}
-		}
-		return false
-	}
-	for _, tc := range []struct {
-		id          string
-		flag, value string
-	}{
-		{"openai", "--wire", "openai"},
-		{"openai", "--key-env", "OPENAI_API_KEY"},
-		{"google", "--wire", "gemini"},
-		{"google", "--key-env", "GEMINI_API_KEY,GOOGLE_API_KEY"},
-		{"local", "--wire", "openai"},
-		{"local", "--base-url", "http://127.0.0.1:11434/v1"},
-		{"anthropic", "--base-url", "https://proxy.example/v1"},
-	} {
-		s, ok := c.Find(tc.id)
-		if !ok {
-			t.Fatalf("%s: not in the catalog", tc.id)
-		}
-		for _, resume := range []bool{false, true} {
-			argv := BuildArgv(s, resume, Tokens{Session: "s", Model: "m", Prompt: "hi"})
-			if !has(argv, tc.flag, tc.value) {
-				t.Errorf("%s (resume %v): argv %q lacks %s %s", tc.id, resume, argv, tc.flag, tc.value)
-			}
-		}
-	}
-}
-
-// TestBaseURLVariablesAreExpanded: a local model's address kept in a variable
-// went to the chat client, and to the check for whether it needs a key, as
-// the characters "$OLLAMA_HOST".
-func TestBaseURLVariablesAreExpanded(t *testing.T) {
-	t.Setenv("FLOCKDECK_TEST_OLLAMA", "127.0.0.1:11434")
-	c := Merge(&File{Agents: []json.RawMessage{
-		json.RawMessage(`{"id": "local", "api": {"baseURL": "http://$FLOCKDECK_TEST_OLLAMA/v1"}}`),
-	}})
-	s, _ := c.Find("local")
-	if s.API.BaseURL != "http://127.0.0.1:11434/v1" {
-		t.Errorf("baseURL = %q, want the variable read", s.API.BaseURL)
-	}
-	if !NeedsNoKey(s) {
-		t.Error("an endpoint on this machine needs no key, however its address was written")
-	}
-	if argv := BuildArgv(s, false, Tokens{}); !slices.Contains(argv, "http://127.0.0.1:11434/v1") {
-		t.Errorf("argv %q does not carry the address", argv)
 	}
 }
 

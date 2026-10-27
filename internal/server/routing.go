@@ -2,12 +2,8 @@ package server
 
 import (
 	"fmt"
-	"net"
-	"net/url"
 	"path/filepath"
 	"strings"
-	"sync"
-	"time"
 
 	"github.com/jmwri/flockdeck/internal/agent"
 	"github.com/jmwri/flockdeck/internal/route"
@@ -43,8 +39,8 @@ func routeSpawnChoice(c *agent.Catalog, cwd, task string) (d route.Decision, bas
 }
 
 // otherAgentFor is the route.Input.OtherAgent a spawned helper may use: an agent besides the one the work would run on, but only when it
-// could actually take the work right now -- installed or keyed, trusted for
-// root, and, for one with an address of its own, answering.
+// could actually take the work right now -- installed or keyed, and trusted for
+// root.
 //
 // This, and not route.Decide, is where routing does its I/O: deciding stays
 // pure, and this closure is the one thing here that touches disk or network.
@@ -54,79 +50,8 @@ func otherAgentFor(c *agent.Catalog, root string) func(id string) (agent.Spec, b
 		if !ok || !agent.Available(spec) || !session.TrustedFor(spec, root) {
 			return agent.Spec{}, false
 		}
-		if spec.API.BaseURL != "" && !endpointReachable(spec.API.BaseURL) {
-			return agent.Spec{}, false
-		}
 		return spec, true
 	}
-}
-
-// reachTTL is how long endpointReachable trusts an answer, the same span
-// agent.Available trusts its own probes for: long enough that a burst
-// of spawns dials an endpoint once, short enough that
-// starting the local model server and routing again finds it.
-const reachTTL = 5 * time.Second
-
-var reach = struct {
-	sync.Mutex
-	seen map[string]reachResult
-}{seen: map[string]reachResult{}}
-
-type reachResult struct {
-	ok bool
-	at time.Time
-}
-
-// dialTimeout bounds how long endpointReachable waits for a connection, kept
-// short because it runs in line with every routed decision a spawn asks for.
-var dialTimeout = 500 * time.Millisecond
-
-// endpointReachable reports whether something answers at base's host and
-// port, remembering the answer for reachTTL.
-//
-// agent.Available reports a local endpoint as available the moment its
-// address is a loopback one, without asking whether anything is listening
-// there -- which is right for the picker, where picking a stopped Ollama and
-// finding out is the user's own choice, but wrong here: routing to it would
-// cut the helper's worktree, start its pane, and only then learn the pane
-// could never connect, with nothing left to discard the worktree afterwards.
-func endpointReachable(base string) bool {
-	u, err := url.Parse(base)
-	if err != nil || u.Host == "" {
-		return false
-	}
-	host := u.Host
-	if u.Port() == "" {
-		port := "80"
-		if u.Scheme == "https" {
-			port = "443"
-		}
-		host = net.JoinHostPort(u.Hostname(), port)
-	}
-	now := time.Now()
-	reach.Lock()
-	if got, ok := reach.seen[host]; ok && now.Sub(got.at) < reachTTL {
-		reach.Unlock()
-		return got.ok
-	}
-	reach.Unlock()
-
-	ok := dialReachable(host)
-	reach.Lock()
-	reach.seen[host] = reachResult{ok: ok, at: now}
-	reach.Unlock()
-	return ok
-}
-
-// dialReachable is the dial itself, a variable so a test can answer without
-// a real socket.
-var dialReachable = func(host string) bool {
-	conn, err := net.DialTimeout("tcp", host, dialTimeout)
-	if err != nil {
-		return false
-	}
-	conn.Close()
-	return true
 }
 
 // routeNote says why routing can do nothing for work on a model, or "" when
@@ -271,7 +196,7 @@ func routingOf(c *agent.Catalog, root string) *routingView {
 
 // crossAgentNoteFor names, for the rules a policy applies, another agent a
 // cross-agent rule points at that could never be routed to as things stand --
-// no address, a model it does not offer, or one with no tier -- so Settings
+// a model it does not offer, or one with no tier -- so Settings
 // says what is missing rather than routing quietly doing nothing about it.
 func crossAgentNoteFor(c *agent.Catalog, policy agent.RoutingPolicy) string {
 	if !policy.CrossAgent {
@@ -284,9 +209,6 @@ func crossAgentNoteFor(c *agent.Catalog, policy agent.RoutingPolicy) string {
 		spec, ok := c.Find(r.Agent)
 		if !ok {
 			continue // named in the notice already, by Catalog.Notice
-		}
-		if agent.TakesAddress(spec) && spec.API.BaseURL == "" {
-			return "Rule '" + r.Name + "' names " + spec.Name + ", which has no address yet; give it one in Settings › Agents."
 		}
 		m, ok := findModelIn(spec, r.Model)
 		switch {

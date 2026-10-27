@@ -91,27 +91,37 @@ func (w *Workspace) BatonSource(paneID string) (BatonSource, error) {
 	}, nil
 }
 
-// apiSpecs are the agents in the catalog that talk to a model API. It reads the
+// apiSpecs are the agents in the catalog that have a key (agent.Spec.TakesKey). It reads the
 // catalog and nothing else.
 func (w *Workspace) apiSpecs() []agent.Spec {
 	var out []agent.Spec
 	for _, spec := range w.agents().Specs {
-		if spec.Runner == agent.RunnerAPI {
+		if spec.TakesKey() {
 			out = append(out, spec)
 		}
 	}
 	return out
 }
 
-// keyValues are the API keys Flockdeck can see for the agents in its catalog,
-// from the environment and from its own store. It reads the key store, so it is
-// not for the workspace goroutine.
+// keyValues are the API keys Flockdeck can see, from the environment and from
+// its own store. It reads the key store, so it is not for the workspace
+// goroutine.
 func (w *Workspace) keyValues() []string { return keyValuesOf(w.apiSpecs()) }
 
+// keyValuesOf are the keys of the given agents, from the environment and the
+// store, and every key in the store whether or not the catalog has an agent for
+// it: a key saved for an agent that has since left the catalog is still a
+// secret, and must not reach a baton or a handoff.
 func keyValuesOf(specs []agent.Spec) []string {
 	var out []string
 	for _, spec := range specs {
 		if k := creds.Resolve(spec); k.Set() {
+			out = append(out, k.Secret())
+		}
+	}
+	ids, _ := creds.Names()
+	for _, id := range ids {
+		if k := creds.Resolve(agent.Spec{ID: id}); k.Set() {
 			out = append(out, k.Secret())
 		}
 	}
@@ -140,7 +150,7 @@ func (s BatonSource) Readable() bool {
 
 // activity reads what the conversation did, for the two agents that have a
 // reader: a followed Claude Code conversation, with full command lines, and
-// the chat client's stream, with the lines as its labels keep them.
+// any other agent's stream, with the lines as its labels keep them.
 func (s BatonSource) activity() baton.Activity {
 	if ex, ok := transcript.ExporterFor(s.Spec); ok {
 		// Reduced as the events arrive, so a long session is not held in memory

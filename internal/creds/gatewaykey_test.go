@@ -10,12 +10,12 @@ import (
 // A built-in pointed at a gateway keeps OPENAI_API_KEY in its entry. The key
 // exported there is the user's for OpenAI: it is not the gateway's key, it is
 // not said to be, and a key stored for the agent is not handed to its pane
-// under that name either, where the chat would read it as the vendor's.
+// under that name either, where it would be read as the vendor's.
 func TestAGatewayedBuiltInUsesItsStoredKeyNotTheVendors(t *testing.T) {
 	isolateConfig(t)
 	t.Setenv("FLOCKDECK_API_KEY", "")
 	t.Setenv("OPENAI_API_KEY", "sk-test-vendor")
-	gw := agent.Spec{ID: "openai", Runner: agent.RunnerAPI, API: agent.APISpec{
+	gw := agent.Spec{ID: "openai", API: agent.APISpec{
 		Wire: "openai", BaseURL: "https://gw.example/v1", KeyEnv: []string{"OPENAI_API_KEY"}}}
 
 	if k := Resolve(gw); k.Set() {

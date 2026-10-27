@@ -13,7 +13,7 @@ code_paths: [Makefile]
 | Target | What it runs |
 |---|---|
 | `build` | `go build` to `flockdeck` (`flockdeck.exe` plus `flockdeck-chat.exe` on Windows) |
-| `install` | `go install`; on Windows also builds the chat twin into the Go bin dir |
+| `install` | `go install`; on Windows also builds the console twin into the Go bin dir |
 | `test` | `go test ./...` |
 | `race` | `CGO_ENABLED=1 go test -race ./...` (needs a C toolchain) |
 | `vet`, `fmt`, `check` | `go vet ./...`, `gofmt -l -w .`, `vet` then `test` |
@@ -21,4 +21,4 @@ code_paths: [Makefile]
 | `package` | `go run ./cmd/release -version $(VERSION) -out dist`; see [release tool](/tools/release.md) |
 | `installer` | Windows only: builds `flockdeck.exe`, fetches the WebView2 bootstrapper if absent, runs `makensis` on `build/windows/nsis/project.nsi` |
 
-Windows binaries link with `-H=windowsgui`. The second Windows binary, `flockdeck-chat`, is the same program linked as a console program; see [windows chat twin](/gotchas/windows-chat-console-twin.md).
+Windows binaries link with `-H=windowsgui`. The second Windows binary, `flockdeck-chat`, is the same program linked as a console program, for the commands Claude Code runs and the update step; see [windows console twin](/gotchas/windows-chat-console-twin.md).

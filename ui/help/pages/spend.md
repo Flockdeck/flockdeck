@@ -11,13 +11,12 @@ Two small figures sit after the tool name, before the processor and memory figur
 
 Hover over either one for the rest: every window and when it resets, the tokens in, cached and out, and where the money figure came from.
 
-Nothing is shown for an agent that reports nothing. Today that is every agent except Claude Code and the built-in API agents.
+Nothing is shown for an agent that reports nothing. Today that is every agent except Claude Code.
 
 ## Every money figure is an estimate
 
 No figure here is your bill, and each one is written with `~` to say so.
 
-- **The built-in API agents** count the tokens of every call exactly, and Flockdeck prices them from a table of published prices compiled into the app, for Anthropic's, OpenAI's and Google's models. It is the same table the picker shows prices from. The tooltip says the date the prices were checked. A model is priced only when its id is one the table names, or a dated snapshot of one; any other is shown in tokens only, because a made-up price is worse than none.
 - **Claude Code** works out its own session cost at list prices, and the header shows that figure, marked as Claude Code's own. It can differ from what you are charged: for example, a data-residency premium or a negotiated rate is not in it.
 
 Tokens are exact and carry no `~`.

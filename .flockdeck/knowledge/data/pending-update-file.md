@@ -13,7 +13,7 @@ Lives in `<state>/updates/` (`selfupdate.Dir`), beside the `staging` directory h
 |---|---|
 | `version` | Release tag staged. |
 | `binary` | Path of the staged program. |
-| `chat` | Path of the staged Windows console twin, when the release has one. |
+| `chat` | Path of the staged Windows console twin (`flockdeck-chat.exe`), when the release has one. |
 | `notes`, `url` | Release notes and page. |
 | `staged` | UTC time staged. |
 | `chosen` | Set by `StageChosen` (version picker): applied at next start without re-checking `Newer`. |

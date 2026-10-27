@@ -184,8 +184,8 @@ function Install-Flockdeck {
         if (-not (Test-Path (Join-Path $unpacked 'flockdeck.exe'))) { throw "flockdeck: $archive has no flockdeck.exe in it" }
 
         New-Item -ItemType Directory -Force -Path $dir | Out-Null
-        # flockdeck-chat.exe is the console twin an API agent's pane runs,
-        # because flockdeck.exe itself gets no console there. Releases before it
+        # flockdeck-chat.exe is the console twin Claude Code's hook and status
+        # line commands run, because flockdeck.exe itself gets no console there. Releases before it
         # have none, so it goes in when the archive has one and is not missed
         # when it does not. The archive's checksum covers both.
         foreach ($name in 'flockdeck.exe', 'flockdeck-chat.exe') {
@@ -236,10 +236,8 @@ function Install-Flockdeck {
             } catch { }
         }
         if ($latestVersion -and (Test-ReleaseNewer $latestVersion $version)) {
-            # flockdeck.exe has no console to draw `update`'s progress on
-            # (see cli.md's `chat` section); its twin does, and Apply
-            # resolves the program to replace from it, exactly as it does
-            # for `flockdeck-chat chat`.
+            # flockdeck.exe has no console to draw `update`'s progress on;
+            # its twin does, and Apply resolves the program to replace from it.
             $updater = Join-Path $dir 'flockdeck-chat.exe'
             if (-not (Test-Path $updater)) { $updater = $dest }
             & $updater update

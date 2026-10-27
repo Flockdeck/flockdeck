@@ -163,22 +163,6 @@ func TestBuildArgvDashDash(t *testing.T) {
 	}
 }
 
-// TestBuildArgvAPIRunnerLeavesTheProgramToTheCaller: only the running process
-// knows where its own executable is, so an API runner's argv starts at the
-// first flag and workspace puts `flockdeck chat` in front of it.
-func TestBuildArgvAPIRunnerLeavesTheProgramToTheCaller(t *testing.T) {
-	spec := normalizeAll([]Spec{anthropicAPISpec()})[0]
-	got := BuildArgv(spec, false, Tokens{Session: "s", Model: "claude-sonnet-5", Prompt: "hello"})
-	want := []string{"--agent", "anthropic", "--wire", "anthropic", "--key-env", "ANTHROPIC_API_KEY",
-		"--model", "claude-sonnet-5", "--session", "s", "hello"}
-	if !slices.Equal(got, want) {
-		t.Errorf("argv\n got %q\nwant %q", got, want)
-	}
-	if len(got) > 0 && got[0] == spec.Exe && spec.Exe != "" {
-		t.Error("an API runner must not name a program of its own")
-	}
-}
-
 // TestTokensValue covers the names an `if` may use, including the spellings
 // that reach it from a hand-written agents.json.
 func TestTokensValue(t *testing.T) {
@@ -268,9 +252,6 @@ func TestBuiltinCLIAgentsAreBriefed(t *testing.T) {
 		"aider":        ContextTask,
 		"opencode":     ContextPrompt,
 		"cursor-agent": ContextPrompt,
-		"anthropic":    ContextHook,
-		"openai":       ContextHook,
-		"google":       ContextHook,
 	}
 	got := map[string]ContextMode{}
 	for _, s := range normalizeAll(Builtins()) {

@@ -3,7 +3,7 @@
 This page covers the main design choices. [Building from source](building.md)
 covers how to work on the code.
 
-> Direction (27 Oct 2026): Flockdeck is moving to run every agent over ACP: no terminal-pane agents, no `flockdeck chat`, no inbox or typed wake, no task board. The sections below describe the code as it is today; the removals are planned, not done. See [ACP direction](acp-direction.md).
+> Direction (27 Oct 2026): Flockdeck is moving to run every agent over ACP: no terminal-pane agents, no inbox or typed wake, no task board. The sections below describe the code as it is today; the removals are planned, not done. See [ACP direction](acp-direction.md).
 
 ## The window
 
@@ -80,14 +80,13 @@ and replaces it. `-solo` starts a separate instance instead.
   a few lines of JSON. That is why a second agent did not become a second copy of
   every feature. An agent that supports none of those capabilities still works as
   a terminal with a program in it, and each feature falls back instead of failing.
-- The API agent is the same binary. Talking to a model API directly is a
-  subcommand, `flockdeck chat`, run in the pane's own terminal. It reports the same
-  lifecycle events over the same loopback endpoint as a CLI agent's hooks, so
-  nothing in the workspace learns a second protocol, and there is still one
-  program to install. On Windows it also ships as `flockdeck-chat.exe`, linked for
-  the console, because the window build gets none in a pane.
+- There is one program to install. On Windows it also ships as
+  `flockdeck-chat.exe`, the same program linked for the console, because the window
+  build gets no console in a pane. Claude Code's hook and status-line commands run
+  it, and so does the installer's update step. Flockdeck once had its own chat
+  client that talked to a model API; it has been removed.
 
-  Direction (27 Oct 2026): `flockdeck chat` is planned for removal; API keys will stay in Settings and be passed to the agent's environment. See [ACP direction](acp-direction.md).
+  Direction (27 Oct 2026): API keys stay in Settings and will be passed to an agent's environment. See [ACP direction](acp-direction.md).
 - Emulation happens in the browser. xterm.js renders the terminal and encodes
   keystrokes for whatever modes the application has enabled, so raw bytes pass
   through Go untouched in both directions. Go never has to reimplement a terminal.
@@ -109,10 +108,8 @@ and replaces it. `-solo` starts a separate instance instead.
 For an agent that reports its own lifecycle, a pane's status is not screen
 scraping. Claude Code is launched with a generated `--settings` file that registers
 its lifecycle hooks (`UserPromptSubmit`, `PreToolUse`, `Notification`, `Stop` and
-the rest), and the chat client reports the same event names itself. A Claude Code
-event re-invokes the same binary in a hidden `hook` mode, and the chat client
-sends its own. Either way the event is posted to a loopback server the app runs,
-authenticated with a per-run token. The settings are additive, so your own
+the rest). Each event re-invokes the same binary in a hidden `hook` mode, which
+posts it to a loopback server the app runs, authenticated with a per-run token. The settings are additive, so your own
 settings, hooks and permissions still apply.
 
 The one key the generated file can take over is `statusLine`, because Claude Code
@@ -295,8 +292,8 @@ interface: where a conversation is, what was last said in it, and what the
 directory has. Claude Code's implementation is the original one. Its transcripts
 live in a folder derived from the working directory, and since that name mangling
 is Claude Code's business, a folder that does not match is found by reading which
-directory its transcripts record. The built-in chat client keeps JSONL of its own,
-which resuming one of its panes reads. An agent that writes nothing Flockdeck can
+directory its transcripts record. Claude Code is the only agent with a reader
+today. An agent that writes nothing Flockdeck can
 read adds nothing to the list, and every caller copes with that without a special
 case. A conversation already open in a pane is shown as open and not offered a
 second time, because two panes on one transcript would fight.

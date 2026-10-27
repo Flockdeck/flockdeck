@@ -190,14 +190,9 @@ var agentTypeAllowed = map[string]map[string]agentTypeAllow{
 	"internal/workspace/panesend.go": {
 		"Workspace.SendToPaneThen | p.Sess": {1, "types into a terminal session; a structured pane is sent its prompt through its runtime just above"},
 	},
-	"internal/workspace/provider.go": {
-		"BatonProviderWith | spec.Runner == agent.RunnerAPI": {1, "the catalog entry's runner"},
-	},
 	"internal/server/agents.go": {
 		// The agents list describes the catalog, which is where an agent's runner
 		// and id are meant to be read. It does not read a pane.
-		"modelViews | spec.Runner == agent.RunnerAPI":         {1, "the catalog entry's runner, to list its models"},
-		"addressNotice | spec.ID == agent.OpenAICompatibleID": {1, "the catalog entry's id, for the endpoint address notice"},
 	},
 	"internal/server/control.go": {
 		"Server.snapshot | pv.Kind != \"shell\"": {1, "the pane view's own kind word, shell or agent, set from the pane; T51 moves it to the runtime"},

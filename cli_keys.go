@@ -9,13 +9,12 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/jmwri/flockdeck/internal/agent"
-	"github.com/jmwri/flockdeck/internal/chat"
+	"github.com/jmwri/flockdeck/internal/apikey"
 	"github.com/jmwri/flockdeck/internal/creds"
 )
 
@@ -43,7 +42,7 @@ func runKeys(args []string) error {
 	return keysCmd(args, k)
 }
 
-// `flockdeck keys` is dispatched by main, beside `hook`, `spawn` and `chat`.
+// `flockdeck keys` is dispatched by main, beside `hook` and `spawn`.
 
 // keysIO is where the subcommand reads the key from and writes its output to,
 // gathered so the command can be driven by a test without a terminal. A nil
@@ -90,15 +89,6 @@ func keysCmd(args []string, kio keysIO) error {
 			return fmt.Errorf("usage: flockdeck keys check <agent>, where <agent> is one of %s", strings.Join(keyAgentIDs(), ", "))
 		}
 		return keysCheck(args[1], kio.out)
-	case "endpoint", "url":
-		if len(args) != 2 && len(args) != 3 {
-			keysUsage(kio.out)
-			return fmt.Errorf("usage: flockdeck keys endpoint <agent> [<url> | default], where <agent> is one of %s", strings.Join(keyAgentIDs(), ", "))
-		}
-		if len(args) == 2 {
-			return keysShowEndpoint(args[1], kio.out)
-		}
-		return keysSetEndpoint(args[1], args[2], kio.out)
 	case "-h", "--help", "help":
 		keysUsage(kio.out)
 		return nil
@@ -114,9 +104,7 @@ func keysUsage(out io.Writer) {
 	fmt.Fprintf(out, "  set <agent>    read a key from standard input and store it\n")
 	fmt.Fprintf(out, "  clear <agent>  forget a stored key\n")
 	fmt.Fprintf(out, "  check <agent>  ask the agent's endpoint whether it takes the key a pane would use\n")
-	fmt.Fprintf(out, "  endpoint <agent> [<url> | default]\n")
-	fmt.Fprintf(out, "                 show the address an agent talks to, or change it: a local\n")
-	fmt.Fprintf(out, "                 model server, a gateway; default goes back to the vendor's\n\n")
+	fmt.Fprintf(out, "\n")
 	fmt.Fprintf(out, "The key is read from standard input so it stays out of your shell history.\n")
 	fmt.Fprintf(out, "An agent whose key is already exported in the environment needs none of this.\n")
 }
@@ -152,25 +140,8 @@ func keysList(out io.Writer) error {
 			width = len(s.Agent)
 		}
 	}
-	// Where an agent talks to somewhere other than its vendor, that is said
-	// beside its key: the two are what decide whether a pane can answer, and
-	// this listing is where somebody checking either one looks.
-	endpoints := map[string]string{}
-	for _, s := range specs {
-		endpoints[s.ID] = s.API.BaseURL
-	}
 	for _, s := range statuses {
-		line := s.Describe()
-		if u := endpoints[s.Agent]; u != "" {
-			if s.NotNeeded && !s.Set {
-				// Already said to talk to a model on this machine; the
-				// address says which, rather than saying it again.
-				line += ", at " + redactURL(u)
-			} else {
-				line += "; talks to " + redactURL(u)
-			}
-		}
-		fmt.Fprintf(out, "%-*s  %s\n", width, s.Agent, line)
+		fmt.Fprintf(out, "%-*s  %s\n", width, s.Agent, s.Describe())
 	}
 	return nil
 }
@@ -273,13 +244,13 @@ func checkKey(agentID, key string, out io.Writer) (refused bool) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	switch err := chat.CheckKey(ctx, spec.API.Wire, spec.API.BaseURL, key); {
+	switch err := apikey.CheckKey(ctx, spec.API.Wire, spec.API.BaseURL, key); {
 	case err == nil:
 		fmt.Fprintf(out, "checked: the API accepted it\n")
-	case errors.Is(err, chat.ErrKeyRefused):
+	case errors.Is(err, apikey.ErrKeyRefused):
 		fmt.Fprintf(out, "but %v: check it was copied whole, and run this again to replace it\n", err)
 		return true
-	case errors.Is(err, chat.ErrUnreachable):
+	case errors.Is(err, apikey.ErrUnreachable):
 		where := "the vendor's endpoint"
 		if spec.API.BaseURL != "" {
 			where = redactURL(spec.API.BaseURL)
@@ -321,26 +292,30 @@ func keysClear(agentID string, out io.Writer) error {
 	return nil
 }
 
+// storedKey is the key `flockdeck keys set` stored for an agent, or "". It is
+// apikey.KeyStore for `flockdeck keys check`.
+func storedKey(agentID string) string {
+	return creds.Resolve(agent.Spec{ID: agentID}).Secret()
+}
+
 // keysCheck asks the agent's endpoint whether it takes the key a pane would
 // use now -- from the environment or the store, whichever wins -- and says
 // where that key comes from, never what it is. A pane told its key was
 // refused, with one key in the environment and another stored, otherwise left
 // nobody able to say which of the two it was.
 //
-// The key is found by the chat's own lookup, given the options a pane of the
+// The key is found by apikey.KeyFor, given the options a pane of the
 // agent starts with and the store: the agent's own variables, then its stored
-// key, then FLOCKDECK_API_KEY (agent.KeyNames). A pane finds the same one,
-// whether the chat reads the store itself or is handed the stored key under
-// the agent's first variable (creds.Env), since that variable is empty when it
-// is. The chat used to look in FLOCKDECK_API_KEY before the store, so this
-// checked that variable while a pane, handed its stored key, sent that.
+// key, then FLOCKDECK_API_KEY (agent.KeyNames). A pane is handed the stored key under the
+// agent's first variable (creds.Env), which is empty when there is none, so it
+// finds the same one.
 func keysCheck(agentID string, out io.Writer) error {
 	spec, err := keyAgentSpec(agentID)
 	if err != nil {
 		return err
 	}
-	chat.KeyStore = storedKey
-	key, from := chat.KeyFor(chat.Options{
+	apikey.KeyStore = storedKey
+	key, from := apikey.KeyFor(apikey.Target{
 		Agent: spec.ID, Wire: spec.API.Wire, BaseURL: spec.API.BaseURL, KeyEnv: spec.API.KeyEnv,
 	})
 	if key == "" {
@@ -349,70 +324,6 @@ func keysCheck(agentID string, out io.Writer) error {
 	}
 	fmt.Fprintf(out, "%s's key is the one %s; asking its endpoint\n", agentID, from)
 	checkKey(agentID, key, out)
-	return nil
-}
-
-// keysShowEndpoint says which address an agent talks to.
-func keysShowEndpoint(agentID string, out io.Writer) error {
-	spec, err := keyAgentSpec(agentID)
-	if err != nil {
-		return err
-	}
-	if spec.API.BaseURL == "" {
-		fmt.Fprintf(out, "%s talks to the vendor's own endpoint\n", agentID)
-		return nil
-	}
-	fmt.Fprintf(out, "%s talks to %s\n", agentID, redactURL(spec.API.BaseURL))
-	return nil
-}
-
-// keysSetEndpoint changes the address an agent talks to, in agents.json.
-//
-// Pointing an agent at a local model server or a gateway is one address, and
-// it was the one setting of an API agent that could only be changed by opening
-// agents.json and knowing that it goes under api.baseURL in an entry with the
-// agent's id. Only that field is touched: whatever else the entry and the file
-// hold is written back as it was.
-func keysSetEndpoint(agentID, address string, out io.Writer) error {
-	if _, err := keyAgentSpec(agentID); err != nil {
-		return err
-	}
-	builtin := false
-	for _, s := range agent.Builtins() {
-		builtin = builtin || s.ID == agentID
-	}
-	if address == "default" {
-		if !builtin {
-			// An agent of the user's own is the address it was given; without
-			// one it would be talking to whichever vendor its wire names.
-			return fmt.Errorf("%s is an agent of your own, and has no default address to go back to; give it another one instead", agentID)
-		}
-		address = ""
-	} else {
-		u, err := url.Parse(address)
-		switch {
-		case err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "":
-			return fmt.Errorf("give the address as http://host:port/... or https://..., for example http://127.0.0.1:11434/v1")
-		case u.User != nil:
-			// Said without repeating the address, which has a secret in it.
-			return fmt.Errorf("the address has a name or password in it; store the key with `flockdeck keys set %s` and give the address without it", agentID)
-		}
-	}
-	path, err := agent.ConfigPath()
-	if err != nil {
-		return err
-	}
-	// The same save as the picker's address field: an agent's entries each
-	// lose their address but the last, and every spelling of the key goes.
-	if err := agent.SetBaseURL(filepath.Dir(path), agentID, address); err != nil {
-		return err
-	}
-	if address == "" {
-		fmt.Fprintf(out, "%s talks to the vendor's own endpoint again\n", agentID)
-	} else {
-		fmt.Fprintf(out, "%s now talks to %s\n", agentID, address)
-	}
-	fmt.Fprintf(out, "new panes use it; one already running keeps the address it started with until it is restarted\n")
 	return nil
 }
 
@@ -481,13 +392,13 @@ func isMsysPtyName(name string) bool {
 }
 
 // keysAgents is the list of agents that can want a key: the catalog, with the
-// user's agents.json merged in, of which creds.StatusAll keeps the API runners.
+// user's agents.json merged in, of which creds.StatusAll keeps those that take
+// one.
 //
-// It is the catalog rather than a list of its own so that `keys list` says what
-// a pane will actually find. A list kept here had drifted from it -- it named
-// ANTHROPIC_AUTH_TOKEN, which nothing that starts a pane reads, and so reported
-// a key as set for an agent that would then fail for want of one -- and it
-// could not see an agent the user had added.
-func keysAgents() []agent.Spec {
+// No catalog entry takes a key since `flockdeck chat` and the API runners were
+// removed, so `flockdeck keys` has nothing to list until board task T202 gives
+// agents keys that are passed to their adapters. It is a variable so that the
+// tests can stand in for those agents.
+var keysAgents = func() []agent.Spec {
 	return agent.Load().Specs
 }

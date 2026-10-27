@@ -34,32 +34,41 @@ func unknownFields(id string, raw json.RawMessage) []string {
 		if specFields[strings.ToLower(key)] || retiredFields[strings.ToLower(key)] {
 			continue
 		}
-		msg := fmt.Sprintf("agent %q: %q is not something an agent has", id, key)
-		if apiFields[strings.ToLower(key)] {
-			msg = fmt.Sprintf("agent %q: %q belongs inside \"api\"", id, key)
-		}
-		problems = append(problems, msg)
-	}
-	// The keys inside "api" are read the same way and pass over a stranger
-	// just as quietly: an "api" given a "url" rather than a "baseURL" left the
-	// endpoint the vendor's own, and the agent greyed out, with nothing said.
-	for key, raw := range keys {
-		var api map[string]json.RawMessage
-		if !strings.EqualFold(key, "api") || json.Unmarshal(raw, &api) != nil {
-			continue
-		}
-		for inner := range api {
-			switch lower := strings.ToLower(inner); {
-			case apiFields[lower]:
-			case specFields[lower]:
-				problems = append(problems, fmt.Sprintf("agent %q: %q belongs beside \"api\", not inside it", id, inner))
-			default:
-				problems = append(problems, fmt.Sprintf("agent %q: %q in \"api\" is not something an endpoint has; it takes wire, baseURL and keyEnv", id, inner))
-			}
-		}
+		problems = append(problems, fmt.Sprintf("agent %q: %q is not something an agent has", id, key))
 	}
 	sort.Strings(problems)
 	return problems
+}
+
+// retiredAPI says why an entry written for the API runner is refused, or ""
+// for any other. The runner started `flockdeck chat`, which is gone: read as a
+// command-line agent, an entry with an "api" block or the runner "api" would
+// start a program named for its id. It is refused whole and the built-in it was
+// written over stays as it was.
+//
+// An entry that names one of the removed built-ins (anthropic, openai, google,
+// openai-compatible) and gives no program is refused the same way: it was a
+// setting for that built-in, and read on its own it would become a command-line
+// agent that starts a program named for the id.
+// removedBuiltins are the ids of the agents that ran on the API runner.
+var removedBuiltins = map[string]bool{"anthropic": true, "openai": true, "google": true, "openai-compatible": true}
+
+func retiredAPI(id string, raw json.RawMessage) string {
+	var keys map[string]json.RawMessage
+	if json.Unmarshal(raw, &keys) != nil {
+		return ""
+	}
+	if _, hasExe := keys["exe"]; !hasExe && removedBuiltins[id] {
+		return fmt.Sprintf("agent %q: the API runner (flockdeck chat) was removed, so this entry is ignored", id)
+	}
+	for key, v := range keys {
+		var runner string
+		if strings.EqualFold(key, "api") ||
+			strings.EqualFold(key, "runner") && json.Unmarshal(v, &runner) == nil && strings.EqualFold(strings.TrimSpace(runner), "api") {
+			return fmt.Sprintf("agent %q: the API runner (flockdeck chat) was removed, so this entry is ignored", id)
+		}
+	}
+	return ""
 }
 
 // retiredFields are keys an agents.json entry may still carry that no build
@@ -73,7 +82,6 @@ var retiredFields = map[string]bool{"switch": true}
 
 var (
 	specFields = jsonFields(reflect.TypeFor[Spec]())
-	apiFields  = jsonFields(reflect.TypeFor[APISpec]())
 )
 
 // jsonFields is the set of keys a struct decodes, in lower case, read from its
@@ -176,7 +184,7 @@ var anyToken = regexp.MustCompile(`\{\{\s*([^{}]*?)\s*\}\}`)
 // tokenNames lists the tokens for a notice that has to name them.
 const tokenNames = "session, model, settings, prompt, cwd and pane"
 
-// checkRunner settles a runner written by hand into one of the three there are.
+// checkRunner settles a runner written by hand into one of the two there are.
 //
 // Anything else was taken at its word and matched neither: "API" in capitals
 // started a pane whose command line began "--agent", with no program in front
@@ -186,10 +194,10 @@ const tokenNames = "session, model, settings, prompt, cwd and pane"
 func checkRunner(s *Spec) []string {
 	r := Runner(strings.ToLower(strings.TrimSpace(string(s.Runner))))
 	switch r {
-	case RunnerCLI, RunnerAPI, RunnerACP, "":
+	case RunnerCLI, RunnerACP, "":
 		s.Runner = r
 		return nil
 	}
 	s.Runner = ""
-	return []string{fmt.Sprintf("agent %q: runner %q is none of \"cli\", \"api\" and \"acp\"", s.ID, r)}
+	return []string{fmt.Sprintf("agent %q: runner %q is none of \"cli\" and \"acp\"", s.ID, r)}
 }

@@ -5,9 +5,9 @@ name: agent-compat
 # already catches Flockdeck's own mistakes in the catalog
 # (TestBuiltinsPassTheirOwnChecks in internal/agent) on every PR, with no
 # external dependency; this file is the slower, external half -- a real CLI
-# installed and asked for its own --help, a real API asked to accept a model,
-# and a real Claude pane run end to end -- which only ever changes when a
-# vendor changes something Flockdeck did not. So it runs on a schedule rather
+# installed and asked for its own --help, and a real Claude pane run end to
+# end -- which only ever changes when a vendor changes something Flockdeck did
+# not. So it runs on a schedule rather
 # than on every pull request and every push to main the way test.yml does.
 #
 # The one PR-time exception is a change to internal/agent/builtin.go itself,
@@ -23,8 +23,7 @@ name: agent-compat
 # this repository's secrets, and a job that went red for that would be noise
 # nobody trusted for long. What each job actually asserts is written into the
 # Go tests it calls (internal/agent/cliflags_test.go,
-# internal/chat/livemodels_test.go, internal/server/agentlivesmoke_test.go),
-# not duplicated here.
+# internal/server/agentlivesmoke_test.go), not duplicated here.
 on:
   schedule:
     # Sunday, 06:00 UTC. Slow, spends real API usage against the secrets
@@ -104,33 +103,6 @@ jobs:
       - name: Check ${{ matrix.id }}'s flags against its own --help
         run: go test ./internal/agent/... -run "TestBuiltinCLIFlagsAreStillReal/${{ matrix.id }}" -v -timeout 5m
 
-  live-api-models:
-    # Whether every model a built-in API agent lists is still accepted by its
-    # vendor, asked live -- the Gemini-preview-retirement scenario builtin.go's
-    # own comments already worry about. An agent whose key secret is not set
-    # here is skipped by the test itself rather than failing the job, so a
-    # fork's run -- which GitHub gives none of this repository's secrets --
-    # goes green having checked nothing rather than red for lacking what only
-    # a run in this repository carries.
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7
-        with:
-          persist-credentials: false
-
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: go.mod
-          cache: true
-
-      - name: Ask each vendor whether its listed models are still accepted
-        env:
-          FLOCKDECK_LIVE_AGENT_TESTS: "1"
-          ANTHROPIC_API_KEY: ${{ secrets.FLOCKDECK_CI_ANTHROPIC_API_KEY }}
-          OPENAI_API_KEY: ${{ secrets.FLOCKDECK_CI_OPENAI_API_KEY }}
-          GEMINI_API_KEY: ${{ secrets.FLOCKDECK_CI_GEMINI_API_KEY }}
-        run: go test ./internal/chat/... -run TestLiveModelsAreAccepted -v -timeout 10m
-
   claude-smoke-pane:
     # The one built-in whose capabilities are claimed rather than guessed
     # (hooks, resume, transcript, trust), exercised end to end: a real pane
@@ -139,7 +111,7 @@ jobs:
     # hooks report -- not one Flockdeck infers from its output -- and a real
     # restart under claudeSpec's ResumeArgs (--resume). Needs claude installed
     # and a key it can run under; the test itself skips when either is
-    # missing, for the same reason live-api-models does.
+    # missing, for the same reason a fork's run skips instead of failing.
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7

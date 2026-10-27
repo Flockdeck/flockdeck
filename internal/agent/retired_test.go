@@ -14,16 +14,16 @@ import (
 func TestRetiredSwitchKeyIsPassedOver(t *testing.T) {
 	dir := t.TempDir()
 	write(t, dir, `{"version":1,"agents":[
-		{"id":"openai","defaultModel":"gpt-5.6-luna","switch":"/model {{model}}"},
+		{"id":"codex","defaultModel":"gpt-5.6-luna","switch":"/model {{model}}"},
 		{"id":"mine","name":"Mine","runner":"cli","exe":"mine","switch":"/model {{modle}}"}
 	]}`)
 	c := LoadFrom(dir)
 	if c.Notice != "" {
 		t.Errorf("notice = %q, want none for a retired key", c.Notice)
 	}
-	spec, ok := c.Find("openai")
+	spec, ok := c.Find("codex")
 	if !ok || spec.DefaultModel != "gpt-5.6-luna" {
-		t.Errorf("openai = %+v, want the entry's other fields to apply", spec)
+		t.Errorf("codex = %+v, want the entry's other fields to apply", spec)
 	}
 	if mine, ok := c.Find("mine"); !ok || mine.Exe != "mine" {
 		t.Errorf("mine = %+v, want the entry to load", mine)
@@ -32,12 +32,12 @@ func TestRetiredSwitchKeyIsPassedOver(t *testing.T) {
 
 func TestRetiredSwitchKeyIsKeptWhenTheFileIsSaved(t *testing.T) {
 	dir := t.TempDir()
-	write(t, dir, `{"version":1,"agents":[{"id":"openai","switch":"/model {{model}}"}]}`)
+	write(t, dir, `{"version":1,"agents":[{"id":"codex","switch":"/model {{model}}"}]}`)
 	f, err := ReadConfig(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.Defaults.Agent = "openai"
+	f.Defaults.Agent = "codex"
 	if err := WriteConfig(dir, f); err != nil {
 		t.Fatal(err)
 	}
@@ -109,20 +109,5 @@ func TestFileWithoutAVersionLoads(t *testing.T) {
 	write(t, dir, `{"defaults":{"agent":"codex"}}`)
 	if c := LoadFrom(dir); c.Notice != "" || c.Defaults.Agent != "codex" {
 		t.Errorf("notice = %q, default = %q", c.Notice, c.Defaults.Agent)
-	}
-}
-
-// Codex and the OpenAI API agent offer the same models, from one list.
-func TestCodexAndOpenAIShareTheirModels(t *testing.T) {
-	codex, _ := Merge(nil).Find("codex")
-	openai, _ := Merge(nil).Find("openai")
-	if len(codex.Models) != len(openai.Models)+1 || codex.Models[0].ID != "" {
-		t.Fatalf("codex has %d models, openai %d; want the Default entry and the shared four", len(codex.Models), len(openai.Models))
-	}
-	for i, m := range openai.Models {
-		got := codex.Models[i+1]
-		if got.ID != m.ID || got.Name != m.Name || got.Tier != m.Tier {
-			t.Errorf("model %d: codex %+v, openai %+v", i, got, m)
-		}
 	}
 }

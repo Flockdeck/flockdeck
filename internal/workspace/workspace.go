@@ -32,7 +32,6 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/jmwri/flockdeck/internal/agent"
-	"github.com/jmwri/flockdeck/internal/creds"
 	"github.com/jmwri/flockdeck/internal/gitx"
 	"github.com/jmwri/flockdeck/internal/hooks"
 	"github.com/jmwri/flockdeck/internal/layout"
@@ -1969,8 +1968,8 @@ func (w *Workspace) startPane(p *Pane, resume bool) {
 			return
 		}
 		// A CLI runner is somebody else's program and may simply not be on the
-		// machine; an API runner is this binary, which is by definition here.
-		if spec.Runner != agent.RunnerAPI && spec.Exe != "" {
+		// machine.
+		if spec.Exe != "" {
 			if _, err := exec.LookPath(spec.Exe); err != nil {
 				p.Err = missingCLI(spec)
 				return
@@ -1998,9 +1997,7 @@ func (w *Workspace) startPane(p *Pane, resume bool) {
 		// a settings file; for the rest the pane's status comes from watching
 		// what it prints, and writing one would leave a file behind per pane
 		// that nothing ever reads. Nor does one whose arguments never name the
-		// file: `flockdeck chat` reports its lifecycle as well, but is told
-		// where in its environment, and every API pane wrote Claude Code's
-		// hook settings -- and could run `claude --version` to choose them.
+		// file.
 		if spec.Caps.Hooks && session.WantsSettings(spec) {
 			// Which events and which form of hook to write depend on the Claude
 			// Code that will read them, so the one asked is the program this
@@ -2048,18 +2045,6 @@ func (w *Workspace) startPane(p *Pane, resume bool) {
 		}
 		argv = agent.BuildArgv(spec, resuming, tokens)
 		extra := append([]string{}, spec.Env...)
-		if spec.Runner == agent.RunnerAPI {
-			// An API agent is Flockdeck's own chat client. BuildArgv leaves the
-			// program off because only this side knows where the running
-			// binary is — and on Windows the program is the console build
-			// beside it, since the release itself gets no console to print to.
-			argv = append([]string{session.ChatExe(w.selfExe), "chat"}, argv...)
-			// A key Flockdeck is keeping for this agent goes into the environment
-			// of this pane and no other. One the user has already exported is
-			// inherited and needs nothing added, so nothing is: a second copy
-			// of a secret is a second place it can be read from.
-			extra = append(extra, creds.Env(spec)...)
-		}
 		env = w.environ(append(extra, w.paneEnv(p, spec.ID, model)...)...)
 	}
 
@@ -3797,16 +3782,13 @@ func (w *Workspace) OpenConversation(id, cwd, title string) error {
 }
 
 // OpenConversationAs is OpenConversation for a conversation the history panel
-// knows the agent of. That agent is tried ahead of the rest: every API agent
-// keeps its transcripts in the chat client's one folder, so without it an
-// OpenAI conversation was reopened as whichever API agent came first.
+// knows the agent of. That agent is tried ahead of the rest.
 func (w *Workspace) OpenConversationAs(id, cwd, title, agentID string) error {
 	if id == "" {
 		return fmt.Errorf("no conversation given")
 	}
 	// The id arrives from the window and becomes the pane's id, which is a
-	// file name in more than one place: the chat client's transcript, the
-	// pane's settings file, removed again when the pane goes. One naming a
+	// file name in more than one place: the pane's settings file, removed again when the pane goes. One naming a
 	// directory, or the way out of one, would have those read, written and
 	// removed somewhere else. No conversation an agent records is named so.
 	if strings.ContainsAny(id, `/\`) || strings.Contains(id, "..") {
@@ -3844,9 +3826,7 @@ func (w *Workspace) OpenConversationAs(id, cwd, title, agentID string) error {
 	// agent can reattach to it, whichever agent this project opens new panes
 	// with. The one the listing named is asked first, then Claude Code, being
 	// where every conversation from before there were other agents lives, then
-	// the rest in catalog order. Every API agent is the same chat client
-	// keeping one folder of transcripts, so a chat conversation nobody named
-	// goes to the first of them.
+	// the rest in catalog order.
 	c := w.agents()
 	specs := c.Specs
 	if claude, ok := c.Find("claude"); ok {

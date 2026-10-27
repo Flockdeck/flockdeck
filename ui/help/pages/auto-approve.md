@@ -89,7 +89,7 @@ would run instead of it, when no `flockdeck` is found on the PATH at all, or
 when the PATH has a `~` entry. Words must be
 separated by single spaces.
 
-This works for agents that report their tool calls to Flockdeck (Claude Code)
-and for the built-in chat client. Other command-line agents have approval
+This works for agents that report their tool calls to Flockdeck (Claude Code).
+Other command-line agents have approval
 modes of their own, which Flockdeck does not change; their briefings say how to
 allow `flockdeck inbox`.

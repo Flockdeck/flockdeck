@@ -11,7 +11,7 @@ Part of [/ws/control](/api/ws-control.md). All `accessFull`.
 
 | Family | `cmd` | Reply message | File |
 |---|---|---|---|
-| Agent catalog | `agents`, `refreshAgents`, `setAgentDefault`, `setAgentAddress` | `agents`, `agentAddress` | `agents.go` |
+| Agent catalog | `agents`, `refreshAgents`, `setAgentDefault` | `agents` | `agents.go` |
 | Start | `startAgent` (`agent`, `model`, `role`, `task`, `worktree`, `root`) | `agentStarted` {paneId, id}, or a notice | `spawn.go` |
 | API keys | `keys`, `keySet` (`id`, `text`), `keyClear` | `keys` (status only, never values) | `keys.go` |
 | Jev key | `jevKey` (`kind`, `text`) | `jevKey` | `jevkey.go` |

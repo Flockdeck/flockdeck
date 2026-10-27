@@ -496,7 +496,6 @@ code (`internal/session/transcript`):
 | Agent | Stores a conversation Flockdeck can read? | What a transcript holds |
 | --- | --- | --- |
 | **Claude Code** | Yes: `<claude home>/projects/<folder>/<conversation>.jsonl`, under `CLAUDE_CONFIG_DIR` if the agent's catalog entry sets it | Everything in section 3. Gaps below. |
-| **Claude API**, **OpenAI API** (and the other built-in chat client agents) | Flockdeck's own chat client keeps its conversations itself, but no transcript can be made from them yet | Nothing: recording and export say so, and write no file. |
 | **Codex**, **Gemini CLI**, **Aider**, **opencode**, **Cursor Agent** | No: nothing Flockdeck has a reader for | Nothing: recording and export say so, and write no file. |
 
 Turning recording on for a pane whose agent has no readable conversation is

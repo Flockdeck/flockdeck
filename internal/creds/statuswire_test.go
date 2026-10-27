@@ -6,7 +6,7 @@ import (
 	"github.com/jmwri/flockdeck/internal/agent"
 )
 
-// A key the chat would use -- the wire's usual variable, for an entry naming
+// A key a pane would use -- the wire's usual variable, for an entry naming
 // none of its own at the vendor's own address -- is shown as set, and where
 // from, as the picker already counts it. A gateway given just an address is
 // never sent the vendor's variable, so it is not shown as having that key:
@@ -20,12 +20,12 @@ func TestAKeyInTheWiresUsualVariableIsShownAsSet(t *testing.T) {
 	}
 	t.Setenv("OPENAI_API_KEY", "sk-test-wire")
 
-	vendor := agent.Spec{ID: "oa", Runner: agent.RunnerAPI, API: agent.APISpec{Wire: "openai", BaseURL: "https://api.openai.com/v1"}}
+	vendor := agent.Spec{ID: "oa", API: agent.APISpec{Wire: "openai", BaseURL: "https://api.openai.com/v1"}}
 	if st := StatusOf(vendor); !st.Set || st.Source != SourceEnv || st.Env != "OPENAI_API_KEY" {
 		t.Errorf("status %+v, want set from OPENAI_API_KEY at OpenAI's own address", st)
 	}
 
-	gw := agent.Spec{ID: "gw", Runner: agent.RunnerAPI, API: agent.APISpec{Wire: "openai", BaseURL: "https://gw.example/v1"}}
+	gw := agent.Spec{ID: "gw", API: agent.APISpec{Wire: "openai", BaseURL: "https://gw.example/v1"}}
 	if st := StatusOf(gw); st.Set {
 		t.Errorf("status %+v for a gateway with only OPENAI_API_KEY exported, want not set", st)
 	}
@@ -43,7 +43,7 @@ func TestAKeyInTheWiresUsualVariableIsShownAsSet(t *testing.T) {
 	}
 	t.Setenv("FLOCKDECK_API_KEY", "")
 
-	bare := agent.Spec{ID: agent.OpenAICompatibleID, Runner: agent.RunnerAPI, API: agent.APISpec{Wire: "openai"}}
+	bare := agent.Spec{ID: "openai-compatible", API: agent.APISpec{Wire: "openai"}}
 	if st := StatusOf(bare); st.Set {
 		t.Errorf("status %+v for an endpoint with no address, want not set", st)
 	}

@@ -97,7 +97,7 @@ func (w *Workspace) PaneDetailsOf(id string, files bool) (PaneDetails, bool) {
 		return d, true
 	}
 	// The stored conversation is wherever the agent's reader says, which
-	// is a real file for Claude Code and for Flockdeck's own API agents, and ""
+	// is a real file for Claude Code, and ""
 	// for an agent with no reader or while the file is not there yet. It does
 	// not need an exporter: only the transcript rows below do.
 	d.StoredPath = transcript.For(spec).Path(spec, conv)

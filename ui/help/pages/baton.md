@@ -15,7 +15,7 @@ things stand** (the agent's last words, quoted) and **Not in your checkout** (th
 uncommitted files) come from facts. **Goal** is the pane's task or your first
 prompt. **Decisions and why**, **Open questions** and **Constraints** start empty,
 because a decision Flockdeck invented would be acted on. An empty section is not
-sent. Only Claude Code and Flockdeck's chat client keep a conversation Flockdeck
+sent. Only Claude Code keeps a conversation Flockdeck
 can read; for other agents the draft is built from git and the task, and says so.
 
 ## Secrets

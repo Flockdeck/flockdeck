@@ -1,8 +1,7 @@
 // Package pricing is what a model costs, as its provider publishes it.
 //
-// It is the one table the application states a price in. The chat client adds
-// up what a conversation has spent from it, the picker shows it beside a model,
-// and routing weighs a switch of model against it. Nothing else in the code
+// It is the one table the application states a price in. The spend rollups
+// price tokens from it, and routing weighs a switch of model against it. Nothing else in the code
 // states a price.
 //
 // It is short and it is meant to be: a made-up price is worse than no price at

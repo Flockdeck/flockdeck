@@ -140,8 +140,8 @@ func (s *Server) noStoredKeyNotice(agentID string) string {
 }
 
 // keysChanged redraws the dialog and has the machine asked about the agents
-// again: an API agent can be started exactly when it has a key, so the picker
-// should stop greying it out the moment it has one rather than when the
+// again: an agent that takes a key can be started exactly when it has one, so the
+// picker should stop greying it out the moment it has one rather than when the
 // cached answer happens to go stale.
 func (s *Server) keysChanged(c *controlClient) {
 	s.listKeys(c)

@@ -64,7 +64,8 @@ it.
   where `agents.json` is, since that is where they are edited, and **Clear
   routing history** empties that log, which nothing adds to now.
   [Agents and models](#agents) has the rest.
-- **API keys**: set, replace or clear the key each API agent uses. A key is
+- **API keys**: set, replace or clear the key an agent uses. No built-in agent
+  takes one today, so the list of agents is empty until one does. A key is
   never shown once it is set. Keys are set and cleared only at the desk: a
   window reached through the relay shows which are set, and no more. Below the
   agents, **TypeSafe API key** is where you paste, replace or clear the key
@@ -132,11 +133,8 @@ two pages: pick a section to open it, and **← All settings** goes back.
   themselves are edited by hand. Kept in `agents.json`.
 - Whether Claude panes read their usage limits: **Agents & models ›
   Claude Code's usage limits** in the settings. Kept in `prefs.json`.
-- An API agent's key: **API keys** in the settings, [[action:apiKeys]], or
+- An agent's API key: **API keys** in the settings, [[action:apiKeys]], or
   `flockdeck keys set <agent>`. Kept in `keys.json`. At the desk only.
-- Where an API agent sends its prompts: its address, in the agent picker,
-  or `flockdeck keys endpoint <agent> <url>`. Kept in `agents.json`. At the
-  desk only.
 - A tab's name: double-click the tab, press F2 while the keyboard is on
   it, or **Rename this tab…** in the command palette. An empty name, or **Use the automatic title** there, goes
   back to the title the tab gives itself. Kept with the layout.
@@ -220,7 +218,6 @@ set).
 - `sessions`: the settings file written for each pane whose agent reports its
   status, which also carries the pane's status line where that goes through
   Flockdeck.
-- `chats`: the built-in chat client's conversations.
 - `groups.json`: the multi-repo projects' grouping.
 - `todos.json`: the saved todo checklists of an older version. Nothing reads it now; it is left alone.
 - `worktree-procs.json`: processes recorded for worktrees, so they can be
@@ -265,18 +262,10 @@ elsewhere) and start Flockdeck again.
   TypeSafe API key** is used first; this is the fallback when none
   is set there. No other variable is ever tried. Without a key nothing is ever
   sent.
-- `ANTHROPIC_API_KEY`, `OPENAI_API_KEY` and `GEMINI_API_KEY` (or
-  `GOOGLE_API_KEY`): keys for the API agents talking to those vendors' own
-  addresses, used before anything in `keys.json`. An agent given another
-  address, such as a gateway's, is never sent them.
-- `FLOCKDECK_API_KEY`: a key for any API agent, used when neither its own
-  variables nor `keys.json` hold one.
+- `FLOCKDECK_API_KEY`: a key for any agent that takes one, used when neither its
+  own variables nor `keys.json` hold one.
 - `CLAUDE_CONFIG_DIR`: where Claude Code keeps its own files; Flockdeck follows
   it to find conversations and folder trust.
-- `NO_COLOR`: the built-in chat client draws without colour.
-- `FLOCKDECK_COLUMNS`: the width the built-in chat client wraps its answers
-  at. Without it the client follows the pane's width, falling back to
-  `COLUMNS` and then 80.
 - `SHELL`: the shell a shell pane runs, as a login shell; `/bin/sh` if it is
   unset or names a program that is not there. On Windows a shell pane runs
   `pwsh` if it is installed, then the shell `COMSPEC` names, then Windows

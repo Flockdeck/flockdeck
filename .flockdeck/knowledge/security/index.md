@@ -9,7 +9,6 @@
 * [Baton entropy detector](baton-entropy-detector.md) - The third scrubbing layer, which removes long random-looking runs while keeping paths, URLs, identifiers and hashes.
 * [Baton scrubbing and prompt fencing](baton-scrubbing.md) - The layers that remove secrets from a baton and keep its text from being read as instructions or markup.
 * [Baton secret shapes](baton-secret-shapes.md) - The second scrubbing layer's own patterns for config files, headers, URLs, cookies and code, and the exemptions that keep placeholders and amounts.
-* [Chat client key and endpoint safety](chat-api-key-handling.md) - Rules in the chat client and agent catalog that keep API keys from being sent to the wrong host or printed.
 * [Claude Code folder trust inheritance](claude-folder-trust-inheritance.md) - Flockdeck copies an existing trust answer from one directory to a new worktree and never invents one.
 * [Paired device access roles](device-access-roles.md) - Per-device full or viewer role stored in prefs, failing closed to viewer.
 * [Git program scan before commit, push, pull, fetch](git-program-scan.md) - Flockdeck lists the programs a repository's git config and hooks would run and warns when they are new or changed.

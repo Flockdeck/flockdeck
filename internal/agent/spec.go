@@ -1,7 +1,7 @@
 // Package agent describes the coding agents Flockdeck can run in a pane.
 //
 // A pane is either a shell or an agent, and an agent is a Spec -- a program to
-// run, or an API to talk to -- together with the model it was asked for. Every
+// run, together with the model it was asked for. Every
 // Claude-specific decision Flockdeck once made in line is a field here, so that a
 // second agent is a table entry rather than another branch.
 package agent
@@ -17,9 +17,6 @@ type Runner string
 const (
 	// RunnerCLI runs an external command in the pane's pseudo-terminal.
 	RunnerCLI Runner = "cli"
-	// RunnerAPI runs Flockdeck's own chat client in the pane, talking directly to
-	// a model API. The command is `flockdeck chat`; the Spec says which endpoint.
-	RunnerAPI Runner = "api"
 	// RunnerACP runs an agent that speaks the Agent Client Protocol on its
 	// standard input and output, in a structured pane with no terminal. What to
 	// start comes from the adapter manifest through Spec.ACP, not from Exe and
@@ -122,11 +119,14 @@ type Arg struct {
 	Args []Arg `json:"args,omitempty"`
 }
 
-// APISpec describes an HTTP model API for the built-in chat client.
+// APISpec describes the model API an agent's key is for: which wire it speaks,
+// where it is, and which variables carry its key. No catalog entry has one
+// now (Merge refuses an "api" block); it stays as the shape board task T202's
+// per-agent keys are built on, and `flockdeck keys` reads it.
 type APISpec struct {
-	// Wire is the request shape: "anthropic", "openai" or "gemini". An
-	// OpenAI-compatible endpoint -- Ollama, LM Studio, vLLM, a gateway -- is
-	// "openai" with a BaseURL of its own.
+	// Wire is the shape of the endpoint's API, which the key check speaks:
+	// "anthropic", "openai" or "gemini". An OpenAI-compatible endpoint --
+	// Ollama, LM Studio, vLLM, a gateway -- is "openai" with a BaseURL of its own.
 	Wire string `json:"wire,omitempty"`
 	// BaseURL is the endpoint root; empty means the vendor's own.
 	BaseURL string `json:"baseURL,omitempty"`
@@ -285,6 +285,13 @@ func onlyToken(s string) string {
 	return ""
 }
 
+// TakesKey reports whether the entry describes a model API that a key is for.
+// No catalog entry does now (Merge refuses an "api" block), so nothing is
+// offered a key until board task T202 gives agents their own.
+func (s Spec) TakesKey() bool {
+	return s.API.Wire != "" || s.API.BaseURL != "" || len(s.API.KeyEnv) > 0
+}
+
 // BuildArgv turns a Spec into the argv for one pane. The first element is the
 // program; resolving it on PATH is the caller's job.
 //
@@ -298,15 +305,12 @@ func BuildArgv(s Spec, resume bool, t Tokens) []string {
 		args = s.ResumeArgs
 	}
 	out := make([]string, 0, len(args)+2)
-	// An API runner is Flockdeck's own chat client: the caller puts its binary and
-	// the "chat" subcommand in front, because only the caller knows where the
-	// running binary lives.
 	if s.Runner == RunnerACP {
 		// A structured pane has no terminal and no command line of this kind:
 		// the adapter manifest says what to start.
 		return nil
 	}
-	if s.Runner != RunnerAPI && s.Exe != "" {
+	if s.Exe != "" {
 		out = append(out, s.Exe)
 	}
 	return appendArgs(out, args, s, t, false)

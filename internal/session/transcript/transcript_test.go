@@ -28,13 +28,13 @@ func TestForChoosesAReaderFromTheSpec(t *testing.T) {
 		want Reader
 	}{
 		{"claude", claudeSpec, Claude{}},
-		{"an API agent", agent.Spec{ID: "openai", Runner: agent.RunnerAPI, Caps: agent.Caps{Transcript: true}}, Chat{}},
 		{"a CLI that records nothing Flockdeck reads",
 			agent.Spec{ID: "codex", Runner: agent.RunnerCLI, Caps: agent.Caps{Transcript: true}}, Null{}},
 		{"a CLI with no transcript at all", agent.Spec{ID: "aider", Runner: agent.RunnerCLI}, Null{}},
 		// Transcript is what gates all of this, so an agent that claims none
 		// gets the null reader whatever else it is.
-		{"an API agent with no transcript", agent.Spec{ID: "local", Runner: agent.RunnerAPI}, Null{}},
+		{"an agent that claims no transcript", agent.Spec{ID: "claude", Runner: agent.RunnerCLI, Exe: "claude"}, Null{}},
+		{"a program with no reader that says it has a transcript", agent.Spec{ID: "local", Runner: agent.RunnerCLI, Exe: "local", Caps: agent.Caps{Transcript: true}}, Null{}},
 		{"a shell pane, which is no agent at all", agent.Spec{}, Null{}},
 	}
 	for _, c := range cases {
@@ -158,19 +158,16 @@ func TestAllLabelsEveryConversationWithItsAgent(t *testing.T) {
 	writeTranscript(t, claudeDir, "11111111-1111-1111-1111-111111111111",
 		`{"type":"user","cwd":"`+jsonPath(cwd)+`","message":{"role":"user","content":"the claude one"}}`)
 
-	chatDir := writeChats(t, map[string][]string{
-		"22222222-2222-2222-2222-222222222222": {
-			`{"type":"user","ts":1,"cwd":"` + jsonPath(cwd) + `","text":"the api one"}`,
-		},
-	})
-
 	now := time.Now()
 	touch(t, filepath.Join(claudeDir, "11111111-1111-1111-1111-111111111111.jsonl"), now.Add(-time.Hour))
-	touch(t, filepath.Join(chatDir, "22222222-2222-2222-2222-222222222222.jsonl"), now)
+
+	other := agent.Spec{ID: "other", Runner: agent.RunnerCLI, Exe: "other", Caps: agent.Caps{Transcript: true}}
+	readers["other"] = fixedReader{Conversation{ID: "22222222-2222-2222-2222-222222222222", Summary: "the other one", Modified: now}}
+	t.Cleanup(func() { delete(readers, "other") })
 
 	// An agent that records nothing contributes nothing, and must not stop the
 	// two that do from being listed.
-	specs := []agent.Spec{claudeSpec, chatSpec, {ID: "codex", Runner: agent.RunnerCLI}}
+	specs := []agent.Spec{claudeSpec, other, {ID: "codex", Runner: agent.RunnerCLI}}
 	got, err := All(specs, cwd)
 	if err != nil {
 		t.Fatalf("All: %v", err)
@@ -178,12 +175,22 @@ func TestAllLabelsEveryConversationWithItsAgent(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("listed %d conversations, want 2: %+v", len(got), got)
 	}
-	if got[0].Agent != "anthropic" || got[0].Summary != "the api one" {
-		t.Errorf("first row = %+v, want the most recent, from the API agent", got[0])
+	if got[0].Agent != "other" || got[0].Summary != "the other one" {
+		t.Errorf("first row = %+v, want the most recent, from the other agent", got[0])
 	}
 	if got[1].Agent != "claude" || got[1].Summary != "the claude one" {
 		t.Errorf("second row = %+v, want Claude's", got[1])
 	}
+}
+
+// fixedReader stands in for an agent whose store holds the conversations it is
+// made from.
+type fixedReader []Conversation
+
+func (fixedReader) Path(agent.Spec, string) string           { return "" }
+func (fixedReader) Replies(agent.Spec, string, int) []string { return nil }
+func (r fixedReader) Conversations(spec agent.Spec, _ string) ([]Conversation, error) {
+	return label(spec.ID, append([]Conversation(nil), r...)), nil
 }
 
 // failingReader stands in for an agent whose store cannot be read at all.
@@ -220,220 +227,21 @@ func TestAllKeepsWhatItFoundWhenOneAgentCannotBeRead(t *testing.T) {
 	}
 }
 
-// TestAgentsIsTheCatalog covers what the history overlay lists. It was Claude
-// alone until something pointed it at the catalog, and nothing did, so an API
-// agent's chats were recorded and never offered.
+// TestAgentsIsTheCatalog covers what the history overlay lists: the catalog's
+// agents, so that one with a reader is offered.
 func TestAgentsIsTheCatalog(t *testing.T) {
 	base := t.TempDir()
 	t.Setenv("APPDATA", base)
 	t.Setenv("XDG_CONFIG_HOME", base)
 	t.Setenv("HOME", base)
 
-	var claude, api bool
+	var claude bool
 	for _, spec := range Agents() {
-		switch For(spec).(type) {
-		case Claude:
+		if _, ok := For(spec).(Claude); ok {
 			claude = true
-		case Chat:
-			api = true
 		}
 	}
-	if !claude || !api {
-		t.Errorf("Agents() reads Claude's store: %v, the chat client's: %v; want both", claude, api)
-	}
-}
-
-// TestChatRepliesStartAtAClear covers /clear in a chat pane, which the chat
-// client marks in the file rather than starting a new one. A fan-out asked
-// after it read the plan the user had just cleared away.
-func TestChatRepliesStartAtAClear(t *testing.T) {
-	const id = "11111111-1111-1111-1111-111111111111"
-	writeChats(t, map[string][]string{id: {
-		`{"type":"user","text":"plan it"}`,
-		`{"type":"assistant","text":"- the old plan"}`,
-		`{"type":"clear"}`,
-	}})
-	if got := (Chat{}).Replies(chatSpec, id, 4); len(got) != 0 {
-		t.Errorf("Replies = %q straight after a clear, want nothing", got)
-	}
-
-	writeChats(t, map[string][]string{id: {
-		`{"type":"user","text":"plan it"}`,
-		`{"type":"assistant","text":"- the old plan"}`,
-		`{"type":"clear"}`,
-		`{"type":"user","text":"plan again"}`,
-		`{"type":"assistant","text":"- the new plan"}`,
-	}})
-	if got := (Chat{}).Replies(chatSpec, id, 4); len(got) != 1 || got[0] != "- the new plan" {
-		t.Errorf("Replies = %q, want only what was said since the clear", got)
-	}
-}
-
-// TestAChatWithNoModelGoesToAnAgentWithoutOne covers a chat whose pane asked
-// for no model, which it only does when its agent has no default to ask for --
-// a local endpoint left to choose. Put under the first API agent instead, it
-// offered to carry on a local model's conversation through Anthropic.
-func TestAChatWithNoModelGoesToAnAgentWithoutOne(t *testing.T) {
-	cwd := filepath.Join(t.TempDir(), "myrepo")
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	const id = "11111111-1111-1111-1111-111111111111"
-	writeChats(t, map[string][]string{id: {
-		`{"type":"user","cwd":"` + jsonPath(cwd) + `","text":"hi"}`,
-		`{"type":"assistant","cwd":"` + jsonPath(cwd) + `","text":"hello"}`,
-	}})
-	api := func(id, model string) agent.Spec {
-		return agent.Spec{ID: id, Runner: agent.RunnerAPI, DefaultModel: model, Caps: agent.Caps{Transcript: true, Resume: true}}
-	}
-	got, err := All([]agent.Spec{api("anthropic", "claude-sonnet-5"), api("openai", "gpt-5"), api("local", "")}, cwd)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 1 || got[0].Agent != "local" {
-		t.Errorf("listed %+v, want the chat under the agent with no default model", got)
-	}
-}
-
-// TestAllListsEachChatOnceUnderItsAgent covers the chat folder every API agent
-// shares. Asked once per API agent, it listed every chat under every one of
-// them, each row offering to resume it through a different endpoint.
-func TestAllListsEachChatOnceUnderItsAgent(t *testing.T) {
-	cwd := filepath.Join(t.TempDir(), "myrepo")
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	line := func(typ, extra string) string {
-		return `{"type":"` + typ + `","cwd":"` + jsonPath(cwd) + `","text":"hi"` + extra + `}`
-	}
-	writeChats(t, map[string][]string{
-		// The model that answered says which agent offers it.
-		"11111111-1111-1111-1111-111111111111": {line("user", ""), line("assistant", `,"model":"gpt-5"`)},
-		"22222222-2222-2222-2222-222222222222": {line("user", ""), line("assistant", `,"model":"claude-sonnet-5"`)},
-		// A recorded agent wins over the model: two agents can offer one.
-		"33333333-3333-3333-3333-333333333333": {line("user", `,"agent":"openai"`), line("assistant", `,"model":"claude-sonnet-5"`)},
-		// Nothing to go on leaves the first API agent.
-		"44444444-4444-4444-4444-444444444444": {line("user", "")},
-	})
-
-	anthropic := chatSpec
-	anthropic.Models = []agent.Model{{ID: "claude-sonnet-5"}}
-	openai := agent.Spec{ID: "openai", Runner: agent.RunnerAPI, DefaultModel: "gpt-5", Caps: agent.Caps{Transcript: true, Resume: true}}
-	got, err := All([]agent.Spec{claudeSpec, anthropic, openai}, cwd)
-	if err != nil {
-		t.Fatal(err)
-	}
-	held := map[string]string{}
-	for _, c := range got {
-		if _, twice := held[c.ID]; twice {
-			t.Errorf("%s is listed more than once", c.ID)
-		}
-		held[c.ID] = c.Agent
-	}
-	want := map[string]string{
-		"11111111-1111-1111-1111-111111111111": "openai",
-		"22222222-2222-2222-2222-222222222222": "anthropic",
-		"33333333-3333-3333-3333-333333333333": "openai",
-		"44444444-4444-4444-4444-444444444444": "anthropic",
-	}
-	for id, agentID := range want {
-		if held[id] != agentID {
-			t.Errorf("%s is listed under %q, want %q", id, held[id], agentID)
-		}
-	}
-}
-
-// TestAClaudeEntryUnderAnotherNameIsReadAsClaude covers a second Claude
-// account, which is run as a catalog entry of its own: "claude-work", running
-// claude with CLAUDE_CONFIG_DIR set. The reader was chosen by the entry's id,
-// so that one got none -- its history listed nothing and a restart found
-// nothing to resume -- and an entry on the same account as the built-in one,
-// once it did get a reader, would list every conversation twice.
-func TestAClaudeEntryUnderAnotherNameIsReadAsClaude(t *testing.T) {
-	forgetTranscripts()
-	t.Cleanup(forgetTranscripts)
-	cwd := filepath.Join(t.TempDir(), "repo")
-	own := t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", own)
-	work := t.TempDir()
-	const mine, theirs = "55555555-5555-5555-5555-555555555555", "66666666-6666-6666-6666-666666666666"
-	writeTranscript(t, filepath.Join(own, "projects", projectSlug(cwd)), mine,
-		`{"type":"user","cwd":"`+jsonPath(cwd)+`","message":{"role":"user","content":"on my own account"}}`)
-	writeTranscript(t, filepath.Join(work, "projects", projectSlug(cwd)), theirs,
-		`{"type":"user","cwd":"`+jsonPath(cwd)+`","message":{"role":"user","content":"on the work account"}}`)
-
-	workSpec := claudeSpec
-	workSpec.ID = "claude-work"
-	workSpec.Exe = `C:\Tools\Claude\claude.EXE`
-	workSpec.Env = []string{"CLAUDE_CONFIG_DIR=" + work}
-	if r := For(workSpec); r != (Claude{}) {
-		t.Fatalf("For(%s running %s) = %T, want Claude", workSpec.ID, workSpec.Exe, r)
-	}
-	if !Exists(workSpec, theirs) {
-		t.Error("the work account's conversation was not found to resume")
-	}
-
-	// A third entry, on the built-in one's account: an npm install's claude.
-	again := claudeSpec
-	again.ID = "claude-npm"
-	again.Exe = "claude.cmd"
-	got, err := All([]agent.Spec{claudeSpec, workSpec, again}, cwd)
-	if err != nil {
-		t.Fatal(err)
-	}
-	held := map[string][]string{}
-	for _, c := range got {
-		held[c.ID] = append(held[c.ID], c.Agent)
-	}
-	if a := held[mine]; len(a) != 1 || a[0] != "claude" {
-		t.Errorf("the own account's conversation is listed under %q, want once, under claude", a)
-	}
-	if a := held[theirs]; len(a) != 1 || a[0] != "claude-work" {
-		t.Errorf("the work account's conversation is listed under %q, want once, under claude-work", a)
-	}
-}
-
-// BenchmarkFirstPromptOfAPaste measures tidying an opening prompt that was a
-// pasted log a megabyte long, of which the history overlay shows 160
-// characters.
-func BenchmarkFirstPromptOfAPaste(b *testing.B) {
-	paste := "here is the log:\n" + strings.Repeat("2026-09-13 12:00:00 INFO  request served in 3ms\n", 1<<20/48)
-	b.ReportAllocs()
-	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
-		if got := firstPrompt(paste); len([]rune(got)) != 161 {
-			b.Fatalf("got %d runes", len([]rune(got)))
-		}
-	}
-}
-
-// TestFirstPromptIsTidiedAsItWas holds the prompt shown for a row to what it
-// was when the whole prompt was split into words and joined again: runs of
-// white space of any kind made one space, and anything past 160 characters
-// cut off with an ellipsis.
-func TestFirstPromptIsTidiedAsItWas(t *testing.T) {
-	joined := func(s string) string {
-		s = strings.TrimSpace(s)
-		if s == "" || isSyntheticPrompt(s) {
-			return ""
-		}
-		s = strings.Join(strings.Fields(s), " ")
-		if len([]rune(s)) > 160 {
-			s = string([]rune(s)[:160]) + "…"
-		}
-		// A byte that is not UTF-8 was kept as it was in a short prompt and
-		// made the replacement character in a long one; encoded as JSON for the
-		// window it was the replacement character either way, and now is here.
-		return string([]rune(s))
-	}
-	word := strings.Repeat("é", 159)
-	for _, in := range []string{
-		"", "   ", "fix the build", "  fix\tthe \n\n build  ",
-		"a b c　d", // spaces a person does not type as such
-		strings.Repeat("x", 160), strings.Repeat("x", 161), strings.Repeat("x", 500),
-		word + " y", word + "  yz", word + "y", word + "\n",
-		strings.Repeat("ab ", 100),
-		"bad \xff\xfe bytes", strings.Repeat("\xff", 200),
-		"<system-reminder>be nice</system-reminder>", "  <command-name>/cost</command-name>",
-	} {
-		if got, want := firstPrompt(in), joined(in); got != want {
-			t.Errorf("firstPrompt(%q)\n = %q\nwant %q", in, got, want)
-		}
+	if !claude {
+		t.Error("Agents() does not read Claude's store")
 	}
 }

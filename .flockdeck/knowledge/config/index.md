@@ -1,6 +1,5 @@
 # Configuration and environment variables
 
-* [FLOCKDECK_AGENT, _MODEL, _WIRE, _BASE_URL, _KEY_ENV](chat-flag-env.md) - Environment stand-ins for the flockdeck chat flags of the same names.
 * [CLAUDE_CODE_GIT_BASH_PATH](claude-code-git-bash-path.md) - Claude Code's Git Bash location on Windows, read so Flockdeck quotes hook and status-line commands for the same shell.
 * [CLAUDE_CODE_POWERSHELL_RESPECT_EXECUTION_POLICY](claude-code-powershell-respect-execution-policy.md) - When set, Flockdeck stops passing -ExecutionPolicy Bypass when it runs a status line command through PowerShell.
 * [CLAUDE_CONFIG_DIR](claude-config-dir.md) - Claude Code's own config directory override, read by Flockdeck to find transcripts, trust answers and settings.
@@ -10,7 +9,6 @@
 * [FLOCKDECK_ALLOWED_HOSTS](flockdeck-allowed-hosts.md) - Extra Host header values the loopback server answers to, for reaching the UI through another name.
 * [FLOCKDECK_API_KEY](flockdeck-api-key.md) - Fallback API key used by any agent that has no key of its own.
 * [FLOCKDECK_API](flockdeck-api.md) - Loopback address of the instance a pane belongs to; set in each pane's environment.
-* [FLOCKDECK_COLUMNS](flockdeck-columns.md) - Forces the line width of the chat client's output.
 * [FLOCKDECK_DETACH](flockdeck-detach.md) - Environment form of the -detach flag: keep running without a window.
 * [FLOCKDECK_DETACHED](flockdeck-detached.md) - Internal marker the -detach re-launch sets on its child process (Unix builds).
 * [FLOCKDECK_DIR](flockdeck-dir.md) - Default workspace directory for the root command; the environment form of -C.

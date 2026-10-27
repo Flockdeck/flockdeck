@@ -47,7 +47,7 @@ func TestSaveRestoreKeepsTheAgentRoutingMovedFrom(t *testing.T) {
 	root := t.TempDir()
 
 	ws := newTestWorkspace(t, root)
-	ws.NewTabWith(Choice{Kind: session.KindClaude, Agent: "openai-compatible", Model: "qwen2.5-coder"}, root, "routed")
+	ws.NewTabWith(Choice{Kind: session.KindClaude, Agent: "gemini", Model: "gemini-2.5-flash"}, root, "routed")
 	id := ws.CurrentTab().Focus
 	p := ws.Pane(id)
 	p.Routed, p.RoutedFrom, p.RoutedFromAgent = "tests go local", "sonnet", "claude"

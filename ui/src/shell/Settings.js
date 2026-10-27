@@ -110,7 +110,7 @@ export function Settings({ prefs, change, onClose, section: first = "general", c
             ${shown === "keys" ? html`<${Keys} keys=${ctx.keys || null} remote=${!!ctx.remote} send=${ctx.send} news=${ctx.news || ""} jev=${ctx.jev || null} />` : null}
             ${shown === "status" ? html`<${JevStatus} prefs=${prefs} change=${change} remote=${!!ctx.remote} jev=${ctx.jev || null} send=${ctx.send} />` : null}
             ${shown === "routing" ? html`<${Routing} agents=${ctx.agents || null} project=${ctx.project || ""} send=${ctx.send} />` : null}
-            ${shown === "agents" ? html`<${AgentSettings} agents=${ctx.agents || null} project=${ctx.project || ""} answer=${ctx.addressAnswer || null} remote=${!!ctx.remote} send=${ctx.send} />` : null}
+            ${shown === "agents" ? html`<${AgentSettings} agents=${ctx.agents || null} project=${ctx.project || ""} remote=${!!ctx.remote} send=${ctx.send} />` : null}
             ${shown === "wake" ? html`<${Wake} wake=${prefs.wake} agents=${ctx.agents || null} panes=${ctx.panes || []} remote=${!!ctx.remote} send=${ctx.send} />` : null}
             ${shown === "keyboard" ? html`<${Keybindings} keys=${ctx.table || null} send=${ctx.send} page=${ctx.page || null} onRecording=${ctx.onRecording} />` : null}
             ${shown === "remote"

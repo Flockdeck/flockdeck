@@ -31,7 +31,7 @@ reached through the relay.
 
 **Only agents that store their conversation in a form Flockdeck can read have
 anything to record or export.** That is Claude Code today. For Codex, Gemini
-CLI, Aider, opencode, Cursor Agent and the built-in chat clients, Flockdeck says
+CLI, Aider, opencode and Cursor Agent, Flockdeck says
 so, and nothing is exported; turning recording on for one is refused, saying so.
 A conversation is one file, so only one pane at a time can record it: turning
 recording on in a second pane showing the same conversation is refused.

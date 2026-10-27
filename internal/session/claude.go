@@ -354,9 +354,8 @@ func quoteArgFor(goos, s string) string {
 // notificationType is only meaningful for a Notification event; it is
 // Claude Code's own notification_type, and what tells its idle nudge
 // (idlePromptNotification) -- sent about a minute after a pane has simply
-// gone quiet -- apart from a real ask: a permission prompt, an MCP
-// elicitation, or Flockdeck's own chat client naming the tool it wants
-// permission for.
+// gone quiet -- apart from a real ask: a permission prompt, or an MCP
+// elicitation.
 func StatusForEvent(event, tool, notificationType string) (Status, string, bool) {
 	switch event {
 	case "SessionStart":
@@ -384,8 +383,8 @@ func StatusForEvent(event, tool, notificationType string) (Status, string, bool)
 		// the Stop before it left it, same as an event this switch does not
 		// know at all.
 		//
-		// Claude's own ask names no tool; Flockdeck's own chat client names
-		// the one it is asking permission for.
+		// Claude's own ask names no tool; one that names a tool is another
+		// agent asking permission for it.
 		if notificationType == idlePromptNotification {
 			return StatusIdle, "", false
 		}

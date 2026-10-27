@@ -134,7 +134,7 @@ func TestUnknownRunnerAndAdapterAreRefused(t *testing.T) {
 		json.RawMessage(`{"id":"opencode-acp","acp":{"adapter":"nothing"}}`),
 	}})
 	for _, want := range []string{
-		`runner "mcp" is none of "cli", "api" and "acp"`,
+		`runner "mcp" is none of "cli" and "acp"`,
 		`"nothing" is not an adapter this build knows`,
 		`agent "c": a structured agent needs`,
 	} {

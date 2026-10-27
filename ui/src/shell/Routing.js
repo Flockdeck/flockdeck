@@ -51,7 +51,7 @@ export function Routing({ agents, project, send }) {
       <${Pick} id="set-route-strategy-list" label="set-route-strategy-label" options=${STRATEGIES} value=${policy.strategy} onPick=${(v) => set("strategy", v, all)} />
     <//>
     <${Row} id="set-route-cross" label="Routing across agents"
-      about=${"A rule may name another agent's model as well as a smaller or stronger model of this one, such as a local model through an OpenAI-compatible endpoint. That pane runs a different program, with its own login, tools and transcript. Off until you turn it on, " + (own ? "for this project." : "for every project.")}>
+      about=${"A rule may name another agent's model as well as a smaller or stronger model of this one, such as a local model. That pane runs a different program, with its own login, tools and transcript. Off until you turn it on, " + (own ? "for this project." : "for every project.")}>
       <input type="checkbox" id="set-route-cross-box" aria-labelledby="set-route-cross-label" checked=${r.crossAgent}
         onChange=${(e) => set("crossAgent", e.target.checked ? "true" : "false", all)} />
     <//>

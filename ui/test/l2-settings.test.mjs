@@ -13,7 +13,7 @@ import { Live } from "../src/shell/Live.js";
 import { chordOf, isBareKey, recorded } from "../src/shell/keys.js";
 import { anyChanged, resetAllCommand, resetCommand, rowsOf, setCommand } from "../src/lib/keybindings.js";
 import { prefsOf } from "../src/lib/prefs.js";
-import { addressCommand, answerOf, defaultCommand, groupsOf, modelsOf } from "../src/lib/agentsettings.js";
+import { defaultCommand, groupsOf, modelsOf } from "../src/lib/agentsettings.js";
 import { createDom, install, settle } from "./dom.mjs";
 import { FakeWebSocket, harness, hello } from "./fakes.mjs";
 import { PtySocket, FakeTerm, FakeFit, FakeObserver } from "./termfakes.mjs";
@@ -99,7 +99,7 @@ const projects = [{ root: "/work/a", name: "alpha", waiting: 0, working: 0, acti
 const CATALOG = {
   items: [
     { id: "claude", name: "Claude Code", available: true, defaultModel: "sonnet", models: [{ id: "sonnet", name: "Sonnet" }, { id: "opus", name: "Opus" }] },
-    { id: "local", name: "My model", available: true, defaultModel: "", addressable: true, address: "http://127.0.0.1:11434/v1" },
+    { id: "local", name: "My model", available: true, defaultModel: "" },
     { id: "codex", name: "Codex", available: false, install: "npm i -g codex", defaultModel: "" },
   ],
   roles: [], default: { agent: "claude", model: "sonnet" },
@@ -416,12 +416,11 @@ test("the help: the pointer can be put away without opening it, and is not shown
 
 // ---------------------------------------------------------------- agents and models
 
-test("the catalog is read into choices, the two defaults and the agents that take an address", () => {
+test("the catalog is read into choices and the two defaults", () => {
   const m = modelsOf({ ...CATALOG, project: { agent: "claude", model: "opus" } });
   assert.equal(m.ready, true);
   assert.equal(m.every, "claude\nsonnet");
   assert.equal(m.project, "claude\nopus");
-  assert.deepEqual(m.addressable, [{ id: "local", name: "My model", address: "http://127.0.0.1:11434/v1" }]);
   assert.equal(modelsOf(CATALOG).project, "\n", "a project with no choice of its own");
   assert.equal(modelsOf(null).ready, false);
   assert.equal(modelsOf({ err: "no file" }).err, "no file");
@@ -437,27 +436,12 @@ test("the default is sent for every project or for this one, and giving up a cho
   assert.equal(defaultCommand("\n", true), null, "there must be an agent for every project");
 });
 
-test("an address is not sent when it is the one shown, and an answer is read defensively", () => {
-  assert.deepEqual(addressCommand("local", "  http://x/v1 ", "http://y/v1"), { cmd: "setAgentAddress", id: "local", text: "http://x/v1" });
-  assert.equal(addressCommand("local", " http://y/v1", "http://y/v1"), null);
-  assert.deepEqual(addressCommand("local", "", "http://y/v1"), { cmd: "setAgentAddress", id: "local", text: "" });
-  assert.deepEqual(answerOf({ id: "local", address: 4, error: "no" }), { id: "local", address: "", error: "no" });
-  assert.equal(answerOf({ address: "x" }), null);
-});
-
 const pick = async (m, id, value) => {
   const el = m.container.find("#" + id);
   el.value = value;
   el.dispatch("change");
   await settle();
 };
-const typeInto = async (m, id, value) => {
-  const el = m.container.find("#" + id);
-  el.value = value;
-  el.dispatch("input");
-  await settle();
-};
-
 test("Agents & models: opening it reads the agents again, and the two choices are sent", () =>
   withPage({ agents: CATALOG }, async (m) => {
     await m.connect();
@@ -475,40 +459,10 @@ test("Agents & models: opening it reads the agents again, and the two choices ar
     assert.deepEqual(m.sent("setAgentDefault").pop(), { cmd: "setAgentDefault", agent: "", model: "" });
   }));
 
-test("Agents & models: an address is saved from its field, a refusal is shown under it, and an unchanged one sends nothing", () =>
-  withPage({ agents: CATALOG }, async (m) => {
-    await m.connect();
-    await m.openSettings("agents");
-    m.clear();
-    await m.click(m.container.find("#set-address-save-local"));
-    assert.equal(m.sent("setAgentAddress").length, 0, "nothing changed");
-    await typeInto(m, "set-address-field-local", "http://192.168.1.5:8080/v1");
-    await m.click(m.container.find("#set-address-save-local"));
-    assert.deepEqual(m.sent("setAgentAddress"), [{ cmd: "setAgentAddress", id: "local", text: "http://192.168.1.5:8080/v1" }]);
-    assert.equal(off(m.container.find("#set-address-field-local")), true, "waiting for the answer");
-    await m.push({ type: "agentAddress", id: "local", address: "http://192.168.1.5:8080/v1", error: "that does not look like an address" });
-    assert.match(m.container.find(".set-error").textContent, /does not look like an address/);
-    assert.equal(off(m.container.find("#set-address-field-local")), false);
-    assert.equal(valueIn(m.container.find("#set-address-field-local")), "http://192.168.1.5:8080/v1", "what was typed stays to be put right");
-    await typeInto(m, "set-address-field-local", "http://192.168.1.5:8080/v2");
-    m.container.find("#set-address-field-local").keydown("Enter");
-    await settle();
-    assert.equal(m.sent("setAgentAddress").length, 2);
-    await m.push({ type: "agentAddress", id: "local", address: "http://192.168.1.5:8080/v2" });
-    assert.equal(m.container.find(".set-error"), null);
-  }));
-
-test("Agents & models: a relay window reads the choices and sends no address", () =>
+test("Agents & models: a relay window reads the choices and does not ask the desk to refresh", () =>
   withPage({ agents: CATALOG, remote: true }, async (m) => {
     await m.connect();
     await m.openSettings("agents");
-    m.clear();
-    assert.equal(off(m.container.find("#set-address-field-local")), true);
-    assert.equal(off(m.container.find("#set-address-save-local")), true);
-    assert.match(m.container.find("#set-address-local-about").textContent, /machine Flockdeck runs on/);
-    m.container.find("#set-address-save-local").click();
-    await settle();
-    assert.equal(m.sent("setAgentAddress").length, 0);
     assert.equal(m.sent("refreshAgents").length, 0, "the agents are read at the desk");
   }));
 

@@ -9,14 +9,12 @@ import (
 	"github.com/jmwri/flockdeck/internal/agent"
 	"github.com/jmwri/flockdeck/internal/route"
 	"github.com/jmwri/flockdeck/internal/session"
-	"github.com/jmwri/flockdeck/internal/store"
 )
 
-// turnTestWorkspace is a workspace whose catalog is entirely the caller's: an
-// API-runner agent needs no CLI on PATH, and `go`, standing in for it exactly
-// as TestAConversationReopensWithTheAgentThatRecordedIt uses it, is real
-// enough to start a process and exit, which is all routeFirstTurn's restart
-// needs to prove it happened.
+// turnTestWorkspace is a workspace whose catalog is the caller's routing policy
+// and one agent, "openai", that is `go version`: real enough to start a process
+// and exit, which is all routeFirstTurn's restart needs to prove it happened,
+// and with the three tiers routing chooses between.
 func turnTestWorkspace(t *testing.T, routing agent.RoutingPolicy) (*Workspace, string) {
 	t.Helper()
 	isolateConfig(t)
@@ -32,29 +30,63 @@ func turnTestWorkspace(t *testing.T, routing agent.RoutingPolicy) (*Workspace, s
 	t.Cleanup(ws.Close)
 
 	ws.catalogMu.Lock()
-	ws.catalog = &agent.Catalog{Specs: agent.Builtins(), Routing: routing}
+	ws.catalog = &agent.Catalog{Specs: append(agent.Builtins(), goTierAgent(goExe)), Routing: routing}
 	ws.catalogMu.Unlock()
 
 	return ws, root
 }
 
-// giveTranscript makes a pane look like it has already had a turn: the same
-// file transcriptExists reads, written the way TestResumeAsksTheAgentsOwnReader
-// writes one for the chat client's own reader.
-func giveTranscript(t *testing.T, paneID string) {
+// goTierAgent is an agent that runs `go version` and offers one model of each
+// tier. Its transcripts are read by the reader for the program it runs, so
+// giveTranscript points it at a copy of go named claude.
+func goTierAgent(exe string) agent.Spec {
+	return agent.Spec{
+		ID: "openai", Name: "Go stand-in", Runner: agent.RunnerCLI, Exe: exe,
+		Args: []agent.Arg{agent.Lit("version")},
+		Models: []agent.Model{
+			{ID: "gpt-5.6-sol", Name: "Sol", Tier: agent.TierTop},
+			{ID: "gpt-5.6-terra", Name: "Terra", Tier: agent.TierMid},
+			{ID: "gpt-5.6-luna", Name: "Luna", Tier: agent.TierSmall},
+		},
+		DefaultModel: "gpt-5.6-terra",
+		Caps:         agent.Caps{Resume: true, Transcript: true},
+	}
+}
+
+// giveTranscript makes a pane look like it has already had a turn: it writes
+// the Claude Code transcript transcriptExists reads, and renames the stand-in
+// agent's program to claude so that the Claude reader is the one asked.
+func giveTranscript(t *testing.T, ws *Workspace, paneID string) {
 	t.Helper()
-	dir, err := store.Dir()
+	home := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", home)
+	dir := filepath.Join(home, "projects", "p")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, paneID+".jsonl"),
+		[]byte(`{"type":"user","message":{"role":"user","content":"hello"}}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	goExe, err := exec.LookPath("go")
 	if err != nil {
-		t.Fatalf("state directory: %v", err)
-	}
-	chats := filepath.Join(dir, "chats")
-	if err := os.MkdirAll(chats, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(chats, paneID+".jsonl")
-	if err := os.WriteFile(path, []byte(`{"type":"user","ts":1,"text":"hello"}`+"\n"), 0o600); err != nil {
+	data, err := os.ReadFile(goExe)
+	if err != nil {
 		t.Fatal(err)
 	}
+	named := filepath.Join(t.TempDir(), "claude"+filepath.Ext(goExe))
+	if err := os.WriteFile(named, data, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ws.catalogMu.Lock()
+	for i := range ws.catalog.Specs {
+		if ws.catalog.Specs[i].ID == "openai" {
+			ws.catalog.Specs[i].Exe = named
+		}
+	}
+	ws.catalogMu.Unlock()
 }
 
 // TestRouteFirstTurnRoutesAFreshPaneOntoARoutedModel covers the design this
@@ -175,7 +207,7 @@ func TestRouteFirstTurnLeavesAConversationAlone(t *testing.T) {
 	if p == nil || p.Sess == nil {
 		t.Fatalf("the pane did not start: %v", p.Err)
 	}
-	giveTranscript(t, p.ID)
+	giveTranscript(t, ws, p.ID)
 	firstLaunch := p.launch
 
 	ws.SendPrompt("fix the race in the session store", true)

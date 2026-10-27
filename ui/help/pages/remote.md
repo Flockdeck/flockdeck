@@ -61,8 +61,6 @@ them from one:
 - making a code for another desktop to join this account;
 - setting or clearing an API key (one typed on a phone would pass through
   the relay, which can read it);
-- changing where an API agent sends its prompts, its address, since its key
-  goes wherever that says;
 - turning the check for updates on or off, or checking for one now, and
   listing or installing a specific version;
 - exporting a transcript, showing one in the file manager, and opening the
@@ -199,8 +197,7 @@ on the desktop. The rest of this section describes the chat as it will work once
 that is done.
 
 Opening a pane from a paired device shows a chat with the agent, not its raw
-terminal, for a Claude Code pane and for Flockdeck's own chat client (the
-built-in Anthropic, OpenAI, Google and OpenAI-compatible agents). Anything
+terminal, for a Claude Code pane. Anything
 else still opens as a terminal, because Flockdeck doesn't yet read what it's
 saying. Nothing to turn on: the phone asks the desktop when it opens a pane,
 and gets a chat back if there is one to give it. A **Chat**/**Terminal**

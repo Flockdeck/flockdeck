@@ -3,15 +3,12 @@ package server
 import (
 	"encoding/json"
 	"fmt"
-	"net/url"
 	"path/filepath"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/jmwri/flockdeck/internal/agent"
-	"github.com/jmwri/flockdeck/internal/pricing"
 	"github.com/jmwri/flockdeck/internal/session"
 	"github.com/jmwri/flockdeck/internal/workspace"
 )
@@ -239,45 +236,19 @@ type agentChoice struct {
 }
 
 // modelView is one model as the picker and the fan-out's selects draw it: the
-// catalog's entry for it, and what it costs where that is known and true of
-// what the user pays.
+// catalog's entry for it.
 type modelView struct {
 	agent.Model
-	Price *priceView `json:"price,omitempty"`
-}
-
-// priceView is a model's published price per million tokens, with the day it
-// was read, so a figure shown beside a model always says how old it is.
-type priceView struct {
-	In      float64 `json:"in"`
-	Out     float64 `json:"out"`
-	Checked string  `json:"checked"`
 }
 
 // modelViews is an agent's models as the window draws them.
-//
-// A price goes only on the models of an API agent talking to its vendor's own
-// endpoint. There the id is exactly what the vendor bills, and the key is the
-// user's. A command-line agent's model is often an alias the tool resolves for
-// itself, and it is as likely to run on a subscription as on a key; an endpoint
-// of the user's own -- a gateway, a proxy -- charges what it charges. A
-// per-token price beside either would say something untrue about what the
-// user pays.
 func modelViews(spec agent.Spec) []modelView {
 	if len(spec.Models) == 0 {
 		return nil
 	}
-	priced := spec.Runner == agent.RunnerAPI && spec.API.BaseURL == ""
-	today := time.Now()
 	out := make([]modelView, len(spec.Models))
 	for i, m := range spec.Models {
 		out[i] = modelView{Model: m}
-		if !priced {
-			continue
-		}
-		if r, ok := pricing.Lookup(m.ID, today); ok {
-			out[i].Price = &priceView{In: r.In, Out: r.Out, Checked: r.Checked}
-		}
 	}
 	return out
 }
@@ -296,12 +267,6 @@ type catalogAgent struct {
 	// who has not installed Codex should still learn that Flockdeck would run it.
 	Available bool   `json:"available"`
 	Install   string `json:"install,omitempty"`
-	// Addressable is whether the picker offers a field for the agent's
-	// address (agent.TakesAddress), and Address what that address is now.
-	// Any name or password written into it by hand is masked: the picker
-	// shows it, and through remote access the relay would carry it.
-	Addressable bool   `json:"addressable,omitempty"`
-	Address     string `json:"address,omitempty"`
 }
 
 // agentCatalog is the whole catalog as one snapshot carries it: what there is,
@@ -496,8 +461,6 @@ func buildCatalog(c *agent.Catalog, root string) agentCatalog {
 			DefaultModel: sp.DefaultModel,
 			Available:    agent.Available(sp),
 			Install:      sp.Install,
-			Addressable:  agent.TakesAddress(sp),
-			Address:      maskAddress(sp.API.BaseURL),
 		})
 	}
 	for _, r := range c.Roles {
@@ -507,123 +470,6 @@ func buildCatalog(c *agent.Catalog, root string) agentCatalog {
 		})
 	}
 	return out
-}
-
-// maskAddress hides the password in an address written into agents.json by
-// hand. The picker refuses to save one, but it cannot stop one being typed
-// into the file.
-func maskAddress(address string) string {
-	if u, err := url.Parse(address); err == nil && u.User != nil {
-		return u.Redacted()
-	}
-	return address
-}
-
-// agentAddressMsg answers an address typed into the picker: the address as it
-// was sent, and why it was refused where it was. The picker shows the refusal
-// under the field, beside what was typed, so it can be corrected there.
-type agentAddressMsg struct {
-	Type    string `json:"type"`
-	ID      string `json:"id"`
-	Address string `json:"address"`
-	Error   string `json:"error,omitempty"`
-}
-
-// setAgentAddress records the address an API agent talks to, typed into the
-// picker. It was the one setting the OpenAI-compatible entry needs before it
-// can be used, and it could be given only by editing agents.json.
-//
-// The catalog is asked afresh once it is saved. An address on this machine
-// needs no key, so a local model server is offered the moment its address is,
-// rather than when the cached answer happens to run out.
-func (s *Server) setAgentAddress(c *controlClient, id, address string) {
-	address = strings.TrimSpace(address)
-	reply := func(problem string) {
-		c.sendJSON(agentAddressMsg{Type: "agentAddress", ID: id, Address: address, Error: problem})
-	}
-	// An API agent's key goes wherever its address says, so changing the
-	// address from a window reached through the relay would send the key
-	// stored at the desk to an endpoint chosen from somewhere else. Like the
-	// key itself, it is changed at the desk. The picker does not offer it
-	// there; this is for a window that sends it anyway.
-	if c.remote {
-		reply(deskOnlyAddress)
-		c.notify(deskOnlyAddress, true)
-		return
-	}
-	spec, ok := ask(s, func() agent.Spec {
-		sp, _ := s.ws.Catalog().Find(id)
-		return sp
-	})
-	if !ok {
-		return
-	}
-	builtin := false
-	for _, b := range agent.Builtins() {
-		builtin = builtin || b.ID == id
-	}
-	switch {
-	case spec.ID == "":
-		reply(fmt.Sprintf("there is no agent called %q", id))
-		return
-	case !agent.TakesAddress(spec):
-		// The picker offers the field to none of these, but anything else
-		// speaking to this socket could ask.
-		reply(spec.Name + " talks to its vendor's own endpoint; its address is changed with `flockdeck keys endpoint " + id + " <address>`")
-		return
-	case address == "" && !builtin:
-		// An agent of the user's own is the address it was given; without one
-		// it would be talking to whichever vendor its wire names.
-		reply(spec.Name + " is an agent of your own and has no other address to fall back on; type the one it should use, as in http://127.0.0.1:11434/v1")
-		return
-	}
-	go func() {
-		defer s.surviveFor(c, "saving an agent's address")
-		// The address is written into the same agents.json as the defaults
-		// and the routing, read and written back whole, so it waits for
-		// those saves as they wait for one another. Saved beside one of them
-		// from another window, whichever wrote second put back a copy without
-		// the other's change, after both windows were told theirs was saved.
-		path, err := agent.ConfigPath()
-		if err == nil {
-			defaultWrites.Lock()
-			err = agent.SetBaseURL(filepath.Dir(path), id, address)
-			defaultWrites.Unlock()
-		}
-		if err != nil {
-			reply(err.Error())
-			return
-		}
-		reply("")
-		c.notify(addressNotice(spec, address), false)
-		s.refreshAgents()
-	}()
-}
-
-// deskOnlyAddress is what a window reached through the relay is told when it
-// asks to change where an API agent sends its prompts.
-const deskOnlyAddress = "An API agent's address is changed on the machine Flockdeck runs on, not from a window reached through the relay: the key stored there goes wherever the address says"
-
-// addressNotice says what an address just saved means for the agent: whether
-// it can be used now, or still needs a key, and that a pane already running
-// goes on talking to wherever it started with.
-func addressNotice(spec agent.Spec, address string) string {
-	name := spec.Name
-	if address == "" {
-		if spec.ID == agent.OpenAICompatibleID {
-			return name + " has no address now, and is not offered until it is given one"
-		}
-		return name + " talks to its vendor's own endpoint again; panes already running keep the old address until they are restarted"
-	}
-	spec.API.BaseURL = address
-	text := name + " now talks to " + maskAddress(address)
-	switch {
-	case agent.NeedsNoKey(spec):
-		text += ", which is on this machine and needs no key"
-	case !agent.KeyProbe(spec):
-		text += ", and needs a key before it can be used: set one under API keys…"
-	}
-	return text + "; panes already running keep the old address until they are restarted"
 }
 
 // defaultWrites keeps two defaults saved at once -- from two windows -- from

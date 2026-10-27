@@ -139,8 +139,8 @@ type Stream interface {
 	// was last asked -- true once, the first time it is asked after the
 	// replacement, then false again until another happens. This is for an
 	// agent whose own /clear (or equivalent) keeps the same session id and
-	// file rather than starting a new one, the way Flockdeck's own chat client's
-	// does: Claude Code needs nothing here, because its /clear is already
+	// file rather than starting a new one, the way the removed chat client's
+	// did: Claude Code needs nothing here, because its /clear is already
 	// caught by the session id changing under it (see
 	// internal/server/conversation.go's refreshConversation), so its Stream
 	// always answers false.

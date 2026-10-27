@@ -574,10 +574,10 @@ func sweepReplacedBinary() {
 	selfupdate.Sweep(startedAs)
 }
 
-// ensureChatTwin puts the console twin an API agent's pane runs beside the
-// program when the installation has none, as one updated by a release from
+// ensureChatTwin puts the console twin that Claude Code's hook and status
+// line commands run beside the program when the installation has none, as one updated by a release from
 // before the twin does not (selfupdate.EnsureChatTwin). Where it cannot be
-// written, the pane falls back to the program, as it always did.
+// written, those commands fall back to the program, as they always did.
 func ensureChatTwin() {
 	_ = selfupdate.EnsureChatTwin(startedAs)
 }

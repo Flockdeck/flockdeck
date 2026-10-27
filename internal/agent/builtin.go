@@ -1,7 +1,5 @@
 package agent
 
-import "strings"
-
 // The built-in catalog: the agents Flockdeck knows about before the user has said
 // anything. Everything here can be corrected, extended or hidden by the user's
 // own agents.json, so nothing in this file has to be right forever -- but an
@@ -21,15 +19,14 @@ import "strings"
 //
 // The model lists, and each model's tier, were read from each provider's own
 // documentation on 2026-09-12: Claude Code's model-config page, Codex's models
-// page, Gemini CLI's model page, and the Claude, OpenAI and Gemini API model
-// and pricing pages. A tier says where a model stands among the agent's own --
-// small, mid or top -- and a model mixed by design, such as Claude Code's
+// page and Gemini CLI's model page. A tier says where a model stands among
+// the agent's own -- small, mid or top -- and a model mixed by design, such as Claude Code's
 // opusplan, has none, so routing leaves it alone. The prices are not here but
 // in internal/pricing, dated there.
 
 // Builtins returns a fresh copy of the built-in specs, in the order the picker
 // shows them: Claude first because it is the default, then the other
-// command-line agents, then the API runners that need no CLI at all.
+// command-line agents, then the ACP agents.
 //
 // The copy is fresh on every call because the catalog merges the user's file
 // over these entries in place, and a shared slice would carry one run's
@@ -45,10 +42,6 @@ func Builtins() []Spec {
 		opencodeACPSpec(),
 		geminiACPSpec(),
 		codexACPSpec(),
-		anthropicAPISpec(),
-		openAIAPISpec(),
-		googleAPISpec(),
-		openAICompatibleSpec(),
 	}
 }
 
@@ -110,17 +103,16 @@ func codexSpec() Spec {
 		Caps: Caps{Context: ContextPrompt},
 		Models: append([]Model{
 			{ID: "", Name: "Default", Note: "whatever the CLI is set to"},
-		}, openAIModels("for complex coding")...),
+		}, openAIModels()...),
 		Install: "npm install -g @openai/codex",
 	}
 }
 
-// openAIModels is OpenAI's line-up, shared by the Codex CLI and the OpenAI API
-// agent. Only the note on Sol differs between the two, so it is passed in.
-func openAIModels(solNote string) []Model {
+// openAIModels is OpenAI's line-up for the Codex CLI.
+func openAIModels() []Model {
 	return []Model{
 		{ID: "gpt-6-astra", Name: "GPT-6 Astra", Note: "most capable, and the dearest", Tier: TierTop},
-		{ID: "gpt-5.6-sol", Name: "GPT-5.6 Sol", Note: solNote, Tier: TierTop},
+		{ID: "gpt-5.6-sol", Name: "GPT-5.6 Sol", Note: "for complex coding", Tier: TierTop},
 		{ID: "gpt-5.6-terra", Name: "GPT-5.6 Terra", Note: "the everyday one", Tier: TierMid},
 		{ID: "gpt-5.6-luna", Name: "GPT-5.6 Luna", Note: "fastest and cheapest", Tier: TierSmall},
 	}
@@ -254,139 +246,5 @@ func cursorAgentSpec() Spec {
 		},
 		Caps:    Caps{Context: ContextPrompt},
 		Install: "https://cursor.com/cli",
-	}
-}
-
-// The API runners below need no CLI at all: each one starts `flockdeck chat`,
-// Flockdeck's own terminal chat client, which talks straight to the endpoint. They
-// therefore all share the capabilities of that client -- it reports its own
-// lifecycle through the same hook endpoint every Claude pane uses, keeps its
-// own transcript and can replay it -- rather than each claiming something
-// different.
-
-// chatCaps are what `flockdeck chat` supports whatever endpoint it is pointed at.
-// It has no per-directory trust question of its own, which is the one thing it
-// cannot do that Claude can.
-func chatCaps() Caps {
-	return Caps{Hooks: true, Resume: true, Transcript: true, Context: ContextHook}
-}
-
-// chatArgs is the argument list of `flockdeck chat` for one agent id. The binary
-// and the "chat" subcommand are not here: BuildArgv leaves an API runner's
-// program to the caller, because only the running process knows where its own
-// executable lives.
-//
-// The agent id is written in as a literal rather than a token because the
-// tokens are the pane's, not the catalog's, and an agent defined only in the
-// user's agents.json must still be able to say which entry it is.
-//
-// The endpoint goes on as literals too: the wire, the base URL and the names
-// a key may arrive in. The chat client reads nothing from the catalog, so
-// without them it took the defaults it falls back on -- the Anthropic wire at
-// Anthropic's address -- for every API agent: an OpenAI or Gemini pane, or a
-// local model, sent its request, and whichever key was stored under its id,
-// to api.anthropic.com. normalize builds these from the entry as merged, so
-// a baseURL written over a built-in reaches the command line.
-func chatArgs(id string, api APISpec, resume bool) []Arg {
-	args := []Arg{Lit("--agent"), Lit(id)}
-	if api.Wire != "" {
-		args = append(args, Lit("--wire"), Lit(api.Wire))
-	}
-	if api.BaseURL != "" {
-		args = append(args, Lit("--base-url"), Lit(api.BaseURL))
-	}
-	// The names are the ones the entry may be given where it talks now: a
-	// built-in pointed at a gateway is not told to read its vendor's variable.
-	if env := OwnKeyEnv(api); len(env) > 0 {
-		args = append(args, Lit("--key-env"), Lit(strings.Join(env, ",")))
-	}
-	args = append(args,
-		Group("model", "--model", "{{model}}"),
-		Group("session", "--session", "{{session}}"),
-	)
-	if resume {
-		return append(args, Lit("--resume"))
-	}
-	return append(args, Lit("{{prompt}}"))
-}
-
-// anthropicAPISpec talks to the Messages API directly, which is how Flockdeck runs
-// a Claude model without the Claude CLI in the way.
-func anthropicAPISpec() Spec {
-	return Spec{
-		ID: "anthropic", Name: "Claude API", Runner: RunnerAPI,
-		API: APISpec{
-			Wire:   "anthropic",
-			KeyEnv: []string{"ANTHROPIC_API_KEY"},
-		},
-		Models: []Model{
-			{ID: "claude-opus-5", Name: "Opus 5", Note: "most capable", Tier: TierTop},
-			{ID: "claude-sonnet-5", Name: "Sonnet 5", Note: "the everyday one", Tier: TierMid},
-			{ID: "claude-haiku-4-5-20251001", Name: "Haiku 4.5", Note: "fastest", Tier: TierSmall},
-		},
-		DefaultModel: "claude-sonnet-5",
-		Caps:         chatCaps(),
-		Wake:         chatWake(),
-		Install:      "set a key with `flockdeck keys set anthropic`",
-	}
-}
-
-func openAIAPISpec() Spec {
-	return Spec{
-		ID: "openai", Name: "OpenAI API", Runner: RunnerAPI,
-		API: APISpec{
-			Wire:   "openai",
-			KeyEnv: []string{"OPENAI_API_KEY"},
-		},
-		// The default is the middle of the line-up, as Sonnet is for Claude.
-		Models:       openAIModels("for complex work"),
-		DefaultModel: "gpt-5.6-terra",
-		Caps:         chatCaps(),
-		Wake:         chatWake(),
-		Install:      "set a key with `flockdeck keys set openai`",
-	}
-}
-
-func googleAPISpec() Spec {
-	return Spec{
-		ID: "google", Name: "Gemini API", Runner: RunnerAPI,
-		API: APISpec{
-			Wire: "gemini",
-			// Google's own tools read either name, and somebody who has one
-			// exported should not have to export the other for Flockdeck.
-			KeyEnv: []string{"GEMINI_API_KEY", "GOOGLE_API_KEY"},
-		},
-		// Google's current Pro is a preview, and previews are shut down when
-		// they are replaced -- Gemini 3 Pro's was -- so the default is the
-		// current Flash, which is stable.
-		Models: []Model{
-			{ID: "gemini-3.1-pro-preview", Name: "Gemini 3.1 Pro", Note: "most capable; a preview", Tier: TierTop},
-			{ID: "gemini-3.8-flash", Name: "Gemini 3.8 Flash", Note: "the everyday one", Tier: TierMid},
-			{ID: "gemini-3.1-flash-lite", Name: "Gemini 3.1 Flash-Lite", Note: "fastest and cheapest", Tier: TierSmall},
-		},
-		DefaultModel: "gemini-3.8-flash",
-		Caps:         chatCaps(),
-		Wake:         chatWake(),
-		Install:      "set a key with `flockdeck keys set google`",
-	}
-}
-
-// openAICompatibleSpec is the entry for everything that speaks the OpenAI wire
-// format at an address of its own: Ollama, LM Studio, vLLM, a company gateway.
-//
-// It ships with no endpoint and no models on purpose. There is no address that
-// would be right for everyone, and one guessed here would show as an installed
-// agent that fails the moment it is picked. Empty, it shows as unavailable with
-// the line below, which says exactly what to do about it.
-func openAICompatibleSpec() Spec {
-	return Spec{
-		ID: OpenAICompatibleID, Name: "OpenAI-compatible endpoint", Runner: RunnerAPI,
-		API:  APISpec{Wire: "openai"},
-		Caps: chatCaps(),
-		Wake: chatWake(),
-		// The picker is named first because it is where this line is read, and
-		// it takes the address there and then. The command is for `flockdeck
-		// agents`, which prints the same line in a terminal.
-		Install: "give it an address: pick it here and type one, such as http://127.0.0.1:11434/v1, or run `flockdeck keys endpoint openai-compatible <address>`",
 	}
 }

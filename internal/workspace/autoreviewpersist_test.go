@@ -1,9 +1,7 @@
 package workspace
 
 import (
-	"os"
 	"os/exec"
-	"path/filepath"
 	"testing"
 
 	"github.com/jmwri/flockdeck/internal/session"
@@ -108,19 +106,8 @@ func TestResumedConversationStartsFromTheAutoReviewDefault(t *testing.T) {
 	}
 	for _, defaultOn := range []bool{false, true} {
 		isolateAutoReview(t, defaultOn)
-		base, err := store.Dir()
-		if err != nil {
-			t.Fatal(err)
-		}
-		chats := filepath.Join(base, "chats")
-		if err := os.MkdirAll(chats, 0o700); err != nil {
-			t.Fatal(err)
-		}
 		const id = "55555555-5555-5555-5555-555555555555"
-		if err := os.WriteFile(filepath.Join(chats, id+".jsonl"),
-			[]byte(`{"type":"user","ts":1,"text":"hello"}`+"\n"), 0o600); err != nil {
-			t.Fatal(err)
-		}
+		storeClaudeConversation(t, id)
 		root := t.TempDir()
 		ws, err := New(Options{Root: root, HookBinary: goExe})
 		if err != nil {

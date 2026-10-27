@@ -6,7 +6,6 @@
 * [remote-artifacts.log](artifacts-audit-log.md) - Append-only JSON-lines audit log of remote artifact connections, refusals and desk changes.
 * [Baton store files](baton-store.md) - The batons folder in the state directory and the small bookkeeping files used to age batons out.
 * [Baton document](baton.md) - Markdown handoff with front matter and eight fixed sections, written by Render and read by Parse.
-* [Chat transcript](chat-transcript.md) - JSON-lines file where flockdeck chat records each conversation, one file per session.
 * [e2e_key.json](e2e-key-file.md) - This machine's long-term P-256 end-to-end identity used to encrypt terminals and artifacts reached through the relay.
 * [Accepted git programs (git-programs.json)](git-programs-file.md) - Record of which git hooks and config-launched programs the user accepted for each repository.
 * [Project groups (groups.json)](groups-file.md) - Persisted multi-repo project groups.

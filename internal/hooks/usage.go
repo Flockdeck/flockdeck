@@ -13,8 +13,7 @@ import (
 	"github.com/jmwri/flockdeck/internal/spend"
 )
 
-// UsageReport is what a pane posts to say what its agent has spent: one call's
-// tokens from Flockdeck's own chat client, or the running totals and the
+// UsageReport is what a pane posts to say what its agent has spent: the running totals and the
 // subscription's windows that Claude Code hands its status line.
 //
 // It goes to a route of its own rather than riding a lifecycle event, because

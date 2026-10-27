@@ -25,8 +25,6 @@ internal/appwindow 0.311 1.384 1.166 1.416
 internal/artifacts 5.508 16.564 7.979 10.125
 internal/baton 21.374 26.965 43.470 243.354
 internal/channel 0.731 2.854 1.349 1.849
-internal/chat 1.300 2.086 1.540 3.085
-internal/chat/tool 4.764 6.888 4.877 11.206
 internal/creds 0.045 1.587 0.212 1.089
 internal/e2e 0.011 0.041 0.024 1.028
 internal/ghcli 0.020 0.049 0.019 1.018

@@ -122,7 +122,6 @@ selectProject 4
 selectRepo 1
 selectTab 4
 sendPrompt 1
-setAgentAddress 1
 setAgentDefault 5
 setDeviceRole 1
 setKeybinding 1

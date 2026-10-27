@@ -16,7 +16,6 @@ import (
 	"github.com/jmwri/flockdeck/internal/hooks"
 	"github.com/jmwri/flockdeck/internal/layout"
 	"github.com/jmwri/flockdeck/internal/session"
-	"github.com/jmwri/flockdeck/internal/store"
 )
 
 // benchWorkspace builds workspace state by hand, with no sessions behind the
@@ -920,13 +919,13 @@ func TestUseAgentOutranksTheCatalogDefault(t *testing.T) {
 		t.Fatalf("default agent = %q, want the catalog's own to begin with", def)
 	}
 
-	w.UseAgent("openai")
-	if _, def := w.Agents(); def != "openai" {
+	w.UseAgent("codex")
+	if _, def := w.Agents(); def != "codex" {
 		t.Errorf("default agent = %q, want the one -agent named", def)
 	}
 	spec, ok := w.specFor("", "")
-	if !ok || spec.ID != "openai" {
-		t.Errorf("a pane with no agent of its own resolved to %q (found %v), want openai", spec.ID, ok)
+	if !ok || spec.ID != "codex" {
+		t.Errorf("a pane with no agent of its own resolved to %q (found %v), want codex", spec.ID, ok)
 	}
 
 	// A pane that names its own agent still wins: a restored layout knows what
@@ -966,40 +965,34 @@ func TestAnAgentWithoutHooksIsBriefedInItsPrompt(t *testing.T) {
 	}
 }
 
-// Where an agent keeps what it said is its own arrangement. Asking Claude
-// Code's store about an API pane answers no every time, so such a pane would be
-// started fresh on top of its own conversation at every restart.
+// Where an agent keeps what it said is its own arrangement: the question goes
+// to the reader for the program it runs, and changes its answer when that
+// agent's file appears.
 func TestResumeAsksTheAgentsOwnReader(t *testing.T) {
 	isolateConfig(t)
+	home := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", home)
 	w := newTestWorkspace(t, t.TempDir())
 
-	api := agent.Spec{
-		ID:     "openai",
-		Runner: agent.RunnerAPI,
-		Caps:   agent.Caps{Transcript: true, Resume: true},
-	}
+	claude := agent.Spec{ID: "claude", Exe: "claude", Caps: agent.Caps{Transcript: true, Resume: true}}
+	other := agent.Spec{ID: "other", Exe: "other", Caps: agent.Caps{Transcript: true, Resume: true}}
 	id := uuid.NewString()
-	if w.transcriptExists(api, id) {
-		t.Error("an API pane with nothing recorded was offered a resume")
+	if w.transcriptExists(claude, id) {
+		t.Error("a pane with nothing recorded was offered a resume")
 	}
 
-	// The reader for an API agent is the chat client's own, so its answer has
-	// to change when that file appears — not when Claude's store does. The
-	// path is built here rather than asked for, because the reader reports
-	// nothing until the file is there.
-	dir, err := store.Dir()
-	if err != nil {
-		t.Fatalf("state directory: %v", err)
-	}
-	path := filepath.Join(dir, "chats", id+".jsonl")
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	dir := filepath.Join(home, "projects", "p")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatalf("make the transcript directory: %v", err)
 	}
-	if err := os.WriteFile(path, []byte(`{"type":"user","text":"hello"}`+"\n"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, id+".jsonl"), []byte(`{"type":"user","message":{"role":"user","content":"hello"}}`+"\n"), 0o600); err != nil {
 		t.Fatalf("write the transcript: %v", err)
 	}
-	if !w.transcriptExists(api, id) {
-		t.Error("an API pane with a conversation recorded was not offered a resume")
+	if !w.transcriptExists(claude, id) {
+		t.Error("a pane with a conversation recorded was not offered a resume")
+	}
+	if w.transcriptExists(other, id) {
+		t.Error("an agent with no reader was offered Claude's conversation")
 	}
 }
 

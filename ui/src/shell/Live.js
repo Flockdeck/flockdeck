@@ -777,7 +777,6 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     news: local || (snap.notice && snap.notice.seq > settingsAt ? String(snap.notice.text || "") : ""),
     permission,
     onAsk: ask,
-    addressAnswer: snap.agentAddress,
     table: kept.current.hello.keys,
     page,
     onRecording: setRecording,
