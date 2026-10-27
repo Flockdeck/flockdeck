@@ -21,7 +21,7 @@ Two things called "task" are not the board and stay: a pane's opening task (`Pan
 Delete whole files (no other content):
 
 - `internal/tasks/` (all 17 files), `cli_task.go`, `cli_task_test.go`, `internal/hooks/tasks.go`, `internal/workspace/tasks.go`, `internal/workspace/tasks_test.go`
-- `internal/server/tasks_test.go`, `taskteam_test.go`, `panetask_test.go` (check: may be pane-task, not board), `teamdepends_test.go`
+- `internal/server/tasks_test.go`, `taskteam_test.go`, `teamdepends_test.go` (`panetask_test.go` is about the pane's opening task: keep it)
 - `ui/src/graph/DepsView.js`, `deps.js`, `deps.css`, `ui/test/deps.test.mjs`, `deps-strength.test.mjs`, `depsview.test.mjs`, `tree-dep-chips.test.mjs`
 - `.flockdeck/knowledge/cli/task.md`, `data/task.md`, `data/task-board.md`, `gotchas/task-board-file-recovery.md`, `packages/tasks.md`, `packages/workspace-tasks.md`, `security/task-board-permissions.md`, `api/hooks-task.md`
 
