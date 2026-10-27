@@ -210,7 +210,10 @@ type Snapshot struct {
 	Pending  *bridge.Card
 	Plan     []acp.PlanEntry
 	Usage    bridge.Usage
-	Entries  []transcript.Entry
+	// Session is what the agent exposes for the session: slash commands, mode,
+	// models, settings, markdown plan, title and capabilities.
+	Session bridge.SessionState
+	Entries []transcript.Entry
 	// Queued is how many prompts wait behind the running turn.
 	Queued int
 	// Err is the last thing that went wrong, cleaned. After an exit it says
@@ -487,6 +490,7 @@ func (r *Runtime) Snapshot() Snapshot {
 	s.Entries = r.br.Snapshot()
 	s.Plan = r.br.Plan()
 	s.Usage = r.br.Usage()
+	s.Session = r.br.Session()
 	s.Dropped = r.br.Dropped()
 	s.Pending = r.br.Pending()
 	s.Activity = r.br.Activity()
@@ -787,17 +791,19 @@ func (r *Runtime) launch() bool {
 		r.agentNm = clean(name, fieldCap)
 		r.mu.Unlock()
 	}
+	r.br.Capabilities(init.Capabilities)
 	var mcp []acp.MCPServer
 	if r.opts.Spec.ACP.MCP {
 		mcp = r.opts.MCPServers
 	}
-	sid, err := c.NewSession(r.ctx, r.opts.Cwd, mcp)
+	created, err := c.NewSessionInfo(r.ctx, r.opts.Cwd, mcp)
 	if err != nil {
 		r.fail(c, err)
 		return false
 	}
+	r.br.SessionNew(created)
 	r.mu.Lock()
-	r.session = sid
+	r.session = created.SessionID
 	if r.phase == PhaseStarting {
 		r.phase = PhaseReady
 	}
