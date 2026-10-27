@@ -20,12 +20,12 @@ Built, on origin/main:
 - The adapter manifest, the Node check and the weekly canary ([acp-adapters.md](acp-adapters.md)).
 - Message delivery states in `internal/team` (queued, notified, woken, read) and the text wake. These belong to the mail path decision 3 retires.
 
-Built, hidden: the Go adapter for Claude Code (T204, [Claude Code adapter](acp-claude-adapter.md)). In progress: the capability spike per agent (T208).
+Built, hidden: the Go adapter for Claude Code (T204, [Claude Code adapter](acp-claude-adapter.md)) and the Go adapter for Codex (T206, [Codex adapter](acp-codex-adapter.md); built from the route document and a fake app-server, never run against a real codex). In progress: the capability spike per agent (T208).
 
 Researched, not built:
 
 - [Claude headless spike](claude-headless-spike.md): `claude -p --input-format stream-json --output-format stream-json` supports permissions, interrupt, mid-turn messages, resume, images, MCP servers and slash commands, so a Go adapter needs no Node. The control protocol is thinly documented, and resume cannot replay history without reading Claude's session files.
-- [Codex route](codex-adapter-route.md): `codex app-server --listen stdio://` covers what ACP needs, so a Go adapter is feasible, about 2,000 to 3,000 lines. Not run against a real binary.
+- [Codex route](codex-adapter-route.md): `codex app-server --listen stdio://` covers what ACP needs. The adapter built from it is listed above; the route itself was not run against a real binary.
 - [Registry survey](acp-registry-survey.md): Cursor, Copilot CLI and Cline are native. Amp has only a third-party wrapper and Aider has nothing. Its "Node required" notes for Copilot and Cline no longer apply under decision 2. Cursor needs its `cursor/ask_question` and `cursor/create_plan` requests answered.
 - [Parity matrix](acp-parity-matrix.md): 10 largest gaps between the structured pane and the TUIs.
 - [Plan](acp-plan.md): the original T182 plan, updated for these decisions.
