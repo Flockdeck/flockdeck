@@ -107,7 +107,10 @@ func (w *Workspace) startStructured(p *Pane, spec agent.Spec) {
 	cmdFor := w.structuredCommand
 	w.mu.RUnlock()
 	gen := runtimeGen.Add(1)
-	opts := structured.Options{Spec: spec, Cwd: p.Cwd, MCPServers: w.mcpServersFor(p, spec),
+	w.mu.RLock()
+	resume := p.savedSession
+	w.mu.RUnlock()
+	opts := structured.Options{Spec: spec, Cwd: p.Cwd, MCPServers: w.mcpServersFor(p, spec), ResumeSession: resume,
 		OnTurn: func(e structured.TurnEvent) { w.promptTurn(p.ID, gen, e) }}
 	if cmdFor != nil {
 		opts.Command = cmdFor(spec)
@@ -123,6 +126,7 @@ func (w *Workspace) startStructured(p *Pane, spec agent.Spec) {
 	w.mu.Lock()
 	p.Sess = nil
 	p.Err = nil
+	p.savedSession = "" // the runtime holds it now
 	w.mu.Unlock()
 	runtimeMu.Lock()
 	p.rt = sr
@@ -474,7 +478,8 @@ func (w *Workspace) StructuredEntries(id string) ([]transcript.Entry, bool) {
 
 // restartStructured ends the pane's agent and starts a fresh session. The
 // entries of the old session stay as history, with a line saying where it was
-// restarted. Resuming the agent's own conversation is not done.
+// restarted. A restart is the person asking for a new session, so the agent's
+// own conversation is not resumed; a restored pane resumes it (startStructured).
 //
 // Closing the old agent waits for it to end, for at most structured's
 // closeWait (15 seconds), on the goroutine that called and not under the
@@ -503,7 +508,21 @@ func (w *Workspace) restartStructured(p *Pane, old *structuredRuntime) {
 	p.rt = nil
 	runtimeMu.Unlock()
 	p.history = history
+	w.mu.Lock()
+	p.savedSession = ""
+	w.mu.Unlock()
 	w.startPane(p, false)
+}
+
+// acpSessionOf is the agent session id to save in the layout for the structured
+// pane p: the running runtime's, or the one the pane is still to resume.
+func (w *Workspace) acpSessionOf(p *Pane) string {
+	if sr, ok := p.setRuntime().(*structuredRuntime); ok {
+		return sr.rt.SessionID()
+	}
+	w.mu.RLock()
+	defer w.mu.RUnlock()
+	return p.savedSession
 }
 
 // noteStructured tells the parent of a structured pane what noteExit and

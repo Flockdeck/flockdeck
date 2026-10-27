@@ -132,8 +132,13 @@ type Pane struct {
 	Recording bool `json:"recording,omitempty"`
 	// Transport is "structured" for a pane whose agent is driven over the Agent
 	// Client Protocol, and absent for a terminal pane. A restored structured pane
-	// starts a fresh session. See workspace.Transport.
+	// reopens its session (see ACPSession). See workspace.Transport.
 	Transport string `json:"transport,omitempty"`
+	// ACPSession is the agent's id of the session a structured pane was in, so a
+	// restored pane reopens it (session/load or session/resume) when its agent
+	// can, and starts a new session when it cannot. Absent for a terminal pane
+	// and for a layout saved before it was kept.
+	ACPSession string `json:"acpSession,omitempty"`
 	// AutoReview is the pane's auto-review switch. A pointer so a layout saved
 	// before it was kept (absent) is told apart from an explicit off: absent
 	// takes Prefs.AutoReviewDefault on restore, false stays off. See

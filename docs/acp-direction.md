@@ -22,6 +22,8 @@ Built, on origin/main:
 
 Built: the Flockdeck MCP server with `send_message` and `list_peers` (T186, [Flockdeck MCP server](flockdeck-mcp-server.md)). It records a message in the receiver's inbox as before; delivery to the receiver as a prompt is T187.
 
+Built (T189): saved session id per structured pane, `session/load` with replay handling and `session/resume` in the client and runtime, fallback to a new session with a fixed notice ([structured pane](structured-pane.md)). Claude's adapter resumes; Codex's already did; neither loads.
+
 Built, hidden: the Go adapter for Claude Code (T204, [Claude Code adapter](acp-claude-adapter.md)) and the Go adapter for Codex (T206, [Codex adapter](acp-codex-adapter.md); built from the route document and a fake app-server, never run against a real codex). In progress: the capability spike per agent (T208).
 
 Researched, not built:
@@ -48,7 +50,8 @@ T184 (decision doc) is covered by this page. T67 is the review of ACP-1.
 
 - Phones. Structured data is refused over the relay, so a phone shows less once every agent is structured. No decision yet.
 - The plain Shell pane and user-written `agents.json` CLI entries. Decision 1 says no terminal fallback; whether a bare shell pane stays is not decided.
-- Claude resume. `session/load` needs history replay, and Claude's resume sends none. Reading its session files is the only route found and is not a stable format.
+- Resume gaps found in review of T189, left as they are: replay marking needs the update's `sessionId` to equal the id sent to `session/load`, so an agent that leaves it out of replay updates has them taken as live (agent text shows as replies and the user turns are lost; it fails soft and has no security effect). The Claude adapter's "already open" check is per adapter process, so two panes with the same saved id run two `claude --resume` on one conversation.
+- Claude `session/load`. Resume is built (`session/resume`, T189) but Claude sends no history, so a resumed Claude pane shows an empty transcript. Replaying needs Claude's session files, which are not a stable format.
 - Claude's stdio control protocol is found by experiment, not documented. It needs a pinned version range and CI probes.
 - Codex: how Flockdeck finds a pinned Codex binary without Node, whether the app-server accepts messages carrying `"jsonrpc":"2.0"`, Windows sandbox setup, and resume replay.
 - Cursor: install route on Windows and what it does with error -32601 on its two blocking requests.

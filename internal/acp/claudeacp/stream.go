@@ -49,6 +49,7 @@ type line struct {
 	Response  json.RawMessage `json:"response"`
 
 	// system/init
+	SessionID      string `json:"session_id"`
 	Model          string `json:"model"`
 	PermissionMode string `json:"permissionMode"`
 
@@ -166,6 +167,7 @@ func (ss *session) handleInit(l line) {
 	}
 	ss.sawInit = true
 	ss.mu.Unlock()
+	ss.adopt(l.SessionID)
 	if changed {
 		ss.srv.update(ss.id, map[string]any{"sessionUpdate": "current_mode_update", "currentModeId": l.PermissionMode})
 	}

@@ -740,3 +740,83 @@ func TestResultTextIsCut(t *testing.T) {
 		t.Errorf("blocks = %q", got)
 	}
 }
+
+func TestSessionResume(t *testing.T) {
+	const id = "0b7e1f0e-5c2a-4a3e-9d7a-6f1f3f0b9c11"
+	h := newHarness(t, nil)
+	r := h.call("initialize", map[string]any{"protocolVersion": 1})
+	var init struct {
+		AgentCapabilities struct {
+			LoadSession         bool                       `json:"loadSession"`
+			SessionCapabilities map[string]json.RawMessage `json:"sessionCapabilities"`
+		} `json:"agentCapabilities"`
+	}
+	_ = json.Unmarshal(r.Result, &init)
+	if _, ok := init.AgentCapabilities.SessionCapabilities["resume"]; !ok || init.AgentCapabilities.LoadSession {
+		t.Errorf("initialize = %s", r.Result)
+	}
+
+	r = h.call("session/resume", map[string]any{"sessionId": id, "cwd": h.cwd, "mcpServers": []any{}})
+	var res struct {
+		SessionID string `json:"sessionId"`
+		Modes     struct {
+			Current string `json:"currentModeId"`
+		} `json:"modes"`
+	}
+	if r.Error != nil {
+		t.Fatalf("resume = %+v", r.Error)
+	}
+	_ = json.Unmarshal(r.Result, &res)
+	if res.SessionID != id || res.Modes.Current != "default" {
+		t.Errorf("resume answer = %s", r.Result)
+	}
+	args := readLog(h.log)[0]
+	if !strings.Contains(args, "--resume "+id) || strings.Contains(args, "--session-id") {
+		t.Errorf("claude was started with %q", args)
+	}
+
+	// The session is open: a second resume of it is refused, as is any other
+	// id that is not a UUID, and nothing more is started for either.
+	if r := h.call("session/resume", map[string]any{"sessionId": id, "cwd": h.cwd, "mcpServers": []any{}}); r.Error == nil || r.Error.Code != codeInvalidParams {
+		t.Errorf("a second resume = %+v", r)
+	}
+	for _, bad := range []string{"", "not-a-uuid", id + " --dangerously-skip-permissions", "-p"} {
+		if r := h.call("session/resume", map[string]any{"sessionId": bad, "cwd": h.cwd, "mcpServers": []any{}}); r.Error == nil || r.Error.Code != codeInvalidParams {
+			t.Errorf("resume of %q = %+v", bad, r)
+		}
+	}
+	if n := len(readLog(h.log)); n < 1 {
+		t.Fatal("no log")
+	}
+	for _, line := range readLog(h.log) {
+		if strings.Contains(line, "dangerously") {
+			t.Errorf("claude was started with a bad id: %q", line)
+		}
+	}
+}
+
+func TestSessionResumeOfAnIdClaudeDoesNotKnow(t *testing.T) {
+	// claude exits at once for an id it has no conversation for.
+	h := newHarness(t, []step{exitWith(1)})
+	r := h.call("session/resume", map[string]any{"sessionId": "0b7e1f0e-5c2a-4a3e-9d7a-6f1f3f0b9c11", "cwd": h.cwd, "mcpServers": []any{}})
+	if r.Error == nil || r.Error.Message != "Claude Code is unavailable" {
+		t.Errorf("got %+v", r)
+	}
+}
+
+// claude is expected to keep the id it is given. If it reports another, the
+// session is reachable under both and the new id is not opened a second time.
+func TestSessionIdClaudeReportsIsAdopted(t *testing.T) {
+	const asked = "0b7e1f0e-5c2a-4a3e-9d7a-6f1f3f0b9c11"
+	const other = "7a1d2c3b-4e5f-4a6b-8c9d-0e1f2a3b4c5d"
+	h := newHarness(t, []step{expect(`"role":"user"`),
+		emit(strings.Replace(lInit, `"session_id":"SID"`, `"session_id":"`+other+`"`, 1)), emit(lResultOK)})
+	r := h.call("session/resume", map[string]any{"sessionId": asked, "cwd": h.cwd, "mcpServers": []any{}})
+	if r.Error != nil {
+		t.Fatalf("resume = %+v", r.Error)
+	}
+	stopReason(t, h.await(h.promptText(asked, "hi")))
+	if r := h.call("session/resume", map[string]any{"sessionId": other, "cwd": h.cwd, "mcpServers": []any{}}); r.Error == nil {
+		t.Error("the id claude reported was opened as a second session")
+	}
+}

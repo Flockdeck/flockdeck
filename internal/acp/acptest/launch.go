@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -32,6 +33,49 @@ func WithConfigOptions() Option {
 // does, and initialize claim the capabilities of a fuller agent.
 func WithModes() Option {
 	return func(l *launch) { l.env = append(l.env, envShape+"=modes") }
+}
+
+// WithSessionLoad gives the agent the loadSession capability (see the package
+// comment for what it then does).
+func WithSessionLoad() Option { return withSession("load") }
+
+// WithSessionResume gives the agent the session/resume capability.
+func WithSessionResume() Option { return withSession("resume") }
+
+// WithKnownSessions makes the agent know these session ids; it refuses every
+// other id with an error.
+func WithKnownSessions(ids ...string) Option {
+	return func(l *launch) {
+		for _, id := range ids {
+			withSession("id=" + id)(l)
+		}
+	}
+}
+
+// WithReplayThenExit makes a session/load of a known id send its replay and
+// then one more message and exit, as an agent that dies part-way does.
+func WithReplayThenExit() Option { return withSession("replay-hang") }
+
+// WithLateReplay makes session/new slow (600ms) and a session/load of a known id send one replayed message,
+// never answer, and keep sending replayed messages (the text "LATE") for about a
+// second, as an agent that is slow to load does after the client has given up.
+func WithLateReplay() Option { return withSession("late-replay") }
+
+// WithLoadRefused makes session/load fail with an error for every id, while
+// session/resume works for the ids the agent knows.
+func WithLoadRefused() Option { return withSession("load-refused") }
+
+// withSession adds one item to the agent's list of session options.
+func withSession(item string) Option {
+	return func(l *launch) {
+		for i, kv := range l.env {
+			if strings.HasPrefix(kv, envSessions+"=") {
+				l.env[i] = kv + "," + item
+				return
+			}
+		}
+		l.env = append(l.env, envSessions+"="+item)
+	}
 }
 
 // WithMarker makes the hold-perm scenario write the outcome it received to

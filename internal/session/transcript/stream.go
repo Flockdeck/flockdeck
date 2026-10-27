@@ -48,6 +48,12 @@ type Entry struct {
 	Bytes     int    `json:"bytes,omitempty"`
 	Width     int    `json:"width,omitempty"`
 	Height    int    `json:"height,omitempty"`
+
+	// Replayed is set on a prompt entry that an agent replayed from an earlier
+	// session (ACP session/load). It is the agent's text, not words the person
+	// typed in this pane, so a reader that treats prompts as the person's
+	// (the baton) skips it. It is not part of the window protocol.
+	Replayed bool `json:"-"`
 }
 
 // Kinds an Entry can be, per the protocol.

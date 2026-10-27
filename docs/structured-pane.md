@@ -254,7 +254,7 @@ A terminal opencode pane is not started this way and keeps its own configuration
   by this path either (`TestARelayWindowGetsNothingOfAStructuredPanesConversation`).
 - No export, since the conversation is not stored where Flockdeck reads it. The conversation
   commands read it from memory (see the drawer section above).
-  Flockdeck does not load or resume the agent's own session.
+  A restored pane does resume the agent's own session when the agent can (section 6, resume).
 - Mail reaches a structured agent as a `session/prompt` of two text blocks, with no opt-in. The agent
   is not given `FLOCKDECK_API`, `FLOCKDECK_TOKEN` or `FLOCKDECK_PANE` (names starting `FLOCKDECK_` are
   never passed to an agent), so it cannot run `flockdeck inbox`, and its briefing has its own Messages
@@ -319,7 +319,38 @@ line before it is written. It keeps the last 16 KiB of each kind of text so that
 that context, so the line is held for 64 KiB of text after the BEGIN and then let go. A BEGIN line that
 is not a key, quoted in prose, hides the next 64 KiB of that kind of text. Redaction is best effort.
 
-**A restart** starts a fresh session. The earlier entries stay, then a notice that the agent was
+**Resume.** The layout saves the agent's session id for each structured pane (`acpSession` in the
+layout file; it is not part of the window API). When the pane is restored, the runtime reopens that
+session before it makes a new one:
+
+- If the agent said `loadSession` at initialize, it sends `session/load`. The agent replays the
+  conversation as `session/update` calls before it answers. The client marks the updates that arrive
+  while the load waits for its answer (`Update.Replay`), and the bridge takes only those into the
+  transcript, between `BeginReplay` and `EndReplay`: the person's messages become prompt entries, the
+  agent's become replies, thinking and tools. A replay does not start a turn, so the status stays idle.
+  `BeginReplay` empties the transcript first, a replay update outside that window is dropped, and a
+  replay is held to the entry and text limits with prompts counted (a hostile replay cannot grow the
+  transcript without bound). A tool the old session left running is shown with no status.
+- Else, if the agent has `sessionCapabilities.resume`, it sends `session/resume`. No history comes, so
+  the transcript starts empty while the agent still has the conversation.
+- If `session/load` is answered with an error and the agent has `resume`, `session/resume` is tried
+  next. A load that gets no answer within `LoadTimeout` is not followed by a resume: the agent may
+  still be sending the replay.
+- If the agent has neither, or the call fails for any reason other than the agent exiting, needing a
+  login or being closed (a stale or unknown id, for one), a new session is made and the conversation
+  gets the notice "Could not resume, started a new session." That text is fixed. What the agent said
+  about the failure is not shown. After a failure with no answer (a timeout) the id of that session
+  is dead: nothing the agent sends for it later is taken, so a replay that arrives late does not
+  reach the transcript.
+- A prompt entry made from a replay is marked `Replayed` (Go only, not in the window protocol). It is
+  the agent's text and not words typed in the pane, so the baton leaves it out of the prompts it
+  carries.
+
+The layout keeps the id while the agent is still starting or could not start, and after a reopen that
+got no answer (timeout), because the agent may still have that conversation. It takes the new id after
+the agent answered with an error. A layout saved before the id was kept starts a new session without a notice.
+
+**A restart** starts a fresh session, and does not resume: it is the person asking for a new one. The earlier entries stay, then a notice that the agent was
 restarted, then the new session's (section 3). A restart that cannot start the new agent keeps them
 too.
 

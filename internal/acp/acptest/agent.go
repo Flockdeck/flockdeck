@@ -34,11 +34,19 @@
 //	ratelimit   answers the prompt with the JSON-RPC error -32603 "rate limit exceeded"
 //	env         reports its whole environment, one NAME=VALUE per line, in one chunk
 //	deaf-perm   asks for permission and stops reading stdin
+//	whoami      reports the session id the prompt came on, as "session=ID", then end_turn
 //	grandchild  starts a process of its own that sleeps for a minute, reports its id as "pid=N", then end_turn
 //
 // An unknown request gets error -32601, as a real agent that lacks the method does.
 // WithConfigOptions and WithModes give session/new the two shapes of session
 // state agents use.
+//
+// WithSessionLoad, WithSessionResume and WithKnownSessions give the agent the
+// session/load and session/resume methods and say which session ids it has. A
+// session/load of a known id replays a short conversation (a user message, an
+// agent reply, a tool call, a second user message and reply) as updates before
+// it answers, and session/resume of one answers with no replay. An id it does not
+// know is refused with error -32002 and a message that no one should show.
 //
 // WithMute makes an agent that reads and never answers.
 //
@@ -77,6 +85,9 @@ const (
 	envDeaf   = "FLOCKDECK_ACPTEST_DEAF"
 	envSlow   = "FLOCKDECK_ACPTEST_SLOWSTART"
 	envShape  = "FLOCKDECK_ACPTEST_SHAPE"
+	// envSessions is a comma list of session/load, session/resume and the ids
+	// the agent knows: "load", "resume", "id=<id>".
+	envSessions = "FLOCKDECK_ACPTEST_SESSIONS"
 )
 
 // ArgAgent, as an argument, also makes a process the fake agent. A test of how
@@ -87,6 +98,10 @@ const ArgAgent = "--acptest-agent"
 // ArgMarker, as an argument followed by a path, does what WithMarker does for an
 // agent started with ArgAgent, whose environment is not the test's.
 const ArgMarker = "--acptest-marker"
+
+// ArgSessions is the session options (see WithSessionLoad) as one argument, as
+// ArgSessions+"load,resume,id=old-1", for an agent started with ArgAgent.
+const ArgSessions = "--acptest-sessions="
 
 // argSleeper makes a process do nothing for a minute. The grandchild
 // scenario starts one, as an agent starts a tool, so that a test can see
@@ -134,6 +149,8 @@ type agent struct {
 	reqSeq     int
 	authMode   string
 	markerPath string
+	// sessions is the comma list of session options (see WithSessionLoad).
+	sessions string
 	// slowStart is how long a turn waits to begin after its prompt was read, as
 	// it does on a machine that is busy.
 	slowStart time.Duration
@@ -146,7 +163,14 @@ func newAgent() *agent {
 			marker = os.Args[i+2]
 		}
 	}
+	sessions := os.Getenv(envSessions)
+	for _, a := range os.Args[1:] {
+		if v, ok := strings.CutPrefix(a, ArgSessions); ok {
+			sessions += "," + v
+		}
+	}
 	return &agent{
+		sessions:   strings.Trim(sessions, ","),
 		out:        bufio.NewWriterSize(os.Stdout, 1<<16),
 		waiters:    map[string]chan msg{},
 		responses:  map[string]int{},
@@ -252,6 +276,18 @@ func (a *agent) handle(m msg) {
 				"sessionCapabilities": map[string]any{"list": map[string]any{}, "fork": map[string]any{}},
 			}
 		}
+		if a.sessions != "" {
+			// The session methods are what the test asked for, whatever the shape.
+			caps["loadSession"] = a.hasSessionOpt("load")
+			sc, _ := caps["sessionCapabilities"].(map[string]any)
+			sc = cloneMap(sc)
+			delete(sc, "list")
+			delete(sc, "fork")
+			if a.hasSessionOpt("resume") {
+				sc["resume"] = map[string]any{}
+			}
+			caps["sessionCapabilities"] = sc
+		}
 		res := map[string]any{
 			"protocolVersion":   1,
 			"agentCapabilities": caps,
@@ -293,34 +329,21 @@ func (a *agent) handle(m msg) {
 			a.rpcError(m.ID, -32000, "Authentication required")
 			return
 		}
-		res := map[string]any{"sessionId": "sess-1"}
-		switch os.Getenv(envShape) {
-		case "config":
-			// The shape opencode and Codex use: settings are config options.
-			res["configOptions"] = []any{
-				map[string]any{"id": "model", "name": "Model", "category": "model", "type": "select", "currentValue": "big", "options": []any{
-					map[string]any{"value": "big", "name": "Big", "description": "The large one"},
-					map[string]any{"value": "small", "name": "Small"},
-				}},
-				map[string]any{"id": "mode", "name": "Mode", "category": "mode", "type": "select", "currentValue": "build", "options": []any{
-					map[string]any{"group": "agents", "name": "Agents", "options": []any{
-						map[string]any{"value": "build", "name": "Build"},
-						map[string]any{"value": "plan", "name": "Plan"},
-					}},
-				}},
-			}
-		case "modes":
-			// The shape Gemini uses: a modes block and a models block.
-			res["modes"] = map[string]any{"currentModeId": "default", "availableModes": []any{
-				map[string]any{"id": "default", "name": "Default", "description": "Asks before it edits"},
-				map[string]any{"id": "yolo", "name": "YOLO"},
-			}}
-			res["models"] = map[string]any{"currentModelId": "gem-pro", "availableModels": []any{
-				map[string]any{"modelId": "gem-pro", "name": "Gem Pro"},
-				map[string]any{"modelId": "gem-flash", "name": "Gem Flash", "description": "Quick"},
-			}}
+		if a.hasSessionOpt("late-replay") {
+			// The new session is slow to come, so the replay that is still being
+			// sent arrives while the client does not know its id.
+			time.Sleep(600 * time.Millisecond)
 		}
+		res := map[string]any{"sessionId": "sess-1"}
+		a.sessionShape(res)
 		a.result(m.ID, res)
+	case m.Method == "session/load" || m.Method == "session/resume":
+		a.reopen(m)
+	case m.Method == "session/cancel":
+		select {
+		case a.cancels <- struct{}{}:
+		default:
+		}
 	case m.Method == "session/cancel":
 		select {
 		case a.cancels <- struct{}{}:
@@ -365,6 +388,123 @@ func (a *agent) handle(m msg) {
 			}
 			a.prompt(m.ID, m.Params, n)
 		}()
+	}
+}
+
+// sessionShape adds to res the session state the chosen shape lists.
+func (a *agent) sessionShape(res map[string]any) {
+	switch os.Getenv(envShape) {
+	case "config":
+		// The shape opencode and Codex use: settings are config options.
+		res["configOptions"] = []any{
+			map[string]any{"id": "model", "name": "Model", "category": "model", "type": "select", "currentValue": "big", "options": []any{
+				map[string]any{"value": "big", "name": "Big", "description": "The large one"},
+				map[string]any{"value": "small", "name": "Small"},
+			}},
+			map[string]any{"id": "mode", "name": "Mode", "category": "mode", "type": "select", "currentValue": "build", "options": []any{
+				map[string]any{"group": "agents", "name": "Agents", "options": []any{
+					map[string]any{"value": "build", "name": "Build"},
+					map[string]any{"value": "plan", "name": "Plan"},
+				}},
+			}},
+		}
+	case "modes":
+		// The shape Gemini uses: a modes block and a models block.
+		res["modes"] = map[string]any{"currentModeId": "default", "availableModes": []any{
+			map[string]any{"id": "default", "name": "Default", "description": "Asks before it edits"},
+			map[string]any{"id": "yolo", "name": "YOLO"},
+		}}
+		res["models"] = map[string]any{"currentModelId": "gem-pro", "availableModels": []any{
+			map[string]any{"modelId": "gem-pro", "name": "Gem Pro"},
+			map[string]any{"modelId": "gem-flash", "name": "Gem Flash", "description": "Quick"},
+		}}
+	}
+}
+
+func cloneMap(m map[string]any) map[string]any {
+	out := map[string]any{}
+	for k, v := range m {
+		out[k] = v
+	}
+	return out
+}
+
+// hasSessionOpt says the test gave the agent the named session option.
+func (a *agent) hasSessionOpt(name string) bool {
+	for _, o := range strings.Split(a.sessions, ",") {
+		if o == name {
+			return true
+		}
+	}
+	return false
+}
+
+// knowsSession says the test told the agent it has the session id.
+func (a *agent) knowsSession(id string) bool {
+	return id != "" && a.hasSessionOpt("id="+id)
+}
+
+// reopen answers session/load and session/resume.
+func (a *agent) reopen(m msg) {
+	var p struct {
+		SessionID  string            `json:"sessionId"`
+		Cwd        string            `json:"cwd"`
+		McpServers []json.RawMessage `json:"mcpServers"`
+	}
+	_ = json.Unmarshal(m.Params, &p)
+	fmt.Fprintf(os.Stderr, "acptest: %s id = %s cwd = %s\n", m.Method, p.SessionID, p.Cwd)
+	if p.McpServers == nil {
+		a.rpcError(m.ID, -32602, "mcpServers must be an array")
+		return
+	}
+	method := strings.TrimPrefix(m.Method, "session/")
+	if !a.hasSessionOpt(method) {
+		a.rpcError(m.ID, -32601, "method not found: "+m.Method)
+		return
+	}
+	if a.needsAuth("new") {
+		a.rpcError(m.ID, -32000, "Authentication required")
+		return
+	}
+	if !a.knowsSession(p.SessionID) {
+		a.rpcError(m.ID, -32002, "session not found: SECRET-AGENT-TEXT "+p.SessionID)
+		return
+	}
+	sid := p.SessionID
+	if method == "load" && a.hasSessionOpt("load-refused") {
+		a.rpcError(m.ID, -32603, "load failed: SECRET-AGENT-TEXT")
+		return
+	}
+	if method == "load" && a.hasSessionOpt("late-replay") {
+		a.update(sid, map[string]any{"sessionUpdate": "agent_message_chunk", "content": textBlock("first ")})
+		go func() {
+			for i := 0; i < 10; i++ {
+				time.Sleep(100 * time.Millisecond)
+				a.update(sid, map[string]any{"sessionUpdate": "agent_message_chunk", "content": textBlock("LATE")})
+			}
+		}()
+		return
+	}
+	if method == "load" {
+		// A real agent replays it all before it answers.
+		a.update(sid, map[string]any{"sessionUpdate": "user_message_chunk", "content": textBlock("first question")})
+		a.update(sid, map[string]any{"sessionUpdate": "agent_message_chunk", "content": textBlock("first ")})
+		a.update(sid, map[string]any{"sessionUpdate": "agent_message_chunk", "content": textBlock("answer")})
+		a.update(sid, map[string]any{"sessionUpdate": "tool_call", "toolCallId": "old-1", "title": "Read a.txt", "kind": "read", "status": "in_progress"})
+		a.update(sid, map[string]any{"sessionUpdate": "tool_call_update", "toolCallId": "old-1", "status": "completed"})
+		a.update(sid, map[string]any{"sessionUpdate": "user_message_chunk", "content": textBlock("second question")})
+		a.update(sid, map[string]any{"sessionUpdate": "agent_message_chunk", "content": textBlock("second answer")})
+		if a.hasSessionOpt("replay-hang") {
+			a.update(sid, map[string]any{"sessionUpdate": "agent_message_chunk", "content": textBlock("cut off")})
+			os.Exit(4)
+		}
+	}
+	res := map[string]any{}
+	a.sessionShape(res)
+	a.result(m.ID, res)
+	if method == "load" {
+		// An update after the answer is not part of the replay.
+		a.update(sid, map[string]any{"sessionUpdate": "available_commands_update", "availableCommands": []any{map[string]any{"name": "after-load"}}})
 	}
 }
 
@@ -440,6 +580,10 @@ func (a *agent) prompt(id, params json.RawMessage, n int) {
 	done := func(reason string) { a.result(id, map[string]any{"stopReason": reason}) }
 
 	switch word {
+	case "whoami":
+		a.chunk(sid, "session="+sid)
+		done("end_turn")
+
 	case "plain":
 		a.chunk(sid, "Hello")
 		a.chunk(sid, " world")

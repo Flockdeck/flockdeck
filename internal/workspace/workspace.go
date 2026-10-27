@@ -255,6 +255,11 @@ type Pane struct {
 	// savedTransport is the transport the layout the pane was restored from
 	// recorded, empty for a terminal pane.
 	savedTransport Transport
+	// savedSession is the agent's session id the layout the pane was restored
+	// from recorded, which the pane's first structured runtime is asked to
+	// reopen. It is cleared once that runtime has started, and by a restart.
+	// While a runtime exists the layout takes the id from it.
+	savedSession string
 	// structExit is the structured runtime whose unexpected end the parent has
 	// been told of.
 	structExit *structuredRuntime

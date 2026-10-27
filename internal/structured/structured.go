@@ -155,6 +155,13 @@ type Options struct {
 	// MCPServers are given to the session when Spec.ACP.MCP says the agent
 	// takes them; otherwise they are not sent.
 	MCPServers []acp.MCPServer
+	// ResumeSession is the id of the agent's session this pane had before, kept
+	// by the pane's owner. When set, the runtime reopens it in place of making a
+	// new one: with session/load if the agent has it (which replays the
+	// conversation into the transcript), else with session/resume. If the agent
+	// has neither, or the call fails, a new session is made and the transcript
+	// says so (Snapshot.Resume is ResumeFailed).
+	ResumeSession string
 
 	// Records and Meta start a stream recording of the traffic. Nil Records
 	// means none, which is what a pane with recording off passes.
@@ -212,6 +219,27 @@ type TurnEvent struct {
 	Asked bool
 }
 
+// Resume says how the session of a pane that asked to resume one began.
+type Resume string
+
+const (
+	// ResumeNone: the pane did not ask to resume a session.
+	ResumeNone Resume = ""
+	// ResumeLoaded: session/load reopened the session and the agent replayed its
+	// conversation into the transcript.
+	ResumeLoaded Resume = "loaded"
+	// ResumeResumed: session/resume reopened the session. The agent sends no
+	// history, so the transcript starts empty and the agent still has the
+	// conversation.
+	ResumeResumed Resume = "resumed"
+	// ResumeFailed: the session could not be reopened and a new one was made.
+	ResumeFailed Resume = "new"
+)
+
+// ResumeFailedText is the line shown in the conversation when a session could
+// not be reopened. It is fixed: nothing the agent said about why is shown.
+const ResumeFailedText = "Could not resume, started a new session."
+
 // AuthMethod is a way of signing in that the agent listed.
 type AuthMethod struct {
 	ID          string
@@ -257,6 +285,11 @@ type Snapshot struct {
 	Setup *Setup
 	// Agent is the name the agent gave itself.
 	Agent string
+	// SessionID is the agent's id of the session, empty until there is one. It
+	// is what a pane keeps to resume the session later (Options.ResumeSession).
+	SessionID string
+	// Resume says how the session began, when the pane asked to resume one.
+	Resume Resume
 	// Dropped is how many entries the bridge dropped to stay within its caps;
 	// TapDropped how many lines of traffic the recording missed;
 	// ProtocolErrors how many things the agent sent that could not be used.
@@ -289,6 +322,13 @@ type Runtime struct {
 	closed  bool
 	client  *acp.Client
 	session string
+	resume  Resume
+	// dead holds ids of sessions that could not be reopened and may still be
+	// sending their replay (a load that timed out). Nothing for them is taken.
+	dead map[string]struct{}
+	// keep is the id a layout should keep in place of the live session's, set
+	// when a reopen failed without an answer from the agent (a timeout).
+	keep string
 	waiters []*waiter
 	subs    map[int]chan struct{}
 	nextSub int
@@ -540,6 +580,9 @@ func (r *Runtime) Snapshot() Snapshot {
 		Queued: len(r.queue),
 		Err:    r.err,
 		Agent:  r.agentNm,
+
+		SessionID: r.session,
+		Resume:    r.resume,
 	}
 	if r.setup != nil {
 		c := *r.setup
@@ -629,10 +672,12 @@ type handler struct {
 func (h handler) Update(u acp.Update) {
 	h.r.mu.Lock()
 	sid := h.r.session
+	_, dead := h.r.dead[u.SessionID]
 	h.r.mu.Unlock()
 	// Only this pane's session has a say. Before the session id is known an
-	// update cannot be checked and is taken.
-	if u.SessionID != "" && sid != "" && u.SessionID != sid {
+	// update cannot be checked and is taken, except one for a session that
+	// failed to reopen: its late replay is not the conversation.
+	if dead || (u.SessionID != "" && sid != "" && u.SessionID != sid) {
 		return
 	}
 	h.Handler.Update(u)
@@ -868,7 +913,7 @@ func (r *Runtime) launch() bool {
 	if r.opts.Spec.ACP.MCP {
 		mcp = r.opts.MCPServers
 	}
-	created, err := c.NewSessionInfo(r.ctx, r.opts.Cwd, mcp)
+	created, resume, err := r.open(c, init.Capabilities, mcp)
 	if err != nil {
 		r.fail(c, err)
 		return false
@@ -876,12 +921,121 @@ func (r *Runtime) launch() bool {
 	r.br.SessionNew(created)
 	r.mu.Lock()
 	r.session = created.SessionID
+	r.resume = resume
 	if r.phase == PhaseStarting {
 		r.phase = PhaseReady
 	}
 	r.mu.Unlock()
 	r.notify()
 	return true
+}
+
+// SessionID is the id for the owner to save for resuming this pane's session.
+// It is the live session's, except that until the agent has made or reopened
+// one it is the id the pane was asked to resume, so that an owner that saves it
+// while the agent is still starting, or after it could not start, does not lose
+// it; and after a reopen that got no answer from the agent (a timeout), it is
+// the id that was asked for, because the agent may still have that
+// conversation. A definite refusal replaces it with the new session's.
+func (r *Runtime) SessionID() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.keep != "" {
+		return r.keep
+	}
+	if r.session != "" {
+		return r.session
+	}
+	return r.opts.ResumeSession
+}
+
+// open gets a session: the one asked to resume when the agent can reopen it,
+// otherwise a new one. The error is the one fail should settle, and is never
+// that of a session that could not be reopened.
+//
+// With session/load and session/resume both on offer, a load the agent refused
+// with an error is followed by a resume. A load that got no answer (a timeout)
+// is not: the agent may still be sending the replay, so the id is marked dead
+// and nothing more for it is taken, and a new session is made.
+func (r *Runtime) open(c *acp.Client, caps acp.AgentCapabilities, mcp []acp.MCPServer) (acp.SessionNew, Resume, error) {
+	id := r.opts.ResumeSession
+	if id == "" {
+		created, err := c.NewSessionInfo(r.ctx, r.opts.Cwd, mcp)
+		return created, ResumeNone, err
+	}
+	var (
+		created acp.SessionNew
+		err     = acp.ErrUnsupported
+	)
+	r.mu.Lock()
+	r.session = id // updates for the session are taken from now
+	r.mu.Unlock()
+	if caps.LoadSession {
+		// The transcript is the replay alone.
+		r.br.BeginReplay()
+		created, err = c.LoadSession(r.ctx, id, r.opts.Cwd, mcp)
+		if err == nil {
+			r.br.EndReplay()
+			return created, ResumeLoaded, nil
+		}
+		r.br.DropReplay()
+		if r.reopenEnds(c, err) {
+			return acp.SessionNew{}, ResumeNone, err
+		}
+		if !answered(err) {
+			r.markDead(id)
+		}
+	}
+	if caps.Resume && (!caps.LoadSession || answered(err)) {
+		created, err = c.ResumeSession(r.ctx, id, r.opts.Cwd, mcp)
+		if err == nil {
+			return created, ResumeResumed, nil
+		}
+		if r.reopenEnds(c, err) {
+			return acp.SessionNew{}, ResumeNone, err
+		}
+		if !answered(err) {
+			r.markDead(id)
+		}
+	}
+	// Anything else, a stale or unknown id among it, means a new session. The
+	// id stays in the layout when the agent never answered.
+	r.mu.Lock()
+	r.session = ""
+	if !answered(err) {
+		r.keep = id
+	}
+	r.mu.Unlock()
+	created, err = c.NewSessionInfo(r.ctx, r.opts.Cwd, mcp)
+	if err != nil {
+		return created, ResumeNone, err
+	}
+	r.mu.Lock()
+	delete(r.dead, created.SessionID) // the agent made it afresh
+	r.mu.Unlock()
+	r.br.Notice(ResumeFailedText)
+	return created, ResumeFailed, nil
+}
+
+// answered says the agent itself refused the request, or has no such method:
+// a definite answer, as opposed to a timeout or a read that failed.
+func answered(err error) bool {
+	var rpc *acp.RPCError
+	return errors.Is(err, acp.ErrUnsupported) || errors.As(err, &rpc)
+}
+
+// reopenEnds says err ends the pane: a login the agent wants, its exit, a close.
+func (r *Runtime) reopenEnds(c *acp.Client, err error) bool {
+	return !errors.Is(err, acp.ErrUnsupported) && r.endsPane(c, err)
+}
+
+func (r *Runtime) markDead(id string) {
+	r.mu.Lock()
+	if r.dead == nil {
+		r.dead = map[string]struct{}{}
+	}
+	r.dead[id] = struct{}{}
+	r.mu.Unlock()
 }
 
 // fail settles the phase for an error from the agent: a login it wants, its

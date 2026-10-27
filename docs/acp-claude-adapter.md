@@ -126,11 +126,26 @@ removed at the next start. claude's account connectors still load.
 
 ## Not done
 
-- Resume and `session/load`. Advertised as `loadSession: false`. Design: spawn with
-  `--resume <id>`. claude sends no history on stdout, so `session/load` would have to
-  read the transcript under `~/.claude/projects` and replay it as updates, a file
-  format that is not a stable contract. Two cheaper options: support resume without
-  replay (the pane keeps its own record), or replay from Flockdeck's recording.
+- `session/load`. Advertised as `loadSession: false`. claude sends no history on stdout, so
+  it would have to read the transcript under `~/.claude/projects` and replay it as updates,
+  a file format that is not a stable contract.
+- `session/resume` starts claude with `--resume <id>` in place of `--session-id <id>` and
+  returns the id it was given. The id must be a UUID and not open already; anything else is
+  refused before claude starts. Observed against a real claude 2.1.311 on 27 Oct 2026 (a
+  one-word prompt with `--session-id`, then a one-word prompt with `--resume` on the same id):
+  both runs reported the same `session_id` in every line, so claude keeps the id on resume.
+  With `--resume` and an id it has no conversation for, claude exits with status 1 within
+  about 1.4 seconds and writes "No conversation found with session ID" to stderr, so the
+  adapter reports an unavailable agent and the pane starts a new session. claude's `init`
+  line, and with it the id it reports, arrives only once the first prompt is sent, and the
+  `initialize` control answer has no id, so the id cannot be put in the `session/resume`
+  result. The adapter adopts an id that differs from the one asked for (the session is
+  also reachable under it and a resume of it is refused as open), but ACP has no update
+  that changes a session's id, so the client keeps the one it has. Not checked: whether the
+  conversation is found when the cwd differs from the one it was made in.
+- The "already open" check is per adapter process. Two panes saved with the same id
+  (a copied layout) would run two `claude --resume` on one conversation, and two
+  simultaneous requests can both start claude before the second is closed at registration.
 - Turns claude starts on its own, such as a finished background task. The adapter
   notices the turn from its `init` line and forwards its updates as `session/update`
   while no prompt is running. A prompt that arrives meanwhile waits for that turn's

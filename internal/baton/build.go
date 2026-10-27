@@ -178,6 +178,10 @@ func ActivityFromEntries(entries []transcript.Entry) Activity {
 	for _, e := range entries {
 		switch e.Kind {
 		case transcript.KindPrompt:
+			// A prompt the agent replayed is the agent's text, not the person's.
+			if e.Replayed {
+				continue
+			}
 			if t := strings.TrimSpace(e.Text); t != "" {
 				a.Prompts = append(a.Prompts, t)
 			}
