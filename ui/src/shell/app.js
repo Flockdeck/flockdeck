@@ -213,7 +213,7 @@ export function Shell({ hello, state, notice, onDismissNotice, onWatch, narrow: 
   // What the right-click menus read: the page's bag (Live.js), with the key table
   // for labels and hints, the actions this window runs, and a way to run one the
   // way a key does. Rebuilt each render; the menu keeps the latest.
-  const menuBag = { ...menuCtx, keys, implemented, act: (id) => act({ type: "action", id }) };
+  const menuBag = { ...menuCtx, keys, implemented, act: (id) => act({ type: "action", id }), selected: s.selected, blocked, selectProject: (root) => dispatch({ type: "select", root }) };
 
   const load = useMemo(() => {
     if (helpLoad) return helpLoad;
@@ -311,7 +311,7 @@ export function Shell({ hello, state, notice, onDismissNotice, onWatch, narrow: 
         ${top || html`<span class="top-title">${current ? current.name : "Flockdeck"}</span>`}
         ${total ? html`<span class="top-total" title="Spent so far, by every agent of this project">${total}</span>` : null}
       </header>
-      <main class=${"main" + (narrow ? " main--list" : "")} tabindex="-1" ref=${regions.main}>${children}</main>
+      <main class=${"main" + (narrow ? " main--list" : "")} tabindex="-1" ref=${regions.main} data-ctx="blank">${children}</main>
       ${bottom ? html`<footer class="composer" aria-label="Manager">${bottom}</footer>` : null}
       <aside class="drawer" aria-label="Agent" tabindex="-1" ref=${regions.drawer} hidden=${!drawerOpen}>
         ${canSize ? html`<${DrawerResize} vertical=${stack} width=${sizeNow} onWidth=${(px) => { setDragDrawer(null); (stack ? onDrawerH : onDrawerW)(px); }} onDrag=${setDragDrawer} />` : null}

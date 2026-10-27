@@ -20,7 +20,7 @@
 }
 .hist-row:hover:not(:disabled), .pf-row:hover { background: var(--bg-hover); }
 .hist-row:focus-visible, .pf-row:focus-visible, .find-field:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
-.hist-row:disabled { color: var(--fg-dim); cursor: default; }
+.hist-row:disabled { color: var(--fg-dim); cursor: default; pointer-events: none; }
 .hist-summary, .pf-name { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .hist-meta, .pf-where, .pf-why { font-size: 11px; color: var(--fg-dim); overflow-wrap: anywhere; }
 

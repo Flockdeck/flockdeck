@@ -159,6 +159,8 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
   // the project chosen in it are kept through that, so a reconnect does not clear
   // the choice and ask for the graph a second time.
   const kept = useRef({ hello: NO_HELLO, state: NO_STATE });
+  // The navigation menus' block of the menu bag: the same object every render, since the tabs and dialogs register on it.
+  const navBlock = useRef({}).current;
   if (snap.hello) kept.current.hello = snap.hello;
   if (snap.state) kept.current.state = snap.state;
   // The rail's choice, and the first project the window has. In a window reached
@@ -787,8 +789,12 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
   // each family of menus fills in its own block and no other: pane for the agent
   // rows, header and terminal, nav for tabs, projects, worktrees and history, content
   // for tasks, messages, diffs, conversation rows and links.
+  Object.assign(navBlock, {
+    tabs: goal.tabs, archived: goal.archived, active: activeTab, select: showTab, canStep: (id, dir) => canStep(goal.tabs, id, dir),
+    projects: viewer ? null : () => setProjectsOpen(true),
+  });
   const menuCtx = {
-    snap, viewer, remote: !!snap.remote, say, copy, drawer, tabDo, nav: {}, content: {},
+    snap, viewer, remote: !!snap.remote, say, copy, drawer, tabDo, nav: navBlock, content: {},
     pane: {
       of: (id) => ({ node: current ? current.byPane.get(id) || null : null, state: (statePanes || {})[id] || null }),
       run: (name, id) => actions[name](id),
@@ -843,7 +849,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
           onRename=${tabDo.rename} onArchive=${tabDo.archive} onRestore=${tabDo.restore} onMove=${tabDo.move} onStep=${tabDo.step} canStep=${(id, dir) => canStep(goal.tabs, id, dir)}
           onStartTeam=${snap.remote || viewer ? null : () => setStarting("team")}
           onNewAgent=${viewer ? null : () => startTab(newTabCommand({ kind: "agent" }))} onChoose=${viewer ? null : () => setStarting("agent")} onNewShell=${viewer ? null : () => startTab(newTabCommand({ kind: "shell" }))}
-          onHistory=${snap.remote || viewer ? null : () => setHistoryOpen(true)} onFind=${snap.remote ? null : () => setFindingPane(true)} />
+          onHistory=${snap.remote || viewer ? null : () => setHistoryOpen(true)} onFind=${snap.remote ? null : () => setFindingPane(true)} nav=${navBlock} />
         <${ViewBar} view=${view} views=${views} onView=${chooseView} />`
       : null}
     <${Home} snap=${snap} selected=${selected} onShown=${setShown} onOpen=${drawer.open} open=${drawer.pane} />
@@ -874,7 +880,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     ${settingsOpen
       ? html`<${Settings} prefs=${prefs} change=${change} section=${settingsSection} onClose=${() => setSettingsOpen(false)} ctx=${settingsCtx} />`
       : null}
-    ${historyOpen ? html`<${History} history=${snap.history} root=${selected} send=${send} onClose=${() => setHistoryOpen(false)} />` : null}
+    ${historyOpen ? html`<${History} history=${snap.history} root=${selected} send=${send} onClose=${() => setHistoryOpen(false)} nav=${navBlock} />` : null}
     ${infoFor
       ? html`<${PaneInfo} pane=${infoFor.pane} info=${snap.paneInfo} floor=${infoFor.floor} send=${send} copy=${copy} onClose=${() => setInfoFor(null)}
           failure=${snap.notice && snap.notice.error && snap.notice.seq > infoFor.noticeAt ? String(snap.notice.text || "") : ""} />`
@@ -897,7 +903,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     ${agentsOpen
       ? html`<${Agents} list=${snap.agentsList} send=${send} onChoose=${(a) => { if (a.root && a.root !== selected) onWatch(a.root); setOpening(a.paneId); }} onClose=${() => setAgentsOpen(false)} onCloseFinished=${() => setCloseAsk(true)} />`
       : null}
-    ${worktreesOpen ? html`<${Worktrees} listing=${snap.worktrees} send=${send} onClose=${() => setWorktreesOpen(false)} />` : null}
+    ${worktreesOpen ? html`<${Worktrees} listing=${snap.worktrees} send=${send} onClose=${() => setWorktreesOpen(false)} nav=${navBlock} />` : null}
     ${helpersOpen ? html`<${Helpers} helpers=${snap.helpers} plan=${snap.helperPlan} send=${send} onClose=${() => setHelpersOpen(false)} />` : null}
     ${projectsOpen
       ? html`<${Projects} open=${openOf(snap.state || kept.current.state)} recents=${snap.recents} browse=${snap.browse} root=${state.root || ""} send=${send} onClose=${() => setProjectsOpen(false)} />`

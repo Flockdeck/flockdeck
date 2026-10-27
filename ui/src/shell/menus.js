@@ -11,6 +11,7 @@
 import { keycaps } from "./keys.js";
 import { nameOf } from "./palette.js";
 import { agentMenu, termMenu } from "./panemenus.js";
+import { NAV_MENUS } from "./menus-nav.js";
 
 /** MARGIN is the least space left between a menu and the edge of the window. */
 export const MARGIN = 8;
@@ -21,6 +22,8 @@ export const ATTR = "data-ctx";
 /** MENUS is every menu, by the kind a data-ctx names. Each is (el, ctx, ev) => Item[]
  *  where el is the element carrying data-ctx and ctx is the bag Live.js builds
  *  (see Live.js, "menuCtx"), with keys, implemented and act added by the Shell.
+ *  ev is the contextmenu event: a menu reads where the click was (ev.target, the
+ *  pointer position, Shift) when it differs from the part itself.
  *
  *  An Item is { id, label?, action?, run?, danger?, disabled?, hidden?, separator?,
  *  checked? }. One with an action is an action of the key table: it takes its
@@ -30,6 +33,7 @@ export const ATTR = "data-ctx";
  *  { separator: true } draws a rule; checked (true or false) makes the item a
  *  check box. */
 export const MENUS = {
+  ...NAV_MENUS,
   agent: agentMenu,
   term: termMenu,
 };
