@@ -13,6 +13,7 @@ import { html } from "../html.js";
 import { ModalScrim } from "./inert.js";
 import { useStore } from "../lib/use-store.js";
 import { Drawer, hasTerminal, useDrawer } from "../drawer/Drawer.js";
+import { terminalOf } from "../lib/terminal.js";
 import { focusNode } from "../drawer/state.js";
 import { ManagerBar, managerOf } from "../graph/ManagerBar.js";
 import { Feed } from "../graph/Feed.js";
@@ -158,6 +159,8 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
   // the project chosen in it are kept through that, so a reconnect does not clear
   // the choice and ask for the graph a second time.
   const kept = useRef({ hello: NO_HELLO, state: NO_STATE });
+  // The navigation menus' block of the menu bag: the same object every render, since the tabs and dialogs register on it.
+  const navBlock = useRef({}).current;
   if (snap.hello) kept.current.hello = snap.hello;
   if (snap.state) kept.current.state = snap.state;
   // The rail's choice, and the first project the window has. In a window reached
@@ -217,9 +220,16 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
   const send = (c) => store.send(c);
   const life = useLifecycle(send);
   const tx = useTranscripts(send, acknowledged(kept.current.hello.prefs));
+  // A question for a pane that is not open (from its row's menu) opens the drawer
+  // on it first and is asked once the drawer has changed pane, which drops any
+  // question already open.
+  const asked = useRef(null);
   useEffect(() => {
     life.cancel();
     tx.cancel();
+    const later = asked.current;
+    asked.current = null;
+    if (later && later.pane === drawer.pane) later.fn();
   }, [drawer.pane]);
 
   // An agent started from the dialog is opened in the drawer once the graph
@@ -485,8 +495,9 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
       failed();
     }
   };
-  const openInfo = () => {
-    if (!drawer.pane) {
+  const openInfo = (id) => {
+    const at = typeof id === "string" && id ? id : drawer.pane;
+    if (!at) {
       say(OPEN_AN_AGENT_WORDS);
       return;
     }
@@ -494,8 +505,8 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
       say(DESK_FILES_WORDS);
       return;
     }
-    setInfoFor({ pane: drawer.pane, floor: snap.paneInfo ? snap.paneInfo.seq : 0, noticeAt: noticeSeq });
-    send({ cmd: "paneInfo", id: drawer.pane });
+    setInfoFor({ pane: at, floor: snap.paneInfo ? snap.paneInfo.seq : 0, noticeAt: noticeSeq });
+    send({ cmd: "paneInfo", id: at });
   };
   // Once the desktop has detached this window the page closes itself, or says it
   // can be closed when the browser will not let a script do it.
@@ -553,12 +564,23 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
   // The graph's two keys that no arrow does. The next agent that needs the person
   // goes on from the box the keyboard is on, or from the open drawer's pane, and
   // the manager bar takes the keyboard where it is.
-  const needPane = (fn) => () => {
-    if (!drawer.pane || !node) {
+  // A pane action acts on the pane it is given by id (a right-click on a row),
+  // or else on the open drawer's. fn gets that pane's node and state.
+  // With show, an action that asks a question in the drawer first opens the drawer on the pane.
+  const needPane = (fn, show = false) => (id) => {
+    const at = typeof id === "string" && id ? id : drawer.pane;
+    const n = at === drawer.pane ? node : at && current ? current.byPane.get(at) : null;
+    if (!at || !n) {
       say(OPEN_AN_AGENT_WORDS);
       return;
     }
-    fn();
+    const st = (statePanes || {})[at] || null;
+    if (show && at !== drawer.pane) {
+      asked.current = { pane: at, fn: () => fn(n, st) };
+      drawer.open(at);
+      return;
+    }
+    fn(n, st);
   };
   // The Team dialog keeps a watch on the project chosen in the rail while it is open.
   useEffect(() => {
@@ -642,13 +664,13 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     team: () => (snap.remote ? say(TEAM_RELAY_WORDS) : viewer ? say(VIEWER_WORDS) : setTeamOpen(true)),
     agents: () => (viewer ? say(VIEWER_WORDS) : setAgentsOpen(true)),
     worktrees: () => (viewer ? say(VIEWER_WORDS) : setWorktreesOpen(true)),
-    makeBaton: needPane(() => {
+    makeBaton: needPane((node, pane) => {
       if (viewer) return say(VIEWER_WORDS);
       if (snap.remote) return say(BATON_RELAY_WORDS);
       const req = inflight.current.next();
-      inflight.current.add(req, "makeBaton", drawer.pane);
-      if (store.send(makeCommand(drawer.pane, req)) === false) inflight.current.delete(req);
-      else setBaton({ pane: drawer.pane, name: node.name || drawer.pane, req });
+      inflight.current.add(req, "makeBaton", node.pane);
+      if (store.send(makeCommand(node.pane, req)) === false) inflight.current.delete(req);
+      else setBaton({ pane: node.pane, name: node.name || node.pane, req });
       return undefined;
     }),
     fontUp: () => bumpFont(prefs.fontSize + 1),
@@ -674,25 +696,25 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     history: () => (snap.remote ? say(HISTORY_REMOTE_WORDS) : viewer ? say(VIEWER_WORDS) : setHistoryOpen(true)),
     findPane: () => (snap.remote ? say(DESK_FILES_WORDS) : setFindingPane(true)),
     paneInfo: openInfo,
-    changes: needPane(() => (pane && pane.cwd ? setTabAsk((a) => ({ tab: "changes", n: a.n + 1 })) : say(NO_TREE_WORDS))),
-    findInTerminal: needPane(() => (hasTerminal(node, pane) ? setFindAsk((n) => n + 1) : say(NO_TERMINAL_WORDS))),
-    recordPane: needPane(() => {
+    changes: needPane((node, pane) => (pane && pane.cwd ? (node.pane !== drawer.pane && drawer.open(node.pane), setTabAsk((a) => ({ tab: "changes", n: a.n + 1, pane: node.pane }))) : say(NO_TREE_WORDS))),
+    findInTerminal: needPane((node, pane) => (hasTerminal(node, pane) ? setFindAsk((n) => n + 1) : say(NO_TERMINAL_WORDS))),
+    recordPane: needPane((node, pane) => {
       if (viewer) say(VIEWER_WORDS);
       else if (canTranscribe(node, pane)) tx.record(node.pane, !(pane && pane.recording));
       else say(node.shell || (pane && pane.shell) ? SHELL_RECORD_WORDS : STRUCTURED_RECORD_WORDS);
-    }),
-    exportTranscript: needPane(() => {
+    }, true),
+    exportTranscript: needPane((node, pane) => {
       if (viewer) say(VIEWER_WORDS);
       else if (snap.remote) say(DESK_FILES_WORDS);
       else if (canTranscribe(node, pane)) tx.exportTranscript(node.pane);
       else say(node.shell || (pane && pane.shell) ? SHELL_RECORD_WORDS : STRUCTURED_RECORD_WORDS);
-    }),
-    revealTranscript: needPane(() => (viewer ? say(VIEWER_WORDS) : snap.remote ? say(DESK_FILES_WORDS) : send({ cmd: "revealTranscript", id: node.pane }))),
+    }, true),
+    revealTranscript: needPane((node) => (viewer ? say(VIEWER_WORDS) : snap.remote ? say(DESK_FILES_WORDS) : send({ cmd: "revealTranscript", id: node.pane }))),
     openRecordings: () => (viewer ? say(VIEWER_WORDS) : snap.remote ? say(DESK_FILES_WORDS) : send({ cmd: "openRecordings" })),
     zoomPane: needPane(() => drawer.toggleMax()),
-    restartPane: needPane(() => (viewer ? say(VIEWER_WORDS) : life.begin("restart", node, pane))),
-    lockPane: needPane(() => (viewer ? say(VIEWER_WORDS) : life.toggleLock(node.pane, !(pane && pane.locked)))),
-    closePane: needPane(() => (viewer ? say(VIEWER_WORDS) : pane && pane.locked ? say("This pane is locked. Unlock it to close it.") : life.begin("close", node, pane))),
+    restartPane: needPane((node, pane) => (viewer ? say(VIEWER_WORDS) : life.begin("restart", node, pane)), true),
+    lockPane: needPane((node, pane) => (viewer ? say(VIEWER_WORDS) : life.toggleLock(node.pane, !(pane && pane.locked)))),
+    closePane: needPane((node, pane) => (viewer ? say(VIEWER_WORDS) : pane && pane.locked ? say("This pane is locked. Unlock it to close it.") : life.begin("close", node, pane)), true),
   });
 
   // The baton answers. A draft is for the dialog whose request it carries. A
@@ -763,6 +785,25 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     pushError: (viewOf(kept.current.state.remote) || { pushError: "" }).pushError,
   };
 
+  // What the right-click menus read (shell/menus.js). The shared members are here;
+  // each family of menus fills in its own block and no other: pane for the agent
+  // rows, header and terminal, nav for tabs, projects, worktrees and history, content
+  // for tasks, messages, diffs, conversation rows and links.
+  Object.assign(navBlock, {
+    tabs: goal.tabs, archived: goal.archived, active: activeTab, select: showTab, canStep: (id, dir) => canStep(goal.tabs, id, dir),
+    projects: viewer ? null : () => setProjectsOpen(true),
+  });
+  const menuCtx = {
+    snap, viewer, remote: !!snap.remote, say, copy, drawer, tabDo, nav: navBlock, content: {},
+    pane: {
+      of: (id) => ({ node: current ? current.byPane.get(id) || null : null, state: (statePanes || {})[id] || null }),
+      run: (name, id) => actions[name](id),
+      terminal: terminalOf,
+      clipboard: () => (page && page.navigator && page.navigator.clipboard) || null,
+      openLink: (url) => { if (page && page.open) page.open(url, "_blank", "noopener,noreferrer"); },
+    },
+  };
+
   return html`<${Shell}
     hello=${kept.current.hello}
     state=${kept.current.state}
@@ -791,6 +832,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     onSettings=${() => openSettings("general")}
     onProjects=${viewer ? null : () => setProjectsOpen(true)}
     paletteItems=${paletteItems}
+    menuCtx=${menuCtx}
     railFoot=${snap.remote
       ? null
       : html`${viewer ? null : html`<${FootButton} cls="rail-helpers" glyph="▤" label="Helper apps" onClick=${() => setHelpersOpen(true)} />`}
@@ -807,7 +849,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
           onRename=${tabDo.rename} onArchive=${tabDo.archive} onRestore=${tabDo.restore} onMove=${tabDo.move} onStep=${tabDo.step} canStep=${(id, dir) => canStep(goal.tabs, id, dir)}
           onStartTeam=${snap.remote || viewer ? null : () => setStarting("team")}
           onNewAgent=${viewer ? null : () => startTab(newTabCommand({ kind: "agent" }))} onChoose=${viewer ? null : () => setStarting("agent")} onNewShell=${viewer ? null : () => startTab(newTabCommand({ kind: "shell" }))}
-          onHistory=${snap.remote || viewer ? null : () => setHistoryOpen(true)} onFind=${snap.remote ? null : () => setFindingPane(true)} />
+          onHistory=${snap.remote || viewer ? null : () => setHistoryOpen(true)} onFind=${snap.remote ? null : () => setFindingPane(true)} nav=${navBlock} />
         <${ViewBar} view=${view} views=${views} onView=${chooseView} />`
       : null}
     <${Home} snap=${snap} selected=${selected} onShown=${setShown} onOpen=${drawer.open} open=${drawer.pane} />
@@ -838,7 +880,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     ${settingsOpen
       ? html`<${Settings} prefs=${prefs} change=${change} section=${settingsSection} onClose=${() => setSettingsOpen(false)} ctx=${settingsCtx} />`
       : null}
-    ${historyOpen ? html`<${History} history=${snap.history} root=${selected} send=${send} onClose=${() => setHistoryOpen(false)} />` : null}
+    ${historyOpen ? html`<${History} history=${snap.history} root=${selected} send=${send} onClose=${() => setHistoryOpen(false)} nav=${navBlock} />` : null}
     ${infoFor
       ? html`<${PaneInfo} pane=${infoFor.pane} info=${snap.paneInfo} floor=${infoFor.floor} send=${send} copy=${copy} onClose=${() => setInfoFor(null)}
           failure=${snap.notice && snap.notice.error && snap.notice.seq > infoFor.noticeAt ? String(snap.notice.text || "") : ""} />`
@@ -861,7 +903,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     ${agentsOpen
       ? html`<${Agents} list=${snap.agentsList} send=${send} onChoose=${(a) => { if (a.root && a.root !== selected) onWatch(a.root); setOpening(a.paneId); }} onClose=${() => setAgentsOpen(false)} onCloseFinished=${() => setCloseAsk(true)} />`
       : null}
-    ${worktreesOpen ? html`<${Worktrees} listing=${snap.worktrees} send=${send} onClose=${() => setWorktreesOpen(false)} />` : null}
+    ${worktreesOpen ? html`<${Worktrees} listing=${snap.worktrees} send=${send} onClose=${() => setWorktreesOpen(false)} nav=${navBlock} />` : null}
     ${helpersOpen ? html`<${Helpers} helpers=${snap.helpers} plan=${snap.helperPlan} send=${send} onClose=${() => setHelpersOpen(false)} />` : null}
     ${projectsOpen
       ? html`<${Projects} open=${openOf(snap.state || kept.current.state)} recents=${snap.recents} browse=${snap.browse} root=${state.root || ""} send=${send} onClose=${() => setProjectsOpen(false)} />`

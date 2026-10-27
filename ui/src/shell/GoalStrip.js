@@ -26,7 +26,7 @@ function labelFor(t) {
  *  its control out. */
 export function GoalStrip({
   tabs, archived = [], active, onSelect, onRename, onArchive, onRestore, onMove, onStep, canStep,
-  onStartTeam = null, onNewAgent = null, onChoose = null, onNewShell = null, onHistory = null, onFind = null,
+  onStartTeam = null, onNewAgent = null, onChoose = null, onNewShell = null, onHistory = null, onFind = null, nav = null,
 }) {
   const [renaming, setRenaming] = useState("");
   const [stop, setStop] = useState("");
@@ -69,6 +69,12 @@ export function GoalStrip({
     archiving.current = { id, near: near ? near.id : "", tabs };
     onArchive(id);
   };
+  // The right-click menu of a tab reads these from the page's nav block.
+  useEffect(() => {
+    if (!nav) return undefined;
+    Object.assign(nav, { rename: setRenaming, archive });
+    return () => { nav.rename = null; nav.archive = null; };
+  });
   const onListKey = (e) => {
     if (composing(e) || e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return;
     const li = e.target && e.target.getAttribute && e.target.getAttribute("role") === "tab" ? e.target.closest("li") : null;
@@ -112,7 +118,7 @@ export function GoalStrip({
           }
           const goal = t.kind === "team";
           const cls = "tab goaltab" + (t.id === active ? " is-active" : "") + (t.activity ? " tab--" + t.activity : "") + (dragging === t.id ? " is-dragging" : "");
-          return html`<li key=${t.id} class=${cls} role="presentation" data-tab=${t.id} data-kind=${t.kind}
+          return html`<li key=${t.id} class=${cls} role="presentation" data-tab=${t.id} data-kind=${t.kind} data-ctx="tab"
             draggable=${goal && onMove ? "true" : undefined}
             onDragStart=${goal && onMove ? (e) => { setDragging(t.id); if (e.dataTransfer) { e.dataTransfer.effectAllowed = "move"; e.dataTransfer.setData("text/plain", t.id); } } : undefined}
             onDragOver=${goal && dragging && dragging !== t.id ? (e) => e.preventDefault() : undefined}
@@ -148,7 +154,7 @@ export function GoalStrip({
           : null}
         ${archived.length > 0 && onRestore
           ? html`<hr class="tabs-sep" /><div role="group" aria-label="Archived goals"><p class="tabs-menu-head" aria-hidden="true">Archived goals</p>
-              ${archived.map((t) => html`<button key=${t.id} type="button" role="menuitem" class="tabs-btn tabs-restore" data-tab=${t.id} title=${t.title} onClick=${act(() => onRestore(t.id))}>Show ${t.label}</button>`)}</div>`
+              ${archived.map((t) => html`<button key=${t.id} type="button" role="menuitem" class="tabs-btn tabs-restore" data-tab=${t.id} data-ctx="tab" data-archived="1" title=${t.title} onClick=${act(() => onRestore(t.id))}>Show ${t.label}</button>`)}</div>`
           : null}`}<//>
     </div>
   `;

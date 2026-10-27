@@ -2,6 +2,7 @@ import { useEffect, useMemo, useReducer, useRef, useState } from "../vendor/hook
 import { html } from "../html.js";
 import { Rail } from "./rail.js";
 import { Palette } from "./palette.js";
+import { ContextMenu } from "./ContextMenu.js";
 import { Help } from "./Help.js";
 import { loadHelp } from "../lib/help.js";
 import { bindingsFrom, keyAction, rangeAction, rangesFrom, unreadable } from "./keys.js";
@@ -173,7 +174,7 @@ export function useMedia(matchMedia, query) {
  *  to a box in it. window is the page's, passed in for a test. helpLoad fetches
  *  the help pages (lib/help.js); the default asks the page's own address. blocked
  *  says a view's modal dialog is open, and no key then reaches an action. */
-export function Shell({ hello, state, notice, onDismissNotice, onWatch, narrow: narrowProp, matchMedia, top, children, drawer, maximised = false, mainRef, bottom = null, total = "", window: win, actions = NO_ACTIONS, blocked = false, onSettings, onProjects, helpLoad, railFoot = null, paletteItems = null, railExpanded, railWidth = RAIL_DEFAULT, onRailExpanded, onRailWidth, drawerW = DRAWER_DEFAULT, onDrawerW = null, drawerH = DRAWER_H_DEFAULT, onDrawerH = null, orient = "side", keysOff = false, welcome = false, onHelpOpened }) {
+export function Shell({ hello, state, notice, onDismissNotice, onWatch, narrow: narrowProp, matchMedia, top, children, drawer, maximised = false, mainRef, bottom = null, total = "", window: win, actions = NO_ACTIONS, blocked = false, onSettings, onProjects, helpLoad, railFoot = null, paletteItems = null, railExpanded, railWidth = RAIL_DEFAULT, onRailExpanded, onRailWidth, drawerW = DRAWER_DEFAULT, onDrawerW = null, drawerH = DRAWER_H_DEFAULT, onDrawerH = null, orient = "side", keysOff = false, welcome = false, onHelpOpened, menuCtx = null }) {
   const keys = keysOf(hello);
   const bindings = useMemo(() => bindingsFrom(keys), [keys]);
   const broken = useMemo(() => unreadable(keys), [keys]);
@@ -208,6 +209,11 @@ export function Shell({ hello, state, notice, onDismissNotice, onWatch, narrow: 
     if (fn) fn(ev.n);
     else dispatch(ev);
   };
+
+  // What the right-click menus read: the page's bag (Live.js), with the key table
+  // for labels and hints, the actions this window runs, and a way to run one the
+  // way a key does. Rebuilt each render; the menu keeps the latest.
+  const menuBag = { ...menuCtx, keys, implemented, act: (id) => act({ type: "action", id }), selected: s.selected, blocked, selectProject: (root) => dispatch({ type: "select", root }) };
 
   const load = useMemo(() => {
     if (helpLoad) return helpLoad;
@@ -305,7 +311,7 @@ export function Shell({ hello, state, notice, onDismissNotice, onWatch, narrow: 
         ${top || html`<span class="top-title">${current ? current.name : "Flockdeck"}</span>`}
         ${total ? html`<span class="top-total" title="Spent so far, by every agent of this project">${total}</span>` : null}
       </header>
-      <main class=${"main" + (narrow ? " main--list" : "")} tabindex="-1" ref=${regions.main}>${children}</main>
+      <main class=${"main" + (narrow ? " main--list" : "")} tabindex="-1" ref=${regions.main} data-ctx="blank">${children}</main>
       ${bottom ? html`<footer class="composer" aria-label="Manager">${bottom}</footer>` : null}
       <aside class="drawer" aria-label="Agent" tabindex="-1" ref=${regions.drawer} hidden=${!drawerOpen}>
         ${canSize ? html`<${DrawerResize} vertical=${stack} width=${sizeNow} onWidth=${(px) => { setDragDrawer(null); (stack ? onDrawerH : onDrawerW)(px); }} onDrag=${setDragDrawer} />` : null}
@@ -320,6 +326,7 @@ export function Shell({ hello, state, notice, onDismissNotice, onWatch, narrow: 
                 <button type="button" class="notice-dismiss" onClick=${onHelpOpened}>Got it</button></p>`
             : null}
       </div>
+      <${ContextMenu} win=${win || (typeof window !== "undefined" ? window : null)} ctx=${menuBag} />
       ${s.helpOpen
         ? html`<${Help} keys=${keys} implemented=${implemented} load=${load} onClose=${() => dispatch({ type: "closeHelp" })} />`
         : null}

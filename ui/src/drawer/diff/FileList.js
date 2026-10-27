@@ -91,7 +91,7 @@ export function FileList({ files = NONE, selected = "", onPick = null, comments 
             const n = open.get(f.path) || 0;
             const added = count(f.added);
             const removed = count(f.removed);
-            return html`<li key=${f.path} class="dv-fileitem">
+            return html`<li key=${f.path} class="dv-fileitem" data-ctx="diffFile" data-path=${f.path} data-old-path=${f.oldPath || null}>
               <button type="button" tabindex=${i === stop ? 0 : -1} class=${"dv-filebtn" + (selected === f.path ? " is-selected" : "")} aria-current=${selected === f.path ? "true" : null} onClick=${() => onPick && onPick(f.path)}>
                 <span class="dv-status" data-status=${text(f.status)}>${statusWord(f.status)}</span>
                 <span class="dv-path" title=${showControls(text(f.path))}><bdi>${f.oldPath && f.oldPath !== f.path ? html`<s>${pathText(f.oldPath)}</s> ${"→ "}` : null}${pathText(f.path)}</bdi></span>

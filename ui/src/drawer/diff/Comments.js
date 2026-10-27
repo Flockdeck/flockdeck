@@ -76,7 +76,7 @@ function Card({ c, headSha, error, closing = false, nameOf, onResolve, onReopen,
   const outdated = isOutdated(c, headSha);
   const done = state !== "open";
   const canAct = !c.pending && !!c.id;
-  return html`<li class=${"dv-cmt" + (done ? " is-done" : "")} data-state=${state}>
+  return html`<li class=${"dv-cmt" + (done ? " is-done" : "")} data-ctx="comment" data-state=${state}>
     ${showWhere ? html`<p class="dv-cmt-where"><bdi>${clip(whereWords(c), 200)}</bdi></p>` : null}
     <p class="dv-cmt-text">${showControls(clip(text(c.text), MAX_COMMENT))}</p>
     <p class="dv-cmt-meta">
