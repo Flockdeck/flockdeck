@@ -89,6 +89,7 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, d
   const [mark, setMark] = useState(null);
   const busy = useRef(false);
   const box = useRef(null);
+  const sendBtn = useRef(null);
   const outcome = mark ? outcomeOf(snap || {}, mark) : null;
   if (!outcome || outcome.kind !== "sending") busy.current = false;
   const taken = !!outcome && outcome.kind === "sent";
@@ -98,10 +99,17 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, d
     setDraft("");
     setMark(null);
   }, [taken, mark]);
-  // Send is off while the answer is awaited, which takes the keyboard from it; a refusal gives it back to the text.
+  // Send is off while the answer is awaited, which takes the keyboard from it; a refusal gives it back to the text,
+  // unless the person has moved on to something else in the meantime.
   const refusedNow = !!outcome && outcome.kind === "refused";
   useEffect(() => {
-    if (refusedNow && box.current && box.current.focus) box.current.focus();
+    const el = box.current;
+    if (!refusedNow || !el || !el.focus) return;
+    const doc = el.ownerDocument;
+    const held = doc && doc.activeElement;
+    // The drawer's own panel holding the keyboard is not something the person moved to.
+    if (held && held !== doc.body && held !== sendBtn.current && !(held.contains && held.contains(el))) return;
+    el.focus();
   }, [refusedNow, mark]);
   if (error) return html`<p class="drawer-stub conv-refused" role="status">${clip(String(error.error || ""), 300)}</p>`;
   if (!st || st.id !== pane) return html`<p class="drawer-stub">Loading the agent.</p>`;
@@ -142,7 +150,7 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, d
       ${desk
         ? html`<form class="structured-prompt" onSubmit=${submit}>
             <textarea ref=${box} class="structured-input" aria-label="Message to the agent" rows="2" value=${draft} readOnly=${outcome && outcome.kind === "sending"} aria-busy=${outcome && outcome.kind === "sending" ? "true" : undefined} onInput=${(e) => { setDraft(e.target.value); setSendFailed(""); if (outcome && outcome.kind === "refused") setMark(null); }}></textarea>
-            <button type="submit" class="drawer-btn structured-send" disabled=${draft.trim() === "" || (outcome && outcome.kind === "sending")}>Send</button>
+            <button ref=${sendBtn} type="submit" class="drawer-btn structured-send" disabled=${draft.trim() === "" || (outcome && outcome.kind === "sending")}>Send</button>
             <button type="button" class="drawer-btn structured-stop" onClick=${stop}>Stop</button>
             ${outcome && outcome.kind === "refused" ? html`<p class="structured-note structured-note--unsent structured-note--send" role="alert">${clip(outcome.text, 300)}</p>` : null}
             ${sendFailed === pane ? html`<p class="structured-note structured-note--unsent structured-note--send" role="alert">${SEND_NOT_SENT_WORDS}</p>` : null}

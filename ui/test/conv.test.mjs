@@ -593,6 +593,20 @@ test("an ideographic full stop in link text is a dot, as it is to the address ba
   }
 });
 
+// fullWidth is text with its ASCII letters and full stops written as full-width forms, which new URL reads as the ASCII ones.
+const fullWidth = (t) => Array.from(t, (c) => (c === "." ? String.fromCharCode(0xff0e) : /[!-~]/.test(c) ? String.fromCharCode(c.charCodeAt(0) + 0xfee0) : c)).join("");
+
+test("link text written in full-width letters is a host as new URL reads it", () => {
+  const texts = [fullWidth("github.com"), "Github." + fullWidth("Com"), "github." + fullWidth("com")];
+  for (const t of texts) {
+    const away = md("[" + t + "](https://evil.example/a)");
+    assert.equal(away.split("(evil.example)").length - 1, 1, "no warning for " + t + ": " + away);
+    assert.equal(md("[" + t + "](https://github.com/o)").includes("md-linkhost"), false, "a full-width name of the host it goes to showed it: " + t);
+  }
+  const prose = md("[" + fullWidth("Read more here") + "](https://evil.example/b) and [" + fullWidth("See the docs. Then go.") + "](https://evil.example/c)");
+  assert.equal(prose.includes("md-linkhost"), false, "ordinary prose in full-width letters showed a host: " + prose);
+});
+
 test("German words that have a dot in them are not taken for a host", () => {
   const out = md("[Datei.txt](https://evil.example/a) and [Ich mag Äpfel.Danke](https://evil.example/b) and [Äpfel.Danke](https://evil.example/c)");
   assert.equal(out.split("md-linkhost").length - 1, 0, out);

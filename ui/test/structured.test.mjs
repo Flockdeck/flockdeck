@@ -194,6 +194,20 @@ test("Send is off while a send is out, the refusal is an alert and goes when the
     assert.equal(m.container.find(".structured-input").value, "run the tests again");
   }));
 
+test("a refusal does not take the keyboard from something the person moved to meanwhile", () =>
+  with_(push(), {}, async (m) => {
+    m.container.find(".structured-input").enter("run the tests");
+    await settle();
+    m.container.find(".structured-prompt").dispatch("submit");
+    await settle();
+    const box = m.container.find(".structured-input");
+    const before = box.focusCalls;
+    m.container.find(".structured-stop").focus();
+    await refused(m, m.store.sent[0], "That agent is gone, so the text was not sent.");
+    assert.equal(box.focusCalls, before, "the refusal took the focus from Stop");
+    assert.ok(m.container.find(".structured-note--send"), "the refusal was not said");
+  }));
+
 test("a text whose connection dropped before the desk answered is said and stays in the box", () =>
   with_(push(), {}, async (m) => {
     m.container.find(".structured-input").enter("run the tests");
