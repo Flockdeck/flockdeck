@@ -5,7 +5,7 @@ Updated 27 Oct 2026 after the owner's decisions in [acp-direction.md](acp-direct
 Superseded as a whole:
 
 - Terminal panes stay as a fallback (section 3): no. Every agent runs over ACP and terminal-pane agents go away.
-- Third-party adapters pinned with a canary, and Node 20+: no. Agents without native ACP get a Go adapter inside the flockdeck binary (Claude: T204, Codex: T206). The Node check is now a generic "agent unavailable" state (T207, API 1.15).
+- Third-party adapters pinned with a canary, and Node 20+: no. Agents without native ACP get a Go adapter inside the flockdeck binary (Claude: T204, Codex: T206). The Node check is now a generic "agent unavailable" state (T207, API 1.16).
 - `flockdeck chat` as an ACP server (stage 12): no. `flockdeck chat` is removed (T201) and API keys move to Settings (T202).
 - `flockdeck inbox` stays, read-only, for terminal panes (section 2): no. The inbox, `flockdeck msg`, hook notices and typed wake are retired; the store stays as an audit log.
 - Cursor, Aider: Cursor and Copilot CLI and Cline run directly over their native ACP; Aider and Amp are dropped ([registry survey](acp-registry-survey.md)).

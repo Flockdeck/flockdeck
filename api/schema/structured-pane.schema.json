@@ -112,7 +112,7 @@
       "required": ["kind"],
       "description": "Present while the phase is needs setup: what the person has to do before the agent can start. Absent otherwise.",
       "properties": {
-        "kind": { "type": "string", "minLength": 1, "description": "login, the only kind. Before API 1.15 it could also be node or install; an agent that cannot be found or started is now the failed phase with the fixed err text, not a setup. Always written." },
+        "kind": { "type": "string", "minLength": 1, "description": "login, the only kind. Before API 1.16 it could also be node or install; an agent that cannot be found or started is now the failed phase with the fixed err text, not a setup. Always written." },
         "message": { "type": "string", "minLength": 1, "description": "What the agent said, on one line, cut to 300 bytes. Absent when it said nothing." },
         "fix": { "type": "string", "minLength": 1, "description": "What to do about it (the catalog's advice for a login), on one line, cut to 300 bytes. Absent when there is none." }
       }

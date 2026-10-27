@@ -61,7 +61,7 @@ refused in the same words, so a window probing for ids learns nothing: the `team
 | `activity` | A line naming what a working agent is doing. |
 | `queued` | How many prompts wait behind the running turn. |
 | `err` | The last thing that went wrong, as one cleaned line. It says what last went wrong and not that something is wrong now; show it with the phase and status. |
-| `setup` | While the phase is `needs setup`: `kind` (`login`; before API 1.15 also `node` and `install`), a `message` (the cause) and a `fix` (what to do about it, when there is advice). |
+| `setup` | While the phase is `needs setup`: `kind` (`login`; before API 1.16 also `node` and `install`), a `message` (the cause) and a `fix` (what to do about it, when there is advice). |
 | `plan` | The agent's plan rows. |
 | `card` | The permission request that is open, with the agent's options. Answer it with `permissionAnswer`. |
 | `usage` | `used` and `size` of the context, and `cost` and `currency` when the agent reports one. |
@@ -330,7 +330,7 @@ final, so the pane is started again after the fix.
 unavailable" and no `setup`. The same fixed text (`agent.UnavailableText`) is in the agent picker
 (`unavailable`), in a refused spawn and in a pane that could not start. It names no program and no
 runtime, gives no reason, repeats nothing the agent wrote and has no install steps, because Flockdeck does
-not install agents (API 1.15).
+not install agents (API 1.16). The `install` field of the agent list and of the start dialog's agents is removed in the same version.
 
 **What is recorded.** Nothing, for now. The stream recorder exists (`internal/record/rpc.go`,
 [stream recording](rpc-recording-format.md)), but no structured pane starts it, and asking a
