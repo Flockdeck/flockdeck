@@ -12,6 +12,16 @@ import { Shell } from "../src/shell/app.js";
 import { fakeKeys, fakeState } from "./util.mjs";
 import { createDom, install, settle } from "./dom.mjs";
 
+// These tests are of the component and the pure parts, not of the pane menus (see
+// panemenus.test.mjs), so the agent menu here is a small one of their own.
+MENUS.agent = (el, ctx) => {
+  const pane = el.getAttribute("data-pane");
+  return [
+    { id: "open", label: "Open", run: () => ctx.drawer && ctx.drawer.open(pane), hidden: !pane || !ctx.drawer },
+    { id: "copy-id", label: "Copy pane id", run: () => ctx.copy && ctx.copy(pane, "the pane id"), hidden: !pane || !ctx.copy },
+  ];
+};
+
 const KEYS = [
   { id: "paneInfo", keys: "Ctrl+Shift+Y", label: "Pane info — what it is running" },
   { id: "closePane", keys: "Ctrl+Shift+W", label: "Close the pane", short: "Close" },

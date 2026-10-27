@@ -38,7 +38,7 @@ export function ContextMenu({ win, ctx }) {
     const doc = win.document;
     const onMenu = (e) => {
       const el = ctxElement(e.target);
-      const items = el && !nativeWanted(e.target, win, el) ? build(el.getAttribute(ATTR), el, latest.current) : [];
+      const items = el && !nativeWanted(e.target, win, el) ? build(el.getAttribute(ATTR), el, latest.current, e) : [];
       if (!items.length) {
         // Not ours: the window's menu opens, and ours does not stay under it.
         opener.current = null;

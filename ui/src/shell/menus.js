@@ -10,6 +10,7 @@
 
 import { keycaps } from "./keys.js";
 import { nameOf } from "./palette.js";
+import { agentMenu, termMenu } from "./panemenus.js";
 
 /** MARGIN is the least space left between a menu and the edge of the window. */
 export const MARGIN = 8;
@@ -17,7 +18,7 @@ export const MARGIN = 8;
 /** ATTR is the attribute that gives a part of the page a menu. */
 export const ATTR = "data-ctx";
 
-/** MENUS is every menu, by the kind a data-ctx names. Each is (el, ctx) => Item[]
+/** MENUS is every menu, by the kind a data-ctx names. Each is (el, ctx, ev) => Item[]
  *  where el is the element carrying data-ctx and ctx is the bag Live.js builds
  *  (see Live.js, "menuCtx"), with keys, implemented and act added by the Shell.
  *
@@ -29,14 +30,8 @@ export const ATTR = "data-ctx";
  *  { separator: true } draws a rule; checked (true or false) makes the item a
  *  check box. */
 export const MENUS = {
-  // The proof that the foundation works end to end. The pane menus fill this out.
-  agent(el, ctx) {
-    const pane = el.getAttribute("data-pane");
-    return [
-      { id: "open", label: "Open", run: () => ctx.drawer && ctx.drawer.open(pane), hidden: !pane || !ctx.drawer },
-      { id: "copy-id", label: "Copy pane id", run: () => ctx.copy && ctx.copy(pane, "the pane id"), hidden: !pane || !ctx.copy },
-    ];
-  },
+  agent: agentMenu,
+  term: termMenu,
 };
 
 /** ctxElement is the nearest element at or above target that carries data-ctx,
@@ -54,6 +49,9 @@ export function ctxElement(target) {
 export function isField(el) {
   for (let n = el; n && n.nodeType === 1; n = n.parentNode) {
     const tag = n.localName;
+    // xterm's hidden textarea takes the keyboard for the terminal; it is not
+    // somewhere the person types, and the terminal has a menu of its own.
+    if (n.getAttribute && /(^|\s)xterm-helper-textarea(\s|$)/.test(n.getAttribute("class") || "")) return false;
     if (tag === "input" || tag === "textarea" || tag === "select") return true;
     if (n.isContentEditable) return true;
     const ce = n.getAttribute && n.getAttribute("contenteditable");
@@ -115,9 +113,9 @@ export function resolve(items, ctx) {
 
 /** build is the items for a kind of menu, resolved, or [] for a kind that has
  *  none (the window's own menu is then left alone). */
-export function build(kind, el, ctx) {
+export function build(kind, el, ctx, ev) {
   const make = MENUS[kind];
-  return make ? resolve(make(el, ctx), ctx) : [];
+  return make ? resolve(make(el, ctx, ev), ctx) : [];
 }
 
 const canFocus = (it) => !it.separator && !it.disabled;

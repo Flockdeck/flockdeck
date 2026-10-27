@@ -111,6 +111,17 @@ export function terminalKey(term, ev, env = {}) {
   return false;
 }
 
+/** linkIn is the http or https address in text that covers column col, or "". */
+export function linkIn(text, col) {
+  const re = /https?:\/\/[^\s<>"'`]+/g;
+  for (let m = re.exec(text); m; m = re.exec(text)) {
+    // A full stop or bracket that closes a sentence is not part of the address.
+    const url = m[0].replace(/[.,;:!?)\]}]+$/, "");
+    if (col >= m.index && col < m.index + url.length) return safeLink(url) ? url : "";
+  }
+  return "";
+}
+
 /** safeLink says a link a program printed may be opened: http and https only.
  *  The text of a link is whatever the program wrote, so a javascript: or file:
  *  address is not followed. */
@@ -574,6 +585,35 @@ export function createTerminal(opts) {
       if (pty) pty.retryNow();
     },
     focus() { if (term) term.focus(); },
+    /** selection is the text selected in the terminal, or "". */
+    selection() { return term ? term.getSelection() : ""; },
+    selectAll() { if (term) term.selectAll(); },
+    /** clear empties the scrollback and the screen above the cursor. It is
+     *  this window's view: the program is not told. */
+    clear() { if (term) term.clear(); },
+    /** pasteText pastes text as a paste does, without control characters. */
+    pasteText(text) {
+      const clean = stripPasteControls(String(text || ""));
+      if (term && clean) term.paste(clean);
+    },
+    /** mouseTracking says the running program asked for the mouse, so xterm
+     *  sends it a right-click and the page's own menu would only get in the way. */
+    mouseTracking() { return !!term && !!term.modes && term.modes.mouseTrackingMode !== "none"; },
+    /** linkAt is the http or https address printed under a point of the window,
+     *  or "". It reads the text of the screen row: a link wrapped over two rows
+     *  is read from the row the point is on. */
+    linkAt(x, y) {
+      const screen = term && term.element && term.element.querySelector ? term.element.querySelector(".xterm-screen") : null;
+      if (!screen || !term.buffer) return "";
+      const r = screen.getBoundingClientRect();
+      if (!r.width || !r.height || x < r.left || y < r.top || x >= r.right || y >= r.bottom) return "";
+      const col = Math.floor(((x - r.left) / r.width) * term.cols);
+      const row = Math.floor(((y - r.top) / r.height) * term.rows);
+      const buf = term.buffer.active;
+      const line = buf.getLine(buf.viewportY + row);
+      if (!line) return "";
+      return linkIn(line.translateToString(true), col);
+    },
     /** searchReady loads the search addon the first time, and resolves with
      *  whether Find in terminal can work. After a failure the next call tries again. */
     searchReady() {
@@ -640,6 +680,16 @@ export function createTerminal(opts) {
   };
 }
 
+// The controller of each terminal, by the element xterm is opened in, so a
+// right-click menu can reach the one it was opened on.
+const controllers = new WeakMap();
+
+/** terminalOf is the controller of the terminal drawn inside el, or null. */
+export function terminalOf(el) {
+  const host = el && el.querySelector ? el.querySelector(".terminal-host") : null;
+  return (host && controllers.get(host)) || null;
+}
+
 /** TerminalView is the component. Props: store, paneId, and optionally
  *  onReady(controller), which is how a drawer reaches fitToBox for its
  *  maximise toggle, plus anything createTerminal takes. Text from the server
@@ -653,10 +703,12 @@ export function TerminalView(props) {
   useEffect(() => {
     const ctl = createTerminal({ ...rest, store, paneId, host: hostRef.current, onChange: setState });
     ctlRef.current = ctl;
+    if (hostRef.current) controllers.set(hostRef.current, ctl);
     ctl.start();
     if (onReady) onReady(ctl);
     return () => {
       ctl.dispose();
+      if (hostRef.current) controllers.delete(hostRef.current);
       ctlRef.current = null;
       if (onReady) onReady(null);
     };
@@ -673,7 +725,7 @@ export function TerminalView(props) {
  *  that offers to size the pane for this window. */
 export function TerminalChrome({ state, hostRef, onTryAgain, onTakeOver }) {
   const note = state.sizeNote;
-  return html`<div class="terminal-pane" data-phase=${state.phase}>
+  return html`<div class="terminal-pane" data-phase=${state.phase} data-ctx="term">
     <div class="terminal-host" ref=${hostRef}></div>
     ${state.phase === "loading terminal" ? html`<div class="pane-loading" role="status">Loading terminal…</div>` : null}
     ${state.phase === "refused" || state.phase === "blocked" || state.phase === "load-failed"
