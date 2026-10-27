@@ -21,6 +21,7 @@
 import { useEffect, useRef, useState } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
 import { clip } from "../graph/Node.js";
+import { showControls } from "./diff/diffModel.js";
 import { outcomeOf, sendTo } from "../graph/ManagerBar.js";
 import { Conversation } from "./Conversation.js";
 import { Icon, toolKind } from "./conv/rows.js";
@@ -144,7 +145,7 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, d
             <textarea ref=${box} class="structured-input" aria-label="Message to the agent" rows="2" value=${draft} readOnly=${outcome && outcome.kind === "sending"} aria-busy=${outcome && outcome.kind === "sending" ? "true" : undefined} onInput=${(e) => { setDraft(e.target.value); setSendFailed(""); if (outcome && outcome.kind === "refused") setMark(null); }}></textarea>
             <button type="submit" class="drawer-btn structured-send" disabled=${draft.trim() === "" || (outcome && outcome.kind === "sending")}>Send</button>
             <button type="button" class="drawer-btn structured-stop" onClick=${stop}>Stop</button>
-            ${outcome && outcome.kind === "refused" ? html`<p class="structured-note structured-note--unsent structured-note--send" role="alert">${clip(outcome.text, 300)}</p>` : null}
+            ${outcome && outcome.kind === "refused" ? html`<p class="structured-note structured-note--unsent structured-note--send" role="alert">${showControls(clip(outcome.text, 300))}</p>` : null}
             ${sendFailed === pane ? html`<p class="structured-note structured-note--unsent structured-note--send" role="alert">${SEND_NOT_SENT_WORDS}</p>` : null}
             ${stopFailed === pane ? html`<p class="structured-note structured-note--unsent" role="status">${STOP_NOT_SENT_WORDS}</p>` : null}
             ${cancelError && cancelError.id === pane ? html`<p class="structured-note" role="status">${clip(String(cancelError.error || ""), 300)}</p>` : null}

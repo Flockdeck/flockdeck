@@ -151,7 +151,7 @@
   font-size: 13px;
   cursor: pointer;
 }
-.prompt-choice:hover:not(:disabled) { background: var(--bg-hover); }
+.prompt-choice:hover:not(:disabled):not([aria-disabled="true"]) { background: var(--bg-hover); }
 .prompt-choice:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .prompt-choice:disabled, .prompt-choice[aria-disabled="true"] { opacity: .5; cursor: default; }
 .prompt-choice--allow_once { border-color: var(--ok-line); }
@@ -427,7 +427,7 @@
 /* The decision card in the conversation: the first choice is the main one. */
 .prompt--decision { border: 1px solid var(--waiting-line); border-left: 2px solid var(--waiting); border-radius: 6px; }
 .prompt-choice--primary { border-color: var(--accent); background: var(--accent); color: var(--on-accent); font-weight: 600; }
-.prompt-choice--primary:hover:not(:disabled) { background: var(--accent-strong); }
+.prompt-choice--primary:hover:not(:disabled):not([aria-disabled="true"]) { background: var(--accent-strong); }
 
 /* Phone width: the drawer is always a full-screen sheet there, so the Stack / Side by side button
    has nothing to change, and its room goes to the agent's name. */

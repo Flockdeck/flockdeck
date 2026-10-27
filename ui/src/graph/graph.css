@@ -275,11 +275,11 @@
 .dec-status:empty { display: none; }
 .dec-actions, .dec .prompt-choices { display: flex; flex-wrap: wrap; gap: 6px; }
 .dec-btn, .dec .prompt-choice { min-height: 26px; padding: 3px 10px; border: 1px solid var(--line-strong); border-radius: 6px; background: var(--bg-raised); color: var(--fg); font: inherit; font-size: 12px; cursor: pointer; }
-.dec-btn:hover:not(:disabled), .dec .prompt-choice:hover:not(:disabled) { background: var(--bg-hover); }
+.dec-btn:hover:not(:disabled):not([aria-disabled="true"]), .dec .prompt-choice:hover:not(:disabled):not([aria-disabled="true"]) { background: var(--bg-hover); }
 .dec-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .dec-btn:disabled, .dec-btn[aria-disabled="true"] { opacity: .5; cursor: default; }
 .dec-btn--primary { border-color: var(--accent); background: var(--accent); color: var(--on-accent); font-weight: 600; }
-.dec-btn--primary:hover:not(:disabled) { background: var(--accent-strong); }
+.dec-btn--primary:hover:not(:disabled):not([aria-disabled="true"]) { background: var(--accent-strong); }
 .dec-btn--ghost { border-color: transparent; background: transparent; color: var(--fg-dim); }
 .dec .prompt-choice--allow_once { border-color: var(--ok-line); background: var(--ok-subtle); color: var(--ok); }
 .dec .prompt-choice--reject_once, .dec .prompt-choice--reject_always { border-color: var(--exited-line); background: transparent; color: var(--exited); }
