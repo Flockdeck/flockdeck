@@ -563,6 +563,36 @@ test("text with a user name in front of the host shows where the link goes", () 
   assert.equal(out.split("(evil.test)").length - 1, 1, out);
 });
 
+test("a capitalised word of the Latin script after the dot is not taken for a host, a mixed-script look-alike is", () => {
+  const out = md("[Wörter.Über](https://evil.example/a) and [Datei.Übung](https://evil.example/b) and [Fix.École](https://evil.example/c)");
+  assert.equal(out.split("md-linkhost").length - 1, 0, out);
+  const cyr = md("[github." + String.fromCharCode(0x421) + "om](https://evil.example/d)");
+  assert.equal(cyr.split("(evil.example)").length - 1, 1, "a capital Cyrillic C in the ending hid a look-alike: " + cyr);
+  // Latin-script look-alike letters have no decomposition to ASCII, so capitalising the label does not hide them.
+  const like = (cp) => md("[Github.Or" + String.fromCharCode(cp) + "](https://evil.example/e)");
+  assert.equal(like(0x261).split("(evil.example)").length - 1, 1, "Github.Or + U+0261 gave no warning");
+  assert.equal(like(0x131).split("(evil.example)").length - 1, 1, "Github.Or + dotless i gave no warning");
+  const com = (cp) => md("[Github.C" + String.fromCharCode(cp) + "m](https://evil.example/f)");
+  assert.equal(com(0x1d0f).split("(evil.example)").length - 1, 1, "Github.C + U+1D0F + m gave no warning");
+  assert.equal(com(0x254).split("(evil.example)").length - 1, 1, "Github.C + U+0254 + m gave no warning");
+});
+
+test("punycode text, with the hyphens and digits of its last label, is a host", () => {
+  const out = md("[xn--e1afmkfd.xn--p1ai](https://evil.example/a) and [github.xn--p1ai](https://evil.example/b) and [github.xn--p1ai](https://github.xn--p1ai/c)");
+  assert.equal(out.split("(evil.example)").length - 1, 2, out);
+  assert.equal(out.split("md-linkhost").length - 1, 2, out);
+  assert.equal(md("[v1.22](https://evil.example/v)").includes("md-linkhost"), false, "a version with digits after the dot is not a host");
+});
+
+test("an ideographic full stop in link text is a dot, as it is to the address bar", () => {
+  for (const code of [0x3002, 0xff0e, 0xff61]) {
+    const dot = String.fromCharCode(code);
+    const out = md("[github" + dot + "com](https://evil.example/a) and [github" + dot + "com](https://github.com/o)");
+    assert.equal(out.split("(evil.example)").length - 1, 1, "U+" + code.toString(16) + ": " + out);
+    assert.equal(out.split("md-linkhost").length - 1, 1, "U+" + code.toString(16) + ": " + out);
+  }
+});
+
 test("German words that have a dot in them are not taken for a host", () => {
   const out = md("[Datei.txt](https://evil.example/a) and [Ich mag Äpfel.Danke](https://evil.example/b) and [Äpfel.Danke](https://evil.example/c)");
   assert.equal(out.split("md-linkhost").length - 1, 0, out);
