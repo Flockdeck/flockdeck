@@ -135,6 +135,14 @@
   max-height: 30vh;
   overflow: auto;
 }
+.prompt-body { margin: 0; padding: 8px; background: var(--bg-inset); border: 1px solid var(--line); border-radius: var(--radius); font: 12px/1.45 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 40vh; overflow: auto; }
+.prompt-questions { display: flex; flex-direction: column; gap: 10px; }
+.prompt-question { margin: 0; padding: 8px; border: 1px solid var(--line); border-radius: var(--radius); display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.prompt-question legend { padding: 0 4px; }
+.prompt-qtext { white-space: pre-wrap; max-height: 20vh; overflow: auto; }
+.prompt-opt { display: flex; gap: 8px; align-items: baseline; font-size: 13px; overflow-wrap: anywhere; }
+.prompt-opt input[type="text"] { flex: 1; min-width: 0; font: inherit; font-size: 13px; background: var(--bg-inset); color: var(--fg); border: 1px solid var(--line); border-radius: var(--radius); padding: 4px 6px; }
+.prompt-option-desc { color: var(--fg-dim); font-size: 12px; }
 .prompt-diff span { display: block; min-height: 1.45em; }
 .prompt-diff-add { color: var(--ok); }
 .prompt-diff-del { color: var(--exited); }
