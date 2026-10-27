@@ -55,6 +55,16 @@ then the arrow keys move it and <kbd>Home</kbd> shares the room equally. In the
 tab bar, <kbd>←</kbd> and <kbd>→</kbd> move between tabs, and <kbd>Home</kbd>
 and <kbd>End</kbd> go to the first and the last.
 
+## Right-click menus
+
+A right-click on a part of the window that has a menu opens it, and so do
+<kbd>Shift+F10</kbd> and the menu key on the part the keyboard is on. In the
+menu, <kbd>↑</kbd> and <kbd>↓</kbd>, <kbd>Home</kbd> and <kbd>End</kbd> move,
+a letter jumps to the next item that starts with it, <kbd>Enter</kbd> or
+<kbd>Space</kbd> chooses, and <kbd>Esc</kbd> closes it and puts the keyboard
+back. Where an item has a shortcut, it is shown beside it. In a text field, and
+on text you have selected, a right-click opens the usual copy and paste menu.
+
 ## Inside a dialog
 
 - <kbd>Esc</kbd> closes any dialog, the command palette and the prompt bar, and

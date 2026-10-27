@@ -33,6 +33,7 @@ export function TreeRow({ row, node, name: given = "", nameRole = "", needs, doi
     class=${"tree-row" + (tone ? " tree-row--" + tone : "") + (selected ? " is-open" : "") + (lit ? " is-lit" : "")}
     role="treeitem"
     data-pane=${node.pane}
+    data-ctx="agent"
     aria-level=${row.depth + 1}
     aria-expanded=${row.kids > 0 ? (row.collapsed ? "false" : "true") : undefined}
     aria-selected=${selected ? "true" : "false"}

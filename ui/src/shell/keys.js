@@ -28,7 +28,7 @@ export const composing = (e) => !!(e.isComposing || e.keyCode === IME);
 
 /** LIST are the keys that move through, choose from and leave a list. step goes to
  *  the next match of a search, as it does in nearly every program that searches. */
-export const LIST = { up: "ArrowUp", down: "ArrowDown", left: "ArrowLeft", right: "ArrowRight", home: "Home", end: "End", accept: "Enter", cancel: "Escape", tab: "Tab", step: "F3", remove: "Delete" };
+export const LIST = { up: "ArrowUp", down: "ArrowDown", left: "ArrowLeft", right: "ArrowRight", home: "Home", end: "End", accept: "Enter", space: " ", cancel: "Escape", tab: "Tab", step: "F3", remove: "Delete" };
 /** CLEARS take a binding away while one is being recorded. */
 const CLEARS = ["Backspace", LIST.remove];
 // vocabulary:end
@@ -190,5 +190,23 @@ export function listMove(e, index, count) {
   if (e.key === LIST.tab) return "tab";
   if (e.key === LIST.accept) return "accept";
   if (e.key === LIST.cancel) return "cancel";
+  return "";
+}
+
+/** menuMove is what a keydown does in a menu of count items with the one at
+ *  index current: { to } for the item to move to (the ends included), "accept",
+ *  "cancel", "tab", { type: ch } for a character that searches by first letter,
+ *  or "" when it is none of those. Which items can be chosen is the menu's to
+ *  decide, so a move is a direction: { step } of 1 or -1, or { to } for an end. */
+export function menuMove(e, count) {
+  if (composing(e)) return "";
+  if (e.key === LIST.down) return { step: 1 };
+  if (e.key === LIST.up) return { step: -1 };
+  if (e.key === LIST.home) return { to: 0 };
+  if (e.key === LIST.end) return { to: count - 1 };
+  if (e.key === LIST.accept || e.key === LIST.space) return "accept";
+  if (e.key === LIST.cancel) return "cancel";
+  if (e.key === LIST.tab) return "tab";
+  if (e.key && e.key.length === 1 && !e.ctrlKey && !e.altKey && !e.metaKey) return { type: e.key };
   return "";
 }

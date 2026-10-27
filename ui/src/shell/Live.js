@@ -763,6 +763,12 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     pushError: (viewOf(kept.current.state.remote) || { pushError: "" }).pushError,
   };
 
+  // What the right-click menus read (shell/menus.js). The shared members are here;
+  // each family of menus fills in its own block and no other: pane for the agent
+  // rows, header and terminal, nav for tabs, projects, worktrees and history, content
+  // for tasks, messages, diffs, conversation rows and links.
+  const menuCtx = { snap, viewer, remote: !!snap.remote, say, copy, drawer, tabDo, pane: {}, nav: {}, content: {} };
+
   return html`<${Shell}
     hello=${kept.current.hello}
     state=${kept.current.state}
@@ -791,6 +797,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     onSettings=${() => openSettings("general")}
     onProjects=${viewer ? null : () => setProjectsOpen(true)}
     paletteItems=${paletteItems}
+    menuCtx=${menuCtx}
     railFoot=${snap.remote
       ? null
       : html`${viewer ? null : html`<${FootButton} cls="rail-helpers" glyph="▤" label="Helper apps" onClick=${() => setHelpersOpen(true)} />`}
