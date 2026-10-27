@@ -2222,11 +2222,6 @@ func printAgents(w io.Writer) {
 		}
 		fmt.Fprintf(w, "%s - %s  [%s]\n", s.ID, agentName(s), strings.Join(notes, ", "))
 		fmt.Fprintf(w, "  models: %s\n", modelSummary(s))
-		// The install line answers the state just printed, so it is only worth
-		// the room when the agent cannot be started yet.
-		if s.Install != "" && !available {
-			fmt.Fprintf(w, "  install: %s\n", s.Install)
-		}
 		fmt.Fprintln(w)
 	}
 	fmt.Fprintf(w, "Choose one for a whole run with `flockdeck -agent <id>`, or for a single\n")
@@ -2281,9 +2276,9 @@ func agentName(s agent.Spec) string {
 // agentState is how the listing describes whether an agent can be started.
 func agentState(s agent.Spec, available bool) string {
 	if available {
-		return "installed"
+		return "available"
 	}
-	return "not installed"
+	return "unavailable"
 }
 
 // modelSummary describes the models an agent offers, in one line.
@@ -2417,11 +2412,7 @@ func notInstalledWarning(id string) string {
 	if !ok || agentAvailable(s) {
 		return ""
 	}
-	msg := agentName(s) + " is not installed here, so its panes will not start"
-	if s.Install != "" {
-		msg += "; to install it: " + s.Install
-	}
-	return msg
+	return agentName(s) + ": " + agent.UnavailableText + ", so its panes will not start"
 }
 
 // agentCatalog is how the command line reaches the catalog: the agents Flockdeck

@@ -429,7 +429,7 @@ func TestStructuredFieldsAreBounded(t *testing.T) {
 		Plan: make([]acp.PlanEntry, 150),
 		Pending: &bridge.Card{Seq: 3, RequestID: "r", Tool: long, Command: long, Summary: long, File: long,
 			Options: []acp.PermissionOption{{OptionID: long, Name: long, Kind: long}}},
-		Setup: &structured.Setup{Kind: structured.SetupInstall, Message: long + "\nmore", Login: "Install Node\nthen restart " + strings.Repeat("x", 1000)},
+		Setup: &structured.Setup{Kind: structured.SetupLogin, Message: long + "\nmore", Login: "Sign in\nthen restart " + strings.Repeat("x", 1000)},
 	}
 	for i := range sn.Plan {
 		sn.Plan[i] = acp.PlanEntry{Content: long, Status: "pending"}
@@ -442,7 +442,7 @@ func TestStructuredFieldsAreBounded(t *testing.T) {
 	if !utf8.Valid(raw) || strings.ContainsRune(string(raw), utf8.RuneError) {
 		t.Fatal("the push is not clean UTF-8")
 	}
-	if s := m.Setup; s == nil || s.Fix == "" || len(s.Fix) > structuredCardCut || len(s.Message) > structuredCardCut || strings.ContainsAny(s.Fix+s.Message, "\n") || !strings.HasPrefix(s.Fix, "Install Node then restart ") {
+	if s := m.Setup; s == nil || s.Fix == "" || len(s.Fix) > structuredCardCut || len(s.Message) > structuredCardCut || strings.ContainsAny(s.Fix+s.Message, "\n") || !strings.HasPrefix(s.Fix, "Sign in then restart ") {
 		t.Errorf("setup = %+v", s)
 	}
 	if !m.Card.Clipped || len(m.Card.Command) > structuredCommandCut || len(m.Card.Tool) > structuredCardCut || len(m.Card.Options[0].Name) > 100 {

@@ -7,26 +7,23 @@ lists the exact adapters and versions it was tested with in
 Claude Code and Codex have Flockdeck-written Go adapters, built into the `flockdeck` binary and
 hidden for now (T204, T206); see [Claude Code adapter](acp-claude-adapter.md) and
 [Codex adapter](acp-codex-adapter.md). The direction is no third-party adapter packages and no
-Node; see [ACP direction](acp-direction.md). The Codex row below is the interim third-party
-adapter. The Go adapters are not in the table because the manifest marks them hidden.
+Node; see [ACP direction](acp-direction.md). The Go adapters are not in the table because the manifest marks them hidden.
 
 ## Tested with
 
 This table is made from the manifest, and a test fails if the two differ.
 
 <!-- adapters:begin -->
-| Adapter | Starts with | Needs Node | Accepts | Tested with | Tested on |
-| --- | --- | --- | --- | --- | --- |
-| opencode | `opencode acp` | no | 1.19.3 or newer | 1.19.3 | 2026-10-19 |
-| Gemini CLI | `gemini --acp` | yes, 20.0.0 or newer | 0.64.0 or newer | 0.64.0 | 2026-10-19 |
-| Codex (ACP adapter) | `codex-acp` | yes, 20.0.0 or newer | 2.2.2 only | 2.2.2 | 2026-10-19 |
+| Adapter | Starts with | Accepts | Tested with | Tested on |
+| --- | --- | --- | --- | --- |
+| opencode | `opencode acp` | 1.19.3 or newer | 1.19.3 | 2026-10-19 |
+| Gemini CLI | `gemini --acp` | 0.64.0 or newer | 0.64.0 | 2026-10-19 |
 <!-- adapters:end -->
 
 "Accepts" is the rule a release applies to the copy on the machine. An adapter
 with a floor (opencode, Gemini) accepts that version and anything newer, because
-the user installs it. An adapter that is pinned (Codex) is installed by Flockdeck
-at exactly that version, because its adapter ships previews almost daily and has
-changed owner before.
+the user installs it. An adapter may instead be pinned to one exact version;
+none is today, since Flockdeck installs nothing.
 
 `runsWithoutAsking` is set on an adapter whose agent may run shell commands and edits without
 sending a permission request. It is what was seen of the tested version. A structured pane of such an agent
@@ -52,18 +49,9 @@ which would need a model.
 
 ## Node
 
-Direction (27 Oct 2026): Flockdeck is dropping the Node requirement. Agents that need
-Node today (Gemini CLI, the Codex adapter) keep working until their replacements land. After
-that the check is planned to become a generic "agent unavailable" state (T207) that does not
-name the agent's own dependencies. See [ACP direction](acp-direction.md).
-
-Node.js is not bundled. An adapter marked "yes" under Needs Node cannot start
-without it. Before starting one, Flockdeck looks for `node` on `PATH` and runs
-`node --version`. If it is missing, too old or does not run, the pane shows a
-"Node required" state with the fix, which is to install a current Node.js from
-<https://nodejs.org> and restart Flockdeck. The code returns this as a
-`*manifest.NodeRequiredError` with the adapter, the problem (`missing`, `too
-old` or `unusable`), the version found, the version needed and the fix text.
+An adapter whose command cannot be found or started is shown as unavailable, in fixed
+text, with no reason (`agent.UnavailableText`). Flockdeck does not install agents and
+does not use Node, so the manifest has no Node or install fields.
 
 ## The weekly canary
 

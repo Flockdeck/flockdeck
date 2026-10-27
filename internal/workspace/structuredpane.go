@@ -350,18 +350,7 @@ func setupText(agentID string, st *structured.Setup) string {
 	}
 	var head, tail string
 	switch st.Kind {
-	case structured.SetupNode:
-		// The fix already ends by saying to restart Flockdeck, which is what a
-		// new Node on PATH needs; a second instruction would only compete.
-		head = st.Message
-		tail = st.Login
-	case structured.SetupInstall:
-		head = st.Message
-		if st.Login != "" {
-			head += ". " + st.Login
-		}
-		tail = "Then start the pane again."
-	default: // structured.SetupLogin
+	default: // structured.SetupLogin, the only kind
 		head = "Sign in to " + name + " with its own tool"
 		if len(st.Methods) > 0 {
 			var names []string
@@ -386,7 +375,6 @@ func setupText(agentID string, st *structured.Setup) string {
 	}
 	return strings.TrimSpace(team.PlainText(head, room) + " " + tail)
 }
-
 
 // Wake sends message to the agent as a prompt, queued behind a running turn.
 // Mail from other panes does not come this way: it is sent tagged, by the prompt

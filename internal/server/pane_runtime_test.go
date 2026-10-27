@@ -185,7 +185,7 @@ func hasNeed(g graphMsg, pane string) bool {
 	return false
 }
 
-// A pane that cannot start for want of Node, a sign-in or the agent's program is
+// A pane that cannot start for want of a sign-in is
 // listed once, with the fix as its text, after a pane that is down and before
 // the ones with unread mail. Its id is the same on every read, and it goes when
 // the pane starts.
@@ -193,9 +193,9 @@ func TestAPaneThatNeedsSetupIsOneNeedsItem(t *testing.T) {
 	e := newGraphEnv(t)
 	start := time.Now().Add(-time.Minute).Truncate(time.Second)
 	causes := map[string]workspace.SetupNeeded{
-		e.dev:    {Kind: "node", Text: "Install Node 20 or later from nodejs.org. Then start the pane again."},
+		e.dev:    {Kind: "login", Text: "Sign in to codex with its own tool. Then start the pane again."},
 		e.eyes:   {Kind: "login", Text: "Sign in to claude with its own tool. Flockdeck does not sign in for you. Then start the pane again."},
-		e.nested: {Kind: "install", Text: strings.Repeat("Install the agent. ", 40)},
+		e.nested: {Kind: "login", Text: strings.Repeat("Sign in to the agent. ", 40)},
 	}
 	for id, su := range causes {
 		e.detach(id, fakeRuntime{status: session.StatusBlocked, detail: "needs setup", started: start, setup: su})

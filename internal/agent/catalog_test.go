@@ -95,8 +95,8 @@ func TestUnverifiedAgentsClaimNothing(t *testing.T) {
 			if len(spec.Patterns.Waiting) > 0 || len(spec.Patterns.Idle) > 0 {
 				t.Errorf("%q recognises output nobody has watched it print", id)
 			}
-			if spec.Install == "" {
-				t.Errorf("%q should tell somebody who lacks it how to get it", id)
+			if spec.Install != "" {
+				t.Errorf("%q carries an install line; Flockdeck does not install agents, it only reports one as unavailable", id)
 			}
 		})
 	}
@@ -714,6 +714,20 @@ func TestWakeTextIsOfferedToAiderAndProtocolAgentsOnly(t *testing.T) {
 		want := spec.ID == "aider" || spec.Runner == RunnerACP
 		if got := spec.OffersWakeText(); got != want {
 			t.Errorf("%q: OffersWakeText = %v, want %v", spec.ID, got, want)
+		}
+	}
+}
+
+// What a person is told of an agent that cannot be started is one fixed
+// sentence. It must not name a runtime or a program, say how to install
+// anything, or carry a reason.
+func TestUnavailableTextIsFixedAndSaysNoWhy(t *testing.T) {
+	if UnavailableText != "the agent is unavailable" || ErrUnavailable.Error() != UnavailableText {
+		t.Errorf("UnavailableText = %q, ErrUnavailable = %q", UnavailableText, ErrUnavailable)
+	}
+	for _, bad := range []string{"node", "npm", "install", "PATH", "not found", "version"} {
+		if strings.Contains(strings.ToLower(UnavailableText), strings.ToLower(bad)) {
+			t.Errorf("the unavailable text mentions %q", bad)
 		}
 	}
 }

@@ -27,14 +27,25 @@ func TestARefusedPromptEndsOnlyTheTurn(t *testing.T) {
 	s := until(t, r, "the second prompt to run", func(s Snapshot) bool {
 		return idle(s) && strings.Contains(replies(s), "Hello world")
 	})
-	if !strings.Contains(notices(s), "Turn ended: failed: rpc error -32603: rate limit exceeded") {
+	if !strings.Contains(notices(s), "Turn ended: failed: the agent reported an error") {
 		t.Errorf("the failed turn left no notice: %q", notices(s))
 	}
 	if got := prompts(s); !slices.Equal(got, []string{"ratelimit", "plain"}) {
 		t.Errorf("prompts = %v; the queued prompt should not be dropped", got)
 	}
-	if s.Phase != PhaseReady || !strings.Contains(s.Err, "rate limit") {
+	if s.Phase != PhaseReady || s.Err != agentError {
 		t.Errorf("phase %q, err %q", s.Phase, s.Err)
+	}
+	// What the agent wrote in its error is the agent's text and never reaches
+	// the user: not the state's error, not a transcript entry of any kind.
+	seen := s.Err
+	for _, e := range s.Entries {
+		seen += " " + e.Text + " " + e.Markdown
+	}
+	for _, marker := range []string{"rate limit exceeded", "-32603", "rpc error"} {
+		if strings.Contains(seen, marker) {
+			t.Errorf("the agent's error text %q reached the user: %q", marker, seen)
+		}
 	}
 	// And the session still takes more.
 	if err := r.Send("plain"); err != nil {

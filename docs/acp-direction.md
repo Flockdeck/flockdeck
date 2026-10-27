@@ -66,7 +66,7 @@ They are planned for removal. Existing code keeps working until its removal task
 - `flockdeck chat`, `runner: "api"` agents and the chat transcript.
 - The task board (`flockdeck task`, `tasks.json`).
 - Agent TUIs in terminal panes, screen-reading rules, and status taken from Claude Code hooks. New agents are ACP only.
-- Third-party ACP adapters (`@agentclientprotocol/claude-agent-acp`, `@agentclientprotocol/codex-acp`), anything that needs Node, and the "Node required" state.
+- Third-party ACP adapters (`@agentclientprotocol/claude-agent-acp`, `@agentclientprotocol/codex-acp`), anything that needs Node, and the "Node required" state (the Node check, `needsNode`, the install lines and the third-party Codex entry are gone; an agent that cannot start is only "unavailable", T207).
 - New terminal entries for Aider or Amp.
 
 What to build on: the `internal/acp` client, the structured runtime, the bridge, the Go adapters for Claude and Codex, and the Flockdeck MCP server.

@@ -208,8 +208,9 @@ type Spec struct {
 	// Wake says how to recognise an idle, empty prompt, so that mail can be
 	// typed into the pane. Nil means the agent is never typed into.
 	Wake *WakeRule `json:"wake,omitempty"`
-	// Install is what to tell somebody who picked an agent their machine does
-	// not have.
+	// Install is ignored. Flockdeck does not install agents; one that cannot be
+	// started is only ever unavailable. The field is kept so that an agents.json
+	// that still has it loads.
 	Install string `json:"install,omitempty"`
 	// NoDashDash suppresses the "--" that otherwise guards an opening prompt
 	// beginning with a dash.

@@ -1971,7 +1971,7 @@ func (w *Workspace) startPane(p *Pane, resume bool) {
 		// machine.
 		if spec.Exe != "" {
 			if _, err := exec.LookPath(spec.Exe); err != nil {
-				p.Err = missingCLI(spec)
+				p.Err = agent.ErrUnavailable
 				return
 			}
 		}

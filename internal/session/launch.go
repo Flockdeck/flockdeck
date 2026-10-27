@@ -167,15 +167,8 @@ func Look(spec agent.Spec) (string, error) {
 	}
 	exe, err := exec.LookPath(spec.Exe)
 	if err != nil {
-		name := spec.Name
-		if name == "" {
-			name = spec.ID
-		}
-		if spec.Install != "" {
-			return "", fmt.Errorf("the `%s` CLI was not found on PATH; install %s first (%s): %w",
-				spec.Exe, name, spec.Install, err)
-		}
-		return "", fmt.Errorf("the `%s` CLI was not found on PATH; install %s first: %w", spec.Exe, name, err)
+		// Not which program, not why, not how to get it.
+		return "", agent.ErrUnavailable
 	}
 	return exe, nil
 }

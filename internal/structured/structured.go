@@ -49,9 +49,8 @@ const (
 	PhaseStarting Phase = "starting"
 	// PhaseReady: there is a session. Snapshot.Status says whether it is working.
 	PhaseReady Phase = "ready"
-	// PhaseSetup: the agent cannot run until the person does something: sign in
-	// to it, install Node, or install the agent. Snapshot.Setup says what. The state is final: the
-	// runtime does not retry after the person has signed in, and the pane must
+	// PhaseSetup: the agent cannot run until the person signs in to it.
+	// Snapshot.Setup says how. The state is final: the runtime does not retry after the person has signed in, and the pane must
 	// be started again.
 	PhaseSetup Phase = "needs setup"
 	// PhaseExited: the agent's process ended. Snapshot.Err says how.
@@ -62,12 +61,10 @@ const (
 	PhaseClosed Phase = "closed"
 )
 
-// The kinds of setup a pane can be waiting on.
+// The kinds of setup a pane can be waiting on. An agent whose program cannot be
+// found or started is not one of them: it is unavailable, and says only that.
 const (
 	SetupLogin = "login"
-	SetupNode  = "node"
-	// SetupInstall is an agent whose program is not on PATH.
-	SetupInstall = "install"
 )
 
 const (
@@ -175,8 +172,7 @@ type Options struct {
 	// Records, and closed by Close.
 	Recorder Recorder
 
-	// Command replaces the program the manifest names, and skips the Node
-	// check. Probe replaces how PATH and Node are looked at.
+	// Command replaces the program the manifest names. Probe replaces how PATH is looked at.
 	Command *Command
 	Probe   *manifest.Probe
 	// Executable is the path of the running program, which is what an adapter
@@ -249,13 +245,12 @@ type AuthMethod struct {
 
 // Setup is what the person has to do before the agent can run.
 type Setup struct {
-	Kind string // SetupLogin, SetupNode or SetupInstall
-	// Message is what the agent or the check said.
+	Kind string // SetupLogin
+	// Message is what the agent said.
 	Message string
 	// Methods are the ways of signing in the agent offered.
 	Methods []AuthMethod
-	// Login is what to do: the catalog entry's own advice for a login, Fix for
-	// Node, and the install text for a program that is not there.
+	// Login is what to do: the catalog entry's own advice for a login.
 	Login string
 }
 
@@ -319,16 +314,16 @@ type Runtime struct {
 	// inTurn says a prompt is with the agent, and asked that Cancel was called
 	// during it.
 	inTurn, asked bool
-	closed  bool
-	client  *acp.Client
-	session string
-	resume  Resume
+	closed        bool
+	client        *acp.Client
+	session       string
+	resume        Resume
 	// dead holds ids of sessions that could not be reopened and may still be
 	// sending their replay (a load that timed out). Nothing for them is taken.
 	dead map[string]struct{}
 	// keep is the id a layout should keep in place of the live session's, set
 	// when a reopen failed without an answer from the agent (a timeout).
-	keep string
+	keep    string
 	waiters []*waiter
 	subs    map[int]chan struct{}
 	nextSub int
@@ -745,15 +740,6 @@ func (r *Runtime) resolve() (Command, *Setup, error) {
 	if r.opts.Probe != nil {
 		probe = *r.opts.Probe
 	}
-	if a.NeedsNode {
-		if err := manifest.CheckNode(r.ctx, a, probe); err != nil {
-			var ne *manifest.NodeRequiredError
-			if errors.As(err, &ne) {
-				return Command{}, &Setup{Kind: SetupNode, Message: clean(ne.Error(), errCap), Login: clean(ne.Fix, errCap)}, err
-			}
-			return Command{}, nil, err
-		}
-	}
 	look := exec.LookPath
 	if probe.LookPath != nil {
 		look = probe.LookPath
@@ -768,20 +754,10 @@ func (r *Runtime) resolve() (Command, *Setup, error) {
 	} else {
 		path, err = look(a.Command)
 	}
-	if err != nil && own {
-		return Command{}, nil, errors.New("the agent is unavailable")
-	}
 	if err != nil {
-		msg := fmt.Sprintf("%s was not found on PATH", a.Command)
-		install := r.opts.Spec.Install
-		if install == "" {
-			install = a.Install
-		}
-		full := msg
-		if install != "" {
-			full += ". " + install
-		}
-		return Command{}, &Setup{Kind: SetupInstall, Message: clean(msg, errCap), Login: clean(install, errCap)}, errors.New(full)
+		// Why is not said: not the program's name, not where it was looked for,
+		// not how to get it.
+		return Command{}, nil, errors.New(unavailable)
 	}
 	if abs, err := filepath.Abs(path); err == nil {
 		path = abs
@@ -1186,10 +1162,11 @@ func (r *Runtime) loop() {
 				// but is still there. The turn ends with a notice that says so and
 				// the session stays ready for the next prompt, whose place in the
 				// queue is kept.
-				reason := clean(err.Error(), fieldCap)
-				r.br.TurnEnd("failed: " + reason)
+				// What the agent said about it is not kept or shown: the text is
+				// the agent's, and it is fixed here.
+				r.br.TurnEnd("failed: " + agentError)
 				r.mu.Lock()
-				r.err = reason
+				r.err = agentError
 				r.mu.Unlock()
 				r.notify()
 				continue
@@ -1278,7 +1255,11 @@ func (r *Runtime) finalPhase() Phase {
 func exitText(string) string { return unavailable }
 
 // unavailable is all the user is told of an agent that did not start or ended.
-const unavailable = "the agent is unavailable"
+const unavailable = agent.UnavailableText
+
+// agentError is all the user is told of a prompt the agent refused while still
+// running.
+const agentError = "the agent reported an error"
 
 // signIn is shown when the agent wants a login. It is our wording, not the agent's.
 const signIn = "sign in to the agent"

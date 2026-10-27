@@ -26,22 +26,18 @@ stopped. On macOS, allow it under System Settings → Privacy & Security, or run
 Run anyway, or run `Unblock-File` on the program in PowerShell. The install
 scripts download with curl and PowerShell, which leave no such mark.
 
-## A pane says its CLI was not found on PATH
+## A pane or an agent says it is unavailable
 
-The agent's command is not on your `PATH`, so the pane shows that message where
-its terminal would be. Install it (the picker shows where to get every agent it
-knows about, and Claude Code is at
-[claude.com/claude-code](https://claude.com/claude-code)), then press
-**Restart** on the pane. The command is looked for each time a pane starts, but
-in the `PATH` Flockdeck itself was started with: if the installer added a new
-directory to `PATH` rather than using one already on it, quit Flockdeck and
-start it again so that it sees the change.
+Flockdeck could not find the agent's command, or could not start it, and says
+only that the agent is unavailable. It does not install agents. Check that the
+command runs in a terminal, then press **Restart** on the pane. The command is
+looked for each time a pane starts, but in the `PATH` Flockdeck itself was
+started with: if you changed `PATH`, quit Flockdeck and start it again so that
+it sees the change.
 
-## An agent is greyed out in the picker
-
-An agent's command is not on your `PATH`; the line under it says
-where to get it. Unavailable agents are shown rather than hidden, so that an
-agent you have not installed is a visible choice.
+In the picker an unavailable agent is greyed and cannot be chosen. Unavailable
+agents are shown rather than hidden, so that an agent you have not got is a
+visible choice.
 
 ## A pane is dead, with a Restart button
 

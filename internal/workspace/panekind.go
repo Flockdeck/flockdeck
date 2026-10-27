@@ -127,7 +127,7 @@ type ConversationSource struct {
 func (c ConversationSource) Readable() bool { return c.Exporter != nil }
 
 // SetupNeeded is what a pane that cannot start says the person has to do. Kind
-// is the cause ("login", "node" or "install") and Text the fix, on one line.
+// is the cause ("login") and Text the fix, on one line.
 type SetupNeeded struct {
 	Kind string
 	Text string

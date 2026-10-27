@@ -85,7 +85,6 @@ func claudeSpec() Spec {
 			{ID: "opusplan", Name: "Opus plan", Note: "Opus to plan, Sonnet to carry it out"},
 		},
 		StripEnv: ClaudeStripEnv(),
-		Install:  "https://claude.com/claude-code",
 	}
 }
 
@@ -104,7 +103,6 @@ func codexSpec() Spec {
 		Models: append([]Model{
 			{ID: "", Name: "Default", Note: "whatever the CLI is set to"},
 		}, openAIModels()...),
-		Install: "npm install -g @openai/codex",
 	}
 }
 
@@ -145,7 +143,6 @@ func geminiSpec() Spec {
 			{ID: "gemini-2.5-pro", Name: "Gemini 2.5 Pro", Tier: TierTop},
 			{ID: "gemini-2.5-flash", Name: "Gemini 2.5 Flash", Note: "cheaper and quicker", Tier: TierMid},
 		},
-		Install: "npm install -g @google/gemini-cli",
 	}
 }
 
@@ -173,7 +170,6 @@ func aiderSpec() Spec {
 		Models: []Model{
 			{ID: "", Name: "Default", Note: "whatever the CLI is set to"},
 		},
-		Install: "python -m pip install aider-install && aider-install",
 	}
 }
 
@@ -189,8 +185,7 @@ func opencodeSpec() Spec {
 			Group("model", "--model", "{{model}}"),
 			Group("prompt", "--prompt", "{{prompt}}"),
 		},
-		Caps:    Caps{Context: ContextPrompt},
-		Install: "https://opencode.ai",
+		Caps: Caps{Context: ContextPrompt},
 	}
 }
 
@@ -210,8 +205,7 @@ func homeEnv() []string {
 func opencodeACPSpec() Spec {
 	return Spec{
 		ID: "opencode-acp", Name: "opencode (structured)", Runner: RunnerACP,
-		ACP:     ACPSpec{Adapter: "opencode", Auth: AuthNone, PassEnv: homeEnv(), MCP: true},
-		Install: "https://opencode.ai",
+		ACP: ACPSpec{Adapter: "opencode", Auth: AuthNone, PassEnv: homeEnv(), MCP: true},
 	}
 }
 
@@ -221,18 +215,16 @@ func opencodeACPSpec() Spec {
 func geminiACPSpec() Spec {
 	return Spec{
 		ID: "gemini-acp", Name: "Gemini CLI (structured)", Runner: RunnerACP, Hidden: true,
-		ACP:     ACPSpec{Adapter: "gemini", Auth: AuthExternal, Login: "Run `gemini` once in a terminal and sign in.", PassEnv: homeEnv()},
-		Install: "npm install -g @google/gemini-cli",
+		ACP: ACPSpec{Adapter: "gemini", Auth: AuthExternal, Login: "Run `gemini` once in a terminal and sign in.", PassEnv: homeEnv()},
 	}
 }
 
-// codexACPSpec is Codex through its ACP adapter, hidden until the task that
+// codexACPSpec is Codex through Flockdeck's own adapter, hidden until the task that
 // checks it end to end has landed. Its session needs a Codex login.
 func codexACPSpec() Spec {
 	return Spec{
 		ID: "codex-acp", Name: "Codex (structured)", Runner: RunnerACP, Hidden: true,
-		ACP:     ACPSpec{Adapter: "codex", Auth: AuthExternal, Login: "Run `codex login` in a terminal.", PassEnv: homeEnv()},
-		Install: "npm install --prefix <folder> @agentclientprotocol/codex-acp@2.2.2",
+		ACP: ACPSpec{Adapter: "codex-go", Auth: AuthExternal, Login: "Run `codex login` in a terminal.", PassEnv: homeEnv()},
 	}
 }
 
@@ -244,7 +236,6 @@ func cursorAgentSpec() Spec {
 			Group("model", "--model", "{{model}}"),
 			Lit("{{prompt}}"),
 		},
-		Caps:    Caps{Context: ContextPrompt},
-		Install: "https://cursor.com/cli",
+		Caps: Caps{Context: ContextPrompt},
 	}
 }

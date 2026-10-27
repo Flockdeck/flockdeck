@@ -60,29 +60,10 @@ func (w *Workspace) AgentSpecByID(id string) (agent.Spec, error) {
 	if w.agentAvailable(spec) {
 		return spec, nil
 	}
-	if spec.Exe == "" {
-		return spec, fmt.Errorf("%s cannot be started on this machine", spec.Name)
-	}
-	// Word for word what the pane that would have failed says, how to install
-	// the agent included: a refused spawn goes back to the agent that asked
-	// for it, and a window's notice to the user, and either is where somebody
-	// learns the agent is missing.
-	return spec, missingCLI(spec)
-}
-
-// missingCLI is what somebody is told when the CLI an agent runs is not
-// installed — in the pane that could not start, and in the refusal of a spawn
-// that would have needed it: what is wrong, and where the catalog
-// knows it, how to put it right, worded as the session package words the same
-// failure.
-//
-// Being told only "not found on PATH" left them to go and look up what the
-// picker beside them already says.
-func missingCLI(spec agent.Spec) error {
-	if spec.Install == "" {
-		return fmt.Errorf("the `%s` CLI was not found on PATH", spec.Exe)
-	}
-	return fmt.Errorf("the `%s` CLI was not found on PATH; install %s first (%s)", spec.Exe, spec.Name, spec.Install)
+	// The same fixed text as the pane that would have failed shows: a refused
+	// spawn goes back to the agent that asked for it, and a window's notice to
+	// the user, and neither is told why or how to install anything.
+	return spec, agent.ErrUnavailable
 }
 
 // agentAvailable reports whether a spec can be started on this machine.

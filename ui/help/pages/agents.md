@@ -12,10 +12,10 @@ choose deliberately, use [[action:newAgentTabChoose]] or
 [[action:splitRightChoose]] from the command palette, or click the `▾` beside
 the `+` that opens a new tab.
 
-The picker lists agents in two groups, **installed** and **not installed**. An
-agent you have not got is shown greyed with where to get it rather than
-hidden: somebody who has never installed Codex should still learn that Flockdeck
-would run it. Expand an agent for its models, with its default marked. A
+The picker lists the agents that can be started first and then the ones that
+cannot. An agent that cannot be started is shown greyed and marked
+**unavailable**, without a reason, rather than hidden: somebody who has never
+installed Codex should still learn that Flockdeck would run it. Expand an agent for its models, with its default marked. A
 model carries its tier where it has a fixed one (**small**, **mid** or **top**: how capable, and so how
 costly, it is among that agent's own models). A model shows no price: the same
 model may be billed per token or covered by a subscription, and only you know
@@ -36,8 +36,8 @@ limit it is; [Spend and limits](#spend) explains the figures.
 Agents are the tools you would run in a terminal yourself: Claude Code,
 Codex, Gemini, Aider, opencode, Cursor's agent. Flockdeck runs the command in the
 pane's pseudo-terminal, so it behaves exactly as it does anywhere else and uses
-whatever login that tool already has. Nothing is installed for you; an agent
-whose command is not on your `PATH` is the greyed kind.
+whatever login that tool already has. Flockdeck does not install agents. One whose
+command cannot be found or started is shown as unavailable.
 
 Flockdeck no longer has a chat client of its own for talking to a model API
 directly. The `flockdeck chat` command, and the Anthropic, OpenAI, Google and
@@ -47,7 +47,7 @@ so.
 
 ## Structured agents (beta)
 
-> Direction (27 Oct 2026): structured agents are where Flockdeck is heading: every agent over ACP, with no terminal-pane agents, no inbox or typed wake, and no task board. Those are planned removals, not removed yet. Agents without native ACP will get an adapter built into the `flockdeck` binary, without Node. See docs/acp-direction.md in the repository.
+> Direction (27 Oct 2026): structured agents are where Flockdeck is heading: every agent over ACP, with no terminal-pane agents, no inbox or typed wake, and no task board. Those are planned removals, not removed yet. Agents without native ACP will get an adapter built into the `flockdeck` binary. See docs/acp-direction.md in the repository.
 
 A structured agent is one Flockdeck talks to over the Agent Client Protocol
 instead of in a terminal. Its pane has no screen: the drawer
@@ -109,12 +109,12 @@ What to know before you use one:
   agent to treat the text as a message from another agent and not as your
   instruction. The agent cannot fetch what is cut. Leave it off for an agent you
   would not trust with a peer's words.
-- **A login or Node problem** shows as a blocked pane marked "needs setup", and
-  as "Needs setting up" in the Team view, with the one step to take: sign in with
-  the agent's own tool (Flockdeck never signs in), install the agent, or install Node 20 or
-  newer where the adapter needs it and restart Flockdeck, since a new Node on the
-  path is only seen by a restarted Flockdeck. Start the pane again after the other
-  two.
+- **A login problem** shows as a blocked pane marked "needs setup", and as
+  "Needs setting up" in the Team view, with the one step to take: sign in with
+  the agent's own tool (Flockdeck never signs in), then start the pane again.
+- **An agent that cannot be found or started** shows as "the agent is
+  unavailable" and nothing more: not the command, not the reason, not anything
+  the agent printed. The same words come back from a refused spawn.
 - **A restart starts a new session.** The earlier entries stay above a line saying
   the agent was restarted. If the new agent cannot be started, they stay too, with
   a line giving the reason.

@@ -22,7 +22,7 @@ One entry of the catalog in [agent](/packages/agent.md). JSON names are the keys
 | `API` | `api` | `{wire, baseURL, keyEnv}`; wire is `anthropic`, `openai` or `gemini`. No catalog entry has one now and agents.json may not carry one (the entry is refused); the shape stays for the key store and key check, and for per-agent keys (T202) |
 | `Caps` | `caps` | `hooks`, `resume`, `transcript`, `trust`, `context` (`hook`, `prompt`, `task` or `none`) |
 | `Patterns` | `patterns` | `waiting` and `idle` regular expressions, used only when `caps.hooks` is false |
-| `Install` | `install` | Text shown when the agent is not available |
+| `Install` | `install` | Ignored. Flockdeck does not install agents; an agent that cannot start is `agent.UnavailableText`. Kept so an old agents.json loads |
 | `NoDashDash` | `noDashDash` | Suppress the `--` that guards a prompt starting with `-` |
 | `Hidden` | `hidden` | Keep out of the picker |
 

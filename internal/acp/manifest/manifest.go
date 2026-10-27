@@ -1,7 +1,6 @@
 // Package manifest is the list of structured-agent adapters this Flockdeck
 // release is tested with, the versions it expects, and the checks made before
-// one is started: that Node is there when the adapter needs it, and that the
-// adapter is new enough.
+// one is started: that the adapter is new enough.
 //
 // The list is adapters.json, embedded. It names exact versions on purpose: the
 // adapters for Codex and others change owner and ship previews almost daily, so
@@ -10,10 +9,6 @@
 // newest preview of each against the same handshake and reports, without
 // blocking a merge. Claude Code's adapter is Flockdeck's own (see Hidden and
 // ownAdapter); no third-party adapter for it is accepted.
-//
-// Node is not bundled. When an adapter needs it and it is missing or too old,
-// CheckNode returns a *NodeRequiredError, which the caller shows as a
-// "Node required" state with the fix.
 package manifest
 
 import (
@@ -49,15 +44,10 @@ type Adapter struct {
 	// least one.
 	Pin        string `json:"pin,omitempty"`
 	MinVersion string `json:"minVersion,omitempty"`
-	NeedsNode  bool   `json:"needsNode"`
-	// MinNode is the oldest Node that runs it. Required when NeedsNode is set.
-	MinNode string `json:"minNode,omitempty"`
 	// TestedWith and TestedOn say which version the tests last ran, and when.
 	TestedWith string `json:"testedWith"`
 	TestedOn   string `json:"testedOn"`
-	// Install is the text shown for how to get it.
-	Install string `json:"install"`
-	Note    string `json:"note,omitempty"`
+	Note       string `json:"note,omitempty"`
 	// RunsWithoutAsking says the agent, started the way Flockdeck starts it,
 	// runs shell commands and edits files without sending a permission request,
 	// so a permission card gates nothing for it. A window warns of it for the
@@ -158,11 +148,11 @@ func (a Adapter) check() error {
 	case !idRe.MatchString(a.ID):
 		return errors.New("id must be lower case letters, digits and hyphens")
 	case mentionsClaude(a) && !ownAdapter(a):
-		return errors.New("the only adapter that may name Claude Code is Flockdeck's own: id claude, hidden, `flockdeck acp-adapter claude`, no npm package, no Node, no launchEnv")
-	case a.Name == "" || a.Command == "" || a.Install == "":
-		return errors.New("name, command and install are required")
-	case len(a.Name) > 60 || len(a.Install) > 400 || len(a.Note) > 400 || hasControl(a.Name+a.Install+a.Note):
-		return errors.New("name, install or note is too long or holds a control character")
+		return errors.New("the only adapter that may name Claude Code is Flockdeck's own: id claude, hidden, `flockdeck acp-adapter claude`, no npm package, no launchEnv")
+	case a.Name == "" || a.Command == "":
+		return errors.New("name and command are required")
+	case len(a.Name) > 60 || len(a.Note) > 400 || hasControl(a.Name+a.Note):
+		return errors.New("name or note is too long or holds a control character")
 	case !cmdRe.MatchString(a.Command) || len(a.Command) > 60:
 		return errors.New("command is a name looked up on PATH: letters, digits, dot, underscore and hyphen")
 	case a.Package != "" && (len(a.Package) > 214 || !pkgRe.MatchString(a.Package)):
@@ -175,10 +165,6 @@ func (a Adapter) check() error {
 		return errors.New("pin needs the npm package it is a version of")
 	case !dateRe.MatchString(a.TestedOn) || a.TestedWith == "":
 		return errors.New("testedWith and testedOn (YYYY-MM-DD) are required")
-	case a.NeedsNode && a.MinNode == "":
-		return errors.New("needsNode needs minNode")
-	case !a.NeedsNode && a.MinNode != "":
-		return errors.New("minNode without needsNode")
 	}
 	if len(a.Args) > 16 {
 		return errors.New("too many args")
@@ -194,7 +180,7 @@ func (a Adapter) check() error {
 	if err := a.PermissionProbe.check(a); err != nil {
 		return err
 	}
-	for name, v := range map[string]string{"pin": a.Pin, "minVersion": a.MinVersion, "minNode": a.MinNode, "testedWith": a.TestedWith} {
+	for name, v := range map[string]string{"pin": a.Pin, "minVersion": a.MinVersion, "testedWith": a.TestedWith} {
 		if v == "" {
 			continue
 		}
@@ -443,12 +429,12 @@ func mentionsClaude(a Adapter) bool {
 
 // ownAdapter reports whether a is Flockdeck's own adapter for Claude Code: this
 // exact shape, the flockdeck binary run as `flockdeck acp-adapter claude`, with
-// nothing installed, no Node, no launch environment and no probe. Only that
+// nothing installed, no launch environment and no probe. Only that
 // entry may name the agent. Third-party adapters for Claude Code stay refused.
 func ownAdapter(a Adapter) bool {
 	return a.ID == "claude" && a.Command == "flockdeck" &&
 		len(a.Args) == 2 && a.Args[0] == "acp-adapter" && a.Args[1] == "claude" &&
-		a.Package == "" && a.Pin == "" && !a.NeedsNode && a.Hidden &&
+		a.Package == "" && a.Pin == "" && a.Hidden &&
 		len(a.LaunchEnv) == 0 && a.PermissionProbe == nil
 }
 
@@ -473,22 +459,18 @@ func clipText(s string, n int) string {
 // docs page holds it between markers and a test keeps the two equal.
 func (m Manifest) Table() string {
 	var b strings.Builder
-	b.WriteString("| Adapter | Starts with | Needs Node | Accepts | Tested with | Tested on |\n")
-	b.WriteString("| --- | --- | --- | --- | --- | --- |\n")
+	b.WriteString("| Adapter | Starts with | Accepts | Tested with | Tested on |\n")
+	b.WriteString("| --- | --- | --- | --- | --- |\n")
 	for _, a := range m.Visible() {
 		start := a.Command
 		if len(a.Args) > 0 {
 			start += " " + strings.Join(a.Args, " ")
 		}
-		node := "no"
-		if a.NeedsNode {
-			node = "yes, " + a.MinNode + " or newer"
-		}
 		accepts := a.MinVersion + " or newer"
 		if a.Pin != "" {
 			accepts = a.Pin + " only"
 		}
-		fmt.Fprintf(&b, "| %s | `%s` | %s | %s | %s | %s |\n", a.Name, start, node, accepts, a.TestedWith, a.TestedOn)
+		fmt.Fprintf(&b, "| %s | `%s` | %s | %s | %s |\n", a.Name, start, accepts, a.TestedWith, a.TestedOn)
 	}
 	return b.String()
 }

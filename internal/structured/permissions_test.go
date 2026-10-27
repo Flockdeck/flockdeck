@@ -29,10 +29,9 @@ func newPermRuntime(t *testing.T, ctx context.Context, adapter string, run permp
 		opts: Options{
 			Spec: agent.Spec{ID: "fake", Runner: agent.RunnerACP,
 				ACP: agent.ACPSpec{Adapter: adapter, PassEnv: []string{"OPENCODE_CONFIG_CONTENT"}}},
-			Cwd:     cwd,
-			Environ: []string{`OPENCODE_CONFIG_CONTENT={"permission":"allow"}`},
-			Probe: &manifest.Probe{LookPath: func(string) (string, error) { return exe, nil },
-				Output: func(context.Context, string, ...string) (string, error) { return "v22.0.0", nil }},
+			Cwd:              cwd,
+			Environ:          []string{`OPENCODE_CONFIG_CONTENT={"permission":"allow"}`},
+			Probe:            &manifest.Probe{LookPath: func(string) (string, error) { return exe, nil }},
 			PermissionRunner: run,
 		},
 		ctx:  ctx,

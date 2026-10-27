@@ -44,7 +44,6 @@ export function draftOf(msg) {
       models: (Array.isArray(a.models) ? a.models : []).filter((m) => m && typeof m.id === "string").map((m) => ({ id: m.id, name: text(m.name) })),
       defaultModel: text(a.default),
       unavailable: text(a.unavailable),
-      install: text(a.install),
     }));
   return {
     paneId: msg.paneId,
@@ -67,7 +66,7 @@ export function draftOf(msg) {
 export function catalogOf(draft) {
   return {
     items: draft.agents.map((a) => ({
-      id: a.id, name: a.name, models: a.models, defaultModel: a.defaultModel, available: !a.unavailable, install: a.install,
+      id: a.id, name: a.name, models: a.models, defaultModel: a.defaultModel, available: !a.unavailable,
     })),
     project: null,
     default: null,
