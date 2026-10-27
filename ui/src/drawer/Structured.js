@@ -23,6 +23,15 @@
 //   name is exactly what was typed, so Enter on "/p" cannot run /stop. Keys that
 //   belong to an input method's composition are left alone.
 //
+// - The mode, the model and the other settings the agent offers (the push's modes,
+//   models and configOptions) are a row of selectors above the conversation
+//   (settingsModel.js). Choosing a value sends structuredSet; the selector shows
+//   the value the agent reports, so a change the agent refused puts the old one
+//   back and the desk's refusal is said under the box. /mode and /model are
+//   Flockdeck's commands for the two the agent offers: choosing one moves to its
+//   selector, and "/mode plan" sets it from the box. Only a value from the
+//   current list is sent.
+//
 // Everything on a row came from an agent, a tool or a person, and none of it is
 // put into the page as markup.
 import { useEffect, useRef, useState } from "../vendor/hooks.mjs";
@@ -32,7 +41,8 @@ import { showControls } from "./diff/diffModel.js";
 import { outcomeOf, sendTo } from "../graph/ManagerBar.js";
 import { Conversation } from "./Conversation.js";
 import { Icon, toolKind } from "./conv/rows.js";
-import { menuOf, flatten, insertText, keyOf, selectedIndex } from "./slashModel.js";
+import { menuOf, flatten, insertText, keyOf, selectedIndex, OWN_COMMANDS } from "./slashModel.js";
+import { controlsOf, controlFor, setMessage, ownCommandsFor, parseSetting } from "./settingsModel.js";
 
 /** SEND_NOT_SENT_WORDS is what the prompt box says when the store did not send the text; the draft stays. */
 export const SEND_NOT_SENT_WORDS = "Not connected to Flockdeck, so the text was not sent.";
@@ -40,6 +50,9 @@ export const SEND_NOT_SENT_WORDS = "Not connected to Flockdeck, so the text was 
 export const STOP_NOT_SENT_WORDS = "Not connected to Flockdeck, so Stop was not sent.";
 // Each Stop carries its own req, so the store can tell which pane a refusal is for.
 let cancelSeq = 0;
+let settingSeq = 0;
+/** SET_NOT_SENT_WORDS is what the selectors say when the store did not send the change. */
+export const SET_NOT_SENT_WORDS = "Not connected to Flockdeck, so the change was not sent.";
 
 export const IDLE_WORDS = "Idle";
 
@@ -89,11 +102,14 @@ export function activityOf(st, entries = []) {
  *  first one; error is the store's structuredError; desk is false in a window
  *  reached through the relay. snap is the store's snapshot, which carries the
  *  desk's answer to a send. */
-export function Structured({ pane, snap, st, error = null, cancelError = null, desk = true, store, conv = null, onOlder = null, details = null, onDetail = null, pending = null, search = null, onSearch = null, onClearSearch = null }) {
+export function Structured({ pane, snap, st, error = null, cancelError = null, settingError = null, desk = true, store, conv = null, onOlder = null, details = null, onDetail = null, pending = null, search = null, onSearch = null, onClearSearch = null }) {
   const [draft, setDraft] = useState("");
   // The pane a Stop that was not sent was pressed for, so the words do not follow the drawer to another pane.
   const [stopFailed, setStopFailed] = useState("");
   const [sendFailed, setSendFailed] = useState("");
+  // What the last change of a setting got that the desk did not say: { pane, text }.
+  const [settingNote, setSettingNote] = useState(null);
+  const settingsEl = useRef(null);
   // The send in flight: the mark outcomeOf follows. Set at once, so a second Send before the page has redrawn does not send again.
   const [mark, setMark] = useState(null);
   const busy = useRef(false);
@@ -132,6 +148,15 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, d
     if (e && e.preventDefault) e.preventDefault();
     const text = draft.trim();
     if (!text || busy.current) return;
+    const asked = parseSetting(text, controls);
+    if (asked) {
+      if (asked.error) {
+        setSettingNote({ pane, text: asked.error });
+      } else if (change(asked.control, asked.value)) {
+        setDraft("");
+      }
+      return;
+    }
     const next = sendTo((m) => store.send(m), snap, pane, text);
     if (next) {
       busy.current = true;
@@ -146,7 +171,18 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, d
     setStopFailed(store.send({ cmd: "structuredCancel", id: pane, req: "c" + ++cancelSeq }) ? "" : pane);
   };
   const sending = !!outcome && outcome.kind === "sending";
-  const menu = desk && !sending && closedFor !== draft ? menuOf(draft, st.commands) : null;
+  const controls = desk ? controlsOf(st) : [];
+  const change = (control, value) => {
+    const msg = setMessage(pane, control, value, "s" + ++settingSeq);
+    if (!msg) {
+      setSettingNote({ pane, text: "That is not on the agent's list any more." });
+      return false;
+    }
+    const ok = store.send(msg);
+    setSettingNote(ok ? null : { pane, text: SET_NOT_SENT_WORDS });
+    return ok;
+  };
+  const menu = desk && !sending && closedFor !== draft ? menuOf(draft, st.commands, ownCommandsFor(OWN_COMMANDS, controls)) : null;
   const items = flatten(menu);
   // The chosen row is found by its command, so a list that changes under the person does not move it; -1 is none.
   const at = menu ? selectedIndex(items, selKey, menu.query) : -1;
@@ -154,6 +190,19 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, d
     if (it.group === "own") {
       setDraft("");
       if (it.id === "stop") stop();
+      if (it.id === "mode" || it.id === "model") {
+        const c = controlFor(controls, it.id);
+        const el = c && settingsEl.current && settingsEl.current.querySelector ? settingsEl.current.querySelector('[data-setting="' + c.key + '"]') : null;
+        if (el && el.focus) {
+          el.focus();
+          if (el.showPicker) {
+            try { el.showPicker(); } catch (_) { /* a picker may refuse outside a gesture */ }
+          }
+        }
+        setSelKey(null);
+        setSendFailed("");
+        return;
+      }
     } else {
       setDraft(insertText(it));
     }
@@ -195,6 +244,15 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, d
           ? html`<p class="structured-usage">${ctx ? html`<span class="structured-context">${ctx}</span>` : null}${cost ? html`<span class="structured-cost">${cost}</span>` : null}</p>`
           : null}
       </div>
+      ${controls.length
+        ? html`<div class="structured-settings" ref=${settingsEl} role="group" aria-label="Agent settings">
+            ${controls.map((c) => html`<label class="structured-setting"><span class="structured-setting-name">${c.label}</span>
+              <select class="structured-select" data-setting=${c.key} value=${c.current} onChange=${(e) => change(c, e.target.value)}>
+                ${c.choices.some((o) => o.value === c.current) ? null : html`<option value="" disabled>Not set</option>`}
+                ${c.choices.map((o) => html`<option value=${o.value} title=${o.description || undefined}>${(o.group ? o.group + ": " : "") + o.label}</option>`)}
+              </select></label>`)}
+          </div>`
+        : null}
       <${Conversation} conv=${conv} onOlder=${onOlder} details=${details} onDetail=${onDetail} pending=${pending}
         search=${search} onSearch=${onSearch} onClearSearch=${onClearSearch} className="structured-log" />
       ${desk
@@ -213,6 +271,8 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, d
             ${outcome && outcome.kind === "refused" ? html`<p class="structured-note structured-note--unsent structured-note--send" role="alert">${showControls(clip(outcome.text, 300))}</p>` : null}
             ${sendFailed === pane ? html`<p class="structured-note structured-note--unsent structured-note--send" role="alert">${SEND_NOT_SENT_WORDS}</p>` : null}
             ${stopFailed === pane ? html`<p class="structured-note structured-note--unsent" role="status">${STOP_NOT_SENT_WORDS}</p>` : null}
+            ${settingNote && settingNote.pane === pane ? html`<p class="structured-note structured-note--unsent" role="status">${showControls(clip(settingNote.text, 300))}</p>` : null}
+            ${settingError && settingError.id === pane ? html`<p class="structured-note" role="status">${showControls(clip(String(settingError.error || ""), 300))}</p>` : null}
             ${cancelError && cancelError.id === pane ? html`<p class="structured-note" role="status">${showControls(clip(String(cancelError.error || ""), 300))}</p>` : null}
           </form>`
         : null}

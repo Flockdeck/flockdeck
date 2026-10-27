@@ -108,6 +108,16 @@ const ArgMarker = "--acptest-marker"
 // ArgSessions+"load,resume,id=old-1", for an agent started with ArgAgent.
 const ArgSessions = "--acptest-sessions="
 
+// ArgShape, ArgSet and ArgSetLog are WithConfigOptions or WithModes (the value
+// is config or modes), the setting options (a comma list of bool, bare, refuse
+// and slow, see the With functions) and WithSettingLog, as arguments for an
+// agent started with ArgAgent.
+const (
+	ArgShape  = "--acptest-shape="
+	ArgSet    = "--acptest-set="
+	ArgSetLog = "--acptest-setlog="
+)
+
 // argSleeper makes a process do nothing for a minute. The grandchild
 // scenario starts one, as an agent starts a tool, so that a test can see
 // whether closing the client ended what the agent had started.
@@ -165,6 +175,19 @@ type agent struct {
 }
 
 func newAgent() *agent {
+	for _, a := range os.Args[1:] {
+		if v, ok := strings.CutPrefix(a, ArgShape); ok {
+			os.Setenv(envShape, v)
+		}
+		if v, ok := strings.CutPrefix(a, ArgSetLog); ok {
+			os.Setenv(envSetLog, v)
+		}
+		if v, ok := strings.CutPrefix(a, ArgSet); ok {
+			for _, o := range strings.Split(v, ",") {
+				os.Setenv(envSetOpts+"_"+o, "1")
+			}
+		}
+	}
 	marker := os.Getenv(envMarker)
 	for i, a := range os.Args[1:] {
 		if a == ArgMarker && i+2 < len(os.Args) {

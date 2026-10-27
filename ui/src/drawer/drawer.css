@@ -271,6 +271,10 @@
 .structured-title { font-family: var(--mono); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .structured-file, .structured-usage { color: var(--fg-dim); }
 .structured-usage { gap: 12px; }
+.structured-settings { display: flex; flex-wrap: wrap; gap: 8px 12px; font-size: 12px; }
+.structured-setting { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.structured-setting-name { color: var(--fg-dim); }
+.structured-select { max-width: 220px; font: inherit; color: var(--fg); background: var(--bg-inset); border: 1px solid var(--line-strong); border-radius: var(--radius); padding: 2px 6px; }
 .structured-log { max-height: 50vh; overflow: auto; }
 .structured-prompt { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; }
 .structured-input { flex: 1 1 240px; resize: vertical; font: inherit; color: var(--fg); background: var(--bg-inset); border: 1px solid var(--line-strong); border-radius: var(--radius); padding: 6px 8px; }
