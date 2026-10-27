@@ -4,10 +4,11 @@ Some agents can be driven over the Agent Client Protocol (ACP) instead of
 through a terminal. Flockdeck talks to them through an adapter, and each release
 lists the exact adapters and versions it was tested with in
 [`internal/acp/manifest/adapters.json`](../internal/acp/manifest/adapters.json).
-There is no adapter for Claude Code yet. The direction is a Flockdeck-written Go adapter for
-Claude Code (T204) and for Codex (T206), built into the `flockdeck` binary, with no
-third-party adapter packages and no Node; see [ACP direction](acp-direction.md). The Codex
-row below is the interim third-party adapter.
+Claude Code has a Flockdeck-written Go adapter, built into the `flockdeck` binary and hidden for
+now (T204); see [Claude Code adapter](acp-claude-adapter.md). The direction is the same for Codex
+(T206): no third-party adapter packages and no Node; see [ACP direction](acp-direction.md). The
+Codex row below is the interim third-party adapter. The Claude entry is not in the table because
+the manifest marks it hidden.
 
 ## Tested with
 
