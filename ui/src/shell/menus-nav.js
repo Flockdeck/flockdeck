@@ -72,7 +72,7 @@ export const NAV_MENUS = {
 
   // A row of the Resume dialog. The dialog registers nav.history while it is open.
   history(el, ctx) {
-    const id = el.getAttribute("data-conversation");
+    const id = el.getAttribute("data-conv");
     const dlg = ctx.nav && ctx.nav.history;
     const c = dlg && dlg.find(id);
     if (!c) return [];
@@ -83,8 +83,12 @@ export const NAV_MENUS = {
     ];
   },
 
-  // The empty part of the page, the main area behind the views.
-  blank(el, ctx) {
+  // The empty part of the page: the main area itself or a part flagged
+  // data-background, not what is drawn in it (links, text and dialogs keep the
+  // window's menu). Its actions do nothing under a modal dialog, so it has none then.
+  blank(el, ctx, target) {
+    const bare = target === el || (target && target.getAttribute && target.getAttribute("data-background") !== null);
+    if (!bare || ctx.blocked) return [];
     return [
       { action: "palette" },
       { separator: true },

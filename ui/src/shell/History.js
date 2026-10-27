@@ -100,8 +100,8 @@ export function History({ history, root, send, onClose, nav = null }) {
             ${rows.map((c) => {
               if (!c.open) enabled++;
               const at = enabled;
-              return html`<li key=${c.id}>
-                <button type="button" class=${"hist-row" + (c.open ? " is-open" : "")} data-conversation=${c.id} data-ctx="history" disabled=${c.open}
+              return html`<li key=${c.id} data-ctx="history" data-conv=${c.id}>
+                <button type="button" class=${"hist-row" + (c.open ? " is-open" : "")} data-conversation=${c.id} disabled=${c.open}
                   onClick=${() => resume(c)} onKeyDown=${(e) => onRowKey(e, at)}>
                   <span class="hist-summary">${c.summary}</span>
                   <span class="hist-meta">${statsOf(c).join(" · ")}${c.agent ? " · " + c.agent : ""}</span>

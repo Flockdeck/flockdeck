@@ -213,7 +213,7 @@ export function Shell({ hello, state, notice, onDismissNotice, onWatch, narrow: 
   // What the right-click menus read: the page's bag (Live.js), with the key table
   // for labels and hints, the actions this window runs, and a way to run one the
   // way a key does. Rebuilt each render; the menu keeps the latest.
-  const menuBag = { ...menuCtx, keys, implemented, act: (id) => act({ type: "action", id }), selected: s.selected, selectProject: (root) => dispatch({ type: "select", root }) };
+  const menuBag = { ...menuCtx, keys, implemented, act: (id) => act({ type: "action", id }), selected: s.selected, blocked, selectProject: (root) => dispatch({ type: "select", root }) };
 
   const load = useMemo(() => {
     if (helpLoad) return helpLoad;

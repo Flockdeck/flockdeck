@@ -21,6 +21,8 @@ export const ATTR = "data-ctx";
 /** MENUS is every menu, by the kind a data-ctx names. Each is (el, ctx) => Item[]
  *  where el is the element carrying data-ctx and ctx is the bag Live.js builds
  *  (see Live.js, "menuCtx"), with keys, implemented and act added by the Shell.
+ *  A third argument is the element the click was on, for a menu that is only
+ *  for the part itself and not what is drawn in it.
  *
  *  An Item is { id, label?, action?, run?, danger?, disabled?, hidden?, separator?,
  *  checked? }. One with an action is an action of the key table: it takes its
@@ -117,9 +119,9 @@ export function resolve(items, ctx) {
 
 /** build is the items for a kind of menu, resolved, or [] for a kind that has
  *  none (the window's own menu is then left alone). */
-export function build(kind, el, ctx) {
+export function build(kind, el, ctx, target = el) {
   const make = MENUS[kind];
-  return make ? resolve(make(el, ctx), ctx) : [];
+  return make ? resolve(make(el, ctx, target), ctx) : [];
 }
 
 const canFocus = (it) => !it.separator && !it.disabled;

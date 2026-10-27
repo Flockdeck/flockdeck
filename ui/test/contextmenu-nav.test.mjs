@@ -2,7 +2,11 @@
 // page it is on, and what choosing an item calls.
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { render } from "../src/vendor/preact.mjs";
+import { html } from "../src/html.js";
+import { GoalStrip } from "../src/shell/GoalStrip.js";
 import { MENUS, resolve } from "../src/shell/menus.js";
+import { createDom, install, settle } from "./dom.mjs";
 
 const el = (attrs) => ({ getAttribute: (k) => (k in attrs ? attrs[k] : null) });
 const KEYS = [
@@ -96,14 +100,43 @@ test("a history row resumes and copies; one that is already open cannot be resum
   const calls = [];
   const list = { c1: { id: "c1", summary: "Fix the thing" }, c2: { id: "c2", summary: "Open one", open: true } };
   const ctx = { copy: (t, w) => calls.push(["copy", t, w]), nav: { history: { find: (id) => list[id], resume: (c) => calls.push(["resume", c.id]) } } };
-  const menu = (id) => resolve(MENUS.history(el({ "data-conversation": id }), ctx), ctx);
+  const menu = (id) => resolve(MENUS.history(el({ "data-conv": id }), ctx), ctx);
   assert.deepEqual(labels(menu("c1")), ["Resume", "Copy conversation id", "Copy summary"]);
   menu("c1").forEach((i) => i.run());
   assert.deepEqual(calls, [["resume", "c1"], ["copy", "c1", "the conversation id"], ["copy", "Fix the thing", "the summary"]]);
   assert.deepEqual(labels(menu("c2")), ["Copy conversation id", "Copy summary"]);
 });
 
-test("the blank menu lists the palette, new tabs and settings that this window runs", () => {
+test("the blank menu is only for the main area itself or a flagged background, and not under a dialog", () => {
   const ctx = { keys: KEYS, implemented: ["newAgentTab", "newShellTab"], act() {} };
-  assert.deepEqual(labels(resolve(MENUS.blank(el({}), ctx), ctx)), ["New agent tab", "New shell tab"]);
+  const main = el({});
+  const child = el({});
+  const flagged = el({ "data-background": "" });
+  assert.deepEqual(labels(resolve(MENUS.blank(main, ctx, main), ctx)), ["New agent tab", "New shell tab"]);
+  assert.deepEqual(labels(resolve(MENUS.blank(main, ctx, flagged), ctx)), ["New agent tab", "New shell tab"]);
+  assert.deepEqual(MENUS.blank(main, ctx, child), []);
+  assert.deepEqual(MENUS.blank(main, { ...ctx, blocked: true }, main), []);
+});
+
+test("a goal tab carries data-ctx and the strip's registrations on nav clear when it is gone", async () => {
+  const dom = createDom();
+  const restore = install(dom);
+  try {
+    const box = dom.document.createElement("div");
+    dom.body.appendChild(box);
+    const nav = {};
+    const tabs = [{ id: "g1", kind: "team", label: "Goal", title: "Goal" }];
+    render(html`<${GoalStrip} tabs=${tabs} active="g1" onSelect=${() => {}} onRename=${() => {}} onArchive=${() => {}} canStep=${() => false} nav=${nav} />`, box);
+    await settle();
+    const li = box.querySelector(".goaltab");
+    assert.equal(li.getAttribute("data-ctx"), "tab");
+    assert.equal(typeof nav.rename, "function");
+    assert.equal(typeof nav.archive, "function");
+    render(null, box);
+    await settle();
+    assert.equal(nav.rename, null);
+    assert.equal(nav.archive, null);
+  } finally {
+    restore();
+  }
 });
