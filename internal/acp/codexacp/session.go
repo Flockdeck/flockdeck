@@ -172,6 +172,22 @@ func (s *server) openSession(m rpcMsg, resume bool) {
 		s.replyErr(m.ID, &rpcErr{Code: codeInternal, Message: unavailable})
 		return
 	}
+	// A session that is still starting is closed with the others, so that a
+	// stop does not wait for codex to answer.
+	s.mu.Lock()
+	if s.closed {
+		s.mu.Unlock()
+		ss.close()
+		s.replyErr(m.ID, &rpcErr{Code: codeInternal, Message: unavailable})
+		return
+	}
+	s.starting[ss] = struct{}{}
+	s.mu.Unlock()
+	defer func() {
+		s.mu.Lock()
+		delete(s.starting, ss)
+		s.mu.Unlock()
+	}()
 	if err := ss.handshake(); err != nil {
 		s.logf("codex handshake: %v", err)
 		ss.close()

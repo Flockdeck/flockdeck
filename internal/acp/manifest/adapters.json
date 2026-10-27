@@ -57,6 +57,19 @@
       "hidden": true,
       "install": "Part of Flockdeck.",
       "note": "Flockdeck's own adapter, started as a subcommand of the flockdeck binary. The version is the one of the claude executable it was tested with. Not offered yet."
+    },
+    {
+      "id": "codex-go",
+      "name": "Codex",
+      "command": "flockdeck",
+      "args": ["acp-adapter", "codex"],
+      "minVersion": "0.0.0",
+      "needsNode": false,
+      "testedWith": "0.0.0",
+      "testedOn": "2026-10-27",
+      "hidden": true,
+      "install": "Part of Flockdeck.",
+      "note": "Flockdeck's own adapter for codex app-server, started as a subcommand of the flockdeck binary. Built from the route document and a fake app-server; no real codex has run against it, so the versions here are placeholders. Not offered yet."
     }
   ]
 }

@@ -142,6 +142,7 @@ type server struct {
 	mu       sync.Mutex
 	closed   bool // closeAll has run: a session that finishes starting now is closed
 	sessions map[string]*session
+	starting map[*session]struct{} // started, not yet answered session/new
 	clientRQ map[int64]chan rpcMsg // requests we made to the client, by id
 	nextReq  atomic.Int64
 	wg       sync.WaitGroup
@@ -159,6 +160,7 @@ func Run(ctx context.Context, in io.Reader, out io.Writer, o Options) error {
 		opts:     o,
 		out:      bufio.NewWriterSize(out, 1<<16),
 		sessions: map[string]*session{},
+		starting: map[*session]struct{}{},
 		clientRQ: map[int64]chan rpcMsg{},
 	}
 	ended := make(chan error, 1)
@@ -308,6 +310,9 @@ func (s *server) closeAll() {
 	s.closed = true
 	var all []*session
 	for _, ss := range s.sessions {
+		all = append(all, ss)
+	}
+	for ss := range s.starting {
 		all = append(all, ss)
 	}
 	s.mu.Unlock()

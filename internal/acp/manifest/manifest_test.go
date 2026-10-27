@@ -36,8 +36,13 @@ func TestTheEmbeddedManifestParses(t *testing.T) {
 	if !ok || !cl.Hidden || cl.Command != "flockdeck" || len(cl.Args) != 2 || cl.Args[0] != "acp-adapter" || cl.Args[1] != "claude" || cl.Package != "" || cl.NeedsNode {
 		t.Errorf("claude = %+v", cl)
 	}
+	// So is Codex's: no package, no Node, hidden.
+	cx, ok := m.Lookup("codex-go")
+	if !ok || !cx.Hidden || cx.Command != "flockdeck" || len(cx.Args) != 2 || cx.Args[0] != "acp-adapter" || cx.Args[1] != "codex" || cx.Package != "" || cx.Pin != "" || cx.NeedsNode {
+		t.Errorf("codex-go = %+v", cx)
+	}
 	for _, id := range m.IDs() {
-		if id == "claude" {
+		if id == "claude" || id == "codex-go" {
 			t.Error("a hidden adapter is in IDs")
 		}
 	}
