@@ -492,11 +492,6 @@ func (a *agent) prompt(id, params json.RawMessage, n int) {
 	case "oddstop":
 		done("made_up_reason")
 
-	case "die":
-		// The agent process ends in the middle of a turn.
-		a.chunk(sid, "about to stop")
-		os.Exit(3)
-
 	case "blocks":
 		a.chunk(sid, fmt.Sprintf("blocks=%d", len(blocks)))
 		done("end_turn")
