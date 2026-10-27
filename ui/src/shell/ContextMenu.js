@@ -21,6 +21,10 @@ export function ContextMenu({ win, ctx }) {
   latest.current = ctx;
   const box = useRef(null);
   const opener = useRef(null);
+  // A click on an item counts once the press that opened the menu is over (its
+  // pointerup) or a frame has passed, so neither that press nor a menu shifted
+  // by the clamp can choose the first item.
+  const armed = useRef(false);
 
   const close = (refocus) => {
     const back = opener.current;
@@ -37,6 +41,7 @@ export function ContextMenu({ win, ctx }) {
       const items = el && !nativeWanted(e.target, win, el) ? build(el.getAttribute(ATTR), el, latest.current) : [];
       if (!items.length) {
         // Not ours: the window's menu opens, and ours does not stay under it.
+        opener.current = null;
         setAt(null);
         return;
       }
@@ -44,6 +49,13 @@ export function ContextMenu({ win, ctx }) {
       e.stopPropagation();
       const p = pointOf(e, el);
       if (!opener.current) opener.current = doc && doc.activeElement;
+      armed.current = false;
+      const arm = () => {
+        armed.current = true;
+        win.removeEventListener("pointerup", arm, true);
+      };
+      win.addEventListener("pointerup", arm, true);
+      (win.requestAnimationFrame ? win.requestAnimationFrame.bind(win) : (fn) => setTimeout(fn, 0))(arm);
       setAt({ ...p, items, current: -1, seq: Date.now() + Math.random() });
     };
     win.addEventListener("contextmenu", onMenu, true);
@@ -138,7 +150,7 @@ export function ContextMenu({ win, ctx }) {
     ${at.items.map((it, i) =>
       it.separator
         ? html`<hr class="ctxmenu-sep" role="separator" key=${"sep" + i} />`
-        : html`<button type="button" key=${it.id} role=${it.checked === undefined ? "menuitem" : "menuitemcheckbox"} aria-checked=${it.checked === undefined ? undefined : it.checked ? "true" : "false"} aria-disabled=${it.disabled ? "true" : undefined} tabindex="-1" class=${"ctxmenu-item" + (it.danger ? " ctxmenu-item--danger" : "") + (i === at.current ? " is-current" : "")} data-item=${it.id} onClick=${() => choose(it)} onMouseEnter=${() => !it.disabled && focusItem(i)}>
+        : html`<button type="button" key=${it.id} role=${it.checked === undefined ? "menuitem" : "menuitemcheckbox"} aria-checked=${it.checked === undefined ? undefined : it.checked ? "true" : "false"} aria-disabled=${it.disabled ? "true" : undefined} tabindex="-1" class=${"ctxmenu-item" + (it.danger ? " ctxmenu-item--danger" : "") + (i === at.current ? " is-current" : "")} data-item=${it.id} onClick=${() => armed.current && choose(it)} onMouseEnter=${() => !it.disabled && focusItem(i)}>
             <span class="ctxmenu-check" aria-hidden="true">${it.checked ? "✓" : ""}</span>
             <span class="ctxmenu-label">${it.label}</span>
             ${it.hint ? html`<span class="ctxmenu-hint">${it.hint}</span>` : null}

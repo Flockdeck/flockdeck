@@ -8,6 +8,8 @@ import { html } from "../src/html.js";
 import { ContextMenu } from "../src/shell/ContextMenu.js";
 import { MENUS, MARGIN, build, edgeItem, hasSelection, hintFor, nextItem, place, pointOf, resolve, typeAhead } from "../src/shell/menus.js";
 import { menuMove } from "../src/shell/keys.js";
+import { Shell } from "../src/shell/app.js";
+import { fakeKeys, fakeState } from "./util.mjs";
 import { createDom, install, settle } from "./dom.mjs";
 
 const KEYS = [
@@ -343,11 +345,80 @@ test("a menu opened near the corner is flipped back inside the window", async ()
   }
 });
 
-test("the menu is hidden until it has a place, and the page's own actions are checked against implemented", async () => {
+test("the agent menu is built from the bag the page gives it", async () => {
   const m = await mount({ implemented: [] });
   try {
     assert.deepEqual(build("agent", m.$("#row"), { drawer: {}, copy() {}, keys: KEYS, implemented: [] }).map((i) => i.id), ["open", "copy-id"]);
+    assert.deepEqual(build("agent", m.$("#row"), { keys: KEYS, implemented: [] }), [], "with no drawer and no copy there is nothing to offer");
   } finally {
     m.done();
+  }
+});
+
+test("a click is ignored until the opening press is over or a frame has passed", async () => {
+  const m = await mount();
+  try {
+    const frames = [];
+    m.dom.window.requestAnimationFrame = (fn) => frames.push(fn);
+    await m.right(m.$("#row"));
+    m.items()[0].click();
+    await settle();
+    assert.ok(m.menu(), "still open");
+    assert.deepEqual(m.calls, []);
+    frames.shift()();
+    m.items()[0].click();
+    await settle();
+    assert.deepEqual(m.calls, [["open", "p1"]]);
+    // The press's own pointerup arms it as well.
+    await m.right(m.$("#row"));
+    m.dom.window.dispatch("pointerup");
+    m.items()[1].click();
+    await settle();
+    assert.deepEqual(m.calls, [["open", "p1"], ["copy", "p1"]]);
+  } finally {
+    m.done();
+  }
+});
+
+test("a right-click the menu does not take forgets the old opener", async () => {
+  const m = await mount();
+  try {
+    m.$("#row").focus();
+    await m.right(m.$("#row"));
+    await m.right(m.$("#plain-in"));
+    m.$("#after").focus();
+    await m.right(m.$("#row"));
+    await m.press("Escape");
+    assert.equal(m.dom.document.activeElement, m.$("#after"));
+  } finally {
+    m.done();
+  }
+});
+
+test("an item with an action id runs through the Shell's act path", async () => {
+  const dom = createDom();
+  const restore = install(dom);
+  dom.window.innerWidth = 800;
+  dom.window.innerHeight = 600;
+  const container = dom.document.createElement("div");
+  dom.body.appendChild(container);
+  MENUS.probe = () => [{ action: "worktrees" }];
+  const ran = [];
+  try {
+    render(html`<${Shell} hello=${{ keys: fakeKeys }} state=${fakeState} window=${dom.window} actions=${{ worktrees: () => ran.push("worktrees") }}><div id="probe" data-ctx="probe">x</div><//>`, container);
+    await settle();
+    container.querySelector("#probe").dispatch("contextmenu", { clientX: 10, clientY: 10 });
+    await settle();
+    const item = container.findAll('[role="menuitem"]')[0];
+    assert.equal(item.textContent.includes("Worktrees"), true);
+    assert.equal(item.textContent.includes("Ctrl+Shift+G"), true, "the hint comes from the table");
+    dom.window.dispatch("pointerup");
+    item.click();
+    await settle();
+    assert.deepEqual(ran, ["worktrees"]);
+  } finally {
+    delete MENUS.probe;
+    render(null, container);
+    restore();
   }
 });
