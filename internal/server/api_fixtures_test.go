@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -218,6 +219,11 @@ func normalizeRecording(t *testing.T, spec fxSpec, raw []byte, ids map[string]st
 			for k, e := range x {
 				x[k] = walk(e)
 			}
+			for _, k := range []string{"needs", "soloNeeds"} {
+				if list, ok := x[k].([]any); ok {
+					settleNeedsOrder(list)
+				}
+			}
 			return x
 		case []any:
 			for i, e := range x {
@@ -255,6 +261,41 @@ func normalizeRecording(t *testing.T, spec fxSpec, raw []byte, ids map[string]st
 		t.Fatal(err)
 	}
 	return buf.Bytes()
+}
+
+// settleNeedsOrder puts the items of a needs list that the recording gives the
+// same kind of urgency and the same time in id order. The server lists them by
+// the exact time each pane's status was set, and a test sets them microseconds
+// apart, so which of an ask and a permission comes first depends on whether the
+// clock ticked between the two calls. Once the times are rounded they are equal,
+// and the order the server uses for equal times is the id.
+func settleNeedsOrder(list []any) {
+	group := func(it any) (string, string) {
+		m, _ := it.(map[string]any)
+		kind, _ := m["kind"].(string)
+		at, _ := m["time"].(string)
+		if kind == "ask" {
+			kind = "permission"
+		}
+		return kind, at
+	}
+	id := func(it any) string {
+		m, _ := it.(map[string]any)
+		s, _ := m["id"].(string)
+		return s
+	}
+	for i := 0; i < len(list); {
+		k, at := group(list[i])
+		j := i + 1
+		for j < len(list) {
+			if k2, at2 := group(list[j]); k2 != k || at2 != at {
+				break
+			}
+			j++
+		}
+		sort.SliceStable(list[i:j], func(a, b int) bool { return id(list[i+a]) < id(list[i+b]) })
+		i = j
+	}
 }
 
 // firstDifference names the first line two recordings differ at, so a failure
@@ -337,5 +378,35 @@ func TestAPIFixtureSurvivesAStall(t *testing.T) {
 				_ = os.WriteFile(filepath.Join(os.TempDir(), "stall-"+spec.name+".json"), got, 0o644)
 			}
 		})
+	}
+}
+
+// Two panes that began asking within the same few milliseconds are recorded in id
+// order whichever the clock saw first.
+func TestRecordingOrderDoesNotFollowTheClock(t *testing.T) {
+	at := time.Date(2026, 10, 27, 9, 0, 0, 0, time.UTC)
+	spec := fxSpec{name: "x"}
+	ids := map[string]string{"a": "aaaa1111", "b": "bbbb2222"}
+	for _, first := range []string{"permission-first", "ask-first"} {
+		perm := at.Add(-recordingAge)
+		ask := perm.Add(3 * time.Millisecond)
+		items := []map[string]any{
+			{"id": "permission:aaaa1111", "kind": "permission", "pane": "aaaa1111", "time": perm.Format(time.RFC3339Nano)},
+			{"id": "ask:bbbb2222", "kind": "ask", "pane": "bbbb2222", "time": ask.Format(time.RFC3339Nano)},
+		}
+		if first == "ask-first" {
+			items[0]["time"], items[1]["time"] = ask.Format(time.RFC3339Nano), perm.Format(time.RFC3339Nano)
+		}
+		raw, _ := json.Marshal(map[string]any{"needs": items})
+		out := normalizeRecording(t, spec, raw, ids, "/root", at)
+		var got struct {
+			Needs []struct{ ID string }
+		}
+		if err := json.Unmarshal(out, &got); err != nil {
+			t.Fatal(err)
+		}
+		if len(got.Needs) != 2 || !strings.HasPrefix(got.Needs[0].ID, "ask:") {
+			t.Errorf("%s: recorded %+v, want the ask first", first, got.Needs)
+		}
 	}
 }
