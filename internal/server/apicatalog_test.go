@@ -27,7 +27,7 @@ const apiCatalogPath = "../../api/catalog.json"
 // command or message raises the major; one that adds raises the minor.
 const (
 	apiMajor = 1
-	apiMinor = 22
+	apiMinor = 23
 )
 
 // addedIn names the minor version a command arrived in; any other is 1.0.
@@ -67,8 +67,8 @@ func init() {
 	}
 	// Saving a structured pane's conversation as Markdown came with structuredExport (1.20).
 	addedIn["structuredExport"] = "1.20"
-	// The agent info view came with structuredInfo (1.22).
-	addedIn["structuredInfo"] = "1.22"
+	// The agent info view came with structuredInfo (1.23).
+	addedIn["structuredInfo"] = "1.23"
 	// The person's own shell commands came with structuredShell (1.21).
 	for _, n := range []string{"structuredShellRun", "structuredShellStop", "structuredShellRemove", "structuredShellSend"} {
 		addedIn[n] = "1.21"

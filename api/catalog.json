@@ -1,7 +1,7 @@
 {
   "api": {
     "major": 1,
-    "minor": 22
+    "minor": 23
   },
   "frames": [
     {
@@ -1129,7 +1129,7 @@
     {
       "name": "structuredInfo",
       "access": "full",
-      "since": "1.22",
+      "since": "1.23",
       "status": "stable"
     },
     {
