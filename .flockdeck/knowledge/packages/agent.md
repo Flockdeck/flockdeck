@@ -16,13 +16,13 @@ Describes what a pane can run. A pane is a shell or an agent; an agent is a `Spe
 | Name | Role |
 |---|---|
 | `Spec`, `Model`, `Caps`, `Arg`, `APISpec`, `ACPSpec`, `Patterns` | One agent; see [agent spec](/data/agent-spec.md) |
-| `Builtins()` | Nine built-ins: `claude`, `codex`, `gemini`, `aider`, `opencode`, `cursor-agent` (CLI runners), then the structured `opencode-acp`, `gemini-acp` (hidden) and `codex-acp` (hidden) |
+| `Builtins()` | Ten built-ins: `claude`, `codex`, `gemini`, `aider`, `opencode`, `cursor-agent` (CLI runners), then the structured `opencode-acp`, `gemini-acp` (hidden), `codex-acp` (hidden) and `claude-acp` (hidden; available when `claude` is on PATH, not `flockdeck`) |
 | `Catalog`, `Load()`, `LoadFrom(dir)`, `Merge(f)` | Built-ins with the user's [agents.json](/data/agents-json.md) merged over them. Never fails; problems go in `Catalog.Notice` |
 | `BuildArgv(spec, resume, tokens)` | Expands `{{session}}`, `{{model}}`, `{{settings}}`, `{{prompt}}`, `{{cwd}}`, `{{pane}}` into an argv in one pass |
 | `Role`, `BuiltinRoles()`, `Catalog.MayStart`, `Catalog.Choose` | Roles: [agent role](/data/agent-role.md) |
 | `RoutingPolicy`, `Catalog.RoutingFor`, `SetRouting` | Routing settings, consumed by [route](/packages/route.md); see [routing policy](/data/routing-policy.md) |
 | `Available`, `Refresh` | Whether an agent can start now (its program, or its adapter's command, is on PATH) |
-| `KeyNames`, `OwnKeyEnv`, `VendorsOwn`, `TakesKey` | API key lookup for a spec with an `API` block. `gemini-acp` and `codex-acp` have one; agents.json may not add one. For a structured spec `KeyNames` returns only the key variables its `passEnv` passes, and `ACPKeyEnv` is the one variable a stored key is set in |
+| `KeyNames`, `OwnKeyEnv`, `VendorsOwn`, `TakesKey` | API key lookup for a spec with an `API` block. `gemini-acp`, `codex-acp` and `claude-acp` have one; agents.json may not add one. For a structured spec `KeyNames` returns only the key variables its `passEnv` passes, and `ACPKeyEnv` is the one variable a stored key is set in |
 | `Spec.ACPAdapter()`, `Spec.ACPPassEnv(environ)` | A `RunnerACP` entry names a manifest adapter in `ACP.Adapter`; `ACPPassEnv` returns exactly the variables `ACP.PassEnv` lists. `Catalog.Structured` (set by the builder from the `structuredPanes` pref; agents.json does not carry it) is the opt-in that lets `Visible` list structured entries |
 | `SetDefaults` | Atomic edit of the default agent and model in agents.json |
 

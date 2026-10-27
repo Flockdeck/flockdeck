@@ -141,7 +141,8 @@ ACP carries these as `modes` and `configOptions` in the `session/new` response, 
 
 | Action | In which TUI | Status | Provided by |
 | --- | --- | --- | --- |
-| Log in | all | partial: a pane in `needs setup` tells the user to log in with the agent's own tool; Flockdeck never signs in | ACP `authenticate` exists in the client; terminal-free login is a design decision (the user ruled out TUIs) |
+| Log in | all | partial: a pane in `needs setup` tells the user to log in with the agent's own tool; Flockdeck never signs in. `claude-acp` shows "Run `claude` once in a terminal and sign in with your Claude subscription, or store an Anthropic API key in Settings." Checked against claude 2.1.311 on 27 Oct 2026: with no login the prompt is refused as authentication required; with a login a one-word prompt is answered | ACP `authenticate` exists in the client; terminal-free login is a design decision (the user ruled out TUIs) |
+| Use an API key instead of a login | Claude `ANTHROPIC_API_KEY`, Gemini `GEMINI_API_KEY`, Codex `OPENAI_API_KEY` | present for the hidden structured entries `gemini-acp`, `codex-acp` and `claude-acp`: a key stored in Settings or with `flockdeck keys set` is set in that agent's environment only, under its one variable. Not checked: a Claude pane started with a stored key against the real API | client |
 | Log out, change auth method | Claude `/logout`, Gemini `/auth`, opencode `/connect` | missing | ACP `logout` (auth capability); `authenticate` with another method |
 | Desktop alert when the agent needs a permission or finishes | Claude hooks, terminal bell | partial: the pane's status reaches the roster as waiting or idle. I did not trace a system notification for structured panes | client |
 | Phone push for a permission or a finished turn | not a TUI feature, but Flockdeck terminal panes have it | missing by design: structured data is refused over the relay | client plus sealed transport (T182 decision 5) |

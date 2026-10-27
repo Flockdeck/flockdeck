@@ -13,7 +13,7 @@ code_paths: [cli_keys.go, cli_keys_echo_unix.go, cli_keys_echo_windows.go, cli_k
 
 ## Current state
 
-The agents that take a key are the built-in structured ones with an `api` block (`gemini-acp`, `codex-acp`); an agents.json entry with an `api` block is refused. `set` and `check` refuse every other id and name the agents that take a key. `clear <id>` removes a stored key for any id. A stored key is set in the agent's environment when its pane starts (T202).
+The agents that take a key are the built-in structured ones with an `api` block (`gemini-acp`, `codex-acp`, `claude-acp`); an agents.json entry with an `api` block is refused. `set` and `check` refuse every other id and name the agents that take a key. `clear <id>` removes a stored key for any id. A stored key is set in the agent's environment when its pane starts (T202).
 
 ## Subcommands
 

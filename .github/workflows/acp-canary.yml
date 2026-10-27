@@ -13,6 +13,17 @@ name: acp-canary
 #              agent resolves with the manifest's launchEnv set, and fails if
 #              the shell and edit tools no longer ask.
 #
+# A third job, claude, covers Flockdeck's own Claude Code adapter, which is not
+# an npm package: it builds the flockdeck binary, installs the claude executable
+# (the version the manifest names, and the newest) into the same kind of
+# temporary folder, sends `initialize` to `flockdeck acp-adapter claude`, then
+# opens a session and sends one prompt to the real claude. There is no login on
+# the runner, so the prompt is expected to be refused as "Authentication
+# required"; what is checked is that claude's streaming protocol still answers
+# the adapter's control requests (modes, models, commands) and that the refusal
+# is the one the app turns into its login state. A run with a login is done by
+# hand, see docs/acp-claude-adapter.md.
+#
 # This is a report, not a gate. It runs on a schedule and by hand only, never
 # on a pull request or a push, so it can not stop a merge: a red run here means
 # an adapter changed, and the manifest is what to look at.
@@ -168,6 +179,99 @@ jobs:
         run: |
           {
             echo "### ${{ matrix.adapter }} (${{ matrix.channel }})"
+            echo ""
+            echo "- package: \`${PKG:-unknown}@${VERSION:-unknown}\`"
+            echo "- result: ${{ job.status }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  claude:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        channel: [pinned, latest]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: false
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+
+      - name: Make the isolation folder
+        run: |
+          ISO="$(mktemp -d "${RUNNER_TEMP}/acp-canary.XXXXXX")"
+          mkdir -p "$ISO/claude" "$ISO/bin" "$ISO/home" "$ISO/npm-cache"
+          touch "$ISO/.start"
+          {
+            echo "ISO=$ISO"
+            echo "REAL_HOME=$HOME"
+          } >> "$GITHUB_ENV"
+          echo "isolation folder:   $ISO"
+          echo "runner home (must not change): $HOME"
+
+      - name: Work out which claude to install
+        run: |
+          PKG="@anthropic-ai/claude-code"
+          if [ "${{ matrix.channel }}" = "pinned" ]; then
+            VERSION="$(jq -r '.adapters[] | select(.id == "claude") | .testedWith' internal/acp/manifest/adapters.json)"
+          else
+            VERSION="$(env -i PATH="$PATH" HOME="$ISO/home" npm_config_cache="$ISO/npm-cache" npm view "$PKG" dist-tags.latest)"
+          fi
+          if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$'; then
+            echo "::error::not a plain version: $(printf '%s' "$VERSION" | head -c 60 | tr -c '[:print:]' '?')"
+            exit 1
+          fi
+          {
+            echo "PKG=$PKG"
+            echo "VERSION=$VERSION"
+          } >> "$GITHUB_ENV"
+          echo "claude, channel ${{ matrix.channel }}: $PKG@$VERSION"
+
+      - name: Install claude into the isolation folder
+        run: |
+          env -i PATH="$PATH" HOME="$ISO/home" npm_config_cache="$ISO/npm-cache" CI=1             npm install --prefix "$ISO/claude" --ignore-scripts --no-audit --no-fund --loglevel=error "$PKG@$VERSION"
+          ls -l "$ISO/claude/node_modules/.bin/claude"
+          echo "claude --version: $(env -i PATH="$PATH" HOME="$ISO/home" "$ISO/claude/node_modules/.bin/claude" --version)"
+
+      - name: Build flockdeck
+        run: go build -o "$ISO/bin/flockdeck" .
+
+      - name: Handshake with the adapter
+        env:
+          FLOCKDECK_CANARY_BIN: ${{ env.ISO }}/bin/flockdeck
+          FLOCKDECK_CANARY_ISO: ${{ env.ISO }}
+          FLOCKDECK_CANARY_ADAPTER: claude
+        run: go test -tags acp_canary ./internal/acp/manifest -run TestCanaryInitialize -v -count=1 -timeout 5m
+
+      - name: Open a session and send one prompt to claude
+        env:
+          FLOCKDECK_CANARY_BIN: ${{ env.ISO }}/bin/flockdeck
+          FLOCKDECK_CANARY_ISO: ${{ env.ISO }}
+          # Without this the test harness puts a stub first on PATH where claude is.
+          FLOCKDECK_LIVE_AGENT_TESTS: "1"
+        run: |
+          PATH="$ISO/claude/node_modules/.bin:$PATH"             go test -tags acp_canary ./internal/acp/claudeacp -run TestCanaryClaudeSession -v -count=1 -timeout 8m
+
+      - name: Show whether the runner home changed
+        if: always()
+        run: |
+          echo "files in the runner home newer than the start of this job, outside the Go and npm caches of the job itself:"
+          find "$REAL_HOME" -newer "$ISO/.start" -type f             -not -path "*/.cache/go-build/*" -not -path "*/go/pkg/*" -not -path "*/.cache/go/*"             -not -path "*/.npm/_logs/*" 2>/dev/null | head -20 || true
+          echo "(end of list)"
+
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "### claude adapter (${{ matrix.channel }})"
             echo ""
             echo "- package: \`${PKG:-unknown}@${VERSION:-unknown}\`"
             echo "- result: ${{ job.status }}"

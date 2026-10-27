@@ -67,7 +67,15 @@ merge. It does two things:
    the pin or the machine changed; a failure on `latest` means the next bump
    will need work.
 
-The handshake never logs in, sends a prompt or opens a session. Every run is
+The handshake never logs in, sends a prompt or opens a session. A third job, `claude`,
+covers Flockdeck's own Claude Code adapter, which is not an npm package: it builds the
+`flockdeck` binary, installs the `claude` executable (the manifest's `testedWith`
+version, and the newest) with the same isolation, does the handshake with
+`flockdeck acp-adapter claude`, then opens a session and sends one prompt to the real
+claude. The runner has no login, so the prompt is expected to be refused as
+"Authentication required". See [Claude Code adapter](acp-claude-adapter.md#the-canary).
+
+Every run is
 isolated: the adapter gets a home, config, cache and temporary folders that are
 all inside one new temporary folder, a working directory inside it too, an
 environment that holds only `PATH` and those folders (no keys or tokens), and
@@ -176,10 +184,12 @@ program's path and not by looking `flockdeck` up on PATH, and is also given
 entry lists. What an agent wrote to stderr is never shown: a pane whose agent
 did not start or has ended says `the agent is unavailable`.
 
-The built-in entries are `opencode-acp`, and `gemini-acp` and `codex-acp`, which
-are hidden until the tasks that check them end to end have landed. They are
+The built-in entries are `opencode-acp`, and `gemini-acp`, `codex-acp` and `claude-acp`,
+which are hidden until the tasks that check them end to end have landed. They are
 separate ids from the terminal entries for the same tools, so a saved layout
-keeps meaning what it did. There is no entry for Claude Code yet (planned: T191).
+keeps meaning what it did. `claude-acp` starts the `claude` adapter (Flockdeck's own,
+see [Claude Code adapter](acp-claude-adapter.md)), takes a key in `ANTHROPIC_API_KEY`, and is
+unavailable when `claude` is not on PATH.
 
 Structured entries are not offered in the picker until the beta is turned on:
 `"structuredPanes": true` in the preferences file (`prefs.json`), not in
