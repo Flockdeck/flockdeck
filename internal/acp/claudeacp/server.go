@@ -22,7 +22,10 @@
 // queue it: each prompt gets its own turn and its own stop reason, in order. A
 // cancel ends the running turn and every prompt queued behind it.
 //
-// Not done yet: resume and session/load, turns claude starts on its own (a
+// session/resume starts claude with --resume and the session's id. Claude keeps
+// the conversation in its own files and does not send it again, so there is no
+// session/load: the adapter says loadSession false, and the client shows an
+// empty transcript for a resumed session. Not done yet: turns claude starts on its own (a
 // finished background task), AskUserQuestion, terminal and file system
 // delegation to the client. See docs/acp-claude-adapter.md.
 package claudeacp
@@ -259,16 +262,17 @@ func (s *server) handle(m rpcMsg) {
 		s.reply(m.ID, map[string]any{
 			"protocolVersion": 1,
 			"agentCapabilities": map[string]any{
-				"loadSession":        false,
-				"promptCapabilities": map[string]any{"image": true, "audio": false, "embeddedContext": true},
-				"mcpCapabilities":    map[string]any{"http": true, "sse": true},
+				"loadSession":         false,
+				"promptCapabilities":  map[string]any{"image": true, "audio": false, "embeddedContext": true},
+				"mcpCapabilities":     map[string]any{"http": true, "sse": true},
+				"sessionCapabilities": map[string]any{"resume": map[string]any{}},
 			},
 			"agentInfo":   map[string]any{"name": "flockdeck-claude", "title": "Claude Code", "version": s.opts.Version},
 			"authMethods": []any{},
 		})
-	case "session/new":
+	case "session/new", "session/resume":
 		s.wg.Add(1)
-		go func() { defer s.wg.Done(); s.newSession(m) }()
+		go func() { defer s.wg.Done(); s.openSession(m, m.Method == "session/resume") }()
 	case "session/prompt":
 		s.prompt(m)
 	case "session/cancel":

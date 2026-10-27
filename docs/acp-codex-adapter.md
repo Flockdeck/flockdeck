@@ -222,7 +222,7 @@ These were not checked against a real codex:
 
 ## Not done
 
-- `session/load` with history replay, and `session/list`.
+- `session/load` with history replay, and `session/list`. For load, `thread/resume` or `thread/read` with turns would give the history to replay as updates; the shape of those results has not been seen in a real codex.
 - Logging in from Flockdeck (`account/login/start`), `authenticate`, and API-key use other
   than through the environment.
 - Reasoning effort, the mode with no sandbox, the cost of a turn, and `turn/steer`.

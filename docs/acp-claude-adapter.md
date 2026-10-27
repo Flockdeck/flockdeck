@@ -126,11 +126,16 @@ removed at the next start. claude's account connectors still load.
 
 ## Not done
 
-- Resume and `session/load`. Advertised as `loadSession: false`. Design: spawn with
-  `--resume <id>`. claude sends no history on stdout, so `session/load` would have to
-  read the transcript under `~/.claude/projects` and replay it as updates, a file
-  format that is not a stable contract. Two cheaper options: support resume without
-  replay (the pane keeps its own record), or replay from Flockdeck's recording.
+- `session/load`. Advertised as `loadSession: false`. claude sends no history on stdout, so
+  it would have to read the transcript under `~/.claude/projects` and replay it as updates,
+  a file format that is not a stable contract.
+- Checking `session/resume` against a real claude. It starts claude with `--resume <id>`
+  in place of `--session-id <id>` and returns the id it was given. Not checked: that claude
+  keeps the same id when resumed (if it forks to a new one, the next resume of the saved id
+  still works, but the saved id is not the live one), what it does for an id it has no
+  conversation for (the adapter treats an exit as a failed start), and that the
+  conversation is found when the cwd differs. Tested against the fake claude only. The id
+  must be a UUID and not open already; anything else is refused before claude starts.
 - Turns claude starts on its own, such as a finished background task. The adapter
   notices the turn from its `init` line and forwards its updates as `session/update`
   while no prompt is running. A prompt that arrives meanwhile waits for that turn's

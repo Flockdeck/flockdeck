@@ -105,6 +105,12 @@ type Update struct {
 	Kind      string
 	Raw       json.RawMessage
 
+	// Replay is set by the client, never by the agent's text, for an update that
+	// arrived for a session while a session/load of it was waiting for its
+	// answer: the agent's replay of the conversation so far. It is not a new
+	// turn.
+	Replay bool
+
 	// Content is set for the three message-chunk kinds.
 	Content *ContentBlock
 

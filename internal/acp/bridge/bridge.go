@@ -26,7 +26,7 @@
 //   - Session state is kept apart from the conversation (state.go): the slash
 //     commands, the mode, the models and config options, the markdown plan and
 //     the title. A compaction notice is a notice entry. A user_message_chunk
-//     outside a turn is a prompt entry (a replayed history); inside one it is
+//     from a replay (BeginReplay) is a prompt entry; any other is
 //     the agent echoing the prompt TurnStart already recorded, and is ignored.
 //
 // Everything in the traffic comes from the agent and is treated as hostile: every
@@ -181,7 +181,10 @@ type Bridge struct {
 	tools    map[[sha256.Size]byte]*item
 	seq      int
 	inFlight bool
-	pending  []Card
+	// replaying is set between BeginReplay and EndReplay: only then are updates
+	// marked as replay taken in.
+	replaying bool
+	pending   []Card
 	plan     []acp.PlanEntry
 	usage    Usage
 	state    SessionState
@@ -550,6 +553,16 @@ func (h handler) Permission(ctx context.Context, req acp.PermissionRequest) stri
 func (b *Bridge) Update(u acp.Update) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	if u.Replay {
+		b.replayUpdate(u)
+		return
+	}
+	b.update(u)
+}
+
+// update is Update for an update that is not part of a replay. Call with b.mu
+// held.
+func (b *Bridge) update(u acp.Update) {
 	switch u.Kind {
 	case acp.UpdateAgentMessageChunk:
 		b.chunk(u, transcript.KindReply)
@@ -567,9 +580,9 @@ func (b *Bridge) Update(u acp.Update) {
 			b.plan = append(b.plan, acp.PlanEntry{Content: line(p.Content, labelCap), Priority: line(p.Priority, 40), Status: line(p.Status, 40)})
 		}
 	case acp.UpdateUserMessageChunk:
-		// Ignored. Our own prompt is recorded by TurnStart, the client never
-		// loads a session so there is no history to replay, and an entry made
-		// here would look like something the person typed.
+		// Ignored. Our own prompt is recorded by TurnStart, and an entry made
+		// here would look like something the person typed. A replayed history
+		// has these too: replayUpdate takes them, because the client marked them.
 	case acp.UpdateUsage:
 		if u.Used != nil {
 			b.usage.Used = *u.Used

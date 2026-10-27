@@ -147,6 +147,9 @@ type Config struct {
 	// SetupTimeout bounds initialize and session/new, whatever the caller's
 	// context allows. Default 60s.
 	SetupTimeout time.Duration
+	// LoadTimeout bounds session/load, which includes the agent replaying the
+	// conversation. Default 2m.
+	LoadTimeout time.Duration
 	// MaxLineBytes is the longest line read from the agent's stdout. A longer
 	// one is a lost peer. Default 64 MiB.
 	MaxLineBytes int
@@ -158,6 +161,7 @@ type Config struct {
 const (
 	defaultExitGrace    = 750 * time.Millisecond
 	defaultSetupTimeout = 60 * time.Second
+	defaultLoadTimeout  = 2 * time.Minute
 	defaultMaxLine      = 64 << 20
 	defaultMaxRequests  = 32
 
@@ -240,6 +244,10 @@ type Client struct {
 
 	mu      sync.Mutex
 	pending map[int64]chan reply
+	// loads is the session id of each session/load request that has no answer
+	// yet, by request id. The updates the agent sends for that session before
+	// the answer are the replay of its history (Update.Replay).
+	loads map[int64]string
 	// abandoned holds the ids of calls whose context ended before the answer
 	// came, so a late answer is not taken for a stray one. Bounded by a ring (abandonedKept).
 	abandoned     map[int64]struct{}
@@ -284,6 +292,9 @@ func Start(cfg Config) (*Client, error) {
 	}
 	if cfg.SetupTimeout <= 0 {
 		cfg.SetupTimeout = defaultSetupTimeout
+	}
+	if cfg.LoadTimeout <= 0 {
+		cfg.LoadTimeout = defaultLoadTimeout
 	}
 	if cfg.MaxLineBytes <= 0 {
 		cfg.MaxLineBytes = defaultMaxLine
@@ -332,6 +343,7 @@ func Start(cfg Config) (*Client, error) {
 		stop:       make(chan struct{}),
 		writerDone: make(chan struct{}),
 		pending:    map[int64]chan reply{},
+		loads:      map[int64]string{},
 		abandoned:  map[int64]struct{}{},
 		perms:      map[*permission]struct{}{},
 		loopDone:   make(chan struct{}),
@@ -596,6 +608,9 @@ func (c *Client) dispatch(m rpcMsg) {
 		c.mu.Lock()
 		ch := c.pending[id]
 		delete(c.pending, id)
+		// The agent has answered session/load, so what follows is not replay.
+		// This runs on the read loop, in wire order with the updates.
+		delete(c.loads, id)
 		_, late := c.abandoned[id]
 		delete(c.abandoned, id)
 		c.mu.Unlock()
@@ -619,7 +634,15 @@ func (c *Client) dispatch(m rpcMsg) {
 			c.protoErr("a session/update that could not be read")
 			return
 		}
-		c.callUpdate(decodeUpdate(p.SessionID, p.Update))
+		u := decodeUpdate(p.SessionID, p.Update)
+		c.mu.Lock()
+		for _, sid := range c.loads {
+			if sid == p.SessionID {
+				u.Replay = true
+			}
+		}
+		c.mu.Unlock()
+		c.callUpdate(u)
 	case m.Method != "" && m.ID != nil: // a request from the agent
 		// Its own goroutine: a permission request waits for a person. The
 		// number in flight is capped; the agent is told when it asks for more.

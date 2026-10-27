@@ -180,6 +180,13 @@ func (c *Client) reply(id *json.RawMessage, result any, e *RPCError) {
 // request: the agent may still answer it. The wait also ends when the agent's
 // output does, and when the client is closed.
 func (c *Client) call(ctx context.Context, method string, params, result any) error {
+	return c.callAs(ctx, method, params, result, "")
+}
+
+// callAs is call that, when loading is not empty, marks the updates for that
+// session id as replay from before the request is sent until its answer is read
+// (or the call ends).
+func (c *Client) callAs(ctx context.Context, method string, params, result any, loading string) error {
 	id := c.nextID.Add(1)
 	ch := make(chan reply, 1)
 	c.mu.Lock()
@@ -188,7 +195,17 @@ func (c *Client) call(ctx context.Context, method string, params, result any) er
 		return ErrClosed
 	}
 	c.pending[id] = ch
+	if loading != "" {
+		c.loads[id] = loading
+	}
 	c.mu.Unlock()
+	if loading != "" {
+		defer func() {
+			c.mu.Lock()
+			delete(c.loads, id)
+			c.mu.Unlock()
+		}()
+	}
 
 	forget := func() {
 		c.mu.Lock()
@@ -337,6 +354,58 @@ func (c *Client) NewSessionInfo(ctx context.Context, cwd string, mcpServers []MC
 	if r.SessionID == "" {
 		return SessionNew{}, errors.New("acp: session/new returned no sessionId")
 	}
+	return r, nil
+}
+
+// ErrUnsupported is returned by LoadSession and ResumeSession when the agent did
+// not say at initialize that it has the method.
+var ErrUnsupported = errors.New("acp: the agent does not have that method")
+
+// LoadSession reopens the session sessionID, which the agent made earlier, in
+// cwd. The agent replays the conversation as session/update calls before it
+// answers; the Handler gets them with Update.Replay set, and they are not
+// a turn. It returns the modes, models and config options the agent lists for
+// the session, as NewSessionInfo does; the id in the result is sessionID.
+// It returns ErrUnsupported when the agent has no loadSession capability, and
+// the agent's own error when it does not know the session. It gives up after
+// Config.LoadTimeout.
+func (c *Client) LoadSession(ctx context.Context, sessionID, cwd string, mcpServers []MCPServer) (SessionNew, error) {
+	if !c.Capabilities().LoadSession {
+		return SessionNew{}, ErrUnsupported
+	}
+	return c.reopen(ctx, "session/load", sessionID, cwd, mcpServers, c.cfg.LoadTimeout, sessionID)
+}
+
+// ResumeSession reopens the session sessionID like LoadSession, without the
+// agent replaying the conversation. It returns ErrUnsupported when the agent
+// has no session resume capability.
+func (c *Client) ResumeSession(ctx context.Context, sessionID, cwd string, mcpServers []MCPServer) (SessionNew, error) {
+	if !c.Capabilities().Resume {
+		return SessionNew{}, ErrUnsupported
+	}
+	return c.reopen(ctx, "session/resume", sessionID, cwd, mcpServers, c.cfg.SetupTimeout, "")
+}
+
+func (c *Client) reopen(ctx context.Context, method, sessionID, cwd string, mcpServers []MCPServer, limit time.Duration, loading string) (SessionNew, error) {
+	if sessionID == "" {
+		return SessionNew{}, errors.New("acp: no session id to reopen")
+	}
+	if !filepath.IsAbs(cwd) {
+		return SessionNew{}, fmt.Errorf("acp: the session cwd %q is not absolute", cwd)
+	}
+	if mcpServers == nil {
+		mcpServers = []MCPServer{}
+	}
+	ctx, cancel := context.WithTimeout(ctx, limit)
+	defer cancel()
+	var raw json.RawMessage
+	if err := c.callAs(ctx, method, map[string]any{"sessionId": sessionID, "cwd": cwd, "mcpServers": mcpServers}, &raw, loading); err != nil {
+		return SessionNew{}, err
+	}
+	r := decodeSessionNew(raw)
+	// The agent may leave the id out of the answer, as the protocol allows, or
+	// send another; the session is the one asked for.
+	r.SessionID = sessionID
 	return r, nil
 }
 

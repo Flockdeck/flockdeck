@@ -161,6 +161,7 @@ func (w *Workspace) encodeNode(n *layout.Node, tabRoot string) *store.Node {
 		out.Pane.AutoReview = &ar
 		if p.Structured() || p.savedTransport == TransportStructured {
 			out.Pane.Transport = string(TransportStructured)
+			out.Pane.ACPSession = w.acpSessionOf(p)
 		}
 		// Only a pane borrowed from another project needs its project written
 		// down; leaving it out otherwise keeps the file as it has always been
@@ -569,6 +570,7 @@ func (w *Workspace) decodeNode(n *store.Node, tabRoot string, r *restoring) *lay
 			Locked:          n.Pane.Locked,
 			Recording:       n.Pane.Recording,
 			savedTransport:  Transport(n.Pane.Transport),
+			savedSession:    n.Pane.ACPSession,
 		}
 		if n.Pane.AutoReview != nil {
 			p.AutoReview = *n.Pane.AutoReview

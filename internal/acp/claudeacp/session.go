@@ -72,6 +72,9 @@ type session struct {
 	id  string
 	cwd string
 
+	// resume says claude is started with --resume id, not --session-id id.
+	resume bool
+
 	cmd     *exec.Cmd
 	tree    *proctree.Tree
 	stdin   io.WriteCloser
@@ -106,8 +109,14 @@ type session struct {
 	commands  []map[string]any
 }
 
-func (s *server) newSession(m rpcMsg) {
+// openSession handles session/new and, with resume, session/resume: claude is
+// started with --resume and the id it was given, which is the id the adapter
+// gave the session when it was new. An id that is not a UUID is refused before
+// anything is started, and so is one that is open already. An id claude does
+// not know makes claude exit, which is the same answer as any start that fails.
+func (s *server) openSession(m rpcMsg, resume bool) {
 	var p struct {
+		SessionID  string            `json:"sessionId"`
 		Cwd        string            `json:"cwd"`
 		McpServers []json.RawMessage `json:"mcpServers"`
 	}
@@ -119,8 +128,23 @@ func (s *server) newSession(m rpcMsg) {
 		s.replyErr(m.ID, &rpcErr{Code: codeInvalidParams, Message: "cwd must be an absolute path"})
 		return
 	}
+	id := uuid.NewString()
+	if resume {
+		u, err := uuid.Parse(p.SessionID)
+		if err != nil {
+			s.replyErr(m.ID, &rpcErr{Code: codeInvalidParams, Message: "sessionId is not a session id"})
+			return
+		}
+		// The canonical spelling, so that the one id cannot be open twice under
+		// two spellings and nothing odd reaches claude's command line.
+		id = u.String()
+		if s.session(id) != nil {
+			s.replyErr(m.ID, &rpcErr{Code: codeInvalidParams, Message: "the session is already open"})
+			return
+		}
+	}
 	ss := &session{
-		srv: s, id: uuid.NewString(), cwd: p.Cwd,
+		srv: s, id: id, cwd: p.Cwd, resume: resume,
 		reaped: make(chan struct{}), dead: make(chan struct{}), quit: make(chan struct{}),
 		queue:   make(chan *promptReq, 64),
 		waiters: map[string]chan json.RawMessage{}, announced: map[string]toolInfo{},
@@ -158,6 +182,13 @@ func (s *server) newSession(m rpcMsg) {
 		s.replyErr(m.ID, &rpcErr{Code: codeInternal, Message: unavailable})
 		return
 	}
+	if s.sessions[ss.id] != nil {
+		// Two requests opened one session.
+		s.mu.Unlock()
+		ss.close()
+		s.replyErr(m.ID, &rpcErr{Code: codeInvalidParams, Message: "the session is already open"})
+		return
+	}
 	s.sessions[ss.id] = ss
 	s.mu.Unlock()
 	go ss.worker()
@@ -179,7 +210,12 @@ func (s *server) newSession(m rpcMsg) {
 func (ss *session) start() error {
 	o := ss.srv.opts
 	args := []string{"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
-		"--include-partial-messages", "--permission-prompt-tool", "stdio", "--session-id", ss.id}
+		"--include-partial-messages", "--permission-prompt-tool", "stdio"}
+	if ss.resume {
+		args = append(args, "--resume", ss.id)
+	} else {
+		args = append(args, "--session-id", ss.id)
+	}
 	if ss.mcpFile != "" {
 		args = append(args, "--mcp-config", ss.mcpFile)
 	}
