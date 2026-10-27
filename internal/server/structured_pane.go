@@ -22,6 +22,18 @@ func (p runtimePane) AnswerPermission(seq uint64, requestID, optionID string) er
 	return err
 }
 
+// AnswerQuestions is AnswerPermission with the answers to a question card.
+func (p runtimePane) AnswerQuestions(seq uint64, requestID, optionID string, answers []bridge.Answer) error {
+	err := p.rt.AnswerQuestions(seq, requestID, optionID, answers)
+	switch {
+	case errors.Is(err, structured.ErrStale):
+		return ErrPermissionStale
+	case errors.Is(err, structured.ErrBadAnswers):
+		return ErrBadAnswers
+	}
+	return err
+}
+
 // workspaceStructuredPane is how a pane id becomes a structured pane for
 // permissionAnswer: the workspace's pane of that id, if it is one.
 func (s *Server) workspaceStructuredPane(id string) (StructuredPane, bool) {

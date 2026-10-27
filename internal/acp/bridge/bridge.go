@@ -141,6 +141,13 @@ type Card struct {
 	File      string
 	Command   string
 	Options   []acp.PermissionOption
+	// Body is the text the request shows about its call, such as the plan of
+	// ExitPlanMode, and Diff the unified diff of the edit it asks about. Both
+	// are plain text from the agent, cleaned and cut.
+	Body, Diff string
+	// Questions are those of a request of kind QuestionKind. A card with a
+	// kind of QuestionKind and none is a malformed request.
+	Questions []Question
 }
 
 type item struct {
@@ -497,6 +504,11 @@ func (b *Bridge) open(req acp.PermissionRequest) (Card, map[string]string) {
 	if json.Unmarshal(req.ToolCall.RawInput, &in) == nil {
 		c.Command = line(in.Command, 4<<10)
 	}
+	cardContent(&c, req.ToolCall.Content)
+	if c.Kind == QuestionKind {
+		c.Questions = parseQuestions(req.ToolCall.RawInput)
+		c.Command = ""
+	}
 	b.mu.Lock()
 	c.Seq = nextCardSeq()
 	cp := c
@@ -536,23 +548,64 @@ func (b *Bridge) PermissionClosed(requestID string) {
 // returns the chosen option id or "" for cancelled, and should return when ctx
 // is done.
 func (b *Bridge) Handler(answer func(ctx context.Context, card Card) string) acp.Handler {
+	return handler{b: b, answer: func(ctx context.Context, c Card) Reply { return Reply{OptionID: answer(ctx, c)} }}
+}
+
+// AnswerHandler is Handler for answers that carry more than an option id: the
+// answers to the questions of a question card. They are checked against the
+// card here, and an answer that does not fit is cancelled.
+func (b *Bridge) AnswerHandler(answer func(ctx context.Context, card Card) Reply) acp.AnswerHandler {
 	return handler{b: b, answer: answer}
 }
 
 type handler struct {
 	b      *Bridge
-	answer func(context.Context, Card) string
+	answer func(context.Context, Card) Reply
 }
 
 func (h handler) Update(u acp.Update) { h.b.Update(u) }
 
 func (h handler) Permission(ctx context.Context, req acp.PermissionRequest) string {
+	id, _ := h.PermissionAnswers(ctx, req)
+	return id
+}
+
+func (h handler) PermissionAnswers(ctx context.Context, req acp.PermissionRequest) (string, json.RawMessage) {
 	card, own := h.b.open(req)
 	defer h.b.closeCard(card.Seq)
-	answer := h.answer(ctx, card)
+	reply := h.answer(ctx, card)
 	// The agent's own id for the option chosen. "" is cancelled, and so is
 	// anything that is not an id on the card.
-	return own[answer]
+	id := own[reply.OptionID]
+	if id == "" {
+		return "", nil
+	}
+	if card.Kind != QuestionKind {
+		if len(reply.Answers) > 0 {
+			return "", nil
+		}
+		return id, nil
+	}
+	// A question card is answered with its answers, or refused with none. An
+	// allowing option without answers that fit, or answers on a refusal, are
+	// cancelled: the agent is never told something the person did not say.
+	allows := false
+	for _, o := range card.Options {
+		if o.OptionID == reply.OptionID {
+			allows = strings.HasPrefix(o.Kind, "allow")
+		}
+	}
+	if !allows {
+		if len(reply.Answers) > 0 {
+			return "", nil
+		}
+		return id, nil
+	}
+	checked, err := CheckAnswers(card.Questions, reply.Answers)
+	if err != nil {
+		return "", nil
+	}
+	return id, answersMeta(checked)
 }
 
 // Update folds one session/update into the state. It is called in wire order

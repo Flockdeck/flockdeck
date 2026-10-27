@@ -30,6 +30,10 @@ import (
 // stay on the desk until a sealed team socket exists. Like paneSend, this is the
 // one place to lift when it does.
 
+// maxAnswers is the most answers a command may carry: a card has at most four
+// questions.
+const maxAnswers = 4
+
 // permissionAnswerDeskOnly is what a window reached through the relay is told.
 const permissionAnswerDeskOnly = "A structured agent's permission request is answered on the machine Flockdeck runs on, not from a window reached through the relay"
 
@@ -40,12 +44,24 @@ const (
 	permissionStale         = "That request has already been answered or has ended"
 	permissionUnknownOption = "That is not one of the options offered"
 	permissionBadRequest    = "The answer needs a pane, a card number, a request id and an option id"
+	permissionBadAnswers    = "The answers do not fit the questions on the card"
 )
 
 // ErrPermissionStale is what a StructuredPane's AnswerPermission returns when
 // the request is no longer the one waiting: it was answered, cancelled or
 // replaced between the check and the answer.
 var ErrPermissionStale = errors.New("the permission request is no longer waiting")
+
+// ErrBadAnswers is what a QuestionPane's AnswerQuestions returns for answers
+// that do not fit the card.
+var ErrBadAnswers = errors.New("the answers do not fit the questions")
+
+// QuestionPane is a StructuredPane that can also be given the answers to a
+// question card. A pane without it cannot answer one.
+type QuestionPane interface {
+	StructuredPane
+	AnswerQuestions(seq uint64, requestID, optionID string, answers []bridge.Answer) error
+}
 
 // StructuredPane is what permissionAnswer needs of a pane an agent drives over
 // ACP. The workspace adapts its pane to it; tests use a fake.
@@ -133,9 +149,26 @@ func (s *Server) permissionAnswer(c *controlClient, cmd command) {
 			refuse(permissionUnknownOption)
 			return
 		}
-		if err := pane.AnswerPermission(cmd.CardSeq, cmd.RequestID, cmd.OptionID); err != nil {
+		var err error
+		if len(card.Questions) > 0 || len(cmd.Answers) > 0 {
+			// Answers go with a question card and its allowing option, and
+			// with nothing else: checked again by the pane, which holds the card.
+			qp, ok := pane.(QuestionPane)
+			if !ok || len(cmd.Answers) > maxAnswers {
+				refuse(permissionBadAnswers)
+				return
+			}
+			err = qp.AnswerQuestions(cmd.CardSeq, cmd.RequestID, cmd.OptionID, cmd.Answers)
+		} else {
+			err = pane.AnswerPermission(cmd.CardSeq, cmd.RequestID, cmd.OptionID)
+		}
+		if err != nil {
 			if errors.Is(err, ErrPermissionStale) {
 				refuse(permissionStale)
+				return
+			}
+			if errors.Is(err, ErrBadAnswers) {
+				refuse(permissionBadAnswers)
 				return
 			}
 			refuse("The answer could not be given: " + cleanForNotice(err.Error()))

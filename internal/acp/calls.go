@@ -40,7 +40,7 @@ func (c *Client) servePermission(m rpcMsg) {
 	if c.closed {
 		c.mu.Unlock()
 		cancel()
-		c.answer(p, "")
+		c.answer(p, "", nil)
 		return
 	}
 	c.perms[p] = struct{}{}
@@ -52,7 +52,7 @@ func (c *Client) servePermission(m rpcMsg) {
 		cancel()
 	}()
 
-	optionID := c.callPermission(ctx, req)
+	optionID, answers := c.callPermission(ctx, req)
 	// The chosen option has to be one the agent offered. If the request was
 	// cancelled meanwhile (Cancel, Close), it has already been answered and
 	// this answer is dropped by answer's once.
@@ -65,19 +65,26 @@ func (c *Client) servePermission(m rpcMsg) {
 			optionID = ""
 		}
 	}
-	c.answer(p, optionID)
+	if optionID == "" {
+		answers = nil
+	}
+	c.answer(p, optionID, answers)
 }
 
 // answer sends the reply to a permission request, once: the first answer wins
 // and a later one (a late response after cancel) is dropped. An empty optionID
 // answers cancelled.
-func (c *Client) answer(p *permission, optionID string) {
+func (c *Client) answer(p *permission, optionID string, answers json.RawMessage) {
 	p.once.Do(func() {
 		outcome := map[string]any{"outcome": "cancelled"}
 		if optionID != "" {
 			outcome = map[string]any{"outcome": "selected", "optionId": optionID}
 		}
-		c.reply(p.id, map[string]any{"outcome": outcome}, nil)
+		res := map[string]any{"outcome": outcome}
+		if len(answers) > 0 && json.Valid(answers) {
+			res["_meta"] = map[string]any{"flockdeck": map[string]any{"answers": answers}}
+		}
+		c.reply(p.id, res, nil)
 	})
 }
 
@@ -94,7 +101,7 @@ func (c *Client) cancelPermissions(sessionID string) {
 	}
 	c.mu.Unlock()
 	for _, p := range open {
-		c.answer(p, "")
+		c.answer(p, "", nil)
 		p.cancel()
 	}
 }
