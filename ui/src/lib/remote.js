@@ -210,13 +210,13 @@ export function verifyText(state) {
 export const NAME_MAX = 40;
 
 /**
- * deviceName is a paired device's name as it is drawn, in a question, a label and the list. The device
+ * deviceName is a paired device's or machine's name as it is drawn, in a question, a label and the list. The device
  * chooses its own name, so control, line-break, zero-width and bidirectional characters are taken out (they can
  * reorder the words around the name or hide them), runs of space become one, and a long name is cut.
  */
 export function deviceName(name) {
   const clean = String(name == null ? "" : name)
-    .replace(/[\u0000-\u001f\u007f-\u009f\u00ad\u061c\u180e\u200b-\u200f\u2028-\u202e\u2060-\u206f\ufeff\ufff9-\ufffb]/g, " ")
+    .replace(/[\u0000-\u001f\u007f-\u009f\u00ad\u034f\u061c\u115f-\u1160\u17b4-\u17b5\u180e\u200b-\u200f\u2028-\u202e\u2060-\u206f\u2800\u3164\ufe00-\ufe0f\ufeff\uffa0\ufff9-\ufffb\u{e0000}-\u{e007f}]/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
   const chars = Array.from(clean);

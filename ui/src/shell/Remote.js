@@ -135,12 +135,17 @@ export function Remote({ status, roster, pair, outcome, remote, connection = "",
 
   const go = (cmd, action = "") => {
     if (!cmd) return false;
+    // The line about the last step goes when the next one starts.
+    setSaid("");
     const ok = send(cmd) !== false;
     setProblem(ok ? "" : "The request could not be sent. Check the connection.");
     if (ok && action) setBusy({ action, floor: outcomeSeq });
     return ok;
   };
-  const ask = (at, title, words, label, run, device = null) => setAsking({ at, title, words, label, run, device });
+  const ask = (at, title, words, label, run, device = null) => {
+    setSaid("");
+    setAsking({ at, title, words, label, run, device });
+  };
   // A question about a device's access names the level the device had when it was asked. If the roster then shows another
   // level, or no device, the question is no longer true: it is closed, and a late click on it sends nothing.
   const accessNow = (id) => {
@@ -343,7 +348,7 @@ export function Remote({ status, roster, pair, outcome, remote, connection = "",
       <ul class="remote-list" aria-label="Machines on the account">
         ${ro.hosts.map((h, i) => html`<li class="remote-row" key=${h.id || i} data-host=${h.id}>
           <div class="key-main">
-            <div class="key-title"><span class="key-name">${h.name || "Unnamed machine"}</span>${h.self ? html`<span class="key-id">this one</span>` : null}</div>
+            <div class="key-title"><span class="key-name">${deviceName(h.name) || "Unnamed machine"}</span>${h.self ? html`<span class="key-id">this one</span>` : null}</div>
             <div class="key-status">${h.online ? "online" : "offline — last seen " + ago(h.lastSeen, now)}</div>
           </div>
           ${h.self

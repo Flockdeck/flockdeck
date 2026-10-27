@@ -896,6 +896,15 @@ test("deviceName takes out control and bidi characters, one-lines the name and c
   assert.equal(deviceName(c(0x2066) + "A" + c(0x200b) + "B" + c(0x2069)), "A B");
   assert.equal(deviceName("a\n\tb" + c(0) + c(0x9f) + "  c"), "a b c");
   assert.equal(deviceName(c(0x202e)), "", "a name of nothing but those is no name");
+  // Characters that draw as blank, or change how the one before them is drawn.
+  for (const code of [0x3164, 0x115f, 0x1160, 0xffa0, 0x2800, 0x034f, 0x17b4, 0x17b5, 0xfe00, 0xfe0f, 0x00ad, 0x180e]) {
+    assert.equal(deviceName("A" + c(code) + "B"), "A B", "U+" + code.toString(16));
+    assert.equal(deviceName(c(code)), "", "U+" + code.toString(16) + " alone is no name");
+  }
+  const tag = String.fromCodePoint(0xe0041) + String.fromCodePoint(0xe007f);
+  assert.equal(deviceName("A" + tag + "B"), "A B", "the tag characters, which are outside the first plane, are taken out whole");
+  assert.equal(deviceName(tag), "");
+  assert.equal(deviceName("na" + String.fromCodePoint(0x1f600) + "me"), "na" + String.fromCodePoint(0x1f600) + "me", "an emoji is a name");
   assert.equal(deviceName(undefined), "");
   const long = deviceName("x".repeat(500));
   assert.equal(Array.from(long).length, 40);
@@ -955,6 +964,21 @@ test("Remote: a step of access says what was asked, in a status line", () =>
     await m.click(m.byText(".confirm button", /^Give access$/));
     assert.equal(m.container.find("#remote-said").attributes.role, "status");
     assert.match(m.container.find("#remote-said").textContent, /Asked the desktop to set Tablet to “Full access”\./);
+    // The next step takes the line away, whether it is a question or an action.
+    await m.click(m.container.find(".remote-access"));
+    assert.equal(m.container.find("#remote-said"), null, "a new step started");
+  }));
+
+test("Remote: a machine's name is cleaned like a device's", () =>
+  withPage({ extra: { remote: TUNNEL } }, async (m) => {
+    await m.connect();
+    await m.openSettings("remote");
+    const bad = String.fromCharCode(0x202e);
+    await m.push({ ...ROSTER, hosts: [{ id: "h1", name: "Desk" + bad + "top" + "z".repeat(80), online: true, self: true }, { id: "h2", name: String.fromCharCode(0x3164), online: false }] });
+    const names = m.container.findAll(".key-name").map((e) => e.textContent);
+    assert.ok(names.includes("Unnamed machine"), "a name of nothing that draws is no name: " + names.join("|"));
+    assert.ok(names.every((t) => !t.includes(bad) && Array.from(t).length <= 40), names.join("|"));
+    assert.ok(names.some((t) => t.startsWith("Desk top")));
   }));
 
 test("Remote: a device whose access is not one of the three is shown as unknown, and is only reset to a known level after a question", () =>
