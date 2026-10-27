@@ -65,9 +65,6 @@ func TestARoutingPolicySurvivesEveryWrite(t *testing.T) {
 	if err := SetDefaults(dir, "", Defaults{Agent: "claude"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := SetBaseURL(dir, OpenAICompatibleID, "http://127.0.0.1:11434/v1"); err != nil {
-		t.Fatal(err)
-	}
 	m := readBack(t, dir)
 	if dig(m, "routing", "floor") != "mid" || dig(m, "routing", "classifier", "enabled") != false ||
 		dig(m, "routing", "rules") == nil {

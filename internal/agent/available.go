@@ -1,24 +1,17 @@
 package agent
 
 import (
-	"bytes"
-	"encoding/json"
 	"net"
 	"net/url"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/jmwri/flockdeck/internal/store"
 )
 
 // Availability is whether an agent could be started on this machine right now:
-// for a command-line agent, whether its program is on PATH; for an API agent,
-// whether there is a key to use or an endpoint that needs none.
+// whether its program is on PATH, or for an ACP agent its adapter's command.
 //
 // It is not a permission. An unavailable agent is still offered by the picker,
 // greyed, with its Install line beside it, because somebody who has not
@@ -32,20 +25,11 @@ import (
 // enough that one open costs one lookup per agent.
 const probeTTL = 5 * time.Second
 
-// lookPath and keysFile are variables so that a test can describe a machine
+// lookPath is a variable so that a test can describe a machine
 // with agents installed on it without installing any.
 var (
 	lookPath = exec.LookPath
-	keysFile = defaultKeysFile
 )
-
-// KeyProbe reports whether an API agent has a key available. It is a variable
-// because key resolution belongs to internal/creds, which imports this package
-// for Spec and so cannot be imported back from it; creds installs its own from
-// an init if it wants to. The default below asks the same two questions creds
-// does -- the environment, then the key store -- but only ever asks whether
-// there is a key, never what it is.
-var KeyProbe = keyIsSet
 
 type probeResult struct {
 	ok bool
@@ -113,9 +97,6 @@ func ProbeAll(specs []Spec) map[string]bool {
 }
 
 func probe(s Spec) bool {
-	if s.Runner == RunnerAPI {
-		return NeedsNoKey(s) || KeyProbe(s)
-	}
 	if s.Runner == RunnerACP {
 		// The command the manifest starts is what has to be there. Node, where
 		// the adapter needs it, is checked when the pane starts.
@@ -156,65 +137,13 @@ func NeedsNoKey(s Spec) bool {
 	return ip != nil && ip.IsLoopback()
 }
 
-// OpenAICompatibleID is the built-in entry for an OpenAI-compatible endpoint,
-// which ships with no address and is no use until it is given one.
-const OpenAICompatibleID = "openai-compatible"
-
-// TakesAddress reports whether the picker offers to change an agent's
-// address: the OpenAI-compatible entry, whose address is the one thing it
-// needs, and any other API agent that has been given one -- a local model of
-// the user's own, or a vendor's agent pointed at a gateway. An API agent still
-// talking to its vendor is left alone, since there is nothing to change there
-// that anybody asked to.
-func TakesAddress(s Spec) bool {
-	return s.Runner == RunnerAPI && (s.ID == OpenAICompatibleID || s.API.BaseURL != "")
-}
-
-// keyIsSet is the default KeyProbe: the environment names the spec lists, then
-// the key store. It reads nothing out -- the answer is set or not set, which is
-// all availability, and all the interface, is ever told.
-func keyIsSet(s Spec) bool {
-	first, last := KeyNames(s)
-	for _, name := range append(first, last...) {
-		if strings.TrimSpace(os.Getenv(name)) != "" {
-			return true
-		}
-	}
-	path := keysFile()
-	if path == "" {
-		return false
-	}
-	// Read through the state directory's retry: on Windows a read made while
-	// a save is replacing the store is refused as a sharing violation, and
-	// the picker, which asks on every refresh, greyed the agent out as having
-	// no key for as long as that answer was trusted.
-	data, err := store.ReadState(path)
-	if err != nil {
-		return false
-	}
-	// A store saved by Notepad starts with a byte-order mark, which creds
-	// reads past and the decoder does not: the key was used to start the
-	// pane while the picker greyed the agent out for having none.
-	data = bytes.TrimPrefix(data, []byte("\xef\xbb\xbf"))
-	var keys map[string]string
-	if err := json.Unmarshal(data, &keys); err != nil {
-		return false
-	}
-	// An id starting "@" is reserved by creds for keys that are not an
-	// agent's (the TypeSafe key), so no agent has a key there.
-	if strings.HasPrefix(strings.TrimSpace(s.ID), "@") {
-		return false
-	}
-	return strings.TrimSpace(keys[s.ID]) != ""
-}
-
 // FallbackKeyEnv is Flockdeck's own variable, which any API agent reads a key
 // from when nothing of its own holds one.
 const FallbackKeyEnv = "FLOCKDECK_API_KEY"
 
 // KeyNames are the environment variables an API agent's key is looked for in,
 // split where the key stored for it with `flockdeck keys set` is looked at:
-// first before it, last after it. It is the one order the chat client, the
+// first before it, last after it. It is the one order the
 // keys dialog, `flockdeck keys` and the picker all go by:
 //
 //  1. the entry's own variables, less its vendor's where it talks to somebody
@@ -285,8 +214,8 @@ func OwnKeyEnv(api APISpec) []string {
 // VendorsOwn reports whether an API entry talks to the vendor its wire is
 // named for -- at no address of its own, or at the vendor's own host over
 // https -- which is the only place the vendor's usual key variable may be
-// sent. It is the one rule the picker, the keys dialog and the chat client
-// all decide that by.
+// sent. It is the one rule the picker and the keys dialog
+// decide that by.
 func VendorsOwn(api APISpec) bool {
 	base := strings.TrimSpace(api.BaseURL)
 	if base == "" {
@@ -311,9 +240,8 @@ func vendorHost(wire string) string {
 	}
 }
 
-// wireKeyEnv is the variable each vendor's own tools read a key from, which the
-// chat client falls back on for an entry that names none. It is written out
-// again here, rather than shared, because the chat client imports this package.
+// wireKeyEnv is the variable each vendor's own tools read a key from, which an
+// entry that names none falls back on.
 func wireKeyEnv(wire string) []string {
 	switch strings.ToLower(strings.TrimSpace(wire)) {
 	case "openai", "openai-compatible":
@@ -323,16 +251,4 @@ func wireKeyEnv(wire string) []string {
 	default:
 		return []string{"ANTHROPIC_API_KEY"}
 	}
-}
-
-// KeysName is the file internal/creds keeps API keys in. It is named here only
-// so that availability can ask whether one is set before creds exists.
-const KeysName = "keys.json"
-
-func defaultKeysFile() string {
-	dir, err := store.Dir()
-	if err != nil {
-		return ""
-	}
-	return filepath.Join(dir, KeysName)
 }

@@ -103,7 +103,7 @@ func TestChatWakeRule(t *testing.T) {
 		{"no status line", "\nyou >", WakeNo},
 		{"no-break space after the prompt", "answer\n\nsonnet\nyou > ", WakeNo},
 	}
-	rule := tested(chatWake())
+	rule := tested(statusLineWake())
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			if got, _ := rule.Judge(lines(c.tail)); got != c.want {
@@ -114,20 +114,20 @@ func TestChatWakeRule(t *testing.T) {
 }
 
 func TestAnUntestedRuleNeverAllowsAWake(t *testing.T) {
-	for name, rule := range map[string]*WakeRule{"claude": claudeWake(), "chat": chatWake()} {
+	for name, rule := range map[string]*WakeRule{"claude": claudeWake(), "status line": statusLineWake()} {
 		if rule.Tested {
 			t.Fatalf("%s: the built-in rule is marked tested, and no recording exists", name)
 		}
 	}
 	idle := []string{"done", "", "model", "you >"}
-	if v, line := chatWake().Judge(idle); v != WakeUnknown || line != "" {
+	if v, line := statusLineWake().Judge(idle); v != WakeUnknown || line != "" {
 		t.Errorf("untested rule on an idle prompt = %v, %q, want unknown", v, line)
 	}
-	if v, _ := tested(chatWake()).Judge(idle); v != WakeOK {
+	if v, _ := tested(statusLineWake()).Judge(idle); v != WakeOK {
 		t.Errorf("the same rule once tested = %v, want ok", v)
 	}
 	// Saying no is safe, so an untested rule still does.
-	if v, _ := chatWake().Judge([]string{"you > draft"}); v != WakeNo {
+	if v, _ := statusLineWake().Judge([]string{"you > draft"}); v != WakeNo {
 		t.Errorf("untested rule on a draft = %v, want no", v)
 	}
 }
@@ -157,10 +157,10 @@ func TestEmptyRuleStringsAreIgnored(t *testing.T) {
 	}
 }
 
-func TestOnlyClaudeAndTheChatClientHaveRules(t *testing.T) {
+func TestOnlyClaudeHasARule(t *testing.T) {
 	for _, s := range Builtins() {
 		switch {
-		case s.ID == "claude", s.Runner == RunnerAPI:
+		case s.ID == "claude":
 			if s.Wake == nil {
 				t.Errorf("%s has no wake rule", s.ID)
 			} else if s.Wake.Source != RuleBuiltIn {
@@ -180,10 +180,9 @@ func TestAUserEntryCannotMarkABuiltInRuleTested(t *testing.T) {
 	for _, entry := range []string{
 		`{"id": "claude", "wake": {"tested": true}}`,
 		`{"id": "claude", "wake": {"tested": true, "prompts": [">"], "forbid": []}}`,
-		`{"id": "anthropic", "wake": {"tested": true}}`,
 	} {
 		c := Merge(&File{Agents: []json.RawMessage{json.RawMessage(entry)}})
-		for _, id := range []string{"claude", "anthropic"} {
+		for _, id := range []string{"claude"} {
 			if r := builtinSpec(t, c, id).Wake; r.Tested {
 				t.Errorf("%s: %s marked the rule tested", id, entry)
 			}
@@ -266,7 +265,7 @@ func TestOnlyAnUneditedBuiltInRuleCanAllowAWake(t *testing.T) {
 	c := Merge(&File{Agents: []json.RawMessage{
 		json.RawMessage(`{"id": "claude2", "exe": "claude", "wake": {"tested": true, "boxed": true, "requireFooter": true, "prompts": [">"], "footers": ["? for shortcuts"]}}`),
 		json.RawMessage(`{"id": "gemini", "wake": {"tested": true, "prompts": [">"]}}`),
-		json.RawMessage(`{"id": "anthropic", "wake": {"tested": true, "prompts": ["you >", "ask >"]}}`),
+		json.RawMessage(`{"id": "claude", "wake": {"tested": true, "prompts": [">", "ask >"]}}`),
 	}})
 	for _, id := range []string{"claude2", "gemini"} {
 		r := builtinSpec(t, c, id).Wake
@@ -281,13 +280,13 @@ func TestOnlyAnUneditedBuiltInRuleCanAllowAWake(t *testing.T) {
 		}
 	}
 	// An edited built-in is untested and not the catalog's.
-	r := builtinSpec(t, c, "anthropic").Wake
+	r := builtinSpec(t, c, "claude").Wake
 	if r.Source != RuleEdited || r.Tested {
 		t.Errorf("edited built-in: source = %q, tested = %v", r.Source, r.Tested)
 	}
 	forced := r.clone()
 	forced.Tested = true
-	if v, _ := forced.Judge([]string{"", "model", "you >"}); v != WakeUnknown {
+	if v, _ := forced.Judge(idle); v != WakeUnknown {
 		t.Errorf("an edited built-in with Tested forced on judged %v, want unknown", v)
 	}
 	// Only the untouched built-in can, once it is tested.
@@ -319,5 +318,19 @@ func TestRepeatedEntriesAreEachJudgedAgainstTheShippedRule(t *testing.T) {
 	}
 	if v, _ := r.Judge(lines("──────\n>\n──────")); v != WakeUnknown {
 		t.Errorf("verdict = %v, want unknown", v)
+	}
+}
+
+// statusLineWake is a rule of the status-line shape: a blank line, a status
+// line, and "you >" when idle and empty. No built-in agent has one now; the
+// shape is still a thing an agents.json rule can ask for (StatusLine).
+func statusLineWake() *WakeRule {
+	return &WakeRule{
+		Version:    "status-line-test-1",
+		Source:     RuleBuiltIn,
+		Tested:     false,
+		Prompts:    []string{"you >"},
+		StatusLine: true,
+		Forbid:     []string{"[y] yes", "[n] no (enter)", "or type what to do instead"},
 	}
 }

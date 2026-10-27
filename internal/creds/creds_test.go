@@ -37,7 +37,7 @@ func storePath(t *testing.T) string {
 // apiSpec is the shape of Spec this package cares about: an id and the
 // variables a key may arrive in.
 func apiSpec(id string, env ...string) agent.Spec {
-	return agent.Spec{ID: id, Name: id, Runner: agent.RunnerAPI,
+	return agent.Spec{ID: id, Name: id,
 		API: agent.APISpec{Wire: "anthropic", KeyEnv: env}}
 }
 
@@ -130,7 +130,7 @@ func TestResolveOrder(t *testing.T) {
 // Spec that is not an API runner is never asked about at all.
 func TestResolveWithoutKeyEnv(t *testing.T) {
 	isolateConfig(t)
-	spec := agent.Spec{ID: "local", Runner: agent.RunnerAPI}
+	spec := agent.Spec{ID: "local"}
 	if got := Resolve(spec); got.Set() {
 		t.Errorf("a spec with no key anywhere resolved to %v", got)
 	}
@@ -189,7 +189,7 @@ func TestEnv(t *testing.T) {
 		if err := Set("local", "saved"); err != nil {
 			t.Fatalf("Set: %v", err)
 		}
-		if got := Env(agent.Spec{ID: "local", Runner: agent.RunnerAPI}); got != nil {
+		if got := Env(agent.Spec{ID: "local"}); got != nil {
 			t.Errorf("Env invented a variable name: %v", got)
 		}
 	})

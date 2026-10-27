@@ -21,9 +21,9 @@
 // mistaken for a finished one.
 //
 // On Windows the program has a console twin beside it (chatName), the same
-// program with its PE Subsystem set to console, which an API agent's pane
-// runs. Stage and Apply carry it with the program when a release has one,
-// and EnsureChatTwin keeps it exactly in step with the program at every start
+// program with its PE Subsystem set to console, which Claude Code's hook and
+// status line commands run. Stage and Apply carry it with the program when a
+// release has one, and EnsureChatTwin keeps it exactly in step with the program at every start
 // however the program was put there.
 package selfupdate
 
@@ -67,10 +67,10 @@ var binaryName = func() string {
 
 // chatName is the console twin a Windows release carries beside the program,
 // or "" where there is none. It is the same program linked as a console
-// program, which is what an API agent's pane runs: a pane is a pseudo-console,
-// and Windows attaches one only to a console program. It is updated with the
+// program, which is what Claude Code's hook and status line commands run: Windows
+// attaches no console to a GUI program. It is updated with the
 // program, since the program starts it, and a new program beside an old twin
-// would run a chat client of another version in its panes.
+// would run hooks of another version.
 var chatName = func() string {
 	if runtime.GOOS == "windows" {
 		return "flockdeck-chat.exe"

@@ -107,6 +107,10 @@ func Merge(f *File) *Catalog {
 			problems = append(problems, fmt.Sprintf("agent %d has no id", n+1))
 			continue
 		}
+		if why := retiredAPI(head.ID, raw); why != "" {
+			problems = append(problems, why)
+			continue
+		}
 		problems = append(problems, unknownFields(head.ID, raw)...)
 		if i, known := index[head.ID]; known {
 			builtin := c.Specs[i]
@@ -125,7 +129,6 @@ func Merge(f *File) *Catalog {
 			// written its lists into the built-in's own: Claude stopped stripping
 			// CLAUDECODE, and an API agent looked for its key somewhere else.
 			merged.StripEnv, merged.Env = slices.Clone(builtin.StripEnv), slices.Clone(builtin.Env)
-			merged.API.KeyEnv = slices.Clone(builtin.API.KeyEnv)
 			merged.Patterns.Waiting = slices.Clone(builtin.Patterns.Waiting)
 			merged.Patterns.Idle = slices.Clone(builtin.Patterns.Idle)
 			merged.Wake = builtin.Wake.clone()
@@ -259,13 +262,7 @@ func normalize(s *Spec) {
 		}
 	}
 	if s.Runner == "" {
-		// An entry that describes an endpoint means to talk to it; anything
-		// else is a program to run.
-		if s.API.Wire != "" || s.API.BaseURL != "" {
-			s.Runner = RunnerAPI
-		} else {
-			s.Runner = RunnerCLI
-		}
+		s.Runner = RunnerCLI
 	}
 	if s.Runner == RunnerACP {
 		// What it starts is the manifest's, and what it is given is its ACP
@@ -281,37 +278,6 @@ func normalize(s *Spec) {
 		}
 		s.Exe = expandExe(s.Exe)
 		return
-	}
-	// An API entry is `flockdeck chat` whatever else it says, so an entry that
-	// gives only an endpoint -- which is all the example in the design gives --
-	// still starts the chat client properly and still reports its lifecycle.
-	if s.API.Wire == "" {
-		// An endpoint with no wire named is an OpenAI-compatible one: that is
-		// what nearly every local server and gateway speaks.
-		s.API.Wire = "openai"
-	}
-	// A local model's address is commonly kept in a variable -- OLLAMA_HOST --
-	// and "http://$OLLAMA_HOST/v1" went to the chat client, and to the check
-	// for whether it needs a key, as those very characters.
-	s.API.BaseURL = expandVars(s.API.BaseURL)
-	// Built from the entry as it now stands, wire and all, since the chat
-	// client learns its endpoint from these and from nothing else.
-	if len(s.Args) == 0 {
-		s.Args = chatArgs(s.ID, s.API, false)
-	}
-	if len(s.ResumeArgs) == 0 {
-		s.ResumeArgs = chatArgs(s.ID, s.API, true)
-	}
-	if s.Caps == (Caps{}) {
-		s.Caps = chatCaps()
-	}
-	// An entry that lists its models and names no default -- the help page's
-	// own example does exactly that -- started its panes asking for none,
-	// which most endpoints refuse. The first model it lists is the one taken.
-	// An entry that wants the endpoint's own choice says so the way Claude's
-	// list does, with a model of empty id first, and keeps it.
-	if s.DefaultModel == "" && len(s.Models) > 0 {
-		s.DefaultModel = s.Models[0].ID
 	}
 }
 

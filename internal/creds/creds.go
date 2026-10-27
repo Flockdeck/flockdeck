@@ -119,12 +119,10 @@ func fromEnv(names []string) Key {
 // A key already in the environment needs no entry: the pane inherits it, and
 // writing it out again would only put a second copy of the value somewhere.
 // A stored key is exported under the first name the Spec lists, which is the
-// vendor's own conventional variable, so `flockdeck chat` finds it by resolving
-// the same Spec at the other end rather than by learning a second convention.
+// vendor's own conventional variable.
 //
 // A Spec with no names of its own has nowhere to put a stored key, and gets
-// nothing rather than an invented variable name; its chat reads the store
-// itself. Nor is a stored key put under the vendor's variable for a Spec
+// nothing rather than an invented variable name. Nor is a stored key put under the vendor's variable for a Spec
 // talking to somebody else, where it would be read as the key for the vendor.
 func Env(spec agent.Spec) []string {
 	k := Resolve(spec)
@@ -178,12 +176,12 @@ func StatusOf(spec agent.Spec) Status {
 }
 
 // StatusAll reports on every Spec that could want a key, in the order given.
-// A Spec that is not an API runner is skipped: a CLI keeps its own credentials
-// and Flockdeck has no business offering to hold them.
+// A Spec with no API block is skipped: a CLI keeps its own credentials and
+// Flockdeck has no business offering to hold them.
 func StatusAll(specs []agent.Spec) []Status {
 	out := make([]Status, 0, len(specs))
 	for _, s := range specs {
-		if s.Runner != agent.RunnerAPI {
+		if !s.TakesKey() {
 			continue
 		}
 		out = append(out, StatusOf(s))

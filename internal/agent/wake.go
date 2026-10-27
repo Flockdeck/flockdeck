@@ -97,7 +97,7 @@ type WakeRule struct {
 	// RequireFooter says one of Footers must be present under the prompt.
 	RequireFooter bool `json:"requireFooter,omitempty"`
 	// StatusLine says the prompt is drawn under a status line that has a
-	// blank line above it, as the chat client does. Output that merely ends
+	// blank line above it. Output that merely ends
 	// in the prompt text is then not a prompt.
 	StatusLine bool `json:"statusLine,omitempty"`
 	// Forbid are strings that stop a wake if the tail contains one: a
@@ -325,20 +325,5 @@ func claudeWake() *WakeRule {
 			"select login method", "press enter to continue",
 			"ctrl+g to edit", "-- insert --",
 		},
-	}
-}
-
-// chatWake is the rule for `flockdeck chat`, whose prompt Flockdeck controls:
-// a blank line, a status line, and "you > " when idle and empty. "   … " is a
-// continuation line and "  > " sits under a tool's question, which the
-// question's own text forbids.
-func chatWake() *WakeRule {
-	return &WakeRule{
-		Version:    "flockdeck-chat-untested-1",
-		Source:     RuleBuiltIn,
-		Tested:     false,
-		Prompts:    []string{"you >"},
-		StatusLine: true,
-		Forbid:     []string{"[y] yes", "[n] no (enter)", "or type what to do instead"},
 	}
 }

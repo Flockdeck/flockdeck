@@ -10,9 +10,10 @@ DIST    := dist
 WINFLAGS := $(LDFLAGS) -H=windowsgui
 
 # Beside it on Windows goes $(CHAT).exe, the same program linked as a console
-# program. An API agent's pane runs Flockdeck's own chat client as its process,
-# and a pane is a pseudo-console, which Windows attaches only to console
-# programs; run from the GUI build the pane stays blank.
+# program. The hook and status line commands Claude Code runs are read back through
+# pipes, and a GUI-subsystem program is not a console program; they run the
+# twin (internal/session ChatExe, whose name predates the removal of
+# `flockdeck chat`).
 CHAT := $(BINARY)-chat
 
 # Where go install puts programs, for the twin it cannot install itself.

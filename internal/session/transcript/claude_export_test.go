@@ -147,7 +147,6 @@ func TestOnlyAgentsWithAReaderCanBeExported(t *testing.T) {
 	for name, spec := range map[string]agent.Spec{
 		"no transcript": {ID: "claude", Exe: "claude"},
 		"unknown agent": {ID: "other", Exe: "other", Caps: agent.Caps{Transcript: true}},
-		"an API agent":  {ID: "gpt", Runner: agent.RunnerAPI, Caps: agent.Caps{Transcript: true}},
 	} {
 		if _, ok := ExporterFor(spec); ok {
 			t.Errorf("%s: can be exported", name)

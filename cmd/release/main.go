@@ -94,11 +94,10 @@ func selectPlatforms(spec string) ([]struct{ OS, Arch string }, error) {
 const binary = "flockdeck"
 
 // chatBinary is the console twin of the Windows build: the program with its
-// PE Subsystem set to console. An API agent's pane runs Flockdeck's own chat
-// client as its process, and a pane is a pseudo-console, which Windows
-// attaches only to console programs: started from the GUI build the pane
-// stayed blank. The launcher runs this one instead when it sits beside the
-// program.
+// PE Subsystem set to console. The hook and status line commands Claude Code
+// runs are started from this one when it sits beside the program (session.
+// ChatExe). The name is from the removed `flockdeck chat`, which first needed
+// a console program in a pane.
 //
 // It is made from the program's own build rather than linked again, so it
 // holds exactly the bytes the program writes for itself when its twin is
@@ -261,8 +260,8 @@ func packagePlatform(version, out, goos, goarch string) ([]string, error) {
 	// and a program that can write its own directory makes the same file at
 	// its first start anyway. It is shipped all the same, by decision: an
 	// archive unpacked where the program cannot write, such as under Program
-	// Files, would otherwise give blank API agent panes with nothing to say
-	// why, which is worse than a few megabytes. Do not drop it to save them.
+	// Files, would otherwise leave hooks running from the GUI build with nothing
+	// to say why, which is worse than a few megabytes. Do not drop it to save them.
 	if goos == "windows" {
 		program, err := os.ReadFile(built)
 		if err != nil {
