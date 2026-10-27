@@ -85,6 +85,11 @@ const (
 	envDeaf   = "FLOCKDECK_ACPTEST_DEAF"
 	envSlow   = "FLOCKDECK_ACPTEST_SLOWSTART"
 	envShape  = "FLOCKDECK_ACPTEST_SHAPE"
+	// envSetLog is a file the agent appends the params of each setting request
+	// to. envSetOpts+"_bare" answers session/set_config_option with no
+	// options, and envSetOpts+"_bool" adds a boolean option to the config shape.
+	envSetLog  = "FLOCKDECK_ACPTEST_SETLOG"
+	envSetOpts = "FLOCKDECK_ACPTEST_SETOPTS"
 	// envSessions is a comma list of session/load, session/resume and the ids
 	// the agent knows: "load", "resume", "id=<id>".
 	envSessions = "FLOCKDECK_ACPTEST_SESSIONS"
@@ -154,6 +159,9 @@ type agent struct {
 	// slowStart is how long a turn waits to begin after its prompt was read, as
 	// it does on a machine that is busy.
 	slowStart time.Duration
+	// chosen holds the settings the client changed, by "mode", "model", "fast"
+	// and so on; the session shape reports them as current.
+	chosen map[string]string
 }
 
 func newAgent() *agent {
@@ -179,6 +187,7 @@ func newAgent() *agent {
 		mute:       os.Getenv(envMute) == "1",
 		markerPath: marker,
 		slowStart:  slowStartFromEnv(),
+		chosen:     map[string]string{},
 	}
 }
 
@@ -351,6 +360,8 @@ func (a *agent) handle(m msg) {
 		}
 	case m.Method != "" && len(m.ID) == 0:
 		// A notification the agent does not know is dropped, as the protocol says.
+	case (m.Method == "session/set_mode" || m.Method == "session/set_model" || m.Method == "session/set_config_option") && os.Getenv(envShape) != "":
+		a.setting(m)
 	case m.Method != "" && m.Method != "session/prompt":
 		// A request it does not know. Every method that is not one of the cases
 		// above and below is unknown to it, as it is to a real agent that has not
@@ -391,33 +402,134 @@ func (a *agent) handle(m msg) {
 	}
 }
 
+// current is the value of a setting now: what the client last chose, or def.
+func (a *agent) current(key, def string) string {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if v, ok := a.chosen[key]; ok {
+		return v
+	}
+	return def
+}
+
+func (a *agent) setOpt(name string) bool {
+	return os.Getenv(envSetOpts+"_"+name) == "1"
+}
+
+// configList is the config shape's options with the current values.
+func (a *agent) configList() []any {
+	list := []any{
+		map[string]any{"id": "model", "name": "Model", "category": "model", "type": "select", "currentValue": a.current("model", "big"), "options": []any{
+			map[string]any{"value": "big", "name": "Big", "description": "The large one"},
+			map[string]any{"value": "small", "name": "Small"},
+		}},
+		map[string]any{"id": "mode", "name": "Mode", "category": "mode", "type": "select", "currentValue": a.current("mode", "build"), "options": []any{
+			map[string]any{"group": "agents", "name": "Agents", "options": []any{
+				map[string]any{"value": "build", "name": "Build"},
+				map[string]any{"value": "plan", "name": "Plan"},
+			}},
+		}},
+	}
+	if a.setOpt("bool") {
+		list = append(list, map[string]any{"id": "fast", "name": "Fast", "type": "boolean", "currentValue": a.current("fast", "false") == "true"})
+	}
+	return list
+}
+
 // sessionShape adds to res the session state the chosen shape lists.
 func (a *agent) sessionShape(res map[string]any) {
 	switch os.Getenv(envShape) {
 	case "config":
 		// The shape opencode and Codex use: settings are config options.
-		res["configOptions"] = []any{
-			map[string]any{"id": "model", "name": "Model", "category": "model", "type": "select", "currentValue": "big", "options": []any{
-				map[string]any{"value": "big", "name": "Big", "description": "The large one"},
-				map[string]any{"value": "small", "name": "Small"},
-			}},
-			map[string]any{"id": "mode", "name": "Mode", "category": "mode", "type": "select", "currentValue": "build", "options": []any{
-				map[string]any{"group": "agents", "name": "Agents", "options": []any{
-					map[string]any{"value": "build", "name": "Build"},
-					map[string]any{"value": "plan", "name": "Plan"},
-				}},
-			}},
-		}
+		res["configOptions"] = a.configList()
 	case "modes":
 		// The shape Gemini uses: a modes block and a models block.
-		res["modes"] = map[string]any{"currentModeId": "default", "availableModes": []any{
+		res["modes"] = map[string]any{"currentModeId": a.current("mode", "default"), "availableModes": []any{
 			map[string]any{"id": "default", "name": "Default", "description": "Asks before it edits"},
 			map[string]any{"id": "yolo", "name": "YOLO"},
 		}}
-		res["models"] = map[string]any{"currentModelId": "gem-pro", "availableModels": []any{
+		res["models"] = map[string]any{"currentModelId": a.current("model", "gem-pro"), "availableModels": []any{
 			map[string]any{"modelId": "gem-pro", "name": "Gem Pro"},
 			map[string]any{"modelId": "gem-flash", "name": "Gem Flash", "description": "Quick"},
 		}}
+	}
+}
+
+// setting answers session/set_mode, session/set_model and
+// session/set_config_option for the shape the agent was given. A value the
+// shape does not list is refused with an error whose text must never reach a
+// person.
+func (a *agent) setting(m msg) {
+	if f := os.Getenv(envSetLog); f != "" {
+		if w, err := os.OpenFile(f, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600); err == nil {
+			fmt.Fprintln(w, m.Method, string(m.Params))
+			w.Close()
+		}
+	}
+	var p struct {
+		SessionID string          `json:"sessionId"`
+		ModeID    string          `json:"modeId"`
+		ModelID   string          `json:"modelId"`
+		ConfigID  string          `json:"configId"`
+		Value     json.RawMessage `json:"value"`
+	}
+	_ = json.Unmarshal(m.Params, &p)
+	refuse := func(what string) { a.rpcError(m.ID, -32602, "SECRET-AGENT-TEXT: bad "+what) }
+	has := func(set ...string) func(string) bool {
+		return func(v string) bool {
+			for _, s := range set {
+				if s == v {
+					return true
+				}
+			}
+			return false
+		}
+	}
+	shape := os.Getenv(envShape)
+	switch m.Method {
+	case "session/set_mode":
+		if shape != "modes" || !has("default", "yolo")(p.ModeID) {
+			refuse("mode")
+			return
+		}
+		a.mu.Lock()
+		a.chosen["mode"] = p.ModeID
+		a.mu.Unlock()
+		a.update(p.SessionID, map[string]any{"sessionUpdate": "current_mode_update", "currentModeId": p.ModeID})
+		a.result(m.ID, map[string]any{})
+	case "session/set_model":
+		if shape != "modes" || !has("gem-pro", "gem-flash")(p.ModelID) {
+			refuse("model")
+			return
+		}
+		a.mu.Lock()
+		a.chosen["model"] = p.ModelID
+		a.mu.Unlock()
+		a.result(m.ID, map[string]any{})
+	default:
+		var v string
+		var b bool
+		if json.Unmarshal(p.Value, &v) != nil {
+			if json.Unmarshal(p.Value, &b) != nil {
+				refuse("value")
+				return
+			}
+			v = fmt.Sprint(b)
+		}
+		ok := shape == "config" && (p.ConfigID == "model" && has("big", "small")(v) || p.ConfigID == "mode" && has("build", "plan")(v) ||
+			p.ConfigID == "fast" && a.setOpt("bool") && has("true", "false")(v) && json.Unmarshal(p.Value, &b) == nil)
+		if !ok {
+			refuse("option")
+			return
+		}
+		a.mu.Lock()
+		a.chosen[p.ConfigID] = v
+		a.mu.Unlock()
+		if a.setOpt("bare") {
+			a.result(m.ID, map[string]any{})
+			return
+		}
+		a.result(m.ID, map[string]any{"configOptions": a.configList()})
 	}
 }
 

@@ -35,6 +35,26 @@ func WithModes() Option {
 	return func(l *launch) { l.env = append(l.env, envShape+"=modes") }
 }
 
+// WithSettingLog makes the agent append the method and params of each setting
+// request (session/set_mode, session/set_model, session/set_config_option) to
+// path. The agent answers them when it has a shape (WithConfigOptions or
+// WithModes): a value the shape lists is taken, any other is refused with an
+// error whose text a test can look for in what a person is shown.
+func WithSettingLog(path string) Option {
+	return func(l *launch) { l.env = append(l.env, envSetLog+"="+path) }
+}
+
+// WithBooleanOption adds a boolean option "fast" to the config shape.
+func WithBooleanOption() Option { return withSetOpt("bool") }
+
+// WithBareSettingReplies makes the agent answer session/set_config_option with
+// no options, which the protocol allows an agent that has nothing to add.
+func WithBareSettingReplies() Option { return withSetOpt("bare") }
+
+func withSetOpt(name string) Option {
+	return func(l *launch) { l.env = append(l.env, envSetOpts+"_"+name+"=1") }
+}
+
 // WithSessionLoad gives the agent the loadSession capability (see the package
 // comment for what it then does).
 func WithSessionLoad() Option { return withSession("load") }
