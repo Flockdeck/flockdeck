@@ -2,6 +2,8 @@ package server
 
 import (
 	"errors"
+	"strings"
+	"unicode"
 
 	"github.com/jmwri/flockdeck/internal/structured"
 	"github.com/jmwri/flockdeck/internal/team"
@@ -16,20 +18,25 @@ import (
 
 const (
 	// Limits on what a push says of one queued prompt.
-	structuredQueueTextCut = 2000
+	structuredQueueTextCut = structured.QueueTextCap
 	structuredQueuePeerCut = 100
 
 	// The refusals of the queue commands. None carries text from an agent.
 	structuredQueueGone    = "That prompt has already been sent or removed"
 	structuredQueueMail    = "A message from another agent cannot be edited or removed here"
+	structuredQueueSystem  = "A prompt from Flockdeck cannot be edited or removed here"
+	structuredQueueLong    = "That prompt is too long to edit here"
 	structuredQueueRunning = "That pane's agent is not running"
 	structuredQueueNoItem  = "The queue commands need the id of a waiting prompt"
 )
 
 // structuredQueueItem is one waiting prompt in a structured push. Kind is "user"
-// for text the person typed and "mail" for a message from another agent; Peer is
-// that agent's label and is set for mail only, and a message's text never carries
-// it. State is "queued" for every item: a prompt that is sent leaves the list.
+// for text the person typed, "mail" for a message from another agent and
+// "flockdeck" for a prompt Flockdeck sent itself (the pane's opening prompt).
+// Peer is the other agent's label and is set for mail only, and a message's text
+// never carries it. The text and the label of mail have their format and
+// direction characters removed, since another agent wrote them; the person's own
+// text is sent as it is. State is "queued" for every item: a prompt that is sent leaves the list.
 // Clipped says Text is the start of a longer text, and then the prompt can be
 // removed but not edited.
 type structuredQueueItem struct {
@@ -46,15 +53,34 @@ type structuredQueueItem struct {
 func buildStructuredQueue(m *structuredMsg, sn structured.Snapshot) {
 	for i, q := range sn.Queue {
 		it := structuredQueueItem{ID: q.ID, Pos: i + 1, Kind: "user", State: "queued"}
-		var cut bool
-		it.Text, cut = clipStructured(q.Text, structuredQueueTextCut)
-		it.Clipped = q.Clipped || cut
+		text := q.Text
 		if q.Mail {
+			text = stripFormat(text)
+		}
+		var cut bool
+		it.Text, cut = clipStructured(text, structuredQueueTextCut)
+		it.Clipped = q.Clipped || cut
+		switch {
+		case q.Mail:
 			it.Kind = "mail"
-			it.Peer = team.CleanLine(q.Peer, structuredQueuePeerCut)
+			it.Peer = stripFormat(team.CleanLine(q.Peer, structuredQueuePeerCut))
+		case q.System:
+			it.Kind = "flockdeck"
 		}
 		m.Queue = append(m.Queue, it)
 	}
+}
+
+// stripFormat removes the format characters (Unicode Cf: the bidirectional
+// overrides and isolates, zero-width joiners, the byte order mark) from text
+// another agent wrote, so it cannot reorder or hide what is around it.
+func stripFormat(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.Is(unicode.Cf, r) {
+			return -1
+		}
+		return r
+	}, s)
 }
 
 // structuredQueue runs structuredQueueEdit, structuredQueueRemove,
@@ -102,6 +128,10 @@ func (s *Server) structuredQueue(c *controlClient, cmd command) {
 		refuse(c, cmd, errStructured(structuredQueueGone))
 	case errors.Is(err, structured.ErrMailItem):
 		refuse(c, cmd, errStructured(structuredQueueMail))
+	case errors.Is(err, structured.ErrSystemItem):
+		refuse(c, cmd, errStructured(structuredQueueSystem))
+	case errors.Is(err, structured.ErrClipped):
+		refuse(c, cmd, errStructured(structuredQueueLong))
 	case errors.Is(err, workspace.ErrSendEmpty), errors.Is(err, workspace.ErrSendTooLong), errors.As(err, new(errStructured)):
 		refuse(c, cmd, err)
 	default:

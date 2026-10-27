@@ -73,11 +73,11 @@ func TestTheQueueListsItsItemsWithIdsAndMail(t *testing.T) {
 func TestAQueuedItemTextIsBoundedAndNotOfferedForEditing(t *testing.T) {
 	r := begin(t, fakeOptions(t))
 	slowTurn(t, r)
-	if err := r.Send(strings.Repeat("é", queueTextCap)); err != nil {
+	if err := r.Send(strings.Repeat("é", QueueTextCap)); err != nil {
 		t.Fatal(err)
 	}
 	q := r.Snapshot().Queue[0]
-	if !q.Clipped || len(q.Text) > queueTextCap || strings.ContainsRune(q.Text, '�') {
+	if !q.Clipped || len(q.Text) > QueueTextCap || strings.ContainsRune(q.Text, '�') {
 		t.Errorf("clipped=%v len=%d", q.Clipped, len(q.Text))
 	}
 }
@@ -307,5 +307,80 @@ func TestInterruptKeepsTheQueueAndCancelDropsIt(t *testing.T) {
 	s := until(t, r, "the next prompt to run", func(s Snapshot) bool { return idle(s) && len(prompts(s)) == 2 })
 	if got := prompts(s); !slices.Equal(got, []string{"slow", "after"}) {
 		t.Errorf("prompts = %q", got)
+	}
+}
+
+// pop marks the turn in the same step as it takes the prompt, so a SendNow that
+// follows sees a turn to end. Marked later, the prompt would be gone from the
+// queue with no turn yet, and SendNow would end nothing and leave its prompt
+// waiting behind the one just started.
+func TestPopMarksTheTurnAtOnceSoSendNowEndsIt(t *testing.T) {
+	r := &Runtime{phase: PhaseReady, queue: []queued{{id: 1, blocks: []string{"a"}}, {id: 2, blocks: []string{"b"}}}}
+	q, ok := r.pop()
+	if !ok || q.id != 1 {
+		t.Fatalf("pop = %+v %v", q, ok)
+	}
+	r.mu.Lock()
+	in := r.inTurn
+	r.mu.Unlock()
+	if !in {
+		t.Fatal("the turn was not marked by pop")
+	}
+	if err := r.SendNow(2); err != nil {
+		t.Fatal(err)
+	}
+	r.mu.Lock()
+	asked := r.asked
+	r.mu.Unlock()
+	if !asked {
+		t.Error("SendNow in the window after pop did not end the turn")
+	}
+}
+
+func TestAPromptFromFlockdeckIsListedAsSuchAndLeftAlone(t *testing.T) {
+	r := begin(t, fakeOptions(t))
+	slowTurn(t, r)
+	if err := r.SendSystem("opening brief"); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Send("mine"); err != nil {
+		t.Fatal(err)
+	}
+	q := r.Snapshot().Queue
+	if !q[0].System || q[1].System || q[0].Text != "opening brief" {
+		t.Fatalf("queue = %+v", q)
+	}
+	if err := r.EditQueued(q[0].ID, "x"); !errors.Is(err, ErrSystemItem) {
+		t.Errorf("edit: %v", err)
+	}
+	if err := r.RemoveQueued(q[0].ID); !errors.Is(err, ErrSystemItem) {
+		t.Errorf("remove: %v", err)
+	}
+	if n := r.ClearQueued(); n != 1 {
+		t.Errorf("clear removed %d, want only the person's", n)
+	}
+	if got := queueTexts(r.Snapshot()); !slices.Equal(got, []string{"opening brief"}) {
+		t.Errorf("queue = %q", got)
+	}
+}
+
+func TestAPromptListedCutCannotBeEdited(t *testing.T) {
+	r := begin(t, fakeOptions(t))
+	slowTurn(t, r)
+	if err := r.Send(strings.Repeat("x", QueueTextCap+1)); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Send(strings.Repeat("y", QueueTextCap)); err != nil {
+		t.Fatal(err)
+	}
+	q := r.Snapshot().Queue
+	if !q[0].Clipped || q[1].Clipped {
+		t.Fatalf("clipped = %v %v", q[0].Clipped, q[1].Clipped)
+	}
+	if err := r.EditQueued(q[0].ID, "short"); !errors.Is(err, ErrClipped) {
+		t.Errorf("edit of a cut prompt: %v", err)
+	}
+	if err := r.EditQueued(q[1].ID, "short"); err != nil {
+		t.Errorf("edit of a whole prompt: %v", err)
 	}
 }

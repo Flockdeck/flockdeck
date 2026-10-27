@@ -100,6 +100,12 @@ var (
 	// carries a message from a peer. It is not the person's text to change, and
 	// dropping it would only make the inbox send its copy again.
 	ErrMailItem = errors.New("structured: a message from a peer cannot be changed")
+	// ErrSystemItem is returned by EditQueued and RemoveQueued for a prompt that
+	// Flockdeck sent on its own (the pane's opening prompt), not the person.
+	ErrSystemItem = errors.New("structured: a prompt from Flockdeck cannot be changed")
+	// ErrClipped is returned by EditQueued for a prompt whose text is longer than
+	// a window is shown, so an edit made from what it was shown would cut it.
+	ErrClipped = errors.New("structured: the prompt is too long to edit")
 )
 
 // Command is a program to start in place of the one the manifest names. It is
@@ -368,6 +374,9 @@ type queued struct {
 	// mail is set for a prompt that carries a message from a peer. The
 	// conversation shows it as that message and not as something the person typed.
 	mail *bridge.Mail
+	// system is set for a prompt Flockdeck sent on its own: the opening prompt.
+	// It is not the person's text.
+	system bool
 }
 
 // QueueItem is one prompt waiting for its turn, as a window is shown it.
@@ -375,6 +384,9 @@ type QueueItem struct {
 	// ID is what EditQueued, RemoveQueued and SendNow take. Positions change as
 	// turns end, ids do not.
 	ID int
+	// System says Flockdeck sent the prompt itself (the pane's opening prompt).
+	// It is not the person's text and is not offered for editing or removal.
+	System bool
 	// Mail says the prompt carries a message from a peer. Peer is its sender's
 	// label and Text the message body; neither is something the person typed.
 	Mail bool
@@ -385,8 +397,9 @@ type QueueItem struct {
 	Clipped bool
 }
 
-// queueTextCap bounds the text of an item in a snapshot.
-const queueTextCap = 4096
+// QueueTextCap bounds the text of an item in a snapshot. A prompt over it is
+// listed cut and cannot be edited.
+const QueueTextCap = 2000
 
 // itemSeq numbers queued prompts across all runtimes.
 var itemSeq atomic.Int64
@@ -494,7 +507,14 @@ func (r *Runtime) SendMail(tag int, peer, body string, blocks ...string) error {
 }
 
 func (r *Runtime) send(tag int, blocks ...string) error {
-	return r.sendMail(tag, nil, blocks...)
+	return r.enqueue(tag, nil, false, blocks...)
+}
+
+// SendSystem is Send for a prompt Flockdeck makes on its own, such as the
+// pane's opening prompt. The queue lists it as Flockdeck's and not the person's,
+// and the person cannot edit or remove it.
+func (r *Runtime) SendSystem(text string) error {
+	return r.enqueue(0, nil, true, text)
 }
 
 // NoteSent shows in the conversation that this session sent message id to peer.
@@ -514,6 +534,10 @@ func (r *Runtime) NoteMailState(id int, state string) {
 }
 
 func (r *Runtime) sendMail(tag int, mail *bridge.Mail, blocks ...string) error {
+	return r.enqueue(tag, mail, false, blocks...)
+}
+
+func (r *Runtime) enqueue(tag int, mail *bridge.Mail, system bool, blocks ...string) error {
 	size := 0
 	for _, b := range blocks {
 		size += len(b)
@@ -533,7 +557,7 @@ func (r *Runtime) sendMail(tag int, mail *bridge.Mail, blocks ...string) error {
 		r.mu.Unlock()
 		return ErrQueueFull
 	}
-	r.queue = append(r.queue, queued{id: int(itemSeq.Add(1)), blocks: slices.Clone(blocks), tag: tag, mail: mail})
+	r.queue = append(r.queue, queued{id: int(itemSeq.Add(1)), blocks: slices.Clone(blocks), tag: tag, mail: mail, system: system})
 	r.mu.Unlock()
 	select {
 	case r.wake <- struct{}{}:
@@ -568,15 +592,15 @@ func (r *Runtime) queueItemsLocked() []QueueItem {
 	}
 	out := make([]QueueItem, 0, len(r.queue))
 	for _, q := range r.queue {
-		it := QueueItem{ID: q.id}
+		it := QueueItem{ID: q.id, System: q.system}
 		var text string
 		if q.mail != nil {
 			it.Mail, it.Peer, text = true, q.mail.Peer, q.mail.Text
 		} else {
 			text = strings.Join(q.blocks, "\n")
 		}
-		if len(text) > queueTextCap {
-			n := queueTextCap
+		if len(text) > QueueTextCap {
+			n := QueueTextCap
 			for n > 0 && !utf8.RuneStart(text[n]) {
 				n--
 			}
@@ -608,6 +632,12 @@ func (r *Runtime) EditQueued(id int, text string) error {
 	case r.queue[i].mail != nil:
 		r.mu.Unlock()
 		return ErrMailItem
+	case r.queue[i].system:
+		r.mu.Unlock()
+		return ErrSystemItem
+	case len(strings.Join(r.queue[i].blocks, "\n")) > QueueTextCap:
+		r.mu.Unlock()
+		return ErrClipped
 	}
 	r.queue[i].blocks = []string{text}
 	r.mu.Unlock()
@@ -629,6 +659,10 @@ func (r *Runtime) RemoveQueued(id int) error {
 		r.mu.Unlock()
 		return ErrMailItem
 	}
+	if q.system {
+		r.mu.Unlock()
+		return ErrSystemItem
+	}
 	r.queue = slices.Delete(slices.Clone(r.queue), i, i+1)
 	r.mu.Unlock()
 	if q.tag != 0 {
@@ -639,14 +673,14 @@ func (r *Runtime) RemoveQueued(id int) error {
 }
 
 // ClearQueued removes the person's waiting prompts and returns how many. Messages
-// from peers stay: they are not the person's to drop.
+// from peers and prompts from Flockdeck stay: they are not the person's to drop.
 func (r *Runtime) ClearQueued() int {
 	r.mu.Lock()
 	var tags []int
 	var kept []queued
 	n := 0
 	for _, q := range r.queue {
-		if q.mail != nil {
+		if q.mail != nil || q.system {
 			kept = append(kept, q)
 			continue
 		}
@@ -680,9 +714,11 @@ func (r *Runtime) SendNow(id int) error {
 	rest := slices.Delete(slices.Clone(r.queue), i, i+1)
 	r.queue = slices.Insert(rest, 0, q)
 	var err error
-	if r.inTurn && r.phase == PhaseReady && r.client != nil && r.session != "" {
+	if r.inTurn {
 		r.asked = true
-		err = r.client.Cancel(r.session)
+		if r.phase == PhaseReady && r.client != nil && r.session != "" {
+			err = r.client.Cancel(r.session)
+		}
 	}
 	r.mu.Unlock()
 	select {
@@ -1414,9 +1450,6 @@ func (r *Runtime) loop() {
 				return
 			}
 		}
-		r.mu.Lock()
-		r.inTurn, r.asked = true, false
-		r.mu.Unlock()
 		if q.mail != nil {
 			r.br.MailReceived(*q.mail)
 		} else {
@@ -1466,6 +1499,10 @@ func (r *Runtime) pop() (queued, bool) {
 	}
 	t := r.queue[0]
 	r.queue = r.queue[1:]
+	// The turn is marked in the same step as the prompt leaves the queue, so a
+	// call that looks at the queue and the turn together (SendNow) never sees
+	// the prompt gone and the turn not yet begun.
+	r.inTurn, r.asked = true, false
 	return t, true
 }
 

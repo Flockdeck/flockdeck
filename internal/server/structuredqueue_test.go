@@ -259,3 +259,72 @@ func TestQueueEditsRacingTheSendAreAppliedOrRefused(t *testing.T) {
 		}
 	}
 }
+
+// The person's own text is in the push as it was typed (tabs, indentation, joiners)
+// so an edit started from it saves what was there. Another agent's message has
+// its direction and format characters removed, in the body and in the sender.
+func TestTheQueuePushKeepsTheUsersTextRawAndCleansMail(t *testing.T) {
+	e := newStructuredEnv(t, "slow")
+	e.waitStatus(t, e.child, session.StatusWorking)
+	raw := "\tfunc() {\n    x  :=  1\n}\n👨\u200d👩\u200d👧 \u200c done"
+	e.sendText(t, raw)
+	rt := e.ws.StructuredRuntime(e.child)
+	if err := rt.SendMail(61, "le\u202ead\u2066er", "ok\u202e txt\u2069 a\u200db", "blocks"); err != nil {
+		t.Fatal(err)
+	}
+	q := e.queue(t)
+	if q[0].Text != raw {
+		t.Errorf("user text = %q, want %q", q[0].Text, raw)
+	}
+	if q[1].Kind != "mail" || q[1].Peer != "leader" || q[1].Text != "ok txt ab" {
+		t.Errorf("mail = %+v", q[1])
+	}
+	// Editing from the raw text round-trips unchanged.
+	if res := e.queueOp(t, e.c, command{Cmd: "structuredQueueEdit", Item: q[0].ID, Text: q[0].Text}); !res.OK {
+		t.Fatalf("edit: %+v", res)
+	}
+	if got := e.queue(t)[0].Text; got != raw {
+		t.Errorf("after a save of the same text: %q", got)
+	}
+	e.queueOp(t, e.c, command{Cmd: "structuredQueueClear"})
+	e.cancel(t, e.c, e.child)
+}
+
+func TestAnOpeningPromptIsListedAsFlockdeckAndKeptByEditRemoveAndClear(t *testing.T) {
+	e := newStructuredEnv(t, "slow")
+	e.waitStatus(t, e.child, session.StatusWorking)
+	rt := e.ws.StructuredRuntime(e.child)
+	if err := rt.SendSystem("brief"); err != nil {
+		t.Fatal(err)
+	}
+	e.sendText(t, "mine")
+	q := e.queue(t)
+	if q[0].Kind != "flockdeck" || q[1].Kind != "user" {
+		t.Fatalf("kinds = %+v", q)
+	}
+	for _, c := range []command{{Cmd: "structuredQueueEdit", Item: q[0].ID, Text: "x"}, {Cmd: "structuredQueueRemove", Item: q[0].ID}} {
+		if res := e.queueOp(t, e.c, c); res.OK || res.Error != structuredQueueSystem {
+			t.Errorf("%s: %+v", c.Cmd, res)
+		}
+	}
+	e.queueOp(t, e.c, command{Cmd: "structuredQueueClear"})
+	if got := queueText(e.queue(t)); !slices.Equal(got, []string{"brief"}) {
+		t.Errorf("after clear = %q", got)
+	}
+	e.cancel(t, e.c, e.child)
+}
+
+func TestEditingAPromptThePushShowedCutIsRefused(t *testing.T) {
+	e := newStructuredEnv(t, "slow")
+	e.waitStatus(t, e.child, session.StatusWorking)
+	e.sendText(t, strings.Repeat("z", structuredQueueTextCut+5))
+	q := e.queue(t)
+	if !q[0].Clipped {
+		t.Fatal("the long prompt was not shown cut")
+	}
+	if res := e.queueOp(t, e.c, command{Cmd: "structuredQueueEdit", Item: q[0].ID, Text: "short"}); res.OK || res.Error != structuredQueueLong {
+		t.Errorf("edit of a cut prompt: %+v", res)
+	}
+	e.queueOp(t, e.c, command{Cmd: "structuredQueueClear"})
+	e.cancel(t, e.c, e.child)
+}

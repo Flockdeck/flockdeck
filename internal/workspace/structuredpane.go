@@ -136,7 +136,7 @@ func (w *Workspace) startStructured(p *Pane, spec agent.Spec) {
 	// The task the pane was started with is its first prompt, with the briefing
 	// an agent that reports nothing of its own is given in front of it.
 	if prompt := w.OpeningPrompt(p.ID, p.initial, spec.Caps.Context); strings.TrimSpace(prompt) != "" {
-		_ = rt.Send(prompt)
+		_ = rt.SendSystem(prompt)
 	}
 	p.initial = ""
 	go sr.watch()
