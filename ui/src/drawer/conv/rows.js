@@ -147,7 +147,7 @@ export function Row({ entry: e, open = false, onToggle = null, detail = null, ne
       const out = e.dir === "out";
       const state = Object.prototype.hasOwnProperty.call(DELIVERY_WORDS, e.delivery) ? e.delivery : "";
       return html`<li class=${"conv-row conv-message conv-message--" + (out ? "out" : "in") + (state === "undeliverable" ? " is-failed" : "")} data-ctx="convRow" data-kind="message" data-entry=${nested ? null : e.id} tabindex="-1">
-        <span class="conv-who">${(out ? "Message to " : "Message from ") + plainLabel(e.peer, out ? "another agent" : "an agent")}${state ? html` <span class="conv-mail-chip">${DELIVERY_WORDS[state]}</span>` : null}</span>
+        <span class="conv-who">${out ? `Message to ${plainLabel(e.peer, "another agent")}` : `Message from ${plainLabel(e.peer, "an agent")}`}${state ? html` <span class="conv-mail-chip">${DELIVERY_WORDS[state]}</span>` : null}</span>
         <p class="conv-text">${clip(text(e.text), MAX_TEXT)}</p>
       </li>`;
     }

@@ -14,10 +14,9 @@ import (
 
 // showMailEvent updates the conversations for one event of the inbox.
 func (w *Workspace) showMailEvent(e team.Event) {
-	switch e.Kind {
-	case team.EventMessage:
+	if e.IsMessage() {
 		w.showSent(e)
-	case team.EventDelivery:
+	} else if e.IsDelivery() {
 		w.showMailState(e)
 	}
 }

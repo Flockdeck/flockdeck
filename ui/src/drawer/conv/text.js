@@ -18,7 +18,7 @@ export function entryText(e) {
     case "message": {
       const out = e.dir === "out";
       const state = Object.prototype.hasOwnProperty.call(DELIVERY_WORDS, e.delivery) ? " [" + DELIVERY_WORDS[e.delivery] + "]" : "";
-      return (out ? "Message to " : "Message from ") + plainLabel(e.peer, out ? "another agent" : "an agent") + state + ": " + text(e.text);
+      return (out ? `Message to ${plainLabel(e.peer, "another agent")}` : `Message from ${plainLabel(e.peer, "an agent")}`) + state + ": " + text(e.text);
     }
     case "mail": return "From " + (text(e.label) || text(e.from)) + ": " + text(e.text);
     case "event": return "(" + text(e.text) + ")";

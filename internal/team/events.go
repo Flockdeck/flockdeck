@@ -22,6 +22,12 @@ const (
 	EventRename = "rename"
 )
 
+// IsMessage reports that the event says a message was sent.
+func (e Event) IsMessage() bool { return e.Kind == EventMessage }
+
+// IsDelivery reports that the event says a message reached a delivery state.
+func (e Event) IsDelivery() bool { return e.Kind == EventDelivery }
+
 const (
 	// MaxEvents is the most events the log keeps.
 	MaxEvents = 2000
