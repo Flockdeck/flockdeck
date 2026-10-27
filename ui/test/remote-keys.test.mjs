@@ -910,6 +910,8 @@ test("deviceName takes out control and bidi characters, one-lines the name and c
   const man = String.fromCodePoint(0x1f468), girl = String.fromCodePoint(0x1f467);
   assert.equal(deviceName(man + c(0x200d) + girl), man + " " + girl, "a zero-width joiner sequence is split");
   assert.equal(deviceName("I" + c(0x2764) + c(0xfe0f) + "U"), "I" + c(0x2764) + " U", "the emoji presentation selector is dropped");
+  assert.equal(deviceName("a" + c(0x200c) + "b"), "a b", "a zero-width non-joiner is replaced by a space, as the comment says");
+  assert.equal(deviceName("a" + c(0x180f) + "b"), "a b", "the Mongolian selector added in Unicode 14 is dropped too");
   assert.equal(deviceName("na" + String.fromCodePoint(0x1f600) + "me"), "na" + String.fromCodePoint(0x1f600) + "me", "an emoji is a name");
   assert.equal(deviceName(undefined), "");
   const long = deviceName("x".repeat(500));

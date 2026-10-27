@@ -213,13 +213,15 @@ export const NAME_MAX = 40;
  * deviceName is a paired device's or machine's name as it is drawn, in a question, a label and the list. The device
  * chooses its own name, so control, line-break, zero-width and bidirectional characters are taken out (they can
  * reorder the words around the name or hide them), runs of space become one, and a long name is cut. Joiners
- * and variation selectors go too, on purpose: a zero-width joiner sequence (a family or a profession emoji) is
- * drawn as its parts, and the emoji presentation selector (U+FE0F) is lost, so a heart may be drawn as text.
- * A name that cannot hide what it is matters more than one that looks exactly as the device chose.
+ * and variation selectors go too, on purpose, and this costs some honest names: a zero-width joiner sequence (a
+ * family or a profession emoji) is drawn as its parts, the emoji presentation selector (U+FE0F) is lost, so a heart
+ * may be drawn as text, a zero-width non-joiner (U+200C) is replaced by a space, which splits Persian and some Indic
+ * spelling, and the Mongolian free variation selectors (U+180B to U+180F) are dropped from the middle of a word. A
+ * name that cannot hide what it is matters more than one that looks exactly as the device chose.
  */
 export function deviceName(name) {
   const clean = String(name == null ? "" : name)
-    .replace(/[\u0000-\u001f\u007f-\u009f\u00ad\u034f\u061c\u115f-\u1160\u17b4-\u17b5\u180b-\u180e\u200b-\u200f\u2028-\u202e\u2060-\u206f\u2800\u3164\ufe00-\ufe0f\ufeff\uffa0\ufff9-\ufffc\u{e0000}-\u{e007f}\u{e0100}-\u{e01ef}]/gu, " ")
+    .replace(/[\u0000-\u001f\u007f-\u009f\u00ad\u034f\u061c\u115f-\u1160\u17b4-\u17b5\u180b-\u180f\u200b-\u200f\u2028-\u202e\u2060-\u206f\u2800\u3164\ufe00-\ufe0f\ufeff\uffa0\ufff9-\ufffc\u{e0000}-\u{e007f}\u{e0100}-\u{e01ef}]/gu, " ")
     .replace(/\s+/g, " ")
     .trim();
   const chars = Array.from(clean);
