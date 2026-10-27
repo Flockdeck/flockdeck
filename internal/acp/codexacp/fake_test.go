@@ -62,10 +62,13 @@ func note(method string, params string) step {
 
 func answer(method string, params map[string]any) any {
 	switch method {
-	case "thread/start", "thread/resume":
+	case "thread/start", "thread/resume", "thread/fork":
 		res := map[string]any{"thread": map[string]any{"id": "thr-1"}, "model": "gpt-fake", "cwd": "x"}
 		if method == "thread/resume" {
 			res["thread"] = map[string]any{"id": params["threadId"]}
+		}
+		if method == "thread/fork" {
+			res["thread"] = map[string]any{"id": "thr-fork"}
 		}
 		// A real codex reports what took effect: the policy it was asked for.
 		res["approvalPolicy"] = params["approvalPolicy"]

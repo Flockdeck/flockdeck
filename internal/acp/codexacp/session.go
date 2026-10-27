@@ -110,6 +110,7 @@ type promptReq struct {
 	input []map[string]any // turn: the UserInput items
 	text  string           // review: custom instructions, if any
 	gen   int
+	turn  string // the client's token for the turn, or ""
 }
 
 type turnResult struct {
@@ -169,6 +170,12 @@ type session struct {
 	secrets  []string     // values from the MCP servers, kept out of the log
 	imgBytes int64        // bytes of images staged so far
 	idv      atomic.Value // the thread id as a string, readable while the session is still starting
+
+	// turns are the turns the thread has that the client named, oldest first;
+	// rewinding is set while thread/rollback is out, and no prompt is taken
+	// then (rewind.go).
+	turns     []turnRec
+	rewinding bool
 }
 
 // tid is the thread id, "" until thread/start has answered. Anything coming
@@ -182,7 +189,8 @@ func (ss *session) tid() string {
 // maxPerms is how many approval requests may wait for the client at once.
 const maxPerms = 32
 
-func (s *server) openSession(m rpcMsg, resume bool) {
+func (s *server) openSession(m rpcMsg, kind string) {
+	resume, fork := kind == "session/resume", kind == "session/fork"
 	var p struct {
 		SessionID  string            `json:"sessionId"`
 		Cwd        string            `json:"cwd"`
@@ -196,7 +204,7 @@ func (s *server) openSession(m rpcMsg, resume bool) {
 		s.replyErr(m.ID, &rpcErr{Code: codeInvalidParams, Message: "cwd must be an absolute path"})
 		return
 	}
-	if resume && !threadIDRe.MatchString(p.SessionID) {
+	if (resume || fork) && !threadIDRe.MatchString(p.SessionID) {
 		s.replyErr(m.ID, &rpcErr{Code: codeInvalidParams, Message: "sessionId is not a session id"})
 		return
 	}
@@ -259,9 +267,15 @@ func (s *server) openSession(m rpcMsg, resume bool) {
 		params["config"] = map[string]any{"mcp_servers": mcp}
 	}
 	method := "thread/start"
-	if resume {
+	var drop int
+	switch {
+	case resume:
 		method = "thread/resume"
 		params["threadId"] = p.SessionID
+	case fork:
+		method = "thread/fork"
+		params["threadId"] = p.SessionID
+		_, drop = extMeta(m.Params)
 	}
 	raw, err := ss.call(method, params)
 	var started struct {
@@ -281,11 +295,23 @@ func (s *server) openSession(m rpcMsg, resume bool) {
 	if err == nil && resume && started.Thread.ID != p.SessionID {
 		err = errors.New("codex resumed a different thread")
 	}
+	if err == nil && fork && started.Thread.ID == p.SessionID {
+		err = errors.New("codex forked into the same thread")
+	}
 	if err != nil {
 		ss.logf("%s: %v", method, err)
 		ss.close()
 		s.replyErr(m.ID, &rpcErr{Code: codeInternal, Message: unavailable})
 		return
+	}
+	if fork && drop > 0 {
+		// The new thread has all of the source's turns; the ones from the point on go.
+		if _, err := ss.call("thread/rollback", map[string]any{"threadId": started.Thread.ID, "numTurns": drop}); err != nil {
+			ss.logf("thread/rollback of the fork: %v", err)
+			ss.close()
+			s.replyErr(m.ID, &rpcErr{Code: codeInternal, Message: unavailable})
+			return
+		}
 	}
 	if why := policyExceeds(ss.mode, started.ApprovalPolicy, started.Sandbox); why != "" {
 		ss.logf("%s: codex runs with more rights than the mode: %s", method, why)
@@ -602,10 +628,18 @@ func closedCh(c <-chan struct{}) bool {
 func (ss *session) enqueue(r *promptReq) {
 	ss.mu.Lock()
 	r.gen = ss.gen
-	ss.mu.Unlock()
+	if ss.rewinding {
+		ss.mu.Unlock()
+		ss.srv.replyErr(r.id, &rpcErr{Code: codeInternal, Message: "the session is being rewound"})
+		return
+	}
+	// Pushed with the lock held, so that a rewind that found the queue empty
+	// is not followed by a prompt it never sees.
 	select {
 	case ss.queue <- r:
+		ss.mu.Unlock()
 	default:
+		ss.mu.Unlock()
 		ss.srv.replyErr(r.id, &rpcErr{Code: codeInternal, Message: "too many prompts are waiting"})
 	}
 }
@@ -719,6 +753,15 @@ func (ss *session) runPrompt(r *promptReq) {
 		_ = json.Unmarshal(raw, &started)
 		if started.Turn.ID != "" {
 			ss.setTurnID(t, started.Turn.ID)
+		}
+		// codex has the turn from here, whatever becomes of it.
+		if r.turn != "" {
+			ss.mu.Lock()
+			if len(ss.turns) >= maxTurns {
+				ss.turns = append(ss.turns[:0], ss.turns[len(ss.turns)-maxTurns+1:]...)
+			}
+			ss.turns = append(ss.turns, turnRec{token: r.turn, plain: r.kind == "turn"})
+			ss.mu.Unlock()
 		}
 		res = ss.awaitTurn(t, r.kind != "turn")
 	}
