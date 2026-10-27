@@ -94,8 +94,9 @@ You can type while the agent is working. The text waits in a queue of up to 16 p
 is sent when the turn ends. The queue is listed under the conversation, next first, with
 Edit, Remove and Send now on each of your prompts, and Clear to remove all of yours. An edit
 or removal is refused, and says so, if the prompt was sent while you were looking at it.
-Messages from other agents are in the same list, marked "Mail from" and the sender's name.
-You cannot edit or remove one, and Clear leaves them; Send now works on them. Send now ends the
+Messages from other agents are in the same list, marked "Mail from" and the sender's name,
+and the pane's opening prompt is marked "From Flockdeck". You cannot edit or remove either, and
+Clear leaves them; Send now works on them, and a mail turn you cancel that way counts as handled. Send now ends the
 running turn (the agent is told to cancel) and sends that prompt next with the rest of the
 queue behind it, which is the nearest ACP has to steering an agent mid-turn: the agent does
 not read your text while it works. Stop ends the turn and drops the whole queue; Stop, keep
