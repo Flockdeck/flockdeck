@@ -33,15 +33,15 @@ export function splitValue(value) {
 }
 
 /** optionsOf is every agent and model of the catalog as the entries of a select:
- *  { value, label, group, disabled }. An agent not installed is listed and
- *  cannot be chosen, with where to get it in its group name, so a person who has
- *  not installed it still learns it exists. An agent that names no models stands
+ *  { value, label, group, disabled }. An agent that cannot be started is
+ *  listed and cannot be chosen, marked unavailable in its group name with no
+ *  reason, so a person who has not got it still learns it exists. An agent that names no models stands
  *  as one entry for whatever model it is set to. */
 export function optionsOf(catalog) {
   const out = [];
   for (const a of catalog.items) {
     const name = String(a.name || a.id);
-    const group = a.available === false ? name + " (not installed" + (a.install ? ", see " + a.install : "") + ")" : name;
+    const group = a.available === false ? name + " (unavailable)" : name;
     const models = Array.isArray(a.models) && a.models.length ? a.models : [{ id: a.defaultModel || "" }];
     for (const m of models) {
       const id = String((m && m.id) || "");
@@ -58,7 +58,7 @@ export function optionsOf(catalog) {
 
 /** defaultValue is the entry a picker starts on: the project's own choice, then
  *  the one for every project, then the first agent that can be started. An
- *  agent the catalog no longer lists, or that is not installed, is passed over. */
+ *  agent the catalog no longer lists, or that is unavailable, is passed over. */
 export function defaultValue(catalog) {
   const options = optionsOf(catalog);
   const usable = (agent, model) => {

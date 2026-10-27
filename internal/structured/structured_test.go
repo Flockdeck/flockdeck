@@ -462,34 +462,29 @@ func TestAMissingLoginIsASetupState(t *testing.T) {
 	}
 }
 
-func TestNodeMissingIsASetupState(t *testing.T) {
-	o := fakeOptions(t)
-	o.Command = nil
-	o.Spec.Runner, o.Spec.ACP.Adapter = agent.RunnerACP, "gemini"
-	o.Probe = &manifest.Probe{LookPath: func(string) (string, error) { return "", errors.New("not found") }}
-	r := begin(t, o)
-	s := until(t, r, "the setup state", func(s Snapshot) bool { return s.Phase == PhaseSetup })
-	if s.Setup == nil || s.Setup.Kind != SetupNode || !strings.Contains(s.Setup.Message, "Node") || s.Setup.Login == "" {
-		t.Errorf("setup = %+v", s.Setup)
-	}
-}
-
-func TestAMissingProgramIsASetupStateThatSaysHowToGetIt(t *testing.T) {
-	o := fakeOptions(t)
-	o.Command = nil
-	o.Spec.Runner, o.Spec.ACP.Adapter = agent.RunnerACP, "opencode"
-	o.Spec.Install = "Install it from the vendor."
-	o.Probe = &manifest.Probe{LookPath: func(string) (string, error) { return "", errors.New("not found") }}
-	r := begin(t, o)
-	s := until(t, r, "the setup state", func(s Snapshot) bool { return s.Phase == PhaseSetup })
-	if s.Setup == nil || s.Setup.Kind != SetupInstall || !strings.Contains(s.Setup.Message, "opencode was not found on PATH") || s.Setup.Login != "Install it from the vendor." {
-		t.Errorf("setup = %+v", s.Setup)
-	}
-	if !strings.Contains(s.Err, "opencode was not found on PATH") {
-		t.Errorf("err = %q", s.Err)
+// A program that is not on PATH is only ever unavailable: the state is the
+// failed one with the fixed text, there is no setup state, and nothing of the
+// program's name, the Spec's install line or the manifest's is in it.
+func TestAMissingProgramIsUnavailableInFixedText(t *testing.T) {
+	for _, adapter := range []string{"opencode", "gemini"} {
+		o := fakeOptions(t)
+		o.Command = nil
+		o.Spec.Runner, o.Spec.ACP.Adapter = agent.RunnerACP, adapter
+		o.Spec.Install = "Install it from the vendor with npm."
+		o.Probe = &manifest.Probe{LookPath: func(string) (string, error) { return "", errors.New("node not found on PATH") }}
+		r := begin(t, o)
+		s := until(t, r, "the failure", func(s Snapshot) bool { return s.Phase == PhaseFailed })
+		if s.Setup != nil || s.Err != agent.UnavailableText {
+			t.Errorf("%s: setup = %+v, err = %q, want no setup and only %q", adapter, s.Setup, s.Err, agent.UnavailableText)
+		}
+		for _, bad := range []string{"node", "Node", "npm", "PATH", "vendor", adapter} {
+			if strings.Contains(s.Err, bad) {
+				t.Errorf("%s: the unavailable text mentions %q: %q", adapter, bad, s.Err)
+			}
+		}
 	}
 
-	o = fakeOptions(t)
+	o := fakeOptions(t)
 	o.Command = &Command{Path: filepath.Join(t.TempDir(), "nothing-here"), env: []string{}}
 	r2 := begin(t, o)
 	until(t, r2, "the failure", func(s Snapshot) bool { return s.Phase == PhaseFailed })
@@ -497,7 +492,7 @@ func TestAMissingProgramIsASetupStateThatSaysHowToGetIt(t *testing.T) {
 	o.Command = nil
 	o.Spec.Runner, o.Spec.ACP.Adapter = agent.RunnerACP, "not-in-the-manifest"
 	r3 := begin(t, o)
-	s = until(t, r3, "the failure", func(s Snapshot) bool { return s.Phase == PhaseFailed })
+	s := until(t, r3, "the failure", func(s Snapshot) bool { return s.Phase == PhaseFailed })
 	if s.Err != unavailable {
 		t.Errorf("err = %q", s.Err)
 	}

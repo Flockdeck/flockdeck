@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"errors"
 	"net"
 	"net/url"
 	"os/exec"
@@ -14,8 +15,17 @@ import (
 // whether its program is on PATH, or for an ACP agent its adapter's command.
 //
 // It is not a permission. An unavailable agent is still offered by the picker,
-// greyed, with its Install line beside it, because somebody who has not
-// installed Codex should still learn that Flockdeck would run it.
+// greyed and marked unavailable, because somebody who has not installed Codex
+// should still learn that Flockdeck would run it.
+
+// UnavailableText is all anyone is told about an agent whose command cannot be
+// found or started: in the picker, in the refusal of a spawn, in a pane that
+// could not start. It does not say why, name a program or a runtime, repeat what
+// the agent wrote, or give install steps Flockdeck cannot carry out.
+const UnavailableText = "the agent is unavailable"
+
+// ErrUnavailable is UnavailableText as an error.
+var ErrUnavailable = errors.New(UnavailableText)
 
 // probeTTL is how long an answer is trusted. The picker asks for every agent
 // each time it opens and the header asks on every render, and a PATH lookup for
@@ -98,8 +108,7 @@ func ProbeAll(specs []Spec) map[string]bool {
 
 func probe(s Spec) bool {
 	if s.Runner == RunnerACP {
-		// The command the manifest starts is what has to be there. Node, where
-		// the adapter needs it, is checked when the pane starts.
+		// The command the manifest starts is what has to be there.
 		a, ok := s.ACPAdapter()
 		if !ok {
 			return false

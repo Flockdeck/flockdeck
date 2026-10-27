@@ -42,7 +42,7 @@ const fixtureFile = join(here, "..", "..", "internal", "server", "testdata", "gr
 const CATALOG = {
   items: [
     { id: "claude", name: "Claude Code", available: true, defaultModel: "sonnet", models: [{ id: "sonnet", name: "Sonnet" }, { id: "opus", name: "Opus" }] },
-    { id: "codex", name: "Codex", available: false, install: "npm i -g codex", defaultModel: "", models: [] },
+    { id: "codex", name: "Codex", available: false, defaultModel: "", models: [] },
     { id: "opencode-acp", name: "opencode (structured)", available: true, defaultModel: "", models: [] },
   ],
   roles: [{ id: "manager", name: "Manager" }, { id: "worker", name: "Worker" }],
@@ -58,11 +58,11 @@ test("the catalog of a state push is read defensively", () => {
   assert.equal(catalogOf({}).default.agent, "");
 });
 
-test("an agent that is not installed is listed and cannot be chosen", () => {
+test("an agent that is unavailable is listed and cannot be chosen", () => {
   const options = optionsOf(catalogOf({ agents: CATALOG }));
   const codex = options.filter((o) => o.group.startsWith("Codex"));
   assert.equal(codex.length, 1);
-  assert.match(codex[0].group, /not installed, see npm i -g codex/);
+  assert.match(codex[0].group, /^Codex \(unavailable\)$/);
   assert.equal(codex[0].disabled, true);
   assert.equal(options.find((o) => o.value === valueOf("claude", "opus")).disabled, false);
   assert.ok(options.find((o) => o.value === valueOf("opencode-acp", "")), "an agent with no models stands as one entry");
@@ -401,13 +401,13 @@ test("the worktree option is drawn, says what it does, needs a task, and starts 
     assert.equal(m.sent("newTab").length, 0);
   }));
 
-test("an agent that is not installed cannot be picked, and its option says so", () =>
+test("an agent that is unavailable cannot be picked, and its option says so", () =>
   withPage({}, async (m) => {
     await m.connect();
     await openPlus(m);
     await m.click(m.byText(".tabs-btn", /Choose agent/));
     const groups = m.container.findAll("optgroup").map((g) => g.attributes.label);
-    assert.ok(groups.some((l) => /Codex \(not installed, see npm i -g codex\)/.test(l)), JSON.stringify(groups));
+    assert.ok(groups.some((l) => /Codex \(unavailable\)/.test(l)), JSON.stringify(groups));
     const disabled = m.container.findAll("option").filter((o) => o.disabled || o.attributes.disabled !== undefined);
     assert.equal(disabled.length, 1);
   }));

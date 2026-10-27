@@ -27,12 +27,11 @@ type agentChoiceView struct {
 	Models []modelView `json:"models,omitempty"`
 	// Default is the model this agent is asked for when nothing chooses one.
 	Default string `json:"default,omitempty"`
-	// Unavailable is why this agent cannot be started on this machine, and
-	// Install is where to get it. An agent the machine does not have is
-	// offered greyed rather than left out: somebody who has not installed
-	// Codex should still learn that Flockdeck would run it.
+	// Unavailable is agent.UnavailableText when this agent cannot be started on
+	// this machine, whatever the reason. An agent the machine does not have is offered
+	// greyed rather than left out: somebody who has not installed Codex should
+	// still learn that Flockdeck would run it.
 	Unavailable string `json:"unavailable,omitempty"`
-	Install     string `json:"install,omitempty"`
 	// AskTrust is whether this agent asks if a folder is trusted before it
 	// works in it. Carrying the project's answer over to the worktrees is
 	// only offered for a run whose agents ask; for the rest it would do
@@ -62,10 +61,10 @@ func (s *Server) agentChoices(specs []agent.Spec) []agentChoiceView {
 		}
 		view := agentChoiceView{
 			ID: spec.ID, Name: spec.Name, Models: modelViews(spec),
-			Default: spec.DefaultModel, Install: spec.Install, AskTrust: spec.Caps.Trust,
+			Default: spec.DefaultModel, AskTrust: spec.Caps.Trust,
 		}
 		if _, err := s.ws.AgentSpecByID(spec.ID); err != nil {
-			view.Unavailable = err.Error()
+			view.Unavailable = agent.UnavailableText
 		}
 		out = append(out, view)
 	}

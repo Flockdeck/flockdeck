@@ -205,10 +205,10 @@ func TestChatRunsTheConsoleBuildOnWindows(t *testing.T) {
 	}
 }
 
-// TestLookSaysWhereAnAgentComesFrom covers the message somebody sees when they
-// pick an agent their machine does not have. The install line is the Spec's,
-// because only the catalog knows where Codex comes from.
-func TestLookSaysWhereAnAgentComesFrom(t *testing.T) {
+// TestLookReportsAMissingAgentAsUnavailable covers the message somebody sees
+// when they pick an agent their machine does not have: fixed text, without the
+// program's name, the Spec's install line or the lookup's own error.
+func TestLookReportsAMissingAgentAsUnavailable(t *testing.T) {
 	_, err := Look(agent.Spec{
 		ID: "codex", Name: "Codex", Runner: agent.RunnerCLI,
 		Exe: "flockdeck-no-such-agent-on-path", Install: "npm i -g @openai/codex",
@@ -216,10 +216,8 @@ func TestLookSaysWhereAnAgentComesFrom(t *testing.T) {
 	if err == nil {
 		t.Fatal("a missing CLI should be reported")
 	}
-	for _, want := range []string{"Codex", "npm i -g @openai/codex"} {
-		if !strings.Contains(err.Error(), want) {
-			t.Errorf("error = %q, want it to mention %q", err, want)
-		}
+	if err.Error() != agent.UnavailableText {
+		t.Errorf("error = %q, want only %q", err, agent.UnavailableText)
 	}
 
 }

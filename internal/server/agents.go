@@ -262,11 +262,11 @@ type catalogAgent struct {
 	// DefaultModel is the one taken when nobody chooses, so the picker can
 	// mark it rather than leaving the choice looking arbitrary.
 	DefaultModel string `json:"defaultModel"`
-	// Available is whether this machine could start it now. An agent that is
-	// not installed is still listed, greyed, with Install beside it: somebody
-	// who has not installed Codex should still learn that Flockdeck would run it.
-	Available bool   `json:"available"`
-	Install   string `json:"install,omitempty"`
+	// Available is whether this machine could start it now. An agent that
+	// cannot be started is still listed, greyed and marked unavailable:
+	// somebody who has not installed Codex should still learn that Flockdeck
+	// would run it. Nothing says how to get it: Flockdeck does not install agents.
+	Available bool `json:"available"`
 }
 
 // agentCatalog is the whole catalog as one snapshot carries it: what there is,
@@ -460,7 +460,6 @@ func buildCatalog(c *agent.Catalog, root string) agentCatalog {
 			Models:       modelViews(sp),
 			DefaultModel: sp.DefaultModel,
 			Available:    agent.Available(sp),
-			Install:      sp.Install,
 		})
 	}
 	for _, r := range c.Roles {

@@ -15,18 +15,18 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jmwri/flockdeck/internal/agent"
 	"github.com/jmwri/flockdeck/internal/session/transcript"
 	"github.com/jmwri/flockdeck/internal/sysproc"
 )
 
-// LookClaude returns the path to the claude CLI, or an error explaining that
-// it is not installed. Look does the same for any agent, reading the command
+// LookClaude returns the path to the claude CLI, or agent.ErrUnavailable. Look does the same for any agent, reading the command
 // and where it comes from off its Spec; this is the answer for the one agent
 // Flockdeck could run before it had a Spec to read it from.
 func LookClaude() (string, error) {
 	exe, err := exec.LookPath("claude")
 	if err != nil {
-		return "", fmt.Errorf("the `claude` CLI was not found on PATH; install Claude Code first: %w", err)
+		return "", agent.ErrUnavailable
 	}
 	return exe, nil
 }

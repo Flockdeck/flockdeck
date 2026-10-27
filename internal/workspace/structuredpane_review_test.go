@@ -256,10 +256,8 @@ func TestAStateFileWithNoTransportRestores(t *testing.T) {
 func TestSetupTextKeepsTheEndAndFitsTheLine(t *testing.T) {
 	long := strings.Repeat("x", 400)
 	cases := []structured.Setup{
-		{Kind: structured.SetupNode, Message: "Node 20 or later is needed", Login: "Install it from nodejs.org, then restart Flockdeck."},
-		{Kind: structured.SetupNode, Message: long, Login: "Install it from nodejs.org, then restart Flockdeck."},
+		{Kind: structured.SetupLogin, Message: "Sign in", Login: "Run claude login."},
 		{Kind: structured.SetupLogin, Message: long, Login: "Run claude login.", Methods: []structured.AuthMethod{{Name: "Claude account"}, {Name: "API key"}}},
-		{Kind: structured.SetupInstall, Message: long, Login: "npm i -g agent"},
 	}
 	for _, c := range cases {
 		got := setupText("claude", &c)
@@ -267,14 +265,11 @@ func TestSetupTextKeepsTheEndAndFitsTheLine(t *testing.T) {
 			t.Errorf("%s: %d characters", c.Kind, n)
 		}
 		end := "Then start the pane again."
-		if c.Kind == structured.SetupNode {
-			end = "then restart Flockdeck."
-		}
-		if !strings.HasSuffix(got, end) || strings.Contains(got, "start the pane again") != (c.Kind != structured.SetupNode) {
+		if !strings.HasSuffix(got, end) {
 			t.Errorf("%s: %q lost the end", c.Kind, got)
 		}
 	}
-	if got := setupText("claude", &cases[2]); !strings.Contains(got, "does not sign in for you") {
+	if got := setupText("claude", &cases[1]); !strings.Contains(got, "does not sign in for you") {
 		t.Errorf("login text = %q", got)
 	}
 }

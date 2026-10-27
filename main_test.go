@@ -859,6 +859,8 @@ func testCatalog() []agent.Spec {
 				{ID: "opus"}, {ID: "sonnet"}, {ID: "haiku"},
 			},
 			Install: "https://claude.com/claude-code"},
+		// A custom agents.json entry may still carry an install line; it is
+		// never shown.
 		{ID: "codex", Name: "Codex", Runner: agent.RunnerCLI, Exe: "codex",
 			Models:  []agent.Model{{ID: "gpt-5"}},
 			Install: "npm i -g @openai/codex"},
@@ -932,27 +934,28 @@ func TestCheckAgentCatchesAModelNobodyOffers(t *testing.T) {
 }
 
 // Somebody who has not installed Codex should still learn from here that Flockdeck
-// would run it, and be told how — so an agent that is missing is listed with
-// its install line rather than left out.
-func TestPrintAgentsShowsWhatIsNotInstalled(t *testing.T) {
+// would run it, so an agent that cannot be started is listed, marked
+// unavailable, and nothing more: no install line, however the entry was written.
+func TestPrintAgentsShowsWhatIsUnavailable(t *testing.T) {
 	useCatalog(t, testCatalog(), "claude", map[string]bool{"claude": true})
 	var buf bytes.Buffer
 	printAgents(&buf)
 	out := buf.String()
 
 	for _, want := range []string{
-		"claude", "Claude Code", "installed", "default",
+		"claude", "Claude Code", "available", "default",
 		"opus, sonnet, haiku",
-		"codex", "not installed", "npm i -g @openai/codex", "gpt-5",
+		"codex", "unavailable", "gpt-5",
 		"local", "whatever you ask it for",
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the listing does not mention %q:\n%s", want, out)
 		}
 	}
-	// An agent that is there does not need telling how to install it.
-	if strings.Contains(out, "https://claude.com/claude-code") {
-		t.Errorf("the listing tells you how to install an agent you have:\n%s", out)
+	for _, bad := range []string{"https://claude.com/claude-code", "npm i -g", "install", "installed", "node", "Node"} {
+		if strings.Contains(out, bad) {
+			t.Errorf("the listing says %q for an agent that runs a program:\n%s", bad, out)
+		}
 	}
 	// A hidden agent is out of the picker, and this is the picker in another
 	// form.
@@ -980,15 +983,21 @@ func TestAnUnreadAgentsFileIsSaid(t *testing.T) {
 	}
 }
 
-// An agent that exists but is not installed is still worth a word at the
-// command line, and the word says how to get it.
-func TestNotInstalledWarning(t *testing.T) {
+// An agent that exists but cannot be started is still worth a word at the
+// command line, and the word is the fixed one.
+func TestUnavailableWarning(t *testing.T) {
 	useCatalog(t, testCatalog(), "claude", map[string]bool{"claude": true})
-	if w := notInstalledWarning("codex"); !strings.Contains(w, "Codex") || !strings.Contains(w, "npm i -g @openai/codex") {
-		t.Errorf("codex, not installed: %q, want its name and install line", w)
+	w := notInstalledWarning("codex")
+	if !strings.Contains(w, "Codex") || !strings.Contains(w, agent.UnavailableText) {
+		t.Errorf("codex, unavailable: %q, want its name and the fixed text", w)
+	}
+	for _, bad := range []string{"npm", "install", "Node", "node"} {
+		if strings.Contains(w, bad) {
+			t.Errorf("codex warning says %q: %q", bad, w)
+		}
 	}
 	if w := notInstalledWarning("claude"); w != "" {
-		t.Errorf("claude, installed: %q, want nothing", w)
+		t.Errorf("claude, available: %q, want nothing", w)
 	}
 	if w := notInstalledWarning(""); w != "" {
 		t.Errorf("no agent chosen: %q, want nothing", w)
@@ -1255,5 +1264,41 @@ func TestCleanTabNameRefusesFormatCharacters(t *testing.T) {
 	}
 	if got, err := hooks.CleanTabName("  Facturación 请求  "); err != nil || got != "Facturación 请求" {
 		t.Errorf("an ordinary non-ASCII title = %q, %v", got, err)
+	}
+}
+
+// Whatever the command line says of a built-in agent that runs a program and
+// cannot be started is the fixed word and nothing else: no install line, no
+// "not installed", no Node or npm.
+func TestBuiltinAgentsAreOnlyEverUnavailableOnTheCommandLine(t *testing.T) {
+	specs := agent.Builtins()
+	useCatalog(t, specs, agent.DefaultAgentID, map[string]bool{})
+	var buf bytes.Buffer
+	printAgents(&buf)
+	bad := regexp.MustCompile(`(?i)not installed|\binstall|\bnode\b|\bnpm\b|\bnpx\b|https?://`)
+	for _, block := range strings.Split(buf.String(), "\n\n") {
+		first, _, _ := strings.Cut(strings.TrimSpace(block), " ")
+		s, ok := findSpec(specs, first)
+		if !ok || s.Hidden {
+			continue
+		}
+		if !strings.Contains(block, "unavailable") {
+			t.Errorf("%s is not marked unavailable:\n%s", s.ID, block)
+		}
+		if m := bad.FindString(block); m != "" {
+			t.Errorf("%s: the listing says %q:\n%s", s.ID, m, block)
+		}
+	}
+	for _, s := range specs {
+		if s.Hidden {
+			continue
+		}
+		w := notInstalledWarning(s.ID)
+		if !strings.Contains(w, agent.UnavailableText) {
+			t.Errorf("%s: warning %q lacks the fixed text", s.ID, w)
+		}
+		if m := bad.FindString(w); m != "" {
+			t.Errorf("%s: the warning says %q: %q", s.ID, m, w)
+		}
 	}
 }

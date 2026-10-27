@@ -8,13 +8,11 @@
       "args": ["acp"],
       "package": "opencode-ai",
       "minVersion": "1.19.3",
-      "needsNode": false,
       "testedWith": "1.19.3",
       "testedOn": "2026-10-19",
       "runsWithoutAsking": true,
       "launchEnv": {"OPENCODE_CONFIG_CONTENT": "{\"permission\":{\"bash\":\"ask\",\"edit\":\"ask\"}}"},
       "permissionProbe": {"args": ["agent", "list"], "agent": "build", "setting": "OPENCODE_CONFIG_CONTENT", "tools": ["bash", "edit"]},
-      "install": "Install opencode from https://opencode.ai and make sure `opencode` is on PATH.",
       "note": "A single executable. It answered a full turn with no login, using its free model. By default it runs shell commands and edits without asking. Flockdeck reads what every agent resolves in the pane directory, launches it so bash and edit ask (keeping denials), and warns only if one still allows."
     },
     {
@@ -24,26 +22,9 @@
       "args": ["--acp"],
       "package": "@google/gemini-cli",
       "minVersion": "0.64.0",
-      "needsNode": true,
-      "minNode": "20.0.0",
       "testedWith": "0.64.0",
       "testedOn": "2026-10-19",
-      "install": "npm install -g @google/gemini-cli",
       "note": "--acp is a flag of the CLI itself. Answers initialize; session/new needs a Gemini login or key."
-    },
-    {
-      "id": "codex",
-      "name": "Codex (ACP adapter)",
-      "command": "codex-acp",
-      "args": [],
-      "package": "@agentclientprotocol/codex-acp",
-      "pin": "2.2.2",
-      "needsNode": true,
-      "minNode": "20.0.0",
-      "testedWith": "2.2.2",
-      "testedOn": "2026-10-19",
-      "install": "npm install --prefix <folder> @agentclientprotocol/codex-acp@2.2.2",
-      "note": "Pinned to an exact release; the adapter ships previews almost daily. session/new needs a Codex login."
     },
     {
       "id": "claude",
@@ -51,11 +32,9 @@
       "command": "flockdeck",
       "args": ["acp-adapter", "claude"],
       "minVersion": "2.1.311",
-      "needsNode": false,
       "testedWith": "2.1.311",
       "testedOn": "2026-10-27",
       "hidden": true,
-      "install": "Part of Flockdeck.",
       "note": "Flockdeck's own adapter, started as a subcommand of the flockdeck binary. The version is the one of the claude executable it was tested with. Not offered yet."
     },
     {
@@ -64,11 +43,9 @@
       "command": "flockdeck",
       "args": ["acp-adapter", "codex"],
       "minVersion": "0.0.0",
-      "needsNode": false,
       "testedWith": "0.0.0",
       "testedOn": "2026-10-27",
       "hidden": true,
-      "install": "Part of Flockdeck.",
       "note": "Flockdeck's own adapter for codex app-server, started as a subcommand of the flockdeck binary. Built from the route document and a fake app-server; no real codex has run against it, so the versions here are placeholders. Not offered yet."
     }
   ]

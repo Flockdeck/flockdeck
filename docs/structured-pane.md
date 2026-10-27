@@ -61,7 +61,7 @@ refused in the same words, so a window probing for ids learns nothing: the `team
 | `activity` | A line naming what a working agent is doing. |
 | `queued` | How many prompts wait behind the running turn. |
 | `err` | The last thing that went wrong, as one cleaned line. It says what last went wrong and not that something is wrong now; show it with the phase and status. |
-| `setup` | While the phase is `needs setup`: `kind` (`login`, `node` or `install`), a `message` (the cause) and a `fix` (what to do about it, when there is advice). |
+| `setup` | While the phase is `needs setup`: `kind` (`login`; before API 1.16 also `node` and `install`), a `message` (the cause) and a `fix` (what to do about it, when there is advice). |
 | `plan` | The agent's plan rows. |
 | `card` | The permission request that is open, with the agent's options. Answer it with `permissionAnswer`. |
 | `usage` | `used` and `size` of the context, and `cost` and `currency` when the agent reports one. |
@@ -321,11 +321,16 @@ A terminal opencode pane is not started this way and keeps its own configuration
   could close the gap later. After Flockdeck was killed, look for leftover agent or tool processes
   whose parent is gone (parent pid 1, or the user's systemd process on Linux, or by the agent's name) and end them by hand.
 
-**A login or Node problem** puts the pane in the phase `needs setup` (section 2's `setup` field),
+**A login problem** puts the pane in the phase `needs setup` (section 2's `setup` field),
 which reads as blocked with the detail "needs setup". The team graph lists it as "Needs setting up"
-with one line to act on: sign in with the agent's own tool (Flockdeck never signs in), install Node
-20 or newer (for an adapter that needs it) and restart Flockdeck, or install the agent. The state is final, so the pane is started
-again after the fix.
+with one line to act on: sign in with the agent's own tool (Flockdeck never signs in). The state is
+final, so the pane is started again after the fix.
+
+**An agent that cannot be found or started** is the phase `failed` with `err` set to "the agent is
+unavailable" and no `setup`. The same fixed text (`agent.UnavailableText`) is in the agent picker
+(`unavailable`), in a refused spawn and in a pane that could not start. It names no program and no
+runtime, gives no reason, repeats nothing the agent wrote and has no install steps, because Flockdeck does
+not install agents (API 1.16). The `install` field of the agent list and of the start dialog's agents is removed in the same version.
 
 **What is recorded.** Nothing, for now. The stream recorder exists (`internal/record/rpc.go`,
 [stream recording](rpc-recording-format.md)), but no structured pane starts it, and asking a

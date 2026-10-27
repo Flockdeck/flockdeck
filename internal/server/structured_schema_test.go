@@ -61,7 +61,7 @@ func TestStructuredMessagesFitTheSchema(t *testing.T) {
 	// Messages made from states the fake agent does not reach.
 	long := strings.Repeat("日本語", 800)
 	for name, sn := range map[string]structured.Snapshot{
-		"setup":  {Phase: structured.PhaseSetup, Setup: &structured.Setup{Kind: structured.SetupNode, Message: "Node 20 or newer is needed", Login: "Install Node 20 from nodejs.org"}},
+		"setup":  {Phase: structured.PhaseSetup, Setup: &structured.Setup{Kind: structured.SetupLogin, Message: "Sign in to continue", Login: "Run claude login"}},
 		"failed": {Phase: structured.PhaseFailed, Err: "the agent ended: exit status 1"},
 		"busy": {Phase: structured.PhaseReady, Status: bridge.StatusWorking, Activity: "Run go test", Queued: 2,
 			Plan:  []acp.PlanEntry{{Content: "write the test", Status: "in_progress", Priority: "high"}},
@@ -76,7 +76,7 @@ func TestStructuredMessagesFitTheSchema(t *testing.T) {
 			t.Fatal(err)
 		}
 		checkStructured(t, name, schema, raw)
-		if name == "setup" && !strings.Contains(string(raw), `"fix":"Install Node 20 from nodejs.org"`) {
+		if name == "setup" && !strings.Contains(string(raw), `"fix":"Run claude login"`) {
 			t.Errorf("the setup message has no fix: %s", raw)
 		}
 	}
