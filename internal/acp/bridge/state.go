@@ -87,12 +87,12 @@ func (b *Bridge) Session() SessionState {
 	}
 	if m := b.state.Modes; m != nil {
 		c := *m
-		c.Available = append([]acp.Mode(nil), m.Available...)
+		c.Available = append([]acp.Mode{}, m.Available...)
 		s.Modes = &c
 	}
 	if m := b.state.Models; m != nil {
 		c := *m
-		c.Available = append([]acp.Model(nil), m.Available...)
+		c.Available = append([]acp.Model{}, m.Available...)
 		s.Models = &c
 	}
 	return s
