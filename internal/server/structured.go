@@ -400,6 +400,8 @@ func (s *Server) structuredCommand(c *controlClient, cmd command) {
 		s.do(func() { s.structuredCancel(c, cmd) })
 	case "structuredSet":
 		s.do(func() { s.structuredSet(c, cmd) })
+	case "structuredFiles":
+		s.do(func() { s.structuredFiles(c, cmd) })
 	case "structuredWatch":
 		s.do(func() { s.structuredWatch(c, cmd) })
 	case "structuredUnwatch":

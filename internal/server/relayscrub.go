@@ -138,8 +138,9 @@ var relayPass = map[string]string{
 var relayDeskOnly = map[string]string{
 	"team": "the team panel is refused to a relay window", "tasks": "the board is refused to a relay window", "messages": "mail is refused to a relay window",
 	"paneInfo": "refused to a relay window", "paneMatches": "refused to a relay window", "paneSend": "refused to a relay window",
-	"noticeWithdraw": "an approval for windows on this machine only",
-	"changesTeam":    "the changes view is refused to a relay window", "changesFiles": "the changes view is refused to a relay window",
+	"structuredFiles": "file names of a pane's directory, refused to a relay window",
+	"noticeWithdraw":  "an approval for windows on this machine only",
+	"changesTeam":     "the changes view is refused to a relay window", "changesFiles": "the changes view is refused to a relay window",
 	"diffHunks": "the changes view is refused to a relay window", "diffContext": "the changes view is refused to a relay window",
 	"changesChecks": "the commands of a check file are for the person at the desk, and confirmChecks is refused to a relay window",
 }

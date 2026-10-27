@@ -1,7 +1,7 @@
 {
   "api": {
     "major": 1,
-    "minor": 17
+    "minor": 18
   },
   "frames": [
     {
@@ -1115,6 +1115,12 @@
       "status": "stable"
     },
     {
+      "name": "structuredFiles",
+      "access": "full",
+      "since": "1.18",
+      "status": "stable"
+    },
+    {
       "name": "structuredSet",
       "access": "full",
       "since": "1.17",
@@ -1688,6 +1694,13 @@
       "name": "structured",
       "relay": "scrub",
       "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "structuredFiles",
+      "relay": "deskOnly",
+      "why": "file names of a pane's directory, refused to a relay window",
+      "since": "1.18",
       "status": "stable"
     },
     {
