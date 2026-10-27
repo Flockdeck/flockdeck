@@ -420,10 +420,10 @@ type Workspace struct {
 	// mcpToken gives the token of a pane's own Flockdeck MCP server entry, and
 	// mcpExe the program that runs it; mcpUser lists the user's servers. Nil
 	// mcpToken, or an empty token, leaves Flockdeck's entry out. Guarded by mu.
-	mcpToken func(paneID string) string
-	mcpExe   func() (string, error)
-	mcpUser  func() []store.MCPServerPref
-	replyLookup       atomic.Pointer[func(paneID string) (LastReply, bool)]
+	mcpToken    func(paneID string) string
+	mcpExe      func() (string, error)
+	mcpUser     func() []store.MCPServerPref
+	replyLookup atomic.Pointer[func(paneID string) (LastReply, bool)]
 	// bgChecks is what is remembered of each pane's background work checks,
 	// by pane id; guarded by backgroundChecksMu. See DueBackgroundChecks.
 	bgChecks map[string]*backgroundCheck

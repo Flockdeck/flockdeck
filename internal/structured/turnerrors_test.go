@@ -68,13 +68,39 @@ func TestSetupTextFromTheAgentIsCleaned(t *testing.T) {
 		t.Fatalf("snapshot = %+v", s)
 	}
 	m := s.Setup.Methods[0]
-	for what, got := range map[string]string{"id": m.ID, "name": m.Name, "description": m.Description, "message": s.Setup.Message, "login": s.Setup.Login, "err": s.Err} {
+	for what, got := range map[string]string{"id": m.ID, "name": m.Name, "description": m.Description, "login": s.Setup.Login} {
 		if strings.ContainsAny(got, "\x1b\x07") || strings.ContainsRune(got, 0x202e) || strings.ContainsRune(got, 0x200b) {
 			t.Errorf("%s was kept with control or format characters: %q", what, got)
 		}
 		if !strings.HasPrefix(got, "a[2Jbcd") {
 			t.Errorf("%s = %q, want the text cleaned and otherwise kept", what, got)
 		}
+	}
+}
+
+// The agent's own words for a login or a failure are never shown: a sign-in
+// request says our fixed text, and any other error from initialize or
+// session/new says only that the agent is unavailable.
+func TestAgentErrorTextNeverReachesTheUser(t *testing.T) {
+	const secret = "token sk-ant-123 at C:/Users/someone"
+	run := func(err error) Snapshot {
+		r := &Runtime{
+			ctx:   context.Background(),
+			phase: PhaseStarting,
+			subs:  map[int]chan struct{}{},
+			br:    bridge.New(bridge.Config{}),
+			opts:  Options{Spec: agent.Spec{}},
+		}
+		r.fail(&acp.Client{}, err)
+		return r.Snapshot()
+	}
+	s := run(&acp.AuthRequiredError{Method: "session/new", Message: secret})
+	if s.Phase != PhaseSetup || s.Setup == nil || s.Setup.Message != signIn || s.Err != signIn {
+		t.Errorf("auth: %+v", s)
+	}
+	s = run(&acp.RPCError{Code: -32603, Message: secret})
+	if s.Phase != PhaseFailed || s.Err != unavailable {
+		t.Errorf("default branch: phase %v, err %q", s.Phase, s.Err)
 	}
 }
 

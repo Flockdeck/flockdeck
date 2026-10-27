@@ -785,6 +785,7 @@ func (r *RPCRecorder) commitMsgLocked(dir string, msg map[string]any, first, las
 	if merged > 1 {
 		line.Merged, line.Until = merged, stamp(last)
 	}
+	msg = redactMCPServers(msg)
 	var v any = msg
 	// Message text is the point of a chunk or a prompt and gets the larger limit,
 	// kept apart from the generic clip.
@@ -816,6 +817,98 @@ func (r *RPCRecorder) commitMsgLocked(dir string, msg map[string]any, first, las
 		line.Msg = b
 	}
 	r.commitLocked(line)
+}
+
+// redactMCPServers returns msg with every value an MCP server entry carries
+// in params.mcpServers replaced: the env and headers values, which travel as
+// [{name,value}] pairs so a key-based redaction never sees their names, and the
+// args, which can hold a token. The command and the names stay. msg itself is
+// not changed.
+func redactMCPServers(msg map[string]any) map[string]any {
+	params, ok := msg["params"].(map[string]any)
+	if !ok {
+		return msg
+	}
+	list, ok := params["mcpServers"].([]any)
+	if !ok {
+		return msg
+	}
+	servers := make([]any, len(list))
+	for i, e := range list {
+		srv, ok := e.(map[string]any)
+		if !ok {
+			servers[i] = e
+			continue
+		}
+		cp := make(map[string]any, len(srv))
+		for k, v := range srv {
+			switch k {
+			case "env", "headers":
+				cp[k] = redactPairValues(v)
+			case "args":
+				cp[k] = redactAll(v)
+			default:
+				cp[k] = v
+			}
+		}
+		servers[i] = cp
+	}
+	np := make(map[string]any, len(params))
+	for k, v := range params {
+		np[k] = v
+	}
+	np["mcpServers"] = servers
+	out := make(map[string]any, len(msg))
+	for k, v := range msg {
+		out[k] = v
+	}
+	out["params"] = np
+	return out
+}
+
+func redactPairValues(v any) any {
+	list, ok := v.([]any)
+	if !ok {
+		return redactAll(v)
+	}
+	out := make([]any, len(list))
+	for i, e := range list {
+		if m, ok := e.(map[string]any); ok {
+			cp := make(map[string]any, len(m))
+			for k, x := range m {
+				if k == "value" {
+					cp[k] = Redacted
+				} else {
+					cp[k] = x
+				}
+			}
+			out[i] = cp
+		} else {
+			out[i] = Redacted
+		}
+	}
+	return out
+}
+
+// redactAll replaces every string in v, whatever it holds.
+func redactAll(v any) any {
+	switch x := v.(type) {
+	case string:
+		return Redacted
+	case []any:
+		out := make([]any, len(x))
+		for i, e := range x {
+			out[i] = redactAll(e)
+		}
+		return out
+	case map[string]any:
+		out := make(map[string]any, len(x))
+		for k, e := range x {
+			out[k] = redactAll(e)
+		}
+		return out
+	}
+	return v
 }
 
 func (r *RPCRecorder) runHook(dir string, msg map[string]any) (keep, ok bool) {

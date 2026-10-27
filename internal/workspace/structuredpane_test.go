@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -125,6 +126,36 @@ func TestAStructuredHelperIsAPaneWithNoSession(t *testing.T) {
 	}
 	if tab := ws.tabOf(id); tab == nil {
 		t.Error("the structured pane is in no tab")
+	}
+}
+
+// The list from mcpServersFor is what a started structured pane's session/new
+// carries: the fake agent writes the mcpServers it received to a file.
+func TestAStartedStructuredPaneSendsItsMCPServers(t *testing.T) {
+	ws, lead, root := structuredCrew(t)
+	ws.UseMCPToken(func(id string) string { return "tok-" + id })
+	ws.UseMCPSources(func() (string, error) { return "/opt/fd/flockdeck", nil },
+		func() []store.MCPServerPref { return []store.MCPServerPref{{Name: "files", Command: "mcp-files"}} })
+	rec := filepath.Join(root, acptest.McpRecordFile)
+	if err := os.WriteFile(rec, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	id := spawnStructured(t, ws, lead, "plain")
+	statusWithin(t, ws, id, session.StatusIdle)
+	b, err := os.ReadFile(rec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []struct {
+		Name    string `json:"name"`
+		Command string `json:"command"`
+		Env     []struct{ Name, Value string }
+	}
+	if err := json.Unmarshal(b, &got); err != nil || len(got) != 2 {
+		t.Fatalf("recorded %q: %v", b, err)
+	}
+	if got[0].Name != "flockdeck" || len(got[0].Env) != 1 || got[0].Env[0].Value != "tok-"+id || got[1].Name != "files" {
+		t.Errorf("servers = %+v", got)
 	}
 }
 

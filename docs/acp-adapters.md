@@ -148,6 +148,19 @@ are sent, and a variable starting `FLOCKDECK_` or `PERCH_` is dropped from a
 user entry in any case. Nothing is taken from Flockdeck's own environment. The
 list is never sent to a window, since an `env` may hold a key.
 
+The whole list is capped at 256 KiB (an entry that would pass it is skipped),
+and a control character, a tab included, in a `command`, an argument or an `env`
+value skips the entry or the variable. On Windows two `env` names that differ
+only in case are one variable and only the first, in name order, is sent. A
+relative `command` is resolved against the pane's working directory, not
+Flockdeck's. The recording of a stream (`internal/record`) replaces the `env` and
+`headers` values and the `args` of every server in a `session/new`.
+
+Flockdeck's own entry needs a token scoped to its own pane. `hookSrv.Token()` is
+one token for the whole server, so passing it to `UseMCPToken` as it is would
+hand one pane's agent a credential that works for every pane. Until a per-pane
+token exists (T186) `UseMCPToken` is not called and no pane gets the entry.
+
 An adapter built into the `flockdeck` binary is started from the running
 program's path and not by looking `flockdeck` up on PATH, and is also given
 `HOME`, `USERPROFILE` and `APPDATA`. Other adapters get only the names their

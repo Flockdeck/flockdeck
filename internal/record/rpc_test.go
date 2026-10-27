@@ -352,3 +352,24 @@ func TestRPCNothingIsWrittenAfterClose(t *testing.T) {
 		t.Error("the file changed after Close")
 	}
 }
+
+// env and headers travel as [{name,value}] pairs, so redacting by key never
+// sees their names. The values and the args are replaced whatever they hold.
+func TestRPCMCPServerValuesAreRedacted(t *testing.T) {
+	r, _, _ := newRPC(t, RPCConfig{})
+	r.Tap(RPCOut, []byte(`{"jsonrpc":"2.0","id":2,"method":"session/new","params":{"cwd":"/w","mcpServers":[`+
+		`{"name":"flockdeck","command":"/bin/flockdeck","args":["mcp-server","plainarg-7731"],"env":[{"name":"FLOCKDECK_TOKEN","value":"tok-qq91zz"},{"name":"MODE","value":"mode-4412"}]},`+
+		`{"type":"http","name":"web","url":"https://example.com/mcp","headers":[{"name":"X-Thing","value":"hdr-5520"}]}]}}`))
+	f := read(t, r)
+	b, _ := json.Marshal(msgs(f)[0].Msg)
+	for _, secret := range []string{"tok-qq91zz", "mode-4412", "plainarg-7731", "hdr-5520"} {
+		if strings.Contains(string(b), secret) {
+			t.Errorf("%q was recorded: %s", secret, b)
+		}
+	}
+	for _, kept := range []string{"FLOCKDECK_TOKEN", "/bin/flockdeck", "example.com", "X-Thing", `"name":"web"`} {
+		if !strings.Contains(string(b), kept) {
+			t.Errorf("%q was lost: %s", kept, b)
+		}
+	}
+}

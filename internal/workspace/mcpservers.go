@@ -3,8 +3,10 @@ package workspace
 import (
 	"os"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
+	"unicode"
 
 	"github.com/jmwri/flockdeck/internal/acp"
 	"github.com/jmwri/flockdeck/internal/agent"
@@ -29,7 +31,14 @@ const (
 	maxMCPArgs    = 64
 	maxMCPEnv     = 64
 	maxMCPText    = 8192
+	// maxMCPTotal caps the bytes of the whole list: commands, arguments and
+	// environment names and values. An entry that would pass it is left out.
+	maxMCPTotal = 256 << 10
 )
+
+// foldEnvNames is true where environment names that differ only in case are one
+// variable, which is on Windows.
+var foldEnvNames = runtime.GOOS == "windows"
 
 var (
 	mcpNameRe = regexp.MustCompile(`^[A-Za-z0-9_-]{1,64}$`)
@@ -94,6 +103,10 @@ func buildMCPServers(own *acp.MCPServer, user []store.MCPServerPref) []acp.MCPSe
 		out = append(out, *own)
 	}
 	seen := map[string]bool{strings.ToLower(FlockdeckMCPName): true}
+	total := 0
+	if own != nil {
+		total = mcpSize(*own)
+	}
 	for _, u := range user {
 		if len(out) >= maxMCPServers {
 			break
@@ -101,13 +114,13 @@ func buildMCPServers(own *acp.MCPServer, user []store.MCPServerPref) []acp.MCPSe
 		if u.Off || !mcpNameRe.MatchString(u.Name) || seen[strings.ToLower(u.Name)] {
 			continue
 		}
-		if !mcpText(u.Command) || len(u.Args) > maxMCPArgs {
+		if !mcpText(u.Command) || hasControl(u.Command) || len(u.Args) > maxMCPArgs {
 			continue
 		}
 		s := acp.MCPServer{Name: u.Name, Command: u.Command, Args: []string{}, Env: []acp.EnvVar{}}
 		ok := true
 		for _, a := range u.Args {
-			if !mcpText(a) && a != "" || len(a) > maxMCPText {
+			if a != "" && !mcpText(a) || len(a) > maxMCPText || hasControl(a) {
 				ok = false
 				break
 			}
@@ -126,12 +139,27 @@ func buildMCPServers(own *acp.MCPServer, user []store.MCPServerPref) []acp.MCPSe
 		if len(names) > maxMCPEnv {
 			names = names[:maxMCPEnv]
 		}
+		folded := map[string]bool{}
 		for _, k := range names {
 			v := u.Env[k]
-			if len(v) > maxMCPText || strings.ContainsRune(v, 0) {
+			if len(v) > maxMCPText || hasControl(v) {
 				continue
 			}
+			if foldEnvNames {
+				// Two names that differ only in case are one variable here, and which
+				// one the program would see is not defined. The first in order stays.
+				f := strings.ToUpper(k)
+				if folded[f] {
+					continue
+				}
+				folded[f] = true
+			}
 			s.Env = append(s.Env, acp.EnvVar{Name: k, Value: v})
+		}
+		if n := mcpSize(s); total+n > maxMCPTotal {
+			continue
+		} else {
+			total += n
 		}
 		seen[strings.ToLower(u.Name)] = true
 		out = append(out, s)
@@ -139,8 +167,26 @@ func buildMCPServers(own *acp.MCPServer, user []store.MCPServerPref) []acp.MCPSe
 	return out
 }
 
-// mcpText says s is a usable program or argument: not empty, not too long, and
-// without a NUL or a line break.
+// mcpText says s is a usable program or argument: not empty and not too long.
+// Control characters are checked apart, by hasControl.
 func mcpText(s string) bool {
-	return s != "" && len(s) <= maxMCPText && !strings.ContainsAny(s, "\x00\r\n")
+	return s != "" && len(s) <= maxMCPText
+}
+
+// hasControl reports whether s holds a control character: a NUL, a line break,
+// an escape, a tab or DEL.
+func hasControl(s string) bool {
+	return strings.ContainsFunc(s, unicode.IsControl)
+}
+
+// mcpSize is the bytes an entry adds to the list.
+func mcpSize(s acp.MCPServer) int {
+	n := len(s.Name) + len(s.Command)
+	for _, a := range s.Args {
+		n += len(a)
+	}
+	for _, e := range s.Env {
+		n += len(e.Name) + len(e.Value)
+	}
+	return n
 }

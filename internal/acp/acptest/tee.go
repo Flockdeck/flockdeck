@@ -18,7 +18,9 @@ import (
 // to the log with a prefix, "> " for the client's and "< " for the agent's, and a
 // time. It is for a test that wants the raw traffic of a real agent, which the
 // client does not keep. The log holds whatever the test sent and the agent
-// answered, so the test must send nothing it would not put in a report.
+// answered, so the test must send nothing it would not put in a report. That includes the
+// mcpServers of a session/new, which the tee does not redact as internal/record
+// does.
 const ArgTee = "--acptest-tee"
 
 // runTee is the proxy. It returns the program's exit code.

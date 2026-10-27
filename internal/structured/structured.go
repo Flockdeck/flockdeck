@@ -722,7 +722,8 @@ func (r *Runtime) launch() bool {
 		if setup != nil {
 			r.set(PhaseSetup, setup.Message, setup)
 		} else {
-			r.set(PhaseFailed, clean(err.Error(), errCap), nil)
+			// The error is ours, but is shown as the fixed text all the same.
+			r.set(PhaseFailed, unavailable, nil)
 		}
 		return false
 	}
@@ -815,7 +816,7 @@ func (r *Runtime) fail(c *acp.Client, err error) {
 	var exit *acp.ExitError
 	switch {
 	case errors.As(err, &auth):
-		s := &Setup{Kind: SetupLogin, Message: clean(auth.Message, errCap), Login: clean(r.opts.Spec.ACP.Login, errCap)}
+		s := &Setup{Kind: SetupLogin, Message: signIn, Login: clean(r.opts.Spec.ACP.Login, errCap)}
 		for _, m := range auth.Methods {
 			s.Methods = append(s.Methods, AuthMethod{ID: clean(m.ID, fieldCap), Name: clean(m.Name, fieldCap), Description: clean(m.Description, errCap)})
 		}
@@ -829,7 +830,8 @@ func (r *Runtime) fail(c *acp.Client, err error) {
 		case <-c.Done():
 			r.set(PhaseExited, exitText(c.StderrTail()), nil)
 		default:
-			r.set(PhaseFailed, clean(err.Error(), errCap), nil)
+			// err can carry an RPC error message written by the agent.
+			r.set(PhaseFailed, unavailable, nil)
 		}
 	}
 }
@@ -971,6 +973,9 @@ func exitText(string) string { return unavailable }
 
 // unavailable is all the user is told of an agent that did not start or ended.
 const unavailable = "the agent is unavailable"
+
+// signIn is shown when the agent wants a login. It is our wording, not the agent's.
+const signIn = "sign in to the agent"
 
 // clean makes a string from the agent fit to show: invalid UTF-8, control
 // characters and Unicode format characters (bidi overrides, zero-width marks)

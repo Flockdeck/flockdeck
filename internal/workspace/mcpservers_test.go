@@ -100,31 +100,83 @@ func TestUserServersFollowFlockdecksAndAreChecked(t *testing.T) {
 	}
 }
 
-// A user entry never carries a variable of Flockdeck's own, in any case, and
-// takes nothing from the process environment.
-func TestUserServerEnvIsScrubbed(t *testing.T) {
-	t.Setenv("FLOCKDECK_TOKEN", "process-secret")
+// A user entry carries Flockdeck's own variables in no case, and carries
+// nothing the process has: its environment is the list written in its entry.
+func TestUserServerEnvIsExactlyWhatTheEntryNames(t *testing.T) {
 	t.Setenv("OPENAI_API_KEY", "process-key")
-	user := []store.MCPServerPref{{Name: "s", Command: "x", Env: map[string]string{
-		"FLOCKDECK_TOKEN": "stolen", "flockdeck_api": "a", "Perch_Token": "p", "1BAD": "x", "A=B": "y", "SAFE": "ok",
-	}}}
+	user := []store.MCPServerPref{
+		{Name: "bare", Command: "x"},
+		{Name: "s", Command: "x", Env: map[string]string{
+			"FLOCKDECK_TOKEN": "stolen", "flockdeck_api": "a", "Perch_Token": "p", "1BAD": "x", "A=B": "y", "SAFE": "ok",
+		}},
+	}
 	w := mcpWorkspace(func(string) string { return "pane-token" }, user)
 	got := w.mcpServersFor(&Pane{ID: "p"}, agent.Spec{ACP: agent.ACPSpec{MCP: true}})
-	if len(got) != 2 {
+	if len(got) != 3 {
 		t.Fatalf("servers = %+v", got)
 	}
-	if len(got[1].Env) != 1 || got[1].Env[0] != (acp.EnvVar{Name: "SAFE", Value: "ok"}) {
-		t.Errorf("user env = %+v", got[1].Env)
+	if len(got[1].Env) != 0 {
+		t.Errorf("an entry with no env got %+v", got[1].Env)
 	}
-	for _, s := range got {
-		for _, e := range s.Env {
-			if strings.Contains(e.Value, "process-") || e.Value == "stolen" {
-				t.Errorf("%s carries %s=%s", s.Name, e.Name, e.Value)
+	if len(got[2].Env) != 1 || got[2].Env[0] != (acp.EnvVar{Name: "SAFE", Value: "ok"}) {
+		t.Errorf("user env = %+v", got[2].Env)
+	}
+	if len(got[0].Env) != 1 || got[0].Env[0] != (acp.EnvVar{Name: MCPTokenEnv, Value: "pane-token"}) {
+		t.Errorf("flockdeck env = %+v", got[0].Env)
+	}
+}
+
+func TestControlCharactersAreRefused(t *testing.T) {
+	for what, e := range map[string]store.MCPServerPref{
+		"command": {Name: "c", Command: "x[2J"},
+		"arg":     {Name: "c", Command: "x", Args: []string{"a	b"}},
+		"env":     {Name: "c", Command: "x", Env: map[string]string{"K": "ab"}},
+	} {
+		got := buildMCPServers(nil, []store.MCPServerPref{e})
+		if what == "env" {
+			if len(got) != 1 || len(got[0].Env) != 0 {
+				t.Errorf("%s: %+v", what, got)
 			}
+			continue
+		}
+		if len(got) != 0 {
+			t.Errorf("%s: %+v", what, got)
 		}
 	}
-	if got[0].Env[0].Value != "pane-token" {
-		t.Errorf("flockdeck env = %+v", got[0].Env)
+}
+
+func TestTheWholeListHasASizeCap(t *testing.T) {
+	big := strings.Repeat("a", maxMCPText)
+	var user []store.MCPServerPref
+	for i := 0; i < maxMCPServers; i++ {
+		env := map[string]string{}
+		for j := 0; j < 8; j++ {
+			env["K"+string(rune('A'+j%26))+string(rune('A'+j/26))] = big
+		}
+		user = append(user, store.MCPServerPref{Name: "s" + string(rune('a'+i)), Command: "x", Env: env})
+	}
+	got := buildMCPServers(nil, user)
+	total := 0
+	for _, s := range got {
+		total += mcpSize(s)
+	}
+	if total > maxMCPTotal || len(got) == 0 || len(got) == len(user) {
+		t.Errorf("%d servers of %d bytes; the cap is %d", len(got), total, maxMCPTotal)
+	}
+}
+
+func TestEnvNamesThatDifferInCaseAreOneOnWindows(t *testing.T) {
+	old := foldEnvNames
+	defer func() { foldEnvNames = old }()
+	user := []store.MCPServerPref{{Name: "c", Command: "x", Env: map[string]string{"Path": "1", "PATH": "2", "other": "3"}}}
+	foldEnvNames = true
+	got := buildMCPServers(nil, user)
+	if len(got) != 1 || len(got[0].Env) != 2 || got[0].Env[0].Name != "PATH" || got[0].Env[1].Name != "other" {
+		t.Errorf("folded: %+v", got)
+	}
+	foldEnvNames = false
+	if got = buildMCPServers(nil, user); len(got[0].Env) != 3 {
+		t.Errorf("not folded: %+v", got)
 	}
 }
 

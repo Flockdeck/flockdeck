@@ -498,7 +498,7 @@ func TestAMissingProgramIsASetupStateThatSaysHowToGetIt(t *testing.T) {
 	o.Spec.Runner, o.Spec.ACP.Adapter = agent.RunnerACP, "not-in-the-manifest"
 	r3 := begin(t, o)
 	s = until(t, r3, "the failure", func(s Snapshot) bool { return s.Phase == PhaseFailed })
-	if !strings.Contains(s.Err, "not in the manifest") {
+	if s.Err != unavailable {
 		t.Errorf("err = %q", s.Err)
 	}
 }
