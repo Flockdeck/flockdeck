@@ -14,7 +14,7 @@
 //   asks the desk for a field), and a line that fills the cut says it may be cut.
 // - A feed event is timed when this page saw the change, not when it happened, so
 //   one noticed late sorts after conversation entries it came before.
-import { labelOf } from "./model.js";
+import { isDelivered, labelOf } from "./model.js";
 
 /** EDGE_CUT is how many characters the desk keeps of a message in a graph push. */
 export const EDGE_CUT = 140;
@@ -58,7 +58,7 @@ export function isManager(model, pane) {
  *     the manager's own team are used.
  * It answers items oldest first. An item is { key, at, kind, ... } where kind is
  *   "entry": entry is the conversation entry, unchanged;
- *   "mail": from, label, text, delivery, waiting (not yet read), maybeCut, known (the desk said whether it was cut);
+ *   "mail": from, label, text, delivery, waiting (the receiver does not have it yet), maybeCut, known (the desk said whether it was cut);
  *   "event": tone ("ship" or "down"), pane, text.
  * The conversation keeps its own order: an entry with no usable time takes the time
  * of the one before it, so the merge never moves an entry past its neighbours. Mail
@@ -78,7 +78,7 @@ export function managerTimeline({ entries = [], model = null, manager = "", even
   if (model && model.ok && manager) {
     for (const e of list(model.edges.message)) {
       if (!isObject(e) || e.to !== manager) continue;
-      other.push({ key: "m:" + (e.id ? e.id : e.time + ":" + e.from + ":" + e.text), at: timeOf(e.time), kind: "mail", from: e.from, label: labelOf(model, e.from) || "an agent", text: e.text, delivery: e.delivery, waiting: e.delivery !== "read", maybeCut: typeof e.cut === "boolean" ? e.cut : maybeCut(e.text), known: typeof e.cut === "boolean" });
+      other.push({ key: "m:" + (e.id ? e.id : e.time + ":" + e.from + ":" + e.text), at: timeOf(e.time), kind: "mail", from: e.from, label: labelOf(model, e.from) || "an agent", text: e.text, delivery: e.delivery, waiting: !isDelivered(e.delivery), maybeCut: typeof e.cut === "boolean" ? e.cut : maybeCut(e.text), known: typeof e.cut === "boolean" });
     }
     const team = model.teams.find((t) => t.manager === manager);
     const mine = new Set(team ? list(team.members) : []);

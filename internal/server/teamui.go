@@ -182,6 +182,15 @@ type teamMessageView struct {
 	// mark, which the agent knows nothing of.
 	Read bool `json:"read,omitempty"`
 	Seen bool `json:"seen,omitempty"`
+	// Delivery is the message's delivery state (see team.Message.Delivery) and
+	// Route how it reaches its receiver: "prompt" for a structured pane, absent for
+	// a terminal one. StopReason is how the newest turn that carried a prompt
+	// message ended, and Attempts how many turns it has begun. They are how the
+	// sender sees what became of what it sent.
+	Delivery   string `json:"delivery,omitempty"`
+	Route      string `json:"route,omitempty"`
+	StopReason string `json:"stopReason,omitempty"`
+	Attempts   int    `json:"attempts,omitempty"`
 }
 
 // teamCounts is the roster and the board in numbers, for the tab labels.
@@ -350,6 +359,7 @@ func ownerTeam(ws *workspace.Workspace, id string) string {
 func messageViewOf(m team.Message, members []team.Member, cut int) teamMessageView {
 	v := teamMessageView{
 		ID: m.ID, To: m.To, Time: m.Time.Format(time.RFC3339), Read: m.Read, Seen: m.Seen, System: m.System(),
+		Delivery: m.Delivery(), Route: m.Route, StopReason: m.StopReason, Attempts: m.Attempts,
 		From: teamActorView{Name: team.AgentLabel(m.From.Name), Role: m.From.Role, Pane: m.From.Pane, User: m.From.User},
 	}
 	if m.System() {
@@ -509,7 +519,7 @@ func (s *Server) teamBuild(root string, members []team.Member, rows []teamRoster
 	msg.Counts.Messages = len(all)
 	unread := map[string]int{}
 	for _, m := range all {
-		if !m.Read {
+		if m.Unread() {
 			msg.Counts.Unread++
 			unread[m.To]++
 		}

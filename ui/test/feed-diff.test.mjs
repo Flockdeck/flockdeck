@@ -96,6 +96,16 @@ test("a message is an entry when it is new, and again when it gets further", () 
   assert.deepEqual(diff(queued, graph({ edges: [edge("queued")] })), []);
 });
 
+test("a message to a structured pane is an entry when it is delivered, handled or given up on, and a requeue is not news", () => {
+  const edge = (delivery) => ({ kind: "message", from: "a", to: "b", id: 7, time: "2026-10-21T10:00:00Z", text: "T3 is ready", delivery });
+  const queued = graph({ edges: [edge("queued")] });
+  const delivered = graph({ edges: [edge("delivered")] });
+  assert.deepEqual(texts(diff(queued, delivered)), ["b was sent a's message"]);
+  assert.deepEqual(texts(diff(delivered, graph({ edges: [edge("handled")] }))), ["b finished its turn on a's message"]);
+  assert.deepEqual(texts(diff(queued, graph({ edges: [edge("undeliverable")] }))), ["a's message to b could not be delivered"]);
+  assert.deepEqual(diff(delivered, queued), [], "a message that went back to the queue is not news");
+});
+
 test("text is one line and bounded", () => {
   const long = "x".repeat(500) + "\nsecond line";
   const es = diff(graph(), graph({ edges: [{ kind: "message", from: "a", to: "b", id: 1, text: long, delivery: "queued" }], needs: [need("ask", "a", { text: long })] }));

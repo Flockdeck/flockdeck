@@ -40,6 +40,9 @@ const DELIVERY_LINES = {
   notified: (to, sender) => to + " was told about " + sender + "'s message",
   woken: (to, sender) => to + " was woken for " + sender + "'s message",
   read: (to, sender) => to + " read " + sender + "'s message",
+  delivered: (to, sender) => to + " was sent " + sender + "'s message",
+  handled: (to, sender) => to + " finished its turn on " + sender + "'s message",
+  undeliverable: (to, sender) => sender + "'s message to " + to + " could not be delivered",
 };
 
 // Task states that end the task's work. Other states are said as they are.

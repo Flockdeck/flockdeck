@@ -161,7 +161,7 @@ root need not be a manager: any pane that started helpers is one.
 | `unread` | Messages waiting unread in the pane's inbox. Absent at 0. |
 | `autoReview`, `autoApproved` | `true` when the pane's tool calls are put to auto-review, and how many calls auto-review has let through unasked. |
 | `spendUSD`, `spendPartial`, `spendIncludesPartial` | The pane's own estimated spend, with the same marks as a team's: `spendPartial` when it has run and has no priced figure, `spendIncludesPartial` when it reports its spend in part. Each is absent when it does not apply. |
-| `undelivered` | How many messages the pane sent to another pane that are still only queued. Counts all of them, not only the newest 100 the edges list. |
+| `undelivered` | How many messages the pane sent to another pane that are still only queued, or that were given up on (`undeliverable`). Counts all of them, not only the newest 100 the edges list. |
 | `lastOutput`, `stuck` | When a terminal pane last wrote to its terminal (absent for a structured pane), and `true` when it is working and has written nothing for 10 minutes. |
 | `below`, `needYou` | How many panes are under this one, and how many of those are waiting on the person. Quiet items (stale unread mail, a pane gone quiet) do not count. |
 
@@ -174,7 +174,7 @@ node order; then the last 100 `message` edges, newest first; then the last 100
 | `kind` | Goes `from` | `to` | Other fields |
 | --- | --- | --- | --- |
 | `spawn` | a parent | a helper it started | none |
-| `message` | the sending pane | the pane whose inbox the message went to | `id`, `time`, `text`, `cut`, `delivery` |
+| `message` | the sending pane | the pane whose inbox the message went to | `id`, `time`, `text`, `cut`, `delivery`, and for a structured receiver `stopReason`, `attempts` |
 | `sent` | a Claude session | the pane its `SendMessage` call named | `time` only |
 
 - Both ends of a `message` edge are agent panes of the project. Mail from the
@@ -186,11 +186,29 @@ node order; then the last 100 `message` edges, newest first; then the last 100
   `text` holds whole. Added in API 1.6: a server of 1.6 or later always writes it on
   a `message` edge, and a missing value (an older server, or data saved before) is
   unknown, for which the interface guesses from the length of `text`.
-- `delivery` is the newest state of the message: `queued` (in the inbox), `notified`
-  (the hook notice of it was given), `woken` (a line was typed into the pane for
-  it) or `read` (the agent ran `inbox read`). A state counts as newer by this
-  order and not by when it was marked. A reader of data saved before delivery
-  states existed treats a missing value as unknown, not as `queued`.
+- `delivery` is the newest state of the message. For a pane with a terminal it is
+  `queued` (in the inbox), `notified` (the hook notice of it was given), `woken` (a
+  line was typed into the pane for it) or `read` (the agent ran `inbox read`). A
+  state counts as newer by this order and not by when it was marked. A reader of
+  data saved before delivery states existed treats a missing value as unknown, not
+  as `queued`.
+- For a structured pane, which is sent mail as `session/prompt` requests (API 1.13),
+  `delivery` is `queued` (stored, not yet in a turn), `delivered` (the prompt was
+  sent and its turn began), `handled` (the turn ended with `end_turn`, `max_tokens`
+  or `max_turn_requests`) or `undeliverable` (three turns did not handle it). A
+  turn that ended `cancelled` (not asked for by the person), `refusal` or with a stop reason the protocol does
+  not define, or an agent that exited or was restarted during the turn, puts the
+  message back to `queued`, so on this route the state can move backwards. A
+  message that was queued before a restart and had begun a turn is queued again
+  when Flockdeck starts. `read` is never reached: nothing marks a prompt read.
+- `stopReason` is how the newest turn that carried the message ended: one of the
+  protocol's `end_turn`, `max_tokens`, `max_turn_requests`, `refusal`, `cancelled`,
+  `unknown` (a stop reason the protocol does not define) or `interrupted` (the
+  agent went away or refused the prompt before a turn ended). It is never the
+  agent's own text. `attempts` is how many turns the message has begun, at most 3.
+  Both are absent until a turn has carried the message. The sender sees them on the
+  edge, and the Team panel's message list carries `delivery`, `route`,
+  `stopReason` and `attempts` for each message.
 - **A `sent` edge is a claim, not a fact.** It is read from the sending session's
   own hook, and Flockdeck does not carry that message, so it can say a message
   was sent and never that it was read. Every pane's agent holds the same hook

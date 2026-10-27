@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jmwri/flockdeck/internal/hooks"
 	"github.com/jmwri/flockdeck/internal/record/schemacheck"
@@ -376,5 +377,75 @@ func TestTwoTeamGraphMatchesTheGoldenFile(t *testing.T) {
 	}
 	if strings.ReplaceAll(string(want), "\r\n", "\n") != string(got) {
 		t.Errorf("the graph differs from %s; if the change is meant, run with FLOCKDECK_UPDATE_GOLDEN=1 and read the diff.\ngot:\n%s", path, got)
+	}
+}
+
+// A message edge for each delivery state of a structured receiver validates
+// against the schema, carries the stop reason and attempts, and a terminal one
+// carries neither.
+func TestMessageEdgesForPromptDeliveryMatchTheSchema(t *testing.T) {
+	schema := loadGraphSchema(t)
+	at := time.Date(2026, 10, 27, 9, 0, 0, 0, time.UTC)
+	from := team.Sender{Pane: "p1", Name: "lead"}
+	for _, c := range []struct {
+		name string
+		m    team.Message
+		want graphEdge
+	}{
+		{"queued", team.Message{ID: 1, From: from, To: "p2", Time: at, Text: "hi", Route: team.RoutePrompt},
+			graphEdge{Delivery: "queued"}},
+		{"delivered", team.Message{ID: 2, From: from, To: "p2", Time: at, Text: "hi", Route: team.RoutePrompt, DeliveredAt: at, Attempts: 1},
+			graphEdge{Delivery: "delivered", Attempts: 1}},
+		{"handled", team.Message{ID: 3, From: from, To: "p2", Time: at, Text: "hi", Route: team.RoutePrompt, DeliveredAt: at, EndedAt: at, StopReason: team.StopEndTurn, Attempts: 1},
+			graphEdge{Delivery: "handled", StopReason: "end_turn", Attempts: 1}},
+		{"requeued", team.Message{ID: 4, From: from, To: "p2", Time: at, Text: "hi", Route: team.RoutePrompt, StopReason: team.StopCancelled, Attempts: 2},
+			graphEdge{Delivery: "queued", StopReason: "cancelled", Attempts: 2}},
+		{"undeliverable", team.Message{ID: 5, From: from, To: "p2", Time: at, Text: "hi", Route: team.RoutePrompt, GaveUpAt: at, StopReason: team.StopRefusal, Attempts: 3},
+			graphEdge{Delivery: "undeliverable", StopReason: "refusal", Attempts: 3}},
+		{"terminal", team.Message{ID: 6, From: from, To: "p3", Time: at, Text: "hi", WokenAt: at},
+			graphEdge{Delivery: "woken"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			e := messageEdge(c.m)
+			if e.Delivery != c.want.Delivery || e.StopReason != c.want.StopReason || e.Attempts != c.want.Attempts {
+				t.Errorf("edge = %+v, want %+v", e, c.want)
+			}
+			b, _ := json.Marshal(e)
+			if errs := validateDef(schema, "edge", b); len(errs) != 0 {
+				t.Errorf("%s: %v", b, errs)
+			}
+		})
+	}
+}
+
+// The hand-built graph fixtures validate against the schema.
+func TestBuiltGraphFixturesMatchTheSchema(t *testing.T) {
+	schema := loadGraphSchema(t)
+	files, err := filepath.Glob("../../api/fixtures/built-graph-*.json")
+	if err != nil || len(files) == 0 {
+		t.Fatalf("no built graph fixtures: %v", err)
+	}
+	for _, f := range files {
+		raw, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if errs := schema.Validate(raw); len(errs) != 0 {
+			t.Errorf("%s: %v", f, errs)
+		}
+	}
+}
+
+// The window's message list says what became of each message.
+func TestTheMessageViewCarriesTheDeliveryState(t *testing.T) {
+	at := time.Date(2026, 10, 27, 9, 0, 0, 0, time.UTC)
+	m := team.Message{ID: 3, From: team.Sender{Pane: "p1", Name: "lead"}, To: "p2", Time: at, Text: "hi", Route: team.RoutePrompt,
+		DeliveredAt: at, EndedAt: at, StopReason: team.StopEndTurn, Attempts: 1}
+	v := messageViewOf(m, nil, 0)
+	if v.Delivery != "handled" || v.Route != "prompt" || v.StopReason != "end_turn" || v.Attempts != 1 || v.Read {
+		t.Errorf("view = %+v", v)
+	}
+	if v := messageViewOf(team.Message{ID: 4, To: "p3", Time: at, Text: "hi"}, nil, 0); v.Delivery != "queued" || v.Route != "" {
+		t.Errorf("terminal view = %+v", v)
 	}
 }

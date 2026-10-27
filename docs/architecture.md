@@ -160,10 +160,9 @@ The limits of this today:
 - Both built-in rules are marked `Tested: false` (`internal/agent/wake.go`) until
   one is checked against a recording of the real agent, and a rule from
   `agents.json` is never trusted. So no terminal pane is woken on main.
-- A structured pane is the exception. It has no screen to read, so it is idle when
-  the protocol says its turn ended, and the same line is sent to it as a prompt,
-  with no Enter. The other conditions and limits apply. The wake event names the
-  rule as `structured`.
+- A structured pane is not woken. Its mail is sent as `session/prompt` requests by
+  the prompt delivery service, which tracks queued, delivered, handled and
+  undeliverable on the message ([structured pane](structured-pane.md)).
 - Text mode is opt-in per agent type, and only for an agent whose catalog entry
   offers it, which is Aider alone. The line is then `Flockdeck message from <role>:
   <text>`, cleaned and cut to 300 characters, and every unread message is typed in

@@ -38,6 +38,8 @@ type Store struct {
 	// event is told, outside the lock, of each message sent and each delivery
 	// state reached.
 	event func(Event)
+	// router names the route of a message to a pane (see SetRouter).
+	router func(pane string) string
 }
 
 // NewStore returns an empty store that reads the time from now (time.Now when
@@ -47,6 +49,17 @@ func NewStore(now func() time.Time) *Store {
 		now = time.Now
 	}
 	return &Store{boxes: map[string][]Message{}, now: now, next: 1}
+}
+
+// SetRouter installs the function that says how mail to a pane is delivered: it
+// returns RoutePrompt for a pane that is sent its messages as prompts, and "" for
+// any other. A message made by Send takes the route its receiver has at that
+// moment, so every sender, a system notice included, is routed the same way. It
+// is called outside the store's lock and may look at the panes.
+func (s *Store) SetRouter(fn func(pane string) string) {
+	s.mu.Lock()
+	s.router = fn
+	s.mu.Unlock()
 }
 
 // Rev is a number that changes with every change to any inbox.
@@ -104,6 +117,20 @@ func tooLong(n int) error {
 // message that has been read; if every message in it is unread the send is
 // refused, so nothing unread is lost.
 func (s *Store) Send(from Sender, to, text string) (Message, error) {
+	s.mu.Lock()
+	router := s.router
+	s.mu.Unlock()
+	route := ""
+	if router != nil {
+		route = router(to)
+	}
+	return s.SendRoute(from, to, text, route)
+}
+
+// SendRoute is Send for a message with a route given by the caller: RoutePrompt
+// for a pane that is sent its mail as prompts. The route is fixed when the
+// message is made.
+func (s *Store) SendRoute(from Sender, to, text, route string) (Message, error) {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return Message{}, fmt.Errorf("the message is empty")
@@ -121,7 +148,7 @@ func (s *Store) Send(from Sender, to, text string) (Message, error) {
 		}
 		box = append(box[:i:i], box[i+1:]...)
 	}
-	m := Message{ID: s.next, From: from, To: to, Time: s.now(), Text: text}
+	m := Message{ID: s.next, From: from, To: to, Time: s.now(), Text: text, Route: route}
 	s.next++
 	s.boxes[to] = append(box, m)
 	s.mu.Unlock()
@@ -140,7 +167,7 @@ func (s *Store) SendSystem(to, text string) (Message, bool) {
 
 func firstRead(box []Message) int {
 	for i, m := range box {
-		if m.Read {
+		if m.Finished() {
 			return i
 		}
 	}
@@ -153,7 +180,7 @@ func (s *Store) List(pane string, all bool) []Message {
 	defer s.mu.Unlock()
 	var out []Message
 	for _, m := range s.boxes[pane] {
-		if all || !m.Read {
+		if all || m.Unread() {
 			out = append(out, m)
 		}
 	}
@@ -182,6 +209,13 @@ func (s *Store) Read(pane string, id int) (Message, error) {
 	for i := range box {
 		if box[i].ID != id {
 			continue
+		}
+		if box[i].Route == RoutePrompt {
+			// Read means something only for a terminal pane. A message sent as a
+			// prompt is returned as it is, with no mark and no event.
+			m := box[i]
+			s.mu.Unlock()
+			return m, nil
 		}
 		changed := !box[i].Read
 		box[i].Read = true
@@ -276,6 +310,12 @@ func (s *Store) Forget(pane string) {
 	}
 }
 
+// SnapshotVersion is the version Snapshot writes. Version 2 added the fields of
+// the prompt route (Route, DeliveredAt, EndedAt, GaveUpAt, StopReason,
+// Attempts). Load reads every version: an older snapshot has none of them, and
+// its messages are on the terminal route, which is what they were.
+const SnapshotVersion = 2
+
 type snapshot struct {
 	Version int                  `json:"version"`
 	Next    int                  `json:"next"`
@@ -292,7 +332,7 @@ func (s *Store) Snapshot() ([]byte, error) {
 			boxes[pane] = box
 		}
 	}
-	return json.MarshalIndent(snapshot{Version: 1, Next: s.next, Boxes: boxes}, "", "  ")
+	return json.MarshalIndent(snapshot{Version: SnapshotVersion, Next: s.next, Boxes: boxes}, "", "  ")
 }
 
 // Load replaces the store's contents with what Snapshot wrote. Messages that
@@ -310,10 +350,11 @@ func (s *Store) Load(data []byte) error {
 	for pane, box := range snap.Boxes {
 		var kept []Message
 		for _, m := range box {
-			if m.ID <= 0 || m.To != pane || len(m.Text) > MaxText || (m.Read && m.Time.Before(cutoff)) || m.Time.Before(oldest) {
+			if m.ID <= 0 || m.To != pane || len(m.Text) > MaxText || (m.Finished() && m.Time.Before(cutoff)) || m.Time.Before(oldest) {
 				continue
 			}
 			next = max(next, m.ID+1)
+			m = restored(m, s.now())
 			kept = append(kept, m)
 		}
 		if len(kept) > MaxInbox {
@@ -337,9 +378,211 @@ func (s *Store) NewestUnread(pane string) int {
 	defer s.mu.Unlock()
 	box := s.boxes[pane]
 	for i := len(box) - 1; i >= 0; i-- {
-		if !box[i].Read {
+		if box[i].Unread() {
 			return box[i].ID
 		}
 	}
 	return 0
+}
+
+// restored is a loaded message as it stands after a restart. A prompt that was
+// delivered and whose turn had not ended was running in an agent process that
+// is gone, so the message is queued again, for the new process to be sent; if it
+// has already had MaxAttempts turns it is given up on instead. A route this
+// version does not know is read as the terminal route, which is the one that
+// asks nothing of the pane.
+func restored(m Message, now time.Time) Message {
+	if m.Route != RoutePrompt {
+		m.Route = ""
+		return m
+	}
+	m.Attempts = max(m.Attempts, 0)
+	if m.Delivery() != DeliveryDelivered {
+		return m
+	}
+	m.DeliveredAt = time.Time{}
+	m.StopReason = StopInterrupted
+	if m.Attempts >= MaxAttempts {
+		m.GaveUpAt = now
+	}
+	return m
+}
+
+// Pending returns the messages of a pane that are queued on the prompt route,
+// oldest first, as copies.
+func (s *Store) Pending(pane string) []Message {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []Message
+	for _, m := range s.boxes[pane] {
+		if m.Route == RoutePrompt && m.Delivery() == DeliveryQueued {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// InFlight returns the messages of a pane that are delivered and whose turn has
+// not ended, oldest first, as copies.
+func (s *Store) InFlight(pane string) []Message {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []Message
+	for _, m := range s.boxes[pane] {
+		if m.Route == RoutePrompt && m.Delivery() == DeliveryDelivered {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// Panes returns the ids of the panes that have a message on the prompt route
+// that is queued or delivered, for a service that works through them.
+func (s *Store) Panes() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []string
+	for pane, box := range s.boxes {
+		for _, m := range box {
+			if d := m.Delivery(); m.Route == RoutePrompt && (d == DeliveryQueued || d == DeliveryDelivered) {
+				out = append(out, pane)
+				break
+			}
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+// find returns the index of the message in the pane's inbox, or -1.
+func (s *Store) find(pane string, id int) int {
+	for i, m := range s.boxes[pane] {
+		if m.ID == id {
+			return i
+		}
+	}
+	return -1
+}
+
+// Deliver records that the message was sent to the pane's agent as a prompt and
+// its turn began. Only a queued message on the prompt route can be delivered,
+// and it counts as an attempt; false means it was not queued, so nothing was
+// done.
+func (s *Store) Deliver(pane string, id int) (Message, bool) {
+	s.mu.Lock()
+	i := s.find(pane, id)
+	if i < 0 || s.boxes[pane][i].Route != RoutePrompt || s.boxes[pane][i].Delivery() != DeliveryQueued {
+		s.mu.Unlock()
+		return Message{}, false
+	}
+	m := &s.boxes[pane][i]
+	m.DeliveredAt = s.now()
+	m.Attempts++
+	out := *m
+	s.mu.Unlock()
+	s.emit(Event{Kind: EventDelivery, ID: out.ID, State: DeliveryDelivered, Time: out.DeliveredAt, Attempt: out.Attempts})
+	s.notify()
+	return out, true
+}
+
+// EndTurn records how the turn that carried a delivered message ended. The stop
+// reason is stored as Outcome gives it. A handled message is done; any other goes
+// back to the queue to be sent again, unless it has had MaxAttempts turns, when
+// it is given up on. A message that is not delivered is left alone.
+func (s *Store) EndTurn(pane string, id int, stop string) (Message, bool) {
+	reason, handled := Outcome(stop)
+	return s.end(pane, id, reason, handled)
+}
+
+// EndTurnAsked is EndTurn for a turn that ended because the person asked for it
+// to stop. A cancelled stop reason then counts as handled, with the reason kept:
+// the person chose to stop it, and sending the message again would undo that.
+// Any other stop reason is judged as EndTurn judges it.
+func (s *Store) EndTurnAsked(pane string, id int, stop string) (Message, bool) {
+	reason, handled := Outcome(stop)
+	return s.end(pane, id, reason, handled || reason == StopCancelled)
+}
+
+// Fail records an attempt to send a queued message that failed before any turn
+// began, because the runtime would not take it. It counts as an attempt, so a
+// message that is refused every time ends undeliverable after MaxAttempts
+// instead of being tried for ever.
+func (s *Store) Fail(pane string, id int) (Message, bool) {
+	s.mu.Lock()
+	i := s.find(pane, id)
+	if i < 0 || s.boxes[pane][i].Route != RoutePrompt || s.boxes[pane][i].Delivery() != DeliveryQueued {
+		s.mu.Unlock()
+		return Message{}, false
+	}
+	m := &s.boxes[pane][i]
+	now := s.now()
+	m.Attempts++
+	m.StopReason = StopInterrupted
+	if m.Attempts >= MaxAttempts {
+		m.GaveUpAt = now
+	}
+	out := *m
+	s.mu.Unlock()
+	s.emit(Event{Kind: EventDelivery, ID: out.ID, State: out.Delivery(), Time: now, Stop: StopInterrupted, Attempt: out.Attempts})
+	s.notify()
+	return out, true
+}
+
+// Reroute moves the unfinished messages of a pane that are on the prompt route
+// to the terminal route, for a pane that turned out not to be structured (it
+// came back as a terminal, or its agent changed). They are unread terminal mail
+// from then on. A message already handled or given up on stays as it was.
+// It returns how many moved.
+func (s *Store) Reroute(pane string) int {
+	s.mu.Lock()
+	n := 0
+	box := s.boxes[pane]
+	for i := range box {
+		m := &box[i]
+		if m.Route != RoutePrompt || m.Finished() {
+			continue
+		}
+		m.Route = ""
+		m.DeliveredAt, m.StopReason, m.Attempts = time.Time{}, "", 0
+		n++
+	}
+	s.mu.Unlock()
+	if n > 0 {
+		s.notify()
+	}
+	return n
+}
+
+// Interrupted records that the turn carrying a delivered message did not end:
+// the agent exited, the pane was restarted, or the prompt was refused with an
+// error. The message goes back to the queue, or is given up on after
+// MaxAttempts.
+func (s *Store) Interrupted(pane string, id int) (Message, bool) {
+	return s.end(pane, id, StopInterrupted, false)
+}
+
+func (s *Store) end(pane string, id int, reason string, handled bool) (Message, bool) {
+	s.mu.Lock()
+	i := s.find(pane, id)
+	if i < 0 || s.boxes[pane][i].Route != RoutePrompt || s.boxes[pane][i].Delivery() != DeliveryDelivered {
+		s.mu.Unlock()
+		return Message{}, false
+	}
+	m := &s.boxes[pane][i]
+	now := s.now()
+	m.StopReason = reason
+	switch {
+	case handled:
+		m.EndedAt = now
+	case m.Attempts >= MaxAttempts:
+		m.DeliveredAt = time.Time{}
+		m.GaveUpAt = now
+	default:
+		m.DeliveredAt = time.Time{}
+	}
+	out := *m
+	s.mu.Unlock()
+	s.emit(Event{Kind: EventDelivery, ID: out.ID, State: out.Delivery(), Time: now, Stop: reason, Attempt: out.Attempts})
+	s.notify()
+	return out, true
 }

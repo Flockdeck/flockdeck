@@ -242,10 +242,10 @@ machine. That is the limit described in section 6 ("Who may send these commands"
 an agent that holds the instance token and sets an `Origin` can send the command
 too, so the author `you` is a record and not proof.
 
-- `delivery` reuses the graph's message states, in the same order: `queued`,
-  `notified`, `woken`, `read`. It is absent while the message is being written,
-  which a window shows as sending. Delivered is any of `queued`, `notified` and
-  `woken`; read is `read`.
+- `delivery` reuses the graph's message states: `queued`, `notified`, `woken`,
+  `read`, and for a structured owner `delivered`, `handled` and `undeliverable`
+  (API 1.13). It is absent while the message is being written, which a window
+  shows as sending. A window shows anything but `read` as delivered.
 - `state` is `open`, `fixed`, `resolved` or `dismissed`. `fixed` is set when the
   owner says so (a later commit on the branch that the owner reports); only the
   person sets `resolved`, with `commentResolve`. `commentReopen` makes a comment

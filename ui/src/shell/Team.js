@@ -30,6 +30,12 @@ const ONE_AT_A_TIME = ["add", "note", "status", "assign", "branch", "send", "pru
 /** PENDING_MS is how long a send waits for its answer before the button is ready again; an answer lost with a dropped connection does not lock it for good. */
 export const PENDING_MS = 20000;
 
+/** deliveryWords is what the message list says of how far a message got: "read" for a terminal pane, the delivery state for a pane sent prompts. */
+export function deliveryWords(m) {
+  if (m.route === "prompt") return m.delivery ? ", " + m.delivery + (m.stopReason && m.delivery !== "delivered" ? " (" + m.stopReason.replace(/_/g, " ") + ")" : "") : "";
+  return m.read ? ", read" : "";
+}
+
 /** Team is the dialog. team is the store's team push, tasks its latest taskList
  *  answer, messages its latest msgList answer and result its latest answer to a
  *  command that changed something. gone is the reason the project can no longer be
@@ -282,7 +288,7 @@ export function Team({ team: teamMsg, tasks: tasksMsg, messages: messagesMsg, re
     ${team.messages.length === 0 ? html`<p class="dialog-note" id="team-no-messages">No messages yet.</p>` : null}
     <ul class="team-messages" id="team-messages">
       ${team.messages.map((m) => html`<li key=${m.id + ":" + m.to} class=${"team-message" + (m.seen || m.from.user ? "" : " is-unseen")} data-ctx="message" data-message=${m.id}>
-        <div class="team-who">${m.system ? "Flockdeck" : actorWords(m.from)} to ${m.toName || m.to}${m.toRole ? " (" + m.toRole + ")" : ""}, ${ago(m.time, clock())}${m.read ? ", read" : ""}</div>
+        <div class="team-who">${m.system ? "Flockdeck" : actorWords(m.from)} to ${m.toName || m.to}${m.toRole ? " (" + m.toRole + ")" : ""}, ${ago(m.time, clock())}${deliveryWords(m)}</div>
         <p class="team-body">${full[m.id] !== undefined ? full[m.id] : m.text}${m.cut && full[m.id] === undefined ? "…" : ""}</p>
         <div class="team-row">
           ${m.cut && full[m.id] === undefined

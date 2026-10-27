@@ -24,6 +24,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -175,10 +176,40 @@ type Options struct {
 	// of Flockdeck's own is started from. Nil means os.Executable. It is for tests.
 	Executable func() (string, error)
 
+	// OnTurn is told what becomes of each prompt sent with SendTagged. It is
+	// called from the runtime's own goroutines, outside its lock, and must not
+	// block for long. Nil means nobody is told.
+	OnTurn func(TurnEvent)
+
 	// Bridge tunes the transcript bridge; the zero value works.
 	Bridge bridge.Config
 	// Client lets a test shorten the client's waits.
 	Client func(*acp.Config)
+}
+
+// TurnEventKind is what happened to a tagged prompt.
+type TurnEventKind string
+
+const (
+	// TurnBegan: the prompt was sent to the agent and its turn began.
+	TurnBegan TurnEventKind = "began"
+	// TurnEnded: the turn ended and the agent gave a stop reason.
+	TurnEnded TurnEventKind = "ended"
+	// TurnLost: the prompt will not get a stop reason: it was dropped from the
+	// queue (cancel, close, the agent exiting), the agent exited during its
+	// turn, or the agent refused it with an error. It may follow TurnBegan.
+	TurnLost TurnEventKind = "lost"
+)
+
+// TurnEvent is one thing that happened to the prompt sent with Tag.
+type TurnEvent struct {
+	What TurnEventKind
+	Tag  int
+	// Stop is the stop reason of a TurnEnded, as the agent sent it.
+	Stop string
+	// Asked is set on a TurnEnded when Cancel was called while the turn ran, so
+	// the stop was asked for and did not happen by itself.
+	Asked bool
 }
 
 // AuthMethod is a way of signing in that the agent listed.
@@ -251,7 +282,10 @@ type Runtime struct {
 	setup   *Setup
 	err     string
 	agentNm string
-	queue   []string
+	queue   []queued
+	// inTurn says a prompt is with the agent, and asked that Cancel was called
+	// during it.
+	inTurn, asked bool
 	closed  bool
 	client  *acp.Client
 	session string
@@ -268,6 +302,13 @@ type Runtime struct {
 	tearOnce sync.Once
 	stopTap  chan struct{}
 	tapDone  chan struct{}
+}
+
+// queued is a prompt waiting for its turn. tag is the caller's own number for it,
+// or zero when the caller does not want to be told what became of it.
+type queued struct {
+	blocks []string
+	tag    int
 }
 
 type waiter struct {
@@ -343,12 +384,29 @@ func (r *Runtime) notify() {
 
 // Send queues a prompt. It is sent when the turn before it has ended, and
 // right away if there is none. It may be called while the agent is starting.
-func (r *Runtime) Send(text string) error {
-	if strings.TrimSpace(text) == "" {
+func (r *Runtime) Send(text string) error { return r.send(0, text) }
+
+// SendTagged is Send for a prompt in several text content blocks, which the
+// agent is given as separate blocks. The tag is a positive number of the
+// caller's, and Options.OnTurn is told it with what becomes of the prompt, so a
+// result is matched to the prompt by its tag and not by its place in the order.
+func (r *Runtime) SendTagged(tag int, blocks ...string) error {
+	if tag <= 0 {
+		return errors.New("structured: a tagged prompt needs a positive tag")
+	}
+	return r.send(tag, blocks...)
+}
+
+func (r *Runtime) send(tag int, blocks ...string) error {
+	size := 0
+	for _, b := range blocks {
+		size += len(b)
+	}
+	if size == 0 || strings.TrimSpace(strings.Join(blocks, "")) == "" {
 		return errors.New("structured: the prompt is empty")
 	}
-	if len(text) > maxPrompt {
-		return fmt.Errorf("structured: the prompt is %d bytes; the most is %d", len(text), maxPrompt)
+	if size > maxPrompt {
+		return fmt.Errorf("structured: the prompt is %d bytes; the most is %d", size, maxPrompt)
 	}
 	r.mu.Lock()
 	if r.closed || r.phase != PhaseStarting && r.phase != PhaseReady {
@@ -359,7 +417,7 @@ func (r *Runtime) Send(text string) error {
 		r.mu.Unlock()
 		return ErrQueueFull
 	}
-	r.queue = append(r.queue, text)
+	r.queue = append(r.queue, queued{blocks: slices.Clone(blocks), tag: tag})
 	r.mu.Unlock()
 	select {
 	case r.wake <- struct{}{}:
@@ -374,8 +432,12 @@ func (r *Runtime) Send(text string) error {
 func (r *Runtime) Cancel() error {
 	r.mu.Lock()
 	c, sid, phase := r.client, r.session, r.phase
-	r.queue = nil
+	if r.inTurn {
+		r.asked = true
+	}
+	dropped := r.dropQueueLocked()
 	r.mu.Unlock()
+	r.lose(dropped)
 	r.notify()
 	if phase != PhaseReady || c == nil || sid == "" {
 		return ErrNotRunning
@@ -527,10 +589,11 @@ func (r *Runtime) finish(p Phase) {
 	if r.phase == PhaseStarting || r.phase == PhaseReady {
 		r.phase = p
 	}
-	r.queue = nil
+	dropped := r.dropQueueLocked()
 	waiters := r.waiters
 	r.waiters = nil
 	r.mu.Unlock()
+	r.lose(dropped)
 	for _, w := range waiters {
 		select {
 		case w.ch <- "":
@@ -551,8 +614,9 @@ func (r *Runtime) set(p Phase, err string, setup *Setup) {
 		r.err = err
 	}
 	r.setup = setup
-	r.queue = nil
+	dropped := r.dropQueueLocked()
 	r.mu.Unlock()
+	r.lose(dropped)
 	r.notify()
 }
 
@@ -867,11 +931,37 @@ func (r *Runtime) endsPane(c *acp.Client, err error) bool {
 	}
 }
 
+// dropQueueLocked empties the queue and returns the tags of the prompts that
+// were in it. The caller holds r.mu.
+func (r *Runtime) dropQueueLocked() []int {
+	var tags []int
+	for _, q := range r.queue {
+		if q.tag != 0 {
+			tags = append(tags, q.tag)
+		}
+	}
+	r.queue = nil
+	return tags
+}
+
+// lose tells OnTurn that the prompts with these tags will not be sent.
+func (r *Runtime) lose(tags []int) {
+	for _, t := range tags {
+		r.turnEvent(TurnEvent{What: TurnLost, Tag: t})
+	}
+}
+
+func (r *Runtime) turnEvent(e TurnEvent) {
+	if r.opts.OnTurn != nil && e.Tag != 0 {
+		r.opts.OnTurn(e)
+	}
+}
+
 // loop sends the queued prompts one at a time.
 func (r *Runtime) loop() {
 	c := r.client
 	for {
-		text, ok := r.pop()
+		q, ok := r.pop()
 		if !ok {
 			select {
 			case <-r.wake:
@@ -883,10 +973,19 @@ func (r *Runtime) loop() {
 				return
 			}
 		}
-		r.br.TurnStart(text)
+		r.mu.Lock()
+		r.inTurn, r.asked = true, false
+		r.mu.Unlock()
+		r.br.TurnStart(strings.Join(q.blocks, "\n"))
 		r.notify()
-		stop, err := c.Prompt(r.ctx, r.session, text)
+		r.turnEvent(TurnEvent{What: TurnBegan, Tag: q.tag})
+		stop, err := c.PromptBlocks(r.ctx, r.session, q.blocks...)
+		r.mu.Lock()
+		asked := r.asked
+		r.inTurn, r.asked = false, false
+		r.mu.Unlock()
 		if err != nil {
+			r.turnEvent(TurnEvent{What: TurnLost, Tag: q.tag})
 			if r.ctx.Err() != nil {
 				return
 			}
@@ -908,15 +1007,16 @@ func (r *Runtime) loop() {
 			return
 		}
 		r.br.TurnEnd(stop)
+		r.turnEvent(TurnEvent{What: TurnEnded, Tag: q.tag, Stop: stop, Asked: asked})
 		r.notify()
 	}
 }
 
-func (r *Runtime) pop() (string, bool) {
+func (r *Runtime) pop() (queued, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.phase != PhaseReady || len(r.queue) == 0 {
-		return "", false
+		return queued{}, false
 	}
 	t := r.queue[0]
 	r.queue = r.queue[1:]

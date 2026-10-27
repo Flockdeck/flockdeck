@@ -235,13 +235,10 @@ var agentTypeAllowed = map[string]map[string]agentTypeAllow{
 	},
 	"internal/workspace/wake.go": {
 		// Typed wake reads and writes a terminal's input and screen through
-		// wakeSession. A structured pane implements it too (wakeStructured) and is
-		// sent its line through wakeCandidate.Deliver, so the c.Sess reads are not
-		// terminal-only. wakeCandidates branches on the kind of runtime with a type
-		// assertion (w.Runtime(p).(*structuredRuntime)), which this checker does not
-		// catch.
-		"wakeService.consider | c.Sess":                          {7, "the status, input times and reading of a wakeSession, a terminal or a structured pane"},
-		"wakeService.fire | c.Sess":                              {5, "types into a terminal, and re-reads its output before the line; a structured pane is delivered to before this (wakeCandidate.Deliver)"},
+		// wakeSession. Only terminal panes are candidates: a structured pane is sent
+		// its mail by the prompt delivery service.
+		"wakeService.consider | c.Sess":                          {7, "the status, input times and reading of a wakeSession, a terminal pane"},
+		"wakeService.fire | c.Sess":                              {5, "types into a terminal, and re-reads its output before the line"},
 		"wakeService.wordHolds | c.Sess":                         {1, "the input time of a terminal pane, for an agent that records its own state"},
 		"wakeService.wordStands | c.Sess":                        {1, "the screen of a terminal pane, read again before the line"},
 		"wakeService.beforeEnter | c.Sess":                       {3, "the status, input time and screen of a terminal pane, read before the Enter that submits the line"},

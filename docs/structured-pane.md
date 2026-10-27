@@ -255,20 +255,43 @@ A terminal opencode pane is not started this way and keeps its own configuration
 - No export, since the conversation is not stored where Flockdeck reads it. The conversation
   commands read it from memory (see the drawer section above).
   Flockdeck does not load or resume the agent's own session.
-- Mail reaches a structured agent only as text in a prompt, and only after an opt-in. The agent is
-  not given `FLOCKDECK_API`, `FLOCKDECK_TOKEN` or `FLOCKDECK_PANE` (names starting `FLOCKDECK_` are
+- Mail reaches a structured agent as a `session/prompt` of two text blocks, with no opt-in. The agent
+  is not given `FLOCKDECK_API`, `FLOCKDECK_TOKEN` or `FLOCKDECK_PANE` (names starting `FLOCKDECK_` are
   never passed to an agent), so it cannot run `flockdeck inbox`, and its briefing has its own Messages
-  section that does not mention the command. Without the opt-in for its agent type
-  (`flockdeck wake text on -agent <id>`, the setting aider uses) it is not woken by mail, the mail
-  stays unread, and the briefing says mail is not available. With it, each wake is one prompt with the
-  oldest unread message: `Flockdeck message from agent "<role>": <text>`, or `the user` for a message
-  marked as the person's. The text is one line with escapes and control characters removed, the label
-  is cut at 32 characters and the whole line at 300 with an ellipsis, and the agent cannot fetch what
-  is cut. The message is marked read once the prompt is accepted, and the wake event logs the line.
+  section that does not mention the command. The first block is `Flockdeck message from agent
+  "<role>":`, or `the user` for a message marked as the person's. The second is the message text on
+  one line, with escapes, control characters and line breaks removed, in full up to the 8 KiB a message
+  may hold, and starts with the fixed marker `Text of the message: `, so no block but the first ever
+  starts with the prefix whatever the body says. The sender label is cut at 32 characters. A message is never typed and never marked read.
   This is a trust change: text written by another agent reaches an agent that may run commands as a
-  user turn. The guards are the fixed prefix, the single line, the two cuts and the briefing's
-  untrusted-data disclaimer. The gate is `structuredTextNeedsOptIn` in
-  `internal/workspace/wake_text.go`.
+  user turn. The guards are the fixed first block in a block of its own, the single line, and the
+  briefing's untrusted-data disclaimer (`promptBlocks` in `internal/workspace/promptdelivery.go`).
+
+  Delivery is tracked on the message (`team.Message.Route` is `prompt`, set when the message is made
+  to a pane that is, or was saved as, a structured pane):
+
+  | State | Meaning |
+  | --- | --- |
+  | `queued` | In the store. The prompt delivery service hands it to the pane's runtime, which keeps 16 prompts behind the running turn; messages past that wait in the store and are handed over as room appears. |
+  | `delivered` | The prompt was sent and its turn began. This is the nearest ACP gets to "accepted": there is no separate acknowledgement before the turn. |
+  | `handled` | The turn ended with `end_turn`, `max_tokens` or `max_turn_requests`. The stop reason is stored on the message. |
+  | `undeliverable` | Three turns began and none was handled. |
+
+  A cancel the person asked for (Cancel was called during the turn) counts as handled and keeps the
+  stop reason `cancelled`. A turn that ends `cancelled` with nobody asking, or `refusal`, or with a stop reason the protocol does not define (stored
+  as `unknown`), puts the message back to `queued` with the stop reason kept and the attempt counted.
+  So does an agent that exits or is restarted during the turn (stored as `interrupted`), or one that
+  answers the prompt with an error, and a prompt dropped from the runtime's queue by Cancel. When
+  Flockdeck starts, a message that was `delivered` and never ended is queued again, since the process
+  that held it is gone. Results are matched to messages by the message id the prompt was sent with and
+  by the runtime that was sent it, never by order, so a runtime that was replaced cannot change what a
+  new one holds. A prompt the runtime refuses before any turn counts as an attempt, so it ends `undeliverable` after
+  three. Prompt-route mail is in no unread count, `inbox read` returns it without marking anything, and if
+  its pane turns out to be a terminal pane (not structured and not saved as structured) the unfinished
+  messages move to the terminal route. The wake switches (`flockdeck wake`) pause delivery; the mail stays queued and its
+  sender can see it. The store is the audit log: `team-events.jsonl` gets a `delivery` event for each
+  state with `stop` and `attempt`, and no message text. The sender sees the state of what it sent on the
+  graph's message edges and in the Team panel's message list (API 1.13, `docs/team-graph.md`).
 - No startup sweep. If Flockdeck is killed outright, a structured agent and what it started are not
   looked for by the next run. On Windows the job object that holds the agent's tree is closed with
   Flockdeck and takes it down, unless the job could not be made (security software that already put

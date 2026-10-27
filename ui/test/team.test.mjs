@@ -10,7 +10,7 @@ import { dirname, join } from "node:path";
 import { render } from "../src/vendor/preact.mjs";
 import { html } from "../src/html.js";
 import { Live } from "../src/shell/Live.js";
-import { PENDING_MS } from "../src/shell/Team.js";
+import { PENDING_MS, deliveryWords } from "../src/shell/Team.js";
 import {
   TEAM_RELAY_WORDS, addTaskCommand, assignCommand, boardOf, branchCommand, mergeTasks, noteCommand, pruneCommand, resultOf, resultWords, seenCommand,
   sendMessageCommand, statusCommand, taskGetCommand, taskOf, teamOf,
@@ -713,3 +713,13 @@ test("a viewer cannot open Team: the key says so and no dialog opens; the Board 
     assert.equal(m.container.find(".dialog"), null, "the Team dialog opened for a viewer");
     assert.equal(m.sent("team").length, 0);
   }));
+
+test("the message list says read for a terminal pane and the delivery state for a pane sent prompts", () => {
+  assert.equal(deliveryWords({ read: true }), ", read");
+  assert.equal(deliveryWords({ read: false }), "");
+  assert.equal(deliveryWords({ route: "prompt", delivery: "queued", read: true }), ", queued");
+  assert.equal(deliveryWords({ route: "prompt", delivery: "delivered", stopReason: "end_turn" }), ", delivered");
+  assert.equal(deliveryWords({ route: "prompt", delivery: "handled", stopReason: "end_turn" }), ", handled (end turn)");
+  assert.equal(deliveryWords({ route: "prompt", delivery: "queued", stopReason: "cancelled" }), ", queued (cancelled)");
+  assert.equal(deliveryWords({ route: "prompt" }), "");
+});

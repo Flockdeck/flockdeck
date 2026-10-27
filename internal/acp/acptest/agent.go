@@ -423,8 +423,18 @@ func (a *agent) prompt(id, params json.RawMessage, n int) {
 	}
 	_ = json.Unmarshal(params, &p)
 	sid, ask := p.SessionID, ""
-	if len(p.Prompt) > 0 {
-		ask = p.Prompt[0].Text
+	var blocks []string
+	for _, b := range p.Prompt {
+		blocks = append(blocks, b.Text)
+	}
+	if len(blocks) > 0 {
+		ask = blocks[0]
+	}
+	// A prompt of several blocks that starts "Flockdeck message from" is mail: the
+	// last block is the message body and says what to do, the first only names the
+	// sender.
+	if len(blocks) > 1 && strings.HasPrefix(ask, "Flockdeck message from") {
+		ask = strings.TrimPrefix(blocks[len(blocks)-1], "Text of the message: ")
 	}
 	word, _, _ := strings.Cut(ask, " ")
 	done := func(reason string) { a.result(id, map[string]any{"stopReason": reason}) }
@@ -471,6 +481,19 @@ func (a *agent) prompt(id, params json.RawMessage, n int) {
 		if word == "perm-str" {
 			a.chunk(sid, "id-echo="+string(rid))
 		}
+		done("end_turn")
+
+	case "refuse":
+		done("refusal")
+
+	case "maxtokens":
+		done("max_tokens")
+
+	case "oddstop":
+		done("made_up_reason")
+
+	case "blocks":
+		a.chunk(sid, fmt.Sprintf("blocks=%d", len(blocks)))
 		done("end_turn")
 
 	case "slow":

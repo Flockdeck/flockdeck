@@ -47,6 +47,9 @@ type structuredRuntime struct {
 	p       *Pane
 	rt      *structured.Runtime
 	started time.Time
+	// gen tells this runtime from the one that came before it in the same pane
+	// (see runtimeGen).
+	gen uint64
 	// prior is what the sessions before this one showed, oldest first. A restart
 	// starts a fresh session and keeps the earlier entries as history.
 	prior []transcript.Entry
@@ -55,10 +58,6 @@ type structuredRuntime struct {
 	status session.Status
 	detail string
 	since  time.Time
-	// sent is when Flockdeck last sent the agent a prompt of its own: a message
-	// from the graph or a wake. The wake service leaves the pane alone for a
-	// moment after it.
-	sent time.Time
 
 	stop     chan struct{}
 	stopOnce sync.Once
@@ -107,7 +106,9 @@ func (w *Workspace) startStructured(p *Pane, spec agent.Spec) {
 	w.mu.RLock()
 	cmdFor := w.structuredCommand
 	w.mu.RUnlock()
-	opts := structured.Options{Spec: spec, Cwd: p.Cwd, MCPServers: w.mcpServersFor(p, spec)}
+	gen := runtimeGen.Add(1)
+	opts := structured.Options{Spec: spec, Cwd: p.Cwd, MCPServers: w.mcpServersFor(p, spec),
+		OnTurn: func(e structured.TurnEvent) { w.promptTurn(p.ID, gen, e) }}
 	if cmdFor != nil {
 		opts.Command = cmdFor(spec)
 	}
@@ -117,7 +118,7 @@ func (w *Workspace) startStructured(p *Pane, spec agent.Spec) {
 		return
 	}
 	p.history = nil
-	sr := &structuredRuntime{w: w, p: p, rt: rt, started: time.Now(), prior: prior,
+	sr := &structuredRuntime{w: w, p: p, rt: rt, started: time.Now(), prior: prior, gen: gen,
 		status: session.StatusStarting, since: time.Now(), stop: make(chan struct{})}
 	w.mu.Lock()
 	p.Sess = nil
@@ -382,17 +383,11 @@ func setupText(agentID string, st *structured.Setup) string {
 	return strings.TrimSpace(team.PlainText(head, room) + " " + tail)
 }
 
-// Wake sends message to the agent as a prompt. That is a request over the
-// protocol and not keystrokes: it is queued behind a running turn.
-func (s *structuredRuntime) Wake(message string) error {
-	if err := s.rt.Send(message); err != nil {
-		return err
-	}
-	s.mu.Lock()
-	s.sent = time.Now()
-	s.mu.Unlock()
-	return nil
-}
+
+// Wake sends message to the agent as a prompt, queued behind a running turn.
+// Mail from other panes does not come this way: it is sent tagged, by the prompt
+// delivery service.
+func (s *structuredRuntime) Wake(message string) error { return s.rt.Send(message) }
 
 func (s *structuredRuntime) Close() error {
 	err := s.rt.Close()
@@ -587,39 +582,4 @@ func (w *Workspace) armStructuredIdle(p *Pane, parent string, sr *structuredRunt
 			w.notifyParent(p, parent, "finished its turn and is idle; its report is in `flockdeck inbox` if it sent one, and `flockdeck task list` shows its task")
 		}
 	})
-}
-
-// wakeStructured is a structured pane as the wake service sees it. Idle is the
-// end of a turn and not a prompt on a screen, so there is no rule to match and
-// no screen to wait on: the reading always allows, and its quiet period is the
-// time the pane has been idle. Nobody types into the pane, so the user's last
-// input is never recent; Flockdeck's last input is its last prompt.
-type wakeStructured struct{ s *structuredRuntime }
-
-// wakeRuleStructured names the "rule" a structured pane is woken by, in the
-// wake event.
-const wakeRuleStructured = "structured"
-
-func (a wakeStructured) WakeReading() session.WakeReading {
-	return session.WakeReading{
-		Verdict: agent.WakeOK, Version: wakeRuleStructured, Source: wakeRuleStructured,
-		Tail: session.ScreenTail{ChangedAt: a.s.StatusSince()},
-	}
-}
-
-func (a wakeStructured) LastUserInput() time.Time { return time.Time{} }
-
-func (a wakeStructured) LastFlockdeckInput() time.Time {
-	a.s.mu.Lock()
-	defer a.s.mu.Unlock()
-	return a.s.sent
-}
-
-func (a wakeStructured) Status() (session.Status, string) { return a.s.Status() }
-func (a wakeStructured) Exited() bool                     { return !a.s.Alive() }
-
-// WriteStringFrom is not how a structured pane is woken: the service delivers
-// through wakeCandidate.Deliver. It refuses so that nothing is ever typed.
-func (wakeStructured) WriteStringFrom(session.InputSource, string) error {
-	return errors.New("a structured pane takes prompts and not keystrokes")
 }

@@ -328,7 +328,7 @@ func (w *Workspace) PaneContext(paneID string) (PaneContext, bool) {
 
 	if p.Structured() {
 		c.Structured = true
-		c.MailText = w.wakeSettings != nil && wakeTextAllowed(wakeCandidate{Agent: p.Agent, Deliver: func(string) error { return nil }}, w.wakeSettings)
+		c.MailText = true
 	}
 
 	if !c.Shell && p.IsAgent() && c.Cwd != "" {

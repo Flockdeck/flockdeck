@@ -84,6 +84,7 @@ func (w *Workspace) initTeam() {
 	// A message arriving or being read changes the unread count on a pane's
 	// header, so the window is sent the state again.
 	t.inbox.OnChange(w.wake)
+	t.inbox.SetRouter(w.promptRouter)
 }
 
 // loadMessages reads the saved inboxes and arranges for every change to be
