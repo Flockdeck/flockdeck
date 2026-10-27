@@ -2,9 +2,9 @@
 #
 # NOT ENABLED. This file is not named *.yml, so GitHub does not run it. It is
 # written for the layout after step 3 of the separation plan (ui/ and api/ exist).
-# To enable it: move it to .github/workflows/boundary.yml and read the README next
+# To enable it: move it to .github/workflows/importcheck.yml and read the README next
 # to it. Until ui/ exists the checks pass without finding anything.
-name: boundary
+name: importcheck
 
 on:
   pull_request:
@@ -14,7 +14,7 @@ on:
       - "internal/**"
       - "main.go"
       - "cmd/**"
-      - ".github/boundary/**"
+      - ".github/importcheck/**"
 
 permissions:
   contents: read
@@ -30,7 +30,7 @@ jobs:
           go-version-file: go.mod
       # Go imports, relative JavaScript imports out of ui/, and code in api/.
       - run: go test ./...
-        working-directory: .github/boundary
+        working-directory: .github/importcheck
 
   ui-only:
     name: a "ui:" pull request touches only ui/ and api/fixtures/
@@ -46,7 +46,7 @@ jobs:
       - name: Changed paths outside ui/ and api/fixtures/
         run: |
           git diff --name-only "origin/${{ github.base_ref }}...HEAD" \
-            | (cd .github/boundary && go run ./cmd/outside) \
+            | (cd .github/importcheck && go run ./cmd/outside) \
             || { echo "A pull request titled 'ui:' may change only ui/ and api/fixtures/. Retitle it, or split it."; exit 1; }
 
   lint:
@@ -59,4 +59,4 @@ jobs:
           node-version: 22
       # ESLint is fetched here and not kept in the repository: the interface has no
       # package.json, so this adds nothing to the build. The rule is in eslint.config.mjs.
-      - run: npx --yes eslint@9.17.0 --config .github/boundary/eslint.config.mjs ui/src ui/test
+      - run: npx --yes eslint@9.17.0 --config .github/importcheck/eslint.config.mjs ui/src ui/test
