@@ -36,7 +36,7 @@ func TestCardCarriesPlanAndDiff(t *testing.T) {
 func TestCardBodyAndDiffAreBounded(t *testing.T) {
 	c := openCard(t, acp.PermissionRequest{RequestID: "1", ToolCall: acp.ToolCall{Kind: "switch_mode",
 		Content: []acp.ToolContent{textContent(strings.Repeat("plan ", 100<<10))}}})
-	if len(c.Body) > cardBodyCap+64 || !strings.HasSuffix(c.Body, "[text cut at 32 KiB]") {
+	if len(c.Body) > cardBodyCap || !strings.HasSuffix(c.Body, "[text cut at 32 KiB]") {
 		t.Errorf("body is %d bytes, ends %q", len(c.Body), c.Body[max(0, len(c.Body)-30):])
 	}
 	big := strings.Repeat("line of text\n", 200<<10)
@@ -46,7 +46,7 @@ func TestCardBodyAndDiffAreBounded(t *testing.T) {
 		content = append(content, acp.ToolContent{Type: "diff", Path: "a.go", OldText: &empty, NewText: big})
 	}
 	c = openCard(t, acp.PermissionRequest{RequestID: "2", ToolCall: acp.ToolCall{Kind: "edit", Content: content}})
-	if len(c.Diff) > cardDiffCap+64 || !strings.HasSuffix(c.Diff, "[diff cut]\n") {
+	if len(c.Diff) > cardDiffCap || !strings.HasSuffix(c.Diff, "[diff cut]\n") {
 		t.Errorf("diff is %d bytes", len(c.Diff))
 	}
 }

@@ -16,6 +16,8 @@ const (
 	cardBodyCap = 32 << 10
 	// cardDiffCap bounds the diff of an edit on a card, in bytes.
 	cardDiffCap = transcript.DiffCap
+	// cutRoom is left under a cap for the note that says text was cut.
+	cutRoom = 32
 
 	maxQuestions       = 4
 	maxQuestionOptions = 8
@@ -184,13 +186,15 @@ func cardContent(c *Card, content []acp.ToolContent) {
 	}
 	if len(texts) > 0 {
 		all := strings.Join(texts, "\n")
-		c.Body = strings.TrimSpace(clean(capBytes(all, cardBodyCap)))
 		if len(all) > cardBodyCap {
-			c.Body += "\n[text cut at 32 KiB]"
+			// The note is inside the cap, so a later cut to the same cap
+			// does not take it off.
+			all = capBytes(all, cardBodyCap-cutRoom) + "\n[text cut at 32 KiB]"
 		}
+		c.Body = strings.TrimSpace(clean(all))
 	}
 	if len(diff) > cardDiffCap {
-		diff = capBytes(diff, cardDiffCap) + "\n[diff cut]\n"
+		diff = capBytes(diff, cardDiffCap-cutRoom) + "\n[diff cut]\n"
 	}
 	c.Diff = diff
 }
