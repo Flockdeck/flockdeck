@@ -13,6 +13,7 @@ import { html } from "../html.js";
 import { ModalScrim } from "./inert.js";
 import { useStore } from "../lib/use-store.js";
 import { Drawer, hasTerminal, useDrawer } from "../drawer/Drawer.js";
+import { terminalOf } from "../lib/terminal.js";
 import { focusNode } from "../drawer/state.js";
 import { ManagerBar, managerOf } from "../graph/ManagerBar.js";
 import { Feed } from "../graph/Feed.js";
@@ -485,8 +486,9 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
       failed();
     }
   };
-  const openInfo = () => {
-    if (!drawer.pane) {
+  const openInfo = (id) => {
+    const at = typeof id === "string" && id ? id : drawer.pane;
+    if (!at) {
       say(OPEN_AN_AGENT_WORDS);
       return;
     }
@@ -494,8 +496,8 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
       say(DESK_FILES_WORDS);
       return;
     }
-    setInfoFor({ pane: drawer.pane, floor: snap.paneInfo ? snap.paneInfo.seq : 0, noticeAt: noticeSeq });
-    send({ cmd: "paneInfo", id: drawer.pane });
+    setInfoFor({ pane: at, floor: snap.paneInfo ? snap.paneInfo.seq : 0, noticeAt: noticeSeq });
+    send({ cmd: "paneInfo", id: at });
   };
   // Once the desktop has detached this window the page closes itself, or says it
   // can be closed when the browser will not let a script do it.
@@ -553,12 +555,16 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
   // The graph's two keys that no arrow does. The next agent that needs the person
   // goes on from the box the keyboard is on, or from the open drawer's pane, and
   // the manager bar takes the keyboard where it is.
-  const needPane = (fn) => () => {
-    if (!drawer.pane || !node) {
+  // A pane action acts on the pane it is given by id (a right-click on a row),
+  // or else on the open drawer's. fn gets that pane's node and state.
+  const needPane = (fn) => (id) => {
+    const at = typeof id === "string" && id ? id : drawer.pane;
+    const n = at === drawer.pane ? node : at && current ? current.byPane.get(at) : null;
+    if (!at || !n) {
       say(OPEN_AN_AGENT_WORDS);
       return;
     }
-    fn();
+    fn(n, (statePanes || {})[at] || null);
   };
   // The Team dialog keeps a watch on the project chosen in the rail while it is open.
   useEffect(() => {
@@ -642,13 +648,13 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     team: () => (snap.remote ? say(TEAM_RELAY_WORDS) : viewer ? say(VIEWER_WORDS) : setTeamOpen(true)),
     agents: () => (viewer ? say(VIEWER_WORDS) : setAgentsOpen(true)),
     worktrees: () => (viewer ? say(VIEWER_WORDS) : setWorktreesOpen(true)),
-    makeBaton: needPane(() => {
+    makeBaton: needPane((node, pane) => {
       if (viewer) return say(VIEWER_WORDS);
       if (snap.remote) return say(BATON_RELAY_WORDS);
       const req = inflight.current.next();
-      inflight.current.add(req, "makeBaton", drawer.pane);
-      if (store.send(makeCommand(drawer.pane, req)) === false) inflight.current.delete(req);
-      else setBaton({ pane: drawer.pane, name: node.name || drawer.pane, req });
+      inflight.current.add(req, "makeBaton", node.pane);
+      if (store.send(makeCommand(node.pane, req)) === false) inflight.current.delete(req);
+      else setBaton({ pane: node.pane, name: node.name || node.pane, req });
       return undefined;
     }),
     fontUp: () => bumpFont(prefs.fontSize + 1),
@@ -674,25 +680,25 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     history: () => (snap.remote ? say(HISTORY_REMOTE_WORDS) : viewer ? say(VIEWER_WORDS) : setHistoryOpen(true)),
     findPane: () => (snap.remote ? say(DESK_FILES_WORDS) : setFindingPane(true)),
     paneInfo: openInfo,
-    changes: needPane(() => (pane && pane.cwd ? setTabAsk((a) => ({ tab: "changes", n: a.n + 1 })) : say(NO_TREE_WORDS))),
-    findInTerminal: needPane(() => (hasTerminal(node, pane) ? setFindAsk((n) => n + 1) : say(NO_TERMINAL_WORDS))),
-    recordPane: needPane(() => {
+    changes: needPane((node, pane) => (pane && pane.cwd ? (node.pane !== drawer.pane && drawer.open(node.pane), setTabAsk((a) => ({ tab: "changes", n: a.n + 1, pane: node.pane }))) : say(NO_TREE_WORDS))),
+    findInTerminal: needPane((node, pane) => (hasTerminal(node, pane) ? setFindAsk((n) => n + 1) : say(NO_TERMINAL_WORDS))),
+    recordPane: needPane((node, pane) => {
       if (viewer) say(VIEWER_WORDS);
       else if (canTranscribe(node, pane)) tx.record(node.pane, !(pane && pane.recording));
       else say(node.shell || (pane && pane.shell) ? SHELL_RECORD_WORDS : STRUCTURED_RECORD_WORDS);
     }),
-    exportTranscript: needPane(() => {
+    exportTranscript: needPane((node, pane) => {
       if (viewer) say(VIEWER_WORDS);
       else if (snap.remote) say(DESK_FILES_WORDS);
       else if (canTranscribe(node, pane)) tx.exportTranscript(node.pane);
       else say(node.shell || (pane && pane.shell) ? SHELL_RECORD_WORDS : STRUCTURED_RECORD_WORDS);
     }),
-    revealTranscript: needPane(() => (viewer ? say(VIEWER_WORDS) : snap.remote ? say(DESK_FILES_WORDS) : send({ cmd: "revealTranscript", id: node.pane }))),
+    revealTranscript: needPane((node) => (viewer ? say(VIEWER_WORDS) : snap.remote ? say(DESK_FILES_WORDS) : send({ cmd: "revealTranscript", id: node.pane }))),
     openRecordings: () => (viewer ? say(VIEWER_WORDS) : snap.remote ? say(DESK_FILES_WORDS) : send({ cmd: "openRecordings" })),
     zoomPane: needPane(() => drawer.toggleMax()),
-    restartPane: needPane(() => (viewer ? say(VIEWER_WORDS) : life.begin("restart", node, pane))),
-    lockPane: needPane(() => (viewer ? say(VIEWER_WORDS) : life.toggleLock(node.pane, !(pane && pane.locked)))),
-    closePane: needPane(() => (viewer ? say(VIEWER_WORDS) : pane && pane.locked ? say("This pane is locked. Unlock it to close it.") : life.begin("close", node, pane))),
+    restartPane: needPane((node, pane) => (viewer ? say(VIEWER_WORDS) : life.begin("restart", node, pane))),
+    lockPane: needPane((node, pane) => (viewer ? say(VIEWER_WORDS) : life.toggleLock(node.pane, !(pane && pane.locked)))),
+    closePane: needPane((node, pane) => (viewer ? say(VIEWER_WORDS) : pane && pane.locked ? say("This pane is locked. Unlock it to close it.") : life.begin("close", node, pane))),
   });
 
   // The baton answers. A draft is for the dialog whose request it carries. A
@@ -767,7 +773,16 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
   // each family of menus fills in its own block and no other: pane for the agent
   // rows, header and terminal, nav for tabs, projects, worktrees and history, content
   // for tasks, messages, diffs, conversation rows and links.
-  const menuCtx = { snap, viewer, remote: !!snap.remote, say, copy, drawer, tabDo, pane: {}, nav: {}, content: {} };
+  const menuCtx = {
+    snap, viewer, remote: !!snap.remote, say, copy, drawer, tabDo, nav: {}, content: {},
+    pane: {
+      of: (id) => ({ node: current ? current.byPane.get(id) || null : null, state: (statePanes || {})[id] || null }),
+      run: (name, id) => actions[name](id),
+      terminal: terminalOf,
+      clipboard: () => (page && page.navigator && page.navigator.clipboard) || null,
+      openLink: (url) => { if (page && page.open) page.open(url, "_blank", "noopener,noreferrer"); },
+    },
+  };
 
   return html`<${Shell}
     hello=${kept.current.hello}

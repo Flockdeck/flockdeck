@@ -64,7 +64,7 @@ export function Header({ node, pane = null, now = Date.now(), maximised = false,
   const who = [node.role || (node.shell ? "shell" : ""), node.agent].filter(Boolean).join(" · ");
   return html`
     <header class="drawer-head">
-      <div class="drawer-title">
+      <div class="drawer-title" data-ctx="agent" data-pane=${node.pane}>
         <h2 class="drawer-name" title=${showControls(shownName(node))}>${clip(showControls(shownName(node)), 60)}</h2>
         ${node.structured || node.kind === "structured" ? html`<span class="drawer-kind">structured</span>` : null}
         <div class="drawer-actions">
