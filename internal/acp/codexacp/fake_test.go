@@ -21,6 +21,7 @@ import (
 
 const (
 	envFake   = "FD_CODEXACP_FAKE"
+	envAdapt  = "FD_CODEXACP_ADAPTER" // the test binary runs as the adapter
 	envScript = "FD_CODEXACP_SCRIPT"
 	envLog    = "FD_CODEXACP_LOG"
 	envNoTurn = "FD_CODEXACP_TURNDELAY" // milliseconds before the turn/start response

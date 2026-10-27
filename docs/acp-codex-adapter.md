@@ -1,0 +1,213 @@
+# Codex adapter
+
+Flockdeck has its own ACP adapter for Codex. It is the `acp-adapter codex`
+subcommand of the `flockdeck` binary: `flockdeck acp-adapter codex` speaks ACP on
+stdin and stdout and starts one `codex app-server --listen stdio://` process per
+session. It needs nothing except the `codex` executable. The manifest entry
+(`codex-go` in [`adapters.json`](../internal/acp/manifest/adapters.json)) is
+hidden, so it is not in the table on [Structured-agent adapters](acp-adapters.md)
+and the canary does not try to install it. The `codex` entry there is still the
+third-party npm adapter.
+
+The code is in `internal/acp/codexacp`. The route is researched in
+[Codex adapter route](codex-adapter-route.md).
+
+## What has and has not been run
+
+No real Codex has run against this adapter. The machine it was built on has no
+`codex`, so there was no schema from `codex app-server generate-json-schema`
+either. The wire shapes come from the route document and from what I remember of
+the app-server's v2 protocol, and the tests run against a fake app-server that
+replays those shapes. A real session is the first thing to do before this
+adapter is offered. The parts most likely to be wrong are listed under
+"Unverified" below.
+
+## How it drives codex
+
+| ACP | codex app-server |
+| --- | --- |
+| `initialize` | answered by the adapter; no codex process yet |
+| `session/new` | starts codex, `initialize` then `initialized`, `thread/start`, `model/list`, `skills/list`; the session id is the thread id |
+| `session/resume` | the same with `thread/resume` for the given thread id |
+| `session/prompt` | `turn/start`; ends at `turn/completed` for that turn's id |
+| `agent_message_chunk` | `item/agentMessage/delta`, or the whole text of a completed `agentMessage` that had no deltas |
+| `agent_thought_chunk` | `item/reasoning/summaryTextDelta`; the raw `textDelta` only when the item has no summary |
+| `tool_call`, `tool_call_update` | `item/started`, `item/commandExecution/outputDelta`, `item/fileChange/patchUpdated`, `item/completed` |
+| `plan` | `turn/plan/updated` |
+| `session/request_permission` | `item/commandExecution/requestApproval`, `item/fileChange/requestApproval`, `item/permissions/requestApproval` |
+| `session/cancel` | `turn/interrupt` |
+| `session/set_mode` | the approval policy and sandbox sent with the next `turn/start` |
+| `session/set_model` | `model` on the next `turn/start` |
+| `usage_update` | `thread/tokenUsage/updated`: used is the last request's total, size is `modelContextWindow`. No cost: codex reports none |
+| `available_commands_update` | `skills/list`, plus `/review` and `/compact` |
+
+The session id is the thread id, so a client that stored it can pass it to
+`session/resume` later. The adapter advertises `loadSession: false` and
+`sessionCapabilities.resume`: it resumes the thread but does not replay its
+history.
+
+Messages to codex leave out the `"jsonrpc"` member, as codex's own do.
+
+### Tool calls
+
+A command is `execute`, unless codex's command actions are all reads (`read`) or
+all listings and searches (`search`). A file change is `edit`. For an added file
+the diff is the file's content, for a deleted file the old content, and for an
+update codex's unified diff is shown as text. MCP tools, dynamic tools, web search
+and sub-agent activity are shown with a title. A command's output is sent as it
+arrives, at most every 200 ms, and the full output follows with the completed
+item. Output and diffs are cut at 64 KiB and 256 KiB. Items are matched by their
+id, never by position, so results that finish out of order land on the right
+call.
+
+### Modes and models
+
+Three modes, each an approval policy and a sandbox:
+
+| Mode | Approval policy | Sandbox |
+| --- | --- | --- |
+| `auto` (default) | `on-request` | `workspace-write`, no network |
+| `read-only` | `on-request` | `read-only` |
+| `ask` | `untrusted` | `workspace-write`, no network |
+
+The mode with no sandbox and no questions is left out on purpose, as
+`bypassPermissions` is in the Claude adapter. A mode change applies from the next
+turn. The models come from `model/list`. Reasoning effort is not offered yet.
+
+### Slash commands
+
+A prompt that is only `/compact` runs `thread/compact/start`. A prompt that is
+`/review`, with or without instructions, runs `review/start` on the uncommitted
+changes or with the instructions as a custom target. A prompt that starts with the
+name of a skill codex listed is sent with a skill item for it, followed by the rest
+as text. Anything else that starts with a slash is sent to codex as text.
+
+### Permissions
+
+Each card offers Allow and Reject. A shell command also offers "Always allow this
+command". The adapter keeps that rule for the life of the session, in memory only,
+and never sends codex `acceptForSession` or an execpolicy or network amendment:
+what those cover is up to codex. The rule is the command text and its directory.
+It is not offered when the request has a network context, or any member the
+adapter does not know about. A file change and an extra-permissions request are
+asked about each time.
+
+Everything fails closed. A refusal is `decline`. A request that names another
+thread, has no item id, arrives when 32 are already waiting, or is of a kind the
+adapter does not know gets a refusal or a JSON-RPC error. An answer of "cancelled",
+a client error, an answer that cannot be read or an option that was not offered is
+a refusal (`cancel` for a cancelled card). `allow_always` for a card that did not
+offer it is a refusal. For extra permissions, allow grants exactly what codex asked
+for, for the turn; a refusal grants nothing.
+
+On `session/cancel` every waiting card is refused with `cancel` and withdrawn, then
+the turn is interrupted. An answer from the client that arrives afterwards is
+dropped. If codex settles a request itself (`serverRequest/resolved`) the card is
+withdrawn without an answer. Questions the model asks (`item/tool/requestUserInput`),
+MCP elicitations and the legacy `applyPatchApproval` and `execCommandApproval`
+forms get an error.
+
+### Prompts during a turn
+
+A `session/prompt` that arrives while a turn is running is queued. Each prompt gets
+its own turn and its own stop reason, in order, and nothing is sent to codex until
+the turn before it has ended. `session/cancel` interrupts the running turn and
+answers every queued prompt `cancelled` without sending it. A cancel that arrives
+before codex has told us the turn's id is held and sent when the id arrives.
+
+Codex's `turn/steer` could fold a second message into the running turn. The adapter
+does not use it, for the reason given in the [Claude adapter](acp-claude-adapter.md).
+
+### Cancel
+
+If the turn has not ended 15 seconds after the interrupt, the adapter ends the
+codex process and the prompt fails; later prompts in that session fail too.
+
+### Images and MCP servers
+
+An image block is decoded, checked (PNG, JPEG, GIF or WebP, 20 MiB, 16 per prompt)
+and written to a file in a directory of its own (`flockdeck-codex-img-*`, private to
+the user, files mode 0600). Codex gets a `localImage` item with the path. The
+directory is removed when the session ends, and one a week old, left by an adapter
+that was killed, is removed at the next start. A resource link and an embedded text
+resource become text. Audio is refused.
+
+MCP servers in `session/new` go to codex as `config.mcp_servers` in the
+`thread/start` request. Nothing is written to disk or put on a command line, where a
+token would show. SSE servers are refused.
+
+### Errors
+
+An error sent to the client never carries text from codex. If `codex` cannot be
+started, or fails during `session/new`, the error is "Codex is unavailable". A
+failed turn is "the turn failed"; a turn codex says failed for a missing login
+becomes error `-32000` "Authentication required"; a context window failure ends the
+prompt with the stop reason `max_tokens`. A codex that exits mid-turn fails the
+prompt with "the agent stopped during the turn". The detail goes to the adapter's
+stderr only. The client's `ExitError` puts the tail of that stderr in its message
+when the adapter itself exits; whoever shows that to a person should not show the
+stderr part.
+
+### Limits and exit
+
+A line from codex longer than 16 MiB ends the session: codex is killed, the running
+prompt fails and later prompts fail. A line from the client longer than 32 MiB stops
+the adapter. Neither line is ever held in memory whole. Codex's stderr is read to the
+end and logged. Codex is ended on every exit path: a failed start, a session that is
+still starting when the adapter is told to stop, input that ends, an interrupt that
+does not work, and SIGTERM, SIGHUP on Unix or an interrupt, which close every session
+first. `Run` returns when its context is done whether or not its input is still open.
+
+### Environment
+
+The adapter starts codex in the environment it was given, minus every `FLOCKDECK_` and
+`PERCH_` variable in any letter case, also when the caller passes an environment of its
+own. The client must pass what codex reads its login and settings from (`HOME` or
+`USERPROFILE`, `APPDATA`, `CODEX_HOME`, `OPENAI_API_KEY` if used); the client's default
+environment has none of them. `FLOCKDECK_CODEX_BIN` names the executable when it is not
+on `PATH`.
+
+## Unverified
+
+These were not checked against a real codex:
+
+- That the app-server takes the messages as sent, without `"jsonrpc"`, and with
+  `capabilities.experimentalApi` false.
+- The field names and shapes of `thread/start` and `thread/resume` results, `model/list`,
+  `skills/list`, `turn/start`, `review/start`, the item types, `turn/completed` errors
+  (`codexErrorInfo` as a string or an object), `thread/tokenUsage/updated` and
+  `turn/plan/updated`.
+- `config: {"mcp_servers": {...}}` in `thread/start` as the way to hand over MCP servers,
+  including `http_headers` for HTTP servers.
+- The `sandboxPolicy` objects sent with `turn/start` (`workspaceWrite` with
+  `writableRoots` and `networkAccess`, `readOnly`), and the `skill` and `localImage`
+  input items.
+- The response to `item/permissions/requestApproval`: `{permissions, scope: "turn"}`, with
+  an empty `permissions` for a refusal.
+- That `thread/compact/start` and `review/start` produce `turn/started` and
+  `turn/completed` like a normal turn, which the adapter relies on to end the prompt.
+- That `serverRequest/resolved` carries `requestId` in the same form as the request's id.
+- Whether a codex that is not logged in fails the first turn with `unauthorized`, as the
+  adapter assumes, or fails earlier. There is no `authenticate` method yet.
+- Approvals from a sub-agent's thread would carry another thread id and are refused.
+
+## Not done
+
+- `session/load` with history replay, and `session/list`.
+- Logging in from Flockdeck (`account/login/start`), `authenticate`, and API-key use other
+  than through the environment.
+- Reasoning effort, the mode with no sandbox, the cost of a turn, and `turn/steer`.
+- Questions the model asks and MCP elicitations. They are refused, which tells the model
+  nobody is there.
+- Finding or downloading a pinned codex binary, and Windows sandbox setup
+  (`windowsSandbox/setupStart`), which may need a first-run step.
+- Turns codex starts without a prompt. Their updates are forwarded as `session/update`, but
+  nothing waits for them.
+
+## Tests
+
+`go test ./internal/acp/codexacp` runs the adapter against a fake app-server, which is the
+test binary started again. The fake answers the session requests itself, plays a script of
+lines for the rest, and logs everything it receives, its arguments, its environment and its
+process id. One test starts the adapter as a child and drives it with `internal/acp`'s
+client. No test starts a real codex.
