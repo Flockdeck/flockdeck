@@ -88,7 +88,7 @@ function ToolRow({ entry: e, label, kind, open, onToggle, detail, nested }) {
   const status = text(e.status);
   const summary = text(e.summary);
   const inner = detail && detail.state === "ok" && detail.detail && Array.isArray(detail.detail.entries) ? detail.detail.entries : null;
-  return html`<li class=${"conv-row conv-tool" + statusClass(status) + (open ? " is-open" : "")} data-kind=${e.kind} data-entry=${nested ? null : e.id} data-nested=${nested ? "" : null} tabindex="-1">
+  return html`<li class=${"conv-row conv-tool" + statusClass(status) + (open ? " is-open" : "")} data-ctx="convRow" data-kind=${e.kind} data-entry=${nested ? null : e.id} data-nested=${nested ? "" : null} tabindex="-1">
     <button type="button" class="conv-tool-head" aria-expanded=${open ? "true" : "false"} onClick=${onToggle ? () => onToggle(e.id) : null}>
       <${Icon} kind=${kind} />
       <span class="conv-tool-title">${clip(label, 160)}</span>
@@ -108,11 +108,11 @@ export function Row({ entry: e, open = false, onToggle = null, detail = null, ne
   const kind = text(e.kind);
   switch (kind) {
     case "prompt":
-      return html`<li class="conv-row conv-prompt" data-kind="prompt" data-entry=${nested ? null : e.id} tabindex="-1"><span class="conv-who">You</span><p class="conv-text">${clip(text(e.text), MAX_TEXT)}</p></li>`;
+      return html`<li class="conv-row conv-prompt" data-ctx="convRow" data-kind="prompt" data-entry=${nested ? null : e.id} tabindex="-1"><span class="conv-who">You</span><p class="conv-text">${clip(text(e.text), MAX_TEXT)}</p></li>`;
     case "reply": {
       const full = text(e.markdown || e.text);
       const cut = full.length > MAX_REPLY;
-      return html`<li class="conv-row conv-reply" data-kind="reply" data-entry=${nested ? null : e.id} tabindex="-1"><span class="conv-who">Agent</span>
+      return html`<li class="conv-row conv-reply" data-ctx="convRow" data-kind="reply" data-entry=${nested ? null : e.id} tabindex="-1"><span class="conv-who">Agent</span>
         <${Markdown} text=${cut ? full.slice(0, MAX_REPLY) : full} />
         ${cut ? html`<p class="conv-cut">${(full.length - MAX_REPLY).toLocaleString("en-US")} more characters are not shown.</p>` : null}
       </li>`;
@@ -128,7 +128,7 @@ export function Row({ entry: e, open = false, onToggle = null, detail = null, ne
     case "notice":
       return html`<li class="conv-row conv-note" data-kind="notice" data-entry=${nested ? null : e.id} tabindex="-1">${clip(text(e.text), 400)}</li>`;
     case "mail":
-      return html`<li class=${"conv-row conv-mail" + (e.waiting ? " is-waiting" : "")} data-kind="mail" data-entry=${nested ? null : e.id} tabindex="-1">
+      return html`<li class=${"conv-row conv-mail" + (e.waiting ? " is-waiting" : "")} data-ctx="convRow" data-kind="mail" data-entry=${nested ? null : e.id} tabindex="-1">
         <span class="conv-who">${"From " + clip(text(e.label) || text(e.from) || "an agent", 60)}${e.waiting ? html` <span class="conv-mail-chip">not read yet</span>` : null}</span>
         <p class="conv-text">${clip(text(e.text), MAX_TEXT)}</p>
         ${e.cutKnown && !e.maybeCut ? null : html`<p class="conv-cut">${e.cutKnown ? "More of this message. " : e.maybeCut ? "May be cut. " : "First line only. "}The whole message is in ${clip(text(e.label) || text(e.from) || "an agent", 60)}'s conversation.</p>`}
