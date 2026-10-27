@@ -281,7 +281,7 @@ func TestFilesAPickWithACancelledContextStopsAtOnce(t *testing.T) {
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	got, cut := pickFiles(ctx, t.TempDir(), cands, "f")
+	got, cut := pickFiles(ctx, t.TempDir(), cands, "zzz")
 	if len(got) != 0 || !cut {
 		t.Errorf("%d names, cut %v", len(got), cut)
 	}
