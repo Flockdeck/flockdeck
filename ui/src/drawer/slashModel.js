@@ -48,7 +48,10 @@ export function cleanCommands(list) {
 }
 
 /** OWN_COMMANDS are Flockdeck's own; id says what the prompt box does for each. */
-export const OWN_COMMANDS = [{ name: "stop", id: "stop", description: "Stop the agent's current turn" }];
+export const OWN_COMMANDS = [
+  { name: "stop", id: "stop", description: "Stop the agent's current turn" },
+  { name: "info", id: "info", description: "Show the agent's version, sign-in, session and MCP servers" },
+];
 
 /** queryOf is what has been typed after the "/" while the box holds only a command word, or null when the menu is not wanted. */
 export function queryOf(draft) {

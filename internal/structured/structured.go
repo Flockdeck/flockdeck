@@ -41,8 +41,8 @@ import (
 	"github.com/jmwri/flockdeck/internal/acp/permprobe"
 	"github.com/jmwri/flockdeck/internal/agent"
 	"github.com/jmwri/flockdeck/internal/record"
-	"github.com/jmwri/flockdeck/internal/shellrun"
 	"github.com/jmwri/flockdeck/internal/session/transcript"
+	"github.com/jmwri/flockdeck/internal/shellrun"
 )
 
 // Phase is where the Runtime is in its life.
@@ -331,6 +331,73 @@ type Snapshot struct {
 	ProtocolErrors int64
 }
 
+// hello is what the agent said about itself and what the session was given.
+type hello struct {
+	version string
+	auth    []string
+	mcp     []string
+}
+
+// Info is what a window may show about the agent behind a pane, as text that
+// is cleaned and bounded. It holds names only: no environment values, no
+// arguments or headers of an MCP server, no key.
+type Info struct {
+	// Name and Version are what the agent called itself at initialize.
+	Name, Version string
+	// Catalog is the id of the agent's catalog entry; Adapter the id of the
+	// adapter it is started through.
+	Catalog, Adapter string
+	// Auth are the names of the ways of signing in that the agent listed.
+	Auth []string
+	// MCP are the names of the MCP servers the session was asked to start.
+	MCP []string
+	// Cwd is the session's directory.
+	Cwd       string
+	SessionID string
+	Phase     Phase
+	Setup     *Setup
+	// Session is the mode, models, settings and capabilities the agent exposes.
+	Session bridge.SessionState
+}
+
+// InfoCap bounds the names in Info and how many of each list are kept.
+const (
+	infoNameCap = 80
+	infoListMax = 16
+)
+
+// Info is the agent's identity and session facts. It does not touch the
+// conversation.
+func (r *Runtime) Info() Info {
+	r.mu.Lock()
+	i := Info{
+		Name: clean(r.agentNm, fieldCap), Version: r.hello.version,
+		Catalog: clean(r.opts.Spec.ID, infoNameCap), Adapter: clean(r.opts.Spec.ACP.Adapter, infoNameCap),
+		Auth: append([]string(nil), r.hello.auth...), MCP: append([]string(nil), r.hello.mcp...),
+		Cwd: clean(r.opts.Cwd, 1024), SessionID: clean(r.session, fieldCap), Phase: r.phase,
+	}
+	if r.setup != nil {
+		c := *r.setup
+		c.Methods = append([]AuthMethod(nil), c.Methods...)
+		i.Setup = &c
+	}
+	r.mu.Unlock()
+	i.Session = r.br.Session()
+	return i
+}
+
+// names cleans a list of names for Info: at most infoListMax of them, empty
+// ones left out.
+func names(in []string) []string {
+	var out []string
+	for _, n := range in {
+		if n = clean(n, infoNameCap); n != "" && len(out) < infoListMax {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
 // Runtime is one structured pane.
 type Runtime struct {
 	opts Options
@@ -351,7 +418,9 @@ type Runtime struct {
 	setup   *Setup
 	err     string
 	agentNm string
-	queue   []queued
+	// hello is what initialize and the session request gave, for Info.
+	hello hello
+	queue []queued
 	// inTurn says a prompt is with the agent, and asked that Cancel was called
 	// during it.
 	inTurn, asked bool
@@ -1287,6 +1356,7 @@ func (r *Runtime) launch() bool {
 	if r.opts.Spec.ACP.MCP {
 		mcp = r.opts.MCPServers
 	}
+	r.noteHello(init, mcp)
 	created, resume, err := r.open(c, init.Capabilities, mcp)
 	if err != nil && r.keyLogin(init, err) {
 		// The agent wants a login and a key is stored for the method it takes
@@ -1318,6 +1388,30 @@ func (r *Runtime) launch() bool {
 	r.mu.Unlock()
 	r.notify()
 	return true
+}
+
+// noteHello keeps, for Info, the agent's version and the names of its sign-in
+// methods and of the MCP servers the session is given.
+func (r *Runtime) noteHello(init acp.InitResult, mcp []acp.MCPServer) {
+	var h hello
+	if init.AgentInfo != nil {
+		h.version = clean(init.AgentInfo.Version, infoNameCap)
+	}
+	var auth, servers []string
+	for _, m := range init.AuthMethods {
+		n := m.Name
+		if n == "" {
+			n = m.ID
+		}
+		auth = append(auth, n)
+	}
+	for _, m := range mcp {
+		servers = append(servers, m.Name)
+	}
+	h.auth, h.mcp = names(auth), names(servers)
+	r.mu.Lock()
+	r.hello = h
+	r.mu.Unlock()
 }
 
 // keyLogin says err is an agent's request for a login that the stored API key

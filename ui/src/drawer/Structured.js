@@ -72,6 +72,8 @@ import { sendKey, rowsFor, pushHistory, recall, NO_RECALL, onFirstLine, onLastLi
 import { QueueList } from "./QueueList.js";
 import { UsageMeter } from "./UsageMeter.js";
 import { ExportPanel } from "./ExportPanel.js";
+import { InfoPanel } from "./InfoPanel.js";
+import { needsSignIn } from "./infoModel.js";
 import { queueOf, stopMessage } from "./queueModel.js";
 import { ShellList } from "./ShellList.js";
 import { TodoList } from "./TodoList.js";
@@ -149,7 +151,7 @@ export function activityOf(st, entries = []) {
  *  first one; error is the store's structuredError; desk is false in a window
  *  reached through the relay. snap is the store's snapshot, which carries the
  *  desk's answer to a send. */
-export function Structured({ pane, snap, st, error = null, cancelError = null, settingError = null, queueResult = null, shellResult = null, exportResult = null, desk = true, store, conv = null, onOlder = null, details = null, onDetail = null, pending = null, search = null, onSearch = null, onClearSearch = null }) {
+export function Structured({ pane, snap, st, error = null, cancelError = null, settingError = null, queueResult = null, shellResult = null, exportResult = null, infoResult = null, desk = true, store, conv = null, onOlder = null, details = null, onDetail = null, pending = null, search = null, onSearch = null, onClearSearch = null }) {
   // The draft and the history are kept per pane (composerModel.js), so they outlive this component.
   const kept = useRef(null);
   if (kept.current === null) kept.current = loadComposer(pane);
@@ -186,6 +188,8 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
   const [sendFailed, setSendFailed] = useState("");
   // The pane whose export panel is open.
   const [exporting, setExporting] = useState("");
+  // The pane whose agent info is open.
+  const [infoFor, setInfoFor] = useState("");
   // A "!" command in flight: its req, and what the last one was refused with. The draft stays until the desk has taken it.
   const [shellReq, setShellReq] = useState("");
   const [shellNote, setShellNote] = useState("");
@@ -392,6 +396,7 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
     if (it.group === "own") {
       setDraft("");
       if (it.id === "stop") stop(false);
+      if (it.id === "info") setInfoFor(pane);
       if (it.id === "mode" || it.id === "model") {
         const c = controlFor(controls, it.id);
         const el = c && settingsEl.current && settingsEl.current.querySelector ? settingsEl.current.querySelector('[data-setting="' + c.key + '"]') : null;
@@ -550,8 +555,10 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
           ? html`<p class="structured-usage">${ctx ? html`<span class="structured-context">${ctx}</span>` : null}${cost ? html`<span class="structured-cost">${cost}</span>` : null}</p>`
           : null}
         <${UsageMeter} usage=${st.usage} />
+        ${desk ? html`<button type="button" class="drawer-btn structured-info-btn" aria-expanded=${infoFor === pane || needsSignIn(st) ? "true" : "false"} disabled=${needsSignIn(st)} title=${needsSignIn(st) ? "Open until the agent is signed in" : undefined} onClick=${() => setInfoFor(infoFor === pane ? "" : pane)}>Agent info</button>` : null}
       </div>
       <${TodoList} st=${st} pane=${pane} />
+      ${desk && (infoFor === pane || needsSignIn(st)) ? html`<${InfoPanel} pane=${pane} st=${st} store=${store} result=${infoResult} onClose=${() => setInfoFor("")} />` : null}
       ${desk && exporting === pane ? html`<${ExportPanel} pane=${pane} store=${store} result=${exportResult} onClose=${() => setExporting("")} />` : null}
       ${controls.length
         ? html`<div class="structured-settings" ref=${settingsEl} role="group" aria-label="Agent settings">
