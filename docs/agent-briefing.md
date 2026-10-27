@@ -94,6 +94,14 @@ Targets, limits, retention and the conditions for that line are on the command l
 - A peer name is the pane's own report. Control characters and line breaks in it become
   spaces and it is cut to 64 characters when it is recorded, and `inbox` prints a sender
   with the same rules, so a name cannot start a line of its own.
+- Session names in the briefing. Flockdeck cannot map a pane to a SendMessage session name on its
+  own: the name comes from the agent's ListAgents tool, so it is known only after the agent runs
+  `flockdeck peer-name <name>`, and it is cleared when the pane restarts. An agent with
+  SendMessage (`Caps.Hooks`, today Claude Code) is told to report its own name at the start and
+  after each app restart. Its roster line then carries `session name "..."`, and a helper's
+  briefing names its manager (`Pane.Parent`, looked up in the roster) with that name, or says the
+  manager has not reported one and points at ListAgents. Such an agent is not told about
+  `flockdeck msg send`; any other terminal agent still is, since it has nothing else.
 - Spawn rights (`spawns`, `plain`) do not apply to messages.
 - Messages are kept in memory and in `messages.json`, written under one lock, so the newest
   snapshot is always the one left on disk. At start-up, messages read more than 7 days ago and

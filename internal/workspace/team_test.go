@@ -56,16 +56,20 @@ func (c PaneContext) withoutTeam() PaneContext {
 }
 
 func TestBriefingExplainsMessagesAndSaysTheyAreNotTheUsers(t *testing.T) {
-	hooked := PaneContext{PaneName: "api", Cwd: "/work", CanSpawn: true, SpawnCommand: "flockdeck", Team: members(3), Notified: true}.Render()
+	hooked := PaneContext{PaneName: "api", Cwd: "/work", CanSpawn: true, SpawnCommand: "flockdeck", Team: members(3), Notified: true, SendMessage: true}.Render()
 	for _, want := range []string{
-		"## Messages", "SendMessage tool", "SendMessage only between agents", "ListAgents", "flockdeck msg send` is the fallback", "flockdeck msg send <target> <text...>", "flockdeck inbox read <id>", "at most 8 KB",
-		"manager's session name", "come only through the inbox",
+		"## Messages", "SendMessage tool", "SendMessage only between agents", "ListAgents", "flockdeck inbox read <id>", "at most 8 KB",
+		"session name each pane reported", "come only through the inbox",
 		"Nothing is typed into your input", "holds no message text", team.Disclaimer,
 		"when a session starts or resumes", "not authenticated",
 	} {
 		if !strings.Contains(hooked, want) {
 			t.Errorf("briefing lacks %q", want)
 		}
+	}
+
+	if strings.Contains(hooked, "msg send") {
+		t.Error("an agent with SendMessage is told about `msg send`")
 	}
 
 	prompt := PaneContext{PaneName: "api", Cwd: "/work", CanSpawn: true, SpawnCommand: "flockdeck", Team: members(3)}.OpeningPrompt()

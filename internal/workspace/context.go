@@ -148,6 +148,15 @@ type PaneContext struct {
 	// reports its lifecycle through hooks.
 	Notified bool
 
+	// SendMessage says the pane's agent has the SendMessage tool, which it uses
+	// to write to other agents by session name. It is the agent that reports its
+	// lifecycle through hooks, today Claude Code. Any other agent writes with
+	// `msg send`.
+	SendMessage bool
+	// Parent is the id of the pane that started this one, empty for a pane the
+	// user started. The manager is looked up in Team by it.
+	Parent string
+
 	// Structured says the pane is an agent behind a protocol, with no terminal
 	// and no Flockdeck command line, so it cannot run `inbox` or `msg send`.
 	// MailText says its mail is delivered as prompts holding the message text,
@@ -185,6 +194,10 @@ func (w *Workspace) PaneContext(paneID string) (PaneContext, bool) {
 		return PaneContext{}, false
 	}
 
+	w.mu.RLock()
+	parent := p.Parent
+	w.mu.RUnlock()
+
 	c := PaneContext{
 		PaneID:       p.ID,
 		PaneName:     p.Name,
@@ -192,6 +205,7 @@ func (w *Workspace) PaneContext(paneID string) (PaneContext, bool) {
 		Cwd:          p.Cwd,
 		Branch:       p.Branch,
 		Task:         p.Task,
+		Parent:       parent,
 		Baton:        p.BatonID,
 		Taken:        time.Now(),
 		CanSpawn:     w.hookSrv != nil,
@@ -337,6 +351,7 @@ func (w *Workspace) PaneContext(paneID string) (PaneContext, bool) {
 	if p.IsAgent() && p.Agent != "" {
 		if spec, ok := w.agents().Find(p.Agent); ok && spec.Caps.Hooks {
 			c.Notified = true
+			c.SendMessage = true
 		}
 	}
 	if c.CanSpawn && !c.Shell {

@@ -65,6 +65,11 @@ func (m Member) Line() string {
 	if m.Peer != "" && m.Name != "" && m.Peer != m.Name {
 		fmt.Fprintf(&b, " (pane name %q)", m.Name)
 	}
+	// The name SendMessage takes, as the pane reported it. A pane that has not
+	// reported one has none listed, and the line does not guess.
+	if m.Peer != "" {
+		fmt.Fprintf(&b, ", session name %q", AgentLabel(m.Peer))
+	}
 	if m.Agent != "" {
 		b.WriteString(", " + m.Agent)
 		if m.Model != "" {
