@@ -371,7 +371,7 @@ const (
 func (r *Runtime) Info() Info {
 	r.mu.Lock()
 	i := Info{
-		Name: r.agentNm, Version: r.hello.version,
+		Name: clean(r.agentNm, fieldCap), Version: r.hello.version,
 		Catalog: clean(r.opts.Spec.ID, infoNameCap), Adapter: clean(r.opts.Spec.ACP.Adapter, infoNameCap),
 		Auth: append([]string(nil), r.hello.auth...), MCP: append([]string(nil), r.hello.mcp...),
 		Cwd: clean(r.opts.Cwd, 1024), SessionID: clean(r.session, fieldCap), Phase: r.phase,

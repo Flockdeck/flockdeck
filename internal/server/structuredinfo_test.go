@@ -33,7 +33,7 @@ func TestInfoTextIsOneBoundedLinePerFactAndNothingForgesARow(t *testing.T) {
 	}
 	long := infoText(structured.Info{Name: strings.Repeat("x", 5000), Cwd: strings.Repeat("y", 5000)})
 	for _, ln := range strings.Split(strings.TrimSpace(long), "\n") {
-		if len(ln) > structuredInfoLine+40 {
+		if len(ln) > 200+40 {
 			t.Errorf("a line of %d bytes", len(ln))
 		}
 	}
@@ -56,7 +56,7 @@ func TestStructuredInfoAnswersForAStructuredPaneOnly(t *testing.T) {
 	e := newStructuredEnv(t, "plain")
 	e.status(t, session.StatusIdle)
 	res := e.infoOp(t, e.child)
-	if !res.OK || res.Op != "structuredInfo" || !strings.Contains(res.Info, "Agent: ") || !strings.Contains(res.Info, "Session: ") || len(res.Info) > structuredInfoMax {
+	if !res.OK || res.Op != "structuredInfo" || !strings.Contains(res.Info, "Agent: ") || !strings.Contains(res.Info, "Session: ") || len(res.Info) > 6000 {
 		t.Fatalf("result = %+v", res)
 	}
 	if strings.Contains(res.Info, "flockdeck-token") || strings.Contains(res.Info, "FLOCKDECK_") {

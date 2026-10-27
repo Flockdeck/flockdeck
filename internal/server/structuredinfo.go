@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	"strings"
+	"unicode"
 
 	"github.com/jmwri/flockdeck/internal/structured"
 )
@@ -33,11 +34,13 @@ func (s *Server) structuredInfo(c *controlClient, cmd command) {
 }
 
 // infoText is the view, one fact to a line. Every value is one line of at most
-// structuredInfoLine bytes.
+// structuredInfoLine bytes. The fixed rows come first and the agent's settings
+// last, and a setting that would take the text past structuredInfoMax is left
+// out, with a "Cut" row saying so.
 func infoText(i structured.Info) string {
 	var b strings.Builder
 	row := func(name, v string) {
-		v, _ = clipLine(v, structuredInfoLine)
+		v = infoValue(v)
 		if v == "" {
 			v = "not reported"
 		}
@@ -80,16 +83,6 @@ func infoText(i structured.Info) string {
 			}
 		}))
 	}
-	for n, o := range ss.ConfigOptions {
-		if n == structuredConfigMax {
-			break
-		}
-		row("Setting "+o.ID, choiceName(o.Current, func(yield func(id, name string)) {
-			for _, v := range o.Values {
-				yield(v.Value, v.Name)
-			}
-		}))
-	}
 	list("MCP servers", i.MCP)
 	c := ss.Capabilities
 	var caps []string
@@ -107,7 +100,56 @@ func infoText(i structured.Info) string {
 	}
 	list("Agent can", caps)
 	row("Slash commands", fmt.Sprint(len(ss.Commands)))
+	// The settings: each row is made apart and added only while the text, with
+	// room kept for the Cut row, stays within the limit.
+	const cutRow = "Cut: some settings are left out\n"
+	cut := false
+	for n, o := range ss.ConfigOptions {
+		if n == structuredConfigMax {
+			cut = true
+			break
+		}
+		name, _ := clipLine(strings.ReplaceAll(infoPlain(o.ID), ": ", " "), 60)
+		cur := infoValue(choiceName(o.Current, func(yield func(id, name string)) {
+			for _, v := range o.Values {
+				yield(v.Value, v.Name)
+			}
+		}))
+		if cur == "" {
+			cur = "not reported"
+		}
+		line := "Setting " + name + ": " + cur + "\n"
+		if b.Len()+len(line)+len(cutRow) > structuredInfoMax {
+			cut = true
+			break
+		}
+		b.WriteString(line)
+	}
+	if cut {
+		b.WriteString(cutRow)
+	}
 	return b.String()
+}
+
+// infoPlain removes what makes text more than letters: control characters (also
+// the C1 ones), format characters such as the bidi overrides, and the line and
+// paragraph separators. A line break becomes a space.
+func infoPlain(s string) string {
+	return strings.Map(func(r rune) rune {
+		switch {
+		case r == 0x0A || r == 0x0D || r == 0x09 || r == 0x2028 || r == 0x2029:
+			return ' '
+		case unicode.IsControl(r) || unicode.Is(unicode.Cf, r):
+			return -1
+		}
+		return r
+	}, strings.ToValidUTF8(s, "?"))
+}
+
+// infoValue is infoPlain cut to one value's length.
+func infoValue(s string) string {
+	v, _ := clipLine(infoPlain(s), structuredInfoLine)
+	return v
 }
 
 // choiceName is the current id with its name when the list of choices has one.

@@ -99,10 +99,20 @@ test("a pane waiting for a login says so and a restart is sent only when the per
     assert.ok(box.textContent.includes("Sign in to continue") && box.textContent.includes("Run claude once"));
     assert.ok(box.textContent.includes("does not sign in for you"));
     assert.deepEqual(sent.map((c) => c.cmd), ["structuredInfo"], "a restart was sent without a press");
+    assert.equal(m.container.find(".info-close"), null, "a Close that does nothing while the sign-in is needed");
+    const btn = m.container.find(".info-restart");
+    btn.click();
+    btn.click();
+    await settle();
     m.container.find(".info-restart").click();
     await settle();
-    assert.deepEqual(sent.map((c) => c.cmd), ["structuredInfo", "restartPane"]);
+    assert.deepEqual(sent.map((c) => c.cmd), ["structuredInfo", "restartPane"], "two presses sent more than one restart");
     assert.equal(sent[1].id, "p1");
+    assert.equal(m.container.find(".info-restart").getAttribute("disabled") !== null, true, "the button stayed on after the press");
+    // The push says the agent is starting: the panel is told a new phase and the button is on again if a login is wanted once more.
+    await m.draw(html`<${InfoPanel} pane="p1" st=${{ ...st, phase: "starting" }} store=${store} result=${null} onClose=${() => {}} />`);
+    await m.draw(html`<${InfoPanel} pane="p1" st=${st} store=${store} result=${null} onClose=${() => {}} />`);
+    assert.equal(m.container.find(".info-restart").getAttribute("disabled") === null, true, "the button stayed off after the phase changed");
     assert.ok(!JSON.stringify(sent).match(/key|token|password/i), "a credential field in a command");
   } finally {
     await m.done();
@@ -135,6 +145,11 @@ test("Agent info opens from the button and from /info, on the desk only, and ope
       }
       await draw(push({ phase: "setup", setup: { kind: "login", message: "m" } }));
       assert.equal(!!m.container.find("[data-info-login]"), desk);
+      if (desk) {
+        const toggle = m.container.find(".structured-info-btn");
+        assert.equal(toggle.getAttribute("disabled") !== null, true, "the header button still toggles while the sign-in is needed");
+        assert.equal(m.container.find(".info-close"), null);
+      }
     } finally {
       await m.done();
     }

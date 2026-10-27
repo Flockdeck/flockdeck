@@ -555,7 +555,7 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
           ? html`<p class="structured-usage">${ctx ? html`<span class="structured-context">${ctx}</span>` : null}${cost ? html`<span class="structured-cost">${cost}</span>` : null}</p>`
           : null}
         <${UsageMeter} usage=${st.usage} />
-        ${desk ? html`<button type="button" class="drawer-btn structured-info-btn" aria-expanded=${infoFor === pane || needsSignIn(st) ? "true" : "false"} onClick=${() => setInfoFor(infoFor === pane ? "" : pane)}>Agent info</button>` : null}
+        ${desk ? html`<button type="button" class="drawer-btn structured-info-btn" aria-expanded=${infoFor === pane || needsSignIn(st) ? "true" : "false"} disabled=${needsSignIn(st)} title=${needsSignIn(st) ? "Open until the agent is signed in" : undefined} onClick=${() => setInfoFor(infoFor === pane ? "" : pane)}>Agent info</button>` : null}
       </div>
       <${TodoList} st=${st} pane=${pane} />
       ${desk && (infoFor === pane || needsSignIn(st)) ? html`<${InfoPanel} pane=${pane} st=${st} store=${store} result=${infoResult} onClose=${() => setInfoFor("")} />` : null}
