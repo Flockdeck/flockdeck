@@ -150,7 +150,7 @@ func (s *Server) permissionAnswer(c *controlClient, cmd command) {
 			return
 		}
 		var err error
-		if card.Kind == bridge.QuestionKind || len(card.Questions) > 0 || len(cmd.Answers) > 0 {
+		if len(card.Questions) > 0 || len(cmd.Answers) > 0 {
 			// Answers go with a question card and its allowing option, and
 			// with nothing else: checked again by the pane, which holds the card.
 			qp, ok := pane.(QuestionPane)
