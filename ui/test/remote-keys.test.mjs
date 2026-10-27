@@ -897,13 +897,21 @@ test("deviceName takes out control and bidi characters, one-lines the name and c
   assert.equal(deviceName("a\n\tb" + c(0) + c(0x9f) + "  c"), "a b c");
   assert.equal(deviceName(c(0x202e)), "", "a name of nothing but those is no name");
   // Characters that draw as blank, or change how the one before them is drawn.
-  for (const code of [0x3164, 0x115f, 0x1160, 0xffa0, 0x2800, 0x034f, 0x17b4, 0x17b5, 0xfe00, 0xfe0f, 0x00ad, 0x180e]) {
+  for (const code of [0x3164, 0x115f, 0x1160, 0xffa0, 0x2800, 0x034f, 0x17b4, 0x17b5, 0xfe00, 0xfe0f, 0x00ad, 0x180b, 0x180c, 0x180d, 0x180e, 0xfffc]) {
     assert.equal(deviceName("A" + c(code) + "B"), "A B", "U+" + code.toString(16));
     assert.equal(deviceName(c(code)), "", "U+" + code.toString(16) + " alone is no name");
   }
   const tag = String.fromCodePoint(0xe0041) + String.fromCodePoint(0xe007f);
   assert.equal(deviceName("A" + tag + "B"), "A B", "the tag characters, which are outside the first plane, are taken out whole");
   assert.equal(deviceName(tag), "");
+  const sel = String.fromCodePoint(0xe0100) + String.fromCodePoint(0xe01ef);
+  assert.equal(deviceName("A" + sel + "B"), "A B", "the variation selectors supplement is taken out whole");
+  // Dropped on purpose: a joiner sequence is drawn as its parts and an emoji presentation selector is lost.
+  const man = String.fromCodePoint(0x1f468), girl = String.fromCodePoint(0x1f467);
+  assert.equal(deviceName(man + c(0x200d) + girl), man + " " + girl, "a zero-width joiner sequence is split");
+  assert.equal(deviceName("I" + c(0x2764) + c(0xfe0f) + "U"), "I" + c(0x2764) + " U", "the emoji presentation selector is dropped");
+  assert.equal(deviceName("a" + c(0x200c) + "b"), "a b", "a zero-width non-joiner is replaced by a space, as the comment says");
+  assert.equal(deviceName("a" + c(0x180f) + "b"), "a b", "the Mongolian selector added in Unicode 14 is dropped too");
   assert.equal(deviceName("na" + String.fromCodePoint(0x1f600) + "me"), "na" + String.fromCodePoint(0x1f600) + "me", "an emoji is a name");
   assert.equal(deviceName(undefined), "");
   const long = deviceName("x".repeat(500));
@@ -967,6 +975,22 @@ test("Remote: a step of access says what was asked, in a status line", () =>
     // The next step takes the line away, whether it is a question or an action.
     await m.click(m.container.find(".remote-access"));
     assert.equal(m.container.find("#remote-said"), null, "a new step started");
+  }));
+
+test("Remote: an action that is sent with no question also takes the status line away", () =>
+  withPage({ extra: { remote: TUNNEL } }, async (m) => {
+    await m.connect();
+    await m.openSettings("remote");
+    await m.push(ROSTER);
+    const row = (id) => m.container.findAll(".remote-row").find((r) => r.attributes["data-device"] === id);
+    await m.click(row("d2").findAll("button").find((b) => b.textContent === "Verify"));
+    // A step down is sent at once, and says what was asked.
+    await m.click(row("d1").find(".remote-access"));
+    assert.ok(m.container.find("#remote-said"), "the step down said what it asked");
+    // Taking a verification back goes straight to go(), with no question.
+    await m.click(row("d2").findAll("button").find((b) => b.textContent === "Remove verification"));
+    assert.equal(m.sent("remoteUnverify").length, 1);
+    assert.equal(m.container.find("#remote-said"), null, "go() took the line away");
   }));
 
 test("Remote: a machine's name is cleaned like a device's", () =>
