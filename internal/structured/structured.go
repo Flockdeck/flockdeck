@@ -371,6 +371,11 @@ func Start(ctx context.Context, opts Options) (*Runtime, error) {
 	if !filepath.IsAbs(opts.Cwd) {
 		return nil, fmt.Errorf("structured: the working directory %q is not absolute", opts.Cwd)
 	}
+	if opts.Key != "" && opts.Spec.ACPKeyEnv() != "" {
+		// An agent that echoes its environment must not put the key into a
+		// recording or an export, whatever shape the key has.
+		record.RegisterSecret(opts.Key)
+	}
 	if opts.Environ == nil {
 		opts.Environ = os.Environ()
 	}

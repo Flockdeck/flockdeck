@@ -5,11 +5,14 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/jmwri/flockdeck/internal/agent"
 	"github.com/jmwri/flockdeck/internal/creds"
+	"github.com/jmwri/flockdeck/internal/store"
 )
 
 // isolateKeys points the state directory at one of this test's own, so nothing
@@ -572,5 +575,23 @@ func TestKeysForTheBuiltinStructuredAgents(t *testing.T) {
 	out, _ = runKeysCmd(t, "", "list")
 	if !strings.Contains(out, "stored by flockdeck") || strings.Contains(out, "sk-stored-gemini") {
 		t.Errorf("list after set:\n%s", out)
+	}
+}
+
+// A stored key the agent would not be given (a hand-edited keys.json) is not
+// checked: check must not validate a key that never reaches the agent.
+func TestKeysCheckSkipsAKeyTheAgentWouldNotGet(t *testing.T) {
+	isolateKeys(t)
+	builtinKeyAgents(t)
+	dir, err := store.Dir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "keys.json"), []byte(`{"gemini-acp":"sk-line1\nsk-line2"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	out, err := runKeysCmd(t, "", "check", "gemini-acp")
+	if err != nil || !strings.Contains(out, "That key can't be used") || strings.Contains(out, "asking") || strings.Contains(out, "sk-line") {
+		t.Errorf("check: %v\n%s", err, out)
 	}
 }

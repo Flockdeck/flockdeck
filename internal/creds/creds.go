@@ -18,6 +18,7 @@
 package creds
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -129,6 +130,7 @@ const maxKeyLen = 4 << 10
 // A stored value with a control character in it, or longer than maxKeyLen, is
 // not returned either; the agent then starts without a key.
 func StoredKey(spec agent.Spec) string {
+	// Usable is the one filter, shared with Set and `flockdeck keys check`.
 	if spec.ACPKeyEnv() == "" {
 		return ""
 	}
@@ -136,11 +138,20 @@ func StoredKey(spec agent.Spec) string {
 	if k.Source != SourceStore {
 		return ""
 	}
-	v := k.Secret()
-	if len(v) > maxKeyLen || strings.ContainsFunc(v, unicode.IsControl) {
-		return ""
+	if v := k.Secret(); Usable(v) {
+		return v
 	}
-	return v
+	return ""
+}
+
+// ErrUnusable is the refusal of a key that cannot be an environment value. Its
+// text is fixed: the key is not quoted.
+var ErrUnusable = errors.New("That key can't be used")
+
+// Usable reports whether a key can be handed to an agent: not empty, at most
+// maxKeyLen bytes, no control character.
+func Usable(key string) bool {
+	return key != "" && len(key) <= maxKeyLen && !strings.ContainsFunc(key, unicode.IsControl)
 }
 
 // Env returns the environment entry that carries the stored key to the one

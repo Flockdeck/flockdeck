@@ -333,6 +333,11 @@ func keysCheck(agentID string, out io.Writer) error {
 			Agent: spec.ID, Wire: spec.API.Wire, BaseURL: spec.API.BaseURL, KeyEnv: spec.API.KeyEnv,
 		})
 	}
+	if key != "" && !creds.Usable(key) {
+		// The agent is not given a key like this, so it is not asked about.
+		fmt.Fprintf(out, "%s: %s\n", agentID, creds.ErrUnusable)
+		return nil
+	}
 	if key == "" {
 		fmt.Fprintf(out, "%s: %s\n", agentID, creds.StatusOf(spec).Describe())
 		return nil

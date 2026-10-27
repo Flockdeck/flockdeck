@@ -13,6 +13,7 @@ import (
 	"github.com/jmwri/flockdeck/internal/acp/acptest"
 	"github.com/jmwri/flockdeck/internal/acp/manifest"
 	"github.com/jmwri/flockdeck/internal/agent"
+	"github.com/jmwri/flockdeck/internal/record"
 )
 
 const testKey = "sk-test-key-0123456789"
@@ -167,3 +168,27 @@ func TestTheLaunchCheckIsNotGivenTheKey(t *testing.T) {
 }
 
 func name(kv string) string { n, _, _ := strings.Cut(kv, "="); return n }
+
+// Starting an agent with a key registers it with the redactor, so a recording
+// of an agent that echoes its environment does not hold a key of any shape.
+func TestTheKeyIsRegisteredWithTheRedactor(t *testing.T) {
+	const odd = "plainword-Zq81mXk20Lr"
+	exe, _ := os.Executable()
+	begin(t, Options{
+		Spec: keySpec("gemini"), Cwd: acptest.SessionDir(t), Environ: []string{}, Key: odd,
+		Command: &Command{Path: exe, Args: []string{acptest.ArgAgent}},
+	})
+	if got := record.Redact("GEMINI_API_KEY=" + odd + " " + odd); strings.Contains(got, odd) {
+		t.Errorf("Redact left the key: %q", got)
+	}
+	// An agent with no key variable registers nothing.
+	const unrelated = "plainword-Unrelated9988"
+	begin(t, Options{
+		Spec: agent.Spec{ID: "x", Runner: agent.RunnerACP, ACP: agent.ACPSpec{Adapter: "gemini"}},
+		Cwd:  acptest.SessionDir(t), Environ: []string{}, Key: unrelated,
+		Command: &Command{Path: exe, Args: []string{acptest.ArgAgent}},
+	})
+	if got := record.Redact(unrelated); got != unrelated {
+		t.Errorf("a key for an agent with no slot was registered: %q", got)
+	}
+}

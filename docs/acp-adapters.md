@@ -132,7 +132,12 @@ manifest instead of a program, and says what the agent may see:
   variables), so a key reaches the agent that way. opencode has no slot: it
   keeps its own provider logins. A variable exported in Flockdeck's environment
   is the agent's key only if `passEnv` lists it, and `FLOCKDECK_API_KEY` and
-  the vendor's usual variable are not read. Not verified against a real
+  the vendor's usual variable are not read. A key with a control character or
+  over 4 KiB is refused ("That key can't be used") and never passed. A key
+  handed to an agent is also registered with the recording redactor
+  (`record.RegisterSecret`), so an agent that echoes its environment cannot put
+  it into a recording. Settings lists an agent the picker does not offer only
+  while it has a stored key. Not verified against a real
   agent: that Gemini CLI in `--acp` mode uses `GEMINI_API_KEY` without an
   `authenticate` call (the client sends none), and that `codex app-server` uses
   `OPENAI_API_KEY` without `account/login/start`.

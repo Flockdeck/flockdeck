@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"slices"
 	"sync"
 
@@ -24,16 +25,21 @@ var keyWrites sync.Mutex
 // like every other read of it; the key store is a file, and is read off it.
 func (s *Server) listKeys(c *controlClient) {
 	specs, ok := ask(s, func() []agent.Spec {
-		specs, _ := s.ws.Agents()
-		return specs
+		return slices.Clone(s.ws.Catalog().Specs)
 	})
 	if !ok {
 		return
 	}
 	go func() {
 		defer s.surviveFor(c, "reading the API keys")
-		visible := slices.DeleteFunc(slices.Clone(specs), func(sp agent.Spec) bool { return sp.Hidden })
-		items := creds.StatusAll(visible)
+		// An agent the picker does not offer is listed only when it has a stored key, so that the
+		// key can be changed or cleared; the rest are listed as the picker does.
+		structuredOn := s.ws.Catalog().Structured
+		listed := slices.DeleteFunc(specs, func(sp agent.Spec) bool {
+			offered := !sp.Hidden && (sp.Runner != agent.RunnerACP || structuredOn)
+			return !offered && !creds.Has(sp.ID)
+		})
+		items := creds.StatusAll(listed)
 		// A key stored for an agent that has since left the catalog has no row
 		// of its own, and a key nobody can see is a key nobody can clear.
 		// A store that cannot be read makes every stored key read as not set,
@@ -72,7 +78,9 @@ func (s *Server) setKey(c *controlClient, agentID, key string) {
 		keyWrites.Lock()
 		err := creds.Set(agentID, key)
 		keyWrites.Unlock()
-		if err != nil {
+		if errors.Is(err, creds.ErrUnusable) {
+			c.notify(creds.ErrUnusable.Error(), true)
+		} else if err != nil {
 			c.notify("Could not save the key: "+err.Error(), true)
 		} else {
 			c.notify(s.savedKeyNotice(agentID), false)

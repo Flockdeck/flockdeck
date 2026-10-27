@@ -1,6 +1,7 @@
 package creds
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -84,7 +85,8 @@ func TestStoredKeyRefusesWhatCannotBeAnEnvironmentValue(t *testing.T) {
 		"a newline inside": "abc\ndef", "a NUL": "abc\x00def", "an escape": "abc\x1b[31m",
 		"too long": strings.Repeat("k", maxKeyLen+1),
 	} {
-		if err := Set("gem", key); err != nil {
+		// Written past Set, as a hand-edited keys.json would hold it.
+		if err := save(map[string]string{"gem": key}); err != nil {
 			t.Fatal(err)
 		}
 		if got := StoredKey(spec); got != "" {
@@ -114,5 +116,26 @@ func TestStatusOfAStructuredAgent(t *testing.T) {
 	}
 	if got := StatusAll([]agent.Spec{spec, {ID: "plain", Runner: agent.RunnerACP}}); len(got) != 1 || got[0].Agent != "gem" {
 		t.Errorf("StatusAll = %+v", got)
+	}
+}
+
+// Set refuses a key the agent could not be given, with a fixed text that does
+// not quote it, and stores nothing.
+func TestSetRefusesAnUnusableKey(t *testing.T) {
+	isolateConfig(t)
+	for _, key := range []string{"abc\ndef", "abc\x00def", "abc\x1b[31m", strings.Repeat("k", maxKeyLen+1)} {
+		err := Set("gem", key)
+		if !errors.Is(err, ErrUnusable) || err.Error() != "That key can't be used" {
+			t.Errorf("Set(%q...) = %v", key[:3], err)
+		}
+	}
+	if names, _ := Names(); len(names) != 0 {
+		t.Errorf("the store holds %v", names)
+	}
+	if !Usable("sk-fine") || Usable("") || Usable("a\tb") {
+		t.Error("Usable is wrong")
+	}
+	if err := Set("gem", strings.Repeat("k", maxKeyLen)); err != nil {
+		t.Errorf("a key at the limit was refused: %v", err)
 	}
 }
