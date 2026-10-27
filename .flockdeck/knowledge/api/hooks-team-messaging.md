@@ -7,6 +7,8 @@ tags: [hooks, team, messaging, inbox]
 timestamp: 2026-10-19T00:00:00Z
 code_paths: [internal/hooks/team.go]
 ---
+Direction (27 Oct 2026): the `/msg` and `/inbox` routes are planned for removal with the shell inbox. Status: planned removal. See docs/acp-direction.md.
+
 # POST /team, /msg, /inbox
 
 Three routes built from one generic handler, `serveJSON`: POST only, body at most 1 MiB, token compared in constant time, then the installed function. Handler errors are 400 with their own words; no handler is 503. Every request embeds `Auth{pane, token}`; the application refuses a pane it does not have open. Client calls time out after 10 s.

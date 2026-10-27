@@ -76,6 +76,8 @@ exit, and a message that was all briefing would end the pane. An entry in
 
 ## Messages between panes
 
+> Direction (27 Oct 2026): the shell inbox (`flockdeck msg`, `flockdeck inbox`), hook notices and the typed wake line are planned for removal. Agents will send mail with the `send_message` and `list_peers` tools of a Flockdeck MCP server, and Flockdeck will deliver it as a prompt. A small audit log stays. See [ACP direction](acp-direction.md). This section describes the code as it is today.
+
 The briefing is only where an agent learns the commands. The messages are Flockdeck's own
 channel for the notices it writes, and the fallback between agents, who are told to use the
 SendMessage tool of Claude Code first: a pane runs `flockdeck msg send`, which posts to the
@@ -219,6 +221,8 @@ id only, and does not count towards `AutoApproved`. It applies to agents whose h
 reviews (Claude Code) and to the chat client; other CLI agents keep their own approval modes.
 
 ## The task board
+
+> Direction (27 Oct 2026): the task board is planned for removal, after the new mail path works. See [ACP direction](acp-direction.md).
 
 `flockdeck task` posts to the same loopback server, with the same `FLOCKDECK_API`,
 `FLOCKDECK_TOKEN` and `FLOCKDECK_PANE`, to `/task`. The board is the application's: the

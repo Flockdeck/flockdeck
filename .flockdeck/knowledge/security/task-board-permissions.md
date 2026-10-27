@@ -7,6 +7,8 @@ tags: [security, tasks, roles]
 timestamp: 2026-10-19T00:00:00Z
 code_paths: [internal/tasks/rules.go]
 ---
+Direction (27 Oct 2026): the task board is planned for removal (T203). Status: planned removal. See docs/acp-direction.md.
+
 # Task board permissions
 
 Actors are built from a pane on the roster and the role it was started with; neither is authenticated beyond the pane id the caller sent. The rules keep agents to their jobs and are no defence against one set on getting round them.

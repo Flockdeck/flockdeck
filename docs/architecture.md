@@ -3,6 +3,8 @@
 This page covers the main design choices. [Building from source](building.md)
 covers how to work on the code.
 
+> Direction (27 Oct 2026): Flockdeck is moving to run every agent over ACP: no terminal-pane agents, no `flockdeck chat`, no inbox or typed wake, no task board. The sections below describe the code as it is today; the removals are planned, not done. See [ACP direction](acp-direction.md).
+
 ## The window
 
 ```
@@ -84,6 +86,8 @@ and replaces it. `-solo` starts a separate instance instead.
   nothing in the workspace learns a second protocol, and there is still one
   program to install. On Windows it also ships as `flockdeck-chat.exe`, linked for
   the console, because the window build gets none in a pane.
+
+  Direction (27 Oct 2026): `flockdeck chat` is planned for removal; API keys will stay in Settings and be passed to the agent's environment. See [ACP direction](acp-direction.md).
 - Emulation happens in the browser. xterm.js renders the terminal and encodes
   keystrokes for whatever modes the application has enabled, so raw bytes pass
   through Go untouched in both directions. Go never has to reimplement a terminal.
@@ -126,6 +130,8 @@ and a reported event always wins over that guess.
 and the status it should show.
 
 ## Typed wake
+
+> Direction (27 Oct 2026): typed wake is planned for removal. Agent mail will go through a Flockdeck MCP server and `session/prompt`. See [ACP direction](acp-direction.md).
 
 Mail normally reaches an agent through its hooks: the reply to a hook the agent
 fires carries a notice. An agent that is idle at its prompt fires none, so mail

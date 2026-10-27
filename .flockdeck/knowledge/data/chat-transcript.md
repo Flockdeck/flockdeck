@@ -7,6 +7,8 @@ tags: [chat, transcript, jsonl]
 timestamp: 2026-10-19T00:00:00Z
 code_paths: [internal/chat/transcript.go]
 ---
+Direction (27 Oct 2026): `flockdeck chat` is planned for removal (T201). Status: planned removal. See docs/acp-direction.md.
+
 # Chat transcript
 
 `<state dir>/chats/<session>.jsonl` (the folder is created mode 0700). The session id is the pane id. Each entry is written through immediately, not buffered, because other code reads the file while the pane runs. An empty file counts as no transcript (`Path` returns "").

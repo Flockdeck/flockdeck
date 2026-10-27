@@ -7,6 +7,8 @@ tags: [workspace, team, window, messages]
 timestamp: 2026-10-19T00:00:00Z
 code_paths: [internal/workspace/teamui.go]
 ---
+Direction (27 Oct 2026): delivery to a pane's inbox is planned for removal; see the mail decision. Status: planned removal. See docs/acp-direction.md.
+
 # Team panel operations
 
 `internal/workspace/teamui.go` is the person-at-the-window side of the team. It calls the same functions panes use (`runTask`, `deliver`, the board, the inbox store), so rules, limits and notices are one set. The person is no pane and has no role: tasks see `tasks.UserActor()` and messages `team.UserSender()`. Every method runs on the workspace goroutine.

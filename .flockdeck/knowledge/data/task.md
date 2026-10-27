@@ -7,6 +7,8 @@ tags: [tasks, board]
 timestamp: 2026-10-19T00:00:00Z
 code_paths: [internal/tasks/tasks.go]
 ---
+Direction (27 Oct 2026): the task board is planned for removal (T203). Status: planned removal. See docs/acp-direction.md.
+
 # Task
 
 | JSON | Meaning |

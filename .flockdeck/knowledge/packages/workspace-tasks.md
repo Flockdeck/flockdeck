@@ -7,6 +7,8 @@ tags: [workspace, tasks, board, inbox]
 timestamp: 2026-10-19T00:00:00Z
 code_paths: [internal/workspace/tasks.go]
 ---
+Direction (27 Oct 2026): the task board is planned for removal (T203). Status: planned removal. See docs/acp-direction.md.
+
 # Workspace side of the task board
 
 The board, its rules and its file live in [tasks](/packages/tasks.md) ([task board file](/data/task-board.md)). `internal/workspace/tasks.go` decides who is acting and which project's board is meant, then runs the operation.

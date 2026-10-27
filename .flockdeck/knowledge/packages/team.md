@@ -7,6 +7,8 @@ tags: [team, messaging, inbox, graph]
 timestamp: 2026-10-19T00:00:00Z
 code_paths: [internal/team/team.go, internal/team/block.go, internal/team/graph.go, internal/team/notify.go, internal/team/store.go]
 ---
+Direction (27 Oct 2026): inbox delivery, hook notices and the typed wake are planned for removal; the store stays as an audit log. Delivery will be a `session/prompt`, with the stop reason as the acknowledgement. Status: planned removal. See docs/acp-direction.md.
+
 # internal/team
 
 Lets the panes of one project know about each other and talk. Holds no panes, sessions or files: the workspace builds the roster, stores what `Store.Snapshot` returns, and delivers what `Notifier` produces.

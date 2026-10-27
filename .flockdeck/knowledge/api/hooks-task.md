@@ -7,6 +7,8 @@ tags: [hooks, tasks]
 timestamp: 2026-10-19T00:00:00Z
 code_paths: [internal/hooks/tasks.go]
 ---
+Direction (27 Oct 2026): the task board is planned for removal (T203). Status: planned removal. See docs/acp-direction.md.
+
 # POST /task
 
 Same handler shape and checks as [team messaging](/api/hooks-team-messaging.md) (POST, 1 MiB, token, installed function, 400 with text on refusal). Client: `hooks.Task(api, token, pane, req)`, which refuses an empty `op`.

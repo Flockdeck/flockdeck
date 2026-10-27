@@ -7,6 +7,8 @@ tags: [cli, pane, team]
 timestamp: 2026-10-19T00:00:00Z
 code_paths: [cli_task.go, internal/hooks/tasks.go, internal/tasks/tasks.go]
 ---
+Direction (27 Oct 2026): the task board is planned for removal after the new mail path works (T203). Status: planned removal. See docs/acp-direction.md.
+
 ## Synopsis
 
 `flockdeck task <subcommand> ...`. Flags may appear before, between or after the positional arguments (`parseInterspersed`); everything after `--` is positional.
