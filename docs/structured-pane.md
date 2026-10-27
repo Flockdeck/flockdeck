@@ -72,6 +72,8 @@ refused in the same words, so a window probing for ids learns nothing: the `team
 | `planMarkdown` | A plan the agent sent as markdown (Codex `plan_update`). `plan` holds rows. A pane can have either. |
 | `capabilities` | What the agent said it can do at initialize, while the phase is `ready`: `loadSession`, `image`, `audio`, `embeddedContext`, `mcpHttp`, `mcpSse`, `listSessions`, `resumeSession`, `forkSession`. |
 
+The session fields (`title`, `commands`, `modes`, `models`, `configOptions`, `planMarkdown`, `capabilities`) came with API 1.12, and a server that names `structuredSession` in its `caps` sends them. Agents differ in what they offer: opencode and Codex put the model, effort and mode in `configOptions`; Gemini sends `modes` and `models` and no config options. A window draws whatever is present and treats an absent field as "the agent offers none". The set of values for `configOptions` is the agent's and changes mid-session (a `config_option_update` replaces the whole list), so a window reads the current list each time instead of caching it. Changing a mode, model or setting is not a command yet.
+
 Every text in the message is untrusted: it is what the agent, a tool or a
 file said. Draw it as plain text or as sanitised markdown, never as HTML. A card or a plan
 row is data to show, not an instruction to follow, whatever it says.

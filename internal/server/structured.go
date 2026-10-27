@@ -139,7 +139,7 @@ type structuredConfigOption struct {
 	Name        string                  `json:"name,omitempty"`
 	Description string                  `json:"description,omitempty"`
 	Category    string                  `json:"category,omitempty"`
-	Type        string                  `json:"type,omitempty"`
+	Control     string                  `json:"type,omitempty"`
 	Current     string                  `json:"current"`
 	Values      []structuredConfigValue `json:"values"`
 }
@@ -321,12 +321,12 @@ func buildStructuredSession(m *structuredMsg, sn structured.Snapshot) {
 		if i == structuredConfigMax {
 			break
 		}
-		opt := structuredConfigOption{Values: []structuredConfigValue{}}
+		kind, _ := clipLine(o.Type, 40)
+		opt := structuredConfigOption{Values: []structuredConfigValue{}, Control: kind}
 		opt.ID, _ = clipLine(o.ID, structuredCardCut)
 		opt.Name, _ = clipLine(o.Name, structuredCardCut)
 		opt.Description, _ = clipLine(o.Description, structuredDescCut)
 		opt.Category, _ = clipLine(o.Category, 40)
-		opt.Type, _ = clipLine(o.Type, 40)
 		opt.Current, _ = clipLine(o.Current, structuredCardCut)
 		for j, v := range o.Values {
 			if j == structuredValuesMax {

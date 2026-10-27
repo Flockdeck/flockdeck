@@ -850,3 +850,47 @@ func TestTheAdaptersLaunchEnvironmentReachesTheChildAndWins(t *testing.T) {
 		t.Errorf("an adapter with no launchEnv changed a passed variable:\n%s", got)
 	}
 }
+
+// What the agent lists at session/new and sends as state updates reaches the
+// snapshot, for the two shapes agents use.
+func TestSessionStateReachesTheSnapshot(t *testing.T) {
+	r := begin(t, fakeOptions(t, acptest.WithConfigOptions()))
+	s := until(t, r, "ready with options", func(s Snapshot) bool { return s.Phase == PhaseReady && len(s.Session.ConfigOptions) == 2 })
+	if c := s.Session.Capabilities; !c.LoadSession || !c.Prompt.Image || !c.List {
+		t.Errorf("capabilities = %+v", c)
+	}
+	if s.Session.Modes != nil || s.Session.ConfigOptions[0].Current != "big" {
+		t.Errorf("session = %+v", s.Session)
+	}
+	if err := r.Send("state"); err != nil {
+		t.Fatal(err)
+	}
+	s = until(t, r, "the state", func(s Snapshot) bool { return idle(s) && strings.Contains(replies(s), "state sent") })
+	ss := s.Session
+	if len(ss.Commands) != 2 || ss.Title != "Fix the parser" || ss.PlanMarkdown != "1. Read the code\n2. Fix it" {
+		t.Errorf("session = %+v", ss)
+	}
+	if ss.ConfigOptions[0].Current != "small" || len(ss.ConfigOptions) != 1 {
+		t.Errorf("config options = %+v", ss.ConfigOptions)
+	}
+	if ss.Modes == nil || ss.Modes.Current != "yolo" {
+		t.Errorf("modes = %+v", ss.Modes)
+	}
+	if got := prompts(s); !slices.Equal(got, []string{"state"}) {
+		t.Errorf("the echoed user message made a prompt entry: %v", got)
+	}
+	if !strings.Contains(notices(s), "Compacted 80 messages.") {
+		t.Errorf("no compaction notice in %q", notices(s))
+	}
+	if s.Usage.Used != 90 || s.Usage.Size != 1000 {
+		t.Errorf("usage = %+v", s.Usage)
+	}
+}
+
+func TestSessionStateOfAModesAgent(t *testing.T) {
+	r := begin(t, fakeOptions(t, acptest.WithModes()))
+	s := until(t, r, "ready with modes", func(s Snapshot) bool { return s.Phase == PhaseReady && s.Session.Modes != nil })
+	if s.Session.Modes.Current != "default" || len(s.Session.Models.Available) != 2 || s.Session.Models.Current != "gem-pro" || s.Session.ConfigOptions != nil && len(s.Session.ConfigOptions) != 0 {
+		t.Errorf("session = %+v %+v", s.Session.Modes, s.Session.Models)
+	}
+}
