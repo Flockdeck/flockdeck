@@ -13,7 +13,7 @@
 
 # The interface, and the files that keep it apart from the server.
 /ui/                       @Flockdeck/ui-owners
-/.github/boundary/         @Flockdeck/server-owners @Flockdeck/ui-owners
+/.github/importcheck/         @Flockdeck/server-owners @Flockdeck/ui-owners
 
 # The server. The relay registry and the access table are the two places where a new
 # message or command is classified, so they are named.

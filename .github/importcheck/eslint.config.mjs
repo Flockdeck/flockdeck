@@ -1,5 +1,5 @@
 // The ESLint rule that keeps the web interface inside ui/. It is the second lock
-// beside the import check in boundary.go: that one reads the files in a test, this
+// beside the import check in importcheck.go: that one reads the files in a test, this
 // one shows the error in an editor.
 //
 // The interface is plain ES modules loaded by the browser with no bundler, so the
@@ -21,7 +21,7 @@ export default [
           patterns: [
             {
               // api/ is reached only for the recorded messages in api/fixtures/. How far
-              // up a path climbs depends on the file, so the check in boundary.go reads that.
+              // up a path climbs depends on the file, so the check in importcheck.go reads that.
               regex: "(\\.\\./)+api/(?!fixtures/)",
               message: "The interface may read api/fixtures/ and nothing else outside ui/. Ask the API for the rest.",
             },

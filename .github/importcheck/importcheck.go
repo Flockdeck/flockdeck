@@ -1,4 +1,4 @@
-// Package boundary checks the line between the Flockdeck server and its web
+// Package importcheck checks the line between the Flockdeck server and its web
 // interface, for the layout the separation plan ends in:
 //
 //	api/        the contract: catalog, schemas, fixtures
@@ -7,10 +7,10 @@
 //	main.go     the one file that imports both
 //
 // Nothing here runs in CI until step 3 of the plan has moved the interface into
-// ui/ and boundary.yml.disabled has been renamed (see the README). Until then
+// ui/ and importcheck.yml.disabled has been renamed (see the README). Until then
 // Check finds no ui/ directory and reports nothing, so running it is harmless.
 // It reads the tree and never changes it.
-package boundary
+package importcheck
 
 import (
 	"go/parser"
