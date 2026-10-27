@@ -196,7 +196,7 @@ node order; then the last 100 `message` edges, newest first; then the last 100
   `delivery` is `queued` (stored, not yet in a turn), `delivered` (the prompt was
   sent and its turn began), `handled` (the turn ended with `end_turn`, `max_tokens`
   or `max_turn_requests`) or `undeliverable` (three turns did not handle it). A
-  turn that ended `cancelled`, `refusal` or with a stop reason the protocol does
+  turn that ended `cancelled` (not asked for by the person), `refusal` or with a stop reason the protocol does
   not define, or an agent that exited or was restarted during the turn, puts the
   message back to `queued`, so on this route the state can move backwards. A
   message that was queued before a restart and had begun a turn is queued again
