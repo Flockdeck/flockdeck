@@ -25,7 +25,7 @@ async function mount(st, { remote = false, pane = null, entries = null } = {}) {
   const restore = install(dom);
   const container = dom.document.createElement("div");
   dom.body.appendChild(container);
-  const store = fakeStore({ hello: { type: "hello" }, state: paneState({ p3: { structured: true } }), remote, structured: st, structuredError: null, cancelError: null, conversation: convOf(entries), details: {}, search: null });
+  const store = fakeStore({ connection: "open", hello: { type: "hello" }, state: paneState({ p3: { structured: true } }), remote, structured: st, structuredError: null, cancelError: null, conversation: convOf(entries), details: {}, search: null });
   let shown = node;
   const draw = () => render(html`<${Drawer} store=${store} snap=${store.getState()} node=${shown} pane=${pane} now=${NOW} />`, container);
   draw();
@@ -36,6 +36,12 @@ async function mount(st, { remote = false, pane = null, entries = null } = {}) {
     done: async () => { render(null, container); await settle(); restore(); },
   };
 }
+
+// The desk's answer to a send, as the store keeps it: the latest accepted send, or a refusal notice.
+let answerSeq = 0;
+const taken = (m, cmd, over = {}) => m.set({ sent: { seq: ++answerSeq, id: cmd.id, req: cmd.req, ...over } });
+const refused = (m, cmd, text) => m.set({ notice: { seq: ++answerSeq, error: true, kind: "send", text, req: cmd.req } });
+const plain = (c) => ({ cmd: c.cmd, id: c.id, text: c.text });
 
 async function with_(st, opts, fn) {
   const m = await mount(st, opts);
@@ -131,7 +137,7 @@ test("hostile reply markup renders as text", () =>
     },
   ));
 
-test("the prompt box sends paneSend for this pane and clears; an empty box sends nothing", () =>
+test("the prompt box sends paneSend for this pane and clears once the desk took it; an empty box sends nothing", () =>
   with_(push(), {}, async (m) => {
     m.container.find(".structured-prompt").dispatch("submit");
     await settle();
@@ -140,8 +146,43 @@ test("the prompt box sends paneSend for this pane and clears; an empty box sends
     await settle();
     m.container.find(".structured-prompt").dispatch("submit");
     await settle();
-    assert.deepEqual(m.store.sent, [{ cmd: "paneSend", id: "p3", text: "run the tests" }]);
+    assert.deepEqual(m.store.sent.map(plain), [{ cmd: "paneSend", id: "p3", text: "run the tests" }]);
+    assert.ok(m.store.sent[0].req, "the send carries a req the desk echoes");
+    assert.equal(m.container.find(".structured-input").value, "  run the tests  ", "the draft went before the desk answered");
+    m.container.find(".structured-prompt").dispatch("submit");
+    await settle();
+    assert.equal(m.store.sent.length, 1, "a second Send while one is out sent again");
+    await taken(m, m.store.sent[0]);
     assert.equal(m.container.find(".structured-input").value, "");
+    assert.equal(m.container.find(".structured-note--send"), null);
+  }));
+
+test("a text the desk refuses is said and stays in the box, and can be sent again", () =>
+  with_(push(), {}, async (m) => {
+    m.container.find(".structured-input").enter("run the tests");
+    await settle();
+    m.container.find(".structured-prompt").dispatch("submit");
+    await settle();
+    await refused(m, m.store.sent[0], "That agent is gone, so the text was not sent.");
+    assert.equal(m.container.find(".structured-note--send").textContent, "That agent is gone, so the text was not sent.");
+    assert.equal(m.container.find(".structured-input").value, "run the tests", "the refused text was lost");
+    m.container.find(".structured-prompt").dispatch("submit");
+    await settle();
+    assert.equal(m.store.sent.length, 2, "the refused text could not be sent again");
+    assert.equal(m.container.find(".structured-note--send"), null, "the refusal stayed after a new send");
+    await taken(m, m.store.sent[1]);
+    assert.equal(m.container.find(".structured-input").value, "");
+  }));
+
+test("a text whose connection dropped before the desk answered is said and stays in the box", () =>
+  with_(push(), {}, async (m) => {
+    m.container.find(".structured-input").enter("run the tests");
+    await settle();
+    m.container.find(".structured-prompt").dispatch("submit");
+    await settle();
+    await m.set({ connection: "closed" });
+    assert.match(m.container.find(".structured-note--send").textContent, /not sent|Not connected/);
+    assert.equal(m.container.find(".structured-input").value, "run the tests");
   }));
 
 test("Stop sends structuredCancel for this pane, and a refusal is shown", () =>
@@ -221,6 +262,7 @@ test("a Send the store did not send says so and keeps the draft; the words go wh
     m.container.find(".structured-prompt").dispatch("submit");
     await settle();
     assert.equal(words(), null, "the words stayed after a Send that was sent");
+    await taken(m, m.store.sent[m.store.sent.length - 1]);
     assert.equal(m.container.find(".structured-input").value, "");
     up = false;
     m.container.find(".structured-input").enter("again");
@@ -253,7 +295,7 @@ test("the words and the draft stay with their pane: p3, p4, p3 shows nothing tha
     await settle();
     m.container.find(".structured-prompt").dispatch("submit");
     await settle();
-    assert.deepEqual(m.store.sent.filter((c) => c.cmd === "paneSend"), [{ cmd: "paneSend", id: "p4", text: "for p4" }]);
+    assert.deepEqual(m.store.sent.filter((c) => c.cmd === "paneSend").map(plain), [{ cmd: "paneSend", id: "p4", text: "for p4" }]);
     await to("p3");
     assert.equal(m.container.find(".structured-note--send"), null);
     assert.equal(m.container.find(".structured-input").value || "", "");
