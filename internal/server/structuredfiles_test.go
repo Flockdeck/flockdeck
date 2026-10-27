@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -95,11 +96,17 @@ func TestFilesListingNeverLeavesTheDirectoryThroughALink(t *testing.T) {
 	writeTree(t, outside, "secret.txt", "nested/deeper.txt")
 	dir := t.TempDir()
 	writeTree(t, dir, "ok.txt")
-	if err := os.Symlink(filepath.Join(outside, "secret.txt"), filepath.Join(dir, "filelink.txt")); err != nil {
+	// A file link needs a privilege on Windows; a directory junction does not, and is the link to test there.
+	if err := os.Symlink(filepath.Join(outside, "secret.txt"), filepath.Join(dir, "filelink.txt")); err != nil && runtime.GOOS != "windows" {
 		t.Skipf("no symlinks here: %v", err)
 	}
 	if err := os.Symlink(outside, filepath.Join(dir, "dirlink")); err != nil {
-		t.Skipf("no directory symlinks here: %v", err)
+		if runtime.GOOS != "windows" {
+			t.Skipf("no directory symlinks here: %v", err)
+		}
+		if out, jerr := exec.Command("cmd", "/c", "mklink", "/J", filepath.Join(dir, "dirlink"), outside).CombinedOutput(); jerr != nil {
+			t.Skipf("no junctions here: %v %s", jerr, out)
+		}
 	}
 	check := func(what string) {
 		t.Helper()
