@@ -156,6 +156,17 @@ checkout's `.env` files and the shapes of keys. It is a filter, so read the file
 share it. Export is on the machine Flockdeck runs on; a window reached through the relay has
 no Export.
 
+Agent info, a button in the header (or `/info`), lists what the agent says about itself: its
+name and version, the ways it signs in, the session, mode and model, what it can do, the
+names of the MCP servers the session was given, the folder and the adapter. It shows names only:
+an MCP server's command, arguments and environment are not read out, and nothing is a secret.
+It is on the machine Flockdeck runs on. When an agent is waiting for you to sign in, the panel
+opens by itself, says what the agent asked for, and has a button to start the agent again once
+you have signed in with the agent's own tool. Flockdeck never asks for a password or key there.
+To sign out, use the agent's own tool and restart the agent. The agent's own `/help`,
+`/config`, `/permissions`, `/mcp`, `/hooks`, `/memory`, `/agents`, `/init` and `/status` work
+when it lists them in the `/` menu; type them like any other command.
+
 It is off until you turn it on. Put `"structuredPanes": true` in `prefs.json`
 in the state directory (there is no setting for it in the window); until then
 the picker does not offer a structured agent. Turning it off again takes effect

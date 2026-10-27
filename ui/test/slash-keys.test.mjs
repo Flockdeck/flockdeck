@@ -86,7 +86,7 @@ test("an agent command named like one of Flockdeck's is not listed", async () =>
   try {
     m.container.find(".structured-input").enter("/");
     await settle();
-    assert.deepEqual(items(m).map((e) => e.getAttribute("data-slash")), ["stop", "other"]);
+    assert.deepEqual(items(m).map((e) => e.getAttribute("data-slash")), ["stop", "info", "other"]);
     assert.equal(items(m)[0].textContent.includes("agent stop"), false);
   } finally {
     await m.done();
@@ -107,6 +107,9 @@ test("the choice follows its command when the list changes, and the arrows wrap"
     assert.deepEqual(on(m), ["review"], "the choice moved to another command");
     await m.redraw(cmds.filter((c) => c.name !== "review"));
     assert.deepEqual(on(m), ["new-first"].filter(() => false).concat(["compact"]), "with its row gone the default applies");
+    box().keydown("ArrowUp");
+    await settle();
+    assert.deepEqual(on(m), ["info"]);
     box().keydown("ArrowUp");
     await settle();
     assert.deepEqual(on(m), ["stop"]);

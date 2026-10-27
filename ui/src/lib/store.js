@@ -85,6 +85,7 @@
 //                    for pane id, null after one that worked
 //   queueResult      the latest answer to a structuredQueue* command as { id, req, ok, error }, id
 //                    being the pane it was sent for, or null; the queue list matches it by req
+//   infoResult       the latest answer to structuredInfo as { id, req, ok, error, info }; info is plain text
 //   exportResult     the latest answer to structuredExport as { id, req, ok, error, path, entries, redacted,
 //                    warning }, id being the pane it was sent for, or null; the export panel matches it by req
 //   shellResult      the latest answer to a structuredShell* command as { id, req, ok, error }, id
@@ -286,7 +287,7 @@ const initial = () => ({
   hello: null, remote: false, state: null,
   graph: null, graphGone: null, graphRefused: false, graphError: null,
   notice: null, versions: null, helpers: null, helperPlan: null, recents: null, browse: null, batonDraft: null, batonSaved: null, batonError: null,
-  approvals: [], detached: false, sent: null, started: null, structured: null, structuredError: null, cancelError: null, settingError: null, queueResult: null, shellResult: null, exportResult: null, files: null, attached: null, answer: null, asking: null, conversation: null, details: nullMap(), search: null, taskDetail: null, changes: null, diff: null, gitWarn: null, changesBusy: "", changesNote: null, history: null, paneInfo: null, paneMatches: null, keys: null, jevKey: null, radar: null, worktrees: null, agentsList: null, team: null, teamGone: null, teamTasks: null, teamMessages: null, teamResult: null, teamRefused: false, changesTeam: null, changesTeamGone: null, changesTeamRefused: false, changesTeamResult: null, changesTeamResults: [], changesChecks: null, changesDiffs: {}, branchGit: null, session: 0, remoteDevices: null, remotePair: null, remoteOutcome: null, dropped: 0,
+  approvals: [], detached: false, sent: null, started: null, structured: null, structuredError: null, cancelError: null, settingError: null, queueResult: null, shellResult: null, exportResult: null, infoResult: null, files: null, attached: null, answer: null, asking: null, conversation: null, details: nullMap(), search: null, taskDetail: null, changes: null, diff: null, gitWarn: null, changesBusy: "", changesNote: null, history: null, paneInfo: null, paneMatches: null, keys: null, jevKey: null, radar: null, worktrees: null, agentsList: null, team: null, teamGone: null, teamTasks: null, teamMessages: null, teamResult: null, teamRefused: false, changesTeam: null, changesTeamGone: null, changesTeamRefused: false, changesTeamResult: null, changesTeamResults: [], changesChecks: null, changesDiffs: {}, branchGit: null, session: 0, remoteDevices: null, remotePair: null, remoteOutcome: null, dropped: 0,
 });
 
 /** upsert returns entries with each of the new ones in place of the one with its
@@ -355,6 +356,8 @@ export function createStore(opts) {
   const settingPanes = new Map();
   // The same for the structuredQueue commands.
   const queuePanes = new Map();
+  // The same for structuredInfo.
+  const infoPanes = new Map();
   // The same for structuredExport.
   const exportPanes = new Map();
   // The same for the structuredShell commands.
@@ -667,6 +670,11 @@ export function createStore(opts) {
           queuePanes.delete(msg.req);
           set({ queueResult: { id, req: String(msg.req || ""), ok: !!msg.ok, error: msg.ok ? "" : String(msg.error || "") } });
         }
+        if (msg.op === "structuredInfo") {
+          const id = infoPanes.get(msg.req) || "";
+          infoPanes.delete(msg.req);
+          set({ infoResult: { id, req: String(msg.req || ""), ok: !!msg.ok, error: msg.ok ? "" : String(msg.error || ""), info: msg.ok ? String(msg.info || "") : "" } });
+        }
         if (msg.op === "structuredExport") {
           const id = exportPanes.get(msg.req) || "";
           exportPanes.delete(msg.req);
@@ -943,6 +951,10 @@ export function createStore(opts) {
       if (sent && typeof cmd.cmd === "string" && cmd.cmd.startsWith("structuredQueue") && cmd.req) {
         if (queuePanes.size >= 20) queuePanes.delete(queuePanes.keys().next().value);
         queuePanes.set(cmd.req, String(cmd.id || ""));
+      }
+      if (sent && cmd.cmd === "structuredInfo" && cmd.req) {
+        if (infoPanes.size >= 20) infoPanes.delete(infoPanes.keys().next().value);
+        infoPanes.set(cmd.req, String(cmd.id || ""));
       }
       if (sent && cmd.cmd === "structuredExport" && cmd.req) {
         if (exportPanes.size >= 20) exportPanes.delete(exportPanes.keys().next().value);

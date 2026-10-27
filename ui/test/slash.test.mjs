@@ -53,7 +53,7 @@ test("filtering ranks exact, prefix, then substring matches, and keeps Flockdeck
   assert.equal(menuOf("/zzz", cmds), null);
   assert.equal(menuOf("hello", cmds), null);
   const all = menuOf("/", cmds);
-  assert.deepEqual(flatten(all).map((c) => c.group + ":" + c.name), ["own:stop", "agent:compact", "agent:review", "agent:init", "agent:security-review"]);
+  assert.deepEqual(flatten(all).map((c) => c.group + ":" + c.name), ["own:stop", "own:info", "agent:compact", "agent:review", "agent:init", "agent:security-review"]);
   const flood = menuOf("/", Array.from({ length: 150 }, (_, i) => ({ name: "c" + i })));
   assert.equal(flatten(flood).length, SHOWN_MAX);
   assert.equal(insertText({ name: "review" }), "/review ");
@@ -138,7 +138,7 @@ test("a hostile name is not offered, and an agent with no commands gets no agent
   try {
     m.container.find(".structured-input").enter("/");
     await settle();
-    assert.deepEqual(m.container.findAll(".slash-item").map((e) => e.getAttribute("data-slash")), ["stop"]);
+    assert.deepEqual(m.container.findAll(".slash-item").map((e) => e.getAttribute("data-slash")), ["stop", "info"]);
     assert.equal(m.container.findAll(".slash-group").map((e) => e.textContent).join("|"), "Flockdeck");
   } finally {
     await m.done();

@@ -280,7 +280,7 @@ function DrawerBody({ store, snap = null, node, pane = null, now, maximised = fa
           : null}
         ${terminal
           ? html`<${TerminalView} key=${node.pane} store=${store} paneId=${node.pane} onReady=${(c) => { terminalRef.current = { pane: node.pane, ctl: c }; setCtl(c); }} ...${terminalOptions || {}} onMatches=${setMatches} />`
-          : html`<${Structured} key=${node.pane} pane=${node.pane} snap=${state} st=${state.structured} error=${state.structuredError} cancelError=${state.cancelError} settingError=${state.settingError} queueResult=${state.queueResult} shellResult=${state.shellResult} exportResult=${state.exportResult} desk=${!state.remote} store=${store} conv=${conv} onOlder=${onOlder} details=${details} onDetail=${onDetail} pending=${pending}
+          : html`<${Structured} key=${node.pane} pane=${node.pane} snap=${state} st=${state.structured} error=${state.structuredError} cancelError=${state.cancelError} settingError=${state.settingError} queueResult=${state.queueResult} shellResult=${state.shellResult} exportResult=${state.exportResult} infoResult=${state.infoResult} desk=${!state.remote} store=${store} conv=${conv} onOlder=${onOlder} details=${details} onDetail=${onDetail} pending=${pending}
               search=${state.search} onSearch=${onSearch} onClearSearch=${onClearSearch} />`}
       </div>
       ${hasConv

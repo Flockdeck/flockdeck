@@ -57,9 +57,9 @@ test("only a value from the list becomes a command", () => {
 });
 
 test("/mode and /model are offered only for what the agent has, and found by block or category", () => {
-  assert.deepEqual(ownCommandsFor(OWN_COMMANDS, []).map((c) => c.name), ["stop"]);
-  assert.deepEqual(ownCommandsFor(OWN_COMMANDS, controlsOf(geminiLike)).map((c) => c.name), ["stop", "mode", "model"]);
-  assert.deepEqual(ownCommandsFor(OWN_COMMANDS, controlsOf(codexLike)).map((c) => c.name), ["stop", "model"]);
+  assert.deepEqual(ownCommandsFor(OWN_COMMANDS, []).map((c) => c.name), ["stop", "info"]);
+  assert.deepEqual(ownCommandsFor(OWN_COMMANDS, controlsOf(geminiLike)).map((c) => c.name), ["stop", "info", "mode", "model"]);
+  assert.deepEqual(ownCommandsFor(OWN_COMMANDS, controlsOf(codexLike)).map((c) => c.name), ["stop", "info", "model"]);
   assert.equal(controlFor(controlsOf(codexLike), "model").setting, "model");
   assert.equal(controlFor(controlsOf(codexLike), "mode"), null);
 });
