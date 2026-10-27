@@ -25,6 +25,7 @@ import { ageOf } from "./NeedsYou.js";
 import { PermissionCard, DETAILS_ON_DESKTOP_WORDS, DESK_WORDS } from "../drawer/Prompt.js";
 import { labelOf } from "./model.js";
 import { usePaneSend } from "./ManagerBar.js";
+import { showControls } from "../drawer/diff/diffModel.js";
 
 export const KINDS = ["permission", "ask", "conflict", "down"];
 export const NO_MANAGER_WORDS = "This team has no manager to ask.";
@@ -139,12 +140,14 @@ function Question({ need, ctx, options, tail }) {
   };
   if (options.length === 0) return null;
   if (!ctx.store) return html`<${Buttons}>${tail}<//><p class="dec-more">${DESK_WORDS}</p>`;
-  const note = out && out.kind === "refused" ? clip(out.text, 160) : "";
+  const note = out && out.kind === "refused" ? showControls(clip(out.text, 160)) : "";
   const status = out && out.kind === "sent" ? "Sent “" + clip(picked, 60) + "”. Waiting for the agent." : out && out.kind === "sending" ? "Sending…" : note;
   return html`<${Buttons}>
       ${options.map((label, i) => html`<button type="button" tabindex=${tabOf(ctx)} class=${"dec-btn" + (i === 0 ? " dec-btn--primary" : "")} data-option=${label} aria-disabled=${busy ? "true" : undefined} onClick=${() => pick(label)}>${clip(label, 60)}</button>`)}${tail}
     <//>
-    <p class=${"dec-status" + (note ? " dec-status--error" : "")} role=${note ? "alert" : "status"}>${status}</p>`;
+    ${note
+      ? html`<p key="refused" class="dec-status dec-status--error" role="alert">${note}</p>`
+      : html`<p key="status" class="dec-status" role="status">${status}</p>`}`;
 }
 
 function Conflict({ model, need, ctx }) {
@@ -160,7 +163,7 @@ function Conflict({ model, need, ctx }) {
       <button type="button" tabindex=${tabOf(ctx)} class="dec-btn dec-btn--primary" disabled=${!manager} aria-disabled=${state === "sent" || state === "sending" ? "true" : undefined} title=${manager ? "" : NO_MANAGER_WORDS} onClick=${ask}>${state === "sent" ? "Manager asked" : "Ask mgr to sort it out"}</button>
       ${see}
     <//>
-    ${state === "failed" ? html`<p class="dec-status dec-status--error" role="alert">${clip(why, 160)}</p>` : null}`;
+    ${state === "failed" ? html`<p class="dec-status dec-status--error" role="alert">${showControls(clip(why, 160))}</p>` : null}`;
 }
 
 function Down({ need, who, ctx }) {
@@ -175,7 +178,7 @@ function Down({ need, who, ctx }) {
       ${reassign}${terminal}
     <//>
     ${ctx.store ? null : html`<p class="dec-more">${DESK_WORDS}</p>`}
-    ${state === "failed" ? html`<p class="dec-status dec-status--error" role="alert">${clip(why, 160)}</p>` : null}`;
+    ${state === "failed" ? html`<p class="dec-status dec-status--error" role="alert">${showControls(clip(why, 160))}</p>` : null}`;
 }
 
 /**

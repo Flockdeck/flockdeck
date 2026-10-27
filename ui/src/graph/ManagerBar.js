@@ -21,6 +21,7 @@ import { useEffect, useRef, useState } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
 import { clip } from "./Node.js";
 import { shownName } from "./model.js";
+import { showControls } from "../drawer/diff/diffModel.js";
 import { composing } from "../shell/keys.js";
 import { isViewer, VIEWER_WORDS } from "../lib/role.js";
 
@@ -266,6 +267,8 @@ export function ManagerBar({ snap, manager, send, inputRef, autoFocus = true, ve
       onKeyDown=${onKeyDown}
     />
     <button class="mbar-send" type="button" disabled=${sending} onClick=${submit}>Send</button>
-    <span class=${"mbar-status" + (state === "refused" ? " mbar-status--error" : "")} role=${state === "refused" ? "alert" : "status"}>${say ? say.text : ""}</span>
+    ${state === "refused"
+      ? html`<span key="refused" class="mbar-status mbar-status--error" role="alert">${showControls(say.text)}</span>`
+      : html`<span key="status" class="mbar-status" role="status">${say ? say.text : ""}</span>`}
   </div>`;
 }

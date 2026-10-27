@@ -18,6 +18,7 @@ import { composing } from "../shell/keys.js";
 import { focusNode } from "../drawer/state.js";
 import { teamOf, TEAM_RELAY_WORDS, isFinished as stateFinished } from "../lib/team.js";
 import { clip, stateOf } from "./Node.js";
+import { showControls } from "../drawer/diff/diffModel.js";
 import { managerOf, outcomeOf, sendTo, NOT_CONNECTED_WORDS } from "./ManagerBar.js";
 import { labelOf, taskOfTeam, taskLabelOf } from "./model.js";
 import { GOAL, IDLE, scopeTasks, teamOfTask, isReady, openBlockers, planOf, loopsOf, waitsOf, minutesWords } from "./deps.js";
@@ -126,7 +127,7 @@ export function Deps({ team: teamMsg, model = null, whole = null, remote = false
   };
   const failedWords = (id, stamp) => {
     const o = outcomeFor(id, stamp);
-    return o && o.kind === "refused" ? clip(o.text, 160) : "";
+    return o && o.kind === "refused" ? showControls(clip(o.text, 160)) : "";
   };
   const askManager = (id, stamp, text) => {
     if (!manager || !send || !snap) return;

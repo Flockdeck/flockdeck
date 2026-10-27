@@ -396,3 +396,17 @@ test("outcomeOf: an answer or refusal that carries another send's req is not thi
   // A desk that does not echo req: the old reading, any new error notice.
   assert.equal(outcomeOf({ ...snap, notice: { seq: 1, error: true, text: "no" } }, pending).kind, "refused");
 });
+
+test("a refusal is a new alert, not the status line turned into one, and its words show the characters that reorder text", () =>
+  withBar(async (a) => {
+    await a.type("hello");
+    await a.submit();
+    const status = a.container.find(".mbar-status");
+    assert.equal(status.attributes.role, "status");
+    await a.frame({ type: "notice", text: "gone " + String.fromCharCode(0x202e) + "txet", error: true });
+    const alert = a.container.find(".mbar-status--error");
+    assert.equal(alert.attributes.role, "alert");
+    assert.notEqual(alert, status, "the same element changed role, which a screen reader does not announce");
+    assert.equal(status.attributes.role, "status");
+    assert.match(alert.textContent, /gone <U\+202E>txet/);
+  }));

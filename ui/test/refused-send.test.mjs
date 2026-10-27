@@ -209,3 +209,54 @@ test("a socket that is not open refuses the answer in words, not as sent", async
     await a.done();
   }
 });
+
+test("a refusal on a card is a new alert, not the status line turned into one, and its words show the characters that reorder text", async () => {
+  const model = buildGraphModel(graph([need("ask", "cfg", { text: "which?" })]));
+  const panes = new Map([["cfg", questionOf(["a"])]]);
+  const pane = { id: "cfg", statusSince: new Date(Date.now() - 60000).toISOString(), ...questionOf(["a", "b"]) };
+  const a = await start((snap, store) => html`<${Decisions} model=${model} pane="cfg" ctx=${{ snap, store, panes, manager: { pane: "m", name: "mgr" } }} />
+    <${StreamDecision} node=${node("cfg")} pane=${pane} snap=${snap} store=${store} />`);
+  try {
+    const dec = a.container.find(".dec-status");
+    const prompt = a.container.find(".prompt-status");
+    assert.equal(dec.attributes.role, "status");
+    assert.equal(prompt.attributes.role, "status");
+    a.container.findAll(".dec-btn").find((b) => b.getAttribute("data-option") !== null).click();
+    await settle();
+    a.ws.frame({ type: "notice", text: "cfg is gone " + String.fromCharCode(0x202e) + "txet", error: true });
+    await settle();
+    for (const [old, now] of [[dec, a.container.find(".dec-status--error")]]) {
+      assert.equal(now.attributes.role, "alert");
+      assert.notEqual(now, old, "the same element changed role, which a screen reader does not announce");
+      assert.equal(old.attributes.role, "status");
+      assert.match(now.textContent, /cfg is gone <U\+202E>txet/);
+    }
+    a.container.findAll(".prompt-choice")[0].click();
+    await settle();
+    a.ws.frame({ type: "notice", text: "cfg is gone " + String.fromCharCode(0x202e) + "txet", error: true });
+    await settle();
+    const err = a.container.find(".prompt-status--error");
+    assert.equal(err.attributes.role, "alert");
+    assert.notEqual(err, prompt);
+    assert.match(err.textContent, /<U\+202E>/);
+  } finally {
+    await a.done();
+  }
+});
+
+test("a button that waits for the desk gets no hover colour", async () => {
+  const { readFileSync } = await import("node:fs");
+  const files = ["../src/drawer/drawer.css", "../src/graph/graph.css", "../src/graph/deps.css"];
+  let seen = 0;
+  for (const f of files) {
+    const css = readFileSync(new URL(f, import.meta.url), "utf8");
+    for (const rule of css.matchAll(/([^{}]+)\{/g)) {
+      for (const sel of rule[1].split(",")) {
+        if (!/:hover/.test(sel) || !/\.(prompt-choice|dec-btn|deps-start-btn|mbar-send)/.test(sel)) continue;
+        seen++;
+        assert.match(sel, /\[aria-disabled="true"\]/, f + ": " + sel.trim() + " lights up a button that is waiting");
+      }
+    }
+  }
+  assert.ok(seen >= 4, "found only " + seen + " hover rules for those buttons");
+});
