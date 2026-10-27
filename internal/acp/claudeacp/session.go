@@ -102,6 +102,7 @@ type session struct {
 	lastUsed  int64
 	window    int64
 	sawInit   bool
+	lastLine  time.Time // when claude last wrote a line
 	commands  []map[string]any
 }
 
@@ -203,6 +204,8 @@ func (ss *session) start() error {
 		return err
 	}
 	ss.cmd, ss.tree, ss.stdin = cmd, tree, stdin
+	ss.lastLine = time.Now()
+	go ss.busyWatchdog()
 	go ss.drainStderr(stderr)
 	go func() {
 		ss.readLoop(stdout)
@@ -215,6 +218,37 @@ func (ss *session) start() error {
 		ss.markDead()
 	}()
 	return nil
+}
+
+// busyWatchdog stops prompts waiting for a turn of claude's own that has gone
+// silent: a result that never comes would otherwise hold them for ever.
+func (ss *session) busyWatchdog() {
+	idle := ss.srv.opts.BusyIdle
+	tick := idle / 10
+	if tick < 10*time.Millisecond {
+		tick = 10 * time.Millisecond
+	}
+	if tick > 5*time.Second {
+		tick = 5 * time.Second
+	}
+	t := time.NewTicker(tick)
+	defer t.Stop()
+	for {
+		select {
+		case <-t.C:
+			ss.mu.Lock()
+			if ss.busy && time.Since(ss.lastLine) > idle {
+				ss.busy = false
+				ss.idle.Broadcast()
+				ss.srv.logf("claude's own turn sent nothing for %v; prompts no longer wait for it", idle)
+			}
+			ss.mu.Unlock()
+		case <-ss.dead:
+			return
+		case <-ss.quit:
+			return
+		}
+	}
 }
 
 func (ss *session) markDead() {
@@ -480,8 +514,19 @@ func (ss *session) cancel() {
 		p.abandon()
 	}
 	ss.idle.Broadcast()
+	busy := ss.busy
 	ss.mu.Unlock()
 	if t == nil {
+		if busy {
+			// claude is in a turn of its own: interrupt it, and end claude if
+			// it does not stop, as for a prompt's turn.
+			go func() {
+				if _, err := ss.control("interrupt", nil); err != nil {
+					ss.srv.logf("interrupt: %v", err)
+				}
+			}()
+			go ss.killIfBusy()
+		}
 		return
 	}
 	go func() {
@@ -503,6 +548,38 @@ func (ss *session) cancel() {
 			}
 		}
 	}()
+}
+
+// killIfBusy ends claude if it is still in a turn of its own CancelGrace after an
+// interrupt.
+func (ss *session) killIfBusy() {
+	deadline := time.After(ss.srv.opts.CancelGrace)
+	poll := time.NewTicker(50 * time.Millisecond)
+	defer poll.Stop()
+	for {
+		select {
+		case <-deadline:
+			ss.mu.Lock()
+			still := ss.busy
+			ss.mu.Unlock()
+			if still {
+				ss.srv.logf("the interrupt did not end claude's own turn; ending claude")
+				ss.kill()
+			}
+			return
+		case <-poll.C:
+			ss.mu.Lock()
+			still := ss.busy
+			ss.mu.Unlock()
+			if !still {
+				return
+			}
+		case <-ss.dead:
+			return
+		case <-ss.quit:
+			return
+		}
+	}
 }
 
 func (ss *session) kill() {

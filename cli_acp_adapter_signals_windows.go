@@ -2,8 +2,12 @@
 
 package main
 
-import "os"
+import (
+	"os"
+	"syscall"
+)
 
-// stopSignals: the job object the client puts the adapter in ends claude with
-// it, so an interrupt is all there is to handle.
-func stopSignals() []os.Signal { return []os.Signal{os.Interrupt} }
+// stopSignals: Go maps a console close, a logoff and a shutdown to SIGTERM. The
+// job object the client puts the adapter in ends claude as well, but only when
+// the adapter exits, and closing the sessions first is cleaner.
+func stopSignals() []os.Signal { return []os.Signal{os.Interrupt, syscall.SIGTERM} }

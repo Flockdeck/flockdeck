@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"strings"
+	"time"
 )
 
 // maxLine is the longest line read from claude. A tool result can be large; a
@@ -86,6 +87,9 @@ func (ss *session) readLoop(r io.Reader) {
 			continue
 		}
 		if len(strings.TrimSpace(string(buf))) > 0 {
+			ss.mu.Lock()
+			ss.lastLine = time.Now()
+			ss.mu.Unlock()
 			var l line
 			if json.Unmarshal(buf, &l) == nil {
 				ss.handleLine(l)

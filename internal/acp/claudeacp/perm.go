@@ -1,6 +1,7 @@
 package claudeacp
 
 import (
+	"bytes"
 	"encoding/json"
 )
 
@@ -23,8 +24,12 @@ func canAlways(tool string) bool { return tool == "Bash" || tool == "PowerShell"
 // differs in any other field (dangerouslyDisableSandbox, run_in_background,
 // timeout) is a different call and is asked about.
 func ruleKey(tool string, input json.RawMessage) string {
+	// UseNumber keeps a number as written: as float64 two large integers that
+	// differ would be the same key.
 	var m map[string]any
-	if json.Unmarshal(input, &m) != nil {
+	dec := json.NewDecoder(bytes.NewReader(input))
+	dec.UseNumber()
+	if dec.Decode(&m) != nil || dec.More() {
 		return tool + "\x00" + string(input)
 	}
 	delete(m, "description")

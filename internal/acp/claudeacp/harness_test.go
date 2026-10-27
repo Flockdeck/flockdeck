@@ -37,6 +37,10 @@ func resultWith(txt string) string {
 	return strings.Replace(lResultOK, `"result":"one"`, `"result":"`+txt+`"`, 1)
 }
 
+// testBusyIdle is how long a turn of claude's own may be silent before prompts
+// stop waiting for it. Long, so that only a test about it sees it.
+var testBusyIdle = 30 * time.Second
+
 // harness is the ACP client side of a test: it runs the adapter in this
 // process, with the fake claude as a child, and records everything the adapter
 // sends.
@@ -75,7 +79,7 @@ func newHarnessWith(t *testing.T, claudePath string, steps []step, extraEnv ...s
 	go func() {
 		h.runErr = Run(ctx, inR, outW, Options{
 			ClaudePath: claudePath, Env: env, Version: "test",
-			Stderr: testWriter{t}, ControlTimeout: 10 * time.Second, CancelGrace: 3 * time.Second,
+			Stderr: testWriter{t}, ControlTimeout: 10 * time.Second, CancelGrace: 3 * time.Second, BusyIdle: testBusyIdle,
 		})
 		outW.Close()
 		close(h.stopped)

@@ -246,10 +246,9 @@ func TestOversizedLineEndsTheSession(t *testing.T) {
 	if time.Since(start) > 15*time.Second {
 		t.Errorf("took %v", time.Since(start))
 	}
-	// claude was ended: its stdin was closed, which the fake logs
-	deadline := time.Now().Add(5 * time.Second)
-	for !logHas(readLog(h.log), "STDIN_CLOSED") && time.Now().Before(deadline) {
-		time.Sleep(20 * time.Millisecond)
+	// claude was ended: a later prompt fails at once instead of waiting
+	if r := h.await(h.promptText(sid, "again")); r.Error == nil {
+		t.Errorf("a prompt to the ended session succeeded: %s", r.Result)
 	}
 }
 

@@ -58,6 +58,9 @@ Each card offers Allow and Reject. A shell command (Bash, PowerShell) also offer
 session, in memory only. The rule is the tool and its whole input except the
 description, so the same command with `dangerouslyDisableSandbox`,
 `run_in_background` or a different timeout is a different call and is asked about.
+The rule matches the command text, not what it does: it also covers whatever the
+command runs, such as a script after the script has been edited, or a relative
+path after a `cd` that went somewhere else.
 
 No other tool gets an always option. A rule for Edit, Write, WebFetch, Agent or an
 MCP tool would also cover calls nobody saw: a path outside the project,
@@ -106,8 +109,9 @@ stderr part.
 
 A line from claude longer than 16 MiB ends the session: claude is killed, the
 running prompt fails and later prompts fail. The line is never held whole in
-memory. The adapter stops cleanly on an interrupt, and on SIGTERM and SIGHUP on
-Unix, closing every session first.
+memory. The adapter stops on an interrupt, and on SIGTERM (also SIGHUP on Unix), closing
+every session first: `Run` returns when its context is done, whether or not its
+input is still open.
 
 ### Environment
 
@@ -117,7 +121,7 @@ and `PERCH_` variable. The client must pass what claude reads its login from
 them. `FLOCKDECK_CLAUDE_BIN` names the executable when it is not on `PATH`.
 MCP servers in `session/new` are written to `mcp.json` in a private temporary
 directory (`flockdeck-mcp-*`) for `--mcp-config`. The directory is removed when the
-session ends, and a directory a day old, left by an adapter that was killed, is
+session ends, and a directory a week old, left by an adapter that was killed, is
 removed at the next start. claude's account connectors still load.
 
 ## Not done
@@ -131,7 +135,9 @@ removed at the next start. claude's account connectors still load.
   notices the turn from its `init` line and forwards its updates as `session/update`
   while no prompt is running. A prompt that arrives meanwhile waits for that turn's
   result before it is written to claude, so it gets a result of its own (a cancel
-  answers it cancelled). What is still open: ACP has no turn without a prompt, so
+  answers it cancelled, and interrupts claude, which is ended if it does not stop
+  within 15 seconds). If claude's own turn sends nothing for 120 seconds, prompts
+  stop waiting for it. What is still open: ACP has no turn without a prompt, so
   the client has to decide where such updates show, and a turn that starts in the
   few milliseconds between the check and the write is taken for the prompt's.
 - Steering a running turn with a second message (above).

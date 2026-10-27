@@ -60,6 +60,9 @@ type Options struct {
 	// CancelGrace is how long an interrupt may take to end the turn before the
 	// claude process is killed. Default 15s.
 	CancelGrace time.Duration
+	// BusyIdle is how long a turn claude started on its own may go without a
+	// line from claude before prompts stop waiting for it. Default 120s.
+	BusyIdle time.Duration
 }
 
 func (o *Options) defaults() {
@@ -77,6 +80,9 @@ func (o *Options) defaults() {
 	}
 	if o.CancelGrace <= 0 {
 		o.CancelGrace = 15 * time.Second
+	}
+	if o.BusyIdle <= 0 {
+		o.BusyIdle = 120 * time.Second
 	}
 	if o.Version == "" {
 		o.Version = "dev"
@@ -138,8 +144,10 @@ type server struct {
 	wg       sync.WaitGroup
 }
 
-// Run serves ACP on in and out until in ends, then closes every session. It
-// returns nil when in ended cleanly.
+// Run serves ACP on in and out until in ends or ctx is done, then closes every
+// session. It returns nil when in ended cleanly or ctx was cancelled. In the
+// second case the goroutine reading in is left blocked, which is fine for a
+// process that is about to exit.
 func Run(ctx context.Context, in io.Reader, out io.Writer, o Options) error {
 	o.defaults()
 	sweepMCPDirs()
@@ -149,28 +157,34 @@ func Run(ctx context.Context, in io.Reader, out io.Writer, o Options) error {
 		sessions: map[string]*session{},
 		clientRQ: map[int64]chan rpcMsg{},
 	}
+	type readEnd struct{ err error }
+	ended := make(chan readEnd, 1)
 	go func() {
-		<-ctx.Done()
-		s.closeAll()
+		br := bufio.NewReaderSize(in, 1<<20)
+		for {
+			line, err := br.ReadBytes('\n')
+			if len(strings.TrimSpace(string(line))) > 0 {
+				var m rpcMsg
+				if json.Unmarshal(line, &m) == nil {
+					s.handle(m)
+				} else {
+					s.logf("ignored a line that is not JSON")
+				}
+			}
+			if err != nil {
+				if errors.Is(err, io.EOF) {
+					err = nil
+				}
+				ended <- readEnd{err}
+				return
+			}
+		}
 	}()
-	br := bufio.NewReaderSize(in, 1<<20)
 	var readErr error
-	for {
-		line, err := br.ReadBytes('\n')
-		if len(strings.TrimSpace(string(line))) > 0 {
-			var m rpcMsg
-			if json.Unmarshal(line, &m) == nil {
-				s.handle(m)
-			} else {
-				s.logf("ignored a line that is not JSON")
-			}
-		}
-		if err != nil {
-			if !errors.Is(err, io.EOF) {
-				readErr = err
-			}
-			break
-		}
+	select {
+	case e := <-ended:
+		readErr = e.err
+	case <-ctx.Done():
 	}
 	s.closeAll()
 	s.wg.Wait()

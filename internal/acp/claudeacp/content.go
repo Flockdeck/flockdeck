@@ -13,7 +13,7 @@ import (
 const mcpDirPrefix = "flockdeck-mcp-"
 
 // sweepMCPDirs removes the config directories of sessions whose adapter was
-// killed before it could clean up. Only those a day old are touched, so another
+// killed before it could clean up. Only those a week old are touched, so another
 // adapter's live session is left alone.
 func sweepMCPDirs() {
 	tmp := os.TempDir()
@@ -25,7 +25,7 @@ func sweepMCPDirs() {
 		if !strings.HasPrefix(e.Name(), mcpDirPrefix) {
 			continue
 		}
-		if info, err := e.Info(); err == nil && time.Since(info.ModTime()) > 24*time.Hour {
+		if info, err := e.Info(); err == nil && time.Since(info.ModTime()) > 7*24*time.Hour {
 			_ = os.RemoveAll(filepath.Join(tmp, e.Name()))
 		}
 	}
