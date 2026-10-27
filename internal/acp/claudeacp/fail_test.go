@@ -45,9 +45,12 @@ func TestFailureClasses(t *testing.T) {
 		{"blocking limit", errResult(`"terminal_reason":"blocking_limit",`), turnFacts{}, classContext, codeInternal},
 		{"413", errResult(`"api_error_status":413,`), turnFacts{}, classContext, codeInternal},
 		{"login", errResult(`"api_error_status":401,"terminal_reason":"api_error",`), turnFacts{apiError: "authentication_failed"}, classAuth, codeAuthRequired},
+		{"403 is not a login problem", errResult(`"api_error_status":403,`), turnFacts{}, classOther, codeInternal},
 		{"org not allowed", errResult(``), turnFacts{apiError: "oauth_org_not_allowed"}, classAuth, codeAuthRequired},
 		{"server error", errResult(`"terminal_reason":"api_error",`), turnFacts{apiError: "server_error"}, classOutage, codeInternal},
 		{"overloaded 529", errResult(`"api_error_status":529,"terminal_reason":"api_error",`), turnFacts{}, classOutage, codeInternal},
+		// the cases are tried in order: a rejected limit event wins over a refusal
+		{"rejected event before a refusal", errResult(`"stop_reason":"refusal",`), turnFacts{rejected: true}, classUsageLimit, codeInternal},
 		{"refusal", errResult(`"stop_reason":"refusal",`), turnFacts{}, classRefused, codeInternal},
 		{"nothing structured", errResult(``), turnFacts{}, classOther, codeInternal},
 		// Text is never read for a class, except the old login wording when claude
@@ -150,14 +153,25 @@ func TestNestedErrorIsIgnored(t *testing.T) {
 }
 
 func TestCompactAndClearAreShown(t *testing.T) {
+	const idA, idB = "53d4fb62-c89c-4d48-bb84-475b525ae659", "7897cd7c-e846-419c-aad6-6f45e08894fc"
+	initFor := func(id string) string { return strings.Replace(lInit, `"SID"`, `"`+id+`"`, 1) }
+	reset := func(id string) string {
+		return `{"type":"conversation_reset","new_conversation_id":"` + id + `","trigger":"clear","session_id":"SID"}`
+	}
+	clearResult := func(id string) string {
+		return `{"type":"result","subtype":"success","is_error":false,"result":"","num_turns":0,"session_id":"` + id + `","usage":{"input_tokens":0,"output_tokens":0},"modelUsage":{}}`
+	}
 	h := newHarness(t, []step{expect(`"/compact"`),
 		emit(`{"type":"system","subtype":"status","status":"compacting","session_id":"SID"}`),
 		emit(`{"type":"system","subtype":"compact_boundary","compact_metadata":{"trigger":"manual","pre_tokens":30874,"post_tokens":10612},"session_id":"SID"}`),
 		emit(`{"type":"user","message":{"role":"user","content":"<local-command-stdout>SECRET Compacted </local-command-stdout>"},"isReplay":true}`),
-		emit(`{"type":"result","subtype":"success","is_error":false,"result":"","num_turns":0,"session_id":"SID","usage":{"input_tokens":0,"output_tokens":0},"modelUsage":{"m":{"contextWindow":1000000}}}`),
+		emit(`{"type":"result","subtype":"success","is_error":false,"result":"","num_turns":0,"session_id":"SID","usage":{"input_tokens":9000,"output_tokens":0},"modelUsage":{"m":{"contextWindow":1000000}}}`),
 		expect(`"/clear"`),
-		emit(`{"type":"conversation_reset","new_conversation_id":"53d4fb62-c89c-4d48-bb84-475b525ae659","trigger":"clear","session_id":"SID"}`),
-		emit(`{"type":"result","subtype":"success","is_error":false,"result":"","num_turns":0,"session_id":"53d4fb62-c89c-4d48-bb84-475b525ae659","usage":{"input_tokens":0,"output_tokens":0},"modelUsage":{}}`),
+		emit(reset(idA)), emit(initFor(idA)), emit(clearResult(idA)),
+		expect(`"/clear2"`),
+		emit(reset(idB)), emit(initFor(idB)), emit(clearResult(idB)),
+		expect(`"viaB"`),
+		emit(clearResult(idB)),
 	})
 	sid := h.start()
 	if r := h.await(h.promptText(sid, "/compact")); r.Error != nil {
@@ -166,7 +180,19 @@ func TestCompactAndClearAreShown(t *testing.T) {
 	if r := h.await(h.promptText(sid, "/clear")); r.Error != nil {
 		t.Fatalf("clear: %+v", r.Error)
 	}
+	if r := h.await(h.promptText(sid, "/clear2")); r.Error != nil {
+		t.Fatalf("second clear: %+v", r.Error)
+	}
+	// Session ids after the second /clear: the one the client has and claude's
+	// newest answer; the first new id was dropped when the second replaced it.
+	if r := h.await(h.promptText(idA, "viaA")); r.Error == nil {
+		t.Errorf("the earlier alias %s still reaches the session", idA)
+	}
+	if r := h.await(h.promptText(idB, "viaB")); r.Error != nil {
+		t.Errorf("the newest id %s does not reach the session: %+v", idB, r.Error)
+	}
 	var compaction, notice map[string]any
+	var usage []map[string]any
 	for _, u := range h.updates() {
 		switch u["sessionUpdate"] {
 		case "compaction":
@@ -175,6 +201,8 @@ func TestCompactAndClearAreShown(t *testing.T) {
 			if u["code"] == "new_conversation" {
 				notice = u
 			}
+		case "usage_update":
+			usage = append(usage, u)
 		}
 	}
 	if compaction == nil || compaction["message"] != "Context compacted: 30,874 to 10,612 tokens." {
@@ -182,6 +210,11 @@ func TestCompactAndClearAreShown(t *testing.T) {
 	}
 	if notice == nil || len(notice) != 2 {
 		t.Errorf("notice = %v", notice)
+	}
+	// The gauge follows: after /compact the size claude reports for the new
+	// context, after /clear nothing.
+	if len(usage) < 4 || usage[0]["used"] != float64(10612) || usage[1]["used"] != float64(0) || usage[2]["used"] != float64(0) {
+		t.Errorf("usage updates = %v", usage)
 	}
 	for _, u := range h.updates() {
 		if b, _ := json.Marshal(u); strings.Contains(string(b), "SECRET") {

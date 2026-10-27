@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
@@ -26,6 +27,7 @@ const (
 	envAdapt   = "FD_CLAUDEACP_ADAPTER"
 	envVersion = "FD_CLAUDEACP_VERSION"   // what `--version` prints
 	envDelay   = "FD_CLAUDEACP_INITDELAY" // milliseconds before the initialize answer
+	envBadInit = "FD_CLAUDEACP_BADINIT"   // the initialize answer is not an object
 	envCtlErr  = "FD_CLAUDEACP_CTLERR"    // a control subtype that is answered with an error
 	envCtlErr2 = "FD_CLAUDEACP_CTLERR2"   // and a second one
 )
@@ -84,9 +86,26 @@ func runFake() {
 	}
 	var logMu sync.Mutex
 	if len(os.Args) == 2 && os.Args[1] == "--version" {
+		if f, err := os.OpenFile(os.Getenv(envLog), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600); err == nil {
+			fmt.Fprintln(f, "VERSION_CALL")
+			f.Close()
+		}
 		v := os.Getenv(envVersion)
-		if v == "" {
+		switch v {
+		case "":
 			v = "2.1.311 (Claude Code)"
+		case "HANG":
+			time.Sleep(20 * time.Second)
+		case "GRANDCHILD":
+			// a shim that answers, then leaves a child holding the output open
+			gc := exec.Command(os.Args[0], "--version")
+			gc.Env = append(os.Environ(), envVersion+"=HANG")
+			gc.Stdout = os.Stdout
+			_ = gc.Start()
+			v = "2.1.311 (Claude Code)"
+		case "EXIT1":
+			fmt.Println("2.1.311 (Claude Code)")
+			os.Exit(1)
 		}
 		fmt.Println(v)
 		return
@@ -125,7 +144,11 @@ func runFake() {
 					if ms, _ := strconv.Atoi(os.Getenv(envDelay)); ms > 0 && sub == "initialize" {
 						time.Sleep(time.Duration(ms) * time.Millisecond)
 					}
-					resp := map[string]any{"subtype": "success", "request_id": m.RequestID, "response": controlAnswer(sub, m.Request)}
+					var answer any = controlAnswer(sub, m.Request)
+					if sub == "initialize" && os.Getenv(envBadInit) != "" {
+						answer = "not an object"
+					}
+					resp := map[string]any{"subtype": "success", "request_id": m.RequestID, "response": answer}
 					if sub == os.Getenv(envCtlErr) || sub == os.Getenv(envCtlErr2) {
 						resp = map[string]any{"subtype": "error", "request_id": m.RequestID, "error": "SECRET-claude-detail in " + sub}
 					}

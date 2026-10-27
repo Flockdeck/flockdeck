@@ -147,7 +147,10 @@ func (ss *session) handleLine(l line) {
 		}
 	case "conversation_reset":
 		// /clear: claude goes on under a new session id, which arrives in the
-		// next init line (adopt).
+		// next init line (adopt). The context starts empty.
+		ss.mu.Lock()
+		ss.lastUsed = 0
+		ss.mu.Unlock()
 		ss.srv.update(ss.id, map[string]any{"sessionUpdate": "flockdeck_notice", "code": "new_conversation"})
 	case "stream_event":
 		ss.handleStream(l)
@@ -409,6 +412,11 @@ func clip(s string, n int) string {
 // for an automatic compaction alike. The words are ours; only the two token
 // counts are claude's, as numbers.
 func (ss *session) handleCompact(l line) {
+	if m := l.CompactMeta; m != nil && m.PostTokens >= 0 && m.PostTokens < 1<<40 {
+		ss.mu.Lock()
+		ss.lastUsed = m.PostTokens
+		ss.mu.Unlock()
+	}
 	msg := "Context compacted."
 	if m := l.CompactMeta; m != nil && m.PreTokens > 0 && m.PostTokens >= 0 && m.PreTokens < 1<<40 && m.PostTokens < 1<<40 {
 		msg = fmt.Sprintf("Context compacted: %s to %s tokens.", groupDigits(m.PreTokens), groupDigits(m.PostTokens))

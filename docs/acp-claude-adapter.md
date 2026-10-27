@@ -116,7 +116,7 @@ fields only, never from claude's text. The first row that matches wins:
 | Class | Message | Taken from |
 | --- | --- | --- |
 | `context_full` | The conversation is too long for the model | `terminal_reason` `prompt_too_long`, `blocking_limit` or `rapid_refill_breaker`; `api_error_status` 413 |
-| authentication (error `-32000`) | Authentication required | the assistant line's `error` is `authentication_failed`, `account_on_hold`, `oauth_org_not_allowed` or `verification_required`; status 401 or 403 |
+| authentication (error `-32000`) | Authentication required | the assistant line's `error` is `authentication_failed`, `account_on_hold`, `oauth_org_not_allowed` or `verification_required`; status 401 |
 | `usage_limit` | Usage limit reached | `error` `rate_limit` or `billing_error`; status 429 |
 | `outage` | The service is overloaded or unreachable | `error` `server_error`; status 408 or 500 and up (529 is overloaded) |
 | `usage_limit` | Usage limit reached | a `rate_limit_event` line with status `rejected` in the same turn, when no row above matched |

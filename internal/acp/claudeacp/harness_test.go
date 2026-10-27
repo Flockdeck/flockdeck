@@ -37,6 +37,9 @@ func resultWith(txt string) string {
 	return strings.Replace(lResultOK, `"result":"one"`, `"result":"`+txt+`"`, 1)
 }
 
+// testControlTimeout is claude's time to answer a control request in a harness.
+var testControlTimeout = 10 * time.Second
+
 // testBusyIdle is how long a turn of claude's own may be silent before prompts
 // stop waiting for it. Long, so that only a test about it sees it.
 var testBusyIdle = 30 * time.Second
@@ -79,7 +82,7 @@ func newHarnessWith(t *testing.T, claudePath string, steps []step, extraEnv ...s
 	go func() {
 		h.runErr = Run(ctx, inR, outW, Options{
 			ClaudePath: claudePath, Env: env, Version: "test",
-			Stderr: testWriter{t}, ControlTimeout: 10 * time.Second, CancelGrace: 3 * time.Second, BusyIdle: testBusyIdle,
+			Stderr: testWriter{t}, ControlTimeout: testControlTimeout, CancelGrace: 3 * time.Second, BusyIdle: testBusyIdle,
 		})
 		outW.Close()
 		close(h.stopped)

@@ -2,7 +2,7 @@ package claudeacp
 
 import (
 	"context"
-	"io"
+	"errors"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -16,11 +16,15 @@ import (
 // document and can change in any release. The adapter is tested against one
 // version, the claude entry's testedWith in the adapter manifest, and treats the
 // whole major.minor series of that version as tested. Any other series still
-// runs; the pane is told once, with a fixed notice, that it was not tested.
+// runs; each session that opens is told, with a fixed notice, that it was not tested.
 // docs/acp-claude-adapter.md says how the pin is moved.
 
-// versionTimeout bounds `claude --version`.
-const versionTimeout = 10 * time.Second
+// versionTimeout bounds `claude --version`; versionGrace is how long after that
+// Wait still waits for the output to close.
+var (
+	versionTimeout = 10 * time.Second
+	versionGrace   = 2 * time.Second
+)
 
 // versionCap bounds what is read from it.
 const versionCap = 4 << 10
@@ -44,10 +48,26 @@ func series(s string) string {
 	return strconv.Itoa(v.Major) + "." + strconv.Itoa(v.Minor)
 }
 
+// capWriter keeps the first max bytes written to it and drops the rest.
+type capWriter struct {
+	buf []byte
+	max int
+}
+
+func (w *capWriter) Write(p []byte) (int, error) {
+	if room := w.max - len(w.buf); room > 0 {
+		w.buf = append(w.buf, p[:min(room, len(p))]...)
+	}
+	return len(p), nil
+}
+
 // checkVersion runs `claude --version` and reports whether its series is the
 // tested one. A claude that does not answer, or answers with no version, is
 // untested: the notice says so and the session starts anyway, since a claude
-// that cannot run is found out by the handshake.
+// that cannot run is found out by the handshake. The whole call is bounded by
+// versionTimeout plus versionGrace, also when a shim leaves a grandchild
+// holding the output pipe open: the output goes to a writer of ours, and Wait
+// stops waiting for the copy after the grace.
 func (s *server) checkVersion() (tested bool, version string) {
 	want := testedSeries()
 	ctx, cancel := context.WithTimeout(context.Background(), versionTimeout)
@@ -55,22 +75,16 @@ func (s *server) checkVersion() (tested bool, version string) {
 	cmd := exec.CommandContext(ctx, s.opts.ClaudePath, "--version")
 	cmd.Env = s.opts.Env
 	sysproc.NoWindow(cmd)
-	out, err := cmd.StdoutPipe()
-	if err != nil {
+	out := &capWriter{max: versionCap}
+	cmd.Stdout = out
+	cmd.WaitDelay = versionGrace
+	// ErrWaitDelay: the command exited fine and a child kept the pipe; what it
+	// wrote before is all there is.
+	if err := cmd.Run(); err != nil && !errors.Is(err, exec.ErrWaitDelay) {
 		s.logf("claude --version: %v", err)
 		return false, ""
 	}
-	if err := cmd.Start(); err != nil {
-		s.logf("claude --version: %v", err)
-		return false, ""
-	}
-	b, _ := io.ReadAll(io.LimitReader(out, versionCap))
-	_, _ = io.Copy(io.Discard, out)
-	if err := cmd.Wait(); err != nil {
-		s.logf("claude --version: %v", err)
-		return false, ""
-	}
-	text := strings.TrimSpace(string(b))
+	text := strings.TrimSpace(string(out.buf))
 	got := series(text)
 	if got == "" || want == "" || got != want {
 		s.logf("claude version %q is outside the tested series %q", clip(text, 80), want)

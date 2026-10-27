@@ -63,7 +63,7 @@ func failure(l line, f turnFacts) *rpcErr {
 	case l.TerminalReas == "prompt_too_long" || l.TerminalReas == "blocking_limit" ||
 		l.TerminalReas == "rapid_refill_breaker" || status == 413:
 		class = classContext
-	case isAuthError(f.apiError) || status == 401 || status == 403:
+	case isAuthError(f.apiError) || status == 401:
 		class = classAuth
 	case f.apiError == "rate_limit" || f.apiError == "billing_error" || status == 429:
 		class = classUsageLimit

@@ -316,14 +316,20 @@ func (ss *session) adopt(reported string) {
 	}
 	id := u.String()
 	ss.srv.logf("claude reports session %s for the session opened as %s", id, ss.id)
+	ss.mu.Lock()
+	old := ss.claudeID
+	ss.claudeID = id
+	ss.mu.Unlock()
 	ss.srv.mu.Lock()
+	// A newer id replaces the earlier alias, so /clear after /clear does not
+	// leave every id claude ever reported pointing at this session.
+	if old != "" && old != id && ss.srv.sessions[old] == ss {
+		delete(ss.srv.sessions, old)
+	}
 	if ss.srv.sessions[id] == nil {
 		ss.srv.sessions[id] = ss
 	}
 	ss.srv.mu.Unlock()
-	ss.mu.Lock()
-	ss.claudeID = id
-	ss.mu.Unlock()
 }
 
 func (ss *session) markDead() {
@@ -350,7 +356,8 @@ func (ss *session) drainStderr(r io.Reader) {
 }
 
 // initialize sends claude's initialize control request and reads the commands,
-// models and mode out of the answer. A failure leaves the defaults.
+// models and mode out of the answer. An error, no answer in time, or an answer
+// that is not a JSON object is a failed handshake.
 func (ss *session) initialize() ([]map[string]any, error) {
 	resp, err := ss.control("initialize", nil)
 	if err != nil {
@@ -370,7 +377,9 @@ func (ss *session) initialize() ([]map[string]any, error) {
 		Mode        string `json:"permissionMode"`
 		CurrentMode string `json:"currentMode"`
 	}
-	_ = json.Unmarshal(resp, &r)
+	if err := json.Unmarshal(resp, &r); err != nil {
+		return nil, fmt.Errorf("initialize: the answer is not an object: %w", err)
+	}
 	for _, c := range r.Commands {
 		name := strings.TrimPrefix(c.Name, "/")
 		if name == "" {
