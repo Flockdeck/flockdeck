@@ -157,6 +157,7 @@ test("the panel sends the command with the folder and the choice, and shows only
     await settle();
     assert.equal(sent.length, 0, "sent with no folder");
     assert.equal(m.container.find(".structured-note").textContent, EXPORT_NO_DIR_WORDS);
+    assert.equal(m.container.find(".export-dir").getAttribute("autocomplete"), "off");
     m.container.find(".export-dir").enter("C:\\out");
     const box = m.container.find(".export-thinking");
     box.checked = true;
