@@ -117,7 +117,7 @@ func scrubForRemote(data []byte) []byte {
 // came from (the environment, a file, the key store), and carries no key value.
 var relayPass = map[string]string{
 	"hello": "keys and settings", "prefs": "settings", "keys": "API key status", "keyTable": "key table",
-	"artifacts": "whether the device may open the artifacts socket", "agentAddress": "settings", "radarSupport": "a flag", "jevKey": "a flag",
+	"artifacts": "whether the device may open the artifacts socket", "radarSupport": "a flag", "jevKey": "a flag",
 	"remotePair": "pairing", "remoteOutcome": "relay result", "remoteDevices": "device list", "versions": "release list",
 	"helpers": "helper apps", "helperPlan": "helper apps",
 	"batonSaved":        "ids, a path and a count",

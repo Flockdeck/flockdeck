@@ -75,7 +75,7 @@ func TestRelayPassListHoldsWhatAPhoneNeeds(t *testing.T) {
 	// test. agentStarted and attachImageResult are what the phone's start-agent
 	// flow and its chat read.
 	pinned := []string{
-		"hello", "prefs", "keys", "keyTable", "artifacts", "agentAddress", "radarSupport", "jevKey",
+		"hello", "prefs", "keys", "keyTable", "artifacts", "radarSupport", "jevKey",
 		"remotePair", "remoteOutcome", "remoteDevices", "versions", "helpers", "helperPlan",
 		"batonSaved", "attachImageResult", "browse", "recents", "worktrees",
 		"ghProgress", "ghStatus", "agentStarted", "detached", "apiMismatch", "unsupported",

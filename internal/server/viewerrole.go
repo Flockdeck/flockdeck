@@ -113,7 +113,7 @@ var commandAccess = map[string]cmdAccess{
 	"makeBaton": accessFull, "saveBaton": accessFull, "startFromBaton": accessFull, "restartWithBaton": accessFull,
 	"approveBaton": accessFull, "setRouting": accessFull, "clearRoutingLog": accessFull,
 	"agents": accessFull, "keys": accessFull, "keySet": accessFull, "keyClear": accessFull,
-	"refreshAgents": accessFull, "setAgentDefault": accessFull, "setAgentAddress": accessFull,
+	"refreshAgents": accessFull, "setAgentDefault": accessFull,
 	"revealPane": accessFull, "changes": accessFull, "diff": accessFull, "commit": accessFull,
 	"gitPush": accessFull, "gitPull": accessFull, "gitFetch": accessFull,
 	"ghStatus": accessFull, "ghInstall": accessFull, "ghLogin": accessFull, "ghLoginCancel": accessFull,

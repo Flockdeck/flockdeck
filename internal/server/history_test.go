@@ -12,7 +12,6 @@ import (
 	"github.com/jmwri/flockdeck/internal/agent"
 	"github.com/jmwri/flockdeck/internal/session"
 	"github.com/jmwri/flockdeck/internal/session/transcript"
-	"github.com/jmwri/flockdeck/internal/store"
 )
 
 // listen waits for the next message of a type the window would receive.
@@ -107,12 +106,10 @@ func TestListConversationsAnswersTheWindow(t *testing.T) {
 	}
 }
 
-// TestListConversationsLabelsEachAgentsOwn covers a history panel with more
-// than one agent's conversations in it. Two rows can otherwise be identical --
-// the same project, the same prompt, one held by Claude Code and one by a
-// model spoken to directly -- and which agent a row belongs to decides what
-// opening it does.
-func TestListConversationsLabelsEachAgentsOwn(t *testing.T) {
+// TestListConversationsLabelsEachConversationWithItsAgent covers the history
+// panel: which agent a row belongs to decides what opening it does, so each row
+// carries the agent that holds the conversation.
+func TestListConversationsLabelsEachConversationWithItsAgent(t *testing.T) {
 	srv, _ := newTestServer(t)
 	home := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", home)
@@ -124,28 +121,6 @@ func TestListConversationsLabelsEachAgentsOwn(t *testing.T) {
 	}
 	writeJSONL(t, filepath.Join(claudeDir, "11111111-0000-0000-0000-000000000000.jsonl"),
 		`{"type":"user","cwd":"`+jsonEscape(root)+`","message":{"role":"user","content":"the same prompt"}}`)
-
-	// newTestServer points the state directory at a temporary one, so this is
-	// where Flockdeck's own chat client would have left its record.
-	stateDir, err := store.Dir()
-	if err != nil {
-		t.Fatalf("state dir: %v", err)
-	}
-	chats := filepath.Join(stateDir, "chats")
-	if err := os.MkdirAll(chats, 0o700); err != nil {
-		t.Fatal(err)
-	}
-	writeJSONL(t, filepath.Join(chats, "22222222-0000-0000-0000-000000000000.jsonl"),
-		`{"type":"user","ts":1,"cwd":"`+jsonEscape(root)+`","text":"the same prompt"}`)
-
-	was := transcript.Agents
-	t.Cleanup(func() { transcript.Agents = was })
-	transcript.Agents = func() []agent.Spec {
-		return []agent.Spec{
-			{ID: "claude", Caps: agent.Caps{Transcript: true, Resume: true}},
-			{ID: "anthropic", Runner: agent.RunnerAPI, Caps: agent.Caps{Transcript: true, Resume: true}},
-		}
-	}
 
 	c := &controlClient{out: make(chan []byte, 8)}
 	srv.listConversations(c, root)
@@ -160,9 +135,6 @@ func TestListConversationsLabelsEachAgentsOwn(t *testing.T) {
 	}
 	if got := byID["11111111-0000-0000-0000-000000000000"].Agent; got != "claude" {
 		t.Errorf("the Claude conversation is labelled %q", got)
-	}
-	if got := byID["22222222-0000-0000-0000-000000000000"].Agent; got != "anthropic" {
-		t.Errorf("the API agent's conversation is labelled %q; it should be listed and named", got)
 	}
 }
 
