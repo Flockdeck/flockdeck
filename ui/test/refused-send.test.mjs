@@ -267,3 +267,26 @@ test("a button that waits for the desk gets no hover colour", async () => {
   }
   assert.ok(seen >= 4, "found only " + seen + " hover rules for those buttons");
 });
+
+test("while a refusal shows, the status line is empty, so the words are announced once", async () => {
+  const model = buildGraphModel(graph([need("ask", "cfg", { text: "which?" })]));
+  const panes = new Map([["cfg", questionOf(["a"])]]);
+  const pane = { id: "cfg", statusSince: new Date(Date.now() - 60000).toISOString(), ...questionOf(["a", "b"]) };
+  const a = await start((snap, store) => html`<${Decisions} model=${model} pane="cfg" ctx=${{ snap, store, panes, manager: { pane: "m", name: "mgr" } }} />
+    <${StreamDecision} node=${node("cfg")} pane=${pane} snap=${snap} store=${store} />`);
+  try {
+    a.container.findAll(".dec-btn").find((b) => b.getAttribute("data-option") !== null).click();
+    await settle();
+    a.container.findAll(".prompt-choice")[0].click();
+    await settle();
+    a.ws.frame({ type: "notice", text: REFUSED, error: true });
+    await settle();
+    for (const cls of [".dec-status", ".prompt-status"]) {
+      const error = a.container.find(cls + "--error");
+      assert.ok(error && error.textContent !== "", cls + ": no refusal was shown");
+      assert.equal(a.container.find(cls).textContent, "", cls + ": the words are in the status line too, and would be announced twice");
+    }
+  } finally {
+    await a.done();
+  }
+});

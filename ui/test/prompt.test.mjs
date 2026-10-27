@@ -40,6 +40,9 @@ const YES = { id: "yes", name: "Yes", kind: "allow_once" };
 const NO = { id: "no", name: "No, and tell Claude what to do differently", kind: "reject_once" };
 const permission = (over = {}) => ({ tool: "Bash", summary: "Run a command", command: "go test ./tax/...", options: [YES, NO], ...over });
 
+// The status line is always there; a refusal is an alert beside it, so the words are read from the alert when there is one.
+const liveOf = (root) => root.find(".prompt-status--error") || root.find(".prompt-status");
+
 async function mount({ g = graph(), extra = {}, hello: helloOver = {} } = {}) {
   PtySocket.reset();
   FakeTerm.reset();
@@ -64,7 +67,7 @@ async function mount({ g = graph(), extra = {}, hello: helloOver = {} } = {}) {
     // The strip's card is the first; a structured pane's permission is drawn again in the conversation (see conv-tool.test.mjs).
     choices: () => (container.find(".prompt") ? container.find(".prompt").findAll(".prompt-choice") : []),
     choice: (id) => (container.find(".prompt") ? container.find(".prompt").findAll(".prompt-choice") : []).find((b) => b.getAttribute("data-option") === id),
-    status: () => (container.find(".prompt-status") || { textContent: "" }).textContent,
+    status: () => (liveOf(container) || { textContent: "" }).textContent,
     active: () => dom.document.activeElement,
     push: async (msg) => { ws().frame(msg); await settle(); },
     state: (more) => m.push(stateOf(g, { ...extra, ...more })),
@@ -278,9 +281,13 @@ test("a structured pane's drawer watches it, and its card's buttons send permiss
     await m.push({ type: "permissionAnswer", ok: false, error: "That request has already been answered or has ended", id: CART, cardSeq: 6, requestId: "req-1" });
     assert.ok(m.card().find(".prompt-status--error") === null, "an error was shown");
     // The desk refuses this one: the error is shown, and the card can be answered again.
-    await m.push({ type: "permissionAnswer", ok: false, error: "That request has already been answered or has ended", id: CART, cardSeq: 7, requestId: "req-1" });
-    assert.equal(m.status(), "That request has already been answered or has ended");
-    assert.equal(m.card().find(".prompt-status").getAttribute("role"), "alert");
+    await m.push({ type: "permissionAnswer", ok: false, error: "That request has already been answered or has ended" + String.fromCharCode(0x202e), id: CART, cardSeq: 7, requestId: "req-1" });
+    assert.equal(m.status(), "That request has already been answered or has ended<U+202E>", "the desk's words show the characters that reorder text");
+    assert.equal(liveOf(m.card()).getAttribute("role"), "alert");
+    // The status line stays in the page and is empty while the refusal shows, so the words are announced once and the next send lands in a live region that was already there.
+    assert.equal(m.card().find(".prompt-status").getAttribute("role"), "status");
+    assert.equal(m.card().find(".prompt-status").textContent, "");
+    assert.notEqual(m.card().find(".prompt-status"), liveOf(m.card()));
     m.choice("opt-always").click();
     await settle();
     assert.deepEqual(m.ws().commands("permissionAnswer").map((c) => c.optionId), ["opt-once", "opt-always"]);
@@ -424,7 +431,7 @@ test("keys lost on the way are said, the buttons come back and the choice can be
     assert.equal(a.container.findAll(".prompt-choice")[0].getAttribute("disabled") !== null, true, "not locked while sending");
     calls[0](false);
     await settle();
-    const status = a.container.find(".prompt-status");
+    const status = liveOf(a.container);
     assert.equal(status.textContent, NOT_DELIVERED_WORDS);
     assert.equal(status.getAttribute("role"), "alert");
     assert.ok(a.container.findAll(".prompt-choice").every((b) => b.getAttribute("disabled") === null), "the buttons stayed locked");
@@ -517,7 +524,7 @@ test("a refused send frees the card for another choice, and a late failure of an
     a.container.findAll(".prompt-choice")[0].click();
     await settle();
     assert.equal(dones.length, 1);
-    assert.equal(a.container.find(".prompt-status").textContent, NOT_CONNECTED_WORDS);
+    assert.equal(liveOf(a.container).textContent, NOT_CONNECTED_WORDS);
     open = true;
     a.container.findAll(".prompt-choice")[0].click();
     await settle();
@@ -542,7 +549,7 @@ test("keys the agent ignores: after a wait the buttons come back and say so, and
     assert.ok(a.container.findAll(".prompt-choice").every((b) => b.getAttribute("disabled") !== null), "not locked once the keys were written");
     await new Promise((r) => setTimeout(r, 80));
     await settle();
-    assert.equal(a.container.find(".prompt-status").textContent, NOT_TAKEN_WORDS);
+    assert.equal(liveOf(a.container).textContent, NOT_TAKEN_WORDS);
     assert.ok(a.container.findAll(".prompt-choice").every((b) => b.getAttribute("disabled") === null), "the buttons stayed locked");
     a.container.findAll(".prompt-choice")[0].click();
     await settle();

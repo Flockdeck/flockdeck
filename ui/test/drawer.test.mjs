@@ -550,6 +550,7 @@ test("the message box keeps the draft and says so when the desk refuses the text
     const alert = box.querySelector(".structured-note--unsent");
     assert.equal(alert.getAttribute("role"), "alert");
     assert.notEqual(alert, live, "the status line turned into the alert");
+    assert.equal(live.textContent, "", "the refusal is in the status line too, and would be announced twice");
     assert.ok(box.querySelector(".structured-note--live") === live && live.getAttribute("role") === "status", "the status line left the page while the refusal showed");
     assert.match(alert.textContent, /gone <U[+]202E>txet/);
     render(null, box);

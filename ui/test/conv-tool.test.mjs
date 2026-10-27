@@ -404,11 +404,11 @@ test("the card in the strip and the card in the stream give one answer, once, wh
     for (const b of container.findAll(".prompt-choice")) assert.ok(isDisabled(b), "a copy of the card can still be pressed");
     ws.frame({ type: "permissionAnswer", ok: true, id: "p1", cardSeq: 7, requestId: "req-1" });
     await settle();
-    assert.deepEqual(container.findAll(".prompt-status").map((s) => s.textContent), ["Answered.", "Answered."]);
+    assert.deepEqual(container.findAll(".prompt-status").map((s) => s.textContent).filter(Boolean), ["Answered.", "Answered."]);
     // A refusal shows in both and frees both.
     ws.frame({ type: "permissionAnswer", ok: false, error: "That request has ended", id: "p1", cardSeq: 7, requestId: "req-1" });
     await settle();
-    assert.deepEqual(container.findAll(".prompt-status").map((s) => s.textContent), ["That request has ended", "That request has ended"]);
+    assert.deepEqual(container.findAll(".prompt-status").map((s) => s.textContent).filter(Boolean), ["That request has ended", "That request has ended"]);
     for (const b of container.findAll(".prompt-choice")) assert.ok(!isDisabled(b), "a copy stayed shut after a refusal");
     button(".strip", "no").click();
     await settle();
