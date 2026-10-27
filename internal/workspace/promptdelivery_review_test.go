@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/jmwri/flockdeck/internal/session"
@@ -61,6 +62,16 @@ func TestThePersonCancellingTheTurnHandlesTheMessage(t *testing.T) {
 	m := sendMail(t, ws, id, "slow")
 	tickUntil(t, svc, "the turn to carry the message", func() bool {
 		return messageOf(ws, id, m.ID).Delivery() == team.DeliveryDelivered
+	})
+	// The agent only hears a cancel once it is inside the turn.
+	tickUntil(t, svc, "the agent to be in the turn", func() bool {
+		entries, _ := ws.StructuredEntries(id)
+		for _, e := range entries {
+			if strings.Contains(e.Text+e.Markdown, "working...") {
+				return true
+			}
+		}
+		return false
 	})
 	if err := ws.StructuredRuntime(id).Cancel(); err != nil {
 		t.Fatal(err)
