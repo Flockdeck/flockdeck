@@ -8,7 +8,8 @@
 // a release pins what it was tested with rather than following latest. A weekly
 // job (.github/workflows/acp-canary.yml) tries the pinned versions and the
 // newest preview of each against the same handshake and reports, without
-// blocking a merge. There is no adapter for Claude Code.
+// blocking a merge. Claude Code's adapter is Flockdeck's own (see Hidden and
+// ownAdapter); no third-party adapter for it is accepted.
 //
 // Node is not bundled. When an adapter needs it and it is missing or too old,
 // CheckNode returns a *NodeRequiredError, which the caller shows as a
@@ -74,6 +75,10 @@ type Adapter struct {
 	// PermissionProbe. When it is set, RunsWithoutAsking holds only until that
 	// check has run, and the check's answer replaces it.
 	PermissionProbe *PermissionProbe `json:"permissionProbe,omitempty"`
+	// Hidden keeps the entry out of the docs table, the id list in messages and
+	// the weekly canary, which installs each adapter from npm. Lookup still
+	// finds it. It is set on an adapter that is not offered yet.
+	Hidden bool `json:"hidden,omitempty"`
 }
 
 // PermissionProbe is a command that lists the agents and the permissions each
@@ -152,8 +157,8 @@ func (a Adapter) check() error {
 	switch {
 	case !idRe.MatchString(a.ID):
 		return errors.New("id must be lower case letters, digits and hyphens")
-	case mentionsClaude(a):
-		return errors.New("there is no adapter for Claude Code: id, name, command, package and args may not name claude or anthropic")
+	case mentionsClaude(a) && !ownAdapter(a):
+		return errors.New("the only adapter that may name Claude Code is Flockdeck's own: id claude, hidden, `flockdeck acp-adapter claude`, no npm package, no Node, no launchEnv")
 	case a.Name == "" || a.Command == "" || a.Install == "":
 		return errors.New("name, command and install are required")
 	case len(a.Name) > 60 || len(a.Install) > 400 || len(a.Note) > 400 || hasControl(a.Name+a.Install+a.Note):
@@ -288,10 +293,21 @@ func (m Manifest) Lookup(id string) (Adapter, bool) {
 	return Adapter{}, false
 }
 
-// IDs are the adapter ids, sorted.
+// Visible is the adapters that are not hidden.
+func (m Manifest) Visible() []Adapter {
+	var out []Adapter
+	for _, a := range m.Adapters {
+		if !a.Hidden {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+// IDs are the ids of the adapters that are not hidden, sorted.
 func (m Manifest) IDs() []string {
 	var out []string
-	for _, a := range m.Adapters {
+	for _, a := range m.Visible() {
 		out = append(out, a.ID)
 	}
 	sort.Strings(out)
@@ -425,6 +441,17 @@ func mentionsClaude(a Adapter) bool {
 	return false
 }
 
+// ownAdapter reports whether a is Flockdeck's own adapter for Claude Code: this
+// exact shape, the flockdeck binary run as `flockdeck acp-adapter claude`, with
+// nothing installed, no Node, no launch environment and no probe. Only that
+// entry may name the agent. Third-party adapters for Claude Code stay refused.
+func ownAdapter(a Adapter) bool {
+	return a.ID == "claude" && a.Command == "flockdeck" &&
+		len(a.Args) == 2 && a.Args[0] == "acp-adapter" && a.Args[1] == "claude" &&
+		a.Package == "" && a.Pin == "" && !a.NeedsNode && a.Hidden &&
+		len(a.LaunchEnv) == 0 && a.PermissionProbe == nil
+}
+
 func hasControl(s string) bool {
 	for _, r := range s {
 		if r < 0x20 || r == 0x7f {
@@ -448,7 +475,7 @@ func (m Manifest) Table() string {
 	var b strings.Builder
 	b.WriteString("| Adapter | Starts with | Needs Node | Accepts | Tested with | Tested on |\n")
 	b.WriteString("| --- | --- | --- | --- | --- | --- |\n")
-	for _, a := range m.Adapters {
+	for _, a := range m.Visible() {
 		start := a.Command
 		if len(a.Args) > 0 {
 			start += " " + strings.Join(a.Args, " ")

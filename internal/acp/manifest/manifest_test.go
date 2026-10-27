@@ -15,8 +15,8 @@ func TestTheEmbeddedManifestParses(t *testing.T) {
 		t.Fatalf("ids = %v, want %v", got, want)
 	}
 	for _, a := range m.Adapters {
-		if strings.Contains(a.ID, "claude") || strings.Contains(strings.ToLower(a.Package), "claude") {
-			t.Errorf("%s: there is no Claude adapter", a.ID)
+		if strings.Contains(strings.ToLower(a.Package), "claude") {
+			t.Errorf("%s: a third-party Claude package is listed", a.ID)
 		}
 	}
 	codex, _ := m.Lookup("codex")
@@ -31,8 +31,18 @@ func TestTheEmbeddedManifestParses(t *testing.T) {
 	if oc.NeedsNode || oc.Args[0] != "acp" {
 		t.Errorf("opencode = %+v", oc)
 	}
-	if _, ok := m.Lookup("claude"); ok {
-		t.Error("a Claude adapter is listed")
+	// Claude Code's adapter is Flockdeck's own and is not offered yet.
+	cl, ok := m.Lookup("claude")
+	if !ok || !cl.Hidden || cl.Command != "flockdeck" || len(cl.Args) != 2 || cl.Args[0] != "acp-adapter" || cl.Args[1] != "claude" || cl.Package != "" || cl.NeedsNode {
+		t.Errorf("claude = %+v", cl)
+	}
+	for _, id := range m.IDs() {
+		if id == "claude" {
+			t.Error("a hidden adapter is in IDs")
+		}
+	}
+	if strings.Contains(m.Table(), "Claude") {
+		t.Error("a hidden adapter is in the docs table")
 	}
 }
 
@@ -339,5 +349,28 @@ func TestABadPermissionProbeIsRefused(t *testing.T) {
 	}
 	if err := oc.check(); err != nil {
 		t.Errorf("the opencode entry: %v", err)
+	}
+}
+
+// Flockdeck's own adapter may name the agent it drives; nothing else may.
+func TestOnlyFlockdecksOwnAdapterMayNameClaude(t *testing.T) {
+	own := `{"id":"claude","name":"Claude Code","command":"flockdeck","args":["acp-adapter","claude"],"minVersion":"2.1.311","needsNode":false,"testedWith":"2.1.311","testedOn":"2026-10-27","hidden":true,"install":"Part of Flockdeck."}`
+	if _, err := Parse([]byte(wrap(goodAdapter, own))); err != nil {
+		t.Fatalf("the own adapter: %v", err)
+	}
+	for name, bad := range map[string]string{
+		"not hidden":      strings.Replace(own, `"hidden":true,`, ``, 1),
+		"another command": strings.Replace(own, `"command":"flockdeck"`, `"command":"claude-acp"`, 1),
+		"an npm package":  strings.Replace(own, `"needsNode":false`, `"needsNode":false,"package":"@zed-industries/claude-agent-acp"`, 1),
+		"a pin":           strings.Replace(strings.Replace(own, `"minVersion":"2.1.311"`, `"pin":"2.1.311"`, 1), `"needsNode":false`, `"needsNode":false,"package":"x"`, 1),
+		"needs node":      strings.Replace(own, `"needsNode":false`, `"needsNode":true,"minNode":"20.0.0"`, 1),
+		"other args":      strings.Replace(own, `"args":["acp-adapter","claude"]`, `"args":["hook","claude"]`, 1),
+		"extra args":      strings.Replace(own, `"args":["acp-adapter","claude"]`, `"args":["acp-adapter","claude","--x"]`, 1),
+		"another id":      strings.Replace(own, `"id":"claude"`, `"id":"claude-own"`, 1),
+		"a launch env":    strings.Replace(own, `"hidden":true,`, `"hidden":true,"runsWithoutAsking":true,"launchEnv":{"X":"1"},"permissionProbe":{"args":["a"],"agent":"b","setting":"X","tools":["t"]},`, 1),
+	} {
+		if _, err := Parse([]byte(wrap(goodAdapter, bad))); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
 	}
 }

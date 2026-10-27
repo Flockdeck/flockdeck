@@ -20,7 +20,7 @@ Built, on origin/main:
 - The adapter manifest, the Node check and the weekly canary ([acp-adapters.md](acp-adapters.md)).
 - Message delivery states in `internal/team` (queued, notified, woken, read) and the text wake. These belong to the mail path decision 3 retires.
 
-In progress: the Go adapter for Claude Code (T204) and the capability spike per agent (T208).
+Built, hidden: the Go adapter for Claude Code (T204, [Claude Code adapter](acp-claude-adapter.md)). In progress: the capability spike per agent (T208).
 
 Researched, not built:
 
@@ -34,7 +34,7 @@ Planned, by board task:
 
 | Area | Tasks |
 | --- | --- |
-| Adapters | T204 Claude (in progress), T206 Codex, T207 generic "agent unavailable" state in place of the Node check, T191 Claude manifest entry and canary, T192 Gemini and Codex end to end |
+| Adapters | T204 Claude (built, hidden), T206 Codex, T207 generic "agent unavailable" state in place of the Node check, T191 Claude manifest entry and canary, T192 Gemini and Codex end to end |
 | Mail | T185 fill `mcpServers`, T186 Flockdeck MCP server, T187 delivery states and audit log, T188 mail in the conversation view, T199 messaging parity, T196 retire typed wake |
 | Removals | T201 remove `flockdeck chat`, T203 remove the task board, T202 API keys in Settings |
 | Switch to default | T189 session/load and resume, T195 default to structured |

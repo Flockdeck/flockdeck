@@ -106,6 +106,15 @@ func main() {
 		runStatusline(os.Args[2:])
 		return
 	}
+	// `acp-adapter` is Flockdeck's own ACP adapter for an agent with no ACP of
+	// its own. Hidden: the ACP client starts it.
+	if len(os.Args) > 1 && os.Args[1] == "acp-adapter" {
+		if err := runACPAdapter(os.Args[2:]); err != nil {
+			fmt.Fprintln(os.Stderr, "flockdeck acp-adapter:", err)
+			os.Exit(1)
+		}
+		return
+	}
 	// `spawn` is how an agent hands work to a helper of its own. It is run
 	// from inside a pane, which is where the address and token come from.
 	if len(os.Args) > 1 && os.Args[1] == "spawn" {

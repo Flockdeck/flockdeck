@@ -59,7 +59,7 @@ func TestCanaryMatrixIsTheManifest(t *testing.T) {
 	if !strings.Contains(w, "channel: [pinned, latest]") {
 		t.Error("the matrix does not try both channels")
 	}
-	for _, a := range Default().Adapters {
+	for _, a := range Default().Visible() {
 		if a.Package == "" {
 			t.Errorf("%s has no npm package, so the canary cannot install it", a.ID)
 		}
