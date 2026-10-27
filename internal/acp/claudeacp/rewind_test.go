@@ -1,6 +1,8 @@
 package claudeacp
 
 import (
+	"bufio"
+	"bytes"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -279,5 +281,26 @@ func TestRewindRefusesBadArguments(t *testing.T) {
 	}
 	if n := len(argsLines(h)); n != 1 {
 		t.Errorf("claude was started %d times", n)
+	}
+}
+
+// A prompt that arrives while the session is being started over is refused: it
+// would go to the claude that is about to end.
+func TestAPromptDuringARewindIsRefused(t *testing.T) {
+	var out bytes.Buffer
+	s := &server{out: bufio.NewWriter(&out)}
+	ss := &session{srv: s, queue: make(chan *promptReq, 4), rewinding: true}
+	id := json.RawMessage(`7`)
+	ss.enqueue(&promptReq{id: &id})
+	if len(ss.queue) != 0 {
+		t.Fatal("the prompt was queued during a rewind")
+	}
+	if !strings.Contains(out.String(), `"error"`) {
+		t.Errorf("no error was sent: %q", out.String())
+	}
+	ss.rewinding = false
+	ss.enqueue(&promptReq{id: &id})
+	if len(ss.queue) != 1 {
+		t.Error("the prompt was not queued after the rewind")
 	}
 }

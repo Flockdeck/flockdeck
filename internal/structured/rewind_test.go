@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jmwri/flockdeck/internal/acp/acptest"
 	"github.com/jmwri/flockdeck/internal/session/transcript"
@@ -226,4 +227,26 @@ func TestAForkThatCannotBeMadeStartsANewSession(t *testing.T) {
 	if n := notices(s); n != ForkFailedText+"\n" {
 		t.Errorf("notices = %q", n)
 	}
+}
+
+// A prompt sent while a rewind is under way waits: it is not sent to an agent
+// that is being taken back, and goes once the rewind is over.
+func TestAPromptWaitsWhileARewindRuns(t *testing.T) {
+	r, s := threeTurns(t)
+	n := len(prompts(s))
+	r.mu.Lock()
+	r.rewinding = true
+	r.mu.Unlock()
+	if err := r.Send("plain held"); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(300 * time.Millisecond)
+	if got := len(prompts(r.Snapshot())); got != n {
+		t.Fatalf("a prompt was sent during a rewind: %d prompts, was %d", got, n)
+	}
+	r.mu.Lock()
+	r.rewinding = false
+	r.mu.Unlock()
+	r.wakeLoop()
+	until(t, r, "the held prompt", func(s Snapshot) bool { return idle(s) && len(prompts(s)) == n+1 })
 }
