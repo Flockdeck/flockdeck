@@ -602,6 +602,10 @@ type command struct {
 	// Kind "config") and the value to give the mode, model or option.
 	Setting string `json:"setting"`
 	Value   string `json:"value"`
+	// Item is the id of a queued prompt, for the structuredQueue commands, and
+	// KeepQueue is structuredCancel's: end the turn and leave the queue.
+	Item      int  `json:"item"`
+	KeepQueue bool `json:"keepQueue"`
 	// AllowShell is paneSend's own: the caller means the text for a shell.
 	AllowShell bool `json:"allowShell"`
 	// Target names what a drag was dropped on: a pane for movePane and
@@ -1668,7 +1672,7 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 	case "changesWatch", "changesUnwatch", "changesSnapshot", "filesPage", "diffHunks", "diffContext", "commentAdd", "commentResolve", "commentReopen", "runChecks", "confirmChecks", "requestReview", "submitReview", "approveMerge", "unapproveMerge", "mergeBranch":
 		s.changesCommand(c, cmd)
 		return
-	case "structuredSnapshot", "structuredWatch", "structuredUnwatch", "structuredCancel", "structuredSet", "structuredFiles":
+	case "structuredSnapshot", "structuredWatch", "structuredUnwatch", "structuredCancel", "structuredSet", "structuredFiles", "structuredQueueEdit", "structuredQueueRemove", "structuredQueueClear", "structuredQueueSendNow":
 		s.structuredCommand(c, cmd)
 		return
 	case "worktrees":

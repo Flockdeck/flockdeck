@@ -222,3 +222,17 @@ func (w *Workspace) releaseSend(p *Pane) {
 	p.sending = false
 	w.mu.Unlock()
 }
+
+// QueuedPromptText cleans text a person typed to replace a queued prompt with the
+// rules SendToPane applies to a prompt: control characters are stripped before
+// the empty and length checks, and the length is checked on the text as given.
+func QueuedPromptText(text string) (string, error) {
+	if len(text) > MaxPaneSendBytes {
+		return "", ErrSendTooLong
+	}
+	text = stripControls(text)
+	if strings.TrimSpace(text) == "" {
+		return "", ErrSendEmpty
+	}
+	return text, nil
+}

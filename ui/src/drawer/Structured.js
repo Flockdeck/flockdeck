@@ -61,6 +61,8 @@ import { Icon, toolKind } from "./conv/rows.js";
 import { menuOf, flatten, insertText, keyOf, selectedIndex, OWN_COMMANDS } from "./slashModel.js";
 import { controlsOf, controlFor, setMessage, ownCommandsFor, parseSetting } from "./settingsModel.js";
 import { sendKey, rowsFor, pushHistory, recall, NO_RECALL, onFirstLine, onLastLine, mentionAt, insertMention, cleanFiles, loadComposer, saveComposer, pruneComposer } from "./composerModel.js";
+import { QueueList } from "./QueueList.js";
+import { queueOf, stopMessage } from "./queueModel.js";
 import { prepareImage, pickImages, attachNote, ImageError, IMAGE_TYPES } from "./imageAttach.js";
 
 /** SEND_NOT_SENT_WORDS is what the prompt box says when the store did not send the text; the draft stays. */
@@ -132,7 +134,7 @@ export function activityOf(st, entries = []) {
  *  first one; error is the store's structuredError; desk is false in a window
  *  reached through the relay. snap is the store's snapshot, which carries the
  *  desk's answer to a send. */
-export function Structured({ pane, snap, st, error = null, cancelError = null, settingError = null, desk = true, store, conv = null, onOlder = null, details = null, onDetail = null, pending = null, search = null, onSearch = null, onClearSearch = null }) {
+export function Structured({ pane, snap, st, error = null, cancelError = null, settingError = null, queueResult = null, desk = true, store, conv = null, onOlder = null, details = null, onDetail = null, pending = null, search = null, onSearch = null, onClearSearch = null }) {
   // The draft and the history are kept per pane (composerModel.js), so they outlive this component.
   const kept = useRef(null);
   if (kept.current === null) kept.current = loadComposer(pane);
@@ -155,6 +157,11 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
   const fileInput = useRef(null);
   // The pane a Stop that was not sent was pressed for, so the words do not follow the drawer to another pane.
   const [stopFailed, setStopFailed] = useState("");
+  // The pane whose Stop was sent while a turn ran; it clears when the push says the turn is over.
+  const [stopping, setStopping] = useState("");
+  useEffect(() => {
+    if (stopping && (!st || st.status !== "working")) setStopping("");
+  }, [stopping, st && st.status]);
   const [sendFailed, setSendFailed] = useState("");
   // What the last change of a setting got that the desk did not say: { pane, text }.
   const [settingNote, setSettingNote] = useState(null);
@@ -284,9 +291,13 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
       setSendFailed(pane);
     }
   };
-  const stop = () => {
-    setStopFailed(store.send({ cmd: "structuredCancel", id: pane, req: "c" + ++cancelSeq }) ? "" : pane);
+  const stop = (keepQueue = false) => {
+    const ok = store.send(stopMessage(pane, keepQueue === true, "c" + ++cancelSeq));
+    setStopFailed(ok ? "" : pane);
+    // The turn ends when the agent says so, which may be a moment after the press.
+    setStopping(ok && st.status === "working" ? pane : "");
   };
+  const queue = queueOf(st);
   const sending = !!outcome && outcome.kind === "sending";
   const controls = desk ? controlsOf(st) : [];
   // Every route to a change (a selector, "/mode yolo") comes through here, so a confirm cannot be skipped by one of them.
@@ -314,7 +325,7 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
   const choose = (it) => {
     if (it.group === "own") {
       setDraft("");
-      if (it.id === "stop") stop();
+      if (it.id === "stop") stop(false);
       if (it.id === "mode" || it.id === "model") {
         const c = controlFor(controls, it.id);
         const el = c && settingsEl.current && settingsEl.current.querySelector ? settingsEl.current.querySelector('[data-setting="' + c.key + '"]') : null;
@@ -470,6 +481,7 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
         : null}
       <${Conversation} conv=${conv} onOlder=${onOlder} details=${details} onDetail=${onDetail} pending=${pending}
         search=${search} onSearch=${onSearch} onClearSearch=${onClearSearch} className="structured-log" />
+      ${desk ? html`<${QueueList} rows=${queue} pane=${pane} store=${store} result=${queueResult} working=${st.status === "working"} focusBox=${() => box.current && box.current.focus && box.current.focus()} />` : null}
       ${desk
         ? html`<form class="structured-prompt" onSubmit=${submit}>
             ${menu
@@ -494,7 +506,8 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
               onPaste=${(e) => onPicture(e.clipboardData, e)} onDragOver=${(e) => { if (imageOk && e.dataTransfer && pickImages(e.dataTransfer).length) e.preventDefault(); }} onDrop=${(e) => onPicture(e.dataTransfer, e)}
               readOnly=${outcome && outcome.kind === "sending"} aria-busy=${outcome && outcome.kind === "sending" ? "true" : undefined} onInput=${(e) => { setDraft(e.target.value); setCaret(caretOf(e.target)[0]); setSendFailed(""); if (outcome && outcome.kind === "refused") setMark(null); }}></textarea>
             <button ref=${sendBtn} type="submit" class="drawer-btn structured-send" disabled=${draft.trim() === "" || (outcome && outcome.kind === "sending")}>Send</button>
-            <button type="button" class="drawer-btn structured-stop" onClick=${stop}>Stop</button>
+            <button type="button" class="drawer-btn structured-stop" onClick=${() => stop(false)}>Stop</button>
+            ${queue.length ? html`<button type="button" class="drawer-btn structured-stop-keep" title="Ends the current turn and sends the waiting prompts" onClick=${() => stop(true)}>Stop, keep queue</button>` : null}
             ${imageOk
               ? html`<button type="button" class="drawer-btn structured-attach" onClick=${() => fileInput.current && fileInput.current.click()}>Attach image</button>
                   <input ref=${fileInput} type="file" class="sr-only" tabindex="-1" aria-hidden="true" accept=${IMAGE_TYPES.join(",")}
@@ -503,6 +516,8 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
             ${imageNote ? html`<p class="structured-note" role="status">${showControls(clip(imageNote, 200))}</p>` : null}
             ${outcome && outcome.kind === "refused" ? html`<p class="structured-note structured-note--unsent structured-note--send" role="alert">${showControls(clip(outcome.text, 300))}</p>` : null}
             ${sendFailed === pane ? html`<p class="structured-note structured-note--unsent structured-note--send" role="alert">${SEND_NOT_SENT_WORDS}</p>` : null}
+            ${stopping === pane ? html`<p class="structured-note" role="status" data-stopping="on">Stopping the turn.</p>` : null}
+            ${st.status === "working" && !stopping ? html`<p class="structured-note structured-note--hint" data-queue-hint="on">The agent is working. What you send now waits in the queue.</p>` : null}
             ${stopFailed === pane ? html`<p class="structured-note structured-note--unsent" role="status">${STOP_NOT_SENT_WORDS}</p>` : null}
             ${confirming && confirming.pane === pane
               ? html`<div class="structured-note structured-confirm" role="alert" data-confirm=${confirming.key}>

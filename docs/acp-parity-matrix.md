@@ -32,7 +32,7 @@ I ran no paid sessions.
 
 The client (`internal/acp`) implements initialize, authenticate, session/new, session/prompt, session/cancel and the permission request. It sends text-only prompts. It advertises no fs, no terminal and no elicitation capability. The bridge maps six update kinds: agent message, thought, tool call, tool call update, plan and usage. Everything else is dropped, including `available_commands_update`, `current_mode_update`, `config_option_update`, `session_info_update` and `user_message_chunk` (opencode's e2e notes show it sending available commands). The agent's capabilities from initialize are stored raw and not read.
 
-The drawer (`Structured.js`) has a context and cost line, the conversation, a textarea with Send and Stop buttons, and the permission card. The queue (16 deep) is in the runtime and its count is in the push, but the drawer does not draw it. The plan is in the push and the drawer does not draw it. There is no key binding on the textarea.
+The drawer (`Structured.js`) has a context and cost line, the conversation, a textarea with Send and Stop buttons, and the permission card. The queue (16 deep) is in the runtime; since API 1.19 the push lists it and the drawer draws it (T213). The plan is in the push and the drawer does not draw it. There is no key binding on the textarea.
 
 ## 1. Sending input
 
@@ -41,10 +41,10 @@ The drawer (`Structured.js`) has a context and cost line, the conversation, a te
 | Send a prompt | all | present | `session/prompt` |
 | Newline in the prompt | all | present | textarea |
 | Keyboard send (Enter or Ctrl+Enter) | all | missing: button only | client |
-| Interrupt the running turn | Claude Esc or Ctrl+C; Codex Esc/Ctrl+C (memory); Gemini Esc; opencode Esc | partial: Stop button works (`session/cancel`), no key binding, and Stop also drops the whole queue | client for the binding; `session/cancel` exists |
-| Type while the agent works, input is queued | Claude, Codex (memory), Gemini, opencode | partial: up to 16 queued in the runtime, drawer shows nothing about them | client |
-| See, edit or remove a queued prompt; send one now | Claude (Ctrl+Enter, take back what you queued) | missing | client |
-| Mid-turn steering (queued text reaches the agent at the next tool boundary) | Claude, Codex | missing, and ACP has no method for it: one prompt is in flight at a time | no for true steering. Approximate with cancel then re-prompt (client), or adapter-internal injection in a Flockdeck-written adapter |
+| Interrupt the running turn | Claude Esc or Ctrl+C; Codex Esc/Ctrl+C (memory); Gemini Esc; opencode Esc | partial (T213): Stop button works (`session/cancel`) and drops the queue; "Stop, keep queue" ends the turn and goes on to the next prompt; the drawer says "Stopping the turn" until the turn ends. No key binding | client for the binding; `session/cancel` exists |
+| Type while the agent works, input is queued | Claude, Codex (memory), Gemini, opencode | present (T213): up to 16 queued; the drawer says what is typed now waits, and lists the queue | client |
+| See, edit or remove a queued prompt; send one now | Claude (Ctrl+Enter, take back what you queued) | present (T213, API 1.19): the queue is a list under the conversation with place, text and mail marked with its sender; Edit, Remove, Clear (the person's own) and Send now by item id; mail cannot be edited or removed. Reorder is not offered: Send now moves one to the front. Mail past the runtime's 16 waits in the store and is not listed | client |
+| Mid-turn steering (queued text reaches the agent at the next tool boundary) | Claude, Codex | missing, and ACP has no method for it: one prompt is in flight at a time | no for true steering. Cancel then re-prompt is built (T213): Send now on a queued prompt cancels the turn and sends that prompt next. Adapter-internal injection in a Flockdeck-written adapter is not |
 | Prompt history (Up, Ctrl+R) | all | partial (T212): Up and Down step through the last 50 prompts sent to the pane, kept per pane in the window's storage; no Ctrl+R search | client |
 | Stash or restore a draft (Claude Ctrl+S), undo input edits | Claude | partial (T212): the draft is kept per pane across tab switches; no stash stack, and undo is the browser's own | client |
 | Edit the prompt in `$EDITOR` (Ctrl+G, `/editor`) | Claude, opencode | missing, and a browser textarea makes it low value | client, low priority |
@@ -158,7 +158,7 @@ By how often a user hits them and how little of it exists:
 3. Model, effort and mode switching (`modes`, `configOptions`, `session/set_mode`, `session/set_config_option`), including plan mode and the permission-mode cycle.
 4. `@file` mentions with a picker (client) and `resource_link` blocks.
 5. Image paste and attachment (content blocks, `promptCapabilities.image`).
-6. Visible, editable queue, and key bindings for send and interrupt; today Stop drops the queue and nothing is shown.
+6. Visible, editable queue (done, T213, T199); key bindings for interrupt are still missing.
 7. Rewind, undo, edit-previous-message and fork. No ACP method; needs git snapshots plus a Flockdeck-written adapter that can truncate history.
 8. Clear and new conversation, plus compaction commands and notices.
 9. `!` shell escape, and background tasks (`terminal/*`).
