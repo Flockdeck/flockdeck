@@ -1115,6 +1115,12 @@
       "status": "stable"
     },
     {
+      "name": "structuredSet",
+      "access": "full",
+      "since": "1.16",
+      "status": "stable"
+    },
+    {
       "name": "structuredSnapshot",
       "access": "full",
       "since": "1.0",
