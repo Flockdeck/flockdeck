@@ -179,6 +179,7 @@ type Bridge struct {
 	mu       sync.Mutex
 	items    []*item // ascending seq
 	tools    map[[sha256.Size]byte]*item
+	mails    map[mailKey]*item
 	seq      int
 	inFlight bool
 	// replaying is set between BeginReplay and EndReplay: only then are updates
@@ -275,6 +276,9 @@ func (b *Bridge) drop(done func(removed int) bool) {
 			b.inline -= it.inl
 			if it.keyed {
 				delete(b.tools, it.key)
+			}
+			if it.e.Kind == transcript.KindMessage {
+				delete(b.mails, mailKey{it.e.MsgID, it.e.Dir})
 			}
 			b.dropped++
 			removed++

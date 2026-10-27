@@ -388,8 +388,10 @@ session.
   kind: `prompt` (`text`), `reply` (`markdown`), `thinking` (`chars`, `seconds`),
   `tool` (`name`, `label`, `status` of `running`, `ok` or `error`, `summary`,
   `diff`, `hasDetail`), `subagent` (`status`, `description`, `report`,
-  `hasDetail`), `compaction` (`turns`), `notice` (`text`) and `image`
-  (`mediaType`, `bytes`, `width`, `height`, `hasDetail`). A tool's output over
+  `hasDetail`), `compaction` (`turns`), `notice` (`text`), `image`
+  (`mediaType`, `bytes`, `width`, `height`, `hasDetail`) and, for a structured pane
+  from API 1.14, `message` (`dir` of `in` or `out`, `peer`, `msg`, `delivery`, `text`;
+  see `docs/structured-pane.md`). A tool's output over
   4 KiB, a diff over 64 KiB and a thinking block's text are not sent inline: the entry
   has `hasDetail`, and `conversationDetail` returns them in `detail`, as `text`,
   `diff`, nested `entries` or base64 `data`.

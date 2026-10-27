@@ -14,11 +14,12 @@ import (
 // structured pane is covered in promptdelivery_test.go.
 
 // prompts counts the prompts the agent has been sent, and the last one's text.
+// Mail it was prompted with is shown as a message entry and counts too.
 func prompts(ws *Workspace, id string) (int, string) {
 	entries, _ := ws.StructuredEntries(id)
 	n, last := 0, ""
 	for _, e := range entries {
-		if e.Kind == "prompt" {
+		if e.Kind == "prompt" || e.Kind == "message" && e.Dir == "in" {
 			n++
 			last = e.Markdown
 			if last == "" {

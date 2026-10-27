@@ -131,6 +131,7 @@ func (w *Workspace) loadEvents(path string) {
 // recordEvent adds an event to the log and saves it. Messages, deliveries and
 // wakes all come through here.
 func (w *Workspace) recordEvent(e team.Event) {
+	w.showMailEvent(e)
 	t := &w.team
 	if t.events == nil {
 		return

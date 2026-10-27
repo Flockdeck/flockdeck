@@ -42,6 +42,15 @@ type Entry struct {
 	// compaction.turns
 	Turns *int `json:"turns,omitempty"`
 
+	// message.dir ("in" for mail received, "out" for mail sent), message.peer (the
+	// sender's or the recipient's label, one clean line), message.msg (the id of
+	// the message in the team inbox) and message.delivery (queued, delivered,
+	// handled or undeliverable). The body of the message is Text, as plain text.
+	Dir      string `json:"dir,omitempty"`
+	Peer     string `json:"peer,omitempty"`
+	MsgID    int    `json:"msg,omitempty"`
+	Delivery string `json:"delivery,omitempty"`
+
 	// image.mediaType, image.bytes, image.width, image.height (image.hasDetail
 	// is the shared HasDetail field above, and is always true for this kind).
 	MediaType string `json:"mediaType,omitempty"`
@@ -66,6 +75,15 @@ const (
 	KindCompaction = "compaction"
 	KindNotice     = "notice"
 	KindImage      = "image"
+	// KindMessage is mail between agents: a message this pane was sent as a
+	// prompt, or one it sent. It is never a prompt, whatever the body says.
+	KindMessage = "message"
+)
+
+// Directions of a message entry.
+const (
+	MessageIn  = "in"
+	MessageOut = "out"
 )
 
 // Tool and subagent statuses.

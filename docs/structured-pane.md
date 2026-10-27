@@ -292,6 +292,20 @@ A terminal opencode pane is not started this way and keeps its own configuration
   sender can see it. The store is the audit log: `team-events.jsonl` gets a `delivery` event for each
   state with `stop` and `attempt`, and no message text. The sender sees the state of what it sent on the
   graph's message edges and in the Team panel's message list (API 1.13, `docs/team-graph.md`).
+- Mail is shown in the conversation (API 1.14, cap `mailEntries`). A message delivered to a structured
+  pane is an entry of kind `message` with `dir` `in`, `peer` (the sender's label: the person as "the
+  user", an agent by its role or name, cleaned to one line and cut), `msg` (the message id), `delivery`
+  and `text` (the body, the same one line of plain text the agent was sent). It is made when the turn
+  that carries the message begins, in place of the `prompt` entry that turn would otherwise get, so mail
+  is never drawn as something the person typed, and no body can make it one. A message the pane sends
+  (the Flockdeck MCP server's `send_message`, or `flockdeck msg send` from the pane) is an entry with `dir`
+  `out`, `peer` (the recipient's label), the body and `delivery` `queued`, made when the message is
+  stored. Both entries follow the message's delivery state (`queued`, `delivered`, `handled`,
+  `undeliverable`) as the inbox reports it, in place, so the entry changes and the id stays. Mail from
+  the person or from a terminal pane makes no `out` entry, since there is no conversation to put it in.
+  A restart keeps the entries as history with the state they had; they are not updated afterwards.
+  Search does not look at message entries. A window that does not know the kind draws it as an unknown
+  entry.
 - No startup sweep. If Flockdeck is killed outright, a structured agent and what it started are not
   looked for by the next run. On Windows the job object that holds the agent's tree is closed with
   Flockdeck and takes it down, unless the job could not be made (security software that already put
