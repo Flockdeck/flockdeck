@@ -227,7 +227,7 @@ export function Team({ team: teamMsg, tasks: tasksMsg, messages: messagesMsg, re
     </div>`;
   };
 
-  const taskRow = (t) => html`<li key=${t.id} class="team-task" data-task=${t.id}>
+  const taskRow = (t) => html`<li key=${t.id} class="team-task" data-ctx="task" data-task=${t.id}>
     <button type="button" class="team-task-head" aria-expanded=${open === t.id ? "true" : "false"} onClick=${() => toggle(t)}>
       <span class="team-id">${t.id}</span>
       <span class="team-title">${t.title}</span>
@@ -281,7 +281,7 @@ export function Team({ team: teamMsg, tasks: tasksMsg, messages: messagesMsg, re
     </div>
     ${team.messages.length === 0 ? html`<p class="dialog-note" id="team-no-messages">No messages yet.</p>` : null}
     <ul class="team-messages" id="team-messages">
-      ${team.messages.map((m) => html`<li key=${m.id + ":" + m.to} class=${"team-message" + (m.seen || m.from.user ? "" : " is-unseen")} data-message=${m.id}>
+      ${team.messages.map((m) => html`<li key=${m.id + ":" + m.to} class=${"team-message" + (m.seen || m.from.user ? "" : " is-unseen")} data-ctx="message" data-message=${m.id}>
         <div class="team-who">${m.system ? "Flockdeck" : actorWords(m.from)} to ${m.toName || m.to}${m.toRole ? " (" + m.toRole + ")" : ""}, ${ago(m.time, clock())}${m.read ? ", read" : ""}</div>
         <p class="team-body">${full[m.id] !== undefined ? full[m.id] : m.text}${m.cut && full[m.id] === undefined ? "…" : ""}</p>
         <div class="team-row">
@@ -308,7 +308,7 @@ export function Team({ team: teamMsg, tasks: tasksMsg, messages: messagesMsg, re
     </div>
     ${team.roster.length === 0 ? html`<p class="dialog-note" id="team-no-agents">No agent is open in this project.</p>` : null}
     <ul class="team-list" id="team-agents" aria-label=${team.roster.length === 1 ? "1 agent" : team.roster.length + " agents"}>
-      ${team.roster.map((r) => html`<li key=${r.pane} class="team-task" data-pane=${r.pane}>
+      ${team.roster.map((r) => html`<li key=${r.pane} class="team-task" data-ctx="rosterRow" data-pane=${r.pane}>
         <span class="team-title">${r.name || r.pane}</span>
         <span class="team-meta">${[r.role, r.activity || r.status, r.unread ? r.unread + " unread" : "", r.locked ? "locked" : ""].filter(Boolean).join(" · ")}</span>
         <button type="button" class="dialog-btn team-close" id=${"team-close-" + r.pane} disabled=${!r.finished || r.locked}

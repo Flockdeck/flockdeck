@@ -10,6 +10,7 @@
 
 import { keycaps } from "./keys.js";
 import { nameOf } from "./palette.js";
+import { CONTENT } from "./contentMenus.js";
 
 /** MARGIN is the least space left between a menu and the edge of the window. */
 export const MARGIN = 8;
@@ -37,6 +38,7 @@ export const MENUS = {
       { id: "copy-id", label: "Copy pane id", run: () => ctx.copy && ctx.copy(pane, "the pane id"), hidden: !pane || !ctx.copy },
     ];
   },
+  ...CONTENT,
 };
 
 /** ctxElement is the nearest element at or above target that carries data-ctx,

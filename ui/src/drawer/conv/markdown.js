@@ -313,7 +313,7 @@ function breakLines(s) {
 /** HTTP_URL is an address that may become a link: http or https, nothing else. */
 const HTTP_URL = /^https?:[/][/]/i;
 
-const link = (href, kids) => h("a", { href, target: "_blank", rel: "noopener noreferrer" }, ...kids);
+const link = (href, kids) => h("a", { href, target: "_blank", rel: "noopener noreferrer", "data-ctx": "link" }, ...kids);
 
 /** HOST_TEXT is link text that reads as a host, or a host and a path: "github.com/org/repo". The last label is letters, so a version such as "v1.2" is not one. */
 const HOST_TEXT = /^[\w-]+(\.[\w-]+)*\.([a-z]{2,})(\/\S*)?$/i;
