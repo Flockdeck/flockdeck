@@ -110,6 +110,9 @@ func ProbeAll(specs []Spec) map[string]bool {
 
 // ownAgentExe is the program Flockdeck's own adapter for Claude Code drives,
 // or "" for any other adapter.
+//
+// It matches the adapter's arguments because the manifest has no field for the
+// program an own adapter drives; a field there would be cleaner.
 func ownAgentExe(a manifest.Adapter) string {
 	if a.Command == "flockdeck" && len(a.Args) == 2 && a.Args[0] == "acp-adapter" && a.Args[1] == "claude" {
 		return "claude"

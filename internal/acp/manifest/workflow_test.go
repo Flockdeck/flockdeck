@@ -126,7 +126,8 @@ func TestCanaryClaudeJob(t *testing.T) {
 		"mktemp -d \"${RUNNER_TEMP}/acp-canary.XXXXXX\"",
 		"@anthropic-ai/claude-code",
 		"env -i PATH=\"$PATH\" HOME=\"$ISO/home\" npm_config_cache=\"$ISO/npm-cache\"",
-		"npm install --prefix \"$ISO/claude\" --ignore-scripts",
+		"npm install --prefix \"$ISO/claude\" --ignore-scripts --no-audit --no-fund --loglevel=error \"$PLATFORM_PKG@$VERSION\"",
+		"PLATFORM_PKG=\"@anthropic-ai/claude-code-linux-x64\"",
 		"not a plain version",
 		"select(.id == \"claude\") | .testedWith",
 		"go build -o \"$ISO/bin/flockdeck\" .",
@@ -139,6 +140,27 @@ func TestCanaryClaudeJob(t *testing.T) {
 		if !strings.Contains(job, want) {
 			t.Errorf("the claude job lacks %q", want)
 		}
+	}
+	// --ignore-scripts leaves the main package's claude a placeholder that exits
+	// 1, so the binary comes from the platform package, and the step has to fail
+	// when the installed claude does not run. A substring check is not enough:
+	// the version must be read in an if that exits 1, not inside an echo, where a
+	// failure would be lost.
+	_, install, _ := strings.Cut(job, "- name: Install claude into the isolation folder")
+	install, _, _ = strings.Cut(install, "- name: Build flockdeck")
+	if !regexp.MustCompile(`(?m)^\s+if ! SEEN="\$\(env -i [^
+]*"\$CLAUDE_DIR/claude" --version\)"; then
+\s+echo "::error::[^
+]*"
+\s+exit 1
+\s+fi$`).MatchString(install) {
+		t.Error("the install step does not fail when claude --version fails")
+	}
+	if strings.Contains(install, "node_modules/.bin/claude") || strings.Contains(install, "echo \"claude --version: $(") {
+		t.Error("claude --version is run where its failure is ignored")
+	}
+	if !strings.Contains(job, "PATH=\"$CLAUDE_DIR:$PATH\"") {
+		t.Error("the claude test step does not put the platform binary on PATH")
 	}
 	if strings.Contains(job, "FLOCKDECK_CANARY_LOGIN") {
 		t.Error("the claude job asks for the login mode, which needs the real home")

@@ -199,9 +199,13 @@ prompt). The runner has no login, so the prompt is expected to fail as "authenti
 required". That shows claude still answers the adapter's `initialize` control request and
 that the refusal is the one the app turns into its login state.
 
-The `npm install --ignore-scripts` of claude has not been run, because Actions was off
-when this was written. If claude needs its install script to place its binary, the install
-step fails and is what to change.
+With `--ignore-scripts` the `@anthropic-ai/claude-code` package leaves a placeholder
+`claude.exe` that exits 1, because its install script is what puts the native binary in
+place. So the job installs the platform package
+`@anthropic-ai/claude-code-linux-x64@<version>` (the same exact version, an
+optionalDependency of the main package) with `--ignore-scripts`, puts its folder on PATH,
+and fails the install step if `claude --version` does not run. No script runs. The job has
+not been run, because Actions was off when this was written.
 
 To run it by hand on a machine with claude installed and logged in:
 
@@ -214,7 +218,8 @@ go test -tags acp_canary ./internal/acp/claudeacp -run TestCanaryClaudeSession -
 ```
 
 Without `FLOCKDECK_CANARY_LOGIN=1` the adapter gets a home inside the new folder and no
-login. With it, the adapter gets the real home, so claude uses the login there, and the
+login. With it, the adapter gets the real home, so claude uses the login there and also
+runs the user's own hooks and MCP servers; use it by hand only, never in the job. The
 prompt asks for one word. The working directory is the new folder either way. The test
 harness removes every `*_API_KEY` variable, so a key cannot be passed this way, and in
 login mode claude writes a session for the new folder under `~/.claude/projects`.
@@ -225,7 +230,9 @@ Observed on 27 Oct 2026 on Windows 11 with claude 2.1.311 and a flockdeck built 
 branch:
 
 - No login (home inside the new folder): `initialize` and `session/new` succeeded, and
-  the prompt failed with "Authentication required" after 1.4 seconds.
+  the prompt failed with "Authentication required" after 1.4 seconds. This was seen on
+  Windows only; whether a Linux runner with an empty home gives the same result is
+  unverified, and the job's first run will show it.
 - Login (the real home): `session/new` succeeded, and the one-word prompt returned the
   reply "ok" with stop reason `end_turn` after 3.6 seconds.
 

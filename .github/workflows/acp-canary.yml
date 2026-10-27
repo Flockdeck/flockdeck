@@ -237,9 +237,22 @@ jobs:
 
       - name: Install claude into the isolation folder
         run: |
-          env -i PATH="$PATH" HOME="$ISO/home" npm_config_cache="$ISO/npm-cache" CI=1             npm install --prefix "$ISO/claude" --ignore-scripts --no-audit --no-fund --loglevel=error "$PKG@$VERSION"
-          ls -l "$ISO/claude/node_modules/.bin/claude"
-          echo "claude --version: $(env -i PATH="$PATH" HOME="$ISO/home" "$ISO/claude/node_modules/.bin/claude" --version)"
+          # The claude package puts its native binary in place with an install
+          # script, which --ignore-scripts skips and leaves a placeholder that
+          # exits 1. The binary itself is the optionalDependency for the
+          # platform, published at the same exact version, so that package is
+          # installed on its own and its folder goes on PATH. No script runs.
+          PLATFORM_PKG="@anthropic-ai/claude-code-linux-x64"
+          env -i PATH="$PATH" HOME="$ISO/home" npm_config_cache="$ISO/npm-cache" CI=1 \
+            npm install --prefix "$ISO/claude" --ignore-scripts --no-audit --no-fund --loglevel=error "$PLATFORM_PKG@$VERSION"
+          CLAUDE_DIR="$ISO/claude/node_modules/$PLATFORM_PKG"
+          ls -l "$CLAUDE_DIR/claude"
+          if ! SEEN="$(env -i PATH="$PATH" HOME="$ISO/home" "$CLAUDE_DIR/claude" --version)"; then
+            echo "::error::the installed claude does not run"
+            exit 1
+          fi
+          echo "claude --version: $SEEN"
+          echo "CLAUDE_DIR=$CLAUDE_DIR" >> "$GITHUB_ENV"
 
       - name: Build flockdeck
         run: go build -o "$ISO/bin/flockdeck" .
@@ -258,13 +271,16 @@ jobs:
           # Without this the test harness puts a stub first on PATH where claude is.
           FLOCKDECK_LIVE_AGENT_TESTS: "1"
         run: |
-          PATH="$ISO/claude/node_modules/.bin:$PATH"             go test -tags acp_canary ./internal/acp/claudeacp -run TestCanaryClaudeSession -v -count=1 -timeout 8m
+          PATH="$CLAUDE_DIR:$PATH" \
+            go test -tags acp_canary ./internal/acp/claudeacp -run TestCanaryClaudeSession -v -count=1 -timeout 8m
 
       - name: Show whether the runner home changed
         if: always()
         run: |
           echo "files in the runner home newer than the start of this job, outside the Go and npm caches of the job itself:"
-          find "$REAL_HOME" -newer "$ISO/.start" -type f             -not -path "*/.cache/go-build/*" -not -path "*/go/pkg/*" -not -path "*/.cache/go/*"             -not -path "*/.npm/_logs/*" 2>/dev/null | head -20 || true
+          find "$REAL_HOME" -newer "$ISO/.start" -type f \
+            -not -path "*/.cache/go-build/*" -not -path "*/go/pkg/*" -not -path "*/.cache/go/*" \
+            -not -path "*/.npm/_logs/*" 2>/dev/null | head -20 || true
           echo "(end of list)"
 
       - name: Summary
