@@ -144,6 +144,7 @@ var commandAccess = map[string]cmdAccess{
 	"approveMerge": accessFull, "unapproveMerge": accessFull, "mergeBranch": accessFull,
 	"structuredSnapshot": accessFull, "structuredWatch": accessFull, "structuredUnwatch": accessFull, "structuredCancel": accessFull, "structuredSet": accessFull, "structuredFiles": accessFull,
 	"structuredQueueEdit": accessFull, "structuredQueueRemove": accessFull, "structuredQueueClear": accessFull, "structuredQueueSendNow": accessFull, "structuredExport": accessFull,
+	"structuredShellRun": accessFull, "structuredShellStop": accessFull, "structuredShellRemove": accessFull, "structuredShellSend": accessFull,
 	"teamSnapshot": accessFull, "teamWatch": accessFull, "teamUnwatch": accessFull, "taskList": accessFull,
 	"taskGet": accessFull, "taskAdd": accessFull, "taskAssign": accessFull, "taskStatus": accessFull,
 	"taskNote": accessFull, "taskBranch": accessFull, "taskDepends": accessFull, "promote": accessFull, "taskEstimate": accessFull, "taskTeam": accessFull, "taskPrune": accessFull, "msgList": accessFull,

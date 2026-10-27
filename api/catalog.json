@@ -1157,6 +1157,30 @@
       "status": "stable"
     },
     {
+      "name": "structuredShellRemove",
+      "access": "full",
+      "since": "1.20",
+      "status": "stable"
+    },
+    {
+      "name": "structuredShellRun",
+      "access": "full",
+      "since": "1.20",
+      "status": "stable"
+    },
+    {
+      "name": "structuredShellSend",
+      "access": "full",
+      "since": "1.20",
+      "status": "stable"
+    },
+    {
+      "name": "structuredShellStop",
+      "access": "full",
+      "since": "1.20",
+      "status": "stable"
+    },
+    {
       "name": "structuredSnapshot",
       "access": "full",
       "since": "1.0",

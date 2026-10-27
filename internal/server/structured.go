@@ -175,6 +175,7 @@ type structuredMsg struct {
 	Activity string                `json:"activity,omitempty"`
 	Queued   int                   `json:"queued,omitempty"`
 	Queue    []structuredQueueItem `json:"queue,omitempty"`
+	Shell    []structuredShellItem `json:"shell,omitempty"`
 	Err      string                `json:"err,omitempty"`
 	Setup    *structuredSetup      `json:"setup,omitempty"`
 	Plan     []structuredPlanRow   `json:"plan"`
@@ -274,6 +275,7 @@ func buildStructured(id string, sn structured.Snapshot) structuredMsg {
 	}
 
 	buildStructuredQueue(&m, sn)
+	buildStructuredShell(&m, sn)
 	buildStructuredSession(&m, sn)
 	return m
 }
@@ -408,6 +410,8 @@ func (s *Server) structuredCommand(c *controlClient, cmd command) {
 		s.do(func() { s.structuredQueue(c, cmd) })
 	case "structuredExport":
 		s.do(func() { s.structuredExport(c, cmd) })
+	case "structuredShellRun", "structuredShellStop", "structuredShellRemove", "structuredShellSend":
+		s.do(func() { s.structuredShell(c, cmd) })
 	case "structuredWatch":
 		s.do(func() { s.structuredWatch(c, cmd) })
 	case "structuredUnwatch":

@@ -17,6 +17,7 @@
     "activity": { "type": "string", "minLength": 1, "description": "The line naming what a working agent is doing, as one line. Absent when there is none." },
     "queued": { "type": "integer", "minimum": 1, "description": "How many prompts wait behind the running turn. Absent when none do." },
     "queue": { "type": "array", "minItems": 1, "maxItems": 16, "items": { "$ref": "#/$defs/queueItem" }, "description": "The prompts waiting behind the running turn, the next to be sent first (since API 1.19). Same length as queued; absent when none wait." },
+    "shell": { "type": "array", "minItems": 1, "maxItems": 8, "items": { "$ref": "#/$defs/shellItem" }, "description": "The person's own commands, run with ! in the prompt box, the oldest first (since API 1.20). Not the agent's: they never reach it unless the person sends one's output. Absent when there are none." },
     "err": { "type": "string", "minLength": 1, "description": "The last thing that went wrong, on one line, without control characters, cut to 200 characters. It says what last went wrong and not that something is wrong now: show it with the phase and status. Absent when nothing has." },
     "setup": { "$ref": "#/$defs/setup" },
     "plan": { "type": "array", "items": { "$ref": "#/$defs/planRow" }, "description": "The agent's plan, at most 100 rows. Empty, never absent." },
@@ -31,6 +32,20 @@
     "capabilities": { "$ref": "#/$defs/capabilities" }
   },
   "$defs": {
+    "shellItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "cmd", "state", "text"],
+      "description": "One command the person ran with !, in the pane's directory, in a shell Flockdeck owns with a scrubbed environment. It is ended when the pane closes or after ten minutes. Name it in structuredShell* commands by id.",
+      "properties": {
+        "id": { "type": "integer", "minimum": 1, "description": "Stays with the run until it is removed." },
+        "cmd": { "type": "string", "maxLength": 500, "description": "The command as one line, cut to 500 characters, with control and format characters removed. Draw it as text." },
+        "state": { "enum": ["running", "exited", "stopped", "timeout", "failed"], "description": "running; exited (it ended by itself, see code); stopped (the person stopped it, or the pane closed); timeout (ended for running longer than ten minutes); failed (it could not be started)." },
+        "code": { "type": "integer", "description": "The exit code. Present when state is exited." },
+        "text": { "type": "string", "description": "The output so far as plain text, cut to its newest 8192 bytes: escape sequences, carriage-return overwrites, control characters (other than line break and tab) and format characters are removed. Draw it as text and never as markup." },
+        "cut": { "const": true, "description": "Present when the start of the output was let go, either by the cut above or because the run wrote more than 64 KiB." }
+      }
+    },
     "queueItem": {
       "type": "object",
       "additionalProperties": false,
