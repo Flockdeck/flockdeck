@@ -321,8 +321,8 @@ const HOST_TEXT = /^[\p{L}\p{M}\p{N}_-]+(\.[\p{L}\p{M}\p{N}_-]+)*\.(xn--[a-z0-9-
 /** HOST_ENDINGS are the endings a bare name (no path) must have to read as a host, so a file name such as main.go, README.md or Node.js does not. */
 const HOST_ENDINGS = new Set(["com", "org", "net", "io", "dev", "app", "ai", "co", "gov", "edu", "info", "me", "xyz", "cloud", "uk", "de", "fr", "nl", "eu", "us", "ca", "au", "ru", "cn", "jp", "in", "br", "it", "es", "se", "tv", "so"]);
 
-/** hostText is link text as a host reads it: trimmed, with the format characters (zero-width and the like) that a host drops taken out, and composed so a letter and its accent are one, and with the ideographic full stops (U+3002, U+FF0E, U+FF61) that `new URL` reads as a dot made into one. */
-const hostText = (text) => String(text || "").trim().replace(/\p{Cf}/gu, "").replace(/[\u3002\uff0e\uff61]/g, ".").normalize("NFC");
+/** hostText is link text as a host reads it: trimmed, with the format characters (zero-width and the like) that a host drops taken out, and folded to its compatibility form (NFKC), so a letter and its accent are one and a full-width letter is the ASCII one, as `new URL` reads it, and with the ideographic full stops (U+3002, U+FF0E, U+FF61) that `new URL` reads as a dot made into one. */
+const hostText = (text) => String(text || "").trim().replace(/\p{Cf}/gu, "").replace(/[\u3002\uff0e\uff61]/g, ".").normalize("NFKC");
 
 /** unicodeEnding says a bare name ends in a label that is not plain ASCII, so it is a host in an alphabet of its own (example.рф) or a look-alike of an ending such as "com" (with a Cyrillic о): the host `new URL` gives ends in an xn-- label. A capitalised word whose letters are ASCII letters with accents (Wörter.Über, Datei.Übung, Fix.École) is not: taking the accents off leaves plain ASCII. A look-alike letter has no such decomposition (the Cyrillic С in Сom, ᴏ, ɔ, ɡ, ı), so it is, however it is capitalised. */
 function unicodeEnding(t) {
