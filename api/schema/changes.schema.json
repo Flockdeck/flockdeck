@@ -436,9 +436,12 @@
             "queued",
             "notified",
             "woken",
-            "read"
+            "read",
+            "delivered",
+            "handled",
+            "undeliverable"
           ],
-          "description": "The newest delivery state of the message that carried the comment to `to`, with the meaning and order of the graph's message edges. Absent while it is being sent, which a client shows as sending."
+          "description": "The newest delivery state of the message that carried the comment to `to`, with the meaning and order of the graph's message edges. The last three came with API 1.13 and are written when `to` is a structured pane. Absent while it is being sent, which a client shows as sending."
         },
         "state": {
           "enum": [

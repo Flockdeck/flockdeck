@@ -53,8 +53,21 @@ export function needLabel(kind) {
   return Object.prototype.hasOwnProperty.call(NEED_LABELS, kind) ? NEED_LABELS[kind] : str(kind);
 }
 
-/** How far a message has got, lowest first. A state not in the list ranks -1. */
-export const DELIVERY_ORDER = ["queued", "notified", "woken", "read"];
+/**
+ * How far a message has got, lowest first. A state not in the list ranks -1.
+ * A pane with a terminal moves queued, notified, woken, read. A structured pane is
+ * sent mail as prompts and moves queued, delivered, handled; a message whose turn
+ * was cancelled or refused goes back to queued, and one given up on is undeliverable.
+ */
+export const DELIVERY_ORDER = ["queued", "notified", "woken", "delivered", "read", "handled", "undeliverable"];
+
+/** The states in which the receiver has the message: read it, been sent it as a prompt, or finished the turn that carried it. */
+const DELIVERED_STATES = ["delivered", "read", "handled"];
+
+/** isDelivered says the receiver has the message. A state this file does not know is not delivered. */
+export function isDelivered(state) {
+  return DELIVERED_STATES.includes(state);
+}
 
 export function deliveryRank(state) {
   return DELIVERY_ORDER.indexOf(state);
@@ -281,8 +294,10 @@ export function emptyModel() {
  *   list, each list as the graph gave it.
  * - needsByPane: pane id to its needs, a conflict under both of its panes.
  * - edges: spawn, message and sent edges apart, each in the graph's order.
- * - undelivered: message edges that have not been read, so queued, notified and
- *   woken ones. It is not the amber rule: only "queued" is "not told yet" (see
+ * - undelivered: message edges the receiver does not have yet: queued, notified,
+ *   woken and undeliverable ones, and a state this file does not know. Read,
+ *   delivered and handled ones are delivered. It is not the amber rule: only
+ *   "queued" is "not told yet" (see
  *   Edges.js).
  */
 export function buildGraphModel(msg) {
@@ -330,7 +345,7 @@ export function buildGraphModel(msg) {
     needs,
     needsByPane,
     edges,
-    undelivered: edges.message.filter((e) => e.delivery !== "read"),
+    undelivered: edges.message.filter((e) => !isDelivered(e.delivery)),
     panesHidden: num(msg.panesHidden),
     sendMessageUnread: num(msg.sendMessageUnread),
     boardError: str(msg.boardError),

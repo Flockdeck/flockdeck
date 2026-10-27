@@ -11,6 +11,10 @@ Graph pushes (`type: "graph"`) written by a real server, for a client in another
 | `05-six-helpers-undelivered-message.json` | Six helpers; one asks a question and the manager is idle with an unread message. |
 | `06-rate-limiting-tree-home` | Built, not recorded. See below. |
 
+## Prompt delivery example
+
+`built-graph-01-prompt-delivery.json` is a graph push built by hand from fixture 05, not recorded. The manager has sent a message to four structured helpers and one terminal helper, and the message edges show each delivery state: `queued` (after a cancelled turn, with `stopReason` and `attempts` kept), `delivered`, `handled` and `undeliverable` for the structured ones, and `woken` for the terminal one. The manager's `undelivered` is 2 (the queued and the undeliverable message). A test validates it against `api/schema/team-graph.schema.json`.
+
 ## Changes examples
 
 `built-changes-*.json` are the messages of the team-wide changes contract (`docs/changes-api.md`, `api/schema/changes.schema.json`): a `changesTeam` push, a page of files, diffs as hunks, unchanged lines, and the answers to commands. They are built by hand, not recorded: no server writes these messages yet. A test validates each against the schema and checks what a schema cannot (hunk line counts, word ranges, a gate blocked exactly when it has blockers). `docs/changes-api.md` section 11 says what each one shows.

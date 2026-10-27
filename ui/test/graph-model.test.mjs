@@ -10,6 +10,7 @@ import {
   panesNeedingYou,
   needLabel,
   deliveryRank,
+  isDelivered,
   emptyModel,
 } from "../src/graph/model.js";
 
@@ -325,6 +326,21 @@ test("undelivered holds the message edges that are not read, and not the read on
   });
   assert.equal(m.edges.message.length, 4);
   assert.deepEqual(m.undelivered.map((e) => e.id), [2, 3]);
+});
+
+test("a message sent to a structured pane is delivered once its turn began, and undelivered while queued or given up on", () => {
+  const edge = (id, delivery) => ({ kind: "message", from: "a", to: "b", id, time: "2026-10-21T09:00:00Z", delivery });
+  const m = buildGraphModel({
+    type: "graph", root: "/r", project: "", teams: [], solo: ["a", "b"], soloNeeds: [],
+    nodes: [nodeOf("a"), nodeOf("b")],
+    edges: [edge(1, "delivered"), edge(2, "queued"), edge(3, "handled"), edge(4, "undeliverable"), edge(5, "read"), edge(6, "a-new-state")],
+  });
+  assert.deepEqual(m.undelivered.map((e) => e.id), [2, 4, 6]);
+  assert.equal(isDelivered("delivered") && isDelivered("handled") && isDelivered("read"), true);
+  assert.equal(isDelivered("queued") || isDelivered("undeliverable") || isDelivered(""), false);
+  assert.ok(deliveryRank("delivered") > deliveryRank("queued"));
+  assert.ok(deliveryRank("handled") > deliveryRank("delivered"));
+  assert.ok(deliveryRank("undeliverable") > deliveryRank("handled"));
 });
 
 test("the label of a setup need is its words", () => {

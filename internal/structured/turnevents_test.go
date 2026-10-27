@@ -35,7 +35,7 @@ func (l *turnLog) waitFor(t *testing.T, kind TurnEventKind, tag int) TurnEvent {
 	deadline := time.Now().Add(20 * time.Second)
 	for {
 		for _, e := range l.all() {
-			if e.Kind == kind && e.Tag == tag {
+			if e.What == kind && e.Tag == tag {
 				return e
 			}
 		}
@@ -68,7 +68,7 @@ func TestATaggedPromptReportsItsTurn(t *testing.T) {
 		t.Errorf("stop = %q", end.Stop)
 	}
 	got := l.all()
-	if len(got) != 2 || got[0] != (TurnEvent{Kind: TurnBegan, Tag: 7}) || got[1].Kind != TurnEnded {
+	if len(got) != 2 || got[0] != (TurnEvent{What: TurnBegan, Tag: 7}) || got[1].What != TurnEnded {
 		t.Errorf("events = %+v", got)
 	}
 	// The agent was given the prompt in two blocks, and the conversation shows
@@ -118,7 +118,7 @@ func TestCancelReportsTheDroppedTaggedPrompts(t *testing.T) {
 	l.waitFor(t, TurnLost, 2)
 	l.waitFor(t, TurnLost, 3)
 	for _, e := range l.all() {
-		if (e.Tag == 2 || e.Tag == 3) && e.Kind == TurnBegan {
+		if (e.Tag == 2 || e.Tag == 3) && e.What == TurnBegan {
 			t.Errorf("a dropped prompt began: %+v", e)
 		}
 	}
@@ -133,7 +133,7 @@ func TestAnAgentExitingMidTurnLosesTheTaggedPrompt(t *testing.T) {
 	}
 	l.waitFor(t, TurnLost, 5)
 	for _, e := range l.all() {
-		if e.Tag == 5 && e.Kind == TurnEnded {
+		if e.Tag == 5 && e.What == TurnEnded {
 			t.Errorf("a turn that never ended was reported ended: %+v", e)
 		}
 	}

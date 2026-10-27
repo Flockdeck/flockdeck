@@ -187,16 +187,18 @@ func (s *promptService) turn(pane string, gen uint64, e structured.TurnEvent) {
 	if cur, ok := s.generation(pane, e.Tag); !ok || cur != gen {
 		return
 	}
-	switch e.Kind {
-	case structured.TurnBegan:
+	if e.What == structured.TurnBegan {
 		s.mail.Deliver(pane, e.Tag)
-	case structured.TurnEnded:
-		s.mail.EndTurn(pane, e.Tag, e.Stop)
-		s.forget(pane, e.Tag)
-	case structured.TurnLost:
-		s.mail.Interrupted(pane, e.Tag)
-		s.forget(pane, e.Tag)
+		return
 	}
+	if e.What == structured.TurnEnded {
+		s.mail.EndTurn(pane, e.Tag, e.Stop)
+	} else if e.What == structured.TurnLost {
+		s.mail.Interrupted(pane, e.Tag)
+	} else {
+		return
+	}
+	s.forget(pane, e.Tag)
 }
 
 // runtimeGen numbers the structured runtimes of the process.

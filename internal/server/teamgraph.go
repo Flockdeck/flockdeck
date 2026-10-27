@@ -180,8 +180,22 @@ type graphEdge struct {
 	// line cut at graphEdgeCut. Written for message edges only.
 	Cut *bool `json:"cut,omitempty"`
 	// Delivery is the newest delivery state of a message: queued, notified,
-	// woken or read.
+	// woken or read for a pane with a terminal; queued, delivered, handled or
+	// undeliverable for a structured pane, which is sent mail as prompts.
 	Delivery string `json:"delivery,omitempty"`
+	// StopReason and Attempts are written for a message sent to a structured pane
+	// once a turn has carried it: how the newest such turn ended, and how many
+	// turns the message has begun.
+	StopReason string `json:"stopReason,omitempty"`
+	Attempts   int    `json:"attempts,omitempty"`
+}
+
+// messageEdge is the edge for a message from one pane to another.
+func messageEdge(m team.Message) graphEdge {
+	text, cut := graphEdgeLine(m.Text, graphEdgeCut)
+	return graphEdge{Kind: graphEdgeMessage, From: m.From.Pane, To: m.To, ID: m.ID,
+		Time: m.Time.Format(time.RFC3339), Text: text, Cut: &cut, Delivery: m.Delivery(),
+		StopReason: m.StopReason, Attempts: m.Attempts}
 }
 
 // graphMsg is the graph view of a project: what graphSnapshot is answered with
@@ -391,7 +405,7 @@ func (s *Server) graphStaticFor(root string, members []team.Member) *graphStatic
 		agent[m.Pane] = true
 	}
 	for _, m := range msgs {
-		if !m.Read && !m.System() {
+		if m.Unread() && !m.System() {
 			st.unreadMail[m.To]++
 			if t, ok := st.unreadSince[m.To]; !ok || m.Time.Before(t) {
 				st.unreadSince[m.To] = m.Time
@@ -399,7 +413,7 @@ func (s *Server) graphStaticFor(root string, members []team.Member) *graphStatic
 		}
 	}
 	for _, m := range msgs {
-		if m.From.Pane != "" && m.From.Pane != m.To && agent[m.From.Pane] && agent[m.To] && m.Delivery() == "queued" {
+		if m.From.Pane != "" && m.From.Pane != m.To && agent[m.From.Pane] && agent[m.To] && (m.Delivery() == team.DeliveryQueued || m.Delivery() == team.DeliveryUndeliverable) {
 			st.undelivered[m.From.Pane]++
 		}
 	}
@@ -410,9 +424,7 @@ func (s *Server) graphStaticFor(root string, members []team.Member) *graphStatic
 		if m.From.Pane == "" || !agent[m.From.Pane] || !agent[m.To] {
 			continue
 		}
-		text, cut := graphEdgeLine(m.Text, graphEdgeCut)
-		st.edges = append(st.edges, graphEdge{Kind: graphEdgeMessage, From: m.From.Pane, To: m.To, ID: m.ID,
-			Time: m.Time.Format(time.RFC3339), Text: text, Cut: &cut, Delivery: m.Delivery()})
+		st.edges = append(st.edges, messageEdge(m))
 	}
 	if s.graphStatics == nil {
 		s.graphStatics = map[string]*graphStatic{}

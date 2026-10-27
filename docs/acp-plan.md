@@ -19,7 +19,7 @@ Read from origin/main at 4efb7311 (extracted from the flockdeck-man clone, since
 - `internal/acp` is a client for initialize, authenticate, session/new, session/prompt, session/cancel, permission requests and the update stream. It does not implement session/load or session/resume (the `client.go` header says so).
 - `internal/structured` runs one agent per pane. It queues up to 16 prompts behind a running turn (`maxQueue`) and `paneSend` answers `queued`.
 - `NewSession` accepts `mcpServers` and `Options.MCPServers` exists, but nothing in `internal/workspace` or `internal/server` fills it. The entry's `mcp` flag is read and then an empty list goes out.
-- Mail to a structured pane is a text wake: opt-in per agent type, one prompt with the oldest unread message, marked read when the prompt is accepted (`workspace/wake_text.go`). The agent gets no `FLOCKDECK_*` variables, so it cannot send mail at all.
+- Mail to a structured pane was a text wake: opt-in per agent type, one prompt with the oldest unread message, marked read when the prompt is accepted. T187 replaced it with prompt delivery (`workspace/promptdelivery.go`): no opt-in, two content blocks, delivery states on the message. The agent gets no `FLOCKDECK_*` variables, so it cannot send mail at all.
 - `team.Message` already has delivery states: queued, notified, woken, read (`internal/team/team.go`).
 - Relay windows are refused every structured command and all conversation text.
 

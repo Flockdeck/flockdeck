@@ -120,7 +120,7 @@ func (r *promptRig) state(t *testing.T, id int) team.Message {
 }
 
 func (r *promptRig) turn(kind structured.TurnEventKind, tag int, stop string) {
-	r.svc.turn("p2", r.fake.gen, structured.TurnEvent{Kind: kind, Tag: tag, Stop: stop})
+	r.svc.turn("p2", r.fake.gen, structured.TurnEvent{What: kind, Tag: tag, Stop: stop})
 }
 
 // queued, then handed to the runtime tagged with its id and as two blocks, then
@@ -329,8 +329,8 @@ func TestAnAgentThatExitsMidTurnGetsItsMessageBack(t *testing.T) {
 		t.Fatalf("hand-overs after the restart: %v", tags)
 	}
 	// The first runtime reports late. It must not undo the new hand-over.
-	r.svc.turn("p2", 1, structured.TurnEvent{Kind: structured.TurnEnded, Tag: m.ID, Stop: "end_turn"})
-	r.svc.turn("p2", 1, structured.TurnEvent{Kind: structured.TurnLost, Tag: m.ID})
+	r.svc.turn("p2", 1, structured.TurnEvent{What: structured.TurnEnded, Tag: m.ID, Stop: "end_turn"})
+	r.svc.turn("p2", 1, structured.TurnEvent{What: structured.TurnLost, Tag: m.ID})
 	if got := r.state(t, m.ID); got.Delivery() != team.DeliveryQueued || !got.EndedAt.IsZero() {
 		t.Fatalf("a stale report changed the message: %+v", got)
 	}

@@ -18,7 +18,7 @@ Built, on origin/main:
 - `internal/acp` client (initialize, authenticate, session/new, session/prompt, session/cancel, permission requests, update stream) and `internal/structured` runtime with a 16-deep prompt queue.
 - A beta opencode entry; hidden Gemini and Codex entries that use third-party npm adapters. These are the pieces decision 2 replaces for Codex.
 - The adapter manifest, the Node check and the weekly canary ([acp-adapters.md](acp-adapters.md)).
-- Message delivery states in `internal/team` (queued, notified, woken, read) and the text wake. These belong to the mail path decision 3 retires.
+- Message delivery states in `internal/team`. A message to a terminal pane has queued, notified, woken and read, and the text wake; these belong to the mail path decision 3 retires. A message to a structured pane is a `session/prompt` with its own states: queued, delivered, handled, undeliverable, with the stop reason stored and a retry cap ([structured pane](structured-pane.md)).
 
 Built: the Flockdeck MCP server with `send_message` and `list_peers` (T186, [Flockdeck MCP server](flockdeck-mcp-server.md)). It records a message in the receiver's inbox as before; delivery to the receiver as a prompt is T187.
 

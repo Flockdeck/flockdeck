@@ -203,7 +203,7 @@ const (
 
 // TurnEvent is one thing that happened to the prompt sent with Tag.
 type TurnEvent struct {
-	Kind TurnEventKind
+	What TurnEventKind
 	Tag  int
 	// Stop is the stop reason of a TurnEnded, as the agent sent it.
 	Stop string
@@ -938,7 +938,7 @@ func (r *Runtime) dropQueueLocked() []int {
 // lose tells OnTurn that the prompts with these tags will not be sent.
 func (r *Runtime) lose(tags []int) {
 	for _, t := range tags {
-		r.turnEvent(TurnEvent{Kind: TurnLost, Tag: t})
+		r.turnEvent(TurnEvent{What: TurnLost, Tag: t})
 	}
 }
 
@@ -966,10 +966,10 @@ func (r *Runtime) loop() {
 		}
 		r.br.TurnStart(strings.Join(q.blocks, "\n"))
 		r.notify()
-		r.turnEvent(TurnEvent{Kind: TurnBegan, Tag: q.tag})
+		r.turnEvent(TurnEvent{What: TurnBegan, Tag: q.tag})
 		stop, err := c.PromptBlocks(r.ctx, r.session, q.blocks...)
 		if err != nil {
-			r.turnEvent(TurnEvent{Kind: TurnLost, Tag: q.tag})
+			r.turnEvent(TurnEvent{What: TurnLost, Tag: q.tag})
 			if r.ctx.Err() != nil {
 				return
 			}
@@ -991,7 +991,7 @@ func (r *Runtime) loop() {
 			return
 		}
 		r.br.TurnEnd(stop)
-		r.turnEvent(TurnEvent{Kind: TurnEnded, Tag: q.tag, Stop: stop})
+		r.turnEvent(TurnEvent{What: TurnEnded, Tag: q.tag, Stop: stop})
 		r.notify()
 	}
 }
