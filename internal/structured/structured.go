@@ -93,6 +93,13 @@ var (
 	ErrStale = errors.New("structured: no such open permission request")
 	// ErrBadOption is returned by Answer for an option the request did not offer.
 	ErrBadOption = errors.New("structured: the request has no such option")
+	// ErrNoItem is returned by the queue calls when no prompt with that id is
+	// waiting: it was sent, removed or dropped, or belongs to another runtime.
+	ErrNoItem = errors.New("structured: no such prompt is waiting")
+	// ErrMailItem is returned by EditQueued and RemoveQueued for a prompt that
+	// carries a message from a peer. It is not the person's text to change, and
+	// dropping it would only make the inbox send its copy again.
+	ErrMailItem = errors.New("structured: a message from a peer cannot be changed")
 )
 
 // Command is a program to start in place of the one the manifest names. It is
@@ -276,6 +283,8 @@ type Snapshot struct {
 	Entries []transcript.Entry
 	// Queued is how many prompts wait behind the running turn.
 	Queued int
+	// Queue lists them, the next to be sent first.
+	Queue []QueueItem
 	// Err is the last thing that went wrong, cleaned. After an exit it says
 	// only that the agent is unavailable: what it wrote to stderr is not kept
 	// for display. It is
@@ -350,12 +359,37 @@ type Runtime struct {
 // queued is a prompt waiting for its turn. tag is the caller's own number for it,
 // or zero when the caller does not want to be told what became of it.
 type queued struct {
+	// id names the prompt in the queue calls. It is unique across every runtime
+	// of the process, so a call about one runtime's prompt cannot match a prompt
+	// of the runtime that replaced it.
+	id     int
 	blocks []string
 	tag    int
 	// mail is set for a prompt that carries a message from a peer. The
 	// conversation shows it as that message and not as something the person typed.
 	mail *bridge.Mail
 }
+
+// QueueItem is one prompt waiting for its turn, as a window is shown it.
+type QueueItem struct {
+	// ID is what EditQueued, RemoveQueued and SendNow take. Positions change as
+	// turns end, ids do not.
+	ID int
+	// Mail says the prompt carries a message from a peer. Peer is its sender's
+	// label and Text the message body; neither is something the person typed.
+	Mail bool
+	Peer string
+	Text string
+	// Clipped says Text is the start of a longer text, so it is not offered for
+	// editing.
+	Clipped bool
+}
+
+// queueTextCap bounds the text of an item in a snapshot.
+const queueTextCap = 4096
+
+// itemSeq numbers queued prompts across all runtimes.
+var itemSeq atomic.Int64
 
 type waiter struct {
 	card bridge.Card
@@ -499,7 +533,7 @@ func (r *Runtime) sendMail(tag int, mail *bridge.Mail, blocks ...string) error {
 		r.mu.Unlock()
 		return ErrQueueFull
 	}
-	r.queue = append(r.queue, queued{blocks: slices.Clone(blocks), tag: tag, mail: mail})
+	r.queue = append(r.queue, queued{id: int(itemSeq.Add(1)), blocks: slices.Clone(blocks), tag: tag, mail: mail})
 	r.mu.Unlock()
 	select {
 	case r.wake <- struct{}{}:
@@ -525,6 +559,160 @@ func (r *Runtime) Cancel() error {
 		return ErrNotRunning
 	}
 	return c.Cancel(sid)
+}
+
+// queueItemsLocked lists the waiting prompts. The caller holds r.mu.
+func (r *Runtime) queueItemsLocked() []QueueItem {
+	if len(r.queue) == 0 {
+		return nil
+	}
+	out := make([]QueueItem, 0, len(r.queue))
+	for _, q := range r.queue {
+		it := QueueItem{ID: q.id}
+		var text string
+		if q.mail != nil {
+			it.Mail, it.Peer, text = true, q.mail.Peer, q.mail.Text
+		} else {
+			text = strings.Join(q.blocks, "\n")
+		}
+		if len(text) > queueTextCap {
+			n := queueTextCap
+			for n > 0 && !utf8.RuneStart(text[n]) {
+				n--
+			}
+			text, it.Clipped = text[:n], true
+		}
+		it.Text = text
+		out = append(out, it)
+	}
+	return out
+}
+
+// EditQueued replaces the text of the waiting prompt id, keeping its place. A
+// prompt that has been sent since the window drew it is ErrNoItem and the edit
+// is not applied: the lookup and the change are one step against the loop taking
+// the prompt. A message from a peer is ErrMailItem.
+func (r *Runtime) EditQueued(id int, text string) error {
+	if len(text) > maxPrompt {
+		return fmt.Errorf("structured: the prompt is %d bytes; the most is %d", len(text), maxPrompt)
+	}
+	if strings.TrimSpace(text) == "" {
+		return errors.New("structured: the prompt is empty")
+	}
+	r.mu.Lock()
+	i := r.queueIndexLocked(id)
+	switch {
+	case i < 0:
+		r.mu.Unlock()
+		return ErrNoItem
+	case r.queue[i].mail != nil:
+		r.mu.Unlock()
+		return ErrMailItem
+	}
+	r.queue[i].blocks = []string{text}
+	r.mu.Unlock()
+	r.notify()
+	return nil
+}
+
+// RemoveQueued takes the waiting prompt id out of the queue. Its errors are those
+// of EditQueued.
+func (r *Runtime) RemoveQueued(id int) error {
+	r.mu.Lock()
+	i := r.queueIndexLocked(id)
+	if i < 0 {
+		r.mu.Unlock()
+		return ErrNoItem
+	}
+	q := r.queue[i]
+	if q.mail != nil {
+		r.mu.Unlock()
+		return ErrMailItem
+	}
+	r.queue = slices.Delete(slices.Clone(r.queue), i, i+1)
+	r.mu.Unlock()
+	if q.tag != 0 {
+		r.lose([]int{q.tag})
+	}
+	r.notify()
+	return nil
+}
+
+// ClearQueued removes the person's waiting prompts and returns how many. Messages
+// from peers stay: they are not the person's to drop.
+func (r *Runtime) ClearQueued() int {
+	r.mu.Lock()
+	var tags []int
+	var kept []queued
+	n := 0
+	for _, q := range r.queue {
+		if q.mail != nil {
+			kept = append(kept, q)
+			continue
+		}
+		n++
+		if q.tag != 0 {
+			tags = append(tags, q.tag)
+		}
+	}
+	r.queue = kept
+	r.mu.Unlock()
+	r.lose(tags)
+	if n > 0 {
+		r.notify()
+	}
+	return n
+}
+
+// SendNow moves the waiting prompt id to the front of the queue and ends the
+// running turn, if there is one, so the prompt is the next the agent gets. The
+// rest of the queue is kept behind it. It is ErrNoItem for a prompt that is not
+// waiting. The turn is ended while the queue is held, so the prompt cannot start
+// a turn of its own and then be cancelled by this call.
+func (r *Runtime) SendNow(id int) error {
+	r.mu.Lock()
+	i := r.queueIndexLocked(id)
+	if i < 0 {
+		r.mu.Unlock()
+		return ErrNoItem
+	}
+	q := r.queue[i]
+	rest := slices.Delete(slices.Clone(r.queue), i, i+1)
+	r.queue = slices.Insert(rest, 0, q)
+	var err error
+	if r.inTurn && r.phase == PhaseReady && r.client != nil && r.session != "" {
+		r.asked = true
+		err = r.client.Cancel(r.session)
+	}
+	r.mu.Unlock()
+	select {
+	case r.wake <- struct{}{}:
+	default:
+	}
+	r.notify()
+	return err
+}
+
+func (r *Runtime) queueIndexLocked(id int) int {
+	for i, q := range r.queue {
+		if q.id == id {
+			return i
+		}
+	}
+	return -1
+}
+
+// Interrupt ends the running turn like Cancel and keeps the waiting prompts.
+func (r *Runtime) Interrupt() error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.phase != PhaseReady || r.client == nil || r.session == "" {
+		return ErrNotRunning
+	}
+	if r.inTurn {
+		r.asked = true
+	}
+	return r.client.Cancel(r.session)
 }
 
 // Answer chooses an option of the oldest open request with this id. Prefer
@@ -620,6 +808,7 @@ func (r *Runtime) Snapshot() Snapshot {
 	s := Snapshot{
 		Phase:  r.phase,
 		Queued: len(r.queue),
+		Queue:  r.queueItemsLocked(),
 		Err:    r.err,
 		Agent:  r.agentNm,
 
