@@ -3,6 +3,7 @@ package workspace
 import (
 	"os"
 	"strings"
+	"time"
 	"testing"
 
 	"github.com/jmwri/flockdeck/internal/acp/acptest"
@@ -197,5 +198,32 @@ func TestALayoutWithNoSessionIdStartsANewSession(t *testing.T) {
 	statusWithin(t, restored, id, session.StatusIdle)
 	if sn, _ := restored.StructuredSnapshot(id); sn.Resume != structured.ResumeNone {
 		t.Errorf("resume = %q", sn.Resume)
+	}
+}
+
+// When Claude's adapter moves the session id (after /clear) the layout is
+// saved at once through the hook, not at the next interval: the layout file has
+// the new id as soon as the turn ends.
+func TestMovedSessionIDIsSavedThroughTheHook(t *testing.T) {
+	ws, lead, root := structuredCrew(t)
+	onPath(t, "claude")
+	useFakeAgentWith(ws, "load,id=sess-1")
+	saved := make(chan struct{}, 4)
+	ws.SetSessionMovedHook(func(paneID string) {
+		_ = ws.SaveProject(root)
+		saved <- struct{}{}
+	})
+	id, err := ws.Spawn(lead, SpawnOptions{Task: "moved-session", Role: "worker", Agent: "claude-acp", Kind: session.KindClaude, SpawnedByAgent: true})
+	if err != nil {
+		t.Fatalf("spawn: %v", err)
+	}
+	select {
+	case <-saved:
+	case <-time.After(30 * time.Second):
+		t.Fatal("the hook was not called")
+	}
+	statusWithin(t, ws, id, session.StatusIdle)
+	if got := savedSessionOf(t, root, id); got != "11111111-2222-4333-8444-555555555555" {
+		t.Errorf("the layout holds session %q", got)
 	}
 }

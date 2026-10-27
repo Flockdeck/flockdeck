@@ -159,6 +159,9 @@ type Update struct {
 
 	// NoticeCode is set for flockdeck_notice: the code of a fixed notice.
 	NoticeCode string
+
+	// NewSessionID is set for flockdeck_session.
+	NewSessionID string
 }
 
 // decodeUpdate builds an Update from the update object. It never fails: the
@@ -253,6 +256,12 @@ func decodeUpdate(sessionID string, raw json.RawMessage) Update {
 		}
 		_ = json.Unmarshal(raw, &w)
 		u.Compaction = &Compaction{Status: w.Status, Message: firstNonEmpty(w.Message, w.Text, blockOrString(w.Content))}
+	case UpdateSessionID:
+		var w struct {
+			ID string `json:"newSessionId"`
+		}
+		_ = json.Unmarshal(raw, &w)
+		u.NewSessionID = w.ID
 	case UpdateNotice:
 		var w struct {
 			Code string `json:"code"`

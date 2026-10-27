@@ -113,7 +113,8 @@ func (w *Workspace) startStructured(p *Pane, spec agent.Spec) {
 	w.mu.RUnlock()
 	opts := structured.Options{Spec: spec, Cwd: p.Cwd, MCPServers: w.mcpServersFor(p, spec), ResumeSession: resume,
 		Key: creds.StoredKey(spec),
-		OnTurn: func(e structured.TurnEvent) { w.promptTurn(p.ID, gen, e) }}
+		OnTurn:         func(e structured.TurnEvent) { w.promptTurn(p.ID, gen, e) },
+		OnSessionMoved: func() { w.noteSessionMoved(p.ID) }}
 	if cmdFor != nil {
 		opts.Command = cmdFor(spec)
 	}

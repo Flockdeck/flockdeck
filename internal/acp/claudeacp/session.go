@@ -315,11 +315,14 @@ func (ss *session) adopt(reported string) {
 		return
 	}
 	id := u.String()
-	ss.srv.logf("claude reports session %s for the session opened as %s", id, ss.id)
 	ss.mu.Lock()
 	old := ss.claudeID
 	ss.claudeID = id
 	ss.mu.Unlock()
+	if old == id {
+		return
+	}
+	ss.srv.logf("claude reports session %s for the session opened as %s", id, ss.id)
 	ss.srv.mu.Lock()
 	// A newer id replaces the earlier alias, so /clear after /clear does not
 	// leave every id claude ever reported pointing at this session.
@@ -330,6 +333,9 @@ func (ss *session) adopt(reported string) {
 		ss.srv.sessions[id] = ss
 	}
 	ss.srv.mu.Unlock()
+	// The client keeps the id it prompts with, and is told the one to resume by:
+	// after /clear that is the new conversation's.
+	ss.srv.update(ss.id, map[string]any{"sessionUpdate": "flockdeck_session", "newSessionId": id})
 }
 
 func (ss *session) markDead() {

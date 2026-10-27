@@ -288,3 +288,10 @@ func TestNoticeUpdateKeepsOnlyTheCode(t *testing.T) {
 		t.Errorf("update = %+v", u)
 	}
 }
+
+func TestSessionIDUpdateKeepsOnlyTheID(t *testing.T) {
+	u := decodeUpdate("s", json.RawMessage(`{"sessionUpdate":"flockdeck_session","newSessionId":"11111111-2222-4333-8444-555555555555","message":"SECRET"}`))
+	if u.Kind != UpdateSessionID || u.NewSessionID != "11111111-2222-4333-8444-555555555555" {
+		t.Errorf("update = %+v", u)
+	}
+}

@@ -34,6 +34,9 @@
 //	ratelimit   answers the prompt with the JSON-RPC error -32603 "rate limit exceeded"
 //	limit-class answers with -32603 and data {"class":"usage_limit","resetsAt":<two hours on>}
 //	forged-class answers with -32603 "SECRET-AGENT-TEXT" and a class that is not one of the fixed ones
+//	moved-session sends flockdeck_session with a new UUID, then end_turn
+//	moved-upper sends flockdeck_session with an upper-case, braced UUID, then end_turn
+//	moved-bad   sends flockdeck_session with an id that is not a UUID, then end_turn
 //	env         reports its whole environment, one NAME=VALUE per line, in one chunk
 //	deaf-perm   asks for permission and stops reading stdin
 //	whoami      reports the session id the prompt came on, as "session=ID", then end_turn
@@ -750,6 +753,21 @@ func (a *agent) prompt(id, params json.RawMessage, n int) {
 	done := func(reason string) { a.result(id, map[string]any{"stopReason": reason}) }
 
 	switch word {
+	case "moved-session":
+		a.update(sid, map[string]any{"sessionUpdate": "flockdeck_session", "newSessionId": "11111111-2222-4333-8444-555555555555"})
+		a.chunk(sid, "moved")
+		done("end_turn")
+
+	case "moved-upper":
+		a.update(sid, map[string]any{"sessionUpdate": "flockdeck_session", "newSessionId": "{AAAAAAAA-BBBB-4CCC-8DDD-EEEEEEEEEEEE}"})
+		a.chunk(sid, "moved")
+		done("end_turn")
+
+	case "moved-bad":
+		a.update(sid, map[string]any{"sessionUpdate": "flockdeck_session", "newSessionId": "../x --dangerous"})
+		a.chunk(sid, "moved")
+		done("end_turn")
+
 	case "whoami":
 		a.chunk(sid, "session="+sid)
 		done("end_turn")

@@ -647,3 +647,12 @@ func (s *Server) pushStructuredConversations() {
 		}
 	})
 }
+
+// SessionMoved saves the layouts when a structured pane's agent moved the
+// session id the layout resumes it by (see Workspace.SetSessionMovedHook): a
+// crash before the next interval would otherwise restore the id from before.
+// It is called from the pane's runtime goroutine, so the save is queued and not
+// waited for.
+func (s *Server) SessionMoved(paneID string) {
+	go s.do(s.saveLayouts)
+}
