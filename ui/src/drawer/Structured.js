@@ -62,6 +62,8 @@ import { menuOf, flatten, insertText, keyOf, selectedIndex, OWN_COMMANDS } from 
 import { controlsOf, controlFor, setMessage, ownCommandsFor, parseSetting } from "./settingsModel.js";
 import { sendKey, rowsFor, pushHistory, recall, NO_RECALL, onFirstLine, onLastLine, mentionAt, insertMention, cleanFiles, loadComposer, saveComposer, pruneComposer } from "./composerModel.js";
 import { QueueList } from "./QueueList.js";
+import { UsageMeter } from "./UsageMeter.js";
+import { ExportPanel } from "./ExportPanel.js";
 import { queueOf, stopMessage } from "./queueModel.js";
 import { prepareImage, pickImages, attachNote, ImageError, IMAGE_TYPES } from "./imageAttach.js";
 
@@ -134,7 +136,7 @@ export function activityOf(st, entries = []) {
  *  first one; error is the store's structuredError; desk is false in a window
  *  reached through the relay. snap is the store's snapshot, which carries the
  *  desk's answer to a send. */
-export function Structured({ pane, snap, st, error = null, cancelError = null, settingError = null, queueResult = null, desk = true, store, conv = null, onOlder = null, details = null, onDetail = null, pending = null, search = null, onSearch = null, onClearSearch = null }) {
+export function Structured({ pane, snap, st, error = null, cancelError = null, settingError = null, queueResult = null, exportResult = null, desk = true, store, conv = null, onOlder = null, details = null, onDetail = null, pending = null, search = null, onSearch = null, onClearSearch = null }) {
   // The draft and the history are kept per pane (composerModel.js), so they outlive this component.
   const kept = useRef(null);
   if (kept.current === null) kept.current = loadComposer(pane);
@@ -163,6 +165,8 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
     if (stopping && (!st || st.status !== "working")) setStopping("");
   }, [stopping, st && st.status]);
   const [sendFailed, setSendFailed] = useState("");
+  // The pane whose export panel is open.
+  const [exporting, setExporting] = useState("");
   // What the last change of a setting got that the desk did not say: { pane, text }.
   const [settingNote, setSettingNote] = useState(null);
   const settingsEl = useRef(null);
@@ -469,7 +473,9 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
         ${ctx || cost
           ? html`<p class="structured-usage">${ctx ? html`<span class="structured-context">${ctx}</span>` : null}${cost ? html`<span class="structured-cost">${cost}</span>` : null}</p>`
           : null}
+        <${UsageMeter} usage=${st.usage} />
       </div>
+      ${desk && exporting === pane ? html`<${ExportPanel} pane=${pane} store=${store} result=${exportResult} onClose=${() => setExporting("")} />` : null}
       ${controls.length
         ? html`<div class="structured-settings" ref=${settingsEl} role="group" aria-label="Agent settings">
             ${controls.map((c) => html`<label class="structured-setting"><span class="structured-setting-name">${c.label}</span>
@@ -480,7 +486,7 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
           </div>`
         : null}
       <${Conversation} conv=${conv} onOlder=${onOlder} details=${details} onDetail=${onDetail} pending=${pending}
-        search=${search} onSearch=${onSearch} onClearSearch=${onClearSearch} className="structured-log" />
+        search=${search} onSearch=${onSearch} onClearSearch=${onClearSearch} canExport=${desk} onExport=${() => setExporting(pane)} className="structured-log" />
       ${desk ? html`<${QueueList} rows=${queue} pane=${pane} store=${store} result=${queueResult} working=${st.status === "working"} focusBox=${() => box.current && box.current.focus && box.current.focus()} />` : null}
       ${desk
         ? html`<form class="structured-prompt" onSubmit=${submit}>

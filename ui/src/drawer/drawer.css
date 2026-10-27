@@ -611,3 +611,21 @@
 .conv-event { padding-left: 8px; border-left: 2px solid var(--line); }
 .conv-event--ship { border-left-color: var(--ok); }
 .conv-event--down { border-left-color: var(--waiting); color: var(--fg); }
+
+/* Usage meter, export panel and per-reply copy (structured panes) */
+.usage-meter { position: relative; font-size: 12px; }
+.usage-meter-btn { display: inline-flex; align-items: center; gap: 8px; background: none; border: 0; padding: 0; color: var(--fg-dim); font: inherit; cursor: pointer; }
+.usage-bar { width: 64px; height: 6px; border-radius: 3px; background: var(--border, #8884); overflow: hidden; display: inline-block; }
+.usage-bar-fill { display: block; height: 100%; background: var(--accent, currentColor); }
+.usage-detail { margin-top: 4px; padding: 8px; border: 1px solid var(--border, #8884); border-radius: 6px; background: var(--bg-raised, var(--bg)); }
+.usage-rows { margin: 0; }
+.usage-row { display: flex; justify-content: space-between; gap: 16px; }
+.usage-row dt { color: var(--fg-dim); }
+.usage-row dd { margin: 0; font-variant-numeric: tabular-nums; }
+.usage-note { margin: 6px 0 0; color: var(--fg-dim); }
+.export-panel { display: flex; flex-direction: column; gap: 6px; padding: 8px; border: 1px solid var(--border, #8884); border-radius: 6px; font-size: 12px; }
+.export-includes { margin: 0; color: var(--fg-dim); }
+.export-field { display: flex; gap: 8px; align-items: center; }
+.export-dir { flex: 1; min-width: 0; }
+.export-actions { display: flex; gap: 8px; }
+.conv-copy-reply { float: right; background: none; border: 0; padding: 0 4px; font: inherit; font-size: 11px; color: var(--fg-dim); cursor: pointer; }

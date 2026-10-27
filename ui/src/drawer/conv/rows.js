@@ -22,6 +22,7 @@ import { html } from "../../html.js";
 import { clip } from "../../graph/Node.js";
 import { useState } from "../../vendor/hooks.mjs";
 import { Markdown } from "./markdown.js";
+import { CopyReply } from "./CopyReply.js";
 import { ToolBody } from "./Tool.js";
 import { ImageBody, imageWords } from "./Image.js";
 import { stepsWords } from "./steps.js";
@@ -128,7 +129,7 @@ export function Row({ entry: e, open = false, onToggle = null, detail = null, ne
     case "reply": {
       const full = text(e.markdown || e.text);
       const cut = full.length > MAX_REPLY;
-      return html`<li class="conv-row conv-reply" data-ctx="convRow" data-kind="reply" data-entry=${nested ? null : e.id} tabindex="-1"><span class="conv-who">Agent</span>
+      return html`<li class="conv-row conv-reply" data-ctx="convRow" data-kind="reply" data-entry=${nested ? null : e.id} tabindex="-1"><span class="conv-who">Agent</span>${nested ? null : html`<${CopyReply} text=${full} />`}
         <${Markdown} text=${cut ? full.slice(0, MAX_REPLY) : full} />
         ${cut ? html`<p class="conv-cut">${(full.length - MAX_REPLY).toLocaleString("en-US")} more characters are not shown.</p>` : null}
       </li>`;
