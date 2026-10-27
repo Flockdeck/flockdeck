@@ -18,6 +18,8 @@ a model API directly, including a local Ollama or any other OpenAI-compatible
 endpoint. A CLI agent uses whatever login it already has. An API agent needs a key,
 which `flockdeck keys` stores.
 
+Direction (27 Oct 2026): Flockdeck is moving to run every agent over the Agent Client Protocol, with no terminal-pane agents. `flockdeck chat` and the task board are planned for removal, and Aider is planned to be dropped. None of that has shipped. See [docs/acp-direction.md](docs/acp-direction.md).
+
 ## Install
 
 ```sh
