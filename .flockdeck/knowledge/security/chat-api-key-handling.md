@@ -7,6 +7,8 @@ tags: [security, secrets, chat, api-keys]
 timestamp: 2026-10-19T00:00:00Z
 code_paths: [internal/chat/keys.go]
 ---
+Direction (27 Oct 2026): `flockdeck chat` is planned for removal (T201); API keys stay in Settings and are passed to the agent's environment (T202). Status: planned removal. See docs/acp-direction.md.
+
 # Chat key and endpoint safety
 
 Complements [API key handling](/security/api-key-handling.md), which covers storage.

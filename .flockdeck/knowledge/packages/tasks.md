@@ -7,6 +7,8 @@ tags: [tasks, board, state-machine, team]
 timestamp: 2026-10-19T00:00:00Z
 code_paths: [internal/tasks/tasks.go, internal/tasks/board.go, internal/tasks/exclude.go, internal/tasks/format.go, internal/tasks/notify.go, internal/tasks/rules.go]
 ---
+Direction (27 Oct 2026): the task board is planned for removal (T203). Status: planned removal. See docs/acp-direction.md.
+
 # internal/tasks
 
 The shared task board of a project (`flockdeck task`). It holds no panes or sessions: the workspace says who is acting and who is on the roster, and sends the messages `Notices` describes.

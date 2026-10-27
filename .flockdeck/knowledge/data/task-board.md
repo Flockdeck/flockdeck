@@ -7,6 +7,8 @@ tags: [tasks, board, file]
 timestamp: 2026-10-19T00:00:00Z
 code_paths: [internal/tasks/board.go, internal/tasks/exclude.go]
 ---
+Direction (27 Oct 2026): the task board is planned for removal (T203). Status: planned removal. See docs/acp-direction.md.
+
 # Task board file
 
 Path: `.flockdeck/team/tasks.json` relative to the project's main checkout. For a linked worktree, the board of the checkout it was cut from is used (`MainCheckout` finds it by reading `.git`, `commondir` and `gitdir:` files, without running git).

@@ -7,6 +7,8 @@ tags: [cli, pane, chat]
 timestamp: 2026-10-19T00:00:00Z
 code_paths: [cli_chat.go, internal/chat/flags.go, internal/chat/session.go]
 ---
+Direction (27 Oct 2026): `flockdeck chat` is planned for removal (T201). Status: planned removal. See docs/acp-direction.md.
+
 ## Synopsis
 
 `flockdeck chat [flags] [--] [task]`

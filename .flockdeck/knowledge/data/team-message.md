@@ -7,6 +7,8 @@ tags: [team, messages, inbox]
 timestamp: 2026-10-19T00:00:00Z
 code_paths: [internal/team/team.go, internal/team/store.go]
 ---
+Direction (27 Oct 2026): the per-pane inbox is planned for removal; a small audit log of messages stays. Status: planned removal. See docs/acp-direction.md.
+
 # Message
 
 | JSON | Meaning |

@@ -7,6 +7,8 @@ tags: [cli, pane, team]
 timestamp: 2026-10-19T00:00:00Z
 code_paths: [cli_team.go, internal/hooks/team.go, internal/workspace/team.go]
 ---
+Direction (27 Oct 2026): `flockdeck inbox` is planned for removal with the shell inbox. Status: planned removal. See docs/acp-direction.md.
+
 ## Synopsis
 
 - `flockdeck inbox [-all] [-json] [-wait <duration>]`

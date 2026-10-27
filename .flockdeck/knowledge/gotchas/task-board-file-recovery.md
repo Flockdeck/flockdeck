@@ -7,6 +7,8 @@ tags: [tasks, recovery, git]
 timestamp: 2026-10-19T00:00:00Z
 code_paths: [internal/tasks/board.go]
 ---
+Direction (27 Oct 2026): the task board is planned for removal (T203). Status: planned removal. See docs/acp-direction.md.
+
 - A `tasks.json` that does not parse is renamed to `tasks.json.corrupt-<unix nanos>` and the board starts empty, so a team that cannot stop is not blocked. If the rename itself fails the call returns an error.
 - A file with `version` above 1 is an error, never replaced, so an older Flockdeck cannot clobber a newer one's data.
 - Other processes may change the file between reads: every change re-reads, edits and writes under one lock, and a cache keyed by size and modification time is dropped on a change. Two processes writing in the very same moment can still lose an update (code comment).

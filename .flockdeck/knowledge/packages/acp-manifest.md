@@ -7,6 +7,8 @@ tags: [acp, agents, package]
 timestamp: 2026-10-19T00:00:00Z
 code_paths: [internal/acp/manifest/manifest.go, internal/acp/manifest/adapters.json, internal/acp/manifest/node.go, internal/acp/manifest/handshake.go]
 ---
+Direction (27 Oct 2026): Flockdeck is dropping Node and third-party ACP adapters: Go adapters in the flockdeck binary replace them (T204, T206), and the Node check becomes a generic "agent unavailable" state (T207). Not done yet. See docs/acp-direction.md.
+
 - `adapters.json` is embedded and read by `Default()` (a bad one panics at start, and the tests parse it). Each adapter has a command and args, an npm package, either an exact `pin` or a `minVersion` floor, `needsNode` with `minNode`, and `testedWith`/`testedOn`. An adapter may carry `launchEnv` (up to four capital-letter variables with fixed values, never Flockdeck's own prefixes); `structured.Runtime.env` adds it after `passEnv` and it wins. opencode uses it to set `OPENCODE_CONFIG_CONTENT` so `bash` and `edit` ask. `Parse` refuses unknown fields, duplicate ids, ranges, tags and `latest` as versions, and any adapter for Claude Code.
 - `Adapter.Accepts(have)` is the pin exactly, or the floor and up. `ParseVersion` takes a bare version or the output of `--version`; `Compare` orders pre-releases below their release.
 - `CheckNode(ctx, adapter, probe)` returns `*NodeRequiredError` (problem `missing`, `too old` or `unusable`, with the version found, the version needed and the fix text) for an adapter that needs Node. Flockdeck does not bundle or install Node. `SystemProbe` runs `node --version` by full path with only PATH in its environment.

@@ -71,6 +71,8 @@ vendor's list price.
 
 ## Structured agents (beta)
 
+> Direction (27 Oct 2026): structured agents are where Flockdeck is heading: every agent over ACP, with no terminal-pane agents, no `flockdeck chat` API agents, no inbox or typed wake, and no task board. Those are planned removals, not removed yet. Agents without native ACP will get an adapter built into the `flockdeck` binary, without Node. See docs/acp-direction.md in the repository.
+
 A structured agent is one Flockdeck talks to over the Agent Client Protocol
 instead of in a terminal. Its pane has no screen: the drawer
 shows its conversation, a box to send it a prompt and a Stop button. Today the one offered is

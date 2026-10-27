@@ -7,6 +7,8 @@ tags: [cli, pane, team]
 timestamp: 2026-10-19T00:00:00Z
 code_paths: [cli_team.go, internal/hooks/team.go, internal/team/store.go]
 ---
+Direction (27 Oct 2026): `flockdeck msg` is planned for removal; agents will use the `send_message` MCP tool. Status: planned removal. See docs/acp-direction.md.
+
 ## Synopsis
 
 `flockdeck msg send <target> <text...>`

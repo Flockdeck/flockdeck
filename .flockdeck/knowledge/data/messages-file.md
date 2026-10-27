@@ -7,6 +7,8 @@ tags: [workspace, team, persistence]
 timestamp: 2026-10-19T00:00:00Z
 code_paths: [internal/workspace/team.go, internal/team/store.go, internal/store/store.go]
 ---
+Direction (27 Oct 2026): the per-pane inboxes are planned for removal; the event log and a small audit log of messages stay. Status: planned removal. See docs/acp-direction.md.
+
 `messages.json` in the config dir. The contents are produced by `internal/team` (`Store.Snapshot`) and read back with `Store.Load`; this package only chooses the path and when to write.
 
 - Loaded once at start by `loadMessages`. A missing or unparseable file leaves the inboxes empty. A read error other than not-exist skips loading and, because the change hook is installed after loading, saving too.

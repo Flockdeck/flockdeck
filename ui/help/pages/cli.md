@@ -1,5 +1,7 @@
 # The command line
 
+> Direction (27 Oct 2026): Flockdeck is moving to run every agent over ACP. `inbox`, `msg`, the typed wake line, `wake`, `chat` and `task` below are planned removals, not removed yet; new agents will not use them. See docs/acp-direction.md in the repository.
+
 Once it is running you rarely need the command line: projects are opened and
 switched from inside the window. These are what is left.
 

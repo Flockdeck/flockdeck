@@ -1,0 +1,173 @@
+# ACP parity matrix: TUI actions against the structured pane
+
+Task T197. Flockdeck's structured pane as of origin/main 4efb7311, against what a user can do in the TUIs of Claude Code, Codex, Gemini CLI and opencode.
+
+## How to read this
+
+Status is for the structured pane today:
+
+- present: the user can do it and it works the same way.
+- partial: something exists but a part is missing; the cell says which part.
+- missing: no way to do it.
+
+"Provided by" says where the fix comes from:
+
+- ACP: a method, notification or capability in the protocol. The agent or adapter must implement it, so each row also depends on the agent. Whether a given agent does is not checked here, except where noted.
+- client: Flockdeck builds it itself, with no protocol support needed.
+- adapter: only possible if the agent's adapter does the work. Where Flockdeck writes the adapter (Claude, Codex) that is Flockdeck's code too.
+- no: not possible over ACP or not worth building.
+
+Sources and their limits:
+
+- Claude Code: the commands page and interactive-mode page on code.claude.com, read 27 Oct 2026.
+- opencode: opencode.ai/docs/tui, read 27 Oct 2026. It does not mention image paste or sharing.
+- Gemini CLI: docs/reference/commands.md in the repo, read 27 Oct 2026.
+- Codex: only the app composer's slash command page was readable (learn.chatgpt.com). The CLI's own slash command page redirected and I did not get it. Codex CLI rows marked (memory) are from what I know of the CLI and are not checked against its docs.
+- ACP: agentclientprotocol.com protocol pages, read 27 Oct 2026. The pages do not label methods stable or unstable. Check the schema file for the pinned version before building on any row marked "check stability".
+- Flockdeck: `internal/acp`, `internal/structured`, `internal/acp/bridge`, `ui/src/drawer/Structured.js` and `docs/structured-pane.md` on origin/main. I read code and did not run it.
+
+I ran no paid sessions.
+
+## What the structured pane does today
+
+The client (`internal/acp`) implements initialize, authenticate, session/new, session/prompt, session/cancel and the permission request. It sends text-only prompts. It advertises no fs, no terminal and no elicitation capability. The bridge maps six update kinds: agent message, thought, tool call, tool call update, plan and usage. Everything else is dropped, including `available_commands_update`, `current_mode_update`, `config_option_update`, `session_info_update` and `user_message_chunk` (opencode's e2e notes show it sending available commands). The agent's capabilities from initialize are stored raw and not read.
+
+The drawer (`Structured.js`) has a context and cost line, the conversation, a textarea with Send and Stop buttons, and the permission card. The queue (16 deep) is in the runtime and its count is in the push, but the drawer does not draw it. The plan is in the push and the drawer does not draw it. There is no key binding on the textarea.
+
+## 1. Sending input
+
+| Action | In which TUI | Status | Provided by |
+| --- | --- | --- | --- |
+| Send a prompt | all | present | `session/prompt` |
+| Newline in the prompt | all | present | textarea |
+| Keyboard send (Enter or Ctrl+Enter) | all | missing: button only | client |
+| Interrupt the running turn | Claude Esc or Ctrl+C; Codex Esc/Ctrl+C (memory); Gemini Esc; opencode Esc | partial: Stop button works (`session/cancel`), no key binding, and Stop also drops the whole queue | client for the binding; `session/cancel` exists |
+| Type while the agent works, input is queued | Claude, Codex (memory), Gemini, opencode | partial: up to 16 queued in the runtime, drawer shows nothing about them | client |
+| See, edit or remove a queued prompt; send one now | Claude (Ctrl+Enter, take back what you queued) | missing | client |
+| Mid-turn steering (queued text reaches the agent at the next tool boundary) | Claude, Codex | missing, and ACP has no method for it: one prompt is in flight at a time | no for true steering. Approximate with cancel then re-prompt (client), or adapter-internal injection in a Flockdeck-written adapter |
+| Prompt history (Up, Ctrl+R) | all | missing | client |
+| Stash or restore a draft (Claude Ctrl+S), undo input edits | Claude | missing | client |
+| Edit the prompt in `$EDITOR` (Ctrl+G, `/editor`) | Claude, opencode | missing, and a browser textarea makes it low value | client, low priority |
+| Vim input mode | Claude, Gemini | missing | no (low value) |
+| `@file` mention with autocomplete | all four | missing: nothing parses or completes `@` | client for the picker over the pane's directory; ACP `resource_link` content block (baseline in the spec) or inline text; `embeddedContext` capability if the file contents are sent |
+| `@dir` mention, opencode `@alias` reference roots | Gemini, opencode | missing | client, same route |
+| `@session` message to another Claude session | Claude | missing | no: Flockdeck's own mail replaces it (T182) |
+| `!` shell escape: run a command, output joins the conversation | Claude, Gemini, opencode | missing for structured panes | client: Flockdeck runs the command in the pane's directory and sends the output as context in the next prompt. ACP `terminal/*` is for the agent's use, not this |
+| Paste or attach an image | Claude (Ctrl+V chips), Codex (`-i`, paste), Gemini (@ path), opencode (not documented) | missing: `Client.Prompt` sends text only | ACP image content block, gated by `promptCapabilities.image`; UI paste handler is client. The conversation already has an image row type |
+| Attach other media (audio, PDF) | Gemini via `@` | missing | ACP `promptCapabilities.audio` / `embeddedContext` |
+| Voice dictation | Claude `/voice` | missing | no (browser speech input is possible, low value) |
+| Prompt suggestions (ghost text for the next prompt) | Claude | missing | adapter; no ACP method. Low value |
+
+## 2. Slash commands
+
+In ACP the agent advertises its commands with `available_commands_update` (name, description, input hint). The client shows them and runs one by sending `/name args` as ordinary prompt text. Flockdeck ignores the update, so none of this works. A slash command menu gets every command the agent decides to expose, including custom commands and skills.
+
+Commands that do work only inside the TUI process (themes, key bindings, terminal setup) have no protocol equivalent and are out of scope. Commands that need agent-internal state need the agent to advertise them; if a Flockdeck-written adapter does not advertise `/compact` or `/cost`, the client must build them (rows below).
+
+| Action | In which TUI | Status | Provided by |
+| --- | --- | --- | --- |
+| `/` menu with filter and argument hints | all | missing | ACP `available_commands_update` plus client UI |
+| Run an agent-advertised command (custom commands, skills, `/init`, `/review`, `/security-review`, `/simplify`, `/loop`, `/goal`, `/batch`) | all | missing | ACP: prompt text. Whether built-ins are advertised depends on the adapter. Claude's built-ins live in the CLI, not the SDK, so a Flockdeck Claude adapter must implement each one it wants |
+| `/help` | all | partial: Flockdeck's own help, not the agent's commands | client |
+| `/theme`, `/color`, `/statusline`, `/tui`, `/keybindings`, `/scroll-speed`, `/terminal-setup`, `/vim`, `/editor`, `/themes`, `/stickers`, `/radio`, `/mobile`, `/passes`, `/powerup`, `/release-notes`, `/docs`, `/privacy`, `/upgrade`, `/about`, `/bug`, `/feedback` | various | n/a: about the TUI or the vendor, not the work | no |
+| `/ide`, `/chrome`, `/desktop`, `/remote-control`, `/teleport`, `/remote-env`, `/web-setup`, `/install-github-app`, `/install-slack-app`, `/setup-github`, `/schedule`, `/autofix-pr`, `/ultrareview`, `/background`, `/stop` | Claude, Gemini | n/a: vendor surfaces that Flockdeck's panes, relay and worktrees replace | no |
+
+## 3. Models, modes and settings
+
+ACP carries these as `modes` and `configOptions` in the `session/new` response, `session/set_mode`, `session/set_config_option`, `current_mode_update` and `config_option_update`. Models are normally a config option (a select with the category "model"); a separate `session/set_model` existed as an unstable method (check stability). Flockdeck reads none of the response, sends none of the calls and ignores the updates.
+
+| Action | In which TUI | Status | Provided by |
+| --- | --- | --- | --- |
+| See the current model | all | partial: the roster shows the model Flockdeck knows from the entry, not what the agent reports | ACP: `configOptions` in the session response |
+| Switch model | Claude `/model`, Alt+P; Codex `/model`; Gemini `/model`; opencode `/models`, Ctrl+X M | missing | ACP `session/set_config_option` (model option) |
+| Effort or reasoning level, thinking on/off, fast mode | Claude `/effort`, Alt+T, Alt+O; Codex `/reasoning`, `/fast`; opencode Ctrl+T | missing | ACP config options, if the agent offers them (category "thought_level" or similar). Otherwise adapter |
+| Switch permission mode: default, accept edits, plan, auto, bypass | Claude Shift+Tab; Codex `/permissions` (memory); Gemini approval modes, `/plan`; opencode agents build and plan (Tab) | missing | ACP `session/set_mode` plus `current_mode_update`. The agent can change its own mode, so the updates must be shown too |
+| Enter plan mode / see the plan | Claude `/plan`; Codex `/plan`; Gemini `/plan`, `/plan copy`; opencode plan agent | partial: plan rows reach the push, the drawer does not draw them, and the user cannot enter plan mode | ACP mode switch for entering; plan update for display (already received) |
+| Approve or reject a plan (exit plan mode) | Claude, Gemini | partial: arrives as a permission request and is shown as a card if the agent sends it that way; not checked per agent | ACP permission request |
+| Permission prompt: allow once, allow always, reject | all | present, desk only | `session/request_permission` |
+| Add, edit or remove permission rules (`/permissions`) | Claude, Gemini `/permissions`, `/policies` | missing | client: edit the agent's settings file, or adapter. No ACP method |
+| Answer an agent's question (Claude AskUserQuestion, structured choices) | Claude, Codex | partial: the code has a special case for AskUserQuestion on structured panes; ACP `elicitation/create` is not advertised | ACP `elicitation/create` with client capability `elicitation`; check stability |
+| Output style, language, agent persona | Claude `/output-style` | missing | ACP config option if offered |
+| Additional directories for the session | Claude `/add-dir`, Gemini `/directory` | missing | ACP `additionalDirectories` on session/new (a capability); adding later needs a new session. `/cd` is not wanted: a pane is a directory |
+| Sandbox toggle, trust folder | Claude `/sandbox`, Gemini `/permissions trust` | missing | adapter / client-side policy |
+| Edit settings (`/config`, `/settings`, `/memory`, `/hooks`, `/skills`, `/plugin`, `/extensions`, `/agents`) | all | missing | client: Flockdeck reads and edits the config files directly, or opens them. No ACP method. Skills and plugins take effect through the agent; invoking a skill is the slash row above |
+| MCP servers: list, status, enable, reconnect | Claude `/mcp`, Gemini `/mcp`, Codex `/mcp` | missing; Flockdeck passes no servers at all (T182 task 3) | ACP `mcpServers` on session/new. Status and enable/disable: no ACP method, adapter or notice |
+
+## 4. Conversation lifecycle
+
+| Action | In which TUI | Status | Provided by |
+| --- | --- | --- | --- |
+| Compact the context (`/compact`, `/compress`) with optional focus text | Claude, Codex, Gemini, opencode | missing | agent-advertised command (prompt text), or the ACP compaction update if the client declares `session.compaction`; check stability |
+| Auto-compaction and its threshold (`/autocompact`) | Claude | partial: it happens agent-side, the context meter shows the drop, no notice | ACP compaction update or notice; threshold is a config option if offered |
+| Clear and start a new conversation (`/clear`, `/new`) | all | missing; restart is the nearest and it starts a fresh process | ACP: a second `session/new` on the same process, then `session/close` for the old one |
+| Resume a past session; session picker (`/resume`, `--continue`, `/sessions`, `/chat resume`) | all | missing; `docs/structured-pane.md` says a restart loses the agent's memory | ACP `session/list`, `session/load` (replays history as updates) or `session/resume` (no replay), gated by `loadSession` and `sessionCapabilities`. Flockdeck must store the session id per pane |
+| Keep memory across a Flockdeck restart | all | missing | same as above |
+| Fork or branch the conversation (`/branch`, `/fork`) | Claude, Codex | missing | ACP fork method if present (check stability); otherwise load plus truncate in a Flockdeck adapter |
+| Rewind or undo to an earlier point, conversation and files (`/rewind`, Esc Esc, `/undo`, `/redo`, `/restore`) | Claude, Gemini, opencode, Codex (memory) | missing | no ACP method. Files: client, using git in the worktree (opencode does this too). Conversation: only a Flockdeck-written adapter can truncate history; a third-party adapter cannot |
+| Edit an earlier user message and resend | Claude, Codex | missing | same as rewind |
+| Rename the session | Claude, Codex, opencode | partial: Flockdeck has pane rename, not linked to the agent's session title | ACP `session_info_update` (title from the agent); rename itself is client |
+| Side question that does not enter the history (`/btw`, `/side`) | Claude, Codex | missing | no ACP method. A second session with a copy of the context is possible in a Flockdeck adapter; low priority |
+| Background tasks and shells (Ctrl+B, `/tasks`, `/shells`) | Claude, Gemini | missing | ACP `terminal/*` if the client advertises `terminal` and owns command execution (a large change that also moves the permission gate); otherwise tool output only |
+| Subagent activity | Claude, Gemini, opencode | partial: tool rows show, nesting depends on the agent's tool calls; not checked | ACP tool calls; agent-side |
+| Session recap (`/recap`) | Claude | missing | agent-advertised command |
+
+## 5. Showing what the agent does
+
+| Action | In which TUI | Status | Provided by |
+| --- | --- | --- | --- |
+| Streaming reply text, markdown | all | present | `agent_message_chunk` |
+| Thinking blocks; toggle visibility (`/thinking`, Ctrl+O) | Claude, opencode | partial: thinking rows show, no toggle | `agent_thought_chunk` (received); toggle is client |
+| Tool calls with output and diffs; expand | all | present | `tool_call`, `tool_call_update` |
+| Live output of a long shell command | all | partial: only what the agent puts in tool content | ACP `terminal` content, needs the `terminal` capability |
+| File edits as diffs, `/diff` | Claude, Gemini | present: tool diffs plus the Changes tab, which goes beyond the TUI | n/a |
+| Task checklist (Ctrl+T) | Claude | partial: plan received, not drawn | client |
+| Context usage and its breakdown (`/context`) | Claude, Codex `/status` | partial: used and size shown; no breakdown | `usage_update` for the totals; breakdown: adapter only |
+| Cost and token stats (`/cost`, `/usage`, `/stats`) | Claude, Gemini | partial: cost shows when the agent reports it; no per-model or per-tool stats | `usage_update` cost; per-turn usage in the prompt response (check stability); stats screens are client |
+| Plan limits and rate limits (`/usage`, `/status`, `/rate-limit-options`) | Claude, Codex | missing | no ACP field. A Flockdeck adapter can send a notice or an extension notification |
+| Wait for a limit reset and continue | Claude | missing | client: schedule a re-prompt; low priority |
+
+## 6. Copy, export, search and history
+
+| Action | In which TUI | Status | Provided by |
+| --- | --- | --- | --- |
+| Copy the last response (`/copy`, `/copy N`) | Claude, Gemini | partial: toolbar Copy copies the loaded entries as text; no per-message copy | client |
+| Export the conversation (`/export`, `/chat share`) | Claude, Gemini, opencode | missing, and the toolbar says so | client: serialise the bridge entries to Markdown or JSON; or ACP `session/load` replay if the agent's own history is wanted |
+| Save and restore a named checkpoint | Gemini `/chat save` | missing | client, with session load |
+| Search the conversation | Claude (Ctrl+R is history, transcript search), others | present: `conversationSearch` | n/a |
+| Scroll back through long history | all | present: pages, Older | n/a |
+| Transcript viewer | Claude Ctrl+O | present in the form of the conversation view | n/a |
+
+## 7. Account, notifications and safety
+
+| Action | In which TUI | Status | Provided by |
+| --- | --- | --- | --- |
+| Log in | all | partial: a pane in `needs setup` tells the user to log in with the agent's own tool; Flockdeck never signs in | ACP `authenticate` exists in the client; terminal-free login is a design decision (the user ruled out TUIs) |
+| Log out, change auth method | Claude `/logout`, Gemini `/auth`, opencode `/connect` | missing | ACP `logout` (auth capability); `authenticate` with another method |
+| Desktop alert when the agent needs a permission or finishes | Claude hooks, terminal bell | partial: the pane's status reaches the roster as waiting or idle. I did not trace a system notification for structured panes | client |
+| Phone push for a permission or a finished turn | not a TUI feature, but Flockdeck terminal panes have it | missing by design: structured data is refused over the relay | client plus sealed transport (T182 decision 5) |
+| Stop all subagents (Ctrl+X Ctrl+K) | Claude | missing | adapter |
+| Quit or exit | all | present: close the pane | n/a |
+
+## 8. Ten biggest gaps
+
+By how often a user hits them and how little of it exists:
+
+1. Slash command menu from `available_commands_update` (not read at all).
+2. Resume, history and session list (`session/load`, `session/resume`, `session/list`); today a restart wipes agent memory.
+3. Model, effort and mode switching (`modes`, `configOptions`, `session/set_mode`, `session/set_config_option`), including plan mode and the permission-mode cycle.
+4. `@file` mentions with a picker (client) and `resource_link` blocks.
+5. Image paste and attachment (content blocks, `promptCapabilities.image`).
+6. Visible, editable queue, and key bindings for send and interrupt; today Stop drops the queue and nothing is shown.
+7. Rewind, undo, edit-previous-message and fork. No ACP method; needs git snapshots plus a Flockdeck-written adapter that can truncate history.
+8. Clear and new conversation, plus compaction commands and notices.
+9. `!` shell escape, and background tasks (`terminal/*`).
+10. Export, per-message copy, usage and cost detail (`/usage`, `/stats`), plan drawing and task checklist.
+
+Not in the ten but large: config and settings editing (skills, plugins, hooks, permission rules, MCP status) and the Claude and Codex adapters themselves, since most Claude and Codex commands live in the CLI, not the SDK, and a Flockdeck adapter has to re-implement the ones the user needs.
+
+## 9. Open questions
+
+- Which of the ACP methods above the pinned opencode, Gemini and the two Flockdeck adapters implement. `agentCapabilities` is already returned by initialize and stored, so a one-hour spike can print it per agent.
+- Whether Claude's headless SDK modes can set permission mode, model and interrupt mid-session (I believe the control protocol allows it, not verified), which decides how much of section 3 the Claude adapter can offer.
+- Codex's CLI slash command list, which I could not read.
+- Which unstable ACP methods Flockdeck is willing to depend on.

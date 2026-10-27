@@ -146,7 +146,8 @@ picker does not offer a structured agent, and a layout that holds one shows the 
 saying so. Turning it off takes effect when the agents are read again or a pane is restarted; a
 running pane is not ended by it. Today the built-in entry that is offered is `opencode-acp`
 (opencode, structured). The Gemini and Codex entries are hidden until they have been checked end to
-end. There is no entry for Claude Code. [ACP adapters](acp-adapters.md) lists the tested versions.
+end. There is no entry for Claude Code yet; a Go adapter for it is in progress (T204, see
+[ACP direction](acp-direction.md)). [ACP adapters](acp-adapters.md) lists the tested versions.
 
 **Approval happens at the desk.** A permission request is answered from a window on the machine
 Flockdeck runs on, by choosing one of the options the agent offered (`permissionAnswer`). Nothing
