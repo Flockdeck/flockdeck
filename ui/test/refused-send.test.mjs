@@ -290,3 +290,14 @@ test("while a refusal shows, the status line is empty, so the words are announce
     await a.done();
   }
 });
+
+test("an empty live region is kept in the accessibility tree, not hidden with display:none", async () => {
+  const { readFileSync } = await import("node:fs");
+  const css = ["../src/drawer/drawer.css", "../src/graph/graph.css"].map((f) => readFileSync(new URL(f, import.meta.url), "utf8")).join(String.fromCharCode(10));
+  for (const sel of [".dec-status", ".prompt-status", ".structured-note--live", ".dv-composer-error"]) {
+    const rule = css.match(new RegExp("^" + sel.replace(".", "[.]") + ":empty [{]([^}]*)[}]", "m"));
+    assert.ok(rule, sel + ":empty has no rule, so an empty line takes a line and a gap");
+    assert.ok(!/display\s*:\s*none/.test(rule[1]), sel + ":empty is display:none, which takes the live region out of the accessibility tree");
+    assert.match(rule[1], /position\s*:\s*absolute/, sel + ":empty is not taken out of the layout");
+  }
+});

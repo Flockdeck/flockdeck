@@ -433,6 +433,7 @@ test("keys lost on the way are said, the buttons come back and the choice can be
     await settle();
     const status = liveOf(a.container);
     assert.equal(status.textContent, NOT_DELIVERED_WORDS);
+    assert.equal(a.container.find(".prompt-status").textContent, "", "the words are in the status line too, and would be announced twice");
     assert.equal(status.getAttribute("role"), "alert");
     assert.ok(a.container.findAll(".prompt-choice").every((b) => b.getAttribute("disabled") === null), "the buttons stayed locked");
     a.container.findAll(".prompt-choice")[1].click();
@@ -525,6 +526,7 @@ test("a refused send frees the card for another choice, and a late failure of an
     await settle();
     assert.equal(dones.length, 1);
     assert.equal(liveOf(a.container).textContent, NOT_CONNECTED_WORDS);
+    assert.equal(a.container.find(".prompt-status").textContent, "", "the words are in the status line too, and would be announced twice");
     open = true;
     a.container.findAll(".prompt-choice")[0].click();
     await settle();
@@ -550,6 +552,7 @@ test("keys the agent ignores: after a wait the buttons come back and say so, and
     await new Promise((r) => setTimeout(r, 80));
     await settle();
     assert.equal(liveOf(a.container).textContent, NOT_TAKEN_WORDS);
+    assert.equal(a.container.find(".prompt-status").textContent, "", "the words are in the status line too, and would be announced twice");
     assert.ok(a.container.findAll(".prompt-choice").every((b) => b.getAttribute("disabled") === null), "the buttons stayed locked");
     a.container.findAll(".prompt-choice")[0].click();
     await settle();
