@@ -12,7 +12,14 @@
 // A notification says the pane's name, its branch, and that it is waiting. It
 // never carries what the agent asked: that is a permission prompt, which a window
 // reached through the relay is not sent in full, and a notification can be read
-// from a lock screen.
+// from a lock screen. The name and the branch are cleaned and cut (labelOf) before
+// they are used, since an agent or a repository can set them.
+//
+// A structured pane (an agent driven over ACP) is in the same table: an open
+// permission request is status "waiting", a pane that needs setup is "blocked",
+// and both notify as a terminal pane does. A structured pane also tells when it
+// finishes a turn (working, then idle): that is "finished" below, raised only while
+// this window is not in front, and never counted as waiting.
 
 /** PUSH_DELAYS are the waits offered before the devices are told, in seconds. */
 export const PUSH_DELAYS = [[15, "15 seconds"], [30, "30 seconds"], [60, "1 minute"], [120, "2 minutes"], [300, "5 minutes"], [600, "10 minutes"]];
@@ -69,29 +76,51 @@ export function permissionWords(state) {
   }
 }
 
+export const LABEL_MAX = 60;
+/** FINISHED_MIN_MS is how long a turn has to have run for its end to be announced. */
+export const FINISHED_MIN_MS = 10000;
+
+/** labelOf is a pane name or branch fit for a notification: format and control characters
+ *  gone, white space one space, cut to LABEL_MAX characters. It is empty when nothing is left. */
+export function labelOf(v) {
+  const t = typeof v === "string" ? v.slice(0, LABEL_MAX * 4).replace(/\p{Cf}/gu, "").replace(/[\p{C}\s]+/gu, " ").trim() : "";
+  const cps = Array.from(t);
+  return cps.length > LABEL_MAX ? cps.slice(0, LABEL_MAX - 1).join("") + "…" : t;
+}
+
 /** waitsOf compares the panes now with the status each had last time. fresh are
  *  the panes that just started waiting (or were blocked) and were not before;
  *  next is the table to compare with the next time. A pane seen for the first
  *  time is never fresh: arriving at a workspace where three agents are already
- *  waiting is not news that they just stopped. */
-export function waitsOf(before, panes) {
+ *  waiting is not news that they just stopped. finished are the structured panes
+ *  whose turn just ended (working before, idle now); they are kept apart because
+ *  they do not wait on anyone, and only a turn that ran FINISHED_MIN_MS or more is
+ *  announced. began (id to the time the turn was first seen working; the page keeps it
+ *  between calls) times that, from the pane's statusSince when it has one. */
+export function waitsOf(before, panes, now = Date.now(), began = new Map()) {
   const next = new Map();
   const fresh = [];
+  const finished = [];
   for (const [id, v] of Object.entries(panes && typeof panes === "object" ? panes : {})) {
     if (!v || typeof v !== "object") continue;
     const status = typeof v.status === "string" ? v.status : "";
     next.set(id, status);
     const was = before.get(id);
     const needs = status === "waiting" || status === "blocked";
+    const row = { id, name: labelOf(v.name) || "An agent", branch: labelOf(v.branch), blocked: status === "blocked", structured: v.structured === true };
+    if (v.structured === true) {
+      if (status === "working" && !began.has(id)) {
+        const at = typeof v.statusSince === "string" ? Date.parse(v.statusSince) : NaN;
+        began.set(id, Number.isFinite(at) && at <= now ? at : now);
+      }
+      const ran = began.has(id) ? now - began.get(id) : 0;
+      if (was === "working" && status === "idle" && ran >= FINISHED_MIN_MS) finished.push({ ...row, finished: true });
+      if (status !== "working" && status !== "waiting" && status !== "blocked") began.delete(id);
+    }
     if (!needs || was === undefined || was === "waiting" || was === "blocked") continue;
-    fresh.push({
-      id,
-      name: typeof v.name === "string" && v.name ? v.name : "An agent",
-      branch: typeof v.branch === "string" ? v.branch : "",
-      blocked: status === "blocked",
-    });
+    fresh.push(row);
   }
-  return { fresh, next };
+  return { fresh, finished, next };
 }
 
 /** noteOf is the title and body of one notification for the panes that just
@@ -100,10 +129,16 @@ export function waitsOf(before, panes) {
 export function noteOf(fresh) {
   if (fresh.length === 1) {
     const f = fresh[0];
-    const how = f.blocked ? "a tool call was blocked" : "waiting for input";
-    return { title: f.name + " needs you", body: (f.branch ? f.branch + " — " : "") + how, paneId: f.id };
+    const where = f.branch ? f.branch + " — " : "";
+    if (f.finished) return { title: f.name + " finished", body: where + "ready for your next message", paneId: f.id };
+    const how = f.blocked ? (f.structured ? "needs setting up" : "a tool call was blocked") : f.structured ? "waiting for your answer" : "waiting for input";
+    return { title: f.name + " needs you", body: where + how, paneId: f.id };
   }
-  return { title: fresh.length + " agents need you", body: fresh.map((f) => f.name).join(", "), paneId: fresh[0].id };
+  const names = fresh.map((f) => f.name).join(", ");
+  if (fresh.every((f) => f.finished)) return { title: fresh.length + " agents finished", body: names, paneId: fresh[0].id };
+  // Panes that need the person come first, so a click opens one of them.
+  const first = fresh.find((f) => !f.finished) || fresh[0];
+  return { title: fresh.length + " agents need you", body: names, paneId: first.id };
 }
 
 /** raise shows a notification, and answers whether it did. Clicking it brings the
