@@ -395,13 +395,19 @@ func (b *Bridge) Detail(id string) (transcript.Detail, bool) {
 // TurnStart records the person's prompt and marks the turn in flight. The
 // returned entries are for the caller to hand on at once.
 func (b *Bridge) TurnStart(text string) []transcript.Entry {
+	_, entries := b.StartTurn(text)
+	return entries
+}
+
+// StartTurn is TurnStart that also returns the id of the prompt entry.
+func (b *Bridge) StartTurn(text string) (string, []transcript.Entry) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.closeMerges()
-	b.add(transcript.Entry{Kind: transcript.KindPrompt, Text: text})
+	id := b.add(transcript.Entry{Kind: transcript.KindPrompt, Text: text}).e.ID
 	b.inFlight = true
 	b.enforce()
-	return b.take(true)
+	return id, b.take(true)
 }
 
 // TurnEnd marks the turn over and returns everything not yet handed out, so

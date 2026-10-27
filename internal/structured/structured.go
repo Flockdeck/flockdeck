@@ -188,6 +188,9 @@ type Options struct {
 	// has neither, or the call fails, a new session is made and the transcript
 	// says so (Snapshot.Resume is ResumeFailed).
 	ResumeSession string
+	// Fork, when set, makes the pane's session by forking another instead (see
+	// rewind.go). It is used in place of ResumeSession.
+	Fork *ForkFrom
 
 	// Records and Meta start a stream recording of the traffic. Nil Records
 	// means none, which is what a pane with recording off passes.
@@ -336,6 +339,10 @@ type Snapshot struct {
 	Dropped        int
 	TapDropped     int64
 	ProtocolErrors int64
+	// RewindPoints are the prompt entries the conversation can be taken back to
+	// or forked from, and Epoch counts the rewinds (rewind.go).
+	RewindPoints []string
+	Epoch        int
 }
 
 // hello is what the agent said about itself and what the session was given.
@@ -452,6 +459,12 @@ type Runtime struct {
 	// being reopened does not outlive it.
 	moved   string
 	waiters []*waiter
+	// marks are the turns sent, oldest first, and rewinding says the agent is
+	// being taken back: nothing is sent to it meanwhile. epoch counts the
+	// rewinds (rewind.go).
+	marks     []mark
+	rewinding bool
+	epoch     int
 	// settingCalls is how many setting requests are with the agent.
 	settingCalls int
 	subs         map[int]chan struct{}
@@ -1006,6 +1019,8 @@ func (r *Runtime) Snapshot() Snapshot {
 	s.Dropped = r.br.Dropped()
 	s.Pending = r.br.Pending()
 	s.Activity = r.br.Activity()
+	s.RewindPoints = r.RewindPoints()
+	s.Epoch = r.Epoch()
 	if s.Phase == PhaseReady {
 		s.Status = r.br.Status()
 	}
@@ -1516,6 +1531,9 @@ func (r *Runtime) SessionID() string {
 // is not: the agent may still be sending the replay, so the id is marked dead
 // and nothing more for it is taken, and a new session is made.
 func (r *Runtime) open(c *acp.Client, caps acp.AgentCapabilities, mcp []acp.MCPServer) (acp.SessionNew, Resume, error) {
+	if r.opts.Fork != nil {
+		return r.openFork(c, mcp)
+	}
 	id := r.opts.ResumeSession
 	if id == "" {
 		created, err := c.NewSessionInfo(r.ctx, r.opts.Cwd, mcp)
@@ -1685,14 +1703,22 @@ func (r *Runtime) loop() {
 				return
 			}
 		}
-		if q.mail != nil {
+		var token string
+		switch {
+		case q.mail != nil:
 			r.br.MailReceived(*q.mail)
-		} else {
+			token = r.addMark("")
+		case q.system:
 			r.br.TurnStart(strings.Join(q.blocks, "\n"))
+			token = r.addMark("")
+		default:
+			entry, _ := r.br.StartTurn(strings.Join(q.blocks, "\n"))
+			token = r.addMark(entry)
 		}
 		r.notify()
 		r.turnEvent(TurnEvent{What: TurnBegan, Tag: q.tag})
-		stop, err := c.PromptBlocks(r.ctx, r.session, q.blocks...)
+		stop, err := c.PromptTurn(r.ctx, r.session, token, q.blocks...)
+		r.endMark(token, err == nil && stop == acp.StopEndTurn)
 		r.mu.Lock()
 		asked := r.asked
 		r.inTurn, r.asked = false, false
@@ -1730,7 +1756,7 @@ func (r *Runtime) loop() {
 func (r *Runtime) pop() (queued, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.phase != PhaseReady || len(r.queue) == 0 {
+	if r.phase != PhaseReady || len(r.queue) == 0 || r.rewinding {
 		return queued{}, false
 	}
 	t := r.queue[0]
