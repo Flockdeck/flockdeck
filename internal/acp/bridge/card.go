@@ -183,7 +183,11 @@ func cardContent(c *Card, content []acp.ToolContent) {
 		}
 	}
 	if len(texts) > 0 {
-		c.Body = strings.TrimSpace(clean(capBytes(strings.Join(texts, "\n"), cardBodyCap)))
+		all := strings.Join(texts, "\n")
+		c.Body = strings.TrimSpace(clean(capBytes(all, cardBodyCap)))
+		if len(all) > cardBodyCap {
+			c.Body += "\n[text cut at 32 KiB]"
+		}
 	}
 	if len(diff) > cardDiffCap {
 		diff = capBytes(diff, cardDiffCap) + "\n[diff cut]\n"
