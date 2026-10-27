@@ -197,3 +197,21 @@ func TestWindowsAreNotSentMCPServers(t *testing.T) {
 		t.Errorf("ForWindow kept %+v", got.MCPServers)
 	}
 }
+
+// The Flockdeck MCP server entry reaches the Codex adapter's session/new: its
+// built-in entry takes servers.
+func TestFlockdeckEntryReachesCodex(t *testing.T) {
+	cx, ok := agent.Merge(&agent.File{}).Find("codex-acp")
+	if !ok {
+		t.Fatal("no codex-acp entry")
+	}
+	w := mcpWorkspace(func(id string) string { return "tok-" + id }, nil)
+	got := w.mcpServersFor(&Pane{ID: "p1"}, cx)
+	if !slices.Equal(mcpNames(got), []string{FlockdeckMCPName}) || got[0].Env[0].Value != "tok-p1" {
+		t.Errorf("servers = %+v", got)
+	}
+	gm, _ := agent.Merge(&agent.File{}).Find("gemini-acp")
+	if got := w.mcpServersFor(&Pane{ID: "p1"}, gm); len(got) != 0 {
+		t.Errorf("gemini-acp got servers before it is verified: %+v", got)
+	}
+}

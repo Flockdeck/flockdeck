@@ -108,11 +108,29 @@ func TestClaudeACPAvailability(t *testing.T) {
 	if !Available(s) {
 		t.Error("unavailable with claude on PATH and no flockdeck on PATH")
 	}
-	// Codex's own adapter is not given this rule.
+	// Neither one stands in for the other.
 	cx, _ := Merge(&File{}).Find("codex-acp")
 	stubProbes(t, map[string]bool{"claude": true})
 	if Available(cx) {
 		t.Error("codex-acp became available because claude is installed")
+	}
+	stubProbes(t, map[string]bool{"codex": true})
+	if Available(s) {
+		t.Error("claude-acp became available because codex is installed")
+	}
+}
+
+// codex-acp is available when codex is installed, and only then, for the same
+// reason: its command is the flockdeck binary.
+func TestCodexACPAvailability(t *testing.T) {
+	s, _ := Merge(&File{}).Find("codex-acp")
+	stubProbes(t, map[string]bool{"flockdeck": true})
+	if Available(s) {
+		t.Error("available with flockdeck on PATH and no codex")
+	}
+	stubProbes(t, map[string]bool{"codex": true})
+	if !Available(s) {
+		t.Error("unavailable with codex on PATH and no flockdeck on PATH")
 	}
 }
 
@@ -448,5 +466,31 @@ func TestASpecKnowsTheEnvironmentTheManifestSetsForItsAdapter(t *testing.T) {
 	}
 	if env := (Spec{ID: "x", Runner: RunnerCLI}).ACPLaunchEnv(); env != nil {
 		t.Errorf("a terminal entry sets %v", env)
+	}
+}
+
+// keyMethod is trimmed, and dropped with a notice when it is not a plain id.
+func TestKeyMethodIsValidated(t *testing.T) {
+	c := Merge(&File{Agents: []json.RawMessage{
+		json.RawMessage(`{"id":"x","runner":"acp","acp":{"adapter":"opencode","keyMethod":" api-key "}}`),
+		json.RawMessage(`{"id":"y","runner":"acp","acp":{"adapter":"opencode","keyMethod":"Bad Method"}}`),
+		json.RawMessage(`{"id":"z","runner":"acp","acp":{"adapter":"opencode","keyMethod":"` + strings.Repeat("a", 65) + `"}}`),
+	}})
+	if x, _ := c.Find("x"); x.ACP.KeyMethod != "api-key" {
+		t.Errorf("x keyMethod = %q", x.ACP.KeyMethod)
+	}
+	for _, id := range []string{"y", "z"} {
+		if s, _ := c.Find(id); s.ACP.KeyMethod != "" {
+			t.Errorf("%s keyMethod = %q, want it dropped", id, s.ACP.KeyMethod)
+		}
+		if !strings.Contains(c.Notice, `agent "`+id+`": acp keyMethod`) {
+			t.Errorf("notice %q does not mention %s", c.Notice, id)
+		}
+	}
+	if g, _ := Merge(&File{}).Find("gemini-acp"); g.ACP.KeyMethod != "gemini-api-key" {
+		t.Errorf("gemini-acp keyMethod = %q", g.ACP.KeyMethod)
+	}
+	if cx, _ := Merge(&File{}).Find("codex-acp"); !cx.ACP.MCP {
+		t.Error("codex-acp takes MCP servers")
 	}
 }

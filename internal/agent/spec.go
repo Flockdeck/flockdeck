@@ -169,6 +169,13 @@ type ACPSpec struct {
 	PassEnv []string `json:"passEnv,omitempty"`
 	// MCP reports that the agent takes per-session mcpServers.
 	MCP bool `json:"mcp,omitempty"`
+	// KeyMethod is the id of the authentication method that uses the API key
+	// Flockdeck puts in the agent's environment. An agent that takes the key from
+	// its environment only after the client asks for that method (Gemini CLI,
+	// "gemini-api-key") needs it: when session/new asks for a login, a key is
+	// stored and the agent listed this method, the runtime authenticates with it
+	// once and tries again.
+	KeyMethod string `json:"keyMethod,omitempty"`
 }
 
 // Patterns recognise, in what an agent prints, the two states its own

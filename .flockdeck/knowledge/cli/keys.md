@@ -32,6 +32,7 @@ The agents that take a key are the built-in structured ones with an `api` block 
 - The key is never an argument and never printed back. After `set`, on a terminal, the key is checked with `apikey.CheckKey` against the endpoint with a 10 second timeout. A refused key says so; an unreachable endpoint does not fail the store.
 - If the agent's key variable is set in the environment, `set` warns that the variable wins over the stored key.
 - For a structured agent the key is the first of its key variables that its `passEnv` lets through, else the stored key (`creds.Resolve`). The vendor's usual variable and `FLOCKDECK_API_KEY` are not read for it. `check` asks about that key.
+- Gemini CLI takes its key only after Flockdeck authenticates with it (`keyMethod`), and Gemini then records its auth choice in `~/.gemini/settings.json` the first time a key is used.
 - `set` and `check` for an id that takes no key fail and list the ones that do.
 
 ## Where it runs

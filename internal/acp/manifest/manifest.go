@@ -37,6 +37,12 @@ type Adapter struct {
 	// Command and Args start the adapter. Command is a name looked up on PATH.
 	Command string   `json:"command"`
 	Args    []string `json:"args"`
+	// Drives names the program one of Flockdeck's own adapters runs: claude for
+	// the Claude Code adapter, codex for the Codex one. Those adapters start as
+	// a subcommand of the flockdeck binary, so Command says nothing about
+	// whether the agent can run; the program in Drives is what has to be
+	// installed. Only an adapter whose Command is flockdeck may set it.
+	Drives string `json:"drives,omitempty"`
 	// Package is the npm package that provides it, if there is one.
 	Package string `json:"package,omitempty"`
 	// Pin is the exact version this release installs. MinVersion is the oldest
@@ -149,6 +155,8 @@ func (a Adapter) check() error {
 		return errors.New("id must be lower case letters, digits and hyphens")
 	case mentionsClaude(a) && !ownAdapter(a):
 		return errors.New("the only adapter that may name Claude Code is Flockdeck's own: id claude, hidden, `flockdeck acp-adapter claude`, no npm package, no launchEnv")
+	case a.Drives != "" && (a.Command != "flockdeck" || !cmdRe.MatchString(a.Drives) || len(a.Drives) > 60):
+		return errors.New("drives names the program an adapter run as the flockdeck command drives: a plain program name, and the command must be flockdeck")
 	case a.Name == "" || a.Command == "":
 		return errors.New("name and command are required")
 	case len(a.Name) > 60 || len(a.Note) > 400 || hasControl(a.Name+a.Note):
@@ -418,7 +426,7 @@ func comparePre(a, b string) int {
 // mentionsClaude reports whether any field that names or starts an adapter
 // mentions Claude or Anthropic, in any letter case.
 func mentionsClaude(a Adapter) bool {
-	for _, f := range append([]string{a.ID, a.Name, a.Command, a.Package}, a.Args...) {
+	for _, f := range append([]string{a.ID, a.Name, a.Command, a.Package, a.Drives}, a.Args...) {
 		f = strings.ToLower(f)
 		if strings.Contains(f, "claude") || strings.Contains(f, "anthropic") {
 			return true
@@ -434,7 +442,7 @@ func mentionsClaude(a Adapter) bool {
 func ownAdapter(a Adapter) bool {
 	return a.ID == "claude" && a.Command == "flockdeck" &&
 		len(a.Args) == 2 && a.Args[0] == "acp-adapter" && a.Args[1] == "claude" &&
-		a.Package == "" && a.Pin == "" && a.Hidden &&
+		a.Drives == "claude" && a.Package == "" && a.Pin == "" && a.Hidden &&
 		len(a.LaunchEnv) == 0 && a.PermissionProbe == nil
 }
 

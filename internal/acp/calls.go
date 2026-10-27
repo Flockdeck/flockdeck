@@ -319,9 +319,12 @@ func (c *Client) Capabilities() AgentCapabilities {
 }
 
 // Authenticate asks the agent to authenticate with one of the methods it
-// listed at initialize. A login can take a person a while, so only ctx bounds
-// it.
+// listed at initialize. It gives up after Config.SetupTimeout, like the other
+// setup calls: it is for a method that needs no person, such as a key the agent
+// already has.
 func (c *Client) Authenticate(ctx context.Context, methodID string) error {
+	ctx, cancel := c.setup(ctx)
+	defer cancel()
 	return c.call(ctx, "authenticate", map[string]any{"methodId": methodID}, nil)
 }
 

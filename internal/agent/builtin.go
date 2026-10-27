@@ -217,7 +217,7 @@ func geminiACPSpec() Spec {
 	return Spec{
 		ID: "gemini-acp", Name: "Gemini CLI (structured)", Runner: RunnerACP, Hidden: true,
 		API: APISpec{Wire: "gemini", KeyEnv: []string{"GEMINI_API_KEY"}},
-		ACP: ACPSpec{Adapter: "gemini", Auth: AuthExternal, Login: "Run `gemini` once in a terminal and sign in.", PassEnv: homeEnv()},
+		ACP: ACPSpec{Adapter: "gemini", Auth: AuthExternal, Login: "Run `gemini` once in a terminal and sign in.", PassEnv: homeEnv(), KeyMethod: "gemini-api-key"},
 	}
 }
 
@@ -227,7 +227,7 @@ func codexACPSpec() Spec {
 	return Spec{
 		ID: "codex-acp", Name: "Codex (structured)", Runner: RunnerACP, Hidden: true,
 		API: APISpec{Wire: "openai", KeyEnv: []string{"OPENAI_API_KEY"}},
-		ACP: ACPSpec{Adapter: "codex-go", Auth: AuthExternal, Login: "Run `codex login` in a terminal.", PassEnv: homeEnv()},
+		ACP: ACPSpec{Adapter: "codex-go", Auth: AuthExternal, Login: "Run `codex login` in a terminal.", PassEnv: homeEnv(), MCP: true},
 	}
 }
 

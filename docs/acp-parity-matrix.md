@@ -172,3 +172,13 @@ Not in the ten but large: config and settings editing (skills, plugins, hooks, p
 - Whether Claude's headless SDK modes can set permission mode, model and interrupt mid-session (I believe the control protocol allows it, not verified), which decides how much of section 3 the Claude adapter can offer.
 - Codex's CLI slash command list, which I could not read.
 - Which unstable ACP methods Flockdeck is willing to depend on.
+
+## 10. Gemini CLI and Codex checked (T192, 27 Oct 2026)
+
+Neither agent is installed on the machine that did this, so every "does agent X do it" cell above is still
+unchecked for Codex and checked against Gemini's source only. From that source: Gemini returns
+`loadSession: true` and no `session/resume`; its permission requests offer allow_once, allow_always and
+reject_once; it takes MCP servers over stdio, http and sse; it needs `authenticate` for a key (fixed, see
+[adapters](acp-adapters.md#gemini-cli-and-codex-end-to-end-t192)). `internal/acp/live_agents_test.go` runs the
+whole sequence (start, session, prompt, permission card, cancel, resume) against a real agent when one is
+installed. Neither agent was unhidden.

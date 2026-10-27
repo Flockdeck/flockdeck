@@ -39,6 +39,9 @@ var minimalEnvNames = []string{"PATH", "SYSTEMROOT", "SystemRoot", "SYSTEMDRIVE"
 // maxPassEnv is the most names an entry may list.
 const maxPassEnv = 64
 
+// keyMethodRe is what an authentication method id may look like.
+var keyMethodRe = regexp.MustCompile(`^[a-z0-9_.-]{1,64}$`)
+
 // maxLogin is the longest login advice kept.
 const maxLogin = 300
 
@@ -184,6 +187,11 @@ func checkACP(s *Spec) (problems []string, ok bool) {
 	if login := cleanLine(s.ACP.Login, maxLogin); login != s.ACP.Login {
 		problems = append(problems, fmt.Sprintf("agent %q: acp login was cleaned of control characters or cut at %d characters", s.ID, maxLogin))
 		s.ACP.Login = login
+	}
+	s.ACP.KeyMethod = strings.TrimSpace(s.ACP.KeyMethod)
+	if s.ACP.KeyMethod != "" && !keyMethodRe.MatchString(s.ACP.KeyMethod) {
+		problems = append(problems, fmt.Sprintf("agent %q: acp keyMethod must be 1 to 64 characters of a-z, 0-9, dot, underscore and hyphen; it is dropped", s.ID))
+		s.ACP.KeyMethod = ""
 	}
 	var keep []string
 	for _, name := range s.ACP.PassEnv {

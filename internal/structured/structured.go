@@ -333,10 +333,10 @@ type Runtime struct {
 	waiters []*waiter
 	// settingCalls is how many setting requests are with the agent.
 	settingCalls int
-	subs    map[int]chan struct{}
-	nextSub int
-	rec     Recorder
-	tapSeen int64
+	subs         map[int]chan struct{}
+	nextSub      int
+	rec          Recorder
+	tapSeen      int64
 	// permRan says the launch check of the agent's permissions has run, and
 	// permUnasked what it found; permNote says in a few words how it went.
 	permRan, permUnasked bool
@@ -962,6 +962,21 @@ func (r *Runtime) launch() bool {
 		mcp = r.opts.MCPServers
 	}
 	created, resume, err := r.open(c, init.Capabilities, mcp)
+	if err != nil && r.keyLogin(init, err) {
+		// The agent wants a login and a key is stored for the method it takes
+		// the key under: authenticate once and try again. A refusal, a second
+		// request for a login or an exit says so in fixed text and is not
+		// tried again.
+		if aerr := c.Authenticate(r.ctx, r.opts.Spec.ACP.KeyMethod); aerr != nil {
+			r.failKey(c, init, aerr)
+			return false
+		}
+		created, resume, err = r.open(c, init.Capabilities, mcp)
+		if err != nil {
+			r.failKey(c, init, err)
+			return false
+		}
+	}
 	if err != nil {
 		r.fail(c, err)
 		return false
@@ -976,6 +991,41 @@ func (r *Runtime) launch() bool {
 	r.mu.Unlock()
 	r.notify()
 	return true
+}
+
+// keyLogin says err is an agent's request for a login that the stored API key
+// can answer: the entry names the key's variable and the method the agent takes
+// it under (Gemini CLI reads the key from its environment only after the client
+// asks for that method), a key is stored, and the agent listed the method at
+// initialize.
+func (r *Runtime) keyLogin(init acp.InitResult, err error) bool {
+	m := r.opts.Spec.ACP.KeyMethod
+	if m == "" || r.opts.Key == "" || r.opts.Spec.ACPKeyEnv() == "" || !acp.IsAuthRequired(err) {
+		return false
+	}
+	return slices.ContainsFunc(init.AuthMethods, func(am acp.AuthMethod) bool { return am.ID == m })
+}
+
+// failKey settles the phase after the stored key was tried. An exit or a close
+// is the phase it is for any error; otherwise the key was not accepted, whatever
+// the agent said, and the sign-in state says so.
+func (r *Runtime) failKey(c *acp.Client, init acp.InitResult, err error) {
+	var exit *acp.ExitError
+	if r.ctx.Err() != nil || errors.As(err, &exit) || errors.Is(err, acp.ErrClosed) {
+		r.fail(c, err)
+		return
+	}
+	select {
+	case <-c.Done():
+		r.fail(c, err)
+		return
+	default:
+	}
+	s := &Setup{Kind: SetupLogin, Message: keyRefused, Login: clean(r.opts.Spec.ACP.Login, errCap)}
+	for _, m := range init.AuthMethods {
+		s.Methods = append(s.Methods, AuthMethod{ID: clean(m.ID, fieldCap), Name: clean(m.Name, fieldCap), Description: clean(m.Description, errCap)})
+	}
+	r.set(PhaseSetup, s.Message, s)
 }
 
 // SessionID is the id for the owner to save for resuming this pane's session.
@@ -1301,6 +1351,10 @@ const agentError = "the agent reported an error"
 
 // signIn is shown when the agent wants a login. It is our wording, not the agent's.
 const signIn = "sign in to the agent"
+
+// keyRefused is said when the stored API key was tried and the agent still
+// wanted a login. The agent's own words are not shown.
+const keyRefused = "The stored key was not accepted"
 
 // clean makes a string from the agent fit to show: invalid UTF-8, control
 // characters and Unicode format characters (bidi overrides, zero-width marks)
