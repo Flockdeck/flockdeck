@@ -5,8 +5,10 @@ subcommand of the `flockdeck` binary: `flockdeck acp-adapter claude` speaks ACP 
 stdin and stdout and starts one `claude` process per session. It needs nothing
 except the `claude` executable. The manifest entry (`claude` in
 [`adapters.json`](../internal/acp/manifest/adapters.json)) is hidden, so it is not in the
-table on [Structured-agent adapters](acp-adapters.md) and the canary does not
-try to install it.
+table on [Structured-agent adapters](acp-adapters.md). The catalog entry that starts it
+is `claude-acp`, also hidden (see [The catalog entry](#the-catalog-entry)). The canary
+builds the `flockdeck` binary and runs the adapter against a real `claude` (see
+[The canary](#the-canary)).
 
 The code is in `internal/acp/claudeacp`.
 
@@ -162,10 +164,89 @@ removed at the next start. claude's account connectors still load.
   access to the client's terminal and file system.
 - Tool output while a tool runs: claude sends it at completion only.
 
+## The catalog entry
+
+`claude-acp` ("Claude Code (structured)", in `internal/agent/builtin.go`) is the
+structured entry for this adapter. It is hidden, so the picker does not offer it, and
+it can still be started by id, which is what a saved layout and the canary do. It stays
+hidden until the end-to-end check that follows this task says otherwise.
+
+| Field | Value |
+| --- | --- |
+| adapter | `claude` |
+| auth | external: Flockdeck never signs in. The text beside the login state is "Run `claude` once in a terminal and sign in with your Claude subscription, or store an Anthropic API key in Settings." |
+| key slot | `api: {wire: "anthropic", keyEnv: ["ANTHROPIC_API_KEY"]}`. Settings and `flockdeck keys set claude-acp` store a key, and it is set in the adapter's environment as `ANTHROPIC_API_KEY` when the pane starts, and nowhere else. `agents.json` cannot add or change a slot |
+| passEnv | `HOME`, `USERPROFILE`, `APPDATA`, `LOCALAPPDATA` and the four `XDG_*` directories, where claude keeps its login. `ANTHROPIC_API_KEY` is not passed from Flockdeck's own environment: a key exported in the shell for another tool does not reach the pane, only the stored one does |
+| MCP | on: the Flockdeck MCP server is sent in `session/new` and `session/resume`, and the adapter writes it to a private `mcp.json` for `--mcp-config` |
+| unavailable | when `claude` is not on PATH. A `flockdeck` on PATH proves nothing, since the adapter is a subcommand of the running program, so the check looks for `claude`. The pane then says "the agent is unavailable" and nothing else: no program name, no stderr |
+
+A restored pane resumes through `session/resume`. The adapter advertises
+`sessionCapabilities.resume` and `loadSession: false`, so the pane's runtime calls
+`session/resume` with the id it saved, and the adapter starts claude with `--resume <id>`.
+`TestInteropRestoredPaneResumes` drives this with the app's client over a child process.
+An id claude does not know makes the resume fail, and the pane starts a new session with
+the notice "Could not resume, started a new session."
+
+## The canary
+
+The `claude` job of [`acp-canary.yml`](../.github/workflows/acp-canary.yml) installs claude
+(`@anthropic-ai/claude-code`, at the manifest's `testedWith` version and at the newest)
+into a temporary folder with `--ignore-scripts`, builds `flockdeck`, and runs two checks
+with a home, config and temp folders inside one new folder and an environment of `PATH`
+and those folders: `TestCanaryInitialize` (the handshake with `flockdeck acp-adapter
+claude`) and `TestCanaryClaudeSession` (`session/new` in a new working directory, then one
+prompt). The runner has no login, so the prompt is expected to fail as "authentication
+required". That shows claude still answers the adapter's `initialize` control request and
+that the refusal is the one the app turns into its login state.
+
+With `--ignore-scripts` the `@anthropic-ai/claude-code` package leaves a placeholder
+`claude.exe` that exits 1, because its install script is what puts the native binary in
+place. So the job installs the platform package
+`@anthropic-ai/claude-code-linux-x64@<version>` (the same exact version, an
+optionalDependency of the main package) with `--ignore-scripts`, puts its folder on PATH,
+and fails the install step if `claude --version` does not run. No script runs. The job has
+not been run, because Actions was off when this was written.
+
+To run it by hand on a machine with claude installed and logged in:
+
+```
+go build -o <dir>/flockdeck .
+mkdir <new-empty-dir>
+FLOCKDECK_LIVE_AGENT_TESTS=1 FLOCKDECK_CANARY_LOGIN=1 \
+FLOCKDECK_CANARY_BIN=<dir>/flockdeck FLOCKDECK_CANARY_ISO=<new-empty-dir> \
+go test -tags acp_canary ./internal/acp/claudeacp -run TestCanaryClaudeSession -v -count=1
+```
+
+Without `FLOCKDECK_CANARY_LOGIN=1` the adapter gets a home inside the new folder and no
+login. With it, the adapter gets the real home, so claude uses the login there and also
+runs the user's own hooks and MCP servers; use it by hand only, never in the job. The
+prompt asks for one word. The working directory is the new folder either way. The test
+harness removes every `*_API_KEY` variable, so a key cannot be passed this way, and in
+login mode claude writes a session for the new folder under `~/.claude/projects`.
+`FLOCKDECK_LIVE_AGENT_TESTS` is needed because without it the harness puts a stub first on
+PATH where `claude` is.
+
+Observed on 27 Oct 2026 on Windows 11 with claude 2.1.311 and a flockdeck built from this
+branch:
+
+- No login (home inside the new folder): `initialize` and `session/new` succeeded, and
+  the prompt failed with "Authentication required" after 1.4 seconds. This was seen on
+  Windows only; whether a Linux runner with an empty home gives the same result is
+  unverified, and the job's first run will show it.
+- Login (the real home): `session/new` succeeded, and the one-word prompt returned the
+  reply "ok" with stop reason `end_turn` after 3.6 seconds.
+
+A first run, before the test took claude from the real PATH, used the harness's stub. The
+adapter waited out its 30 second control timeout ("initialize: no answer") and the prompt
+never returned. The test now fails if `claude` on PATH is the stub.
+
 ## Tests
 
 `go test ./internal/acp/claudeacp` runs the adapter against a fake claude, which is
 the test binary started again and replays lines recorded in the spike report. The
 fake also answers control requests the way claude does and logs everything it
-receives. One test starts the adapter as a child and drives it with `internal/acp`'s
-client. No test starts a real claude.
+receives. Two tests start the adapter as a child and drive it with `internal/acp`'s
+client, one of them a restored pane resuming. `internal/agent` has the tests of the
+catalog entry (key slot, passEnv, MCP flag, hidden, availability).
+`TestCanaryClaudeSession` is the only test that starts a real claude, and only under the
+`acp_canary` tag.

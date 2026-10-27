@@ -54,11 +54,19 @@ func (r *recorder) text() string {
 // connects the real client to it.
 func startInterop(t *testing.T, steps []step, rec *recorder) *acp.Client {
 	t.Helper()
+	c, _ := startInteropLog(t, steps, rec)
+	return c
+}
+
+// startInteropLog is startInterop that also returns the path of the file the
+// fake claude writes its command line to, one line per start.
+func startInteropLog(t *testing.T, steps []step, rec *recorder) (*acp.Client, string) {
+	t.Helper()
 	exe, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
 	}
-	env, _ := fakeEnv(t, steps)
+	env, logPath := fakeEnv(t, steps)
 	// the adapter is not the fake: the fake's marker is added again by the
 	// adapter when it starts claude
 	var adapterEnv []string
@@ -73,7 +81,7 @@ func startInterop(t *testing.T, steps []step, rec *recorder) *acp.Client {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = c.Close() })
-	return c
+	return c, logPath
 }
 
 func ctx30(t *testing.T) context.Context {
@@ -160,5 +168,46 @@ func TestInteropWithTheClient(t *testing.T) {
 		}
 	case <-time.After(20 * time.Second):
 		t.Fatal("the cancelled turn did not end")
+	}
+}
+
+// A restored pane has an id from its last run. Over the real client the adapter
+// offers session/resume and not session/load, so that is what the pane calls,
+// and claude is started with --resume on that id.
+func TestInteropRestoredPaneResumes(t *testing.T) {
+	const id = "0b7e1f0e-5c2a-4a3e-9d7a-6f1f3f0b9c11"
+	rec := &recorder{}
+	c, logPath := startInteropLog(t, []step{
+		expect(`"text":"again"`), emit(strings.Replace(lInit, `"session_id":"SID"`, `"session_id":"`+id+`"`, 1)),
+		emit(lMsgStart), emit(textDelta("back")), emit(resultWith("back")),
+	}, rec)
+	if _, err := c.Initialize(ctx30(t)); err != nil {
+		t.Fatalf("initialize: %v", err)
+	}
+	caps := c.Capabilities()
+	if !caps.Resume || caps.LoadSession {
+		t.Fatalf("capabilities = %+v", caps)
+	}
+	if _, err := c.LoadSession(ctx30(t), id, acptest.SessionDir(t), nil); err == nil {
+		t.Error("session/load was accepted")
+	}
+	got, err := c.ResumeSession(ctx30(t), id, acptest.SessionDir(t), nil)
+	if err != nil || got.SessionID != id {
+		t.Fatalf("session/resume = %+v, %v", got, err)
+	}
+	if stop, err := c.Prompt(ctx30(t), id, "again"); err != nil || stop != acp.StopEndTurn {
+		t.Fatalf("prompt: %q, %v", stop, err)
+	}
+	if rec.text() != "back" {
+		t.Errorf("text = %q", rec.text())
+	}
+	var lines []string
+	for _, l := range readLog(logPath) {
+		if strings.HasPrefix(l, "ARGS:") {
+			lines = append(lines, l)
+		}
+	}
+	if len(lines) != 1 || !strings.Contains(lines[0], "--resume "+id) || strings.Contains(lines[0], "--session-id") {
+		t.Errorf("claude was started with %q", lines)
 	}
 }

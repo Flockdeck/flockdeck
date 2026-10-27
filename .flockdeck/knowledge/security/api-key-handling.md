@@ -7,7 +7,7 @@ tags: [security, secrets, keys]
 timestamp: 2026-10-19T00:00:00Z
 code_paths: [internal/creds/creds.go, internal/creds/store.go, internal/creds/jevkey.go, internal/apikey/apikey.go, internal/apikey/check.go, internal/agent/available.go, internal/testiso/testiso.go]
 ---
-Mechanism in [creds](/packages/creds.md) and [apikey](/packages/apikey.md). `gemini-acp` and `codex-acp` take an optional key (T202).
+Mechanism in [creds](/packages/creds.md) and [apikey](/packages/apikey.md). `gemini-acp`, `codex-acp` and `claude-acp` take an optional key (T202).
 
 - **Opaque type.** `creds.Key` keeps its value in an unexported field. `String()` and `GoString()` print only how the key was found, and `encoding/json` sees no field, so formatting or marshalling a `Key` cannot leak it. `Secret()` is the only accessor.
 - **Status, not value.** The UI, CLI and snapshots receive `creds.Status` (agent, set, source, variable name). The value is read in process by `creds.Resolve` and `apikey.KeyFor`; `creds.StoredKey` is the one function that hands a stored key to a pane: the workspace passes it to `structured.Options.Key`, and the runtime sets it under `Spec.ACPKeyEnv` after the launch check, so no other child sees it.

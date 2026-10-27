@@ -37,8 +37,11 @@ func TestCanaryOnlyRunsOnASchedule(t *testing.T) {
 	if strings.Contains(w, "secrets.") || strings.Contains(w, "GITHUB_TOKEN") {
 		t.Error("the canary references a secret or a token")
 	}
-	if strings.Contains(strings.ToLower(w), "claude") {
-		t.Error("the canary mentions Claude; there is no Claude adapter")
+	// The npm adapters are installed by the handshake job, which has nothing
+	// to do with Claude Code; Flockdeck's own adapter for it has a job of its own.
+	hs, _, _ := strings.Cut(w[strings.Index(w, "\n  handshake:"):], "\n  claude:")
+	if strings.Contains(strings.ToLower(hs), "claude") {
+		t.Error("the handshake job mentions Claude; Flockdeck's own adapter has the claude job")
 	}
 }
 
@@ -93,8 +96,8 @@ func TestCanaryPinsAndLimits(t *testing.T) {
 			t.Errorf("%s is not pinned to a commit", m[1])
 		}
 	}
-	if n := strings.Count(w, "timeout-minutes:"); n != 2 {
-		t.Errorf("%d jobs have a time limit, want 2", n)
+	if n := strings.Count(w, "timeout-minutes:"); n != 3 {
+		t.Errorf("%d jobs have a time limit, want 3", n)
 	}
 	_, hs, _ := strings.Cut(w, "\n  handshake:")
 	if strings.Contains(hs, "cache: true") || !strings.Contains(hs, "cache: false") {
@@ -102,6 +105,69 @@ func TestCanaryPinsAndLimits(t *testing.T) {
 	}
 	if !strings.Contains(w, "not a plain version") {
 		t.Error("the version from the registry is not checked")
+	}
+}
+
+// The claude job runs code from the npm registry like the handshake job does,
+// so it has the same limits: no build cache, no install scripts, claude
+// installed outside the runner's home from a clean environment, and a version
+// that is checked. It runs the real-agent test with the switch that keeps the
+// test harness from putting a stub where claude is.
+func TestCanaryClaudeJob(t *testing.T) {
+	w := workflowText(t)
+	_, job, ok := strings.Cut(w, "\n  claude:")
+	if !ok {
+		t.Fatal("the workflow has no claude job")
+	}
+	if strings.Contains(job, "cache: true") || !strings.Contains(job, "cache: false") {
+		t.Error("the claude job uses the Go build cache")
+	}
+	for _, want := range []string{
+		"mktemp -d \"${RUNNER_TEMP}/acp-canary.XXXXXX\"",
+		"@anthropic-ai/claude-code",
+		"env -i PATH=\"$PATH\" HOME=\"$ISO/home\" npm_config_cache=\"$ISO/npm-cache\"",
+		"npm install --prefix \"$ISO/claude\" --ignore-scripts --no-audit --no-fund --loglevel=error \"$PLATFORM_PKG@$VERSION\"",
+		"PLATFORM_PKG=\"@anthropic-ai/claude-code-linux-x64\"",
+		"not a plain version",
+		"select(.id == \"claude\") | .testedWith",
+		"go build -o \"$ISO/bin/flockdeck\" .",
+		"-run TestCanaryInitialize",
+		"FLOCKDECK_CANARY_ADAPTER: claude",
+		"-run TestCanaryClaudeSession",
+		"FLOCKDECK_LIVE_AGENT_TESTS: \"1\"",
+		"Show whether the runner home changed",
+	} {
+		if !strings.Contains(job, want) {
+			t.Errorf("the claude job lacks %q", want)
+		}
+	}
+	// --ignore-scripts leaves the main package's claude a placeholder that exits
+	// 1, so the binary comes from the platform package, and the step has to fail
+	// when the installed claude does not run. A substring check is not enough:
+	// the version must be read in an if that exits 1, not inside an echo, where a
+	// failure would be lost.
+	_, install, _ := strings.Cut(job, "- name: Install claude into the isolation folder")
+	install, _, _ = strings.Cut(install, "- name: Build flockdeck")
+	if !regexp.MustCompile(`(?m)^\s+if ! SEEN="\$\(env -i [^
+]*"\$CLAUDE_DIR/claude" --version\)"; then
+\s+echo "::error::[^
+]*"
+\s+exit 1
+\s+fi$`).MatchString(install) {
+		t.Error("the install step does not fail when claude --version fails")
+	}
+	if strings.Contains(install, "node_modules/.bin/claude") || strings.Contains(install, "echo \"claude --version: $(") {
+		t.Error("claude --version is run where its failure is ignored")
+	}
+	if !strings.Contains(job, "PATH=\"$CLAUDE_DIR:$PATH\"") {
+		t.Error("the claude test step does not put the platform binary on PATH")
+	}
+	if strings.Contains(job, "FLOCKDECK_CANARY_LOGIN") {
+		t.Error("the claude job asks for the login mode, which needs the real home")
+	}
+	a, ok := Default().Lookup("claude")
+	if !ok || a.Package != "" {
+		t.Errorf("claude = %+v, %v", a, ok)
 	}
 }
 

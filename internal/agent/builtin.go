@@ -42,6 +42,7 @@ func Builtins() []Spec {
 		opencodeACPSpec(),
 		geminiACPSpec(),
 		codexACPSpec(),
+		claudeACPSpec(),
 	}
 }
 
@@ -227,6 +228,19 @@ func codexACPSpec() Spec {
 		ID: "codex-acp", Name: "Codex (structured)", Runner: RunnerACP, Hidden: true,
 		API: APISpec{Wire: "openai", KeyEnv: []string{"OPENAI_API_KEY"}},
 		ACP: ACPSpec{Adapter: "codex-go", Auth: AuthExternal, Login: "Run `codex login` in a terminal.", PassEnv: homeEnv()},
+	}
+}
+
+// claudeACPSpec is Claude Code through Flockdeck's own adapter
+// (internal/acp/claudeacp), hidden until the task that checks it end to end has
+// landed. It stays startable by id, so a saved layout and the canary can run it.
+// Its session needs a Claude login (a subscription, made with `claude`) or
+// ANTHROPIC_API_KEY, and the adapter is unavailable when claude is not installed.
+func claudeACPSpec() Spec {
+	return Spec{
+		ID: "claude-acp", Name: "Claude Code (structured)", Runner: RunnerACP, Hidden: true,
+		API: APISpec{Wire: "anthropic", KeyEnv: []string{"ANTHROPIC_API_KEY"}},
+		ACP: ACPSpec{Adapter: "claude", Auth: AuthExternal, Login: "Run `claude` once in a terminal and sign in with your Claude subscription, or store an Anthropic API key in Settings.", PassEnv: homeEnv(), MCP: true},
 	}
 }
 

@@ -31,14 +31,14 @@ func ids(specs []Spec) []string {
 	return out
 }
 
-// The structured entries ship: opencode listed once opted in, Gemini and Codex
-// hidden, and no entry for Claude.
+// The structured entries ship: opencode listed once opted in, Gemini, Codex and
+// Claude hidden.
 func TestBuiltinStructuredEntries(t *testing.T) {
 	c := optedIn(&File{})
 	if s, ok := c.Find("opencode-acp"); !ok || s.Runner != RunnerACP || s.ACP.Adapter != "opencode" || s.ACP.Auth != AuthNone {
 		t.Fatalf("opencode-acp = %+v, %v", s, ok)
 	}
-	for _, id := range []string{"gemini-acp", "codex-acp"} {
+	for _, id := range []string{"gemini-acp", "codex-acp", "claude-acp"} {
 		s, ok := c.Find(id)
 		if !ok || !s.Hidden || s.Runner != RunnerACP {
 			t.Errorf("%s should exist and be hidden: %+v, %v", id, s, ok)
@@ -47,10 +47,72 @@ func TestBuiltinStructuredEntries(t *testing.T) {
 			t.Errorf("%s is offered although it is hidden", id)
 		}
 	}
+	// Claude's entry starts Flockdeck's own adapter and no other, and is the
+	// only structured entry that names Claude.
 	for _, s := range c.Specs {
-		if s.Runner == RunnerACP && (strings.Contains(s.ID, "claude") || strings.Contains(s.ACP.Adapter, "claude")) {
-			t.Errorf("%s: there is no structured Claude entry", s.ID)
+		if s.Runner == RunnerACP && s.ID != "claude-acp" && (strings.Contains(s.ID, "claude") || strings.Contains(s.ACP.Adapter, "claude")) {
+			t.Errorf("%s: only claude-acp is a structured Claude entry", s.ID)
 		}
+	}
+}
+
+// claude-acp is startable by id (a saved layout and the canary name it) though
+// it is not listed, starts the hidden adapter `claude`, sends the Flockdeck MCP
+// server, and passes only the login locations of the environment.
+func TestClaudeACPEntry(t *testing.T) {
+	c := optedIn(&File{})
+	s, ok := c.Find("claude-acp")
+	if !ok {
+		t.Fatal("claude-acp is not in the catalog")
+	}
+	if s.Runner != RunnerACP || s.ACP.Adapter != "claude" || s.ACP.Auth != AuthExternal || !s.ACP.MCP {
+		t.Errorf("claude-acp = %+v", s)
+	}
+	if !strings.Contains(s.ACP.Login, "claude") || !strings.Contains(s.ACP.Login, "API key") {
+		t.Errorf("login text %q names neither the subscription login nor a key", s.ACP.Login)
+	}
+	if !slices.Equal(s.ACP.PassEnv, homeEnv()) {
+		t.Errorf("passEnv = %v", s.ACP.PassEnv)
+	}
+	got := s.ACPPassEnv([]string{"HOME=/h", "ANTHROPIC_API_KEY=sk-from-the-shell", "FLOCKDECK_TOKEN=t"})
+	for _, kv := range got {
+		if strings.HasPrefix(kv, "ANTHROPIC_API_KEY=") || strings.HasPrefix(kv, "FLOCKDECK_") {
+			t.Errorf("%q is passed from Flockdeck's own environment", kv)
+		}
+	}
+	if !slices.Contains(got, "HOME=/h") {
+		t.Errorf("HOME is not passed: %v", got)
+	}
+	if _, ok := s.ACPAdapter(); !ok {
+		t.Error("the adapter is not in the manifest")
+	}
+	if _, ok := c.offered("claude-acp"); ok {
+		t.Error("offered() accepted a hidden entry")
+	}
+	// The terminal Claude entry is unchanged and takes no structured key.
+	cli, _ := c.Find("claude")
+	if cli.Runner == RunnerACP || cli.ACPKeyEnv() != "" {
+		t.Errorf("claude = %+v", cli)
+	}
+}
+
+// claude-acp is available when claude is installed, and only then: the adapter
+// is a subcommand of the running program, so a flockdeck on PATH proves nothing.
+func TestClaudeACPAvailability(t *testing.T) {
+	s, _ := Merge(&File{}).Find("claude-acp")
+	stubProbes(t, map[string]bool{"flockdeck": true})
+	if Available(s) {
+		t.Error("available with flockdeck on PATH and no claude")
+	}
+	stubProbes(t, map[string]bool{"claude": true})
+	if !Available(s) {
+		t.Error("unavailable with claude on PATH and no flockdeck on PATH")
+	}
+	// Codex's own adapter is not given this rule.
+	cx, _ := Merge(&File{}).Find("codex-acp")
+	stubProbes(t, map[string]bool{"claude": true})
+	if Available(cx) {
+		t.Error("codex-acp became available because claude is installed")
 	}
 }
 
@@ -365,7 +427,7 @@ func TestASpecKnowsFromTheManifestThatItRunsWithoutAsking(t *testing.T) {
 	}
 	// opencode is started to ask, but a repository's own agent permissions win
 	// over that, so it is still recorded.
-	if !got["opencode-acp"] || got["gemini-acp"] || got["codex-acp"] || got["claude"] {
+	if !got["opencode-acp"] || got["gemini-acp"] || got["codex-acp"] || got["claude-acp"] || got["claude"] {
 		t.Errorf("runs without asking = %v", got)
 	}
 }

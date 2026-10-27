@@ -9,6 +9,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/jmwri/flockdeck/internal/acp/manifest"
 )
 
 // Availability is whether an agent could be started on this machine right now:
@@ -106,12 +108,31 @@ func ProbeAll(specs []Spec) map[string]bool {
 	return out
 }
 
+// ownAgentExe is the program Flockdeck's own adapter for Claude Code drives,
+// or "" for any other adapter.
+//
+// It matches the adapter's arguments because the manifest has no field for the
+// program an own adapter drives; a field there would be cleaner.
+func ownAgentExe(a manifest.Adapter) string {
+	if a.Command == "flockdeck" && len(a.Args) == 2 && a.Args[0] == "acp-adapter" && a.Args[1] == "claude" {
+		return "claude"
+	}
+	return ""
+}
+
 func probe(s Spec) bool {
 	if s.Runner == RunnerACP {
 		// The command the manifest starts is what has to be there.
 		a, ok := s.ACPAdapter()
 		if !ok {
 			return false
+		}
+		if exe := ownAgentExe(a); exe != "" {
+			// Flockdeck's own adapter is a subcommand of the running program,
+			// so there is nothing to find for it. What it drives has to be
+			// installed, and it is what the pane cannot start without.
+			_, err := lookPath(exe)
+			return err == nil
 		}
 		_, err := lookPath(a.Command)
 		return err == nil
