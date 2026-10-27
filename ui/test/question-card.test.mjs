@@ -75,6 +75,12 @@ test("a typed answer past the limit cannot be sent", () => {
   assert.equal(answers(questions, s), null);
 });
 
+test("a state that holds an option and text for a question that takes one answer is not sendable", () => {
+  const s = [{ selected: [0], other: "DuckDB" }, { selected: [1], other: "" }];
+  assert.equal(problem(questions, s), INCOMPLETE_WORDS);
+  assert.equal(answers(questions, s), null);
+});
+
 test("no questions, or a state of another size, is never sendable", () => {
   assert.equal(answers([], []), null);
   assert.equal(answers(questions, blank(questions).slice(1)), null);
