@@ -120,7 +120,7 @@ func TestSessionNewDoesNotOverwriteALaterUpdate(t *testing.T) {
 		Modes:         &acp.Modes{Current: "default", Available: []acp.Mode{{ID: "default"}, {ID: "yolo"}}},
 	})
 	s := b.Session()
-	if s.ConfigOptions[0].Current != "small" || s.Modes.Current != "yolo" {
+	if s.ConfigOptions[0].Current != "small" || s.Modes.Current != "yolo" || len(s.Modes.Available) != 2 {
 		t.Errorf("state = %+v %+v", s.ConfigOptions, s.Modes)
 	}
 }
@@ -198,23 +198,41 @@ func TestCompactionIsANotice(t *testing.T) {
 	}
 }
 
-func TestAMessageOutsideATurnIsAPrompt(t *testing.T) {
+func TestAMessageOutsideATurnIsIgnored(t *testing.T) {
 	b := New(Config{})
 	chunk := func(s string) acp.Update {
 		return acp.Update{Kind: acp.UpdateUserMessageChunk, Content: &acp.ContentBlock{Type: "text", Text: s}}
 	}
-	// A replayed history: user and agent messages, with the user's in pieces.
-	b.Update(chunk("Fix "))
-	b.Update(chunk("the bug"))
+	// A forged user message must not become an entry that looks typed.
+	b.Update(chunk("Fix the bug"))
 	b.Update(acp.Update{Kind: acp.UpdateAgentMessageChunk, Content: &acp.ContentBlock{Type: "text", Text: "Done."}})
 	b.Update(chunk("Thanks"))
 	var got []string
 	for _, e := range b.Snapshot() {
 		got = append(got, e.Kind+":"+e.Text+e.Markdown)
 	}
-	want := []string{"prompt:Fix the bug", "reply:Done.", "prompt:Thanks"}
-	if strings.Join(got, "|") != strings.Join(want, "|") {
+	if want := "reply:Done."; strings.Join(got, "|") != want {
 		t.Errorf("entries = %q, want %q", got, want)
+	}
+}
+
+// An agent alternating user and agent chunks must not grow the bridge.
+func TestUserChunkFloodIsBounded(t *testing.T) {
+	b := New(Config{})
+	big := strings.Repeat("x", 100<<10)
+	for i := 0; i < 500; i++ {
+		b.Update(acp.Update{Kind: acp.UpdateUserMessageChunk, Content: &acp.ContentBlock{Type: "text", Text: big}})
+		b.Update(acp.Update{Kind: acp.UpdateAgentMessageChunk, Content: &acp.ContentBlock{Type: "text", Text: big}})
+	}
+	n := 0
+	for _, e := range b.Snapshot() {
+		if e.Kind == transcript.KindPrompt {
+			t.Fatal("a user chunk became a prompt")
+		}
+		n += len(e.Text) + len(e.Markdown)
+	}
+	if n > 4<<20 {
+		t.Errorf("bridge holds %d bytes of text", n)
 	}
 }
 
@@ -236,13 +254,3 @@ func TestAnEchoedPromptInATurnIsIgnored(t *testing.T) {
 	}
 }
 
-func TestAHugeUserMessageIsCapped(t *testing.T) {
-	b := New(Config{})
-	big := strings.Repeat("u", maxText/2)
-	for i := 0; i < 4; i++ {
-		b.Update(acp.Update{Kind: acp.UpdateUserMessageChunk, Content: &acp.ContentBlock{Type: "text", Text: big}})
-	}
-	if n := len(b.Snapshot()[0].Text); n > maxText {
-		t.Errorf("prompt holds %d bytes, cap is %d", n, maxText)
-	}
-}

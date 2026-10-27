@@ -63,8 +63,12 @@ func (b *Bridge) Capabilities(c acp.AgentCapabilities) {
 func (b *Bridge) SessionNew(s acp.SessionNew) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	if s.Modes != nil && !b.seeded.modes {
-		b.state.Modes = cleanModes(s.Modes)
+	if s.Modes != nil {
+		m := cleanModes(s.Modes)
+		if b.seeded.modes && b.state.Modes != nil {
+			m.Current = b.state.Modes.Current
+		}
+		b.state.Modes = m
 	}
 	if s.Models != nil {
 		b.state.Models = cleanModels(s.Models)

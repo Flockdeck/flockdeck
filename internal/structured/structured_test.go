@@ -894,3 +894,22 @@ func TestSessionStateOfAModesAgent(t *testing.T) {
 		t.Errorf("session = %+v %+v", s.Session.Modes, s.Session.Models)
 	}
 }
+
+// An update that names another session is not this pane's and is dropped.
+func TestAnUpdateForAnotherSessionIsDropped(t *testing.T) {
+	r := begin(t, fakeOptions(t))
+	until(t, r, "a session", func(s Snapshot) bool { return s.Phase == PhaseReady })
+	r.mu.Lock()
+	sid := r.session
+	r.mu.Unlock()
+	h := handler{Handler: r.br.Handler(r.ask), r: r}
+	chunk := func(id, text string) acp.Update {
+		return acp.Update{SessionID: id, Kind: acp.UpdateAgentMessageChunk, Content: &acp.ContentBlock{Type: "text", Text: text}}
+	}
+	h.Update(chunk("someone-else", "forged"))
+	h.Update(chunk(sid, "genuine"))
+	got := replies(r.Snapshot())
+	if strings.Contains(got, "forged") || !strings.Contains(got, "genuine") {
+		t.Errorf("replies = %q", got)
+	}
+}

@@ -567,12 +567,9 @@ func (b *Bridge) Update(u acp.Update) {
 			b.plan = append(b.plan, acp.PlanEntry{Content: line(p.Content, labelCap), Priority: line(p.Priority, 40), Status: line(p.Status, 40)})
 		}
 	case acp.UpdateUserMessageChunk:
-		// Our own prompt is recorded by TurnStart, and an agent may echo it, so
-		// only a message outside a turn is taken: the history an agent replays
-		// when a session is loaded.
-		if !b.inFlight {
-			b.chunk(u, transcript.KindPrompt)
-		}
+		// Ignored. Our own prompt is recorded by TurnStart, the client never
+		// loads a session so there is no history to replay, and an entry made
+		// here would look like something the person typed.
 	case acp.UpdateUsage:
 		if u.Used != nil {
 			b.usage.Used = *u.Used

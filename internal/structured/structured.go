@@ -563,6 +563,14 @@ type handler struct {
 }
 
 func (h handler) Update(u acp.Update) {
+	h.r.mu.Lock()
+	sid := h.r.session
+	h.r.mu.Unlock()
+	// Only this pane's session has a say. Before the session id is known an
+	// update cannot be checked and is taken.
+	if u.SessionID != "" && sid != "" && u.SessionID != sid {
+		return
+	}
 	h.Handler.Update(u)
 	h.r.notify()
 }

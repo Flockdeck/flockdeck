@@ -67,9 +67,9 @@ refused in the same words, so a window probing for ids learns nothing: the `team
 | `usage` | `used` and `size` of the context, and `cost` and `currency` when the agent reports one. |
 | `title` | The session's title, when the agent set one. |
 | `commands` | The slash commands the agent offers: `name`, and `description` and `hint` when it gave them. |
-| `modes`, `models` | The `current` id and the `available` choices (`id`, `name`, `description`) of the block the agent sent with `session/new` (Gemini sends both). Absent when it sent none. |
+| `modes`, `models` | The `current` id and the `available` choices (`id`, `name`, `description`) of the block the agent sent with `session/new` (Gemini sends both). Absent when it sent none. If the agent sends a `current_mode_update` before any modes block, `modes` has the `current` id and an empty `available`. |
 | `configOptions` | The settings the agent exposes (opencode and Codex: model, effort, mode): `id`, `name`, `category`, `type`, the `current` value as text and the `values` it can take (`value`, `name`, `description`, `group`). |
-| `planMarkdown` | A plan the agent sent as markdown (Codex `plan_update`). `plan` holds rows. A pane can have either. |
+| `planMarkdown` | A plan the agent sent as markdown (Codex `plan_update`). `plan` holds rows. A pane can have either. The markdown may contain remote images or links, so a window must not load images automatically. |
 | `capabilities` | What the agent said it can do at initialize, while the phase is `ready`: `loadSession`, `image`, `audio`, `embeddedContext`, `mcpHttp`, `mcpSse`, `listSessions`, `resumeSession`, `forkSession`. |
 
 The session fields (`title`, `commands`, `modes`, `models`, `configOptions`, `planMarkdown`, `capabilities`) came with API 1.12, and a server that names `structuredSession` in its `caps` sends them. Agents differ in what they offer: opencode and Codex put the model, effort and mode in `configOptions`; Gemini sends `modes` and `models` and no config options. A window draws whatever is present and treats an absent field as "the agent offers none". The set of values for `configOptions` is the agent's and changes mid-session (a `config_option_update` replaces the whole list), so a window reads the current list each time instead of caching it. Changing a mode, model or setting is not a command yet.
