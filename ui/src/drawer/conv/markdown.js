@@ -315,31 +315,46 @@ const HTTP_URL = /^https?:[/][/]/i;
 
 const link = (href, kids) => h("a", { href, target: "_blank", rel: "noopener noreferrer", "data-ctx": "link" }, ...kids);
 
-/** HOST_TEXT is link text that reads as a host, or a host and a path: "github.com/org/repo". The labels may be letters of any alphabet, so a look-alike such as "gіthub.com" (Cyrillic і) is one, and is compared by the punycode host `new URL` gives it. The last label is letters, so a version such as "v1.2" is not one. */
-const HOST_TEXT = /^[\p{L}\p{N}_-]+(\.[\p{L}\p{N}_-]+)*\.(\p{L}{2,})(\/\S*)?$/iu;
+/** HOST_TEXT is link text that reads as a host, or a host and a path: "github.com/org/repo". The labels may be letters, marks and digits of any alphabet, so a look-alike such as "gіthub.com" (Cyrillic і) is one, and is compared by the punycode host `new URL` gives it. The last label is letters, so a version such as "v1.2" is not one. */
+const HOST_TEXT = /^[\p{L}\p{M}\p{N}_-]+(\.[\p{L}\p{M}\p{N}_-]+)*\.([\p{L}\p{M}]{2,})(\/\S*)?$/iu;
 
 /** HOST_ENDINGS are the endings a bare name (no path) must have to read as a host, so a file name such as main.go, README.md or Node.js does not. */
 const HOST_ENDINGS = new Set(["com", "org", "net", "io", "dev", "app", "ai", "co", "gov", "edu", "info", "me", "xyz", "cloud", "uk", "de", "fr", "nl", "eu", "us", "ca", "au", "ru", "cn", "jp", "in", "br", "it", "es", "se", "tv", "so"]);
 
+/** hostText is link text as a host reads it: trimmed, with the format characters (zero-width and the like) that a host drops taken out, and composed so a letter and its accent are one. */
+const hostText = (text) => String(text || "").trim().replace(/\p{Cf}/gu, "").normalize("NFC");
+
+/** unicodeEnding says a bare name ends in a label that is not plain ASCII, so it is a host in an alphabet of its own (example.рф) or a look-alike of an ending such as "com" (with a Cyrillic о): the host `new URL` gives ends in an xn-- label. */
+function unicodeEnding(t) {
+  try {
+    return new URL("https://" + t).host.toLowerCase().split(/[:/]/)[0].split(".").pop().startsWith("xn--");
+  } catch {
+    return false;
+  }
+}
+
 /** looksLikeHost says link text reads as a web address without its scheme. */
 function looksLikeHost(t) {
   const m = HOST_TEXT.exec(t);
-  return !!m && (m[3] !== undefined || HOST_ENDINGS.has(m[2].toLowerCase()));
+  return !!m && (m[3] !== undefined || HOST_ENDINGS.has(m[2].toLowerCase()) || unicodeEnding(t));
 }
 
 /** disguisedHost is the target's host when the link's text is itself a web
  *  address, or looks like a host or a host and a path, for another host, so the
  *  real destination is shown beside it; "" when the text is not an address or
- *  names the same host. */
+ *  names the same host. A text with a user name in front of its host
+ *  ("https://github.com@evil.test/") reads as the name, so it always shows
+ *  the host. */
 function disguisedHost(text, target) {
-  const t = String(text || "").trim();
+  const t = hostText(text);
   const address = HTTP_URL.test(t) ? t : looksLikeHost(t) ? "https://" + t : "";
   if (!address) return "";
   try {
     const bare = (host) => host.toLowerCase().replace(/^www\./, "");
-    const shown = bare(new URL(address).host);
+    const u = new URL(address);
     const real = new URL(target).host.toLowerCase();
-    return shown === bare(real) ? "" : real;
+    if (u.username || u.password) return real;
+    return bare(u.host) === bare(real) ? "" : real;
   } catch {
     return "";
   }
