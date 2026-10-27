@@ -1127,6 +1127,12 @@
       "status": "stable"
     },
     {
+      "name": "structuredInfo",
+      "access": "full",
+      "since": "1.22",
+      "status": "stable"
+    },
+    {
       "name": "structuredQueueClear",
       "access": "full",
       "since": "1.19",

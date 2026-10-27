@@ -67,6 +67,8 @@ func init() {
 	}
 	// Saving a structured pane's conversation as Markdown came with structuredExport (1.20).
 	addedIn["structuredExport"] = "1.20"
+	// The agent info view came with structuredInfo (1.22).
+	addedIn["structuredInfo"] = "1.22"
 	// The person's own shell commands came with structuredShell (1.21).
 	for _, n := range []string{"structuredShellRun", "structuredShellStop", "structuredShellRemove", "structuredShellSend"} {
 		addedIn[n] = "1.21"

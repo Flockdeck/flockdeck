@@ -453,6 +453,8 @@ func (s *Server) structuredCommand(c *controlClient, cmd command) {
 		s.do(func() { s.structuredQueue(c, cmd) })
 	case "structuredExport":
 		s.do(func() { s.structuredExport(c, cmd) })
+	case "structuredInfo":
+		s.do(func() { s.structuredInfo(c, cmd) })
 	case "structuredShellRun", "structuredShellStop", "structuredShellRemove", "structuredShellSend":
 		s.do(func() { s.structuredShell(c, cmd) })
 	case "structuredWatch":

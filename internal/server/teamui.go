@@ -265,6 +265,8 @@ type teamResultMsg struct {
 	Path     string `json:"path,omitempty"`
 	Entries  int    `json:"entries,omitempty"`
 	Redacted int    `json:"redacted,omitempty"`
+	// Info answers structuredInfo: the agent's facts as plain text.
+	Info string `json:"info,omitempty"`
 	// Pane and Message name the message a mark-seen changed.
 	Pane    string `json:"pane,omitempty"`
 	Message int    `json:"message,omitempty"`
