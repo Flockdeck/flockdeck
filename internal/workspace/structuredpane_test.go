@@ -154,7 +154,7 @@ func TestAStartedStructuredPaneSendsItsMCPServers(t *testing.T) {
 	if err := json.Unmarshal(b, &got); err != nil || len(got) != 2 {
 		t.Fatalf("recorded %q: %v", b, err)
 	}
-	if got[0].Name != "flockdeck" || len(got[0].Env) != 1 || got[0].Env[0].Value != "tok-"+id || got[1].Name != "files" {
+	if got[0].Name != "flockdeck" || len(got[0].Env) != 2 || got[0].Env[0].Value != "tok-"+id || got[0].Env[1].Name != MCPAPIEnv || got[0].Env[1].Value != ws.HookServer().BaseURL() || got[1].Name != "files" {
 		t.Errorf("servers = %+v", got)
 	}
 }
