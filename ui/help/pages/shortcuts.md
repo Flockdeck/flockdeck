@@ -65,6 +65,10 @@ a letter jumps to the next item that starts with it, <kbd>Enter</kbd> or
 back. Where an item has a shortcut, it is shown beside it. In a text field, and
 on text you have selected, a right-click opens the usual copy and paste menu.
 
+Menus are on agent rows, the terminal, goal tabs, projects in the rail,
+worktrees, history rows, team tasks and messages, changed files, conversation
+rows, diff comments and the empty part of the main area.
+
 ## Inside a dialog
 
 - <kbd>Esc</kbd> closes any dialog, the command palette and the prompt bar, and
