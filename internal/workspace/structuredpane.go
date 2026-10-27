@@ -108,10 +108,13 @@ func (w *Workspace) startStructured(p *Pane, spec agent.Spec) {
 	cmdFor := w.structuredCommand
 	w.mu.RUnlock()
 	gen := runtimeGen.Add(1)
-	w.mu.RLock()
+	w.mu.Lock()
 	resume := p.savedSession
-	w.mu.RUnlock()
-	opts := structured.Options{Spec: spec, Cwd: p.Cwd, MCPServers: w.mcpServersFor(p, spec), ResumeSession: resume,
+	// Taken once: a restart of the fork is a new session, not another fork.
+	fork := p.forkFrom
+	p.forkFrom = nil
+	w.mu.Unlock()
+	opts := structured.Options{Spec: spec, Cwd: p.Cwd, MCPServers: w.mcpServersFor(p, spec), ResumeSession: resume, Fork: fork,
 		Key: creds.StoredKey(spec),
 		OnTurn:         func(e structured.TurnEvent) { w.promptTurn(p.ID, gen, e) },
 		OnSessionMoved: func() { w.noteSessionMoved(p.ID) }}
@@ -136,7 +139,8 @@ func (w *Workspace) startStructured(p *Pane, spec agent.Spec) {
 	runtimeMu.Unlock()
 	// The task the pane was started with is its first prompt, with the briefing
 	// an agent that reports nothing of its own is given in front of it.
-	if prompt := w.OpeningPrompt(p.ID, p.initial, spec.Caps.Context); strings.TrimSpace(prompt) != "" {
+	// A fork has the conversation it was made from and is not told to start one.
+	if prompt := w.OpeningPrompt(p.ID, p.initial, spec.Caps.Context); fork == nil && strings.TrimSpace(prompt) != "" {
 		_ = rt.SendSystem(prompt)
 	}
 	p.initial = ""
@@ -465,6 +469,28 @@ func (w *Workspace) StructuredEntries(id string) ([]transcript.Entry, bool) {
 		return nil, false
 	}
 	return sr.Entries(), true
+}
+
+// ForkLabel is what a forked pane is called. It is fixed: the label is shown
+// beside the original in the same tab, and nothing from either conversation goes
+// into it.
+const ForkLabel = "Fork"
+
+// SpawnFork starts a new structured pane beside the structured pane src, in the
+// same directory and with the same agent and model, whose session forks the
+// agent's session from. It must run on the workspace goroutine. The agent's part
+// (structured.Runtime.ForkSource) is done by the caller before this, off that
+// goroutine, since the agent may take a while.
+func (w *Workspace) SpawnFork(src string, from structured.ForkFrom) (string, error) {
+	p := w.Pane(src)
+	if p == nil {
+		return "", errors.New("that pane is closed")
+	}
+	if _, ok := p.setRuntime().(*structuredRuntime); !ok {
+		return "", ErrStructuredPane
+	}
+	return w.Spawn(src, SpawnOptions{Kind: p.Kind, Cwd: p.Cwd, Split: true, Label: ForkLabel,
+		Agent: p.Agent, Model: p.Model, Fork: &from})
 }
 
 // restartStructured ends the pane's agent and starts a fresh session. The

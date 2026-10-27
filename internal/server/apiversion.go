@@ -31,7 +31,7 @@ const (
 )
 
 // apiCaps are the features of this version, in the order they were added.
-var apiCaps = []string{"clientHello", "unsupported", "apiMismatch", "uiPrefs", "keyOverrides", "paneName", "changesTeam", "changesDiff", "changesChecks", "changesComments", "changesGate", "structuredSession", "mailDelivery", "mailEntries", "structuredSettings", "structuredFiles", "structuredQueue", "structuredExport", "structuredShell", "structuredQuestions", "structuredInfo", "structuredSignIn"}
+var apiCaps = []string{"clientHello", "unsupported", "apiMismatch", "uiPrefs", "keyOverrides", "paneName", "changesTeam", "changesDiff", "changesChecks", "changesComments", "changesGate", "structuredSession", "mailDelivery", "mailEntries", "structuredSettings", "structuredFiles", "structuredQueue", "structuredExport", "structuredShell", "structuredQuestions", "structuredInfo", "structuredSignIn", "structuredRewind"}
 
 // A deprecatedField is something the graph push still carries that a client
 // should stop reading. Nothing here is removed: the old Graph view reads most of

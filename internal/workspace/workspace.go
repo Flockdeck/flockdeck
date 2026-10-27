@@ -259,6 +259,10 @@ type Pane struct {
 	// reopen. It is cleared once that runtime has started, and by a restart.
 	// While a runtime exists the layout takes the id from it.
 	savedSession string
+	// forkFrom, for a structured pane made as a fork of another, is what its
+	// first runtime forks. It is taken when that runtime starts, so a restart
+	// does not fork again.
+	forkFrom *structured.ForkFrom
 	// structExit is the structured runtime whose unexpected end the parent has
 	// been told of.
 	structExit *structuredRuntime

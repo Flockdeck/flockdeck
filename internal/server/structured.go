@@ -184,6 +184,9 @@ type structuredCapabilities struct {
 	ListSessions    bool `json:"listSessions"`
 	ResumeSession   bool `json:"resumeSession"`
 	ForkSession     bool `json:"forkSession"`
+	// Rewind says the agent can go back to an earlier turn and fork at one
+	// (structuredRewind, structuredFork). Only Flockdeck's own adapters can.
+	Rewind bool `json:"rewind"`
 }
 
 // structuredMsg is what structuredSnapshot answers with and what a watching
@@ -214,6 +217,9 @@ type structuredMsg struct {
 	PlanMarkdown string                   `json:"planMarkdown,omitempty"`
 	SignIn       *structuredSignInBlock   `json:"signIn,omitempty"`
 	Capabilities *structuredCapabilities  `json:"capabilities,omitempty"`
+	// RewindPoints are the ids of the prompt entries the conversation can be
+	// taken back to or forked from (API 1.22), the newest 200 at most.
+	RewindPoints []string `json:"rewindPoints,omitempty"`
 }
 
 // clipStructured makes s fit for a window and cuts it to at most max bytes. It
@@ -322,6 +328,7 @@ func buildStructured(id string, sn structured.Snapshot) structuredMsg {
 	buildStructuredShell(&m, sn)
 	buildStructuredSession(&m, sn)
 	buildStructuredSignIn(&m, sn)
+	buildStructuredRewind(&m, sn)
 	return m
 }
 
@@ -399,7 +406,7 @@ func buildStructuredSession(m *structuredMsg, sn structured.Snapshot) {
 		c := ss.Capabilities
 		m.Capabilities = &structuredCapabilities{LoadSession: c.LoadSession, Image: c.Prompt.Image, Audio: c.Prompt.Audio,
 			EmbeddedContext: c.Prompt.EmbeddedContext, MCPHTTP: c.MCP.HTTP, MCPSSE: c.MCP.SSE,
-			ListSessions: c.List, ResumeSession: c.Resume, ForkSession: c.Fork}
+			ListSessions: c.List, ResumeSession: c.Resume, ForkSession: c.Fork, Rewind: c.Rewind}
 	}
 }
 
@@ -463,6 +470,8 @@ func (s *Server) structuredCommand(c *controlClient, cmd command) {
 		s.do(func() { s.structuredInfo(c, cmd) })
 	case "structuredShellRun", "structuredShellStop", "structuredShellRemove", "structuredShellSend":
 		s.do(func() { s.structuredShell(c, cmd) })
+	case "structuredRewind", "structuredFork":
+		s.do(func() { s.structuredRewind(c, cmd) })
 	case "structuredWatch":
 		s.do(func() { s.structuredWatch(c, cmd) })
 	case "structuredUnwatch":
