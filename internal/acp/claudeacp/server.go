@@ -26,7 +26,7 @@
 // the conversation in its own files and does not send it again, so there is no
 // session/load: the adapter says loadSession false, and the client shows an
 // empty transcript for a resumed session. Not done yet: turns claude starts on its own (a
-// finished background task), AskUserQuestion, terminal and file system
+// finished background task), terminal and file system
 // delegation to the client. See docs/acp-claude-adapter.md.
 package claudeacp
 
