@@ -25,7 +25,7 @@ const plural = (n, one, many) => n + " " + (n === 1 ? one : many);
 
 /** Worktrees is the dialog. listing is the store's worktrees answer ({ ... , seq } or
  *  null), send the store's send, onClose closes the dialog. */
-export function Worktrees({ listing, send, onClose }) {
+export function Worktrees({ listing, send, onClose, nav = null }) {
   const [picked, setPicked] = useState("");
   const [busy, setBusy] = useState(false);
   const [draft, setDraft] = useState({ branch: "", base: "", root: "" });
@@ -104,7 +104,7 @@ export function Worktrees({ listing, send, onClose }) {
     if (wt.behind) sub.push(html`<span key="b" title=${"Commits behind " + (wt.upstream || "the upstream branch")}>↓${wt.behind}</span>`);
     if (wt.upstream) sub.push(html`<span key="u">${wt.upstream}</span>`);
     if (wt.head) sub.push(html`<span key="h">${wt.head}</span>`);
-    return html`<li key=${wt.path} class=${"wt-row" + (wt.prunable ? " gone" : "") + (wt.panes > 1 ? " shared" : "")} data-path=${wt.path}>
+    return html`<li key=${wt.path} class=${"wt-row" + (wt.prunable ? " gone" : "") + (wt.panes > 1 ? " shared" : "")} data-path=${wt.path} data-ctx="worktree">
       <div class="wt-main">
         <div class="wt-title">
           <span class="wt-label">${wt.label}</span>
@@ -129,6 +129,12 @@ export function Worktrees({ listing, send, onClose }) {
     </li>`;
   };
   const repoRootOf = (wt) => wt.repoRoot;
+  // The right-click menu of a row runs these, through the page's nav block.
+  useEffect(() => {
+    if (!nav) return undefined;
+    nav.worktree = { find: (path) => (w ? w.items.find((x) => x.path === path) : null), here, remove, prune: (wt) => run(pruneCommand(repoRootOf(wt))), busy };
+    return () => { nav.worktree = null; };
+  });
 
   const free = w ? w.branches.filter((b) => !b.checkedIn && (!b.repoRoot || !repoRoot || b.repoRoot === repoRoot)) : [];
   const bases = w ? w.branches.filter((b) => !b.repoRoot || !repoRoot || b.repoRoot === repoRoot) : [];

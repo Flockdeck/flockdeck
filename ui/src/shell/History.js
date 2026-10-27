@@ -17,7 +17,7 @@ import { STRUCTURED_RESUME_WORDS, conversationsCommand, filterConversations, lis
 
 /** History is the dialog. history is the store's latest conversations answer (or
  *  null), root the project to read, send the store's send, onClose closes it. */
-export function History({ history, root, send, onClose }) {
+export function History({ history, root, send, onClose, nav = null }) {
   const [floor, setFloor] = useState(history ? history.seq : 0);
   const [query, setQuery] = useState("");
   const [failed, setFailed] = useState(false);
@@ -77,6 +77,12 @@ export function History({ history, root, send, onClose }) {
     send(cmd);
     onClose();
   };
+  // The right-click menu of a row runs these, through the page's nav block.
+  useEffect(() => {
+    if (!nav) return undefined;
+    nav.history = { find: (id) => (listing ? listing.items.find((c) => c.id === id) : null), resume };
+    return () => { nav.history = null; };
+  });
 
   let enabled = -1;
   return html`
@@ -95,7 +101,7 @@ export function History({ history, root, send, onClose }) {
               if (!c.open) enabled++;
               const at = enabled;
               return html`<li key=${c.id}>
-                <button type="button" class=${"hist-row" + (c.open ? " is-open" : "")} data-conversation=${c.id} disabled=${c.open}
+                <button type="button" class=${"hist-row" + (c.open ? " is-open" : "")} data-conversation=${c.id} data-ctx="history" disabled=${c.open}
                   onClick=${() => resume(c)} onKeyDown=${(e) => onRowKey(e, at)}>
                   <span class="hist-summary">${c.summary}</span>
                   <span class="hist-meta">${statsOf(c).join(" · ")}${c.agent ? " · " + c.agent : ""}</span>

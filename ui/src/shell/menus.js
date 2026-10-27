@@ -10,6 +10,7 @@
 
 import { keycaps } from "./keys.js";
 import { nameOf } from "./palette.js";
+import { NAV_MENUS } from "./menus-nav.js";
 
 /** MARGIN is the least space left between a menu and the edge of the window. */
 export const MARGIN = 8;
@@ -29,6 +30,7 @@ export const ATTR = "data-ctx";
  *  { separator: true } draws a rule; checked (true or false) makes the item a
  *  check box. */
 export const MENUS = {
+  ...NAV_MENUS,
   // The proof that the foundation works end to end. The pane menus fill this out.
   agent(el, ctx) {
     const pane = el.getAttribute("data-pane");

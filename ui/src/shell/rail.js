@@ -62,6 +62,7 @@ export function RailItem({ project, active, onSelect }) {
         aria-label=${label}
         title=${label}
         data-root=${root}
+        data-ctx="rail"
         onClick=${() => onSelect && onSelect(root)}
       >
         <span class="rail-initial" aria-hidden="true">${initialOf(name)}</span>
