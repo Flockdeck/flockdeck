@@ -104,8 +104,8 @@ func (o *ConfigOption) UnmarshalJSON(data []byte) error {
 	for _, it := range items {
 		if len(it.Options) > 0 {
 			group := it.Name
-			if it.Group != "" {
-				group = it.Group
+			if group == "" {
+				group = it.Group // a group with no display name is shown by its id
 			}
 			for _, v := range it.Options {
 				o.Values = append(o.Values, ConfigValue{Value: scalarText(v.Value), Name: v.Name, Description: v.Description, Group: group})

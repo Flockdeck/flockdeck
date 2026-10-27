@@ -20,9 +20,92 @@
     "setup": { "$ref": "#/$defs/setup" },
     "plan": { "type": "array", "items": { "$ref": "#/$defs/planRow" }, "description": "The agent's plan, at most 100 rows. Empty, never absent." },
     "card": { "$ref": "#/$defs/card" },
-    "usage": { "$ref": "#/$defs/usage" }
+    "usage": { "$ref": "#/$defs/usage" },
+    "title": { "type": "string", "minLength": 1, "description": "The session's title, as the agent set it (session_info_update), on one line, cut to 300 bytes. Absent when it has none. Since API 1.12." },
+    "commands": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/command" }, "description": "The slash commands the agent offers (available_commands_update), at most 200. The agent's latest list replaces the one before. Absent when it has offered none. Since API 1.12." },
+    "modes": { "$ref": "#/$defs/choices", "description": "The modes of the session and the current one: the modes block of session/new (Gemini), with current_mode_update applied. Absent when the agent has no such block and has named no mode; agents that keep the mode as a config option list it in configOptions. Since API 1.12." },
+    "models": { "$ref": "#/$defs/choices", "description": "The models of the session and the current one: the models block of session/new. Absent when the agent sent none; agents that keep the model as a config option list it in configOptions. Since API 1.12." },
+    "configOptions": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/configOption" }, "description": "The settings the agent exposes (opencode, Codex: model, effort, mode), at most 32, as of its last config_option_update. Absent when it exposes none. Since API 1.12." },
+    "planMarkdown": { "type": "string", "minLength": 1, "description": "The plan an agent sent as markdown (plan_update), cut to 64 KiB. Draw it as sanitised markdown, never as HTML. Absent when none was sent. It is separate from plan, which holds rows. Since API 1.12." },
+    "capabilities": { "$ref": "#/$defs/capabilities" }
   },
   "$defs": {
+    "command": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name"],
+      "description": "One slash command. Run it by sending a prompt that starts with a slash and the name; the agent takes it from there.",
+      "properties": {
+        "name": { "type": "string", "minLength": 1, "description": "The command's name without the slash, on one line, cut to 300 bytes." },
+        "description": { "type": "string", "minLength": 1, "description": "What it does, on one line, cut to 400 bytes. Absent when the agent gave none." },
+        "hint": { "type": "string", "minLength": 1, "description": "The placeholder for its argument, when it takes one, cut to 300 bytes." }
+      }
+    },
+    "choice": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id"],
+      "description": "One mode or model on offer.",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "description": "The agent's id for it, cut to 300 bytes." },
+        "name": { "type": "string", "minLength": 1, "description": "Its name, cut to 300 bytes." },
+        "description": { "type": "string", "minLength": 1, "description": "Cut to 400 bytes." }
+      }
+    },
+    "choices": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["available"],
+      "description": "The modes or the models of a session. At most 500 choices.",
+      "properties": {
+        "current": { "type": "string", "minLength": 1, "description": "The id of the current one. Absent when the agent named none." },
+        "available": { "type": "array", "items": { "$ref": "#/$defs/choice" }, "description": "What is on offer. Empty, never absent." }
+      }
+    },
+    "configValue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value"],
+      "description": "One value a select option can be set to.",
+      "properties": {
+        "value": { "type": "string", "description": "The value, cut to 300 bytes." },
+        "name": { "type": "string", "minLength": 1, "description": "Its name, cut to 300 bytes." },
+        "description": { "type": "string", "minLength": 1, "description": "Cut to 400 bytes." },
+        "group": { "type": "string", "minLength": 1, "description": "The name of the group the agent listed it under, when it grouped its values." }
+      }
+    },
+    "configOption": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "current", "values"],
+      "description": "One setting the agent exposes.",
+      "properties": {
+        "id": { "type": "string", "minLength": 1, "description": "The agent's id for it, cut to 300 bytes." },
+        "name": { "type": "string", "minLength": 1, "description": "Its name, cut to 300 bytes." },
+        "description": { "type": "string", "minLength": 1, "description": "Cut to 400 bytes." },
+        "category": { "type": "string", "minLength": 1, "description": "The agent's grouping for it: mode, model, thought_level, or one it made up. Cut to 40 bytes." },
+        "type": { "type": "string", "minLength": 1, "description": "select in the current ACP schema. Only a select option has values." },
+        "current": { "type": "string", "description": "The value it is set to, as text (a boolean reads true or false). Cut to 300 bytes." },
+        "values": { "type": "array", "items": { "$ref": "#/$defs/configValue" }, "description": "What it can be set to, at most 500. Empty, never absent." }
+      }
+    },
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["loadSession", "image", "audio", "embeddedContext", "mcpHttp", "mcpSse", "listSessions", "resumeSession", "forkSession"],
+      "description": "What the agent said it can do at initialize. Present while the phase is ready. A capability the agent did not claim is false. Since API 1.12.",
+      "properties": {
+        "loadSession": { "type": "boolean", "description": "It can load an earlier session (session/load)." },
+        "image": { "type": "boolean", "description": "A prompt may carry images." },
+        "audio": { "type": "boolean", "description": "A prompt may carry audio." },
+        "embeddedContext": { "type": "boolean", "description": "A prompt may embed a file's content as a resource." },
+        "mcpHttp": { "type": "boolean", "description": "It takes MCP servers over HTTP." },
+        "mcpSse": { "type": "boolean", "description": "It takes MCP servers over SSE." },
+        "listSessions": { "type": "boolean", "description": "It lists its stored sessions." },
+        "resumeSession": { "type": "boolean", "description": "It can resume a session without replaying it." },
+        "forkSession": { "type": "boolean", "description": "It can fork a session." }
+      }
+    },
     "setup": {
       "type": "object",
       "additionalProperties": false,
