@@ -15,7 +15,7 @@ If you have a question or a request, email **privacy@flockdeck.ai**.
 
 - **The desktop app runs on your computer.** It has no accounts, no analytics,
   no telemetry and no crash reporting. Your code, your terminals and your API
-  keys stay on your machine, unless you use a built-in API agent, Flockdeck Remote,
+  keys stay on your machine, unless you use Flockdeck Remote,
   or turn on the optional TypeSafe feature, as described
   below.
 - **The relay is optional.** It is used only if you turn on Flockdeck Remote. It
@@ -41,8 +41,8 @@ If you have a question or a request, email **privacy@flockdeck.ai**.
 
 ## The desktop app
 
-The app runs on your computer. It keeps its settings, layouts,
-conversations with built-in API agents and any API keys you give it in
+The app runs on your computer. It keeps its settings, layouts
+and any API keys you give it in
 Flockdeck's configuration folder on your computer. Version 0.7.0 and
 earlier also kept a record there of which models routing chose. Later versions
 do not write it, and Settings can clear one an older version left. If you are
@@ -149,16 +149,6 @@ The app makes these network connections of its own.
 - **The relay**, only after you turn on Flockdeck Remote. See below.
 - **Your git remotes**, when you push, pull or fetch from the review panel.
   These are the remotes your repository already has.
-- **Model providers**, only if you use a built-in API agent (Claude API,
-  OpenAI API, Gemini API, or an endpoint you name). When you store a key
-  with `flockdeck keys`, the app makes one request with it to that
-  provider, asking for its list of models, to check the key is accepted;
-  the request carries nothing else. The app then sends your
-  conversation to the provider you chose, using your own API key. That
-  includes the files and command output the agent reads, the working
-  folder's path, and your operating system's name. What the provider does
-  with it is governed by your agreement
-  with them.
 - **TypeSafe AI** (api.typesafe.ai), only if you turn on one optional
   feature, status detection. It is off by default and needs an explicit
   setting in Flockdeck **and** a TypeSafe API key that you have set yourself,
@@ -268,7 +258,7 @@ catches a swapped key.
 The relay does not record, store or log the content of that traffic.
 It never receives your API keys, unless you type one in through Flockdeck Remote.
 Where a pane opens as a conversation rather than a terminal (a Claude Code
-pane, or Flockdeck's own chat client), the conversation view is **not**
+pane), the conversation view is **not**
 end-to-end encrypted: its messages, what you search it for and the matches it
 finds, and any photo you attach reach the relay decrypted, over TLS, and the
 relay passes them on without storing them. What you type into the message box

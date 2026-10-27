@@ -759,7 +759,7 @@ var licenceSections = []heading{
 	{"phone", "The phone client"},
 	{"relay", "The relay"},
 	{"website", "This website"},
-	{"agents", "Agents and model APIs"},
+	{"agents", "Agents"},
 }
 
 func loadLicences() (*licences, error) {
