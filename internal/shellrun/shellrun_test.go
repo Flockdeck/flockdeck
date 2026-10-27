@@ -284,3 +284,16 @@ func TestClip(t *testing.T) {
 		t.Fatalf("%q %v", s, cut)
 	}
 }
+
+func TestEnvIsNeverNilSoTheChildDoesNotInheritEverything(t *testing.T) {
+	got := Env([]string{"FLOCKDECK_TOKEN=sekret-x"})
+	if got == nil {
+		t.Fatal("Env returned nil: on Unix a nil Cmd.Env is the whole environment")
+	}
+	m := New(t.TempDir(), []string{"FLOCKDECK_TOKEN=sekret-x"}, nil)
+	defer m.Close()
+	id, _ := m.Start(envDump())
+	if out := Text(waitDone(t, m, id).Output); strings.Contains(out, "sekret") || strings.Contains(strings.ToUpper(out), "FLOCKDECK_") {
+		t.Fatalf("the child got the variable:\n%s", out)
+	}
+}

@@ -5,7 +5,7 @@ import assert from "node:assert/strict";
 import { render } from "../src/vendor/preact.mjs";
 import { html } from "../src/html.js";
 import { Structured } from "../src/drawer/Structured.js";
-import { shellText, shellRunMessage, shellOf, shellMessage, shellStateWords, SHELL_MAX, SHELL_TEXT_MAX, SHELL_EMPTY_WORDS, SHELL_ONE_LINE_WORDS, SHELL_NOT_SENT_WORDS } from "../src/drawer/shellModel.js";
+import { shellText, shellRunMessage, shellOf, shellMessage, shellStateWords, SHELL_MAX, SHELL_TEXT_MAX, SHELL_EMPTY_WORDS, SHELL_ONE_LINE_WORDS, SHELL_NOT_SENT_WORDS, shellWait } from "../src/drawer/shellModel.js";
 import { forgetComposerMemory } from "../src/drawer/composerModel.js";
 import { createDom, install, settle } from "./dom.mjs";
 import { fakeStore } from "./termfakes.mjs";
@@ -239,5 +239,90 @@ test("nothing is drawn with no commands, and a window through the relay draws no
     assert.equal(m.box(), null);
   } finally {
     await m.done();
+  }
+});
+
+test("neither the file picker nor the slash menu acts on a ! line", async () => {
+  const m = await mount(push({ commands: [{ name: "init", description: "x" }] }));
+  try {
+    m.box().enter("!cat @sr");
+    await settle();
+    await new Promise((r) => setTimeout(r, 400));
+    assert.equal(m.store.sent.filter((c) => c.cmd === "structuredFiles").length, 0, "the file picker asked for names on a ! line");
+    assert.equal(m.container.find(".mention-menu"), null);
+    assert.equal(m.container.find(".slash-menu"), null);
+    m.box().enter("!/in");
+    await settle();
+    assert.equal(m.container.find(".slash-menu"), null);
+    m.box().enter("cat @sr");
+    await settle();
+    await new Promise((r) => setTimeout(r, 400));
+    assert.ok(m.store.sent.filter((c) => c.cmd === "structuredFiles").length > 0, "the picker no longer works on an ordinary line");
+  } finally {
+    await m.done();
+  }
+});
+
+test("a run and a list press never share a request id", async () => {
+  const m = await mount(push({ shell: [run(5, "exited")] }));
+  try {
+    for (let i = 0; i < 3; i++) {
+      m.item(5).find(".shell-send").click();
+      m.box().enter("!ls " + i);
+      await settle();
+      m.box().keydown("Enter");
+      await settle();
+      m.box().enter("");
+      await m.answer({ id: "p3", req: shellCmds(m).at(-1).req, ok: true, error: "" });
+    }
+    const sends = shellCmds(m).filter((c) => c.cmd === "structuredShellSend").map((c) => c.req);
+    const runs = shellCmds(m).filter((c) => c.cmd === "structuredShellRun").map((c) => c.req);
+    assert.ok(runs.length === 3 && sends.length === 3);
+    assert.ok(runs.every((r) => r.startsWith("hr")) && sends.every((r) => r.startsWith("hs")));
+    assert.equal(new Set([...runs, ...sends]).size, 6);
+  } finally {
+    await m.done();
+  }
+});
+
+test("a command with no answer does not leave ! stuck: a timeout and a lost socket both end the wait", async () => {
+  shellWait.ms = 60;
+  const m = await mount(push());
+  try {
+    m.box().enter("!ls");
+    await settle();
+    m.box().keydown("Enter");
+    await settle();
+    assert.equal(shellCmds(m).length, 1);
+    m.box().keydown("Enter");
+    await settle();
+    assert.equal(shellCmds(m).length, 1, "a second Enter while one is out sent again");
+    await new Promise((r) => setTimeout(r, 150));
+    await settle();
+    assert.ok(m.container.find("[data-shell-note]").textContent.includes("No answer"));
+    assert.equal(m.box().value, "!ls", "the text was lost");
+    m.box().keydown("Enter");
+    await settle();
+    assert.equal(shellCmds(m).length, 2, "the box stayed stuck after the timeout");
+  } finally {
+    shellWait.ms = 10000;
+    await m.done();
+  }
+  const n = await mount(push());
+  try {
+    n.box().enter("!ls");
+    await settle();
+    n.box().keydown("Enter");
+    await settle();
+    n.store.set({ connection: "closed" });
+    await n.push(push());
+    assert.ok(n.container.find("[data-shell-note]").textContent.includes("No answer"));
+    n.store.set({ connection: "open" });
+    await n.push(push());
+    n.box().keydown("Enter");
+    await settle();
+    assert.equal(shellCmds(n).length, 2, "the box stayed stuck after the socket came back");
+  } finally {
+    await n.done();
   }
 });

@@ -66,7 +66,7 @@ import { UsageMeter } from "./UsageMeter.js";
 import { ExportPanel } from "./ExportPanel.js";
 import { queueOf, stopMessage } from "./queueModel.js";
 import { ShellList } from "./ShellList.js";
-import { shellText, shellOf, shellRunMessage, SHELL_EMPTY_WORDS, SHELL_ONE_LINE_WORDS, SHELL_NOT_SENT_WORDS } from "./shellModel.js";
+import { shellText, shellOf, shellRunMessage, shellWait, SHELL_EMPTY_WORDS, SHELL_ONE_LINE_WORDS, SHELL_NOT_SENT_WORDS, SHELL_NO_ANSWER_WORDS } from "./shellModel.js";
 import { prepareImage, pickImages, attachNote, ImageError, IMAGE_TYPES } from "./imageAttach.js";
 
 /** SEND_NOT_SENT_WORDS is what the prompt box says when the store did not send the text; the draft stays. */
@@ -185,6 +185,18 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
       setShellNote(clip(String(shellResult.error || ""), 200));
     }
   }, [shellResult]);
+  // No answer within shellWait.ms, or the socket went away, ends the wait, so "!" cannot stay stuck; the text stays.
+  const connected = !snap || !snap.connection || snap.connection === "open";
+  useEffect(() => {
+    if (!shellReq) return;
+    if (!connected) {
+      setShellReq("");
+      setShellNote(SHELL_NO_ANSWER_WORDS);
+      return;
+    }
+    const t = setTimeout(() => { setShellReq(""); setShellNote(SHELL_NO_ANSWER_WORDS); }, shellWait.ms);
+    return () => clearTimeout(t);
+  }, [shellReq, connected]);
   // What the last change of a setting got that the desk did not say: { pane, text }.
   const [settingNote, setSettingNote] = useState(null);
   const settingsEl = useRef(null);
@@ -234,7 +246,7 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
     if (panes && typeof panes === "object" && Object.keys(panes).length) pruneComposer(Object.keys(panes));
   }, []);
   const sendingNow = !!outcome && outcome.kind === "sending";
-  const mention = desk && !sendingNow ? mentionAt(draft, caret === null ? draft.length : caret) : null;
+  const mention = desk && !sendingNow && !draft.startsWith("!") ? mentionAt(draft, caret === null ? draft.length : caret) : null;
   const mentionQuery = mention ? mention.query : null;
   useEffect(() => {
     setFileKey(null);
@@ -296,7 +308,7 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
     const bang = shellText(draft);
     if (bang !== null) {
       if (shellReq) return;
-      const req = "h" + ++shellRunSeq;
+      const req = "hr" + ++shellRunSeq;
       const msg = shellRunMessage(pane, bang, req);
       if (!msg) setShellNote(bang === "" ? SHELL_EMPTY_WORDS : SHELL_ONE_LINE_WORDS);
       else if (!store.send(msg)) setShellNote(SHELL_NOT_SENT_WORDS);
@@ -355,7 +367,7 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
     setSettingNote(ok ? null : { pane, text: SET_NOT_SENT_WORDS });
     return ok;
   };
-  const menu = desk && !sending && closedFor !== draft ? menuOf(draft, st.commands, ownCommandsFor(OWN_COMMANDS, controls)) : null;
+  const menu = desk && !sending && !draft.startsWith("!") && closedFor !== draft ? menuOf(draft, st.commands, ownCommandsFor(OWN_COMMANDS, controls)) : null;
   const items = flatten(menu);
   // The chosen row is found by its command, so a list that changes under the person does not move it; -1 is none.
   const at = menu ? selectedIndex(items, selKey, menu.query) : -1;

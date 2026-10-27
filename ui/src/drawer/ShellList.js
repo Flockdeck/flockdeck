@@ -23,7 +23,7 @@ export function ShellList({ rows, pane, store, result = null }) {
   if (!rows.length) return null;
 
   const run = (op, id) => {
-    const req = "h" + ++shellSeq;
+    const req = "hs" + ++shellSeq;
     const msg = shellMessage(pane, rows, op, id, req);
     if (!msg) return;
     setNote("");

@@ -26,6 +26,9 @@ const cutText = (s, n) => {
 export const SHELL_EMPTY_WORDS = "Type a command after the !";
 /** SHELL_ONE_LINE_WORDS is said when the text after "!" has more than one line. */
 export const SHELL_ONE_LINE_WORDS = "A command is one line";
+/** shellWait is how long the box waits for the desk's answer to a "!" command. ms is a field so a test can shorten it. */
+export const shellWait = { ms: 10000 };
+export const SHELL_NO_ANSWER_WORDS = "No answer from Flockdeck, so the command may not have run. Check the list before sending it again.";
 export const SHELL_NOT_SENT_WORDS = "Not connected to Flockdeck, so that was not run.";
 
 /** shellText reads the prompt box. It is null when the text is for the agent: a "!" must be the first character,

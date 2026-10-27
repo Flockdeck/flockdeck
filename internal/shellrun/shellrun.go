@@ -129,7 +129,8 @@ func Env(environ []string) []string {
 	for _, n := range names {
 		allowed[strings.ToUpper(n)] = true
 	}
-	var out []string
+	// Never nil: on Unix a nil Cmd.Env means the whole environment.
+	out := []string{}
 	for _, kv := range environ {
 		name, _, ok := strings.Cut(kv, "=")
 		if !ok || name == "" || !allowed[strings.ToUpper(name)] {
