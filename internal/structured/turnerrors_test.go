@@ -84,23 +84,13 @@ func TestCleanRemovesFormatCharacters(t *testing.T) {
 	}
 }
 
-// An exit shows the last three lines the agent wrote, not only the last.
-func TestExitTextKeepsTheLastThreeLines(t *testing.T) {
-	got := exitText("one\ntwo\n\nthree\n  four  \nfive\n")
-	if got != "the agent exited: three / four / five" {
-		t.Errorf("exitText = %q", got)
-	}
-	if got := exitText("only"); got != "the agent exited: only" {
-		t.Errorf("exitText = %q", got)
-	}
-	long := strings.Repeat("a", 200) + "\n" + strings.Repeat("b", 200) + "\n" + strings.Repeat("c", 200)
-	got = exitText(long)
-	body := strings.TrimPrefix(got, "the agent exited: ")
-	if n := len([]rune(body)); n > errCap+1 {
-		t.Errorf("%d runes, over the cap of %d", n, errCap)
-	}
-	if !strings.HasSuffix(body, strings.Repeat("c", 200)) || !strings.HasPrefix(body, "…") {
-		t.Errorf("the end of the text should be kept: %q", body)
+// An exit says only that the agent is unavailable. What the agent wrote to
+// stderr is never shown, whatever it holds.
+func TestExitTextNeverShowsStderr(t *testing.T) {
+	for _, in := range []string{"", "only", "Error: Cannot find module 'node-fetch', needs Node 20, key sk-ant-123", strings.Repeat("a", 5000)} {
+		if got := exitText(in); got != "the agent is unavailable" {
+			t.Errorf("exitText(%.30q) = %q", in, got)
+		}
 	}
 }
 

@@ -59,6 +59,10 @@ type Prefs struct {
 	// StructuredPanes turns on the beta of agents that run in a structured pane
 	// rather than a terminal. Off, the picker does not offer them.
 	StructuredPanes bool `json:"structuredPanes,omitempty"`
+	// MCPServers are the stdio MCP servers the user wants every structured
+	// agent that takes them to start, besides Flockdeck's own. Their env may
+	// hold secrets, so a window is never sent them: see ForWindow.
+	MCPServers []MCPServerPref `json:"mcpServers,omitempty"`
 	// Spend is how the pane headers show what the agents spend and how near
 	// they are to their limits. Left out of the file while it is all defaults.
 	Spend SpendPrefs `json:"spend,omitzero"`
@@ -443,4 +447,15 @@ func resolveLinks(p string) (string, bool) {
 		rest = filepath.Join(filepath.Base(dir), rest)
 		dir = parent
 	}
+}
+
+// MCPServerPref is one MCP server the user configured. Env holds only what the
+// user wrote; nothing of Flockdeck's own environment is added to it.
+type MCPServerPref struct {
+	Name    string            `json:"name"`
+	Command string            `json:"command"`
+	Args    []string          `json:"args,omitempty"`
+	Env     map[string]string `json:"env,omitempty"`
+	// Off keeps the entry in the file without starting it.
+	Off bool `json:"off,omitempty"`
 }

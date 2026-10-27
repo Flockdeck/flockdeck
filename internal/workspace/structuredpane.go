@@ -107,7 +107,7 @@ func (w *Workspace) startStructured(p *Pane, spec agent.Spec) {
 	w.mu.RLock()
 	cmdFor := w.structuredCommand
 	w.mu.RUnlock()
-	opts := structured.Options{Spec: spec, Cwd: p.Cwd}
+	opts := structured.Options{Spec: spec, Cwd: p.Cwd, MCPServers: w.mcpServersFor(p, spec)}
 	if cmdFor != nil {
 		opts.Command = cmdFor(spec)
 	}

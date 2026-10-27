@@ -136,6 +136,24 @@ manifest instead of a program, and says what the agent may see:
   Windows.
 - `mcp` says whether the agent takes per-session `mcpServers`.
 
+The list sent in `session/new` is built per pane by the workspace
+(`internal/workspace/mcpservers.go`), and only when `mcp` is true. It holds
+Flockdeck's own entry, `flockdeck mcp-server` run by the running program's path
+with the pane's token as `FLOCKDECK_TOKEN` in that entry's own `env`, and then
+the servers in the `mcpServers` list of `prefs.json` (`name`, `command`, `args`,
+`env`, `off`). Flockdeck's entry is left out until the server exists
+(`Workspace.UseMCPToken`). A user entry with a bad or repeated name, the name
+`flockdeck`, no command or a control character is skipped, at most 16 servers
+are sent, and a variable starting `FLOCKDECK_` or `PERCH_` is dropped from a
+user entry in any case. Nothing is taken from Flockdeck's own environment. The
+list is never sent to a window, since an `env` may hold a key.
+
+An adapter built into the `flockdeck` binary is started from the running
+program's path and not by looking `flockdeck` up on PATH, and is also given
+`HOME`, `USERPROFILE` and `APPDATA`. Other adapters get only the names their
+entry lists. What an agent wrote to stderr is never shown: a pane whose agent
+did not start or has ended says `the agent is unavailable`.
+
 The built-in entries are `opencode-acp`, and `gemini-acp` and `codex-acp`, which
 are hidden until the tasks that check them end to end have landed. They are
 separate ids from the terminal entries for the same tools, so a saved layout
