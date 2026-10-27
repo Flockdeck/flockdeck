@@ -84,8 +84,9 @@ so clear them with the browser data of the window if you pasted something privat
 Type `@` at the start of a word to list files under the pane's working directory. In a
 git checkout the list is what git tracks or does not ignore, so `.gitignore` is honoured;
 elsewhere it is a bounded walk that skips hidden folders and `node_modules`. At most 50
-names are shown, best match first, and "More files match" says there are more. Choosing
-one writes `@relative/path ` into the text; Flockdeck does not read the file, so the
+names are shown, best match first, and "More files match" says there are more. Tab
+takes the highlighted name; Enter takes one only after you moved to it with an arrow key or
+the mouse, and otherwise sends your text. Choosing one writes `@relative/path ` into the text; Flockdeck does not read the file, so the
 agent opens it. Links are never followed or listed. A window reached through the relay
 has no file list.
 
