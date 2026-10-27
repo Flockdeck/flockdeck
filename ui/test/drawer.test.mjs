@@ -540,6 +540,18 @@ test("the message box keeps the draft and says so when the desk refuses the text
     ta().enter("line one line two!");
     await settle();
     assert.equal(box.querySelector(".structured-note--unsent"), null, "the refusal stayed after the text changed");
+    // The status line stays in the page for the next send, and the refusal is a separate alert that shows the characters that reorder text.
+    const live = box.querySelector(".structured-note--live");
+    assert.equal(live.getAttribute("role"), "status");
+    box.querySelector(".drawer-message").dispatch("submit");
+    await settle();
+    st.set({ notice: { seq: 2, error: true, kind: "send", text: "gone " + String.fromCharCode(0x202e) + "txet" } });
+    await settle();
+    const alert = box.querySelector(".structured-note--unsent");
+    assert.equal(alert.getAttribute("role"), "alert");
+    assert.notEqual(alert, live, "the status line turned into the alert");
+    assert.ok(box.querySelector(".structured-note--live") === live && live.getAttribute("role") === "status", "the status line left the page while the refusal showed");
+    assert.match(alert.textContent, /gone <U[+]202E>txet/);
     render(null, box);
   } finally {
     restore();

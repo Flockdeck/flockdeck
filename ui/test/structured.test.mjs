@@ -236,6 +236,12 @@ test("Stop sends structuredCancel for this pane, and a refusal is shown", () =>
     assert.equal(m.container.find(".structured-note").textContent, "That pane has nothing running to stop");
   }));
 
+test("a Stop refusal shows the characters that reorder text", () =>
+  with_(push(), {}, async (m) => {
+    await m.set({ cancelError: { id: "p3", error: "stop " + String.fromCharCode(0x202e) + "txet" } });
+    assert.match(m.container.find(".structured-note").textContent, /stop <U[+]202E>txet/);
+  }));
+
 test("a Stop the store did not send says so, and the words go when a Stop is sent or another pane is opened", () =>
   with_(push(), {}, async (m) => {
     let up = false;

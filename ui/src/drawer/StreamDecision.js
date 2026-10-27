@@ -42,9 +42,8 @@ export function StreamDecision({ node, pane, snap, store, now = Date.now() }) {
           <div class="prompt-choices" role="group" aria-label="Choices">
             ${options.map((label, i) => html`<button type="button" class=${"prompt-choice" + (i === 0 ? " prompt-choice--primary" : "")} data-option=${label} aria-disabled=${busy ? "true" : undefined} onClick=${() => pick(label)}>${clip(label, 80)}</button>`)}
           </div>
-          ${note
-            ? html`<p key="refused" class="prompt-status prompt-status--error" role="alert">${note}</p>`
-            : html`<p key="status" class="prompt-status" role="status">${status}</p>`}`
+          <p key="status" class="prompt-status" role="status">${note ? "" : status}</p>
+          ${note ? html`<p key="refused" class="prompt-status prompt-status--error" role="alert">${note}</p>` : null}`
       : questions.length > 0
         ? html`<${Question} node=${node} ask=${ask} snap=${snap} store=${store} />`
         : html`<p class="prompt-more">${IN_TERMINAL_WORDS}</p>`}

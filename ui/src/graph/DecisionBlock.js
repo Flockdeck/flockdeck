@@ -145,9 +145,8 @@ function Question({ need, ctx, options, tail }) {
   return html`<${Buttons}>
       ${options.map((label, i) => html`<button type="button" tabindex=${tabOf(ctx)} class=${"dec-btn" + (i === 0 ? " dec-btn--primary" : "")} data-option=${label} aria-disabled=${busy ? "true" : undefined} onClick=${() => pick(label)}>${clip(label, 60)}</button>`)}${tail}
     <//>
-    ${note
-      ? html`<p key="refused" class="dec-status dec-status--error" role="alert">${note}</p>`
-      : html`<p key="status" class="dec-status" role="status">${status}</p>`}`;
+    <p key="status" class="dec-status" role="status">${note ? "" : status}</p>
+    ${note ? html`<p key="refused" class="dec-status dec-status--error" role="alert">${note}</p>` : null}`;
 }
 
 function Conflict({ model, need, ctx }) {

@@ -7,6 +7,7 @@
 import { useEffect, useRef, useState } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
 import { clip } from "../graph/Node.js";
+import { showControls } from "./diff/diffModel.js";
 import { composing } from "../shell/keys.js";
 import { checkText, newReq, outcomeOf, NOT_CONNECTED_WORDS, SENT_SHOWN } from "../graph/ManagerBar.js";
 
@@ -87,6 +88,7 @@ export function Message({ pane, name, store, shownFor = SENT_SHOWN }) {
       onInput=${(e) => { setDraft(e.target.value); if (local) setLocal(""); if (outcome && outcome.kind === "refused") setPending(null); }} onKeyDown=${onKey}></textarea>
     <button type="submit" class="drawer-btn structured-send" disabled=${sending || draft.trim() === ""}>Send</button>
     ${!say && /\n/.test(draft) ? html`<p class="structured-note" role="status">Line breaks are sent as spaces.</p>` : null}
-    ${say && kind !== "sending" ? html`<p class=${"structured-note" + (kind === "refused" ? " structured-note--unsent" : "")} role=${kind === "refused" ? "alert" : "status"}>${say.text}</p>` : null}
+    <p key="status" class="structured-note structured-note--live" role="status">${say && kind !== "sending" && kind !== "refused" ? say.text : ""}</p>
+    ${say && kind === "refused" ? html`<p key="refused" class="structured-note structured-note--unsent" role="alert">${showControls(say.text)}</p>` : null}
   </form>`;
 }

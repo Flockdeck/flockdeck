@@ -23,6 +23,8 @@ const graph = (needs) => ({
 const need = (kind, pane, over = {}) => ({ id: kind + pane, kind, pane, time: new Date(Date.now() - 120000).toISOString(), text: "", ...over });
 const REFUSED = "cfg is not taking text now.";
 // A button that waits for the desk is aria-disabled, not disabled: a disabled button loses the keyboard focus and is not given it back when a refusal makes it ready again.
+// The status line is always there; a refusal is an alert beside it, so the words are read from the alert when there is one.
+const live = (c, cls) => c.find(cls + "--error") || c.find(cls);
 const busy = (b) => b.getAttribute("aria-disabled") === "true";
 
 async function start(view) {
@@ -52,7 +54,7 @@ test("a question's answer is not shown as sent until the desk took it, and a ref
   const a = await start((snap, store) => html`<${Decisions} model=${model} pane="cfg" ctx=${{ snap, store, panes, manager: { pane: "m", name: "mgr" } }} />`);
   try {
     const buttons = () => a.container.findAll(".dec-btn").filter((b) => b.getAttribute("data-option") !== null);
-    const status = () => a.container.find(".dec-status");
+    const status = () => live(a.container, ".dec-status");
     buttons()[0].click();
     await settle();
     const first = a.ws.commands("paneSend");
@@ -102,7 +104,7 @@ test("two choices pressed before the card is drawn again send the first, and the
     assert.equal(sent[0].text, "flags/");
     a.ws.frame({ type: "paneSend", id: "cfg", queued: true, shell: false, req: sent[0].req });
     await settle();
-    assert.match(a.container.find(".dec-status").textContent, /^Sent “flags\/”\. Waiting for the agent\.$/, "the card named the second press");
+    assert.match(live(a.container, ".dec-status").textContent, /^Sent “flags\/”\. Waiting for the agent\.$/, "the card named the second press");
   } finally {
     await a.done();
   }
@@ -188,7 +190,7 @@ test("the card in the conversation says what the desk refused, and keeps its cho
     await settle();
     a.ws.frame({ type: "notice", text: REFUSED, error: true });
     await settle();
-    assert.equal(a.container.find(".prompt-status").textContent, REFUSED);
+    assert.equal(live(a.container, ".prompt-status").textContent, REFUSED);
     assert.ok(!/Sent/.test(a.container.textContent));
     assert.ok(choices().every((b) => !busy(b)));
   } finally {
@@ -231,6 +233,11 @@ test("a refusal on a card is a new alert, not the status line turned into one, a
       assert.equal(old.attributes.role, "status");
       assert.match(now.textContent, /cfg is gone <U\+202E>txet/);
     }
+    // The status line stays in the page while the refusal shows, so the next Sending lands in a live region that was already there.
+    assert.ok(a.container.find(".dec-status") === dec && dec.attributes.role === "status");
+    a.container.findAll(".dec-btn").find((b) => b.getAttribute("data-option") !== null).click();
+    await settle();
+    assert.equal(dec.textContent, "Sending…", "the next send did not land in the status line that was already there");
     a.container.findAll(".prompt-choice")[0].click();
     await settle();
     a.ws.frame({ type: "notice", text: "cfg is gone " + String.fromCharCode(0x202e) + "txet", error: true });

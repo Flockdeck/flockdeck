@@ -65,7 +65,7 @@ async function mount(graph = teamGraph(), { open = true, helloOver = {} } = {}) 
     ...h, ws, dom, container, model,
     input: () => container.find(".mbar-input"),
     send: () => container.find(".mbar-send"),
-    status: () => (container.find(".mbar-status") || { textContent: "" }).textContent,
+    status: () => (container.find(".mbar-status--error") || container.find(".mbar-status") || { textContent: "" }).textContent,
     state: () => (container.find(".mbar") || { getAttribute: () => null }).getAttribute("data-state"),
     type: async (text) => { api.input().enter(text); await settle(); },
     submit: async () => { api.send().click(); await settle(); },
@@ -170,7 +170,7 @@ for (const words of REFUSALS) {
       await a.frame({ type: "notice", text: words, error: true });
       assert.equal(a.status(), words);
       assert.equal(a.state(), "refused");
-      assert.equal(a.container.find(".mbar-status").getAttribute("role"), "alert");
+      assert.equal(a.container.find(".mbar-status--error").getAttribute("role"), "alert");
       assert.equal(a.input().value, "please", "the text was lost");
       // The bar is free again.
       await a.submit();
