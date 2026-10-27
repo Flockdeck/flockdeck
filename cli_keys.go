@@ -9,7 +9,6 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -90,15 +89,6 @@ func keysCmd(args []string, kio keysIO) error {
 			return fmt.Errorf("usage: flockdeck keys check <agent>, where <agent> is one of %s", strings.Join(keyAgentIDs(), ", "))
 		}
 		return keysCheck(args[1], kio.out)
-	case "endpoint", "url":
-		if len(args) != 2 && len(args) != 3 {
-			keysUsage(kio.out)
-			return fmt.Errorf("usage: flockdeck keys endpoint <agent> [<url> | default], where <agent> is one of %s", strings.Join(keyAgentIDs(), ", "))
-		}
-		if len(args) == 2 {
-			return keysShowEndpoint(args[1], kio.out)
-		}
-		return keysSetEndpoint(args[1], args[2], kio.out)
 	case "-h", "--help", "help":
 		keysUsage(kio.out)
 		return nil
@@ -356,70 +346,6 @@ func keysCheck(agentID string, out io.Writer) error {
 	return nil
 }
 
-// keysShowEndpoint says which address an agent talks to.
-func keysShowEndpoint(agentID string, out io.Writer) error {
-	spec, err := keyAgentSpec(agentID)
-	if err != nil {
-		return err
-	}
-	if spec.API.BaseURL == "" {
-		fmt.Fprintf(out, "%s talks to the vendor's own endpoint\n", agentID)
-		return nil
-	}
-	fmt.Fprintf(out, "%s talks to %s\n", agentID, redactURL(spec.API.BaseURL))
-	return nil
-}
-
-// keysSetEndpoint changes the address an agent talks to, in agents.json.
-//
-// Pointing an agent at a local model server or a gateway is one address, and
-// it was the one setting of an API agent that could only be changed by opening
-// agents.json and knowing that it goes under api.baseURL in an entry with the
-// agent's id. Only that field is touched: whatever else the entry and the file
-// hold is written back as it was.
-func keysSetEndpoint(agentID, address string, out io.Writer) error {
-	if _, err := keyAgentSpec(agentID); err != nil {
-		return err
-	}
-	builtin := false
-	for _, s := range agent.Builtins() {
-		builtin = builtin || s.ID == agentID
-	}
-	if address == "default" {
-		if !builtin {
-			// An agent of the user's own is the address it was given; without
-			// one it would be talking to whichever vendor its wire names.
-			return fmt.Errorf("%s is an agent of your own, and has no default address to go back to; give it another one instead", agentID)
-		}
-		address = ""
-	} else {
-		u, err := url.Parse(address)
-		switch {
-		case err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "":
-			return fmt.Errorf("give the address as http://host:port/... or https://..., for example http://127.0.0.1:11434/v1")
-		case u.User != nil:
-			// Said without repeating the address, which has a secret in it.
-			return fmt.Errorf("the address has a name or password in it; store the key with `flockdeck keys set %s` and give the address without it", agentID)
-		}
-	}
-	path, err := agent.ConfigPath()
-	if err != nil {
-		return err
-	}
-	// The same save as the picker's address field: an agent's entries each
-	// lose their address but the last, and every spelling of the key goes.
-	if err := agent.SetBaseURL(filepath.Dir(path), agentID, address); err != nil {
-		return err
-	}
-	if address == "" {
-		fmt.Fprintf(out, "%s talks to the vendor's own endpoint again\n", agentID)
-	} else {
-		fmt.Fprintf(out, "%s now talks to %s\n", agentID, address)
-	}
-	fmt.Fprintf(out, "new panes use it; one already running keeps the address it started with until it is restarted\n")
-	return nil
-}
-
 // keyAgentSpec is the catalog's entry for an agent that takes a key, or an
 // error naming the ones there are.
 func keyAgentSpec(agentID string) (agent.Spec, error) {
@@ -485,13 +411,13 @@ func isMsysPtyName(name string) bool {
 }
 
 // keysAgents is the list of agents that can want a key: the catalog, with the
-// user's agents.json merged in, of which creds.StatusAll keeps the API runners.
+// user's agents.json merged in, of which creds.StatusAll keeps those that take
+// one.
 //
-// It is the catalog rather than a list of its own so that `keys list` says what
-// a pane will actually find. A list kept here had drifted from it -- it named
-// ANTHROPIC_AUTH_TOKEN, which nothing that starts a pane reads, and so reported
-// a key as set for an agent that would then fail for want of one -- and it
-// could not see an agent the user had added.
-func keysAgents() []agent.Spec {
+// No catalog entry takes a key since `flockdeck chat` and the API runners were
+// removed, so `flockdeck keys` has nothing to list until board task T202 gives
+// agents keys that are passed to their adapters. It is a variable so that the
+// tests can stand in for those agents.
+var keysAgents = func() []agent.Spec {
 	return agent.Load().Specs
 }

@@ -124,6 +124,10 @@ func fromEnv(names []string) Key {
 // A Spec with no names of its own has nowhere to put a stored key, and gets
 // nothing rather than an invented variable name. Nor is a stored key put under the vendor's variable for a Spec
 // talking to somebody else, where it would be read as the key for the vendor.
+//
+// Nothing calls it since the API runners were removed: no pane is started with
+// a key in its environment. Board task T202 hands a stored key to an agent's
+// adapter instead.
 func Env(spec agent.Spec) []string {
 	k := Resolve(spec)
 	own := agent.OwnKeyEnv(spec.API)

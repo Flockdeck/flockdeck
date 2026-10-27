@@ -5,9 +5,6 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 
@@ -19,6 +16,7 @@ import (
 // here can read or write the keys of whoever is running it.
 func isolateKeys(t *testing.T) {
 	t.Helper()
+	keyAgentsForTest(t)
 	dir := t.TempDir()
 	t.Setenv("APPDATA", dir)         // Windows
 	t.Setenv("XDG_CONFIG_HOME", dir) // Linux
@@ -32,6 +30,22 @@ func isolateKeys(t *testing.T) {
 	}
 	// Any API agent reads this one, after its stored key.
 	t.Setenv("FLOCKDECK_API_KEY", "")
+}
+
+// keyAgentsForTest stands in for the agents that take a key. The catalog has
+// none until board task T202, so the tests bring the three the removed API
+// runners were.
+func keyAgentsForTest(t *testing.T) {
+	t.Helper()
+	was := keysAgents
+	t.Cleanup(func() { keysAgents = was })
+	keysAgents = func() []agent.Spec {
+		return []agent.Spec{
+			{ID: "anthropic", Name: "Claude API", API: agent.APISpec{Wire: "anthropic", KeyEnv: []string{"ANTHROPIC_API_KEY"}}},
+			{ID: "openai", Name: "OpenAI", API: agent.APISpec{Wire: "openai", KeyEnv: []string{"OPENAI_API_KEY"}}},
+			{ID: "google", Name: "Gemini", API: agent.APISpec{Wire: "gemini", KeyEnv: []string{"GEMINI_API_KEY", "GOOGLE_API_KEY"}}},
+		}
+	}
 }
 
 // keysAgent is one agent from the list the subcommand works from.
@@ -62,8 +76,6 @@ func TestKeysListReportsOnlyWhatAPaneWouldFind(t *testing.T) {
 	}
 }
 
-// runKeysCmd drives the subcommand with nobody at the terminal, which is how a
-// script uses it, and returns everything it printed.
 // fakeKeyEndpoint points the anthropic agent at an in-process server that
 // accepts any key, so a `keys set` that checks the key at a terminal stays on
 // this machine.
@@ -73,11 +85,29 @@ func fakeKeyEndpoint(t *testing.T) {
 		w.Write([]byte(`{"data":[]}`))
 	}))
 	t.Cleanup(srv.Close)
-	if _, err := runKeysCmd(t, "", "endpoint", "anthropic", srv.URL); err != nil {
+	if _, err := setKeyEndpoint(t, "anthropic", srv.URL); err != nil {
 		t.Fatal(err)
 	}
 }
 
+// setKeyEndpoint points a stand-in key agent at an address for the rest of the
+// test, as an agents.json entry's api.baseURL once did.
+func setKeyEndpoint(t *testing.T, id, address string) (string, error) {
+	t.Helper()
+	was := keysAgents
+	t.Cleanup(func() { keysAgents = was })
+	specs := was()
+	for i := range specs {
+		if specs[i].ID == id {
+			specs[i].API.BaseURL = address
+		}
+	}
+	keysAgents = func() []agent.Spec { return specs }
+	return "", nil
+}
+
+// runKeysCmd drives the subcommand with nobody at the terminal, which is how a
+// script uses it, and returns everything it printed.
 func runKeysCmd(t *testing.T, stdin string, args ...string) (string, error) {
 	t.Helper()
 	var out bytes.Buffer
@@ -326,97 +356,6 @@ func TestKeysUsage(t *testing.T) {
 	}
 }
 
-// An agent is pointed at another address without agents.json being opened,
-// and only the address changes: the wire, the names its key arrives in, and
-// whatever else the file holds are left as they were.
-func TestKeysEndpointChangesOnlyTheAddress(t *testing.T) {
-	isolateKeys(t)
-	path, err := agent.ConfigPath()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, []byte(`{"version":1,"theme":"dark","agents":[`+
-		`{"id":"anthropic","name":"Mine"},`+
-		`{"id":"custom","name":"Custom","api":{"wire":"openai","baseURL":"http://10.0.0.1/v1"}}]}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	before := keysAgent(t, "anthropic")
-
-	if out, err := runKeysCmd(t, "", "endpoint", "anthropic", "http://127.0.0.1:8080"); err != nil {
-		t.Fatalf("keys endpoint: %v\n%s", err, out)
-	}
-	after := keysAgent(t, "anthropic")
-	if after.API.BaseURL != "http://127.0.0.1:8080" || after.API.Wire != before.API.Wire ||
-		!slices.Equal(after.API.KeyEnv, before.API.KeyEnv) || after.Name != "Mine" {
-		t.Errorf("anthropic is now %+v (was %+v)", after, before)
-	}
-	data, _ := os.ReadFile(path)
-	if !strings.Contains(string(data), `"theme"`) || !strings.Contains(string(data), "http://10.0.0.1/v1") {
-		t.Errorf("the rest of agents.json was not kept:\n%s", data)
-	}
-	if out, _ := runKeysCmd(t, "", "endpoint", "anthropic"); !strings.Contains(out, "http://127.0.0.1:8080") {
-		t.Errorf("the address is not shown: %q", out)
-	}
-
-	if out, err := runKeysCmd(t, "", "endpoint", "anthropic", "default"); err != nil {
-		t.Fatalf("keys endpoint default: %v\n%s", err, out)
-	}
-	if got := keysAgent(t, "anthropic").API.BaseURL; got != before.API.BaseURL {
-		t.Errorf("default left the address at %q, want %q", got, before.API.BaseURL)
-	}
-
-	for _, args := range [][]string{
-		{"endpoint", "nosuch", "http://127.0.0.1"},
-		{"endpoint", "anthropic", "ftp://127.0.0.1"},
-		{"endpoint", "anthropic", "127.0.0.1:8080"},
-		{"endpoint", "custom", "default"},
-	} {
-		if out, err := runKeysCmd(t, "", args...); err == nil {
-			t.Errorf("keys %v succeeded: %q", args, out)
-		}
-	}
-	// A password in the address is refused without being repeated.
-	if _, err := runKeysCmd(t, "", "endpoint", "anthropic", "https://me:hunter2@example.com"); err == nil || strings.Contains(err.Error(), "hunter2") {
-		t.Errorf("an address with a password in it: %v", err)
-	}
-}
-
-// Each entry for an agent is merged over the one before, so an address an
-// earlier entry gives is the one used unless a later entry changes it. Going
-// back to the vendor's endpoint took the address out of the last entry alone,
-// said the vendor's was back, and left panes talking to the earlier address.
-func TestKeysEndpointDefaultClearsEveryEntryForTheAgent(t *testing.T) {
-	isolateKeys(t)
-	path, err := agent.ConfigPath()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(path, []byte(`{"version":1,"agents":[`+
-		`{"id":"anthropic","api":{"baseURL":"http://10.0.0.9/v1"}},`+
-		`{"id":"anthropic","name":"Mine"}]}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if got := keysAgent(t, "anthropic").API.BaseURL; got != "http://10.0.0.9/v1" {
-		t.Fatalf("the earlier entry's address is not in use to begin with: %q", got)
-	}
-	if out, err := runKeysCmd(t, "", "endpoint", "anthropic", "default"); err != nil {
-		t.Fatalf("keys endpoint default: %v\n%s", err, out)
-	}
-	after := keysAgent(t, "anthropic")
-	if after.API.BaseURL == "http://10.0.0.9/v1" {
-		t.Errorf("default said the vendor's endpoint was back, and panes still use %q", after.API.BaseURL)
-	}
-	if after.Name != "Mine" {
-		t.Errorf("the rest of the entries was not kept: %+v", after)
-	}
-}
-
 // A key in the environment is used before a stored one, and storing a key
 // while one is there says so, naming the variable and never either key.
 func TestKeysSetSaysWhenTheEnvironmentWins(t *testing.T) {
@@ -460,14 +399,14 @@ func TestKeysListSaysWhereAnAgentTalksTo(t *testing.T) {
 		return found
 	}
 
-	if _, err := runKeysCmd(t, "", "endpoint", "anthropic", "https://gateway.example/v1"); err != nil {
+	if _, err := setKeyEndpoint(t, "anthropic", "https://gateway.example/v1"); err != nil {
 		t.Fatal(err)
 	}
 	if line := anthropicLine(); !strings.Contains(line, "; talks to https://gateway.example/v1") {
 		t.Errorf("anthropic is listed as %q", line)
 	}
 
-	if _, err := runKeysCmd(t, "", "endpoint", "anthropic", "http://127.0.0.1:8080"); err != nil {
+	if _, err := setKeyEndpoint(t, "anthropic", "http://127.0.0.1:8080"); err != nil {
 		t.Fatal(err)
 	}
 	line := anthropicLine()
@@ -489,7 +428,7 @@ func TestKeysSetChecksTheKeyWithTheEndpoint(t *testing.T) {
 		w.Write([]byte(`{"data":[]}`))
 	}))
 	defer srv.Close()
-	if _, err := runKeysCmd(t, "", "endpoint", "anthropic", srv.URL); err != nil {
+	if _, err := setKeyEndpoint(t, "anthropic", srv.URL); err != nil {
 		t.Fatal(err)
 	}
 	for key, want := range map[string]string{"sk-bad-key": "refused", "sk-good-key": "accepted"} {
@@ -520,7 +459,7 @@ func TestKeysSetSaysWhenTheEndpointCannotBeReachedToCheck(t *testing.T) {
 	}
 	addr := "http://" + ln.Addr().String()
 	ln.Close()
-	if _, err := runKeysCmd(t, "", "endpoint", "anthropic", addr); err != nil {
+	if _, err := setKeyEndpoint(t, "anthropic", addr); err != nil {
 		t.Fatal(err)
 	}
 	var out, prompt bytes.Buffer
@@ -552,7 +491,7 @@ func TestKeysCheckAsksAboutTheKeyAPaneWouldUse(t *testing.T) {
 		w.Write([]byte(`{"data":[]}`))
 	}))
 	defer srv.Close()
-	if _, err := runKeysCmd(t, "", "endpoint", "anthropic", srv.URL); err != nil {
+	if _, err := setKeyEndpoint(t, "anthropic", srv.URL); err != nil {
 		t.Fatal(err)
 	}
 
@@ -595,7 +534,7 @@ func TestKeysCheckFindsTheKeyTheWayAPaneDoes(t *testing.T) {
 		w.Write([]byte(`{"data":[]}`))
 	}))
 	defer srv.Close()
-	if _, err := runKeysCmd(t, "", "endpoint", "anthropic", srv.URL); err != nil {
+	if _, err := setKeyEndpoint(t, "anthropic", srv.URL); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := runKeysCmd(t, "sk-bad-key\n", "set", "anthropic"); err != nil {

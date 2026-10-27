@@ -34,11 +34,11 @@ func TestEveryPlaceFindsTheKeyAPaneSends(t *testing.T) {
 		// counts says whether the agent's variable is one it may be given.
 		counts bool
 	}{
-		{"a built-in at its vendor", agent.Spec{ID: "anthropic", Runner: agent.RunnerAPI,
+		{"a built-in at its vendor", agent.Spec{ID: "anthropic",
 			API: agent.APISpec{Wire: "anthropic", KeyEnv: []string{"ANTHROPIC_API_KEY"}}}, true},
-		{"a built-in at a gateway", agent.Spec{ID: "anthropic", Runner: agent.RunnerAPI,
+		{"a built-in at a gateway", agent.Spec{ID: "anthropic",
 			API: agent.APISpec{Wire: "anthropic", BaseURL: "https://gw.example/v1", KeyEnv: []string{"ANTHROPIC_API_KEY"}}}, false},
-		{"an agent with a variable of its own", agent.Spec{ID: "mine", Runner: agent.RunnerAPI,
+		{"an agent with a variable of its own", agent.Spec{ID: "mine",
 			API: agent.APISpec{Wire: "anthropic", BaseURL: "https://gw.example/v1", KeyEnv: []string{"FLOCKDECK_TEST_GW_KEY"}}}, true},
 	} {
 		for held := 0; held < 8; held++ {
