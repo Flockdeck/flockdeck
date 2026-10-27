@@ -35,6 +35,18 @@
 //   follows the mode from the desk's side. Sending a text that starts with a space
 //   skips /mode and /model and goes to the agent as typed.
 //
+// - The box takes several lines. Enter (or Ctrl or Command with Enter) sends and Shift+Enter
+//   adds a line; the box grows to ten lines (composerModel.js). Up on the first line steps back
+//   through the prompts this pane was sent, Down forward to the draft that was being written. The
+//   draft and the last 50 prompts are kept per pane in this window's storage, so they survive a
+//   switch of tab and a restart. A prompt over 8 KiB is sent but not kept.
+// - "@" after white space opens a list of file names under the pane's directory (structuredFiles,
+//   which reads names only and honours .gitignore). Choosing one writes "@path" into the text; the
+//   file is not read here. A window reached through the relay has no list.
+// - When the agent takes images (capabilities.image of the push), a picture pasted, dropped or chosen
+//   with Attach image is saved by the desktop (attachImage) and its path goes into the text as
+//   "[image: path]", for the agent to read. One picture at a time is in flight.
+//
 // Everything on a row came from an agent, a tool or a person, and none of it is
 // put into the page as markup.
 import { useEffect, useRef, useState } from "../vendor/hooks.mjs";
@@ -46,6 +58,8 @@ import { Conversation } from "./Conversation.js";
 import { Icon, toolKind } from "./conv/rows.js";
 import { menuOf, flatten, insertText, keyOf, selectedIndex, OWN_COMMANDS } from "./slashModel.js";
 import { controlsOf, controlFor, setMessage, ownCommandsFor, parseSetting } from "./settingsModel.js";
+import { sendKey, rowsFor, pushHistory, recall, NO_RECALL, onFirstLine, onLastLine, mentionAt, insertMention, cleanFiles, loadComposer, saveComposer } from "./composerModel.js";
+import { prepareImage, pickImages, attachNote, ImageError, IMAGE_TYPES } from "./imageAttach.js";
 
 /** SEND_NOT_SENT_WORDS is what the prompt box says when the store did not send the text; the draft stays. */
 export const SEND_NOT_SENT_WORDS = "Not connected to Flockdeck, so the text was not sent.";
@@ -54,6 +68,15 @@ export const STOP_NOT_SENT_WORDS = "Not connected to Flockdeck, so Stop was not 
 // Each Stop carries its own req, so the store can tell which pane a refusal is for.
 let cancelSeq = 0;
 let settingSeq = 0;
+let filesSeq = 0;
+/** FILES_DELAY_MS is how long the box waits after the last keystroke of a mention before asking for names. */
+export const FILES_DELAY_MS = 120;
+/** ATTACH_WAIT_MS is how long a picture is waited for before the box takes another. */
+export const ATTACH_WAIT_MS = 15000;
+export const IMAGE_NOT_SENT_WORDS = "Not connected to Flockdeck, so the picture was not sent.";
+export const IMAGE_WAITING_WORDS = "Wait for the first picture to attach.";
+export const IMAGE_FAILED_WORDS = "That picture could not be read.";
+export const IMAGE_UNSUPPORTED_WORDS = "This agent does not take pictures.";
 /** SET_NOT_SENT_WORDS is what the selectors say when the store did not send the change. */
 export const SET_NOT_SENT_WORDS = "Not connected to Flockdeck, so the change was not sent.";
 
@@ -106,7 +129,26 @@ export function activityOf(st, entries = []) {
  *  reached through the relay. snap is the store's snapshot, which carries the
  *  desk's answer to a send. */
 export function Structured({ pane, snap, st, error = null, cancelError = null, settingError = null, desk = true, store, conv = null, onOlder = null, details = null, onDetail = null, pending = null, search = null, onSearch = null, onClearSearch = null }) {
-  const [draft, setDraft] = useState("");
+  // The draft and the history are kept per pane (composerModel.js), so they outlive this component.
+  const kept = useRef(null);
+  if (kept.current === null) kept.current = loadComposer(pane);
+  const [draft, setDraft] = useState(kept.current.draft);
+  const history = useRef(kept.current.history);
+  const recalling = useRef({ nav: NO_RECALL, text: null });
+  const sentText = useRef("");
+  // The caret as the box last reported it, or null for the end; and where to put it after the next draw.
+  const [caret, setCaret] = useState(null);
+  const putCaret = useRef(null);
+  // The mention list: the key of the chosen name, the draft whose list was closed with Escape, and the names asked for.
+  const [fileKey, setFileKey] = useState(null);
+  const [filesClosedFor, setFilesClosedFor] = useState(null);
+  const askedFiles = useRef("");
+  // Pictures: the one in flight, what the last attempt said, and the newest result already handled.
+  const [imageNote, setImageNote] = useState("");
+  const attaching = useRef(false);
+  const attachTimer = useRef(null);
+  const seenAttach = useRef(snap && snap.attached ? snap.attached.seq : 0);
+  const fileInput = useRef(null);
   // The pane a Stop that was not sent was pressed for, so the words do not follow the drawer to another pane.
   const [stopFailed, setStopFailed] = useState("");
   const [sendFailed, setSendFailed] = useState("");
@@ -129,9 +171,51 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
   // The text goes once the desk has taken it; a refused one stays to be changed or sent again.
   useEffect(() => {
     if (!taken) return;
+    history.current = pushHistory(history.current, sentText.current);
+    recalling.current = { nav: NO_RECALL, text: null };
     setDraft("");
     setMark(null);
   }, [taken, mark]);
+  useEffect(() => {
+    saveComposer(pane, { draft, history: history.current });
+    // A draft the person has edited after recalling a prompt is no longer that recall.
+    if (recalling.current.nav.at >= 0 && draft !== recalling.current.text) recalling.current = { nav: NO_RECALL, text: null };
+  }, [draft, pane, taken]);
+  const sendingNow = !!outcome && outcome.kind === "sending";
+  const mention = desk && !sendingNow ? mentionAt(draft, caret === null ? draft.length : caret) : null;
+  const mentionQuery = mention ? mention.query : null;
+  useEffect(() => {
+    if (!desk || mentionQuery === null) return;
+    const t = setTimeout(() => {
+      const req = "f" + ++filesSeq;
+      askedFiles.current = req;
+      store.send({ cmd: "structuredFiles", id: pane, q: mentionQuery, req });
+    }, FILES_DELAY_MS);
+    return () => clearTimeout(t);
+  }, [mentionQuery, pane, desk]);
+  useEffect(() => {
+    const el = box.current;
+    const c = putCaret.current;
+    putCaret.current = null;
+    if (c !== null && el && el.setSelectionRange) el.setSelectionRange(c, c);
+  });
+  const attachedNow = snap ? snap.attached : null;
+  useEffect(() => {
+    const a = attachedNow;
+    if (!a || !(a.seq > seenAttach.current)) return;
+    seenAttach.current = a.seq;
+    if (a.id !== pane || !attaching.current) return;
+    attaching.current = false;
+    clearTimeout(attachTimer.current);
+    if (a.error) {
+      setImageNote(clip(String(a.error), 200));
+      return;
+    }
+    setImageNote("");
+    setDraft((d) => d + (d === "" || /\s$/.test(d) ? "" : "\n") + attachNote(a.path) + " ");
+    setCaret(null);
+  }, [attachedNow, pane]);
+  useEffect(() => () => clearTimeout(attachTimer.current), []);
   // Send is off while the answer is awaited, which takes the keyboard from it; a refusal gives it back to the text,
   // unless the person has moved on to something else in the meantime.
   const refusedNow = !!outcome && outcome.kind === "refused";
@@ -165,6 +249,7 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
     }
     const next = sendTo((m) => store.send(m), snap, pane, text);
     if (next) {
+      sentText.current = text;
       busy.current = true;
       setMark(next);
       setSendFailed("");
@@ -224,22 +309,104 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
     setSendFailed("");
     if (box.current && box.current.focus) box.current.focus();
   };
+  // The names the mention list shows: those of the reply to the latest ask, while the @ word is still being typed.
+  const reply = snap ? snap.files : null;
+  const fresh = !!mention && !!reply && reply.id === pane && reply.req === askedFiles.current && reply.req !== "";
+  const filesOpen = !!mention && filesClosedFor !== draft;
+  const names = filesOpen && fresh ? cleanFiles(reply.files) : [];
+  const nameAt = names.length ? Math.max(0, names.indexOf(fileKey)) : -1;
+  const pickName = (name) => {
+    const r = insertMention(draft, mention, name);
+    putCaret.current = r.caret;
+    setCaret(r.caret);
+    setDraft(r.text);
+    setFileKey(null);
+    setSendFailed("");
+    if (box.current && box.current.focus) box.current.focus();
+  };
+  const caretOf = (el) => (typeof el.selectionStart === "number" ? [el.selectionStart, typeof el.selectionEnd === "number" ? el.selectionEnd : el.selectionStart] : [el.value.length, el.value.length]);
+  const recallTo = (e, dir) => {
+    const r = recall(history.current, recalling.current.nav, dir, draft);
+    if (!r) return;
+    e.preventDefault();
+    recalling.current = { nav: r.nav, text: r.text };
+    setCaret(null);
+    setDraft(r.text);
+    setSendFailed("");
+  };
   const onKey = (e) => {
-    if (!menu) return;
     // A key that belongs to an input method's composition is the method's, not the menu's.
     if (e.isComposing || e.keyCode === 229) return;
-    if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-      e.preventDefault();
-      const down = e.key === "ArrowDown";
-      setSelKey(keyOf(items[at < 0 ? (down ? 0 : items.length - 1) : (at + (down ? 1 : items.length - 1)) % items.length]));
-    } else if (((e.key === "Enter" && !e.shiftKey) || e.key === "Tab") && at >= 0) {
-      e.preventDefault();
-      choose(items[at]);
-    } else if (e.key === "Escape") {
-      e.preventDefault();
-      e.stopPropagation();
-      setClosedFor(draft);
+    if (menu) {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        const down = e.key === "ArrowDown";
+        setSelKey(keyOf(items[at < 0 ? (down ? 0 : items.length - 1) : (at + (down ? 1 : items.length - 1)) % items.length]));
+        return;
+      } else if (((e.key === "Enter" && !e.shiftKey) || e.key === "Tab") && at >= 0) {
+        e.preventDefault();
+        choose(items[at]);
+        return;
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        setClosedFor(draft);
+        return;
+      }
+    } else if (names.length) {
+      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+        e.preventDefault();
+        const down = e.key === "ArrowDown";
+        setFileKey(names[(nameAt + (down ? 1 : names.length - 1)) % names.length]);
+        return;
+      } else if (((e.key === "Enter" && !e.shiftKey) || e.key === "Tab") && nameAt >= 0) {
+        e.preventDefault();
+        pickName(names[nameAt]);
+        return;
+      } else if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        setFilesClosedFor(draft);
+        return;
+      }
     }
+    const [from, to] = caretOf(e.target || box.current);
+    if (e.key === "ArrowUp" && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey && onFirstLine(draft, from, to)) {
+      recallTo(e, -1);
+    } else if (e.key === "ArrowDown" && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey && onLastLine(draft, from, to)) {
+      recallTo(e, 1);
+    } else if (sendKey(e) === "send") {
+      e.preventDefault();
+      submit();
+    }
+  };
+  const attach = async (file) => {
+    if (!file) return;
+    if (attaching.current) {
+      setImageNote(IMAGE_WAITING_WORDS);
+      return;
+    }
+    attaching.current = true;
+    setImageNote("Attaching the picture.");
+    clearTimeout(attachTimer.current);
+    attachTimer.current = setTimeout(() => { attaching.current = false; setImageNote(IMAGE_FAILED_WORDS); }, ATTACH_WAIT_MS);
+    try {
+      const img = await prepareImage(file);
+      if (!store.send({ cmd: "attachImage", id: pane, name: img.name, mediaType: img.mediaType, data: img.data })) throw new ImageError(IMAGE_NOT_SENT_WORDS);
+    } catch (err) {
+      attaching.current = false;
+      clearTimeout(attachTimer.current);
+      setImageNote(err instanceof ImageError ? err.message : IMAGE_FAILED_WORDS);
+    }
+  };
+  const imageOk = desk && !!st.capabilities && st.capabilities.image === true;
+  // A picture dropped or pasted: taken when the agent takes pictures, said no to otherwise. Text is left to the box.
+  const onPicture = (data, e) => {
+    const pics = pickImages(data);
+    if (!pics.length) return;
+    e.preventDefault();
+    if (!imageOk) setImageNote(IMAGE_UNSUPPORTED_WORDS);
+    else attach(pics[0]);
   };
   const optId = (i) => "slash-" + pane + "-" + i;
   const row = (it, i) => html`<div id=${optId(i)} role="option" class=${"slash-item" + (i === at ? " slash-item--on" : "")} aria-selected=${i === at ? "true" : "false"} data-slash=${it.name}
@@ -278,10 +445,28 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
                 </div>
                 <p class="sr-only" role="status">${items.length === 1 ? "1 command" : items.length + " commands"}</p>`
               : null}
-            <textarea ref=${box} class="structured-input" aria-label="Message to the agent" rows="2" value=${draft}
-              role=${menu ? "combobox" : undefined} aria-expanded=${menu ? "true" : undefined} aria-autocomplete=${menu ? "list" : undefined} aria-controls=${menu ? "slash-" + pane : undefined} aria-activedescendant=${menu && at >= 0 ? optId(at) : undefined} onKeyDown=${onKey} readOnly=${outcome && outcome.kind === "sending"} aria-busy=${outcome && outcome.kind === "sending" ? "true" : undefined} onInput=${(e) => { setDraft(e.target.value); setSendFailed(""); if (outcome && outcome.kind === "refused") setMark(null); }}></textarea>
+            ${names.length || (filesOpen && fresh && reply.error)
+              ? html`<div class="slash-menu mention-menu" role="listbox" aria-label="Files" id=${"mention-" + pane}>
+                  ${names.map((n, i) => html`<div id=${"mention-" + pane + "-" + i} role="option" class=${"slash-item" + (i === nameAt ? " slash-item--on" : "")} aria-selected=${i === nameAt ? "true" : "false"} data-mention=${n}
+                    onMouseDown=${(e) => e.preventDefault()} onMouseEnter=${() => setFileKey(n)} onClick=${() => pickName(n)}><span class="slash-name mention-path" dir="auto">${n}</span></div>`)}
+                  ${reply.more ? html`<p class="slash-group">More files match. Type more of the name.</p>` : null}
+                  ${reply.error ? html`<p class="slash-group" role="status">${showControls(clip(String(reply.error), 200))}</p>` : null}
+                </div>
+                <p class="sr-only" role="status">${names.length === 1 ? "1 file" : names.length + " files"}</p>`
+              : null}
+            <textarea ref=${box} class="structured-input" aria-label="Message to the agent" placeholder="Enter sends, Shift+Enter adds a line" rows=${rowsFor(draft)} value=${draft}
+              role=${menu || names.length ? "combobox" : undefined} aria-expanded=${menu || names.length ? "true" : undefined} aria-autocomplete=${menu || names.length ? "list" : undefined} aria-controls=${menu ? "slash-" + pane : names.length ? "mention-" + pane : undefined} aria-activedescendant=${menu && at >= 0 ? optId(at) : names.length ? "mention-" + pane + "-" + nameAt : undefined}
+              onKeyDown=${onKey} onKeyUp=${(e) => setCaret(caretOf(e.target)[0])} onClick=${(e) => setCaret(caretOf(e.target)[0])}
+              onPaste=${(e) => onPicture(e.clipboardData, e)} onDragOver=${(e) => { if (imageOk && e.dataTransfer && pickImages(e.dataTransfer).length) e.preventDefault(); }} onDrop=${(e) => onPicture(e.dataTransfer, e)}
+              readOnly=${outcome && outcome.kind === "sending"} aria-busy=${outcome && outcome.kind === "sending" ? "true" : undefined} onInput=${(e) => { setDraft(e.target.value); setCaret(caretOf(e.target)[0]); setSendFailed(""); if (outcome && outcome.kind === "refused") setMark(null); }}></textarea>
             <button ref=${sendBtn} type="submit" class="drawer-btn structured-send" disabled=${draft.trim() === "" || (outcome && outcome.kind === "sending")}>Send</button>
             <button type="button" class="drawer-btn structured-stop" onClick=${stop}>Stop</button>
+            ${imageOk
+              ? html`<button type="button" class="drawer-btn structured-attach" onClick=${() => fileInput.current && fileInput.current.click()}>Attach image</button>
+                  <input ref=${fileInput} type="file" class="sr-only" tabindex="-1" aria-hidden="true" accept=${IMAGE_TYPES.join(",")}
+                    onChange=${(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; attach(f); }} />`
+              : null}
+            ${imageNote ? html`<p class="structured-note" role="status">${showControls(clip(imageNote, 200))}</p>` : null}
             ${outcome && outcome.kind === "refused" ? html`<p class="structured-note structured-note--unsent structured-note--send" role="alert">${showControls(clip(outcome.text, 300))}</p>` : null}
             ${sendFailed === pane ? html`<p class="structured-note structured-note--unsent structured-note--send" role="alert">${SEND_NOT_SENT_WORDS}</p>` : null}
             ${stopFailed === pane ? html`<p class="structured-note structured-note--unsent" role="status">${STOP_NOT_SENT_WORDS}</p>` : null}

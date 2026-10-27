@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import { render } from "../src/vendor/preact.mjs";
 import { html } from "../src/html.js";
 import { Structured } from "../src/drawer/Structured.js";
+import { forgetComposerMemory } from "../src/drawer/composerModel.js";
 import { cleanCommands, queryOf, menuOf, flatten, insertText, COMMANDS_MAX, SHOWN_MAX, NAME_MAX, DESC_MAX } from "../src/drawer/slashModel.js";
 import { createDom, install, settle } from "./dom.mjs";
 import { fakeStore } from "./termfakes.mjs";
@@ -59,6 +60,7 @@ test("filtering ranks exact, prefix, then substring matches, and keeps Flockdeck
 });
 
 async function mount(commands) {
+  forgetComposerMemory();
   const dom = createDom();
   const restore = install(dom);
   const container = dom.document.createElement("div");
@@ -93,7 +95,7 @@ test("typing / lists the agent's commands, keys move and choose, and the choice 
   }
 });
 
-test("Escape closes the menu until the text changes, and Enter then is not taken", async () => {
+test("Escape closes the menu until the text changes, and Enter then sends the text", async () => {
   const m = await mount(cmds);
   try {
     const box = () => m.container.find(".structured-input");
@@ -102,10 +104,14 @@ test("Escape closes the menu until the text changes, and Enter then is not taken
     box().keydown("Escape");
     await settle();
     assert.equal(m.container.find(".slash-menu"), null);
-    assert.equal(box().keydown("Enter").defaultPrevented, false);
     box().enter("/co");
     await settle();
     assert.ok(m.container.find(".slash-menu"));
+    // Closed again, Enter is the send key and sends the text as typed.
+    box().keydown("Escape");
+    await settle();
+    assert.equal(box().keydown("Enter").defaultPrevented, true);
+    assert.deepEqual(m.store.sent.map((c) => [c.cmd, c.text]), [["paneSend", "/co"]]);
   } finally {
     await m.done();
   }

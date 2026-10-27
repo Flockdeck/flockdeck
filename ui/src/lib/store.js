@@ -83,6 +83,9 @@
 //                    after one that worked; a view shows it only for its own pane
 //   settingError     { id, error } after structuredSet (mode, model or a setting) was refused
 //                    for pane id, null after one that worked
+//   files            the latest structuredFiles reply { id, req, q, files, more, error }, or the
+//                    refusal of one as the same with files empty; the prompt box matches it by req
+//   attached         the latest attachImageResult as { id, path, error, seq }, or null
 //   started       the latest startAgent answer as { seq, paneId, id }, or null: the
 //                 pane the desktop started and the id the window gave the command.
 //                 seq grows with each one. A refusal arrives as a notice.
@@ -277,7 +280,7 @@ const initial = () => ({
   hello: null, remote: false, state: null,
   graph: null, graphGone: null, graphRefused: false, graphError: null,
   notice: null, versions: null, helpers: null, helperPlan: null, recents: null, browse: null, batonDraft: null, batonSaved: null, batonError: null,
-  approvals: [], detached: false, sent: null, started: null, structured: null, structuredError: null, cancelError: null, settingError: null, answer: null, asking: null, conversation: null, details: nullMap(), search: null, taskDetail: null, changes: null, diff: null, gitWarn: null, changesBusy: "", changesNote: null, history: null, paneInfo: null, paneMatches: null, keys: null, jevKey: null, radar: null, worktrees: null, agentsList: null, team: null, teamGone: null, teamTasks: null, teamMessages: null, teamResult: null, teamRefused: false, changesTeam: null, changesTeamGone: null, changesTeamRefused: false, changesTeamResult: null, changesTeamResults: [], changesChecks: null, changesDiffs: {}, branchGit: null, session: 0, remoteDevices: null, remotePair: null, remoteOutcome: null, dropped: 0,
+  approvals: [], detached: false, sent: null, started: null, structured: null, structuredError: null, cancelError: null, settingError: null, files: null, attached: null, answer: null, asking: null, conversation: null, details: nullMap(), search: null, taskDetail: null, changes: null, diff: null, gitWarn: null, changesBusy: "", changesNote: null, history: null, paneInfo: null, paneMatches: null, keys: null, jevKey: null, radar: null, worktrees: null, agentsList: null, team: null, teamGone: null, teamTasks: null, teamMessages: null, teamResult: null, teamRefused: false, changesTeam: null, changesTeamGone: null, changesTeamRefused: false, changesTeamResult: null, changesTeamResults: [], changesChecks: null, changesDiffs: {}, branchGit: null, session: 0, remoteDevices: null, remotePair: null, remoteOutcome: null, dropped: 0,
 });
 
 /** upsert returns entries with each of the new ones in place of the one with its
@@ -344,6 +347,8 @@ export function createStore(opts) {
   const cancelPanes = new Map();
   // The same for structuredSet.
   const settingPanes = new Map();
+  // The count that tells one attachImageResult from the one before it.
+  let attachSeq = 0;
   // The structured pane last asked for with watchStructured, or null.
   let watchingPane = null;
   // The pane whose conversation is open, or null.
@@ -642,6 +647,9 @@ export function createStore(opts) {
           cancelPanes.delete(msg.req);
           set({ cancelError: msg.ok ? null : { id, error: String(msg.error || "") } });
         }
+        if (msg.op === "structuredFiles" && !msg.ok && !snap.remote) {
+          set({ files: { id: "", req: String(msg.req || ""), q: "", files: [], error: String(msg.error || "") } });
+        }
         if (msg.op === "structuredSet") {
           const id = settingPanes.get(msg.req) || "";
           settingPanes.delete(msg.req);
@@ -656,6 +664,12 @@ export function createStore(opts) {
             set({ graphError: { op: msg.op, error } });
           }
         }
+        break;
+      case "structuredFiles":
+        if (!snap.remote) set({ files: msg });
+        break;
+      case "attachImageResult":
+        if (!snap.remote) set({ attached: { ...msg, seq: ++attachSeq } });
         break;
       case "structured":
         if (watchingPane !== null && msg.id === watchingPane && !snap.remote) {

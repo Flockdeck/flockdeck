@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { render } from "../src/vendor/preact.mjs";
 import { html } from "../src/html.js";
 import { Structured } from "../src/drawer/Structured.js";
+import { forgetComposerMemory } from "../src/drawer/composerModel.js";
 import { cleanCommands, DESC_MAX } from "../src/drawer/slashModel.js";
 import { createDom, install, settle } from "./dom.mjs";
 import { fakeStore } from "./termfakes.mjs";
@@ -16,6 +17,7 @@ const cmds = [
 ];
 
 async function mountWith(commands, { desk = true } = {}) {
+  forgetComposerMemory();
   const dom = createDom();
   const restore = install(dom);
   const container = dom.document.createElement("div");
@@ -45,13 +47,17 @@ test("Enter on a partial match inserts the agent's command and never runs Stop",
     box().enter("/sto");
     await settle();
     assert.deepEqual(on(m), []);
-    assert.equal(box().keydown("Enter").defaultPrevented, false);
     assert.equal(box().keydown("Tab").defaultPrevented, false);
     assert.deepEqual(m.store.sent, []);
     // An exact name chooses it.
     box().enter("/stop");
     await settle();
     assert.deepEqual(on(m), ["stop"]);
+    // Enter is the send key, so with no row chosen it sends the text as typed: to the agent, and it does not run Stop.
+    box().enter("/sto");
+    await settle();
+    assert.equal(box().keydown("Enter").defaultPrevented, true);
+    assert.deepEqual(m.store.sent.map((c) => [c.cmd, c.text]), [["paneSend", "/sto"]]);
   } finally {
     await m.done();
   }
