@@ -301,8 +301,11 @@ func (m *Manager) Get(id int) (Run, bool) {
 	return Run{}, false
 }
 
-// List returns a copy of every run, the oldest first.
+// List returns a copy of every run, the oldest first. A nil Manager has none.
 func (m *Manager) List() []Run {
+	if m == nil {
+		return nil
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	out := make([]Run, 0, len(m.runs))
@@ -328,8 +331,11 @@ func (m *Manager) find(id int) *run {
 }
 
 // Close ends every run and what each started, waits for them to be gone, and
-// refuses new ones. It is safe to call twice.
+// refuses new ones. It is safe to call twice, and on a nil Manager.
 func (m *Manager) Close() {
+	if m == nil {
+		return
+	}
 	m.mu.Lock()
 	m.closed = true
 	for _, r := range m.runs {

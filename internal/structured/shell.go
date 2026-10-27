@@ -25,7 +25,7 @@ func (r *Runtime) RunShell(cmdline string) (int, error) {
 	r.mu.Lock()
 	closed := r.closed
 	r.mu.Unlock()
-	if closed {
+	if closed || r.shell == nil {
 		return 0, ErrShellClosed
 	}
 	return r.shell.Start(cmdline)
