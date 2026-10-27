@@ -12,6 +12,7 @@ import { createDom, install, settle } from "./dom.mjs";
 import { fakeStore, paneState } from "./termfakes.mjs";
 import { FakeWebSocket, harness, hello } from "./fakes.mjs";
 import { Structured } from "../src/drawer/Structured.js";
+import { forgetComposerMemory } from "../src/drawer/composerModel.js";
 import { UNASKED_WORDS } from "../src/drawer/Header.js";
 
 const NOW = Date.parse("2026-10-21T09:20:00Z");
@@ -21,6 +22,7 @@ const push = (over = {}) => ({ type: "structured", id: "p3", kind: "structured",
 const convOf = (entries) => (entries ? { id: "p3", supported: true, entries, atStart: true, older: "idle", refused: "" } : null);
 
 async function mount(st, { remote = false, pane = null, entries = null } = {}) {
+  forgetComposerMemory();
   const dom = createDom();
   const restore = install(dom);
   const container = dom.document.createElement("div");

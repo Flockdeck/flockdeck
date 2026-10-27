@@ -45,15 +45,15 @@ The drawer (`Structured.js`) has a context and cost line, the conversation, a te
 | Type while the agent works, input is queued | Claude, Codex (memory), Gemini, opencode | partial: up to 16 queued in the runtime, drawer shows nothing about them | client |
 | See, edit or remove a queued prompt; send one now | Claude (Ctrl+Enter, take back what you queued) | missing | client |
 | Mid-turn steering (queued text reaches the agent at the next tool boundary) | Claude, Codex | missing, and ACP has no method for it: one prompt is in flight at a time | no for true steering. Approximate with cancel then re-prompt (client), or adapter-internal injection in a Flockdeck-written adapter |
-| Prompt history (Up, Ctrl+R) | all | missing | client |
-| Stash or restore a draft (Claude Ctrl+S), undo input edits | Claude | missing | client |
+| Prompt history (Up, Ctrl+R) | all | partial (T212): Up and Down step through the last 50 prompts sent to the pane, kept per pane in the window's storage; no Ctrl+R search | client |
+| Stash or restore a draft (Claude Ctrl+S), undo input edits | Claude | partial (T212): the draft is kept per pane across tab switches; no stash stack, and undo is the browser's own | client |
 | Edit the prompt in `$EDITOR` (Ctrl+G, `/editor`) | Claude, opencode | missing, and a browser textarea makes it low value | client, low priority |
 | Vim input mode | Claude, Gemini | missing | no (low value) |
-| `@file` mention with autocomplete | all four | missing: nothing parses or completes `@` | client for the picker over the pane's directory; ACP `resource_link` content block (baseline in the spec) or inline text; `embeddedContext` capability if the file contents are sent |
+| `@file` mention with autocomplete | all four | partial (T212): `@` opens a picker over the pane's files (`structuredFiles`, API 1.18) and inserts `@path` as text; the file is not attached as a `resource_link` or embedded | client for the picker over the pane's directory; ACP `resource_link` content block (baseline in the spec) or inline text; `embeddedContext` capability if the file contents are sent |
 | `@dir` mention, opencode `@alias` reference roots | Gemini, opencode | missing | client, same route |
 | `@session` message to another Claude session | Claude | missing | no: Flockdeck's own mail replaces it (T182) |
 | `!` shell escape: run a command, output joins the conversation | Claude, Gemini, opencode | missing for structured panes | client: Flockdeck runs the command in the pane's directory and sends the output as context in the next prompt. ACP `terminal/*` is for the agent's use, not this |
-| Paste or attach an image | Claude (Ctrl+V chips), Codex (`-i`, paste), Gemini (@ path), opencode (not documented) | missing: `Client.Prompt` sends text only | ACP image content block, gated by `promptCapabilities.image`; UI paste handler is client. The conversation already has an image row type |
+| Paste or attach an image | Claude (Ctrl+V chips), Codex (`-i`, paste), Gemini (@ path), opencode (not documented) | partial (T212): paste, drop or Attach image saves the picture (`attachImage`) and puts `[image: path]` in the text for the agent to read, when `capabilities.image` is set; `Client.Prompt` still sends text blocks only, so no ACP image block yet | ACP image content block, gated by `promptCapabilities.image`; UI paste handler is client. The conversation already has an image row type |
 | Attach other media (audio, PDF) | Gemini via `@` | missing | ACP `promptCapabilities.audio` / `embeddedContext` |
 | Voice dictation | Claude `/voice` | missing | no (browser speech input is possible, low value) |
 | Prompt suggestions (ghost text for the next prompt) | Claude | missing | adapter; no ACP method. Low value |

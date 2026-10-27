@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { render } from "../src/vendor/preact.mjs";
 import { html } from "../src/html.js";
 import { Structured } from "../src/drawer/Structured.js";
+import { forgetComposerMemory } from "../src/drawer/composerModel.js";
 import { looksUnasked, controlsOf, controlFor, setMessage, offered, parseSetting, ownCommandsFor, CONTROLS_MAX, CHOICES_MAX, LABEL_MAX } from "../src/drawer/settingsModel.js";
 import { OWN_COMMANDS } from "../src/drawer/slashModel.js";
 import { createDom, install, settle } from "./dom.mjs";
@@ -76,6 +77,7 @@ test("'/mode plan' names a choice by value or label; a word that is none says wh
 });
 
 async function mount(extra = {}, props = {}) {
+  forgetComposerMemory();
   const dom = createDom();
   const restore = install(dom);
   const container = dom.document.createElement("div");

@@ -19,12 +19,13 @@ A window sends a command as one JSON object with a `cmd` field, over its control
 | `structuredWatch` | `id`, `req` | Answers with the `structured` message now, and sends it again whenever it changes. One pane at a time: watching another replaces the first. | yes | refused |
 | `structuredUnwatch` | none | Stops the pushes. | yes | refused |
 | `structuredSet` | `id`, `req`, `kind`, `setting`, `value` | Changes the mode, the model or one setting of that pane (API 1.17, cap `structuredSettings`). `kind` is `mode`, `model` or `config`; `value` is the id of the mode or model, or the value of the option; `setting` is the option's id for `config` and empty otherwise. Only a mode, model, option and value in the lists the pane last pushed are accepted, so a value the agent has since replaced is refused. It does not wait for the turn to end. Answers with a `teamResult` (`ok`), or an error with fixed text: the pane is not a structured pane, the setting is not on offer, the agent is not running, or the agent did not change it. What the agent said about a refusal is not passed on. The push carries the new value once the agent has accepted it. | yes | refused |
+| `structuredFiles` | `id`, `req`, `q` | Lists file names under the pane's working directory for the prompt box's `@` picker (API 1.18, cap `structuredFiles`). `q` is the text after the `@`, cut to 200 bytes; it matches the file name first, then the path, then the letters in order, without regard to case. Answers with a `structuredFiles` message: `id`, `req`, `q` as cleaned, `files` (at most 50 slash-separated paths relative to the pane's directory, best match first), `more` when the list was cut, and `error` with fixed text when the directory could not be read or the window asked more than 40 times in 10 seconds. A pane that is not a structured pane gets a `teamResult` error. In a git working tree the names are those git lists as tracked or not ignored (`.gitignore` is honoured); elsewhere, or when git's list is over 4 MiB, a breadth-first walk reads at most 50,000 entries, skips directories that start with a dot and `node_modules`, and stops after 5 seconds. A symlink or junction is never followed or listed, a name is sent only if it resolves to a regular file inside the directory, and a name that is not valid UTF-8, has a control character, is over 300 bytes or has a `.` or `..` element is dropped. Only names are read, never contents. | yes | refused |
 | `structuredCancel` | `id`, `req` | Ends the running turn of that pane and drops the prompts waiting behind it; an open permission request of the pane is answered cancelled. Answers with a `teamResult` (`ok`), or an error if the pane is not a structured pane or has nothing running. Only that pane's own session is touched. | yes | refused |
 
 `id` is the pane's id. `req` is a token of the window's choosing; it is copied into the answer.
 
 **A local window** is one on the machine Flockdeck runs on. **A window through the relay** is a
-paired phone or other device. It is refused all five commands whether the device is full or a viewer,
+paired phone or other device. It is refused all of these commands whether the device is full or a viewer,
 with a `teamResult` whose `error` says so, and it is never subscribed. A viewer is refused by the
 table of commands viewers may send (`commandAccess` in `internal/server/viewerrole.go`), including a
 viewer the desk has let watch panes, and the two message types are not in the lists of messages a
@@ -130,6 +131,7 @@ push, they are for a window on this machine; a window through the relay is refus
 | Permission card | 300 bytes for each field, 500 for the command, and the agent's options with 100 bytes for each field. |
 | `err` | 200 characters. |
 | `conversationDetail` text and diff | 64 KiB each. |
+| `structuredFiles` | 50 names of at most 300 bytes in an answer; 40 asks in 10 seconds for each window; 4 MiB of git's list, 50,000 entries walked, 5 seconds. |
 | Panes watched at once, over all windows | 16. A watch past that is refused with `Too many structured panes are being watched. Stop watching one first`. |
 
 Every cut is made between characters. A text is never cut inside a UTF-8 sequence, bytes that are not
@@ -155,6 +157,16 @@ output or diff with `conversationDetail` (4 KiB of output and 64 KiB of diff are
 said), and a permission waiting on the pane is drawn in the list after the tool it was asked for, as the
 same card the top of the drawer has. Export is not offered for a structured pane (there is no stored
 transcript to export), and the toolbar says so. Every text is drawn as text.
+
+The prompt box (T212) takes several lines: Enter or Ctrl/Command+Enter sends and Shift+Enter adds a line,
+and the box grows from two to ten rows. Up on the first line and Down on the last step through the pane's
+earlier prompts and back to the draft; the history (50 prompts of at most 8 KiB) and the draft (16 KiB)
+are kept per pane in the window's local storage, for the 30 panes used last, and in memory when storage
+is missing or full. `@` after white space asks `structuredFiles` (after a 120 ms pause, one answer matched
+by its `req`) and lists the names; choosing one writes `@path ` as text. When `capabilities.image` is set,
+a picture pasted, dropped or chosen is scaled to under 600 KiB, sent with `attachImage`, and its saved path
+is written as `[image: path]`; one is in flight at a time. A window reached through the relay has none of
+this. There is no setting for the send key.
 
 
 ## 6. Using a structured pane

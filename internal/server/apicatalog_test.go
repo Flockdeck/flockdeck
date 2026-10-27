@@ -27,7 +27,7 @@ const apiCatalogPath = "../../api/catalog.json"
 // command or message raises the major; one that adds raises the minor.
 const (
 	apiMajor = 1
-	apiMinor = 17
+	apiMinor = 18
 )
 
 // addedIn names the minor version a command arrived in; any other is 1.0.
@@ -59,6 +59,8 @@ func init() {
 	addedIn["approveMerge"], addedIn["unapproveMerge"], addedIn["mergeBranch"] = "1.10", "1.10", "1.10"
 	// Changing a structured pane's mode, model or settings came with structuredSettings (1.17).
 	addedIn["structuredSet"] = "1.17"
+	// The prompt box's file picker came with structuredFiles (1.18).
+	addedIn["structuredFiles"] = "1.18"
 }
 
 func sinceOf(name string) string {
