@@ -486,6 +486,10 @@ func (a *agent) setting(m msg) {
 		}
 	}
 	shape := os.Getenv(envShape)
+	if a.setOpt("refuse") {
+		refuse("setting")
+		return
+	}
 	switch m.Method {
 	case "session/set_mode":
 		if shape != "modes" || !has("default", "yolo")(p.ModeID) {

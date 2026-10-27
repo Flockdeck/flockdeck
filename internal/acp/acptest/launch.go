@@ -51,6 +51,9 @@ func WithBooleanOption() Option { return withSetOpt("bool") }
 // no options, which the protocol allows an agent that has nothing to add.
 func WithBareSettingReplies() Option { return withSetOpt("bare") }
 
+// WithRefusedSettings makes the agent refuse every setting request, whatever the value.
+func WithRefusedSettings() Option { return withSetOpt("refuse") }
+
 func withSetOpt(name string) Option {
 	return func(l *launch) { l.env = append(l.env, envSetOpts+"_"+name+"=1") }
 }
