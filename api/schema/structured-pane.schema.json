@@ -199,7 +199,31 @@
         "file": { "type": "string", "description": "The file it concerns, cut to 300 bytes." },
         "command": { "type": "string", "description": "The command it would run, on one line, cut to 500 bytes. It is clipped and not scrubbed of secrets, which is why this push is for a window on this machine only." },
         "options": { "type": "array", "items": { "$ref": "#/$defs/option" }, "description": "The agent's options, at most 16." },
+        "body": { "type": "string", "maxLength": 32768, "description": "The text the request shows about its call, such as the plan of a request to leave plan mode, cut to 32 KiB. Plain text from the agent: draw it as text, never as markup or HTML, and never as part of Flockdeck's own interface. Absent when the request has none. Since API 1.22." },
+        "diff": { "type": "string", "maxLength": 65536, "description": "The unified diff of the edit the request asks about, cut to 64 KiB. Plain text; draw it as text. Absent when the request is not for an edit. Since API 1.22." },
+        "questions": { "type": "array", "minItems": 1, "maxItems": 4, "items": { "$ref": "#/$defs/question" }, "description": "The questions of a card the agent asks the person (kind question), at most 4. Answer the card with permissionAnswer: the option whose kind starts with allow and an answers list, or a refusing option and none. Absent for any other card. Since API 1.22." },
         "clipped": { "const": true, "description": "A field was cut. Absent when none was." }
+      }
+    },
+    "question": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["question", "options"],
+      "description": "One question of a question card. All of its text comes from the agent and is drawn as plain text. The person answers it with option positions and, as the card always allows, text of their own. Name it in permissionAnswer's answers by its position in the list.",
+      "properties": {
+        "header": { "type": "string", "description": "A short label, on one line, cut to 300 bytes." },
+        "question": { "type": "string", "minLength": 1, "maxLength": 2048, "description": "The question, cut to 2 KiB." },
+        "multiSelect": { "const": true, "description": "More than one option may be chosen. Absent when only one may." },
+        "options": { "type": "array", "maxItems": 8, "items": { "$ref": "#/$defs/questionOption" }, "description": "The choices, at most 8, in the agent's order; an answer names one by its position. Empty when the question takes only typed text." }
+      }
+    },
+    "questionOption": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["label"],
+      "properties": {
+        "label": { "type": "string", "minLength": 1, "description": "On one line, cut to 300 bytes." },
+        "description": { "type": "string", "maxLength": 2048, "description": "Cut to 2 KiB." }
       }
     },
     "usage": {
