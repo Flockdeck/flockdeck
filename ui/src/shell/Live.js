@@ -218,9 +218,16 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
   const send = (c) => store.send(c);
   const life = useLifecycle(send);
   const tx = useTranscripts(send, acknowledged(kept.current.hello.prefs));
+  // A question for a pane that is not open (from its row's menu) opens the drawer
+  // on it first and is asked once the drawer has changed pane, which drops any
+  // question already open.
+  const asked = useRef(null);
   useEffect(() => {
     life.cancel();
     tx.cancel();
+    const later = asked.current;
+    asked.current = null;
+    if (later && later.pane === drawer.pane) later.fn();
   }, [drawer.pane]);
 
   // An agent started from the dialog is opened in the drawer once the graph
@@ -557,14 +564,21 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
   // the manager bar takes the keyboard where it is.
   // A pane action acts on the pane it is given by id (a right-click on a row),
   // or else on the open drawer's. fn gets that pane's node and state.
-  const needPane = (fn) => (id) => {
+  // With show, an action that asks a question in the drawer first opens the drawer on the pane.
+  const needPane = (fn, show = false) => (id) => {
     const at = typeof id === "string" && id ? id : drawer.pane;
     const n = at === drawer.pane ? node : at && current ? current.byPane.get(at) : null;
     if (!at || !n) {
       say(OPEN_AN_AGENT_WORDS);
       return;
     }
-    fn(n, (statePanes || {})[at] || null);
+    const st = (statePanes || {})[at] || null;
+    if (show && at !== drawer.pane) {
+      asked.current = { pane: at, fn: () => fn(n, st) };
+      drawer.open(at);
+      return;
+    }
+    fn(n, st);
   };
   // The Team dialog keeps a watch on the project chosen in the rail while it is open.
   useEffect(() => {
@@ -686,19 +700,19 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
       if (viewer) say(VIEWER_WORDS);
       else if (canTranscribe(node, pane)) tx.record(node.pane, !(pane && pane.recording));
       else say(node.shell || (pane && pane.shell) ? SHELL_RECORD_WORDS : STRUCTURED_RECORD_WORDS);
-    }),
+    }, true),
     exportTranscript: needPane((node, pane) => {
       if (viewer) say(VIEWER_WORDS);
       else if (snap.remote) say(DESK_FILES_WORDS);
       else if (canTranscribe(node, pane)) tx.exportTranscript(node.pane);
       else say(node.shell || (pane && pane.shell) ? SHELL_RECORD_WORDS : STRUCTURED_RECORD_WORDS);
-    }),
+    }, true),
     revealTranscript: needPane((node) => (viewer ? say(VIEWER_WORDS) : snap.remote ? say(DESK_FILES_WORDS) : send({ cmd: "revealTranscript", id: node.pane }))),
     openRecordings: () => (viewer ? say(VIEWER_WORDS) : snap.remote ? say(DESK_FILES_WORDS) : send({ cmd: "openRecordings" })),
     zoomPane: needPane(() => drawer.toggleMax()),
-    restartPane: needPane((node, pane) => (viewer ? say(VIEWER_WORDS) : life.begin("restart", node, pane))),
+    restartPane: needPane((node, pane) => (viewer ? say(VIEWER_WORDS) : life.begin("restart", node, pane)), true),
     lockPane: needPane((node, pane) => (viewer ? say(VIEWER_WORDS) : life.toggleLock(node.pane, !(pane && pane.locked)))),
-    closePane: needPane((node, pane) => (viewer ? say(VIEWER_WORDS) : pane && pane.locked ? say("This pane is locked. Unlock it to close it.") : life.begin("close", node, pane))),
+    closePane: needPane((node, pane) => (viewer ? say(VIEWER_WORDS) : pane && pane.locked ? say("This pane is locked. Unlock it to close it.") : life.begin("close", node, pane)), true),
   });
 
   // The baton answers. A draft is for the dialog whose request it carries. A

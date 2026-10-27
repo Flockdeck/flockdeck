@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { agentMenu, termMenu } from "../src/shell/panemenus.js";
-import { resolve } from "../src/shell/menus.js";
+import { isField, resolve } from "../src/shell/menus.js";
 import { linkIn } from "../src/lib/terminal.js";
 
 const ACTIONS = ["paneInfo", "changes", "restartPane", "lockPane", "makeBaton", "recordPane", "exportTranscript", "revealTranscript", "closePane", "findInTerminal", "zoomPane"];
@@ -36,9 +36,11 @@ test("an agent row gets the pane's actions, and each one acts on that row's pane
   const { ctx, calls } = bag();
   const items = resolve(agentMenu(el({ "data-pane": "p9" }), ctx), ctx);
   assert.deepEqual(labels(items), ["Open", "paneInfo", "changes", "restartPane", "Lock", "makeBaton", "Start recording", "exportTranscript", "revealTranscript", "Copy pane id", "Copy name", "closePane"]);
+  assert.deepEqual(items.filter((i) => !i.separator).map((i) => i.id), ["open", "paneInfo", "changes", "restartPane", "lockPane", "makeBaton", "recordPane", "exportTranscript", "revealTranscript", "copy-id", "copy-name", "closePane"]);
   for (const i of items.filter((x) => !x.separator)) i.run();
   const runs = calls.filter((c) => c[0] === "run");
-  assert.ok(runs.length >= 6 && runs.every((c) => c[2] === "p9"));
+  assert.deepEqual(runs.map((c) => c[1]), ["paneInfo", "changes", "restartPane", "lockPane", "makeBaton", "recordPane", "exportTranscript", "revealTranscript", "closePane"]);
+  assert.ok(runs.every((c) => c[2] === "p9"));
   assert.ok(calls.some((c) => c[0] === "run" && c[1] === "closePane"));
   assert.deepEqual(calls.filter((c) => c[0] === "copy"), [["copy", "p9", "the pane id"], ["copy", "Ada", "the name"]]);
 });
@@ -135,4 +137,14 @@ test("linkIn finds the address under a column and drops closing punctuation", ()
   assert.equal(linkIn(t, 0), "");
   assert.equal(linkIn(t, t.indexOf("x.org")), "https://x.org/p");
   assert.equal(linkIn(t, t.length - 1), "");
+});
+
+const node = (localName, cls, parentNode = null) => ({ nodeType: 1, localName, parentNode, getAttribute: (k) => (k === "class" ? cls : null) });
+
+test("xterm's hidden textarea is not a field, but another textarea is", () => {
+  const host = node("div", "terminal-host");
+  assert.equal(isField(node("textarea", "xterm-helper-textarea", host)), false);
+  assert.equal(isField(node("textarea", "other xterm-helper-textarea last", host)), false);
+  assert.equal(isField(node("textarea", "xterm-helper-textareas", host)), true);
+  assert.equal(isField(node("textarea", "", host)), true);
 });

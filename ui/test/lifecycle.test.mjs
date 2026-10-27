@@ -539,6 +539,22 @@ test("restart of a running terminal agent asks first, and one that has ended res
     assert.deepEqual(m.sent("restartPane"), [{ cmd: "restartPane", id: CART }]);
   }));
 
+test("a right-click on a row acts on that row's pane while the drawer shows another", () =>
+  withPage({}, async (m) => {
+    await m.connect();
+    await open(m, CART);
+    m.clear();
+    m.box(TAX).dispatch("contextmenu", { clientX: 20, clientY: 20 });
+    await settle();
+    const item = m.container.findAll(".ctxmenu-item").find((e) => /Restart/.test(e.textContent));
+    assert.ok(item, "no Restart item in the row's menu");
+    await m.click(item);
+    // The drawer opens on the row's pane to ask, and nothing is sent until it is answered.
+    assert.equal(m.sent("restartPane").length, 0);
+    await m.click(m.byText(".confirm .dialog-btn", /^Restart$/));
+    assert.deepEqual(m.sent("restartPane"), [{ cmd: "restartPane", id: TAX }]);
+  }));
+
 test("restart of an agent that has ended is sent at once", () =>
   withPage({ g: graph({ [CART]: { status: "exited" } }) }, async (m) => {
     await m.connect();

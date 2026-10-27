@@ -49,6 +49,9 @@ export function ctxElement(target) {
 export function isField(el) {
   for (let n = el; n && n.nodeType === 1; n = n.parentNode) {
     const tag = n.localName;
+    // xterm's hidden textarea takes the keyboard for the terminal; it is not
+    // somewhere the person types, and the terminal has a menu of its own.
+    if (n.getAttribute && /(^|\s)xterm-helper-textarea(\s|$)/.test(n.getAttribute("class") || "")) return false;
     if (tag === "input" || tag === "textarea" || tag === "select") return true;
     if (n.isContentEditable) return true;
     const ce = n.getAttribute && n.getAttribute("contenteditable");
