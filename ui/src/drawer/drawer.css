@@ -271,6 +271,18 @@
 .structured-title { font-family: var(--mono); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .structured-file, .structured-usage { color: var(--fg-dim); }
 .structured-usage { gap: 12px; }
+.structured-todos { border: 1px solid var(--line); border-radius: var(--radius); font-size: 12px; }
+.structured-todos-head { display: flex; align-items: baseline; gap: 8px; width: 100%; min-width: 0; padding: 4px 8px; font: inherit; color: var(--fg); background: none; border: 0; text-align: left; cursor: pointer; }
+.structured-todos-title { flex: none; color: var(--fg-dim); }
+.structured-todos-sum { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.structured-todos-list { margin: 0; padding: 2px 8px 6px; list-style: none; display: flex; flex-direction: column; gap: 2px; max-height: 30vh; overflow-y: auto; }
+.structured-todo { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.structured-todo-mark { flex: none; width: 8px; height: 8px; border: 1px solid var(--fg-dim); border-radius: 2px; }
+.structured-todo[data-status="in_progress"] .structured-todo-mark { border-color: var(--working); background: var(--working); }
+.structured-todo[data-status="completed"] .structured-todo-mark { border-color: var(--ok); background: var(--ok); }
+.structured-todo[data-status="completed"] .structured-todo-text { color: var(--fg-dim); text-decoration: line-through; }
+.structured-todo-text { min-width: 0; overflow-wrap: anywhere; }
+.structured-todo--more { color: var(--fg-dim); }
 .structured-settings { display: flex; flex-wrap: wrap; gap: 8px 12px; font-size: 12px; }
 .structured-setting { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .structured-setting-name { color: var(--fg-dim); }

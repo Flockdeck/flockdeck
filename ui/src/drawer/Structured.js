@@ -49,6 +49,12 @@
 //   with Attach image is saved by the desktop (attachImage) and its path goes into the text as
 //   "[image: path]", for the agent to read. One picture at a time is in flight.
 //
+// - Escape stops a running turn, and so does Ctrl+C when no text is selected (interruptModel.js): both
+//   send what Stop sends, keeping the waiting prompts (the person did not ask to lose them; Stop drops them).
+//   Escape in the box is the box's own until it is empty, and a menu, the settings dialogs, a select or the
+//   search field keep their Escape.
+// - The agent's plan (the push's plan) is a collapsible checklist above the conversation (TodoList.js).
+//
 // Everything on a row came from an agent, a tool or a person, and none of it is
 // put into the page as markup.
 import { useEffect, useRef, useState } from "../vendor/hooks.mjs";
@@ -66,6 +72,8 @@ import { UsageMeter } from "./UsageMeter.js";
 import { ExportPanel } from "./ExportPanel.js";
 import { queueOf, stopMessage } from "./queueModel.js";
 import { ShellList } from "./ShellList.js";
+import { TodoList } from "./TodoList.js";
+import { interruptKey, selectedText, INTERRUPT_HINT } from "./interruptModel.js";
 import { shellText, shellOf, shellRunMessage, shellWait, SHELL_EMPTY_WORDS, SHELL_ONE_LINE_WORDS, SHELL_NOT_SENT_WORDS, SHELL_NO_ANSWER_WORDS } from "./shellModel.js";
 import { prepareImage, pickImages, attachNote, ImageError, IMAGE_TYPES } from "./imageAttach.js";
 
@@ -474,6 +482,20 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
       submit();
     }
   };
+  // Escape, or Ctrl+C over no selection, stops a running turn from the box or from anywhere in the drawer. The
+  // keys of a menu are taken in onKey, which stops them here; interruptKey leaves the rest to their owners.
+  const onRootKey = (e) => {
+    const el = e && e.target;
+    const win = el && el.ownerDocument ? el.ownerDocument.defaultView : null;
+    const ctx = {
+      desk, working: st.status === "working" || st.status === "waiting", draft, stopping: stopping === pane,
+      menuOpen: !!menu || names.length > 0, dialogOpen: (!!confirming && confirming.pane === pane) || exporting === pane,
+      selected: selectedText(win, el),
+    };
+    if (!interruptKey(e, ctx)) return;
+    e.preventDefault();
+    stop(queue.length > 0);
+  };
   const attach = async (file) => {
     if (!file) return;
     if (attaching.current) {
@@ -508,7 +530,7 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
     <span class="slash-name">/${it.name}</span>${it.hint ? html`<span class="slash-hint">${it.hint}</span>` : null}${it.description ? html`<span class="slash-desc">${it.description}</span>` : null}
   </div>`;
   return html`
-    <div class="structured" data-structured-pane=${pane}>
+    <div class="structured" data-structured-pane=${pane} onKeyDown=${onRootKey}>
       <div class="structured-facts">
         <p class="structured-activity" data-activity=${act ? "on" : "off"}>
           ${act
@@ -520,6 +542,7 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
           : null}
         <${UsageMeter} usage=${st.usage} />
       </div>
+      <${TodoList} st=${st} pane=${pane} />
       ${desk && exporting === pane ? html`<${ExportPanel} pane=${pane} store=${store} result=${exportResult} onClose=${() => setExporting("")} />` : null}
       ${controls.length
         ? html`<div class="structured-settings" ref=${settingsEl} role="group" aria-label="Agent settings">
@@ -570,6 +593,7 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
             ${sendFailed === pane ? html`<p class="structured-note structured-note--unsent structured-note--send" role="alert">${SEND_NOT_SENT_WORDS}</p>` : null}
             ${draft.startsWith("!") ? html`<p class="structured-note structured-note--hint" data-shell-hint="on">Runs in this folder as you. The agent is not asked and does not see it unless you send the output.</p>` : null}
             ${shellNote && draft.startsWith("!") ? html`<p class="structured-note structured-note--unsent" role="alert" data-shell-note="on">${showControls(shellNote)}</p>` : null}
+            ${(st.status === "working" || st.status === "waiting") && stopping !== pane ? html`<p class="structured-note structured-note--hint" data-interrupt-hint="on">${INTERRUPT_HINT}</p>` : null}
             ${stopping === pane ? html`<p class="structured-note" role="status" data-stopping="on">Stopping the turn.</p>` : null}
             ${st.status === "working" && !stopping ? html`<p class="structured-note structured-note--hint" data-queue-hint="on">The agent is working. What you send now waits in the queue.</p>` : null}
             ${stopFailed === pane ? html`<p class="structured-note structured-note--unsent" role="status">${STOP_NOT_SENT_WORDS}</p>` : null}

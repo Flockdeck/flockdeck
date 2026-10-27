@@ -449,6 +449,9 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
   // another. The first state seen is only remembered, never announced.
   const waits = useRef(new Map());
   const lastNote = useRef(null);
+  // Whether the notification on screen is one of an agent waiting, which goes when the wait is answered,
+  // and not one of a turn that ended, which stays until it is clicked or replaced.
+  const lastNoteWaits = useRef(false);
   const [toasts, setToasts] = useState([]);
   // The window title and the tab icon say how many agents wait, on every change.
   useEffect(() => {
@@ -456,26 +459,27 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
   }, [statePanes]);
   useEffect(() => {
     const panes = kept.current.state.panes;
-    const { fresh, next } = waitsOf(waits.current, panes);
+    const { fresh, finished, next } = waitsOf(waits.current, panes);
     waits.current = next;
     const waiting = new Set([...next].filter(([, v]) => v === "waiting" || v === "blocked").map(([id]) => id));
     setToasts((cur) => keepWaiting(cur, waiting));
     const nothing = ![...next.values()].some((v) => v === "waiting" || v === "blocked");
-    if (nothing && lastNote.current) {
+    if (nothing && lastNote.current && lastNoteWaits.current) {
       // Answered from here or another window: the notification is stale.
       try { lastNote.current.close(); } catch { /* already gone */ }
       lastNote.current = null;
     }
-    if (!fresh.length || prefs.notificationsOff) return;
+    if ((!fresh.length && !finished.length) || prefs.notificationsOff) return;
     const doc = page && page.document;
     if (doc && (doc.hidden === false || doc.hidden === undefined) && typeof doc.hasFocus === "function" && doc.hasFocus()) {
-      // In front: the browser raises nothing, so the page says it itself.
-      setToasts((cur) => addToasts(cur, fresh, drawer.pane));
+      // In front: the browser raises nothing, so the page says it itself. A turn that ended is in front of the person already.
+      if (fresh.length) setToasts((cur) => addToasts(cur, fresh, drawer.pane));
       return;
     }
     // A second notification replaces the first: the first is closed, not left on screen.
     if (lastNote.current) { try { lastNote.current.close(); } catch { /* already gone */ } }
-    lastNote.current = raise(page, noteOf(fresh), (id) => drawer.open(id));
+    lastNote.current = raise(page, noteOf([...fresh, ...finished]), (id) => drawer.open(id));
+    lastNoteWaits.current = fresh.length > 0;
   }, [statePanes]);
   const bumpFont = (to) => {
     if (to < FONT_MIN || to > FONT_MAX) return;
