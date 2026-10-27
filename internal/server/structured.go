@@ -15,7 +15,7 @@ import (
 
 // This file is what a window is told about a structured pane: structuredSnapshot,
 // structuredWatch and structuredUnwatch, and what it may ask of it:
-// structuredCancel. They carry the pane's state (phase, status, activity, plan,
+// structuredCancel, and structuredSet for the mode, model and settings. They carry the pane's state (phase, status, activity, plan,
 // usage, the permission card and setup problems) and no conversation: the
 // conversation is read with conversationOpen, conversationOlder and
 // conversationDetail, as for any pane.
@@ -64,6 +64,11 @@ const (
 	structuredTooMany  = "Too many structured panes are being watched. Stop watching one first"
 	// structuredIdle is what structuredCancel says when the pane has no turn to stop.
 	structuredIdle = "That pane has nothing running to stop"
+	// The refusals of structuredSet. None of them carries text from the agent.
+	structuredNoSetting   = "That setting is not on offer any more. Pick one from the list again"
+	structuredSetNotReady = "That pane's agent is not running"
+	structuredSetFailed   = "The agent did not change the setting"
+	structuredSetKind     = "structuredSet needs a kind of mode, model or config"
 )
 
 type structuredPlanRow struct {
@@ -393,6 +398,8 @@ func (s *Server) structuredCommand(c *controlClient, cmd command) {
 		c.send(r.data)
 	case "structuredCancel":
 		s.do(func() { s.structuredCancel(c, cmd) })
+	case "structuredSet":
+		s.do(func() { s.structuredSet(c, cmd) })
 	case "structuredWatch":
 		s.do(func() { s.structuredWatch(c, cmd) })
 	case "structuredUnwatch":
@@ -424,6 +431,46 @@ func (s *Server) structuredCancel(c *controlClient, cmd command) {
 		return
 	}
 	c.sendJSON(teamResultMsg{Type: "teamResult", Req: cmd.Req, Op: cmd.Cmd, OK: true})
+}
+
+// structuredSet changes the mode, the model or one setting of the structured pane
+// cmd.ID: Kind is "mode", "model" or "config", Value the id of the mode or
+// model or the value of the option, and Setting the option's id for "config".
+// Only what the pane last pushed is accepted. The agent is asked on a goroutine
+// of its own, since it may take a while, and the answer is a teamResult for the
+// op. Whatever the agent says on a refusal is not passed on. It must run on the
+// workspace goroutine.
+func (s *Server) structuredSet(c *controlClient, cmd command) {
+	rt := s.ws.StructuredRuntime(cmd.ID)
+	if rt == nil {
+		refuse(c, cmd, errStructured(structuredNotPane))
+		return
+	}
+	var set func() error
+	switch cmd.Kind {
+	case "mode":
+		set = func() error { return rt.SetMode(cmd.Value) }
+	case "model":
+		set = func() error { return rt.SetModel(cmd.Value) }
+	case "config":
+		set = func() error { return rt.SetConfig(cmd.Setting, cmd.Value) }
+	default:
+		refuse(c, cmd, errStructured(structuredSetKind))
+		return
+	}
+	go func() {
+		err := set()
+		switch {
+		case err == nil:
+			c.sendJSON(teamResultMsg{Type: "teamResult", Req: cmd.Req, Op: cmd.Cmd, OK: true})
+		case errors.Is(err, structured.ErrNoSuchSetting):
+			refuse(c, cmd, errStructured(structuredNoSetting))
+		case errors.Is(err, structured.ErrNotRunning):
+			refuse(c, cmd, errStructured(structuredSetNotReady))
+		default:
+			refuse(c, cmd, errStructured(structuredSetFailed))
+		}
+	}()
 }
 
 // structuredWatch subscribes the window to one pane, replacing any it watched.

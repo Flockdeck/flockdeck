@@ -254,3 +254,51 @@ func TestAnEchoedPromptInATurnIsIgnored(t *testing.T) {
 	}
 }
 
+
+// A change the agent accepted is shown at once, cleaned like any other text
+// from the agent, and not let into a part the agent never listed.
+func TestAcceptedSettingsAreRecorded(t *testing.T) {
+	b := New(Config{})
+	b.SessionNew(acp.SessionNew{
+		Modes:  &acp.Modes{Current: "a", Available: []acp.Mode{{ID: "a"}, {ID: "b"}}},
+		Models: &acp.Models{Current: "m1", Available: []acp.Model{{ID: "m1"}, {ID: "m2"}}},
+	})
+	b.ModeSet("b")
+	b.ModelSet("m2")
+	s := b.Session()
+	if s.Modes.Current != "b" || s.Models.Current != "m2" {
+		t.Errorf("mode %q model %q", s.Modes.Current, s.Models.Current)
+	}
+	b.ModelSet("bad\nid")
+	if got := b.Session().Models.Current; strings.Contains(got, "\n") {
+		t.Errorf("a line break reached the model: %q", got)
+	}
+	b.ConfigSet([]acp.ConfigOption{{ID: "effort", Type: "select", Current: "high", Values: []acp.ConfigValue{{Value: "high"}}}})
+	if got := b.Session().ConfigOptions; len(got) != 1 || got[0].Current != "high" {
+		t.Errorf("config = %+v", got)
+	}
+	b.ConfigSet(nil)
+	if got := b.Session().ConfigOptions; len(got) != 1 {
+		t.Errorf("a nil list changed the options: %+v", got)
+	}
+}
+
+func TestAModelSetOnAnAgentWithNoModelsIsDropped(t *testing.T) {
+	b := New(Config{})
+	b.ModelSet("m1")
+	if b.Session().Models != nil {
+		t.Errorf("models = %+v, want none", b.Session().Models)
+	}
+}
+
+func TestConfigValueSetChangesTheListAsItStands(t *testing.T) {
+	b := New(Config{})
+	b.ConfigSet([]acp.ConfigOption{{ID: "a", Current: "1"}, {ID: "b", Current: "1"}})
+	b.ConfigSet([]acp.ConfigOption{{ID: "b", Current: "1"}, {ID: "c", Current: "1"}}) // the agent replaced it
+	b.ConfigValueSet("b", "2")
+	b.ConfigValueSet("a", "2") // gone: not put back
+	got := b.Session().ConfigOptions
+	if len(got) != 2 || got[0].ID != "b" || got[0].Current != "2" || got[1].Current != "1" {
+		t.Errorf("config = %+v", got)
+	}
+}
