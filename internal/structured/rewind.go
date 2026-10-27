@@ -91,7 +91,10 @@ func (r *Runtime) endMark(token string, complete bool) {
 // pointLocked is the index of the mark whose prompt entry is id, if it has a
 // point before it.
 func (r *Runtime) pointLocked(id string) (int, bool) {
-	if id == "" {
+	// After the agent moved the conversation to another session id (/clear), the
+	// uuids the adapter holds for earlier turns name messages of the old
+	// session file: no turn is offered as a point.
+	if id == "" || r.moved != "" {
 		return 0, false
 	}
 	for i, m := range r.marks {
@@ -108,7 +111,7 @@ func (r *Runtime) pointLocked(id string) (int, bool) {
 func (r *Runtime) RewindPoints() []string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.client == nil || !r.client.Capabilities().Rewind {
+	if r.client == nil || !r.client.Capabilities().Rewind || r.moved != "" {
 		return nil
 	}
 	var out []string
@@ -221,6 +224,11 @@ func (r *Runtime) ForkSource(id string) (ForkFrom, error) {
 		return ForkFrom{}, ErrRewindBusy
 	}
 	if id == "" {
+		// The whole conversation is forked by the id the agent resumes it by,
+		// which is the moved one after a /clear (see SessionID).
+		if r.moved != "" {
+			session = r.moved
+		}
 		r.mu.Unlock()
 		return ForkFrom{Session: session}, nil
 	}

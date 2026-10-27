@@ -250,3 +250,33 @@ func TestAPromptWaitsWhileARewindRuns(t *testing.T) {
 	r.wakeLoop()
 	until(t, r, "the held prompt", func(s Snapshot) bool { return idle(s) && len(prompts(s)) == n+1 })
 }
+
+// After the agent moved the conversation to another session id (/clear), the
+// turns before the move cannot be named: no point is offered, and the whole
+// conversation is forked by the id the agent resumes it by.
+func TestNoPointsAfterTheSessionMoved(t *testing.T) {
+	r, s := threeTurns(t, acptest.WithRewind())
+	ids := promptIDs(s)
+	if len(r.RewindPoints()) == 0 {
+		t.Fatal("no points before the move")
+	}
+	const moved = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+	r.mu.Lock()
+	r.moved = moved
+	r.mu.Unlock()
+	if p := r.RewindPoints(); len(p) != 0 {
+		t.Errorf("points after the move = %v", p)
+	}
+	if _, err := r.ForkSource(ids[2]); !errors.Is(err, ErrNoPoint) {
+		t.Errorf("fork at a point after the move = %v", err)
+	}
+	if _, err := r.Rewind(ids[2]); !errors.Is(err, ErrNoPoint) {
+		t.Errorf("rewind after the move = %v", err)
+	}
+	if f, err := r.ForkSource(""); err != nil || f.Session != moved {
+		t.Errorf("whole fork source = %+v, %v", f, err)
+	}
+	if len(prompts(r.Snapshot())) != 3 {
+		t.Error("a refused rewind changed the conversation")
+	}
+}
