@@ -165,20 +165,21 @@ type structuredCapabilities struct {
 // structuredMsg is what structuredSnapshot answers with and what a watching
 // window is pushed. Gone is the last message of a watch whose pane has closed.
 type structuredMsg struct {
-	Type     string              `json:"type"`
-	Req      string              `json:"req,omitempty"`
-	ID       string              `json:"id"`
-	Kind     string              `json:"kind"`
-	Gone     bool                `json:"gone,omitempty"`
-	Phase    string              `json:"phase,omitempty"`
-	Status   string              `json:"status,omitempty"`
-	Activity string              `json:"activity,omitempty"`
-	Queued   int                 `json:"queued,omitempty"`
-	Err      string              `json:"err,omitempty"`
-	Setup    *structuredSetup    `json:"setup,omitempty"`
-	Plan     []structuredPlanRow `json:"plan"`
-	Card     *structuredCard     `json:"card,omitempty"`
-	Usage    structuredUsage     `json:"usage"`
+	Type     string                `json:"type"`
+	Req      string                `json:"req,omitempty"`
+	ID       string                `json:"id"`
+	Kind     string                `json:"kind"`
+	Gone     bool                  `json:"gone,omitempty"`
+	Phase    string                `json:"phase,omitempty"`
+	Status   string                `json:"status,omitempty"`
+	Activity string                `json:"activity,omitempty"`
+	Queued   int                   `json:"queued,omitempty"`
+	Queue    []structuredQueueItem `json:"queue,omitempty"`
+	Err      string                `json:"err,omitempty"`
+	Setup    *structuredSetup      `json:"setup,omitempty"`
+	Plan     []structuredPlanRow   `json:"plan"`
+	Card     *structuredCard       `json:"card,omitempty"`
+	Usage    structuredUsage       `json:"usage"`
 
 	Title        string                   `json:"title,omitempty"`
 	Commands     []structuredCommandRow   `json:"commands,omitempty"`
@@ -272,6 +273,7 @@ func buildStructured(id string, sn structured.Snapshot) structuredMsg {
 		m.Card = card
 	}
 
+	buildStructuredQueue(&m, sn)
 	buildStructuredSession(&m, sn)
 	return m
 }
@@ -402,6 +404,8 @@ func (s *Server) structuredCommand(c *controlClient, cmd command) {
 		s.do(func() { s.structuredSet(c, cmd) })
 	case "structuredFiles":
 		s.do(func() { s.structuredFiles(c, cmd) })
+	case "structuredQueueEdit", "structuredQueueRemove", "structuredQueueClear", "structuredQueueSendNow":
+		s.do(func() { s.structuredQueue(c, cmd) })
 	case "structuredWatch":
 		s.do(func() { s.structuredWatch(c, cmd) })
 	case "structuredUnwatch":
@@ -414,7 +418,7 @@ type errStructured string
 func (e errStructured) Error() string { return string(e) }
 
 // structuredCancel ends the running turn of the one structured pane named by
-// cmd.ID, and drops the prompts waiting behind it; an open permission request
+// cmd.ID, and drops the prompts waiting behind it unless cmd.KeepQueue is set; an open permission request
 // of that pane is answered cancelled. It touches that pane's own runtime and
 // nothing else. A window reached through the relay was refused above, and a
 // viewer by the table of commands. The answer is a teamResult for the op.
@@ -424,7 +428,11 @@ func (s *Server) structuredCancel(c *controlClient, cmd command) {
 		refuse(c, cmd, errStructured(structuredNotPane))
 		return
 	}
-	if err := rt.Cancel(); err != nil {
+	stop := rt.Cancel
+	if cmd.KeepQueue {
+		stop = rt.Interrupt
+	}
+	if err := stop(); err != nil {
 		if errors.Is(err, structured.ErrNotRunning) {
 			refuse(c, cmd, errStructured(structuredIdle))
 			return

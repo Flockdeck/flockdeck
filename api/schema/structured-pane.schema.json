@@ -16,6 +16,7 @@
     "status": { "enum": ["working", "waiting", "idle"], "description": "What a ready agent is doing: working on a turn, waiting on a permission request, or idle. Absent unless the phase is ready." },
     "activity": { "type": "string", "minLength": 1, "description": "The line naming what a working agent is doing, as one line. Absent when there is none." },
     "queued": { "type": "integer", "minimum": 1, "description": "How many prompts wait behind the running turn. Absent when none do." },
+    "queue": { "type": "array", "minItems": 1, "maxItems": 16, "items": { "$ref": "#/$defs/queueItem" }, "description": "The prompts waiting behind the running turn, the next to be sent first (since API 1.19). Same length as queued; absent when none wait." },
     "err": { "type": "string", "minLength": 1, "description": "The last thing that went wrong, on one line, without control characters, cut to 200 characters. It says what last went wrong and not that something is wrong now: show it with the phase and status. Absent when nothing has." },
     "setup": { "$ref": "#/$defs/setup" },
     "plan": { "type": "array", "items": { "$ref": "#/$defs/planRow" }, "description": "The agent's plan, at most 100 rows. Empty, never absent." },
@@ -30,6 +31,21 @@
     "capabilities": { "$ref": "#/$defs/capabilities" }
   },
   "$defs": {
+    "queueItem": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "pos", "kind", "state", "text"],
+      "description": "One prompt waiting for its turn. Name it in structuredQueue* commands by id, never by pos: the list shortens as turns end, and a command about a prompt that has been sent is refused.",
+      "properties": {
+        "id": { "type": "integer", "minimum": 1, "description": "Stays with the prompt until it is sent or removed; not reused by a pane's next session." },
+        "pos": { "type": "integer", "minimum": 1, "description": "Place in the queue, 1 is next." },
+        "kind": { "enum": ["user", "mail"], "description": "user is text the person typed. mail is a message from another agent: it cannot be edited or removed, and clear leaves it." },
+        "state": { "const": "queued" },
+        "peer": { "type": "string", "maxLength": 100, "description": "For mail: the sender's label, one line. Show it beside the text and never inside it." },
+        "text": { "type": "string", "description": "The prompt, or for mail the message body, cut to 2000 bytes. Plain text; draw it as text and never as markup." },
+        "clipped": { "const": true, "description": "Present when text was cut. Such a prompt is not offered for editing." }
+      }
+    },
     "filesMessage": {
       "type": "object",
       "additionalProperties": false,

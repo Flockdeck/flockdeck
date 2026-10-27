@@ -21,7 +21,8 @@ import (
 // These tests read a structured pane through structuredSnapshot, structuredWatch
 // and structuredUnwatch. The pane is the fake agent's.
 
-var structuredCommands = []string{"structuredSnapshot", "structuredWatch", "structuredUnwatch", "structuredCancel", "structuredFiles"}
+var structuredCommands = []string{"structuredSnapshot", "structuredWatch", "structuredUnwatch", "structuredCancel", "structuredFiles",
+	"structuredQueueEdit", "structuredQueueRemove", "structuredQueueClear", "structuredQueueSendNow"}
 
 // structuredReply sends a command from c and returns the first message of a type.
 func structuredReply(t *testing.T, srv *Server, c *controlClient, cmd command, types ...string) []byte {
