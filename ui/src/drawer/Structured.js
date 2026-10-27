@@ -12,12 +12,16 @@
 //   conversation.
 // - The prompt box sends paneSend and Stop sends structuredCancel. Both are
 //   desk-only commands, so a window reached through the relay draws neither.
+//   The draft goes when the desk says it took the text, not when the socket
+//   did, so a text the desk refuses (the agent is gone, over 16 KiB) is said
+//   and stays in the box.
 //
 // Everything on a row came from an agent, a tool or a person, and none of it is
 // put into the page as markup.
-import { useState } from "../vendor/hooks.mjs";
+import { useEffect, useRef, useState } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
 import { clip } from "../graph/Node.js";
+import { outcomeOf, sendTo } from "../graph/ManagerBar.js";
 import { Conversation } from "./Conversation.js";
 import { Icon, toolKind } from "./conv/rows.js";
 
@@ -74,12 +78,25 @@ export function activityOf(st, entries = []) {
 
 /** Structured is the panel. st is the store's structured push, or null before the
  *  first one; error is the store's structuredError; desk is false in a window
- *  reached through the relay. */
-export function Structured({ pane, st, error = null, cancelError = null, desk = true, store, conv = null, onOlder = null, details = null, onDetail = null, pending = null, search = null, onSearch = null, onClearSearch = null }) {
+ *  reached through the relay. snap is the store's snapshot, which carries the
+ *  desk's answer to a send. */
+export function Structured({ pane, snap, st, error = null, cancelError = null, desk = true, store, conv = null, onOlder = null, details = null, onDetail = null, pending = null, search = null, onSearch = null, onClearSearch = null }) {
   const [draft, setDraft] = useState("");
   // The pane a Stop that was not sent was pressed for, so the words do not follow the drawer to another pane.
   const [stopFailed, setStopFailed] = useState("");
   const [sendFailed, setSendFailed] = useState("");
+  // The send in flight: the mark outcomeOf follows. Set at once, so a second Send before the page has redrawn does not send again.
+  const [mark, setMark] = useState(null);
+  const busy = useRef(false);
+  const outcome = mark ? outcomeOf(snap || {}, mark) : null;
+  if (!outcome || outcome.kind !== "sending") busy.current = false;
+  const taken = !!outcome && outcome.kind === "sent";
+  // The text goes once the desk has taken it; a refused one stays to be changed or sent again.
+  useEffect(() => {
+    if (!taken) return;
+    setDraft("");
+    setMark(null);
+  }, [taken, mark]);
   if (error) return html`<p class="drawer-stub conv-refused" role="status">${clip(String(error.error || ""), 300)}</p>`;
   if (!st || st.id !== pane) return html`<p class="drawer-stub">Loading the agent.</p>`;
   const act = activityOf(st, conv && conv.entries ? conv.entries : []);
@@ -88,11 +105,14 @@ export function Structured({ pane, st, error = null, cancelError = null, desk = 
   const submit = (e) => {
     if (e && e.preventDefault) e.preventDefault();
     const text = draft.trim();
-    if (!text) return;
-    if (store.send({ cmd: "paneSend", id: pane, text })) {
-      setDraft("");
+    if (!text || busy.current) return;
+    const next = sendTo((m) => store.send(m), snap, pane, text);
+    if (next) {
+      busy.current = true;
+      setMark(next);
       setSendFailed("");
     } else {
+      setMark(null);
       setSendFailed(pane);
     }
   };
@@ -115,9 +135,10 @@ export function Structured({ pane, st, error = null, cancelError = null, desk = 
         search=${search} onSearch=${onSearch} onClearSearch=${onClearSearch} className="structured-log" />
       ${desk
         ? html`<form class="structured-prompt" onSubmit=${submit}>
-            <textarea class="structured-input" aria-label="Message to the agent" rows="2" value=${draft} onInput=${(e) => setDraft(e.target.value)}></textarea>
+            <textarea class="structured-input" aria-label="Message to the agent" rows="2" value=${draft} readOnly=${outcome && outcome.kind === "sending"} aria-busy=${outcome && outcome.kind === "sending" ? "true" : undefined} onInput=${(e) => setDraft(e.target.value)}></textarea>
             <button type="submit" class="drawer-btn structured-send" disabled=${draft.trim() === ""}>Send</button>
             <button type="button" class="drawer-btn structured-stop" onClick=${stop}>Stop</button>
+            ${outcome && outcome.kind === "refused" ? html`<p class="structured-note structured-note--unsent structured-note--send" role="status">${clip(outcome.text, 300)}</p>` : null}
             ${sendFailed === pane ? html`<p class="structured-note structured-note--unsent structured-note--send" role="status">${SEND_NOT_SENT_WORDS}</p>` : null}
             ${stopFailed === pane ? html`<p class="structured-note structured-note--unsent" role="status">${STOP_NOT_SENT_WORDS}</p>` : null}
             ${cancelError && cancelError.id === pane ? html`<p class="structured-note" role="status">${clip(String(cancelError.error || ""), 300)}</p>` : null}
