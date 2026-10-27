@@ -183,6 +183,25 @@ a picture pasted, dropped or chosen is scaled to under 600 KiB, sent with `attac
 is written as `[image: path]`; one is in flight at a time. A window reached through the relay has none of
 this. There is no setting for the send key.
 
+Escape stops a running turn, and so does Ctrl+C when no text is selected (T227). Both send
+`structuredCancel` with `keepQueue` set when prompts are waiting, so the waiting prompts are not lost the way
+they are with the Stop button; the button still drops the queue. They work while the pane is working or waiting
+on a permission (the request is answered cancelled, never allowed), from an empty prompt box or from anywhere
+else in the drawer. They are left alone when a slash or file list is open (Escape closes the list), when the
+box holds text (Escape belongs to the text; Ctrl+C with text selected is Copy), when a select, the search
+field, the export panel or a mode confirmation has the key, during an input method's composition, in a
+window reached through the relay, and once a Stop is out. Command+C is Copy. While a turn runs the box
+shows the hint "Esc stops the turn". Double Escape is not bound (rewind, T215). The keys are in
+`drawer/interruptModel.js`.
+
+The agent's plan (the push's `plan`, from TodoWrite or the plan updates of the protocol) is drawn above the
+conversation as a collapsible checklist (T228, `drawer/TodoList.js`, `todoModel.js`): a head line with
+"N of M done" and the row in progress, and under it each row with its status (to do, in progress, done). It
+starts open while something is left and closed when all is done, and the person's choice stays until the pane
+changes. At most 50 rows are drawn (the push carries at most 100) with "N more not shown" after them, each
+cut to 200 characters on one line, control and invisible characters removed, drawn as text. It follows every
+push. The markdown plan (`planMarkdown`) is not drawn.
+
 
 ## 6. Using a structured pane
 
@@ -278,7 +297,19 @@ A terminal opencode pane is not started this way and keeps its own configuration
 
 **What a structured pane loses against a terminal pane:**
 
-- A phone gets no push notification for a pending permission, because it could not answer it.
+- A phone gets no push notification for a pending permission, because it could not answer it
+  (`pushDue` skips a pane with no session). Structured data is still refused over the relay and that did not
+  change (T234). What a phone does get is the roster: a relay window sees the pane's status as waiting, with
+  the pane's name, and nothing the agent asked. Whether to push a fixed "needs you" is not decided.
+- Desktop notifications work as they do for a terminal pane (`lib/attention.js`, `shell/Live.js`): a pane that
+  asks for a permission becomes status waiting, and a pane that needs setup becomes blocked, so each raises
+  "NAME needs you" with the fixed body "waiting for your answer" or "needs setting up" while the window is
+  behind another, and counts in the tab title and icon. A structured pane that ends a turn (working, then
+  idle) raises "NAME finished" with the body "ready for your next message", only while the window is behind
+  another, and does not count as waiting. The notification carries the pane's name and branch, cleaned and
+  cut to 60 characters, and no text of the agent's: not the tool, the command or the activity. The setting is
+  the existing Desktop notifications switch. AskUserQuestion is not a structured question yet (the adapter denies it), so
+  there is none to notify about.
 - `permissionAnswer` is refused to a window reached through the relay, and to a device that may only
   view. So are the commands of section 1.
 - A relay window is told the pane's name, status, directory, branch, project, agent and model, and no
