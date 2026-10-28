@@ -98,3 +98,70 @@ func TestWithoutApprovalsSwitchesEveryDeviceOffAndKeepsTheRest(t *testing.T) {
 		t.Errorf("empty prefs gave %+v, %v", next.Devices, was)
 	}
 }
+
+func TestApproveForNeedsTheKeyTheGrantWasMadeFor(t *testing.T) {
+	now := time.Now().UTC()
+	key := []byte("device key")
+	h := KeyHash(key)
+	a := DeviceAccess{Role: RoleFull, Approve: true, ApproveV: 2, ApproveAt: now, ApproveKey: h}
+	if !a.ApproveFor(2, h) {
+		t.Error("the key the grant was made for is refused")
+	}
+	if a.ApproveFor(2, KeyHash([]byte("another key"))) {
+		t.Error("another key is accepted")
+	}
+	if a.ApproveFor(2, "") || KeyHash(nil) != "" {
+		t.Error("no key is accepted")
+	}
+	a.ApproveKey = ""
+	if a.ApproveFor(2, h) {
+		t.Error("a grant with no key recorded is accepted")
+	}
+	a.ApproveKey = h
+	if a.ApproveFor(3, h) {
+		t.Error("an older wording is accepted")
+	}
+}
+
+func TestSwitchingApprovalOffAlsoDropsTheKey(t *testing.T) {
+	now := time.Now().UTC()
+	var p Prefs
+	p, _ = p.WithAccess("d", DeviceAccess{Role: RoleViewer, WatchPanes: true, Approve: true, ApproveV: 2, ApproveAt: now, ApproveKey: "h"})
+	off, _ := p.WithAccess("d", DeviceAccess{Role: RoleViewer, WatchPanes: true, ApproveV: 2, ApproveAt: now, ApproveKey: "h"})
+	if a := off.Devices["d"]; a.ApproveKey != "" || a.ApproveV != 0 || !a.ApproveAt.IsZero() {
+		t.Errorf("switched off, the record keeps %+v", a)
+	}
+	got, _ := p.WithoutApprovals()
+	if a := got.Devices["d"]; a.ApproveKey != "" || a.Approve {
+		t.Errorf("WithoutApprovals keeps %+v", a)
+	}
+}
+
+func TestAdoptAccessOnlyTakesApprovalTheFileStillAllows(t *testing.T) {
+	now := time.Now().UTC()
+	grant := DeviceAccess{Role: RoleFull, Approve: true, ApproveV: 2, ApproveAt: now, ApproveKey: "h"}
+	var mem Prefs
+	mem, _ = mem.WithAccess("a", grant)
+	mem, _ = mem.WithAccess("b", grant)
+	mem, _ = mem.WithAccess("c", DeviceAccess{Role: RoleViewer, WatchPanes: true, Approve: true, ApproveV: 2, ApproveAt: now, ApproveKey: "h"})
+
+	// The file, as `flockdeck remote approvals off` left it: a still allows,
+	// b and c do not (c keeps its role).
+	var file Prefs
+	file, _ = file.WithAccess("a", grant)
+	file, _ = file.WithAccess("c", DeviceAccess{Role: RoleViewer, WatchPanes: true})
+
+	file.AdoptAccess(mem)
+	if !file.Devices["a"].ApproveFor(2, "h") {
+		t.Errorf("a lost a grant the file allows: %+v", file.Devices["a"])
+	}
+	if _, has := file.Devices["b"]; has {
+		t.Errorf("b was written back: %+v", file.Devices["b"])
+	}
+	if c := file.Devices["c"]; c.Approve || c.ApproveKey != "" || c.Role != RoleViewer || !c.WatchPanes {
+		t.Errorf("c = %+v, want its role and no approval", c)
+	}
+	if !mem.Devices["b"].Approve {
+		t.Error("the source was changed")
+	}
+}

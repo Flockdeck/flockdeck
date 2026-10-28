@@ -14,7 +14,7 @@ import { Live } from "../src/shell/Live.js";
 import { Remote } from "../src/shell/Remote.js";
 import { canClear, clearKeyCommand, keyNotes, keyStatus, keysOf, setKeyCommand } from "../src/lib/apikeys.js";
 import {
-  ACCESS, APPROVE_ACK_WORDS, approveCommand, approveOffCommand, approveView, accessIndex, accessOf, addsAccess, deviceName, nextAccess, ago, daysLeft, deviceCodes, enableCommand, joinLine, leftText, moveCommand, outcomeOf, PAIR_CAP_MS, pairLive, pairOf, planOf, planText, qrSource, renameCommand,
+  ACCESS, APPROVE_ACK_VERSION, APPROVE_ACK_WORDS, approveCommand, challengeCommand, approveOffCommand, approveView, accessIndex, accessOf, addsAccess, deviceName, nextAccess, ago, daysLeft, deviceCodes, enableCommand, joinLine, leftText, moveCommand, outcomeOf, PAIR_CAP_MS, pairLive, pairOf, planOf, planText, qrSource, renameCommand,
   retryClock, revokeCommand, roleCommand, rosterOf, summaryOf, unverifyCommand, untilText, verifyCommand, viewOf,
 } from "../src/lib/remote.js";
 import {
@@ -1322,14 +1322,20 @@ const APPROVE_ROSTER = {
   ],
 };
 
-test("Remote: approving is turned on only for a verified device, after the host's words are shown, and off without a question", () => {
-  assert.deepEqual(approveCommand("d", true), { cmd: "setDeviceApprove", id: "d", on: true, confirmed: true });
+test("Remote: approving is turned on only for a verified device, with the host's challenge and words, and off without a question", () => {
+  const ch = { id: "d", nonce: "n1", v: APPROVE_ACK_VERSION, text: APPROVE_ACK_WORDS };
+  assert.deepEqual(approveCommand("d", true, ch), { cmd: "setDeviceApprove", id: "d", on: true, nonce: "n1", v: APPROVE_ACK_VERSION });
+  assert.equal(approveCommand("d", true, null), null, "no challenge, no command");
+  assert.equal(approveCommand("d", true, { ...ch, id: "other" }), null, "a challenge for another device is not used");
+  assert.equal(approveCommand("d", true, { ...ch, nonce: "" }), null);
   assert.deepEqual(approveCommand("d", false), { cmd: "setDeviceApprove", id: "d", on: false });
-  assert.equal(approveCommand("", true), null);
+  assert.equal(approveCommand("", true, ch), null);
+  assert.deepEqual(challengeCommand("d"), { cmd: "approveChallenge", id: "d" });
   assert.deepEqual(approveOffCommand(), { cmd: "setApprovalsOff" });
   assert.deepEqual(approveView({}), { on: false, canTurnOn: false, note: "" });
   assert.equal(approveView({ approve: true, approveKey: "verified" }).note, "");
   assert.match(approveView({ approve: true, approveKey: "changed" }).note, /not verified/);
+  assert.match(APPROVE_ACK_WORDS, /tampered relay/);
   return withPage({ extra: { remote: TUNNEL } }, async (m) => {
     await m.connect();
     await m.openSettings("remote");
@@ -1342,10 +1348,14 @@ test("Remote: approving is turned on only for a verified device, after the host'
     assert.match(approve("d1").attributes["aria-label"], /Verify its code first/);
     m.clear();
     await m.click(approve("d2"));
-    assert.deepEqual(m.sent("setDeviceApprove"), [], "nothing is sent before the answer");
-    assert.ok(m.container.find(".confirm").textContent.includes(APPROVE_ACK_WORDS), "the host's own words are shown");
+    assert.deepEqual(m.sent("approveChallenge"), [{ cmd: "approveChallenge", id: "d2" }], "the question asks the host for its challenge");
+    assert.deepEqual(m.sent("setDeviceApprove"), [], "nothing is turned on before the answer");
+    assert.ok(m.container.find(".confirm").textContent.includes(APPROVE_ACK_WORDS), "the words are shown");
+    // The host answers; its words and nonce are the ones used.
+    await m.push({ type: "approveChallenge", id: "d2", nonce: "abc", v: APPROVE_ACK_VERSION, text: APPROVE_ACK_WORDS + " (host)", expiresMs: 120000 });
+    assert.ok(m.container.find(".confirm").textContent.includes("(host)"), "the host's own words replace this page's copy");
     await m.click(m.byText(".confirm button", /^Allow approving$/));
-    assert.deepEqual(m.sent("setDeviceApprove"), [{ cmd: "setDeviceApprove", id: "d2", on: true, confirmed: true }]);
+    assert.deepEqual(m.sent("setDeviceApprove"), [{ cmd: "setDeviceApprove", id: "d2", on: true, nonce: "abc", v: APPROVE_ACK_VERSION }]);
     m.clear();
     assert.equal(approve("d3").textContent, "Approve: on");
     await m.click(approve("d3"));
@@ -1358,6 +1368,27 @@ test("Remote: approving is turned on only for a verified device, after the host'
   });
 });
 
+test("Remote: the question about approving closes, sending nothing, when the device is unpaired or its key changes", () =>
+  withPage({ extra: { remote: TUNNEL } }, async (m) => {
+    await m.connect();
+    await m.openSettings("remote");
+    await m.push(APPROVE_ROSTER);
+    const row = (id) => m.container.findAll(".remote-row").find((r) => r.attributes["data-device"] === id);
+    for (const change of [
+      { ...APPROVE_ROSTER, devices: APPROVE_ROSTER.devices.filter((d) => d.id !== "d2") },
+      { ...APPROVE_ROSTER, devices: APPROVE_ROSTER.devices.map((d) => (d.id === "d2" ? { ...d, approveKey: "changed" } : d)) },
+    ]) {
+      await m.push(APPROVE_ROSTER);
+      await m.click(row("d2").find(".remote-approve"));
+      await m.push({ type: "approveChallenge", id: "d2", nonce: "abc", v: APPROVE_ACK_VERSION, text: APPROVE_ACK_WORDS, expiresMs: 1 });
+      assert.ok(m.container.find(".confirm"), "the question is open");
+      m.clear();
+      await m.push(change);
+      assert.equal(m.container.find(".confirm"), null, "the roster no longer matches: the question is closed");
+      assert.deepEqual(m.sent("setDeviceApprove"), []);
+    }
+  }));
+
 test("Remote: a window reached through the relay is offered no way to approve", () =>
   withPage({ helloOver: { remote: true }, extra: { remote: TUNNEL } }, async (m) => {
     await m.connect();
@@ -1367,3 +1398,9 @@ test("Remote: a window reached through the relay is offered no way to approve", 
     assert.equal(m.container.find("#remote-approve-off"), null);
     assert.match(m.container.textContent, /Whether a device may approve agent requests is set on the machine/);
   }));
+
+test("Remote: the approve wording is version 2 and says a tampered relay or page could read the cards", () => {
+  assert.equal(APPROVE_ACK_VERSION, 2);
+  assert.match(APPROVE_ACK_WORDS, /tampered relay/);
+  assert.doesNotMatch(APPROVE_ACK_WORDS, /The relay cannot read them\./);
+});

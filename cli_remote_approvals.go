@@ -36,45 +36,57 @@ func remoteApprovalsCmd(args []string, rio remoteIO) error {
 	if err := parseRemote(remoteFlags("approvals"), args[1:]); err != nil {
 		return err
 	}
-	// Read first, and refuse if the file cannot be read: saving defaults with
-	// one change over a file that exists would lose every other setting.
-	p, err := store.ReadPrefs()
-	if err != nil {
-		return fmt.Errorf("the preferences could not be read, so nothing was changed: %w", err)
-	}
+	// Read first, and do not write if the file cannot be read: saving defaults
+	// with one change over a file that exists would lose every other setting.
+	p, readErr := store.ReadPrefs()
 	if args[0] == "status" {
+		if readErr != nil {
+			return fmt.Errorf("the preferences could not be read: %w", readErr)
+		}
 		return approvalsStatus(p, rio)
 	}
-	next, was := p.WithoutApprovals()
-	if len(was) > 0 || len(next.Devices) != len(p.Devices) {
-		if err := store.SavePrefs(next); err != nil {
-			return fmt.Errorf("could not save the preferences: %w", err)
+	// The running instance is told whether or not the file could be read or
+	// written: its record is the one in force, and the switch must reach it.
+	var fileErr error
+	switch {
+	case readErr != nil:
+		fileErr = fmt.Errorf("the preferences could not be read, so the file was not changed: %w", readErr)
+	default:
+		next, was := p.WithoutApprovals()
+		if len(was) > 0 || len(next.Devices) != len(p.Devices) {
+			if err := store.SavePrefs(next); err != nil {
+				fileErr = fmt.Errorf("could not save the preferences, so the file was not changed: %w", err)
+			}
+		}
+		switch {
+		case fileErr != nil:
+		case len(was) > 0:
+			fmt.Fprintf(rio.out, "Approval switched off for %d device%s\n", len(was), map[bool]string{true: "", false: "s"}[len(was) == 1])
+		default:
+			fmt.Fprintln(rio.out, "No device was allowed to approve")
 		}
 	}
-	if len(was) > 0 {
-		fmt.Fprintf(rio.out, "Approval switched off for %d device%s\n", len(was), map[bool]string{true: "", false: "s"}[len(was) == 1])
-	} else {
-		fmt.Fprintln(rio.out, "No device was allowed to approve")
+	if rio.stopApprovals != nil {
+		ran, err := rio.stopApprovals()
+		switch {
+		case err != nil:
+			fmt.Fprintln(rio.out, fitted(fmt.Sprintf("the running flockdeck could not be told (%v). Its own record may still allow approval and its open sockets stay open until it is restarted", err)))
+		case ran && fileErr != nil:
+			fmt.Fprintln(rio.out, "The running flockdeck has switched approval off in memory and closed its sockets")
+		case ran:
+			fmt.Fprintln(rio.out, "The running flockdeck has switched approval off and closed its sockets")
+		}
 	}
-	if rio.stopApprovals == nil {
-		return nil
-	}
-	ran, err := rio.stopApprovals()
-	switch {
-	case err != nil:
-		fmt.Fprintln(rio.out, fitted(fmt.Sprintf("the running flockdeck could not be told (%v); it stops accepting approvals at the next one, or restart it", err)))
-	case ran:
-		fmt.Fprintln(rio.out, "The running flockdeck has switched approval off and closed its sockets")
-	}
-	return nil
+	return fileErr
 }
 
-// approvalsStatus says which devices the preferences file lets approve. It is
-// what the file says; a running instance also needs the device's key verified.
+// approvalsStatus says which devices the preferences file lets approve at the
+// wording in force. It is what the file says; the running instance also needs
+// the device's key to be the one the grant was made for.
 func approvalsStatus(p store.Prefs, rio remoteIO) error {
 	var on []string
 	for id, a := range p.Devices {
-		if a.Approve {
+		if a.ApproveOn(server.ApproveAckVersion) {
 			on = append(on, id)
 		}
 	}

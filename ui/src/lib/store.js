@@ -261,7 +261,7 @@ const HELPER_COMMANDS = ["approveBaton", "helpers", "helperPlan", "helperInstall
  *  refuses them there; the store does not send them. The list of keys and of
  *  devices, pairing a device, renaming and unpairing are not here: a relay window
  *  may do those. A join code is held back by the check in send(). */
-const DESK_SETTINGS = ["keySet", "keyClear", "jevKey", "remoteEnable", "remoteDisable", "remoteRemove", "remoteMove", "remoteVerify", "remoteUnverify", "setDeviceRole", "setDeviceApprove", "setApprovalsOff"];
+const DESK_SETTINGS = ["keySet", "keyClear", "jevKey", "remoteEnable", "remoteDisable", "remoteRemove", "remoteMove", "remoteVerify", "remoteUnverify", "setDeviceRole", "setDeviceApprove", "setApprovalsOff", "approveChallenge"];
 
 const GRAPH_OPS = new Set(["graphSnapshot", "graphWatch", "graphUnwatch"]);
 
@@ -291,7 +291,7 @@ const initial = () => ({
   hello: null, remote: false, state: null,
   graph: null, graphGone: null, graphRefused: false, graphError: null,
   notice: null, versions: null, helpers: null, helperPlan: null, recents: null, browse: null, batonDraft: null, batonSaved: null, batonError: null,
-  approvals: [], detached: false, sent: null, started: null, structured: null, structuredError: null, cancelError: null, settingError: null, queueResult: null, shellResult: null, exportResult: null, infoResult: null, signInResult: null, rewindResult: null, files: null, attached: null, answer: null, asking: null, conversation: null, details: nullMap(), search: null, taskDetail: null, changes: null, diff: null, gitWarn: null, changesBusy: "", changesNote: null, history: null, paneInfo: null, paneMatches: null, keys: null, jevKey: null, radar: null, worktrees: null, agentsList: null, team: null, teamGone: null, teamTasks: null, teamMessages: null, teamResult: null, teamRefused: false, changesTeam: null, changesTeamGone: null, changesTeamRefused: false, changesTeamResult: null, changesTeamResults: [], changesChecks: null, changesDiffs: {}, branchGit: null, session: 0, remoteDevices: null, remotePair: null, remoteOutcome: null, dropped: 0,
+  approvals: [], detached: false, sent: null, started: null, structured: null, structuredError: null, cancelError: null, settingError: null, queueResult: null, shellResult: null, exportResult: null, infoResult: null, signInResult: null, rewindResult: null, files: null, attached: null, answer: null, asking: null, conversation: null, details: nullMap(), search: null, taskDetail: null, changes: null, diff: null, gitWarn: null, changesBusy: "", changesNote: null, history: null, paneInfo: null, paneMatches: null, keys: null, jevKey: null, radar: null, worktrees: null, agentsList: null, team: null, teamGone: null, teamTasks: null, teamMessages: null, teamResult: null, teamRefused: false, changesTeam: null, changesTeamGone: null, changesTeamRefused: false, changesTeamResult: null, changesTeamResults: [], changesChecks: null, changesDiffs: {}, branchGit: null, session: 0, remoteDevices: null, remotePair: null, approveChallenge: null, remoteOutcome: null, dropped: 0,
 });
 
 /** upsert returns entries with each of the new ones in place of the one with its
@@ -334,6 +334,7 @@ export function createStore(opts) {
   let jevSeq = 0;
   let rosterSeq = 0;
   let pairSeq = 0;
+  let approveSeq = 0;
   let agentsSeq = 0;
   let worktreesSeq = 0;
   let teamSeq = 0;
@@ -815,6 +816,9 @@ export function createStore(opts) {
         break;
       case "remoteDevices":
         set({ remoteDevices: { ...msg, seq: ++rosterSeq } });
+        break;
+      case "approveChallenge":
+        set({ approveChallenge: { ...msg, seq: ++approveSeq } });
         break;
       case "remotePair":
         set({ remotePair: { ...msg, seq: ++pairSeq } });

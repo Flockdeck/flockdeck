@@ -26,7 +26,9 @@ export const DESK_ONLY_APPROVE =
 /** APPROVE_ACK_WORDS is shown before a device is allowed to approve. It is the host's own wording
  *  (approveAckText in internal/server/approvals_prefs.go); a Go test keeps the two the same. */
 export const APPROVE_ACK_WORDS =
-  "This device will be shown the commands and file paths your agents ask to run or change, and can allow or deny them. The relay cannot read them.";
+  "This device will be shown the commands and file paths your agents ask to run or change, and can allow or deny them. A relay that only passes traffic along cannot read them; a tampered relay, or a tampered page on the phone, could.";
+/** APPROVE_ACK_VERSION is the wording version this page was built for; the host refuses a turn-on that names another. */
+export const APPROVE_ACK_VERSION = 2;
 export const DESK_ONLY_JOIN =
   "A code for another desktop to join this account is made on the machine Flockdeck runs on, not from a window reached through the relay.";
 
@@ -389,10 +391,18 @@ export function unverifyCommand(id, origin) {
   return id ? { cmd: "remoteUnverify", id, kind: origin === "desk" ? "desk" : "usual" } : null;
 }
 
-/** approveCommand turns a device's approving on or off. Turning it on says the person was just shown APPROVE_ACK_WORDS. */
-export function approveCommand(id, on) {
+/** challengeCommand opens the question for a device: the host answers with the wording and a one-time nonce for this window. */
+export function challengeCommand(id) {
+  return id ? { cmd: "approveChallenge", id } : null;
+}
+
+/** approveCommand turns a device's approving on or off. Turning it on carries the wording version the person was shown and the
+ *  nonce the host gave this window for this device; without both the host refuses. */
+export function approveCommand(id, on, challenge) {
   if (!id) return null;
-  return on ? { cmd: "setDeviceApprove", id, on: true, confirmed: true } : { cmd: "setDeviceApprove", id, on: false };
+  if (!on) return { cmd: "setDeviceApprove", id, on: false };
+  if (!challenge || challenge.id !== id || typeof challenge.nonce !== "string" || !challenge.nonce) return null;
+  return { cmd: "setDeviceApprove", id, on: true, nonce: challenge.nonce, v: challenge.v };
 }
 
 /** approveOffCommand is the kill switch: no device approves until it is allowed again, one at a time. */

@@ -358,6 +358,8 @@ func (s *Server) remoteDevices(c *controlClient) {
 		s.forgetVerifiedExcept(roster.Devices)
 		// And whatever the desk limited it to.
 		s.forgetRolesExcept(roster.Devices)
+		// And any grant to approve whose key has changed since.
+		s.reconcileApprovals(roster.Devices)
 		// This machine's own key is read from this machine, not from the
 		// roster: a relay that swapped the roster's copy would otherwise
 		// make the code shown here agree with the code on a device that
@@ -379,7 +381,7 @@ func (s *Server) remoteDevices(c *controlClient) {
 				if !c.remote {
 					a := s.deviceAccess(d.ID)
 					msg.Devices[i].Role, msg.Devices[i].WatchPanes = string(a.EffectiveRole()), a.WatchPanes
-					msg.Devices[i].Approve = a.ApproveOn(approveAckVersion)
+					msg.Devices[i].Approve = a.ApproveOn(approveAckVersion) && !s.approvalStale(d, a)
 					msg.Devices[i].ApproveKey = s.approveKeyState(d)
 				}
 			}

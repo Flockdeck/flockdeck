@@ -120,6 +120,11 @@ func (s *Server) remoteUnverify(c *controlClient, cmd command) {
 	} else {
 		c.notify("Verification removed", false)
 	}
+	// A grant to approve rests on the usual key being verified. Whether or not the
+	// record could be changed, the grant goes.
+	if origin == approveKeyOrigin {
+		s.clearApproval(cmd.ID)
+	}
 	s.remoteDevices(c)
 }
 

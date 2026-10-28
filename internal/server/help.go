@@ -152,7 +152,7 @@ func (s *Server) sendHello(c *controlClient) {
 		if ra := s.remoteAccess(); ra != nil {
 			msg.E2EPublicKey = ra.E2EPublicKey()
 		}
-		msg.CanApprove = s.mayApprove(c.device)
+		msg.CanApprove = s.approveSwitchOn(c.device)
 		if artifactsOffered(s.prefs.RemoteArtifacts, c.device) {
 			msg.Artifacts = &artifactsCap{V: 1}
 			c.artifactsTold.Store(artifactsTellYes)
@@ -407,6 +407,10 @@ func (s *Server) updateAccessReport(keepIfUnsaved bool, change func(*store.Prefs
 			p.AdoptAccess(s.prefs)
 		}
 		if !change(&p) {
+			// Nothing to write, but what the file took away from p (a device it
+			// no longer lets approve) is taken away from the record in force too.
+			s.prefs.AdoptAccess(p)
+			s.publishAccess()
 			then(false, nil)
 			return
 		}

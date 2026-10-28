@@ -3,10 +3,13 @@ package main
 import (
 	"bytes"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/jmwri/flockdeck/internal/server"
 	"github.com/jmwri/flockdeck/internal/store"
 )
 
@@ -22,8 +25,8 @@ func approvalPrefs(t *testing.T) {
 	p := store.LoadPrefs()
 	p.SetUIValue(store.UIHelpSeen, true)
 	now := time.Now().UTC()
-	p, _ = p.WithAccess("d1", store.DeviceAccess{Role: store.RoleFull, Approve: true, ApproveV: 1, ApproveAt: now})
-	p, _ = p.WithAccess("d2", store.DeviceAccess{Role: store.RoleViewer, WatchPanes: true, Approve: true, ApproveV: 1, ApproveAt: now})
+	p, _ = p.WithAccess("d1", store.DeviceAccess{Role: store.RoleFull, Approve: true, ApproveV: server.ApproveAckVersion, ApproveKey: "k", ApproveAt: now})
+	p, _ = p.WithAccess("d2", store.DeviceAccess{Role: store.RoleViewer, WatchPanes: true, Approve: true, ApproveV: server.ApproveAckVersion, ApproveKey: "k", ApproveAt: now})
 	if err := store.SavePrefs(p); err != nil {
 		t.Fatal(err)
 	}
@@ -67,7 +70,7 @@ func TestRemoteApprovalsOffReportsAnInstanceItCouldNotTell(t *testing.T) {
 	if err != nil {
 		t.Fatalf("a running instance that could not be told is not a failure of the switch: %v", err)
 	}
-	if !strings.Contains(out, "could not be told") {
+	if !strings.Contains(out, "could not be told") || !strings.Contains(out, "stay open until it is restarted") {
 		t.Errorf("output:\n%s", out)
 	}
 	if store.LoadPrefs().AccessFor("d1").Approve {
@@ -121,5 +124,40 @@ func TestRemoteApprovalsIsInTheHelpAndTheCommandList(t *testing.T) {
 	remoteUsage(&out)
 	if !strings.Contains(out.String(), "approvals off") {
 		t.Errorf("usage does not list approvals:\n%s", out.String())
+	}
+}
+
+func TestRemoteApprovalsStatusListsOnlyDevicesAtTheCurrentWording(t *testing.T) {
+	isolateKeys(t)
+	approvalPrefs(t)
+	p := store.LoadPrefs()
+	p, _ = p.WithAccess("old", store.DeviceAccess{Role: store.RoleFull, Approve: true, ApproveV: server.ApproveAckVersion - 1, ApproveKey: "k", ApproveAt: time.Now().UTC()})
+	if err := store.SavePrefs(p); err != nil {
+		t.Fatal(err)
+	}
+	out, err := runApprovals(t, nil, "status")
+	if err != nil || !strings.Contains(out, "(2)") || strings.Contains(out, "old") {
+		t.Errorf("status: %v\n%s", err, out)
+	}
+}
+
+func TestRemoteApprovalsOffStillTellsTheInstanceWhenThePrefsCannotBeRead(t *testing.T) {
+	isolateKeys(t)
+	dir, err := store.Dir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A directory where the file should be: the read fails and the file is not
+	// absent or damaged.
+	if err := os.MkdirAll(filepath.Join(dir, "prefs.json"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	told := 0
+	out, err := runApprovals(t, func() (bool, error) { told++; return true, nil }, "off")
+	if err == nil || !strings.Contains(err.Error(), "could not be read") {
+		t.Errorf("err = %v, want the read failure", err)
+	}
+	if told != 1 || !strings.Contains(out, "switched approval off in memory") {
+		t.Errorf("told %d times, output:\n%s", told, out)
 	}
 }

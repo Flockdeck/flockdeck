@@ -24,7 +24,7 @@ import { html } from "../html.js";
 import { composing, LIST } from "./keys.js";
 import { Confirm } from "./Confirm.js";
 import {
-  ACCESS, APPROVE_ACK_WORDS, DESK_ONLY_ACCESS, DESK_ONLY_APPROVE, DESK_ONLY_JOIN, DESK_ONLY_REMOTE, ENTERPRISE_WORDS, INTRO_WORDS, KEPT_WORDS, LINK_WARNING, PAIR_WORDS, PLAN_WORDS, POLL_MS,
+  ACCESS, APPROVE_ACK_WORDS, challengeCommand, DESK_ONLY_ACCESS, DESK_ONLY_APPROVE, DESK_ONLY_JOIN, DESK_ONLY_REMOTE, ENTERPRISE_WORDS, INTRO_WORDS, KEPT_WORDS, LINK_WARNING, PAIR_WORDS, PLAN_WORDS, POLL_MS,
   VERIFY_HELP, VERIFY_HELP_RELAY, accessOf, addsAccess, accessIndex, ago, bare, deviceCodes, devicesCommand, enableCommand, leftText, moveCommand, nextAccess, outcomeOf, pairCommand, joinLine, pairLive, pairOf,
   approveCommand, approveOffCommand, approveView, deviceName, planText, qrSource, renameCommand, resumeCommand, revokeCommand, roleCommand, rosterOf, summaryOf, unverifyCommand, untilText, verifyCommand, verifyText, viewOf,
 } from "../lib/remote.js";
@@ -37,7 +37,7 @@ const NEW_MOVE = { open: false, relay: "", invite: "", join: "" };
  *  latest answers, remote says this window was reached through the relay, send is
  *  the store's send and copy(text, what) puts text on the clipboard. news is the
  *  latest notice since the dialog opened. tickMs, pollMs and clock are for tests. */
-export function Remote({ status, roster, pair, outcome, remote, connection = "", send, copy, forget = () => {}, news = "", tickMs = 1000, pollMs = POLL_MS, clock = () => Date.now() }) {
+export function Remote({ status, roster, challenge = null, pair, outcome, remote, connection = "", send, copy, forget = () => {}, news = "", tickMs = 1000, pollMs = POLL_MS, clock = () => Date.now() }) {
   const [now, setNow] = useState(clock());
   const [busy, setBusy] = useState(null);
   const [asking, setAsking] = useState(null);
@@ -152,19 +152,30 @@ export function Remote({ status, roster, pair, outcome, remote, connection = "",
     const cur = ro && ro.devices.find((x) => x.id === id);
     return cur ? accessIndex(cur) : null;
   };
+  // A question about approving also names the state of the device's key. If the device is gone, or its key is no longer in
+  // that state, the question is closed too.
+  const keyNow = (id) => {
+    const cur = ro && ro.devices.find((x) => x.id === id);
+    return cur ? cur.approveKey : null;
+  };
+  const changed = (q) => !!q && !!q.device && (accessNow(q.device.id) !== q.device.level || (q.device.key !== undefined && keyNow(q.device.id) !== q.device.key));
   useEffect(() => {
-    if (!asking || !asking.device || accessNow(asking.device.id) === asking.device.level) return;
+    if (!asking || !asking.device || !changed(asking)) return;
     setAsking(null);
     setSaid("");
     setProblem("Access for " + asking.device.name + " changed while you were deciding. Nothing was sent. Look at it again.");
   }, [ro]);
+  const challengeRef = useRef(challenge);
+  challengeRef.current = challenge;
+  // The words are the host's own when it has answered; this page's copy until then.
+  const approveWords = (id) => (challenge && challenge.id === id && challenge.text ? challenge.text : APPROVE_ACK_WORDS);
   const confirmFor = (at) =>
     asking && asking.at === at
-      ? html`<${Confirm} title=${asking.title} words=${asking.words} label=${asking.label}
+      ? html`<${Confirm} title=${asking.title} words=${at.startsWith("approve:") ? [approveWords(at.slice(8))] : asking.words} label=${asking.label}
           onConfirm=${() => {
             const q = asking;
             setAsking(null);
-            if (q.device && accessNow(q.device.id) !== q.device.level) {
+            if (changed(q)) {
               setProblem("Access for " + q.device.name + " changed while you were deciding. Nothing was sent. Look at it again.");
               return;
             }
@@ -324,7 +335,12 @@ export function Remote({ status, roster, pair, outcome, remote, connection = "",
                 onClick=${() => go(approveCommand(d.id, false))}>Approve: on</button>`
             : html`<button type="button" class="dialog-btn remote-approve" aria-pressed="false" disabled=${!ap.canTurnOn}
                 aria-label=${"Approving for " + name + ": off. " + (ap.canTurnOn ? "Press to turn it on." : "Verify its code first.")}
-                onClick=${() => ask("approve:" + d.id, "Let " + name + " approve agent requests?", [APPROVE_ACK_WORDS], "Allow approving", () => go(approveCommand(d.id, true)))}>Approve: off</button>`}
+                onClick=${() => {
+                  if (!go(challengeCommand(d.id))) return;
+                  ask("approve:" + d.id, "Let " + name + " approve agent requests?", [approveWords(d.id)], "Allow approving", () => {
+                    if (!go(approveCommand(d.id, true, challengeRef.current))) setProblem("The desktop has not sent its confirmation for " + name + " yet. Nothing was sent. Try again.");
+                  }, { ...about, key: d.approveKey });
+                }}>Approve: off</button>`}
         <button type="button" class="dialog-btn" onClick=${() => setRenaming({ kind: "device", id: d.id, value: d.name })}>Rename</button>
         <button type="button" class="dialog-btn dialog-btn--danger" aria-label=${"Unpair " + name}
           onClick=${() => ask("device:" + d.id, mine ? "Unpair this device?" : "Unpair " + name + "?",

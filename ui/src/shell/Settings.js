@@ -114,7 +114,7 @@ export function Settings({ prefs, change, onClose, section: first = "general", c
             ${shown === "wake" ? html`<${Wake} wake=${prefs.wake} agents=${ctx.agents || null} panes=${ctx.panes || []} remote=${!!ctx.remote} send=${ctx.send} />` : null}
             ${shown === "keyboard" ? html`<${Keybindings} keys=${ctx.table || null} send=${ctx.send} page=${ctx.page || null} onRecording=${ctx.onRecording} />` : null}
             ${shown === "remote"
-              ? html`<${Remote} status=${ctx.status || null} roster=${ctx.roster || null} pair=${ctx.pair || null} outcome=${ctx.outcome || null} remote=${!!ctx.remote} connection=${ctx.connection || ""}
+              ? html`<${Remote} status=${ctx.status || null} roster=${ctx.roster || null} challenge=${ctx.challenge || null} pair=${ctx.pair || null} outcome=${ctx.outcome || null} remote=${!!ctx.remote} connection=${ctx.connection || ""}
                   send=${ctx.send} copy=${ctx.copy || (() => {})} forget=${ctx.forgetPair || (() => {})} news=${ctx.news || ""} />`
               : null}
           </div>

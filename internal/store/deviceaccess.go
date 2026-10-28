@@ -1,6 +1,8 @@
 package store
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"maps"
 	"time"
 )
@@ -44,6 +46,33 @@ type DeviceAccess struct {
 	// no longer counts (ApproveOn).
 	ApproveV  int       `json:"approveV,omitempty"`
 	ApproveAt time.Time `json:"approveAt,omitzero"`
+	// ApproveKey is KeyHash of the device's usual end-to-end key when the desk
+	// turned Approve on. The grant belongs to that key: a device paired again
+	// under the same id, or whose key changed, has a different hash and is not
+	// allowed (ApproveFor) until the desk turns it on again.
+	ApproveKey string `json:"approveKey,omitempty"`
+}
+
+// KeyHash is what ApproveKey holds for a device key: the hex SHA-256 of its raw bytes.
+func KeyHash(key []byte) string {
+	if len(key) == 0 {
+		return ""
+	}
+	sum := sha256.Sum256(key)
+	return hex.EncodeToString(sum[:])
+}
+
+// ApproveFor is ApproveOn and the grant being for this key: keyHash is KeyHash of
+// the key the device would use now. Anything that lets a device decide must ask
+// this, not ApproveOn.
+func (a DeviceAccess) ApproveFor(version int, keyHash string) bool {
+	return a.ApproveOn(version) && keyHash != "" && a.ApproveKey == keyHash
+}
+
+// clearApprove returns a with approval and what goes with it removed.
+func (a DeviceAccess) clearApprove() DeviceAccess {
+	a.Approve, a.ApproveV, a.ApproveAt, a.ApproveKey = false, 0, time.Time{}, ""
+	return a
 }
 
 // ApproveOn reports whether the device may answer permission requests: it is
@@ -89,8 +118,26 @@ func (p *Prefs) KeepAccessUnknown() { p.accessLost = true }
 // a file that was deleted, damaged or edited while Flockdeck ran must not widen
 // or narrow what any device may do.
 func (p *Prefs) AdoptAccess(from Prefs) {
+	file := p.Devices
 	p.Devices = maps.Clone(from.Devices)
 	p.accessLost = from.accessLost
+	// Approval is the one thing the file may narrow: where the file this was
+	// read from does not allow a device to approve, the copy that goes back to it
+	// does not either. Otherwise a running program that has not been told of
+	// `flockdeck remote approvals off` would write the grant back on its next,
+	// unrelated save.
+	for id, a := range p.Devices {
+		if a.Approve && !file[id].Approve {
+			if cleared := a.clearApprove(); cleared == (DeviceAccess{Role: RoleFull}) {
+				delete(p.Devices, id)
+			} else {
+				p.Devices[id] = cleared
+			}
+		}
+	}
+	if len(p.Devices) == 0 {
+		p.Devices = nil
+	}
 }
 
 // WithoutDevicesNotIn returns the preferences with the access record of every
@@ -131,7 +178,7 @@ func (p Prefs) WithAccess(deviceID string, a DeviceAccess) (Prefs, bool) {
 		a.Role, a.WatchPanes = RoleFull, false
 	}
 	if !a.Approve {
-		a.ApproveV, a.ApproveAt = 0, time.Time{}
+		a = a.clearApprove()
 	}
 	next := maps.Clone(p.Devices)
 	if a == (DeviceAccess{Role: RoleFull}) {
@@ -160,13 +207,13 @@ func (p Prefs) WithoutApprovals() (Prefs, []string) {
 	var was []string
 	next := maps.Clone(p.Devices)
 	for id, a := range p.Devices {
-		if !a.Approve && a.ApproveV == 0 && a.ApproveAt.IsZero() {
+		if !a.Approve && a.ApproveV == 0 && a.ApproveAt.IsZero() && a.ApproveKey == "" {
 			continue
 		}
 		if a.Approve {
 			was = append(was, id)
 		}
-		a.Approve, a.ApproveV, a.ApproveAt = false, 0, time.Time{}
+		a = a.clearApprove()
 		if a == (DeviceAccess{Role: RoleFull}) {
 			delete(next, id)
 		} else {

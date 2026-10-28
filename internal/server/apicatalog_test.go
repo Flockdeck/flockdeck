@@ -75,7 +75,7 @@ func init() {
 	addedIn["structuredRewind"] = "1.25"
 	addedIn["structuredFork"] = "1.25"
 	// Letting a paired device approve agent requests came with deviceApprove (1.26).
-	addedIn["setDeviceApprove"], addedIn["setApprovalsOff"] = "1.26", "1.26"
+	addedIn["setDeviceApprove"], addedIn["setApprovalsOff"], addedIn["approveChallenge"] = "1.26", "1.26", "1.26"
 	// The person's own shell commands came with structuredShell (1.21).
 	for _, n := range []string{"structuredShellRun", "structuredShellStop", "structuredShellRemove", "structuredShellSend"} {
 		addedIn[n] = "1.21"

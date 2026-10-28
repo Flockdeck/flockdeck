@@ -127,7 +127,7 @@ var commandAccess = map[string]cmdAccess{
 	"remoteReconnect": accessFull, "setDeviceRole": accessFull,
 	// Whether a device may answer an agent's permission requests from its phone
 	// is the desk's to decide, and a viewer never decides it.
-	"setDeviceApprove": accessFull, "setApprovalsOff": accessFull,
+	"setDeviceApprove": accessFull, "setApprovalsOff": accessFull, "approveChallenge": accessFull,
 	"remoteVerify": accessFull, "remoteUnverify": accessFull,
 	"helpSeen": accessFull, "dismissTip": accessFull, "fontSize": accessFull, "uiPrefs": accessFull, "notifications": accessFull,
 	"scrollback": accessFull, "updates": accessFull, "checkForUpdate": accessFull,
@@ -351,6 +351,14 @@ type accessState struct {
 	// roster is how the account's paired devices are listed; nil asks the relay.
 	// A test replaces it.
 	roster func(context.Context) ([]string, error)
+	// approveGen goes up whenever phone approval is switched off or a device is
+	// unpaired. An enable that began before the change sees a different number
+	// when it comes to apply, and does not apply (applyDeviceApprove).
+	approveGen atomic.Uint64
+	// approveAsk holds the one-time questions handed to windows at the desk, and
+	// approveFile the last read of the preferences file for the approval gate.
+	approveAsk  approveAsk
+	approveFile approveFileCache
 }
 
 // validDeviceID reports whether a string can be a device id. The relay's ids are
@@ -449,7 +457,7 @@ func (s *Server) applyDeviceRole(c *controlClient, device string, access store.D
 		old, had := p.Devices[device]
 		// Changing what a device may see does not change whether it may approve,
 		// and does not widen it: the switch and its agreement stay as they were.
-		access.Approve, access.ApproveV, access.ApproveAt = old.Approve, old.ApproveV, old.ApproveAt
+		access.Approve, access.ApproveV, access.ApproveAt, access.ApproveKey = old.Approve, old.ApproveV, old.ApproveAt, old.ApproveKey
 		next, ok := p.WithAccess(device, access)
 		if !ok {
 			c.notify("Too many devices have their own setting; make some of them full again first", true)
@@ -498,6 +506,9 @@ func (s *Server) forgetRolesExcept(devices []remote.Device) {
 	if len(devices) == 0 {
 		return
 	}
+	if s.anyApprovalMissingFrom(devices) {
+		s.approveGen.Add(1)
+	}
 	ids := make([]string, len(devices))
 	for i, d := range devices {
 		ids[i] = d.ID
@@ -513,6 +524,7 @@ func (s *Server) forgetRolesExcept(devices []remote.Device) {
 
 // forgetRole drops the access record of a device that was unpaired.
 func (s *Server) forgetRole(device string) {
+	s.approveGen.Add(1)
 	s.updateAccess(func(p *store.Prefs) bool {
 		if _, ok := p.Devices[device]; !ok {
 			return false

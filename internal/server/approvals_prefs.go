@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"github.com/jmwri/flockdeck/internal/e2e"
 	"net/http"
 	"slices"
 	"time"
@@ -26,11 +27,24 @@ import (
 // approveAckVersion is the wording version of approveAckText. Raise it when
 // what an approving device is shown changes: every device then stops counting
 // as on until the desk turns it on again and agrees to the new text.
-const approveAckVersion = 1
+const approveAckVersion = 2
 
-// approveAckText is what the desk is shown before a device is first allowed to
-// approve, and what a client that skips the question is answered with.
-const approveAckText = "This device will be shown the commands and file paths your agents ask to run or change, and can allow or deny them. The relay cannot read them."
+// ApproveAckVersion is approveAckVersion for the command line, which lists only
+// the devices that are allowed at the wording in force.
+const ApproveAckVersion = approveAckVersion
+
+// approveAckText is what the desk is shown before a device is allowed to approve,
+// and is carried to the dialog in the host's challenge. It does not say the relay
+// cannot read the cards: a relay that serves altered page code to the phone could.
+const approveAckText = "This device will be shown the commands and file paths your agents ask to run or change, and can allow or deny them. A relay that only passes traffic along cannot read them; a tampered relay, or a tampered page on the phone, could."
+
+// approveWordingChanged and approveNeedsChallenge are what a turn-on is answered
+// with when it does not carry the wording the person saw, or a challenge the
+// host gave this window for this device.
+const (
+	approveWordingChanged = "The wording of this question has changed. Open it again and read it before you allow the device"
+	approveNeedsChallenge = "Open the question for that device first. This request does not carry the confirmation the host gave this window"
+)
 
 // approveKeyOrigin is the key an approving device handshakes with. The phone app
 // is the only client, and it uses the device's usual key, not the one the full
@@ -44,27 +58,6 @@ const deskOnlyApprove = "Whether a paired device may approve agent requests is s
 // pageOnlyApprove is why a connection that is not a Flockdeck window may not
 // allow a device to approve.
 const pageOnlyApprove = "A device can only be allowed to approve from a Flockdeck window on this machine"
-
-// mayApprove reports whether a device may answer permission requests now: it
-// is switched on at the current wording, in the running program's record and in
-// the preferences file. Both must say yes. The record in memory is the one in
-// force (a file edited while Flockdeck runs must not widen anything), and the
-// file is read again so that a switch turned off by `flockdeck remote approvals
-// off`, or by deleting or damaging the file, takes effect on the next call even
-// if the running program was not told. A file that cannot be read says no.
-//
-// It does not look at the device's key. The socket checks that, as the
-// artifacts socket does, because it means asking the relay.
-func (s *Server) mayApprove(deviceID string) bool {
-	if deviceID == "" || !s.deviceAccess(deviceID).ApproveOn(approveAckVersion) {
-		return false
-	}
-	p, err := store.ReadPrefs()
-	if err != nil || p.AccessUnknown() {
-		return false
-	}
-	return p.AccessFor(deviceID).ApproveOn(approveAckVersion)
-}
 
 // approveKeyState is the word for the state of a device's usual key, as
 // verifyStateFor gives it, which a device list carries beside the switch.
@@ -91,9 +84,11 @@ func (s *Server) refusedApproveThroughRelay(c *controlClient, cmd command) bool 
 // effect at once: the device's open sockets are ended, so its window reconnects
 // and is told the new state in a fresh hello.
 //
-// Off needs nothing more. On is accepted only from a page, only with Confirmed
-// (the person has just been shown approveAckText), and only when the device's
-// key is marked verified now. It is applied only if it can be saved: unlike a
+// Off needs nothing more, and always wins over an enable still being checked
+// (approveGen). On is accepted only from a page, only with the wording version
+// the person saw and the nonce the host gave this window for this device
+// (askApprove), and only when the device's key is marked verified now. The grant
+// is tied to that key. It is applied only if it can be saved: unlike a
 // restriction, a permission that would be lost at the next restart, or that the
 // file does not show, is not given.
 func (s *Server) setDeviceApprove(c *controlClient, cmd command) {
@@ -106,17 +101,22 @@ func (s *Server) setDeviceApprove(c *controlClient, cmd command) {
 	}
 	device := cmd.ID
 	if !cmd.On {
-		s.applyDeviceApprove(c, device, false)
+		s.approveGen.Add(1)
+		s.applyDeviceApprove(c, device, false, 0, "")
 		return
 	}
 	switch {
 	case !c.page:
 		c.notify(pageOnlyApprove, true)
 		return
-	case !cmd.Confirmed:
-		c.notify(approveAckText, true)
+	case cmd.V != approveAckVersion:
+		c.notify(approveWordingChanged, true)
+		return
+	case !s.approveAsk.take(cmd.Nonce, c, device, cmd.V):
+		c.notify(approveNeedsChallenge, true)
 		return
 	}
+	gen := s.approveGen.Load()
 	go func() {
 		defer s.surviveFor(c, "allowing a device to approve")
 		ctx, cancel := context.WithTimeout(context.Background(), rosterTimeout)
@@ -136,16 +136,24 @@ func (s *Server) setDeviceApprove(c *controlClient, cmd command) {
 			c.notify("That device's key has not been verified here. Compare its code with the one on the device, mark it verified, then allow it to approve", true)
 			return
 		}
-		s.applyDeviceApprove(c, device, true)
+		s.applyDeviceApprove(c, device, true, gen, store.KeyHash(key))
 	}()
 }
 
 // applyDeviceApprove makes the change setDeviceApprove was asked for. Turning
 // approval off is applied in memory whether or not it can be saved, as a
-// restriction is; turning it on only when the file was written.
-func (s *Server) applyDeviceApprove(c *controlClient, device string, on bool) {
-	tooMany, unknown := false, false
+// restriction is; turning it on only when the file was written, and only if
+// nothing has switched approval off since gen was read (approveGen): the check is
+// made on the workspace goroutine, in the same step as the change, so a disable
+// that landed while the key and roster were being checked always wins. keyHash is
+// the device's usual key, which the grant is tied to.
+func (s *Server) applyDeviceApprove(c *controlClient, device string, on bool, gen uint64, keyHash string) {
+	tooMany, unknown, superseded := false, false, false
 	change := func(p *store.Prefs) bool {
+		if on && s.approveGen.Load() != gen {
+			superseded = true
+			return false
+		}
 		if on && p.AccessUnknown() {
 			unknown = true
 			return false
@@ -154,12 +162,12 @@ func (s *Server) applyDeviceApprove(c *controlClient, device string, on bool) {
 		access := old
 		access.Approve = on
 		switch {
-		case on && old.ApproveOn(approveAckVersion):
+		case on && old.ApproveFor(approveAckVersion, keyHash):
 			return false
 		case !on && !old.Approve:
 			return false
 		case on:
-			access.ApproveV, access.ApproveAt = approveAckVersion, time.Now().UTC()
+			access.ApproveV, access.ApproveAt, access.ApproveKey = approveAckVersion, time.Now().UTC(), keyHash
 		}
 		next, ok := p.WithAccess(device, access)
 		if !ok {
@@ -171,6 +179,9 @@ func (s *Server) applyDeviceApprove(c *controlClient, device string, on bool) {
 	}
 	s.updateAccessReport(!on, change, func(applied bool, saveErr error) {
 		switch {
+		case superseded:
+			c.notify("Approval was switched off, or the device was unpaired, while it was being checked, so that device was not allowed to approve", true)
+			return
 		case unknown:
 			c.notify("What each device may do could not be read from the preferences, so no device was allowed to approve", true)
 			return
@@ -218,7 +229,7 @@ func approvalsOff(p *store.Prefs) (changed bool, was []string) {
 // switch, which the kill switch also clears.
 func hasApproveResidue(m map[string]store.DeviceAccess) bool {
 	for _, a := range m {
-		if a.ApproveV != 0 || !a.ApproveAt.IsZero() {
+		if a.ApproveV != 0 || !a.ApproveAt.IsZero() || a.ApproveKey != "" {
 			return true
 		}
 	}
@@ -251,15 +262,21 @@ func (s *Server) setApprovalsOff(c *controlClient, cmd command) {
 // whether or not anything changed.
 func (s *Server) stopApprovals(done func(n int, saveErr error)) {
 	var was []string
+	s.approveGen.Add(1)
 	s.updateAccessReport(true, func(p *store.Prefs) bool {
-		ch, w := approvalsOff(p)
-		was = w
+		// Who it was on for is read from the record in force, not from p, which
+		// the file may already have narrowed (the command line writes it first).
+		for id, a := range s.prefs.Devices {
+			if a.Approve {
+				was = append(was, id)
+			}
+		}
+		ch, _ := approvalsOff(p)
 		return ch
 	}, func(applied bool, saveErr error) {
-		if applied {
-			for _, d := range was {
-				s.sockets.cut(d)
-			}
+		slices.Sort(was)
+		for _, d := range was {
+			s.sockets.cut(d)
 		}
 		done(len(was), saveErr)
 	})
@@ -306,4 +323,91 @@ func RequestApprovalsStop(baseURL, token string) error {
 		return refused("switch off phone approval", resp)
 	}
 	return nil
+}
+
+// usualKeyHash is KeyHash of a roster entry's usual key, or "" when it has none
+// or one that cannot be read.
+func usualKeyHash(d remote.Device) string {
+	if d.PublicKey == "" {
+		return ""
+	}
+	pub, err := e2e.DecodePublicKey(d.PublicKey)
+	if err != nil {
+		return ""
+	}
+	return store.KeyHash(pub.Bytes())
+}
+
+// approvalStale says a roster entry's grant no longer holds: the device's usual
+// key is not the one the grant was made for, or it is no longer marked verified.
+// A device the roster gives no key for, or a host with no record of
+// verifications, is not judged here (the gate still refuses it).
+func (s *Server) approvalStale(d remote.Device, a store.DeviceAccess) bool {
+	if !a.Approve {
+		return false
+	}
+	if h := usualKeyHash(d); h != "" && h != a.ApproveKey {
+		return true
+	}
+	return s.deviceVerifier() != nil && d.PublicKey != "" && s.approveKeyState(d) != verifyStateVerified
+}
+
+// anyApprovalMissingFrom reports whether some device that may approve is not in
+// the roster.
+func (s *Server) anyApprovalMissingFrom(devices []remote.Device) bool {
+	t := s.access.Load()
+	if t == nil {
+		return false
+	}
+	for id, a := range t.prefs.Devices {
+		if !a.Approve {
+			continue
+		}
+		found := false
+		for _, d := range devices {
+			found = found || d.ID == id
+		}
+		if !found {
+			return true
+		}
+	}
+	return false
+}
+
+// reconcileApprovals switches approval off for every device in a roster the
+// relay returned whose grant no longer holds: its usual key changed, or it is
+// no longer marked verified. This is bookkeeping; the gate already refuses such
+// a device, but the desk should see it off and be asked again.
+func (s *Server) reconcileApprovals(devices []remote.Device) {
+	for _, d := range devices {
+		if s.approvalStale(d, s.deviceAccess(d.ID)) {
+			s.clearApproval(d.ID)
+		}
+	}
+}
+
+// clearApproval switches one device's approval off, ends its sockets, and makes
+// any enable still being checked give up.
+func (s *Server) clearApproval(device string) {
+	s.approveGen.Add(1)
+	changed := false
+	s.updateAccessReport(true, func(p *store.Prefs) bool {
+		old := p.AccessFor(device)
+		if !old.Approve && old.ApproveKey == "" && old.ApproveV == 0 {
+			return false
+		}
+		old.Approve = false
+		next, ok := p.WithAccess(device, old)
+		if !ok {
+			return false
+		}
+		*p = next
+		changed = true
+		return true
+	}, func(applied bool, _ error) {
+		if applied && changed {
+			s.sockets.cut(device)
+			s.noticeDesk("A device's approval was switched off because its key is no longer the one it was allowed with. Allow it again once you have verified the key", false)
+		}
+	})
 }

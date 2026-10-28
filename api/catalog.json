@@ -131,6 +131,12 @@
       "status": "stable"
     },
     {
+      "name": "approveChallenge",
+      "access": "full",
+      "since": "1.26",
+      "status": "stable"
+    },
+    {
       "name": "approveMerge",
       "access": "full",
       "since": "1.10",
@@ -1441,6 +1447,13 @@
       "why": "two versions and a sentence",
       "viewers": "viewer",
       "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "approveChallenge",
+      "relay": "deskOnly",
+      "why": "the one-time question for allowing a device to approve, for windows on this machine only",
+      "since": "1.26",
       "status": "stable"
     },
     {

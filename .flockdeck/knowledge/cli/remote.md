@@ -26,7 +26,7 @@ code_paths: [cli_remote.go, cli_remote_artifacts.go, cli_remote_approvals.go, in
 | `move <relay>` | `-invite`, `-join`, `-name`, `-yes` | Enrols with the new relay first, then leaves the old one once the new one answers. Devices must pair again. Probes the new relay before changing anything. |
 | `delete-account` | `-yes -confirm <text>` | Erases the account on the relay. Previews what goes, then asks for the phrase "delete my account". A script needs both `-yes` and exactly `-confirm "delete my account"`. |
 | `artifacts off` | none | Switches off every kind of artifact paired devices may view, in the preferences file, and tells a running instance to close its artifact sockets. There is no `on`. |
-| `approvals off\|status` | none | `off` switches phone approval off for every device in the preferences file (roles kept) and tells a running instance to do the same in memory and close the approvals sockets; `status` lists the devices the file lets approve. There is no `on`: a device is allowed at the desk. |
+| `approvals off\|status` | none | `off` switches phone approval off for every device in the preferences file (roles kept) and tells a running instance to do the same in memory and close the approvals sockets; `status` lists the devices the file lets approve at the current wording. The stop is sent to a running instance even when the file cannot be read; the read error is then returned. There is no `on`: a device is allowed at the desk. |
 
 ## Where it runs
 
