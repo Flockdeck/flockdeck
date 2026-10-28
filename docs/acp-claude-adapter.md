@@ -308,6 +308,8 @@ stream-json`, using a message `uuid` of our own for each prompt:
 
 So a rewind that is to survive a restart has to be a fork, and the pane saves NEW.
 
+The pane saves NEW at once, so a restart or crash after a rewind and before the first prompt finds no file for it: the pane shows "Could not resume, started a new session." and opens an empty session, the agent's context for that pane is gone, and the earlier conversation stays unchanged in the original file. That is kept on purpose; saving the old id until the first prompt would bring the removed turns back and make the rewind look undone.
+
 ## Not done
 
 - `session/resume` starts claude with `--resume <id>` in place of `--session-id <id>` and
