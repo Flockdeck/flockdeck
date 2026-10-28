@@ -24,6 +24,7 @@ Both legs are TLS and the relay decrypts to route. The control socket and HTTP a
 | `/ws/pty` | served unencrypted |
 | `/ws/pty`, handshake fails | closed (no downgrade) |
 | `/ws/artifacts` | refused with reason `key` |
+| `/ws/approvals` | refused with reason `key` |
 
 ## Other limits on remote windows
 

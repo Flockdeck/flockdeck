@@ -3,6 +3,7 @@
 * [Agent role](agent-role.md) - A job an agent can be started for: its briefing, worktree policy, default model and who it may spawn.
 * [Agent spec](agent-spec.md) - The Spec struct that describes one agent, with its runner, argument template, models, capabilities and environment.
 * [agents.json](agents-json.md) - The user's own agents, roles, defaults and routing policy, merged over the built-ins and re-read on every catalog load.
+* [remote-approvals.log](approvals-audit-log.md) - Append-only JSON-lines audit log of phone approval connections, cards shown, decisions, refusals and desk changes.
 * [remote-artifacts.log](artifacts-audit-log.md) - Append-only JSON-lines audit log of remote artifact connections, refusals and desk changes.
 * [Baton store files](baton-store.md) - The batons folder in the state directory and the small bookkeeping files used to age batons out.
 * [Baton document](baton.md) - Markdown handoff with front matter and eight fixed sections, written by Render and read by Parse.

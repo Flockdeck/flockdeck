@@ -5,7 +5,7 @@ description: Every route registered on the main server mux and which auth each r
 resource: internal/server/server.go
 tags: [http, routes, server]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/server/server.go, internal/server/attach.go, internal/server/remote.go, internal/server/artifacts_consent.go, internal/server/artifacts_socket.go, internal/server/pty.go, internal/server/help.go, internal/server/control.go]
+code_paths: [internal/server/server.go, internal/server/attach.go, internal/server/remote.go, internal/server/artifacts_consent.go, internal/server/artifacts_socket.go, internal/server/approvals_socket.go, internal/server/pty.go, internal/server/help.go, internal/server/control.go]
 ---
 Registered in `server.New` on one `http.ServeMux`, wrapped by [host guard](/security/host-header-guard.md) for the loopback listener. The same mux is served through the relay tunnel by `RemoteHandler`, with the request marked as remote.
 
@@ -19,6 +19,7 @@ Registered in `server.New` on one `http.ServeMux`, wrapped by [host guard](/secu
 | `GET /ws/control` | `handleControl` | token | [control socket](/api/ws-control.md) |
 | `GET /ws/pty` | `handlePTY` | token | [terminal socket](/api/ws-pty.md) |
 | `GET /ws/artifacts` | `handleArtifacts` | relay only | [artifacts socket](/api/ws-artifacts.md) |
+| `GET /ws/approvals` | `handleApprovals` | relay only | [approvals socket](/api/ws-approvals.md) |
 | `GET /health` | `handleHealth` | token and URL token | [health](/api/health.md) |
 | `POST /open` | `handleOpen` | token and URL token | [open](/api/open.md) |
 | `POST /quit` | `handleQuit` | token and URL token | [quit](/api/quit.md) |

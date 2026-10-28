@@ -359,6 +359,8 @@ type accessState struct {
 	// approveFile the last read of the preferences file for the approval gate.
 	approveAsk  approveAsk
 	approveFile approveFileCache
+	// approvals is the sealed /ws/approvals socket's state (approvals_socket.go).
+	approvals approvalsState
 	// seen is the device ids of the last roster refresh. A turn-on that is being
 	// checked belongs to a device with no record yet, so a device dropped from
 	// the roster is found by comparing with this, not with the records.

@@ -22,6 +22,7 @@
 * [POST /remote/approvals/stop](remote-approvals-stop.md) - Switches phone approval off in memory and closes the approvals sockets after `flockdeck remote approvals off`.
 * [POST /remote/reload](remote-reload.md) - Tells a running instance to reread the remote enrolment after `flockdeck remote enable/disable/remove`.
 * [POST /window](window.md) - Returns a one-time window link so a second launch can open a window without putting the token on a command line.
+* [/ws/approvals socket](ws-approvals.md) - End-to-end encrypted, relay-only socket on which a paired phone is shown the permission requests of structured agents and allows or denies them.
 * [/ws/artifacts socket](ws-artifacts.md) - End-to-end encrypted, relay-only socket on which a paired device lists and reads this machine's recordings.
 * [Control commands: agents, keys, batons, team, recording](ws-commands-agents-team.md) - Commands on /ws/control for agent catalog, API keys, batons, routing, the team graph, recordings and pane info.
 * [Control commands: chat, history, attachments](ws-commands-conversation.md) - Commands on /ws/control for the chat view of a pane, session history, resume and image attach.

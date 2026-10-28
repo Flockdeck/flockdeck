@@ -1010,6 +1010,11 @@ func (r *Runtime) ask(ctx context.Context, card bridge.Card) bridge.Reply {
 // bridge no longer holds the detail of, or never had one for.
 func (r *Runtime) Detail(id string) (transcript.Detail, bool) { return r.br.Detail(id) }
 
+// PendingCard is the permission card the agent is waiting on, or nil. It is
+// Snapshot's Pending without the rest of the snapshot (every entry, the queue,
+// the shell list), so it is cheap to ask often.
+func (r *Runtime) PendingCard() *bridge.Card { return r.br.Pending() }
+
 // Snapshot returns the state now.
 func (r *Runtime) Snapshot() Snapshot {
 	r.mu.Lock()
