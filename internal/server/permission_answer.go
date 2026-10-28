@@ -79,6 +79,16 @@ type StructuredPane interface {
 	// calls it on its own goroutine, which every window waits on. The package
 	// structuredtest runs these checks against an implementation.
 	AnswerPermission(seq uint64, requestID, optionID string) error
+	// OwnAdapter says the pane runs an adapter Flockdeck wrote (Claude, Codex),
+	// whose option ids and kinds mean what they say. A pane that cannot say is
+	// not one: the phone may deny its cards and not allow them.
+	OwnAdapter() bool
+	// RuntimeToken names this run of the pane: it changes when the pane restarts
+	// and when the conversation is rewound. It is never empty.
+	RuntimeToken() string
+	// ProjectRoot is the absolute directory the pane works in. An edit is offered to
+	// a phone only inside it; empty means no edit is.
+	ProjectRoot() string
 }
 
 // SetStructuredPanes says how a pane id is turned into a structured pane. Until

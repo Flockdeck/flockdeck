@@ -19,6 +19,11 @@ type Memory struct {
 	ErrStale error
 	// Tool and Command go on the cards it opens.
 	Tool, Command string
+	// Own is what OwnAdapter says. Token is what RuntimeToken says; empty is "memory".
+	Own   bool
+	Token string
+	// Root is what ProjectRoot says.
+	Root string
 
 	mu       sync.Mutex
 	seq      uint64
@@ -84,6 +89,20 @@ func (m *Memory) AnswerPermission(seq uint64, requestID, optionID string) error 
 		}
 	}
 	return errors.New("that is not one of the options offered")
+}
+
+// OwnAdapter says whether the pane stands for one of Flockdeck's own adapters.
+func (m *Memory) OwnAdapter() bool { return m.Own }
+
+// ProjectRoot is Root.
+func (m *Memory) ProjectRoot() string { return m.Root }
+
+// RuntimeToken is Token, or "memory".
+func (m *Memory) RuntimeToken() string {
+	if m.Token == "" {
+		return "memory"
+	}
+	return m.Token
 }
 
 // Answered is every answer taken.

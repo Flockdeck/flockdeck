@@ -48,6 +48,7 @@ import (
 	"hash/maphash"
 	"math"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -119,6 +120,10 @@ type Config struct {
 	// any other agent a request of that kind is an ordinary one, with the kind
 	// "other": its options and its command are all the person is shown.
 	AcceptQuestions bool
+	// ShownInput are the keys of a command's input that the adapter is known to
+	// send and that are shown or harmless (manifest.Adapter.ShownInputKeys). Any
+	// other key marks the card with NoteExtra. Nil means a default list.
+	ShownInput []string
 }
 
 // Usage is what the agent last reported with usage_update: tokens in the
@@ -145,7 +150,19 @@ type Card struct {
 	Summary   string
 	File      string
 	Command   string
-	Options   []acp.PermissionOption
+	// CommandText is the command with its line breaks, cleaned and cut at
+	// cardCommandCap bytes; Command is only its first line. CommandAltered says
+	// it is not the command the agent sent: cleaning took a character out of it
+	// or it was cut. A reader that has to show the whole command (the phone's
+	// approval card) goes by these and treats an altered one as unchecked.
+	CommandText    string
+	CommandAltered bool
+	// Cwd is the directory the call says it runs in, when the adapter sends one
+	// that Config.ShownInput lists: one line, cleaned. Notes are fixed codes (the
+	// Note constants) for what the call does that the card does not show.
+	Cwd     string
+	Notes   []string
+	Options []acp.PermissionOption
 	// Body is the text the request shows about its call, such as the plan of
 	// ExitPlanMode, and Diff the unified diff of the edit it asks about. Both
 	// are plain text from the agent, cleaned and cut.
@@ -509,11 +526,15 @@ func (b *Bridge) open(req acp.PermissionRequest) (Card, map[string]string) {
 		c.File = line(req.ToolCall.Locations[0].Path, 1024)
 		c.Summary = line(strings.TrimSuffix(c.Kind+" "+filepath.Base(c.File), " "), labelCap)
 	}
-	var in struct {
-		Command string `json:"command"`
-	}
-	if json.Unmarshal(req.ToolCall.RawInput, &in) == nil {
-		c.Command = line(in.Command, 4<<10)
+	in := readInput(req.ToolCall.RawInput, b.cfg.ShownInput, c.Kind == "execute")
+	c.Command = line(in.command, 4<<10)
+	c.CommandText, c.CommandAltered = commandText(in.command)
+	c.CommandAltered = c.CommandAltered || in.altered
+	c.Cwd = line(in.cwd, 1024)
+	c.Notes = in.notes
+	if (c.Cwd != in.cwd || strings.ContainsRune(in.cwd, utf8.RuneError)) && !slices.Contains(c.Notes, NoteExtra) {
+		// Cleaning changed it, so the directory shown is not the one named.
+		c.Notes = append(c.Notes[:len(c.Notes):len(c.Notes)], NoteExtra)
 	}
 	cardContent(&c, req.ToolCall.Content)
 	if c.Kind == QuestionKind {

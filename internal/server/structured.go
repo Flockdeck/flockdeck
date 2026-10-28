@@ -4,11 +4,13 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/jmwri/flockdeck/internal/acp/bridge"
 	"github.com/jmwri/flockdeck/internal/structured"
 	"github.com/jmwri/flockdeck/internal/team"
 )
@@ -39,9 +41,9 @@ const (
 	structuredPlanMax = 100
 	structuredPlanCut = 200
 	// structuredCardCut bounds one field of the permission card, and
-	// structuredCommandCut its command.
-	structuredCardCut    = 300
-	structuredCommandCut = 500
+	// structuredCommandTextCut its command, which keeps its line breaks.
+	structuredCardCut        = 300
+	structuredCommandTextCut = 4 << 10
 	// structuredBodyCut, structuredDiffCut and structuredQuestionCut bound the
 	// text of a card: the plan, the diff, a question or an option's description.
 	structuredBodyCut     = 32 << 10
@@ -98,8 +100,14 @@ type structuredCard struct {
 	Summary   string             `json:"summary,omitempty"`
 	File      string             `json:"file,omitempty"`
 	Command   string             `json:"command,omitempty"`
+	Cwd       string             `json:"cwd,omitempty"`
+	Notes     []string           `json:"notes,omitempty"`
 	Options   []structuredOption `json:"options"`
 	Clipped   bool               `json:"clipped,omitempty"`
+	// CommandClipped says the command above is not exactly the one the agent
+	// sent: it was cut, or cleaning took a character out of it, or the input
+	// names the command in a way an adapter may read differently.
+	CommandClipped bool `json:"commandClipped,omitempty"`
 	// Body is the text the request shows about its call, such as the plan of
 	// ExitPlanMode; Diff the unified diff of the edit it asks about. Both are
 	// plain text, to be drawn as text. Questions are those of a question card,
@@ -296,7 +304,17 @@ func buildStructured(id string, sn structured.Snapshot) structuredMsg {
 		field(&card.Kind, c.Kind, structuredCardCut)
 		field(&card.Summary, c.Summary, structuredCardCut)
 		field(&card.File, c.File, structuredCardCut)
-		field(&card.Command, c.Command, structuredCommandCut)
+		cmd := c.CommandText
+		if cmd == "" {
+			cmd = c.Command
+		}
+		var cut bool
+		card.Command, cut = clipStructured(cmd, structuredCommandTextCut)
+		// A command that is not the one the agent sent (cleaning took a character
+		// out, or it was cut by the bridge) says so, as one cut here does.
+		card.CommandClipped = cut || c.CommandAltered
+		field(&card.Cwd, c.Cwd, structuredCardCut)
+		card.Notes = structuredNotes(c.Notes)
 		for _, o := range c.Options {
 			var opt structuredOption
 			field(&opt.ID, o.OptionID, 100)
@@ -663,4 +681,31 @@ func (s *Server) pushStructured() {
 	if retry {
 		s.armStructured()
 	}
+}
+
+// The sentences a card's notes are sent as: what the call does that its other
+// fields do not show. They are Flockdeck's words, one for each code the bridge
+// sets (bridge.Note...), and carry nothing the agent wrote.
+var structuredNoteText = map[string]string{
+	bridge.NoteSandbox:    "This command asks to run outside the sandbox.",
+	bridge.NoteBackground: "This command runs in the background.",
+	bridge.NoteReplaceAll: "This edit replaces every match, not one.",
+	bridge.NoteExtra:      "This request has input that is not shown here.",
+}
+
+// structuredNotes is the sentences for a card's note codes. A code it does not
+// know is sent as the last sentence, so that an unknown kind of input is still
+// said to be there.
+func structuredNotes(codes []string) []string {
+	var out []string
+	for _, c := range codes {
+		s, ok := structuredNoteText[c]
+		if !ok {
+			s = structuredNoteText[bridge.NoteExtra]
+		}
+		if !slices.Contains(out, s) {
+			out = append(out, s)
+		}
+	}
+	return out
 }

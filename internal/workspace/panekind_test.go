@@ -1,10 +1,12 @@
 package workspace
 
 import (
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/jmwri/flockdeck/internal/acp/bridge"
 	"github.com/jmwri/flockdeck/internal/hooks"
 	"github.com/jmwri/flockdeck/internal/session"
 )
@@ -235,5 +237,22 @@ func TestAPaneWithNoSessionCountsThroughItsRuntime(t *testing.T) {
 	}
 	if w, _ := ws.AttentionCount(); w != 1 {
 		t.Errorf("attention waiting = %d", w)
+	}
+}
+
+// A command of several lines is marked in the one line the roster and the graph
+// show, so the first line is not taken for all of it.
+func TestWaitingInputMarksACommandOfSeveralLines(t *testing.T) {
+	dots := string(rune(0x2026))
+	one := &bridge.Card{Command: "ls", CommandText: "ls", Summary: "execute: Bash", File: "f"}
+	if got, want := waitingInput(one), `{"command":"ls","description":"execute: Bash","filePath":"f"}`; got != want {
+		t.Errorf("one line: %s, want %s", got, want)
+	}
+	many := &bridge.Card{Command: "echo ok", CommandText: "echo ok" + string(rune(10)) + "rm -rf ~"}
+	if got := waitingInput(many); !strings.Contains(got, `"command":"echo ok `+dots+`"`) {
+		t.Errorf("several lines: %s", got)
+	}
+	if got := waitingInput(&bridge.Card{CommandText: "a" + string(rune(10)) + "b"}); strings.Contains(got, dots) {
+		t.Errorf("no command, no mark: %s", got)
 	}
 }

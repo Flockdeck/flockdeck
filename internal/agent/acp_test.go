@@ -494,3 +494,22 @@ func TestKeyMethodIsValidated(t *testing.T) {
 		t.Error("codex-acp takes MCP servers")
 	}
 }
+
+// A Spec has shown-input keys only when the adapter it starts is one of
+// Flockdeck's own; the entry's name does not give them.
+func TestACPShownInputIsOwnAdaptersOnly(t *testing.T) {
+	spec := func(adapter string) Spec {
+		return Spec{ID: "claude", Runner: RunnerACP, ACP: ACPSpec{Adapter: adapter}}
+	}
+	if got := spec("claude").ACPShownInput(); len(got) != 6 || got[0] != "command" {
+		t.Errorf("claude: %v", got)
+	}
+	if got := spec("codex-go").ACPShownInput(); len(got) != 2 || got[1] != "cwd" {
+		t.Errorf("codex: %v", got)
+	}
+	for _, a := range []string{"opencode", "nothing", ""} {
+		if got := spec(a).ACPShownInput(); got != nil {
+			t.Errorf("%q: %v", a, got)
+		}
+	}
+}

@@ -3,6 +3,7 @@ package codexacp
 import (
 	"bytes"
 	"encoding/json"
+	"slices"
 	"strings"
 	"sync"
 )
@@ -68,6 +69,9 @@ type approval struct {
 	alwaysOn string // the name of the always option
 }
 
+// networkTitle starts the title of an approval to reach the network.
+const networkTitle = "Network access: "
+
 func decision(d string) map[string]any { return map[string]any{"decision": d} }
 
 func (ss *session) handleRequest(m rpcMsg) {
@@ -90,7 +94,7 @@ func (ss *session) handleRequest(m rpcMsg) {
 	case "item/commandExecution/requestApproval":
 		d := ss.describe(&item{Type: "commandExecution", Command: p.Command, Cwd: p.Cwd})
 		if netCtx := members["networkApprovalContext"]; !isNull(netCtx) {
-			d.title = "Network access: " + d.title
+			d.title = networkTitle + d.title
 			p.Reason = strings.TrimSpace(p.Reason + "\n" + capText(string(netCtx), 500))
 		}
 		a := approval{threadID: p.ThreadID, itemID: p.ItemID, call: d,
@@ -193,10 +197,16 @@ func (ss *session) ask(m rpcMsg, a approval) {
 	if st != nil {
 		st.announced = true
 		if st.desc != nil {
-			// The item's own card has the diff or the command; the request adds
-			// only the reason.
-			a.call.content, a.call.locations, a.call.rawInput = st.desc.content, st.desc.locations, st.desc.rawInput
+			// The item's own card has the diff or the command. The request's reason
+			// (why Codex asks, a network host, a root it also wants to write under)
+			// is kept after it: an approval of network access must not look like
+			// the plain command.
+			reason, network := a.call.content, strings.HasPrefix(a.call.title, networkTitle)
+			a.call.content, a.call.locations, a.call.rawInput = slices.Concat(st.desc.content, reason), st.desc.locations, st.desc.rawInput
 			a.call.title, a.call.kind = st.desc.title, st.desc.kind
+			if network {
+				a.call.title = networkTitle + a.call.title
+			}
 		} else {
 			st.desc = &a.call
 		}

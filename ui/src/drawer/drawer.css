@@ -123,6 +123,8 @@
 .prompt-label { font-size: 11px; color: var(--fg-dim); text-transform: uppercase; letter-spacing: .04em; }
 .prompt-file, .prompt-desc { font-size: 12px; color: var(--fg-dim); overflow-wrap: anywhere; }
 .prompt-more { font-size: 12px; color: var(--fg-dim); }
+.prompt-note { font-size: 13px; font-weight: 600; color: var(--waiting); overflow-wrap: anywhere; }
+.prompt-lines { font-weight: 500; color: var(--fg); }
 .prompt-command, .prompt-diff {
   margin: 0;
   padding: 8px;

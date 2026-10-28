@@ -96,7 +96,7 @@ func TestStructuredDocQuotesTheLimits(t *testing.T) {
 		{structuredLabelCut == 1<<10, "A one-line field (the activity) | 1 KiB"},
 		{structuredInterval == 500*time.Millisecond, "every 500 milliseconds"},
 		{structuredPlanMax == 100 && structuredPlanCut == 200, "100 rows, each cut to 200 bytes"},
-		{structuredCardCut == 300 && structuredCommandCut == 500, "300 bytes for each field, 500 for the command"},
+		{structuredCardCut == 300 && structuredCommandTextCut == 4<<10, "300 bytes for each field, 4 KiB for the command"},
 		{structuredErrCut == 200, "| `err` | 200 characters"},
 		{maxStructuredWatches == 16, "over all windows | 16."},
 		{structuredNotPane == "That pane is not a structured pane", "`That pane is not a structured pane`"},

@@ -453,7 +453,13 @@ func OwnClaude(a Adapter) bool { return ownAdapter(a) }
 // rewind extension (internal/acp/rewind.go): the one for Claude Code, and
 // `flockdeck acp-adapter codex`. Only these exact shapes are, so an adapter
 // that merely says it has the extension is not sent tokens or rewind calls.
-func OwnRewind(a Adapter) bool {
+func OwnRewind(a Adapter) bool { return OwnAdapter(a) }
+
+// OwnAdapter reports whether a is one of the adapters Flockdeck wrote: the one for
+// Claude Code and `flockdeck acp-adapter codex`, in exactly these shapes. They
+// choose their own option ids (allow, allow_always, reject) and kinds, so a card
+// from one can be read by id; a card from any other adapter cannot.
+func OwnAdapter(a Adapter) bool {
 	return ownAdapter(a) || (a.ID == "codex-go" && a.Command == "flockdeck" &&
 		len(a.Args) == 2 && a.Args[0] == "acp-adapter" && a.Args[1] == "codex" &&
 		a.Drives == "codex" && a.Package == "" && a.Pin == "" && a.Hidden &&
@@ -495,4 +501,21 @@ func (m Manifest) Table() string {
 		fmt.Fprintf(&b, "| %s | `%s` | %s | %s | %s |\n", a.Name, start, accepts, a.TestedWith, a.TestedOn)
 	}
 	return b.String()
+}
+
+// ShownInputKeys are the keys of a shell command's input that the adapter is
+// known to send and that a card shows or can ignore: for Flockdeck's own Claude
+// adapter the keys of the Bash tool that change nothing about what runs (and the
+// ids and filter of BashOutput and KillShell, which run nothing), for its
+// Codex adapter the command and its directory. Input with any other key is
+// something the card does not show. It is nil for every other adapter, which has
+// no known list.
+func (a Adapter) ShownInputKeys() []string {
+	if !OwnAdapter(a) {
+		return nil
+	}
+	if a.Drives == "codex" {
+		return []string{"command", "cwd"}
+	}
+	return []string{"command", "description", "timeout", "bash_id", "filter", "shell_id"}
 }

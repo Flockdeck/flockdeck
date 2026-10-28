@@ -343,3 +343,15 @@ func (r *Runtime) modelNow() string {
 	}
 	return ""
 }
+
+// OwnAdapter says the pane runs one of the adapters Flockdeck wrote (claude,
+// codex-go) and not a command given for a test or an adapter from the manifest
+// that someone else wrote. Only a card from one of these has option ids and
+// kinds that can be read as they are named (see manifest.OwnAdapter).
+func (r *Runtime) OwnAdapter() bool {
+	return r.opts.Command == nil && r.opts.Spec.ACPOwnAdapter()
+}
+
+// Root is the directory the pane works in, absolute: the project root a phone's
+// approval of an edit is held inside.
+func (r *Runtime) Root() string { return r.opts.Cwd }

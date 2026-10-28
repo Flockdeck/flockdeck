@@ -571,6 +571,7 @@ func Start(ctx context.Context, opts Options) (*Runtime, error) {
 	// Only Flockdeck's own Claude Code adapter asks questions; a test that
 	// runs its own program says so in Bridge.
 	bcfg.AcceptQuestions = bcfg.AcceptQuestions || (opts.Command == nil && opts.Spec.ACPOwnClaude())
+	bcfg.ShownInput = shownInput(opts, bcfg.ShownInput)
 	rctx, cancel := context.WithCancel(ctx)
 	r := &Runtime{
 		seq:     runtimeSeq.Add(1),
@@ -1898,4 +1899,14 @@ func clean(s string, n int) string {
 		out = string([]rune(out)[:n]) + "…"
 	}
 	return out
+}
+
+// shownInput are the keys of a command's input the bridge may leave unshown: the
+// ones set for a test, or else the ones the manifest knows for an own adapter. A
+// test that runs its own command gets none from the Spec.
+func shownInput(opts Options, set []string) []string {
+	if set != nil || opts.Command != nil {
+		return set
+	}
+	return opts.Spec.ACPShownInput()
 }
