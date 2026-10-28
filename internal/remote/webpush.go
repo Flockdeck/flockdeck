@@ -82,18 +82,18 @@ func (c *Client) PushDevices(ctx context.Context) ([]PushDevice, error) {
 // sent a message it could not open; the relay says so, and is asked once more
 // for the keys of the devices that changed.
 func (c *Client) Push(ctx context.Context, n Notification) (int, error) {
-	return c.PushTo(ctx, n, nil)
+	return c.PushTo(ctx, func(string) (Notification, bool) { return n, true })
 }
 
-// PushTo is Push to the devices allow says yes to, asked for each device by id
-// as its message is sealed; nil allows every device. A device it refuses is
-// sent nothing at all, not a shorter message.
-func (c *Client) PushTo(ctx context.Context, n Notification, allow func(deviceID string) bool) (int, error) {
-	plain, err := fitNotification(n)
-	if err != nil {
-		return 0, err
-	}
-	sealed := map[string]string{} // by device: the key its message was sealed to
+// PushTo is Push with a notification for each device: notify is asked for each
+// device by id as its message is sealed, and gives what that device is told, or
+// false to send it nothing at all, not a shorter message. Two devices of one
+// account can be told different things, which a push about a wait only some of
+// them can answer needs. It is asked again on the second attempt for a device
+// whose keys changed, so it should give the same answer. notify must not be nil.
+func (c *Client) PushTo(ctx context.Context, notify func(deviceID string) (Notification, bool)) (int, error) {
+	fitted := map[Notification][]byte{} // by notification: its JSON, cut to fit
+	sealed := map[string]string{}       // by device: the key its message was sealed to
 	sent := 0
 	for attempt := 0; attempt < 2; attempt++ {
 		devices, err := c.PushDevices(ctx)
@@ -102,7 +102,8 @@ func (c *Client) PushTo(ctx context.Context, n Notification, allow func(deviceID
 		}
 		var msgs []PushMessage
 		for _, d := range devices {
-			if allow != nil && !allow(d.DeviceID) {
+			n, ok := notify(d.DeviceID)
+			if !ok {
 				continue
 			}
 			if key, ok := sealed[d.DeviceID]; ok && key == d.P256dh {
@@ -110,6 +111,14 @@ func (c *Client) PushTo(ctx context.Context, n Notification, allow func(deviceID
 			}
 			if len(msgs) == maxPushDevices {
 				break
+			}
+			plain, ok := fitted[n]
+			if !ok {
+				var err error
+				if plain, err = fitNotification(n); err != nil {
+					return sent, err
+				}
+				fitted[n] = plain
 			}
 			payload, err := Seal(d.P256dh, d.Auth, plain)
 			if err != nil {

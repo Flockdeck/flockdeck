@@ -209,7 +209,7 @@ var agentTypeAllowed = map[string]map[string]agentTypeAllow{
 		"paneInfoFields | map[bool]string{true: \"Agent\", false: \"Shell\"}[d.Agent]": {1, "d.Agent is a bool here, and the map is a label"},
 	},
 	"internal/server/push.go": {
-		"Server.pushDue | p.Sess": {1, "skips a pane that has no session. A waiting structured pane gets no phone push: it is answered at the desk only (decided in #378)"},
+		"Server.pushDue | p.Sess": {1, "skips a pane that has no session unless it is a structured pane (structuredWait, asked through the runtime), whose wait is pushed once structuredPushLive is set: until the approvals socket exists it is answered at the desk only (#378)"},
 	},
 	"internal/team/needs.go": {
 		// Kind here is a needs item's kind (ask, permission, down), which names

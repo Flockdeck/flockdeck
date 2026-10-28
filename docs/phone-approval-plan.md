@@ -287,3 +287,27 @@ Known limits:
 
 - Deny on a card from an adapter that is not ours answers with its reject option, the same as the desk does. There is no cancel path: `Runtime.answer` takes only the ids on the card, and an empty id is `ErrBadOption`. A foreign agent can therefore read a Deny as "reject once" and go on to ask again. Cancelling the turn instead would need a runtime method the desk does not have.
 - The check of a path is pure. A link inside the project that points outside it is not seen.
+
+## T4 as built
+
+Written on 28 Oct 2026 against origin/main 3e8a5d06 (through #734). The push for a structured wait is in `internal/server/push.go` and is switched off: `structuredPushLive` is `false`. No API change.
+
+What it does, once on:
+
+- `pushDue` no longer skips a pane because it has no session. A pane with none is taken only if `structuredWait` finds it through the structured-pane lookup (`s.structuredPane`, the same one `permissionAnswer` uses, so no consumer asks which agent it is), and only while its status is waiting on a request. A structured pane that is blocked (needs setup) is not pushed, though a terminal pane that is blocked still is. The delay, the one push a minute, `deskInUse`, `phoneLook` and per-pane mute are the code they were.
+- Wording is as the table in section a says. One structured pane waiting: title `NAME · PROJECT needs you`; body `Allow or deny. On DESKTOP` for a device with the approvals switch on when `projectCard(...).CanAllow` is true, and `Answer on the desktop. On DESKTOP` for every other device and for every other card (plan, question, Deny only, an agent that is not ours, no card). Several waiting panes and Anonymous are as before, the same for every device. `CanAllow` is the test and not `Answerable`: a Deny only card is told "Answer on the desktop", since "Allow or deny" would promise a button the card does not have. The card is read for that yes or no and nothing else; `waitingAgent` holds two booleans and no card text.
+- `PushTo` takes `func(deviceID string) (Notification, bool)` (research item R2). `Push` wraps it. Each distinct notification is fitted and sealed once. `Server.notificationFor` is the function: `mayPush` first, so a device that may not see pane names is sent nothing; then `approveSwitchOn`, which picks the approver wording. It does not use `mayApproveWithKey`: no key is proven at push time, and the sealed socket still holds every decision to the gate. A device whose grant is on but whose key later fails the gate is told "Allow or deny" and finds the card refused; T3 should show it why.
+- The pane name and project in the title now go through `capName` (redacted, one line, 40 characters) for terminal panes too. R6 said the push uses the same cap as `scrubPaneNames`; the old code did not.
+- A tap opens `/d/HOST/PANE`, as for a terminal pane.
+
+How it is kept from shipping before T3:
+
+- `structuredPushLive` is a constant, `false`. The only other way to turn the push on is the unexported field `pushState.structuredOn`, which only tests set.
+- `TestStructuredPushNeedsTheApprovalsSocket` fails if the constant is `true` and no non-test Go file in `internal/server` calls `Handle` or `HandleFunc` with the literal `"/ws/approvals"` (found by parsing the files, so a comment, a string or a test file does not count). T3 registers the route in `server.go` beside `/ws/artifacts` and flips the constant in the same change. `TestTheRouteCheckSeesARegisteredHandler` shows the check finds `/ws/artifacts` in the real tree, finds a registration in a temporary file, and does not take a comment, a string or a test file for one.
+- The guard proves a route exists, not that it works. Reviewing T3 still has to check that the handler is the sealed one.
+
+Deviations and choices:
+
+- The audience for the approver wording is `approveSwitchOn`, as the brief said. The plan's section c (older text) said a structured wait goes only to devices with approvals on; decision 4 replaced that and this follows decision 4.
+- A viewer with approvals on but without watch-panes is sent no push at all (`mayPush`). The plan does not say. Telling it would put a pane name on a device that is not shown pane names.
+- Not tested: a structured pane that is blocked is skipped by the status check, but no test builds one; the check can only differ from `NeedsAttention` for that state.
