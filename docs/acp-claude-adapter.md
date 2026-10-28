@@ -237,10 +237,12 @@ a `user` line on the same process.
   crash right after `/clear` does not restore the old id. If the runtime holds an id from
   an unanswered reopen, the moved id wins over it.
 
-  A fork or a rewind (T215) that makes claude report another session id would send the
-  same update. That is intended only if the pane goes on following the new conversation;
-  a fork that leaves the pane on the original conversation must not send it, or a
-  restored pane would resume the fork.
+  A rewind (T215) moves the conversation to a new claude session and sends the same update
+  on purpose, so a restored pane resumes the rewound conversation. A fork does not send it:
+  the pane that asked for a fork stays on the original conversation, and the new pane
+  opens the fork under its own session. The runtime tells the two moves apart: it expects
+  the move that follows its own rewind, and a move it did not ask for is a `/clear`, after
+  which no turn can be named (`cleared`).
 
 So the slash menu offers all three, and no Flockdeck-side "new conversation" action was
 added. If a later claude stops honouring `/clear` under `-p`, the entry has to be hidden
@@ -279,9 +281,32 @@ The adapter advertises `agentCapabilities._meta["flockdeck.dev"] = {"rewind":1}`
 `uuid`; the adapter keeps the uuid of the last assistant message of each turn that ended by itself.
 `_flockdeck/forkpoint` answers `{at}`, the previous turn's last uuid. `session/fork` starts claude with
 `--resume SRC [--resume-session-at AT] --fork-session --session-id NEW`. `_flockdeck/rewind` starts a
-second claude with `--resume ID --resume-session-at AT` on the same id, puts the mode and model back, and
-ends the first; it is refused while a turn or a queued prompt is there. The turns are kept in memory, so
-turns from before an adapter restart cannot be named.
+second claude with `--resume SRC --resume-session-at AT --fork-session --session-id NEW`, puts the mode and
+model back, and ends the first. The session keeps the id the client prompts with; the adapter sends
+`flockdeck_session` with NEW so the pane saves the id a restore has to resume. It is refused while a turn or
+a queued prompt is there. The turns are kept in memory, so turns from before an adapter restart cannot be
+named. A malformed `at` (not a UUID) is refused as invalid params, never read as "the whole conversation".
+After `/clear`, claude reports an id the adapter did not choose; the uuids held name messages of the old
+file, so no point is given and a rewind or fork at a turn is refused.
+
+### Why a rewind is a fork
+
+Checked against claude 2.1.312 on 28 Oct 2026, in a throwaway directory with `-p --input-format
+stream-json`, using a message `uuid` of our own for each prompt:
+
+- A cut of the same id (`--resume ID --resume-session-at AT`) answers from the kept part, but writes its
+  lines into the same `<ID>.jsonl`, after the dropped turns. The first new line has the kept assistant message
+  as its `parentUuid`, so the file is a tree and the dropped branch stays in it. A later plain `--resume ID`
+  that is started before any message went to the cut one comes back with the whole conversation, dropped turn
+  included: claude resumes by the latest message, and a cut with no message sent has none.
+- A fork (`--fork-session --session-id NEW`) writes `NEW.jsonl` with only the kept messages, under the same
+  uuids and the new `sessionId`, and then the new messages. The dropped turn is not in it. Rewinding or
+  forking the fork at the same uuids works.
+- The fork file is written when the first message is sent. Until then a `--resume NEW` finds no file and
+  claude exits; the runtime's reopen falls back to a new session, and the earlier conversation stays in the
+  original file.
+
+So a rewind that is to survive a restart has to be a fork, and the pane saves NEW.
 
 ## Not done
 
@@ -514,13 +539,16 @@ turn, is not typed, does not touch the queue or mail, and a prompt in it is a `p
 marked `replayed`. Two user lines with no reply between them merge into one prompt entry in
 the bridge.
 
-Rewind and fork (T215, branch `parity-rewind-fork`): claude's file is a tree, each line has a
-`uuid` and a `parentUuid`, and the reader here replays the lines in file order. That is right
-while a conversation only grows. A rewind (`--resume ID --resume-session-at AT`) or a fork
-that leaves the old lines in the same file would put the abandoned branch in the replay too, so
-once rewind lands the replay has to follow the `parentUuid` chain from the newest line back.
-Not verified that `--resume-session-at` writes its new lines into the same file under the same
-id; nothing in the local files was used to test it.
+Rewound branches (T215): claude's file is a tree, each line has a `uuid` and a `parentUuid`,
+and a cut of the same id appends its new lines to the same file after the dropped turns (see
+"Why a rewind is a fork"). The replay therefore does not read in file order. A first pass over
+the part of the file that is read records `uuid` to `parentUuid` for the user, assistant,
+attachment and system lines that are not sidechains, takes the last such line as the tip, and
+walks back from it; a second pass replays only the lines on that chain. A line whose parent is
+not in the part read ends the chain there. With no line that has a `uuid`, or more than 400,000
+lines, or after the time limit in the first pass, the file is replayed in file order. A loop in
+the chain ends at the first line seen again. Rewinds by Flockdeck now go through a fork, so
+the files it makes do not branch; the chain walk is for sessions cut some other way.
 
 Tests: `history_test.go` and `history_rules_test.go` (`TestSessionLoad...`, one case per rule
 in `TestSessionLoadRules`) and `TestInteropLoadReplaysMarkedAsReplay`. The tests that make a

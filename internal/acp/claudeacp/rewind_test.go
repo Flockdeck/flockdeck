@@ -19,13 +19,13 @@ const (
 	msg2 = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
 )
 
-func assistantLine(uuid string) string {
+func rewindAssistantLine(uuid string) string {
 	return `{"type":"assistant","uuid":"` + uuid + `","message":{"id":"msg_` + uuid[:4] + `","role":"assistant","content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":1,"output_tokens":1}},"parent_tool_use_id":null}`
 }
 
 // aborted is a turn that ends without end_turn.
 func abortedWith(uuid string) []step {
-	return []step{emit(assistantLine(uuid)), emit(lResultAborted)}
+	return []step{emit(rewindAssistantLine(uuid)), emit(lResultAborted)}
 }
 
 func (h *harness) promptTurn(sid, text, turn string) int {
@@ -43,8 +43,8 @@ func twoTurns() []step { return twoTurnsInit(lInit) }
 
 func twoTurnsInit(init string) []step {
 	return []step{
-		expect(`"uuid":"` + tok1 + `"`), emit(init), emit(assistantLine(msg1)), emit(lResultOK),
-		expect(`"uuid":"` + tok2 + `"`), emit(assistantLine(msg2)), emit(lResultOK),
+		expect(`"uuid":"` + tok1 + `"`), emit(init), emit(rewindAssistantLine(msg1)), emit(lResultOK),
+		expect(`"uuid":"` + tok2 + `"`), emit(rewindAssistantLine(msg2)), emit(lResultOK),
 	}
 }
 
@@ -127,8 +127,8 @@ func TestForkPointIsTheEndOfTheTurnBefore(t *testing.T) {
 
 func TestTurnThatDidNotEndIsNotAPoint(t *testing.T) {
 	h := newHarness(t, []step{
-		expect(`"uuid":"` + tok1 + `"`), emit(lInit), emit(assistantLine(msg1)), emit(lResultAborted),
-		expect(`"uuid":"` + tok2 + `"`), emit(assistantLine(msg2)), emit(lResultOK),
+		expect(`"uuid":"` + tok1 + `"`), emit(lInit), emit(rewindAssistantLine(msg1)), emit(lResultAborted),
+		expect(`"uuid":"` + tok2 + `"`), emit(rewindAssistantLine(msg2)), emit(lResultOK),
 	})
 	sid := h.start()
 	if r := h.await(h.promptTurn(sid, "one", tok1)); r.Error == nil {
@@ -267,7 +267,7 @@ func TestRewindStartsClaudeAgainOnTheSameSession(t *testing.T) {
 
 func TestRewindIsRefusedWhileBusy(t *testing.T) {
 	h := newHarness(t, []step{
-		expect(`"uuid":"` + tok1 + `"`), emit(lInit), emit(assistantLine(msg1)), emit(lResultOK),
+		expect(`"uuid":"` + tok1 + `"`), emit(lInit), emit(rewindAssistantLine(msg1)), emit(lResultOK),
 		expect(`"uuid":"` + tok2 + `"`), emit(lInit), emit(lMsgStart), emit(textDelta("working")), // never ends
 	})
 	sid := h.start()
@@ -343,7 +343,7 @@ func TestAPromptDuringARewindIsRefused(t *testing.T) {
 // rewinding flag is cleared and the first claude goes on taking prompts.
 func TestARewindThatCannotStartClaudeLeavesTheSessionUsable(t *testing.T) {
 	steps := append(twoTurns(),
-		expect(`"uuid":"`+tok3+`"`), emit(assistantLine(msg1)), emit(lResultOK))
+		expect(`"uuid":"`+tok3+`"`), emit(rewindAssistantLine(msg1)), emit(lResultOK))
 	h := newHarnessWith(t, mustExe(t), steps, envNoCut+"=1")
 	sid := h.start()
 	stopReason(t, h.await(h.promptTurn(sid, "one", tok1)))
@@ -388,7 +388,7 @@ func TestNoPointAfterTheSessionWasCleared(t *testing.T) {
 func TestASecondRewindResumesTheFirstRewindsConversation(t *testing.T) {
 	const msg3 = "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
 	h := newHarness(t, append(twoTurns(),
-		expect(`"uuid":"`+tok3+`"`), emit(assistantLine(msg3)), emit(lResultOK)))
+		expect(`"uuid":"`+tok3+`"`), emit(rewindAssistantLine(msg3)), emit(lResultOK)))
 	sid := h.start()
 	for _, p := range []struct{ text, tok string }{{"one", tok1}, {"two", tok2}, {"three", tok3}} {
 		stopReason(t, h.await(h.promptTurn(sid, p.text, p.tok)))

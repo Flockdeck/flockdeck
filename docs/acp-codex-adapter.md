@@ -206,12 +206,17 @@ on `PATH`.
 
 The adapter advertises the same extension as the claude one (`flockdeck.dev`, `rewind: 1`) and
 `sessionCapabilities.fork`. It keeps the turn tokens of the turns it ran, in order, and whether each was a
-plain prompt. `_flockdeck/forkpoint` answers `rbN`, N being the number of turns from the chosen one to the
-end. `session/fork` is `thread/fork` of the source thread, then `thread/rollback` with `numTurns` N on the new
-thread. `_flockdeck/rewind` is `thread/rollback` on the live thread, refused while a turn or a queued prompt
-is there. A `/compact` or `/review` in the range that would go refuses the point, as does a turn from before
-a resume. None of this has been run against a real codex: the wire is from the route document and the fake
-app-server, and is listed under Unverified.
+plain prompt. `_flockdeck/forkpoint` answers `kN`, N being the number of turns kept, counted from the
+start of the thread. The count is absolute because the source can run another turn between the question
+and `session/fork`; a count from the end would then cut the wrong turn. `session/fork` is `thread/fork` of
+the source thread, then `thread/read` with `includeTurns` to count the turns of the new thread (n), then
+`thread/rollback` with `numTurns` n minus N. If the count is not available or n is below N, the fork fails and
+no pane is made. `_flockdeck/rewind` is `thread/rollback` on the live thread, relative to its end and under
+the session lock, refused while a turn or a queued prompt is there. A `/compact` or `/review` in the range
+that would go refuses the point. A resumed or forked thread has turns the adapter did not run, so it gives no
+point (`hasHistory`). A malformed `at` (not `kN`) is refused as invalid params. None of this has been run
+against a real codex: the wire is from the route document and the fake app-server, and `thread/read` and
+`thread/rollback` are listed under Unverified.
 
 ## Unverified
 
@@ -243,6 +248,11 @@ These were not checked against a real codex:
   anything but `false`. A codex that omits these members will therefore not open a session
   until this has been checked against a real one.
 - Approvals from a sub-agent's thread would carry another thread id and are refused.
+- Rewind and fork (T215): that `thread/fork` copies every turn of the source, that
+  `thread/read` with `includeTurns: true` answers `{thread: {turns: [...]}}`
+  with one element per turn, and that `thread/rollback` with `numTurns` drops that many turns from the
+  end and answers. The adapter fails closed on a count it cannot read, so a different shape means fork
+  and rewind are refused, not wrong.
 
 ## Policy review
 

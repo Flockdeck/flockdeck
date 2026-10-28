@@ -43,6 +43,9 @@ var (
 	// historyMaxDirs is how many project directories the fallback search looks
 	// through. A root with more is not searched at all.
 	historyMaxDirs = 5000
+	// historyMaxLinks is how many lines the branch search keeps a link for. A
+	// file with more is replayed in file order.
+	historyMaxLinks = 400000
 )
 
 // historyRoot is claude's projects directory: CLAUDE_CONFIG_DIR in the
@@ -111,6 +114,7 @@ func historyFile(root, cwd, id string) string {
 }
 
 type histLine struct {
+	UUID                      string          `json:"uuid"`
 	Type                      string          `json:"type"`
 	IsMeta                    bool            `json:"isMeta"`
 	IsSidechain               bool            `json:"isSidechain"`
@@ -389,6 +393,33 @@ type historyResult struct {
 	earlier, later, gap bool
 }
 
+// histLink is what the branch search needs of a line.
+type histLink struct {
+	UUID       string `json:"uuid"`
+	ParentUUID string `json:"parentUuid"`
+	Type       string `json:"type"`
+	Sidechain  bool   `json:"isSidechain"`
+}
+
+// activeBranch returns the uuids of the lines on the branch that ends at the
+// newest line, or nil when there is no branch to follow. claude does not delete
+// what a rewind drops: a session cut back with --resume-session-at gets its next
+// message appended to the same file, with the kept message as its parent, so the
+// dropped turns stay in the file after it and file order is not the
+// conversation. Lines name their parent (parentUuid), so the conversation is
+// the chain from the newest line back. A line whose parent is not in the part
+// read ends the chain there.
+func activeBranch(links map[string]string, tip string) map[string]bool {
+	if tip == "" {
+		return nil
+	}
+	active := map[string]bool{}
+	for id := tip; id != "" && !active[id]; id = links[id] {
+		active[id] = true
+	}
+	return active
+}
+
 // readHistory reads the tail of the file at path into entries. It stops at
 // historyMaxWait, and skips what it cannot read.
 func readHistory(path, cwd string) historyResult {
@@ -402,23 +433,64 @@ func readHistory(path, cwd string) historyResult {
 	if err != nil || !fi.Mode().IsRegular() {
 		return res
 	}
-	r := bufio.NewReaderSize(f, 64<<10)
-	if fi.Size() > historyMaxScan {
-		if _, err := f.Seek(fi.Size()-historyMaxScan, io.SeekStart); err != nil {
-			return res
-		}
-		r.Reset(f)
-		skipLine(r) // the first line is cut
-		res.earlier = true
-	}
-	h := &history{cwd: cwd, tools: map[string]*histEntry{}}
 	deadline := time.Now().Add(historyMaxWait)
-	for n := 0; ; n++ {
-		if n%256 == 0 && !time.Now().Before(deadline) {
-			res.later = true
-			break
+	// pass calls fn for each line of the part of the file that is read, and says
+	// whether it stopped at the time limit.
+	pass := func(fn func(line []byte, skipped bool)) (timedOut bool) {
+		if _, err := f.Seek(0, io.SeekStart); err != nil {
+			return false
 		}
-		line, skipped, err := readLine(r)
+		r := bufio.NewReaderSize(f, 64<<10)
+		if fi.Size() > historyMaxScan {
+			if _, err := f.Seek(fi.Size()-historyMaxScan, io.SeekStart); err != nil {
+				return false
+			}
+			r.Reset(f)
+			skipLine(r) // the first line is cut
+			res.earlier = true
+		}
+		for n := 0; ; n++ {
+			if n%256 == 0 && !time.Now().Before(deadline) {
+				return true
+			}
+			line, skipped, err := readLine(r)
+			fn(line, skipped)
+			if err != nil {
+				return false
+			}
+		}
+	}
+	// The first pass finds the branch the newest line is on.
+	links := map[string]string{}
+	var tip string
+	over := false
+	timedOut := pass(func(line []byte, _ bool) {
+		if over || len(line) == 0 || !bytes.Contains(line, []byte(`"uuid"`)) {
+			return
+		}
+		var l histLink
+		if json.Unmarshal(line, &l) != nil || l.UUID == "" || l.Sidechain {
+			return
+		}
+		switch l.Type {
+		case "user", "assistant", "attachment", "system":
+		default:
+			return
+		}
+		if len(links) >= historyMaxLinks {
+			over = true
+			return
+		}
+		links[l.UUID] = l.ParentUUID
+		tip = l.UUID
+	})
+	var active map[string]bool
+	if !timedOut && !over {
+		active = activeBranch(links, tip)
+	}
+	links = nil
+	h := &history{cwd: cwd, tools: map[string]*histEntry{}}
+	later := pass(func(line []byte, skipped bool) {
 		if skipped {
 			h.gap = true
 		}
@@ -426,14 +498,12 @@ func readHistory(path, cwd string) historyResult {
 		// matters, so the others are not parsed.
 		if len(line) > 0 && (bytes.Contains(line, []byte(`"user"`)) || bytes.Contains(line, []byte(`"assistant"`)) || bytes.Contains(line, []byte("queued_command"))) {
 			var l histLine
-			if json.Unmarshal(line, &l) == nil {
+			if json.Unmarshal(line, &l) == nil && (active == nil || l.UUID == "" || active[l.UUID]) {
 				h.fold(l)
 			}
 		}
-		if err != nil {
-			break
-		}
-	}
+	})
+	res.later = timedOut || later
 	res.entries = h.entries[h.head:]
 	res.earlier = res.earlier || h.evicted
 	res.gap = h.gap
