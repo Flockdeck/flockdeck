@@ -15,6 +15,7 @@ import (
 	"github.com/jmwri/flockdeck/internal/remote"
 	"github.com/jmwri/flockdeck/internal/session"
 	"github.com/jmwri/flockdeck/internal/session/transcript"
+	"github.com/jmwri/flockdeck/internal/workspace"
 )
 
 // Strings that stand for the agent's words. A push never holds any of them:
@@ -371,14 +372,17 @@ func TestThePushGoesBySwitchAndNotKey(t *testing.T) {
 
 // T3 builds the sealed socket the push sends the person to. A push that says
 // "Allow or deny" while there is no such socket would send them to a card they
-// cannot answer, so structuredPushLive may be true only in a tree where a handler
-// is registered for it.
+// cannot answer, so structuredPushLive may be true only in a tree where the path
+// is registered with a handler called handleApprovals (as /ws/artifacts has
+// handleArtifacts). A name is a convention and proves nothing about what the
+// handler does: T3's review has to confirm it is the sealed one, and that
+// flipping the constant is in the same change.
 func TestStructuredPushNeedsTheApprovalsSocket(t *testing.T) {
 	if !structuredPushLive {
 		return
 	}
-	if !routeRegistered(t, ".", "/ws/approvals") {
-		t.Fatal(`structuredPushLive is true, but no handler is registered for "/ws/approvals": ` +
+	if !routeRegistered(t, ".", "/ws/approvals", "handleApprovals") {
+		t.Fatal(`structuredPushLive is true, but "/ws/approvals" is not registered with a handler named handleApprovals: ` +
 			"a structured wait would be pushed with nowhere to answer it from the phone")
 	}
 }
@@ -387,10 +391,13 @@ func TestStructuredPushNeedsTheApprovalsSocket(t *testing.T) {
 // where there is one and to miss it where there is none. A guard that finds
 // nothing in every tree passes vacuously.
 func TestTheRouteCheckSeesARegisteredHandler(t *testing.T) {
-	if !routeRegistered(t, ".", "/ws/artifacts") {
+	if !routeRegistered(t, ".", "/ws/artifacts", "handleArtifacts") {
 		t.Error("the check does not see the handler registered for /ws/artifacts")
 	}
-	if routeRegistered(t, ".", "/ws/no-such-socket") {
+	if routeRegistered(t, ".", "/ws/artifacts", "handleApprovals") {
+		t.Error("the check takes another socket's handler for the approvals one")
+	}
+	if routeRegistered(t, ".", "/ws/no-such-socket", "handleArtifacts") {
 		t.Error("the check sees a handler for a path nothing is registered for")
 	}
 	dir := t.TempDir()
@@ -399,22 +406,27 @@ func TestTheRouteCheckSeesARegisteredHandler(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	write("a.go", "package x\n\nfunc f(mux interface{ HandleFunc(string, func()) }) { mux.HandleFunc(\"/ws/approvals\", nil) }\n")
-	if !routeRegistered(t, dir, "/ws/approvals") {
+	write("a.go", "package x\n\nfunc f(mux interface{ HandleFunc(string, func()) }, s *T) { mux.HandleFunc(\"/ws/approvals\", s.handleApprovals) }\n")
+	if !routeRegistered(t, dir, "/ws/approvals", "handleApprovals") {
 		t.Error("the check does not see a handler in a file")
+	}
+	write("a.go", "package x\n\nfunc f(mux interface{ HandleFunc(string, func()) }, s *T) { mux.HandleFunc(\"/ws/approvals\", s.handleOther) }\n")
+	if routeRegistered(t, dir, "/ws/approvals", "handleApprovals") {
+		t.Error("the check takes any handler for the approvals one")
 	}
 	// A mention in a comment, a string, or a test file is not a registration.
 	_ = os.Remove(filepath.Join(dir, "a.go"))
-	write("b.go", "package x\n\n// mux.HandleFunc(\"/ws/approvals\", nil)\nvar s = \"/ws/approvals\"\n")
-	write("c_test.go", "package x\n\nfunc g(mux interface{ HandleFunc(string, func()) }) { mux.HandleFunc(\"/ws/approvals\", nil) }\n")
-	if routeRegistered(t, dir, "/ws/approvals") {
+	write("b.go", "package x\n\n// mux.HandleFunc(\"/ws/approvals\", s.handleApprovals)\nvar s = \"/ws/approvals handleApprovals\"\n")
+	write("c_test.go", "package x\n\nfunc g(mux interface{ HandleFunc(string, func()) }, s *T) { mux.HandleFunc(\"/ws/approvals\", s.handleApprovals) }\n")
+	if routeRegistered(t, dir, "/ws/approvals", "handleApprovals") {
 		t.Error("the check takes a comment, a string or a test file for a handler")
 	}
 }
 
 // routeRegistered says a non-test Go file in dir calls Handle or HandleFunc with
-// the path as a string literal.
-func routeRegistered(t *testing.T, dir, path string) bool {
+// the path as a string literal and the handler, a function or a method, by that
+// name.
+func routeRegistered(t *testing.T, dir, path, handler string) bool {
 	t.Helper()
 	files, err := filepath.Glob(filepath.Join(dir, "*.go"))
 	if err != nil {
@@ -438,11 +450,176 @@ func routeRegistered(t *testing.T, dir, path string) bool {
 			if !ok || (sel.Sel.Name != "Handle" && sel.Sel.Name != "HandleFunc") {
 				return true
 			}
-			if lit, ok := call.Args[0].(*ast.BasicLit); ok && lit.Kind == token.STRING && lit.Value == `"`+path+`"` {
-				found = true
+			lit, ok := call.Args[0].(*ast.BasicLit)
+			if !ok || lit.Kind != token.STRING || lit.Value != `"`+path+`"` || len(call.Args) < 2 {
+				return true
+			}
+			switch h := call.Args[1].(type) {
+			case *ast.SelectorExpr:
+				found = found || h.Sel.Name == handler
+			case *ast.Ident:
+				found = found || h.Name == handler
 			}
 			return true
 		})
 	}
 	return found
+}
+
+// A name in a push is on a lock screen, so it is made one plain line and
+// redacted, in the order that a secret cannot be hidden from the redactor: the
+// characters that could split it are dropped first.
+func TestAPushNameIsOnePlainRedactedLine(t *testing.T) {
+	cjk := "\xe6\x97\xa5"
+	cases := []struct{ name, in, want string }{
+		{"plain", "api", "api"},
+		{"a control character", "a\x01b\x7fc", "a b c"},
+		{"a new line", "one\ntwo\r\nthree", "one two three"},
+		{"a bidi override", "ok" + uRLO + "evil" + uPDI, "okevil"},
+		{"a zero-width space", "a" + uZWSP + "b", "ab"},
+		{"a secret split by a zero-width space", "x " + fakeToken[:12] + uZWSP + fakeToken[12:], "x [redacted]"},
+		{"forty runes", strings.Repeat(cjk, 40), strings.Repeat(cjk, 40)},
+		{"forty-one runes", strings.Repeat(cjk, 41), strings.Repeat(cjk, 39) + "\xe2\x80\xa6"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := capName(tc.in)
+			if got != tc.want {
+				t.Errorf("capName(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+			if n := len([]rune(got)); n > maxRemoteName {
+				t.Errorf("%d runes: %q", n, got)
+			}
+			for _, r := range got {
+				if r < 0x20 || r == 0x7f || (r >= 0x200b && r <= 0x200f) || (r >= 0x202a && r <= 0x202e) || (r >= 0x2066 && r <= 0x2069) {
+					t.Errorf("%q holds U+%04X", got, r)
+				}
+			}
+		})
+	}
+	// A control character in the middle of a token makes it two words. The
+	// halves are shown apart, which is no secret; they are not put back together.
+	got := capName("x " + fakeToken[:12] + "\x00" + fakeToken[12:])
+	if strings.Contains(got, fakeToken) || strings.Contains(got, fakeToken[:12]+fakeToken[12:]) {
+		t.Errorf("a token split by a control character was put back together: %q", got)
+	}
+}
+
+// The same on the way to the phone: the names of several panes, in the list,
+// come out cleaned.
+func TestAPushListOfNamesIsCleaned(t *testing.T) {
+	srv, ws := newTestServer(t)
+	enrolled(srv)
+	a := firstPane(t, srv, ws)
+	b := addPane(t, srv, ws, "second")
+	ask(srv, func() bool {
+		ws.Pane(a).Name = "alpha" + uRLO + "\nbeta " + fakeToken[:12] + uZWSP + fakeToken[12:]
+		ws.Pane(b).Name = "gamma\x01delta"
+		return true
+	})
+	waitIn(t, srv, ws, a)
+	since := waitIn(t, srv, ws, b)
+	n := due(srv, since.Add(time.Hour))
+	if n == nil {
+		t.Fatal("not pushed")
+	}
+	if !strings.Contains(n.Body, "alpha beta [redacted]") || !strings.Contains(n.Body, "gamma delta") {
+		t.Errorf("body = %q", n.Body)
+	}
+	for _, bad := range []string{uRLO, uZWSP, "\x01", "\n", fakeToken[:12]} {
+		if strings.Contains(n.Body, bad) || strings.Contains(n.Title, bad) {
+			t.Errorf("the push holds %q: %+v", bad, n.Notification)
+		}
+	}
+}
+
+// A structured pane that is blocked (it needs setting up) is not waiting on a
+// request and is not pushed, though a terminal pane that is blocked is.
+func TestABlockedStructuredPaneIsNotPushedButABlockedTerminalIs(t *testing.T) {
+	e := newGraphEnv(t)
+	enrolled(e.srv)
+	e.detach(e.dev, fakeRuntime{status: session.StatusBlocked, detail: "needs setup", started: time.Now().Add(-time.Hour)})
+	e.srv.SetStructuredPanes(func(id string) (StructuredPane, bool) {
+		if id == e.dev {
+			return &cardPane{card: markedCard(nil), own: true, root: testRoot}, true
+		}
+		return nil, false
+	})
+	ask(e.srv, func() bool {
+		e.srv.push.structuredOn = true
+		e.srv.push.idleSince = func() (time.Duration, bool, bool) { return time.Hour, true, true }
+		return true
+	})
+	if n := due(e.srv, time.Now()); n != nil {
+		t.Fatalf("a blocked structured pane was pushed: %+v", n)
+	}
+	// The same state in a terminal pane is a wait that is pushed, so the skip is
+	// the structured one's and not the status's.
+	p, _ := ask(e.srv, func() *workspace.Pane { return e.ws.Pane(e.eyes) })
+	p.Sess.SetStatus(session.StatusBlocked, "")
+	if n := due(e.srv, time.Now().Add(time.Hour)); n == nil || !strings.HasPrefix(n.Title, paneName(e.srv, e.ws, e.eyes)) {
+		t.Errorf("a blocked terminal pane: %+v", n)
+	}
+}
+
+// tokenPane is a pane whose run has another token.
+type tokenPane struct {
+	cardPane
+	token string
+}
+
+func (p *tokenPane) RuntimeToken() string { return p.token }
+
+// The wording for a device with approvals on was chosen when the wait was
+// noticed. At send time it is checked against the card then pending.
+func TestTheApproverWordingIsCheckedAgainAtSendTime(t *testing.T) {
+	changes := []struct {
+		name string
+		do   func(p *cardPane)
+		keep bool
+	}{
+		{"the same card", func(p *cardPane) {}, true},
+		{"another card", func(p *cardPane) { c := *p.card; c.Seq++; c.RequestID = "req-2"; p.card = &c }, false},
+		{"the card is gone", func(p *cardPane) { p.card = nil }, false},
+		{"it became a plan", func(p *cardPane) { c := *p.card; c.Kind = "switch_mode"; p.card = &c }, false},
+		{"it became a secret", func(p *cardPane) { c := *p.card; c.CommandText = "echo " + fakeToken; p.card = &c }, false},
+		{"the agent is not ours", func(p *cardPane) { p.own = false }, false},
+	}
+	for _, tc := range changes {
+		t.Run(tc.name, func(t *testing.T) {
+			e := newPushEnv(t, markedCard(nil), true)
+			n := e.due(30 * time.Second)
+			if n == nil || n.Approver == nil {
+				t.Fatalf("the push to start with: %+v", n)
+			}
+			tc.do(e.pane)
+			got := e.srv.recheckPush(*n)
+			if (got.Approver != nil) != tc.keep {
+				t.Errorf("approver %v after the change, want kept %v", got.Approver, tc.keep)
+			}
+			if got.Body != "Answer on the desktop. On desk" {
+				t.Errorf("the body for every other device = %q", got.Body)
+			}
+		})
+	}
+	t.Run("the pane restarted", func(t *testing.T) {
+		e := newPushEnv(t, markedCard(nil), true)
+		n := e.due(30 * time.Second)
+		if n == nil || n.Approver == nil {
+			t.Fatalf("the push to start with: %+v", n)
+		}
+		e.srv.SetStructuredPanes(func(string) (StructuredPane, bool) {
+			return &tokenPane{cardPane: *e.pane, token: "2.0"}, true
+		})
+		if got := e.srv.recheckPush(*n); got.Approver != nil {
+			t.Errorf("a restarted pane's card is told %+v", got.Approver)
+		}
+	})
+	t.Run("nothing to check it with", func(t *testing.T) {
+		srv, _ := newTestServer(t)
+		p := pushOut{Approver: &remote.Notification{Body: "Allow or deny. On desk"}}
+		if got := srv.recheckPush(p); got.Approver != nil {
+			t.Error("a wording that cannot be checked was kept")
+		}
+	})
 }

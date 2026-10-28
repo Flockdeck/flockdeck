@@ -377,7 +377,10 @@ func (c *controlClient) refuseRemoteText(cmd command) bool {
 // sent. A person or an agent chose the name, so it can be any length of text.
 const maxRemoteName = 40
 
-func capName(s string) string { return team.CleanLine(record.Redact(s), maxRemoteName) }
+// capName is a name as a relay window or a push is sent it: safeLine, so format
+// characters are dropped and a new line becomes a space before the redactor
+// runs, which a secret split by one cannot get past.
+func capName(s string) string { return safeLine(s, maxRemoteName) }
 
 // scrubTabs replaces the title of each tab a person did not name. Such a title
 // is made from the first words of the opening prompt, so a relay window is

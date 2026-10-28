@@ -250,7 +250,7 @@ func (s *Server) watchWaits(now time.Time) {
 		defer s.survive("sending a push notification")
 		ctx, cancel := context.WithTimeout(context.Background(), remoteCallTimeout)
 		defer cancel()
-		s.pushOutcome(send(ctx, out))
+		s.pushOutcome(send(ctx, s.recheckPush(out)))
 	}()
 }
 
@@ -271,6 +271,13 @@ func (s *Server) notifyRelay(ctx context.Context, p pushOut) error {
 type pushOut struct {
 	remote.Notification
 	Approver *remote.Notification
+	// recheck says whether Approver is still true: the card the phone was told
+	// it may allow is still the one pending, in the same run of the pane, and
+	// still allowable. It runs on the workspace goroutine, just before the
+	// push is sent, since the card can change between the wait being noticed
+	// and the relay being asked. Nil with an Approver means it cannot be
+	// checked, and the push is sent without it.
+	recheck func() bool
 }
 
 // notificationFor is the function PushTo asks for each device. A device that may
@@ -319,6 +326,8 @@ type waitingAgent struct {
 	// card is one the phone may allow. Only the first of these makes a push say
 	// "Answer on the desktop".
 	structured, phoneCanAllow bool
+	// recheck is pushOut.recheck for this pane's card.
+	recheck func() bool
 }
 
 // pushDue is the push to ask for now, or nil. One is due when an agent has
@@ -388,7 +397,11 @@ func (s *Server) pushDue(now time.Time) *pushOut {
 			w := waitingAgent{id: id, name: capName(p.Name), project: capName(projectLabel(names, s.ws.RootOf(id))), since: s.ws.Runtime(p).StatusSince()}
 			if structured {
 				w.structured = true
-				w.phoneCanAllow = projectCard(sp.PendingPermission(), sp.OwnAdapter(), sp.ProjectRoot()).CanAllow
+				card := sp.PendingPermission()
+				w.phoneCanAllow = projectCard(card, sp.OwnAdapter(), sp.ProjectRoot()).CanAllow
+				if w.phoneCanAllow {
+					w.recheck = s.stillAllowable(id, card.Seq, sp.RuntimeToken())
+				}
 			}
 			waits = append(waits, w)
 			if now.Sub(w.since) >= delay && !s.push.pushed[id].Equal(w.since) {
@@ -421,6 +434,39 @@ func (s *Server) pushDue(now time.Time) *pushOut {
 	s.push.last = now
 	out := pushAbout(st.HostID, st.Name, waits, s.prefs.Push.Anonymous)
 	return &out
+}
+
+// recheckPush is p with the wording for a device with approvals on kept only if
+// it is still true. It was true when the wait was noticed, and the card can have
+// changed since; the check runs on the workspace goroutine and, if the card has
+// changed, is gone, or cannot be checked, every device is told "Answer on the
+// desktop".
+func (s *Server) recheckPush(p pushOut) pushOut {
+	if p.Approver == nil {
+		return p
+	}
+	if ok, answered := ask(s, func() bool { return p.recheck != nil && p.recheck() }); !answered || !ok {
+		p.Approver = nil
+	}
+	return p
+}
+
+// stillAllowable is the check that the card seq of pane id, in the run token, is
+// still pending and still one the phone may allow. The function it returns runs
+// on the workspace goroutine.
+func (s *Server) stillAllowable(id string, seq uint64, token string) func() bool {
+	return func() bool {
+		if s.structuredPane == nil {
+			return false
+		}
+		sp, ok := s.structuredPane(id)
+		if !ok || sp == nil {
+			return false
+		}
+		card := sp.PendingPermission()
+		return card != nil && card.Seq == seq && sp.RuntimeToken() == token &&
+			projectCard(card, sp.OwnAdapter(), sp.ProjectRoot()).CanAllow
+	}
 }
 
 // structuredWait gives the structured pane behind p when a structured wait may
@@ -473,6 +519,7 @@ func pushAbout(hostID, desktop string, waits []waitingAgent, anonymous bool) pus
 				a := *n
 				a.Body = pushAllowOrDeny + desktop
 				out.Approver = &a
+				out.recheck = w.recheck
 			}
 		}
 		return out
