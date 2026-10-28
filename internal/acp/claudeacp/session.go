@@ -40,6 +40,7 @@ type promptReq struct {
 	id      *json.RawMessage
 	content []map[string]any
 	gen     int
+	turn    string // the client's token for the turn, or ""
 }
 
 type turnResult struct {
@@ -76,6 +77,28 @@ type session struct {
 	claudeID string
 	// resume says claude is started with --resume id, not --session-id id.
 	resume bool
+	// resumeAt, with resume, cuts the conversation after that message uuid.
+	resumeAt string
+	// forkOf, when set, is the session this one is a fork of: claude is started
+	// with --resume forkOf --fork-session --session-id id, and resumeAt cuts it.
+	forkOf string
+	// forkID, with forkOf, is the id claude is given with --session-id when it
+	// differs from id: a rewind keeps the id the client prompts with, and the
+	// conversation moves to a new claude session (rewind.go).
+	forkID string
+	// pendingSrc and pendingAt say that claude writes this session's file only
+	// when it gets its first message, so until then the session is the source
+	// session cut at pendingAt, and anything that forks it or goes back in it
+	// starts from the source (the uuids of the kept messages are the same in
+	// both). Both are empty once a message was sent, and for a session that was
+	// not made by a fork.
+	pendingSrc, pendingAt string
+	// cleared says claude moved the conversation to an id Flockdeck did not
+	// choose (/clear), so the uuids in turns name messages of another file.
+	cleared bool
+	// mcp is what the client gave for mcpServers, to write the file again when
+	// the session is started over.
+	mcp []json.RawMessage
 
 	cmd     *exec.Cmd
 	tree    *proctree.Tree
@@ -110,6 +133,14 @@ type session struct {
 	lastLine  time.Time // when claude last wrote a line
 	commands  []map[string]any
 	facts     turnFacts // what claude said about the running turn, for its result
+
+	// turns are the turns of the session the client named, oldest first, and
+	// lastMsg the uuid of claude's last assistant message in the running turn
+	// (rewind.go). rewinding is set while the session is being started over, and
+	// no prompt is taken then.
+	turns     []turnRec
+	lastMsg   string
+	rewinding bool
 }
 
 // openSession handles session/new and, with resume, session/resume and, with
@@ -118,7 +149,9 @@ type session struct {
 // gave the session when it was new. An id that is not a UUID is refused before
 // anything is started, and so is one that is open already. An id claude does
 // not know makes claude exit, which is the same answer as any start that fails.
-func (s *server) openSession(m rpcMsg, resume, load bool) {
+func (s *server) openSession(m rpcMsg, kind string) {
+	load, fork := kind == "session/load", kind == "session/fork"
+	resume := kind == "session/resume" || load
 	var p struct {
 		SessionID  string            `json:"sessionId"`
 		Cwd        string            `json:"cwd"`
@@ -133,6 +166,33 @@ func (s *server) openSession(m rpcMsg, resume, load bool) {
 		return
 	}
 	id := uuid.NewString()
+	var forkOf, at string
+	if fork {
+		u, err := uuid.Parse(p.SessionID)
+		if err != nil {
+			s.replyErr(m.ID, &rpcErr{Code: codeInvalidParams, Message: "sessionId is not a session id"})
+			return
+		}
+		forkOf = u.String()
+		var bad bool
+		_, at, bad = extMeta(m.Params)
+		if bad {
+			s.replyErr(m.ID, &rpcErr{Code: codeInvalidParams, Message: "at is not a fork point"})
+			return
+		}
+		// A session that has had no message has no file to fork: fork what it
+		// was made from.
+		if src := s.session(forkOf); src != nil {
+			src.mu.Lock()
+			if src.pendingSrc != "" {
+				forkOf = src.pendingSrc
+				if at == "" {
+					at = src.pendingAt
+				}
+			}
+			src.mu.Unlock()
+		}
+	}
 	if resume {
 		u, err := uuid.Parse(p.SessionID)
 		if err != nil {
@@ -147,15 +207,11 @@ func (s *server) openSession(m rpcMsg, resume, load bool) {
 			return
 		}
 	}
-	ss := &session{
-		srv: s, id: id, cwd: p.Cwd, resume: resume,
-		reaped: make(chan struct{}), dead: make(chan struct{}), quit: make(chan struct{}),
-		queue:   make(chan *promptReq, 64),
-		waiters: map[string]chan json.RawMessage{}, announced: map[string]toolInfo{},
-		streamed: map[string]bool{}, allowed: map[string]bool{}, perms: map[string]*openPerm{},
-		mode: "default", model: "default",
+	ss := s.newSession(id, p.Cwd, p.McpServers)
+	ss.resume, ss.forkOf, ss.resumeAt = resume, forkOf, at
+	if fork {
+		ss.pendingSrc, ss.pendingAt = forkOf, at
 	}
-	ss.idle = sync.NewCond(&ss.mu)
 	var err error
 	if ss.mcpFile, err = writeMCPConfig(p.McpServers); err != nil {
 		s.replyErr(m.ID, &rpcErr{Code: codeInvalidParams, Message: err.Error()})
@@ -229,14 +285,42 @@ func (s *server) openSession(m rpcMsg, resume, load bool) {
 	}
 }
 
+// newSession is a session that is not started yet.
+func (s *server) newSession(id, cwd string, mcp []json.RawMessage) *session {
+	ss := &session{
+		srv: s, id: id, cwd: cwd, mcp: mcp,
+		reaped: make(chan struct{}), dead: make(chan struct{}), quit: make(chan struct{}),
+		queue:   make(chan *promptReq, 64),
+		waiters: map[string]chan json.RawMessage{}, announced: map[string]toolInfo{},
+		streamed: map[string]bool{}, allowed: map[string]bool{}, perms: map[string]*openPerm{},
+		mode: "default", model: "default",
+	}
+	ss.idle = sync.NewCond(&ss.mu)
+	return ss
+}
+
 // start launches claude and the goroutines that read and reap it.
 func (ss *session) start() error {
 	o := ss.srv.opts
 	args := []string{"-p", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
 		"--include-partial-messages", "--permission-prompt-tool", "stdio"}
-	if ss.resume {
+	switch {
+	case ss.forkOf != "":
+		args = append(args, "--resume", ss.forkOf)
+		if ss.resumeAt != "" {
+			args = append(args, "--resume-session-at", ss.resumeAt)
+		}
+		newID := ss.id
+		if ss.forkID != "" {
+			newID = ss.forkID
+		}
+		args = append(args, "--fork-session", "--session-id", newID)
+	case ss.resume:
 		args = append(args, "--resume", ss.id)
-	} else {
+		if ss.resumeAt != "" {
+			args = append(args, "--resume-session-at", ss.resumeAt)
+		}
+	default:
 		args = append(args, "--session-id", ss.id)
 	}
 	if ss.mcpFile != "" {
@@ -326,6 +410,9 @@ func (ss *session) adopt(reported string) {
 	ss.mu.Lock()
 	old := ss.claudeID
 	ss.claudeID = id
+	if id != ss.forkID {
+		ss.cleared = true
+	}
 	ss.mu.Unlock()
 	if old == id {
 		return
@@ -525,10 +612,18 @@ func closedCh(c <-chan struct{}) bool {
 func (ss *session) enqueue(r *promptReq) {
 	ss.mu.Lock()
 	r.gen = ss.gen
-	ss.mu.Unlock()
+	if ss.rewinding {
+		ss.mu.Unlock()
+		ss.srv.replyErr(r.id, &rpcErr{Code: codeInternal, Message: "the session is being rewound"})
+		return
+	}
+	// Pushed with the lock held, so that a rewind that found the queue empty
+	// is not followed by a prompt it never sees.
 	select {
 	case ss.queue <- r:
+		ss.mu.Unlock()
 	default:
+		ss.mu.Unlock()
 		ss.srv.replyErr(r.id, &rpcErr{Code: codeInternal, Message: "too many prompts are waiting"})
 	}
 }
@@ -575,7 +670,15 @@ func (ss *session) runPrompt(r *promptReq) {
 	ss.mu.Unlock()
 	defer close(t.finished)
 
-	err := ss.write(map[string]any{"type": "user", "message": map[string]any{"role": "user", "content": r.content}})
+	msg := map[string]any{"type": "user", "message": map[string]any{"role": "user", "content": r.content}}
+	if r.turn != "" {
+		msg["uuid"] = r.turn
+	}
+	ss.mu.Lock()
+	ss.lastMsg = ""
+	ss.pendingSrc, ss.pendingAt = "", ""
+	ss.mu.Unlock()
+	err := ss.write(msg)
 	var res turnResult
 	if err != nil {
 		res = turnResult{err: &rpcErr{Code: codeInternal, Message: "the agent has stopped"}}
@@ -592,6 +695,16 @@ func (ss *session) runPrompt(r *promptReq) {
 	}
 	ss.mu.Lock()
 	ss.cur = nil
+	if r.turn != "" {
+		rec := turnRec{token: r.turn}
+		if res.err == nil && res.stop == "end_turn" {
+			rec.last = ss.lastMsg
+		}
+		if len(ss.turns) >= maxTurns {
+			ss.turns = append(ss.turns[:0], ss.turns[len(ss.turns)-maxTurns+1:]...)
+		}
+		ss.turns = append(ss.turns, rec)
+	}
 	ss.mu.Unlock()
 	if res.err != nil {
 		ss.srv.replyErr(r.id, res.err)

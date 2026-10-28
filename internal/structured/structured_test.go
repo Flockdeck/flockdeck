@@ -38,7 +38,7 @@ func fakeOptions(t *testing.T, aopts ...acptest.Option) Options {
 	return Options{
 		Spec:    agent.Spec{ID: "fake", ACP: agent.ACPSpec{Login: "sign in with the fake agent's own tool"}},
 		Cwd:     acptest.SessionDir(t),
-		Command: &Command{Path: path, Args: args, env: env},
+		Command: &Command{Path: path, Args: args, env: env, Rewind: true},
 	}
 }
 

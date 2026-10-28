@@ -126,6 +126,13 @@ type Command struct {
 	// Own says the program is an adapter Flockdeck builds into its own binary,
 	// which a test sets by hand. Only such an adapter is trusted to run a sign-in.
 	Own bool
+	// Rewind says the program is one of Flockdeck's own adapters with the rewind
+	// extension, so its claim of it is believed. resolve sets it from the
+	// manifest; a test that supplies a Command sets it for its fake agent.
+	Rewind bool
+	// RewindTimeout shortens how long a rewind waits for the agent; it is for
+	// tests. Zero means the client's default.
+	RewindTimeout time.Duration
 }
 
 // Recorder takes the agent's traffic. *record.RPCRecorder is one.
@@ -188,6 +195,9 @@ type Options struct {
 	// has neither, or the call fails, a new session is made and the transcript
 	// says so (Snapshot.Resume is ResumeFailed).
 	ResumeSession string
+	// Fork, when set, makes the pane's session by forking another instead (see
+	// rewind.go). It is used in place of ResumeSession.
+	Fork *ForkFrom
 
 	// Records and Meta start a stream recording of the traffic. Nil Records
 	// means none, which is what a pane with recording off passes.
@@ -336,6 +346,13 @@ type Snapshot struct {
 	Dropped        int
 	TapDropped     int64
 	ProtocolErrors int64
+	// RewindPoints are the prompt entries the conversation can be taken back to
+	// or forked from, and Epoch counts the rewinds (rewind.go).
+	RewindPoints []string
+	Epoch        int
+	// RewindToken names this runtime and its Epoch; a rewind or fork must carry
+	// the one the window last saw (rewind.go).
+	RewindToken string
 }
 
 // hello is what the agent said about itself and what the session was given.
@@ -452,6 +469,24 @@ type Runtime struct {
 	// being reopened does not outlive it.
 	moved   string
 	waiters []*waiter
+	// marks are the turns sent, oldest first, and rewinding says the agent is
+	// being taken back: nothing is sent to it meanwhile. epoch counts the
+	// rewinds (rewind.go).
+	marks     []mark
+	rewinding bool
+	epoch     int
+	// cleared says the agent moved the conversation to another session id on its
+	// own (/clear), so the turn tokens name turns of the old one. rewindMove is
+	// set while this runtime's own rewind runs: the agent then moves the
+	// conversation to a new id on purpose, and that is not a clear.
+	cleared    bool
+	rewindMove bool
+	// rewindFrom is the id to resume by from before a rewind the agent did not
+	// answer, which it may or may not have done. See RewindFrom.
+	rewindFrom string
+	// seq tells this runtime from every other this program has started, so that
+	// the token a window holds does not match a pane that was restarted.
+	seq int64
 	// settingCalls is how many setting requests are with the agent.
 	settingCalls int
 	subs         map[int]chan struct{}
@@ -538,6 +573,7 @@ func Start(ctx context.Context, opts Options) (*Runtime, error) {
 	bcfg.AcceptQuestions = bcfg.AcceptQuestions || (opts.Command == nil && opts.Spec.ACPOwnClaude())
 	rctx, cancel := context.WithCancel(ctx)
 	r := &Runtime{
+		seq:     runtimeSeq.Add(1),
 		opts:    opts,
 		br:      bridge.New(bcfg),
 		ctx:     rctx,
@@ -1006,6 +1042,9 @@ func (r *Runtime) Snapshot() Snapshot {
 	s.Dropped = r.br.Dropped()
 	s.Pending = r.br.Pending()
 	s.Activity = r.br.Activity()
+	s.RewindPoints = r.RewindPoints()
+	s.Epoch = r.Epoch()
+	s.RewindToken = r.RewindToken()
 	if s.Phase == PhaseReady {
 		s.Status = r.br.Status()
 	}
@@ -1134,6 +1173,9 @@ func (r *Runtime) noteMoved(id string) {
 	changed := r.session != "" && r.moved != u.String()
 	if changed {
 		r.moved = u.String()
+		if !r.rewindMove {
+			r.cleared = true
+		}
 	}
 	r.mu.Unlock()
 	if changed && r.opts.OnSessionMoved != nil {
@@ -1213,7 +1255,7 @@ func (r *Runtime) resolveFor(signIn bool) (Command, *Setup, error) {
 	}
 	// The key goes in last, so the launch check, which starts another program,
 	// never sees it.
-	return Command{Path: path, Args: append([]string(nil), a.Args...), env: r.withKey(env), Own: own}, nil, nil
+	return Command{Path: path, Args: append([]string(nil), a.Args...), env: r.withKey(env), Own: own, Rewind: manifest.OwnRewind(a)}, nil, nil
 }
 
 // withKey adds the agent's key to env under the variable the entry names for
@@ -1350,6 +1392,8 @@ func (r *Runtime) launch() bool {
 		Handler:         handler{Handler: r.br.AnswerHandler(r.ask), r: r},
 		OnProtocolError: func(string) { r.protoErrs.Add(1); r.notify() },
 		ClientName:      "flockdeck",
+		RewindAllowed:   cmd.Rewind,
+		RewindTimeout:   cmd.RewindTimeout,
 	}
 	if rec != nil {
 		cfg.Tap = rec.Tap
@@ -1493,6 +1537,11 @@ func (r *Runtime) failKey(c *acp.Client, init acp.InitResult, err error) {
 func (r *Runtime) SessionID() string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	return r.sessionIDLocked()
+}
+
+// sessionIDLocked is SessionID with the lock held.
+func (r *Runtime) sessionIDLocked() string {
 	// moved is about the live session, so it wins over keep, which is the id of
 	// a reopen that was never answered.
 	if r.moved != "" {
@@ -1516,6 +1565,9 @@ func (r *Runtime) SessionID() string {
 // is not: the agent may still be sending the replay, so the id is marked dead
 // and nothing more for it is taken, and a new session is made.
 func (r *Runtime) open(c *acp.Client, caps acp.AgentCapabilities, mcp []acp.MCPServer) (acp.SessionNew, Resume, error) {
+	if r.opts.Fork != nil {
+		return r.openFork(c, mcp)
+	}
 	id := r.opts.ResumeSession
 	if id == "" {
 		created, err := c.NewSessionInfo(r.ctx, r.opts.Cwd, mcp)
@@ -1685,14 +1737,22 @@ func (r *Runtime) loop() {
 				return
 			}
 		}
-		if q.mail != nil {
+		var token string
+		switch {
+		case q.mail != nil:
 			r.br.MailReceived(*q.mail)
-		} else {
+			token = r.addMark("")
+		case q.system:
 			r.br.TurnStart(strings.Join(q.blocks, "\n"))
+			token = r.addMark("")
+		default:
+			entry, _ := r.br.StartTurn(strings.Join(q.blocks, "\n"))
+			token = r.addMark(entry)
 		}
 		r.notify()
 		r.turnEvent(TurnEvent{What: TurnBegan, Tag: q.tag})
-		stop, err := c.PromptBlocks(r.ctx, r.session, q.blocks...)
+		stop, err := c.PromptTurn(r.ctx, r.session, token, q.blocks...)
+		r.endMark(token, err == nil && stop == acp.StopEndTurn)
 		r.mu.Lock()
 		asked := r.asked
 		r.inTurn, r.asked = false, false
@@ -1730,7 +1790,7 @@ func (r *Runtime) loop() {
 func (r *Runtime) pop() (queued, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.phase != PhaseReady || len(r.queue) == 0 {
+	if r.phase != PhaseReady || len(r.queue) == 0 || r.rewinding {
 		return queued{}, false
 	}
 	t := r.queue[0]

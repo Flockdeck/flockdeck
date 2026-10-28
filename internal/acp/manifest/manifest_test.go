@@ -394,3 +394,32 @@ func TestDrivesIsForOwnAdaptersOnly(t *testing.T) {
 		}
 	}
 }
+
+// Only Flockdeck's own adapters for claude and codex are believed when they say
+// they can rewind.
+func TestOwnRewindIsTheTwoOwnAdaptersOnly(t *testing.T) {
+	m := Default()
+	for id, want := range map[string]bool{"claude": true, "codex-go": true, "opencode": false} {
+		a, ok := m.Lookup(id)
+		if !ok {
+			t.Fatalf("%s is not in the manifest", id)
+		}
+		if got := OwnRewind(a); got != want {
+			t.Errorf("OwnRewind(%s) = %v, want %v", id, got, want)
+		}
+	}
+	a, _ := m.Lookup("codex-go")
+	for name, mod := range map[string]func(*Adapter){
+		"another command":  func(a *Adapter) { a.Command = "other" },
+		"another argument": func(a *Adapter) { a.Args = []string{"acp-adapter", "claude"} },
+		"a package":        func(a *Adapter) { a.Package = "@x/y" },
+		"launch env":       func(a *Adapter) { a.LaunchEnv = map[string]string{"A": "b"} },
+		"another id":       func(a *Adapter) { a.ID = "codex-other" },
+	} {
+		b := a
+		mod(&b)
+		if OwnRewind(b) {
+			t.Errorf("%s: believed", name)
+		}
+	}
+}

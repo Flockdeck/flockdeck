@@ -594,6 +594,9 @@ type command struct {
 	CommentID        string   `json:"commentId"`
 	Names            []string `json:"names"`
 	Confirm          bool     `json:"confirm"`
+	// RewindToken is the token of the push the structuredRewind or structuredFork
+	// was chosen from (structuredrewind.go).
+	RewindToken string `json:"rewindToken"`
 	Hash             string   `json:"hash"`
 	Reviewer         string   `json:"reviewer"`
 	Note             string   `json:"note"`
@@ -1678,7 +1681,7 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 	case "changesWatch", "changesUnwatch", "changesSnapshot", "filesPage", "diffHunks", "diffContext", "commentAdd", "commentResolve", "commentReopen", "runChecks", "confirmChecks", "requestReview", "submitReview", "approveMerge", "unapproveMerge", "mergeBranch":
 		s.changesCommand(c, cmd)
 		return
-	case "structuredSnapshot", "structuredWatch", "structuredUnwatch", "structuredCancel", "structuredSet", "structuredFiles", "structuredQueueEdit", "structuredQueueRemove", "structuredQueueClear", "structuredQueueSendNow", "structuredExport", "structuredInfo", "structuredSignIn", "structuredSignInCancel", "structuredShellRun", "structuredShellStop", "structuredShellRemove", "structuredShellSend":
+	case "structuredSnapshot", "structuredWatch", "structuredUnwatch", "structuredCancel", "structuredSet", "structuredFiles", "structuredQueueEdit", "structuredQueueRemove", "structuredQueueClear", "structuredQueueSendNow", "structuredExport", "structuredInfo", "structuredSignIn", "structuredSignInCancel", "structuredShellRun", "structuredShellStop", "structuredShellRemove", "structuredShellSend", "structuredRewind", "structuredFork":
 		s.structuredCommand(c, cmd)
 		return
 	case "worktrees":

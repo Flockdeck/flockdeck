@@ -159,6 +159,13 @@ type Config struct {
 	// ExitGrace is how long Close waits for the agent to exit by itself after
 	// its stdin closes, before the tree is ended. Default 750ms.
 	ExitGrace time.Duration
+	// RewindAllowed lets the agent's claim of the rewind extension count. The
+	// caller sets it only for one of Flockdeck's own adapters; without it
+	// Capabilities().Rewind is false whatever the agent says, so no turn token
+	// and no rewind call is sent to it.
+	RewindAllowed bool
+	// RewindTimeout bounds _flockdeck/rewind. Zero means three minutes.
+	RewindTimeout time.Duration
 	// SetupTimeout bounds initialize and session/new, whatever the caller's
 	// context allows. Default 60s.
 	SetupTimeout time.Duration
@@ -176,9 +183,12 @@ type Config struct {
 const (
 	defaultExitGrace    = 750 * time.Millisecond
 	defaultSetupTimeout = 60 * time.Second
-	defaultLoadTimeout  = 2 * time.Minute
-	defaultMaxLine      = 64 << 20
-	defaultMaxRequests  = 32
+	// defaultRewindTimeout is longer than a setup call: a rewind starts the
+	// agent's session over, which for claude means a new process.
+	defaultRewindTimeout = 3 * time.Minute
+	defaultLoadTimeout   = 2 * time.Minute
+	defaultMaxLine       = 64 << 20
+	defaultMaxRequests   = 32
 
 	// treeGrace is how long Close waits for the agent to be gone once its
 	// tree has been ended.
@@ -307,6 +317,9 @@ func Start(cfg Config) (*Client, error) {
 	}
 	if cfg.SetupTimeout <= 0 {
 		cfg.SetupTimeout = defaultSetupTimeout
+	}
+	if cfg.RewindTimeout <= 0 {
+		cfg.RewindTimeout = defaultRewindTimeout
 	}
 	if cfg.LoadTimeout <= 0 {
 		cfg.LoadTimeout = defaultLoadTimeout

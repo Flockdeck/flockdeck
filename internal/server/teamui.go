@@ -267,6 +267,12 @@ type teamResultMsg struct {
 	Redacted int    `json:"redacted,omitempty"`
 	// Info answers structuredInfo: the agent's facts as plain text.
 	Info string `json:"info,omitempty"`
+	// Text answers structuredRewind: the text of the prompt that was taken back,
+	// for the person to send again. Pane, below, answers structuredFork with the
+	// new pane's id.
+	Text string `json:"text,omitempty"`
+	// Cut says Text was cut because the prompt was longer than is sent back.
+	Cut bool `json:"cut,omitempty"`
 	// Pane and Message name the message a mark-seen changed.
 	Pane    string `json:"pane,omitempty"`
 	Message int    `json:"message,omitempty"`

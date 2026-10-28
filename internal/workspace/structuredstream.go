@@ -52,8 +52,16 @@ func (w *Workspace) StructuredStream(id string) (*StructuredStream, bool) {
 		if !ok {
 			return structuredView{}, false
 		}
-		return structuredView{token: sr, entries: sr.Entries(), detail: sr.rt.Detail}, true
+		// A rewind takes entries out, which a window cannot be told except by
+		// starting again, as for a restart: the epoch is part of what is compared.
+		return structuredView{token: streamToken{sr, sr.rt.Epoch()}, entries: sr.Entries(), detail: sr.rt.Detail}, true
 	}), true
+}
+
+// streamToken says which runtime, and which rewind of it, a reading came from.
+type streamToken struct {
+	rt    *structuredRuntime
+	epoch int
 }
 
 // structuredView is one reading of a pane's conversation: which runtime it came

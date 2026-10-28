@@ -449,6 +449,17 @@ func ownAdapter(a Adapter) bool {
 // OwnClaude reports whether a is Flockdeck's own adapter for Claude Code.
 func OwnClaude(a Adapter) bool { return ownAdapter(a) }
 
+// OwnRewind reports whether a is one of Flockdeck's own adapters that has the
+// rewind extension (internal/acp/rewind.go): the one for Claude Code, and
+// `flockdeck acp-adapter codex`. Only these exact shapes are, so an adapter
+// that merely says it has the extension is not sent tokens or rewind calls.
+func OwnRewind(a Adapter) bool {
+	return ownAdapter(a) || (a.ID == "codex-go" && a.Command == "flockdeck" &&
+		len(a.Args) == 2 && a.Args[0] == "acp-adapter" && a.Args[1] == "codex" &&
+		a.Drives == "codex" && a.Package == "" && a.Pin == "" && a.Hidden &&
+		len(a.LaunchEnv) == 0 && a.PermissionProbe == nil)
+}
+
 func hasControl(s string) bool {
 	for _, r := range s {
 		if r < 0x20 || r == 0x7f {

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -27,11 +28,13 @@ const (
 	envAdapt   = "FD_CLAUDEACP_ADAPTER"
 	envVersion = "FD_CLAUDEACP_VERSION"   // what `--version` prints
 	envDelay   = "FD_CLAUDEACP_INITDELAY" // milliseconds before the initialize answer
-	envBadInit = "FD_CLAUDEACP_BADINIT"   // the initialize answer is not an object
+	envBadInit = "FD_CLAUDEACP_BADINIT"   // the initialize answer is not an object; "cut" only after --resume-session-at
 	envCtlErr  = "FD_CLAUDEACP_CTLERR"    // a control subtype that is answered with an error
 	envCtlErr2 = "FD_CLAUDEACP_CTLERR2"   // and a second one
 	envLogin   = "FD_CLAUDEACP_LOGIN"     // what `auth login` does: ok, fail, hang, evil
 	envBeat    = "FD_CLAUDEACP_BEAT"      // the file the hanging login appends to
+	envNoCut   = "FD_CLAUDEACP_NOCUT"     // exit at once when started with --resume-session-at
+	envState   = "FD_CLAUDEACP_STATE"     // a directory: a session has a file there once it got a message, and --resume of one without exits
 )
 
 type step struct {
@@ -127,6 +130,32 @@ func runFake() {
 		f.Close()
 	}
 	logf("ARGS: %s", strings.Join(os.Args[1:], " "))
+	if os.Getenv(envNoCut) != "" && strings.Contains(strings.Join(os.Args[1:], " "), "--resume-session-at") {
+		os.Exit(3)
+	}
+
+	// Like claude, a session has a file only after its first message, and one
+	// that has none cannot be resumed.
+	stateDir, saveAs := os.Getenv(envState), ""
+	if stateDir != "" {
+		arg := func(name string) string {
+			for i, a := range os.Args {
+				if a == name && i+1 < len(os.Args) {
+					return os.Args[i+1]
+				}
+			}
+			return ""
+		}
+		if r := arg("--resume"); r != "" {
+			if _, err := os.Stat(filepath.Join(stateDir, r)); err != nil {
+				logf("NO_CONVERSATION: %s", r)
+				os.Exit(1)
+			}
+		}
+		if saveAs = arg("--session-id"); saveAs == "" {
+			saveAs = arg("--resume")
+		}
+	}
 
 	var steps []step
 	if b, err := os.ReadFile(os.Getenv(envScript)); err == nil {
@@ -145,13 +174,16 @@ func runFake() {
 					RequestID string         `json:"request_id"`
 					Request   map[string]any `json:"request"`
 				}
+				if json.Unmarshal([]byte(s), &m) == nil && m.Type == "user" && saveAs != "" {
+					_ = os.WriteFile(filepath.Join(stateDir, saveAs), nil, 0o600)
+				}
 				if json.Unmarshal([]byte(s), &m) == nil && m.Type == "control_request" {
 					sub, _ := m.Request["subtype"].(string)
 					if ms, _ := strconv.Atoi(os.Getenv(envDelay)); ms > 0 && sub == "initialize" {
 						time.Sleep(time.Duration(ms) * time.Millisecond)
 					}
 					var answer any = controlAnswer(sub, m.Request)
-					if sub == "initialize" && os.Getenv(envBadInit) != "" {
+					if bad := os.Getenv(envBadInit); sub == "initialize" && bad != "" && (bad != "cut" || strings.Contains(strings.Join(os.Args[1:], " "), "--resume-session-at")) {
 						answer = "not an object"
 					}
 					resp := map[string]any{"subtype": "success", "request_id": m.RequestID, "response": answer}

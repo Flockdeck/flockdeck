@@ -259,6 +259,13 @@ type Pane struct {
 	// reopen. It is cleared once that runtime has started, and by a restart.
 	// While a runtime exists the layout takes the id from it.
 	savedSession string
+	// forkFrom, for a structured pane made as a fork of another, is what its
+	// first runtime forks. It is taken when that runtime starts, so a restart
+	// does not fork again.
+	forkFrom *structured.ForkFrom
+	// forkOf is the pane this one was forked from, for the cap on forks open
+	// beside one pane (maxForks).
+	forkOf string
 	// structExit is the structured runtime whose unexpected end the parent has
 	// been told of.
 	structExit *structuredRuntime
@@ -2900,12 +2907,28 @@ func (w *Workspace) RestartPane() {
 // RestartPaneByID is RestartPane for a pane named by id, wherever its tab is,
 // and reports whether the pane was there to restart.
 func (w *Workspace) RestartPaneByID(id string) bool {
+	return w.restartPane(id, "")
+}
+
+// RestartStructuredPaneResuming restarts a structured pane and has its agent
+// reopen the session resume, where RestartPaneByID starts a new one. It reports
+// false for a pane that is not there or is not structured.
+func (w *Workspace) RestartStructuredPaneResuming(id, resume string) bool {
+	if p := w.Pane(id); p == nil || resume == "" {
+		return false
+	} else if _, ok := p.setRuntime().(*structuredRuntime); !ok {
+		return false
+	}
+	return w.restartPane(id, resume)
+}
+
+func (w *Workspace) restartPane(id, resume string) bool {
 	p := w.Pane(id)
 	if p == nil {
 		return false
 	}
 	if sr, ok := p.setRuntime().(*structuredRuntime); ok {
-		w.restartStructured(p, sr)
+		w.restartStructured(p, sr, resume)
 		w.wake()
 		return true
 	}

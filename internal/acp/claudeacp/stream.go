@@ -39,6 +39,7 @@ func (u usage) context() int64 { return u.Input + u.Output + u.CacheRead + u.Cac
 type line struct {
 	Type            string          `json:"type"`
 	Subtype         string          `json:"subtype"`
+	UUID            string          `json:"uuid"`
 	ParentToolUseID json.RawMessage `json:"parent_tool_use_id"`
 	Event           json.RawMessage `json:"event"`
 	Message         struct {
@@ -74,12 +75,12 @@ type line struct {
 	// result
 	APIErrorStatus int     `json:"api_error_status"`
 	IsError        bool    `json:"is_error"`
-	Result       string  `json:"result"`
-	StopReason   string  `json:"stop_reason"`
-	TerminalReas string  `json:"terminal_reason"`
-	TotalCostUSD float64 `json:"total_cost_usd"`
-	Usage        *usage  `json:"usage"`
-	ModelUsage   map[string]struct {
+	Result         string  `json:"result"`
+	StopReason     string  `json:"stop_reason"`
+	TerminalReas   string  `json:"terminal_reason"`
+	TotalCostUSD   float64 `json:"total_cost_usd"`
+	Usage          *usage  `json:"usage"`
+	ModelUsage     map[string]struct {
 		ContextWindow int64 `json:"contextWindow"`
 	} `json:"modelUsage"`
 }
@@ -259,6 +260,9 @@ func (ss *session) handleAssistant(l line) {
 	}
 	if code := errString(l.Error); code != "" && !l.nested() {
 		ss.facts.apiError = code
+	}
+	if !l.nested() && l.UUID != "" && ss.cur != nil {
+		ss.lastMsg = l.UUID
 	}
 	ss.mu.Unlock()
 	for _, b := range blocks {

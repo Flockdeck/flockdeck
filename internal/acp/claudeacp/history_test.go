@@ -344,3 +344,110 @@ func TestSessionLoadUpdatesCarryTheIDAsAsked(t *testing.T) {
 		t.Errorf("%d replayed prompts", n)
 	}
 }
+
+// linked gives a stored line the uuid and parent claude writes.
+func linked(line, uuid, parent string) string {
+	var m map[string]any
+	if err := json.Unmarshal([]byte(line), &m); err != nil {
+		panic(err)
+	}
+	m["uuid"] = uuid
+	if parent != "" {
+		m["parentUuid"] = parent
+	}
+	return jl(m)
+}
+
+// A session cut back with --resume-session-at keeps the dropped turns in the
+// file, after which the new branch is appended. The replay shows the branch the
+// newest line is on, and not the dropped turns.
+func TestSessionLoadFollowsTheBranchTheNewestLineIsOn(t *testing.T) {
+	h, projects := loadHarness(t)
+	att := jl(map[string]any{"type": "attachment", "attachment": map[string]any{"type": "hook_success"}})
+	storeSession(t, projects, h.cwd,
+		linked(userLine("first"), "u1", ""),
+		linked(assistantLine("claude-sonnet-5-5", textBlock("answer one")), "a1", "u1"),
+		linked(userLine("dropped prompt"), "u2", "a1"),
+		linked(assistantLine("claude-sonnet-5-5", textBlock("dropped answer")), "a2", "u2"),
+		jl(map[string]any{"type": "last-prompt"}),
+		linked(userLine("second, after the rewind"), "u3", "a1"),
+		linked(att, "x3", "u3"),
+		linked(assistantLine("claude-sonnet-5-5", textBlock("answer three")), "a3", "x3"),
+		jl(map[string]any{"type": "cost-state"}),
+	)
+	replay, r := loadSession(t, h)
+	if r.Error != nil {
+		t.Fatalf("session/load = %+v", r.Error)
+	}
+	var got []string
+	for _, u := range replay {
+		got = append(got, fmt.Sprintf("%s %s", u["sessionUpdate"], u["content"].(map[string]any)["text"]))
+	}
+	want := "user_message_chunk first|agent_message_chunk answer one|user_message_chunk second, after the rewind|agent_message_chunk answer three"
+	if strings.Join(got, "|") != want {
+		t.Errorf("replayed:\n%s\nwant:\n%s", strings.Join(got, "\n"), want)
+	}
+}
+
+// A chain that loops ends at the first line seen again.
+func TestSessionLoadSurvivesABranchThatLoops(t *testing.T) {
+	h, projects := loadHarness(t)
+	storeSession(t, projects, h.cwd,
+		linked(userLine("one"), "u1", "a1"),
+		linked(assistantLine("claude-sonnet-5-5", textBlock("two")), "a1", "u1"),
+	)
+	replay, r := loadSession(t, h)
+	if r.Error != nil || len(replay) != 2 {
+		t.Fatalf("replay = %d entries, err %v", len(replay), r.Error)
+	}
+}
+
+// bigLine is a user line too long to read, written in claude's order of members:
+// the parent first, and the uuid after the message.
+func bigLine(uuid, parent string) string {
+	return `{"parentUuid":"` + parent + `","isSidechain":false,"type":"user","message":{"role":"user","content":"` +
+		strings.Repeat("x", historyMaxLine+10) + `"},"uuid":"` + uuid + `","timestamp":"2026-10-28T00:00:00Z","cwd":"/x","sessionId":"s"}`
+}
+
+// A line too long to read that is on the chain does not end it: the lines
+// before it are still replayed, and the dropped branch still is not.
+func TestSessionLoadFollowsTheBranchThroughALineTooLongToRead(t *testing.T) {
+	h, projects := loadHarness(t)
+	storeSession(t, projects, h.cwd,
+		linked(userLine("first"), "u1", ""),
+		linked(assistantLine("claude-sonnet-5-5", textBlock("answer one")), "a1", "u1"),
+		linked(userLine("dropped prompt"), "u2", "a1"),
+		linked(assistantLine("claude-sonnet-5-5", textBlock("dropped answer")), "a2", "u2"),
+		bigLine("b1", "a1"),
+		linked(assistantLine("claude-sonnet-5-5", textBlock("answer after the big one")), "a3", "b1"),
+	)
+	replay, r := loadSession(t, h)
+	if r.Error != nil {
+		t.Fatalf("session/load = %+v", r.Error)
+	}
+	var got []string
+	for _, u := range replay {
+		got = append(got, fmt.Sprintf("%s %s", u["sessionUpdate"], u["content"].(map[string]any)["text"]))
+	}
+	want := "user_message_chunk first|agent_message_chunk answer one|agent_message_chunk answer after the big one"
+	if strings.Join(got, "|") != want {
+		t.Errorf("replayed:\n%s\nwant:\n%s", strings.Join(got, "\n"), want)
+	}
+}
+
+// When the link of a line too long to read cannot be had, nothing is dropped
+// for it: the file is replayed in order.
+func TestSessionLoadReplaysInOrderWhenAChainLinkIsLost(t *testing.T) {
+	h, projects := loadHarness(t)
+	lost := `{"type":"user","message":{"role":"user","content":"` + strings.Repeat("x", historyMaxLine+10) + `"}}`
+	storeSession(t, projects, h.cwd,
+		linked(userLine("first"), "u1", ""),
+		linked(assistantLine("claude-sonnet-5-5", textBlock("answer one")), "a1", "u1"),
+		lost,
+		linked(userLine("second"), "u2", "a1"),
+	)
+	replay, r := loadSession(t, h)
+	if r.Error != nil || len(replay) != 3 {
+		t.Fatalf("replay = %d entries, err %v", len(replay), r.Error)
+	}
+}

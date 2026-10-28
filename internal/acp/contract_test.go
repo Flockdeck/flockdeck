@@ -118,7 +118,7 @@ func start(t *testing.T, r *recorder, opts ...acptest.Option) (*Client, string) 
 func startRaw(t *testing.T, r *recorder, stderr func(string), opts ...acptest.Option) *Client {
 	t.Helper()
 	path, args, env := acptest.Command(t, opts...)
-	c, err := Start(Config{Path: path, Args: args, Env: env, Dir: acptest.SessionDir(t), Handler: r, Stderr: stderr})
+	c, err := Start(Config{Path: path, Args: args, Env: env, Dir: acptest.SessionDir(t), Handler: r, Stderr: stderr, RewindAllowed: true})
 	if err != nil {
 		t.Fatalf("start: %v", err)
 	}

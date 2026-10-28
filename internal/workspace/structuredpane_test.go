@@ -60,7 +60,7 @@ func structuredCrew(t *testing.T) (ws *Workspace, lead, root string) {
 func useFakeAgent(ws *Workspace) {
 	exe, _ := os.Executable()
 	ws.UseStructuredCommand(func(agent.Spec) *structured.Command {
-		return &structured.Command{Path: exe, Args: []string{acptest.ArgAgent}}
+		return &structured.Command{Path: exe, Args: []string{acptest.ArgAgent}, Rewind: true}
 	})
 }
 

@@ -261,17 +261,23 @@ func (s *server) handle(m rpcMsg) {
 				"loadSession":         false,
 				"promptCapabilities":  map[string]any{"image": true, "audio": false, "embeddedContext": true},
 				"mcpCapabilities":     map[string]any{"http": true, "sse": false},
-				"sessionCapabilities": map[string]any{"resume": map[string]any{}},
+				"sessionCapabilities": map[string]any{"resume": map[string]any{}, "fork": map[string]any{}},
+				"_meta":               map[string]any{extKey: map[string]any{"rewind": 1}},
 			},
 			"agentInfo":   map[string]any{"name": "flockdeck-codex", "title": "Codex", "version": s.opts.Version},
 			"authMethods": authMethods(),
 		})
-	case "session/new", "session/resume":
+	case "session/new", "session/resume", "session/fork":
 		s.wg.Add(1)
-		go func() { defer s.wg.Done(); s.openSession(m, m.Method == "session/resume") }()
+		go func() { defer s.wg.Done(); s.openSession(m, m.Method) }()
 	case "authenticate":
 		s.wg.Add(1)
 		go func() { defer s.wg.Done(); s.authenticate(m) }()
+	case "_flockdeck/forkpoint":
+		s.forkPoint(m)
+	case "_flockdeck/rewind":
+		s.wg.Add(1)
+		go func() { defer s.wg.Done(); s.rewind(m) }()
 	case "session/prompt":
 		s.prompt(m)
 	case "session/cancel":
@@ -353,6 +359,7 @@ func (s *server) prompt(m rpcMsg) {
 		return
 	}
 	req.id = m.ID
+	req.turn, _, _ = extMeta(m.Params)
 	ss.enqueue(req)
 }
 

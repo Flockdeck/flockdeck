@@ -19,7 +19,7 @@ import (
 func useFakeAgentWith(ws *Workspace, sessions string) {
 	exe, _ := os.Executable()
 	ws.UseStructuredCommand(func(agent.Spec) *structured.Command {
-		return &structured.Command{Path: exe, Args: []string{acptest.ArgAgent, acptest.ArgSessions + sessions}}
+		return &structured.Command{Path: exe, Args: []string{acptest.ArgAgent, acptest.ArgSessions + sessions}, Rewind: true}
 	})
 }
 

@@ -108,11 +108,14 @@ func (w *Workspace) startStructured(p *Pane, spec agent.Spec) {
 	cmdFor := w.structuredCommand
 	w.mu.RUnlock()
 	gen := runtimeGen.Add(1)
-	w.mu.RLock()
+	w.mu.Lock()
 	resume := p.savedSession
-	w.mu.RUnlock()
-	opts := structured.Options{Spec: spec, Cwd: p.Cwd, MCPServers: w.mcpServersFor(p, spec), ResumeSession: resume,
-		Key: creds.StoredKey(spec),
+	// Taken once: a restart of the fork is a new session, not another fork.
+	fork := p.forkFrom
+	p.forkFrom = nil
+	w.mu.Unlock()
+	opts := structured.Options{Spec: spec, Cwd: p.Cwd, MCPServers: w.mcpServersFor(p, spec), ResumeSession: resume, Fork: fork,
+		Key:            creds.StoredKey(spec),
 		OnTurn:         func(e structured.TurnEvent) { w.promptTurn(p.ID, gen, e) },
 		OnSessionMoved: func() { w.noteSessionMoved(p.ID) }}
 	if cmdFor != nil {
@@ -120,6 +123,10 @@ func (w *Workspace) startStructured(p *Pane, spec agent.Spec) {
 	}
 	rt, err := structured.Start(context.Background(), opts)
 	if err != nil {
+		// The fork was not tried, so a restart of the pane tries it.
+		w.mu.Lock()
+		p.forkFrom = fork
+		w.mu.Unlock()
 		failed(fmt.Errorf("%w (working directory %s)", err, p.Cwd))
 		return
 	}
@@ -136,7 +143,8 @@ func (w *Workspace) startStructured(p *Pane, spec agent.Spec) {
 	runtimeMu.Unlock()
 	// The task the pane was started with is its first prompt, with the briefing
 	// an agent that reports nothing of its own is given in front of it.
-	if prompt := w.OpeningPrompt(p.ID, p.initial, spec.Caps.Context); strings.TrimSpace(prompt) != "" {
+	// A fork has the conversation it was made from and is not told to start one.
+	if prompt := w.OpeningPrompt(p.ID, p.initial, spec.Caps.Context); fork == nil && strings.TrimSpace(prompt) != "" {
 		_ = rt.SendSystem(prompt)
 	}
 	p.initial = ""
@@ -467,16 +475,67 @@ func (w *Workspace) StructuredEntries(id string) ([]transcript.Entry, bool) {
 	return sr.Entries(), true
 }
 
+// ForkLabel is what a forked pane is called. It is fixed: the label is shown
+// beside the original in the same tab, and nothing from either conversation goes
+// into it.
+const ForkLabel = "Fork"
+
+// SpawnFork starts a new structured pane beside the structured pane src, in the
+// same directory and with the same agent and model, whose session forks the
+// agent's session from. It must run on the workspace goroutine. The agent's part
+// (structured.Runtime.ForkSource) is done by the caller before this, off that
+// goroutine, since the agent may take a while.
+func (w *Workspace) SpawnFork(src string, from structured.ForkFrom) (string, error) {
+	p := w.Pane(src)
+	if p == nil {
+		return "", errors.New("that pane is closed")
+	}
+	if _, ok := p.setRuntime().(*structuredRuntime); !ok {
+		return "", ErrStructuredPane
+	}
+	w.mu.RLock()
+	open := 0
+	for _, q := range w.panes {
+		if q.forkOf == src {
+			open++
+		}
+	}
+	w.mu.RUnlock()
+	if open >= maxForks {
+		return "", ErrTooManyForks
+	}
+	id, err := w.Spawn(src, SpawnOptions{Kind: p.Kind, Cwd: p.Cwd, Split: true, Label: ForkLabel,
+		Agent: p.Agent, Model: p.Model, Fork: &from})
+	if err != nil {
+		return "", err
+	}
+	if q := w.Pane(id); q != nil {
+		w.mu.Lock()
+		q.forkOf = src
+		w.mu.Unlock()
+	}
+	return id, nil
+}
+
+// maxForks is the most forks open beside one pane.
+const maxForks = 4
+
+// ErrTooManyForks: the pane already has maxForks forks open.
+var ErrTooManyForks = errors.New("that pane already has too many forks open")
+
 // restartStructured ends the pane's agent and starts a fresh session. The
 // entries of the old session stay as history, with a line saying where it was
 // restarted. A restart is the person asking for a new session, so the agent's
 // own conversation is not resumed; a restored pane resumes it (startStructured).
+// With resume, the new agent reopens that session instead (a rewind that got no
+// answer), and the old entries are not kept since the agent replays them or
+// the pane starts empty, as a restored one does.
 //
 // Closing the old agent waits for it to end, for at most structured's
 // closeWait (15 seconds), on the goroutine that called and not under the
 // workspace lock. Between the close and the new runtime p.rt is nil, so the
 // pane reads as exited for that moment.
-func (w *Workspace) restartStructured(p *Pane, old *structuredRuntime) {
+func (w *Workspace) restartStructured(p *Pane, old *structuredRuntime, resume string) {
 	// The old session's entries are numbered e1, e2... like the next session's,
 	// so they take the generation as a prefix on becoming history.
 	cur := old.rt.Snapshot().Entries
@@ -490,8 +549,13 @@ func (w *Workspace) restartStructured(p *Pane, old *structuredRuntime) {
 	noteID := fmt.Sprintf("restart-%d", p.generation)
 	p.generation++
 	_ = old.Close()
+	text := "The agent was restarted. This is a new session."
+	if resume != "" {
+		history = nil
+		text = "Going back did not finish, so the agent was restarted with the conversation as it was before."
+	}
 	history = append(history, transcript.Entry{ID: noteID, Kind: transcript.KindNotice,
-		TS: time.Now().UTC().Format(time.RFC3339), Text: "The agent was restarted. This is a new session."})
+		TS: time.Now().UTC().Format(time.RFC3339), Text: text})
 	if n := len(history); n > maxPaneHistory {
 		history = history[n-maxPaneHistory:]
 	}
@@ -500,7 +564,7 @@ func (w *Workspace) restartStructured(p *Pane, old *structuredRuntime) {
 	runtimeMu.Unlock()
 	p.history = history
 	w.mu.Lock()
-	p.savedSession = ""
+	p.savedSession = resume
 	w.mu.Unlock()
 	w.startPane(p, false)
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/jmwri/flockdeck/internal/layout"
 	"github.com/jmwri/flockdeck/internal/session"
 	"github.com/jmwri/flockdeck/internal/store"
+	"github.com/jmwri/flockdeck/internal/structured"
 	"github.com/jmwri/flockdeck/internal/team"
 )
 
@@ -147,6 +148,9 @@ type SpawnOptions struct {
 	// PrepareBaton, off the workspace goroutine, from the baton and Task; Spawn
 	// starts the agent with its prompt and records its id on the pane.
 	Baton *BatonPrompt
+	// Fork makes a structured pane whose session is a fork of another (see
+	// ForkStructured). No task is needed, and none is sent.
+	Fork *structured.ForkFrom
 }
 
 // Spawn starts a child agent, optionally in a worktree of its own.
@@ -535,7 +539,7 @@ func (w *Workspace) Spawn(parentPaneID string, o SpawnOptions) (string, error) {
 	if o.Baton != nil && o.Kind == session.KindShell {
 		return "", fmt.Errorf("a baton starts an agent, and a shell is not one")
 	}
-	if strings.TrimSpace(o.Task) == "" && o.Kind != session.KindShell && o.Baton == nil {
+	if strings.TrimSpace(o.Task) == "" && o.Kind != session.KindShell && o.Baton == nil && o.Fork == nil {
 		return "", fmt.Errorf("a task is required")
 	}
 	if len(o.Task) > maxTaskBytes {
@@ -625,6 +629,7 @@ func (w *Workspace) Spawn(parentPaneID string, o SpawnOptions) (string, error) {
 		// installation's default, and the user turns it on for it.
 		AutoReview: parent != nil && parent.AutoReview && !o.SpawnedByAgent,
 		Recording:  o.Record && o.Kind != session.KindShell,
+		forkFrom:   o.Fork,
 	}
 	if o.SpawnedByAgent && parent != nil {
 		p.Parent = parentPaneID

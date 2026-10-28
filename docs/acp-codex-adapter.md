@@ -202,6 +202,28 @@ own. The client must pass what codex reads its login and settings from (`HOME` o
 environment has none of them. `FLOCKDECK_CODEX_BIN` names the executable when it is not
 on `PATH`.
 
+## Rewind and fork
+
+The adapter advertises the same extension as the claude one (`flockdeck.dev`, `rewind: 1`) and
+`sessionCapabilities.fork`. It keeps the turn tokens of the turns it ran, in order, and whether each was a
+plain prompt. `_flockdeck/forkpoint` answers `kN`, N being the number of turns kept, counted from the
+start of the thread. The count is absolute because the source can run another turn between the question
+and `session/fork`; a count from the end would then cut the wrong turn. `session/fork` is `thread/fork` of
+the source thread, then `thread/read` with `includeTurns` to count the turns of the new thread (n), then
+`thread/rollback` with `numTurns` n minus N. If the count is not available or n is below N, the fork fails and
+no pane is made. `_flockdeck/rewind` is `thread/rollback` on the live thread, relative to its end and under
+the session lock, refused while a turn or a queued prompt is there. A `/compact` or `/review` in the range
+that would go refuses the point. A resumed or forked thread has turns the adapter did not run, so it gives no
+point (`hasHistory`). A malformed `at` (not `kN`) is refused as invalid params.
+A prompt that comes without a turn token is counted as a turn but cannot be named, so the counts after it
+stay right. What is not known is whether codex counts the same turns as the adapter does: a `/compact` or
+`/review` is counted here as one turn, and whether codex's own turn list does the same, and whether
+`thread/rollback` counts them so, has not been seen. The adapter does not compare its count with
+`thread/read` before a rewind. Treat `kN` and the compaction count as unverified until a real codex has run
+them; if they disagree, a rewind drops a different number of turns than the window does. None of this has been run
+against a real codex: the wire is from the route document and the fake app-server, and `thread/read` and
+`thread/rollback` are listed under Unverified.
+
 ## Unverified
 
 These were not checked against a real codex:
@@ -232,6 +254,11 @@ These were not checked against a real codex:
   anything but `false`. A codex that omits these members will therefore not open a session
   until this has been checked against a real one.
 - Approvals from a sub-agent's thread would carry another thread id and are refused.
+- Rewind and fork (T215): that `thread/fork` copies every turn of the source, that
+  `thread/read` with `includeTurns: true` answers `{thread: {turns: [...]}}`
+  with one element per turn, and that `thread/rollback` with `numTurns` drops that many turns from the
+  end and answers. The adapter fails closed on a count it cannot read, so a different shape means fork
+  and rewind are refused, not wrong.
 
 ## Policy review
 
