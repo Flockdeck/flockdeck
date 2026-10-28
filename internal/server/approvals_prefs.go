@@ -205,7 +205,7 @@ func (s *Server) applyDeviceApprove(c *controlClient, device string, on bool, ge
 		if on {
 			event = "device-approve-on"
 		}
-		_ = s.approvals.audit.write(auditEvent{Event: event, Device: device, Reason: saveReason(saveErr)})
+		s.approvals.auditAsync(auditEvent{Event: event, Device: device, Reason: saveReason(saveErr)})
 		switch {
 		case saveErr != nil:
 			c.notify("That device can no longer approve agent requests. This is applied now, but could not be saved, so it will be lost when Flockdeck restarts: "+saveErr.Error(), true)
@@ -283,7 +283,7 @@ func (s *Server) stopApprovals(done func(n int, saveErr error)) {
 		for _, d := range was {
 			s.sockets.cut(d)
 		}
-		_ = s.approvals.audit.write(auditEvent{Event: "approvals-off", Device: "desk", Len: len(was), Reason: saveReason(saveErr)})
+		s.approvals.auditAsync(auditEvent{Event: "approvals-off", Device: "desk", Len: len(was), Reason: saveReason(saveErr)})
 		done(len(was), saveErr)
 	})
 }
@@ -413,7 +413,7 @@ func (s *Server) clearApproval(device string) {
 	}, func(applied bool, _ error) {
 		if applied && changed {
 			s.sockets.cut(device)
-			_ = s.approvals.audit.write(auditEvent{Event: "device-approve-off", Device: device, Reason: "key-changed-or-unpaired"})
+			s.approvals.auditAsync(auditEvent{Event: "device-approve-off", Device: device, Reason: "key-changed-or-unpaired"})
 			s.noticeDesk("A device's approval was switched off because its key is no longer the one it was allowed with. Allow it again once you have verified the key", false)
 		}
 	})

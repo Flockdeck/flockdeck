@@ -485,6 +485,7 @@ func New(ws *workspace.Workspace, cfg Config) (*Server, error) {
 	s.structuredPane = s.workspaceStructuredPane
 	s.approvals.audit.file = approvalAuditFile
 	s.approvals.deniedLog.file = approvalDeniedFile
+	s.approvals.shownLog.file = approvalShownFile
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", s.handleIndex)

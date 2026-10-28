@@ -189,8 +189,9 @@ func newApprovalsEnv(t *testing.T) *approvalsEnv {
 	srv.SetRemote(fake)
 	srv.approvals.audit.dir = func() (string, error) { return store.Dir() }
 	srv.approvals.deniedLog.dir = func() (string, error) { return store.Dir() }
+	srv.approvals.shownLog.dir = func() (string, error) { return store.Dir() }
 	srv.approvals.setTimings(func(tm *approvalTimings) {
-		tm.poll, tm.minDisplay = 20*time.Millisecond, time.Nanosecond
+		tm.poll, tm.minDisplay = 20*time.Millisecond, -1
 	})
 	e := &approvalsEnv{srv: srv, ts: remoteServer(t, srv), fake: fake, hostPriv: hostPriv, devicePriv: devicePriv, key: key}
 	e.paneID, _ = ask(srv, func() string { return srv.ws.Tabs[0].Tree.Panes()[0] })
@@ -406,7 +407,7 @@ func approvalDir(t *testing.T) string {
 func approvalLog(t *testing.T) []map[string]any {
 	t.Helper()
 	var all []string
-	for _, f := range []string{approvalAuditFile, approvalDeniedFile} {
+	for _, f := range []string{approvalAuditFile, approvalDeniedFile, approvalShownFile} {
 		if data, err := os.ReadFile(filepath.Join(approvalDir(t), f)); err == nil {
 			all = append(all, strings.Split(strings.TrimSpace(string(data)), "\n")...)
 		}
@@ -815,7 +816,7 @@ func TestAnOfferFromAnotherSocketIsNotHonoured(t *testing.T) {
 	_ = a.list()
 	itB := b.list()[0]
 	res := a.decide(itB, "allow")
-	if res["ok"] == true || res["error"] != approvalErrOffer {
+	if res["ok"] == true || res["error"] != permissionStale {
 		t.Errorf("another socket's offer gave %v", res)
 	}
 	if len(e.pane.given()) != 0 {
@@ -963,7 +964,7 @@ func TestThreeRefusalsInARowCloseTheSocketAndTellTheDesk(t *testing.T) {
 	desk := dialControlPage(t, e.srv)
 	p := e.open(t)
 	it := p.list()[0]
-	it["offer"] = strings.Repeat("f", 32)
+	it["offer"] = strings.Repeat("z", 32)
 	for i := 0; i < approvalAbuseMax; i++ {
 		res := p.decide(it, "allow")
 		if res["ok"] == true {
@@ -986,7 +987,7 @@ func TestASuccessfulAnswerStartsTheCountOfRefusalsAgain(t *testing.T) {
 	e := newApprovalsEnv(t)
 	p := e.open(t)
 	it := p.list()[0]
-	bad := map[string]any{"op": "approvalDecide", "pane": it["pane"], "token": it["token"], "cardSeq": it["cardSeq"], "offer": strings.Repeat("e", 32), "decision": "allow"}
+	bad := map[string]any{"op": "approvalDecide", "pane": it["pane"], "token": it["token"], "cardSeq": it["cardSeq"], "offer": strings.Repeat("z", 32), "decision": "allow"}
 	for i := 0; i < approvalAbuseMax-1; i++ {
 		p.send(bad)
 		p.readOp("approvalResult")
@@ -1175,7 +1176,10 @@ func TestASocketThatCannotBeRecordedIsRefused(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	e.handshake(t, conn)
+	sess := e.handshake(t, conn)
+	// The opening is recorded when the first request has been opened.
+	p := &phone{t: t, conn: conn, sess: sess}
+	p.sendQuiet(map[string]any{"op": "ping"})
 	if code, _ := closedWith(t, conn); code != websocket.StatusInternalError {
 		t.Errorf("closed with %d", code)
 	}
@@ -1184,7 +1188,9 @@ func TestASocketThatCannotBeRecordedIsRefused(t *testing.T) {
 func TestACardThatCannotBeRecordedIsNotShown(t *testing.T) {
 	e := newApprovalsEnv(t)
 	p := e.open(t)
-	e.srv.approvals.audit.dir = func() (string, error) { return "", errors.New("no folder") }
+	p.send(map[string]any{"op": "ping"})
+	p.readOp("pong")
+	e.srv.approvals.shownLog.dir = func() (string, error) { return "", errors.New("no folder") }
 	p.send(map[string]any{"op": "approvalList"})
 	if code, _ := p.closed(); code != websocket.StatusInternalError {
 		t.Errorf("closed with %d", code)

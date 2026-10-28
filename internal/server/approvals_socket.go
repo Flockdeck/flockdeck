@@ -112,6 +112,11 @@ const (
 const (
 	approvalAuditFile  = "remote-approvals.log"
 	approvalDeniedFile = "remote-approvals-denied.log"
+	approvalShownFile  = "remote-approvals-shown.log"
+	// approvalShownPerMinute caps the "shown" lines of one device, and
+	// approvalShownAllPerMinute those of every device together.
+	approvalShownPerMinute    = 20
+	approvalShownAllPerMinute = 60
 	// approvalDeniedPerMinute and approvalNoticesPerMinute cap, across every
 	// device, the refusals written and the notices put on the desk.
 	approvalDeniedPerMinute  = 30
@@ -168,7 +173,16 @@ type approvalsState struct {
 	audit   auditLog
 	// deniedLog holds the "denied" lines (approvalDeniedFile).
 	deniedLog auditLog
-	timing    approvalTimings
+	// shownLog holds the "shown" lines (approvalShownFile): cards are shown as fast
+	// as an agent replaces them, so they are kept out of the decisions file.
+	shownLog auditLog
+	timing   approvalTimings
+	// shownAt starts the window of shownAll; shownBy counts per device in it;
+	// shownLost counts the lines left out since the last one written.
+	shownAt   time.Time
+	shownAll  int
+	shownBy   map[string]int
+	shownLost int
 	// The caps across every device, in a window of a minute.
 	capAt                       time.Time
 	capLines, capNotes, capLost int
@@ -286,6 +300,34 @@ func (a *approvalsState) denial(key string, global bool) (record, notify bool, s
 		}
 	}
 	return record, notify, suppressed
+}
+
+// auditAsync writes a desk-side line off the caller's goroutine. The desk's
+// changes are applied on the workspace goroutine, and the log lock is held across
+// the flush of a decision line, so a slow disk must not be waited for there.
+func (a *approvalsState) auditAsync(e auditEvent) {
+	go func() { _ = a.audit.write(e) }()
+}
+
+// shownAllowed says whether a "shown" line for device may be written now, and how
+// many were left out since the last one that was. A device is held to
+// approvalShownPerMinute and all of them to approvalShownAllPerMinute, so that an
+// agent that replaces its card every tick cannot fill the disk.
+func (a *approvalsState) shownAllowed(device string) (ok bool, lost int) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	now := time.Now()
+	if now.Sub(a.shownAt) >= time.Minute {
+		a.shownAt, a.shownAll, a.shownBy = now, 0, map[string]int{}
+	}
+	if a.shownAll >= approvalShownAllPerMinute || a.shownBy[device] >= approvalShownPerMinute {
+		a.shownLost++
+		return false, 0
+	}
+	a.shownAll++
+	a.shownBy[device]++
+	lost, a.shownLost = a.shownLost, 0
+	return true, lost
 }
 
 // logLost counts a log line that could not be written and tells the desk, at most
@@ -430,6 +472,19 @@ type approvalPongFrame struct {
 // padded is the JSON of v, an object, with a "pad" field of zeros added so that
 // its length is a multiple of approvalPadBucket. The phone strips it by ignoring
 // the field; the host ignores the one the phone adds.
+// isOffer says s has the shape of an offer: 32 lowercase hex characters.
+func isOffer(s string) bool {
+	if len(s) != 32 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if c := s[i]; (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
+}
+
 func padded(v any) ([]byte, error) {
 	b, err := json.Marshal(v)
 	if err != nil {
@@ -567,6 +622,12 @@ type approvalSession struct {
 	// unprompted before. lastSig is what was last sent, to tell a change.
 	listed  bool
 	lastSig string
+	// logged is the cards that have had a "shown" line on this socket, by key, so
+	// that a card offered again (after a refused tap) is not logged again.
+	logged map[string]bool
+	// connected is whether the "connect" line has been written, which waits for the
+	// first request to be opened.
+	connected bool
 	// abuse counts refusals of the kind a correct client never causes, in a row;
 	// busy counts frames turned away for rate in a row.
 	abuse, busy int
@@ -591,7 +652,13 @@ func (a *approvalSession) gate() bool {
 	if reason == "" {
 		return true
 	}
-	a.s.approvalDenied(a.device, a.name, reason)
+	// A cut is the desk's own doing: its notice and log line say so already, and
+	// the socket closes without a "was refused" line or notice of its own.
+	select {
+	case <-a.cutCh:
+	default:
+		a.s.approvalDenied(a.device, a.name, reason)
+	}
 	a.refuse(artifactCloseRefused, reason)
 	return false
 }
@@ -659,18 +726,27 @@ func (a *approvalSession) refresh() (items []approvalItem, changed bool, err err
 				}
 				sh.offer, sh.item.Offer = offer, offer
 			}
-			reason := ""
-			switch {
-			case !pc.Answerable:
-				reason = "desk-only"
-			case !pc.CanAllow:
-				reason = "deny-only"
-			}
-			if werr := a.s.approvals.audit.write(auditEvent{
-				Event: "shown", Device: a.device, DeviceName: a.name, Pane: w.pane, Name: w.label, Kind: kind,
-				Seq: w.card.Seq, Len: len(pc.Text), Hash: textHash(pc.Text), Reason: reason,
-			}); werr != nil {
-				return nil, false, werr
+			// Only a card the phone can answer, and only the first time on this
+			// socket, is logged; and not more often than approvalShownPerMinute.
+			// The decision line carries the hash and length of what was shown, so
+			// a line left out here loses no decision.
+			if sh.offer != "" && !a.logged[key] {
+				if len(a.logged) >= approvalOffersKept {
+					a.logged = map[string]bool{}
+				}
+				a.logged[key] = true
+				reason := ""
+				if !pc.CanAllow {
+					reason = "deny-only"
+				}
+				if okLine, lost := a.s.approvals.shownAllowed(a.device); okLine {
+					if werr := a.s.approvals.shownLog.write(auditEvent{
+						Event: "shown", Device: a.device, DeviceName: a.name, Pane: w.pane, Name: w.label, Kind: kind,
+						Seq: w.card.Seq, Len: len(pc.Text), Hash: textHash(pc.Text), Reason: reason, Suppressed: lost,
+					}); werr != nil {
+						return nil, false, werr
+					}
+				}
 			}
 			a.shown[w.pane] = sh
 			if sh.offer != "" {
@@ -744,9 +820,21 @@ func (a *approvalSession) decide(req approvalRequest) (res approvalResultFrame, 
 	res = approvalResultFrame{Op: "approvalResult", V: approvalWireVersion, Pane: tidy(req.Pane), CardSeq: req.CardSeq}
 	var seq uint64
 	var paneID, kind string
+	// recorded is whether the decision line has been written. A refusal after it
+	// is written directly, not through the limiter: it is what tells a reader that
+	// the answer was not given, and it is bounded by the decision rate.
+	recorded := false
+	refused := func(reason string) {
+		e := auditEvent{Event: "decision-refused", Device: a.device, DeviceName: a.name, Pane: paneID, Seq: seq, Kind: kind, Reason: reason}
+		if recorded {
+			s.logLost(s.approvals.audit.write(e))
+			return
+		}
+		s.approvalRefused(e)
+	}
 	no := func(msg, reason string, abuse bool) (approvalResultFrame, string) {
 		res.Error = msg
-		s.approvalRefused(auditEvent{Event: "decision-refused", Device: a.device, DeviceName: a.name, Pane: paneID, Seq: seq, Kind: kind, Reason: reason})
+		refused(reason)
 		if !abuse {
 			return res, ""
 		}
@@ -760,7 +848,7 @@ func (a *approvalSession) decide(req approvalRequest) (res approvalResultFrame, 
 	off := func() (approvalResultFrame, string, bool) {
 		if reason := a.reasonOff(); reason != "" {
 			res.Error = approvalErrOff
-			s.approvalRefused(auditEvent{Event: "decision-refused", Device: a.device, DeviceName: a.name, Pane: paneID, Seq: seq, Kind: kind, Reason: reason})
+			refused(reason)
 			return res, reason, true
 		}
 		return res, "", false
@@ -791,8 +879,13 @@ func (a *approvalSession) decide(req approvalRequest) (res approvalResultFrame, 
 			// the desk answered, is stale, not abuse. Nothing is given.
 			return no(permissionStale, "ended", false)
 		}
-		// Never made on this socket: a client that follows the protocol sends none.
-		return no(approvalErrOffer, "offer", true)
+		// An offer of the right shape that this socket never made is what a phone
+		// holds after a reconnect, so it is stale, not abuse. Anything else is not
+		// something a correct client sends.
+		if !isOffer(req.Offer) {
+			return no(approvalErrOffer, "offer", true)
+		}
+		return no(permissionStale, "offer", false)
 	}
 	// The offer is used by this attempt, whatever it comes to: a guess at the
 	// other fields costs the offer, and a refused tap has the card offered anew.
@@ -869,6 +962,7 @@ func (a *approvalSession) decide(req approvalRequest) (res approvalResultFrame, 
 		s.logLost(werr)
 		return no(approvalErrRecord, "audit", false)
 	}
+	recorded = true
 	stage("after-audit")
 	// The switch may have been turned off while the line was being written, or
 	// the pane read: looked at once more, immediately before the answer.
@@ -994,12 +1088,7 @@ func (s *Server) handleApprovals(w http.ResponseWriter, r *http.Request) {
 	if !a.gate() {
 		return
 	}
-	// Opening is recorded before anything is served; if it cannot be, nothing is.
-	if err := s.approvals.audit.write(auditEvent{Event: "connect", Device: device, DeviceName: name}); err != nil {
-		s.logLost(err)
-		refuse(int(websocket.StatusInternalError), "unavailable")
-		return
-	}
+	a.logged = map[string]bool{}
 
 	type frameIn struct {
 		typ  websocket.MessageType
@@ -1065,6 +1154,18 @@ func (s *Server) handleApprovals(w http.ResponseWriter, r *http.Request) {
 			// switch turned off takes effect on the next.
 			if !a.gate() {
 				return
+			}
+			// The first request that opens is the proof that the device holds the
+			// key, and is when the opening is recorded: a handshake never followed
+			// by a request writes nothing. It is recorded before anything is
+			// served; if it cannot be, nothing is.
+			if !a.connected {
+				if err := s.approvals.audit.write(auditEvent{Event: "connect", Device: device, DeviceName: name}); err != nil {
+					s.logLost(err)
+					refuse(int(websocket.StatusInternalError), "unavailable")
+					return
+				}
+				a.connected = true
 			}
 			if !a.frame(ctx, f.typ, f.data, endWith) {
 				return
