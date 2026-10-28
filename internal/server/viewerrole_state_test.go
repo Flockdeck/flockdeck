@@ -279,7 +279,7 @@ func TestPushNotificationsReachOnlyDevicesThatMaySeePanes(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	if err := srv.notifyRelay(ctx, remote.Notification{Title: "api needs you", URL: "/d/h1/p1", Tag: "flockdeck-h1"}); err != nil {
+	if err := srv.notifyRelay(ctx, pushOut{Notification: remote.Notification{Title: "api needs you", URL: "/d/h1/p1", Tag: "flockdeck-h1"}}); err != nil {
 		t.Fatal(err)
 	}
 	mu.Lock()

@@ -258,7 +258,7 @@ func TestPushToSealsOnlyForAllowedDevices(t *testing.T) {
 	defer srv.Close()
 	c := &Client{Relay: srv.URL, Token: "fdh_test"}
 	n := Notification{Title: "api needs you", URL: "/d/h1/p1", Tag: "flockdeck-h1"}
-	if _, err := c.PushTo(context.Background(), n, func(id string) bool { return id != "viewer" }); err != nil {
+	if _, err := c.PushTo(context.Background(), func(id string) (Notification, bool) { return n, id != "viewer" }); err != nil {
 		t.Fatal(err)
 	}
 	if len(posted) != 1 || posted[0].DeviceID != "phone" {
@@ -269,10 +269,57 @@ func TestPushToSealsOnlyForAllowedDevices(t *testing.T) {
 	}
 
 	posted = nil
-	if _, err := c.PushTo(context.Background(), n, func(string) bool { return false }); err != nil {
+	if _, err := c.PushTo(context.Background(), func(string) (Notification, bool) { return n, false }); err != nil {
 		t.Fatal(err)
 	}
 	if len(posted) != 0 {
 		t.Errorf("with every device refused, %d messages were posted", len(posted))
+	}
+}
+
+// PushTo can tell two devices different things: each opens its own message and
+// reads its own words, and a device left out is sent nothing.
+func TestPushToTellsEachDeviceItsOwnNotification(t *testing.T) {
+	phone, tablet, viewer := newBrowser(t), newBrowser(t), newBrowser(t)
+	var mu sync.Mutex
+	var posted []PushMessage
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodGet:
+			_ = json.NewEncoder(w).Encode(map[string]any{"devices": []PushDevice{phone.device("phone"), tablet.device("tablet"), viewer.device("viewer")}})
+		case r.Method == http.MethodPost:
+			var req struct {
+				Messages []PushMessage `json:"messages"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&req)
+			posted = append(posted, req.Messages...)
+			_, _ = w.Write([]byte(`{"sent":2}`))
+		}
+	}))
+	defer srv.Close()
+	c := &Client{Relay: srv.URL, Token: "fdh_test"}
+	words := map[string]string{"phone": "Allow or deny. On desk", "tablet": "Answer on the desktop. On desk"}
+	_, err := c.PushTo(context.Background(), func(id string) (Notification, bool) {
+		w, ok := words[id]
+		return Notification{Title: "api needs you", Body: w, URL: "/d/h1/p1", Tag: "flockdeck-h1"}, ok
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(posted) != 2 {
+		t.Fatalf("%d messages were posted, want 2", len(posted))
+	}
+	for _, m := range posted {
+		b, known := map[string]browser{"phone": phone, "tablet": tablet}[m.DeviceID]
+		if !known {
+			t.Fatalf("a message was sealed for %q", m.DeviceID)
+		}
+		plain, ok := b.open(m.Payload)
+		if !ok || !strings.Contains(string(plain), `"body":"`+words[m.DeviceID]+`"`) {
+			t.Errorf("%s opened %q (ok %v), want the body %q", m.DeviceID, plain, ok, words[m.DeviceID])
+		}
 	}
 }

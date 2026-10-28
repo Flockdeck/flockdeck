@@ -120,7 +120,7 @@ Replay and stale protection, in layers:
 - Rate: per device, a burst of 5 decisions and then 1 a second; 3 refusals in a row close the socket and put a notice on the desk. The numbers are a guess and want the live check.
 - No queueing. If the socket is down when the person taps, the phone says so and the tap does nothing.
 
-Roles. Approval is a separate switch per device and is off for everyone by default, including existing full devices: the "no record means full" compatibility rule is not extended to it. It works for either role. A viewer with the switch on can see the cards sent to it and decide them, and still cannot type, resize or open panes. A full device is not allowed to approve just for being full. `mayPush` stays as it is for terminal waits; a structured wait goes to a device only if it has approvals on.
+Roles. Approval is a separate switch per device and is off for everyone by default, including existing full devices: the "no record means full" compatibility rule is not extended to it. It works for either role. A viewer with the switch on can see the cards sent to it and decide them, and still cannot type, resize or open panes. A full device is not allowed to approve just for being full. `mayPush` stays as it is for terminal waits. A structured wait goes to every device `mayPush` allows (decision 4, and "T4 as built"); only the wording differs, and "Allow or deny" goes to a device with approvals on and a card the phone may allow.
 
 The desk's part: turning a device on shows fixed text (a wording version, as `artifactAckVersion`): "This device will be shown the commands and file paths your agents ask to run or change, and can allow or deny them. The relay cannot read them." It requires the verified-key mark. It is checked again on every frame from the preferences file, so a switch turned off takes effect on the next frame.
 
@@ -169,7 +169,7 @@ Unit and server tests, in this repo:
 - Replay and staleness: a used offer, an offer from another socket, a wrong token, a stale `cardSeq`, a reused `requestId` on a new card, a pane restarted between show and decide, two devices deciding at once, a desk answer racing a phone answer. Each must change nothing and give the fixed text.
 - Rate: burst, refill, three refusals closing the socket.
 - Scrub tests: `TestEveryCommandHasAnAccessDecision`, `TestEveryMessageTypeIsClassifiedForTheRelay` and the API catalog test keep passing; add a test that no card text appears in any control-socket message to a relay window (the existing `TestARelayWindowGetsNothingOfAStructuredPanesConversation` is the pattern).
-- Push: a structured wait pushes only to devices with approvals on; the title and body match the table exactly; Anonymous says only the count; a plan wait says "Answer on the desktop"; the push never contains the command (assert on a command with a marker string).
+- Push: a structured wait pushes to every device `mayPush` allows, and only a device with approvals on and an allowable card is told "Allow or deny"; the title and body match the table exactly; Anonymous says only the count; a plan wait says "Answer on the desktop"; the push never contains the command (assert on a command with a marker string).
 - Audit: one line per event, no card text, rotated at the size.
 - A negative test that `permissionAnswer` is still refused to a relay window.
 
@@ -287,3 +287,29 @@ Known limits:
 
 - Deny on a card from an adapter that is not ours answers with its reject option, the same as the desk does. There is no cancel path: `Runtime.answer` takes only the ids on the card, and an empty id is `ErrBadOption`. A foreign agent can therefore read a Deny as "reject once" and go on to ask again. Cancelling the turn instead would need a runtime method the desk does not have.
 - The check of a path is pure. A link inside the project that points outside it is not seen.
+
+## T4 as built
+
+Written on 28 Oct 2026 against origin/main 3e8a5d06 (through #734). The push for a structured wait is in `internal/server/push.go` and is switched off: `structuredPushLive` is `false`. No API change.
+
+What it does, once on:
+
+- `pushDue` no longer skips a pane because it has no session. A pane with none is taken only if `structuredWait` finds it through the structured-pane lookup (`s.structuredPane`, the same one `permissionAnswer` uses, so no consumer asks which agent it is), and only while its status is waiting on a request. A structured pane that is blocked (needs setup) is not pushed, though a terminal pane that is blocked still is. The delay, the one push a minute, `deskInUse`, `phoneLook` and per-pane mute are the code they were.
+- Wording is as the table in section a says. One structured pane waiting: title `NAME · PROJECT needs you`; body `Allow or deny. On DESKTOP` for a device with the approvals switch on when `projectCard(...).CanAllow` is true, and `Answer on the desktop. On DESKTOP` for every other device and for every other card (plan, question, Deny only, an agent that is not ours, no card). Several waiting panes and Anonymous are as before, the same for every device. `CanAllow` is the test and not `Answerable`: a Deny only card is told "Answer on the desktop", since "Allow or deny" would promise a button the card does not have. The card is read for that yes or no and nothing else; `waitingAgent` holds two booleans and no card text.
+- `PushTo` takes `func(deviceID string) (Notification, bool)` (research item R2). `Push` wraps it. Each distinct notification is fitted once, and sealed for each device it is sent to. `Server.notificationFor` is the function: `mayPush` first, so a device that may not see pane names is sent nothing; then `approveSwitchOn`, which picks the approver wording. It does not use `mayApproveWithKey`: no key is proven at push time, and the sealed socket still holds every decision to the gate. A device whose grant is on but whose key later fails the gate is told "Allow or deny" and finds the card refused; T3 should show it why.
+- The pane name and project in the title, and the names in the list of several panes, go through `capName`, for terminal panes too. After the security review `capName` is `safeLine(s, 40)`: format characters (bidi, zero-width) are dropped, a control character or a new line becomes a space, then the text is redacted, then cut to 40 runes with an ellipsis. It was `team.CleanLine(record.Redact(s), 40)`, which let bidi and zero-width characters through, dropped new lines so words ran together, and removed control characters after the redactor, so a secret with one in the middle was put back together. `capName` is also used by the relay-window scrub (`scrubPaneNames`, the needs list, tab titles, `relayteams`); those are names shown in a window, and the stricter cleaning only changes names that held such characters, and marks a cut name with an ellipsis. The tests that cover those callers pass unchanged.
+- Residual, not fixable by cleaning: the name is the one the person or the agent chose, so an agent that names a pane (or a directory) "Deploy approved" or the name of another project can mislead on a lock screen. The wording around it is fixed and says nothing of the card, but the name is shown as it was given.
+- The wording for a device with approvals on is checked again just before the push is sent (`recheckPush`, on the workspace goroutine). The card seq, the run token and `CanAllow` have to be the same as when the wait was noticed; if the card changed, is gone, or the check cannot run, every device is told "Answer on the desktop". The window that is left is the relay call itself.
+- A tap opens `/d/HOST/PANE`, as for a terminal pane.
+
+How it is kept from shipping before T3:
+
+- `structuredPushLive` is a constant, `false`. The only other way to turn the push on is the unexported field `pushState.structuredOn`, which only tests set.
+- `TestStructuredPushNeedsTheApprovalsSocket` fails if the constant is `true` and no non-test Go file in `internal/server` calls `Handle` or `HandleFunc` with the literal `"/ws/approvals"` (found by parsing the files, so a comment, a string or a test file does not count). T3 registers the route in `server.go` beside `/ws/artifacts` and flips the constant in the same change. `TestTheRouteCheckSeesARegisteredHandler` shows the check finds `/ws/artifacts` in the real tree, finds a registration in a temporary file, and does not take a comment, a string or a test file for one.
+- The call has to name a handler `handleApprovals` (`s.handleApprovals` or `handleApprovals`), as `/ws/artifacts` has `handleArtifacts`, so a route registered with some other function does not satisfy it. A name proves nothing about what the handler does: reviewing T3 still has to check that it is the sealed one, and that the constant is flipped in the same change.
+
+Deviations and choices:
+
+- The audience for the approver wording is `approveSwitchOn`, as the brief said. The plan's section c (older text) said a structured wait goes only to devices with approvals on; decision 4 replaced that and this follows decision 4.
+- A viewer with approvals on but without watch-panes is sent no push at all (`mayPush`). The plan does not say. Telling it would put a pane name on a device that is not shown pane names.
+- A structured pane that is blocked is skipped, and a terminal pane that is blocked is still pushed: `TestABlockedStructuredPaneIsNotPushedButABlockedTerminalIs`.

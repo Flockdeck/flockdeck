@@ -65,8 +65,8 @@ func paneName(srv *Server, ws *workspace.Workspace, id string) string {
 	return name
 }
 
-func due(srv *Server, now time.Time) *remote.Notification {
-	out, _ := ask(srv, func() *remote.Notification { return srv.pushDue(now) })
+func due(srv *Server, now time.Time) *pushOut {
+	out, _ := ask(srv, func() *pushOut { return srv.pushDue(now) })
 	return out
 }
 
@@ -448,10 +448,10 @@ func TestThePushSettingsShapeWhatIsSent(t *testing.T) {
 func TestAPushIsSentAndItsFailureShown(t *testing.T) {
 	srv, ws := newTestServer(t)
 	enrolled(srv)
-	sent := make(chan remote.Notification, 4)
+	sent := make(chan pushOut, 4)
 	refusal := errors.New("the relay said: this relay does not send push notifications")
 	ask(srv, func() bool {
-		srv.push.send = func(_ context.Context, n remote.Notification) error {
+		srv.push.send = func(_ context.Context, n pushOut) error {
 			sent <- n
 			return refusal
 		}

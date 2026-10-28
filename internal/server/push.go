@@ -11,7 +11,9 @@ import (
 
 	osidle "github.com/jmwri/flockdeck/internal/idle"
 	"github.com/jmwri/flockdeck/internal/remote"
+	"github.com/jmwri/flockdeck/internal/session"
 	"github.com/jmwri/flockdeck/internal/store"
+	"github.com/jmwri/flockdeck/internal/workspace"
 )
 
 // Push notifications: when an agent has been waiting on its person for a
@@ -71,10 +73,14 @@ type pushState struct {
 	last time.Time
 	// send asks the relay for a push; nil is the relay itself. A test
 	// replaces it, on the workspace goroutine, which is where it is read.
-	send func(context.Context, remote.Notification) error
+	send func(context.Context, pushOut) error
 	// err is why the last push asked for failed, or empty, for Settings to
 	// say.
 	err atomic.Pointer[string]
+
+	// structuredOn turns the structured push on for one server. Only a test
+	// sets it; what ships is structuredPushLive.
+	structuredOn bool
 
 	// idleSince asks the OS how long it has gone without keyboard or mouse
 	// input, anywhere, and whether it is locked; nil is idle.Since. A test
@@ -95,6 +101,25 @@ type pushState struct {
 	deskMu sync.Mutex
 	desk   map[*controlClient]time.Time
 }
+
+// structuredPushLive says a structured pane's wait is pushed. It is false until
+// the sealed approvals socket (/ws/approvals) is built and routed: a push that
+// sends the person to a page where the card cannot be answered from the phone
+// is the reason #378 left structured panes out. The task that adds the socket
+// sets it true in the same change, and TestStructuredPushNeedsTheApprovalsSocket
+// fails if it is true and no route for the socket is registered. Nothing else
+// sets it: a test that needs the push on sets pushState.structuredOn.
+const structuredPushLive = false
+
+// What a push says of a structured wait, after the machine's name. The first is
+// told only to a device with approvals on, and only for a card the phone may
+// allow (projectCard.CanAllow); everything else, the plan and the question
+// included, is told the second. Neither has a word of the agent's.
+const (
+	pushAllowOrDeny   = "Allow or deny. On "
+	pushAnswerAtDesk  = "Answer on the desktop. On "
+	pushTerminalAbout = "On "
+)
 
 // deskLook is how lately this computer has to have seen keyboard or mouse
 // input, in any application, for the phone not to be told of a wait: see
@@ -216,6 +241,7 @@ func (s *Server) watchWaits(now time.Time) {
 	if n == nil {
 		return
 	}
+	out := *n
 	send := s.push.send
 	if send == nil {
 		send = s.notifyRelay
@@ -224,19 +250,51 @@ func (s *Server) watchWaits(now time.Time) {
 		defer s.survive("sending a push notification")
 		ctx, cancel := context.WithTimeout(context.Background(), remoteCallTimeout)
 		defer cancel()
-		s.pushOutcome(send(ctx, *n))
+		s.pushOutcome(send(ctx, s.recheckPush(out)))
 	}()
 }
 
 // notifyRelay has the relay this machine is enrolled with push to the
 // account's devices.
-func (s *Server) notifyRelay(ctx context.Context, n remote.Notification) error {
+func (s *Server) notifyRelay(ctx context.Context, p pushOut) error {
 	cl, err := s.remoteClient()
 	if err != nil {
 		return err
 	}
-	_, err = cl.PushTo(ctx, n, s.mayPush)
+	_, err = cl.PushTo(ctx, s.notificationFor(p))
 	return err
+}
+
+// pushOut is a push: what the devices that may be sent pushes are told, and, for
+// a wait whose card the phone may answer, what a device with approvals on is
+// told in its place. Approver is nil when the two are the same.
+type pushOut struct {
+	remote.Notification
+	Approver *remote.Notification
+	// recheck says whether Approver is still true: the card the phone was told
+	// it may allow is still the one pending, in the same run of the pane, and
+	// still allowable. It runs on the workspace goroutine, just before the
+	// push is sent, since the card can change between the wait being noticed
+	// and the relay being asked. Nil with an Approver means it cannot be
+	// checked, and the push is sent without it.
+	recheck func() bool
+}
+
+// notificationFor is the function PushTo asks for each device. A device that may
+// not be sent pushes (mayPush) is sent nothing. One with the approvals switch on
+// is told Approver, if there is one. It uses approveSwitchOn and not the gate,
+// since no key is proven here: the push says only that the desktop will accept
+// an answer, and the sealed socket still asks the gate for every decision.
+func (s *Server) notificationFor(p pushOut) func(deviceID string) (remote.Notification, bool) {
+	return func(id string) (remote.Notification, bool) {
+		if !s.mayPush(id) {
+			return remote.Notification{}, false
+		}
+		if p.Approver != nil && s.approveSwitchOn(id) {
+			return *p.Approver, true
+		}
+		return p.Notification, true
+	}
 }
 
 // pushOutcome records how the last push went, and has the windows told when
@@ -264,6 +322,12 @@ func (s *Server) pushError() string {
 type waitingAgent struct {
 	id, name, project string
 	since             time.Time
+	// structured says the pane is a structured one, and phoneCanAllow that its
+	// card is one the phone may allow. Only the first of these makes a push say
+	// "Answer on the desktop".
+	structured, phoneCanAllow bool
+	// recheck is pushOut.recheck for this pane's card.
+	recheck func() bool
 }
 
 // pushDue is the push to ask for now, or nil. One is due when an agent has
@@ -272,7 +336,7 @@ type waitingAgent struct {
 // waiting, those whose own delay has not passed yet included: they are
 // counted in it, and not told of again one by one. It runs on the workspace
 // goroutine.
-func (s *Server) pushDue(now time.Time) *remote.Notification {
+func (s *Server) pushDue(now time.Time) *pushOut {
 	ra := s.remoteAccess()
 	if ra == nil || s.prefs.Push.Off {
 		return nil
@@ -290,13 +354,25 @@ func (s *Server) pushDue(now time.Time) *remote.Notification {
 	for _, t := range s.ws.Tabs {
 		for _, id := range t.Tree.Panes() {
 			p := s.ws.Pane(id)
-			// A structured pane has no session and is skipped: a request it is
-			// waiting on is answered at the desk only, so a phone push for it
-			// would send the user to something they cannot answer there.
-			if p == nil || p.Sess == nil {
+			if p == nil {
 				continue
 			}
-			if status, _ := p.Status(); !status.NeedsAttention() {
+			// A structured pane has no session. Until the approvals socket exists
+			// it is skipped: a request it is waiting on is answered at the desk
+			// only, so a phone push for it would send the user to something they
+			// cannot answer there. See structuredPushLive.
+			sp, structured := s.structuredWait(p)
+			if p.Sess == nil && !structured {
+				continue
+			}
+			status, _ := p.Status()
+			if structured {
+				// Only a request open: a pane that needs setting up is blocked,
+				// has no card, and is not what this push is about.
+				if status != session.StatusWaiting {
+					continue
+				}
+			} else if !status.NeedsAttention() {
 				continue
 			}
 			waitingNow[id] = true
@@ -318,7 +394,15 @@ func (s *Server) pushDue(now time.Time) *remote.Notification {
 					names[pr.Root] = pr.Name
 				}
 			}
-			w := waitingAgent{id: id, name: p.Name, project: projectLabel(names, s.ws.RootOf(id)), since: s.ws.Runtime(p).StatusSince()}
+			w := waitingAgent{id: id, name: capName(p.Name), project: capName(projectLabel(names, s.ws.RootOf(id))), since: s.ws.Runtime(p).StatusSince()}
+			if structured {
+				w.structured = true
+				card := sp.PendingPermission()
+				w.phoneCanAllow = projectCard(card, sp.OwnAdapter(), sp.ProjectRoot()).CanAllow
+				if w.phoneCanAllow {
+					w.recheck = s.stillAllowable(id, card.Seq, sp.RuntimeToken())
+				}
+			}
 			waits = append(waits, w)
 			if now.Sub(w.since) >= delay && !s.push.pushed[id].Equal(w.since) {
 				fresh = true
@@ -348,8 +432,52 @@ func (s *Server) pushDue(now time.Time) *remote.Notification {
 		s.push.pushed[w.id] = w.since
 	}
 	s.push.last = now
-	n := pushAbout(st.HostID, st.Name, waits, s.prefs.Push.Anonymous)
-	return &n
+	out := pushAbout(st.HostID, st.Name, waits, s.prefs.Push.Anonymous)
+	return &out
+}
+
+// recheckPush is p with the wording for a device with approvals on kept only if
+// it is still true. It was true when the wait was noticed, and the card can have
+// changed since; the check runs on the workspace goroutine and, if the card has
+// changed, is gone, or cannot be checked, every device is told "Answer on the
+// desktop".
+func (s *Server) recheckPush(p pushOut) pushOut {
+	if p.Approver == nil {
+		return p
+	}
+	if ok, answered := ask(s, func() bool { return p.recheck != nil && p.recheck() }); !answered || !ok {
+		p.Approver = nil
+	}
+	return p
+}
+
+// stillAllowable is the check that the card seq of pane id, in the run token, is
+// still pending and still one the phone may allow. The function it returns runs
+// on the workspace goroutine.
+func (s *Server) stillAllowable(id string, seq uint64, token string) func() bool {
+	return func() bool {
+		if s.structuredPane == nil {
+			return false
+		}
+		sp, ok := s.structuredPane(id)
+		if !ok || sp == nil {
+			return false
+		}
+		card := sp.PendingPermission()
+		return card != nil && card.Seq == seq && sp.RuntimeToken() == token &&
+			projectCard(card, sp.OwnAdapter(), sp.ProjectRoot()).CanAllow
+	}
+}
+
+// structuredWait gives the structured pane behind p when a structured wait may
+// be pushed: the push is live, and the pane is a structured one. It runs on the
+// workspace goroutine.
+func (s *Server) structuredWait(p *workspace.Pane) (StructuredPane, bool) {
+	if s.structuredPane == nil || !(structuredPushLive || s.push.structuredOn) {
+		return nil, false
+	}
+	sp, ok := s.structuredPane(p.ID)
+	return sp, ok && sp != nil
 }
 
 // pushAbout is what a push says of the agents waiting on this machine: the
@@ -357,17 +485,25 @@ func (s *Server) pushDue(now time.Time) *remote.Notification {
 // by name, and the machine's list of panes. Sent anonymously it says only how
 // many, and on which machine. The ids in its page name nothing. Its tag is the
 // machine's, so each push replaces the one before it on the phone.
-func pushAbout(hostID, desktop string, waits []waitingAgent, anonymous bool) remote.Notification {
+//
+// One structured pane waiting is told in the body: "Allow or deny" to a device
+// with approvals on if the phone may allow its card (pushOut.Approver), and
+// "Answer on the desktop" to every other device, and to all of them when the
+// card is a plan, a question or one the phone may not allow. The card is read
+// only for that yes or no; nothing of it is in any wording. A tap opens the
+// pane's page, the only target the service worker takes.
+func pushAbout(hostID, desktop string, waits []waitingAgent, anonymous bool) pushOut {
 	if desktop == "" {
 		desktop = "your desktop"
 	}
-	n := remote.Notification{URL: "/d/" + url.PathEscape(hostID), Tag: "flockdeck-" + hostID}
+	out := pushOut{Notification: remote.Notification{URL: "/d/" + url.PathEscape(hostID), Tag: "flockdeck-" + hostID}}
+	n := &out.Notification
 	if len(waits) == 1 {
 		w := waits[0]
 		n.URL += "/" + url.PathEscape(w.id)
 		if anonymous {
 			n.Title = "An agent on " + desktop + " needs you"
-			return n
+			return out
 		}
 		title := w.name
 		if title == "" {
@@ -376,12 +512,21 @@ func pushAbout(hostID, desktop string, waits []waitingAgent, anonymous bool) rem
 		if w.project != "" {
 			title += " · " + w.project
 		}
-		n.Title, n.Body = title+" needs you", "On "+desktop
-		return n
+		n.Title, n.Body = title+" needs you", pushTerminalAbout+desktop
+		if w.structured {
+			n.Body = pushAnswerAtDesk + desktop
+			if w.phoneCanAllow {
+				a := *n
+				a.Body = pushAllowOrDeny + desktop
+				out.Approver = &a
+				out.recheck = w.recheck
+			}
+		}
+		return out
 	}
 	if anonymous {
 		n.Title = fmt.Sprintf("%d agents on %s need you", len(waits), desktop)
-		return n
+		return out
 	}
 	names := make([]string, 0, len(waits))
 	for _, w := range waits {
@@ -393,7 +538,7 @@ func pushAbout(hostID, desktop string, waits []waitingAgent, anonymous bool) rem
 	}
 	n.Title = fmt.Sprintf("%d agents need you", len(waits))
 	n.Body = "On " + desktop + ": " + strings.Join(names, ", ")
-	return n
+	return out
 }
 
 // setPushOff records whether the paired devices are notified.
