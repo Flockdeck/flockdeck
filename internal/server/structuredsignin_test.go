@@ -1,0 +1,267 @@
+package server
+
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/jmwri/flockdeck/internal/acp/acptest"
+	"github.com/jmwri/flockdeck/internal/record/schemacheck"
+	"github.com/jmwri/flockdeck/internal/session"
+	"github.com/jmwri/flockdeck/internal/structured"
+	"github.com/jmwri/flockdeck/internal/workspace"
+)
+
+func TestSignInBlockCarriesOnlyACheckedAddressAndAState(t *testing.T) {
+	cases := []struct {
+		name string
+		sn   structured.Snapshot
+		want string
+	}{
+		{"none", structured.Snapshot{Phase: structured.PhaseReady}, ""},
+		{"available", structured.Snapshot{Phase: structured.PhaseSetup, CanSignIn: true}, `"signIn":{"available":true}`},
+		{"waiting", structured.Snapshot{Phase: structured.PhaseSetup, CanSignIn: true,
+			SignIn: &structured.SignIn{State: structured.SignInWaiting, URL: "https://claude.ai/oauth/authorize?a=b"}},
+			`"signIn":{"available":true,"state":"waiting","url":"https://claude.ai/oauth/authorize?a=b"}`},
+		{"http address dropped", structured.Snapshot{Phase: structured.PhaseSetup, CanSignIn: true,
+			SignIn: &structured.SignIn{State: structured.SignInWaiting, URL: "http://claude.ai/x"}},
+			`"signIn":{"available":true,"state":"waiting"}`},
+		{"credentials dropped", structured.Snapshot{Phase: structured.PhaseSetup, CanSignIn: true,
+			SignIn: &structured.SignIn{State: structured.SignInWaiting, URL: "https://u:p@claude.ai/x"}},
+			`"signIn":{"available":true,"state":"waiting"}`},
+		{"failed", structured.Snapshot{Phase: structured.PhaseSetup, CanSignIn: true, SignIn: &structured.SignIn{State: structured.SignInFailed}},
+			`"signIn":{"available":true,"state":"failed"}`},
+	}
+	schema, err := schemacheck.Load(structuredSchemaPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range cases {
+		raw, err := json.Marshal(buildStructured("p1", c.sn))
+		if err != nil {
+			t.Fatal(err)
+		}
+		got := string(raw)
+		if c.want == "" {
+			if strings.Contains(got, "signIn") {
+				t.Errorf("%s: %s", c.name, got)
+			}
+		} else if !strings.Contains(got, c.want) {
+			t.Errorf("%s: want %s in %s", c.name, c.want, got)
+		}
+		checkStructured(t, c.name, schema, raw)
+	}
+}
+
+func TestStructuredSignInRefusesAPaneThatIsNotWaitingForALogin(t *testing.T) {
+	e := newStructuredEnv(t, "plain")
+	e.status(t, session.StatusIdle)
+	for _, cmd := range []string{"structuredSignIn", "structuredSignInCancel"} {
+		raw := structuredReply(t, e.srv, e.c, command{Cmd: cmd, Req: "s1", ID: e.child}, "teamResult")
+		var res teamResultMsg
+		if err := json.Unmarshal(raw, &res); err != nil {
+			t.Fatal(err)
+		}
+		want := structuredSignInNone
+		if cmd == "structuredSignInCancel" {
+			want = structuredSignInEnd
+		}
+		if res.OK || res.Error != want {
+			t.Errorf("%s: %+v", cmd, res)
+		}
+	}
+	raw := structuredReply(t, e.srv, e.c, command{Cmd: "structuredSignIn", Req: "s2", ID: "nope"}, "teamResult")
+	if !strings.Contains(string(raw), structuredNotPane) {
+		t.Errorf("a pane that is not there: %s", raw)
+	}
+}
+
+// A sign-in that ends well restarts the pane: the runtime that waited for the
+// login is closed and another one holds the pane.
+func TestAFinishedSignInRestartsThePane(t *testing.T) {
+	e := newStructuredEnvArgs(t, "plain", acptest.ArgAuth+"prompt", acptest.ArgSignIn+"ok")
+	old, _ := ask(e.srv, func() *structured.Runtime { return e.ws.StructuredRuntime(e.child) })
+	if old == nil {
+		t.Fatal("no runtime")
+	}
+	if err := old.Send("plain"); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(30 * time.Second)
+	for old.Snapshot().Phase != structured.PhaseSetup {
+		if time.Now().After(deadline) {
+			t.Fatalf("phase %q, want the setup state", old.Snapshot().Phase)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	raw := structuredReply(t, e.srv, e.c, command{Cmd: "structuredSignIn", Req: "r1", ID: e.child}, "teamResult")
+	var res teamResultMsg
+	if err := json.Unmarshal(raw, &res); err != nil || !res.OK {
+		t.Fatalf("structuredSignIn: %s", raw)
+	}
+	for {
+		cur, _ := ask(e.srv, func() *structured.Runtime { return e.ws.StructuredRuntime(e.child) })
+		if cur != nil && cur != old {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the pane was not restarted after the sign-in ended")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// A sign-in that fails, or is cancelled, leaves the pane as it was.
+func TestAFailedSignInLeavesThePane(t *testing.T) {
+	e := newStructuredEnvArgs(t, "plain", acptest.ArgAuth+"prompt", acptest.ArgSignIn+"fail")
+	old, _ := ask(e.srv, func() *structured.Runtime { return e.ws.StructuredRuntime(e.child) })
+	_ = old.Send("plain")
+	deadline := time.Now().Add(30 * time.Second)
+	for old.Snapshot().Phase != structured.PhaseSetup {
+		if time.Now().After(deadline) {
+			t.Fatal("no setup state")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	structuredReply(t, e.srv, e.c, command{Cmd: "structuredSignIn", Req: "r1", ID: e.child}, "teamResult")
+	for {
+		if si := old.Snapshot().SignIn; si != nil && si.State == structured.SignInFailed {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("no failed state")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	time.Sleep(500 * time.Millisecond)
+	if cur, _ := ask(e.srv, func() *structured.Runtime { return e.ws.StructuredRuntime(e.child) }); cur != old {
+		t.Error("the pane was restarted after a failed sign-in")
+	}
+}
+
+// spawnSecond starts another structured pane of the same agent.
+func (e *structuredEnv) spawnSecond(t *testing.T) string {
+	t.Helper()
+	id, ok := ask(e.srv, func() string {
+		id, err := e.ws.Spawn(e.boss, workspace.SpawnOptions{Task: "plain", Role: "worker", Agent: "opencode-acp",
+			Kind: session.KindClaude, SpawnedByAgent: true})
+		if err != nil {
+			t.Errorf("spawn: %v", err)
+		}
+		return id
+	})
+	if !ok || id == "" {
+		t.Fatal("no second pane")
+	}
+	return id
+}
+
+func (e *structuredEnv) runtimeOf(id string) *structured.Runtime {
+	rt, _ := ask(e.srv, func() *structured.Runtime { return e.ws.StructuredRuntime(id) })
+	return rt
+}
+
+func waitSetup(t *testing.T, rt *structured.Runtime) {
+	t.Helper()
+	_ = rt.Send("plain")
+	deadline := time.Now().Add(30 * time.Second)
+	for rt.Snapshot().Phase != structured.PhaseSetup {
+		if time.Now().After(deadline) {
+			t.Fatalf("phase %q, want the setup state", rt.Snapshot().Phase)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+func resultOf(t *testing.T, raw []byte) teamResultMsg {
+	t.Helper()
+	var res teamResultMsg
+	if err := json.Unmarshal(raw, &res); err != nil {
+		t.Fatal(err)
+	}
+	return res
+}
+
+// One sign-in per agent at a time, across panes; the second gets a fixed
+// refusal and goes through once the first has been cancelled.
+func TestOnlyOneSignInPerAgentAcrossPanes(t *testing.T) {
+	e := newStructuredEnvArgs(t, "plain", acptest.ArgAuth+"prompt", acptest.ArgSignIn+"hang")
+	second := e.spawnSecond(t)
+	a, b := e.runtimeOf(e.child), e.runtimeOf(second)
+	waitSetup(t, a)
+	waitSetup(t, b)
+	if r := resultOf(t, structuredReply(t, e.srv, e.c, command{Cmd: "structuredSignIn", Req: "a", ID: e.child}, "teamResult")); !r.OK {
+		t.Fatalf("first: %+v", r)
+	}
+	r := resultOf(t, structuredReply(t, e.srv, e.c, command{Cmd: "structuredSignIn", Req: "b", ID: second}, "teamResult"))
+	if r.OK || r.Error != structuredSignInOther {
+		t.Fatalf("second: %+v", r)
+	}
+	if b.Snapshot().SignIn != nil {
+		t.Error("the refused pane started a sign-in")
+	}
+	if r := resultOf(t, structuredReply(t, e.srv, e.c, command{Cmd: "structuredSignInCancel", Req: "c", ID: e.child}, "teamResult")); !r.OK {
+		t.Fatalf("cancel: %+v", r)
+	}
+	if r := resultOf(t, structuredReply(t, e.srv, e.c, command{Cmd: "structuredSignIn", Req: "d", ID: second}, "teamResult")); !r.OK {
+		t.Fatalf("second after the first ended: %+v", r)
+	}
+}
+
+// A pane restarted while its sign-in waits does not restart a second time, and
+// the sign-in it had is gone, not left running.
+func TestARestartDuringTheWaitEndsTheSignInAndRestartsNothingElse(t *testing.T) {
+	e := newStructuredEnvArgs(t, "plain", acptest.ArgAuth+"prompt", acptest.ArgSignIn+"hang")
+	old := e.runtimeOf(e.child)
+	waitSetup(t, old)
+	if r := resultOf(t, structuredReply(t, e.srv, e.c, command{Cmd: "structuredSignIn", Req: "a", ID: e.child}, "teamResult")); !r.OK {
+		t.Fatalf("sign-in: %+v", r)
+	}
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		if si := old.Snapshot().SignIn; si != nil && si.State == structured.SignInWaiting {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("never waiting")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	ask(e.srv, func() bool { return e.ws.RestartPaneByID(e.child) })
+	fresh := e.runtimeOf(e.child)
+	if fresh == nil || fresh == old {
+		t.Fatal("the pane was not restarted by the person")
+	}
+	if si := old.Snapshot().SignIn; si != nil {
+		t.Errorf("the old sign-in is still shown: %+v", si)
+	}
+	time.Sleep(700 * time.Millisecond)
+	if now := e.runtimeOf(e.child); now != fresh {
+		t.Error("the pane was restarted again by the sign-in that belonged to the old one")
+	}
+}
+
+// A sign-in that ended well after its pane was restarted must not restart the
+// pane again; one that belongs to the pane's runtime does.
+func TestOnlyTheRuntimeThatHoldsThePaneIsRestartedByItsSignIn(t *testing.T) {
+	e := newStructuredEnvArgs(t, "plain")
+	old := e.runtimeOf(e.child)
+	ask(e.srv, func() bool { return e.ws.RestartPaneByID(e.child) })
+	fresh := e.runtimeOf(e.child)
+	if fresh == nil || fresh == old {
+		t.Fatal("no restart")
+	}
+	if done, _ := ask(e.srv, func() bool { return e.srv.restartIfOwner(e.child, old) }); done {
+		t.Error("the old runtime's sign-in restarted the pane")
+	}
+	if now := e.runtimeOf(e.child); now != fresh {
+		t.Error("the pane's runtime changed")
+	}
+	if done, _ := ask(e.srv, func() bool { return e.srv.restartIfOwner(e.child, fresh) }); !done {
+		t.Error("the owner's sign-in did not restart the pane")
+	}
+	if now := e.runtimeOf(e.child); now == fresh {
+		t.Error("the owner was not restarted")
+	}
+}

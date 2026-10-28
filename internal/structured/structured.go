@@ -123,6 +123,9 @@ type Command struct {
 	Path string
 	Args []string
 	env  []string
+	// Own says the program is an adapter Flockdeck builds into its own binary,
+	// which a test sets by hand. Only such an adapter is trusted to run a sign-in.
+	Own bool
 }
 
 // Recorder takes the agent's traffic. *record.RPCRecorder is one.
@@ -316,6 +319,10 @@ type Snapshot struct {
 	// never alone as the current state.
 	Err   string
 	Setup *Setup
+	// CanSignIn says Setup is a login the pane can run through its adapter, and
+	// SignIn is the state of the one started from the pane, nil before there is one.
+	CanSignIn bool
+	SignIn    *SignIn
 	// Agent is the name the agent gave itself.
 	Agent string
 	// SessionID is the agent's id of the session, empty until there is one. It
@@ -413,11 +420,16 @@ type Runtime struct {
 	// shell runs the person's own commands (shell.go). It is closed with the pane.
 	shell *shellrun.Manager
 
-	mu      sync.Mutex
-	phase   Phase
-	setup   *Setup
-	err     string
-	agentNm string
+	mu    sync.Mutex
+	phase Phase
+	setup *Setup
+	// signin is the latest sign-in started from the pane (signin.go).
+	signin *signInRun
+	// signinOff is set by Close: no sign-in starts after it. (closed also becomes
+	// true when the agent ends in the setup state, which must still allow one.)
+	signinOff bool
+	err       string
+	agentNm   string
 	// hello is what initialize and the session request gave, for Info.
 	hello hello
 	queue []queued
@@ -979,6 +991,10 @@ func (r *Runtime) Snapshot() Snapshot {
 		c := *r.setup
 		c.Methods = append([]AuthMethod(nil), c.Methods...)
 		s.Setup = &c
+		s.CanSignIn = c.CanSignIn() && r.ownAdapter()
+	}
+	if run := r.signin; run != nil {
+		s.SignIn = &SignIn{State: run.state, URL: run.url}
 	}
 	c := r.client
 	r.mu.Unlock()
@@ -1004,6 +1020,10 @@ func (r *Runtime) Snapshot() Snapshot {
 // everything it started, and closes the recording. It is safe to call twice
 // and from several goroutines, and returns within a bounded time.
 func (r *Runtime) Close() error {
+	defer r.stopSignIn()
+	r.mu.Lock()
+	r.signinOff = true
+	r.mu.Unlock()
 	r.finish(PhaseClosed)
 	select {
 	case <-r.done:
@@ -1132,11 +1152,22 @@ func (r *Runtime) run() {
 }
 
 // resolve says what to start.
-func (r *Runtime) resolve() (Command, *Setup, error) {
+func (r *Runtime) resolve() (Command, *Setup, error) { return r.resolveFor(false) }
+
+// resolveFor is resolve for the pane's own run (signIn false) or for the sign-in
+// helper (signIn true). The helper's adapter gets no stored key, the proxy
+// variables of Flockdeck's environment, and no permission probe: that check
+// starts the real agent and records its result for the pane, which a sign-in has
+// no business doing.
+func (r *Runtime) resolveFor(signIn bool) (Command, *Setup, error) {
 	if c := r.opts.Command; c != nil {
 		cmd := *c
 		if cmd.env == nil {
-			cmd.env = r.withKey(r.env())
+			if signIn {
+				cmd.env = r.signInEnv(r.env())
+			} else {
+				cmd.env = r.withKey(r.env())
+			}
 		}
 		return cmd, nil, nil
 	}
@@ -1174,12 +1205,15 @@ func (r *Runtime) resolve() (Command, *Setup, error) {
 	if own {
 		env = append(env, r.homeEnv()...)
 	}
-	if pp, ok := r.opts.Spec.ACPPermissionProbe(); ok {
+	if pp, ok := r.opts.Spec.ACPPermissionProbe(); ok && !signIn {
 		env = r.checkPermissions(path, pp, a, env)
+	}
+	if signIn {
+		return Command{Path: path, Args: append([]string(nil), a.Args...), env: r.signInEnv(env), Own: own}, nil, nil
 	}
 	// The key goes in last, so the launch check, which starts another program,
 	// never sees it.
-	return Command{Path: path, Args: append([]string(nil), a.Args...), env: r.withKey(env)}, nil, nil
+	return Command{Path: path, Args: append([]string(nil), a.Args...), env: r.withKey(env), Own: own}, nil, nil
 }
 
 // withKey adds the agent's key to env under the variable the entry names for

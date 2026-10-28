@@ -212,6 +212,7 @@ type structuredMsg struct {
 	Models       *structuredChoices       `json:"models,omitempty"`
 	ConfigOpts   []structuredConfigOption `json:"configOptions,omitempty"`
 	PlanMarkdown string                   `json:"planMarkdown,omitempty"`
+	SignIn       *structuredSignInBlock   `json:"signIn,omitempty"`
 	Capabilities *structuredCapabilities  `json:"capabilities,omitempty"`
 }
 
@@ -320,6 +321,7 @@ func buildStructured(id string, sn structured.Snapshot) structuredMsg {
 	buildStructuredQueue(&m, sn)
 	buildStructuredShell(&m, sn)
 	buildStructuredSession(&m, sn)
+	buildStructuredSignIn(&m, sn)
 	return m
 }
 
@@ -453,6 +455,10 @@ func (s *Server) structuredCommand(c *controlClient, cmd command) {
 		s.do(func() { s.structuredQueue(c, cmd) })
 	case "structuredExport":
 		s.do(func() { s.structuredExport(c, cmd) })
+	case "structuredSignIn":
+		s.do(func() { s.structuredSignIn(c, cmd) })
+	case "structuredSignInCancel":
+		s.do(func() { s.structuredSignInCancel(c, cmd) })
 	case "structuredInfo":
 		s.do(func() { s.structuredInfo(c, cmd) })
 	case "structuredShellRun", "structuredShellStop", "structuredShellRemove", "structuredShellSend":

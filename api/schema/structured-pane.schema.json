@@ -29,7 +29,8 @@
     "models": { "$ref": "#/$defs/choices", "description": "The models of the session and the current one: the models block of session/new. Absent when the agent sent none; agents that keep the model as a config option list it in configOptions. Since API 1.12." },
     "configOptions": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/configOption" }, "description": "The settings the agent exposes (opencode, Codex: model, effort, mode), at most 32, as of its last config_option_update. Absent when it exposes none. Since API 1.12." },
     "planMarkdown": { "type": "string", "minLength": 1, "description": "The plan an agent sent as markdown (plan_update), cut to 64 KiB. Draw it as sanitised markdown, never as HTML. Absent when none was sent. It is separate from plan, which holds rows. Since API 1.12." },
-    "capabilities": { "$ref": "#/$defs/capabilities" }
+    "capabilities": { "$ref": "#/$defs/capabilities" },
+    "signIn": { "$ref": "#/$defs/signIn" }
   },
   "$defs": {
     "shellItem": {
@@ -161,6 +162,17 @@
         "kind": { "type": "string", "minLength": 1, "description": "login, the only kind. Before API 1.16 it could also be node or install; an agent that cannot be found or started is now the failed phase with the fixed err text, not a setup. Always written." },
         "message": { "type": "string", "minLength": 1, "description": "What the agent said, on one line, cut to 300 bytes. Absent when it said nothing." },
         "fix": { "type": "string", "minLength": 1, "description": "What to do about it (the catalog's advice for a login), on one line, cut to 300 bytes. Absent when there is none." }
+      }
+    },
+    "signIn": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["available"],
+      "description": "Present while the pane waits for a login that Flockdeck can run through the agent's adapter, and while a sign-in started from the pane has a state. Absent otherwise. Since API 1.24 (cap structuredSignIn). Start it with structuredSignIn, end it with structuredSignInCancel; the pane restarts by itself when the sign-in ends well.",
+      "properties": {
+        "available": { "type": "boolean", "description": "The pane waits for a login and its adapter can run one. False when only the state of an earlier sign-in is shown." },
+        "state": { "enum": ["starting", "waiting", "done", "failed"], "description": "Absent before a sign-in is started. starting (the login command has not printed its address yet); waiting (url is the page to open and the command waits for the person); done (the command ended well, the pane restarts); failed (it failed, timed out or could not start; say so in fixed words and offer to try again). Never carries text from the agent." },
+        "url": { "type": "string", "maxLength": 2048, "pattern": "^https://", "description": "The page to sign in on. Present in the state waiting. https only, no user name or password, no port, ASCII only, at most 2048 bytes, and on a host from the adapter's own exact list (Flockdeck's own adapters only). It is the only string in the block that came from the agent's login command. Draw it as a link that opens outside the app (rel noopener noreferrer), and show its host." }
       }
     },
     "planRow": {

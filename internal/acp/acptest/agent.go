@@ -87,6 +87,8 @@ const (
 	envAuth    = "FLOCKDECK_ACPTEST_AUTH"
 	envAuthn   = "FLOCKDECK_ACPTEST_AUTHENTICATE"
 	envAuthLog = "FLOCKDECK_ACPTEST_AUTHENTICATE_LOG"
+	envSignIn  = "FLOCKDECK_ACPTEST_SIGNIN" // ok, hang, fail, badurl, urlonly, early
+	envSignURL = "FLOCKDECK_ACPTEST_SIGNIN_URL"
 	envMarker  = "FLOCKDECK_ACPTEST_MARKER"
 	envMute    = "FLOCKDECK_ACPTEST_MUTE"
 	envDeaf    = "FLOCKDECK_ACPTEST_DEAF"
@@ -123,6 +125,10 @@ const (
 	ArgShape  = "--acptest-shape="
 	ArgSet    = "--acptest-set="
 	ArgSetLog = "--acptest-setlog="
+	// ArgAuth and ArgSignIn are WithAuth and WithSignIn (the mode; the address is
+	// the default) for an agent started with ArgAgent.
+	ArgAuth   = "--acptest-auth="
+	ArgSignIn = "--acptest-signin="
 )
 
 // argSleeper makes a process do nothing for a minute. The grandchild
@@ -138,6 +144,14 @@ func RunIfAgent() bool {
 		if a == argSleeper {
 			time.Sleep(time.Minute)
 			return true
+		}
+	}
+	for _, a := range os.Args[1:] {
+		if v, ok := strings.CutPrefix(a, ArgAuth); ok {
+			os.Setenv(envAuth, v)
+		}
+		if v, ok := strings.CutPrefix(a, ArgSignIn); ok {
+			os.Setenv(envSignIn, v)
 		}
 	}
 	asked := os.Getenv(envAgent) == "1"
@@ -339,12 +353,29 @@ func (a *agent) handle(m msg) {
 				map[string]any{"id": "login", "name": "Log in"},
 			}
 		}
+		if os.Getenv(envSignIn) == "early" {
+			// A notification before any authenticate call: the client must not take it.
+			a.send(map[string]any{"jsonrpc": "2.0", "method": "_flockdeck/signin_url", "params": map[string]any{"url": "https://claude.ai/early"}})
+		}
+		if os.Getenv(envSignIn) != "" {
+			res["authMethods"] = append(res["authMethods"].([]any), map[string]any{"id": "flockdeck-login", "name": "Sign in with the agent's login command"})
+		}
 		a.result(m.ID, res)
 	case m.Method == "authenticate":
 		if f := os.Getenv(envAuthLog); f != "" {
 			if h, err := os.OpenFile(f, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600); err == nil {
 				_, _ = h.WriteString("authenticate\n")
 				_ = h.Close()
+			}
+		}
+		if mode := os.Getenv(envSignIn); mode != "" {
+			var p struct {
+				MethodID string `json:"methodId"`
+			}
+			_ = json.Unmarshal(m.Params, &p)
+			if p.MethodID == "flockdeck-login" {
+				a.signIn(m.ID, mode)
+				return
 			}
 		}
 		switch os.Getenv(envAuthn) {
@@ -1167,4 +1198,32 @@ func sortedStrings(s []string) []string {
 func slowStartFromEnv() time.Duration {
 	ms, _ := strconv.Atoi(os.Getenv(envSlow))
 	return time.Duration(ms) * time.Millisecond
+}
+
+// signIn is the adapters' login method: it sends the sign-in address as the
+// extension notification, then answers by mode. "ok" waits a moment and
+// succeeds, "hang" never answers, "fail" answers with an error whose text must
+// not be shown, "badurl" sends an address the client must refuse, and "urlonly"
+// sends the address and answers at once.
+func (a *agent) signIn(id json.RawMessage, mode string) {
+	u := os.Getenv(envSignURL)
+	if u == "" {
+		u = "https://claude.ai/oauth/authorize?client_id=fake&state=s"
+	}
+	if mode == "badurl" {
+		u = "http://evil.example/steal"
+	}
+	if mode != "early" {
+		a.send(map[string]any{"jsonrpc": "2.0", "method": "_flockdeck/signin_url", "params": map[string]any{"url": u}})
+	}
+	switch mode {
+	case "hang":
+		return
+	case "fail":
+		a.rpcError(id, -32603, "SECRET-AGENT-TEXT login failed")
+		return
+	case "ok":
+		time.Sleep(150 * time.Millisecond)
+	}
+	a.result(id, map[string]any{})
 }

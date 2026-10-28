@@ -223,7 +223,7 @@ These were not checked against a real codex:
   `turn/completed` like a normal turn, which the adapter relies on to end the prompt.
 - That `serverRequest/resolved` carries `requestId` in the same form as the request's id.
 - Whether a codex that is not logged in fails the first turn with `unauthorized`, as the
-  adapter assumes, or fails earlier. There is no `authenticate` method yet.
+  adapter assumes, or fails earlier.
 - That the `thread/start` and `thread/resume` results report the approval policy and
   sandbox that took effect, as `approvalPolicy` (a string) and `sandbox` (a string, or an
   object with `type` and, for `workspaceWrite`, `networkAccess`). The adapter requires both:
@@ -267,10 +267,30 @@ card, the echo fields above, `turn/interrupt` mid-command, `thread/resume` in a 
 adapter process, and a Windows run, where the sandbox may need setup first
 (`windowsSandbox/setupStart`) and may be weaker than on other systems.
 
+## Signing in from Flockdeck
+
+The adapter lists the same one method as the Claude adapter (`flockdeck-login`) and answers
+`authenticate` for it (T232, API 1.24). The route, the rules and the reasons are in
+`docs/acp-claude-adapter.md`, "Signing in from Flockdeck"; only the differences are here.
+
+- The command is `codex login`, run as a process of the adapter. The adapter does not use the app
+  server's `account/login/start`: that would tie the sign-in to the app server's protocol and to a
+  codex app-server process kept for it. `codex login` is one command with one exit code.
+- Hosts the address may be on: exactly `auth.openai.com` and `chatgpt.com`. Their subdomains and
+  `openai.com` itself are refused. The other rules (neutral directory, environment, flush of a line
+  without a line break, one sign-in per agent) are the same as for Claude.
+- `codex login` starts a local callback server on a fixed port on the person's machine; the
+  address it prints is on the host above, never the local one (a port is refused anyway).
+
+Not verified: codex is not installed on the machine this was written on, so neither the wording of
+its output nor that it prints the address when its output is not a terminal was seen. The tests use
+a fake. Check with a real codex before relying on it; until then the pane's manual fallback ("sign
+in with `codex` in a terminal, then restart") stays in the catalog advice.
+
 ## Not done
 
 - `session/load` with history replay, and `session/list`. A restored Codex pane therefore opens with an empty transcript while codex still has the thread. The app-server has history calls (`thread/read`, `thread/turns/list`, `thread/items/list`; `docs/codex-adapter-route.md`), but the shape of their results has not been seen in a real codex, and none is installed where T230 was done (28 Oct 2026). Left until a real run shows the shapes. The Claude adapter's reader (`docs/acp-claude-adapter.md`) is the model: replay through `session/load`, no API change.
-- Logging in from Flockdeck (`account/login/start`), `authenticate`, and API-key use other
+- Logging in through the app server's `account/login/start`, and API-key use other
   than through the environment.
 - Reasoning effort, the mode with no sandbox, the cost of a turn, and `turn/steer`.
 - Questions the model asks and MCP elicitations. They are refused, which tells the model

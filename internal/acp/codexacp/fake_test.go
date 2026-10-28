@@ -29,6 +29,8 @@ const (
 	envSlow   = "FD_CODEXACP_SLOWSTART" // milliseconds before the thread/start response
 	envEcho   = "FD_CODEXACP_ECHO"      // JSON members added to the thread/start and thread/resume results
 	envStderr = "FD_CODEXACP_STDERR"    // a line written to stderr at start
+	envLogin  = "FD_CODEXACP_LOGIN"     // what `login` does: ok, fail, hang, evil
+	envBeat   = "FD_CODEXACP_BEAT"      // the file the hanging login appends to
 )
 
 type step struct {
@@ -99,6 +101,10 @@ func answer(method string, params map[string]any) any {
 }
 
 func runFake() {
+	if len(os.Args) == 2 && os.Args[1] == "login" {
+		runFakeLogin()
+		return
+	}
 	var out sync.Mutex
 	w := bufio.NewWriterSize(os.Stdout, 1<<16)
 	write := func(line string) {
@@ -264,4 +270,44 @@ func logFind(log []string, sub string) string {
 		}
 	}
 	return ""
+}
+
+// runFakeLogin is `codex login`: it prints what envLogin says, and for
+// "hang" goes on writing a byte to envBeat until it is killed.
+func runFakeLogin() {
+	if f, err := os.OpenFile(os.Getenv(envLog), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600); err == nil {
+		fmt.Fprintln(f, "LOGIN_CALL login")
+		f.Close()
+	}
+	const good = "https://auth.openai.com/oauth/authorize?client_id=abc&state=s"
+	switch os.Getenv(envLogin) {
+	case "record":
+		fmt.Println(good)
+		wd, _ := os.Getwd()
+		var names []string
+		for _, kv := range os.Environ() {
+			n, _, _ := strings.Cut(kv, "=")
+			names = append(names, n)
+		}
+		_ = os.WriteFile(os.Getenv("FD_CODEXACP_LOGINOUT"), []byte(wd+"\n"+strings.Join(names, "\n")), 0o600)
+	case "ok":
+		fmt.Println("Opening browser...")
+		fmt.Println("visit " + good)
+		fmt.Println("Login successful.")
+	case "fail":
+		fmt.Println(good)
+		fmt.Fprintln(os.Stderr, "SECRET-TOKEN-xyz went wrong")
+		os.Exit(1)
+	case "evil":
+		fmt.Println("https://evil.example/x http://auth.openai.com/y https://u:p@auth.openai.com/z")
+	case "hang":
+		fmt.Println(good)
+		for {
+			if f, err := os.OpenFile(os.Getenv(envBeat), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600); err == nil {
+				f.WriteString("x")
+				f.Close()
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
 }

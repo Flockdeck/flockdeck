@@ -43,6 +43,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -145,6 +146,11 @@ type Config struct {
 	// internal/acp does not import internal/record; TapIn and TapOut have the
 	// values of its RPCIn and RPCOut.
 	Tap func(dir string, raw []byte)
+
+	// OnExtension receives each notification from the agent whose method starts
+	// with an underscore (ACP's extension space), with its params. It runs on the
+	// read loop and must not block. A panic in it is recovered and ignored.
+	OnExtension func(method string, params json.RawMessage)
 
 	// ClientName and ClientVersion go in initialize. Defaults: "flockdeck", "".
 	ClientName    string
@@ -633,6 +639,7 @@ func (c *Client) dispatch(m rpcMsg) {
 		ch <- reply{msg: m} // buffered: never blocks the read loop
 	case m.Method != "" && m.ID == nil: // a notification
 		if m.Method != "session/update" {
+			c.extension(m.Method, m.Params)
 			return
 		}
 		var p struct {
@@ -701,4 +708,14 @@ func (c *Client) callPermission(ctx context.Context, req PermissionRequest) (opt
 		return h.PermissionAnswers(ctx, req)
 	}
 	return c.cfg.Handler.Permission(ctx, req), nil
+}
+
+// extension passes an extension notification (a method starting with an
+// underscore) to Config.OnExtension.
+func (c *Client) extension(method string, params json.RawMessage) {
+	if c.cfg.OnExtension == nil || !strings.HasPrefix(method, "_") {
+		return
+	}
+	defer func() { _ = recover() }()
+	c.cfg.OnExtension(method, params)
 }

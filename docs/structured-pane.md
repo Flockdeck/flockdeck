@@ -27,6 +27,8 @@ A window sends a command as one JSON object with a `cmd` field, over its control
 | `structuredQueueClear` | `id`, `req` | Removes every waiting prompt the person typed. Messages from other agents stay. | yes | refused |
 | `structuredQueueSendNow` | `id`, `req`, `item` | Moves the waiting prompt `item` to the front and ends the running turn (as `session/cancel`, the turn ends with a "Turn cancelled." notice), so the agent gets that prompt next. The rest of the queue stays behind it. This is the nearest ACP has to steering, since one prompt is in flight at a time. | yes | refused |
 | `structuredInfo` | `id`, `req` | Answers with the agent behind the pane as plain text (API 1.23, cap `structuredInfo`): a `teamResult` with `ok` and `info`, or an `error` with fixed text. `info` is one `Name: value` line per fact, at most 6000 bytes and 200 bytes a value, no line break inside a value: agent name and version, state, catalog entry, adapter, directory, session id, the names of the sign-in methods, what is needed to sign in when the pane waits for a login, mode, model and each setting (current choice), the names of the MCP servers the session was given, what the agent said it can do, and the number of slash commands. The fixed rows come first and the settings last; settings that would take the text past 6000 bytes are dropped, and a `Cut` row says so. It holds names only: an MCP server's command, arguments, headers and environment, the agent's environment and every key are not read. | yes | refused |
+| `structuredSignIn` | `id`, `req` | Starts the agent's own login command for a pane in the phase `needs setup` whose `signIn.available` is true (API 1.24, cap `structuredSignIn`). Answers with a `teamResult` for the op, `ok` once started; the state follows in the pane's pushes. Refused with fixed text when the pane is not waiting for a login or cannot be signed in from Flockdeck, and when a sign-in is already running. One sign-in runs at a time per pane and ends by itself after six minutes at most. When the command ends well the server restarts the pane. | yes | refused |
+| `structuredSignInCancel` | `id`, `req` | Ends the running sign-in and the login command with everything it started, and answers when they are gone (API 1.24). Refused with fixed text when none is running. | yes | refused |
 | `structuredShellRun` | `id`, `req`, `text` | Runs `text` as the person's own command (API 1.20, cap `structuredShell`): one line, at most 4000 bytes, no control characters. It runs in the pane's directory in a shell Flockdeck owns (`cmd.exe /d /s /c` on Windows, `/bin/sh -c` elsewhere), as the person, with an allowlisted environment (`PATH`, locale and the few variables a build needs; no `FLOCKDECK_*`, no stored or inherited API key or token). It never goes to the agent and never passes through the agent's permission requests. At most four run at once and the pane keeps the newest eight; a run ends after ten minutes. Answers with a `teamResult`, or an error with fixed text. | yes | refused |
 | `structuredShellStop` | `id`, `req`, `item` | Ends run `item` and what it started. | yes | refused |
 | `structuredShellRemove` | `id`, `req`, `item` | Forgets a run that has ended; a running one is refused. | yes | refused |
@@ -80,6 +82,7 @@ refused in the same words, so a window probing for ids learns nothing: the `team
 | `shell` | The person's own commands, the oldest first, at most 8 (API 1.20): `id`, `cmd` (one line, cut to 500 characters), `state` (`running`, `exited`, `stopped`, `timeout` or `failed`), `code` (only for `exited`), `text` and `cut`. `text` is the output as plain text: escape sequences, carriage-return overwrites, control characters other than line break and tab, and format characters (U+202E and the like) are removed, and it is cut to its newest 8 KiB (`cut` says the start was let go; the runtime keeps at most 64 KiB). A window draws it as text only. |
 | `err` | The last thing that went wrong, as one cleaned line. It says what last went wrong and not that something is wrong now; show it with the phase and status. |
 | `setup` | While the phase is `needs setup`: `kind` (`login`; before API 1.16 also `node` and `install`), a `message` (the cause) and a `fix` (what to do about it, when there is advice). |
+| `signIn` | While the pane waits for a login Flockdeck can run, and after one was started (API 1.24, cap `structuredSignIn`): `available`, and once started `state` (`starting`, `waiting`, `done` or `failed`) and, when `waiting`, `url`. `url` is the only string in the block that came from the agent's login command: https, no user name, password or port, ASCII, at most 2048 bytes, on a host from the adapter's own exact list (Flockdeck's own adapters only; a foreign agent is never asked to sign in). Draw it as a link that opens outside the app with a fixed label and show its host. Every other word of the card is the window's own; `failed` is shown in fixed words. |
 | `plan` | The agent's plan rows. |
 | `card` | The permission request that is open, with the agent's options. Answer it with `permissionAnswer`. Since API 1.22 it can also carry `body` (the text the request shows about its call, such as the plan of a request to leave plan mode, cut to 32 KiB), `diff` (the unified diff of the edit it asks about, cut to 64 KiB) and `questions` (see below). `body` and `diff` are plain text from the agent: draw them as text, in a block that says they are the agent's. |
 | `usage` | `used` and `size` of the context, and `cost` and `currency` when the agent reports one. |
@@ -408,8 +411,19 @@ A terminal opencode pane is not started this way and keeps its own configuration
 
 **A login problem** puts the pane in the phase `needs setup` (section 2's `setup` field),
 which reads as blocked with the detail "needs setup". The team graph lists it as "Needs setting up"
-with one line to act on: sign in with the agent's own tool (Flockdeck never signs in). The state is
-final, so the pane is started again after the fix.
+with one line to act on: sign in with the agent's own tool. The state is final, so the pane is
+started again after the sign-in.
+
+Since API 1.24 a pane whose adapter lists the login method (`flockdeck-login`: the Claude and Codex
+adapters do) can be signed in from the window with no terminal. The pane's `signIn` field says so.
+`structuredSignIn` makes the host start a second, short-lived copy of the adapter and call ACP
+`authenticate` with that method. The adapter runs the agent's own login command (`claude auth login`,
+`codex login`) as a process of its own, sends the sign-in address it prints as the extension
+notification `_flockdeck/signin_url`, and answers `authenticate` when the command ends. The
+window shows the address as a link; the person signs in on the agent's page, and when the command
+ends well the server restarts the pane. Flockdeck sees no credential: the command stores it where the
+agent keeps it. Nothing else the command or the adapter writes reaches the window or a log. The
+design and its limits are in `docs/acp-claude-adapter.md` ("Signing in from Flockdeck").
 
 **An agent that cannot be found or started** is the phase `failed` with `err` set to "the agent is
 unavailable" and no `setup`. The same fixed text (`agent.UnavailableText`) is in the agent picker

@@ -252,3 +252,15 @@ func WithDeaf() Option {
 func WithSlowTurnStart(d time.Duration) Option {
 	return func(l *launch) { l.env = append(l.env, envSlow+"="+strconv.Itoa(int(d.Milliseconds()))) }
 }
+
+// WithSignIn makes the agent list the login method the Flockdeck adapters list
+// ("flockdeck-login") and answer authenticate for it as mode says; see signIn.
+// url is the address it sends; empty is a valid Claude one.
+func WithSignIn(mode, url string) Option {
+	return func(l *launch) {
+		l.env = append(l.env, envSignIn+"="+mode)
+		if url != "" {
+			l.env = append(l.env, envSignURL+"="+url)
+		}
+	}
+}

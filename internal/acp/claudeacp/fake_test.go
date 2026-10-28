@@ -30,6 +30,8 @@ const (
 	envBadInit = "FD_CLAUDEACP_BADINIT"   // the initialize answer is not an object
 	envCtlErr  = "FD_CLAUDEACP_CTLERR"    // a control subtype that is answered with an error
 	envCtlErr2 = "FD_CLAUDEACP_CTLERR2"   // and a second one
+	envLogin   = "FD_CLAUDEACP_LOGIN"     // what `auth login` does: ok, fail, hang, evil
+	envBeat    = "FD_CLAUDEACP_BEAT"      // the file the hanging login appends to
 )
 
 type step struct {
@@ -85,6 +87,10 @@ func runFake() {
 		out.Unlock()
 	}
 	var logMu sync.Mutex
+	if len(os.Args) == 3 && os.Args[1] == "auth" && os.Args[2] == "login" {
+		runFakeLogin()
+		return
+	}
 	if len(os.Args) == 2 && os.Args[1] == "--version" {
 		if f, err := os.OpenFile(os.Getenv(envLog), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600); err == nil {
 			fmt.Fprintln(f, "VERSION_CALL")
@@ -239,4 +245,44 @@ func readLog(path string) []string {
 		}
 	}
 	return out
+}
+
+// runFakeLogin is `claude auth login`: it prints what envLogin says, and for
+// "hang" goes on writing a byte to envBeat until it is killed.
+func runFakeLogin() {
+	if f, err := os.OpenFile(os.Getenv(envLog), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600); err == nil {
+		fmt.Fprintln(f, "LOGIN_CALL auth login")
+		f.Close()
+	}
+	const good = "https://claude.ai/oauth/authorize?client_id=abc&state=s"
+	switch os.Getenv(envLogin) {
+	case "record":
+		fmt.Println(good)
+		wd, _ := os.Getwd()
+		var names []string
+		for _, kv := range os.Environ() {
+			n, _, _ := strings.Cut(kv, "=")
+			names = append(names, n)
+		}
+		_ = os.WriteFile(os.Getenv("FD_CLAUDEACP_LOGINOUT"), []byte(wd+"\n"+strings.Join(names, "\n")), 0o600)
+	case "ok":
+		fmt.Println("Opening browser...")
+		fmt.Println("visit " + good)
+		fmt.Println("Login successful.")
+	case "fail":
+		fmt.Println(good)
+		fmt.Fprintln(os.Stderr, "SECRET-TOKEN-xyz went wrong")
+		os.Exit(1)
+	case "evil":
+		fmt.Println("https://evil.example/x http://claude.ai/y https://u:p@claude.ai/z")
+	case "hang":
+		fmt.Println(good)
+		for {
+			if f, err := os.OpenFile(os.Getenv(envBeat), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600); err == nil {
+				f.WriteString("x")
+				f.Close()
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	}
 }

@@ -44,3 +44,55 @@ export function answerFor(result, pane, req) {
 export function needsSignIn(st) {
   return !!st && st.phase === "setup" && !!st.setup && st.setup.kind === "login";
 }
+
+// Signing in from the pane (API 1.24, cap structuredSignIn). The words are ours:
+// nothing the agent or its login command wrote is shown, and the only string
+// that came from there is the address, which is checked again before it becomes
+// a link.
+export const SIGNIN_START_WORDS = "Sign in";
+export const SIGNIN_CANCEL_WORDS = "Cancel the sign-in";
+export const SIGNIN_STARTING_WORDS = "Starting the sign-in. The sign-in page link appears here in a moment.";
+export const SIGNIN_WAITING_WORDS = "The agent opens the sign-in page in your browser by itself. If the browser did not open, use this link, sign in there, then come back. Flockdeck restarts the agent when the sign-in is done.";
+export const SIGNIN_REFUSED_WORDS = "The sign-in could not be started. Another pane may be signing in to this agent, or this agent cannot be signed in from Flockdeck.";
+export const SIGNIN_COPY_WORDS = "Copy link";
+export const SIGNIN_COPIED_WORDS = "Link copied";
+export const SIGNIN_COPY_FAILED_WORDS = "The link could not be copied. Select it and copy it by hand.";
+export const SIGNIN_DONE_WORDS = "Signed in. Restarting the agent.";
+export const SIGNIN_FAILED_WORDS = "The sign-in did not finish. You can try again.";
+export const SIGNIN_NOT_SENT_WORDS = "Not connected to Flockdeck, so the sign-in was not started.";
+export const SIGNIN_LINK_WORDS = "Open the sign-in page";
+
+/** signInMessage starts the sign-in of a pane; signInCancelMessage ends it. Each is null without a real pane. */
+export function signInMessage(pane, req = "") {
+  return typeof pane === "string" && pane !== "" ? { cmd: "structuredSignIn", id: pane, ...(req ? { req } : {}) } : null;
+}
+export function signInCancelMessage(pane, req = "") {
+  return typeof pane === "string" && pane !== "" ? { cmd: "structuredSignInCancel", id: pane, ...(req ? { req } : {}) } : null;
+}
+
+/** signInRefused says the answer to this pane's latest sign-in command (req) was a refusal. */
+export function signInRefused(result, pane, req) {
+  return !!result && !!req && result.req === req && result.id === pane && result.ok === false;
+}
+
+/** safeSignInUrl returns the address as a normalised https URL, or null: https only, no user name, password or port, ASCII, at most 2048 characters. */
+export function safeSignInUrl(raw) {
+  if (typeof raw !== "string" || raw.length === 0 || raw.length > 2048 || !/^[\x21-\x7e]+$/.test(raw)) return null;
+  let u;
+  try {
+    u = new URL(raw);
+  } catch (_) {
+    return null;
+  }
+  if (u.protocol !== "https:" || u.username || u.password || u.port || !u.hostname || u.hostname.endsWith(".")) return null;
+  return u.href;
+}
+
+/** signInView reads the push's signIn block as { available, state, url, host }, with url and host null unless the address is safe. Null when the pane has no block. */
+export function signInView(st) {
+  const b = st && st.signIn;
+  if (!b || typeof b !== "object") return null;
+  const state = ["starting", "waiting", "done", "failed"].includes(b.state) ? b.state : "";
+  const url = state === "waiting" ? safeSignInUrl(b.url) : null;
+  return { available: b.available === true, state, url, host: url ? new URL(url).hostname : null };
+}

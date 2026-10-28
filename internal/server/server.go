@@ -15,6 +15,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"github.com/jmwri/flockdeck/internal/structured"
 	"io/fs"
 	"mime"
 	"net"
@@ -75,6 +76,10 @@ const askedInterval = 5 * time.Millisecond
 
 // Server serves the front end and the live connections behind it.
 type Server struct {
+	// signIns are the panes that started a sign-in (structuredsignin.go), the
+	// newest last. Used on the workspace goroutine only.
+	signIns []*structured.Runtime
+
 	// static is the front end the program gave in Config, and staticRemote the
 	// one for windows reached through the relay, when it gave another.
 	static       fs.FS
