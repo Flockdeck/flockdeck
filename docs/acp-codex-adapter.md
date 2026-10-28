@@ -269,7 +269,7 @@ adapter process, and a Windows run, where the sandbox may need setup first
 
 ## Not done
 
-- `session/load` with history replay, and `session/list`. For load, `thread/resume` or `thread/read` with turns would give the history to replay as updates; the shape of those results has not been seen in a real codex.
+- `session/load` with history replay, and `session/list`. A restored Codex pane therefore opens with an empty transcript while codex still has the thread. The app-server has history calls (`thread/read`, `thread/turns/list`, `thread/items/list`; `docs/codex-adapter-route.md`), but the shape of their results has not been seen in a real codex, and none is installed where T230 was done (28 Oct 2026). Left until a real run shows the shapes. The Claude adapter's reader (`docs/acp-claude-adapter.md`) is the model: replay through `session/load`, no API change.
 - Logging in from Flockdeck (`account/login/start`), `authenticate`, and API-key use other
   than through the environment.
 - Reasoning effort, the mode with no sandbox, the cost of a turn, and `turn/steer`.

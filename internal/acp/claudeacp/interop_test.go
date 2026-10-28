@@ -2,7 +2,9 @@ package claudeacp
 
 import (
 	"context"
+	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -62,6 +64,12 @@ func startInterop(t *testing.T, steps []step, rec *recorder) *acp.Client {
 // fake claude writes its command line to, one line per start.
 func startInteropLog(t *testing.T, steps []step, rec *recorder) (*acp.Client, string) {
 	t.Helper()
+	return startInteropEnv(t, steps, rec)
+}
+
+// startInteropEnv is startInteropLog with more variables for the adapter.
+func startInteropEnv(t *testing.T, steps []step, rec *recorder, extra ...string) (*acp.Client, string) {
+	t.Helper()
 	exe, err := os.Executable()
 	if err != nil {
 		t.Fatal(err)
@@ -75,7 +83,7 @@ func startInteropLog(t *testing.T, steps []step, rec *recorder) (*acp.Client, st
 			adapterEnv = append(adapterEnv, kv)
 		}
 	}
-	env = append(adapterEnv, envAdapt+"=1")
+	env = append(append(adapterEnv, envAdapt+"=1"), extra...)
 	c, err := acp.Start(acp.Config{Path: exe, Env: env, Dir: acptest.SessionDir(t), Handler: rec, SetupTimeout: 30 * time.Second})
 	if err != nil {
 		t.Fatal(err)
@@ -172,8 +180,9 @@ func TestInteropWithTheClient(t *testing.T) {
 }
 
 // A restored pane has an id from its last run. Over the real client the adapter
-// offers session/resume and not session/load, so that is what the pane calls,
-// and claude is started with --resume on that id.
+// offers session/load and session/resume, so the pane calls load, and claude is
+// started with --resume on that id. There is no stored conversation here, so
+// nothing is replayed and the session opens all the same.
 func TestInteropRestoredPaneResumes(t *testing.T) {
 	const id = "0b7e1f0e-5c2a-4a3e-9d7a-6f1f3f0b9c11"
 	rec := &recorder{}
@@ -185,15 +194,12 @@ func TestInteropRestoredPaneResumes(t *testing.T) {
 		t.Fatalf("initialize: %v", err)
 	}
 	caps := c.Capabilities()
-	if !caps.Resume || caps.LoadSession {
+	if !caps.Resume || !caps.LoadSession {
 		t.Fatalf("capabilities = %+v", caps)
 	}
-	if _, err := c.LoadSession(ctx30(t), id, acptest.SessionDir(t), nil); err == nil {
-		t.Error("session/load was accepted")
-	}
-	got, err := c.ResumeSession(ctx30(t), id, acptest.SessionDir(t), nil)
+	got, err := c.LoadSession(ctx30(t), id, acptest.SessionDir(t), nil)
 	if err != nil || got.SessionID != id {
-		t.Fatalf("session/resume = %+v, %v", got, err)
+		t.Fatalf("session/load = %+v, %v", got, err)
 	}
 	if stop, err := c.Prompt(ctx30(t), id, "again"); err != nil || stop != acp.StopEndTurn {
 		t.Fatalf("prompt: %q, %v", stop, err)
@@ -209,5 +215,34 @@ func TestInteropRestoredPaneResumes(t *testing.T) {
 	}
 	if len(lines) != 1 || !strings.Contains(lines[0], "--resume "+id) || strings.Contains(lines[0], "--session-id") {
 		t.Errorf("claude was started with %q", lines)
+	}
+}
+
+// Over the real client the stored conversation arrives marked as replay, which
+// is what keeps it from being taken for a turn or for something typed.
+func TestInteropLoadReplaysMarkedAsReplay(t *testing.T) {
+	cfg := t.TempDir()
+	rec := &recorder{}
+	c, _ := startInteropEnv(t, nil, rec, "CLAUDE_CONFIG_DIR="+cfg)
+	if _, err := c.Initialize(ctx30(t)); err != nil {
+		t.Fatalf("initialize: %v", err)
+	}
+	cwd := acptest.SessionDir(t)
+	storeSession(t, filepath.Join(cfg, "projects"), cwd,
+		userLine("what is 2+2"), assistantLine("claude-sonnet-5-5", textBlock("4")))
+	if _, err := c.LoadSession(ctx30(t), loadID, cwd, nil); err != nil {
+		t.Fatalf("session/load: %v", err)
+	}
+	rec.mu.Lock()
+	defer rec.mu.Unlock()
+	var got []string
+	for _, u := range rec.updates {
+		if u.Content != nil {
+			got = append(got, fmt.Sprintf("%s %q replay=%v", u.Kind, u.Content.Text, u.Replay))
+		}
+	}
+	want := []string{`user_message_chunk "what is 2+2" replay=true`, `agent_message_chunk "4" replay=true`}
+	if strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Errorf("updates = %v", got)
 	}
 }

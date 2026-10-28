@@ -112,12 +112,13 @@ type session struct {
 	facts     turnFacts // what claude said about the running turn, for its result
 }
 
-// openSession handles session/new and, with resume, session/resume: claude is
+// openSession handles session/new and, with resume, session/resume and, with
+// load as well, session/load (which replays the stored conversation first): claude is
 // started with --resume and the id it was given, which is the id the adapter
 // gave the session when it was new. An id that is not a UUID is refused before
 // anything is started, and so is one that is open already. An id claude does
 // not know makes claude exit, which is the same answer as any start that fails.
-func (s *server) openSession(m rpcMsg, resume bool) {
+func (s *server) openSession(m rpcMsg, resume, load bool) {
 	var p struct {
 		SessionID  string            `json:"sessionId"`
 		Cwd        string            `json:"cwd"`
@@ -159,6 +160,13 @@ func (s *server) openSession(m rpcMsg, resume bool) {
 	if ss.mcpFile, err = writeMCPConfig(p.McpServers); err != nil {
 		s.replyErr(m.ID, &rpcErr{Code: codeInvalidParams, Message: err.Error()})
 		return
+	}
+	if load {
+		// The replay comes before the answer, as the protocol has it, and before
+		// claude is started, so that nothing claude does on its own can be taken
+		// for part of it. The session is not registered yet either, so no prompt
+		// can reach it.
+		s.replayHistory(p.SessionID, id, p.Cwd)
 	}
 	if err := ss.start(); err != nil {
 		s.logf("start claude: %v", err)

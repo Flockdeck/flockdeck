@@ -211,6 +211,11 @@ func (b *Bridge) sessionUpdate(u acp.Update) bool {
 var noticeTexts = map[string]string{
 	"untested_version": "This Claude version has not been tested with Flockdeck",
 	"new_conversation": "Started a new conversation.",
+	// Sent by an adapter that replays a stored conversation (the Claude adapter's
+	// session/load) when it could not show all of it.
+	"history_cut_earlier": "Earlier parts of this conversation are not shown.",
+	"history_cut_later":   "Later parts of this conversation are not shown.",
+	"history_cut_gap":     "Some parts of this conversation are not shown.",
 }
 
 func cleanModes(m *acp.Modes) *acp.Modes {

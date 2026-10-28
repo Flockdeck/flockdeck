@@ -23,9 +23,9 @@
 // cancel ends the running turn and every prompt queued behind it.
 //
 // session/resume starts claude with --resume and the session's id. Claude keeps
-// the conversation in its own files and does not send it again, so there is no
-// session/load: the adapter says loadSession false, and the client shows an
-// empty transcript for a resumed session. Not done yet: turns claude starts on its own (a
+// the conversation in its own files and does not send it again, so session/load
+// reads it from there (history.go) and replays it as updates before it
+// answers, then opens the session as resume does. Not done yet: turns claude starts on its own (a
 // finished background task), terminal and file system
 // delegation to the client. See docs/acp-claude-adapter.md.
 package claudeacp
@@ -66,6 +66,9 @@ type Options struct {
 	// BusyIdle is how long a turn claude started on its own may go without a
 	// line from claude before prompts stop waiting for it. Default 120s.
 	BusyIdle time.Duration
+	// HistoryDir is claude's projects directory, where session/load reads the
+	// stored conversation. Default: CLAUDE_CONFIG_DIR in Env, else ~/.claude/projects.
+	HistoryDir string
 }
 
 func (o *Options) defaults() {
@@ -273,7 +276,7 @@ func (s *server) handle(m rpcMsg) {
 		s.reply(m.ID, map[string]any{
 			"protocolVersion": 1,
 			"agentCapabilities": map[string]any{
-				"loadSession":         false,
+				"loadSession":         true,
 				"promptCapabilities":  map[string]any{"image": true, "audio": false, "embeddedContext": true},
 				"mcpCapabilities":     map[string]any{"http": true, "sse": true},
 				"sessionCapabilities": map[string]any{"resume": map[string]any{}},
@@ -281,9 +284,12 @@ func (s *server) handle(m rpcMsg) {
 			"agentInfo":   map[string]any{"name": "flockdeck-claude", "title": "Claude Code", "version": s.opts.Version},
 			"authMethods": []any{},
 		})
-	case "session/new", "session/resume":
+	case "session/new", "session/resume", "session/load":
 		s.wg.Add(1)
-		go func() { defer s.wg.Done(); s.openSession(m, m.Method == "session/resume") }()
+		go func() {
+			defer s.wg.Done()
+			s.openSession(m, m.Method != "session/new", m.Method == "session/load")
+		}()
 	case "session/prompt":
 		s.prompt(m)
 	case "session/cancel":
