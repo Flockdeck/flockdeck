@@ -316,6 +316,10 @@ type Snapshot struct {
 	// never alone as the current state.
 	Err   string
 	Setup *Setup
+	// CanSignIn says Setup is a login the pane can run through its adapter, and
+	// SignIn is the state of the one started from the pane, nil before there is one.
+	CanSignIn bool
+	SignIn    *SignIn
 	// Agent is the name the agent gave itself.
 	Agent string
 	// SessionID is the agent's id of the session, empty until there is one. It
@@ -413,11 +417,16 @@ type Runtime struct {
 	// shell runs the person's own commands (shell.go). It is closed with the pane.
 	shell *shellrun.Manager
 
-	mu      sync.Mutex
-	phase   Phase
-	setup   *Setup
-	err     string
-	agentNm string
+	mu    sync.Mutex
+	phase Phase
+	setup *Setup
+	// signin is the latest sign-in started from the pane (signin.go).
+	signin *signInRun
+	// signinOff is set by Close: no sign-in starts after it. (closed also becomes
+	// true when the agent ends in the setup state, which must still allow one.)
+	signinOff bool
+	err       string
+	agentNm   string
 	// hello is what initialize and the session request gave, for Info.
 	hello hello
 	queue []queued
@@ -979,6 +988,10 @@ func (r *Runtime) Snapshot() Snapshot {
 		c := *r.setup
 		c.Methods = append([]AuthMethod(nil), c.Methods...)
 		s.Setup = &c
+		s.CanSignIn = c.CanSignIn()
+	}
+	if run := r.signin; run != nil {
+		s.SignIn = &SignIn{State: run.state, URL: run.url}
 	}
 	c := r.client
 	r.mu.Unlock()
@@ -1004,6 +1017,10 @@ func (r *Runtime) Snapshot() Snapshot {
 // everything it started, and closes the recording. It is safe to call twice
 // and from several goroutines, and returns within a bounded time.
 func (r *Runtime) Close() error {
+	defer r.stopSignIn()
+	r.mu.Lock()
+	r.signinOff = true
+	r.mu.Unlock()
 	r.finish(PhaseClosed)
 	select {
 	case <-r.done:

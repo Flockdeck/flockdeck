@@ -303,10 +303,68 @@ before a user's claude updates.
 - Steering a running turn with a second message (above).
 - Approving a plan with automatic acceptance of edits: Allow on `ExitPlanMode` is a plain
   allow, and a mode change claude reports afterwards is passed on.
-- `bypassPermissions` mode, API-key login and `authenticate`, delegating Bash and file
+- `bypassPermissions` mode, API-key login through `authenticate`, delegating Bash and file
   access to the client's terminal and file system.
 - Tool output while a tool runs: claude sends it at completion only.
 
+## Signing in from Flockdeck
+
+A new user with no terminal habit could not sign in: `authMethods` was empty and the pane said
+to run `claude` once somewhere else. The adapter now lists one method and implements `authenticate`
+for it (T232, API 1.24).
+
+Routes considered:
+
+| Route | Verdict |
+| --- | --- |
+| Run `claude auth login` as a process of the adapter, take the address it prints, wait for it to exit | Chosen. `claude auth login` exists in 2.1.312 (`--claudeai` is the default, `--console`, `--sso`, `--email`). The login and where it is stored stay claude's. Flockdeck sees an address and an exit code. |
+| Ask the client for a terminal (ACP `terminal` capability, or a terminal-auth hint in the method) | Needs the terminal this task removes. The client advertises `terminal: false`. |
+| Run the OAuth flow in Flockdeck (own client, PKCE, token exchange) | Flockdeck would hold a credential and depend on claude's private client id and redirect rules. Refused by the rules. |
+| A key or token field in Flockdeck | Refused by the rules. An API key already goes in Settings or `flockdeck keys set claude-acp`; that is a different path and stays. |
+| Start the login from the host, not the adapter | The host would need each agent's command line: a branch on agent type. The adapter already knows `claude`. |
+
+How it runs:
+
+1. `initialize` lists `{id: "flockdeck-login", name: "Sign in with the agent's login command"}`. The
+   text is fixed.
+2. A pane in the phase `needs setup` whose methods include that id offers a Sign in button
+   (`structuredSignIn`). The host starts a second copy of the adapter, calls `initialize`, then
+   `authenticate` with that id. The call waits for the command, up to six minutes.
+3. The adapter starts `claude auth login` in a process tree it can end (job object on Windows,
+   session on Unix), with the adapter's environment, and reads its output line by line.
+4. The first address in the output that passes the checks below is sent once as the extension
+   notification `_flockdeck/signin_url` with `{url}`. The host checks it again and the pane's state
+   carries it as `signIn.url`; the window draws a link with fixed words.
+5. When the command exits with status 0 the adapter answers `authenticate` with `{}`. Any other end
+   (a failure, the five minute timeout, a cancel) is the fixed error "the sign-in did not finish".
+6. After an answer of `{}` the server restarts the pane, which starts claude with the login it now
+   has. Nothing asks claude whether the login worked: if it did not, the first prompt asks for a
+   login again and the pane is back in the same state.
+
+Rules the code keeps (tests in `internal/acp/agentlogin`, `claudeacp/login_test.go`,
+`structured/signin_test.go`, `server/structuredsignin_test.go`, `ui/test/signin.test.mjs`):
+
+- The address is the only string from the login command that goes anywhere. The rest of its
+  output is read and dropped; it is not logged, not in an error and not in a notification.
+- The address must be `https`, have no user name or password, no port, a host that is not an IP
+  address, no control, space, format or non-ASCII character, and be at most 2048 bytes. The adapter
+  also requires the host to be one of `claude.ai`, `claude.com`, `anthropic.com` or a subdomain
+  (`console.anthropic.com`, `platform.claude.com`). The host repeats every rule except the host list
+  (it does not know the agent's list) and the window repeats them again before it makes a link.
+- One sign-in at a time in an adapter (a second `authenticate` is answered "a sign-in is already
+  running") and one per pane. The timeout is five minutes in the adapter and six in the host.
+- Cancel (`structuredSignInCancel`), closing or restarting the pane, and the adapter's stdin
+  closing all end the command and what it started before they return. Tests check that a process
+  the command started stops writing after a cancel, a timeout and a closed adapter.
+- Desk only, like every structured command: refused to a window reached through the relay and to a
+  viewer. Nothing is stored by Flockdeck.
+
+Not verified: what `claude auth login` prints when its output is not a terminal. The tests use a
+fake that prints the address on a line. If the real command prints no address when piped, the pane
+shows "starting" until the person cancels or the time runs out, and the manual route (sign in with
+`claude` in a terminal, then restart) still works. Check once with a real login, which was not done
+for this change; the check is to run the adapter against a signed-out home and watch for
+`signIn.url`.
 ## The catalog entry
 
 `claude-acp` ("Claude Code (structured)", in `internal/agent/builtin.go`) is the
@@ -317,7 +375,7 @@ hidden until the end-to-end check that follows this task says otherwise.
 | Field | Value |
 | --- | --- |
 | adapter | `claude` |
-| auth | external: Flockdeck never signs in. The text beside the login state is "Run `claude` once in a terminal and sign in with your Claude subscription, or store an Anthropic API key in Settings." |
+| auth | the person signs in on claude's own page, and Flockdeck holds no credential. Preferred: the Sign in button of the Agent info panel (see "Signing in from Flockdeck"). Fallback, and the text beside the login state: "Run `claude` once in a terminal and sign in with your Claude subscription, or store an Anthropic API key in Settings." |
 | key slot | `api: {wire: "anthropic", keyEnv: ["ANTHROPIC_API_KEY"]}`. Settings and `flockdeck keys set claude-acp` store a key, and it is set in the adapter's environment as `ANTHROPIC_API_KEY` when the pane starts, and nowhere else. `agents.json` cannot add or change a slot |
 | passEnv | `HOME`, `USERPROFILE`, `APPDATA`, `LOCALAPPDATA` and the four `XDG_*` directories, where claude keeps its login. `ANTHROPIC_API_KEY` is not passed from Flockdeck's own environment: a key exported in the shell for another tool does not reach the pane, only the stored one does |
 | MCP | on: the Flockdeck MCP server is sent in `session/new` and `session/resume`, and the adapter writes it to a private `mcp.json` for `--mcp-config` |

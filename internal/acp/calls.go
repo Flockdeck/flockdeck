@@ -506,3 +506,9 @@ func waitFor(ch <-chan struct{}, d time.Duration) {
 	case <-t.C:
 	}
 }
+
+// AuthenticateWait is Authenticate for a method that needs a person, such as a
+// sign-in in a browser: it is bounded by ctx alone, not by Config.SetupTimeout.
+func (c *Client) AuthenticateWait(ctx context.Context, methodID string) error {
+	return c.call(ctx, "authenticate", map[string]any{"methodId": methodID}, nil)
+}

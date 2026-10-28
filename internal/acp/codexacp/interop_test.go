@@ -85,7 +85,7 @@ func TestInteropWithTheClient(t *testing.T) {
 	if err != nil {
 		t.Fatalf("initialize: %v", err)
 	}
-	if init.AgentInfo == nil || init.AgentInfo.Name != "flockdeck-codex" || len(init.AuthMethods) != 0 {
+	if init.AgentInfo == nil || init.AgentInfo.Name != "flockdeck-codex" || len(init.AuthMethods) != 1 || init.AuthMethods[0].ID != "flockdeck-login" {
 		t.Errorf("initialize = %+v", init)
 	}
 	sid, err := c.NewSession(ctx, acptest.SessionDir(t), nil)

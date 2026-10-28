@@ -42,6 +42,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/jmwri/flockdeck/internal/acp/agentlogin"
 )
 
 // Options configure Run.
@@ -151,6 +153,8 @@ type server struct {
 	clientRQ map[int64]chan rpcMsg // requests we made to the client, by id
 	nextReq  atomic.Int64
 	wg       sync.WaitGroup
+
+	login agentlogin.Runner
 
 	verOnce sync.Once
 	verOK   bool
@@ -282,7 +286,7 @@ func (s *server) handle(m rpcMsg) {
 				"sessionCapabilities": map[string]any{"resume": map[string]any{}},
 			},
 			"agentInfo":   map[string]any{"name": "flockdeck-claude", "title": "Claude Code", "version": s.opts.Version},
-			"authMethods": []any{},
+			"authMethods": authMethods(),
 		})
 	case "session/new", "session/resume", "session/load":
 		s.wg.Add(1)
@@ -290,6 +294,9 @@ func (s *server) handle(m rpcMsg) {
 			defer s.wg.Done()
 			s.openSession(m, m.Method != "session/new", m.Method == "session/load")
 		}()
+	case "authenticate":
+		s.wg.Add(1)
+		go func() { defer s.wg.Done(); s.authenticate(m) }()
 	case "session/prompt":
 		s.prompt(m)
 	case "session/cancel":
@@ -332,6 +339,7 @@ func (s *server) session(id string) *session {
 }
 
 func (s *server) closeAll() {
+	s.login.Close()
 	s.mu.Lock()
 	s.closed = true
 	var all []*session

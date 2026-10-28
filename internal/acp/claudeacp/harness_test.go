@@ -309,3 +309,10 @@ func readFile(t *testing.T, p string) []byte {
 	}
 	return b
 }
+
+// snapshotMsgs is a copy of everything the adapter has sent so far.
+func (h *harness) snapshotMsgs() []rpcMsg {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return append([]rpcMsg(nil), h.msgs...)
+}

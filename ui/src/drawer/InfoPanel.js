@@ -1,13 +1,15 @@
 // The agent info view of a structured pane: who the agent says it is, how it
 // signs in, what it can do, the session, mode and model, the names of the MCP
 // servers it was given, the folder and the adapter. Desk only. When the agent is
-// waiting for a login the panel says what to do and offers to start the agent
-// again once the person has signed in with the agent's own tool; Flockdeck never
-// asks for or handles a login itself.
+// waiting for a login the panel offers to sign in from here when the agent's
+// adapter can run its login command (a link to the agent's own page; Flockdeck
+// never asks for or handles a credential), and otherwise says what to do and
+// offers to start the agent again once the person has signed in with the
+// agent's own tool.
 import { useEffect, useRef, useState } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
 import { showControls } from "./diff/diffModel.js";
-import { infoMessage, restartMessage, infoRows, answerFor, needsSignIn, INFO_NOT_SENT_WORDS, INFO_WAITING_WORDS, INFO_LOGOUT_WORDS, INFO_RESTART_NOT_SENT_WORDS } from "./infoModel.js";
+import { infoMessage, restartMessage, infoRows, answerFor, needsSignIn, signInMessage, signInCancelMessage, signInView, SIGNIN_START_WORDS, SIGNIN_CANCEL_WORDS, SIGNIN_STARTING_WORDS, SIGNIN_WAITING_WORDS, SIGNIN_DONE_WORDS, SIGNIN_FAILED_WORDS, SIGNIN_NOT_SENT_WORDS, SIGNIN_LINK_WORDS, INFO_NOT_SENT_WORDS, INFO_WAITING_WORDS, INFO_LOGOUT_WORDS, INFO_RESTART_NOT_SENT_WORDS } from "./infoModel.js";
 
 let infoSeq = 0;
 
@@ -45,6 +47,13 @@ export function InfoPanel({ pane, st, store, result = null, onClose }) {
     }
   };
   const restarting = restartedIn !== null && restartedIn === phase;
+  const si = signInView(st);
+  const fromHere = login && si && (si.available || si.state !== "");
+  const send = (msg) => {
+    if (msg && store.send(msg)) setNote("");
+    else setNote(SIGNIN_NOT_SENT_WORDS);
+  };
+  const busy = si && (si.state === "starting" || si.state === "waiting");
   // A new phase is a new situation: a login wanted again may be answered again.
   useEffect(() => {
     if (restartedIn !== null && restartedIn !== phase) {
@@ -57,8 +66,24 @@ export function InfoPanel({ pane, st, store, result = null, onClose }) {
       ? html`<div class="structured-note" role="status" data-info-login="on">
           <p>${showControls(String(st.setup.message || "The agent needs you to sign in."))}</p>
           ${st.setup.fix ? html`<p>${showControls(String(st.setup.fix))}</p>` : null}
-          <p>Flockdeck does not sign in for you. Sign in with the agent's own tool, then restart the agent.</p>
-          <button type="button" class="drawer-btn info-restart" disabled=${restarting} onClick=${restart}>${restarting ? "Restarting the agent" : "I have signed in: restart the agent"}</button>
+          ${fromHere
+            ? html`<div data-signin=${si.state || "idle"}>
+                ${si.state === "starting" ? html`<p>${SIGNIN_STARTING_WORDS}</p>` : null}
+                ${si.state === "waiting" && si.url
+                  ? html`<p>${SIGNIN_WAITING_WORDS}</p>
+                      <p><a class="signin-link" href=${si.url} target="_blank" rel="noopener noreferrer">${SIGNIN_LINK_WORDS}</a> <span class="signin-host">(${si.host})</span></p>`
+                  : null}
+                ${si.state === "waiting" && !si.url ? html`<p>${SIGNIN_STARTING_WORDS}</p>` : null}
+                ${si.state === "done" ? html`<p>${SIGNIN_DONE_WORDS}</p>` : null}
+                ${si.state === "failed" ? html`<p>${SIGNIN_FAILED_WORDS}</p>` : null}
+                ${busy
+                  ? html`<button type="button" class="drawer-btn signin-cancel" onClick=${() => send(signInCancelMessage(pane))}>${SIGNIN_CANCEL_WORDS}</button>`
+                  : si.state === "done"
+                    ? null
+                    : html`<button type="button" class="drawer-btn signin-start" onClick=${() => send(signInMessage(pane))}>${SIGNIN_START_WORDS}</button>`}
+              </div>`
+            : html`<p>Flockdeck does not sign in for you. Sign in with the agent's own tool, then restart the agent.</p>
+          <button type="button" class="drawer-btn info-restart" disabled=${restarting} onClick=${restart}>${restarting ? "Restarting the agent" : "I have signed in: restart the agent"}</button>`}
         </div>`
       : null}
     ${rows.length

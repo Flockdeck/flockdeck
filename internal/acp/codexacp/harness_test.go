@@ -344,3 +344,10 @@ func fakePID(t *testing.T, path string) int {
 	t.Fatal("the fake codex logged no pid")
 	return 0
 }
+
+// snapshotMsgs is a copy of everything the adapter has sent so far.
+func (h *harness) snapshotMsgs() []rpcMsg {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return append([]rpcMsg(nil), h.msgs...)
+}
