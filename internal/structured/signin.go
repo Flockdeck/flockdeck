@@ -4,7 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"slices"
+	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/jmwri/flockdeck/internal/acp"
@@ -78,7 +81,7 @@ func (r *Runtime) SignIn(onDone func()) error {
 		r.mu.Unlock()
 		return ErrNotRunning
 	}
-	if r.phase != PhaseSetup || !r.setup.CanSignIn() {
+	if r.phase != PhaseSetup || !r.setup.CanSignIn() || !r.ownAdapter() {
 		r.mu.Unlock()
 		return ErrNoSignIn
 	}
@@ -144,12 +147,55 @@ type quiet struct{}
 func (quiet) Update(acp.Update)                                        {}
 func (quiet) Permission(context.Context, acp.PermissionRequest) string { return "" }
 
+// ownAdapter says the pane's adapter is one Flockdeck builds into its own
+// binary. Only then is a sign-in method trusted: a foreign adapter that lists
+// the same id would be asked to run something Flockdeck knows nothing about.
+func (r *Runtime) ownAdapter() bool {
+	if c := r.opts.Command; c != nil {
+		return c.Own
+	}
+	a, ok := r.opts.Spec.ACPAdapter()
+	return ok && a.Command == ownCommand
+}
+
+// signInEnv is the environment of the sign-in's adapter: env as the pane's own
+// would be, without the key, and with the proxy variables set in Flockdeck's
+// own environment, since the login command needs the network the person has.
+func (r *Runtime) signInEnv(env []string) []string {
+	key := r.opts.Spec.ACPKeyEnv()
+	out := make([]string, 0, len(env)+6)
+	for _, kv := range env {
+		if name, _, _ := strings.Cut(kv, "="); key == "" || !strings.EqualFold(name, key) {
+			out = append(out, kv)
+		}
+	}
+	environ := r.opts.Environ
+	if environ == nil {
+		environ = os.Environ()
+	}
+	for _, kv := range environ {
+		name, _, _ := strings.Cut(kv, "=")
+		switch strings.ToUpper(name) {
+		case "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "ALL_PROXY":
+			out = append(out, kv)
+		}
+	}
+	return out
+}
+
 func (r *Runtime) runSignIn(ctx context.Context, run *signInRun, onDone func()) {
 	defer close(run.done)
 	defer run.cancel()
 	err := r.signInProcess(ctx, run)
+	r.settleSignIn(run, err, onDone)
+}
+
+// settleSignIn records how a sign-in ended. A command that exited well counts as
+// signed in even when a cancel or a close came at the same moment: the login is
+// there, and the owner decides whether the pane still wants the restart.
+func (r *Runtime) settleSignIn(run *signInRun, err error, onDone func()) {
 	r.mu.Lock()
-	cancelled := run.cancelled
+	cancelled := run.cancelled && err != nil
 	r.mu.Unlock()
 	switch {
 	case cancelled:
@@ -173,19 +219,21 @@ func (r *Runtime) runSignIn(ctx context.Context, run *signInRun, onDone func()) 
 // and returns when it answers. The adapter and its command are ended before it
 // returns.
 func (r *Runtime) signInProcess(ctx context.Context, run *signInRun) error {
-	cmd, _, err := r.resolve()
+	cmd, _, err := r.resolveFor(true)
 	if err != nil {
 		return err
 	}
+	// The address is taken only from the answer to our own authenticate call.
+	var asked atomic.Bool
 	cfg := acp.Config{
 		Path:       cmd.Path,
 		Args:       cmd.Args,
-		Dir:        r.opts.Cwd,
+		Dir:        os.TempDir(),
 		Env:        cmd.env,
 		Handler:    quiet{},
 		ClientName: "flockdeck",
 		OnExtension: func(method string, params json.RawMessage) {
-			if method != agentlogin.URLNotification {
+			if method != agentlogin.URLNotification || !asked.Load() {
 				return
 			}
 			var p struct {
@@ -221,5 +269,6 @@ func (r *Runtime) signInProcess(ctx context.Context, run *signInRun) error {
 	if !slices.ContainsFunc(init.AuthMethods, func(m acp.AuthMethod) bool { return m.ID == agentlogin.MethodID }) {
 		return ErrNoSignIn
 	}
+	asked.Store(true)
 	return c.AuthenticateWait(ctx, agentlogin.MethodID)
 }

@@ -123,6 +123,9 @@ type Command struct {
 	Path string
 	Args []string
 	env  []string
+	// Own says the program is an adapter Flockdeck builds into its own binary,
+	// which a test sets by hand. Only such an adapter is trusted to run a sign-in.
+	Own bool
 }
 
 // Recorder takes the agent's traffic. *record.RPCRecorder is one.
@@ -988,7 +991,7 @@ func (r *Runtime) Snapshot() Snapshot {
 		c := *r.setup
 		c.Methods = append([]AuthMethod(nil), c.Methods...)
 		s.Setup = &c
-		s.CanSignIn = c.CanSignIn()
+		s.CanSignIn = c.CanSignIn() && r.ownAdapter()
 	}
 	if run := r.signin; run != nil {
 		s.SignIn = &SignIn{State: run.state, URL: run.url}
@@ -1149,11 +1152,22 @@ func (r *Runtime) run() {
 }
 
 // resolve says what to start.
-func (r *Runtime) resolve() (Command, *Setup, error) {
+func (r *Runtime) resolve() (Command, *Setup, error) { return r.resolveFor(false) }
+
+// resolveFor is resolve for the pane's own run (signIn false) or for the sign-in
+// helper (signIn true). The helper's adapter gets no stored key, the proxy
+// variables of Flockdeck's environment, and no permission probe: that check
+// starts the real agent and records its result for the pane, which a sign-in has
+// no business doing.
+func (r *Runtime) resolveFor(signIn bool) (Command, *Setup, error) {
 	if c := r.opts.Command; c != nil {
 		cmd := *c
 		if cmd.env == nil {
-			cmd.env = r.withKey(r.env())
+			if signIn {
+				cmd.env = r.signInEnv(r.env())
+			} else {
+				cmd.env = r.withKey(r.env())
+			}
 		}
 		return cmd, nil, nil
 	}
@@ -1191,12 +1205,15 @@ func (r *Runtime) resolve() (Command, *Setup, error) {
 	if own {
 		env = append(env, r.homeEnv()...)
 	}
-	if pp, ok := r.opts.Spec.ACPPermissionProbe(); ok {
+	if pp, ok := r.opts.Spec.ACPPermissionProbe(); ok && !signIn {
 		env = r.checkPermissions(path, pp, a, env)
+	}
+	if signIn {
+		return Command{Path: path, Args: append([]string(nil), a.Args...), env: r.signInEnv(env), Own: own}, nil, nil
 	}
 	// The key goes in last, so the launch check, which starts another program,
 	// never sees it.
-	return Command{Path: path, Args: append([]string(nil), a.Args...), env: r.withKey(env)}, nil, nil
+	return Command{Path: path, Args: append([]string(nil), a.Args...), env: r.withKey(env), Own: own}, nil, nil
 }
 
 // withKey adds the agent's key to env under the variable the entry names for

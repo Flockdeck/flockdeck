@@ -132,7 +132,51 @@ func TestClosingTheAdapterEndsTheLoginCommand(t *testing.T) {
 // The hosts are the claim in docs/acp-claude-adapter.md; widening the list is a
 // decision, not a side effect.
 func TestLoginHostsAreClaudesOwn(t *testing.T) {
-	if got := strings.Join(loginHosts, ","); got != "claude.ai,claude.com,anthropic.com" {
+	if got := strings.Join(loginHosts, ","); got != "claude.ai,claude.com,console.anthropic.com,platform.claude.com" {
 		t.Errorf("loginHosts = %s", got)
 	}
+}
+
+// The login command runs in the temp directory, and gets neither Flockdeck's
+// variables nor a key; the proxy and the home it needs are kept.
+func TestLoginCommandGetsANeutralDirectoryAndACleanEnvironment(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "rec")
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := loginHarnessEnv(t, exe, "record", "FD_CLAUDEACP_LOGINOUT="+out, "FLOCKDECK_TOKEN=x", "PERCH_SESSION=x", "ANTHROPIC_API_KEY=k", "OPENAI_API_KEY=k",
+		"HTTPS_PROXY=http://proxy.example:3128", "NO_PROXY=localhost", "USERPROFILE=C:/h", "HOME=/h")
+	if r := h.call("authenticate", map[string]any{"methodId": agentlogin.MethodID}); r.Error != nil {
+		t.Fatalf("authenticate: %+v", r.Error)
+	}
+	b, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(string(b), "\n")
+	want, _ := filepath.EvalSymlinks(os.TempDir())
+	got, _ := filepath.EvalSymlinks(lines[0])
+	if got != want {
+		t.Errorf("ran in %q, want %q", got, want)
+	}
+	have := map[string]bool{}
+	for _, n := range lines[1:] {
+		have[strings.ToUpper(n)] = true
+	}
+	for _, bad := range []string{"FLOCKDECK_TOKEN", "PERCH_SESSION", "ANTHROPIC_API_KEY", "OPENAI_API_KEY"} {
+		if have[bad] {
+			t.Errorf("the login command was given %s", bad)
+		}
+	}
+	for _, good := range []string{"HTTPS_PROXY", "NO_PROXY", "HOME", "USERPROFILE"} {
+		if !have[good] {
+			t.Errorf("the login command was not given %s", good)
+		}
+	}
+}
+
+func loginHarnessEnv(t *testing.T, exe, mode string, extra ...string) *harness {
+	t.Helper()
+	return newHarnessWith(t, exe, nil, append([]string{envLogin + "=" + mode}, extra...)...)
 }

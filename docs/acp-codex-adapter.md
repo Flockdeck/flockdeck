@@ -276,8 +276,9 @@ The adapter lists the same one method as the Claude adapter (`flockdeck-login`) 
 - The command is `codex login`, run as a process of the adapter. The adapter does not use the app
   server's `account/login/start`: that would tie the sign-in to the app server's protocol and to a
   codex app-server process kept for it. `codex login` is one command with one exit code.
-- Hosts the address may be on: `openai.com` (`auth.openai.com`) and `chatgpt.com`, and their
-  subdomains.
+- Hosts the address may be on: exactly `auth.openai.com` and `chatgpt.com`. Their subdomains and
+  `openai.com` itself are refused. The other rules (neutral directory, environment, flush of a line
+  without a line break, one sign-in per agent) are the same as for Claude.
 - `codex login` starts a local callback server on a fixed port on the person's machine; the
   address it prints is on the host above, never the local one (a port is refused anyway).
 

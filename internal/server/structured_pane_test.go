@@ -80,7 +80,7 @@ func newStructuredEnvWith(t *testing.T, task string, o structuredEnvOpts) *struc
 		if o.Program != "" {
 			return &structured.Command{Path: o.Program, Args: o.ProgramArgs}
 		}
-		return &structured.Command{Path: exe, Args: append([]string{acptest.ArgAgent}, o.Args...)}
+		return &structured.Command{Path: exe, Args: append([]string{acptest.ArgAgent}, o.Args...), Own: true}
 	})
 	ask(e.srv, func() bool { e.ws.ReloadAgents(); return true })
 	if o.BeforeSpawn != nil {

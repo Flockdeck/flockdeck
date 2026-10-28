@@ -10,7 +10,7 @@ import (
 
 // loginHosts are the hosts codex's sign-in page can be on: auth.openai.com for
 // the ChatGPT sign-in, and chatgpt.com.
-var loginHosts = []string{"openai.com", "chatgpt.com"}
+var loginHosts = []string{"auth.openai.com", "chatgpt.com"}
 
 // authMethods is what initialize lists: the one way the adapter signs codex
 // in. Fixed text; codex's own words are never used.

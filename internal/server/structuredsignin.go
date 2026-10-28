@@ -22,6 +22,9 @@ const (
 	structuredSignInNone = "That pane cannot be signed in from Flockdeck"
 	structuredSignInBusy = "A sign-in is already running in that pane"
 	structuredSignInEnd  = "That pane has no sign-in running"
+	// structuredSignInOther: one sign-in per agent at a time, across panes. Two
+	// login commands of one agent would fight over the same stored login.
+	structuredSignInOther = "Another pane is already signing in to this agent. Finish or cancel that sign-in first"
 )
 
 // structuredSignInBlock is the signIn member of a pane's state. Available says
@@ -56,17 +59,22 @@ func (s *Server) structuredSignIn(c *controlClient, cmd command) {
 		refuse(c, cmd, errStructured(structuredNotPane))
 		return
 	}
+	agentID := rt.Info().Catalog
+	if holder := s.signIns[agentID]; holder != nil && holder != rt && signInActive(holder) {
+		refuse(c, cmd, errStructured(structuredSignInOther))
+		return
+	}
 	err := rt.SignIn(func() {
 		// The same runtime still holds the pane: it may have been closed or
 		// restarted by the person while the page was open.
-		s.do(func() {
-			if s.ws.StructuredRuntime(id) == rt {
-				s.ws.RestartPaneByID(id)
-			}
-		})
+		s.do(func() { s.restartIfOwner(id, rt) })
 	})
 	switch {
 	case err == nil:
+		if s.signIns == nil {
+			s.signIns = map[string]*structured.Runtime{}
+		}
+		s.signIns[agentID] = rt
 		c.sendJSON(teamResultMsg{Type: "teamResult", Req: cmd.Req, Op: cmd.Cmd, OK: true})
 	case errors.Is(err, structured.ErrSignInBusy):
 		refuse(c, cmd, errStructured(structuredSignInBusy))
@@ -90,4 +98,21 @@ func (s *Server) structuredSignInCancel(c *controlClient, cmd command) {
 		}
 		c.sendJSON(teamResultMsg{Type: "teamResult", Req: cmd.Req, Op: cmd.Cmd, OK: true})
 	}()
+}
+
+// signInActive says rt has a sign-in that has not ended.
+func signInActive(rt *structured.Runtime) bool {
+	si := rt.Snapshot().SignIn
+	return si != nil && (si.State == structured.SignInStarting || si.State == structured.SignInWaiting)
+}
+
+// restartIfOwner restarts pane id after a sign-in that rt started, if rt still
+// holds the pane. A pane the person restarted or closed in the meantime has
+// another runtime or none, and is left alone. It must run on the workspace
+// goroutine.
+func (s *Server) restartIfOwner(id string, rt *structured.Runtime) bool {
+	if s.ws.StructuredRuntime(id) != rt {
+		return false
+	}
+	return s.ws.RestartPaneByID(id)
 }

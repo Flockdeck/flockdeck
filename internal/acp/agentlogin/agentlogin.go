@@ -19,6 +19,7 @@ import (
 	"errors"
 	"net"
 	"net/url"
+	"os"
 	"os/exec"
 	"regexp"
 	"strings"
@@ -58,8 +59,8 @@ type Spec struct {
 	Dir  string
 	// Env is the whole environment of the command; nil is the process's own.
 	Env []string
-	// Hosts are the sign-in hosts accepted: a name matches itself and its
-	// subdomains. An address on any other host is not passed on.
+	// Hosts are the sign-in hosts accepted, each exactly (a subdomain of one is
+	// not on the list). An address on any other host is not passed on.
 	Hosts []string
 	// Timeout bounds the whole sign-in. Zero is DefaultTimeout.
 	Timeout time.Duration
@@ -77,8 +78,17 @@ func Run(ctx context.Context, sp Spec, onURL func(string)) error {
 	defer cancel()
 
 	cmd := exec.Command(sp.Path, sp.Args...)
+	// The command runs in a neutral directory, not the project's: it reads and
+	// writes nothing there.
 	cmd.Dir = sp.Dir
-	cmd.Env = sp.Env
+	if cmd.Dir == "" {
+		cmd.Dir = os.TempDir()
+	}
+	env := sp.Env
+	if env == nil {
+		env = os.Environ()
+	}
+	cmd.Env = LoginEnv(env)
 	sysproc.NoWindow(cmd)
 	// A pipe that is never written to and stays open until the end: a command
 	// that reads its input finds no end of file and no text.
@@ -91,6 +101,7 @@ func Run(ctx context.Context, sp Spec, onURL func(string)) error {
 	// descendant that keeps the pipes open after the command ends is waited for
 	// only briefly.
 	w := &lineWriter{out: lines}
+	defer w.stop()
 	cmd.Stdout, cmd.Stderr = w, w
 	cmd.WaitDelay = 2 * time.Second
 	tree, err := proctree.Start(cmd)
@@ -144,22 +155,36 @@ func Run(ctx context.Context, sp Spec, onURL func(string)) error {
 
 // lineWriter splits what is written to it into lines and sends each to out,
 // dropping a line longer than maxLine and any line a full channel cannot take.
+// A partial line that is not finished within idleFlush is sent as it is, so a
+// prompt that ends without a line break still gives its address.
 type lineWriter struct {
-	out  chan<- string
-	buf  []byte
-	skip bool
+	out chan<- string
+
+	mu    sync.Mutex
+	buf   []byte
+	skip  bool
+	timer *time.Timer
+}
+
+// idleFlush is how long a partial line may sit before it is taken as a line.
+const idleFlush = 200 * time.Millisecond
+
+func (w *lineWriter) send() {
+	if !w.skip && len(w.buf) > 0 {
+		select {
+		case w.out <- string(w.buf):
+		default:
+		}
+	}
+	w.buf, w.skip = w.buf[:0], false
 }
 
 func (w *lineWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
 	for _, b := range p {
 		if b == '\n' || b == '\r' {
-			if !w.skip && len(w.buf) > 0 {
-				select {
-				case w.out <- string(w.buf):
-				default:
-				}
-			}
-			w.buf, w.skip = w.buf[:0], false
+			w.send()
 			continue
 		}
 		if w.skip {
@@ -171,7 +196,45 @@ func (w *lineWriter) Write(p []byte) (int, error) {
 		}
 		w.buf = append(w.buf, b)
 	}
+	if w.timer != nil {
+		w.timer.Stop()
+		w.timer = nil
+	}
+	if len(w.buf) > 0 {
+		w.timer = time.AfterFunc(idleFlush, func() {
+			w.mu.Lock()
+			w.send()
+			w.mu.Unlock()
+		})
+	}
 	return len(p), nil
+}
+
+// stop sends what is left and cancels the timer.
+func (w *lineWriter) stop() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.timer != nil {
+		w.timer.Stop()
+		w.timer = nil
+	}
+	w.send()
+}
+
+// LoginEnv returns env without what the login command must not get: Flockdeck's
+// own variables and anything that holds a key or a token for the agent's API.
+// HOME, USERPROFILE, APPDATA and the proxy variables stay.
+func LoginEnv(env []string) []string {
+	out := make([]string, 0, len(env))
+	for _, kv := range env {
+		name, _, _ := strings.Cut(kv, "=")
+		n := strings.ToUpper(name)
+		if strings.HasPrefix(n, "FLOCKDECK_") || strings.HasPrefix(n, "PERCH_") || strings.Contains(n, "API_KEY") || strings.Contains(n, "AUTH_TOKEN") {
+			continue
+		}
+		out = append(out, kv)
+	}
+	return out
 }
 
 var (
@@ -233,7 +296,7 @@ func clean(raw string, hosts []string, checkHost bool) (string, bool) {
 	ok := false
 	for _, a := range hosts {
 		a = strings.ToLower(a)
-		if a != "" && (h == a || strings.HasSuffix(h, "."+a)) {
+		if a != "" && h == a {
 			ok = true
 			break
 		}

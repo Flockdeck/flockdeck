@@ -22,6 +22,7 @@ const (
 	envFake  = "FD_LOGIN_FAKE"
 	envBeat  = "FD_LOGIN_BEAT"
 	envChild = "FD_LOGIN_CHILD"
+	envOut   = "FD_LOGIN_OUT"
 )
 
 func TestMain(m *testing.M) {
@@ -66,6 +67,20 @@ func runFake(mode string) {
 	case "hostile":
 		os.Stdout.WriteString("http://claude.ai/plain https://user:pw@claude.ai/x https://evil.example/y https://claude.ai.evil.example/z\n")
 		os.Stdout.WriteString("\x1b]8;;https://claude.ai/osc8?x=1\x1b\\link\x1b]8;;\x1b\\\n")
+	case "noline":
+		// A prompt that ends without a line break and waits.
+		os.Stdout.WriteString("Visit this page: " + good)
+		time.Sleep(2 * time.Second)
+	case "record":
+		// Where the command runs and which variables it was given.
+		out := os.Getenv(envOut)
+		wd, _ := os.Getwd()
+		var names []string
+		for _, kv := range os.Environ() {
+			n, _, _ := strings.Cut(kv, "=")
+			names = append(names, n)
+		}
+		_ = os.WriteFile(out, []byte(wd+"\n"+strings.Join(names, "\n")), 0o600)
 	case "tree":
 		os.Stdout.WriteString(good + "\n")
 		exe, _ := os.Executable()
@@ -210,7 +225,7 @@ func assertSilent(t *testing.T, path string) {
 }
 
 func TestClean(t *testing.T) {
-	hosts := []string{"claude.ai", "anthropic.com"}
+	hosts := []string{"claude.ai", "console.anthropic.com"}
 	ok := []string{
 		"https://claude.ai/oauth/authorize?a=b",
 		"https://console.anthropic.com/x#frag",
@@ -222,27 +237,36 @@ func TestClean(t *testing.T) {
 		}
 	}
 	bad := map[string]string{
-		"http":            "http://claude.ai/x",
-		"userinfo":        "https://u@claude.ai/x",
-		"userinfo+pw":     "https://u:p@claude.ai/x",
-		"other host":      "https://evil.example/x",
-		"suffix trick":    "https://claude.ai.evil.example/x",
-		"prefix trick":    "https://notclaude.ai/x",
-		"port":            "https://claude.ai:8443/x",
-		"ip":              "https://127.0.0.1/x",
-		"trailing dot":    "https://claude.ai./x",
-		"space":           "https://claude.ai/a b",
-		"control":         "https://claude.ai/a\x01b",
-		"newline":         "https://claude.ai/a\nb",
-		"bidi":            "https://claude.ai/a‮b",
-		"non ascii host":  "https://clаude.ai/x",
-		"javascript":      "javascript:alert(1)",
-		"opaque":          "https:claude.ai/x",
-		"empty":           "",
-		"too long":        "https://claude.ai/" + strings.Repeat("a", MaxURL),
-		"no host":         "https:///x",
-		"backslash":       "https://claude.ai\\@evil.example/",
-		"scheme relative": "//claude.ai/x",
+		"http":             "http://claude.ai/x",
+		"userinfo":         "https://u@claude.ai/x",
+		"userinfo+pw":      "https://u:p@claude.ai/x",
+		"other host":       "https://evil.example/x",
+		"suffix trick":     "https://claude.ai.evil.example/x",
+		"subdomain":        "https://www.claude.ai/x",
+		"other subdomain":  "https://x.console.anthropic.com/x",
+		"whole domain":     "https://anthropic.com/x",
+		"hyphen lookalike": "https://claude.ai-evil.com/x",
+		"percent host":     "https://claude%2eai/x",
+		"percent dot":      "https://claude.ai%2eevil.com/x",
+		"percent escape":   "https://%63laude.ai/x",
+		"at sign":          "https://claude.ai@evil.example/x",
+		"encoded at":       "https://claude.ai%40evil.example/x",
+		"prefix trick":     "https://notclaude.ai/x",
+		"port":             "https://claude.ai:8443/x",
+		"ip":               "https://127.0.0.1/x",
+		"trailing dot":     "https://claude.ai./x",
+		"space":            "https://claude.ai/a b",
+		"control":          "https://claude.ai/a\x01b",
+		"newline":          "https://claude.ai/a\nb",
+		"bidi":             "https://claude.ai/a‮b",
+		"non ascii host":   "https://clаude.ai/x",
+		"javascript":       "javascript:alert(1)",
+		"opaque":           "https:claude.ai/x",
+		"empty":            "",
+		"too long":         "https://claude.ai/" + strings.Repeat("a", MaxURL),
+		"no host":          "https:///x",
+		"backslash":        "https://claude.ai\\@evil.example/",
+		"scheme relative":  "//claude.ai/x",
 	}
 	for name, s := range bad {
 		if u, good := Clean(s, hosts); good {
@@ -314,5 +338,74 @@ func TestRunnerCloseReturnsOnlyAfterTheCommandIsGone(t *testing.T) {
 	}
 	if err := (&Runner{}).Do(context.Background(), fakeSpec(t, "ok"), func(string) {}); err != nil {
 		t.Errorf("a fresh Runner: %v", err)
+	}
+}
+
+func TestNoLineBreakStillYieldsTheAddress(t *testing.T) {
+	on, got := collect()
+	start := time.Now()
+	sp := fakeSpec(t, "noline")
+	if err := Run(context.Background(), sp, on); err != nil {
+		t.Fatal(err)
+	}
+	if u := got(); len(u) != 1 || !strings.HasPrefix(u[0], "https://claude.ai/oauth/authorize?") {
+		t.Fatalf("urls = %q", u)
+	}
+	_ = start
+}
+
+// The address must arrive while the command is still waiting, not when it ends.
+func TestNoLineBreakAddressArrivesBeforeTheCommandEnds(t *testing.T) {
+	sp := fakeSpec(t, "noline")
+	first := make(chan time.Duration, 1)
+	start := time.Now()
+	if err := Run(context.Background(), sp, func(string) { first <- time.Since(start) }); err != nil {
+		t.Fatal(err)
+	}
+	if d := <-first; d > 1500*time.Millisecond {
+		t.Errorf("the address came after %v; the command waited 2s", d)
+	}
+}
+
+func TestLoginRunsInTheTempDirWithoutKeysOrFlockdeckVariables(t *testing.T) {
+	out := filepath.Join(t.TempDir(), "rec")
+	cwd := t.TempDir() // the "project" directory the adapter itself runs in
+	t.Chdir(cwd)
+	sp := fakeSpec(t, "record", envOut+"="+out,
+		"FLOCKDECK_TOKEN=x", "PERCH_SESSION=x", "ANTHROPIC_API_KEY=k", "OPENAI_API_KEY=k", "ANTHROPIC_AUTH_TOKEN=k",
+		"HTTPS_PROXY=http://proxy.example:3128", "NO_PROXY=localhost", "HOME=/h", "USERPROFILE=C:/h", "APPDATA=C:/a")
+	if err := Run(context.Background(), sp, func(string) {}); err != nil {
+		t.Fatal(err)
+	}
+	b, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(string(b), "\n")
+	want, _ := filepath.EvalSymlinks(os.TempDir())
+	got, _ := filepath.EvalSymlinks(lines[0])
+	if got != want {
+		t.Errorf("the command ran in %q, want %q", got, want)
+	}
+	have := map[string]bool{}
+	for _, n := range lines[1:] {
+		have[strings.ToUpper(n)] = true
+	}
+	for n := range have {
+		if strings.HasPrefix(n, "FLOCKDECK_") || strings.HasPrefix(n, "PERCH_") || strings.Contains(n, "API_KEY") || strings.Contains(n, "AUTH_TOKEN") {
+			t.Errorf("the command was given %s", n)
+		}
+	}
+	for _, n := range []string{"HTTPS_PROXY", "NO_PROXY", "HOME", "USERPROFILE", "APPDATA"} {
+		if !have[n] {
+			t.Errorf("the command was not given %s", n)
+		}
+	}
+}
+
+func TestLoginEnv(t *testing.T) {
+	got := LoginEnv([]string{"A=1", "flockdeck_x=1", "FLOCKDECK_Y=1", "CODEX_API_KEY=k", "x_auth_token=k", "PERCH_Z=1", "PATH=/bin"})
+	if strings.Join(got, ",") != "A=1,PATH=/bin" {
+		t.Errorf("env = %v", got)
 	}
 }

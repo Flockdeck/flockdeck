@@ -11,7 +11,7 @@ import (
 // loginHosts are the hosts claude's sign-in page can be on: the Claude
 // subscription page (claude.ai, claude.com) and the Anthropic Console
 // (console.anthropic.com, platform.claude.com).
-var loginHosts = []string{"claude.ai", "claude.com", "anthropic.com"}
+var loginHosts = []string{"claude.ai", "claude.com", "console.anthropic.com", "platform.claude.com"}
 
 // authMethods is what initialize lists: the one way the adapter signs claude
 // in. Fixed text; claude's own words are never used.

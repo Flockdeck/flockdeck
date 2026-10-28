@@ -87,7 +87,7 @@ const (
 	envAuth    = "FLOCKDECK_ACPTEST_AUTH"
 	envAuthn   = "FLOCKDECK_ACPTEST_AUTHENTICATE"
 	envAuthLog = "FLOCKDECK_ACPTEST_AUTHENTICATE_LOG"
-	envSignIn  = "FLOCKDECK_ACPTEST_SIGNIN" // ok, hang, fail, badurl, urlonly
+	envSignIn  = "FLOCKDECK_ACPTEST_SIGNIN" // ok, hang, fail, badurl, urlonly, early
 	envSignURL = "FLOCKDECK_ACPTEST_SIGNIN_URL"
 	envMarker  = "FLOCKDECK_ACPTEST_MARKER"
 	envMute    = "FLOCKDECK_ACPTEST_MUTE"
@@ -352,6 +352,10 @@ func (a *agent) handle(m msg) {
 				map[string]any{"id": "api-key", "name": "API key", "description": "Use a key"},
 				map[string]any{"id": "login", "name": "Log in"},
 			}
+		}
+		if os.Getenv(envSignIn) == "early" {
+			// A notification before any authenticate call: the client must not take it.
+			a.send(map[string]any{"jsonrpc": "2.0", "method": "_flockdeck/signin_url", "params": map[string]any{"url": "https://claude.ai/early"}})
 		}
 		if os.Getenv(envSignIn) != "" {
 			res["authMethods"] = append(res["authMethods"].([]any), map[string]any{"id": "flockdeck-login", "name": "Sign in with the agent's login command"})
@@ -1209,7 +1213,9 @@ func (a *agent) signIn(id json.RawMessage, mode string) {
 	if mode == "badurl" {
 		u = "http://evil.example/steal"
 	}
-	a.send(map[string]any{"jsonrpc": "2.0", "method": "_flockdeck/signin_url", "params": map[string]any{"url": u}})
+	if mode != "early" {
+		a.send(map[string]any{"jsonrpc": "2.0", "method": "_flockdeck/signin_url", "params": map[string]any{"url": u}})
+	}
 	switch mode {
 	case "hang":
 		return

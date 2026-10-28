@@ -256,6 +256,15 @@ func runFakeLogin() {
 	}
 	const good = "https://claude.ai/oauth/authorize?client_id=abc&state=s"
 	switch os.Getenv(envLogin) {
+	case "record":
+		fmt.Println(good)
+		wd, _ := os.Getwd()
+		var names []string
+		for _, kv := range os.Environ() {
+			n, _, _ := strings.Cut(kv, "=")
+			names = append(names, n)
+		}
+		_ = os.WriteFile(os.Getenv("FD_CLAUDEACP_LOGINOUT"), []byte(wd+"\n"+strings.Join(names, "\n")), 0o600)
 	case "ok":
 		fmt.Println("Opening browser...")
 		fmt.Println("visit " + good)

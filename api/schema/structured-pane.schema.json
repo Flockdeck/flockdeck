@@ -172,7 +172,7 @@
       "properties": {
         "available": { "type": "boolean", "description": "The pane waits for a login and its adapter can run one. False when only the state of an earlier sign-in is shown." },
         "state": { "enum": ["starting", "waiting", "done", "failed"], "description": "Absent before a sign-in is started. starting (the login command has not printed its address yet); waiting (url is the page to open and the command waits for the person); done (the command ended well, the pane restarts); failed (it failed, timed out or could not start; say so in fixed words and offer to try again). Never carries text from the agent." },
-        "url": { "type": "string", "maxLength": 2048, "pattern": "^https://", "description": "The page to sign in on. Present in the state waiting. https only, no user name or password, no port, ASCII only, at most 2048 bytes, and on a host the adapter allows for its agent. It is the only string in the block that came from the agent's login command. Draw it as a link that opens outside the app (rel noopener noreferrer), and show its host." }
+        "url": { "type": "string", "maxLength": 2048, "pattern": "^https://", "description": "The page to sign in on. Present in the state waiting. https only, no user name or password, no port, ASCII only, at most 2048 bytes, and on a host from the adapter's own exact list (Flockdeck's own adapters only). It is the only string in the block that came from the agent's login command. Draw it as a link that opens outside the app (rel noopener noreferrer), and show its host." }
       }
     },
     "planRow": {

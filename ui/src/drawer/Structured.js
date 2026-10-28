@@ -151,7 +151,7 @@ export function activityOf(st, entries = []) {
  *  first one; error is the store's structuredError; desk is false in a window
  *  reached through the relay. snap is the store's snapshot, which carries the
  *  desk's answer to a send. */
-export function Structured({ pane, snap, st, error = null, cancelError = null, settingError = null, queueResult = null, shellResult = null, exportResult = null, infoResult = null, desk = true, store, conv = null, onOlder = null, details = null, onDetail = null, pending = null, search = null, onSearch = null, onClearSearch = null }) {
+export function Structured({ pane, snap, st, error = null, cancelError = null, settingError = null, queueResult = null, shellResult = null, exportResult = null, infoResult = null, signInResult = null, desk = true, store, conv = null, onOlder = null, details = null, onDetail = null, pending = null, search = null, onSearch = null, onClearSearch = null }) {
   // The draft and the history are kept per pane (composerModel.js), so they outlive this component.
   const kept = useRef(null);
   if (kept.current === null) kept.current = loadComposer(pane);
@@ -558,7 +558,7 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
         ${desk ? html`<button type="button" class="drawer-btn structured-info-btn" aria-expanded=${infoFor === pane || needsSignIn(st) ? "true" : "false"} disabled=${needsSignIn(st)} title=${needsSignIn(st) ? "Open until the agent is signed in" : undefined} onClick=${() => setInfoFor(infoFor === pane ? "" : pane)}>Agent info</button>` : null}
       </div>
       <${TodoList} st=${st} pane=${pane} />
-      ${desk && (infoFor === pane || needsSignIn(st)) ? html`<${InfoPanel} pane=${pane} st=${st} store=${store} result=${infoResult} onClose=${() => setInfoFor("")} />` : null}
+      ${desk && (infoFor === pane || needsSignIn(st)) ? html`<${InfoPanel} pane=${pane} st=${st} store=${store} result=${infoResult} signInResult=${signInResult} onClose=${() => setInfoFor("")} />` : null}
       ${desk && exporting === pane ? html`<${ExportPanel} pane=${pane} store=${store} result=${exportResult} onClose=${() => setExporting("")} />` : null}
       ${controls.length
         ? html`<div class="structured-settings" ref=${settingsEl} role="group" aria-label="Agent settings">
