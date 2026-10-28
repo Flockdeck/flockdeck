@@ -59,8 +59,7 @@ func (s *Server) structuredSignIn(c *controlClient, cmd command) {
 		refuse(c, cmd, errStructured(structuredNotPane))
 		return
 	}
-	agentID := rt.Info().Catalog
-	if holder := s.signIns[agentID]; holder != nil && holder != rt && signInActive(holder) {
+	if s.otherSignInOfSameAgent(rt) {
 		refuse(c, cmd, errStructured(structuredSignInOther))
 		return
 	}
@@ -71,10 +70,7 @@ func (s *Server) structuredSignIn(c *controlClient, cmd command) {
 	})
 	switch {
 	case err == nil:
-		if s.signIns == nil {
-			s.signIns = map[string]*structured.Runtime{}
-		}
-		s.signIns[agentID] = rt
+		s.signIns = append(s.pruneSignIns(), rt)
 		c.sendJSON(teamResultMsg{Type: "teamResult", Req: cmd.Req, Op: cmd.Cmd, OK: true})
 	case errors.Is(err, structured.ErrSignInBusy):
 		refuse(c, cmd, errStructured(structuredSignInBusy))
@@ -115,4 +111,31 @@ func (s *Server) restartIfOwner(id string, rt *structured.Runtime) bool {
 		return false
 	}
 	return s.ws.RestartPaneByID(id)
+}
+
+// pruneSignIns drops the panes whose sign-in has ended or that are gone.
+func (s *Server) pruneSignIns() []*structured.Runtime {
+	kept := s.signIns[:0:0]
+	for _, h := range s.signIns {
+		if signInActive(h) {
+			kept = append(kept, h)
+		}
+	}
+	return kept
+}
+
+// otherSignInOfSameAgent says another pane is signing in to the same agent as
+// rt. Panes are compared by the Info they report about themselves, so nothing
+// here knows which agents there are.
+func (s *Server) otherSignInOfSameAgent(rt *structured.Runtime) bool {
+	mine := rt.Info()
+	for _, h := range s.pruneSignIns() {
+		if h == rt {
+			continue
+		}
+		if o := h.Info(); o.Catalog == mine.Catalog && o.Adapter == mine.Adapter {
+			return true
+		}
+	}
+	return false
 }
