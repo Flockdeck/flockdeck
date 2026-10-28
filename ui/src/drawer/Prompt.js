@@ -46,8 +46,13 @@ export const ANSWER_WAIT_MS = 5000;
 export const NOT_TAKEN_WORDS = "The agent has not taken the choice yet. You can choose again.";
 export const NOT_ANSWERED_WORDS = "Not connected to Flockdeck, so the answer was not sent.";
 export const IN_TERMINAL_WORDS = "The choices are in the terminal below.";
-/** COMMAND_CUT_WORDS is said under a command that is not the whole one the agent sent: it was cut, or cleaning changed it. */
-export const COMMAND_CUT_WORDS = "The command was cut.";
+/** COMMAND_CUT_WORDS is said under a command that is not exactly the one the agent sent: it was cut, or cleaning changed it. */
+export const COMMAND_CUT_WORDS = "The command shown is not exactly what the agent sent.";
+/** COMMAND_SCROLL_WORDS is said under a command too long to see in its box at once, so that a dangerous line is not left below the fold. */
+export const COMMAND_SCROLL_WORDS = "Scroll to read the whole command.";
+/** COMMAND_SCROLL_LINES and COMMAND_SCROLL_CHARS are the size past which the command box may need a scroll. */
+export const COMMAND_SCROLL_LINES = 12;
+export const COMMAND_SCROLL_CHARS = 800;
 export const DETAILS_ON_DESKTOP_WORDS = "The details are on the desktop.";
 
 /** MAX_DIFF_LINES is how many lines of a diff the card draws. The rest is said, not drawn. */
@@ -77,12 +82,27 @@ export function waitingOn(node, pane) {
 
 const idOf = (...parts) => parts.map((p) => String(p == null ? "" : p)).join("\u0001");
 
+// The words under a command: how many lines it has, that it is not exactly what the
+// agent sent, and that it needs a scroll. They are drawn as plain, bold lines, like
+// the notes of the card, so that a long command cannot push the line that matters
+// out of sight without the person being told.
+function CommandNotes({ permission }) {
+  const text = String(permission.command);
+  const lines = text.split("\n").length;
+  const long = lines > COMMAND_SCROLL_LINES || text.length > COMMAND_SCROLL_CHARS;
+  return html`
+    ${lines > 1 ? html`<p class="prompt-note prompt-lines">${lines} lines</p>` : null}
+    ${long ? html`<p class="prompt-note prompt-scroll">${COMMAND_SCROLL_WORDS}</p>` : null}
+    ${permission.commandClipped ? html`<p class="prompt-note prompt-cut">${COMMAND_CUT_WORDS}</p>` : null}
+  `;
+}
+
 function Details({ permission }) {
   const diff = permission.diff ? diffRows(permission.diff) : null;
   return html`
     ${permission.summary ? html`<p class="prompt-summary">${permission.summary}</p>` : null}
     ${permission.command ? html`<pre class="prompt-command" aria-label="Command">${permission.command}</pre>` : null}
-    ${permission.command && permission.clipped ? html`<p class="prompt-more">${COMMAND_CUT_WORDS}</p>` : null}
+    ${permission.command ? html`<${CommandNotes} permission=${permission} />` : null}
     ${permission.cwd ? html`<p class="prompt-file"><span class="prompt-label">Directory</span> <code>${permission.cwd}</code></p>` : null}
     ${Array.isArray(permission.notes) ? permission.notes.map((n) => html`<p class="prompt-note">${n}</p>`) : null}
     ${permission.file ? html`<p class="prompt-file"><span class="prompt-label">File</span> <code>${permission.file}</code></p>` : null}

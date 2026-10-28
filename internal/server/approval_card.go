@@ -3,6 +3,8 @@ package server
 import (
 	"crypto/subtle"
 	"errors"
+	"io/fs"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -235,6 +237,39 @@ var denyFiles = map[string]bool{
 	"gemfile": true, "rakefile": true, "build.gradle": true, "build.gradle.kts": true, "settings.gradle": true, "pom.xml": true,
 	"cargo.toml": true, "build.rs": true, "composer.json": true, "taskfile.yml": true, "taskfile.yaml": true,
 	"authorized_keys": true, "id_rsa": true, "id_ed25519": true, "sudoers": true,
+	"go.mod": true, "go.work": true, "cmakelists.txt": true, "directory.build.props": true, "directory.build.targets": true,
+	"jenkinsfile": true, "docker-compose.yml": true, "docker-compose.yaml": true, "compose.yml": true, "compose.yaml": true,
+	"procfile": true, "vagrantfile": true, "earthfile": true, "build.sbt": true, "meson.build": true, "build.bazel": true,
+	"workspace": true, "module.bazel": true, "gradlew": true, "mvnw": true, "gradle.properties": true,
+}
+
+// denyExts are extensions (lower case) of files that are run by being opened or
+// named, or that open a project in a tool that runs them: scripts, shortcuts,
+// registry files, installers, programs, and project files of Visual Studio. An
+// ordinary source file (.go, .py, .js) is not here: it is not run by its name,
+// though it runs when it is tested. Like denyFiles this is a floor.
+var denyExts = map[string]bool{
+	".bat": true, ".cmd": true, ".ps1": true, ".psm1": true, ".psd1": true, ".sh": true, ".bash": true, ".zsh": true, ".fish": true,
+	".vbs": true, ".vbe": true, ".wsf": true, ".wsh": true, ".hta": true, ".lnk": true, ".url": true, ".reg": true, ".inf": true,
+	".scr": true, ".com": true, ".exe": true, ".dll": true, ".msi": true, ".jar": true, ".pif": true, ".cpl": true,
+	".csproj": true, ".vbproj": true, ".fsproj": true, ".vcxproj": true, ".sln": true, ".targets": true, ".props": true,
+	".gradle": true, ".mk": true, ".cmake": true,
+}
+
+// deviceName says a file name is one of the Windows device names (con, prn, aux,
+// nul, com1 to com9, lpt1 to lpt9), with or without an extension: opening one
+// opens the device and not a file.
+func deviceName(part string) bool {
+	base := strings.ToLower(part)
+	if i := strings.IndexByte(base, '.'); i >= 0 {
+		base = base[:i]
+	}
+	base = strings.TrimRight(base, " ")
+	switch base {
+	case "con", "prn", "aux", "nul", "conin$", "conout$", "clock$":
+		return true
+	}
+	return len(base) == 4 && (strings.HasPrefix(base, "com") || strings.HasPrefix(base, "lpt")) && base[3] >= '0' && base[3] <= '9'
 }
 
 // pathAllowed says an edit of path may be allowed from a phone: it is absolute and
@@ -259,7 +294,7 @@ func pathAllowed(path, root string) string {
 	for _, part := range strings.FieldsFunc(rel, func(r rune) bool { return r == '/' || r == '\\' }) {
 		switch {
 		case strings.HasPrefix(part, "."), strings.HasSuffix(part, "."), strings.HasSuffix(part, " "),
-			strings.ContainsAny(part, ":~"), denyFiles[strings.ToLower(part)]:
+			strings.ContainsAny(part, ":~"), denyFiles[strings.ToLower(part)], denyExts[strings.ToLower(filepath.Ext(part))], deviceName(part):
 			return whyPath
 		case mixedScripts(stem(part)), markRun(part) > 2, oddShape(part):
 			return whyOdd
@@ -608,11 +643,89 @@ func phoneAnswer(c *bridge.Card, token string, own bool, root string, l approval
 	case decision == decisionAllow && !p.CanAllow:
 		return "", errPhoneNoAllow
 	}
+	if decision == decisionAllow && p.Kind == phoneEdit && resolvedPathOK(c.File, root) != "" {
+		// A link in the path (a symlink, or a junction on Windows) may lead out
+		// of the project, or into a file the floor refuses. That is read from
+		// the file system now, at the moment of the decision.
+		return "", errPhoneNoAllow
+	}
 	id, ok := optionFor(c, decision)
 	if !ok {
 		return "", errPhoneNoOptions
 	}
 	return id, nil
+}
+
+// evalLinks and lstatPath read the file system for resolvedPathOK; a test
+// replaces them.
+var (
+	evalLinks = filepath.EvalSymlinks
+	lstatPath = os.Lstat
+)
+
+// noLinksBelow says no part of path below root is a link. Go does not resolve a
+// Windows junction (or any other reparse point that is not a symbolic link), so
+// filepath.EvalSymlinks leaves one as it is; such a part reads as irregular, and
+// so does a symlink as a link. Both are refused, and so is any part that cannot be
+// read, except that a part that is not there ends the walk: nothing below it
+// exists to be a link. A link inside the project that leads inside it is refused
+// too, as the cost of not following links at all.
+func noLinksBelow(path, root string) bool {
+	rel, err := filepath.Rel(root, path)
+	if err != nil {
+		return false
+	}
+	at := root
+	for _, part := range strings.Split(rel, string(filepath.Separator)) {
+		at = filepath.Join(at, part)
+		fi, err := lstatPath(at)
+		if errors.Is(err, fs.ErrNotExist) {
+			return true
+		}
+		if err != nil || (fi != nil && fi.Mode()&(fs.ModeSymlink|fs.ModeIrregular) != 0) {
+			return false
+		}
+	}
+	return true
+}
+
+// resolvedPathOK is pathAllowed for the path as the file system resolves it: the
+// root and the path are followed through every link (symlinks, junctions and other
+// reparse points), and the result is held to the same rules. The file may not
+// exist yet; then the nearest folder above it that does is resolved and the rest
+// is added. It fails closed: any error other than "does not exist" for a part
+// that is not there refuses the path.
+func resolvedPathOK(path, root string) string {
+	if why := pathAllowed(path, root); why != "" {
+		return why
+	}
+	if !noLinksBelow(path, root) {
+		return whyPath
+	}
+	rr, err := evalLinks(root)
+	if err != nil {
+		return whyPath
+	}
+	rest := ""
+	for p := path; ; {
+		_, err := lstatPath(p)
+		if err == nil {
+			base, err := evalLinks(p)
+			if err != nil {
+				return whyPath // a link that leads nowhere, or one that cannot be read
+			}
+			return pathAllowed(filepath.Join(base, rest), rr)
+		}
+		if !errors.Is(err, fs.ErrNotExist) {
+			return whyPath
+		}
+		parent := filepath.Dir(p)
+		if parent == p {
+			return whyPath
+		}
+		rest = filepath.Join(filepath.Base(p), rest)
+		p = parent
+	}
 }
 
 // stem is a file name without its extension when the extension is plain ASCII, so

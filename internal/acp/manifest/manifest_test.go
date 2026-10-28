@@ -466,7 +466,7 @@ func TestOwnAdapterIsTheTwoOwnAdaptersOnly(t *testing.T) {
 func TestShownInputKeysAreForTheOwnAdaptersOnly(t *testing.T) {
 	m := Default()
 	for id, want := range map[string][]string{
-		"claude":   {"command", "description", "timeout"},
+		"claude":   {"command", "description", "timeout", "bash_id", "filter", "shell_id"},
 		"codex-go": {"command", "cwd"},
 		"opencode": nil,
 	} {

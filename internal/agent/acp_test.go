@@ -501,7 +501,7 @@ func TestACPShownInputIsOwnAdaptersOnly(t *testing.T) {
 	spec := func(adapter string) Spec {
 		return Spec{ID: "claude", Runner: RunnerACP, ACP: ACPSpec{Adapter: adapter}}
 	}
-	if got := spec("claude").ACPShownInput(); len(got) != 3 || got[0] != "command" {
+	if got := spec("claude").ACPShownInput(); len(got) != 6 || got[0] != "command" {
 		t.Errorf("claude: %v", got)
 	}
 	if got := spec("codex-go").ACPShownInput(); len(got) != 2 || got[1] != "cwd" {

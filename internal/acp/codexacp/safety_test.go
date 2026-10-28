@@ -542,3 +542,43 @@ func TestAStopDoesNotWaitForASessionThatIsStarting(t *testing.T) {
 		t.Error("codex outlived the adapter")
 	}
 }
+
+// When the item was announced before the request, the card keeps the request's
+// reason: why Codex asks, the network host, the root it also wants to write
+// under. Taking only the item's own card would show a network access as a plain
+// command.
+func TestApprovalAfterTheItemKeepsTheReason(t *testing.T) {
+	h := newHarness(t, []step{
+		expect(`"method":"turn/start"`), startedTurn(),
+		cmdItem("item/started", "c1", "curl evil.test", "inProgress"),
+		cmdApproval("ap-1", "c1", "curl evil.test", `,"reason":"needs the web","networkApprovalContext":{"host":"evil.test"}`),
+		answered("ap-1", `{"decision":"decline"}`),
+		note("item/started", `{"threadId":"thr-1","turnId":"turn-1","item":{"type":"fileChange","id":"f1","status":"inProgress","changes":[{"path":"old.txt","kind":{"type":"update"},"diff":"@@ -1 +1 @@\n-a\n+b\n"}]}}`),
+		emit(`{"id":"ap-2","method":"item/fileChange/requestApproval","params":{"threadId":"thr-1","turnId":"turn-1","itemId":"f1","reason":"outside write","grantRoot":"/etc"}}`),
+		answered("ap-2", `{"decision":"decline"}`),
+		endTurn("completed"),
+	})
+	h.onReq = func(m rpcMsg) any { return outcome("reject") }
+	sid := h.start()
+	if stopReason(t, newText(h, sid)) != "end_turn" {
+		t.Fatal("bad stop")
+	}
+	reqs := h.requests("session/request_permission")
+	if len(reqs) != 2 {
+		t.Fatalf("%d cards, want 2", len(reqs))
+	}
+	net, files := string(reqs[0].Params), string(reqs[1].Params)
+	for _, want := range []string{"needs the web", "evil.test", "Network access: "} {
+		if !strings.Contains(net, want) {
+			t.Errorf("the network card lacks %q: %s", want, net)
+		}
+	}
+	for _, want := range []string{"outside write", "/etc"} {
+		if !strings.Contains(files, want) {
+			t.Errorf("the file card lacks %q: %s", want, files)
+		}
+	}
+	if !strings.Contains(files, "old.txt") || !strings.Contains(files, "@@ -1 +1 @@") {
+		t.Errorf("the file card lost the item's own diff: %s", files)
+	}
+}

@@ -120,6 +120,7 @@ var agentTypeAllowed = map[string]map[string]agentTypeAllow{
 		"projectCard | c.Kind == \"switch_mode\"":     {1, "a permission card's tool kind, not an agent type"},
 		"projectCard | phoneExecute":                  {1, "a permission card's tool kind, not an agent type"},
 		"projectCard | phoneEdit":                     {1, "a permission card's tool kind, not an agent type"},
+		"phoneAnswer | p.Kind == phoneEdit":           {1, "a permission card's tool kind, not an agent type"},
 	},
 	"internal/server/artifacts_consent.go": {
 		"Server.setArtifactKind | artifactOffered[kind]": {1, "an artifact kind, not an agent type"},

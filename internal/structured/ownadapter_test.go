@@ -42,7 +42,7 @@ func TestShownInputComesFromTheSpecOfAnOwnAdapter(t *testing.T) {
 	spec := func(adapter string) agent.Spec {
 		return agent.Spec{ID: "claude", Runner: agent.RunnerACP, ACP: agent.ACPSpec{Adapter: adapter}}
 	}
-	if got := shownInput(Options{Spec: spec("claude")}, nil); len(got) != 3 {
+	if got := shownInput(Options{Spec: spec("claude")}, nil); len(got) != 6 {
 		t.Errorf("claude: %v", got)
 	}
 	if got := shownInput(Options{Spec: spec("opencode")}, nil); got != nil {

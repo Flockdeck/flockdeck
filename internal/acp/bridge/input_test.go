@@ -53,24 +53,33 @@ func TestReadInputNotesWhatTheCardDoesNotShow(t *testing.T) {
 		execute bool
 		notes   []string
 	}{
-		"nothing more":        {`{"command":"ls","description":"d","timeout":5}`, own, true, nil},
-		"unknown key":         {`{"command":"ls","env":{"A":"b"}}`, own, true, []string{NoteExtra}},
-		"cwd, not listed":     {`{"command":"ls","cwd":"/x"}`, own, true, []string{NoteExtra}},
-		"cwd, listed":         {`{"command":"ls","cwd":"/x"}`, []string{"command", "cwd"}, true, nil},
-		"sandbox":             {`{"command":"ls","dangerouslyDisableSandbox":true}`, own, true, []string{NoteSandbox}},
-		"sandbox off":         {`{"command":"ls","dangerouslyDisableSandbox":false}`, own, true, nil},
-		"sandbox as text":     {`{"command":"ls","dangerouslyDisableSandbox":"false"}`, own, true, []string{NoteSandbox}},
-		"sandbox, other case": {`{"command":"ls","DangerouslyDisableSandbox":1}`, own, true, []string{NoteSandbox}},
-		"background":          {`{"command":"ls","run_in_background":true}`, own, true, []string{NoteBackground}},
-		"background null":     {`{"command":"ls","run_in_background":null}`, own, true, nil},
-		"replace all":         {`{"file_path":"a","replace_all":true}`, own, false, []string{NoteReplaceAll}},
-		"replace all off":     {`{"file_path":"a","replace_all":false}`, own, false, nil},
-		"an edit's keys":      {`{"file_path":"a","old_string":"b","new_string":"c"}`, own, false, nil},
-		"repeated key":        {`{"command":"ls","timeout":1,"timeout":2}`, own, true, []string{NoteExtra}},
-		"not an object":       {`"ls"`, own, true, []string{NoteExtra}},
-		"not an object, edit": {`"ls"`, own, false, nil},
-		"default keys":        {`{"command":"ls","cwd":"/x"}`, nil, true, nil},
-		"all three":           {`{"command":"ls","dangerouslyDisableSandbox":true,"run_in_background":true,"x":1}`, own, true, []string{NoteSandbox, NoteBackground, NoteExtra}},
+		"nothing more":             {`{"command":"ls","description":"d","timeout":5}`, own, true, nil},
+		"unknown key":              {`{"command":"ls","env":{"A":"b"}}`, own, true, []string{NoteExtra}},
+		"cwd, not listed":          {`{"command":"ls","cwd":"/x"}`, own, true, []string{NoteExtra}},
+		"cwd, listed":              {`{"command":"ls","cwd":"/x"}`, []string{"command", "cwd"}, true, nil},
+		"sandbox":                  {`{"command":"ls","dangerouslyDisableSandbox":true}`, own, true, []string{NoteSandbox}},
+		"sandbox off":              {`{"command":"ls","dangerouslyDisableSandbox":false}`, own, true, nil},
+		"sandbox as text":          {`{"command":"ls","dangerouslyDisableSandbox":"false"}`, own, true, []string{NoteSandbox}},
+		"sandbox, other case":      {`{"command":"ls","DangerouslyDisableSandbox":1}`, own, true, []string{NoteSandbox}},
+		"background":               {`{"command":"ls","run_in_background":true}`, own, true, []string{NoteBackground}},
+		"background null":          {`{"command":"ls","run_in_background":null}`, own, true, nil},
+		"replace all":              {`{"file_path":"a","replace_all":true}`, own, false, []string{NoteReplaceAll}},
+		"replace all off":          {`{"file_path":"a","replace_all":false}`, own, false, nil},
+		"an edit's keys":           {`{"file_path":"a","old_string":"b","new_string":"c"}`, own, false, nil},
+		"repeated key":             {`{"command":"ls","timeout":1,"timeout":2}`, own, true, []string{NoteExtra}},
+		"not an object":            {`"ls"`, own, true, []string{NoteExtra}},
+		"not an object, edit":      {`"ls"`, own, false, nil},
+		"default keys":             {`{"command":"ls","cwd":"/x"}`, nil, true, nil},
+		"multiedit, plain":         {`{"file_path":"a","edits":[{"old_string":"b","new_string":"c"},{"old_string":"d","new_string":"e","replace_all":false}]}`, own, false, nil},
+		"multiedit, one all":       {`{"file_path":"a","edits":[{"old_string":"b","new_string":"c"},{"old_string":"d","new_string":"e","replace_all":true}]}`, own, false, []string{NoteReplaceAll}},
+		"multiedit, other case":    {`{"file_path":"a","edits":[{"Replace_All":true}]}`, own, false, []string{NoteReplaceAll, NoteExtra}},
+		"multiedit, a new key":     {`{"file_path":"a","edits":[{"old_string":"b","new_string":"c","regex":true}]}`, own, false, []string{NoteExtra}},
+		"multiedit, repeated":      {`{"file_path":"a","edits":[{"old_string":"b","old_string":"x","new_string":"c"}]}`, own, false, []string{NoteExtra}},
+		"multiedit, not an object": {`{"file_path":"a","edits":["x"]}`, own, false, []string{NoteExtra}},
+		"multiedit, not a list":    {`{"file_path":"a","edits":{"replace_all":true}}`, own, false, []string{NoteExtra}},
+		"edits, other case":        {`{"file_path":"a","Edits":[{"old_string":"b","new_string":"c"}]}`, own, false, []string{NoteExtra}},
+		"BashOutput":               {`{"bash_id":"1","filter":"x"}`, []string{"command", "description", "timeout", "bash_id", "filter", "shell_id"}, true, nil},
+		"all three":                {`{"command":"ls","dangerouslyDisableSandbox":true,"run_in_background":true,"x":1}`, own, true, []string{NoteSandbox, NoteBackground, NoteExtra}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			in := readInput(json.RawMessage(tc.raw), tc.shown, tc.execute)
@@ -100,5 +109,21 @@ func TestACardCarriesTheDirectoryAndNotes(t *testing.T) {
 	c = inputCard(t, cfg, "execute", `{"Command":"rm x"}`)
 	if !c.CommandAltered || c.CommandText != "" {
 		t.Errorf("a differently-cased command key: text %q altered %v", c.CommandText, c.CommandAltered)
+	}
+}
+
+// A lone surrogate in the command decodes to U+FFFD, which is not what was sent.
+func TestALoneSurrogateInTheCommandIsAltered(t *testing.T) {
+	const u = `\u`
+	c := inputCard(t, Config{}, "execute", `{"command":"echo `+u+`d800"}`)
+	if !c.CommandAltered {
+		t.Errorf("CommandText %q altered %v", c.CommandText, c.CommandAltered)
+	}
+	if c := inputCard(t, Config{}, "execute", `{"command":"echo `+u+`d83d`+u+`de00"}`); c.CommandAltered {
+		t.Errorf("a valid pair is altered: %q", c.CommandText)
+	}
+	c = inputCard(t, Config{ShownInput: []string{"command", "cwd"}}, "execute", `{"command":"ls","cwd":"/a`+u+`d800"}`)
+	if !slices.Contains(c.Notes, NoteExtra) {
+		t.Errorf("a directory with a lone surrogate is not noted: %v", c.Notes)
 	}
 }

@@ -104,6 +104,10 @@ type structuredCard struct {
 	Notes     []string           `json:"notes,omitempty"`
 	Options   []structuredOption `json:"options"`
 	Clipped   bool               `json:"clipped,omitempty"`
+	// CommandClipped says the command above is not exactly the one the agent
+	// sent: it was cut, or cleaning took a character out of it, or the input
+	// names the command in a way an adapter may read differently.
+	CommandClipped bool `json:"commandClipped,omitempty"`
 	// Body is the text the request shows about its call, such as the plan of
 	// ExitPlanMode; Diff the unified diff of the edit it asks about. Both are
 	// plain text, to be drawn as text. Questions are those of a question card,
@@ -308,7 +312,7 @@ func buildStructured(id string, sn structured.Snapshot) structuredMsg {
 		card.Command, cut = clipStructured(cmd, structuredCommandTextCut)
 		// A command that is not the one the agent sent (cleaning took a character
 		// out, or it was cut by the bridge) says so, as one cut here does.
-		cl = cl || cut || c.CommandAltered
+		card.CommandClipped = cut || c.CommandAltered
 		field(&card.Cwd, c.Cwd, structuredCardCut)
 		card.Notes = structuredNotes(c.Notes)
 		for _, o := range c.Options {

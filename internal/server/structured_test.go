@@ -529,22 +529,22 @@ func TestStructuredCardShowsTheWholeCommand(t *testing.T) {
 		return *buildStructured("p", structured.Snapshot{Phase: structured.PhaseReady, Status: bridge.StatusWaiting, Pending: &c}).Card
 	}
 	got := card(bridge.Card{Command: "echo hi", CommandText: cmd})
-	if got.Command != cmd || got.Clipped {
-		t.Errorf("command %q clipped %v, want the three lines, not clipped", got.Command, got.Clipped)
+	if got.Command != cmd || got.CommandClipped {
+		t.Errorf("command %q clipped %v, want the three lines, not clipped", got.Command, got.CommandClipped)
 	}
 	// A card from before the whole command was kept still shows its first line.
 	if got := card(bridge.Card{Command: "echo hi"}); got.Command != "echo hi" {
 		t.Errorf("command = %q", got.Command)
 	}
 	// Cleaning took a character out: not the command that was sent.
-	if got := card(bridge.Card{Command: "echo hi", CommandText: "echo hi", CommandAltered: true}); !got.Clipped {
-		t.Error("a command cleaning changed is not marked as cut")
+	if got := card(bridge.Card{Command: "echo hi", CommandText: "echo hi", CommandAltered: true}); !got.CommandClipped || got.Clipped {
+		t.Errorf("a command cleaning changed: commandClipped %v clipped %v, want the first and not the card-wide one", got.CommandClipped, got.Clipped)
 	}
 	// A command past the cut is cut, and says so, and stays whole UTF-8.
 	long := strings.Repeat("é", structuredCommandTextCut)
 	got = card(bridge.Card{Command: "x", CommandText: long})
-	if !got.Clipped || len(got.Command) > structuredCommandTextCut || !utf8.ValidString(got.Command) {
-		t.Errorf("long command: %d bytes clipped %v", len(got.Command), got.Clipped)
+	if !got.CommandClipped || len(got.Command) > structuredCommandTextCut || !utf8.ValidString(got.Command) {
+		t.Errorf("long command: %d bytes clipped %v", len(got.Command), got.CommandClipped)
 	}
 	// The whole-command fields of the bridge's card are not on the wire.
 	raw, _ := json.Marshal(card(bridge.Card{Command: "a", CommandText: cmd, CommandAltered: true}))

@@ -532,7 +532,7 @@ func (b *Bridge) open(req acp.PermissionRequest) (Card, map[string]string) {
 	c.CommandAltered = c.CommandAltered || in.altered
 	c.Cwd = line(in.cwd, 1024)
 	c.Notes = in.notes
-	if c.Cwd != in.cwd && !slices.Contains(c.Notes, NoteExtra) {
+	if (c.Cwd != in.cwd || strings.ContainsRune(in.cwd, utf8.RuneError)) && !slices.Contains(c.Notes, NoteExtra) {
 		// Cleaning changed it, so the directory shown is not the one named.
 		c.Notes = append(c.Notes[:len(c.Notes):len(c.Notes)], NoteExtra)
 	}

@@ -3,7 +3,9 @@ package bridge
 import (
 	"bytes"
 	"encoding/json"
+	"slices"
 	"strings"
+	"unicode/utf8"
 )
 
 // The notes a card can carry about its call, as fixed codes. A note says the
@@ -44,6 +46,82 @@ type cardInput struct {
 	notes []string
 }
 
+// field is one member of a JSON object, in the order it was sent.
+type field struct {
+	key string
+	val json.RawMessage
+}
+
+// parseObject reads raw as exactly one JSON object and returns its members in
+// order, repeats included. ok is false for anything else: another kind of value,
+// a damaged object, or text after it.
+func parseObject(raw json.RawMessage) (fields []field, ok bool) {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	if t, err := dec.Token(); err != nil || t != json.Delim('{') {
+		return nil, false
+	}
+	for dec.More() {
+		kt, err := dec.Token()
+		key, isStr := kt.(string)
+		if err != nil || !isStr {
+			return nil, false
+		}
+		var v json.RawMessage
+		if dec.Decode(&v) != nil {
+			return nil, false
+		}
+		fields = append(fields, field{key, v})
+	}
+	if t, err := dec.Token(); err != nil || t != json.Delim('}') {
+		return nil, false
+	}
+	if _, err := dec.Token(); err == nil {
+		return nil, false // something after the object
+	}
+	return fields, true
+}
+
+// editKeys are the keys of one element of a MultiEdit's "edits".
+var editKeys = []string{"old_string", "new_string", "replace_all"}
+
+// readEdits reads the "edits" of a MultiEdit: replaceAll says an element replaces
+// every match, extra says an element is not an object of the known keys, or the
+// value is not a list of them.
+func readEdits(raw json.RawMessage) (replaceAll, extra bool) {
+	var list []json.RawMessage
+	if json.Unmarshal(raw, &list) != nil {
+		return false, true
+	}
+	for _, el := range list {
+		fields, ok := parseObject(el)
+		if !ok {
+			extra = true
+			continue
+		}
+		seen := map[string]bool{}
+		for _, f := range fields {
+			if seen[f.key] {
+				extra = true
+			}
+			seen[f.key] = true
+			switch {
+			case f.key == "replace_all" || strings.EqualFold(f.key, "replace_all"):
+				replaceAll = replaceAll || notFalse(f.val)
+				extra = extra || f.key != "replace_all"
+			case !slices.Contains(editKeys, f.key):
+				extra = true
+			}
+		}
+	}
+	return replaceAll, extra
+}
+
+// notFalse says a JSON flag is set: any value but false or null.
+func notFalse(v json.RawMessage) bool {
+	s := string(bytes.TrimSpace(v))
+	return s != "false" && s != "null"
+}
+
 // readInput reads the input of a call. shown are the keys of a command that are
 // known (Config.ShownInput); execute says the call is a command, the only kind
 // whose unknown keys are noted.
@@ -52,38 +130,7 @@ func readInput(raw json.RawMessage, shown []string, execute bool) cardInput {
 	if len(bytes.TrimSpace(raw)) == 0 {
 		return in
 	}
-	type field struct {
-		key string
-		val json.RawMessage
-	}
-	var fields []field
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	ok := false
-	if t, err := dec.Token(); err == nil && t == json.Delim('{') {
-		ok = true
-		for dec.More() {
-			kt, err := dec.Token()
-			key, isStr := kt.(string)
-			if err != nil || !isStr {
-				ok = false
-				break
-			}
-			var v json.RawMessage
-			if dec.Decode(&v) != nil {
-				ok = false
-				break
-			}
-			fields = append(fields, field{key, v})
-		}
-		if ok {
-			if t, err := dec.Token(); err != nil || t != json.Delim('}') {
-				ok = false
-			}
-			if _, err := dec.Token(); err == nil {
-				ok = false // something after the object
-			}
-		}
-	}
+	fields, ok := parseObject(raw)
 	if !ok {
 		if execute {
 			in.notes = append(in.notes, NoteExtra)
@@ -101,10 +148,6 @@ func readInput(raw json.RawMessage, shown []string, execute bool) cardInput {
 		}
 		return false
 	}
-	notFalse := func(v json.RawMessage) bool {
-		s := string(bytes.TrimSpace(v))
-		return s != "false" && s != "null"
-	}
 	seen := map[string]bool{}
 	var sandbox, background, replaceAll, extra bool
 	for _, f := range fields {
@@ -120,6 +163,8 @@ func readInput(raw json.RawMessage, shown []string, execute bool) cardInput {
 			var s string
 			if json.Unmarshal(f.val, &s) == nil {
 				in.command = s
+				// A lone surrogate decodes to U+FFFD, which is no longer what was sent.
+				in.altered = in.altered || strings.ContainsRune(s, utf8.RuneError)
 			}
 		case strings.EqualFold(f.key, "command"):
 			in.altered = true
@@ -134,6 +179,9 @@ func readInput(raw json.RawMessage, shown []string, execute bool) cardInput {
 			background = background || notFalse(f.val)
 		case strings.EqualFold(f.key, "replace_all"):
 			replaceAll = replaceAll || notFalse(f.val)
+		case strings.EqualFold(f.key, "edits"):
+			r, x := readEdits(f.val)
+			replaceAll, extra = replaceAll || r, extra || x || f.key != "edits"
 		case execute && !has(shown, f.key):
 			extra = true
 		}

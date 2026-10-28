@@ -505,7 +505,8 @@ func (m Manifest) Table() string {
 
 // ShownInputKeys are the keys of a shell command's input that the adapter is
 // known to send and that a card shows or can ignore: for Flockdeck's own Claude
-// adapter the keys of the Bash tool that change nothing about what runs, for its
+// adapter the keys of the Bash tool that change nothing about what runs (and the
+// ids and filter of BashOutput and KillShell, which run nothing), for its
 // Codex adapter the command and its directory. Input with any other key is
 // something the card does not show. It is nil for every other adapter, which has
 // no known list.
@@ -516,5 +517,5 @@ func (a Adapter) ShownInputKeys() []string {
 	if a.Drives == "codex" {
 		return []string{"command", "cwd"}
 	}
-	return []string{"command", "description", "timeout"}
+	return []string{"command", "description", "timeout", "bash_id", "filter", "shell_id"}
 }

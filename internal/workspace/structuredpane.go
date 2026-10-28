@@ -305,13 +305,25 @@ func (s *structuredRuntime) Waiting() WaitingOn {
 	if c == nil {
 		return WaitingOn{Detail: detail}
 	}
+	return WaitingOn{Detail: detail, ToolInput: waitingInput(c)}
+}
+
+// waitingInput is the tool input a permission view is made from: one line of the
+// command, and a mark when the command has more lines than that, so that a surface
+// that shows one line (the roster, the graph) does not show the first line as if
+// it were the whole command.
+func waitingInput(c *bridge.Card) string {
+	cmd := c.Command
+	if strings.ContainsRune(c.CommandText, 10) && cmd != "" {
+		cmd += " " + string(rune(0x2026))
+	}
 	in := struct {
 		Command     string `json:"command,omitempty"`
 		Description string `json:"description,omitempty"`
 		FilePath    string `json:"filePath,omitempty"`
-	}{c.Command, c.Summary, c.File}
+	}{cmd, c.Summary, c.File}
 	b, _ := json.Marshal(in)
-	return WaitingOn{Detail: detail, ToolInput: string(b)}
+	return string(b)
 }
 
 // PermissionOptions are the options of the request that is open, as the agent
