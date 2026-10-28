@@ -126,6 +126,13 @@ type Command struct {
 	// Own says the program is an adapter Flockdeck builds into its own binary,
 	// which a test sets by hand. Only such an adapter is trusted to run a sign-in.
 	Own bool
+	// Rewind says the program is one of Flockdeck's own adapters with the rewind
+	// extension, so its claim of it is believed. resolve sets it from the
+	// manifest; a test that supplies a Command sets it for its fake agent.
+	Rewind bool
+	// RewindTimeout shortens how long a rewind waits for the agent; it is for
+	// tests. Zero means the client's default.
+	RewindTimeout time.Duration
 }
 
 // Recorder takes the agent's traffic. *record.RPCRecorder is one.
@@ -343,6 +350,9 @@ type Snapshot struct {
 	// or forked from, and Epoch counts the rewinds (rewind.go).
 	RewindPoints []string
 	Epoch        int
+	// RewindToken names this runtime and its Epoch; a rewind or fork must carry
+	// the one the window last saw (rewind.go).
+	RewindToken string
 }
 
 // hello is what the agent said about itself and what the session was given.
@@ -465,6 +475,15 @@ type Runtime struct {
 	marks     []mark
 	rewinding bool
 	epoch     int
+	// cleared says the agent moved the conversation to another session id on its
+	// own (/clear), so the turn tokens name turns of the old one. rewindMove is
+	// set while this runtime's own rewind runs: the agent then moves the
+	// conversation to a new id on purpose, and that is not a clear.
+	cleared    bool
+	rewindMove bool
+	// seq tells this runtime from every other this program has started, so that
+	// the token a window holds does not match a pane that was restarted.
+	seq int64
 	// settingCalls is how many setting requests are with the agent.
 	settingCalls int
 	subs         map[int]chan struct{}
@@ -551,6 +570,7 @@ func Start(ctx context.Context, opts Options) (*Runtime, error) {
 	bcfg.AcceptQuestions = bcfg.AcceptQuestions || (opts.Command == nil && opts.Spec.ACPOwnClaude())
 	rctx, cancel := context.WithCancel(ctx)
 	r := &Runtime{
+		seq:     runtimeSeq.Add(1),
 		opts:    opts,
 		br:      bridge.New(bcfg),
 		ctx:     rctx,
@@ -1021,6 +1041,7 @@ func (r *Runtime) Snapshot() Snapshot {
 	s.Activity = r.br.Activity()
 	s.RewindPoints = r.RewindPoints()
 	s.Epoch = r.Epoch()
+	s.RewindToken = r.RewindToken()
 	if s.Phase == PhaseReady {
 		s.Status = r.br.Status()
 	}
@@ -1149,6 +1170,9 @@ func (r *Runtime) noteMoved(id string) {
 	changed := r.session != "" && r.moved != u.String()
 	if changed {
 		r.moved = u.String()
+		if !r.rewindMove {
+			r.cleared = true
+		}
 	}
 	r.mu.Unlock()
 	if changed && r.opts.OnSessionMoved != nil {
@@ -1228,7 +1252,7 @@ func (r *Runtime) resolveFor(signIn bool) (Command, *Setup, error) {
 	}
 	// The key goes in last, so the launch check, which starts another program,
 	// never sees it.
-	return Command{Path: path, Args: append([]string(nil), a.Args...), env: r.withKey(env), Own: own}, nil, nil
+	return Command{Path: path, Args: append([]string(nil), a.Args...), env: r.withKey(env), Own: own, Rewind: manifest.OwnRewind(a)}, nil, nil
 }
 
 // withKey adds the agent's key to env under the variable the entry names for
@@ -1365,6 +1389,8 @@ func (r *Runtime) launch() bool {
 		Handler:         handler{Handler: r.br.AnswerHandler(r.ask), r: r},
 		OnProtocolError: func(string) { r.protoErrs.Add(1); r.notify() },
 		ClientName:      "flockdeck",
+		RewindAllowed:   cmd.Rewind,
+		RewindTimeout:   cmd.RewindTimeout,
 	}
 	if rec != nil {
 		cfg.Tap = rec.Tap

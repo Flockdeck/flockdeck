@@ -140,6 +140,14 @@ func (s Spec) ACPOwnClaude() bool {
 	return ok && manifest.OwnClaude(a)
 }
 
+// ACPOwnRewind says this Spec starts one of Flockdeck's own adapters that has
+// the rewind extension (claude, and codex-go). Nothing else is sent turn tokens
+// or rewind calls, whatever it says at initialize.
+func (s Spec) ACPOwnRewind() bool {
+	a, ok := s.ACPAdapter()
+	return ok && manifest.OwnRewind(a)
+}
+
 // ACPLaunchEnv is the environment the manifest says Flockdeck sets for the
 // adapter this Spec starts, as name=value. It is added after ACPPassEnv and wins
 // over it: a name the user's environment also passes is set to this value.

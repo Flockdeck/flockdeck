@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { render } from "../src/vendor/preact.mjs";
 import { html } from "../src/html.js";
-import { pointsOf, rewindOffered, canAct, rewindMessage, forkMessage, resultWords, REWIND_NOT_SENT_WORDS, REWIND_NOT_OFFERED_WORDS } from "../src/drawer/rewindModel.js";
+import { pointsOf, rewindOffered, canAct, rewindMessage, forkMessage, resultWords, restoredDraft, REWIND_NOT_SENT_WORDS, REWIND_NOT_OFFERED_WORDS, REWIND_CUT_WORDS, REWIND_CONFIRM_WORDS } from "../src/drawer/rewindModel.js";
 import { RewindPanel } from "../src/drawer/RewindPanel.js";
 import { ownCommandsFor } from "../src/drawer/settingsModel.js";
 import { OWN_COMMANDS } from "../src/drawer/slashModel.js";
@@ -26,7 +26,7 @@ const entries = [
   { id: "e2", kind: "message", text: "reply" },
   { id: "e3", kind: "prompt", text: "second\nline" },
 ];
-const st = (over = {}) => ({ status: "idle", capabilities: { rewind: true }, rewindPoints: ["e1", "e3"], ...over });
+const st = (over = {}) => ({ status: "idle", capabilities: { rewind: true }, rewindPoints: ["e1", "e3"], rewindToken: "4.0", ...over });
 
 test("points are found by entry id, only for prompts the conversation still holds", () => {
   assert.deepEqual(pointsOf(st(), entries), [{ id: "e1", text: "first" }, { id: "e3", text: "second line" }]);
@@ -45,9 +45,9 @@ test("rewind is offered only when the agent says so, and acts only when idle", (
 });
 
 test("the commands name the entry and a rewind always confirms", () => {
-  assert.deepEqual(rewindMessage("p1", "e3", "r1"), { cmd: "structuredRewind", id: "p1", req: "r1", entry: "e3", confirm: true });
-  assert.equal(rewindMessage("p1", "", "r1"), null);
-  assert.deepEqual(forkMessage("p1", "", "r2"), { cmd: "structuredFork", id: "p1", req: "r2", entry: "" });
+  assert.deepEqual(rewindMessage("p1", "e3", "r1", "4.0"), { cmd: "structuredRewind", id: "p1", req: "r1", entry: "e3", confirm: true, rewindToken: "4.0" });
+  assert.equal(rewindMessage("p1", "", "r1", "4.0"), null);
+  assert.deepEqual(forkMessage("p1", "", "r2", "4.0"), { cmd: "structuredFork", id: "p1", req: "r2", entry: "", rewindToken: "4.0" });
 });
 
 test("answers are shown as plain words", () => {
@@ -55,6 +55,22 @@ test("answers are shown as plain words", () => {
   assert.equal(resultWords({ ok: false, error: "The agent could not go back" }).words, "The agent could not go back");
   assert.equal(resultWords({ ok: true, op: "structuredRewind", text: "first" }).text, "first");
   assert.equal(resultWords({ ok: true, op: "structuredFork", pane: "p9" }).pane, "p9");
+  assert.ok(!resultWords({ ok: true, op: "structuredRewind", text: "x" }).words.includes(REWIND_CUT_WORDS));
+  assert.ok(resultWords({ ok: true, op: "structuredRewind", text: "x", cut: true }).words.includes(REWIND_CUT_WORDS));
+});
+
+test("a prompt put back never overwrites what the person was typing", () => {
+  assert.equal(restoredDraft("", "first"), "first");
+  assert.equal(restoredDraft("   \n", "first"), "first");
+  assert.equal(restoredDraft("half a thought", "first"), "half a thought\n\nfirst");
+  assert.equal(restoredDraft("half a thought\n\n", "first"), "half a thought\n\nfirst");
+  assert.equal(restoredDraft("keep me", ""), "keep me");
+  assert.equal(restoredDraft(undefined, "first"), "first");
+});
+
+test("the confirm text says mail and pictures are not kept", () => {
+  assert.ok(REWIND_CONFIRM_WORDS.includes("messages other agents sent"));
+  assert.ok(REWIND_CONFIRM_WORDS.includes("pictures"));
 });
 
 test("the panel asks before going back, then sends the command and hands over the text", async () => {
@@ -73,7 +89,7 @@ test("the panel asks before going back, then sends the command and hands over th
     assert.ok(m.container.find(".rewind-warn").textContent.includes("everything after it"));
     m.container.find(".rewind-yes").dispatch("click");
     await settle();
-    assert.deepEqual([sent[0].cmd, sent[0].id, sent[0].entry, sent[0].confirm], ["structuredRewind", "p1", "e3", true]);
+    assert.deepEqual([sent[0].cmd, sent[0].id, sent[0].entry, sent[0].confirm, sent[0].rewindToken], ["structuredRewind", "p1", "e3", true, "4.0"]);
     const req = sent[0].req;
     await draw({ id: "p1", req: "other", op: "structuredRewind", ok: true, text: "wrong" });
     assert.equal(got, null, "another request's answer was used");
@@ -83,7 +99,7 @@ test("the panel asks before going back, then sends the command and hands over th
     assert.equal(got, "second\nline");
     m.container.find(".rewind-fork-all").dispatch("click");
     await settle();
-    assert.deepEqual([sent[1].cmd, sent[1].entry], ["structuredFork", ""]);
+    assert.deepEqual([sent[1].cmd, sent[1].entry, sent[1].rewindToken], ["structuredFork", "", "4.0"]);
     ok = false;
     await draw(null);
     m.container.findAll(".rewind-fork")[0].dispatch("click");

@@ -2,6 +2,9 @@ package structured
 
 import (
 	"errors"
+	"fmt"
+	"slices"
+	"sync/atomic"
 
 	"github.com/google/uuid"
 
@@ -34,7 +37,16 @@ var (
 	ErrRewindFailed = errors.New("structured: the agent could not go back")
 	// ErrForkNotOffered: the agent cannot fork a session.
 	ErrForkNotOffered = errors.New("structured: this agent cannot fork a conversation")
+	// ErrRewindStale: the window named a point of a conversation that has since
+	// changed (a rewind, or a restart of the pane).
+	ErrRewindStale = errors.New("structured: the conversation has changed since the window last saw it")
+	// ErrRewindUnknown: the agent did not answer, so it is not known whether it
+	// went back. The caller restarts the pane, so that window and agent agree.
+	ErrRewindUnknown = errors.New("structured: the agent did not say whether it went back")
 )
+
+// runtimeSeq numbers the runtimes this program starts.
+var runtimeSeq atomic.Int64
 
 const (
 	// maxMarks bounds the turns remembered; it matches what the adapters keep.
@@ -42,7 +54,7 @@ const (
 
 	// ForkedText and ForkFailedText are the lines a forked pane starts with.
 	// They are fixed: nothing the agent said about it is shown.
-	ForkedText     = "Forked from another pane. The agent has the conversation up to that point; this window does not show it."
+	ForkedText     = "Forked from another pane. The agent has the conversation up to that point; this window does not show it. It works in the same folder as the original, so the two can change the same files."
 	ForkFailedText = "Could not fork, started a new session."
 )
 
@@ -52,6 +64,9 @@ const (
 type ForkFrom struct {
 	Session string
 	At      string
+	// Model is the model the source session was on, if it said; the new session
+	// is put on it when its models block offers it.
+	Model string
 }
 
 // mark is one turn the agent has: its token, the prompt entry it came from (empty
@@ -91,10 +106,11 @@ func (r *Runtime) endMark(token string, complete bool) {
 // pointLocked is the index of the mark whose prompt entry is id, if it has a
 // point before it.
 func (r *Runtime) pointLocked(id string) (int, bool) {
-	// After the agent moved the conversation to another session id (/clear), the
+	// After the agent moved the conversation to another session id on its own
+	// (/clear; a move the runtime's own rewind asked for, rewindMove, is not that), the
 	// uuids the adapter holds for earlier turns name messages of the old
 	// session file: no turn is offered as a point.
-	if id == "" || r.moved != "" {
+	if id == "" || r.cleared {
 		return 0, false
 	}
 	for i, m := range r.marks {
@@ -111,7 +127,7 @@ func (r *Runtime) pointLocked(id string) (int, bool) {
 func (r *Runtime) RewindPoints() []string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.client == nil || !r.client.Capabilities().Rewind || r.moved != "" {
+	if r.client == nil || !r.client.Capabilities().Rewind || r.cleared {
 		return nil
 	}
 	var out []string
@@ -121,6 +137,16 @@ func (r *Runtime) RewindPoints() []string {
 		}
 	}
 	return out
+}
+
+// RewindToken names this runtime and how many rewinds it has had. A window
+// sends the one it last saw with structuredRewind and structuredFork; the call
+// is refused when it no longer matches, as it does after a rewind or a restart
+// of the pane, when the entry ids the window holds mean something else.
+func (r *Runtime) RewindToken() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return fmt.Sprintf("%d.%d", r.seq, r.epoch)
 }
 
 // Epoch counts the rewinds so far. A window that holds the conversation starts
@@ -140,12 +166,16 @@ func (r *Runtime) idleLocked() bool {
 // prompt and everything after it out of the conversation. It returns the
 // prompt's text. The agent's own history is cut by the agent; if it does not
 // say it did, nothing here changes.
-func (r *Runtime) Rewind(id string) (string, error) {
+func (r *Runtime) Rewind(id, token string) (string, error) {
 	r.mu.Lock()
 	c, session := r.client, r.session
 	if c == nil || r.phase != PhaseReady {
 		r.mu.Unlock()
 		return "", ErrNotRunning
+	}
+	if token != fmt.Sprintf("%d.%d", r.seq, r.epoch) {
+		r.mu.Unlock()
+		return "", ErrRewindStale
 	}
 	if !c.Capabilities().Rewind {
 		r.mu.Unlock()
@@ -156,32 +186,42 @@ func (r *Runtime) Rewind(id string) (string, error) {
 		return "", ErrRewindBusy
 	}
 	i, ok := r.pointLocked(id)
-	if !ok {
+	// The entry is checked before the agent is asked: once the agent has gone
+	// back, the conversation must lose the same entries.
+	if !ok || !r.br.HasPrompt(id) {
 		r.mu.Unlock()
 		return "", ErrNoPoint
 	}
-	token := r.marks[i].token
-	// Nothing is sent to the agent until the rewind ends (see pop).
-	r.rewinding = true
+	turn := r.marks[i].token
+	// Nothing is sent to the agent until the rewind ends (see pop). The agent
+	// tells us, as part of the rewind, that the conversation moved to a new id.
+	r.rewinding, r.rewindMove = true, true
 	r.mu.Unlock()
 
-	err := c.Rewind(r.ctx, session, token)
+	err := c.Rewind(r.ctx, session, turn)
 
 	r.mu.Lock()
-	r.rewinding = false
+	r.rewinding, r.rewindMove = false, false
 	if err != nil {
 		r.mu.Unlock()
 		r.wakeLoop()
 		if r.ctx.Err() != nil {
 			return "", ErrNotRunning
 		}
-		return "", ErrRewindFailed
+		// The agent's own refusal means it did not go back. Anything else (no
+		// answer in time, the agent gone) leaves it unknown.
+		var rpc *acp.RPCError
+		if errors.As(err, &rpc) {
+			return "", ErrRewindFailed
+		}
+		return "", ErrRewindUnknown
 	}
-	text, found := r.br.TruncateBefore(id)
-	// The marks are matched again by token: a prompt cannot have been added
-	// meanwhile, but the slice is not trusted to be where it was.
+	// The agent has gone back, so the marks are cut whatever the bridge finds:
+	// the agent and the marks agree, and an entry the bridge no longer holds is
+	// gone from the window already.
+	text, _ := r.br.TruncateBefore(id)
 	for j, m := range r.marks {
-		if m.token == token {
+		if m.token == turn {
 			r.marks = r.marks[:j:j]
 			break
 		}
@@ -190,9 +230,6 @@ func (r *Runtime) Rewind(id string) (string, error) {
 	r.mu.Unlock()
 	r.notify()
 	r.wakeLoop()
-	if !found {
-		return "", ErrNoPoint
-	}
 	return text, nil
 }
 
@@ -208,29 +245,34 @@ func (r *Runtime) wakeLoop() {
 // session, and, for a point before the prompt entry id, what the adapter gives
 // for it. An empty id forks the whole conversation, which needs only the
 // agent's own session/fork.
-func (r *Runtime) ForkSource(id string) (ForkFrom, error) {
+func (r *Runtime) ForkSource(id, token string) (ForkFrom, error) {
 	r.mu.Lock()
 	c, session := r.client, r.session
 	if c == nil || r.phase != PhaseReady || session == "" {
 		r.mu.Unlock()
 		return ForkFrom{}, ErrNotRunning
 	}
+	if token != fmt.Sprintf("%d.%d", r.seq, r.epoch) {
+		r.mu.Unlock()
+		return ForkFrom{}, ErrRewindStale
+	}
 	if !c.Capabilities().Fork {
 		r.mu.Unlock()
 		return ForkFrom{}, ErrForkNotOffered
+	}
+	// The conversation is forked by the id the agent resumes it by, which is the
+	// moved one after a /clear or a rewind (see SessionID).
+	acpSession := session
+	if r.moved != "" {
+		session = r.moved
 	}
 	if !r.idleLocked() {
 		r.mu.Unlock()
 		return ForkFrom{}, ErrRewindBusy
 	}
 	if id == "" {
-		// The whole conversation is forked by the id the agent resumes it by,
-		// which is the moved one after a /clear (see SessionID).
-		if r.moved != "" {
-			session = r.moved
-		}
 		r.mu.Unlock()
-		return ForkFrom{Session: session}, nil
+		return ForkFrom{Session: session, Model: r.modelNow()}, nil
 	}
 	if !c.Capabilities().Rewind {
 		r.mu.Unlock()
@@ -241,13 +283,13 @@ func (r *Runtime) ForkSource(id string) (ForkFrom, error) {
 		r.mu.Unlock()
 		return ForkFrom{}, ErrNoPoint
 	}
-	token := r.marks[i].token
+	turn := r.marks[i].token
 	r.mu.Unlock()
-	at, err := c.ForkPoint(r.ctx, session, token)
+	at, err := c.ForkPoint(r.ctx, acpSession, turn)
 	if err != nil || at == "" {
 		return ForkFrom{}, ErrRewindFailed
 	}
-	return ForkFrom{Session: session, At: at}, nil
+	return ForkFrom{Session: session, At: at, Model: r.modelNow()}, nil
 }
 
 // openFork makes the pane's session by forking the one in Options.Fork. An agent
@@ -257,6 +299,14 @@ func (r *Runtime) openFork(c *acp.Client, mcp []acp.MCPServer) (acp.SessionNew, 
 	f := r.opts.Fork
 	created, err := c.ForkSession(r.ctx, f.Session, r.opts.Cwd, mcp, f.At)
 	if err == nil {
+		if m := created.Models; f.Model != "" && m != nil && m.Current != f.Model &&
+			slices.ContainsFunc(m.Available, func(v acp.Model) bool { return v.ID == f.Model }) {
+			if c.SetModel(r.ctx, created.SessionID, f.Model) == nil {
+				cp := *m
+				cp.Current = f.Model
+				created.Models = &cp
+			}
+		}
 		r.br.Notice(ForkedText)
 		return created, ResumeNone, nil
 	}
@@ -269,4 +319,12 @@ func (r *Runtime) openFork(c *acp.Client, mcp []acp.MCPServer) (acp.SessionNew, 
 	}
 	r.br.Notice(ForkFailedText)
 	return created, ResumeNone, nil
+}
+
+// modelNow is the model the session is on, if the agent's models block says.
+func (r *Runtime) modelNow() string {
+	if m := r.br.Session().Models; m != nil {
+		return m.Current
+	}
+	return ""
 }

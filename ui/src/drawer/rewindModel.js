@@ -8,7 +8,8 @@ export const REWIND_NOT_SENT_WORDS = "Not connected to Flockdeck, so the request
 export const REWIND_NOT_OFFERED_WORDS = "This agent cannot go back to an earlier point, so there is nothing to go back to or fork from.";
 export const REWIND_BUSY_WORDS = "Stop the turn first. Going back and forking wait until the agent is idle.";
 export const REWIND_NONE_WORDS = "No earlier prompt can be gone back to yet. The first prompt of a conversation has no point before it, and neither has one that follows a turn that was stopped.";
-export const REWIND_CONFIRM_WORDS = "removes this prompt and everything after it from the conversation and from the agent. Files the agent changed are not put back.";
+export const REWIND_CONFIRM_WORDS = "removes this prompt and everything after it from the conversation and from the agent, including messages other agents sent after it. Files the agent changed are not put back, and pictures attached to the prompt are not put back in the box.";
+export const REWIND_CUT_WORDS = "The prompt was long; only its start was put back.";
 
 const clean = (s, n) => String(s == null ? "" : s).replace(/[\p{C}]/gu, " ").replace(/\s+/g, " ").trim().slice(0, n);
 
@@ -40,16 +41,26 @@ export function canAct(st) {
 
 /** rewindMessage is the command to go back to before entry. It always confirms:
  *  the panel asks the person first. */
-export function rewindMessage(pane, entry, req) {
+export function rewindMessage(pane, entry, req, token) {
   if (!pane || !entry || typeof entry !== "string") return null;
-  return { cmd: "structuredRewind", id: pane, req, entry, confirm: true };
+  return { cmd: "structuredRewind", id: pane, req, entry, confirm: true, rewindToken: typeof token === "string" ? token : "" };
 }
 
 /** forkMessage is the command to fork before entry, or the whole conversation
  *  when entry is "". */
-export function forkMessage(pane, entry, req) {
+export function forkMessage(pane, entry, req, token) {
   if (!pane) return null;
-  return { cmd: "structuredFork", id: pane, req, entry: typeof entry === "string" ? entry : "" };
+  return { cmd: "structuredFork", id: pane, req, entry: typeof entry === "string" ? entry : "", rewindToken: typeof token === "string" ? token : "" };
+}
+
+/** restoredDraft is the prompt box after a prompt is put back: the box as it
+ *  was when it held nothing, and otherwise the box with the prompt after a blank
+ *  line, so that what the person was typing is not overwritten. */
+export function restoredDraft(draft, text) {
+  const t = typeof text === "string" ? text : "";
+  const d = typeof draft === "string" ? draft : "";
+  if (!t) return d;
+  return d.trim() === "" ? t : d.replace(/\s+$/u, "") + "\n\n" + t;
 }
 
 /** resultWords says how a request went, from the store's rewindResult for this
@@ -58,5 +69,5 @@ export function resultWords(r) {
   if (!r) return null;
   if (!r.ok) return { ok: false, words: clean(r.error, 300) || "That did not work.", text: "", pane: "" };
   if (r.op === "structuredFork") return { ok: true, words: "Started a new pane beside this one.", text: "", pane: r.pane || "" };
-  return { ok: true, words: "Went back. The prompt is in the box to edit and send again.", text: typeof r.text === "string" ? r.text : "", pane: "" };
+  return { ok: true, words: "Went back. The prompt is in the box to edit and send again." + (r.cut === true ? " " + REWIND_CUT_WORDS : ""), text: typeof r.text === "string" ? r.text : "", pane: "" };
 }

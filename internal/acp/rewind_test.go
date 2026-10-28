@@ -107,3 +107,33 @@ func TestRewindRefusesBadArguments(t *testing.T) {
 		t.Error("fork accepted a relative cwd")
 	}
 }
+
+// An agent that says it has the extension is believed only when the caller has
+// said it is one of Flockdeck's own: otherwise it gets no tokens and no rewind
+// calls.
+func TestAForeignAgentSayingItRewindsGetsNoTokensAndNoRewind(t *testing.T) {
+	r := newRecorder()
+	c, sid := startWith(t, r, nil, acptest.WithRewind())
+	if c.Capabilities().Rewind {
+		t.Fatal("an agent the caller did not trust has the extension")
+	}
+	if _, err := c.PromptTurn(ctxT(t), sid, tokA, "plain"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := c.PromptTurn(ctxT(t), sid, "", "turns"); err != nil {
+		t.Fatal(err)
+	}
+	r.waitFor(t, "the turn list", func([]Update) bool { return strings.HasPrefix(lastChunk(r), "turns=") })
+	if got := lastChunk(r); got != "turns=" {
+		t.Errorf("the agent was sent a token: %q", got)
+	}
+	if err := c.Rewind(ctxT(t), sid, tokA); err != ErrNoRewind {
+		t.Errorf("rewind = %v", err)
+	}
+	if _, err := c.ForkPoint(ctxT(t), sid, tokA); err != ErrNoRewind {
+		t.Errorf("fork point = %v", err)
+	}
+	if _, err := c.ForkSession(ctxT(t), sid, acptest.SessionDir(t), nil, "at-1"); err != ErrNoRewind {
+		t.Errorf("fork at a point = %v", err)
+	}
+}

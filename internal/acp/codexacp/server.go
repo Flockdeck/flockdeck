@@ -359,7 +359,7 @@ func (s *server) prompt(m rpcMsg) {
 		return
 	}
 	req.id = m.ID
-	req.turn, _ = extMeta(m.Params)
+	req.turn, _, _ = extMeta(m.Params)
 	ss.enqueue(req)
 }
 

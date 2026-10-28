@@ -82,6 +82,13 @@ type session struct {
 	// forkOf, when set, is the session this one is a fork of: claude is started
 	// with --resume forkOf --fork-session --session-id id, and resumeAt cuts it.
 	forkOf string
+	// forkID, with forkOf, is the id claude is given with --session-id when it
+	// differs from id: a rewind keeps the id the client prompts with, and the
+	// conversation moves to a new claude session (rewind.go).
+	forkID string
+	// cleared says claude moved the conversation to an id Flockdeck did not
+	// choose (/clear), so the uuids in turns name messages of another file.
+	cleared bool
 	// mcp is what the client gave for mcpServers, to write the file again when
 	// the session is started over.
 	mcp []json.RawMessage
@@ -160,7 +167,12 @@ func (s *server) openSession(m rpcMsg, kind string) {
 			return
 		}
 		forkOf = u.String()
-		_, at = extMeta(m.Params)
+		var bad bool
+		_, at, bad = extMeta(m.Params)
+		if bad {
+			s.replyErr(m.ID, &rpcErr{Code: codeInvalidParams, Message: "at is not a fork point"})
+			return
+		}
 	}
 	if resume {
 		u, err := uuid.Parse(p.SessionID)
@@ -276,7 +288,11 @@ func (ss *session) start() error {
 		if ss.resumeAt != "" {
 			args = append(args, "--resume-session-at", ss.resumeAt)
 		}
-		args = append(args, "--fork-session", "--session-id", ss.id)
+		newID := ss.id
+		if ss.forkID != "" {
+			newID = ss.forkID
+		}
+		args = append(args, "--fork-session", "--session-id", newID)
 	case ss.resume:
 		args = append(args, "--resume", ss.id)
 		if ss.resumeAt != "" {
@@ -372,6 +388,9 @@ func (ss *session) adopt(reported string) {
 	ss.mu.Lock()
 	old := ss.claudeID
 	ss.claudeID = id
+	if id != ss.forkID {
+		ss.cleared = true
+	}
 	ss.mu.Unlock()
 	if old == id {
 		return

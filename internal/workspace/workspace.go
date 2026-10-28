@@ -263,6 +263,9 @@ type Pane struct {
 	// first runtime forks. It is taken when that runtime starts, so a restart
 	// does not fork again.
 	forkFrom *structured.ForkFrom
+	// forkOf is the pane this one was forked from, for the cap on forks open
+	// beside one pane (maxForks).
+	forkOf string
 	// structExit is the structured runtime whose unexpected end the parent has
 	// been told of.
 	structExit *structuredRuntime

@@ -23,9 +23,15 @@ import (
 //   - _flockdeck/forkpoint answers that uuid. session/fork with it in _meta
 //     starts claude with the fork flags. The fork exists as a file only once it
 //     has a first message; claude writes nothing before that.
-//   - _flockdeck/rewind starts a second claude with --resume-session-at on the
-//     same session id, moves the session over to it, and ends the first. It is
-//     refused while a turn, or a prompt waiting for one, is there.
+//   - _flockdeck/rewind starts a second claude with --resume-session-at as a
+//     fork (--fork-session --session-id NEW), moves the session over to it, tells
+//     the client the conversation now lives under NEW (flockdeck_session, which
+//     the pane saves), and ends the first. The session keeps the id the client
+//     prompts with. It is a fork and not a cut of the same session because claude
+//     resumes a session by its latest message: a cut of the same id that had
+//     received no message yet would come back whole the next time the session was
+//     resumed (checked against claude 2.1.312). It is refused while a turn, or a
+//     prompt waiting for one, is there.
 //
 // The turns are kept in memory. After the adapter restarts, a session it
 // resumes knows none of the earlier turns: they cannot be named.
@@ -47,27 +53,37 @@ type turnRec struct {
 
 // extMeta reads what the client put under _meta["flockdeck.dev"]. Anything of
 // the wrong type, or not shaped as a token, is left out.
-func extMeta(params json.RawMessage) (turn, at string) {
+func extMeta(params json.RawMessage) (turn, at string, badAt bool) {
 	var p struct {
 		Meta map[string]json.RawMessage `json:"_meta"`
 	}
 	if json.Unmarshal(params, &p) != nil {
-		return "", ""
+		return "", "", false
 	}
 	var ext struct {
-		Turn string `json:"turn"`
-		At   string `json:"at"`
+		Turn string          `json:"turn"`
+		At   json.RawMessage `json:"at"`
 	}
 	if json.Unmarshal(p.Meta[extKey], &ext) != nil {
-		return "", ""
+		return "", "", false
 	}
 	if turnToken.MatchString(ext.Turn) {
 		turn = ext.Turn
 	}
-	if u, err := uuid.Parse(ext.At); err == nil {
+	// A fork point that is present but is not a uuid is reported, so that the
+	// caller refuses instead of forking the whole conversation.
+	if len(ext.At) > 0 && string(ext.At) != "null" {
+		var s string
+		if json.Unmarshal(ext.At, &s) != nil {
+			return turn, "", true
+		}
+		u, err := uuid.Parse(s)
+		if err != nil {
+			return turn, "", true
+		}
 		at = u.String()
 	}
-	return turn, at
+	return turn, at, false
 }
 
 // pointLocked is the uuid of the message to keep through so that the turn named
@@ -75,6 +91,15 @@ func extMeta(params json.RawMessage) (turn, at string) {
 func (ss *session) pointLocked(token string) (string, *rpcErr) {
 	if !turnToken.MatchString(token) {
 		return "", &rpcErr{Code: codeInvalidParams, Message: "beforeTurn is not a turn"}
+	}
+	// After /clear claude keeps the conversation under an id of its own choosing
+	// (cleared). The uuids held here name messages of the old session file, so no
+	// point is given: neither a rewind nor a fork at a turn can start claude from
+	// the wrong file. (A rewind moves the conversation to an id Flockdeck
+	// chooses, forkID, and the fork keeps the uuids of the messages it keeps; that
+	// was checked against claude 2.1.312 and is not "cleared".)
+	if ss.cleared {
+		return "", &rpcErr{Code: codeInvalidParams, Message: "the session was cleared; its earlier turns cannot be named"}
 	}
 	for i, t := range ss.turns {
 		if t.token != token {
@@ -134,7 +159,7 @@ func (s *server) rewind(m rpcMsg) {
 		e = &rpcErr{Code: codeInvalidParams, Message: "the session is not idle"}
 	}
 	var keep []turnRec
-	mode, model, claudeID := old.mode, old.model, old.claudeID
+	mode, model := old.mode, old.model
 	allowed := map[string]bool{}
 	if e == nil {
 		old.rewinding = true
@@ -161,8 +186,17 @@ func (s *server) rewind(m rpcMsg) {
 		s.replyErr(m.ID, &rpcErr{Code: codeInternal, Message: "the session could not be rewound"})
 	}
 
+	// claude's own id for the conversation now: the one it moved to after a
+	// rewind, else the one the session was opened with.
+	src := old.id
+	old.mu.Lock()
+	if old.claudeID != "" {
+		src = old.claudeID
+	}
+	old.mu.Unlock()
+	newID := uuid.NewString()
 	ns := s.newSession(old.id, old.cwd, old.mcp)
-	ns.resume, ns.resumeAt, ns.turns, ns.allowed, ns.claudeID = true, at, keep, allowed, claudeID
+	ns.forkOf, ns.forkID, ns.resumeAt, ns.turns, ns.allowed = src, newID, at, keep, allowed
 	var err error
 	if ns.mcpFile, err = writeMCPConfig(old.mcp); err != nil {
 		fail(err.Error())
@@ -212,6 +246,18 @@ func (s *server) rewind(m rpcMsg) {
 	}
 	s.mu.Unlock()
 	go ns.worker()
+	// The conversation lives under newID from here: the client saves that id to
+	// resume by (flockdeck_session), and the id it prompts with does not change.
+	ns.adopt(newID)
+	// The id the first claude had moved to is no longer this session's.
+	old.mu.Lock()
+	oc := old.claudeID
+	old.mu.Unlock()
+	s.mu.Lock()
+	if oc != "" && oc != newID && s.sessions[oc] == ns {
+		delete(s.sessions, oc)
+	}
+	s.mu.Unlock()
 	old.close()
 	s.reply(m.ID, map[string]any{})
 }

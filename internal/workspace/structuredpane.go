@@ -115,7 +115,7 @@ func (w *Workspace) startStructured(p *Pane, spec agent.Spec) {
 	p.forkFrom = nil
 	w.mu.Unlock()
 	opts := structured.Options{Spec: spec, Cwd: p.Cwd, MCPServers: w.mcpServersFor(p, spec), ResumeSession: resume, Fork: fork,
-		Key: creds.StoredKey(spec),
+		Key:            creds.StoredKey(spec),
 		OnTurn:         func(e structured.TurnEvent) { w.promptTurn(p.ID, gen, e) },
 		OnSessionMoved: func() { w.noteSessionMoved(p.ID) }}
 	if cmdFor != nil {
@@ -489,9 +489,35 @@ func (w *Workspace) SpawnFork(src string, from structured.ForkFrom) (string, err
 	if _, ok := p.setRuntime().(*structuredRuntime); !ok {
 		return "", ErrStructuredPane
 	}
-	return w.Spawn(src, SpawnOptions{Kind: p.Kind, Cwd: p.Cwd, Split: true, Label: ForkLabel,
+	w.mu.RLock()
+	open := 0
+	for _, q := range w.panes {
+		if q.forkOf == src {
+			open++
+		}
+	}
+	w.mu.RUnlock()
+	if open >= maxForks {
+		return "", ErrTooManyForks
+	}
+	id, err := w.Spawn(src, SpawnOptions{Kind: p.Kind, Cwd: p.Cwd, Split: true, Label: ForkLabel,
 		Agent: p.Agent, Model: p.Model, Fork: &from})
+	if err != nil {
+		return "", err
+	}
+	if q := w.Pane(id); q != nil {
+		w.mu.Lock()
+		q.forkOf = src
+		w.mu.Unlock()
+	}
+	return id, nil
 }
+
+// maxForks is the most forks open beside one pane.
+const maxForks = 4
+
+// ErrTooManyForks: the pane already has maxForks forks open.
+var ErrTooManyForks = errors.New("that pane already has too many forks open")
 
 // restartStructured ends the pane's agent and starts a fresh session. The
 // entries of the old session stay as history, with a line saying where it was

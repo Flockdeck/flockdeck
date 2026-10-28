@@ -51,14 +51,14 @@ export function RewindPanel({ pane, store, st, entries = [], result = null, onTe
       <span class="rewind-text">${showControls(p.text)}</span>
       ${asking === p.id
         ? html`<span class="rewind-confirm"><span class="rewind-warn">Going back ${REWIND_CONFIRM_WORDS}</span>
-            <button type="button" class="drawer-btn rewind-yes" disabled=${off} onClick=${() => go(rewindMessage(pane, p.id, ""))}>Go back</button>
+            <button type="button" class="drawer-btn rewind-yes" disabled=${off} onClick=${() => go(rewindMessage(pane, p.id, "", st.rewindToken))}>Go back</button>
             <button type="button" class="drawer-btn rewind-no" onClick=${() => setAsking("")}>Keep</button></span>`
         : html`<span class="rewind-actions">
             <button type="button" class="drawer-btn rewind-back" disabled=${off} onClick=${() => setAsking(p.id)}>Go back to before this</button>
-            <button type="button" class="drawer-btn rewind-fork" disabled=${off} onClick=${() => go(forkMessage(pane, p.id, ""))}>Fork from before this</button></span>`}
+            <button type="button" class="drawer-btn rewind-fork" disabled=${off} onClick=${() => go(forkMessage(pane, p.id, "", st.rewindToken))}>Fork from before this</button></span>`}
     </li>`)}</ol>` : null}
     <div class="rewind-actions">
-      ${offered ? html`<button type="button" class="drawer-btn rewind-fork-all" disabled=${off} onClick=${() => go(forkMessage(pane, "", ""))}>Fork the whole conversation</button>` : null}
+      ${offered ? html`<button type="button" class="drawer-btn rewind-fork-all" disabled=${off} onClick=${() => go(forkMessage(pane, "", "", st.rewindToken))}>Fork the whole conversation</button>` : null}
       <button type="button" class="drawer-btn rewind-close" onClick=${onClose}>Close</button>
     </div>
     ${note ? html`<p class="structured-note structured-note--unsent" role="status">${note}</p>` : null}

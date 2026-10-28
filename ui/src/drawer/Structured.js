@@ -75,6 +75,7 @@ import { ExportPanel } from "./ExportPanel.js";
 import { InfoPanel } from "./InfoPanel.js";
 import { needsSignIn } from "./infoModel.js";
 import { RewindPanel } from "./RewindPanel.js";
+import { restoredDraft } from "./rewindModel.js";
 import { queueOf, stopMessage } from "./queueModel.js";
 import { ShellList } from "./ShellList.js";
 import { TodoList } from "./TodoList.js";
@@ -563,7 +564,7 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
       </div>
       <${TodoList} st=${st} pane=${pane} />
       ${desk && (infoFor === pane || needsSignIn(st)) ? html`<${InfoPanel} pane=${pane} st=${st} store=${store} result=${infoResult} signInResult=${signInResult} onClose=${() => setInfoFor("")} />` : null}
-      ${desk && rewinding === pane ? html`<${RewindPanel} pane=${pane} store=${store} st=${st} entries=${conv && conv.entries ? conv.entries : []} result=${rewindResult} onText=${(t) => { setDraft(t); if (box.current && box.current.focus) box.current.focus(); }} onClose=${() => setRewinding("")} />` : null}
+      ${desk && rewinding === pane ? html`<${RewindPanel} pane=${pane} store=${store} st=${st} entries=${conv && conv.entries ? conv.entries : []} result=${rewindResult} onText=${(t) => { setDraft((d) => restoredDraft(d, t)); if (box.current && box.current.focus) box.current.focus(); }} onClose=${() => setRewinding("")} />` : null}
       ${desk && exporting === pane ? html`<${ExportPanel} pane=${pane} store=${store} result=${exportResult} onClose=${() => setExporting("")} />` : null}
       ${controls.length
         ? html`<div class="structured-settings" ref=${settingsEl} role="group" aria-label="Agent settings">

@@ -74,7 +74,7 @@ func (c *Client) Rewind(ctx context.Context, sessionID, beforeTurn string) error
 	if sessionID == "" || !ValidTurn(beforeTurn) {
 		return errors.New("acp: rewind needs a session and a turn")
 	}
-	ctx, cancel := c.setup(ctx)
+	ctx, cancel := context.WithTimeout(ctx, c.cfg.RewindTimeout)
 	defer cancel()
 	return c.call(ctx, "_flockdeck/rewind", map[string]any{"sessionId": sessionID, "beforeTurn": beforeTurn}, nil)
 }

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jmwri/flockdeck/internal/acp/acptest"
+	"github.com/jmwri/flockdeck/internal/agent"
 	"github.com/jmwri/flockdeck/internal/session/transcript"
 )
 
@@ -52,10 +53,10 @@ func TestAnAgentWithoutTheExtensionOffersNoPoints(t *testing.T) {
 	if len(s.RewindPoints) != 0 {
 		t.Errorf("points = %v", s.RewindPoints)
 	}
-	if _, err := r.Rewind(promptIDs(s)[1]); !errors.Is(err, ErrRewindNotOffered) {
+	if _, err := r.Rewind(promptIDs(s)[1], r.RewindToken()); !errors.Is(err, ErrRewindNotOffered) {
 		t.Errorf("rewind = %v", err)
 	}
-	if _, err := r.ForkSource(promptIDs(s)[1]); !errors.Is(err, ErrRewindNotOffered) && !errors.Is(err, ErrForkNotOffered) {
+	if _, err := r.ForkSource(promptIDs(s)[1], r.RewindToken()); !errors.Is(err, ErrRewindNotOffered) && !errors.Is(err, ErrForkNotOffered) {
 		t.Errorf("fork source = %v", err)
 	}
 }
@@ -63,7 +64,7 @@ func TestAnAgentWithoutTheExtensionOffersNoPoints(t *testing.T) {
 func TestRewindDropsThePromptAndEverythingAfterIt(t *testing.T) {
 	r, s := threeTurns(t, acptest.WithRewind())
 	ids := promptIDs(s)
-	text, err := r.Rewind(ids[1])
+	text, err := r.Rewind(ids[1], r.RewindToken())
 	if err != nil {
 		t.Fatalf("rewind: %v", err)
 	}
@@ -111,7 +112,7 @@ func TestRewindRefusals(t *testing.T) {
 		"an empty id":           "",
 		"a reply, not a prompt": s.Entries[1].ID,
 	} {
-		if _, err := r.Rewind(id); !errors.Is(err, ErrNoPoint) {
+		if _, err := r.Rewind(id, r.RewindToken()); !errors.Is(err, ErrNoPoint) {
 			t.Errorf("%s: rewind = %v, want ErrNoPoint", name, err)
 		}
 	}
@@ -123,10 +124,10 @@ func TestRewindRefusals(t *testing.T) {
 		t.Fatal(err)
 	}
 	until(t, r, "the slow turn", func(s Snapshot) bool { return s.Status == "working" })
-	if _, err := r.Rewind(ids[1]); !errors.Is(err, ErrRewindBusy) {
+	if _, err := r.Rewind(ids[1], r.RewindToken()); !errors.Is(err, ErrRewindBusy) {
 		t.Errorf("rewind during a turn = %v", err)
 	}
-	if _, err := r.ForkSource(ids[1]); !errors.Is(err, ErrRewindBusy) {
+	if _, err := r.ForkSource(ids[1], r.RewindToken()); !errors.Is(err, ErrRewindBusy) {
 		t.Errorf("fork during a turn = %v", err)
 	}
 	// So does a prompt that is waiting.
@@ -156,7 +157,7 @@ func TestATurnThatDidNotEndHasNoPointAfterIt(t *testing.T) {
 	if len(s.RewindPoints) != 1 || s.RewindPoints[0] != ids[1] {
 		t.Errorf("points = %v, prompts = %v", s.RewindPoints, ids)
 	}
-	if _, err := r.Rewind(ids[2]); !errors.Is(err, ErrNoPoint) {
+	if _, err := r.Rewind(ids[2], r.RewindToken()); !errors.Is(err, ErrNoPoint) {
 		t.Errorf("rewind after a cancelled turn = %v", err)
 	}
 }
@@ -168,10 +169,10 @@ func TestRewindWhenTheAgentRefusesChangesNothing(t *testing.T) {
 	// it no longer has is refused by the agent while the runtime still holds it
 	// only if the runtime's marks were not trimmed. They are, so use a token the
 	// agent never saw by rewinding twice to the same entry.
-	if _, err := r.Rewind(ids[2]); err != nil {
+	if _, err := r.Rewind(ids[2], r.RewindToken()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := r.Rewind(ids[2]); !errors.Is(err, ErrNoPoint) {
+	if _, err := r.Rewind(ids[2], r.RewindToken()); !errors.Is(err, ErrNoPoint) {
 		t.Errorf("a second rewind to the same entry = %v", err)
 	}
 	if got := prompts(r.Snapshot()); len(got) != 2 {
@@ -182,15 +183,15 @@ func TestRewindWhenTheAgentRefusesChangesNothing(t *testing.T) {
 func TestForkSource(t *testing.T) {
 	r, s := threeTurns(t, acptest.WithRewind())
 	ids := promptIDs(s)
-	f, err := r.ForkSource(ids[2])
+	f, err := r.ForkSource(ids[2], r.RewindToken())
 	if err != nil || f.Session != "sess-1" || f.At != "at-2" {
 		t.Fatalf("fork source = %+v, %v", f, err)
 	}
-	whole, err := r.ForkSource("")
+	whole, err := r.ForkSource("", r.RewindToken())
 	if err != nil || whole.Session != "sess-1" || whole.At != "" {
 		t.Errorf("whole fork source = %+v, %v", whole, err)
 	}
-	if _, err := r.ForkSource(ids[0]); !errors.Is(err, ErrNoPoint) {
+	if _, err := r.ForkSource(ids[0], r.RewindToken()); !errors.Is(err, ErrNoPoint) {
 		t.Errorf("fork before the first prompt = %v", err)
 	}
 	if len(prompts(r.Snapshot())) != 3 {
@@ -262,21 +263,159 @@ func TestNoPointsAfterTheSessionMoved(t *testing.T) {
 	}
 	const moved = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
 	r.mu.Lock()
-	r.moved = moved
+	r.moved, r.cleared = moved, true
 	r.mu.Unlock()
 	if p := r.RewindPoints(); len(p) != 0 {
 		t.Errorf("points after the move = %v", p)
 	}
-	if _, err := r.ForkSource(ids[2]); !errors.Is(err, ErrNoPoint) {
+	if _, err := r.ForkSource(ids[2], r.RewindToken()); !errors.Is(err, ErrNoPoint) {
 		t.Errorf("fork at a point after the move = %v", err)
 	}
-	if _, err := r.Rewind(ids[2]); !errors.Is(err, ErrNoPoint) {
+	if _, err := r.Rewind(ids[2], r.RewindToken()); !errors.Is(err, ErrNoPoint) {
 		t.Errorf("rewind after the move = %v", err)
 	}
-	if f, err := r.ForkSource(""); err != nil || f.Session != moved {
+	if f, err := r.ForkSource("", r.RewindToken()); err != nil || f.Session != moved {
 		t.Errorf("whole fork source = %+v, %v", f, err)
 	}
 	if len(prompts(r.Snapshot())) != 3 {
 		t.Error("a refused rewind changed the conversation")
+	}
+}
+
+// An agent that says it can rewind but is not one of Flockdeck's own (its
+// Command is not marked) is sent no tokens, and offers no points.
+func TestAForeignAgentSayingItRewindsIsNotSentTokens(t *testing.T) {
+	o := fakeOptions(t, acptest.WithRewind())
+	o.Command.Rewind = false
+	r := begin(t, o)
+	until(t, r, "ready", idle)
+	s := sendAndSettle(t, r, "plain a", 1)
+	s = sendAndSettle(t, r, "turns", 2)
+	if !strings.Contains(replies(s), "turns=\n") && !strings.HasSuffix(strings.TrimSpace(replies(s)), "turns=") {
+		t.Errorf("the agent was sent tokens: %q", replies(s))
+	}
+	if len(s.RewindPoints) != 0 || r.RewindToken() == "" {
+		t.Errorf("points = %v", s.RewindPoints)
+	}
+	if _, err := r.Rewind(promptIDs(s)[1], r.RewindToken()); !errors.Is(err, ErrRewindNotOffered) {
+		t.Errorf("rewind = %v", err)
+	}
+}
+
+// The window's token must be the runtime's current one.
+func TestARewindOrForkWithAStaleTokenIsRefused(t *testing.T) {
+	r, s := threeTurns(t, acptest.WithRewind())
+	ids := promptIDs(s)
+	old := r.RewindToken()
+	for _, tok := range []string{"", "garbage", "0.0"} {
+		if _, err := r.Rewind(ids[2], tok); !errors.Is(err, ErrRewindStale) {
+			t.Errorf("rewind with token %q = %v", tok, err)
+		}
+		if _, err := r.ForkSource(ids[2], tok); !errors.Is(err, ErrRewindStale) {
+			t.Errorf("fork with token %q = %v", tok, err)
+		}
+	}
+	if _, err := r.Rewind(ids[2], old); err != nil {
+		t.Fatal(err)
+	}
+	if r.RewindToken() == old {
+		t.Error("the token did not change with the rewind")
+	}
+	if _, err := r.ForkSource(ids[1], old); !errors.Is(err, ErrRewindStale) {
+		t.Errorf("fork with the token from before the rewind = %v", err)
+	}
+	if len(prompts(r.Snapshot())) != 2 {
+		t.Error("a refused call changed the conversation")
+	}
+}
+
+// An agent that never answers a rewind leaves it unknown whether it went back:
+// the runtime says so, changes nothing, and takes prompts again.
+func TestARewindTheAgentNeverAnswersIsUnknown(t *testing.T) {
+	o := fakeOptions(t, acptest.WithRewind(), acptest.WithRewindHang())
+	o.Command.RewindTimeout = 500 * time.Millisecond
+	r := begin(t, o)
+	until(t, r, "ready", idle)
+	var s Snapshot
+	for i, txt := range []string{"plain a", "plain b"} {
+		s = sendAndSettle(t, r, txt, i+1)
+	}
+	ids := promptIDs(s)
+	if _, err := r.Rewind(ids[1], r.RewindToken()); !errors.Is(err, ErrRewindUnknown) {
+		t.Fatalf("rewind = %v", err)
+	}
+	if len(prompts(r.Snapshot())) != 2 {
+		t.Error("the conversation changed")
+	}
+	sendAndSettle(t, r, "plain c", 3)
+}
+
+// The entry is checked before the agent is asked: an agent is never taken back
+// for a prompt the conversation no longer holds.
+func TestTheEntryIsCheckedBeforeTheAgentIsAsked(t *testing.T) {
+	r, s := threeTurns(t, acptest.WithRewind())
+	ids := promptIDs(s)
+	r.br.TruncateBefore(ids[2]) // the conversation lost it, the marks did not
+	if _, err := r.Rewind(ids[2], r.RewindToken()); !errors.Is(err, ErrNoPoint) {
+		t.Fatalf("rewind = %v", err)
+	}
+	s = sendAndSettle(t, r, "turns", 3)
+	var tokens string
+	for _, line := range strings.Split(replies(s), "\n") {
+		if strings.HasPrefix(line, "turns=") {
+			tokens = strings.TrimPrefix(line, "turns=")
+		}
+	}
+	if n := len(strings.Split(tokens, ",")); n != 4 { // three prompts and this one
+		t.Errorf("the agent holds %d turns, want 4: %q", n, tokens)
+	}
+}
+
+// A fork takes the model the source was on, when the new session offers it.
+func TestAForkTakesTheModelTheSourceWasOn(t *testing.T) {
+	o := fakeOptions(t, acptest.WithRewind(), acptest.WithModes())
+	o.Fork = &ForkFrom{Session: "sess-1", Model: "gem-flash"}
+	r := begin(t, o)
+	s := until(t, r, "ready", idle)
+	if m := s.Session.Models; m == nil || m.Current != "gem-flash" {
+		t.Errorf("models = %+v", s.Session.Models)
+	}
+	o2 := fakeOptions(t, acptest.WithRewind(), acptest.WithModes())
+	o2.Fork = &ForkFrom{Session: "sess-1", Model: "not-offered"}
+	r2 := begin(t, o2)
+	s2 := until(t, r2, "ready", idle)
+	if m := s2.Session.Models; m == nil || m.Current != "gem-pro" {
+		t.Errorf("a model the session does not offer was taken: %+v", s2.Session.Models)
+	}
+}
+
+// The move of the session id that the runtime's own rewind asks for is not a
+// /clear: points are still offered. A move the agent makes on its own is.
+func TestARewindsOwnMoveOfTheSessionIsNotAClear(t *testing.T) {
+	o := fakeOptions(t, acptest.WithRewind())
+	o.Spec = agent.Spec{ID: "claude", Runner: agent.RunnerACP, ACP: agent.ACPSpec{Adapter: "claude"}}
+	r := begin(t, o)
+	until(t, r, "ready", idle)
+	for i, txt := range []string{"plain a", "plain b", "plain c"} {
+		sendAndSettle(t, r, txt, i+1)
+	}
+	const mine = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+	const theirs = "11111111-2222-4333-8444-555555555555"
+	r.mu.Lock()
+	r.rewindMove = true
+	r.mu.Unlock()
+	r.noteMoved(mine)
+	r.mu.Lock()
+	r.rewindMove = false
+	r.mu.Unlock()
+	if len(r.RewindPoints()) == 0 {
+		t.Error("the move a rewind asked for took the points away")
+	}
+	if got := r.SessionID(); got != mine {
+		t.Errorf("SessionID = %q", got)
+	}
+	r.noteMoved(theirs)
+	if p := r.RewindPoints(); len(p) != 0 {
+		t.Errorf("points after the agent moved on its own = %v", p)
 	}
 }

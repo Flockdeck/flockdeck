@@ -594,6 +594,9 @@ type command struct {
 	CommentID        string   `json:"commentId"`
 	Names            []string `json:"names"`
 	Confirm          bool     `json:"confirm"`
+	// RewindToken is the token of the push the structuredRewind or structuredFork
+	// was chosen from (structuredrewind.go).
+	RewindToken string `json:"rewindToken"`
 	Hash             string   `json:"hash"`
 	Reviewer         string   `json:"reviewer"`
 	Note             string   `json:"note"`

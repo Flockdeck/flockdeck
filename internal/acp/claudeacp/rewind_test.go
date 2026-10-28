@@ -4,8 +4,11 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/json"
+	"io"
 	"strings"
 	"testing"
+
+	"github.com/google/uuid"
 )
 
 const (
@@ -171,20 +174,32 @@ func TestForkStartsClaudeWithTheForkFlags(t *testing.T) {
 		t.Errorf("claude was started with %q, want %q in it", args, want)
 	}
 
-	// A whole-conversation fork has no cut; a bad point is dropped, not passed on.
-	r = h.call("session/fork", map[string]any{"sessionId": sid, "cwd": h.cwd, "mcpServers": []any{},
-		"_meta": map[string]any{"flockdeck.dev": map[string]any{"at": "x --dangerously-skip-permissions"}}})
-	if r.Error != nil {
-		t.Fatalf("fork = %+v", r.Error)
+	// A fork point that is present but is not a uuid is an error: the whole
+	// conversation is not forked in its place, and nothing is started.
+	started := len(argsLines(h))
+	for _, at := range []any{"x --dangerously-skip-permissions", "", 7, map[string]any{"a": 1}, strings.ToUpper(msg1) + "0"} {
+		r = h.call("session/fork", map[string]any{"sessionId": sid, "cwd": h.cwd, "mcpServers": []any{},
+			"_meta": map[string]any{"flockdeck.dev": map[string]any{"at": at}}})
+		if r.Error == nil || r.Error.Code != codeInvalidParams {
+			t.Errorf("fork at %v = %s %+v", at, r.Result, r.Error)
+		}
+	}
+	if n := len(argsLines(h)); n != started {
+		t.Errorf("claude was started %d more times for a bad fork point", n-started)
 	}
 	for _, l := range readLog(h.log) {
 		if strings.Contains(l, "--dangerously") || strings.Contains(l, "skip-permissions") {
 			t.Errorf("text from the point reached claude's command line: %s", l)
 		}
 	}
+	// No point at all is a fork of the whole conversation, without a cut.
+	r = h.call("session/fork", map[string]any{"sessionId": sid, "cwd": h.cwd, "mcpServers": []any{}})
+	if r.Error != nil {
+		t.Fatalf("whole fork = %+v", r.Error)
+	}
 	last := readLog(h.log)
-	if l := last[len(last)-1]; strings.Contains(l, "--fork-session") && strings.Contains(l, "--resume-session-at") {
-		t.Errorf("a fork with a bad point was cut anyway: %s", l)
+	if l := last[len(last)-1]; strings.Contains(l, "--resume-session-at") {
+		t.Errorf("a whole fork was cut: %s", l)
 	}
 	// A source that is not a session id is refused before anything is started.
 	if r := h.call("session/fork", map[string]any{"sessionId": "../x", "cwd": h.cwd, "mcpServers": []any{}}); r.Error == nil || r.Error.Code != codeInvalidParams {
@@ -197,6 +212,9 @@ func TestRewindStartsClaudeAgainOnTheSameSession(t *testing.T) {
 	h := newHarness(t, twoTurnsInit(strings.Replace(lInit, `"permissionMode":"default"`, `"permissionMode":"acceptEdits"`, 1)))
 	sid := h.start()
 	if r := h.call("session/set_mode", map[string]any{"sessionId": sid, "modeId": "acceptEdits"}); r.Error != nil {
+		t.Fatal(r.Error)
+	}
+	if r := h.call("session/set_model", map[string]any{"sessionId": sid, "modelId": "haiku"}); r.Error != nil {
 		t.Fatal(r.Error)
 	}
 	stopReason(t, h.await(h.promptTurn(sid, "one", tok1)))
@@ -214,12 +232,28 @@ func TestRewindStartsClaudeAgainOnTheSameSession(t *testing.T) {
 	if len(args) != 2 {
 		t.Fatalf("claude was started %d times: %q", len(args), args)
 	}
-	if want := "--resume " + sid + " --resume-session-at " + msg1; !strings.Contains(args[1], want) || strings.Contains(args[1], "--fork-session") || strings.Contains(args[1], "--session-id") {
-		t.Errorf("claude was started again with %q, want %q and no fork", args[1], want)
+	// The rewind is a fork of the session at that message, under a new id, so that
+	// the cut survives a later resume even if no message is sent first.
+	want := "--resume " + sid + " --resume-session-at " + msg1 + " --fork-session --session-id "
+	if !strings.Contains(args[1], want) {
+		t.Errorf("claude was started again with %q, want %q in it", args[1], want)
 	}
+	newID := args[1][strings.Index(args[1], "--session-id ")+len("--session-id "):]
+	if _, err := uuid.Parse(strings.TrimSpace(newID)); err != nil || strings.TrimSpace(newID) == sid {
+		t.Errorf("the new session id is %q", newID)
+	}
+	// The client is told the conversation now lives under the new id, and keeps
+	// prompting with the one it has.
+	h.waitFor(func(m rpcMsg) bool {
+		return m.Method == "session/update" && strings.Contains(string(m.Params), `"flockdeck_session"`) && strings.Contains(string(m.Params), strings.TrimSpace(newID))
+	}, 10e9)
 	// The mode the person chose is put back in the new claude.
 	if n := strings.Count(strings.Join(readLog(h.log), "\n"), `"mode":"acceptEdits"`); n != 2 {
 		t.Errorf("the mode was set %d times, want 2 (once for each claude): %q", n, readLog(h.log))
+	}
+	// And so is the model.
+	if n := strings.Count(strings.Join(readLog(h.log), "\n"), `"model":"haiku"`); n != 2 {
+		t.Errorf("the model was set %d times, want 2 (once for each claude)", n)
 	}
 	// The session answers on the same id, and the turn is gone but the one before is not.
 	if r := h.call("_flockdeck/forkpoint", map[string]any{"sessionId": sid, "beforeTurn": tok2}); r.Error == nil {
@@ -302,5 +336,75 @@ func TestAPromptDuringARewindIsRefused(t *testing.T) {
 	ss.enqueue(&promptReq{id: &id})
 	if len(ss.queue) != 1 {
 		t.Error("the prompt was not queued after the rewind")
+	}
+}
+
+// A rewind whose new claude cannot start leaves the session as it was: the
+// rewinding flag is cleared and the first claude goes on taking prompts.
+func TestARewindThatCannotStartClaudeLeavesTheSessionUsable(t *testing.T) {
+	steps := append(twoTurns(),
+		expect(`"uuid":"`+tok3+`"`), emit(assistantLine(msg1)), emit(lResultOK))
+	h := newHarnessWith(t, mustExe(t), steps, envNoCut+"=1")
+	sid := h.start()
+	stopReason(t, h.await(h.promptTurn(sid, "one", tok1)))
+	stopReason(t, h.await(h.promptTurn(sid, "two", tok2)))
+	r := h.call("_flockdeck/rewind", map[string]any{"sessionId": sid, "beforeTurn": tok2})
+	if r.Error == nil || r.Error.Code != codeInternal {
+		t.Fatalf("rewind = %s %+v", r.Result, r.Error)
+	}
+	if strings.Contains(r.Error.Message, "exit") || strings.Contains(r.Error.Message, "claude") {
+		t.Errorf("the error says what claude did: %q", r.Error.Message)
+	}
+	// Prompts are taken again, by the claude that was there before.
+	if got := stopReason(t, h.await(h.promptTurn(sid, "three", tok3))); got != "end_turn" {
+		t.Errorf("stop after the failed rewind = %q", got)
+	}
+}
+
+// After /clear claude holds the conversation under a new id, and the uuids the
+// adapter holds name messages of the old file: no point is given.
+func TestNoPointAfterTheSessionWasCleared(t *testing.T) {
+	ss := &session{id: "old", turns: []turnRec{{token: tok1, last: msg1}, {token: tok2, last: msg2}}}
+	if _, e := ss.pointLocked(tok2); e != nil {
+		t.Fatalf("a point before /clear: %+v", e)
+	}
+	// An id claude was told to use (a rewind's) is not a /clear.
+	ss.forkID = "dddddddd-dddd-4ddd-8ddd-dddddddddddd"
+	ss.srv = &server{sessions: map[string]*session{}, out: bufio.NewWriter(io.Discard), opts: Options{Stderr: io.Discard}}
+	ss.adopt(ss.forkID)
+	if _, e := ss.pointLocked(tok2); e != nil {
+		t.Errorf("no point after the id of a rewind: %+v", e)
+	}
+	// An id claude chose is.
+	ss.adopt("cccccccc-cccc-4ccc-8ccc-cccccccccccc")
+	if _, e := ss.pointLocked(tok2); e == nil {
+		t.Error("a point was given after /clear")
+	}
+}
+
+// A second rewind goes on from the conversation the first one made: claude is
+// resumed by the id the first moved it to, and the kept turns still name
+// messages of it.
+func TestASecondRewindResumesTheFirstRewindsConversation(t *testing.T) {
+	const msg3 = "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
+	h := newHarness(t, append(twoTurns(),
+		expect(`"uuid":"`+tok3+`"`), emit(assistantLine(msg3)), emit(lResultOK)))
+	sid := h.start()
+	for _, p := range []struct{ text, tok string }{{"one", tok1}, {"two", tok2}, {"three", tok3}} {
+		stopReason(t, h.await(h.promptTurn(sid, p.text, p.tok)))
+	}
+	if r := h.call("_flockdeck/rewind", map[string]any{"sessionId": sid, "beforeTurn": tok3}); r.Error != nil {
+		t.Fatalf("first rewind = %+v", r.Error)
+	}
+	if r := h.call("_flockdeck/rewind", map[string]any{"sessionId": sid, "beforeTurn": tok2}); r.Error != nil {
+		t.Fatalf("second rewind = %+v", r.Error)
+	}
+	args := argsLines(h)
+	if len(args) != 3 {
+		t.Fatalf("claude was started %d times: %q", len(args), args)
+	}
+	first := strings.TrimSpace(args[1][strings.Index(args[1], "--session-id ")+len("--session-id "):])
+	if want := "--resume " + first + " --resume-session-at " + msg1 + " --fork-session --session-id "; !strings.Contains(args[2], want) {
+		t.Errorf("the second claude was started with %q, want %q in it", args[2], want)
 	}
 }

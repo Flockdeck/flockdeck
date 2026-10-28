@@ -695,7 +695,7 @@ export function createStore(opts) {
         if (msg.op === "structuredRewind" || msg.op === "structuredFork") {
           const id = rewindPanes.get(msg.req) || "";
           rewindPanes.delete(msg.req);
-          set({ rewindResult: { id, req: String(msg.req || ""), op: msg.op, ok: !!msg.ok, error: msg.ok ? "" : String(msg.error || ""), text: msg.ok && typeof msg.text === "string" ? msg.text : "", pane: msg.ok && typeof msg.pane === "string" ? msg.pane : "" } });
+          set({ rewindResult: { id, req: String(msg.req || ""), op: msg.op, ok: !!msg.ok, error: msg.ok ? "" : String(msg.error || ""), text: msg.ok && typeof msg.text === "string" ? msg.text : "", cut: msg.ok && msg.cut === true, pane: msg.ok && typeof msg.pane === "string" ? msg.pane : "" } });
         }
         if (typeof msg.op === "string" && msg.op.startsWith("structuredShell")) {
           const id = shellPanes.get(msg.req) || "";

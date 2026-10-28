@@ -80,7 +80,9 @@ func (a *agent) rewindCall(m msg) {
 		if at == "" {
 			at = "all"
 		}
-		a.result(m.ID, map[string]any{"sessionId": "fork-of-" + p.SessionID + "-" + at})
+		res := map[string]any{"sessionId": "fork-of-" + p.SessionID + "-" + at}
+		a.sessionShape(res)
+		a.result(m.ID, res)
 	case "_flockdeck/forkpoint":
 		i := a.turnIndex(p.BeforeTurn)
 		fmt.Fprintf(os.Stderr, "acptest: rewind forkpoint turn=%s index=%d\n", p.BeforeTurn, i)
@@ -94,6 +96,9 @@ func (a *agent) rewindCall(m msg) {
 		fmt.Fprintf(os.Stderr, "acptest: rewind rewind turn=%s index=%d\n", p.BeforeTurn, i)
 		if i < 0 {
 			a.rpcError(m.ID, -32602, "unknown turn SECRET-AGENT-TEXT")
+			return
+		}
+		if a.hasSessionOpt("rewindhang") {
 			return
 		}
 		a.mu.Lock()

@@ -176,6 +176,9 @@ type session struct {
 	// then (rewind.go).
 	turns     []turnRec
 	rewinding bool
+	// hasHistory says the thread has turns from before the ones turns lists: it
+	// was resumed or forked (rewind.go).
+	hasHistory bool
 }
 
 // tid is the thread id, "" until thread/start has answered. Anything coming
@@ -218,6 +221,11 @@ func (s *server) openSession(m rpcMsg, kind string) {
 		return
 	}
 	secrets := mcpSecrets(p.McpServers)
+	_, keep, badAt := extMeta(m.Params)
+	if fork && badAt {
+		s.replyErr(m.ID, &rpcErr{Code: codeInvalidParams, Message: "at is not a fork point"})
+		return
+	}
 	ss := &session{
 		srv: s, cwd: p.Cwd,
 		reaped: make(chan struct{}), dead: make(chan struct{}), quit: make(chan struct{}),
@@ -226,7 +234,7 @@ func (s *server) openSession(m rpcMsg, kind string) {
 		pending: map[int64]chan rpcMsg{}, done: map[string]turnResult{},
 		items: map[string]*itemState{}, perms: map[string]*openPerm{}, allowed: map[string]bool{},
 		skills: map[string]string{}, models: map[string]bool{},
-		mode: modes[0], secrets: secrets,
+		mode: modes[0], secrets: secrets, hasHistory: resume || fork,
 	}
 	// From here on every failure ends with ss.close: it kills codex and removes
 	// the session's files.
@@ -267,7 +275,6 @@ func (s *server) openSession(m rpcMsg, kind string) {
 		params["config"] = map[string]any{"mcp_servers": mcp}
 	}
 	method := "thread/start"
-	var drop int
 	switch {
 	case resume:
 		method = "thread/resume"
@@ -275,7 +282,6 @@ func (s *server) openSession(m rpcMsg, kind string) {
 	case fork:
 		method = "thread/fork"
 		params["threadId"] = p.SessionID
-		_, drop = extMeta(m.Params)
 	}
 	raw, err := ss.call(method, params)
 	var started struct {
@@ -304,10 +310,12 @@ func (s *server) openSession(m rpcMsg, kind string) {
 		s.replyErr(m.ID, &rpcErr{Code: codeInternal, Message: unavailable})
 		return
 	}
-	if fork && drop > 0 {
-		// The new thread has all of the source's turns; the ones from the point on go.
-		if _, err := ss.call("thread/rollback", map[string]any{"threadId": started.Thread.ID, "numTurns": drop}); err != nil {
-			ss.logf("thread/rollback of the fork: %v", err)
+	if fork && keep >= 0 {
+		// The new thread has all of the source's turns, and any that ran after the
+		// point was chosen; what is beyond the ones kept goes. The count is of the
+		// new thread, so it cannot be out of step with the source.
+		if err := ss.cutFork(started.Thread.ID, keep); err != nil {
+			ss.logf("cut of the fork: %v", err)
 			ss.close()
 			s.replyErr(m.ID, &rpcErr{Code: codeInternal, Message: unavailable})
 			return

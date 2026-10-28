@@ -54,6 +54,8 @@ type structuredEnvOpts struct {
 	// BeforeSpawn runs after the workspace is made and before the pane starts,
 	// for a test that changes the environment the agent is given.
 	BeforeSpawn func()
+	// RewindTimeout shortens how long a rewind waits for the agent.
+	RewindTimeout time.Duration
 }
 
 func newStructuredEnvWith(t *testing.T, task string, o structuredEnvOpts) *structuredEnv {
@@ -78,9 +80,9 @@ func newStructuredEnvWith(t *testing.T, task string, o structuredEnvOpts) *struc
 	exe, _ := os.Executable()
 	e.ws.UseStructuredCommand(func(agent.Spec) *structured.Command {
 		if o.Program != "" {
-			return &structured.Command{Path: o.Program, Args: o.ProgramArgs}
+			return &structured.Command{Path: o.Program, Args: o.ProgramArgs, Rewind: true, RewindTimeout: o.RewindTimeout}
 		}
-		return &structured.Command{Path: exe, Args: append([]string{acptest.ArgAgent}, o.Args...), Own: true}
+		return &structured.Command{Path: exe, Args: append([]string{acptest.ArgAgent}, o.Args...), Own: true, Rewind: true, RewindTimeout: o.RewindTimeout}
 	})
 	ask(e.srv, func() bool { e.ws.ReloadAgents(); return true })
 	if o.BeforeSpawn != nil {

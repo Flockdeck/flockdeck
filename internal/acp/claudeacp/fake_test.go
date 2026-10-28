@@ -32,6 +32,7 @@ const (
 	envCtlErr2 = "FD_CLAUDEACP_CTLERR2"   // and a second one
 	envLogin   = "FD_CLAUDEACP_LOGIN"     // what `auth login` does: ok, fail, hang, evil
 	envBeat    = "FD_CLAUDEACP_BEAT"      // the file the hanging login appends to
+	envNoCut   = "FD_CLAUDEACP_NOCUT"     // exit at once when started with --resume-session-at
 )
 
 type step struct {
@@ -127,6 +128,9 @@ func runFake() {
 		f.Close()
 	}
 	logf("ARGS: %s", strings.Join(os.Args[1:], " "))
+	if os.Getenv(envNoCut) != "" && strings.Contains(strings.Join(os.Args[1:], " "), "--resume-session-at") {
+		os.Exit(3)
+	}
 
 	var steps []step
 	if b, err := os.ReadFile(os.Getenv(envScript)); err == nil {

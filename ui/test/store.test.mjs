@@ -419,8 +419,8 @@ test("a structuredRewind or structuredFork answer is kept with the pane it was s
   assert.equal(store.getState().rewindResult, null);
   assert.equal(store.send({ cmd: "structuredRewind", id: "p3", req: "r1", entry: "e3", confirm: true }), true);
   ws.frame({ type: "teamResult", req: "r1", op: "structuredRewind", ok: true, text: "second" });
-  assert.deepEqual(store.getState().rewindResult, { id: "p3", req: "r1", op: "structuredRewind", ok: true, error: "", text: "second", pane: "" });
+  assert.deepEqual(store.getState().rewindResult, { id: "p3", req: "r1", op: "structuredRewind", ok: true, error: "", text: "second", cut: false, pane: "" });
   assert.equal(store.send({ cmd: "structuredFork", id: "p4", req: "r2", entry: "" }), true);
   ws.frame({ type: "teamResult", req: "r2", op: "structuredFork", ok: false, error: "The conversation could not be forked", text: "leak" });
-  assert.deepEqual(store.getState().rewindResult, { id: "p4", req: "r2", op: "structuredFork", ok: false, error: "The conversation could not be forked", text: "", pane: "" });
+  assert.deepEqual(store.getState().rewindResult, { id: "p4", req: "r2", op: "structuredFork", ok: false, error: "The conversation could not be forked", text: "", cut: false, pane: "" });
 });

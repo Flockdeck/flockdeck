@@ -2,6 +2,7 @@ package codexacp
 
 import (
 	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -62,7 +63,7 @@ func TestInitializeAdvertisesTheExtension(t *testing.T) {
 func TestForkPointCountsTheTurnsFromThePointToTheEnd(t *testing.T) {
 	h := newHarness(t, threeTurns())
 	sid := runThree(t, h)
-	for turn, want := range map[string]string{tok3: "rb1", tok2: "rb2"} {
+	for turn, want := range map[string]string{tok3: "k2", tok2: "k1"} {
 		r := h.call("_flockdeck/forkpoint", map[string]any{"sessionId": sid, "beforeTurn": turn})
 		if r.Error != nil || !strings.Contains(string(r.Result), `"at":"`+want+`"`) {
 			t.Errorf("fork point of %s = %s %+v, want %s", turn, r.Result, r.Error, want)
@@ -159,11 +160,12 @@ func TestACommandAfterThePointMakesItUnusable(t *testing.T) {
 	}
 }
 
-func TestForkIsAThreadForkThenARollback(t *testing.T) {
-	h := newHarness(t, nil)
+func TestForkIsAThreadForkThenARollbackOfWhatIsBeyondThePoint(t *testing.T) {
+	// The new thread is counted when it is made: it has 4 turns, 2 are kept.
+	h := newHarness(t, nil, hopts{extraEnv: []string{envTurns + "=4"}})
 	h.call("initialize", map[string]any{"protocolVersion": 1})
 	r := h.call("session/fork", map[string]any{"sessionId": "thr-src", "cwd": h.cwd, "mcpServers": []any{},
-		"_meta": map[string]any{"flockdeck.dev": map[string]any{"at": "rb2"}}})
+		"_meta": map[string]any{"flockdeck.dev": map[string]any{"at": "k2"}}})
 	if r.Error != nil || !strings.Contains(string(r.Result), `"sessionId":"thr-fork"`) {
 		t.Fatalf("fork = %s %+v", r.Result, r.Error)
 	}
@@ -178,26 +180,88 @@ func TestForkIsAThreadForkThenARollback(t *testing.T) {
 	}
 }
 
-func TestForkOfTheWholeThreadRollsNothingBack(t *testing.T) {
-	// A point that is not "rbN" is dropped, not passed to codex.
-	for _, at := range []any{nil, "rb0", "x", "rb-1", "rb99999", map[string]any{"a": 1}} {
-		h := newHarness(t, nil)
+// A turn that ran on the source after the point was chosen is one more turn on
+// the new thread, and goes too: the cut is at the same place.
+func TestATurnRunAfterTheForkPointWasChosenDoesNotMoveTheCut(t *testing.T) {
+	for turns, want := range map[int]string{3: `"numTurns":1`, 4: `"numTurns":2`, 5: `"numTurns":3`} {
+		h := newHarness(t, nil, hopts{extraEnv: []string{envTurns + "=" + strconv.Itoa(turns)}})
 		h.call("initialize", map[string]any{"protocolVersion": 1})
-		meta := map[string]any{}
-		if at != nil {
-			meta["at"] = at
-		}
 		r := h.call("session/fork", map[string]any{"sessionId": "thr-src", "cwd": h.cwd, "mcpServers": []any{},
-			"_meta": map[string]any{"flockdeck.dev": meta}})
+			"_meta": map[string]any{"flockdeck.dev": map[string]any{"at": "k2"}}})
 		if r.Error != nil {
-			t.Fatalf("fork at %v = %+v", at, r.Error)
+			t.Fatalf("fork with %d turns = %+v", turns, r.Error)
 		}
-		if logHas(readLog(h.log), `"method":"thread/rollback"`) {
-			t.Errorf("fork at %v: a rollback was asked for: %v", at, logFind(readLog(h.log), `"method":"thread/rollback"`))
+		if rb := logFind(readLog(h.log), `"method":"thread/rollback"`); !strings.Contains(rb, want) {
+			t.Errorf("%d turns: rollback request = %s, want %s", turns, rb, want)
 		}
 	}
 }
 
+// If the turns of the new thread cannot be counted, or there are fewer than the
+// point keeps, the fork is refused rather than guessed.
+func TestAForkWhoseTurnsCannotBeCountedIsRefused(t *testing.T) {
+	for name, env := range map[string][]string{"no count": nil, "too few": {envTurns + "=1"}} {
+		h := newHarness(t, nil, hopts{extraEnv: env})
+		h.call("initialize", map[string]any{"protocolVersion": 1})
+		r := h.call("session/fork", map[string]any{"sessionId": "thr-src", "cwd": h.cwd, "mcpServers": []any{},
+			"_meta": map[string]any{"flockdeck.dev": map[string]any{"at": "k2"}}})
+		if r.Error == nil {
+			t.Errorf("%s: the fork was made: %s", name, r.Result)
+		}
+		if logHas(readLog(h.log), `"method":"thread/rollback"`) {
+			t.Errorf("%s: a rollback was asked for", name)
+		}
+	}
+}
+
+// A fork point that is present but is not one of ours is an error: the whole
+// thread is not forked in its place.
+func TestAForkPointThatIsNotOursIsAnErrorNotAWholeFork(t *testing.T) {
+	for _, at := range []any{"rb2", "x", "k-1", "k99999", 7, map[string]any{"a": 1}, ""} {
+		h := newHarness(t, nil)
+		h.call("initialize", map[string]any{"protocolVersion": 1})
+		r := h.call("session/fork", map[string]any{"sessionId": "thr-src", "cwd": h.cwd, "mcpServers": []any{},
+			"_meta": map[string]any{"flockdeck.dev": map[string]any{"at": at}}})
+		if r.Error == nil || r.Error.Code != codeInvalidParams {
+			t.Errorf("fork at %v = %s %+v", at, r.Result, r.Error)
+		}
+		if logHas(readLog(h.log), `"method":"thread/fork"`) {
+			t.Errorf("fork at %v: codex was asked to fork", at)
+		}
+	}
+}
+
+func TestForkOfTheWholeThreadRollsNothingBack(t *testing.T) {
+	for _, meta := range []map[string]any{{}, {"at": nil}, {"turn": "x"}} {
+		h := newHarness(t, nil)
+		h.call("initialize", map[string]any{"protocolVersion": 1})
+		r := h.call("session/fork", map[string]any{"sessionId": "thr-src", "cwd": h.cwd, "mcpServers": []any{},
+			"_meta": map[string]any{"flockdeck.dev": meta}})
+		if r.Error != nil {
+			t.Fatalf("fork with %v = %+v", meta, r.Error)
+		}
+		if logHas(readLog(h.log), `"method":"thread/rollback"`) {
+			t.Errorf("fork with %v: a rollback was asked for", meta)
+		}
+	}
+}
+
+// A session that was resumed or forked has turns the adapter did not run, so a
+// count from the start of the thread cannot be given for it.
+func TestAResumedSessionGivesNoForkPoint(t *testing.T) {
+	h := newHarness(t, threeTurns())
+	h.call("initialize", map[string]any{"protocolVersion": 1})
+	r := h.call("session/resume", map[string]any{"sessionId": "thr-1", "cwd": h.cwd, "mcpServers": []any{}})
+	if r.Error != nil {
+		t.Fatalf("resume = %+v", r.Error)
+	}
+	sid := "thr-1"
+	stopReason(t, h.await(h.promptTurn(sid, "go", tok1)))
+	stopReason(t, h.await(h.promptTurn(sid, "go", tok2)))
+	if r := h.call("_flockdeck/forkpoint", map[string]any{"sessionId": sid, "beforeTurn": tok2}); r.Error == nil {
+		t.Errorf("a fork point was given for a resumed session: %s", r.Result)
+	}
+}
 func TestForkRefusesASourceThatIsNotAThreadId(t *testing.T) {
 	h := newHarness(t, nil)
 	h.call("initialize", map[string]any{"protocolVersion": 1})

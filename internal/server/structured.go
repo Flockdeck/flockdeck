@@ -220,6 +220,9 @@ type structuredMsg struct {
 	// RewindPoints are the ids of the prompt entries the conversation can be
 	// taken back to or forked from (API 1.24), the newest 200 at most.
 	RewindPoints []string `json:"rewindPoints,omitempty"`
+	// RewindToken goes back with structuredRewind and structuredFork (see
+	// structuredrewind.go). It is present whenever the agent can go back.
+	RewindToken string `json:"rewindToken,omitempty"`
 }
 
 // clipStructured makes s fit for a window and cuts it to at most max bytes. It

@@ -20,6 +20,9 @@ func (e *structuredEnv) rewindOp(t *testing.T, c *controlClient, cmd command) te
 		cmd.ID = e.child
 	}
 	cmd.Req = "rw1"
+	if cmd.RewindToken == "" && cmd.ID == e.child {
+		cmd.RewindToken = e.snapshotOf(t, cmd.ID).RewindToken
+	}
 	raw := structuredReply(t, e.srv, c, cmd, "teamResult")
 	var res teamResultMsg
 	if err := json.Unmarshal(raw, &res); err != nil {
@@ -223,5 +226,83 @@ func TestRewindAndForkAreRefusedToTheRelayAndViewers(t *testing.T) {
 	}
 	if len(e.entries(t)) != before {
 		t.Error("a command from the relay changed the conversation")
+	}
+}
+
+// A window that holds an old token is refused: the pane went back (or was
+// restarted) since it last showed the list, and its entry ids mean other things.
+func TestRewindAndForkWithAStaleTokenAreRefused(t *testing.T) {
+	e, ids := rewindEnv(t)
+	old := e.snapshotOf(t, e.child).RewindToken
+	if old == "" {
+		t.Fatal("the push has no rewind token")
+	}
+	res := e.rewindOp(t, e.c, command{Cmd: "structuredRewind", Entry: ids[1], Confirm: true})
+	if !res.OK {
+		t.Fatalf("rewind: %+v", res)
+	}
+	if now := e.snapshotOf(t, e.child).RewindToken; now == old {
+		t.Fatal("the token did not change after a rewind")
+	}
+	for _, cmd := range []command{
+		{Cmd: "structuredRewind", Entry: ids[0], Confirm: true, RewindToken: old},
+		{Cmd: "structuredFork", Entry: ids[0], RewindToken: old},
+		{Cmd: "structuredFork", Entry: ids[0], RewindToken: "garbage"},
+		{Cmd: "structuredFork", Entry: ids[0], RewindToken: "0.0"},
+	} {
+		if res := e.rewindOp(t, e.c, cmd); res.OK || res.Error != structuredRewindStale {
+			t.Errorf("%s with token %q: %+v", cmd.Cmd, cmd.RewindToken, res)
+		}
+	}
+	// A restart of the pane makes a new runtime: the token it had is no good.
+	tok := e.snapshotOf(t, e.child).RewindToken
+	if ok, _ := ask(e.srv, func() bool { return e.ws.RestartPaneByID(e.child) }); !ok {
+		t.Fatal("restart refused")
+	}
+	e.status(t, session.StatusIdle)
+	if res := e.rewindOp(t, e.c, command{Cmd: "structuredFork", Entry: ids[0], RewindToken: tok}); res.OK || res.Error != structuredRewindStale {
+		t.Errorf("fork with the token of the runtime before the restart: %+v", res)
+	}
+}
+
+// When the agent does not answer a rewind, whether it went back is not known:
+// the pane is restarted so that the window and the agent cannot disagree.
+func TestARewindTheAgentNeverAnswersRestartsThePane(t *testing.T) {
+	e := newStructuredEnvWith(t, "plain", structuredEnvOpts{Args: []string{acptest.ArgSessions + "rewind,rewindhang"}, RewindTimeout: 700 * time.Millisecond})
+	e.status(t, session.StatusIdle)
+	e.sendText(t, "plain one")
+	e.waitPrompts(t, 2)
+	e.status(t, session.StatusIdle)
+	e.sendText(t, "plain two")
+	e.waitPrompts(t, 3)
+	e.status(t, session.StatusIdle)
+	var id string
+	for _, en := range e.entries(t) {
+		if en.Kind == transcript.KindPrompt && en.Text == "plain two" {
+			id = en.ID
+		}
+	}
+	first, _ := ask(e.srv, func() any { return e.ws.StructuredRuntime(e.child) })
+	res := e.rewindOp(t, e.c, command{Cmd: "structuredRewind", Entry: id, Confirm: true})
+	if res.OK || res.Error != structuredRewindUnknown {
+		t.Fatalf("rewind: %+v", res)
+	}
+	now, _ := ask(e.srv, func() any { return e.ws.StructuredRuntime(e.child) })
+	if now == nil || now == first {
+		t.Error("the pane was not restarted")
+	}
+}
+
+// A pane keeps four forks at most; the fifth gets a fixed text and no pane.
+func TestAFifthForkOfOnePaneIsRefused(t *testing.T) {
+	e, ids := rewindEnv(t)
+	for i := 0; i < 4; i++ {
+		if res := e.rewindOp(t, e.c, command{Cmd: "structuredFork", Entry: ids[1]}); !res.OK {
+			t.Fatalf("fork %d: %+v", i+1, res)
+		}
+	}
+	res := e.rewindOp(t, e.c, command{Cmd: "structuredFork", Entry: ids[1]})
+	if res.OK || res.Pane != "" || res.Error != structuredTooManyForks {
+		t.Errorf("fifth fork: %+v", res)
 	}
 }

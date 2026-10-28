@@ -40,3 +40,15 @@ func (b *Bridge) TruncateBefore(id string) (string, bool) {
 	b.inFlight = false
 	return text, true
 }
+
+// HasPrompt says id is a prompt entry the bridge still holds.
+func (b *Bridge) HasPrompt(id string) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	for _, it := range b.items {
+		if it.e.ID == id && it.e.Kind == transcript.KindPrompt {
+			return true
+		}
+	}
+	return false
+}

@@ -24,13 +24,14 @@ const (
 	envAdapt  = "FD_CODEXACP_ADAPTER" // the test binary runs as the adapter
 	envScript = "FD_CODEXACP_SCRIPT"
 	envLog    = "FD_CODEXACP_LOG"
-	envNoTurn = "FD_CODEXACP_TURNDELAY" // milliseconds before the turn/start response
-	envErr    = "FD_CODEXACP_ERR"       // a method that is answered with an error
-	envSlow   = "FD_CODEXACP_SLOWSTART" // milliseconds before the thread/start response
-	envEcho   = "FD_CODEXACP_ECHO"      // JSON members added to the thread/start and thread/resume results
-	envStderr = "FD_CODEXACP_STDERR"    // a line written to stderr at start
-	envLogin  = "FD_CODEXACP_LOGIN"     // what `login` does: ok, fail, hang, evil
-	envBeat   = "FD_CODEXACP_BEAT"      // the file the hanging login appends to
+	envNoTurn = "FD_CODEXACP_TURNDELAY"   // milliseconds before the turn/start response
+	envErr    = "FD_CODEXACP_ERR"         // a method that is answered with an error
+	envSlow   = "FD_CODEXACP_SLOWSTART"   // milliseconds before the thread/start response
+	envEcho   = "FD_CODEXACP_ECHO"        // JSON members added to the thread/start and thread/resume results
+	envStderr = "FD_CODEXACP_STDERR"      // a line written to stderr at start
+	envLogin  = "FD_CODEXACP_LOGIN"       // what `login` does: ok, fail, hang, evil
+	envBeat   = "FD_CODEXACP_BEAT"        // the file the hanging login appends to
+	envTurns  = "FD_CODEXACP_THREADTURNS" // how many turns thread/read says a thread has; unset answers none
 )
 
 type step struct {
@@ -85,6 +86,16 @@ func answer(method string, params map[string]any) any {
 			}
 		}
 		return res
+	case "thread/read":
+		n, err := strconv.Atoi(os.Getenv(envTurns))
+		if err != nil {
+			return map[string]any{"thread": map[string]any{"id": params["threadId"]}}
+		}
+		turns := make([]any, n)
+		for i := range turns {
+			turns[i] = map[string]any{"id": "turn-x"}
+		}
+		return map[string]any{"thread": map[string]any{"id": params["threadId"], "turns": turns}}
 	case "initialize":
 		return map[string]any{"userAgent": "fake-codex/0.0.0"}
 	case "model/list":

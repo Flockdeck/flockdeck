@@ -382,7 +382,7 @@ func (s *server) prompt(m rpcMsg) {
 		s.replyErr(m.ID, &rpcErr{Code: codeInvalidParams, Message: err.Error()})
 		return
 	}
-	turn, _ := extMeta(m.Params)
+	turn, _, _ := extMeta(m.Params)
 	ss.enqueue(&promptReq{id: m.ID, content: content, turn: turn})
 }
 
