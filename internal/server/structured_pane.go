@@ -18,6 +18,9 @@ func (p runtimePane) OwnAdapter() bool { return p.rt.OwnAdapter() }
 // RuntimeToken is the runtime's RewindToken, "<runtime number>.<rewinds>".
 func (p runtimePane) RuntimeToken() string { return p.rt.RewindToken() }
 
+// ProjectRoot is the directory the runtime works in.
+func (p runtimePane) ProjectRoot() string { return p.rt.Root() }
+
 // AnswerPermission gives the choice to the runtime, which checks the card and
 // takes the answer under one lock.
 func (p runtimePane) AnswerPermission(seq uint64, requestID, optionID string) error {

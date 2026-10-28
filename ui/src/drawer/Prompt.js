@@ -46,6 +46,8 @@ export const ANSWER_WAIT_MS = 5000;
 export const NOT_TAKEN_WORDS = "The agent has not taken the choice yet. You can choose again.";
 export const NOT_ANSWERED_WORDS = "Not connected to Flockdeck, so the answer was not sent.";
 export const IN_TERMINAL_WORDS = "The choices are in the terminal below.";
+/** COMMAND_CUT_WORDS is said under a command that is not the whole one the agent sent: it was cut, or cleaning changed it. */
+export const COMMAND_CUT_WORDS = "The command was cut.";
 export const DETAILS_ON_DESKTOP_WORDS = "The details are on the desktop.";
 
 /** MAX_DIFF_LINES is how many lines of a diff the card draws. The rest is said, not drawn. */
@@ -80,6 +82,9 @@ function Details({ permission }) {
   return html`
     ${permission.summary ? html`<p class="prompt-summary">${permission.summary}</p>` : null}
     ${permission.command ? html`<pre class="prompt-command" aria-label="Command">${permission.command}</pre>` : null}
+    ${permission.command && permission.clipped ? html`<p class="prompt-more">${COMMAND_CUT_WORDS}</p>` : null}
+    ${permission.cwd ? html`<p class="prompt-file"><span class="prompt-label">Directory</span> <code>${permission.cwd}</code></p>` : null}
+    ${Array.isArray(permission.notes) ? permission.notes.map((n) => html`<p class="prompt-note">${n}</p>`) : null}
     ${permission.file ? html`<p class="prompt-file"><span class="prompt-label">File</span> <code>${permission.file}</code></p>` : null}
     ${permission.description ? html`<p class="prompt-desc">${permission.description}</p>` : null}
     ${permission.body

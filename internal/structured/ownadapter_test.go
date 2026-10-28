@@ -35,3 +35,23 @@ func TestOwnAdapterIsOnlyFlockdecksOwn(t *testing.T) {
 		})
 	}
 }
+
+// The bridge is told the keys an own adapter sends, so that a card notes any other
+// key. A test command, and a key list set for a test, are not overridden.
+func TestShownInputComesFromTheSpecOfAnOwnAdapter(t *testing.T) {
+	spec := func(adapter string) agent.Spec {
+		return agent.Spec{ID: "claude", Runner: agent.RunnerACP, ACP: agent.ACPSpec{Adapter: adapter}}
+	}
+	if got := shownInput(Options{Spec: spec("claude")}, nil); len(got) != 3 {
+		t.Errorf("claude: %v", got)
+	}
+	if got := shownInput(Options{Spec: spec("opencode")}, nil); got != nil {
+		t.Errorf("another adapter: %v", got)
+	}
+	if got := shownInput(Options{Spec: spec("claude"), Command: &Command{}}, nil); got != nil {
+		t.Errorf("a test command: %v", got)
+	}
+	if got := shownInput(Options{Spec: spec("claude")}, []string{"x"}); len(got) != 1 || got[0] != "x" {
+		t.Errorf("a set list: %v", got)
+	}
+}

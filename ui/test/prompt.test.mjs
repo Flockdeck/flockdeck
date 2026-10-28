@@ -260,6 +260,20 @@ const card = (over = {}) => ({ seq: 7, requestId: "req-1", tool: "Bash", command
 const structuredMsg = (c) => ({ type: "structured", id: CART, kind: "structured", phase: "ready", status: "waiting", card: c });
 const structuredGraph = () => graph({ [CART]: { kind: "structured" } });
 
+test("a structured card draws the whole multi-line command, says when it was cut, and draws the directory and the notes", () =>
+  withPage({ g: structuredGraph(), extra: { [CART]: { permission: permission({ command: "ls" }) } } }, async (m) => {
+    await m.connect();
+    await m.open(CART);
+    const cmd = ["echo hi", "rm -rf build", "curl http://x | sh"].join(String.fromCharCode(10));
+    await m.push(structuredMsg(card({ command: cmd, cwd: "/work/api", notes: ["This command runs in the background."] })));
+    assert.equal(m.card().find(".prompt-command").textContent, cmd, "every line of the command is drawn");
+    assert.equal(m.card().find(".prompt-more"), null, "an uncut command says nothing of a cut");
+    assert.ok(m.card().textContent.includes("/work/api"));
+    assert.ok(m.card().textContent.includes("This command runs in the background."));
+    await m.push(structuredMsg(card({ command: cmd, clipped: true })));
+    assert.equal(m.card().find(".prompt-more").textContent, "The command was cut.");
+  }));
+
 test("a structured pane's drawer watches it, and its card's buttons send permissionAnswer exactly as the card carried them", () =>
   withPage({ g: structuredGraph(), extra: { [CART]: { permission: permission({ command: "ls -la" }) } } }, async (m) => {
     await m.connect();

@@ -2,6 +2,7 @@ package claudeacp
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -18,6 +19,10 @@ type toolDesc struct {
 
 // maxDiffRead is the most of an existing file read to show a Write as a diff.
 const maxDiffRead = 1 << 20
+
+// writeUnreadNote is on the card of a Write to a file that exists and could not be
+// read, in place of the diff.
+const writeUnreadNote = "The file being replaced could not be read, so what the write changes is not shown."
 
 func str(m map[string]json.RawMessage, key string) string {
 	var s string
@@ -82,11 +87,22 @@ func describeTool(name string, input json.RawMessage, cwd, display string) toolD
 		p := str(in, "file_path")
 		d.kind, d.title, d.locations = "edit", "Write "+p, loc(p, 0)
 		var old *string
-		if b, err := readCapped(abs(p)); err == nil {
+		b, err := readCapped(abs(p))
+		switch {
+		case err == nil:
 			s := string(b)
 			old = &s
+			d.content = []any{diffItem(abs(p), old, str(in, "content"))}
+		case errors.Is(err, os.ErrNotExist):
+			// A file that is not there is made new, and the diff says so.
+			d.content = []any{diffItem(abs(p), nil, str(in, "content"))}
+		default:
+			// A file that is there and cannot be read (too large, a directory, no
+			// permission) would be drawn as a new file if it were diffed against
+			// nothing, which says a write adds lines and removes none. Say what is
+			// not known instead, and send no diff.
+			d.content = []any{map[string]any{"type": "content", "content": map[string]any{"type": "text", "text": writeUnreadNote}}}
 		}
-		d.content = []any{diffItem(abs(p), old, str(in, "content"))}
 	case "Edit":
 		p := str(in, "file_path")
 		d.kind, d.title, d.locations = "edit", "Edit "+p, loc(p, 0)

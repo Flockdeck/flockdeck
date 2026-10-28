@@ -351,3 +351,7 @@ func (r *Runtime) modelNow() string {
 func (r *Runtime) OwnAdapter() bool {
 	return r.opts.Command == nil && r.opts.Spec.ACPOwnAdapter()
 }
+
+// Root is the directory the pane works in, absolute: the project root a phone's
+// approval of an edit is held inside.
+func (r *Runtime) Root() string { return r.opts.Cwd }

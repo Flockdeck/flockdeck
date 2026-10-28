@@ -2,8 +2,10 @@ package server
 
 import (
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/jmwri/flockdeck/internal/acp"
@@ -20,6 +22,33 @@ var (
 	optReject      = acp.PermissionOption{OptionID: "reject", Name: "Reject", Kind: "reject_once"}
 	plainOptions   = []acp.PermissionOption{optAllow, optReject}
 )
+
+// Characters that must not be typed into this file as themselves, as bytes.
+const (
+	uRLO  = "\xe2\x80\xae"                         // U+202E right-to-left override
+	uLRI  = "\xe2\x81\xa6"                         // U+2066 left-to-right isolate
+	uPDI  = "\xe2\x81\xa9"                         // U+2069 pop directional isolate
+	uZWSP = "\xe2\x80\x8b"                         // U+200B zero width space
+	uNBSP = "\xc2\xa0"                             // U+00A0 no-break space
+	uRepl = "\xef\xbf\xbd"                         // U+FFFD replacement character
+	uVS16 = "\xef\xb8\x8f"                         // U+FE0F variation selector 16
+	uFill = "\xe3\x85\xa4"                         // U+3164 hangul filler
+	uComb = "\xcc\x81"                             // U+0301 combining acute accent
+	jp    = "\xe6\x97\xa5\xe6\x9c\xac\xe8\xaa\x9e" // Japanese, three Han letters
+	eacut = "\xc3\xa9"                             // U+00E9
+)
+
+// testRoot is an absolute directory on any system; the pa, pb and pnew files are
+// in it.
+var (
+	testRoot = func() string {
+		r, _ := filepath.Abs(string(filepath.Separator) + "proj")
+		return r
+	}()
+	pa, pb, pnew = inRoot("a.go"), inRoot("b.go"), inRoot("new.txt")
+)
+
+func inRoot(parts ...string) string { return filepath.Join(append([]string{testRoot}, parts...)...) }
 
 func execCard(command string) *bridge.Card {
 	return &bridge.Card{Seq: 7, RequestID: "req-1", Kind: "execute", Tool: "Bash", Command: command, CommandText: command,
@@ -65,13 +94,13 @@ func (p phoneCard) want() phoneWant {
 }
 
 func TestProjectCard(t *testing.T) {
-	small := transcript.EditDiff("/p/a.go", "one\ntwo\nthree", "one\n2\nthree\nfour")
-	write := transcript.WriteDiff("/p/new.txt", "a\nb\nc")
-	multi := small + transcript.EditDiff("/p/a.go", "x", "y")
-	long300 := "/" + strings.Repeat("d", 299)
+	small := transcript.EditDiff(pa, "one\ntwo\nthree", "one\n2\nthree\nfour")
+	write := transcript.WriteDiff(pnew, "a\nb\nc")
+	multi := small + transcript.EditDiff(pa, "x", "y")
+	long300 := testRoot + string(filepath.Separator) + strings.Repeat("d", 300-len(testRoot)-1)
 	long301 := long300 + "d"
 	tool := func(kind string) *bridge.Card {
-		return &bridge.Card{Seq: 1, RequestID: "r", Kind: kind, File: "/p/a", Options: plainOptions}
+		return &bridge.Card{Seq: 1, RequestID: "r", Kind: kind, File: pa, Options: plainOptions}
 	}
 
 	cases := []struct {
@@ -84,7 +113,20 @@ func TestProjectCard(t *testing.T) {
 
 		{"a command", execCard("go test ./..."), true, phoneWant{true, true, "execute", "go test ./...", "", 0, 0}},
 		{"a command on another agent", execCard("go test ./..."), false, phoneWant{true, false, "execute", "go test ./...", whyAgent, 0, 0}},
-		{"unicode", execCard("echo 日本語 é ☃"), true, phoneWant{true, true, "execute", "echo 日本語 é ☃", "", 0, 0}},
+		{"non-ASCII text", execCard("echo " + jp), true, phoneWant{true, false, "execute", "echo " + jp, whyOdd, 0, 0}},
+		{"a Cyrillic lookalike", execCard("p\xd0\xb0ypal"), true, phoneWant{true, false, "execute", "p\xd0\xb0ypal", whyOdd, 0, 0}},
+		{"seven spaces", execCard("ls" + strings.Repeat(" ", 7) + "-la"), true, phoneWant{true, true, "execute", "ls" + strings.Repeat(" ", 7) + "-la", "", 0, 0}},
+		{"eight spaces", execCard("ls" + strings.Repeat(" ", 8) + "-la"), true, phoneWant{true, false, "execute", "ls" + strings.Repeat(" ", 8) + "-la", whyOdd, 0, 0}},
+		{"eight tabs", execCard("ls" + strings.Repeat("\t", 8) + "-la"), true, phoneWant{true, false, "execute", "ls" + strings.Repeat("\t", 8) + "-la", whyOdd, 0, 0}},
+		{"two blank lines", execCard("a\n\n\nb"), true, phoneWant{true, true, "execute", "a\n\n\nb", "", 0, 0}},
+		{"three blank lines", execCard("a\n\n\n\nb"), true, phoneWant{true, false, "execute", "a\n\n\n\nb", whyOdd, 0, 0}},
+		{"sandbox off", with(execCard("ls"), func(c *bridge.Card) { c.Notes = []string{bridge.NoteSandbox} }), true, phoneWant{true, false, "execute", "ls", whySettings, 0, 0}},
+		{"in the background", with(execCard("ls"), func(c *bridge.Card) { c.Notes = []string{bridge.NoteBackground} }), true, phoneWant{true, false, "execute", "ls", whySettings, 0, 0}},
+		{"input not shown", with(execCard("ls"), func(c *bridge.Card) { c.Notes = []string{bridge.NoteExtra} }), true, phoneWant{true, false, "execute", "ls", whySettings, 0, 0}},
+		{"in the project directory", with(execCard("ls"), func(c *bridge.Card) { c.Cwd = testRoot }), true, phoneWant{true, true, "execute", "ls", "", 0, 0}},
+		{"in another directory", with(execCard("ls"), func(c *bridge.Card) { c.Cwd = filepath.Dir(testRoot) }), true, phoneWant{true, false, "execute", "ls", whySettings, 0, 0}},
+		{"in a directory below", with(execCard("ls"), func(c *bridge.Card) { c.Cwd = inRoot("sub") }), true, phoneWant{true, false, "execute", "ls", whySettings, 0, 0}},
+		{"in a directory that is not absolute", with(execCard("ls"), func(c *bridge.Card) { c.Cwd = "sub" }), true, phoneWant{true, false, "execute", "ls", whySettings, 0, 0}},
 		{"padding is not the command", execCard("  ls  \n"), true, phoneWant{true, true, "execute", "ls", "", 0, 0}},
 		{"three lines", execCard(echoLines(3)), true, phoneWant{true, true, "execute", echoLines(3), "", 0, 0}},
 		{"eight lines", execCard(echoLines(8)), true, phoneWant{true, true, "execute", echoLines(8), "", 0, 0}},
@@ -96,37 +138,38 @@ func TestProjectCard(t *testing.T) {
 		{"no command", execCard(""), true, phoneWant{true, false, "execute", "", whyUnclear, 0, 0}},
 		{"a secret", execCard("curl -H 'X: " + fakeToken + "' x"), true, phoneWant{true, false, "execute", "curl -H 'X: [redacted]' x", whySecret, 0, 0}},
 		{"a secret on another agent", execCard("curl " + fakeToken), false, phoneWant{true, false, "execute", "curl [redacted]", whyAgent, 0, 0}},
-		{"bidi override", execCard("echo ‮gpj.txt"), true, phoneWant{true, false, "execute", "echo gpj.txt", whyOdd, 0, 0}},
-		{"bidi isolate", execCard("a⁦b⁩"), true, phoneWant{true, false, "execute", "ab", whyOdd, 0, 0}},
-		{"zero width space", execCard("ec​ho"), true, phoneWant{true, false, "execute", "echo", whyOdd, 0, 0}},
-		{"no-break space", execCard("rm -rf x"), true, phoneWant{true, false, "execute", "rm-rf x", whyOdd, 0, 0}},
+		{"bidi override", execCard("echo " + uRLO + "gpj.txt"), true, phoneWant{true, false, "execute", "echo gpj.txt", whyOdd, 0, 0}},
+		{"bidi isolate", execCard("a" + uLRI + "b" + uPDI), true, phoneWant{true, false, "execute", "ab", whyOdd, 0, 0}},
+		{"zero width space", execCard("ec" + uZWSP + "ho"), true, phoneWant{true, false, "execute", "echo", whyOdd, 0, 0}},
+		{"no-break space", execCard("rm" + uNBSP + "-rf x"), true, phoneWant{true, false, "execute", "rm-rf x", whyOdd, 0, 0}},
 		{"escape", execCard("echo \x1b[2Jhi"), true, phoneWant{true, false, "execute", "echo [2Jhi", whyOdd, 0, 0}},
 		{"nul and bell", execCard("a\x00b\x07"), true, phoneWant{true, false, "execute", "ab", whyOdd, 0, 0}},
 		{"carriage return", execCard("echo a\r\necho b"), true, phoneWant{true, false, "execute", "echo a\necho b", whyOdd, 0, 0}},
 		{"not utf-8", execCard("echo \xff\xfe"), true, phoneWant{true, false, "execute", "echo", whyOdd, 0, 0}},
-		{"replacement character", execCard("echo �"), true, phoneWant{true, false, "execute", "echo", whyOdd, 0, 0}},
-		{"variation selector", execCard("echo a️"), true, phoneWant{true, false, "execute", "echo a", whyOdd, 0, 0}},
+		{"replacement character", execCard("echo " + uRepl), true, phoneWant{true, false, "execute", "echo", whyOdd, 0, 0}},
+		{"variation selector", execCard("echo a" + uVS16), true, phoneWant{true, false, "execute", "echo a", whyOdd, 0, 0}},
 		{"tag characters", execCard("echo \U000e0041"), true, phoneWant{true, false, "execute", "echo", whyOdd, 0, 0}},
-		{"blank filler", execCard("echo ㅤ"), true, phoneWant{true, false, "execute", "echo", whyOdd, 0, 0}},
+		{"blank filler", execCard("echo " + uFill), true, phoneWant{true, false, "execute", "echo", whyOdd, 0, 0}},
 		{"text from the agent besides", with(execCard("ls"), func(c *bridge.Card) { c.Body = "This is safe." }), true, phoneWant{true, false, "execute", "ls", whyUnclear, 0, 0}},
 
-		{"an edit", editCard("/p/a.go", small), true, phoneWant{true, true, "edit", "/p/a.go", "", 2, 1}},
-		{"a new file", editCard("/p/new.txt", write), true, phoneWant{true, true, "edit", "/p/new.txt", "", 3, 0}},
-		{"two edits of one file", editCard("/p/a.go", multi), true, phoneWant{true, true, "edit", "/p/a.go", "", 3, 2}},
-		{"an edit on another agent", editCard("/p/a.go", small), false, phoneWant{true, false, "edit", "/p/a.go", whyAgent, 2, 1}},
+		{"an edit", editCard(pa, small), true, phoneWant{true, true, "edit", pa, "", 2, 1}},
+		{"a new file", editCard(pnew, write), true, phoneWant{true, true, "edit", pnew, "", 3, 0}},
+		{"two edits of one file", editCard(pa, multi), true, phoneWant{true, true, "edit", pa, "", 3, 2}},
+		{"an edit on another agent", editCard(pa, small), false, phoneWant{true, false, "edit", pa, whyAgent, 2, 1}},
 		{"a path of 300 bytes", editCard(long300, transcript.WriteDiff(long300, "x")), true, phoneWant{true, true, "edit", long300, "", 1, 0}},
 		{"a path of 301 bytes", editCard(long301, transcript.WriteDiff(long301, "x")), true, phoneWant{true, false, "edit", long301[:300], whyLong, 0, 0}},
 		{"no path", editCard("", small), true, phoneWant{true, false, "edit", "", whyUnclear, 0, 0}},
-		{"no diff", editCard("/p/a.go", ""), true, phoneWant{true, false, "edit", "/p/a.go", whyUnclear, 0, 0}},
-		{"a diff that was cut", editCard("/p/a.go", small+"\n[diff cut]\n"), true, phoneWant{true, false, "edit", "/p/a.go", whyUnclear, 0, 0}},
-		{"more edits not shown", editCard("/p/a.go", small+"\n[more edits not shown]\n"), true, phoneWant{true, false, "edit", "/p/a.go", whyUnclear, 0, 0}},
-		{"a diff of another file", editCard("/p/a.go", transcript.EditDiff("/p/b.go", "a", "b")), true, phoneWant{true, false, "edit", "/p/a.go", whyUnclear, 0, 0}},
-		{"a diff of two files", editCard("/p/a.go", small+transcript.EditDiff("/p/b.go", "a", "b")), true, phoneWant{true, false, "edit", "/p/a.go", whyUnclear, 0, 0}},
-		{"a diff that says more than it holds", editCard("/p/a.go", "--- a//p/a.go\n+++ b//p/a.go\n@@ -1,3 +1 @@\n-a\n"), true, phoneWant{true, false, "edit", "/p/a.go", whyUnclear, 0, 0}},
-		{"a secret in the path", editCard("/p/"+fakeToken+".txt", transcript.WriteDiff("/p/"+fakeToken+".txt", "x")), true, phoneWant{true, false, "edit", "/p/[redacted].txt", whySecret, 0, 0}},
-		{"a bidi mark in the path", editCard("/p/a‮.go", transcript.WriteDiff("/p/a‮.go", "x")), true, phoneWant{true, false, "edit", "/p/a.go", whyOdd, 0, 0}},
-		{"a line break in the path", editCard("/p/a\n.go", transcript.WriteDiff("/p/a\n.go", "x")), true, phoneWant{true, false, "edit", "/p/a .go", whyOdd, 0, 0}},
-		{"text from the agent beside an edit", with(editCard("/p/a.go", small), func(c *bridge.Card) { c.Body = "Codex also asks to write under /" }), true, phoneWant{true, false, "edit", "/p/a.go", whyUnclear, 2, 1}},
+		{"no diff", editCard(pa, ""), true, phoneWant{true, false, "edit", pa, whyUnclear, 0, 0}},
+		{"a diff that was cut", editCard(pa, small+"\n[diff cut]\n"), true, phoneWant{true, false, "edit", pa, whyUnclear, 0, 0}},
+		{"more edits not shown", editCard(pa, small+"\n[more edits not shown]\n"), true, phoneWant{true, false, "edit", pa, whyUnclear, 0, 0}},
+		{"a diff of another file", editCard(pa, transcript.EditDiff(pb, "a", "b")), true, phoneWant{true, false, "edit", pa, whyUnclear, 0, 0}},
+		{"a diff of two files", editCard(pa, small+transcript.EditDiff(pb, "a", "b")), true, phoneWant{true, false, "edit", pa, whyUnclear, 0, 0}},
+		{"a diff that says more than it holds", editCard(pa, "--- a/"+pa+"\n+++ b/"+pa+"\n@@ -1,3 +1 @@\n-a\n"), true, phoneWant{true, false, "edit", pa, whyUnclear, 0, 0}},
+		{"a secret in the path", editCard(inRoot(fakeToken+".txt"), transcript.WriteDiff(inRoot(fakeToken+".txt"), "x")), true, phoneWant{true, false, "edit", inRoot("[redacted].txt"), whySecret, 0, 0}},
+		{"a bidi mark in the path", editCard(inRoot("a"+uRLO+".go"), transcript.WriteDiff(inRoot("a"+uRLO+".go"), "x")), true, phoneWant{true, false, "edit", pa, whyOdd, 0, 0}},
+		{"a line break in the path", editCard(inRoot("a\n.go"), transcript.WriteDiff(inRoot("a\n.go"), "x")), true, phoneWant{true, false, "edit", inRoot("a") + " .go", whyOdd, 0, 0}},
+		{"text from the agent beside an edit", with(editCard(pa, small), func(c *bridge.Card) { c.Body = "Codex also asks to write under /" }), true, phoneWant{true, false, "edit", pa, whyUnclear, 2, 1}},
+		{"replace all", with(editCard(pa, small), func(c *bridge.Card) { c.Notes = []string{bridge.NoteReplaceAll} }), true, phoneWant{true, false, "edit", pa, whySettings, 2, 1}},
 
 		{"a fetch", tool("fetch"), true, phoneWant{true, false, "other", "", whyTool, 0, 0}},
 		{"no kind", tool(""), true, phoneWant{true, false, "other", "", whyTool, 0, 0}},
@@ -154,17 +197,17 @@ func TestProjectCard(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			p := projectCard(tc.card, tc.own)
+			p := projectCard(tc.card, tc.own, testRoot)
 			if got := p.want(); got != tc.want {
 				t.Errorf("projectCard =\n %+v\nwant\n %+v", got, tc.want)
 			}
-			checkPhoneCard(t, tc.card, tc.own, p)
+			checkPhoneCard(t, tc.card, tc.own, testRoot, p)
 		})
 	}
 }
 
 // checkPhoneCard is what holds for every projection, whatever the card.
-func checkPhoneCard(t *testing.T, c *bridge.Card, own bool, p phoneCard) {
+func checkPhoneCard(t *testing.T, c *bridge.Card, own bool, root string, p phoneCard) {
 	t.Helper()
 	if !utf8.ValidString(p.Text) {
 		t.Errorf("Text is not UTF-8: %q", p.Text)
@@ -200,9 +243,15 @@ func checkPhoneCard(t *testing.T, c *bridge.Card, own bool, p phoneCard) {
 			if p.Text != strings.TrimSpace(c.CommandText) || c.CommandAltered || record.Redact(p.Text) != p.Text {
 				t.Errorf("allowed %q for command %q altered %v", p.Text, c.CommandText, c.CommandAltered)
 			}
+			if !plainASCII(p.Text) || oddShape(p.Text) || len(c.Notes) > 0 || (c.Cwd != "" && !atPaneRoot(c.Cwd, root)) {
+				t.Errorf("allowed %q with notes %v cwd %q", p.Text, c.Notes, c.Cwd)
+			}
 		case phoneEdit:
 			if p.Text != strings.TrimSpace(c.File) || record.Redact(p.Text) != p.Text {
 				t.Errorf("allowed %q for file %q", p.Text, c.File)
+			}
+			if pathAllowed(c.File, root) != "" || len(c.Notes) > 0 {
+				t.Errorf("allowed the file %q (%q) with notes %v", c.File, pathAllowed(c.File, root), c.Notes)
 			}
 		default:
 			t.Errorf("allowed a card of kind %q", p.Kind)
@@ -214,7 +263,7 @@ func checkPhoneCard(t *testing.T, c *bridge.Card, own bool, p phoneCard) {
 }
 
 func TestPhoneRuneOK(t *testing.T) {
-	for _, r := range "aZ09 \t\n~!{}$|&;<>\"'`\\/é日本語€☃→́" {
+	for _, r := range "aZ09 \t\n~!{}$|&;<>\"'`\\/é日本語€☃→" + uComb + eacut + jp {
 		if !phoneRuneOK(r) {
 			t.Errorf("%U refused", r)
 		}
@@ -235,7 +284,7 @@ func TestPhoneRuneOK(t *testing.T) {
 }
 
 func TestPhoneCleanAndClip(t *testing.T) {
-	if s, changed := phoneClean("a‮b\xffc"); s != "abc" || !changed {
+	if s, changed := phoneClean("a" + uRLO + "b\xffc"); s != "abc" || !changed {
 		t.Errorf("phoneClean = %q %v", s, changed)
 	}
 	if s, changed := phoneClean("plain\ttext\n"); s != "plain\ttext\n" || changed {
@@ -393,7 +442,7 @@ func TestApprovalLock(t *testing.T) {
 func TestPhoneAnswer(t *testing.T) {
 	const token = "3.0"
 	good := execCard("ls -l")
-	edit := editCard("/p/a.go", transcript.EditDiff("/p/a.go", "a", "b"))
+	edit := editCard(pa, transcript.EditDiff(pa, "a", "b"))
 	long := execCard(echoLines(9))
 	plan := &bridge.Card{Seq: 4, RequestID: "p", Kind: "switch_mode", Options: plainOptions}
 	noReject := withOptions(execCard("ls"), optAllow)
@@ -433,7 +482,7 @@ func TestPhoneAnswer(t *testing.T) {
 		"a bad decision on a stale card": {&newer, lockOf(good), token, true, "x", "", errPhoneDecision},
 	} {
 		t.Run(name, func(t *testing.T) {
-			id, err := phoneAnswer(tc.card, tc.token, tc.own, tc.lock, tc.decision)
+			id, err := phoneAnswer(tc.card, tc.token, tc.own, testRoot, tc.lock, tc.decision)
 			if id != tc.id || !errors.Is(err, tc.err) {
 				t.Errorf("phoneAnswer = %q, %v; want %q, %v", id, err, tc.id, tc.err)
 			}
@@ -451,7 +500,7 @@ func FuzzPhoneAnswer(f *testing.F) {
 		c := execCard("ls")
 		c.Options = []acp.PermissionOption{{OptionID: id1, Kind: kind1}, {OptionID: id2, Kind: kind2}, {OptionID: id3, Kind: kind3}}
 		l, _ := lockFor(c, "t")
-		id, err := phoneAnswer(c, "t", own, l, decision)
+		id, err := phoneAnswer(c, "t", own, testRoot, l, decision)
 		if err != nil {
 			if id != "" {
 				t.Errorf("refused with %q: %v", id, err)
@@ -481,19 +530,24 @@ func FuzzPhoneAnswer(f *testing.F) {
 // A card of any text is shown only as text a phone may draw, within the cuts,
 // and is allowed only when the text shown is the card's own.
 func FuzzProjectCard(f *testing.F) {
-	small := transcript.EditDiff("/p/a.go", "one\ntwo", "one\n2\nthree")
-	f.Add("execute", "ls -l", "", "", false, "", true)
-	f.Add("execute", "echo ‮hi\x1b[2J\r\n"+fakeToken, "", "", true, "", true)
-	f.Add("execute", echoLines(12), "", "", false, "", false)
-	f.Add("edit", "", "/p/a.go", small, false, "", true)
-	f.Add("edit", "", "/p/a\n.go", small+"\n[diff cut]\n", false, "body", true)
-	f.Add("switch_mode", "", "", "", false, "plan", true)
-	f.Add("fetch", "", "/p/a", "", false, "", true)
-	f.Fuzz(func(t *testing.T, kind, command, file, diff string, altered bool, body string, own bool) {
+	small := transcript.EditDiff(pa, "one\ntwo", "one\n2\nthree")
+	f.Add("execute", "ls -l", "", "", false, "", true, "", false)
+	f.Add("execute", "echo "+uRLO+"hi\x1b[2J\r\n"+fakeToken, "", "", true, "", true, "", false)
+	f.Add("execute", echoLines(12), "", "", false, "", false, "", true)
+	f.Add("execute", "ls", "", "", false, "", true, testRoot, true)
+	f.Add("edit", "", pa, small, false, "", true, "", false)
+	f.Add("edit", "", inRoot(".git", "config"), transcript.WriteDiff(inRoot(".git", "config"), "x"), false, "", true, "", false)
+	f.Add("edit", "", pa+"\n.go", small+"\n[diff cut]\n", false, "body", true, "", true)
+	f.Add("switch_mode", "", "", "", false, "plan", true, "", false)
+	f.Add("fetch", "", pa, "", false, "", true, "", false)
+	f.Fuzz(func(t *testing.T, kind, command, file, diff string, altered bool, body string, own bool, cwd string, noted bool) {
 		c := &bridge.Card{Seq: 3, RequestID: "r", Kind: kind, Command: command, CommandText: command, CommandAltered: altered,
-			File: file, Diff: diff, Body: body, Options: []acp.PermissionOption{optAllow, optAllowAlways, optReject}}
-		p := projectCard(c, own)
-		checkPhoneCard(t, c, own, p)
+			File: file, Diff: diff, Body: body, Cwd: cwd, Options: []acp.PermissionOption{optAllow, optAllowAlways, optReject}}
+		if noted {
+			c.Notes = []string{bridge.NoteExtra}
+		}
+		p := projectCard(c, own, testRoot)
+		checkPhoneCard(t, c, own, testRoot, p)
 		if p.CanAllow && p.Kind == phoneEdit {
 			if a, r, ok := diffCounts(c.Diff, c.File); !ok || a != p.Added || r != p.Removed {
 				t.Errorf("allowed an edit whose diff counts are %d %d %v, shown %d %d", a, r, ok, p.Added, p.Removed)
@@ -530,4 +584,178 @@ func FuzzDiffCountsOfARealDiff(f *testing.F) {
 			}
 		}
 	})
+}
+
+// Every character in the ranges the rune rule names is refused, and the ones
+// beside them are not caught by it.
+func TestPhoneRuneOKRanges(t *testing.T) {
+	for r := rune(0xfe00); r <= 0xfe0f; r++ {
+		if phoneRuneOK(r) {
+			t.Errorf("variation selector %U allowed", r)
+		}
+	}
+	for r := rune(0xe0100); r <= 0xe01ef; r++ {
+		if phoneRuneOK(r) {
+			t.Errorf("variation selector supplement %U allowed", r)
+		}
+	}
+	for r := rune(0xfff9); r <= 0xfffc; r++ {
+		if phoneRuneOK(r) {
+			t.Errorf("annotation or object replacement %U allowed", r)
+		}
+	}
+	for _, r := range []rune{0x034f, 0x115f, 0x1160, 0x2800, 0x3164, 0xffa0} {
+		if phoneRuneOK(r) {
+			t.Errorf("blank filler %U allowed", r)
+		}
+	}
+	for _, r := range []rune{0xfe10, 0xfe20, 0x1161, 0x2801, 0x3165, 0xff9f} {
+		if !phoneRuneOK(r) {
+			t.Errorf("%U refused", r)
+		}
+	}
+	// Whatever the table says, nothing the standard library calls a control,
+	// a format character, a line or paragraph separator, a space other than
+	// the ASCII one, a surrogate or a private use character passes.
+	for r := rune(0); r <= unicode.MaxRune; r++ {
+		if phoneRuneOK(r) && r != ' ' && r != '\t' && r != '\n' &&
+			(unicode.In(r, unicode.Cc, unicode.Cf, unicode.Zl, unicode.Zp, unicode.Zs, unicode.Cs, unicode.Co) || r == utf8.RuneError) {
+			t.Errorf("%U allowed", r)
+		}
+	}
+}
+
+func TestPlainASCIIAndShape(t *testing.T) {
+	for s, want := range map[string]bool{"": true, "ls -l\n\ttabbed": true, "a~z": true, "caf" + eacut: false, jp: false, "a\x7f": false, "a\x1b": false, "a\x1f": false, " ": true, "~": true, "a\r": false, "a" + uNBSP: false} {
+		if got := plainASCII(s); got != want {
+			t.Errorf("plainASCII(%q) = %v", s, got)
+		}
+	}
+	for s, want := range map[string]bool{
+		"": false, "a b": false, strings.Repeat(" ", 7): false, strings.Repeat(" ", 8): true, strings.Repeat("\t", 8): true,
+		strings.Repeat(" \t", 4): true, "a" + strings.Repeat(" ", 7) + "b" + strings.Repeat(" ", 7): false,
+		"a\n\nb": false, "a\n\n\nb": false, "a\n\n\n\nb": true, "a\n \n\t\n\nb": true, "a\n\nb\n\nc\n\nd": false,
+	} {
+		if got := oddShape(s); got != want {
+			t.Errorf("oddShape(%q) = %v", s, got)
+		}
+	}
+}
+
+func TestScriptsAndMarks(t *testing.T) {
+	cyr := "\xd0\xb0" // a Cyrillic a
+	for s, want := range map[string]bool{
+		"": false, "plain": false, "pay" + cyr + "l": true, cyr + cyr: false, jp: false, "\xe3\x81\x82" + jp: false, // Han with Hiragana
+		"a" + jp: true, "\xce\xb1b": true, "x1_-.": false, "\xd7\x90a": true,
+	} {
+		if got := mixedScripts(s); got != want {
+			t.Errorf("mixedScripts(%q) = %v", s, got)
+		}
+	}
+	for s, want := range map[string]int{"": 0, "a": 0, "a" + uComb: 1, "a" + uComb + uComb: 2, "a" + uComb + uComb + uComb: 3, "a" + uComb + "b" + uComb + uComb: 2} {
+		if got := markRun(s); got != want {
+			t.Errorf("markRun(%q) = %d, want %d", s, got, want)
+		}
+	}
+}
+
+func TestPathAllowed(t *testing.T) {
+	sep := string(filepath.Separator)
+	outside := filepath.Join(filepath.Dir(testRoot), "other", "a.go")
+	for name, tc := range map[string]struct {
+		path, root, want string
+	}{
+		"a file":                    {pa, testRoot, ""},
+		"a file in a folder":        {inRoot("src", "pkg", "a.go"), testRoot, ""},
+		"a test file":               {inRoot("internal", "a_test.go"), testRoot, ""},
+		"Japanese":                  {inRoot(jp + ".go"), testRoot, ""},
+		"Japanese with kana":        {inRoot("\xe3\x81\x82" + jp + ".go"), testRoot, ""},
+		"two combining marks":       {inRoot("a" + uComb + uComb + ".go"), testRoot, ""},
+		"three combining marks":     {inRoot("a" + uComb + uComb + uComb + ".go"), testRoot, whyOdd},
+		"mixed scripts":             {inRoot("pay\xd0\xb0l.go"), testRoot, whyOdd},
+		"a long run of spaces":      {inRoot("a" + strings.Repeat(" ", 8) + "b.go"), testRoot, whyOdd},
+		"no root":                   {pa, "", whyPath},
+		"a root that is relative":   {pa, "proj", whyPath},
+		"no path":                   {"", testRoot, whyPath},
+		"a path that is relative":   {"a.go", testRoot, whyPath},
+		"outside":                   {outside, testRoot, whyPath},
+		"the root itself":           {testRoot, testRoot, whyPath},
+		"not clean":                 {testRoot + sep + "src" + sep + ".." + sep + "a.go", testRoot, whyPath},
+		"doubled separators":        {testRoot + sep + sep + "a.go", testRoot, whyPath},
+		"a trailing separator":      {pa + sep, testRoot, whyPath},
+		"a sibling with the prefix": {testRoot + "x" + sep + "a.go", testRoot, whyPath},
+		"git":                       {inRoot(".git", "config"), testRoot, whyPath},
+		"git hooks":                 {inRoot(".git", "hooks", "pre-commit"), testRoot, whyPath},
+		"claude settings":           {inRoot(".claude", "settings.json"), testRoot, whyPath},
+		"a workflow":                {inRoot(".github", "workflows", "ci.yml"), testRoot, whyPath},
+		"vscode":                    {inRoot(".vscode", "tasks.json"), testRoot, whyPath},
+		"ssh":                       {inRoot(".ssh", "config"), testRoot, whyPath},
+		"a shell rc file":           {inRoot(".bashrc"), testRoot, whyPath},
+		"an env file":               {inRoot(".env"), testRoot, whyPath},
+		"authorized_keys":           {inRoot("authorized_keys"), testRoot, whyPath},
+		"package.json":              {inRoot("package.json"), testRoot, whyPath},
+		"in a folder":               {inRoot("web", "package.json"), testRoot, whyPath},
+		"in capitals":               {inRoot("Package.JSON"), testRoot, whyPath},
+		"Makefile":                  {inRoot("Makefile"), testRoot, whyPath},
+		"a Dockerfile":              {inRoot("sub", "Dockerfile"), testRoot, whyPath},
+		"pyproject":                 {inRoot("pyproject.toml"), testRoot, whyPath},
+		"conftest":                  {inRoot("tests", "conftest.py"), testRoot, whyPath},
+		"a short name":              {inRoot("GIT~1", "config"), testRoot, whyPath},
+		"a stream":                  {inRoot("a.go:stream"), testRoot, whyPath},
+		"a trailing dot":            {inRoot("a.go."), testRoot, whyPath},
+		"a trailing space":          {inRoot("a.go "), testRoot, whyPath},
+		"a dot in the middle":       {inRoot("a.b.go"), testRoot, ""},
+		"Han and Latin in the name": {inRoot("a" + jp + ".go"), testRoot, whyOdd},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := pathAllowed(tc.path, tc.root); got != tc.want {
+				t.Errorf("pathAllowed(%q, %q) = %q, want %q", tc.path, tc.root, got, tc.want)
+			}
+		})
+	}
+}
+
+func TestAtPaneRoot(t *testing.T) {
+	sep := string(filepath.Separator)
+	for name, tc := range map[string]struct {
+		a, b string
+		want bool
+	}{
+		"the same":         {testRoot, testRoot, true},
+		"with a separator": {testRoot + sep, testRoot, true},
+		"with a dot":       {testRoot + sep + ".", testRoot, true},
+		"a folder below":   {inRoot("sub"), testRoot, false},
+		"the folder above": {filepath.Dir(testRoot), testRoot, false},
+		"a relative cwd":   {"proj", testRoot, false},
+		"no cwd":           {"", testRoot, false},
+		"no root":          {testRoot, "", false},
+		"both relative":    {"proj", "proj", false},
+		"a longer name":    {testRoot + "x", testRoot, false},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := atPaneRoot(tc.a, tc.b); got != tc.want {
+				t.Errorf("atPaneRoot(%q, %q) = %v", tc.a, tc.b, got)
+			}
+		})
+	}
+}
+
+// With no usable project root an edit is Deny only, and so is a command whose
+// directory is named.
+func TestProjectCardWithoutARoot(t *testing.T) {
+	edit := editCard(pa, transcript.EditDiff(pa, "a", "b"))
+	for _, root := range []string{"", "proj", inRoot("sub")} {
+		if p := projectCard(edit, true, root); p.CanAllow || p.Why != whyPath {
+			t.Errorf("edit with root %q: %+v", root, p)
+		}
+	}
+	cmd := with(execCard("ls"), func(c *bridge.Card) { c.Cwd = testRoot })
+	for _, root := range []string{"", "proj"} {
+		if p := projectCard(cmd, true, root); p.CanAllow || p.Why != whySettings {
+			t.Errorf("command in %q with root %q: %+v", testRoot, root, p)
+		}
+	}
+	if p := projectCard(execCard("ls"), true, ""); !p.CanAllow {
+		t.Errorf("a command that names no directory needs no root: %+v", p)
+	}
 }

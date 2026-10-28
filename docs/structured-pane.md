@@ -151,7 +151,7 @@ push, they are for a window on this machine; a window through the relay is refus
 | Modes and models | 500 choices each. |
 | Config options | 32 options of at most 500 values each, with descriptions cut to 400 bytes. |
 | `planMarkdown` | 64 KiB. |
-| Permission card | 300 bytes for each field, 500 for the command, and the agent's options with 100 bytes for each field. |
+| Permission card | 300 bytes for each field, 4 KiB for the command, and the agent's options with 100 bytes for each field. |
 | Card text (API 1.22) | `body` 32 KiB, `diff` 64 KiB; a question or an option's description 2 KiB, a header or an option label 300 bytes; at most 4 questions with at most 8 options each. |
 | `err` | 200 characters. |
 | `conversationDetail` text and diff | 64 KiB each. |

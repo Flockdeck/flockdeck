@@ -3,6 +3,7 @@ package manifest
 import (
 	"encoding/json"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -456,5 +457,30 @@ func TestOwnAdapterIsTheTwoOwnAdaptersOnly(t *testing.T) {
 				t.Errorf("%s, %s: believed", id, name)
 			}
 		}
+	}
+}
+
+// The keys of a command's input that a card may leave unshown are known for the
+// two own adapters only; every other adapter, and a look-alike of an own one,
+// has none.
+func TestShownInputKeysAreForTheOwnAdaptersOnly(t *testing.T) {
+	m := Default()
+	for id, want := range map[string][]string{
+		"claude":   {"command", "description", "timeout"},
+		"codex-go": {"command", "cwd"},
+		"opencode": nil,
+	} {
+		a, ok := m.Lookup(id)
+		if !ok {
+			t.Fatalf("%s is not in the manifest", id)
+		}
+		if got := a.ShownInputKeys(); !slices.Equal(got, want) {
+			t.Errorf("ShownInputKeys(%s) = %v, want %v", id, got, want)
+		}
+	}
+	a, _ := m.Lookup("claude")
+	a.Command = "other"
+	if got := a.ShownInputKeys(); got != nil {
+		t.Errorf("a look-alike has keys %v", got)
 	}
 }

@@ -44,6 +44,7 @@ func (l *lenient) PendingPermission() *bridge.Card {
 
 func (l *lenient) OwnAdapter() bool     { return false }
 func (l *lenient) RuntimeToken() string { return "lenient" }
+func (l *lenient) ProjectRoot() string  { return "" }
 
 func (l *lenient) AnswerPermission(seq uint64, requestID, optionID string) error {
 	l.mu.Lock()

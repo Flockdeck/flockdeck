@@ -155,6 +155,17 @@ func (s Spec) ACPOwnAdapter() bool {
 	return ok && manifest.OwnAdapter(a)
 }
 
+// ACPShownInput are the keys of a command's input that the adapter this Spec
+// starts is known to send and that a card shows or can ignore; nil for an adapter
+// with no known list (manifest.Adapter.ShownInputKeys).
+func (s Spec) ACPShownInput() []string {
+	a, ok := s.ACPAdapter()
+	if !ok {
+		return nil
+	}
+	return a.ShownInputKeys()
+}
+
 // ACPLaunchEnv is the environment the manifest says Flockdeck sets for the
 // adapter this Spec starts, as name=value. It is added after ACPPassEnv and wins
 // over it: a name the user's environment also passes is set to this value.

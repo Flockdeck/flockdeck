@@ -3,6 +3,7 @@ package server
 import (
 	"crypto/subtle"
 	"errors"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"unicode"
@@ -29,7 +30,7 @@ import (
 //  2. the card is an execute or an edit;
 //  3. the whole of what will run or change is shown: a command that is the one
 //     the agent sent (nothing cleaned out of it, not cut), of at most 8 lines and
-//     500 bytes, the size the desk shows it at; an edit whose path is whole and
+//     500 bytes; an edit whose path is whole and
 //     whose diff reads as a diff of that path alone, with counts;
 //  4. record.Redact changes nothing in it;
 //  5. the card has no questions, no plan and no text from the agent besides that;
@@ -39,13 +40,13 @@ import (
 // A question and a plan are for the desk: nothing is offered for them, deny
 // included.
 const (
-	// phoneTextLines and phoneTextBytes bound the command a phone is shown. The
-	// byte bound is what the desk's card cuts a command at, so that a command the
-	// phone may allow is one the desk shows whole.
+	// phoneTextLines and phoneTextBytes bound the command a phone is shown, and
+	// allowed: a small screen is no place to read more. They are the phone's own
+	// and do not follow the desk's cut of a command (structuredCommandTextCut).
 	phoneTextLines = 8
-	phoneTextBytes = structuredCommandCut
+	phoneTextBytes = 500
 	// phonePathBytes is the same for the path of an edit.
-	phonePathBytes = structuredCardCut
+	phonePathBytes = 300
 )
 
 // The kinds of card a phone is shown.
@@ -64,8 +65,10 @@ const (
 	whyTool     = "Only commands and file changes can be allowed from here. Deny, or answer on the desktop."
 	whyLong     = "Too long to check here. Deny, or answer on the desktop."
 	whySecret   = "This may hold a secret. Deny, or answer on the desktop."
-	whyOdd      = "Has characters that cannot be shown. Deny, or answer on the desktop."
+	whyOdd      = "Has unusual characters or layout. Deny, or answer on the desktop."
 	whyUnclear  = "Could not be checked here. Deny, or answer on the desktop."
+	whySettings = "Runs with settings that cannot be checked here. Deny, or answer on the desktop."
+	whyPath     = "This file is outside the project, or is one that can run code or change settings. Deny, or answer on the desktop."
 	whyNoAllow  = "This request has no plain Allow once. Deny, or answer on the desktop."
 	whyPlan     = "Plan approval is on the desktop."
 	whyQuestion = "Questions are answered on the desktop."
@@ -95,7 +98,7 @@ type phoneCard struct {
 
 // projectCard is the card as a phone sees it. own says the pane runs an adapter
 // Flockdeck wrote (StructuredPane.OwnAdapter). A nil card is shown nothing.
-func projectCard(c *bridge.Card, own bool) phoneCard {
+func projectCard(c *bridge.Card, own bool, root string) phoneCard {
 	if c == nil {
 		return phoneCard{}
 	}
@@ -114,9 +117,23 @@ func projectCard(c *bridge.Card, own bool) phoneCard {
 	case phoneExecute:
 		out.Kind = phoneExecute
 		out.Text, why = projectCommand(c)
+		if why == "" && (len(c.Notes) > 0 || (c.Cwd != "" && !atPaneRoot(c.Cwd, root))) {
+			// The call does something the card does not show: it asks for no
+			// sandbox, runs in the background, has input of a kind not known, or
+			// runs somewhere other than the pane's directory.
+			why = whySettings
+		}
 	case phoneEdit:
 		out.Kind = phoneEdit
 		out.Text, out.Added, out.Removed, why = projectEdit(c)
+		if why == "" && len(c.Notes) > 0 {
+			// replace_all: the edit changes every match, which the counts of one
+			// match do not say.
+			why = whySettings
+		}
+		if why == "" {
+			why = pathAllowed(c.File, root)
+		}
 	default:
 		why = whyTool
 	}
@@ -156,10 +173,156 @@ func projectCommand(c *bridge.Card) (text, why string) {
 		return text, whyLong
 	case secret:
 		return text, whySecret
-	case odd || c.CommandAltered:
+	case odd || c.CommandAltered || !plainASCII(text) || oddShape(text):
 		return text, whyOdd
 	}
 	return text, ""
+}
+
+// plainASCII says s is only printable ASCII, the space, a tab and a line break.
+// A command with any other character can read differently from what it runs:
+// letters from another script that look like Latin ones, combining marks, wide
+// spaces. A phone allows a command only when it is this plain.
+func plainASCII(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if c := s[i]; c != '\n' && c != '\t' && (c < 0x20 || c > 0x7e) {
+			return false
+		}
+	}
+	return true
+}
+
+// oddShape says s is laid out to hide something: eight or more spaces or tabs in
+// a row (a command pushed out of sight to the right), or more than two blank
+// lines in a row.
+func oddShape(s string) bool {
+	run := 0
+	for i := 0; i < len(s); i++ {
+		if s[i] != ' ' && s[i] != '\t' {
+			run = 0
+		} else if run++; run >= 8 {
+			return true
+		}
+	}
+	blank := 0
+	for _, l := range strings.Split(s, "\n") {
+		if strings.TrimSpace(l) != "" {
+			blank = 0
+		} else if blank++; blank > 2 {
+			return true
+		}
+	}
+	return false
+}
+
+// atPaneRoot says the two paths are absolute and name the same directory once
+// cleaned, by the rule of samePath.
+func atPaneRoot(a, b string) bool {
+	if a == "" || b == "" || !filepath.IsAbs(a) || !filepath.IsAbs(b) {
+		return false
+	}
+	return samePath(filepath.Clean(a), filepath.Clean(b))
+}
+
+// denyFiles are file names (lower case) a phone may not allow a change to, in
+// any folder of the project. They are the ones a build, a test run or a login
+// reads and runs, so a change to one is a change to what the next command does.
+// This is a floor and not a promise: an ordinary source file runs when it is
+// tested.
+var denyFiles = map[string]bool{
+	"package.json": true, "makefile": true, "gnumakefile": true, "justfile": true, "dockerfile": true,
+	"pyproject.toml": true, "setup.py": true, "setup.cfg": true, "tox.ini": true, "noxfile.py": true, "conftest.py": true,
+	"gemfile": true, "rakefile": true, "build.gradle": true, "build.gradle.kts": true, "settings.gradle": true, "pom.xml": true,
+	"cargo.toml": true, "build.rs": true, "composer.json": true, "taskfile.yml": true, "taskfile.yaml": true,
+	"authorized_keys": true, "id_rsa": true, "id_ed25519": true, "sudoers": true,
+}
+
+// pathAllowed says an edit of path may be allowed from a phone: it is absolute and
+// already clean (no "..", no doubled separators), it is below root, and no part
+// of it below root starts with a dot (a dot folder is a tool's own settings and
+// hooks: .git, .claude, .github, .ssh, .vscode; a dot file is a shell or tool
+// configuration), holds a colon (a Windows stream), ends in a dot or a space,
+// holds a tilde (a short Windows name for another file), or is in denyFiles.
+// Links are not followed, which needs the file system and is not done here.
+//
+// It returns "" when the edit may be allowed, whyPath when the path is not
+// inside the project or is one of those names, and whyOdd when a part of it mixes
+// scripts, stacks more than two combining marks or is laid out to hide something.
+func pathAllowed(path, root string) string {
+	if path == "" || root == "" || !filepath.IsAbs(path) || !filepath.IsAbs(root) || filepath.Clean(path) != path {
+		return whyPath
+	}
+	rel, err := filepath.Rel(root, path)
+	if err != nil || rel == "." || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) || filepath.IsAbs(rel) {
+		return whyPath
+	}
+	for _, part := range strings.FieldsFunc(rel, func(r rune) bool { return r == '/' || r == '\\' }) {
+		switch {
+		case strings.HasPrefix(part, "."), strings.HasSuffix(part, "."), strings.HasSuffix(part, " "),
+			strings.ContainsAny(part, ":~"), denyFiles[strings.ToLower(part)]:
+			return whyPath
+		case mixedScripts(stem(part)), markRun(part) > 2, oddShape(part):
+			return whyOdd
+		}
+	}
+	return ""
+}
+
+var scripts = []struct {
+	name  string
+	table *unicode.RangeTable
+}{
+	{"latin", unicode.Latin}, {"cyrillic", unicode.Cyrillic}, {"greek", unicode.Greek},
+	{"armenian", unicode.Armenian}, {"hebrew", unicode.Hebrew}, {"arabic", unicode.Arabic},
+	{"cjk", unicode.Han}, {"cjk", unicode.Hiragana}, {"cjk", unicode.Katakana}, {"cjk", unicode.Hangul},
+	{"thai", unicode.Thai}, {"devanagari", unicode.Devanagari}, {"georgian", unicode.Georgian},
+}
+
+// scriptOf names the script of a letter for mixedScripts, or "" for a character
+// that belongs to none. The Han, kana and Hangul scripts are one group, since
+// they are written together.
+func scriptOf(r rune) string {
+	if !unicode.IsLetter(r) {
+		return ""
+	}
+	for _, s := range scripts {
+		if unicode.Is(s.table, r) {
+			return s.name
+		}
+	}
+	return "other"
+}
+
+// mixedScripts says the letters of s come from more than one script, as in a name
+// that spells "paypal" with a Cyrillic "a".
+func mixedScripts(s string) bool {
+	first := ""
+	for _, r := range s {
+		sc := scriptOf(r)
+		switch {
+		case sc == "":
+		case first == "":
+			first = sc
+		case sc != first:
+			return true
+		}
+	}
+	return false
+}
+
+// markRun is the most combining marks in a row in s.
+func markRun(s string) int {
+	run, most := 0, 0
+	for _, r := range s {
+		if unicode.IsMark(r) {
+			if run++; run > most {
+				most = run
+			}
+		} else {
+			run = 0
+		}
+	}
+	return most
 }
 
 // projectEdit is the path shown for an edit card, the lines it adds and removes,
@@ -431,14 +594,14 @@ func (l approvalLock) check(c *bridge.Card, token string) error {
 // an allow the projection does not offer; and a card with no single option for
 // the decision. The caller then gives AnswerPermission the lock's Seq and
 // RequestID with the option id, and that call decides between two answers.
-func phoneAnswer(c *bridge.Card, token string, own bool, l approvalLock, decision string) (string, error) {
+func phoneAnswer(c *bridge.Card, token string, own bool, root string, l approvalLock, decision string) (string, error) {
 	if decision != decisionAllow && decision != decisionDeny {
 		return "", errPhoneDecision
 	}
 	if err := l.check(c, token); err != nil {
 		return "", err
 	}
-	p := projectCard(c, own)
+	p := projectCard(c, own, root)
 	switch {
 	case !p.Answerable:
 		return "", errPhoneDeskOnly
@@ -450,4 +613,14 @@ func phoneAnswer(c *bridge.Card, token string, own bool, l approvalLock, decisio
 		return "", errPhoneNoOptions
 	}
 	return id, nil
+}
+
+// stem is a file name without its extension when the extension is plain ASCII, so
+// that a name in one script with a Latin extension (a file in Japanese ending in
+// .go) is not taken for a mix of scripts.
+func stem(name string) string {
+	if i := strings.LastIndexByte(name, '.'); i > 0 && plainASCII(name[i:]) {
+		return name[:i]
+	}
+	return name
 }

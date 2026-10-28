@@ -86,6 +86,9 @@ type StructuredPane interface {
 	// RuntimeToken names this run of the pane: it changes when the pane restarts
 	// and when the conversation is rewound. It is never empty.
 	RuntimeToken() string
+	// ProjectRoot is the absolute directory the pane works in. An edit is offered to
+	// a phone only inside it; empty means no edit is.
+	ProjectRoot() string
 }
 
 // SetStructuredPanes says how a pane id is turned into a structured pane. Until
