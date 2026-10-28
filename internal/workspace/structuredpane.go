@@ -123,6 +123,10 @@ func (w *Workspace) startStructured(p *Pane, spec agent.Spec) {
 	}
 	rt, err := structured.Start(context.Background(), opts)
 	if err != nil {
+		// The fork was not tried, so a restart of the pane tries it.
+		w.mu.Lock()
+		p.forkFrom = fork
+		w.mu.Unlock()
 		failed(fmt.Errorf("%w (working directory %s)", err, p.Cwd))
 		return
 	}

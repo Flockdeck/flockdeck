@@ -762,15 +762,15 @@ func (ss *session) runPrompt(r *promptReq) {
 		if started.Turn.ID != "" {
 			ss.setTurnID(t, started.Turn.ID)
 		}
-		// codex has the turn from here, whatever becomes of it.
-		if r.turn != "" {
-			ss.mu.Lock()
-			if len(ss.turns) >= maxTurns {
-				ss.turns = append(ss.turns[:0], ss.turns[len(ss.turns)-maxTurns+1:]...)
-			}
-			ss.turns = append(ss.turns, turnRec{token: r.turn, plain: r.kind == "turn"})
-			ss.mu.Unlock()
+		// codex has the turn from here, whatever becomes of it. A prompt sent
+		// without a token is counted too, with none that can be named, so that
+		// the counts of the turns after it are right.
+		ss.mu.Lock()
+		if len(ss.turns) >= maxTurns {
+			ss.turns = append(ss.turns[:0], ss.turns[len(ss.turns)-maxTurns+1:]...)
 		}
+		ss.turns = append(ss.turns, turnRec{token: r.turn, plain: r.kind == "turn"})
+		ss.mu.Unlock()
 		res = ss.awaitTurn(t, r.kind != "turn")
 	}
 	ss.mu.Lock()

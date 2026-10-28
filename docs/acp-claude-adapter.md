@@ -308,7 +308,13 @@ stream-json`, using a message `uuid` of our own for each prompt:
 
 So a rewind that is to survive a restart has to be a fork, and the pane saves NEW.
 
-The pane saves NEW at once, so a restart or crash after a rewind and before the first prompt finds no file for it: the pane shows "Could not resume, started a new session." and opens an empty session, the agent's context for that pane is gone, and the earlier conversation stays unchanged in the original file. That is kept on purpose; saving the old id until the first prompt would bring the removed turns back and make the rewind look undone.
+Until its first message NEW has no file, so a second rewind of the pane, or a fork of it, cannot
+resume NEW. The adapter keeps what the session was cut from (`pendingSrc`, `pendingAt`) until the
+first message is written to claude, and starts such a rewind or fork from that source, at the
+uuid asked for or, for a fork of the whole conversation, at `pendingAt`. The uuids of the kept
+messages are the same in both files, so the point named in NEW is also named in the source.
+
+The pane saves NEW at once, so a restart or crash after a rewind and before the first prompt finds no file for it: the pane shows "Could not resume, started a new session." and opens an empty session, the agent's context for that pane is gone, and the earlier conversation stays unchanged in the original file. That is kept on purpose; saving the old id until the first prompt would bring the removed turns back and make the rewind look undone. The earlier conversation, including the removed prompt, is still whole in claude's file for the id the pane had before the rewind (`<config dir>/projects/<project directory>/<id>.jsonl`, the directory named after the working directory with every character that is not a letter or digit replaced by a dash), and `claude --resume <id>` in that directory opens it, so a person can recover from it. A rewind also leaves the removed prompt there for good; nothing deletes it.
 
 ## Not done
 
@@ -544,13 +550,19 @@ the bridge.
 Rewound branches (T215): claude's file is a tree, each line has a `uuid` and a `parentUuid`,
 and a cut of the same id appends its new lines to the same file after the dropped turns (see
 "Why a rewind is a fork"). The replay therefore does not read in file order. A first pass over
-the part of the file that is read records `uuid` to `parentUuid` for the user, assistant,
-attachment and system lines that are not sidechains, takes the last such line as the tip, and
-walks back from it; a second pass replays only the lines on that chain. A line whose parent is
-not in the part read ends the chain there. With no line that has a `uuid`, or more than 400,000
-lines, or after the time limit in the first pass, the file is replayed in file order. A loop in
-the chain ends at the first line seen again. Rewinds by Flockdeck now go through a fork, so
-the files it makes do not branch; the chain walk is for sessions cut some other way.
+the part of the file that is read records `uuid` to `parentUuid` for every line that has a
+`uuid`, takes the last user, assistant, attachment or system line that is not a sidechain as the
+tip, and walks back from it; a second pass replays only the lines on that chain. Each pass has
+its own 5 seconds, so a slow first pass cannot leave the second none. A line too long to read
+(over 1 MiB) is linked from its first 512 and last 4096 bytes, since claude writes `parentUuid`
+first and `uuid` after the message. The chain ends at a line with no parent: the first line, or
+the line after a compaction (`compact_boundary` has a null parent), so the replay starts at the
+last compaction. The file is replayed in file order instead when no line has a `uuid`, when the
+chain stops at a parent that is not in the part read although the part is the whole file, when
+a long line's link cannot be read, when there are more than 400,000 lines, when the first pass
+timed out, and when the chain loops. When only the end of the file is read the chain stops at
+the start of the part, as the replay does. Rewinds by Flockdeck go through a fork, so the files
+it makes do not branch; the chain walk is for sessions cut some other way.
 
 Tests: `history_test.go` and `history_rules_test.go` (`TestSessionLoad...`, one case per rule
 in `TestSessionLoadRules`) and `TestInteropLoadReplaysMarkedAsReplay`. The tests that make a

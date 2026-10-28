@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jmwri/flockdeck/internal/agent"
 	"github.com/jmwri/flockdeck/internal/session"
 	"github.com/jmwri/flockdeck/internal/session/transcript"
 	"github.com/jmwri/flockdeck/internal/structured"
@@ -100,5 +101,32 @@ func TestAPaneHasAtMostFourForksOpen(t *testing.T) {
 	}
 	if _, err := ws.SpawnFork(src, from); err != nil {
 		t.Errorf("after closing one: %v", err)
+	}
+}
+
+// A fork pane whose start fails is still a fork: the fork it was to open is
+// kept, so that a restart opens the forked session and not a blank one.
+func TestAForkPaneThatCouldNotStartStillHasItsFork(t *testing.T) {
+	ws, lead, _ := structuredCrew(t)
+	useFakeAgentWith(ws, "rewind")
+	src := spawnStructured(t, ws, lead, "plain")
+	statusWithin(t, ws, src, session.StatusIdle)
+	p := ws.Pane(src)
+	from := &structured.ForkFrom{Session: "sess-1"}
+	ws.mu.Lock()
+	p.forkFrom = from
+	ws.mu.Unlock()
+	// A program that is not a structured agent, with no command to stand in
+	// for one, is a start that fails at once.
+	ws.UseStructuredCommand(func(agent.Spec) *structured.Command { return nil })
+	ws.startStructured(p, agent.Spec{ID: "not-structured"})
+	if p.Err == nil {
+		t.Fatal("the start did not fail")
+	}
+	ws.mu.RLock()
+	kept := p.forkFrom
+	ws.mu.RUnlock()
+	if kept != from {
+		t.Errorf("the fork is %v after the failed start, want it kept", kept)
 	}
 }

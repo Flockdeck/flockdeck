@@ -214,7 +214,13 @@ the source thread, then `thread/read` with `includeTurns` to count the turns of 
 no pane is made. `_flockdeck/rewind` is `thread/rollback` on the live thread, relative to its end and under
 the session lock, refused while a turn or a queued prompt is there. A `/compact` or `/review` in the range
 that would go refuses the point. A resumed or forked thread has turns the adapter did not run, so it gives no
-point (`hasHistory`). A malformed `at` (not `kN`) is refused as invalid params. None of this has been run
+point (`hasHistory`). A malformed `at` (not `kN`) is refused as invalid params.
+A prompt that comes without a turn token is counted as a turn but cannot be named, so the counts after it
+stay right. What is not known is whether codex counts the same turns as the adapter does: a `/compact` or
+`/review` is counted here as one turn, and whether codex's own turn list does the same, and whether
+`thread/rollback` counts them so, has not been seen. The adapter does not compare its count with
+`thread/read` before a rewind. Treat `kN` and the compaction count as unverified until a real codex has run
+them; if they disagree, a rewind drops a different number of turns than the window does. None of this has been run
 against a real codex: the wire is from the route document and the fake app-server, and `thread/read` and
 `thread/rollback` are listed under Unverified.
 

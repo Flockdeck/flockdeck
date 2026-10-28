@@ -79,6 +79,23 @@ func TestForkPointCountsTheTurnsFromThePointToTheEnd(t *testing.T) {
 	}
 }
 
+// A prompt sent without a token is a turn codex has: the counts of the turns
+// that follow it include it, and it cannot be named itself.
+func TestATurnSentWithoutATokenIsCounted(t *testing.T) {
+	h := newHarness(t, threeTurns())
+	sid := h.start()
+	for _, tok := range []string{tok1, "", tok3} {
+		if got := stopReason(t, h.await(h.promptTurn(sid, "go", tok))); got != "end_turn" {
+			t.Fatalf("stop = %q", got)
+		}
+	}
+	// Before the third prompt codex keeps two turns, not one.
+	r := h.call("_flockdeck/forkpoint", map[string]any{"sessionId": sid, "beforeTurn": tok3})
+	if r.Error != nil || !strings.Contains(string(r.Result), `"at":"k2"`) {
+		t.Errorf("fork point = %s %+v, want k2", r.Result, r.Error)
+	}
+}
+
 func TestRewindRollsTheThreadBack(t *testing.T) {
 	h := newHarness(t, threeTurns())
 	sid := runThree(t, h)
