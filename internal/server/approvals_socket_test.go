@@ -1281,10 +1281,9 @@ func TestADecisionIsNotGivenIfApprovalIsSwitchedOffWhileTheLineIsBeingWritten(t 
 // preferences still say yes.
 func TestACutThatLandsDuringTheAuditWriteStopsTheAnswer(t *testing.T) {
 	e := newApprovalsEnv(t)
-	p := e.open(t)
-	it := p.list()[0]
-	entered, release, passed := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	passed := make(chan struct{})
 	var once, once2 sync.Once
+	// Set before the socket opens: the limits are read when it is accepted.
 	e.srv.approvals.setTimings(func(tm *approvalTimings) {
 		tm.hook = func(stage string) {
 			if stage == "after-audit" {
@@ -1292,6 +1291,9 @@ func TestACutThatLandsDuringTheAuditWriteStopsTheAnswer(t *testing.T) {
 			}
 		}
 	})
+	p := e.open(t)
+	it := p.list()[0]
+	entered, release := make(chan struct{}), make(chan struct{})
 	e.srv.approvals.audit.dir = func() (string, error) {
 		once.Do(func() { close(entered); <-release })
 		return store.Dir()
