@@ -218,7 +218,7 @@ type structuredMsg struct {
 	SignIn       *structuredSignInBlock   `json:"signIn,omitempty"`
 	Capabilities *structuredCapabilities  `json:"capabilities,omitempty"`
 	// RewindPoints are the ids of the prompt entries the conversation can be
-	// taken back to or forked from (API 1.24), the newest 200 at most.
+	// taken back to or forked from (API 1.25), the newest 200 at most.
 	RewindPoints []string `json:"rewindPoints,omitempty"`
 	// RewindToken goes back with structuredRewind and structuredFork (see
 	// structuredrewind.go). It is present whenever the agent can go back.

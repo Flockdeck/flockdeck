@@ -1129,7 +1129,7 @@
     {
       "name": "structuredFork",
       "access": "full",
-      "since": "1.24",
+      "since": "1.25",
       "status": "stable"
     },
     {
@@ -1165,7 +1165,7 @@
     {
       "name": "structuredRewind",
       "access": "full",
-      "since": "1.24",
+      "since": "1.25",
       "status": "stable"
     },
     {

@@ -9,7 +9,7 @@ import (
 )
 
 // Going back to an earlier prompt of a structured pane, and forking the
-// conversation at one (API 1.24). Both name the prompt by the id of its entry in
+// conversation at one (API 1.25). Both name the prompt by the id of its entry in
 // the conversation, taken from the push's rewindPoints; a place in the list is
 // never used, since the list changes as turns end. Like the other structured
 // commands they are for a window on this machine and refused to a viewer.
