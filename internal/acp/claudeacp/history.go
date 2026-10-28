@@ -2,11 +2,13 @@ package claudeacp
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -26,19 +28,22 @@ const (
 	// historyMaxLine is the longest line read; a longer one (a pasted file, an
 	// image) is skipped without being held in memory.
 	historyMaxLine = 1 << 20
-
-	// historyMaxWait is how long reading may take.
-	historyMaxWait = 5 * time.Second
 	// historyMaxText is the longest text of one message.
 	historyMaxText = 64 << 10
-	// historyMaxDirs is how many project directories are looked through for the
-	// file when the cwd's own does not have it.
-	historyMaxDirs = 5000
 )
 
-// historyMaxScan is how much of the end of the file is read. A variable so
-// that a test need not write 64 MiB.
-var historyMaxScan int64 = 64 << 20
+// These are variables so that a test need not write 16 MiB or wait 5 seconds.
+var (
+	// historyMaxScan is how much of the end of the file is read: the newest
+	// part, which is what the entry and byte caps keep anyway. A line of the
+	// file is about as large as its text, plus claude's own bookkeeping lines.
+	historyMaxScan int64 = 16 << 20
+	// historyMaxWait is how long reading may take.
+	historyMaxWait = 5 * time.Second
+	// historyMaxDirs is how many project directories the fallback search looks
+	// through. A root with more is not searched at all.
+	historyMaxDirs = 5000
+)
 
 // historyRoot is claude's projects directory: CLAUDE_CONFIG_DIR in the
 // environment claude gets, else .claude in the home directory.
@@ -62,16 +67,24 @@ var nonWord = regexp.MustCompile(`[^A-Za-z0-9]`)
 
 // historyFile finds the stored session id (a canonical UUID, so it is nothing
 // but hex digits and dashes): in the directory claude names after the cwd, and
-// failing that in any project directory, since claude's spelling of the cwd
-// may not be ours. It returns "" when there is no regular file.
+// failing that in the project directories in name order, since claude's
+// spelling of the cwd may not be ours (it also shortens a path over 200
+// characters and adds a hash, which is not reproduced here). A symbolic link or
+// junction, for the file or its directory, is not followed. It returns "" when
+// there is no regular file, or the root has more than historyMaxDirs entries
+// and the cwd's own directory does not have it.
 func historyFile(root, cwd, id string) string {
 	if root == "" {
 		return ""
 	}
 	name := id + ".jsonl"
 	try := func(dir string) string {
-		p := filepath.Join(root, dir, name)
-		if fi, err := os.Stat(p); err == nil && fi.Mode().IsRegular() {
+		d := filepath.Join(root, dir)
+		if fi, err := os.Lstat(d); err != nil || !fi.IsDir() {
+			return ""
+		}
+		p := filepath.Join(d, name)
+		if fi, err := os.Lstat(p); err == nil && fi.Mode().IsRegular() {
 			return p
 		}
 		return ""
@@ -84,7 +97,11 @@ func historyFile(root, cwd, id string) string {
 		return ""
 	}
 	defer d.Close()
-	names, _ := d.Readdirnames(historyMaxDirs)
+	names, _ := d.Readdirnames(historyMaxDirs + 1)
+	if len(names) > historyMaxDirs {
+		return ""
+	}
+	sort.Strings(names)
 	for _, n := range names {
 		if p := try(n); p != "" {
 			return p
@@ -94,17 +111,37 @@ func historyFile(root, cwd, id string) string {
 }
 
 type histLine struct {
-	Type              string          `json:"type"`
-	IsMeta            bool            `json:"isMeta"`
-	IsSidechain       bool            `json:"isSidechain"`
-	IsCompactSummary  bool            `json:"isCompactSummary"`
-	IsAPIErrorMessage bool            `json:"isApiErrorMessage"`
-	Error             json.RawMessage `json:"error"`
-	Message           struct {
+	Type                      string          `json:"type"`
+	IsMeta                    bool            `json:"isMeta"`
+	IsSidechain               bool            `json:"isSidechain"`
+	IsCompactSummary          bool            `json:"isCompactSummary"`
+	IsAPIErrorMessage         bool            `json:"isApiErrorMessage"`
+	IsVisibleInTranscriptOnly bool            `json:"isVisibleInTranscriptOnly"`
+	Error                     json.RawMessage `json:"error"`
+	Origin                    *histOrigin     `json:"origin"`
+	Message                   struct {
 		Model   string          `json:"model"`
 		Content json.RawMessage `json:"content"`
 	} `json:"message"`
+	// Attachment is set for type "attachment". A prompt typed while a turn runs
+	// is stored only as one of kind queued_command.
+	Attachment struct {
+		Type        string          `json:"type"`
+		CommandMode string          `json:"commandMode"`
+		IsMeta      bool            `json:"isMeta"`
+		Origin      *histOrigin     `json:"origin"`
+		Prompt      json.RawMessage `json:"prompt"`
+	} `json:"attachment"`
 }
+
+// histOrigin says who a user line came from: "human" for the person, "peer"
+// for a message from another session, "task-notification" for a finished
+// background task. A line with no origin (older claude) is taken as the person's.
+type histOrigin struct {
+	Kind string `json:"kind"`
+}
+
+func (o *histOrigin) human() bool { return o == nil || o.Kind == "" || o.Kind == "human" }
 
 // histEntry is one update to replay, with the size it counts for.
 type histEntry struct {
@@ -120,6 +157,9 @@ type history struct {
 	head    int
 	bytes   int
 	tools   map[string]*histEntry
+	// evicted says entries were dropped for the caps; gap says a line was
+	// skipped for its length.
+	evicted, gap bool
 }
 
 func (h *history) add(u map[string]any, size int, tool string) *histEntry {
@@ -129,11 +169,18 @@ func (h *history) add(u map[string]any, size int, tool string) *histEntry {
 	if tool != "" {
 		h.tools[tool] = e
 	}
+	h.evict()
+	return e
+}
+
+// evict drops the oldest entries until the caps hold.
+func (h *history) evict() {
 	for len(h.entries)-h.head > historyMaxEntries || (h.bytes > historyMaxBytes && len(h.entries)-h.head > 1) {
 		old := h.entries[h.head]
 		h.entries[h.head] = nil
 		h.head++
 		h.bytes -= old.size
+		h.evicted = true
 		if old.tool != "" {
 			delete(h.tools, old.tool)
 		}
@@ -142,21 +189,46 @@ func (h *history) add(u map[string]any, size int, tool string) *histEntry {
 		h.entries = append([]*histEntry(nil), h.entries[h.head:]...)
 		h.head = 0
 	}
-	return e
 }
 
 func chunk(kind, text string) map[string]any {
 	return map[string]any{"sessionUpdate": kind, "content": textContent(text)}
 }
 
-var (
-	cmdName = regexp.MustCompile(`(?s)<command-name>\s*(.*?)\s*</command-name>`)
-	cmdArgs = regexp.MustCompile(`(?s)<command-args>(.*?)</command-args>`)
-)
+// element is the start of a tag with a dash in its name, which is how claude
+// marks what it wrote itself (command-name, local-command-stdout,
+// task-notification, bash-input, system-reminder, user-prompt-submit-hook). A
+// tag without one, such as the pasted_content around a paste, is the person's
+// text.
+var element = regexp.MustCompile(`^<([A-Za-z][A-Za-z0-9]*(?:-[A-Za-z0-9]+)+)(?:\s[^>]*)?>`)
 
-// promptText is the person's words in a user line, or "" when the line is not
-// a prompt: a tool result, a note claude wrote to itself, the output of a local
-// command, an interruption marker.
+// stripWrappers removes the claude-written elements from the start of s and
+// returns what is left, and the slash command the elements named, if any. An
+// element that is not closed runs to the end.
+func stripWrappers(s string) (rest, command string) {
+	for {
+		s = strings.TrimSpace(s)
+		m := element.FindStringSubmatch(s)
+		if m == nil {
+			return s, command
+		}
+		end := strings.Index(s, "</"+m[1]+">")
+		body, next := s[len(m[0]):], ""
+		if end >= 0 {
+			body, next = s[len(m[0]):end], s[end+len(m[1])+3:]
+		}
+		if m[1] == "command-name" {
+			command = strings.TrimSpace(body)
+		}
+		if m[1] == "command-args" && command != "" && strings.TrimSpace(body) != "" {
+			command += " " + strings.TrimSpace(body)
+		}
+		s = next
+	}
+}
+
+// promptText is the person's words in a user line's content, or "" when the
+// line is not a prompt: a tool result, or something claude wrote.
 func promptText(raw json.RawMessage) string {
 	var s string
 	if json.Unmarshal(raw, &s) != nil {
@@ -177,25 +249,14 @@ func promptText(raw json.RawMessage) string {
 		}
 		s = strings.Join(parts, "\n")
 	}
-	s = strings.TrimSpace(s)
+	rest, command := stripWrappers(s)
 	switch {
-	case s == "":
-		return ""
-	case strings.HasPrefix(s, "<command-name>"), strings.HasPrefix(s, "<command-message>"):
-		m := cmdName.FindStringSubmatch(s)
-		if m == nil {
-			return ""
-		}
-		text := m[1]
-		if a := cmdArgs.FindStringSubmatch(s); a != nil && strings.TrimSpace(a[1]) != "" {
-			text += " " + strings.TrimSpace(a[1])
-		}
-		return text
-	case strings.HasPrefix(s, "<local-command-"), strings.HasPrefix(s, "<system-reminder>"),
-		strings.HasPrefix(s, "Caveat: The messages below"), strings.HasPrefix(s, "[Request interrupted"):
+	case command != "":
+		return capString(command, historyMaxText)
+	case strings.HasPrefix(rest, "Caveat: The messages below"), strings.HasPrefix(rest, "[Request interrupted"):
 		return ""
 	}
-	return capString(s, historyMaxText)
+	return capString(rest, historyMaxText)
 }
 
 func capString(s string, n int) string {
@@ -210,10 +271,18 @@ func capString(s string, n int) string {
 
 // fold adds what one line says to the history.
 func (h *history) fold(l histLine) {
-	if l.IsSidechain || l.IsMeta || l.IsCompactSummary || l.IsAPIErrorMessage {
+	if l.IsSidechain || l.IsMeta || l.IsCompactSummary || l.IsAPIErrorMessage || l.IsVisibleInTranscriptOnly {
 		return
 	}
 	switch l.Type {
+	case "attachment":
+		a := l.Attachment
+		if a.Type != "queued_command" || a.CommandMode != "prompt" || a.IsMeta || !a.Origin.human() {
+			return
+		}
+		if t := promptText(a.Prompt); t != "" {
+			h.add(chunk("user_message_chunk", t), len(t), "")
+		}
 	case "user":
 		var blocks []block
 		if json.Unmarshal(l.Message.Content, &blocks) == nil {
@@ -222,6 +291,9 @@ func (h *history) fold(l histLine) {
 					h.result(b)
 				}
 			}
+		}
+		if !l.Origin.human() {
+			return
 		}
 		if t := promptText(l.Message.Content); t != "" {
 			h.add(chunk("user_message_chunk", t), len(t), "")
@@ -303,37 +375,56 @@ func (h *history) result(b block) {
 		e.u["content"] = []any{map[string]any{"type": "content", "content": textContent(text)}}
 		e.size += len(text)
 		h.bytes += len(text)
+		h.evict()
 	}
+}
+
+// historyResult is what readHistory found.
+type historyResult struct {
+	entries []*histEntry
+	// earlier says the oldest part of the conversation is not in entries (the
+	// file is longer than the part read, or the caps dropped entries); later
+	// says reading stopped at the time limit before the newest part; gap says
+	// a line in between was too long to read.
+	earlier, later, gap bool
 }
 
 // readHistory reads the tail of the file at path into entries. It stops at
 // historyMaxWait, and skips what it cannot read.
-func readHistory(path, cwd string) []*histEntry {
+func readHistory(path, cwd string) historyResult {
+	var res historyResult
 	f, err := os.Open(path)
 	if err != nil {
-		return nil
+		return res
 	}
 	defer f.Close()
 	fi, err := f.Stat()
 	if err != nil || !fi.Mode().IsRegular() {
-		return nil
+		return res
 	}
 	r := bufio.NewReaderSize(f, 64<<10)
 	if fi.Size() > historyMaxScan {
 		if _, err := f.Seek(fi.Size()-historyMaxScan, io.SeekStart); err != nil {
-			return nil
+			return res
 		}
 		r.Reset(f)
 		skipLine(r) // the first line is cut
+		res.earlier = true
 	}
 	h := &history{cwd: cwd, tools: map[string]*histEntry{}}
 	deadline := time.Now().Add(historyMaxWait)
 	for n := 0; ; n++ {
-		if n%256 == 0 && time.Now().After(deadline) {
+		if n%256 == 0 && !time.Now().Before(deadline) {
+			res.later = true
 			break
 		}
-		line, err := readLine(r)
-		if len(line) > 0 {
+		line, skipped, err := readLine(r)
+		if skipped {
+			h.gap = true
+		}
+		// Most lines are bookkeeping; these words are in every line that
+		// matters, so the others are not parsed.
+		if len(line) > 0 && (bytes.Contains(line, []byte(`"user"`)) || bytes.Contains(line, []byte(`"assistant"`)) || bytes.Contains(line, []byte("queued_command"))) {
 			var l histLine
 			if json.Unmarshal(line, &l) == nil {
 				h.fold(l)
@@ -343,19 +434,21 @@ func readHistory(path, cwd string) []*histEntry {
 			break
 		}
 	}
-	return h.entries[h.head:]
+	res.entries = h.entries[h.head:]
+	res.earlier = res.earlier || h.evicted
+	res.gap = h.gap
+	return res
 }
 
-// readLine returns the next line, or nil for one longer than historyMaxLine
-// (which is read past and not kept). The error is only io.EOF or a read error.
-func readLine(r *bufio.Reader) ([]byte, error) {
-	var line []byte
-	long := false
+// readLine returns the next line. A line longer than historyMaxLine is read
+// past and not kept: line is nil and skipped is true. The error is only io.EOF
+// or a read error.
+func readLine(r *bufio.Reader) (line []byte, skipped bool, err error) {
 	for {
 		part, err := r.ReadSlice('\n')
-		if !long {
+		if !skipped {
 			if len(line)+len(part) > historyMaxLine {
-				long, line = true, nil
+				skipped, line = true, nil
 			} else {
 				line = append(line, part...)
 			}
@@ -363,10 +456,7 @@ func readLine(r *bufio.Reader) ([]byte, error) {
 		if err == bufio.ErrBufferFull {
 			continue
 		}
-		if long {
-			return nil, err
-		}
-		return line, err
+		return line, skipped, err
 	}
 }
 
@@ -381,12 +471,22 @@ func skipLine(r *bufio.Reader) {
 // replayHistory sends the stored conversation of a session being loaded as
 // replayed updates, before the answer to session/load. They carry sessionID as
 // the client gave it, since the client marks updates for that id as replay.
+// Notices come first when part of the conversation is not shown.
 func (s *server) replayHistory(sessionID, id, cwd string) {
 	path := historyFile(s.opts.historyRoot(), cwd, id)
 	if path == "" {
 		return
 	}
-	for _, e := range readHistory(path, cwd) {
+	res := readHistory(path, cwd)
+	for _, c := range []struct {
+		on   bool
+		code string
+	}{{res.earlier, "history_cut_earlier"}, {res.later, "history_cut_later"}, {res.gap, "history_cut_gap"}} {
+		if c.on {
+			s.update(sessionID, map[string]any{"sessionUpdate": "flockdeck_notice", "code": c.code})
+		}
+	}
+	for _, e := range res.entries {
 		s.update(sessionID, e.u)
 	}
 }

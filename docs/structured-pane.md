@@ -439,7 +439,8 @@ session before it makes a new one:
   transcript without bound). A tool the old session left running is shown with no status.
   The Claude adapter does this too: it reads claude's stored session file and replays it
   (`docs/acp-claude-adapter.md`, Session load and the transcript), at most 2000 entries, so a
-  restored Claude pane shows the earlier conversation.
+  restored Claude pane shows the earlier conversation. A notice at the top says when part of it
+  is left out.
 - Else, if the agent has `sessionCapabilities.resume`, it sends `session/resume`. No history comes, so
   the transcript starts empty while the agent still has the conversation (Codex today).
 - If `session/load` is answered with an error and the agent has `resume`, `session/resume` is tried

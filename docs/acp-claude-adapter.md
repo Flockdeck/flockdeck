@@ -338,23 +338,47 @@ claude sends no history when it resumes, so the adapter reads it from claude's o
 session: `<config dir>/projects/<project>/<session id>.jsonl`, where the config dir is
 `CLAUDE_CONFIG_DIR` in the environment claude gets, else `.claude` in the home directory
 (`Options.HistoryDir` overrides it). The project directory is claude's spelling of the cwd
-(every character other than a letter or digit becomes `-`); if the file is not there, the
-other project directories are searched for the id (at most 5000). claude does not document
-the format. It was read from files written by claude 2.1.x on 27 Oct 2026, and the reader
-skips anything it does not know, so a format change shortens the replay and nothing else.
-`session/load` never fails because of the history: no file, an unreadable file or an empty
-replay still opens the session.
+(every character other than a letter or digit becomes `-`). If the file is not there, the
+project directories are searched in name order for the id; a root with more than 5000
+entries is not searched. A symbolic link or junction, for the file or its directory, is not
+followed. claude shortens a path over 200 characters and adds a hash to it; that is not
+reproduced, so such a project is found only by the search. The session id is parsed as a
+UUID first, so it cannot carry a path.
 
-The replay is sent as `session/update` calls before the answer, for the id the client
-asked with, so the client marks them as replay and the bridge builds the transcript from
-them (`docs/structured-pane.md`, Resume). No API change and no extension update is needed.
-What is replayed:
+claude does not document the format. It was read from about 116,000 user lines in the files
+on the development machine (claude 2.1.x, 27 and 28 Oct 2026), and the reader skips what it
+does not know, so a format change shortens the replay and nothing else. `session/load` never
+fails because of the history: no file, an unreadable file or an empty replay still opens the
+session.
+
+The replay is sent as `session/update` calls before the answer, for the id the client asked
+with, so the client marks them as replay and the bridge builds the transcript from them
+(`docs/structured-pane.md`, Resume). The adapter sends it before it starts claude and before
+the session is registered, so nothing claude does on its own and no prompt can be taken for
+part of it. No API change is needed. What is replayed:
 
 - `user` lines with a string, or text and image blocks (an image shows as "[image]"), as
-  `user_message_chunk`. A slash command claude stored as `<command-name>` tags is replayed as
-  `/name args`. Not replayed: lines marked `isMeta`, `isSidechain` (a helper agent's) or
-  `isCompactSummary`, tool results (they go with their call), `<local-command-...>` output,
-  `<system-reminder>` text, "Caveat:" notes and "[Request interrupted" markers.
+  `user_message_chunk`, when the line is the person's. `origin.kind` says whose it is: `human`
+  or no `origin` is the person's; `peer` (a message from another session) and
+  `task-notification` are not replayed.
+- A prompt typed while a turn runs is stored only as an `attachment` line whose
+  `attachment.type` is `queued_command`. It is replayed when `commandMode` is `prompt`,
+  `isMeta` is not set and the origin is the person's. The `queue-operation` lines (enqueue,
+  dequeue, remove) are bookkeeping and are not read. Checked: of 274 queued prompts from the
+  person in the local files, 273 have no `user` line of their own.
+- Text claude wrote is recognised by its element: a tag with a dash in its name at the start
+  of the text, such as `command-name`, `command-message`, `command-args`,
+  `local-command-stdout`, `local-command-caveat`, `bash-input`, `bash-stdout`, `bash-stderr`,
+  `task-notification`, `system-reminder` and `user-prompt-submit-hook`. Those elements are
+  stripped from the start of the text, and what is left is replayed (nothing, usually). A
+  `command-name` element is replayed as the slash command, `/name args`. A tag without a
+  dash is the person's text and is kept (`pasted_content`, which wraps a paste, is the one
+  that occurs in the files; plain HTML is another). Tags seen in user lines in the local
+  files: task-notification, pasted_content, bash-input, bash-stdout, local-command-caveat,
+  command-name, local-command-stdout, command-message, system-reminder.
+- Not replayed: lines marked `isMeta`, `isSidechain` (a helper agent's), `isCompactSummary` or
+  `isVisibleInTranscriptOnly`; tool results (they go with their call); text that starts with
+  "Caveat: The messages below" or "[Request interrupted".
 - `assistant` lines as `agent_message_chunk` for text, `agent_thought_chunk` for thinking
   (claude stores most thinking as an empty string with a signature, so there is often none)
   and one `tool_call` for each `tool_use`, built by the same `describeTool` as a live turn.
@@ -362,19 +386,38 @@ What is replayed:
   diff it was announced with for an edit), so a call and its result are one entry and one is
   never dropped without the other. A result with no call in the file is dropped. TodoWrite is
   not replayed, since a plan is current state.
-- Not replayed, and so never shown as the agent's words: a line with an `error` or
-  `isApiErrorMessage`, and text from the model `<synthetic>` (claude's own local notes such
-  as "No response requested.").
+- Never shown as the agent's words: a line with an `error` or `isApiErrorMessage`, and text
+  from the model `<synthetic>` (claude's own local notes such as "No response requested.").
 
-Limits: the last 64 MiB of the file are read (a first line that is cut is skipped); a line over
-1 MiB is skipped without being held; reading stops after 5 seconds; a message is cut at 64 KiB;
-at most 2000 entries and about 4 MiB of text are sent, and when there is more the oldest are
-left out. The bridge applies its own cleaning and limits on top, as for live text. The
-replay takes the same path as Gemini's: it makes no turn, is not typed, does not touch the
-queue or mail, and a prompt in it is a `prompt` entry marked `replayed`. Two user lines with
-no reply between them merge into one prompt entry in the bridge.
+Limits: the last 16 MiB of the file are read (the newest part, which is what the entry and byte
+caps keep; a first line that is cut is skipped); a line over 1 MiB is skipped without being
+held; reading stops after 5 seconds; a message is cut at 64 KiB; at most 2000 entries and
+about 4 MiB of text are sent, and when there is more the oldest are left out. When something
+is left out the transcript starts with a notice, so the person is not shown a conversation that
+looks whole: "Earlier parts of this conversation are not shown." (the file is longer than the
+part read, or the caps dropped entries), "Later parts of this conversation are not shown."
+(the time limit came first) and "Some parts of this conversation are not shown." (a line was too
+long to read). They are `flockdeck_notice` codes `history_cut_earlier`, `history_cut_later`
+and `history_cut_gap`, and the bridge holds the words. The bridge applies its own cleaning and
+limits on top, as for live text. The replay takes the same path as Gemini's: it makes no
+turn, is not typed, does not touch the queue or mail, and a prompt in it is a `prompt` entry
+marked `replayed`. Two user lines with no reply between them merge into one prompt entry in
+the bridge.
 
-Tests: `history_test.go` (`TestSessionLoad...`) and `TestInteropLoadReplaysMarkedAsReplay`.
+Rewind and fork (T215, branch `parity-rewind-fork`): claude's file is a tree, each line has a
+`uuid` and a `parentUuid`, and the reader here replays the lines in file order. That is right
+while a conversation only grows. A rewind (`--resume ID --resume-session-at AT`) or a fork
+that leaves the old lines in the same file would put the abandoned branch in the replay too, so
+once rewind lands the replay has to follow the `parentUuid` chain from the newest line back.
+Not verified that `--resume-session-at` writes its new lines into the same file under the same
+id; nothing in the local files was used to test it.
+
+Tests: `history_test.go` and `history_rules_test.go` (`TestSessionLoad...`, one case per rule
+in `TestSessionLoadRules`) and `TestInteropLoadReplaysMarkedAsReplay`. The tests that make a
+link are skipped where the system does not allow a symbolic link; the directory test falls
+back to a junction on Windows, the file test has no such fallback and is skipped there. The
+name-order test cannot tell a sorted listing from an unsorted one on NTFS, which lists in
+name order already.
 
 ## The canary
 

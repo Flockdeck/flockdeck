@@ -161,6 +161,13 @@ func (s *server) openSession(m rpcMsg, resume, load bool) {
 		s.replyErr(m.ID, &rpcErr{Code: codeInvalidParams, Message: err.Error()})
 		return
 	}
+	if load {
+		// The replay comes before the answer, as the protocol has it, and before
+		// claude is started, so that nothing claude does on its own can be taken
+		// for part of it. The session is not registered yet either, so no prompt
+		// can reach it.
+		s.replayHistory(p.SessionID, id, p.Cwd)
+	}
 	if err := ss.start(); err != nil {
 		s.logf("start claude: %v", err)
 		ss.cleanup()
@@ -212,10 +219,6 @@ func (s *server) openSession(m rpcMsg, resume, load bool) {
 	}
 	if len(models) > 0 {
 		res["models"] = map[string]any{"currentModelId": ss.model, "availableModels": models}
-	}
-	if load {
-		// The replay comes before the answer, as the protocol has it.
-		s.replayHistory(p.SessionID, id, p.Cwd)
 	}
 	s.reply(m.ID, res)
 	if !tested {

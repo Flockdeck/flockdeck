@@ -164,3 +164,21 @@ func TestALiveChunkDuringTheWindowDoesNotJoinTheLastReplayedReply(t *testing.T) 
 		t.Errorf("entries = %+v", got)
 	}
 }
+
+func TestReplayShowsAnAdaptersCutNotices(t *testing.T) {
+	for code, want := range map[string]string{
+		"history_cut_earlier": "Earlier parts of this conversation are not shown.",
+		"history_cut_later":   "Later parts of this conversation are not shown.",
+		"history_cut_gap":     "Some parts of this conversation are not shown.",
+	} {
+		b, _ := newBridge(Config{})
+		b.BeginReplay()
+		b.Update(replayed(acp.Update{Kind: acp.UpdateNotice, NoticeCode: code}))
+		b.Update(replayed(text(acp.UpdateUserMessageChunk, "hello")))
+		b.EndReplay()
+		got := b.Snapshot()
+		if kinds(got) != "notice,prompt" || got[0].Text != want || !got[1].Replayed {
+			t.Errorf("%s: %+v", code, got)
+		}
+	}
+}
