@@ -481,6 +481,9 @@ type Runtime struct {
 	// conversation to a new id on purpose, and that is not a clear.
 	cleared    bool
 	rewindMove bool
+	// rewindFrom is the id to resume by from before a rewind the agent did not
+	// answer, which it may or may not have done. See RewindFrom.
+	rewindFrom string
 	// seq tells this runtime from every other this program has started, so that
 	// the token a window holds does not match a pane that was restarted.
 	seq int64
@@ -1534,6 +1537,11 @@ func (r *Runtime) failKey(c *acp.Client, init acp.InitResult, err error) {
 func (r *Runtime) SessionID() string {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	return r.sessionIDLocked()
+}
+
+// sessionIDLocked is SessionID with the lock held.
+func (r *Runtime) sessionIDLocked() string {
 	// moved is about the live session, so it wins over keep, which is the id of
 	// a reopen that was never answered.
 	if r.moved != "" {

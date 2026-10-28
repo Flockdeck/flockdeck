@@ -419,3 +419,37 @@ func TestARewindsOwnMoveOfTheSessionIsNotAClear(t *testing.T) {
 		t.Errorf("points after the agent moved on its own = %v", p)
 	}
 }
+
+// A rewind the agent does not answer leaves the id from before it to resume by,
+// even when the agent had already told us the conversation moved to a new one.
+func TestAnUnansweredRewindKeepsTheIDFromBeforeIt(t *testing.T) {
+	o := fakeOptions(t, acptest.WithRewind(), acptest.WithRewindHang())
+	o.Command.RewindTimeout = 500 * time.Millisecond
+	o.Spec = agent.Spec{ID: "claude", Runner: agent.RunnerACP, ACP: agent.ACPSpec{Adapter: "claude"}}
+	r := begin(t, o)
+	until(t, r, "ready", idle)
+	var s Snapshot
+	for i, txt := range []string{"plain a", "plain b"} {
+		s = sendAndSettle(t, r, txt, i+1)
+	}
+	before := r.SessionID()
+	ids := promptIDs(s)
+	done := make(chan error, 1)
+	go func() {
+		_, err := r.Rewind(ids[1], r.RewindToken())
+		done <- err
+	}()
+	// The agent says the conversation moved, and then says nothing more.
+	const moved = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
+	until(t, r, "rewinding", func(s Snapshot) bool { r.mu.Lock(); defer r.mu.Unlock(); return r.rewinding })
+	r.noteMoved(moved)
+	if err := <-done; !errors.Is(err, ErrRewindUnknown) {
+		t.Fatalf("err = %v", err)
+	}
+	if got := r.SessionID(); got != moved {
+		t.Fatalf("SessionID = %q, want the moved id", got)
+	}
+	if got := r.RewindFrom(); got != before {
+		t.Errorf("RewindFrom = %q, want %q", got, before)
+	}
+}

@@ -8,6 +8,7 @@ import (
 	"github.com/jmwri/flockdeck/internal/acp/acptest"
 	"github.com/jmwri/flockdeck/internal/session"
 	"github.com/jmwri/flockdeck/internal/session/transcript"
+	"github.com/jmwri/flockdeck/internal/structured"
 )
 
 // Going back to an earlier prompt and forking at one, over the control socket.
@@ -268,7 +269,7 @@ func TestRewindAndForkWithAStaleTokenAreRefused(t *testing.T) {
 // When the agent does not answer a rewind, whether it went back is not known:
 // the pane is restarted so that the window and the agent cannot disagree.
 func TestARewindTheAgentNeverAnswersRestartsThePane(t *testing.T) {
-	e := newStructuredEnvWith(t, "plain", structuredEnvOpts{Args: []string{acptest.ArgSessions + "rewind,rewindhang"}, RewindTimeout: 700 * time.Millisecond})
+	e := newStructuredEnvWith(t, "plain", structuredEnvOpts{Args: []string{acptest.ArgSessions + "rewind,rewindhang,resume,id=sess-1"}, RewindTimeout: 700 * time.Millisecond})
 	e.status(t, session.StatusIdle)
 	e.sendText(t, "plain one")
 	e.waitPrompts(t, 2)
@@ -283,6 +284,7 @@ func TestARewindTheAgentNeverAnswersRestartsThePane(t *testing.T) {
 		}
 	}
 	first, _ := ask(e.srv, func() any { return e.ws.StructuredRuntime(e.child) })
+	before, _ := e.srv.structuredSnapshotOf(e.child)
 	res := e.rewindOp(t, e.c, command{Cmd: "structuredRewind", Entry: id, Confirm: true})
 	if res.OK || res.Error != structuredRewindUnknown {
 		t.Fatalf("rewind: %+v", res)
@@ -290,6 +292,15 @@ func TestARewindTheAgentNeverAnswersRestartsThePane(t *testing.T) {
 	now, _ := ask(e.srv, func() any { return e.ws.StructuredRuntime(e.child) })
 	if now == nil || now == first {
 		t.Error("the pane was not restarted")
+	}
+	// It reopens the conversation it had, and does not start a new one.
+	e.status(t, session.StatusIdle)
+	after, _ := e.srv.structuredSnapshotOf(e.child)
+	if before.SessionID == "" || after.SessionID != before.SessionID {
+		t.Errorf("the restarted pane has session %q, want %q", after.SessionID, before.SessionID)
+	}
+	if after.Resume != structured.ResumeResumed && after.Resume != structured.ResumeLoaded {
+		t.Errorf("the restarted pane started a new session (resume = %q)", after.Resume)
 	}
 }
 

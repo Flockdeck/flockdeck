@@ -90,8 +90,17 @@ func (s *Server) structuredRewind(c *controlClient, cmd command) {
 		if errors.Is(err, structured.ErrRewindUnknown) {
 			// Whether the agent went back is not known, so the window and the
 			// agent could disagree about what the conversation is. The pane
-			// starts over; its history stays.
-			ask(s, func() bool { return s.ws.RestartPaneByID(cmd.ID) })
+			// starts over, reopening the conversation as it was.
+			// The agent's conversation from before is still whole, so the pane
+			// reopens it. The layout may already hold the new id the agent moved to;
+			// the old one wins.
+			from := rt.RewindFrom()
+			ask(s, func() bool {
+				if s.ws.RestartStructuredPaneResuming(cmd.ID, from) {
+					return true
+				}
+				return s.ws.RestartPaneByID(cmd.ID)
+			})
 		}
 		if err != nil {
 			refuse(c, cmd, errStructured(rewindRefusal(err, false)))

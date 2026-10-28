@@ -523,12 +523,15 @@ var ErrTooManyForks = errors.New("that pane already has too many forks open")
 // entries of the old session stay as history, with a line saying where it was
 // restarted. A restart is the person asking for a new session, so the agent's
 // own conversation is not resumed; a restored pane resumes it (startStructured).
+// With resume, the new agent reopens that session instead (a rewind that got no
+// answer), and the old entries are not kept since the agent replays them or
+// the pane starts empty, as a restored one does.
 //
 // Closing the old agent waits for it to end, for at most structured's
 // closeWait (15 seconds), on the goroutine that called and not under the
 // workspace lock. Between the close and the new runtime p.rt is nil, so the
 // pane reads as exited for that moment.
-func (w *Workspace) restartStructured(p *Pane, old *structuredRuntime) {
+func (w *Workspace) restartStructured(p *Pane, old *structuredRuntime, resume string) {
 	// The old session's entries are numbered e1, e2... like the next session's,
 	// so they take the generation as a prefix on becoming history.
 	cur := old.rt.Snapshot().Entries
@@ -542,8 +545,13 @@ func (w *Workspace) restartStructured(p *Pane, old *structuredRuntime) {
 	noteID := fmt.Sprintf("restart-%d", p.generation)
 	p.generation++
 	_ = old.Close()
+	text := "The agent was restarted. This is a new session."
+	if resume != "" {
+		history = nil
+		text = "Going back did not finish, so the agent was restarted with the conversation as it was before."
+	}
 	history = append(history, transcript.Entry{ID: noteID, Kind: transcript.KindNotice,
-		TS: time.Now().UTC().Format(time.RFC3339), Text: "The agent was restarted. This is a new session."})
+		TS: time.Now().UTC().Format(time.RFC3339), Text: text})
 	if n := len(history); n > maxPaneHistory {
 		history = history[n-maxPaneHistory:]
 	}
@@ -552,7 +560,7 @@ func (w *Workspace) restartStructured(p *Pane, old *structuredRuntime) {
 	runtimeMu.Unlock()
 	p.history = history
 	w.mu.Lock()
-	p.savedSession = ""
+	p.savedSession = resume
 	w.mu.Unlock()
 	w.startPane(p, false)
 }

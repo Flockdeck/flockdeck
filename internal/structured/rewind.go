@@ -196,6 +196,8 @@ func (r *Runtime) Rewind(id, token string) (string, error) {
 	// Nothing is sent to the agent until the rewind ends (see pop). The agent
 	// tells us, as part of the rewind, that the conversation moved to a new id.
 	r.rewinding, r.rewindMove = true, true
+	from := r.sessionIDLocked()
+	r.rewindFrom = ""
 	r.mu.Unlock()
 
 	err := c.Rewind(r.ctx, session, turn)
@@ -214,6 +216,9 @@ func (r *Runtime) Rewind(id, token string) (string, error) {
 		if errors.As(err, &rpc) {
 			return "", ErrRewindFailed
 		}
+		r.mu.Lock()
+		r.rewindFrom = from
+		r.mu.Unlock()
 		return "", ErrRewindUnknown
 	}
 	// The agent has gone back, so the marks are cut whatever the bridge finds:
@@ -231,6 +236,16 @@ func (r *Runtime) Rewind(id, token string) (string, error) {
 	r.notify()
 	r.wakeLoop()
 	return text, nil
+}
+
+// RewindFrom is the id the agent's conversation was resumed by before the last
+// rewind, when that rewind got no answer, else "". The agent may have moved the
+// conversation to a new id by then and the owner may have saved it; the old one
+// is still whole, and is the one to resume by when the pane starts over.
+func (r *Runtime) RewindFrom() string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.rewindFrom
 }
 
 // wakeLoop lets the loop look at the queue again.
