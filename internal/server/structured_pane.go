@@ -10,7 +10,7 @@ import (
 // runtimePane is a structured pane's runtime as permissionAnswer needs it.
 type runtimePane struct{ rt *structured.Runtime }
 
-func (p runtimePane) PendingPermission() *bridge.Card { return p.rt.Snapshot().Pending }
+func (p runtimePane) PendingPermission() *bridge.Card { return p.rt.PendingCard() }
 
 // OwnAdapter is the runtime's: whether the agent runs on an adapter Flockdeck wrote.
 func (p runtimePane) OwnAdapter() bool { return p.rt.OwnAdapter() }

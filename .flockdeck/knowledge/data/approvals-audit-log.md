@@ -12,10 +12,10 @@ Stored as `remote-approvals.log` in the state directory, rotated at 1 MiB like [
 | `event` | When | Notable fields |
 |---|---|---|
 | `connect` | a socket opened and passed every check | `device`, `deviceName` |
-| `denied` | a socket or device refused, with `reason` (`disabled`, `verify`, `key`, `origin`, `grant`, `handshake`, `connect-rate`, `busy`, `rate`, `malformed`, `refused-answers`); recorded at most every 10 s per device and reason, `suppressed` counts the rest | `reason` |
+| `denied` | in `remote-approvals-denied.log`, not this file. A socket or device refused, with `reason` (`disabled`, `verify`, `key`, `origin`, `grant`, `handshake`, `connect-rate`, `busy`, `rate`, `malformed`, `padding`, `unpadded`, `refused-answers`); at most every 10 s per device and reason and 30 a minute in all, `suppressed` counts the rest | `reason` |
 | `shown` | a card was sent to a socket | `pane`, `name`, `seq`, `kind`, `len`, `hash`, `reason` (`desk-only` or `deny-only` when nothing or only Deny is offered) |
-| `decision` | a decision was accepted, written before the answer is given | the same, and `decision` (`allow_once` or `reject_once`) |
-| `decision-refused` | a decision was refused | `reason` (`rate`, `shape`, `decision`, `offer`, `ended`, `mismatch`, `allow-not-offered`, `too-soon`, `stale`, `restarted`, `no-card`, `changed`, `audit`, `error`) |
+| `decision` | a decision was accepted, written and flushed to disk before the answer is given; if it cannot be, nothing is given | the same, and `decision` (`allow_once` or `reject_once`) |
+| `decision-refused` | a decision was refused, best effort, at most every 10 s per device and reason | `reason` (`rate`, `shape`, `decision`, `offer`, `ended`, `mismatch`, `allow-not-offered`, `too-soon`, `stale`, `restarted`, `no-card`, `changed`, `audit`, `error`, or the gate's word if approval was switched off mid-decision) |
 | `device-approve-on`, `device-approve-off`, `approvals-off` | the desk changed approval (`approvals-off` is the kill switch; `len` is how many devices it was on for) | `reason` `not-saved` when it could not be saved |
 
 `hash` is the SHA-256 of the text the phone was shown and `len` its length in bytes. The text, the command and the path are never written.

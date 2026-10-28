@@ -101,10 +101,22 @@ const (
 	approvalErrEarly  = "That request was only just shown. Look at it, then answer"
 	approvalErrRecord = "The answer could not be recorded, so it was not given"
 	approvalErrGive   = "The answer could not be given"
+	approvalErrOff    = "Approval from this device was switched off"
+	approvalErrPad    = "Every frame must be padded to a multiple of 1024 bytes"
 )
 
-// approvalAuditFile is the approvals audit log in the state folder.
-const approvalAuditFile = "remote-approvals.log"
+// The approvals audit logs in the state folder. Refusals of sockets and devices
+// are in a file of their own: they can be caused by any device id the relay
+// forwards, so they must not be able to rotate the lines about cards and decisions
+// out of the log.
+const (
+	approvalAuditFile  = "remote-approvals.log"
+	approvalDeniedFile = "remote-approvals-denied.log"
+	// approvalDeniedPerMinute and approvalNoticesPerMinute cap, across every
+	// device, the refusals written and the notices put on the desk.
+	approvalDeniedPerMinute  = 30
+	approvalNoticesPerMinute = 6
+)
 
 // approvalTimings are the time limits on a socket, read once when a socket is
 // accepted, so that a test changes them for one server.
@@ -120,6 +132,9 @@ type approvalTimings struct {
 	poll time.Duration
 	// minDisplay is approvalMinDisplay.
 	minDisplay time.Duration
+	// hook, set by a test, is called at stages of a decision (after-ask,
+	// after-audit), before the host looks again at whether the device may answer.
+	hook func(stage string)
 }
 
 func (t approvalTimings) withDefaults() approvalTimings {
@@ -151,7 +166,16 @@ type approvalsState struct {
 	devices map[string]*approvalDevice
 	denials map[string]*artifactDenial
 	audit   auditLog
-	timing  approvalTimings
+	// deniedLog holds the "denied" lines (approvalDeniedFile).
+	deniedLog auditLog
+	timing    approvalTimings
+	// The caps across every device, in a window of a minute.
+	capAt                       time.Time
+	capLines, capNotes, capLost int
+	// lost counts log lines that could not be written; lostNote is when the desk
+	// was last told.
+	lost     int
+	lostNote time.Time
 }
 
 // approvalDevice is what is shared by every socket of one device, so that
@@ -215,7 +239,10 @@ func (a *approvalsState) release(device string) {
 
 // denial says whether a refusal should be recorded and shown at the desk, and
 // how many were left out since the last one recorded, as artifactState.denial.
-func (a *approvalsState) denial(key string) (record, notify bool, suppressed int) {
+// With global set, the lines and notices of every device together are also held to
+// approvalDeniedPerMinute and approvalNoticesPerMinute, so that a stream of forged
+// device ids cannot fill the log or the desk.
+func (a *approvalsState) denial(key string, global bool) (record, notify bool, suppressed int) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	now := time.Now()
@@ -237,16 +264,59 @@ func (a *approvalsState) denial(key string) (record, notify bool, suppressed int
 		notify = true
 		d.notified = now
 	}
+	if global {
+		if now.Sub(a.capAt) >= time.Minute {
+			a.capAt, a.capLines, a.capNotes = now, 0, 0
+		}
+		if record {
+			if a.capLines++; a.capLines > approvalDeniedPerMinute {
+				record = false
+				a.capLost++
+				d.recorded = time.Time{}
+			} else {
+				suppressed += a.capLost
+				a.capLost = 0
+			}
+		}
+		if notify {
+			if a.capNotes++; a.capNotes > approvalNoticesPerMinute {
+				notify = false
+				d.notified = time.Time{}
+			}
+		}
+	}
 	return record, notify, suppressed
 }
 
-// approvalDenied records a refusal in the approvals log and shows it at the
-// desk, at a limited rate. A phone that follows the protocol is refused only when
-// the desk has changed something, so a repeat is a sign of a modified client.
+// logLost counts a log line that could not be written and tells the desk, at most
+// once a minute. An answer is never given without its decision line, but the
+// other lines are best effort, and the desk should know when they are being lost.
+func (s *Server) logLost(err error) {
+	if err == nil {
+		return
+	}
+	a := &s.approvals
+	a.mu.Lock()
+	a.lost++
+	n := a.lost
+	tell := a.lostNote.IsZero() || time.Since(a.lostNote) >= time.Minute
+	if tell {
+		a.lostNote = time.Now()
+	}
+	a.mu.Unlock()
+	if tell {
+		s.noticeDesk("The phone approval log could not be written ("+plural(n, "line")+" lost so far): "+tidy(err.Error()), true)
+	}
+}
+
+// approvalDenied records a refusal of a socket or a device in the denied log and
+// shows it at the desk, at a limited rate. A phone that follows the protocol is
+// refused only when the desk has changed something, so a repeat is a sign of a
+// modified client.
 func (s *Server) approvalDenied(device, name, reason string) {
-	record, notify, suppressed := s.approvals.denial(device + "\x00" + reason)
+	record, notify, suppressed := s.approvals.denial(device+"\x00"+reason, true)
 	if record {
-		_ = s.approvals.audit.write(auditEvent{Event: "denied", Device: device, DeviceName: name, Reason: reason, Suppressed: suppressed})
+		s.logLost(s.approvals.deniedLog.write(auditEvent{Event: "denied", Device: device, DeviceName: name, Reason: reason, Suppressed: suppressed}))
 	}
 	if notify {
 		who := tidy(name)
@@ -254,6 +324,16 @@ func (s *Server) approvalDenied(device, name, reason string) {
 			who = "A paired device"
 		}
 		s.noticeDesk(who+" was refused phone approval ("+tidy(reason)+"). That is not something Flockdeck's own phone app does", true)
+	}
+}
+
+// approvalRefused records a refused decision in the approvals log, at most once
+// every few seconds for one device and reason, with a count of those left out.
+func (s *Server) approvalRefused(e auditEvent) {
+	record, _, suppressed := s.approvals.denial(e.Device+"\x00r:"+e.Reason, false)
+	if record {
+		e.Suppressed = suppressed
+		s.logLost(s.approvals.audit.write(e))
 	}
 }
 
@@ -434,19 +514,55 @@ type approvalShown struct {
 	shownAt                 time.Time
 }
 
+// offerSet is a bounded set of offers, oldest forgotten first, so that a long
+// session does not turn a tap on an old offer into one that was never made.
+type offerSet struct {
+	order []string
+	have  map[string]struct{}
+}
+
+func (o *offerSet) add(offer string) {
+	if o.have == nil {
+		o.have = map[string]struct{}{}
+	}
+	if _, ok := o.have[offer]; ok {
+		return
+	}
+	if len(o.order) >= approvalOffersKept {
+		delete(o.have, o.order[0])
+		o.order = o.order[1:]
+	}
+	o.order = append(o.order, offer)
+	o.have[offer] = struct{}{}
+}
+
+func (o *offerSet) has(offer string) bool {
+	_, ok := o.have[offer]
+	return ok
+}
+
 // approvalSession is one open socket's state. Only the goroutine that runs the
-// socket uses it.
+// socket uses it, except cutCh, which is closed from outside.
 type approvalSession struct {
 	s            *Server
 	device, name string
-	dev          *approvalDevice
-	tm           approvalTimings
-	tc           *e2eConn
+	origin       remote.KeyOrigin
+	// key is the device's long-term key the handshake was derived with, from the
+	// session itself (e2e.Session.DeviceStaticKey), never from a roster.
+	key    []byte
+	dev    *approvalDevice
+	tm     approvalTimings
+	tc     *e2eConn
+	refuse func(code int, reason string)
+	// cutCh is closed when the desk switches approval off for the device or for
+	// everyone. A decision in flight looks at it before it goes on.
+	cutCh  chan struct{}
+	cutOne sync.Once
 
 	shown   map[string]*approvalShown // by pane
 	byOffer map[string]*approvalShown
-	used    map[string]struct{}
-	retired map[string]struct{}
+	// gone is every offer that is no longer open, used or ended.
+	gone offerSet
 	// listed is whether the device has asked for the list; nothing is sent
 	// unprompted before. lastSig is what was last sent, to tell a change.
 	listed  bool
@@ -456,26 +572,38 @@ type approvalSession struct {
 	abuse, busy int
 }
 
-func (a *approvalSession) keep(m map[string]struct{}, offer string) {
-	if len(m) >= approvalOffersKept {
-		clear(m)
+func (a *approvalSession) cut() { a.cutOne.Do(func() { close(a.cutCh) }) }
+
+// reasonOff is why the device may not be served now, or "": the desk has cut the
+// socket, or approvalCheck no longer says yes for the key the handshake used.
+func (a *approvalSession) reasonOff() string {
+	select {
+	case <-a.cutCh:
+		return approvalReasonDisabled
+	default:
 	}
-	m[offer] = struct{}{}
+	return a.s.approvalCheck(a.device, a.origin, a.key)
 }
 
-// drop forgets a card's offer, remembering it as used or as ended.
-func (a *approvalSession) drop(sh *approvalShown, used bool) {
+// gate is reasonOff, closing the socket when it is not empty.
+func (a *approvalSession) gate() bool {
+	reason := a.reasonOff()
+	if reason == "" {
+		return true
+	}
+	a.s.approvalDenied(a.device, a.name, reason)
+	a.refuse(artifactCloseRefused, reason)
+	return false
+}
+
+// drop forgets a card's offer, remembering it as no longer open.
+func (a *approvalSession) drop(sh *approvalShown) {
 	delete(a.byOffer, sh.offer)
 	if a.shown[sh.pane] == sh {
 		delete(a.shown, sh.pane)
 	}
-	if sh.offer == "" {
-		return
-	}
-	if used {
-		a.keep(a.used, sh.offer)
-	} else {
-		a.keep(a.retired, sh.offer)
+	if sh.offer != "" {
+		a.gone.add(sh.offer)
 	}
 }
 
@@ -510,7 +638,7 @@ func (a *approvalSession) refresh() (items []approvalItem, changed bool, err err
 		live[w.pane] = true
 		sh := a.shown[w.pane]
 		if sh != nil && sh.key != key {
-			a.drop(sh, false)
+			a.drop(sh)
 			sh = nil
 		}
 		if sh == nil {
@@ -556,7 +684,7 @@ func (a *approvalSession) refresh() (items []approvalItem, changed bool, err err
 	}
 	for pane, sh := range a.shown {
 		if !live[pane] {
-			a.drop(sh, false)
+			a.drop(sh)
 		}
 	}
 	s := sig.String()
@@ -565,8 +693,13 @@ func (a *approvalSession) refresh() (items []approvalItem, changed bool, err err
 	return items, changed, nil
 }
 
-// send seals one frame, padded, and writes it within the write bound.
+// send seals one frame, padded, and writes it within the write bound. Whether the
+// device may still be told is looked at first, for every frame the host sends,
+// the answer to a decision and the list that follows it included.
 func (a *approvalSession) send(ctx context.Context, v any) bool {
+	if !a.gate() {
+		return false
+	}
 	data, err := padded(v)
 	if err != nil {
 		return false
@@ -590,16 +723,30 @@ func (a *approvalSession) sendList(ctx context.Context, force bool) (ok bool, en
 	return a.send(ctx, approvalsFrame{Op: "approvals", V: approvalWireVersion, Items: items}), ""
 }
 
+// sameCard says the card reads now, to a phone, as it did when it was sent: the
+// whole projection, not only its text.
+func sameCard(shown approvalItem, now phoneCard) bool {
+	return shown.Kind == kindOf(now) && shown.Text == now.Text && shown.Added == now.Added && shown.Removed == now.Removed &&
+		shown.CanAllow == now.CanAllow && shown.Why == now.Why && shown.Answerable == now.Answerable
+}
+
+func kindOf(p phoneCard) string {
+	if p.Kind == "" {
+		return phoneOther
+	}
+	return p.Kind
+}
+
 // decide handles an approvalDecide request. It returns the reply, and a reason
 // to end the socket, empty if it goes on.
 func (a *approvalSession) decide(req approvalRequest) (res approvalResultFrame, end string) {
 	s := a.s
 	res = approvalResultFrame{Op: "approvalResult", V: approvalWireVersion, Pane: tidy(req.Pane), CardSeq: req.CardSeq}
 	var seq uint64
-	var paneID, kind, text string
+	var paneID, kind string
 	no := func(msg, reason string, abuse bool) (approvalResultFrame, string) {
 		res.Error = msg
-		_ = s.approvals.audit.write(auditEvent{Event: "decision-refused", Device: a.device, DeviceName: a.name, Pane: paneID, Seq: seq, Kind: kind, Reason: reason})
+		s.approvalRefused(auditEvent{Event: "decision-refused", Device: a.device, DeviceName: a.name, Pane: paneID, Seq: seq, Kind: kind, Reason: reason})
 		if !abuse {
 			return res, ""
 		}
@@ -608,6 +755,20 @@ func (a *approvalSession) decide(req approvalRequest) (res approvalResultFrame, 
 			return res, "abuse"
 		}
 		return res, ""
+	}
+	// off ends the answer when the device may no longer give one.
+	off := func() (approvalResultFrame, string, bool) {
+		if reason := a.reasonOff(); reason != "" {
+			res.Error = approvalErrOff
+			s.approvalRefused(auditEvent{Event: "decision-refused", Device: a.device, DeviceName: a.name, Pane: paneID, Seq: seq, Kind: kind, Reason: reason})
+			return res, reason, true
+		}
+		return res, "", false
+	}
+	stage := func(name string) {
+		if a.tm.hook != nil {
+			a.tm.hook(name)
+		}
 	}
 
 	if !a.dev.decide.Allow(1) {
@@ -625,16 +786,18 @@ func (a *approvalSession) decide(req approvalRequest) (res approvalResultFrame, 
 	}
 	sh := a.byOffer[req.Offer]
 	if sh == nil {
-		if _, gone := a.retired[req.Offer]; gone {
+		if a.gone.has(req.Offer) {
+			// Used, or its card ended: an impatient second tap, or a tap on a card
+			// the desk answered, is stale, not abuse. Nothing is given.
 			return no(permissionStale, "ended", false)
 		}
-		// Unknown, or used: a client that follows the protocol sends neither.
+		// Never made on this socket: a client that follows the protocol sends none.
 		return no(approvalErrOffer, "offer", true)
 	}
 	// The offer is used by this attempt, whatever it comes to: a guess at the
 	// other fields costs the offer, and a refused tap has the card offered anew.
-	a.drop(sh, true)
-	paneID, seq, kind, text = sh.pane, sh.lock.Seq, sh.item.Kind, sh.item.Text
+	a.drop(sh)
+	paneID, seq, kind = sh.pane, sh.lock.Seq, sh.item.Kind
 	if req.Pane != sh.pane || req.CardSeq != sh.lock.Seq || subtle.ConstantTimeCompare([]byte(req.Token), []byte(sh.token)) != 1 {
 		return no(approvalErrMatch, "mismatch", true)
 	}
@@ -665,8 +828,12 @@ func (a *approvalSession) decide(req approvalRequest) (res approvalResultFrame, 
 	if !ok {
 		return res, "closing"
 	}
+	stage("after-ask")
+	if r, e, stop := off(); stop {
+		return r, e
+	}
 	if now.pane == nil {
-		return no(errPhoneNoCard.Error(), "no-pane", false)
+		return no(errPhoneNoCard.Error(), "no-card", false)
 	}
 	id, err := phoneAnswer(now.card, now.token, now.own, now.root, sh.lock, req.Decision)
 	if err != nil {
@@ -682,20 +849,31 @@ func (a *approvalSession) decide(req approvalRequest) (res approvalResultFrame, 
 		return no(err.Error(), reason, false)
 	}
 	// Seq is the card's number and unique, but what is shown is checked as well:
-	// the card must read now as it did when it was sent.
-	if p := projectCard(now.card, now.own, now.root); p.Text != text || p.Kind != sh.item.Kind {
+	// the card must read now, in every part a phone sees, as it did when it was sent.
+	if !sameCard(sh.item, projectCard(now.card, now.own, now.root)) {
 		return no(permissionStale, "changed", false)
 	}
 	decision := "reject_once"
 	if req.Decision == decisionAllow {
 		decision = "allow_once"
 	}
-	// An answer with no trace is not given: the line is written first.
-	if werr := s.approvals.audit.write(auditEvent{
+	// An answer with no trace is not given: the line is written first, and flushed
+	// to disk. It is the only line that is, and the only one whose failure stops
+	// an answer. A decision line means the host went on to give the answer; it
+	// was given unless a decision-refused line follows, and that line is best
+	// effort (the desk is told when lines are being lost).
+	if werr := s.approvals.audit.writeDurable(auditEvent{
 		Event: "decision", Device: a.device, DeviceName: a.name, Pane: paneID, Name: sh.item.Label, Seq: seq,
-		Decision: decision, Kind: kind, Len: len(text), Hash: textHash(text),
+		Decision: decision, Kind: kind, Len: len(sh.item.Text), Hash: textHash(sh.item.Text),
 	}); werr != nil {
+		s.logLost(werr)
 		return no(approvalErrRecord, "audit", false)
+	}
+	stage("after-audit")
+	// The switch may have been turned off while the line was being written, or
+	// the pane read: looked at once more, immediately before the answer.
+	if r, e, stop := off(); stop {
+		return r, e
 	}
 	if gerr := now.pane.AnswerPermission(sh.lock.Seq, sh.lock.RequestID, id); gerr != nil {
 		if errors.Is(gerr, ErrPermissionStale) {
@@ -762,9 +940,16 @@ func (s *Server) handleApprovals(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer s.approvals.release(device)
+	a := &approvalSession{
+		s: s, device: device, name: name, origin: origin, dev: dev, tm: tm, refuse: refuse,
+		cutCh: make(chan struct{}),
+		shown: map[string]*approvalShown{}, byOffer: map[string]*approvalShown{},
+	}
 	// Registered before it is checked, so that a switch turned off between the
-	// two ends it (s.sockets.cut, called when approval is switched off).
+	// two ends it (s.sockets.cut, called when approval is switched off). It also
+	// tells a decision in flight, which looks at cutCh before it answers.
 	forget := s.sockets.add(device, func() {
+		a.cut()
 		go func() { _ = conn.Close(websocket.StatusCode(artifactCloseRefused), approvalReasonDisabled) }()
 	})
 	defer forget()
@@ -778,13 +963,14 @@ func (s *Server) handleApprovals(w http.ResponseWriter, r *http.Request) {
 		refuse(artifactCloseRefused, approvalReasonKey)
 		return
 	}
-	key, ok := s.deviceKey(pctx, device, origin)
-	if !ok {
-		s.approvalDenied(device, name, approvalReasonKey)
-		refuse(artifactCloseRefused, approvalReasonKey)
-		return
-	}
-	if reason := s.approvalCheck(device, origin, key); reason != "" {
+	// Before spending a handshake: a device that approval is not on for is refused
+	// now. This looks at no key; the check that decides is made below, with the key
+	// the handshake used.
+	if origin != approveKeyOrigin || !s.approveSwitchOn(device) {
+		reason := approvalReasonDisabled
+		if origin != approveKeyOrigin {
+			reason = approvalReasonOrigin
+		}
 		s.approvalDenied(device, name, reason)
 		refuse(artifactCloseRefused, reason)
 		return
@@ -799,33 +985,22 @@ func (s *Server) handleApprovals(w http.ResponseWriter, r *http.Request) {
 		refuse(int(websocket.StatusPolicyViolation), "end-to-end handshake failed")
 		return
 	}
-	// The key the handshake used is the key that was checked, and the one the
-	// grant is held to: asked again, since the roster the handshake read is cached
-	// for a few seconds and a key replaced in between would otherwise be served on
-	// the strength of the old one's verification.
-	rctx, rcancel := context.WithTimeout(ctx, tm.roster)
-	defer rcancel()
-	if again, ok := s.deviceKey(rctx, device, origin); !ok || !bytes.Equal(again, key) {
-		s.approvalDenied(device, name, approvalReasonVerify)
-		refuse(artifactCloseRefused, approvalReasonVerify)
-		return
-	}
-	if reason := s.approvalCheck(device, origin, key); reason != "" {
-		s.approvalDenied(device, name, reason)
-		refuse(artifactCloseRefused, reason)
+	// The key the gate is given is the one the session was derived with. A roster
+	// is not asked: whatever it says, a device that is not the holder of this key
+	// cannot have made the session, and a key the desk has not verified, and
+	// approval was not granted for, is not served.
+	a.key = sess.DeviceStaticKey()
+	a.tc = &e2eConn{conn: conn, sess: sess}
+	if !a.gate() {
 		return
 	}
 	// Opening is recorded before anything is served; if it cannot be, nothing is.
 	if err := s.approvals.audit.write(auditEvent{Event: "connect", Device: device, DeviceName: name}); err != nil {
+		s.logLost(err)
 		refuse(int(websocket.StatusInternalError), "unavailable")
 		return
 	}
 
-	a := &approvalSession{
-		s: s, device: device, name: name, dev: dev, tm: tm, tc: &e2eConn{conn: conn, sess: sess},
-		shown: map[string]*approvalShown{}, byOffer: map[string]*approvalShown{},
-		used: map[string]struct{}{}, retired: map[string]struct{}{},
-	}
 	type frameIn struct {
 		typ  websocket.MessageType
 		data []byte
@@ -850,22 +1025,17 @@ func (s *Server) handleApprovals(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
-	gate := func() bool {
-		if reason := s.approvalCheck(device, origin, key); reason != "" {
-			s.approvalDenied(device, name, reason)
-			refuse(artifactCloseRefused, reason)
-			return false
-		}
-		return true
-	}
 	endWith := func(reason string) {
 		switch reason {
+		case "":
 		case "unavailable":
 			refuse(int(websocket.StatusInternalError), "unavailable")
 		case artifactErrBusy:
 			refuse(artifactCloseBusy, artifactErrBusy)
 		case "abuse":
 			refuse(artifactCloseRefused, "refused")
+		case approvalReasonDisabled, approvalReasonVerify, approvalReasonKey, approvalReasonOrigin, approvalReasonGrant:
+			refuse(artifactCloseRefused, reason)
 		}
 	}
 	tick := time.NewTicker(tm.poll)
@@ -876,11 +1046,11 @@ func (s *Server) handleApprovals(w http.ResponseWriter, r *http.Request) {
 			return
 		case <-tick.C:
 			// Nothing is sent until the device has asked, and nothing at all once
-			// it may not be told.
+			// it may not be told (send looks again before it writes).
 			if !a.listed {
 				continue
 			}
-			if !gate() {
+			if !a.gate() {
 				return
 			}
 			if ok, end := a.sendList(ctx, false); !ok {
@@ -891,9 +1061,9 @@ func (s *Server) handleApprovals(w http.ResponseWriter, r *http.Request) {
 			if !open {
 				return
 			}
-			// The gate is checked again before every frame is acted on, from the
-			// preferences on disk, so a switch turned off takes effect on the next.
-			if !gate() {
+			// The gate is checked again before every frame is acted on, so a
+			// switch turned off takes effect on the next.
+			if !a.gate() {
 				return
 			}
 			if !a.frame(ctx, f.typ, f.data, endWith) {
@@ -915,15 +1085,15 @@ func (a *approvalSession) frame(ctx context.Context, typ websocket.MessageType, 
 		}
 		return a.send(ctx, approvalErrorFrame{Op: "error", V: approvalWireVersion, Code: artifactErrBusy})
 	}
+	// Every request is padded to a multiple of approvalPadBucket, so that allow and
+	// deny, and the other requests, are not told apart by their length. A frame
+	// that is not is counted as a refusal of the kind a correct client never causes.
+	if len(data) == 0 || len(data)%approvalPadBucket != 0 {
+		return a.abusive(ctx, endWith, "unpadded", "padding")
+	}
 	var req approvalRequest
 	if typ != websocket.MessageText || len(data) > approvalMaxRequest || json.Unmarshal(data, &req) != nil {
-		// Never sent by a client that follows the protocol.
-		if a.abuse++; a.abuse >= approvalAbuseMax {
-			s.approvalDenied(a.device, a.name, "malformed")
-			endWith("abuse")
-			return false
-		}
-		return a.send(ctx, approvalErrorFrame{Op: "error", V: approvalWireVersion, Code: artifactErrUnavailable})
+		return a.abusive(ctx, endWith, "malformed", artifactErrUnavailable)
 	}
 	switch req.Op {
 	case "hello":
@@ -965,4 +1135,15 @@ func (a *approvalSession) frame(ctx context.Context, typ websocket.MessageType, 
 	// An op this host does not know is ignored, so a newer client can ask for
 	// more than an older host offers.
 	return true
+}
+
+// abusive counts a frame of the kind a correct client never sends, answers it with
+// an error code, and ends the socket on the third in a row.
+func (a *approvalSession) abusive(ctx context.Context, endWith func(string), why, code string) bool {
+	if a.abuse++; a.abuse >= approvalAbuseMax {
+		a.s.approvalDenied(a.device, a.name, why)
+		endWith("abuse")
+		return false
+	}
+	return a.send(ctx, approvalErrorFrame{Op: "error", V: approvalWireVersion, Code: code})
 }

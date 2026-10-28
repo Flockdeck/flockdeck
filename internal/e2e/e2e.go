@@ -415,6 +415,7 @@ func newSession(role Role, ownStaticPriv, ownEphPriv *ecdh.PrivateKey, peerStati
 	return &Session{
 		sendAEAD: sendAEAD, sendPrefix: sendPrefix, sendRole: sendRole,
 		recvAEAD: recvAEAD, recvPrefix: recvPrefix, recvRole: recvRole,
+		deviceStatic: deviceStaticPub.Bytes(),
 	}, nil
 }
 
@@ -447,7 +448,17 @@ type Session struct {
 	recvPrefix  []byte
 	recvRole    Role // whose frames recvAEAD opens -- the peer's
 	recvCounter uint64
+
+	// deviceStatic is the device's long-term public key the keys were derived
+	// with. Only a holder of its private half can seal a frame this session opens.
+	deviceStatic []byte
 }
+
+// DeviceStaticKey is the device's long-term public key (raw point bytes) that this
+// session was derived with: the key the handshake actually used, whatever any
+// roster says. A caller that must decide what a device may do from its key asks the
+// session, not the roster.
+func (s *Session) DeviceStaticKey() []byte { return append([]byte(nil), s.deviceStatic...) }
 
 // aad is what a frame's AEAD authenticates beyond its own ciphertext: the
 // wire version and which side sent it, so a frame can never be mistaken for

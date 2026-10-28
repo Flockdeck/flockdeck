@@ -73,7 +73,13 @@ func (a *auditLog) folder() (string, error) {
 // write appends e, rotating first when the file would pass its size. An error
 // is returned for the caller to decide on: a connection is refused if it
 // cannot be recorded.
-func (a *auditLog) write(e auditEvent) error {
+func (a *auditLog) write(e auditEvent) error { return a.append(e, false) }
+
+// writeDurable is write, with the line flushed to disk before it returns. It is for
+// the line that says an answer is about to be given.
+func (a *auditLog) writeDurable(e auditEvent) error { return a.append(e, true) }
+
+func (a *auditLog) append(e auditEvent, durable bool) error {
 	if e.Time.IsZero() {
 		e.Time = time.Now().UTC()
 	}
@@ -118,6 +124,9 @@ func (a *auditLog) write(e auditEvent) error {
 		return err
 	}
 	_, werr := f.Write(line)
+	if werr == nil && durable {
+		werr = f.Sync()
+	}
 	if cerr := f.Close(); werr == nil {
 		werr = cerr
 	}

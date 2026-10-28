@@ -327,9 +327,9 @@ T3 (the sealed socket) was built on 28 Oct 2026 against origin/main 3e8a5d06. Th
 | 4403 | `key` | no end-to-end key on one side |
 | 4403 | `origin` | the request was for the desk-origin key; only the usual key may approve |
 | 4403 | `disabled` | approval is off for this device, or the wording it agreed to is out of date. Also sent when the desk switches approval off while the socket is open |
-| 4403 | `verify` | the desk has not marked this key verified, or the key changed during the handshake |
+| 4403 | `verify` | the desk has not marked this key verified. The key checked is the one the handshake was made with, not the roster's: a device that handshakes with another key than the one the desk verified gets this |
 | 4403 | `grant` | approval was allowed for a different key than the one in use |
-| 4403 | `refused` | three refusals in a row of the kind a correct client never causes (see Abuse and limits) |
+| 4403 | `refused` | three refusals in a row of the kind a correct client never causes, an unpadded request included (see Abuse and limits) |
 | 4429 | `busy` | too many sockets, too many opens a minute, or too many frames turned away for rate |
 | 1011 | `unavailable` | the host could not write its audit line |
 
@@ -337,7 +337,11 @@ After the handshake every frame, both ways, is one sealed frame as in `e2eConn`:
 
 ### Padding
 
-Every frame the host sends has a `"pad"` string field of `"0"` characters added so that its plaintext is a multiple of 1,024 bytes. The phone ignores the field. The phone may pad what it sends the same way; the host ignores `pad` on requests. A request is at most 4,096 bytes of plaintext.
+Every frame the host sends has a `"pad"` string field of `"0"` characters added so that its JSON plaintext (the bytes after the tag byte, after escaping) is a multiple of 1,024 bytes. The phone ignores the field.
+
+Every request the phone sends must be padded the same way: its JSON plaintext must be a multiple of 1,024 bytes, at most 4,096, made by adding a `"pad"` string field of filler (the host ignores it). The host refuses a request of any other length with `{"op":"error","v":1,"code":"padding"}` and counts it as a refusal of the kind a correct client never causes. This is so that allow and deny, and the other requests, cannot be told apart by their length. The phone's code is, for a request object `r`: serialise it without `pad`, add `,"pad":"` + zeros + `"}` so that the total is the next multiple of 1,024 (the filler is `1024*ceil((len+9)/1024) - len - 9` characters, where 9 is the length of `,"pad":""`). The host's `padded()` in `approvals_socket.go` does exactly this.
+
+Residual: padding hides length inside one bucket. A frame that grows past 1,024 bytes (several waiting panes, a long command) is seen by the relay as 2,048 and so on, so the relay can still tell roughly how many panes wait and whether a command is long. Timing also shows when a decision was made.
 
 ### Frames from the phone
 
@@ -350,7 +354,7 @@ Every frame the host sends has a `"pad"` string field of `"0"` characters added 
 
 `decision` is `allow` or `deny`. Anything else, `allow_always` included, is refused. `pane`, `token`, `cardSeq` and `offer` are copied from an item of the last `approvals` frame. There is no `requestId`: the agent chose it, so it is not sent to the phone, and the host holds it against the offer.
 
-The first request should be `hello` (to learn the limits) and then `approvalList`. The host sends nothing unprompted until `approvalList` has been sent. After it, the host sends a fresh `approvals` frame on its own whenever the waiting set changes (it looks every 500 ms), and after every decision. A phone that is open and idle should send `ping` at least every 2 minutes: a socket that sends nothing for 5 minutes is closed, and a new one has 1 minute to send its first frame.
+The first request should be `hello` (to learn the limits; every request is padded, `hello` included) and then `approvalList`. The host sends nothing unprompted until `approvalList` has been sent. After it, the host sends a fresh `approvals` frame on its own whenever the waiting set changes (it looks every 500 ms), and after every decision. A phone that is open and idle should send `ping` at least every 2 minutes: a socket that sends nothing for 5 minutes is closed, and a new one has 1 minute to send its first frame.
 
 ### Frames from the host
 
@@ -380,7 +384,7 @@ An item, for each structured pane that has a permission request pending, in tab 
 - `answerable` false means the phone has nothing to answer (a plan, a question, a card with no plain Reject): there is no `offer`, `canAllow` is false, and `why` is the fixed sentence to show ("Plan approval is on the desktop.", "Questions are answered on the desktop.", "This request is answered on the desktop.").
 - `answerable` true with `canAllow` false means Deny only; `why` is the fixed sentence for the reason (the twelve of `approval_card.go`). `text` is then the redacted, clipped text.
 - `canAllow` true means Allow once and Deny are both offered; `why` is absent.
-- `label` is the pane's name (not its task), `project` the project name; both are redacted and capped as the desk's relay scrub does.
+- `label` is the pane's name (not its task), `project` the project name; both are redacted and capped as the desk's relay scrub does. Labels are not unique: two panes can have the same name, so the phone must show `project` next to `label` and tell cards apart by `pane`, never by label.
 - `waitedMs` is how long this socket has known of the card, not how long the agent has waited.
 - `offer` is made by the host for this card on this socket. A decision uses it once. When a card changes, ends, or its offer is used, the old offer is dead and a new `approvals` frame carries the new one.
 
@@ -407,22 +411,23 @@ The refusal texts of `approvalResult.error` are fixed, and none holds text from 
 
 1. Takes a decision token from the device's allowance (burst of 5, then 1 a second, shared by all its sockets).
 2. Checks the fields are present and `decision` is `allow` or `deny`.
-3. Looks the offer up among those made on this socket. Unknown or used: refused. Ended (its card is gone): the stale text.
+3. Looks the offer up among those made on this socket. One never made here: refused, and counted as abuse. One used or ended (a second tap, or its card is gone): the stale text, not counted. The last 256 are remembered, oldest forgotten first.
 4. Uses the offer up, whatever happens next. A refused tap therefore gets a new offer in the next `approvals` frame, and the 700 ms starts again.
 5. Checks `pane`, `token` and `cardSeq` against the offer, and that Allow was offered for the card.
 6. Refuses it if 700 ms have not passed since the card was sent on this socket.
-7. Reads the pane now (on the workspace goroutine), runs `phoneAnswer` with the lock made when the card was shown (card number, the agent's request id, runtime token), checks the projection still reads as it did, and picks the option.
-8. Writes the `decision` line to the log. If that fails, nothing is given.
-9. Gives `AnswerPermission` the lock's card number and request id with the option id. It takes the answer under the pane's own lock, so two answers (phone and desk, or two phones) cannot both win.
-10. Replies `approvalResult`, then sends `approvals`.
+7. Reads the pane now (on the workspace goroutine), asks again whether the device may still approve (the desk's cut of the socket, then the gate with the handshake's key), runs `phoneAnswer` with the lock made when the card was shown (card number, the agent's request id, runtime token), checks the whole projection (kind, text, counts, canAllow, why) still reads as it did, and picks the option.
+8. Writes the `decision` line to the log and flushes it to disk. If that fails, nothing is given.
+9. Asks once more whether the device may still approve, immediately before the answer. A switch turned off, a kill switch, an unpair or a changed key while the line was being written stops it here. The reply is then `Approval from this device was switched off` and the socket is closed with the reason.
+10. Gives `AnswerPermission` the lock's card number and request id with the option id. It takes the answer under the pane's own lock, so two answers (phone and desk, or two phones) cannot both win.
+11. Replies `approvalResult`, then sends `approvals`. Every frame the host sends, these two included, is preceded by the same check; a device that fails it is sent nothing and is closed.
 
 ### Abuse and limits
 
-Three refusals in a row of the kind a correct client never causes close the socket (4403 `refused`) and put a notice on the desk: an unknown or used offer, a missing field, a bad decision, a `pane`, `token` or `cardSeq` that does not match, an allow for a card not offered, a request that is not text or JSON. A success resets the count. Refusals that a correct client can cause do not count: a tap on a card that has just ended, a tap under 700 ms, rate, and the pane having restarted. Frames over 10 at once then 2 a second get `error busy`, and more than 10 turned-away frames in a row close the socket with 4429. A device holds at most 2 sockets and may open 20 a minute. These numbers are starting values for the live check (decision 7).
+Three refusals in a row of the kind a correct client never causes close the socket (4403 `refused`) and put a notice on the desk: an offer never made on this socket, a missing field, a bad decision, a `pane`, `token` or `cardSeq` that does not match, an allow for a card not offered, a request that is not text or JSON, a request that is not padded. A success resets the count. Refusals that a correct client can cause do not count: a tap on an offer that was used or whose card ended (an impatient second tap, or a card the desk answered), a tap under 700 ms, rate, and the pane having restarted. The desk's buttons should be disabled after a tap until `approvalResult` or the next `approvals` arrives (T6). Frames over 10 at once then 2 a second get `error busy`, and more than 10 turned-away frames in a row close the socket with 4429. A device holds at most 2 sockets and may open 20 a minute. These numbers are starting values for the live check (decision 7).
 
 ### Audit log
 
-`remote-approvals.log`, same format and rotation as the artifacts log (1 MiB, three files, owner-only). Events: `connect`, `denied` (socket or device refused; rate-limited per device and reason, with `suppressed`), `shown` (a card sent to a socket), `decision` (written before the answer is given), `decision-refused` (with a `reason`), and the desk's own `device-approve-on`, `device-approve-off` and `approvals-off`. A card line and a decision line carry `pane`, `name`, `seq`, `kind`, `len` (bytes of the text shown) and `hash` (its SHA-256 in hex), and a decision line `decision` (`allow_once` or `reject_once`). The text is not written. There is one `decision` line and no separate success line: a `decision` with no `decision-refused` after it for the same card was given. Details are in `.flockdeck/knowledge/data/approvals-audit-log.md`.
+`remote-approvals.log`, same format and rotation as the artifacts log (1 MiB, three files, owner-only). Events: `connect`, `shown` (a card sent to a socket), `decision` (written before the answer is given, and flushed to disk; the only line that is), `decision-refused` (with a `reason`; written at most once every 10 seconds for one device and reason, with `suppressed` counting the rest), and the desk's own `device-approve-on`, `device-approve-off` and `approvals-off`. `denied` lines (a socket or a device refused) are in a file of their own, `remote-approvals-denied.log`, so that refusals under forged device ids cannot rotate decisions out of the first. They are limited per device and reason and to 30 lines a minute across all devices (the count left out is in `suppressed`), and notices on the desk to 6 a minute. A card line and a decision line carry `pane`, `name`, `seq`, `kind`, `len` (bytes of the text shown) and `hash` (its SHA-256 in hex), and a decision line `decision` (`allow_once` or `reject_once`). The text is not written. There is one `decision` line and no separate success line. The rule: a `decision` line means the host went on to give the answer. It was given unless a `decision-refused` line for the same card follows. That line is best effort: if the disk fails after the `decision` line, the refusal marker may be missing, and the desk is told that lines are being lost ("The phone approval log could not be written"). The `decision` line is the one thing that is never skipped: if it cannot be written and flushed, the answer is not given. The refusal reasons are `rate`, `shape`, `decision`, `offer`, `ended`, `mismatch`, `allow-not-offered`, `too-soon`, `stale`, `restarted`, `no-card`, `changed`, `audit`, `error` and, for a switch turned off mid-decision, the gate's word (`disabled`, `verify`, `grant`, `key`, `origin`). Details are in `.flockdeck/knowledge/data/approvals-audit-log.md`.
 
 ### Where the code disagreed with this page
 
@@ -432,10 +437,10 @@ Three refusals in a row of the kind a correct client never causes close the sock
 4. `hello`, `ping` and `pong` are added, and nothing is sent unprompted before the first `approvalList`.
 5. Plans and questions are listed (`answerable: false`, a fixed `why`, no offer), so the phone can say "on the desktop". The plan said "for each waiting pane that this device may see".
 6. The page said `approvalResult` has "ok or a fixed refusal text; the same texts as `permissionAnswer` where they exist". They are the texts of `phoneAnswer` (T2) and `permissionStale`; the rest are new and listed above.
-7. New cards are noticed by looking every 500 ms, not by a subscription to the runtime. It keeps the socket to one goroutine for writes and means a card can reach the phone up to half a second late. A subscription (`Runtime.Subscribe`) would remove the delay.
+7. New cards are noticed by looking every 500 ms, not by a subscription to the runtime. It keeps the socket to one goroutine for writes and means a card can reach the phone up to half a second late. The look no longer takes a snapshot of the pane: it asks `Runtime.PendingCard`, which is the bridge's pending card (one lock, one small copy), where `PendingPermission` used to build the whole `Snapshot` (every transcript entry, the queue and the shell list). With a socket open and the list asked for, the cost every 500 ms is one walk of the tabs on the workspace goroutine and one small copy for each pane that has a card. Not measured; reasoned from the code. Every goroutine of the socket ends with the handler (the context is cancelled on return, the connection closed, the ticker stopped).
 8. A viewer with approvals on sees every waiting structured pane, as the page says. `watchPanes` is not consulted.
 9. Only the usual key origin may approve. T1 ties the grant to it. A request that the relay marks as desk origin is refused with `origin`.
-10. Verification is read with `DeviceVerifyState` for the usual key (as the turn-on does), not `DeviceVerified` for the desk key that `/ws/artifacts` checks.
+10. Verification is read with `DeviceVerifyState` for the usual key (as the turn-on does), not `DeviceVerified` for the desk key that `/ws/artifacts` checks. The key given to it and to `mayApproveWithKey` is the one the session was derived with (`e2e.Session.DeviceStaticKey`, added in this task), not one looked up in the roster before or after the handshake. The check before the handshake only asks whether approval is on for the device, so a device that is off costs no handshake.
 11. The desk is not told when a device opens the socket (the artifacts socket tells it once a run). It is told of refusals and abuse closings, at a limited rate.
 
 ### Known limits

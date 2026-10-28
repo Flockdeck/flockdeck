@@ -12,6 +12,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -19,6 +20,7 @@ import (
 
 	"github.com/coder/websocket"
 
+	"github.com/jmwri/flockdeck/internal/acp"
 	"github.com/jmwri/flockdeck/internal/acp/bridge"
 	"github.com/jmwri/flockdeck/internal/e2e"
 	"github.com/jmwri/flockdeck/internal/remote"
@@ -30,13 +32,13 @@ import (
 // the relay side.
 type approvalsFake struct {
 	e2eFakeRemote
-	kmu    sync.Mutex
-	keys   map[string][]byte
+	kmu  sync.Mutex
+	keys map[string][]byte
+	// states is the desk's verification record, by device and exact key.
 	states map[string]remote.VerifyState
-	// From the swapAt-th lookup of a device's key on, d1 has swapKey instead.
-	lookups, swapAt int
-	swapKey         []byte
 }
+
+func vk(device string, key []byte) string { return device + "|" + hex.EncodeToString(key) }
 
 func (f *approvalsFake) E2EDeviceKey(ctx context.Context, device string, _ remote.KeyOrigin) ([]byte, bool) {
 	if ctx.Err() != nil {
@@ -44,23 +46,19 @@ func (f *approvalsFake) E2EDeviceKey(ctx context.Context, device string, _ remot
 	}
 	f.kmu.Lock()
 	defer f.kmu.Unlock()
-	f.lookups++
-	if f.swapAt > 0 && f.lookups >= f.swapAt && device == "d1" {
-		return f.swapKey, true
-	}
 	k, ok := f.keys[device]
 	return k, ok
 }
 
-func (f *approvalsFake) DeviceVerifyState(id string, _ remote.KeyOrigin, _ []byte) remote.VerifyState {
+func (f *approvalsFake) DeviceVerifyState(id string, _ remote.KeyOrigin, key []byte) remote.VerifyState {
 	f.kmu.Lock()
 	defer f.kmu.Unlock()
-	return f.states[id]
+	return f.states[vk(id, key)]
 }
 
-func (f *approvalsFake) setState(id string, s remote.VerifyState) {
+func (f *approvalsFake) setState(id string, key []byte, s remote.VerifyState) {
 	f.kmu.Lock()
-	f.states[id] = s
+	f.states[vk(id, key)] = s
 	f.kmu.Unlock()
 }
 
@@ -80,6 +78,8 @@ type fakeApprovalPane struct {
 	own     bool
 	root    string
 	answers []string
+	// afterAnswer, when set, is called after an answer was taken.
+	afterAnswer func()
 }
 
 func (p *fakeApprovalPane) PendingPermission() *bridge.Card {
@@ -100,6 +100,9 @@ func (p *fakeApprovalPane) AnswerPermission(seq uint64, requestID, optionID stri
 	}
 	p.answers = append(p.answers, optionID)
 	p.card = nil
+	if p.afterAnswer != nil {
+		defer p.afterAnswer()
+	}
 	return nil
 }
 
@@ -181,10 +184,11 @@ func newApprovalsEnv(t *testing.T) *approvalsEnv {
 			devicePub: map[string]*ecdh.PublicKey{"d1": devicePriv.PublicKey(), "d2": otherPriv.PublicKey()},
 		},
 		keys:   map[string][]byte{"d1": key, "d2": otherPriv.PublicKey().Bytes()},
-		states: map[string]remote.VerifyState{"d1": remote.Verified, "d2": remote.Verified},
+		states: map[string]remote.VerifyState{vk("d1", key): remote.Verified, vk("d2", otherPriv.PublicKey().Bytes()): remote.Verified},
 	}
 	srv.SetRemote(fake)
 	srv.approvals.audit.dir = func() (string, error) { return store.Dir() }
+	srv.approvals.deniedLog.dir = func() (string, error) { return store.Dir() }
 	srv.approvals.setTimings(func(tm *approvalTimings) {
 		tm.poll, tm.minDisplay = 20*time.Millisecond, time.Nanosecond
 	})
@@ -265,7 +269,32 @@ func (e *approvalsEnv) open(t *testing.T) *phone {
 	return &phone{t: t, conn: conn, sess: e.handshake(t, conn)}
 }
 
-func (p *phone) send(v any) { sendReq(p.t, p.conn, p.sess, v) }
+func (p *phone) send(v any) {
+	p.t.Helper()
+	data, err := padded(v)
+	if err != nil {
+		p.t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := p.conn.Write(ctx, websocket.MessageBinary, p.sess.Seal(append([]byte{e2eTagText}, data...))); err != nil {
+		p.t.Fatalf("write: %v", err)
+	}
+}
+
+// sendQuiet writes a frame and ignores a failure: the host may have closed.
+func (p *phone) sendQuiet(v any) {
+	data, _ := padded(v)
+	_ = p.conn.Write(context.Background(), websocket.MessageBinary, p.sess.Seal(append([]byte{e2eTagText}, data...)))
+}
+
+// sendRaw writes bytes as they are, sealed and tagged as text.
+func (p *phone) sendRaw(data []byte) {
+	p.t.Helper()
+	if err := p.conn.Write(context.Background(), websocket.MessageBinary, p.sess.Seal(append([]byte{e2eTagText}, data...))); err != nil {
+		p.t.Fatalf("write: %v", err)
+	}
+}
 
 // raw reads the next sealed frame and returns its plaintext.
 func (p *phone) raw() []byte {
@@ -355,6 +384,10 @@ func refusedWith(t *testing.T, e *approvalsEnv, h http.Header, wantReason string
 	if err != nil {
 		t.Fatalf("dial: %v", err)
 	}
+	if wantReason == approvalReasonVerify || wantReason == approvalReasonGrant {
+		// Decided with the key the handshake used, so the handshake is made first.
+		e.handshake(t, conn)
+	}
 	code, reason := closedWith(t, conn)
 	if code != artifactCloseRefused || reason != wantReason {
 		t.Errorf("closed with %d %q, want %d %q", code, reason, artifactCloseRefused, wantReason)
@@ -372,12 +405,14 @@ func approvalDir(t *testing.T) string {
 
 func approvalLog(t *testing.T) []map[string]any {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(approvalDir(t), approvalAuditFile))
-	if err != nil {
-		return nil
+	var all []string
+	for _, f := range []string{approvalAuditFile, approvalDeniedFile} {
+		if data, err := os.ReadFile(filepath.Join(approvalDir(t), f)); err == nil {
+			all = append(all, strings.Split(strings.TrimSpace(string(data)), "\n")...)
+		}
 	}
 	var out []map[string]any
-	for _, l := range strings.Split(strings.TrimSpace(string(data)), "\n") {
+	for _, l := range all {
 		if l == "" {
 			continue
 		}
@@ -442,18 +477,13 @@ func TestApprovalsGateRefusesWhatItShould(t *testing.T) {
 		{"an old wording", func(t *testing.T, e *approvalsEnv) {
 			putAccess(t, e.srv, "d1", store.DeviceAccess{Role: store.RoleFull, Approve: true, ApproveV: approveAckVersion - 1, ApproveAt: time.Now(), ApproveKey: store.KeyHash(e.key)})
 		}, nil, approvalReasonDisabled},
-		{"the key is not verified", func(t *testing.T, e *approvalsEnv) { e.fake.setState("d1", remote.NotVerified) }, nil, approvalReasonVerify},
+		{"the key is not verified", func(t *testing.T, e *approvalsEnv) { e.fake.setState("d1", e.key, remote.NotVerified) }, nil, approvalReasonVerify},
 		{"the grant is for another device's key", func(t *testing.T, e *approvalsEnv) {
 			e.fake.kmu.Lock()
 			other := e.fake.keys["d2"]
 			e.fake.kmu.Unlock()
 			e.grant(t, "d1", other)
 		}, nil, approvalReasonGrant},
-		{"the host has no key for the device", func(t *testing.T, e *approvalsEnv) {
-			e.fake.kmu.Lock()
-			delete(e.fake.keys, "d1")
-			e.fake.kmu.Unlock()
-		}, nil, approvalReasonKey},
 		{"the device has no key on the relay", func(t *testing.T, e *approvalsEnv) { e.fake.capable["d1"] = false }, nil, approvalReasonKey},
 		{"the desk-origin key", nil, func(h http.Header) { h.Set("Flockdeck-Remote-Origin", "desk") }, approvalReasonOrigin},
 	}
@@ -486,10 +516,23 @@ func TestApprovalsGateIsHeldToTheKeyTheHandshakeProved(t *testing.T) {
 	if !e.srv.mayApproveWithKey("d1", e.key) {
 		t.Error("mayApproveWithKey said no to the device's own key")
 	}
-	// The relay swaps the key after the check and before the handshake is used.
-	e.fake.kmu.Lock()
-	e.fake.swapAt, e.fake.swapKey = 2, other
-	e.fake.kmu.Unlock()
+}
+
+// The relay serves the key the desk verified and granted (K1) to every lookup, and
+// the handshake is made with another key (K2). The gate must be given K2, which
+// the session was derived with, and so refuse.
+func TestAHandshakeWithAnotherKeyThanTheRosterSaysIsRefused(t *testing.T) {
+	e := newApprovalsEnv(t)
+	k2, err := e2e.GenerateStaticKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.fake.devicePub["d1"] = k2.PublicKey()
+	e.devicePriv = k2
+	// The roster still says K1, which is verified and granted.
+	if k, _ := e.fake.E2EDeviceKey(context.Background(), "d1", remote.KeyOriginUsual); !bytes.Equal(k, e.key) {
+		t.Fatal("the roster does not say K1")
+	}
 	conn, _, err := e.rawDial(t, e.header("d1"))
 	if err != nil {
 		t.Fatal(err)
@@ -497,7 +540,19 @@ func TestApprovalsGateIsHeldToTheKeyTheHandshakeProved(t *testing.T) {
 	e.handshake(t, conn)
 	code, reason := closedWith(t, conn)
 	if code != artifactCloseRefused || reason != approvalReasonVerify {
-		t.Errorf("a key that changed during the handshake closed with %d %q", code, reason)
+		t.Errorf("closed with %d %q, want %d %q", code, reason, artifactCloseRefused, approvalReasonVerify)
+	}
+}
+
+func TestAnEmptyKeyIsNeverVerified(t *testing.T) {
+	e := newApprovalsEnv(t)
+	// A record that says an empty key is verified must not matter.
+	e.fake.setState("d1", nil, remote.Verified)
+	if got := e.srv.approvalCheck("d1", remote.KeyOriginUsual, nil); got != approvalReasonVerify {
+		t.Errorf("an empty key gave %q, want %q", got, approvalReasonVerify)
+	}
+	if got := e.srv.approvalCheck("d1", remote.KeyOriginUsual, e.key); got != "" {
+		t.Errorf("the device's own key gave %q", got)
 	}
 }
 
@@ -509,7 +564,7 @@ func TestApprovalsGateIsCheckedAgainOnEveryFrame(t *testing.T) {
 		"switched off at the desk": {func(t *testing.T, e *approvalsEnv) {
 			putAccess(t, e.srv, "d1", store.DeviceAccess{Role: store.RoleFull})
 		}, approvalReasonDisabled},
-		"key unverified": {func(t *testing.T, e *approvalsEnv) { e.fake.setState("d1", remote.NotVerified) }, approvalReasonVerify},
+		"key unverified": {func(t *testing.T, e *approvalsEnv) { e.fake.setState("d1", e.key, remote.NotVerified) }, approvalReasonVerify},
 		"granted for another key": {func(t *testing.T, e *approvalsEnv) {
 			e.fake.kmu.Lock()
 			o := e.fake.keys["d2"]
@@ -633,6 +688,8 @@ func TestEveryFrameIsPaddedToABucket(t *testing.T) {
 func TestAPaddedRequestIsAccepted(t *testing.T) {
 	e := newApprovalsEnv(t)
 	p := e.open(t)
+	// A request already carrying its own pad field is padded again to the next
+	// bucket and read.
 	p.send(map[string]any{"op": "approvalList", "pad": strings.Repeat("0", 900)})
 	if got := items(p.readOp("approvals")); len(got) != 1 {
 		t.Errorf("items: %v", got)
@@ -719,6 +776,10 @@ func TestADecisionIsNotTakenSoonerThanTheMinimumDisplayTime(t *testing.T) {
 		t.Fatalf("not offered again: %v", again)
 	}
 	time.Sleep(approvalMinDisplay + 100*time.Millisecond)
+	// The offer the refused tap used is dead, though the card is still waiting.
+	if res := p.decide(it, "allow"); res["ok"] == true || len(e.pane.given()) != 0 {
+		t.Fatalf("a used offer was honoured: %v", res)
+	}
 	if res := p.decide(again[0], "allow"); res["ok"] != true {
 		t.Fatalf("a decision after the display time gave %v", res)
 	}
@@ -740,7 +801,7 @@ func TestAnOfferIsUsedOnce(t *testing.T) {
 	e.pane.set(goodCard(8, "echo again"))
 	// The same offer again, for what is now waiting.
 	res := p.decide(it, "allow")
-	if res["ok"] == true || res["error"] != approvalErrOffer {
+	if res["ok"] == true || res["error"] != permissionStale {
 		t.Errorf("a used offer gave %v", res)
 	}
 	if got := e.pane.given(); len(got) != 1 {
@@ -979,10 +1040,7 @@ func TestADeviceThatKeepsHammeringIsCut(t *testing.T) {
 	e.pane.set(nil)
 	p.readOp("approvals")
 	for i := 0; i < 3*approvalBusyMax; i++ {
-		data, _ := json.Marshal(decideFor(it, "allow"))
-		if p.conn.Write(context.Background(), websocket.MessageBinary, p.sess.Seal(append([]byte{e2eTagText}, data...))) != nil {
-			break
-		}
+		p.sendQuiet(decideFor(it, "allow"))
 	}
 	code, reason := p.closed()
 	if code != artifactCloseBusy || reason != artifactErrBusy {
@@ -1023,9 +1081,7 @@ func TestMalformedFramesAreCountedAndEndTheSocket(t *testing.T) {
 	e := newApprovalsEnv(t)
 	p := e.open(t)
 	for i := 0; i < approvalAbuseMax; i++ {
-		if p.conn.Write(context.Background(), websocket.MessageBinary, p.sess.Seal(append([]byte{e2eTagText}, []byte("not json")...))) != nil {
-			break
-		}
+		p.sendQuiet(map[string]any{"op": 5})
 	}
 	if code, _ := p.closed(); code != artifactCloseRefused {
 		t.Errorf("closed with %d", code)
@@ -1177,5 +1233,262 @@ func TestNothingIsSentUnpromptedBeforeTheListIsAsked(t *testing.T) {
 	p.send(map[string]any{"op": "ping"})
 	if m := p.read(); m["op"] != "pong" {
 		t.Errorf("the first frame was %v, want pong", m["op"])
+	}
+}
+
+// A decision in flight when approval is switched off must not be given.
+
+func TestADecisionIsNotGivenIfApprovalIsSwitchedOffAfterThePaneWasRead(t *testing.T) {
+	e := newApprovalsEnv(t)
+	e.srv.approvals.setTimings(func(tm *approvalTimings) {
+		tm.hook = func(stage string) {
+			if stage == "after-ask" {
+				putAccess(t, e.srv, "d1", store.DeviceAccess{Role: store.RoleFull})
+			}
+		}
+	})
+	p := e.open(t)
+	p.send(decideFor(p.list()[0], "allow"))
+	if code, reason := p.closed(); code != artifactCloseRefused || reason != approvalReasonDisabled {
+		t.Errorf("closed with %d %q", code, reason)
+	}
+	if len(e.pane.given()) != 0 {
+		t.Fatalf("an answer was given after approval was switched off: %v", e.pane.given())
+	}
+}
+
+func TestADecisionIsNotGivenIfApprovalIsSwitchedOffWhileTheLineIsBeingWritten(t *testing.T) {
+	e := newApprovalsEnv(t)
+	e.srv.approvals.setTimings(func(tm *approvalTimings) {
+		tm.hook = func(stage string) {
+			if stage == "after-audit" {
+				putAccess(t, e.srv, "d1", store.DeviceAccess{Role: store.RoleFull})
+			}
+		}
+	})
+	p := e.open(t)
+	p.send(decideFor(p.list()[0], "allow"))
+	if code, reason := p.closed(); code != artifactCloseRefused || reason != approvalReasonDisabled {
+		t.Errorf("closed with %d %q", code, reason)
+	}
+	if len(e.pane.given()) != 0 {
+		t.Fatalf("an answer was given after approval was switched off: %v", e.pane.given())
+	}
+}
+
+// The switch is the desk's cut of the device's sockets (kill switch, unpair, a
+// changed key): a decision stuck in a slow audit write is stopped by it, though the
+// preferences still say yes.
+func TestACutThatLandsDuringTheAuditWriteStopsTheAnswer(t *testing.T) {
+	e := newApprovalsEnv(t)
+	p := e.open(t)
+	it := p.list()[0]
+	entered, release, passed := make(chan struct{}), make(chan struct{}), make(chan struct{})
+	var once, once2 sync.Once
+	e.srv.approvals.setTimings(func(tm *approvalTimings) {
+		tm.hook = func(stage string) {
+			if stage == "after-audit" {
+				once2.Do(func() { close(passed) })
+			}
+		}
+	})
+	e.srv.approvals.audit.dir = func() (string, error) {
+		once.Do(func() { close(entered); <-release })
+		return store.Dir()
+	}
+	p.send(decideFor(it, "allow"))
+	select {
+	case <-entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the decision never reached the audit write")
+	}
+	e.srv.sockets.cut("d1")
+	close(release)
+	// Wait for the decision to pass the point where the answer would follow, then
+	// give it time to be given: the socket's close alone says nothing about it.
+	select {
+	case <-passed:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the decision never got past the audit write")
+	}
+	time.Sleep(300 * time.Millisecond)
+	if code, reason := p.closed(); code != artifactCloseRefused || reason != approvalReasonDisabled {
+		t.Errorf("closed with %d %q", code, reason)
+	}
+	if len(e.pane.given()) != 0 {
+		t.Fatalf("an answer was given after the socket was cut: %v", e.pane.given())
+	}
+}
+
+// After an answer, nothing more is sent to a device that may no longer be told.
+func TestNothingIsSentAfterADecisionToADeviceSwitchedOffMeanwhile(t *testing.T) {
+	e := newApprovalsEnv(t)
+	e.pane.afterAnswer = func() { putAccess(t, e.srv, "d1", store.DeviceAccess{Role: store.RoleFull}) }
+	p := e.open(t)
+	p.send(decideFor(p.list()[0], "deny"))
+	for {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		typ, frame, err := p.conn.Read(ctx)
+		cancel()
+		if err != nil {
+			if websocket.CloseStatus(err) != artifactCloseRefused {
+				t.Fatalf("ended with %v", err)
+			}
+			return
+		}
+		if typ == websocket.MessageBinary {
+			_, payload := openFrame(t, p.sess, frame)
+			if strings.Contains(string(payload), `"op":"approvals"`) {
+				t.Fatalf("a frame was sent after approval was switched off: %.80s", payload)
+			}
+		}
+	}
+}
+
+// Requests are padded to a multiple of the bucket.
+
+func TestAnUnpaddedRequestIsRefusedAndCounted(t *testing.T) {
+	e := newApprovalsEnv(t)
+	p := e.open(t)
+	for i := 0; i < approvalAbuseMax-1; i++ {
+		p.sendRaw([]byte(`{"op":"approvalList"}`))
+		if m := p.readOp("error"); m["code"] != "padding" {
+			t.Fatalf("got %v", m)
+		}
+	}
+	if got := p.list(); len(got) != 1 {
+		t.Errorf("a padded request after refusals gave %v", got)
+	}
+	// An allow and a deny cannot be told apart by length: both are padded to one bucket.
+	a, _ := padded(map[string]any{"op": "approvalDecide", "pane": "x", "token": "7.0", "cardSeq": 7, "offer": strings.Repeat("a", 32), "decision": "allow"})
+	d, _ := padded(map[string]any{"op": "approvalDecide", "pane": "x", "token": "7.0", "cardSeq": 7, "offer": strings.Repeat("a", 32), "decision": "deny"})
+	if len(a) != len(d) || len(a)%approvalPadBucket != 0 {
+		t.Errorf("allow is %d bytes and deny %d", len(a), len(d))
+	}
+	p.sendRaw([]byte(`{"op":"ping"}`))
+	if code, _ := p.closed(); code != artifactCloseRefused {
+		t.Errorf("closed with %d", code)
+	}
+}
+
+// The denied log is a file of its own, and a flood of refusals under forged device
+// ids is held to a fixed number of lines and notices.
+
+func TestForgedDeviceIdsCannotFillTheLogOrRotateOutDecisions(t *testing.T) {
+	e := newApprovalsEnv(t)
+	desk := dialControlPage(t, e.srv)
+	p := e.open(t)
+	p.decide(p.list()[0], "deny")
+	for i := 0; i < 500; i++ {
+		e.srv.approvalDenied("forged-"+strconv.Itoa(i), "x", "disabled")
+	}
+	denied, kept := 0, 0
+	for _, l := range approvalLog(t) {
+		switch l["event"] {
+		case "denied":
+			denied++
+		case "decision", "shown":
+			kept++
+		}
+	}
+	if denied > approvalDeniedPerMinute+1 {
+		t.Errorf("%d denied lines were written, want at most %d", denied, approvalDeniedPerMinute)
+	}
+	if kept != 2 {
+		t.Errorf("%d shown and decision lines, want 2", kept)
+	}
+	data, err := os.ReadFile(filepath.Join(approvalDir(t), approvalAuditFile))
+	if err != nil || bytes.Contains(data, []byte(`"event":"denied"`)) {
+		t.Errorf("denied lines are in the decisions file (%v)", err)
+	}
+	// Notices to the desk are capped too.
+	notes := 0
+	for {
+		ctx, cancel := context.WithTimeout(context.Background(), 400*time.Millisecond)
+		_, data, err := desk.Read(ctx)
+		cancel()
+		if err != nil {
+			break
+		}
+		if strings.Contains(string(data), "refused phone approval") {
+			notes++
+		}
+	}
+	if notes == 0 || notes > approvalNoticesPerMinute {
+		t.Errorf("%d notices, want between 1 and %d", notes, approvalNoticesPerMinute)
+	}
+}
+
+func TestALogThatCannotBeWrittenIsToldToTheDesk(t *testing.T) {
+	e := newApprovalsEnv(t)
+	desk := dialControlPage(t, e.srv)
+	e.srv.approvals.deniedLog.dir = func() (string, error) { return "", errors.New("disk full") }
+	e.srv.approvalDenied("d9", "x", "disabled")
+	var note noticeMsg
+	for {
+		readUntil(t, desk, "notice", &note)
+		if strings.Contains(note.Text, "could not be written") {
+			break
+		}
+	}
+	if !strings.Contains(note.Text, "1 line lost") {
+		t.Errorf("notice %q", note.Text)
+	}
+}
+
+func TestOldOffersAreForgottenOldestFirst(t *testing.T) {
+	var o offerSet
+	for i := 0; i < approvalOffersKept+50; i++ {
+		o.add(strconv.Itoa(i))
+	}
+	if o.has("0") || o.has("49") {
+		t.Error("the oldest offers are still held")
+	}
+	if !o.has("50") || !o.has(strconv.Itoa(approvalOffersKept+49)) {
+		t.Error("recent offers were forgotten")
+	}
+	if len(o.have) != approvalOffersKept || len(o.order) != approvalOffersKept {
+		t.Errorf("holds %d", len(o.have))
+	}
+}
+
+func TestACardMustReadNowInEveryPartAsItDidWhenShown(t *testing.T) {
+	base := approvalItem{Kind: "edit", Text: "/p/a.go", Added: 2, Removed: 1, CanAllow: true, Answerable: true}
+	same := phoneCard{Answerable: true, Kind: "edit", Text: "/p/a.go", Added: 2, Removed: 1, CanAllow: true}
+	if !sameCard(base, same) {
+		t.Fatal("the same card read as changed")
+	}
+	for name, change := range map[string]func(*phoneCard){
+		"text":       func(c *phoneCard) { c.Text = "/p/b.go" },
+		"kind":       func(c *phoneCard) { c.Kind = "execute" },
+		"added":      func(c *phoneCard) { c.Added = 3 },
+		"removed":    func(c *phoneCard) { c.Removed = 0 },
+		"can allow":  func(c *phoneCard) { c.CanAllow = false },
+		"why":        func(c *phoneCard) { c.Why = whyLong },
+		"answerable": func(c *phoneCard) { c.Answerable = false },
+	} {
+		c := same
+		change(&c)
+		if sameCard(base, c) {
+			t.Errorf("a change of %s was not seen", name)
+		}
+	}
+}
+
+func TestADecisionOnACardWhoseCountsChangedIsStale(t *testing.T) {
+	e := newApprovalsEnv(t)
+	// The projection is read again at the decision; a change in any part refuses it.
+	e.srv.approvals.setTimings(func(tm *approvalTimings) { tm.poll = time.Hour })
+	p := e.open(t)
+	it := p.list()[0]
+	e.pane.mu.Lock()
+	e.pane.card.Options = []acp.PermissionOption{optReject} // no plain Allow any more: same card number
+	e.pane.mu.Unlock()
+	res := p.decide(it, "deny")
+	if res["ok"] == true || res["error"] != permissionStale {
+		t.Fatalf("gave %v", res)
+	}
+	if len(e.pane.given()) != 0 {
+		t.Fatal("it reached the pane")
 	}
 }
