@@ -125,6 +125,9 @@ var commandAccess = map[string]cmdAccess{
 	"remoteDevices": accessFull, "remotePair": accessFull, "remoteRevoke": accessFull, "remoteRename": accessFull,
 	"remoteEnable": accessFull, "remoteDisable": accessFull, "remoteRemove": accessFull, "remoteMove": accessFull,
 	"remoteReconnect": accessFull, "setDeviceRole": accessFull,
+	// Whether a device may answer an agent's permission requests from its phone
+	// is the desk's to decide, and a viewer never decides it.
+	"setDeviceApprove": accessFull, "setApprovalsOff": accessFull, "approveChallenge": accessFull,
 	"remoteVerify": accessFull, "remoteUnverify": accessFull,
 	"helpSeen": accessFull, "dismissTip": accessFull, "fontSize": accessFull, "uiPrefs": accessFull, "notifications": accessFull,
 	"scrollback": accessFull, "updates": accessFull, "checkForUpdate": accessFull,
@@ -348,6 +351,19 @@ type accessState struct {
 	// roster is how the account's paired devices are listed; nil asks the relay.
 	// A test replaces it.
 	roster func(context.Context) ([]string, error)
+	// approveGen goes up whenever phone approval is switched off or a device is
+	// unpaired. An enable that began before the change sees a different number
+	// when it comes to apply, and does not apply (applyDeviceApprove).
+	approveGen atomic.Uint64
+	// approveAsk holds the one-time questions handed to windows at the desk, and
+	// approveFile the last read of the preferences file for the approval gate.
+	approveAsk  approveAsk
+	approveFile approveFileCache
+	// seen is the device ids of the last roster refresh. A turn-on that is being
+	// checked belongs to a device with no record yet, so a device dropped from
+	// the roster is found by comparing with this, not with the records.
+	seenMu sync.Mutex
+	seen   map[string]bool
 }
 
 // validDeviceID reports whether a string can be a device id. The relay's ids are
@@ -444,6 +460,9 @@ func (s *Server) applyDeviceRole(c *controlClient, device string, access store.D
 	changed := false
 	s.updateAccess(func(p *store.Prefs) bool {
 		old, had := p.Devices[device]
+		// Changing what a device may see does not change whether it may approve,
+		// and does not widen it: the switch and its agreement stay as they were.
+		access.Approve, access.ApproveV, access.ApproveAt, access.ApproveKey = old.Approve, old.ApproveV, old.ApproveAt, old.ApproveKey
 		next, ok := p.WithAccess(device, access)
 		if !ok {
 			c.notify("Too many devices have their own setting; make some of them full again first", true)
@@ -492,6 +511,12 @@ func (s *Server) forgetRolesExcept(devices []remote.Device) {
 	if len(devices) == 0 {
 		return
 	}
+	// Any refresh that drops a device bumps the generation, whether or not the
+	// device was allowed to approve yet: an enable still being checked for it
+	// must not land after it was unpaired.
+	if s.rosterDropped(devices) || s.anyApprovalMissingFrom(devices) {
+		s.approveGen.Add(1)
+	}
 	ids := make([]string, len(devices))
 	for i, d := range devices {
 		ids[i] = d.ID
@@ -505,8 +530,26 @@ func (s *Server) forgetRolesExcept(devices []remote.Device) {
 	}, nil)
 }
 
+// rosterDropped notes the roster and reports whether it lacks a device the last
+// one had.
+func (s *Server) rosterDropped(devices []remote.Device) bool {
+	s.seenMu.Lock()
+	defer s.seenMu.Unlock()
+	now := make(map[string]bool, len(devices))
+	for _, d := range devices {
+		now[d.ID] = true
+	}
+	dropped := false
+	for id := range s.seen {
+		dropped = dropped || !now[id]
+	}
+	s.seen = now
+	return dropped
+}
+
 // forgetRole drops the access record of a device that was unpaired.
 func (s *Server) forgetRole(device string) {
+	s.approveGen.Add(1)
 	s.updateAccess(func(p *store.Prefs) bool {
 		if _, ok := p.Devices[device]; !ok {
 			return false

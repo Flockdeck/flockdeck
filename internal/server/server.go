@@ -499,6 +499,7 @@ func New(ws *workspace.Workspace, cfg Config) (*Server, error) {
 	mux.HandleFunc("/window", s.handleWindow)
 	mux.HandleFunc("/remote/reload", s.handleRemoteReload)
 	mux.HandleFunc("/remote/artifacts/stop", s.handleArtifactsStop)
+	mux.HandleFunc("/remote/approvals/stop", s.handleApprovalsStop)
 	mux.HandleFunc("/ws/artifacts", s.handleArtifacts)
 	s.mux = mux
 	s.publishAccess()

@@ -24,9 +24,9 @@ import { html } from "../html.js";
 import { composing, LIST } from "./keys.js";
 import { Confirm } from "./Confirm.js";
 import {
-  ACCESS, DESK_ONLY_ACCESS, DESK_ONLY_JOIN, DESK_ONLY_REMOTE, ENTERPRISE_WORDS, INTRO_WORDS, KEPT_WORDS, LINK_WARNING, PAIR_WORDS, PLAN_WORDS, POLL_MS,
+  ACCESS, APPROVE_ACK_WORDS, challengeCommand, DESK_ONLY_ACCESS, DESK_ONLY_APPROVE, DESK_ONLY_JOIN, DESK_ONLY_REMOTE, ENTERPRISE_WORDS, INTRO_WORDS, KEPT_WORDS, LINK_WARNING, PAIR_WORDS, PLAN_WORDS, POLL_MS,
   VERIFY_HELP, VERIFY_HELP_RELAY, accessOf, addsAccess, accessIndex, ago, bare, deviceCodes, devicesCommand, enableCommand, leftText, moveCommand, nextAccess, outcomeOf, pairCommand, joinLine, pairLive, pairOf,
-  deviceName, planText, qrSource, renameCommand, resumeCommand, revokeCommand, roleCommand, rosterOf, summaryOf, unverifyCommand, untilText, verifyCommand, verifyText, viewOf,
+  approveCommand, approveOffCommand, approveView, deviceName, planText, qrSource, renameCommand, resumeCommand, revokeCommand, roleCommand, rosterOf, summaryOf, unverifyCommand, untilText, verifyCommand, verifyText, viewOf,
 } from "../lib/remote.js";
 
 const NEW_DRAFT = { relay: "", name: "", join: "", invite: "", more: false };
@@ -37,7 +37,7 @@ const NEW_MOVE = { open: false, relay: "", invite: "", join: "" };
  *  latest answers, remote says this window was reached through the relay, send is
  *  the store's send and copy(text, what) puts text on the clipboard. news is the
  *  latest notice since the dialog opened. tickMs, pollMs and clock are for tests. */
-export function Remote({ status, roster, pair, outcome, remote, connection = "", send, copy, forget = () => {}, news = "", tickMs = 1000, pollMs = POLL_MS, clock = () => Date.now() }) {
+export function Remote({ status, roster, challenge = null, pair, outcome, remote, connection = "", send, copy, forget = () => {}, news = "", tickMs = 1000, pollMs = POLL_MS, clock = () => Date.now() }) {
   const [now, setNow] = useState(clock());
   const [busy, setBusy] = useState(null);
   const [asking, setAsking] = useState(null);
@@ -152,19 +152,37 @@ export function Remote({ status, roster, pair, outcome, remote, connection = "",
     const cur = ro && ro.devices.find((x) => x.id === id);
     return cur ? accessIndex(cur) : null;
   };
+  // A question about approving also names the state of the device's key. If the device is gone, or its key is no longer in
+  // that state, the question is closed too.
+  const keyNow = (id) => {
+    const cur = ro && ro.devices.find((x) => x.id === id);
+    return cur ? cur.approveKey : null;
+  };
+  const changed = (q) => !!q && !!q.device && (accessNow(q.device.id) !== q.device.level || (q.device.key !== undefined && keyNow(q.device.id) !== q.device.key));
   useEffect(() => {
-    if (!asking || !asking.device || accessNow(asking.device.id) === asking.device.level) return;
+    if (!asking || !asking.device || !changed(asking)) return;
     setAsking(null);
     setSaid("");
     setProblem("Access for " + asking.device.name + " changed while you were deciding. Nothing was sent. Look at it again.");
   }, [ro]);
+  const challengeRef = useRef(challenge);
+  challengeRef.current = challenge;
+  // The words are the host's own when it has answered; this page's copy until then.
+  // The answer to this question's own request for a challenge: for this device, newer than the one the page held when the
+  // question opened (that one was spent or is another question's), with a nonce and no error.
+  const freshChallenge = (q, c) => !!q && !!q.device && !!c && c.id === q.device.id && (c.seq || 0) > (q.device.base || 0);
+  const approveReady = (q, c) => freshChallenge(q, c) && typeof c.nonce === "string" && c.nonce !== "" && !c.error;
+  const approveWords = (q) => (approveReady(q, challenge) && challenge.text ? challenge.text : APPROVE_ACK_WORDS);
   const confirmFor = (at) =>
     asking && asking.at === at
-      ? html`<${Confirm} title=${asking.title} words=${asking.words} label=${asking.label}
+      ? html`<${Confirm} title=${asking.title} words=${at.startsWith("approve:") ? [approveWords(asking)] : asking.words} label=${asking.label}
+          disabled=${at.startsWith("approve:") && !approveReady(asking, challenge)}
+          note=${at.startsWith("approve:") && freshChallenge(asking, challenge) ? challenge.error || "" : ""}
           onConfirm=${() => {
             const q = asking;
+            if (q.at.startsWith("approve:") && !approveReady(q, challengeRef.current)) return;
             setAsking(null);
-            if (q.device && accessNow(q.device.id) !== q.device.level) {
+            if (changed(q)) {
               setProblem("Access for " + q.device.name + " changed while you were deciding. Nothing was sent. Look at it again.");
               return;
             }
@@ -294,10 +312,12 @@ export function Remote({ status, roster, pair, outcome, remote, connection = "",
     };
     const about = { id: d.id, level: accessIndex(d), name };
     const here = renaming && renaming.kind === "device" && renaming.id === d.id;
+    const ap = approveView(d);
     return html`<li class="remote-row" key=${d.id} data-device=${d.id}>
       <div class="key-main">
         <div class="key-title"><span class="key-name">${name}</span>${mine ? html`<span class="key-id">this device</span>` : null}</div>
         <div class="key-status">paired ${ago(d.created, now)} · last seen ${ago(d.lastSeen, now)}</div>
+        ${!remote && ap.note ? html`<div class="key-status" role="status">${ap.note}</div>` : null}
         ${codes.length && shown ? codes.map((k) => codeBlock(d, k)) : null}
       </div>
       <div class="key-actions">
@@ -315,6 +335,19 @@ export function Remote({ status, roster, pair, outcome, remote, connection = "",
                 }}>${level.label}</button>`
             : html`<button type="button" class="dialog-btn remote-access" aria-label=${"Access for " + name + ": unknown, which the desktop treats as view-only. Press to set it to " + ACCESS[1].label + "."}
                 onClick=${() => ask("access:" + d.id, "Reset access for " + name + "?", ["Its access is not one this page knows, and the desktop treats it as view-only. It will be set to “" + ACCESS[1].label + "”."], "Reset access", () => setLevel(ACCESS[1]), about)}>${level.label}</button>`}
+        ${remote
+          ? null
+          : ap.on
+            ? html`<button type="button" class="dialog-btn remote-approve" aria-pressed="true" aria-label=${"Approving for " + name + ": on. Press to turn it off."}
+                onClick=${() => go(approveCommand(d.id, false))}>Approve: on</button>`
+            : html`<button type="button" class="dialog-btn remote-approve" aria-pressed="false" disabled=${!ap.canTurnOn}
+                aria-label=${"Approving for " + name + ": off. " + (ap.canTurnOn ? "Press to turn it on." : "Verify its code first.")}
+                onClick=${() => {
+                  if (!go(challengeCommand(d.id))) return;
+                  ask("approve:" + d.id, "Let " + name + " approve agent requests?", [approveWords(d.id)], "Allow approving", () => {
+                    if (!go(approveCommand(d.id, true, challengeRef.current))) setProblem("The desktop has not sent its confirmation for " + name + " yet. Nothing was sent. Try again.");
+                  }, { ...about, key: d.approveKey, base: challenge ? challenge.seq || 0 : 0 });
+                }}>Approve: off</button>`}
         <button type="button" class="dialog-btn" onClick=${() => setRenaming({ kind: "device", id: d.id, value: d.name })}>Rename</button>
         <button type="button" class="dialog-btn dialog-btn--danger" aria-label=${"Unpair " + name}
           onClick=${() => ask("device:" + d.id, mine ? "Unpair this device?" : "Unpair " + name + "?",
@@ -324,6 +357,7 @@ export function Remote({ status, roster, pair, outcome, remote, connection = "",
       ${here ? renameBox("device", d.id, d.name) : null}
       ${confirmFor("device:" + d.id)}
       ${confirmFor("access:" + d.id)}
+      ${confirmFor("approve:" + d.id)}
     </li>`;
   };
   const devicesBox = () => {
@@ -336,7 +370,10 @@ export function Remote({ status, roster, pair, outcome, remote, connection = "",
         <h4 class="set-sub" id="remote-devices-head">${n === 1 ? "1 paired device" : n + " paired devices"}</h4>
         ${n === 0 && !ro.error ? html`<p class="set-intro">Nothing is paired yet.</p>` : null}
         ${coded ? html`<p class="set-about" id="remote-verify-help">${remote ? VERIFY_HELP_RELAY : VERIFY_HELP}</p>` : null}
-        ${remote && n ? html`<p class="set-about">${DESK_ONLY_ACCESS}</p>` : null}
+        ${remote && n ? html`<p class="set-about">${DESK_ONLY_ACCESS} ${DESK_ONLY_APPROVE}</p>` : null}
+        ${!remote && ro.devices.some((d) => d.approve)
+          ? html`<p class="set-about"><button type="button" class="dialog-btn dialog-btn--danger" id="remote-approve-off" onClick=${() => go(approveOffCommand())}>Stop all approving</button> Turns approving off for every device. Each one is allowed again separately.</p>`
+          : null}
         ${n ? html`<ul class="remote-list" aria-label="Paired devices">${ro.devices.map(deviceRow)}</ul>` : null}
       </section>
       ${ro.hosts.length ? hostsBox() : null}`;

@@ -18,7 +18,10 @@ Part of [/ws/control](/api/ws-control.md). Files: `remote.go`, `remote_verify.go
 | `remoteVerify`, `remoteUnverify` | `id`, `kind` (key origin), `text` (typed code) | Record or clear the fingerprint check; refused from relay windows |
 | `remoteEnable` | `relay`, `name`, `join`, `invite` | Enrol this machine; replies `remoteOutcome` |
 | `remoteDisable`, `remoteRemove` (`force`), `remoteMove` (relay as above), `remoteReconnect` | | `remoteOutcome`: action, error, untold, warning |
-| `setDeviceRole` | `id` (device), `kind` (`full` or `viewer`), `watch` (viewer may watch panes) | Desk only. Changes a device's role and ends that device's sockets |
+| `setDeviceRole` | `id` (device), `kind` (`full` or `viewer`), `watch` (viewer may watch panes) | Desk only. Changes a device's role and ends that device's sockets. Keeps the device's `approve` setting |
+| `approveChallenge` | `id` (device) | Desk only, page windows only, API 1.26. Answered with an `approveChallenge` message: `nonce`, `v` (wording version), `text` (the fixed wording). One open per window, two minutes, single use |
+| `setDeviceApprove` | `id` (device), `on`, `nonce`, `v`, `confirmed` | Desk only, API 1.26. Lets a device answer agents' permission requests from its phone. Off needs nothing more. On needs a page window, `confirmed`, the `nonce` from `approveChallenge` for this window and device and `v` equal to the current wording version (a mismatch is refused with a notice), a device the relay lists and its usual key marked verified; it is applied only if the preferences could be saved and nothing switched the device off meanwhile. It records a hash of the key. Ends the device's sockets |
+| `setApprovalsOff` | none | Desk only, API 1.26. Kill switch: approval off for every device, roles kept, their sockets ended |
 | `setRemoteArtifacts` | | Switch artifact kinds, acknowledgements and device allowlist |
 | `revokeArtifactDevice` | `id` | Remove from allowlist and close its sockets |
 | `stopRemoteArtifacts` | | Close every artifacts socket now |

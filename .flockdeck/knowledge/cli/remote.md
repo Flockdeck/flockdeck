@@ -5,7 +5,7 @@ description: Enrols this machine with a relay so other devices can reach its age
 resource: cli_remote.go
 tags: [cli, remote]
 timestamp: 2026-10-19T00:00:00Z
-code_paths: [cli_remote.go, cli_remote_artifacts.go, internal/remote/config.go, internal/remote/client.go, internal/server/remote.go, internal/store/prefs.go]
+code_paths: [cli_remote.go, cli_remote_artifacts.go, cli_remote_approvals.go, internal/remote/config.go, internal/remote/client.go, internal/server/remote.go, internal/store/prefs.go]
 ---
 ## Synopsis
 
@@ -26,6 +26,7 @@ code_paths: [cli_remote.go, cli_remote_artifacts.go, internal/remote/config.go, 
 | `move <relay>` | `-invite`, `-join`, `-name`, `-yes` | Enrols with the new relay first, then leaves the old one once the new one answers. Devices must pair again. Probes the new relay before changing anything. |
 | `delete-account` | `-yes -confirm <text>` | Erases the account on the relay. Previews what goes, then asks for the phrase "delete my account". A script needs both `-yes` and exactly `-confirm "delete my account"`. |
 | `artifacts off` | none | Switches off every kind of artifact paired devices may view, in the preferences file, and tells a running instance to close its artifact sockets. There is no `on`. |
+| `approvals off\|status` | none | `off` switches phone approval off for every device in the preferences file (roles kept) and tells a running instance to do the same in memory and close the approvals sockets; `status` lists the devices the file lets approve at the current wording. The stop is sent to a running instance even when the file cannot be read; the read error is then returned. There is no `on`: a device is allowed at the desk. |
 
 ## Where it runs
 
@@ -33,4 +34,4 @@ Any shell. Enrolment is stored in a local config (`remote.Load`). Commands that 
 
 ## Disagreement with the root usage
 
-The top-level usage omits `remote devices` (and its aliases) and `remote artifacts off`; `flockdeck remote` lists them.
+The top-level usage omits `remote devices` (and its aliases) `remote artifacts off` and `remote approvals`; `flockdeck remote` lists them.

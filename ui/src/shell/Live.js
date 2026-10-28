@@ -770,6 +770,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     panes: current ? current.nodes.filter((n) => !n.shell).map((n) => ({ pane: n.pane, name: n.name || n.pane, agent: n.agent })) : [],
     project: ((kept.current.state.projects || []).find((p) => p.active) || {}).name || "",
     roster: snap.remoteDevices,
+    challenge: snap.approveChallenge,
     connection: snap.connection,
     pair: snap.remotePair,
     forgetPair: () => store.clearPair(),

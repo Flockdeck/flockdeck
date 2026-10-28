@@ -14,7 +14,7 @@ code_paths: [internal/store/prefs.go, internal/store/store.go, internal/store/de
 `helpSeen`, `dismissedTips`, `fontSize`, `notificationsOff`, `scrollback`, `updatesOff`, `cursorSteady`, `screenReader`, `cursorStyle`, `fontFamily`, `railExpanded`, `railWidth`, `spend` ({`statusLine`}), `push` ({`off`, `anonymous`, `delaySeconds`}), `theme`, `accentColor`, `autoReviewDefault`, `jevStatus`, `conflictRadar`, `recordingAcknowledged`, `remoteArtifacts`, `devices`.
 
 - `remoteArtifacts`: `kinds` (map of "recordings", "links", "files" to bool), `ack` (kind to {`v`, `at`}), `devices` (device ids).
-- `devices`: map of device id to `DeviceAccess` ({`role`, `watchPanes`}); see [device access roles](/security/device-access-roles.md).
+- `devices`: map of device id to `DeviceAccess` ({`role`, `watchPanes`, `approve`, `approveV`, `approveAt`, `approveKey`}); see [device access roles](/security/device-access-roles.md).
 
 ## Behaviour
 

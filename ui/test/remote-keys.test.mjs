@@ -14,7 +14,7 @@ import { Live } from "../src/shell/Live.js";
 import { Remote } from "../src/shell/Remote.js";
 import { canClear, clearKeyCommand, keyNotes, keyStatus, keysOf, setKeyCommand } from "../src/lib/apikeys.js";
 import {
-  ACCESS, accessIndex, accessOf, addsAccess, deviceName, nextAccess, ago, daysLeft, deviceCodes, enableCommand, joinLine, leftText, moveCommand, outcomeOf, PAIR_CAP_MS, pairLive, pairOf, planOf, planText, qrSource, renameCommand,
+  ACCESS, APPROVE_ACK_VERSION, APPROVE_ACK_WORDS, approveCommand, challengeCommand, approveOffCommand, approveView, accessIndex, accessOf, addsAccess, deviceName, nextAccess, ago, daysLeft, deviceCodes, enableCommand, joinLine, leftText, moveCommand, outcomeOf, PAIR_CAP_MS, pairLive, pairOf, planOf, planText, qrSource, renameCommand,
   retryClock, revokeCommand, roleCommand, rosterOf, summaryOf, unverifyCommand, untilText, verifyCommand, viewOf,
 } from "../src/lib/remote.js";
 import {
@@ -1311,3 +1311,127 @@ test("Remote: the join and invitation codes are password fields and are emptied 
     r.done();
   }
 });
+
+const APPROVE_ROSTER = {
+  ...ROSTER, current: "",
+  devices: [
+    { id: "d1", name: "Phone", created: "2026-10-01T00:00:00Z", lastSeen: "2026-10-24T11:59:00Z", role: "full", approveKey: "" },
+    { id: "d2", name: "Tablet", created: "2026-10-01T00:00:00Z", lastSeen: "2026-10-24T11:59:00Z", role: "full", approveKey: "verified" },
+    { id: "d3", name: "Watch", created: "2026-10-01T00:00:00Z", lastSeen: "2026-10-24T11:59:00Z", role: "full", approve: true, approveKey: "verified" },
+    { id: "d4", name: "Old", created: "2026-10-01T00:00:00Z", lastSeen: "2026-10-24T11:59:00Z", role: "full", approve: true, approveKey: "changed" },
+  ],
+};
+
+test("Remote: approving is turned on only for a verified device, with the host's challenge and words, and off without a question", () => {
+  const ch = { id: "d", nonce: "n1", v: APPROVE_ACK_VERSION, text: APPROVE_ACK_WORDS };
+  assert.deepEqual(approveCommand("d", true, ch), { cmd: "setDeviceApprove", id: "d", on: true, nonce: "n1", v: APPROVE_ACK_VERSION });
+  assert.equal(approveCommand("d", true, null), null, "no challenge, no command");
+  assert.equal(approveCommand("d", true, { ...ch, id: "other" }), null, "a challenge for another device is not used");
+  assert.equal(approveCommand("d", true, { ...ch, nonce: "" }), null);
+  assert.deepEqual(approveCommand("d", false), { cmd: "setDeviceApprove", id: "d", on: false });
+  assert.equal(approveCommand("", true, ch), null);
+  assert.deepEqual(challengeCommand("d"), { cmd: "approveChallenge", id: "d" });
+  assert.deepEqual(approveOffCommand(), { cmd: "setApprovalsOff" });
+  assert.deepEqual(approveView({}), { on: false, canTurnOn: false, note: "" });
+  assert.equal(approveView({ approve: true, approveKey: "verified" }).note, "");
+  assert.match(approveView({ approve: true, approveKey: "changed" }).note, /not verified/);
+  assert.match(APPROVE_ACK_WORDS, /tampered relay/);
+  return withPage({ extra: { remote: TUNNEL } }, async (m) => {
+    await m.connect();
+    await m.openSettings("remote");
+    await m.push(APPROVE_ROSTER);
+    const row = (id) => m.container.findAll(".remote-row").find((r) => r.attributes["data-device"] === id);
+    const approve = (id) => row(id).find(".remote-approve");
+    assert.equal(approve("d1").textContent, "Approve: off");
+    assert.ok(isDisabled(approve("d1")), "off and its code is not verified: it cannot be turned on");
+    assert.equal(isDisabled(approve("d2")), false);
+    assert.match(approve("d1").attributes["aria-label"], /Verify its code first/);
+    m.clear();
+    await m.click(approve("d2"));
+    assert.deepEqual(m.sent("approveChallenge"), [{ cmd: "approveChallenge", id: "d2" }], "the question asks the host for its challenge");
+    assert.deepEqual(m.sent("setDeviceApprove"), [], "nothing is turned on before the answer");
+    assert.ok(m.container.find(".confirm").textContent.includes(APPROVE_ACK_WORDS), "the words are shown");
+    // The host answers; its words and nonce are the ones used.
+    await m.push({ type: "approveChallenge", id: "d2", nonce: "abc", v: APPROVE_ACK_VERSION, text: APPROVE_ACK_WORDS + " (host)", expiresMs: 120000 });
+    assert.ok(m.container.find(".confirm").textContent.includes("(host)"), "the host's own words replace this page's copy");
+    await m.click(m.byText(".confirm button", /^Allow approving$/));
+    assert.deepEqual(m.sent("setDeviceApprove"), [{ cmd: "setDeviceApprove", id: "d2", on: true, nonce: "abc", v: APPROVE_ACK_VERSION }]);
+    m.clear();
+    assert.equal(approve("d3").textContent, "Approve: on");
+    await m.click(approve("d3"));
+    assert.deepEqual(m.sent("setDeviceApprove"), [{ cmd: "setDeviceApprove", id: "d3", on: false }], "off asks nothing");
+    assert.match(row("d4").textContent, /Approving is on, but this device's code is not verified/);
+    assert.equal(row("d3").textContent.includes("not verified"), false);
+    m.clear();
+    await m.click(m.container.find("#remote-approve-off"));
+    assert.deepEqual(m.sent("setApprovalsOff"), [{ cmd: "setApprovalsOff" }]);
+  });
+});
+
+test("Remote: the question about approving closes, sending nothing, when the device is unpaired or its key changes", () =>
+  withPage({ extra: { remote: TUNNEL } }, async (m) => {
+    await m.connect();
+    await m.openSettings("remote");
+    await m.push(APPROVE_ROSTER);
+    const row = (id) => m.container.findAll(".remote-row").find((r) => r.attributes["data-device"] === id);
+    for (const change of [
+      { ...APPROVE_ROSTER, devices: APPROVE_ROSTER.devices.filter((d) => d.id !== "d2") },
+      { ...APPROVE_ROSTER, devices: APPROVE_ROSTER.devices.map((d) => (d.id === "d2" ? { ...d, approveKey: "changed" } : d)) },
+    ]) {
+      await m.push(APPROVE_ROSTER);
+      await m.click(row("d2").find(".remote-approve"));
+      await m.push({ type: "approveChallenge", id: "d2", nonce: "abc", v: APPROVE_ACK_VERSION, text: APPROVE_ACK_WORDS, expiresMs: 1 });
+      assert.ok(m.container.find(".confirm"), "the question is open");
+      m.clear();
+      await m.push(change);
+      assert.equal(m.container.find(".confirm"), null, "the roster no longer matches: the question is closed");
+      assert.deepEqual(m.sent("setDeviceApprove"), []);
+    }
+  }));
+
+test("Remote: a window reached through the relay is offered no way to approve", () =>
+  withPage({ helloOver: { remote: true }, extra: { remote: TUNNEL } }, async (m) => {
+    await m.connect();
+    await m.openSettings("remote");
+    await m.push(APPROVE_ROSTER);
+    assert.equal(m.container.find(".remote-approve"), null);
+    assert.equal(m.container.find("#remote-approve-off"), null);
+    assert.match(m.container.textContent, /Whether a device may approve agent requests is set on the machine/);
+  }));
+
+test("Remote: the approve wording is version 2 and says a tampered relay or page could read the cards", () => {
+  assert.equal(APPROVE_ACK_VERSION, 2);
+  assert.match(APPROVE_ACK_WORDS, /tampered relay/);
+  assert.doesNotMatch(APPROVE_ACK_WORDS, /The relay cannot read them\./);
+});
+
+test("Remote: Allow approving waits for a fresh challenge for this device and shows the host's refusal", () =>
+  withPage({ extra: { remote: TUNNEL } }, async (m) => {
+    await m.connect();
+    await m.openSettings("remote");
+    await m.push(APPROVE_ROSTER);
+    const row = (id) => m.container.findAll(".remote-row").find((r) => r.attributes["data-device"] === id);
+    const allow = () => m.byText(".confirm button", /^Allow approving$/);
+    const ch = (over) => ({ type: "approveChallenge", id: "d2", nonce: "n1", v: APPROVE_ACK_VERSION, text: APPROVE_ACK_WORDS, expiresMs: 120000, ...over });
+    await m.click(row("d2").find(".remote-approve"));
+    assert.ok(isDisabled(allow()), "no challenge has arrived: it cannot be pressed");
+    await m.push(ch({ id: "d3" }));
+    assert.ok(isDisabled(allow()), "a challenge for another device does not count");
+    await m.push(ch());
+    assert.equal(isDisabled(allow()), false);
+    await m.click(m.byText(".confirm button", /^Cancel$/));
+    // Reopened: the previous nonce was for the earlier question and may be spent.
+    m.clear();
+    await m.click(row("d2").find(".remote-approve"));
+    assert.ok(isDisabled(allow()), "the earlier nonce does not count for a new question");
+    await m.click(allow());
+    assert.deepEqual(m.sent("setDeviceApprove"), [], "a disabled button sends nothing");
+    // The host refuses (too many open): its words are shown and the button stays off.
+    await m.push(ch({ nonce: "", error: "Too many questions are open. Try again in a moment" }));
+    assert.match(m.container.find(".confirm").textContent, /Too many questions are open/);
+    assert.ok(isDisabled(allow()));
+    await m.push(ch({ nonce: "n2" }));
+    assert.equal(isDisabled(allow()), false);
+    await m.click(allow());
+    assert.deepEqual(m.sent("setDeviceApprove"), [{ cmd: "setDeviceApprove", id: "d2", on: true, nonce: "n2", v: APPROVE_ACK_VERSION }]);
+  }));

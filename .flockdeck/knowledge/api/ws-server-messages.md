@@ -11,8 +11,9 @@ Each message is a JSON object with a `type`. Sent by `controlClient.send`, which
 
 | `type` | Source | Content |
 |---|---|---|
-| `hello` | `help.go` | `keys` (key table with `overridden`), `prefs`, `remote` (bool), `radarUnavailable`, `radarChecking`, `e2ePublicKey` (relay windows only), `artifacts` {v}, `role`, `watchPanes`. First message sent |
+| `hello` | `help.go` | `keys` (key table with `overridden`), `prefs`, `remote` (bool), `radarUnavailable`, `radarChecking`, `e2ePublicKey` (relay windows only), `artifacts` {v}, `role`, `watchPanes`, `canApprove` (relay windows, when the device may approve; API 1.26). First message sent |
 | `state` | `control.go` | snapshot, see [state](/api/ws-state.md) |
+| `approveChallenge` | `approvals_gate.go` | Answer to the `approveChallenge` command, desk page windows only: `id`, `nonce`, `v`, `text`, `expiresMs`, `error` |
 | `notice` | `control.go` | `text`, `error` (bool), optional `kind` (`approval`), and for approvals `lead`, `action`, `lifeMs`, `pin`, `id` |
 | `noticeWithdraw` | `approval.go` | `id` of an approval notice to remove |
 | `prefs` | `control.go` | whole prefs, per window (`prefsFor`; relay windows get no artifact settings) |

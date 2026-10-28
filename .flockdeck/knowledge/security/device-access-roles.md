@@ -14,6 +14,8 @@ Devices paired through Flockdeck Remote each have a `DeviceAccess` in [prefs](/d
 | `full` | Everything a local window can do, except a few desk-only actions. Default for a device with no record (devices paired before roles existed). |
 | `viewer` | Can look, cannot act. Artifacts only unless `watchPanes` is set, which also shows pane names, status and terminal output, but still no typing, resizing or running. |
 
+`DeviceAccess` also has `approve` (with `approveV`, the wording version agreed to, `approveAt`, and `approveKey`, a SHA-256 of the usual key the grant was made for): whether the device may answer a structured pane's permission request from its phone. It is off for every device, full ones included, and the "no record means full" rule does not reach it. It is turned on at the desk for one device (`setDeviceApprove`) after the device's usual key is verified and the person agrees to the wording; the gate `mayApproveWithKey(device, key)` is true only when the running program's record and the preferences file both say so at the current wording and the key is the one the grant was made for. Unverifying, verifying another key, a changed key, a device paired again under the same id, or a restored old file ends the grant. A disable (off, kill switch, unpair) wins over a turn-on still being checked (`approveGen`). Turning on needs a one-time challenge from `approveChallenge`. Changing a role keeps the grant; unpairing drops it. The challenge does not prove a person is looking: a program that can read the desk window's traffic can ask for one. The plan is in `docs/phone-approval-plan.md`.
+
 Fail-closed rules in code:
 
 - `EffectiveRole` returns viewer for any value that is not exactly `full`.
