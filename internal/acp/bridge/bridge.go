@@ -145,7 +145,14 @@ type Card struct {
 	Summary   string
 	File      string
 	Command   string
-	Options   []acp.PermissionOption
+	// CommandText is the command with its line breaks, cleaned and cut at
+	// cardCommandCap bytes; Command is only its first line. CommandAltered says
+	// it is not the command the agent sent: cleaning took a character out of it
+	// or it was cut. A reader that has to show the whole command (the phone's
+	// approval card) goes by these and treats an altered one as unchecked.
+	CommandText    string
+	CommandAltered bool
+	Options        []acp.PermissionOption
 	// Body is the text the request shows about its call, such as the plan of
 	// ExitPlanMode, and Diff the unified diff of the edit it asks about. Both
 	// are plain text from the agent, cleaned and cut.
@@ -514,6 +521,7 @@ func (b *Bridge) open(req acp.PermissionRequest) (Card, map[string]string) {
 	}
 	if json.Unmarshal(req.ToolCall.RawInput, &in) == nil {
 		c.Command = line(in.Command, 4<<10)
+		c.CommandText, c.CommandAltered = commandText(in.Command)
 	}
 	cardContent(&c, req.ToolCall.Content)
 	if c.Kind == QuestionKind {

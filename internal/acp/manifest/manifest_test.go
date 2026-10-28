@@ -423,3 +423,38 @@ func TestOwnRewindIsTheTwoOwnAdaptersOnly(t *testing.T) {
 		}
 	}
 }
+
+// OwnAdapter is the phone approval's test of an option id: the same two adapters
+// as OwnRewind, in the same exact shapes.
+func TestOwnAdapterIsTheTwoOwnAdaptersOnly(t *testing.T) {
+	m := Default()
+	for id, want := range map[string]bool{"claude": true, "codex-go": true, "opencode": false, "gemini": false} {
+		a, ok := m.Lookup(id)
+		if !ok {
+			t.Fatalf("%s is not in the manifest", id)
+		}
+		if got := OwnAdapter(a); got != want {
+			t.Errorf("OwnAdapter(%s) = %v, want %v", id, got, want)
+		}
+	}
+	for _, id := range []string{"claude", "codex-go"} {
+		a, _ := m.Lookup(id)
+		for name, mod := range map[string]func(*Adapter){
+			"another command":  func(a *Adapter) { a.Command = "other" },
+			"another argument": func(a *Adapter) { a.Args = []string{"acp-adapter", "gemini"} },
+			"a package":        func(a *Adapter) { a.Package = "@x/y" },
+			"a pin":            func(a *Adapter) { a.Pin = "1.0.0" },
+			"launch env":       func(a *Adapter) { a.LaunchEnv = map[string]string{"A": "b"} },
+			"a probe":          func(a *Adapter) { a.PermissionProbe = &PermissionProbe{} },
+			"another id":       func(a *Adapter) { a.ID = id + "-other" },
+			"not drives":       func(a *Adapter) { a.Drives = "" },
+			"not hidden":       func(a *Adapter) { a.Hidden = false },
+		} {
+			b := a
+			mod(&b)
+			if OwnAdapter(b) {
+				t.Errorf("%s, %s: believed", id, name)
+			}
+		}
+	}
+}

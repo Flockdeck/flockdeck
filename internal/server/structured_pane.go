@@ -12,6 +12,12 @@ type runtimePane struct{ rt *structured.Runtime }
 
 func (p runtimePane) PendingPermission() *bridge.Card { return p.rt.Snapshot().Pending }
 
+// OwnAdapter is the runtime's: whether the agent runs on an adapter Flockdeck wrote.
+func (p runtimePane) OwnAdapter() bool { return p.rt.OwnAdapter() }
+
+// RuntimeToken is the runtime's RewindToken, "<runtime number>.<rewinds>".
+func (p runtimePane) RuntimeToken() string { return p.rt.RewindToken() }
+
 // AnswerPermission gives the choice to the runtime, which checks the card and
 // takes the answer under one lock.
 func (p runtimePane) AnswerPermission(seq uint64, requestID, optionID string) error {

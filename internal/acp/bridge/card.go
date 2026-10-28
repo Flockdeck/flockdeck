@@ -23,6 +23,9 @@ const (
 	// a line-by-line comparison.
 	maxCardDiffs = 8
 
+	// cardCommandCap bounds Card.CommandText, in bytes.
+	cardCommandCap = 4 << 10
+
 	maxQuestions       = 4
 	maxQuestionOptions = 8
 	questionTextCap    = 2000 // bytes of a question or an option's description
@@ -225,4 +228,14 @@ func answersMeta(a []Answer) json.RawMessage {
 		return nil
 	}
 	return b
+}
+
+// commandText is the command a request names, whole: cleaned, with its line
+// breaks, and cut at cardCommandCap bytes. altered says it differs from what the
+// agent sent, because cleaning took a character out (a control, a bidi mark, a
+// byte that is not UTF-8) or because it was cut.
+func commandText(raw string) (text string, altered bool) {
+	cut := capBytes(raw, cardCommandCap)
+	text = clean(cut)
+	return text, len(cut) < len(raw) || text != cut
 }

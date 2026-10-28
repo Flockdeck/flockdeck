@@ -251,3 +251,27 @@ T1 (the switch, no socket) was built on 28 Oct 2026 against origin/main e6ed68cd
 - `remoteDevices` (desk windows only) carries `approve` and `approveKey`. `approveKey` is the verify state of the usual key in the words of `verify`; a key that changed after approval was turned on shows as changed and approval is off (the grant ended with the key). `hello` carries `canApprove` for a window reached through the relay, true only when the device may approve.
 - The CLI reaches a running instance with `POST /remote/approvals/stop` (URL token, never remote), because the running program's record wins over the file.
 - Not done in T1: the audit log lines for desk changes (T3 owns `remote-approvals.log`), the help page text (T8), and a JSON schema entry: `hello` and `remoteDevices` have no schema in `api/schema`.
+
+## T2 as built
+
+Written on 28 Oct 2026. The card projection, the decision mapping and the stale-answer lock are in `internal/server/approval_card.go`. They are pure functions with no socket, no preferences and no API change. Where the code disagreed with this page, the safer reading was taken; each case is listed.
+
+What it does:
+
+- `projectCard(card, own)` returns what a phone may see (`Answerable`, `Kind`, `Text`, `Added`, `Removed`, `CanAllow`, `Why`). `Why` is one of ten fixed sentences. Nothing else of the agent's reaches the phone.
+- `phoneAnswer(card, token, own, lock, decision)` takes `allow` or `deny`, checks the lock, re-derives the projection from the card as it is now, and returns the shown id of the one option to give `AnswerPermission`. Any other decision, `allow_always` included, is refused.
+- `approvalLock{Seq, RequestID, Token}` is made by `lockFor` when a card is shown and compared by `check` when a decision arrives. A part that is zero or empty never matches.
+- `StructuredPane` has two new methods, `OwnAdapter()` and `RuntimeToken()`. The first is `manifest.OwnAdapter` (the exact shapes of the `claude` and `codex-go` entries, the predicate `OwnRewind` already used) asked through `Spec.ACPOwnAdapter()` and `Runtime.OwnAdapter()`. A runtime started with a test command is not ours. The second is `Runtime.RewindToken()`.
+
+Where the code disagreed with the plan:
+
+1. A card's `Command` is the first line of the command only (`bridge.line` keeps one line and cuts at 4,096 characters). `echo ok` followed by a line break and `rm -rf ~` shows as `echo ok`, on the desk as well as on a phone. The eight-line rule could not have been met from it. `bridge.Card` now also has `CommandText`, the cleaned command with its line breaks (cut at 4 KiB), and `CommandAltered`, set when cleaning removed a character or the cut was made. The projection reads only these. A card with no `CommandText` is Deny only. The desk's `structuredCard.Command` is unchanged and still shows one line; that is a separate problem, listed in the report for T2.
+2. "At most 8 lines" is joined by a byte limit: 500 bytes for a command (the desk's own cut, `structuredCommandCut`) and 300 for a path (`structuredCardCut`), so a command the phone may allow is one the desk shows whole.
+3. Characters. Beyond controls and bidi marks, the projection refuses every space except the ASCII space, tab and line break (a no-break space looks like the space between arguments and is not one), all format characters, variation selectors, the blank fillers, unassigned and private characters, U+FFFD and U+FFFC. A carriage return is refused too, so a command with CRLF line ends is Deny only. The text shown has those characters removed, and the card is Deny only.
+4. Plans are recognised by the ACP kind `switch_mode`, questions by their kind or by having questions. Both have `Answerable` false: nothing is offered, deny included. So is a card with no single `reject` option, since there would be nothing to deny with.
+5. An execute card with no command (the Claude tools `BashOutput` and `KillShell` are kind `execute` and carry none) is Deny only. So is any execute or edit card with `Body` text, which is the reason Codex puts on a command or file change; that text is the agent's and is not shown.
+6. An edit is allowed only when its diff reads as a diff of the card's path alone. The diff is read by the counts in each hunk header, so a changed line that begins `+++ ` is counted as a line. A diff that was cut, a note about more edits, a second path, or a hunk that does not hold what its header says makes the edit Deny only. A Codex file-change card has no path and no diff, and Claude's `NotebookEdit` has no diff, so those are Deny only.
+7. Option matching is stricter than the page says. There must be exactly one option that has the id `allow` or the kind `allow_once`, and it must have both; the same for `reject` and `reject_once`. A decoy such as the id `allow` on an `allow_always` option next to a separate `allow_once` is refused.
+8. Redaction runs on the text that is shown (the command, or the path) and not on the diff, which is not shown. The redacted text is what the phone sees when it is Deny only.
+
+Known gap. Claude's `Write` reads the old file to make its diff and, if it cannot (the file is over the size it reads, or cannot be opened), draws the write as a new file. The count then says `+N −0` for a file that is being overwritten. The card cannot tell the two apart. If that matters, the adapter should say so on the card; until then the plan's "judgement call" on edits carries it.

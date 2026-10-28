@@ -148,6 +148,13 @@ func (s Spec) ACPOwnRewind() bool {
 	return ok && manifest.OwnRewind(a)
 }
 
+// ACPOwnAdapter says this Spec starts one of the adapters Flockdeck wrote (claude,
+// codex-go). It is what a card's option ids may be trusted by.
+func (s Spec) ACPOwnAdapter() bool {
+	a, ok := s.ACPAdapter()
+	return ok && manifest.OwnAdapter(a)
+}
+
 // ACPLaunchEnv is the environment the manifest says Flockdeck sets for the
 // adapter this Spec starts, as name=value. It is added after ACPPassEnv and wins
 // over it: a name the user's environment also passes is set to this value.
