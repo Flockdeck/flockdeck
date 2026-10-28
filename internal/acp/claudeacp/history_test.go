@@ -401,3 +401,53 @@ func TestSessionLoadSurvivesABranchThatLoops(t *testing.T) {
 		t.Fatalf("replay = %d entries, err %v", len(replay), r.Error)
 	}
 }
+
+// bigLine is a user line too long to read, written in claude's order of members:
+// the parent first, and the uuid after the message.
+func bigLine(uuid, parent string) string {
+	return `{"parentUuid":"` + parent + `","isSidechain":false,"type":"user","message":{"role":"user","content":"` +
+		strings.Repeat("x", historyMaxLine+10) + `"},"uuid":"` + uuid + `","timestamp":"2026-10-28T00:00:00Z","cwd":"/x","sessionId":"s"}`
+}
+
+// A line too long to read that is on the chain does not end it: the lines
+// before it are still replayed, and the dropped branch still is not.
+func TestSessionLoadFollowsTheBranchThroughALineTooLongToRead(t *testing.T) {
+	h, projects := loadHarness(t)
+	storeSession(t, projects, h.cwd,
+		linked(userLine("first"), "u1", ""),
+		linked(assistantLine("claude-sonnet-5-5", textBlock("answer one")), "a1", "u1"),
+		linked(userLine("dropped prompt"), "u2", "a1"),
+		linked(assistantLine("claude-sonnet-5-5", textBlock("dropped answer")), "a2", "u2"),
+		bigLine("b1", "a1"),
+		linked(assistantLine("claude-sonnet-5-5", textBlock("answer after the big one")), "a3", "b1"),
+	)
+	replay, r := loadSession(t, h)
+	if r.Error != nil {
+		t.Fatalf("session/load = %+v", r.Error)
+	}
+	var got []string
+	for _, u := range replay {
+		got = append(got, fmt.Sprintf("%s %s", u["sessionUpdate"], u["content"].(map[string]any)["text"]))
+	}
+	want := "user_message_chunk first|agent_message_chunk answer one|agent_message_chunk answer after the big one"
+	if strings.Join(got, "|") != want {
+		t.Errorf("replayed:\n%s\nwant:\n%s", strings.Join(got, "\n"), want)
+	}
+}
+
+// When the link of a line too long to read cannot be had, nothing is dropped
+// for it: the file is replayed in order.
+func TestSessionLoadReplaysInOrderWhenAChainLinkIsLost(t *testing.T) {
+	h, projects := loadHarness(t)
+	lost := `{"type":"user","message":{"role":"user","content":"` + strings.Repeat("x", historyMaxLine+10) + `"}}`
+	storeSession(t, projects, h.cwd,
+		linked(userLine("first"), "u1", ""),
+		linked(assistantLine("claude-sonnet-5-5", textBlock("answer one")), "a1", "u1"),
+		lost,
+		linked(userLine("second"), "u2", "a1"),
+	)
+	replay, r := loadSession(t, h)
+	if r.Error != nil || len(replay) != 3 {
+		t.Fatalf("replay = %d entries, err %v", len(replay), r.Error)
+	}
+}

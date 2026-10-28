@@ -46,6 +46,11 @@ var (
 	// historyMaxLinks is how many lines the branch search keeps a link for. A
 	// file with more is replayed in file order.
 	historyMaxLinks = 400000
+	// historyHead is how much of the start of a line too long to read is kept,
+	// to find the parent it names.
+	historyHead = 512
+	// historyTail is the same for the end, where the uuid is, behind the message.
+	historyTail = 4096
 )
 
 // historyRoot is claude's projects directory: CLAUDE_CONFIG_DIR in the
@@ -402,22 +407,47 @@ type histLink struct {
 }
 
 // activeBranch returns the uuids of the lines on the branch that ends at the
-// newest line, or nil when there is no branch to follow. claude does not delete
+// tip, and whether the chain was followed to its start. claude does not delete
 // what a rewind drops: a session cut back with --resume-session-at gets its next
 // message appended to the same file, with the kept message as its parent, so the
 // dropped turns stay in the file after it and file order is not the
 // conversation. Lines name their parent (parentUuid), so the conversation is
-// the chain from the newest line back. A line whose parent is not in the part
-// read ends the chain there.
-func activeBranch(links map[string]string, tip string) map[string]bool {
-	if tip == "" {
-		return nil
-	}
-	active := map[string]bool{}
-	for id := tip; id != "" && !active[id]; id = links[id] {
+// the chain from the newest line back. The start is a line with no parent (the
+// first line, or the one after a compaction); a parent that is not among the
+// links, or a loop, is not a start.
+func activeBranch(links map[string]string, tip string) (active map[string]bool, whole bool) {
+	active = map[string]bool{}
+	for id := tip; !active[id]; {
 		active[id] = true
+		parent, ok := links[id]
+		if !ok {
+			return active, false
+		}
+		if parent == "" {
+			return active, true
+		}
+		id = parent
 	}
-	return active
+	return active, false
+}
+
+// headLink reads the uuid and parent of a line that was too long to keep from
+// the two ends of it: claude writes parentUuid first and uuid after the
+// message. The text of the message is JSON-escaped, so a quote in it is never
+// one of these. whole is false when an end lacks its member, and the line is
+// then a gap in the chain.
+var (
+	linkUUID   = regexp.MustCompile(`"uuid":"([0-9A-Za-z-]{1,64})"`)
+	linkParent = regexp.MustCompile(`"parentUuid":(?:null|"([0-9A-Za-z-]{1,64})")`)
+)
+
+func headLink(head, tail []byte) (uuid, parent string, whole bool) {
+	p := linkParent.FindSubmatch(head)
+	us := linkUUID.FindAllSubmatch(tail, -1)
+	if p == nil || len(us) == 0 {
+		return "", "", false
+	}
+	return string(us[len(us)-1][1]), string(p[1]), true
 }
 
 // readHistory reads the tail of the file at path into entries. It stops at
@@ -433,10 +463,11 @@ func readHistory(path, cwd string) historyResult {
 	if err != nil || !fi.Mode().IsRegular() {
 		return res
 	}
-	deadline := time.Now().Add(historyMaxWait)
 	// pass calls fn for each line of the part of the file that is read, and says
-	// whether it stopped at the time limit.
-	pass := func(fn func(line []byte, skipped bool)) (timedOut bool) {
+	// whether it stopped at the time limit, which each pass has to itself. fn gets
+	// the two ends of a line that was too long to keep in head and tail.
+	pass := func(fn func(line, head, tail []byte, skipped bool)) (timedOut bool) {
+		deadline := time.Now().Add(historyMaxWait)
 		if _, err := f.Seek(0, io.SeekStart); err != nil {
 			return false
 		}
@@ -453,28 +484,34 @@ func readHistory(path, cwd string) historyResult {
 			if n%256 == 0 && !time.Now().Before(deadline) {
 				return true
 			}
-			line, skipped, err := readLine(r)
-			fn(line, skipped)
+			line, head, tail, skipped, err := readLine(r)
+			fn(line, head, tail, skipped)
 			if err != nil {
 				return false
 			}
 		}
 	}
-	// The first pass finds the branch the newest line is on.
+	// The first pass finds the branch the newest line is on. A link is kept for
+	// every line with a uuid; only a conversation line can be the newest.
 	links := map[string]string{}
 	var tip string
-	over := false
-	timedOut := pass(func(line []byte, _ bool) {
-		if over || len(line) == 0 || !bytes.Contains(line, []byte(`"uuid"`)) {
+	over, lost := false, false
+	timedOut := pass(func(line, head, tail []byte, skipped bool) {
+		if over {
 			return
 		}
 		var l histLink
-		if json.Unmarshal(line, &l) != nil || l.UUID == "" || l.Sidechain {
+		switch {
+		case skipped:
+			u, p, whole := headLink(head, tail)
+			if !whole {
+				lost = true
+				return
+			}
+			l.UUID, l.ParentUUID = u, p
+		case len(line) == 0 || !bytes.Contains(line, []byte(`"uuid"`)):
 			return
-		}
-		switch l.Type {
-		case "user", "assistant", "attachment", "system":
-		default:
+		case json.Unmarshal(line, &l) != nil || l.UUID == "":
 			return
 		}
 		if len(links) >= historyMaxLinks {
@@ -482,15 +519,29 @@ func readHistory(path, cwd string) historyResult {
 			return
 		}
 		links[l.UUID] = l.ParentUUID
-		tip = l.UUID
+		switch l.Type {
+		case "user", "assistant", "attachment", "system":
+			if !l.Sidechain {
+				tip = l.UUID
+			}
+		}
 	})
+	// With no branch to follow, a chain that does not reach its start (a line
+	// in it was lost, or the file has been changed) and a first pass that did not
+	// finish, the lines are replayed in file order. A chain that stops at the
+	// start of the part read is the expected end of one, since the part is the
+	// newest of the file.
 	var active map[string]bool
-	if !timedOut && !over {
-		active = activeBranch(links, tip)
+	if tip != "" && !timedOut && !over && !lost {
+		var whole bool
+		active, whole = activeBranch(links, tip)
+		if !whole && !res.earlier {
+			active = nil
+		}
 	}
 	links = nil
 	h := &history{cwd: cwd, tools: map[string]*histEntry{}}
-	later := pass(func(line []byte, skipped bool) {
+	later := pass(func(line, _, _ []byte, skipped bool) {
 		if skipped {
 			h.gap = true
 		}
@@ -511,23 +562,37 @@ func readHistory(path, cwd string) historyResult {
 }
 
 // readLine returns the next line. A line longer than historyMaxLine is read
-// past and not kept: line is nil and skipped is true. The error is only io.EOF
-// or a read error.
-func readLine(r *bufio.Reader) (line []byte, skipped bool, err error) {
+// past and not kept: line is nil, skipped is true, and head and tail are the
+// start (at most historyHead bytes) and the end (at most historyTail bytes) of
+// it. The error is only io.EOF or a read error.
+func readLine(r *bufio.Reader) (line, head, tail []byte, skipped bool, err error) {
 	for {
 		part, err := r.ReadSlice('\n')
-		if !skipped {
-			if len(line)+len(part) > historyMaxLine {
-				skipped, line = true, nil
-			} else {
-				line = append(line, part...)
-			}
+		if skipped {
+			tail = lastBytes(tail, part, historyTail)
+		} else if len(line)+len(part) > historyMaxLine {
+			skipped = true
+			all := append(line, part...)
+			head = append([]byte(nil), all[:min(len(all), historyHead)]...)
+			tail = lastBytes(nil, all, historyTail)
+			line = nil
+		} else {
+			line = append(line, part...)
 		}
 		if err == bufio.ErrBufferFull {
 			continue
 		}
-		return line, skipped, err
+		return line, head, tail, skipped, err
 	}
+}
+
+// lastBytes is the last n bytes of old followed by more.
+func lastBytes(old, more []byte, n int) []byte {
+	all := append(append([]byte(nil), old...), more...)
+	if len(all) > n {
+		all = all[len(all)-n:]
+	}
+	return all
 }
 
 func skipLine(r *bufio.Reader) {

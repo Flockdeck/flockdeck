@@ -86,6 +86,13 @@ type session struct {
 	// differs from id: a rewind keeps the id the client prompts with, and the
 	// conversation moves to a new claude session (rewind.go).
 	forkID string
+	// pendingSrc and pendingAt say that claude writes this session's file only
+	// when it gets its first message, so until then the session is the source
+	// session cut at pendingAt, and anything that forks it or goes back in it
+	// starts from the source (the uuids of the kept messages are the same in
+	// both). Both are empty once a message was sent, and for a session that was
+	// not made by a fork.
+	pendingSrc, pendingAt string
 	// cleared says claude moved the conversation to an id Flockdeck did not
 	// choose (/clear), so the uuids in turns name messages of another file.
 	cleared bool
@@ -173,6 +180,18 @@ func (s *server) openSession(m rpcMsg, kind string) {
 			s.replyErr(m.ID, &rpcErr{Code: codeInvalidParams, Message: "at is not a fork point"})
 			return
 		}
+		// A session that has had no message has no file to fork: fork what it
+		// was made from.
+		if src := s.session(forkOf); src != nil {
+			src.mu.Lock()
+			if src.pendingSrc != "" {
+				forkOf = src.pendingSrc
+				if at == "" {
+					at = src.pendingAt
+				}
+			}
+			src.mu.Unlock()
+		}
 	}
 	if resume {
 		u, err := uuid.Parse(p.SessionID)
@@ -190,6 +209,9 @@ func (s *server) openSession(m rpcMsg, kind string) {
 	}
 	ss := s.newSession(id, p.Cwd, p.McpServers)
 	ss.resume, ss.forkOf, ss.resumeAt = resume, forkOf, at
+	if fork {
+		ss.pendingSrc, ss.pendingAt = forkOf, at
+	}
 	var err error
 	if ss.mcpFile, err = writeMCPConfig(p.McpServers); err != nil {
 		s.replyErr(m.ID, &rpcErr{Code: codeInvalidParams, Message: err.Error()})
@@ -654,6 +676,7 @@ func (ss *session) runPrompt(r *promptReq) {
 	}
 	ss.mu.Lock()
 	ss.lastMsg = ""
+	ss.pendingSrc, ss.pendingAt = "", ""
 	ss.mu.Unlock()
 	err := ss.write(msg)
 	var res turnResult

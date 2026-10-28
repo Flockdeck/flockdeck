@@ -361,6 +361,27 @@ func TestARewindThatCannotStartClaudeLeavesTheSessionUsable(t *testing.T) {
 	}
 }
 
+// A claude that answers initialize wrongly after a rewind start ends the rewind
+// as a failure, closes the new claude, and leaves the session as it was.
+func TestARewindWhoseHandshakeFailsLeavesTheSessionUsable(t *testing.T) {
+	steps := append(twoTurns(),
+		expect(`"uuid":"`+tok3+`"`), emit(rewindAssistantLine(msg1)), emit(lResultOK))
+	h := newHarnessWith(t, mustExe(t), steps, envBadInit+"=cut")
+	sid := h.start()
+	stopReason(t, h.await(h.promptTurn(sid, "one", tok1)))
+	stopReason(t, h.await(h.promptTurn(sid, "two", tok2)))
+	r := h.call("_flockdeck/rewind", map[string]any{"sessionId": sid, "beforeTurn": tok2})
+	if r.Error == nil || r.Error.Code != codeInternal {
+		t.Fatalf("rewind = %s %+v", r.Result, r.Error)
+	}
+	if strings.Contains(r.Error.Message, "handshake") || strings.Contains(r.Error.Message, "claude") {
+		t.Errorf("the error says what claude did: %q", r.Error.Message)
+	}
+	if got := stopReason(t, h.await(h.promptTurn(sid, "three", tok3))); got != "end_turn" {
+		t.Errorf("stop after the failed rewind = %q", got)
+	}
+}
+
 // After /clear claude holds the conversation under a new id, and the uuids the
 // adapter holds name messages of the old file: no point is given.
 func TestNoPointAfterTheSessionWasCleared(t *testing.T) {
@@ -382,13 +403,48 @@ func TestNoPointAfterTheSessionWasCleared(t *testing.T) {
 	}
 }
 
-// A second rewind goes on from the conversation the first one made: claude is
-// resumed by the id the first moved it to, and the kept turns still name
-// messages of it.
-func TestASecondRewindResumesTheFirstRewindsConversation(t *testing.T) {
+// lastSessionID is the id the last claude in the log was given with --session-id.
+func lastSessionID(t *testing.T, h *harness) string {
+	t.Helper()
+	args := argsLines(h)
+	l := args[len(args)-1]
+	return strings.Fields(l[strings.Index(l, "--session-id ")+len("--session-id "):])[0]
+}
+
+func rewindEnvWithFiles(t *testing.T) *harness {
 	const msg3 = "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
-	h := newHarness(t, append(twoTurns(),
-		expect(`"uuid":"`+tok3+`"`), emit(rewindAssistantLine(msg3)), emit(lResultOK)))
+	steps := append(twoTurns(), expect(`"uuid":"`+tok3+`"`), emit(rewindAssistantLine(msg3)), emit(lResultOK))
+	return newHarnessWith(t, mustExe(t), steps, envState+"="+t.TempDir())
+}
+
+// A second rewind after a message was sent to the first one's conversation goes
+// on from it: claude is resumed by the id the first moved it to.
+func TestASecondRewindResumesTheFirstRewindsConversation(t *testing.T) {
+	h := rewindEnvWithFiles(t)
+	sid := h.start()
+	for _, p := range []struct{ text, tok string }{{"one", tok1}, {"two", tok2}, {"three", tok3}} {
+		stopReason(t, h.await(h.promptTurn(sid, p.text, p.tok)))
+	}
+	if r := h.call("_flockdeck/rewind", map[string]any{"sessionId": sid, "beforeTurn": tok3}); r.Error != nil {
+		t.Fatalf("first rewind = %+v", r.Error)
+	}
+	first := lastSessionID(t, h)
+	// The person sends a prompt again, so claude writes the conversation's file.
+	stopReason(t, h.await(h.promptTurn(sid, "one again", tok1)))
+	if r := h.call("_flockdeck/rewind", map[string]any{"sessionId": sid, "beforeTurn": tok2}); r.Error != nil {
+		t.Fatalf("second rewind = %+v", r.Error)
+	}
+	args := argsLines(h)
+	if want := "--resume " + first + " --resume-session-at " + msg1 + " --fork-session --session-id "; !strings.Contains(args[len(args)-1], want) {
+		t.Errorf("the second claude was started with %q, want %q in it", args[len(args)-1], want)
+	}
+}
+
+// A rewind or a fork before the first message to a rewound conversation cannot
+// resume it, since claude has not written its file: they start from what it was
+// cut from, at the same uuids.
+func TestARewindOrForkBeforeTheFirstMessageStartsFromTheSource(t *testing.T) {
+	h := rewindEnvWithFiles(t)
 	sid := h.start()
 	for _, p := range []struct{ text, tok string }{{"one", tok1}, {"two", tok2}, {"three", tok3}} {
 		stopReason(t, h.await(h.promptTurn(sid, p.text, p.tok)))
@@ -400,11 +456,22 @@ func TestASecondRewindResumesTheFirstRewindsConversation(t *testing.T) {
 		t.Fatalf("second rewind = %+v", r.Error)
 	}
 	args := argsLines(h)
-	if len(args) != 3 {
-		t.Fatalf("claude was started %d times: %q", len(args), args)
+	if want := "--resume " + sid + " --resume-session-at " + msg1 + " --fork-session --session-id "; !strings.Contains(args[len(args)-1], want) {
+		t.Errorf("the second rewind started claude with %q, want %q in it", args[len(args)-1], want)
 	}
-	first := strings.TrimSpace(args[1][strings.Index(args[1], "--session-id ")+len("--session-id "):])
-	if want := "--resume " + first + " --resume-session-at " + msg1 + " --fork-session --session-id "; !strings.Contains(args[2], want) {
-		t.Errorf("the second claude was started with %q, want %q in it", args[2], want)
+	moved := lastSessionID(t, h)
+	// The pane forks the conversation by the id it saved, at a point and whole.
+	for _, at := range []string{msg1, ""} {
+		params := map[string]any{"sessionId": moved, "cwd": h.cwd, "mcpServers": []any{}}
+		if at != "" {
+			params["_meta"] = map[string]any{"flockdeck.dev": map[string]any{"at": at}}
+		}
+		if r := h.call("session/fork", params); r.Error != nil {
+			t.Fatalf("fork at %q = %+v", at, r.Error)
+		}
+		args = argsLines(h)
+		if want := "--resume " + sid + " --resume-session-at " + msg1 + " --fork-session"; !strings.Contains(args[len(args)-1], want) {
+			t.Errorf("the fork at %q started claude with %q, want %q in it", at, args[len(args)-1], want)
+		}
 	}
 }

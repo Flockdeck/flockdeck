@@ -187,16 +187,22 @@ func (s *server) rewind(m rpcMsg) {
 	}
 
 	// claude's own id for the conversation now: the one it moved to after a
-	// rewind, else the one the session was opened with.
+	// rewind, else the one the session was opened with. A session that has had
+	// no message has no file yet (pendingSrc), and the rewind goes on from what
+	// it was made from.
 	src := old.id
 	old.mu.Lock()
 	if old.claudeID != "" {
 		src = old.claudeID
 	}
+	if old.pendingSrc != "" {
+		src = old.pendingSrc
+	}
 	old.mu.Unlock()
 	newID := uuid.NewString()
 	ns := s.newSession(old.id, old.cwd, old.mcp)
 	ns.forkOf, ns.forkID, ns.resumeAt, ns.turns, ns.allowed = src, newID, at, keep, allowed
+	ns.pendingSrc, ns.pendingAt = src, at
 	var err error
 	if ns.mcpFile, err = writeMCPConfig(old.mcp); err != nil {
 		fail(err.Error())
@@ -207,13 +213,19 @@ func (s *server) rewind(m rpcMsg) {
 		fail("start claude: " + err.Error())
 		return
 	}
-	ns.initialize()
+	_, herr := ns.initialize()
 	select {
 	case <-ns.dead:
 		ns.cleanup()
 		fail("claude exited before the session started")
 		return
 	default:
+	}
+	if herr != nil {
+		// As in openSession: the control protocol did not answer as expected.
+		ns.close()
+		fail("the control protocol handshake failed: " + herr.Error())
+		return
 	}
 	// The new claude has the defaults; the person's choices are put back.
 	if mode != ns.mode {
