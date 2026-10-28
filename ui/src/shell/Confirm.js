@@ -9,7 +9,7 @@ import { composing, LIST } from "./keys.js";
 /** Confirm asks title, lists words as sentences, and has a button each for going
  *  on (label) and for backing out. A word that is { name, cmd } is a command to be
  *  run: it is drawn whole, in a box of its own that wraps and scrolls, never cut. */
-export function Confirm({ title, words = [], label, onConfirm, onCancel }) {
+export function Confirm({ title, words = [], label, onConfirm, onCancel, disabled = false, note = "" }) {
   const cancel = useRef(null);
   useEffect(() => {
     const el = cancel.current;
@@ -32,8 +32,9 @@ export function Confirm({ title, words = [], label, onConfirm, onCancel }) {
       ${words.map((w, i) => (w && typeof w === "object"
         ? html`<p class="confirm-line" key=${i}>${w.name ? html`<span class="confirm-name">${w.name}</span>` : null}<code class="confirm-cmd">${w.cmd}</code></p>`
         : html`<p class="confirm-line" key=${i}>${w}</p>`))}
+      ${note ? html`<p class="confirm-line set-error" role="alert">${note}</p>` : null}
       <div class="confirm-foot">
-        <button type="button" class="dialog-btn dialog-btn--danger" onClick=${onConfirm}>${label}</button>
+        <button type="button" class="dialog-btn dialog-btn--danger" disabled=${disabled} onClick=${onConfirm}>${label}</button>
         <button type="button" class="dialog-btn" ref=${cancel} onClick=${onCancel}>Cancel</button>
       </div>
     </div>

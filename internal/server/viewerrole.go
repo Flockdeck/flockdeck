@@ -359,6 +359,11 @@ type accessState struct {
 	// approveFile the last read of the preferences file for the approval gate.
 	approveAsk  approveAsk
 	approveFile approveFileCache
+	// seen is the device ids of the last roster refresh. A turn-on that is being
+	// checked belongs to a device with no record yet, so a device dropped from
+	// the roster is found by comparing with this, not with the records.
+	seenMu sync.Mutex
+	seen   map[string]bool
 }
 
 // validDeviceID reports whether a string can be a device id. The relay's ids are
@@ -506,7 +511,10 @@ func (s *Server) forgetRolesExcept(devices []remote.Device) {
 	if len(devices) == 0 {
 		return
 	}
-	if s.anyApprovalMissingFrom(devices) {
+	// Any refresh that drops a device bumps the generation, whether or not the
+	// device was allowed to approve yet: an enable still being checked for it
+	// must not land after it was unpaired.
+	if s.rosterDropped(devices) || s.anyApprovalMissingFrom(devices) {
 		s.approveGen.Add(1)
 	}
 	ids := make([]string, len(devices))
@@ -520,6 +528,23 @@ func (s *Server) forgetRolesExcept(devices []remote.Device) {
 		}
 		return changed
 	}, nil)
+}
+
+// rosterDropped notes the roster and reports whether it lacks a device the last
+// one had.
+func (s *Server) rosterDropped(devices []remote.Device) bool {
+	s.seenMu.Lock()
+	defer s.seenMu.Unlock()
+	now := make(map[string]bool, len(devices))
+	for _, d := range devices {
+		now[d.ID] = true
+	}
+	dropped := false
+	for id := range s.seen {
+		dropped = dropped || !now[id]
+	}
+	s.seen = now
+	return dropped
 }
 
 // forgetRole drops the access record of a device that was unpaired.

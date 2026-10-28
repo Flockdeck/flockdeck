@@ -161,3 +161,38 @@ func TestRemoteApprovalsOffStillTellsTheInstanceWhenThePrefsCannotBeRead(t *test
 		t.Errorf("told %d times, output:\n%s", told, out)
 	}
 }
+
+func TestRemoteApprovalsOffDoesNotClaimOpenSocketsWhenNoInstanceCouldBeFound(t *testing.T) {
+	isolateKeys(t)
+	approvalPrefs(t)
+	out, err := runApprovals(t, func() (bool, error) { return false, errors.New("record unreadable") }, "off")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out, "sockets") || !strings.Contains(out, "whether flockdeck is running") {
+		t.Errorf("output:\n%s", out)
+	}
+}
+
+func TestRemoteApprovalsSaysWhenTheDamagedPrefsWereMovedAside(t *testing.T) {
+	for _, arg := range []string{"off", "status"} {
+		isolateKeys(t)
+		dir, err := store.Dir()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, "prefs.json"), []byte("{ not json"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		out, err := runApprovals(t, func() (bool, error) { return false, nil }, arg)
+		if err != nil || !strings.Contains(out, "was damaged") || !strings.Contains(out, "moved aside") {
+			t.Errorf("approvals %s: %v\n%s", arg, err, out)
+		}
+		if strings.Contains(out, "No device was allowed") {
+			t.Errorf("approvals %s gave the ordinary answer for a damaged file:\n%s", arg, out)
+		}
+	}
+}

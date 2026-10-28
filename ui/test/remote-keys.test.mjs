@@ -1404,3 +1404,34 @@ test("Remote: the approve wording is version 2 and says a tampered relay or page
   assert.match(APPROVE_ACK_WORDS, /tampered relay/);
   assert.doesNotMatch(APPROVE_ACK_WORDS, /The relay cannot read them\./);
 });
+
+test("Remote: Allow approving waits for a fresh challenge for this device and shows the host's refusal", () =>
+  withPage({ extra: { remote: TUNNEL } }, async (m) => {
+    await m.connect();
+    await m.openSettings("remote");
+    await m.push(APPROVE_ROSTER);
+    const row = (id) => m.container.findAll(".remote-row").find((r) => r.attributes["data-device"] === id);
+    const allow = () => m.byText(".confirm button", /^Allow approving$/);
+    const ch = (over) => ({ type: "approveChallenge", id: "d2", nonce: "n1", v: APPROVE_ACK_VERSION, text: APPROVE_ACK_WORDS, expiresMs: 120000, ...over });
+    await m.click(row("d2").find(".remote-approve"));
+    assert.ok(isDisabled(allow()), "no challenge has arrived: it cannot be pressed");
+    await m.push(ch({ id: "d3" }));
+    assert.ok(isDisabled(allow()), "a challenge for another device does not count");
+    await m.push(ch());
+    assert.equal(isDisabled(allow()), false);
+    await m.click(m.byText(".confirm button", /^Cancel$/));
+    // Reopened: the previous nonce was for the earlier question and may be spent.
+    m.clear();
+    await m.click(row("d2").find(".remote-approve"));
+    assert.ok(isDisabled(allow()), "the earlier nonce does not count for a new question");
+    await m.click(allow());
+    assert.deepEqual(m.sent("setDeviceApprove"), [], "a disabled button sends nothing");
+    // The host refuses (too many open): its words are shown and the button stays off.
+    await m.push(ch({ nonce: "", error: "Too many questions are open. Try again in a moment" }));
+    assert.match(m.container.find(".confirm").textContent, /Too many questions are open/);
+    assert.ok(isDisabled(allow()));
+    await m.push(ch({ nonce: "n2" }));
+    assert.equal(isDisabled(allow()), false);
+    await m.click(allow());
+    assert.deepEqual(m.sent("setDeviceApprove"), [{ cmd: "setDeviceApprove", id: "d2", on: true, nonce: "n2", v: APPROVE_ACK_VERSION }]);
+  }));

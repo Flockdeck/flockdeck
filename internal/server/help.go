@@ -152,6 +152,13 @@ func (s *Server) sendHello(c *controlClient) {
 		if ra := s.remoteAccess(); ra != nil {
 			msg.E2EPublicKey = ra.E2EPublicKey()
 		}
+		// This is the switch, not the gate. A control window reached through the
+		// relay has no key the handshake proved (that is the sealed sockets'), and
+		// asking the relay for one would make hello wait on the network, so the key
+		// is not checked here. It only tells the phone whether to open the approvals
+		// socket; the socket's own gate is mayApproveWithKey with the key it proved.
+		// The roster refresh clears a grant whose key changed (reconcileApprovals),
+		// so this goes false soon after.
 		msg.CanApprove = s.approveSwitchOn(c.device)
 		if artifactsOffered(s.prefs.RemoteArtifacts, c.device) {
 			msg.Artifacts = &artifactsCap{V: 1}

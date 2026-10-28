@@ -43,6 +43,9 @@ func remoteApprovalsCmd(args []string, rio remoteIO) error {
 		if readErr != nil {
 			return fmt.Errorf("the preferences could not be read: %w", readErr)
 		}
+		if damagedPrefsNote(p, rio) {
+			return nil
+		}
 		return approvalsStatus(p, rio)
 	}
 	// The running instance is told whether or not the file could be read or
@@ -60,6 +63,7 @@ func remoteApprovalsCmd(args []string, rio remoteIO) error {
 		}
 		switch {
 		case fileErr != nil:
+		case damagedPrefsNote(p, rio):
 		case len(was) > 0:
 			fmt.Fprintf(rio.out, "Approval switched off for %d device%s\n", len(was), map[bool]string{true: "", false: "s"}[len(was) == 1])
 		default:
@@ -69,6 +73,8 @@ func remoteApprovalsCmd(args []string, rio remoteIO) error {
 	if rio.stopApprovals != nil {
 		ran, err := rio.stopApprovals()
 		switch {
+		case err != nil && !ran:
+			fmt.Fprintln(rio.out, fitted(fmt.Sprintf("Could not find out whether flockdeck is running (%v). If it is, its own record may still allow approval until it is restarted", err)))
 		case err != nil:
 			fmt.Fprintln(rio.out, fitted(fmt.Sprintf("the running flockdeck could not be told (%v). Its own record may still allow approval and its open sockets stay open until it is restarted", err)))
 		case ran && fileErr != nil:
@@ -78,6 +84,17 @@ func remoteApprovalsCmd(args []string, rio remoteIO) error {
 		}
 	}
 	return fileErr
+}
+
+// damagedPrefsNote says so when reading the preferences found a damaged file,
+// which the read moves aside and replaces with defaults: no device is allowed
+// to approve, and every other setting in that file is gone from where it was.
+func damagedPrefsNote(p store.Prefs, rio remoteIO) bool {
+	if !p.AccessUnknown() {
+		return false
+	}
+	fmt.Fprintln(rio.out, fitted("The preferences file was damaged, so it was moved aside and kept as a copy beside it. No device is allowed to approve agent requests, and the other settings in it need to be restored from that copy"))
+	return true
 }
 
 // approvalsStatus says which devices the preferences file lets approve at the

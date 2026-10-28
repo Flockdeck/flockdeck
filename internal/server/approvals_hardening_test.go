@@ -465,3 +465,30 @@ func TestTheWordingDoesNotPromiseTheRelayCannotReadCards(t *testing.T) {
 		t.Error("a grant at wording version 1 still counts")
 	}
 }
+
+// An unpair that arrives as a roster refresh (not through forgetRole) while an
+// enable is being checked: the device has no record yet, so only the change in
+// the roster shows it went.
+func TestARosterRefreshThatDropsADeviceWinsOverAnEnableInFlight(t *testing.T) {
+	e := newApproveEnv(t)
+	e.srv.forgetRolesExcept([]remote.Device{{ID: "d1"}, {ID: "d2"}})
+	release, notes := slowEnable(t, e)
+	defer release()
+	e.srv.forgetRolesExcept([]remote.Device{{ID: "d2"}})
+	time.Sleep(300 * time.Millisecond)
+	release()
+	if n := <-notes; !n.Error || !strings.Contains(n.Text, "switched off") {
+		t.Errorf("the enable was answered %+v, want it refused as superseded", n)
+	}
+	stillOff(t, e.srv, "d1", "the roster dropped the device during the enable")
+}
+
+func TestARosterRefreshThatKeepsEveryDeviceDoesNotBump(t *testing.T) {
+	e := newApproveEnv(t)
+	e.srv.forgetRolesExcept([]remote.Device{{ID: "d1"}, {ID: "d2"}})
+	before := e.srv.approveGen.Load()
+	e.srv.forgetRolesExcept([]remote.Device{{ID: "d1"}, {ID: "d2"}, {ID: "d3"}})
+	if e.srv.approveGen.Load() != before {
+		t.Error("a refresh that only added a device bumped the generation")
+	}
+}

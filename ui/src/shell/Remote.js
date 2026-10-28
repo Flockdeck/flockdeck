@@ -168,12 +168,19 @@ export function Remote({ status, roster, challenge = null, pair, outcome, remote
   const challengeRef = useRef(challenge);
   challengeRef.current = challenge;
   // The words are the host's own when it has answered; this page's copy until then.
-  const approveWords = (id) => (challenge && challenge.id === id && challenge.text ? challenge.text : APPROVE_ACK_WORDS);
+  // The answer to this question's own request for a challenge: for this device, newer than the one the page held when the
+  // question opened (that one was spent or is another question's), with a nonce and no error.
+  const freshChallenge = (q, c) => !!q && !!q.device && !!c && c.id === q.device.id && (c.seq || 0) > (q.device.base || 0);
+  const approveReady = (q, c) => freshChallenge(q, c) && typeof c.nonce === "string" && c.nonce !== "" && !c.error;
+  const approveWords = (q) => (approveReady(q, challenge) && challenge.text ? challenge.text : APPROVE_ACK_WORDS);
   const confirmFor = (at) =>
     asking && asking.at === at
-      ? html`<${Confirm} title=${asking.title} words=${at.startsWith("approve:") ? [approveWords(at.slice(8))] : asking.words} label=${asking.label}
+      ? html`<${Confirm} title=${asking.title} words=${at.startsWith("approve:") ? [approveWords(asking)] : asking.words} label=${asking.label}
+          disabled=${at.startsWith("approve:") && !approveReady(asking, challenge)}
+          note=${at.startsWith("approve:") && freshChallenge(asking, challenge) ? challenge.error || "" : ""}
           onConfirm=${() => {
             const q = asking;
+            if (q.at.startsWith("approve:") && !approveReady(q, challengeRef.current)) return;
             setAsking(null);
             if (changed(q)) {
               setProblem("Access for " + q.device.name + " changed while you were deciding. Nothing was sent. Look at it again.");
@@ -339,7 +346,7 @@ export function Remote({ status, roster, challenge = null, pair, outcome, remote
                   if (!go(challengeCommand(d.id))) return;
                   ask("approve:" + d.id, "Let " + name + " approve agent requests?", [approveWords(d.id)], "Allow approving", () => {
                     if (!go(approveCommand(d.id, true, challengeRef.current))) setProblem("The desktop has not sent its confirmation for " + name + " yet. Nothing was sent. Try again.");
-                  }, { ...about, key: d.approveKey });
+                  }, { ...about, key: d.approveKey, base: challenge ? challenge.seq || 0 : 0 });
                 }}>Approve: off</button>`}
         <button type="button" class="dialog-btn" onClick=${() => setRenaming({ kind: "device", id: d.id, value: d.name })}>Rename</button>
         <button type="button" class="dialog-btn dialog-btn--danger" aria-label=${"Unpair " + name}
