@@ -4,6 +4,22 @@ Written on 28 Oct 2026 against origin/main 0f97bdee (through #731). Design only;
 
 What I read: `internal/server/push.go`, `relayscrub.go`, `viewerrole.go`, `permission_answer.go`, `structured.go`, `structuredrewind.go`, `artifacts_socket.go`, `artifacts_consent.go`, `artifacts_audit.go`, `internal/e2e/e2e.go`, `internal/remote/webpush.go`, `internal/store/deviceaccess.go`, `docs/structured-pane.md`, `ui/help/pages/remote.md`, `api/README.md`, and the card code in `internal/acp/bridge` and `claudeacp/perm.go`. Not available here: the relay (`flockdeck-relay`) and the phone app (`flockdeck-remote`). Everything this page says about them comes from comments and docs in this repo, and is marked where it matters.
 
+## Decisions
+
+Made on 28 Oct 2026, after the first version of this page. The user decided 1 to 4; the project manager (flockdeck-70) decided the rest. Where the text below was written before them, it has been changed to match.
+
+| # | Question | Decision |
+| --- | --- | --- |
+| 1 | Transport | The sealed `/ws/approvals` socket, and a device must have a verified key before it can approve. No approval commands on the control socket. |
+| 2 | Plans and edits | Commands and edits can be allowed. Plans, questions, clipped or redacted text, and agents on foreign adapters are Deny only, or desk only where there is nothing to deny (plans and questions). |
+| 3 | Default | Off for every device, existing full devices included. Turned on per device at the desk. |
+| 4 | Audit log and unanswerable waits | The log keeps a hash and the length of the shown text, not the text. A wait the phone cannot answer is still pushed, with "Answer on the desktop". |
+| 5 | Agents | Allow only for the Claude and Codex adapters. opencode and Gemini: Deny only. |
+| 6 | Where the UI goes | The phone app (`flockdeck-remote`) only. The desk-origin interface on a phone is unchanged and keeps saying "details on the desktop". |
+| 7 | Numbers | 700 ms minimum display time and the rate limits (burst of 5, then 1 a second, three refusals close the socket) stay as starting values, to be tuned in the live check. |
+
+One reading of decision 4 is mine and needs confirming: I take "a wait the phone cannot answer" to include a structured wait on a device that has approvals off, so every device that gets pushes at all is told of a structured wait, and only a device with approvals on and an answerable card is told "Allow or deny". The first version of this page pushed structured waits to approval-enabled devices only.
+
 ## Summary
 
 Carry approvals over a new socket, `/ws/approvals`, that is end-to-end encrypted and mandatory-sealed like `/ws/artifacts`, not over the control socket. Send a push for a structured wait with fixed wording. The phone can answer allow once or deny on a command or an edit, on panes run by Flockdeck's own Claude and Codex adapters, and nothing else. It is off for every device until the user turns it on at the desk, for that device, after verifying its key.
@@ -48,10 +64,10 @@ Fixed wording, built from two things only: the pane's label and, unless Anonymou
 
 Details:
 
-- The pane label is `p.Name`, the one terminal pushes already use. `LabelAuto` labels are made from the task and must not be used; `scrubPaneNames` already treats them that way. Unsure whether `p.Name` can ever be task-derived; T4 checks.
+- The pane label is `p.Name`, the one terminal pushes already use. `LabelAuto` labels are made from the task and must not be used; `scrubPaneNames` already treats them that way. `p.Name` is the name given at creation or the directory's base name, not the task (R6); it is capped and redacted like `scrubPaneNames` does.
 - The wait is pushed on the existing timer and rules: the delay (30 s default), one push a minute, the desk-in-use check, `phoneLook`, per-pane mute. Nothing new there.
-- Structured waits are pushed only to devices with approvals on for them. Terminal waits go to all devices as now. `PushTo` already takes a per-device filter (`mayPush`); this needs a second filter keyed on the kind of wait, so one push call may need splitting by audience. Unsure how `PushTo` batches; T4 reads it before sizing.
-- No Approve and Deny buttons on the notification. A lock-screen tap would approve something the person has not seen. A tap opens the approvals page, `/d/HOST/PANE?approve`.
+- Every device that gets pushes is told of a structured wait (decision 4). Only a device with approvals on, and a wait whose card the phone can answer, gets "Allow or deny"; every other case gets "Answer on the desktop". Two audiences means two bodies. `PushTo` seals one `Notification` for every device its filter allows, so T4 either calls it twice with two filters or changes it to take a function from device id to notification. See research item R2.
+- No Approve and Deny buttons on the notification. A lock-screen tap would approve something the person has not seen. A tap opens the pane's page, `/d/HOST/PANE`, the only target the service worker takes (R7), and the pane page shows the card.
 
 ### b. What the phone can answer
 
@@ -97,7 +113,7 @@ Replay and stale protection, in layers:
 
 - The channel. Sealed frames carry a counter that must go up by exactly one (`internal/e2e`), so a captured frame cannot be replayed on the same socket, and the session keys are per-socket, so it cannot be replayed on another.
 - `offer`. A random 128-bit value the host makes for each card it shows on this socket. A decision names an offer the host made on this socket for the card now pending; it is used once. A decision with an unknown or used offer counts toward the abuse limit, as `artifactUnknownMax` does.
-- `token`. The pane runtime's identity, like `structuredRewind`'s `rewindToken` (`seq.epoch`). The card `seq` is per bridge, so after a pane restart a stale answer could carry a `seq` and `requestId` that match a different new card. The token changes on restart and on rewind, so it cannot. Whether `RewindToken` itself is enough, or the token should also cover a restart that keeps the runtime, needs a look at `internal/structured/rewind.go`; T2 settles it.
+- `token`. The pane runtime's identity, `Runtime.RewindToken()` (`seq.epoch`), as `structuredRewind` uses it. The card `seq` is already unique across panes and restarts within one run of Flockdeck (a process-wide counter with a random tag in the high bits, `nextCardSeq`), so the token is a second lock and not the only one. It changes when the pane restarts (a restart makes a new `Runtime` with a new `seq`) and when the conversation is rewound. See research item R4.
 - `cardSeq` and `requestId`, checked inside the existing atomic `AnswerPermission`, so two answers (phone and desk, or two phones) cannot both win.
 - A decision arriving less than 700 ms after the card was sent to that socket is refused. This stops a stray tap on a card that appeared under the thumb. Unsure it is worth a rule; it is cheap.
 - Rate: per device, a burst of 5 decisions and then 1 a second; 3 refusals in a row close the socket and put a notice on the desk. The numbers are a guess and want the live check.
@@ -111,7 +127,7 @@ The desk's part: turning a device on shows fixed text (a wording version, as `ar
 
 Carries: one more WebSocket path per device, like `/ws/artifacts`. Whether the relay routes by an allowlist of paths is something I could not check from here. If it does, the relay needs the new path added; if it proxies any `/ws/*`, it needs nothing. Pushes need no relay change: the sealed per-device messages are already opaque to it.
 
-Learns, beyond today: that a device used the approvals socket, and when; the size of each sealed frame; and the timing of frames, which shows roughly when a decision was made. It does not learn which pane, what was asked, or what was answered. Frame size would give away roughly how long a command is. Padding frames to a fixed bucket (the push path pads to 1,024 bytes, `pushRecord`) would close that; I do not know whether the `e2e` frame format has room for it, and T3 should check.
+Learns, beyond today: that a device used the approvals socket, and when; the size of each sealed frame; and the timing of frames, which shows roughly when a decision was made. It does not learn which pane, what was asked, or what was answered. Frame size would give away roughly how long a command is. Padding closes that, and it needs no change to the `e2e` frame format: `Session.Seal` takes any plaintext, so the application pads inside it (a JSON field of filler up to a 1,024-byte bucket, as the push path does with `pushRecord`) and strips it on the way in. See research item R3.
 
 The control-socket alternative would have the relay learn the pane, the card, the tool and the decision, and let it forge one. That is the difference that matters.
 
@@ -121,9 +137,9 @@ Does it learn less than for a terminal pane today? About the same. A terminal pr
 
 A new file, `remote-approvals.log`, in the state folder, using the artifacts audit machinery (`auditLog`, 1 MiB, three files, owner-only). One JSON line for: socket opened, socket refused (with reason), card shown, decision made, decision refused (with reason), and each desk change (approvals on or off for a device, global switch). Fields: time, event, device id, device name, pane id, pane name (cleaned), card seq, decision (`allow_once` or `reject_once`), tool kind, the length of the text, and a SHA-256 of the text that was shown.
 
-It does not store the command or path. Redaction is best-effort, and a log that keeps commands keeps whatever it missed. The hash lets someone with the conversation record check that the card they see is the one that was approved. Unsure whether the conversation record holds the card text and the outcome; if it does not, the hash proves less than I would like, and the log may need the redacted text after all (decision 6).
+It does not store the command or path. Redaction is best-effort, and a log that keeps commands keeps whatever it missed. The hash lets someone with the conversation record check that the card they see is the one that was approved. Unsure whether the conversation record holds the card text and the outcome; if it does not, the hash proves less than I would like, and the user may want to revisit decision 4. See research item R5.
 
-The desk side also gets a visible trace: the card on the desk, if it is open, changes to "Allowed from PHONE NAME at TIME" and a notice appears. Unsure how much of this the bridge's conversation entries support; T6.
+The desk side also gets a visible trace: the card on the desk, if it is open, changes to "Allowed from PHONE NAME at TIME" and a notice appears. How much of this the bridge's conversation entries support is open (R5); T5.
 
 The existing desk answer logs to stderr only (`permissionLog`). It is not part of this work, but a phone approval log with no desk equivalent looks lopsided. Worth a line in the review.
 
@@ -140,7 +156,7 @@ The approvals page (an extension of the phone app's pane list; the app is in `fl
 - Offline: buttons disabled with "Not connected". No retries on the user's behalf.
 - Settings: on the phone, a line saying whether approvals are on for this device and "turn on at your desktop". It cannot turn itself on.
 
-The full interface reached through the relay (the desk-origin UI in `ui/`) needs a small change as well: today its cards say "details on the desktop" for a relay window. Whether the desk-origin UI also gets the approvals page, or only the phone app does, is decision 7.
+The full interface reached through the relay (the desk-origin UI in `ui/`) is not changed (decision 6): its cards keep saying "details on the desktop" for a relay window.
 
 ## Tests and live check
 
@@ -170,46 +186,41 @@ Live check, by hand, with a real phone and a real relay (not the shared producti
 10. Run the same on a phone with the key not verified; it must be refused.
 11. Isolate the test instance from the real config dir first (see the notes on test isolation on Windows).
 
+## Research list
+
+What the first version of this page could not answer, checked on 28 Oct 2026 against this repo and the other checkouts on this machine. Under `C:\Users\jmwri\Documents\repos` there is no `flockdeck-relay`. There are two checkouts of `flockdeck-remote` (the phone app): `flockdeck-remote-fix-review2` (branch `fix/streaming-reply-and-detail-timeout`, c21e83b, 22 Sep 2026) and `flockdeck-remote-review-2` (a762a68, 21 Sep 2026). Both are review copies and a month behind. They were read only. Anything about the relay below is inferred from the desktop's side of it.
+
+| # | Question | Answer | Still needs |
+| --- | --- | --- | --- |
+| R1 | Does the relay carry `/ws/approvals`, or does it allowlist paths? | Not answerable here. The desktop trusts the headers the relay sets (`Flockdeck-Remote-Device`, `-Device-Name`, `-Origin`, and `fromRemote`) and answers a request without them with 404 or 403. The phone app opens `/h/HOST/ws/control` and `/h/HOST/ws/pty`; it has no client for `/ws/artifacts` in either checkout, so nothing on this machine shows the relay passing that path. | The relay repo, which is not on this machine. Ask whoever has it: does it proxy any `/h/HOST/ws/*`, and does it log paths, frame sizes or timing? Affects T7 and live check step 9. |
+| R2 | Can `PushTo` send different content to different devices? | Not as it is. `PushTo(ctx, n, allow)` seals one `Notification` for each device `allow` says yes to. The relay call (`POST /api/v1/host/notify`) already takes one sealed message per device, so the relay is not the limit. Two audiences can be done with two `PushTo` calls (two device lookups, two posts) or by changing `PushTo` to take `func(deviceID) (Notification, bool)`. The second is cleaner and is a desktop-only change. `maxPushDevices` (32) applies per call. | Nothing from other repos. Decided in T4. |
+| R3 | Can the e2e frames be padded? | Yes, in the application. A frame is a version byte, an 8-byte counter and AES-GCM over the plaintext (`Session.Seal` and `Open` in `internal/e2e`); the plaintext is whatever the caller passes. Padding is a filler field inside the JSON, stripped on receipt. The phone app's `e2e.js` is a port of the same scheme, so the phone strips it the same way. No format change on either side. | Nothing. |
+| R4 | Does `RewindToken` change when a pane restarts? | Yes. It is `"<runtime seq>.<epoch>"`. A restart makes a new `Runtime` through `structured.Start` (`internal/workspace/structuredpane.go:124`), which takes the next number from a process-wide counter, and a rewind raises the epoch. Also, the card `seq` is not per bridge as the first version said: `nextCardSeq` is one process-wide counter with a random tag in the high bits, so card seqs are unique across panes and restarts. Neither survives a restart of Flockdeck itself, but then every socket is gone too. | Nothing. |
+| R5 | Does the conversation record keep a permission card and its outcome? | Not found in the structured path I read: `bridge` keeps the card as the pending one and closes it (`closeCard`), and `permissionLog` writes the answer to stderr. I did not find a conversation entry for the card or its answer. If there is none, the audit hash cannot be checked against anything later. | A read of `internal/acp/bridge` entries and `internal/record` by whoever builds T5, before the log line's format is fixed. Decision 4 stands; this is its cost. |
+| R6 | Is `p.Name` derived from the task? | No. `newPane` sets `Name` to the name it was given or, if empty, `filepath.Base(cwd)`. The task-derived value is `Label` with `LabelAuto`, which the push does not use. `Name` can still hold something sensitive (a directory named after a customer), so the push uses the same `capName` and redaction as `scrubPaneNames`. | Nothing. |
+| R7 | Can a push tap reach the approvals page? | The service worker takes only `/d/HOST` or `/d/HOST/PANE` as a tap target (`tapURL` in `web/app/sw.js`) and shows no notification actions. `/d/HOST/PANE?approve`, as this page said earlier, would be rejected by that pattern. The tap goes to the pane page, and the pane page shows the card. `answer.js` already draws Yes and No for terminal panes; the approvals card is a separate piece beside it. | Phone app change, T6. |
+| R8 | Can the phone app run a second sealed socket with its device key? | `e2e.js` in the phone app and `ui/src/e2e.js` here both say the long-term key is a non-extractable WebCrypto key in IndexedDB, and a handshake runs per socket, as the terminal does. I did not read the phone app's handshake code closely. | T6 author reads `web/app/e2e.js` and `terminal.js` first. |
+
 ## Staged tasks
 
-Sizes: S under half a day, M about a day, L two or more days.
+Sizes: S under half a day, M about a day, L two or more days. "Needs" means the task cannot be merged before the one it names.
 
-| # | Task | Size | Depends on |
-| --- | --- | --- | --- |
-| T1 | Prefs and desk: per-device `approve` flag, global off, acknowledgement version, `setDeviceApprove`, `setApprovalsOff`, `flockdeck remote approvals ...`, fields in `remoteDevices` and `hello`, catalog and access table. API 1.26. | M | none |
-| T2 | Card projection and decision mapping: pure functions with the table above, adapter identity on `StructuredPane`, the token, bidi stripping, the redaction rule. Heavy table and fuzz tests. | M | none |
-| T3 | `/ws/approvals`: handshake reuse, gate, offers, `approvalList`, `approvals`, `approvalDecide`, `approvalResult`, limits, abuse closing, padding if possible. | L | T1, T2 |
-| T4 | Push for structured waits: lift the `p.Sess == nil` skip, per-device filtering, the four wordings, plan and question variants, tests. | M | T1 (answerability from T2) |
-| T5 | Audit log, desk notice, "Allowed from PHONE" on the card. | S | T3 |
-| T6 | Phone UI in `flockdeck-remote`: approvals page, card, offline and stale states, tap from push. Different repo; size is a guess. | M | T3 |
-| T7 | Relay: carry the new path if it allowlists paths. Different repo; may be zero. | S | T3 |
-| T8 | Docs: `structured-pane.md` (the relay lines that stop being true), `remote.md` (what the relay can see, the new switch), parity audit and matrix row 8, help page. | S | T3, T4 |
-| T9 | Live check, steps 1 to 11, written up. | S | T3 to T7 |
+T1 and T2 share no files and can start the same day, in two worktrees.
 
-T4 should not ship before T3. A push that sends the user to a page where they cannot answer is the reason #378 skipped structured panes.
+| # | Task | Size | Needs | API minor |
+| --- | --- | --- | --- | --- |
+| T1 | Prefs and desk switch: a per-device `approve` flag in `store.DeviceAccess` (off when absent, so existing full devices are off), the acknowledgement version, `setDeviceApprove` and `setApprovalsOff` (`accessFull`, refused to relay windows), the verified-key requirement when turning one on, `flockdeck remote approvals on\|off\|status`, the fields in `remoteDevices` and `hello`, the entries in the access table and `api/catalog.json`, the desk dialog. A reader `mayApprove(deviceID)` that T3 and T4 call. | M | none | 1.26 |
+| T2 | Card projection and decision mapping: a pure function from a pending card and the pane's adapter to `{kind, text, lines, canAllow, why}`, the `allow` and `reject` mapping, the token, the redaction and clip rules, bidi and control character stripping, adapter identity added to `StructuredPane`. Table and fuzz tests. No socket, no prefs. | M | none | none |
+| T3 | `/ws/approvals`: handshake reuse, the gate (key on both sides, verified, `mayApprove`, global switch, ack version, rechecked per frame), `approvalList`, `approvals`, `approvalDecide`, `approvalResult`, offers, rate limits, abuse closing, padding, the audit log file and its refusal lines. | L | T1, T2 | none if the sealed frames stay out of the catalog; 1.27 if a `sockets` section is added to it |
+| T4 | Push for structured waits: lift the `p.Sess == nil` skip, two audiences, the wordings, plan and question variants, `PushTo` changed per R2, tests on wording and on the absence of card text. | M | T1, T2 | none |
+| T5 | Desk trace: "Allowed from PHONE" on the desk card and a notice, the decision lines in the log. Depends on R5. | S | T3 | a later minor: a new field on the `structured` message |
+| T6 | Phone app (`flockdeck-remote`): approvals page and card, sealed socket client with the padding strip, offline and stale states, the service worker accepting the tap target (R7), tests. A different repo and release; the size is a guess. | M | T3's frame shapes (this page gives them, so it can be coded before T3 merges) | none |
+| T7 | Relay: carry `/ws/approvals` if it allowlists paths (R1). May be nothing. | S | T3 | none |
+| T8 | Docs: `structured-pane.md`, `remote.md` (what the relay can see, the switch), parity audit and matrix, the help page. Each says the opposite today. | S | T3, T4 | none |
+| T9 | Live check, steps 1 to 11, written up, with the numbers tuned (decision 7). | S | T3, T4, T6, T7 | none |
 
-If the schedule needs a smaller first cut: T1, T2, T3 and T4 with Deny-and-Allow for `execute` cards only. Edits can follow.
+Order that works: T1 and T2 in parallel; then T3 and T4 in parallel (both use T1's `mayApprove` and T2's projection, in different files); then T5 to T8; T9 last. T4 must not reach a release before T3: a push that sends the user to a page where they cannot answer is the reason #378 skipped structured panes.
 
-## Decisions for the user
+API minors: 1.26 is T1's. A later task may need a bump: T5 for sure, T3 if the catalog describes sealed frames. Minors are taken at merge time by whoever merges second, so two branches do not both claim 1.27. `TestAPICatalogIsCurrent` fails if the catalog file and the tables disagree.
 
-1. Transport. Recommended: the sealed `/ws/approvals` socket, which costs an L task and needs the key to be verified before a device may approve. The alternative is new commands on the control socket, which is a few days faster but means the relay reads the command and could forge an approval, and I do not recommend it. Is requiring a verified key right, given that most phones will not have been verified?
-2. Plans. Recommended: desk only in the first version. Or: show the plan in full on the phone, which is a bigger UI task and needs markdown handling that cannot load images or links.
-3. Edits. Recommended: allow with the path and line counts, no diff. Alternative: commands only in v1, edits deny-only. Commands only is safer and smaller.
-4. Agents. Recommended: allow only for Claude and Codex, because Flockdeck wrote their option ids. Is deny-only for opencode and Gemini acceptable while they are not the default?
-5. Defaults. Recommended: off for every device, including existing full devices, switched on per device at the desk. Alternative: on by default for full devices, which matches how roles work today but gives every already-paired phone a new power without a prompt.
-6. Audit. The log keeps a hash and the length, not the text. Is that enough, or should it keep the redacted text for the period of the log's rotation? I could not tell whether the conversation record holds the card.
-7. Where the UI goes. Phone app only, or the desk-origin interface on a phone as well? The second is more work and doubles what has to be reviewed.
-8. Push wording for a wait the phone cannot answer. Recommended: still push, saying "Answer on the desktop". Or no push, as today. A user who is away may prefer to know.
-9. Minimum display time (700 ms) and the rate limits. I put numbers in, none are measured.
-
-## What I am not sure of
-
-- Whether the relay allowlists paths, and whether it logs frame sizes or timing.
-- Whether `PushTo` can send different messages to different devices in one call, or the push must be split.
-- Whether the e2e frame format can be padded.
-- Whether `RewindToken` changes whenever a pane's bridge restarts and card seq resets. If it does not, a second token is needed.
-- Whether `p.Name` can be derived from the task.
-- Whether the conversation record keeps a permission card and its outcome.
-- How the phone app is structured, and whether the desk-origin UI shares code with it. I did not see `flockdeck-remote`.
-- That a real Claude card ever has more than one `allow` option, or an `allow` that is not once. The adapters in this repo use `allow` and `reject` as constants; no real claude was run for this page.
-- The rate and timing numbers.
+A smaller first cut, if the schedule needs one: T1 to T4 with `execute` cards only, edits following.
