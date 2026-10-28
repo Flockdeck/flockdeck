@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/jmwri/flockdeck/internal/acp/acptest"
 	"github.com/jmwri/flockdeck/internal/record/schemacheck"
 	"github.com/jmwri/flockdeck/internal/session"
 	"github.com/jmwri/flockdeck/internal/structured"
@@ -71,5 +73,68 @@ func TestStructuredSignInRefusesAPaneThatIsNotWaitingForALogin(t *testing.T) {
 	raw := structuredReply(t, e.srv, e.c, command{Cmd: "structuredSignIn", Req: "s2", ID: "nope"}, "teamResult")
 	if !strings.Contains(string(raw), structuredNotPane) {
 		t.Errorf("a pane that is not there: %s", raw)
+	}
+}
+
+// A sign-in that ends well restarts the pane: the runtime that waited for the
+// login is closed and another one holds the pane.
+func TestAFinishedSignInRestartsThePane(t *testing.T) {
+	e := newStructuredEnvArgs(t, "plain", acptest.ArgAuth+"prompt", acptest.ArgSignIn+"ok")
+	old, _ := ask(e.srv, func() *structured.Runtime { return e.ws.StructuredRuntime(e.child) })
+	if old == nil {
+		t.Fatal("no runtime")
+	}
+	if err := old.Send("plain"); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(30 * time.Second)
+	for old.Snapshot().Phase != structured.PhaseSetup {
+		if time.Now().After(deadline) {
+			t.Fatalf("phase %q, want the setup state", old.Snapshot().Phase)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	raw := structuredReply(t, e.srv, e.c, command{Cmd: "structuredSignIn", Req: "r1", ID: e.child}, "teamResult")
+	var res teamResultMsg
+	if err := json.Unmarshal(raw, &res); err != nil || !res.OK {
+		t.Fatalf("structuredSignIn: %s", raw)
+	}
+	for {
+		cur, _ := ask(e.srv, func() *structured.Runtime { return e.ws.StructuredRuntime(e.child) })
+		if cur != nil && cur != old {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the pane was not restarted after the sign-in ended")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// A sign-in that fails, or is cancelled, leaves the pane as it was.
+func TestAFailedSignInLeavesThePane(t *testing.T) {
+	e := newStructuredEnvArgs(t, "plain", acptest.ArgAuth+"prompt", acptest.ArgSignIn+"fail")
+	old, _ := ask(e.srv, func() *structured.Runtime { return e.ws.StructuredRuntime(e.child) })
+	_ = old.Send("plain")
+	deadline := time.Now().Add(30 * time.Second)
+	for old.Snapshot().Phase != structured.PhaseSetup {
+		if time.Now().After(deadline) {
+			t.Fatal("no setup state")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	structuredReply(t, e.srv, e.c, command{Cmd: "structuredSignIn", Req: "r1", ID: e.child}, "teamResult")
+	for {
+		if si := old.Snapshot().SignIn; si != nil && si.State == structured.SignInFailed {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("no failed state")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	time.Sleep(500 * time.Millisecond)
+	if cur, _ := ask(e.srv, func() *structured.Runtime { return e.ws.StructuredRuntime(e.child) }); cur != old {
+		t.Error("the pane was restarted after a failed sign-in")
 	}
 }

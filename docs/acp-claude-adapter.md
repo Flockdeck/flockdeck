@@ -359,12 +359,25 @@ Rules the code keeps (tests in `internal/acp/agentlogin`, `claudeacp/login_test.
 - Desk only, like every structured command: refused to a window reached through the relay and to a
   viewer. Nothing is stored by Flockdeck.
 
-Not verified: what `claude auth login` prints when its output is not a terminal. The tests use a
-fake that prints the address on a line. If the real command prints no address when piped, the pane
-shows "starting" until the person cancels or the time runs out, and the manual route (sign in with
-`claude` in a terminal, then restart) still works. Check once with a real login, which was not done
-for this change; the check is to run the adapter against a signed-out home and watch for
-`signIn.url`.
+Checked live on 28 Oct 2026 against claude 2.1.312, signed out, with the output piped as the
+runner pipes it (stdin, stdout and stderr all pipes). The home, `CLAUDE_CONFIG_DIR`, `APPDATA` and
+`LOCALAPPDATA` were a throwaway folder, no sign-in was completed and the address was not opened:
+
+- The address is printed on stdout, about 0.2 seconds after start, with no terminal needed. Nothing
+  went to stderr.
+- It is two plain lines: `Opening browser to sign in…` and `If the browser didn't open, visit: <address>`.
+  No escape sequences, no OSC 8 link, no wrapping; about 500 bytes, well inside the 2048 byte cap.
+- The host was `claude.com`, which the allowlist has.
+- claude opens the system browser itself. It honours `BROWSER`: with `BROWSER` set to a program
+  that does nothing, that program was run and no browser started. The adapter does not set it, so on
+  a real run the browser opens by itself and the link on the card is the fallback.
+- The command keeps running, waiting for the browser's callback, and does not read stdin. It was
+  ended with its tree after 15 seconds; no process was left.
+
+What is still not known: that the command exits with status 0 only after a completed sign-in, and
+what it does with an expired or abandoned one. Both are read from the exit status, and the pane
+restarts and asks again if the login is not there.
+
 ## The catalog entry
 
 `claude-acp` ("Claude Code (structured)", in `internal/agent/builtin.go`) is the

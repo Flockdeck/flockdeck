@@ -125,6 +125,10 @@ const (
 	ArgShape  = "--acptest-shape="
 	ArgSet    = "--acptest-set="
 	ArgSetLog = "--acptest-setlog="
+	// ArgAuth and ArgSignIn are WithAuth and WithSignIn (the mode; the address is
+	// the default) for an agent started with ArgAgent.
+	ArgAuth   = "--acptest-auth="
+	ArgSignIn = "--acptest-signin="
 )
 
 // argSleeper makes a process do nothing for a minute. The grandchild
@@ -140,6 +144,14 @@ func RunIfAgent() bool {
 		if a == argSleeper {
 			time.Sleep(time.Minute)
 			return true
+		}
+	}
+	for _, a := range os.Args[1:] {
+		if v, ok := strings.CutPrefix(a, ArgAuth); ok {
+			os.Setenv(envAuth, v)
+		}
+		if v, ok := strings.CutPrefix(a, ArgSignIn); ok {
+			os.Setenv(envSignIn, v)
 		}
 	}
 	asked := os.Getenv(envAgent) == "1"
