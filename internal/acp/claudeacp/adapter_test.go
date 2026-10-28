@@ -21,7 +21,7 @@ func TestSessionNew(t *testing.T) {
 		AuthMethods []any `json:"authMethods"`
 	}
 	_ = json.Unmarshal(r.Result, &init)
-	if init.ProtocolVersion != 1 || init.AgentCapabilities.LoadSession || !init.AgentCapabilities.PromptCapabilities["image"] || init.AuthMethods == nil {
+	if init.ProtocolVersion != 1 || !init.AgentCapabilities.LoadSession || !init.AgentCapabilities.PromptCapabilities["image"] || init.AuthMethods == nil {
 		t.Errorf("initialize = %s", r.Result)
 	}
 
@@ -109,7 +109,7 @@ func TestSessionNewRefusals(t *testing.T) {
 	})
 	t.Run("unknown method", func(t *testing.T) {
 		h := newHarness(t, nil)
-		r := h.call("session/load", map[string]any{})
+		r := h.call("session/fork", map[string]any{})
 		if r.Error == nil || r.Error.Code != codeMethodNotFound {
 			t.Errorf("got %+v", r)
 		}
@@ -752,7 +752,7 @@ func TestSessionResume(t *testing.T) {
 		} `json:"agentCapabilities"`
 	}
 	_ = json.Unmarshal(r.Result, &init)
-	if _, ok := init.AgentCapabilities.SessionCapabilities["resume"]; !ok || init.AgentCapabilities.LoadSession {
+	if _, ok := init.AgentCapabilities.SessionCapabilities["resume"]; !ok || !init.AgentCapabilities.LoadSession {
 		t.Errorf("initialize = %s", r.Result)
 	}
 

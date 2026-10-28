@@ -437,8 +437,11 @@ session before it makes a new one:
   `BeginReplay` empties the transcript first, a replay update outside that window is dropped, and a
   replay is held to the entry and text limits with prompts counted (a hostile replay cannot grow the
   transcript without bound). A tool the old session left running is shown with no status.
+  The Claude adapter does this too: it reads claude's stored session file and replays it
+  (`docs/acp-claude-adapter.md`, Session load and the transcript), at most 2000 entries, so a
+  restored Claude pane shows the earlier conversation.
 - Else, if the agent has `sessionCapabilities.resume`, it sends `session/resume`. No history comes, so
-  the transcript starts empty while the agent still has the conversation.
+  the transcript starts empty while the agent still has the conversation (Codex today).
 - If `session/load` is answered with an error and the agent has `resume`, `session/resume` is tried
   next. A load that gets no answer within `LoadTimeout` is not followed by a resume: the agent may
   still be sending the replay.

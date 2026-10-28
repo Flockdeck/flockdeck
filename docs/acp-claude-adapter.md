@@ -274,9 +274,6 @@ before a user's claude updates.
 
 ## Not done
 
-- `session/load`. Advertised as `loadSession: false`. claude sends no history on stdout, so
-  it would have to read the transcript under `~/.claude/projects` and replay it as updates,
-  a file format that is not a stable contract.
 - `session/resume` starts claude with `--resume <id>` in place of `--session-id <id>` and
   returns the id it was given. The id must be a UUID and not open already; anything else is
   refused before claude starts. Observed against a real claude 2.1.311 on 27 Oct 2026 (a
@@ -326,12 +323,58 @@ hidden until the end-to-end check that follows this task says otherwise.
 | MCP | on: the Flockdeck MCP server is sent in `session/new` and `session/resume`, and the adapter writes it to a private `mcp.json` for `--mcp-config` |
 | unavailable | when `claude` is not on PATH. A `flockdeck` on PATH proves nothing, since the adapter is a subcommand of the running program, so the check looks for `claude`. The pane then says "the agent is unavailable" and nothing else: no program name, no stderr |
 
-A restored pane resumes through `session/resume`. The adapter advertises
-`sessionCapabilities.resume` and `loadSession: false`, so the pane's runtime calls
-`session/resume` with the id it saved, and the adapter starts claude with `--resume <id>`.
+A restored pane reopens its session through `session/load`. The adapter advertises
+`loadSession: true` and `sessionCapabilities.resume`, so the pane's runtime calls
+`session/load` with the id it saved. The adapter replays the stored conversation (next
+section), then starts claude with `--resume <id>` as `session/resume` does.
 `TestInteropRestoredPaneResumes` drives this with the app's client over a child process.
-An id claude does not know makes the resume fail, and the pane starts a new session with
-the notice "Could not resume, started a new session."
+An id claude does not know makes the load fail, the runtime then tries `session/resume`
+(which fails the same way), and the pane starts a new session with the notice "Could not
+resume, started a new session."
+
+### Session load and the transcript
+
+claude sends no history when it resumes, so the adapter reads it from claude's own stored
+session: `<config dir>/projects/<project>/<session id>.jsonl`, where the config dir is
+`CLAUDE_CONFIG_DIR` in the environment claude gets, else `.claude` in the home directory
+(`Options.HistoryDir` overrides it). The project directory is claude's spelling of the cwd
+(every character other than a letter or digit becomes `-`); if the file is not there, the
+other project directories are searched for the id (at most 5000). claude does not document
+the format. It was read from files written by claude 2.1.x on 27 Oct 2026, and the reader
+skips anything it does not know, so a format change shortens the replay and nothing else.
+`session/load` never fails because of the history: no file, an unreadable file or an empty
+replay still opens the session.
+
+The replay is sent as `session/update` calls before the answer, for the id the client
+asked with, so the client marks them as replay and the bridge builds the transcript from
+them (`docs/structured-pane.md`, Resume). No API change and no extension update is needed.
+What is replayed:
+
+- `user` lines with a string, or text and image blocks (an image shows as "[image]"), as
+  `user_message_chunk`. A slash command claude stored as `<command-name>` tags is replayed as
+  `/name args`. Not replayed: lines marked `isMeta`, `isSidechain` (a helper agent's) or
+  `isCompactSummary`, tool results (they go with their call), `<local-command-...>` output,
+  `<system-reminder>` text, "Caveat:" notes and "[Request interrupted" markers.
+- `assistant` lines as `agent_message_chunk` for text, `agent_thought_chunk` for thinking
+  (claude stores most thinking as an empty string with a signature, so there is often none)
+  and one `tool_call` for each `tool_use`, built by the same `describeTool` as a live turn.
+  The tool's result is folded into that call (status `completed` or `failed`, the output, or the
+  diff it was announced with for an edit), so a call and its result are one entry and one is
+  never dropped without the other. A result with no call in the file is dropped. TodoWrite is
+  not replayed, since a plan is current state.
+- Not replayed, and so never shown as the agent's words: a line with an `error` or
+  `isApiErrorMessage`, and text from the model `<synthetic>` (claude's own local notes such
+  as "No response requested.").
+
+Limits: the last 64 MiB of the file are read (a first line that is cut is skipped); a line over
+1 MiB is skipped without being held; reading stops after 5 seconds; a message is cut at 64 KiB;
+at most 2000 entries and about 4 MiB of text are sent, and when there is more the oldest are
+left out. The bridge applies its own cleaning and limits on top, as for live text. The
+replay takes the same path as Gemini's: it makes no turn, is not typed, does not touch the
+queue or mail, and a prompt in it is a `prompt` entry marked `replayed`. Two user lines with
+no reply between them merge into one prompt entry in the bridge.
+
+Tests: `history_test.go` (`TestSessionLoad...`) and `TestInteropLoadReplaysMarkedAsReplay`.
 
 ## The canary
 
