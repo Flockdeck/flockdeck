@@ -41,6 +41,13 @@ type auditEvent struct {
 	Name       string    `json:"name,omitempty"`
 	Bytes      int64     `json:"bytes,omitempty"`
 	Reason     string    `json:"reason,omitempty"`
+	// Seq, Decision, Len and Hash are for the approvals log (remote-approvals.log):
+	// the card's number, allow_once or reject_once, and the length and SHA-256 of
+	// the text the phone was shown. The text itself is never written.
+	Seq      uint64 `json:"seq,omitempty"`
+	Decision string `json:"decision,omitempty"`
+	Len      int    `json:"len,omitempty"`
+	Hash     string `json:"hash,omitempty"`
 	// Suppressed is how many like refusals were left out since the last one
 	// written, when a device is refused faster than they are worth recording.
 	Suppressed int `json:"suppressed,omitempty"`
@@ -52,6 +59,8 @@ type auditLog struct {
 	mu  sync.Mutex
 	dir func() (string, error)
 	max int64
+	// file is the log's name in the state folder; empty means the artifacts log.
+	file string
 }
 
 func (a *auditLog) folder() (string, error) {
@@ -75,6 +84,8 @@ func (a *auditLog) write(e auditEvent) error {
 	e.Pane = tidy(e.Pane)
 	e.Name = tidy(e.Name)
 	e.Reason = tidy(e.Reason)
+	e.Decision = tidy(e.Decision)
+	e.Hash = tidy(e.Hash)
 	line, err := json.Marshal(e)
 	if err != nil {
 		return err
@@ -90,7 +101,11 @@ func (a *auditLog) write(e auditEvent) error {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	path := filepath.Join(dir, artifactAuditFile)
+	name := a.file
+	if name == "" {
+		name = artifactAuditFile
+	}
+	path := filepath.Join(dir, name)
 	limit := a.max
 	if limit <= 0 {
 		limit = auditMaxBytes

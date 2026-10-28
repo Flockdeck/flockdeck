@@ -483,6 +483,7 @@ func New(ws *workspace.Workspace, cfg Config) (*Server, error) {
 	})
 
 	s.structuredPane = s.workspaceStructuredPane
+	s.approvals.audit.file = approvalAuditFile
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", s.handleIndex)
@@ -501,6 +502,7 @@ func New(ws *workspace.Workspace, cfg Config) (*Server, error) {
 	mux.HandleFunc("/remote/artifacts/stop", s.handleArtifactsStop)
 	mux.HandleFunc("/remote/approvals/stop", s.handleApprovalsStop)
 	mux.HandleFunc("/ws/artifacts", s.handleArtifacts)
+	mux.HandleFunc("/ws/approvals", s.handleApprovals)
 	s.mux = mux
 	s.publishAccess()
 
