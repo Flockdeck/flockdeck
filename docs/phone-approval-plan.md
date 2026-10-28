@@ -224,3 +224,18 @@ Order that works: T1 and T2 in parallel; then T3 and T4 in parallel (both use T1
 API minors: 1.26 is T1's. A later task may need a bump: T5 for sure, T3 if the catalog describes sealed frames. Minors are taken at merge time by whoever merges second, so two branches do not both claim 1.27. `TestAPICatalogIsCurrent` fails if the catalog file and the tables disagree.
 
 A smaller first cut, if the schedule needs one: T1 to T4 with `execute` cards only, edits following.
+
+## T1 as built
+
+T1 (the switch, no socket) was built on 28 Oct 2026 against origin/main e6ed68cd, as API 1.26 with the cap `deviceApprove`. Where it differs from the text above:
+
+- The device is named `id`, not `deviceId`, as in `setDeviceRole`. `setDeviceApprove` takes `id`, `on` and `confirmed`. Turning it on needs a window that opened as a page and `confirmed: true` (the dialog has just shown the fixed wording), as `setRemoteArtifacts` does. Turning it off needs neither.
+- The global kill switch is not a second flag. `setApprovalsOff` and `flockdeck remote approvals off` clear `approve` and the agreement on every device and keep roles, like `artifacts off`. A device is allowed again one at a time. The gate in T3 therefore has two inputs, not three: the device record and the key.
+- `flockdeck remote approvals` has `off` and `status`. `on` is refused with a message; the plan listed `on|off|status`, but enabling is desk only.
+- The record is in `store.DeviceAccess`: `approve`, `approveV` (wording version) and `approveAt`. A full device with `approve` is kept in the map. Changing a role keeps the setting; unpairing drops it. The "no record means full" rule does not reach it.
+- `mayApprove(deviceID)` is true only when the running program's record and the preferences file both say yes at the current wording. The plan said "from the preferences file" for every frame; the running program's record is the one in force for roles, so the file can only take approval away. An unreadable or damaged file says no. It does not look at the key; T3 does, as the artifacts socket does.
+- The key checked when turning on is the device's usual key (`remote.KeyOriginUsual`), the one the phone app uses, not the desk-origin key the artifacts allowlist checks.
+- Turning on is applied only if the preferences file could be saved. Turning off is applied in memory even if it cannot be, as a restriction is.
+- `remoteDevices` (desk windows only) carries `approve` and `approveKey`. `approveKey` is the verify state of the usual key in the words of `verify`; a key that changed after approval was turned on shows as on and changed. `hello` carries `canApprove` for a window reached through the relay, true only when the device may approve.
+- The CLI reaches a running instance with `POST /remote/approvals/stop` (URL token, never remote), because the running program's record wins over the file.
+- Not done in T1: the audit log lines for desk changes (T3 owns `remote-approvals.log`), the help page text (T8), and a JSON schema entry: `hello` and `remoteDevices` have no schema in `api/schema`.

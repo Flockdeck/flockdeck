@@ -1,6 +1,9 @@
 package store
 
-import "maps"
+import (
+	"maps"
+	"time"
+)
 
 // Role is what a paired device is allowed to do through Flockdeck Remote.
 type Role string
@@ -29,6 +32,25 @@ type DeviceAccess struct {
 	// terminal output and chat -- though still not type, resize or run
 	// anything. It does nothing for a full device.
 	WatchPanes bool `json:"watchPanes,omitempty"`
+	// Approve lets the device answer a structured pane's permission request
+	// from its phone. It is off for every device, full devices included: a
+	// record that says nothing about it is off, and the "no record means full"
+	// rule does not reach it. It is turned on at the desk, for one device, after
+	// its key is verified and the person has agreed to ApproveAck's wording.
+	Approve bool `json:"approve,omitempty"`
+	// ApproveV is the version of the wording the person agreed to when they
+	// turned Approve on, and ApproveAt when. A change to what the device is
+	// shown raises the version the host asks for, and an older agreement then
+	// no longer counts (ApproveOn).
+	ApproveV  int       `json:"approveV,omitempty"`
+	ApproveAt time.Time `json:"approveAt,omitzero"`
+}
+
+// ApproveOn reports whether the device may answer permission requests: it is
+// switched on and the person agreed to the wording at version or later. Neither
+// the role nor the key is looked at here; the host checks the key.
+func (a DeviceAccess) ApproveOn(version int) bool {
+	return a.Approve && a.ApproveV >= version
 }
 
 // EffectiveRole is the role the host enforces: viewer for anything that is not
@@ -106,7 +128,10 @@ func (p Prefs) WithoutDevicesNotIn(ids []string) (Prefs, bool) {
 // false when a new entry would go past MaxDeviceAccess.
 func (p Prefs) WithAccess(deviceID string, a DeviceAccess) (Prefs, bool) {
 	if a.EffectiveRole() == RoleFull {
-		a = DeviceAccess{Role: RoleFull}
+		a.Role, a.WatchPanes = RoleFull, false
+	}
+	if !a.Approve {
+		a.ApproveV, a.ApproveAt = 0, time.Time{}
 	}
 	next := maps.Clone(p.Devices)
 	if a == (DeviceAccess{Role: RoleFull}) {
@@ -125,6 +150,34 @@ func (p Prefs) WithAccess(deviceID string, a DeviceAccess) (Prefs, bool) {
 	}
 	p.Devices = next
 	return p, true
+}
+
+// WithoutApprovals returns the preferences with approval switched off for every
+// device, and the ids of the devices it was on for. Roles and watch settings
+// are kept. A full device with nothing else to say is dropped from the map, as
+// in WithAccess. It is the kill switch's change.
+func (p Prefs) WithoutApprovals() (Prefs, []string) {
+	var was []string
+	next := maps.Clone(p.Devices)
+	for id, a := range p.Devices {
+		if !a.Approve && a.ApproveV == 0 && a.ApproveAt.IsZero() {
+			continue
+		}
+		if a.Approve {
+			was = append(was, id)
+		}
+		a.Approve, a.ApproveV, a.ApproveAt = false, 0, time.Time{}
+		if a == (DeviceAccess{Role: RoleFull}) {
+			delete(next, id)
+		} else {
+			next[id] = a
+		}
+	}
+	if len(next) == 0 {
+		next = nil
+	}
+	p.Devices = next
+	return p, was
 }
 
 // ForWindow is the preferences as a window is sent them. The record of which

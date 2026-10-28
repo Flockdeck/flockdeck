@@ -276,6 +276,14 @@ type remoteDeviceView struct {
 	// for how another is limited.
 	Role       string `json:"role,omitempty"`
 	WatchPanes bool   `json:"watchPanes,omitempty"`
+	// Approve says the desk let the device answer agents' permission requests
+	// from its phone, at the wording now in force (since API 1.26). ApproveKey is
+	// the state of the key it would do that with, the device's usual key, in the
+	// words of Verify: "" not verified, "verified", or "changed". Approving works
+	// only while both say yes, so a key replaced after the switch was turned on
+	// shows here as on and changed. Sent only to a window on this machine.
+	Approve    bool   `json:"approve,omitempty"`
+	ApproveKey string `json:"approveKey,omitempty"`
 	// DeskFingerprint is the same for the device's other key, the one a
 	// window opened from this machine's own full interface uses
 	// (remote.KeyOriginDesk). That window shows the code on its own side.
@@ -371,6 +379,8 @@ func (s *Server) remoteDevices(c *controlClient) {
 				if !c.remote {
 					a := s.deviceAccess(d.ID)
 					msg.Devices[i].Role, msg.Devices[i].WatchPanes = string(a.EffectiveRole()), a.WatchPanes
+					msg.Devices[i].Approve = a.ApproveOn(approveAckVersion)
+					msg.Devices[i].ApproveKey = s.approveKeyState(d)
 				}
 			}
 		}

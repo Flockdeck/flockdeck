@@ -261,7 +261,7 @@ const HELPER_COMMANDS = ["approveBaton", "helpers", "helperPlan", "helperInstall
  *  refuses them there; the store does not send them. The list of keys and of
  *  devices, pairing a device, renaming and unpairing are not here: a relay window
  *  may do those. A join code is held back by the check in send(). */
-const DESK_SETTINGS = ["keySet", "keyClear", "jevKey", "remoteEnable", "remoteDisable", "remoteRemove", "remoteMove", "remoteVerify", "remoteUnverify", "setDeviceRole"];
+const DESK_SETTINGS = ["keySet", "keyClear", "jevKey", "remoteEnable", "remoteDisable", "remoteRemove", "remoteMove", "remoteVerify", "remoteUnverify", "setDeviceRole", "setDeviceApprove", "setApprovalsOff"];
 
 const GRAPH_OPS = new Set(["graphSnapshot", "graphWatch", "graphUnwatch"]);
 

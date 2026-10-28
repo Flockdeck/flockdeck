@@ -21,6 +21,12 @@ export const DESK_ONLY_VERIFY =
   "A device is marked verified on the machine Flockdeck runs on, not from a window reached through the relay.";
 export const DESK_ONLY_ACCESS =
   "What a device may do is set on the machine Flockdeck runs on, not from a window reached through the relay.";
+export const DESK_ONLY_APPROVE =
+  "Whether a device may approve agent requests is set on the machine Flockdeck runs on, not from a window reached through the relay.";
+/** APPROVE_ACK_WORDS is shown before a device is allowed to approve. It is the host's own wording
+ *  (approveAckText in internal/server/approvals_prefs.go); a Go test keeps the two the same. */
+export const APPROVE_ACK_WORDS =
+  "This device will be shown the commands and file paths your agents ask to run or change, and can allow or deny them. The relay cannot read them.";
 export const DESK_ONLY_JOIN =
   "A code for another desktop to join this account is made on the machine Flockdeck runs on, not from a window reached through the relay.";
 
@@ -176,6 +182,9 @@ export function rosterOf(msg) {
       // A desk that sends no role means full access; a role this file does not know is shown as unknown, not as full access.
       role: d.role === "viewer" ? "viewer" : d.role === "full" || d.role === undefined || d.role === "" ? "full" : "unknown",
       watchPanes: d.watchPanes === true,
+      // Whether the desk let the device approve agent requests, and the state of the key it would do that with (API 1.26).
+      approve: d.approve === true,
+      approveKey: str(d.approveKey),
     }));
   const hosts = (Array.isArray(m.hosts) ? m.hosts : [])
     .filter((h) => h && typeof h === "object")
@@ -378,6 +387,25 @@ export function verifyCommand(id, origin, code) {
 
 export function unverifyCommand(id, origin) {
   return id ? { cmd: "remoteUnverify", id, kind: origin === "desk" ? "desk" : "usual" } : null;
+}
+
+/** approveCommand turns a device's approving on or off. Turning it on says the person was just shown APPROVE_ACK_WORDS. */
+export function approveCommand(id, on) {
+  if (!id) return null;
+  return on ? { cmd: "setDeviceApprove", id, on: true, confirmed: true } : { cmd: "setDeviceApprove", id, on: false };
+}
+
+/** approveOffCommand is the kill switch: no device approves until it is allowed again, one at a time. */
+export function approveOffCommand() {
+  return { cmd: "setApprovalsOff" };
+}
+
+/** approveView is what the desk draws for a device's approving: whether it is on, whether it can be turned on now (its code
+ *  is marked verified), and a line to show when it is on but cannot work because the code is not. */
+export function approveView(d) {
+  const on = !!d.approve;
+  const verified = d.approveKey === "verified";
+  return { on, canTurnOn: verified, note: on && !verified ? "Approving is on, but this device's code is not verified, so it will not work until you verify it again." : "" };
 }
 
 export function roleCommand(id, level) {

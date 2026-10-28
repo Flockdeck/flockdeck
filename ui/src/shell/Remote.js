@@ -24,9 +24,9 @@ import { html } from "../html.js";
 import { composing, LIST } from "./keys.js";
 import { Confirm } from "./Confirm.js";
 import {
-  ACCESS, DESK_ONLY_ACCESS, DESK_ONLY_JOIN, DESK_ONLY_REMOTE, ENTERPRISE_WORDS, INTRO_WORDS, KEPT_WORDS, LINK_WARNING, PAIR_WORDS, PLAN_WORDS, POLL_MS,
+  ACCESS, APPROVE_ACK_WORDS, DESK_ONLY_ACCESS, DESK_ONLY_APPROVE, DESK_ONLY_JOIN, DESK_ONLY_REMOTE, ENTERPRISE_WORDS, INTRO_WORDS, KEPT_WORDS, LINK_WARNING, PAIR_WORDS, PLAN_WORDS, POLL_MS,
   VERIFY_HELP, VERIFY_HELP_RELAY, accessOf, addsAccess, accessIndex, ago, bare, deviceCodes, devicesCommand, enableCommand, leftText, moveCommand, nextAccess, outcomeOf, pairCommand, joinLine, pairLive, pairOf,
-  deviceName, planText, qrSource, renameCommand, resumeCommand, revokeCommand, roleCommand, rosterOf, summaryOf, unverifyCommand, untilText, verifyCommand, verifyText, viewOf,
+  approveCommand, approveOffCommand, approveView, deviceName, planText, qrSource, renameCommand, resumeCommand, revokeCommand, roleCommand, rosterOf, summaryOf, unverifyCommand, untilText, verifyCommand, verifyText, viewOf,
 } from "../lib/remote.js";
 
 const NEW_DRAFT = { relay: "", name: "", join: "", invite: "", more: false };
@@ -294,10 +294,12 @@ export function Remote({ status, roster, pair, outcome, remote, connection = "",
     };
     const about = { id: d.id, level: accessIndex(d), name };
     const here = renaming && renaming.kind === "device" && renaming.id === d.id;
+    const ap = approveView(d);
     return html`<li class="remote-row" key=${d.id} data-device=${d.id}>
       <div class="key-main">
         <div class="key-title"><span class="key-name">${name}</span>${mine ? html`<span class="key-id">this device</span>` : null}</div>
         <div class="key-status">paired ${ago(d.created, now)} · last seen ${ago(d.lastSeen, now)}</div>
+        ${!remote && ap.note ? html`<div class="key-status" role="status">${ap.note}</div>` : null}
         ${codes.length && shown ? codes.map((k) => codeBlock(d, k)) : null}
       </div>
       <div class="key-actions">
@@ -315,6 +317,14 @@ export function Remote({ status, roster, pair, outcome, remote, connection = "",
                 }}>${level.label}</button>`
             : html`<button type="button" class="dialog-btn remote-access" aria-label=${"Access for " + name + ": unknown, which the desktop treats as view-only. Press to set it to " + ACCESS[1].label + "."}
                 onClick=${() => ask("access:" + d.id, "Reset access for " + name + "?", ["Its access is not one this page knows, and the desktop treats it as view-only. It will be set to “" + ACCESS[1].label + "”."], "Reset access", () => setLevel(ACCESS[1]), about)}>${level.label}</button>`}
+        ${remote
+          ? null
+          : ap.on
+            ? html`<button type="button" class="dialog-btn remote-approve" aria-pressed="true" aria-label=${"Approving for " + name + ": on. Press to turn it off."}
+                onClick=${() => go(approveCommand(d.id, false))}>Approve: on</button>`
+            : html`<button type="button" class="dialog-btn remote-approve" aria-pressed="false" disabled=${!ap.canTurnOn}
+                aria-label=${"Approving for " + name + ": off. " + (ap.canTurnOn ? "Press to turn it on." : "Verify its code first.")}
+                onClick=${() => ask("approve:" + d.id, "Let " + name + " approve agent requests?", [APPROVE_ACK_WORDS], "Allow approving", () => go(approveCommand(d.id, true)))}>Approve: off</button>`}
         <button type="button" class="dialog-btn" onClick=${() => setRenaming({ kind: "device", id: d.id, value: d.name })}>Rename</button>
         <button type="button" class="dialog-btn dialog-btn--danger" aria-label=${"Unpair " + name}
           onClick=${() => ask("device:" + d.id, mine ? "Unpair this device?" : "Unpair " + name + "?",
@@ -324,6 +334,7 @@ export function Remote({ status, roster, pair, outcome, remote, connection = "",
       ${here ? renameBox("device", d.id, d.name) : null}
       ${confirmFor("device:" + d.id)}
       ${confirmFor("access:" + d.id)}
+      ${confirmFor("approve:" + d.id)}
     </li>`;
   };
   const devicesBox = () => {
@@ -336,7 +347,10 @@ export function Remote({ status, roster, pair, outcome, remote, connection = "",
         <h4 class="set-sub" id="remote-devices-head">${n === 1 ? "1 paired device" : n + " paired devices"}</h4>
         ${n === 0 && !ro.error ? html`<p class="set-intro">Nothing is paired yet.</p>` : null}
         ${coded ? html`<p class="set-about" id="remote-verify-help">${remote ? VERIFY_HELP_RELAY : VERIFY_HELP}</p>` : null}
-        ${remote && n ? html`<p class="set-about">${DESK_ONLY_ACCESS}</p>` : null}
+        ${remote && n ? html`<p class="set-about">${DESK_ONLY_ACCESS} ${DESK_ONLY_APPROVE}</p>` : null}
+        ${!remote && ro.devices.some((d) => d.approve)
+          ? html`<p class="set-about"><button type="button" class="dialog-btn dialog-btn--danger" id="remote-approve-off" onClick=${() => go(approveOffCommand())}>Stop all approving</button> Turns approving off for every device. Each one is allowed again separately.</p>`
+          : null}
         ${n ? html`<ul class="remote-list" aria-label="Paired devices">${ro.devices.map(deviceRow)}</ul>` : null}
       </section>
       ${ro.hosts.length ? hostsBox() : null}`;

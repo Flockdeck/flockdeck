@@ -36,6 +36,9 @@ type remoteIO struct {
 	// and reports whether there was one to tell. Nil where a test does not
 	// drive it.
 	stopArtifacts func() (bool, error)
+	// stopApprovals tells a running instance to switch phone approval off and
+	// close its approvals sockets, and reports whether there was one to tell.
+	stopApprovals func() (bool, error)
 	// running reports whether flockdeck is running here, which is what
 	// decides whether the tunnel ought to be up.
 	running func() bool
@@ -49,7 +52,7 @@ type remoteIO struct {
 
 // runRemote implements the `remote` subcommand.
 func runRemote(args []string) error {
-	rio := remoteIO{out: os.Stdout, reload: reloadRunningRemote, stopArtifacts: stopRunningArtifacts, running: func() bool {
+	rio := remoteIO{out: os.Stdout, reload: reloadRunningRemote, stopArtifacts: stopRunningArtifacts, stopApprovals: stopRunningApprovals, running: func() bool {
 		inst, _, err := runningInstance()
 		return err == nil && inst != nil
 	}}
@@ -101,6 +104,8 @@ func remoteCmd(args []string, rio remoteIO) error {
 		err = remoteDeleteAccountCmd(args[1:], rio)
 	case "artifacts":
 		err = remoteArtifactsCmd(args[1:], rio)
+	case "approvals":
+		err = remoteApprovalsCmd(args[1:], rio)
 	case "-h", "--help", "help":
 		// `remote help pair` is how most commands are asked about one of
 		// their own, so it gives that subcommand's help.
@@ -140,7 +145,7 @@ func remoteHelp(name string, rio remoteIO) error {
 		fs = remoteDeleteAccountFlagSet(&remoteDeleteAccountFlags{})
 	case "devices", "list", "ls":
 		fs = remoteFlags("devices")
-	case "status", "revoke", "artifacts":
+	case "status", "revoke", "artifacts", "approvals":
 		fs = remoteFlags(name)
 	default:
 		remoteUsage(rio.out)
@@ -152,7 +157,7 @@ func remoteHelp(name string, rio remoteIO) error {
 }
 
 // remoteCommands are the subcommands a mistyped one is compared with.
-var remoteCommands = []string{"enable", "pair", "status", "devices", "revoke", "rename", "disable", "remove", "move", "delete-account", "artifacts"}
+var remoteCommands = []string{"enable", "pair", "status", "devices", "revoke", "rename", "disable", "remove", "move", "delete-account", "artifacts", "approvals"}
 
 // remoteGuesses are words somebody is likely to try for one of them. They are
 // answered with the command's name rather than taken for it: revoke and
@@ -236,6 +241,9 @@ Commands:
                  paired device and the plan; asks you to type a phrase first
   artifacts off  stop paired devices viewing recordings and files from this
                  machine, and close what they have open
+  approvals off  stop paired devices answering agent permission requests from
+                 their phone; approvals status lists the devices that may.
+                 A device is allowed again only at the desk
 
 Run flockdeck remote help <command> for more about one of them.
 The relay is %s unless -relay or %s
@@ -272,6 +280,8 @@ var remoteSynopses = map[string][2]string{
 		"Move this machine to another relay: enrol it there first, and take it off\nthe relay it is on only once the new one answers. Every device paired with\nit has to pair again afterwards, with the new relay, because a device's\npairing belongs to the relay it was made on."},
 	"artifacts": {" off",
 		"Switch off every kind of artifact that paired devices may view, and close the\nsockets they have open. It works with no window open. What a device may view is\nswitched on again at the desk, in the window, where what it exposes is shown."},
+	"approvals": {" off|status",
+		"Switch off phone approval for every device, and close the sockets they have\nopen, or list the devices it is on for. It works with no window open. A device\nis allowed to approve at the desk, in the window, one device at a time, after its\nkey is verified and what it will be shown has been read; there is no `on` here."},
 	"delete-account": {" [-yes -confirm TEXT]",
 		"Erase this machine's whole account on the relay: every machine in it, every\npaired device, the plan and the verified email's link to it. It shows what goes,\nthen asks you to type " + deleteAccountPhrase + " exactly. An account with a\nsubscription is not deleted until the subscription has ended."},
 }

@@ -1,7 +1,7 @@
 {
   "api": {
     "major": 1,
-    "minor": 24
+    "minor": 26
   },
   "frames": [
     {
@@ -1046,6 +1046,18 @@
       "name": "setAgentDefault",
       "access": "full",
       "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "setApprovalsOff",
+      "access": "full",
+      "since": "1.26",
+      "status": "stable"
+    },
+    {
+      "name": "setDeviceApprove",
+      "access": "full",
+      "since": "1.26",
       "status": "stable"
     },
     {

@@ -19,6 +19,7 @@
 * [POST /open](open.md) - Hands a directory to the running instance so a second launch attaches instead of starting a rival server.
 * [POST /quit](quit.md) - Stops the running instance from outside, used by `flockdeck -quit`.
 * [POST /remote/artifacts/stop](remote-artifacts-stop.md) - Closes every artifacts socket and reloads preferences after `flockdeck remote artifacts off`.
+* [POST /remote/approvals/stop](remote-approvals-stop.md) - Switches phone approval off in memory and closes the approvals sockets after `flockdeck remote approvals off`.
 * [POST /remote/reload](remote-reload.md) - Tells a running instance to reread the remote enrolment after `flockdeck remote enable/disable/remove`.
 * [POST /window](window.md) - Returns a one-time window link so a second launch can open a window without putting the token on a command line.
 * [/ws/artifacts socket](ws-artifacts.md) - End-to-end encrypted, relay-only socket on which a paired device lists and reads this machine's recordings.

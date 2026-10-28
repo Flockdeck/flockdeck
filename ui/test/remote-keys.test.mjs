@@ -14,7 +14,7 @@ import { Live } from "../src/shell/Live.js";
 import { Remote } from "../src/shell/Remote.js";
 import { canClear, clearKeyCommand, keyNotes, keyStatus, keysOf, setKeyCommand } from "../src/lib/apikeys.js";
 import {
-  ACCESS, accessIndex, accessOf, addsAccess, deviceName, nextAccess, ago, daysLeft, deviceCodes, enableCommand, joinLine, leftText, moveCommand, outcomeOf, PAIR_CAP_MS, pairLive, pairOf, planOf, planText, qrSource, renameCommand,
+  ACCESS, APPROVE_ACK_WORDS, approveCommand, approveOffCommand, approveView, accessIndex, accessOf, addsAccess, deviceName, nextAccess, ago, daysLeft, deviceCodes, enableCommand, joinLine, leftText, moveCommand, outcomeOf, PAIR_CAP_MS, pairLive, pairOf, planOf, planText, qrSource, renameCommand,
   retryClock, revokeCommand, roleCommand, rosterOf, summaryOf, unverifyCommand, untilText, verifyCommand, viewOf,
 } from "../src/lib/remote.js";
 import {
@@ -1311,3 +1311,59 @@ test("Remote: the join and invitation codes are password fields and are emptied 
     r.done();
   }
 });
+
+const APPROVE_ROSTER = {
+  ...ROSTER, current: "",
+  devices: [
+    { id: "d1", name: "Phone", created: "2026-10-01T00:00:00Z", lastSeen: "2026-10-24T11:59:00Z", role: "full", approveKey: "" },
+    { id: "d2", name: "Tablet", created: "2026-10-01T00:00:00Z", lastSeen: "2026-10-24T11:59:00Z", role: "full", approveKey: "verified" },
+    { id: "d3", name: "Watch", created: "2026-10-01T00:00:00Z", lastSeen: "2026-10-24T11:59:00Z", role: "full", approve: true, approveKey: "verified" },
+    { id: "d4", name: "Old", created: "2026-10-01T00:00:00Z", lastSeen: "2026-10-24T11:59:00Z", role: "full", approve: true, approveKey: "changed" },
+  ],
+};
+
+test("Remote: approving is turned on only for a verified device, after the host's words are shown, and off without a question", () => {
+  assert.deepEqual(approveCommand("d", true), { cmd: "setDeviceApprove", id: "d", on: true, confirmed: true });
+  assert.deepEqual(approveCommand("d", false), { cmd: "setDeviceApprove", id: "d", on: false });
+  assert.equal(approveCommand("", true), null);
+  assert.deepEqual(approveOffCommand(), { cmd: "setApprovalsOff" });
+  assert.deepEqual(approveView({}), { on: false, canTurnOn: false, note: "" });
+  assert.equal(approveView({ approve: true, approveKey: "verified" }).note, "");
+  assert.match(approveView({ approve: true, approveKey: "changed" }).note, /not verified/);
+  return withPage({ extra: { remote: TUNNEL } }, async (m) => {
+    await m.connect();
+    await m.openSettings("remote");
+    await m.push(APPROVE_ROSTER);
+    const row = (id) => m.container.findAll(".remote-row").find((r) => r.attributes["data-device"] === id);
+    const approve = (id) => row(id).find(".remote-approve");
+    assert.equal(approve("d1").textContent, "Approve: off");
+    assert.ok(isDisabled(approve("d1")), "off and its code is not verified: it cannot be turned on");
+    assert.equal(isDisabled(approve("d2")), false);
+    assert.match(approve("d1").attributes["aria-label"], /Verify its code first/);
+    m.clear();
+    await m.click(approve("d2"));
+    assert.deepEqual(m.sent("setDeviceApprove"), [], "nothing is sent before the answer");
+    assert.ok(m.container.find(".confirm").textContent.includes(APPROVE_ACK_WORDS), "the host's own words are shown");
+    await m.click(m.byText(".confirm button", /^Allow approving$/));
+    assert.deepEqual(m.sent("setDeviceApprove"), [{ cmd: "setDeviceApprove", id: "d2", on: true, confirmed: true }]);
+    m.clear();
+    assert.equal(approve("d3").textContent, "Approve: on");
+    await m.click(approve("d3"));
+    assert.deepEqual(m.sent("setDeviceApprove"), [{ cmd: "setDeviceApprove", id: "d3", on: false }], "off asks nothing");
+    assert.match(row("d4").textContent, /Approving is on, but this device's code is not verified/);
+    assert.equal(row("d3").textContent.includes("not verified"), false);
+    m.clear();
+    await m.click(m.container.find("#remote-approve-off"));
+    assert.deepEqual(m.sent("setApprovalsOff"), [{ cmd: "setApprovalsOff" }]);
+  });
+});
+
+test("Remote: a window reached through the relay is offered no way to approve", () =>
+  withPage({ helloOver: { remote: true }, extra: { remote: TUNNEL } }, async (m) => {
+    await m.connect();
+    await m.openSettings("remote");
+    await m.push(APPROVE_ROSTER);
+    assert.equal(m.container.find(".remote-approve"), null);
+    assert.equal(m.container.find("#remote-approve-off"), null);
+    assert.match(m.container.textContent, /Whether a device may approve agent requests is set on the machine/);
+  }));

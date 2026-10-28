@@ -61,6 +61,12 @@ type helloMsg struct {
 	// full device and for a window on this machine.
 	Role       string `json:"role,omitempty"`
 	WatchPanes bool   `json:"watchPanes,omitempty"`
+	// CanApprove says the desk let this window's device answer a structured
+	// pane's permission requests from its phone (since API 1.26, cap
+	// deviceApprove), so the phone app knows whether to open the approvals
+	// socket. It is the switch only: the socket still checks the device's key.
+	// Sent only to a window reached through the relay, and only when true.
+	CanApprove bool `json:"canApprove,omitempty"`
 	// API is the version of this socket's API and the features it has (apiversion.go).
 	API *apiInfo `json:"api"`
 }
@@ -146,6 +152,7 @@ func (s *Server) sendHello(c *controlClient) {
 		if ra := s.remoteAccess(); ra != nil {
 			msg.E2EPublicKey = ra.E2EPublicKey()
 		}
+		msg.CanApprove = s.mayApprove(c.device)
 		if artifactsOffered(s.prefs.RemoteArtifacts, c.device) {
 			msg.Artifacts = &artifactsCap{V: 1}
 			c.artifactsTold.Store(artifactsTellYes)
@@ -379,6 +386,46 @@ func (s *Server) updateAccess(change func(*store.Prefs) bool, then func(saveErr 
 		if then != nil {
 			then(saveErr)
 		}
+	})
+}
+
+// updateAccessReport is updateAccess for a change whose caller must hear of
+// every outcome. then is always called, on the workspace goroutine: applied says
+// the change was made to the record in force, and saveErr why the file could not
+// be written. A change that was not wanted (change returned false) is neither.
+//
+// keepIfUnsaved says what to do when the file cannot be written. A change that
+// narrows what a device may do passes true and is applied anyway, as updateAccess
+// does. One that widens it passes false and is dropped: a permission that the
+// file does not show, or that the next start would lose, is not given.
+func (s *Server) updateAccessReport(keepIfUnsaved bool, change func(*store.Prefs) bool, then func(applied bool, saveErr error)) {
+	s.do(func() {
+		p, readErr := store.ReadPrefs()
+		if readErr != nil {
+			p = s.prefs
+		} else {
+			p.AdoptAccess(s.prefs)
+		}
+		if !change(&p) {
+			then(false, nil)
+			return
+		}
+		saveErr := readErr
+		if readErr == nil {
+			saveErr = store.SavePrefs(p)
+		}
+		switch {
+		case saveErr == nil:
+			s.prefs = p
+		case keepIfUnsaved:
+			s.prefs.AdoptAccess(p)
+		default:
+			then(false, saveErr)
+			return
+		}
+		s.publishAccess()
+		s.broadcastPrefs()
+		then(true, saveErr)
 	})
 }
 

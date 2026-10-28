@@ -25,6 +25,7 @@ Registered in `server.New` on one `http.ServeMux`, wrapped by [host guard](/secu
 | `POST /window` | `handleWindow` | token and URL token | [window](/api/window.md) |
 | `POST /remote/reload` | `handleRemoteReload` | token and URL token | [remote reload](/api/remote-reload.md) |
 | `POST /remote/artifacts/stop` | `handleArtifactsStop` | URL token, never remote | [artifacts stop](/api/remote-artifacts-stop.md) |
+| `POST /remote/approvals/stop` | `handleApprovalsStop` | URL token, never remote | [approvals stop](/api/remote-approvals-stop.md) |
 | `POST /helpers/start`, `/helpers/stop`, `/helpers/open` | `handleHelper*` | token and URL token | [helpers](/api/helpers-endpoints.md) |
 
 The hook and spawn endpoints used by agents are not on this server; the hooks package has its own loopback listener.

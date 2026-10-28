@@ -743,6 +743,9 @@ type command struct {
 	Spec  string `json:"spec,omitempty"`
 	// Watch is setDeviceRole's own: whether a viewer may also watch panes.
 	Watch bool `json:"watch,omitempty"`
+	// On is setDeviceApprove's own: whether the device ID may approve agent
+	// requests from its phone. Absent is off.
+	On bool `json:"on,omitempty"`
 	// State and MsgID are the Team panel's own, with Root naming the project and
 	// Req the id the window gave the command, repeated in the answer: State is
 	// the task state a taskStatus moves to or a taskList lists, and MsgID the
@@ -1670,6 +1673,12 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 	switch cmd.Cmd {
 	case "setDeviceRole":
 		s.setDeviceRole(c, cmd)
+		return
+	case "setDeviceApprove":
+		s.setDeviceApprove(c, cmd)
+		return
+	case "setApprovalsOff":
+		s.setApprovalsOff(c, cmd)
 		return
 	case "teamSnapshot", "teamWatch", "teamUnwatch", "taskList", "taskGet", "taskAdd", "taskAssign",
 		"taskStatus", "taskNote", "taskBranch", "taskDepends", "taskEstimate", "taskTeam", "taskPrune", "msgList", "msgSend", "msgSeen", "teamClose":
