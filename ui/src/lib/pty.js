@@ -350,6 +350,9 @@ export function createPty(opts) {
   }
 
   function closeForFailedHandshake(sock, reason) {
+    // A failure on a socket this has since moved on from must not clear the
+    // handshake and timer that now belong to its replacement.
+    if (ws !== sock) { try { sock.close(); } catch { /* already closing */ } return; }
     clearT(handshakeTimer);
     handshake = null;
     finishing = false;
