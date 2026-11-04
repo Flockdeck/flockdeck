@@ -16,6 +16,8 @@ func TestIgnoredPath(t *testing.T) {
 	}{
 		{serviceProfile, ".github/workflows/release.yml", true},
 		{serviceProfile, ".github/scripts/x.sh", true},
+		{serviceProfile, ".flockdeck/knowledge/api/health.md", true},
+		{contentProfile, ".flockdeck/knowledge/index.md", true},
 		{serviceProfile, "internal/store/store_test.go", true},
 		{serviceProfile, "web/app.test.ts", true},
 		{serviceProfile, "web/app.spec.js", true},
