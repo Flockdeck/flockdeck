@@ -71,6 +71,19 @@ func TestASectionHeadingInsideASectionSurvives(t *testing.T) {
 	}
 }
 
+func TestALiteralEscapedHeadingSurvives(t *testing.T) {
+	for _, body := range []string{"x\n\\## Goal\nmore", "\\\\## Goal", "x\n## Goal\n\\## Goal"} {
+		b := sample().Set(Decisions, body)
+		got, err := Parse(Render(b))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Section(Decisions) != b.Section(Decisions) || got.Section(Goal) != b.Section(Goal) {
+			t.Errorf("%q came back as %q", body, got.Section(Decisions))
+		}
+	}
+}
+
 func TestParseRefusesWhatIsNotABaton(t *testing.T) {
 	if _, err := Parse("# just notes\n"); err != ErrNotBaton {
 		t.Errorf("err = %v", err)
