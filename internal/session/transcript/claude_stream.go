@@ -794,9 +794,18 @@ func toolDiff(name string, in toolInput) (string, bool) {
 // diffSummary stands in for a diff too large to send inline.
 func diffSummary(diff string) string {
 	add, del := 0, 0
-	for _, line := range strings.Split(diff, "\n") {
+	lines := strings.Split(diff, "\n")
+	for i := 0; i < len(lines); i++ {
+		line := lines[i]
+		// A file header is "--- a/", "+++ b/" and then a "@@" line, which no
+		// changed line can be. Matching on "---" alone skipped a removed line
+		// that begins "--" and an added one that begins "++".
+		if strings.HasPrefix(line, "--- a/") && i+2 < len(lines) &&
+			strings.HasPrefix(lines[i+1], "+++ b/") && strings.HasPrefix(lines[i+2], "@@") {
+			i += 2
+			continue
+		}
 		switch {
-		case strings.HasPrefix(line, "+++"), strings.HasPrefix(line, "---"):
 		case strings.HasPrefix(line, "+"):
 			add++
 		case strings.HasPrefix(line, "-"):
