@@ -5,6 +5,9 @@ import (
 	"compress/zlib"
 	"encoding/binary"
 	"hash/crc32"
+	"image"
+	"image/jpeg"
+	"image/png"
 	"runtime"
 	"testing"
 )
@@ -70,5 +73,25 @@ func TestPrepareImageRefusesADecompressionBomb(t *testing.T) {
 	}
 	if grew := after.TotalAlloc - before.TotalAlloc; grew > 64<<20 {
 		t.Errorf("looking at a %d-byte png allocated %d MB", len(bomb), grew>>20)
+	}
+}
+
+func TestPrepareImageFlattensTransparencyOntoWhite(t *testing.T) {
+	src := image.NewNRGBA(image.Rect(0, 0, maxImageDimension+100, 20)) // fully transparent
+	var buf bytes.Buffer
+	if err := png.Encode(&buf, src); err != nil {
+		t.Fatal(err)
+	}
+	mt, data, _, _, ok := prepareImage("image/png", buf.Bytes())
+	if !ok || mt != "image/jpeg" {
+		t.Fatalf("prepareImage = %q, ok=%v; want a re-encoded jpeg", mt, ok)
+	}
+	out, err := jpeg.Decode(bytes.NewReader(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r, g, b, _ := out.At(5, 5).RGBA()
+	if r>>8 < 240 || g>>8 < 240 || b>>8 < 240 {
+		t.Errorf("transparent pixel came out as rgb(%d,%d,%d), want white", r>>8, g>>8, b>>8)
 	}
 }

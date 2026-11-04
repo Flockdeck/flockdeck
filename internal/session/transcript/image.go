@@ -3,6 +3,8 @@ package transcript
 import (
 	"bytes"
 	"image"
+	"image/color"
+	"image/draw"
 	_ "image/gif" // registers gif with image.Decode/DecodeConfig, for dimensions only
 	"image/jpeg"
 	_ "image/png" // registers png with image.Decode/DecodeConfig
@@ -87,7 +89,7 @@ func prepareImage(mediaType string, data []byte) (outType string, outData []byte
 func encodeJPEGUnderLimit(img image.Image, limit int) (data []byte, width, height int, ok bool) {
 	dim := maxImageDimension
 	for round := 0; round < 3; round++ {
-		scaled := downscale(img, dim)
+		scaled := flattenOnWhite(downscale(img, dim))
 		b := scaled.Bounds()
 		for _, q := range []int{85, 70, 55, 40, 25} {
 			var buf bytes.Buffer
@@ -101,6 +103,21 @@ func encodeJPEGUnderLimit(img image.Image, limit int) (data []byte, width, heigh
 		dim /= 2
 	}
 	return nil, 0, 0, false
+}
+
+// flattenOnWhite draws an image with any transparency onto white. A JPEG has
+// no alpha channel, and encoding a transparent pixel as it is stored turns
+// it black, which hides dark text or line art drawn on transparency. An
+// opaque image is returned as it is.
+func flattenOnWhite(img image.Image) image.Image {
+	if o, ok := img.(interface{ Opaque() bool }); ok && o.Opaque() {
+		return img
+	}
+	b := img.Bounds()
+	dst := image.NewRGBA(b)
+	draw.Draw(dst, b, image.NewUniform(color.White), image.Point{}, draw.Src)
+	draw.Draw(dst, b, img, b.Min, draw.Over)
+	return dst
 }
 
 // downscale returns img unchanged if it already fits within maxDim on both
