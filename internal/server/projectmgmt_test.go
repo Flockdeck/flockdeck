@@ -254,3 +254,27 @@ func TestRemovedProjectComesBackWithoutItsOldPlace(t *testing.T) {
 		t.Fatalf("projects = %+v, want %s then %s, the order they were opened in", projects, first, second)
 	}
 }
+
+// TestRenameAndArchiveIgnoreAProjectThatIsNotKnown checks a made-up root adds
+// nothing to the recent list: each entry would be stamped as just used and
+// push real projects out of the capped list.
+func TestRenameAndArchiveIgnoreAProjectThatIsNotKnown(t *testing.T) {
+	srv, _ := newTestServer(t)
+	c := &controlClient{out: make(chan []byte, 8)}
+	before, err := store.Recents()
+	if err != nil {
+		t.Fatalf("recents: %v", err)
+	}
+	stranger := filepath.Join(t.TempDir(), "never-opened")
+
+	srv.handleCommand(c, command{Cmd: "renameProject", Root: stranger, Text: "x"})
+	srv.handleCommand(c, command{Cmd: "archiveProject", Root: stranger, Archived: true})
+
+	after, err := store.Recents()
+	if err != nil {
+		t.Fatalf("recents: %v", err)
+	}
+	if len(after) != len(before) {
+		t.Errorf("recent list went from %d to %d entries for a root nobody opened", len(before), len(after))
+	}
+}

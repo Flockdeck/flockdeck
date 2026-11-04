@@ -1670,6 +1670,27 @@ func (s *Server) saveProjectMeta(write func() error) error {
 	return nil
 }
 
+// knownProject refuses a root that is neither open nor in the recent list.
+// Renaming or archiving one would add an entry stamped as just used, and a
+// window or paired phone sending many made-up roots pushed the real projects
+// out of the capped list. It is called on the workspace goroutine.
+func (s *Server) knownProject(root string) error {
+	if _, open := s.ws.OpenRootFor(root); open {
+		return nil
+	}
+	list, err := store.Recents()
+	if err != nil {
+		return err
+	}
+	key := store.MetaKey(root)
+	for _, p := range list {
+		if store.MetaKey(p.Root) == key {
+			return nil
+		}
+	}
+	return fmt.Errorf("%s is not a project Flockdeck knows", root)
+}
+
 // handleCommand applies a request from a window. Everything that touches the
 // workspace runs on its owner goroutine; anything slow (git) is done outside.
 func (s *Server) handleCommand(c *controlClient, cmd command) {
@@ -2101,6 +2122,9 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		// write v1 and v2 and then store them in the other order, leaving the
 		// cache with the older one.
 		if err, ok := ask(s, func() error {
+			if err := s.knownProject(cmd.Root); err != nil {
+				return err
+			}
 			return s.saveProjectMeta(func() error { return store.SetProjectName(cmd.Root, cmd.Text) })
 		}); ok {
 			if err != nil {
@@ -2117,6 +2141,9 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		return
 	case "archiveProject":
 		if err, ok := ask(s, func() error {
+			if err := s.knownProject(cmd.Root); err != nil {
+				return err
+			}
 			return s.saveProjectMeta(func() error { return store.SetProjectArchived(cmd.Root, cmd.Archived) })
 		}); ok {
 			if err != nil {
