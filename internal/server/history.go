@@ -73,6 +73,17 @@ func (n *newestAnswer) answer(c *controlClient, asked uint64) bool {
 	return true
 }
 
+// release forgets the window's request numbered asked, if it is still the
+// newest. A request that failed before it could answer, by panicking, would
+// otherwise leave the window's entry here for good, and with it the window.
+func (n *newestAnswer) release(c *controlClient, asked uint64) {
+	n.Lock()
+	defer n.Unlock()
+	if n.seq[c] == asked {
+		delete(n.seq, c)
+	}
+}
+
 // listings is the conversation listings each window has asked for.
 //
 // Reading a project's transcripts takes as long as the project is old, so two

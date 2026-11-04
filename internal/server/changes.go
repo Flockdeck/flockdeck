@@ -166,6 +166,9 @@ func (s *Server) sendChanges(c *controlClient, dir string, asked uint64, reason 
 func (s *Server) sendChangesWith(c *controlClient, dir string, asked uint64, reason string, committed bool) {
 	go func() {
 		defer s.surviveFor(c, "reading what changed")
+		// Run when readChanges panics, so the window is not held in the table
+		// of newest requests after the panic has been recovered.
+		defer changeListings.release(c, asked)
 		msg := readChanges(dir)
 		msg.Reason = reason
 		msg.Committed = committed
