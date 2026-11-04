@@ -62,6 +62,7 @@ func runUpdate(args []string) error {
 	warnIfRecalled(ctx, version)
 
 	if f.version != "" {
+		f.version = releaseTag(f.version)
 		return runRollback(ctx, f)
 	}
 
@@ -159,6 +160,16 @@ func warnIfRecalled(ctx context.Context, running string) {
 		fmt.Println("Run `flockdeck update` once a fixed release is published.")
 		fmt.Println()
 	}
+}
+
+// releaseTag is a version as the release is tagged: with the leading v. A
+// person typing -version=1.4.0 means v1.4.0, and the site and GitHub both
+// answer 404 for the bare number.
+func releaseTag(v string) string {
+	if v != "" && v[0] >= '0' && v[0] <= '9' {
+		return "v" + v
+	}
+	return v
 }
 
 // runRollback implements `flockdeck update -version=X`: installs a named

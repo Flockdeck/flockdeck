@@ -33,6 +33,14 @@ func TestUpdateFlagSetParsesVersionAndYes(t *testing.T) {
 	}
 }
 
+func TestReleaseTagAddsTheLeadingV(t *testing.T) {
+	for in, want := range map[string]string{"1.4.0": "v1.4.0", "v1.4.0": "v1.4.0", "1.4.0-rc1": "v1.4.0-rc1", "": ""} {
+		if got := releaseTag(in); got != want {
+			t.Errorf("releaseTag(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
 // rollbackVerb says what is actually about to happen -- moving forward,
 // back, or reinstalling the very version already running -- so `flockdeck
 // update -version=` never claims to "roll back" an upgrade or "install" a
