@@ -64,24 +64,35 @@ jobs:
         id: version
         env:
           TAG: ${{ github.event.inputs.tag || github.ref_name }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           if ! printf '%s\n' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'; then
             echo "::error::$TAG is not a version release.yml would also accept; tag v1.2.3, or v1.2.3-rc.1 for a candidate"
             exit 1
           fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          # v1.2.3 also tags :v1.2 and :v1 (the newest patch/minor a self-hoster
-          # pinning to either finds); a candidate (v1.2.3-rc.1) only ever
-          # publishes its own exact tag plus the short-sha one below, the same
-          # way release.yml never makes a candidate GitHub's "latest" release.
+          # v1.2.3 also tags :v1.2, :v1 and :latest, but only where it is the
+          # newest stable release in that range: a backport (v0.3.40 cut after
+          # v0.4.1) or a workflow_dispatch rebuild of an old tag must not move
+          # a floating tag backwards, the same rule release.yml applies to
+          # GitHub's "latest" release. A candidate (v1.2.3-rc.1) only ever
+          # publishes its own exact tag plus the short-sha one below.
+          floating=""
           case "$TAG" in
-            *-*) echo "floating=" >> "$GITHUB_OUTPUT" ;;
+            *-*) ;;
             *)
               minor="${TAG%.*}"
               major="${minor%.*}"
-              echo "floating=$minor $major latest" >> "$GITHUB_OUTPUT"
+              all=$(gh api --paginate "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/v" --jq '.[].ref | sub("^refs/tags/"; "")' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || true)
+              # Include TAG itself so the comparison holds even if its ref is not listed yet.
+              newest() { { printf '%s\n' "$all"; echo "$TAG"; } | grep -E "$1" | sort -V | tail -n 1; }
+              [ "$(newest "^${minor//./\.}\.")" = "$TAG" ] && floating="$minor"
+              [ "$(newest "^${major//./\.}\.")" = "$TAG" ] && floating="$floating $major"
+              [ "$(newest '^v')" = "$TAG" ] && floating="$floating latest"
               ;;
           esac
+          echo "floating=$(echo $floating)" >> "$GITHUB_OUTPUT"
+          echo "floating tags for $TAG: ${floating:-none}"
 
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
@@ -114,8 +125,10 @@ jobs:
         with:
           context: .
           platforms: linux/amd64,linux/arm64
-          push: true
-          tags: ${{ steps.tags.outputs.tags }}
+          # Pushed by digest only, with no tag: the scan, signature and
+          # attestation below all run against an image nothing can pull by
+          # name yet, and the tags are applied in the last step once they pass.
+          outputs: type=image,name=ghcr.io/flockdeck/flockdeck,push-by-digest=true,name-canonical=true,push=true
           build-args: |
             VERSION=${{ steps.version.outputs.tag }}
           provenance: true
@@ -175,6 +188,19 @@ jobs:
 
       - name: Attest the SBOM
         run: cosign attest --yes --predicate sbom.spdx.json --type spdxjson "ghcr.io/flockdeck/flockdeck@${{ steps.build.outputs.digest }}"
+
+      # Last, so a failed scan, signature or attestation leaves every tag
+      # (including :latest) on the previous release. Re-tags the signed index
+      # by digest without rebuilding, so the tags resolve to the exact digest
+      # that was scanned and signed.
+      - name: Apply tags
+        env:
+          DIGEST: ${{ steps.build.outputs.digest }}
+          TAGS: ${{ steps.tags.outputs.tags }}
+        run: |
+          args=()
+          for t in ${TAGS//,/ }; do args+=(-t "$t"); done
+          docker buildx imagetools create "${args[@]}" "ghcr.io/flockdeck/flockdeck@$DIGEST"
 
       - name: Summary
         env:
