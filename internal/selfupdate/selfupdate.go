@@ -48,6 +48,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -441,12 +442,25 @@ func (r *Release) asset(name string) (Asset, bool) {
 // that fails for any reason, the reason logged. Either way the archive has to
 // match the SHA-256 the release's signed manifest gave for it.
 func Stage(ctx context.Context, rel *Release, dir string) (*Pending, error) {
-	p, err := stage(ctx, rel, dir)
+	return stageWithFallback(ctx, rel, dir, false)
+}
+
+// commitMu keeps two stagings in this process from interleaving the end of
+// their work. Each one swaps the staging folder and then writes pending.json,
+// two separate steps, so with the version picker and the background check
+// finishing together the record could name one release while the folder held
+// the other's binary. Downloads still run side by side; only the swap and the
+// write are taken in turn, and the later one wins, whole.
+var commitMu sync.Mutex
+
+// stageWithFallback is Stage with the record marked chosen when asked.
+func stageWithFallback(ctx context.Context, rel *Release, dir string, chosen bool) (*Pending, error) {
+	p, err := stage(ctx, rel, dir, chosen)
 	if err == nil || rel.mirror == nil || ctx.Err() != nil || errors.Is(err, ErrNoAsset) {
 		return p, err
 	}
 	fellBack("could not download "+rel.Version+" from "+siteHost(), err)
-	return stage(ctx, rel.mirror, dir)
+	return stage(ctx, rel.mirror, dir, chosen)
 }
 
 // StageChosen is Stage for a release chosen by name rather than reached as
@@ -459,15 +473,7 @@ func Stage(ctx context.Context, rel *Release, dir string) (*Pending, error) {
 // second-guesses the choice against Newer (see stagedUpdate and checkRound
 // in cli_update.go).
 func StageChosen(ctx context.Context, rel *Release, dir string) (*Pending, error) {
-	p, err := Stage(ctx, rel, dir)
-	if err != nil {
-		return nil, err
-	}
-	p.Chosen = true
-	if err := save(dir, p); err != nil {
-		return nil, err
-	}
-	return p, nil
+	return stageWithFallback(ctx, rel, dir, true)
 }
 
 // stage is Stage from the one place rel says.
@@ -475,7 +481,7 @@ func StageChosen(ctx context.Context, rel *Release, dir string) (*Pending, error
 // The download is hashed as it is written rather than read back afterwards, so
 // a file that does not match is never on disk in a state anything could mistake
 // for finished, and a truncated transfer fails here rather than at the swap.
-func stage(ctx context.Context, rel *Release, dir string) (*Pending, error) {
+func stage(ctx context.Context, rel *Release, dir string, chosen bool) (*Pending, error) {
 	asset, ok := rel.assetFor(runtime.GOOS, runtime.GOARCH)
 	if !ok {
 		return nil, ErrNoAsset
@@ -536,12 +542,15 @@ func stage(ctx context.Context, rel *Release, dir string) (*Pending, error) {
 		return nil, err
 	}
 
+	commitMu.Lock()
+	defer commitMu.Unlock()
 	staging := filepath.Join(dir, "staging")
 	if err := swapStaging(dir, work, staging); err != nil {
 		return nil, err
 	}
 
 	p := &Pending{
+		Chosen:  chosen,
 		Version: rel.Version,
 		Binary:  filepath.Join(staging, binaryName),
 		Notes:   rel.Notes,
