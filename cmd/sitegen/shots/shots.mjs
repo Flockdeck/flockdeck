@@ -351,10 +351,17 @@ async function startRelay() {
     const port = 41000 + Math.floor(Math.random() * 8000);
     const u = `http://127.0.0.1:${port}`;
     // Plans enforced, as on the shared relay: the account is on its trial.
-    start(path.join(bin, "flockdeck-relay.exe"), ["serve", "-public-url", u, "-addr", `127.0.0.1:${port}`, "-data", data, "-admin-addr=", "-enforce-plans"], work, "relay");
-    await sleep(2000);
-    try { if ((await fetch(u + "/readyz")).ok) { console.log("relay on", u); return u; } } catch {}
-    await stopAll(work);
+    const rp = start(path.join(bin, "flockdeck-relay.exe"), ["serve", "-public-url", u, "-addr", `127.0.0.1:${port}`, "-data", data, "-admin-addr=", "-enforce-plans"], work, "relay");
+    // A first start creates its database and may be scanned, so give it time
+    // while it is still running; only a relay that exited (the port was taken)
+    // or never answered is dropped. Only the relay is stopped: the staged
+    // desktop, the mock agents and the browser are already running.
+    for (let t = 0; t < 20000 && rp.exitCode === null; t += 500) {
+      await sleep(500);
+      try { if ((await fetch(u + "/readyz")).ok) { console.log("relay on", u); return u; } } catch {}
+    }
+    if (rp.exitCode === null) rp.kill();
+    procs.splice(procs.indexOf(rp), 1);
   }
   throw new Error("the relay did not start");
 }
