@@ -526,8 +526,8 @@ type Workspace struct {
 	rootGroup map[string]string
 	// savedGroups is what groups.json held at startup, read once and
 	// cross-referenced as each root is opened over the run -- see
-	// ensureGroup. It is never written to; persistGroups always writes the
-	// live groups map instead.
+	// ensureGroup. persistGroups replaces it with what it writes, so a
+	// grouping changed this run is not undone by a stale copy.
 	savedGroups []store.ProjectGroup
 	// lastRootInGroup remembers which member of a multi-repo project was
 	// last active, so switching to the project lands there rather than

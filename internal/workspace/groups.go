@@ -248,6 +248,11 @@ func (w *Workspace) persistGroups() error {
 			Roots: append([]string(nil), g.Roots...),
 		})
 	}
+	// ensureGroup reads savedGroups when a root is reopened, so it has to see
+	// what was just written, not what the file held at startup: a grouping
+	// undone this run must not be re-applied when its repo is closed and
+	// reopened.
+	w.savedGroups = out
 	return store.SaveGroups(out)
 }
 

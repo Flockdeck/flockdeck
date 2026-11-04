@@ -349,3 +349,29 @@ func TestGroupsPersistImmediately(t *testing.T) {
 		t.Fatalf("saved groups = %+v, want one named platform", saved)
 	}
 }
+
+// TestReopeningASplitOutRepoKeepsItSplit covers a grouping undone and the
+// repo closed and reopened in the same run: ensureGroup must not read the
+// startup copy of groups.json and put the repo back in its old group.
+func TestReopeningASplitOutRepoKeepsItSplit(t *testing.T) {
+	isolateConfig(t)
+	ws, first, second := twoProjects(t)
+	if _, err := ws.NewGroupFrom([]string{first, second}, "platform"); err != nil {
+		t.Fatalf("group: %v", err)
+	}
+	// Simulate a restart having loaded the grouping from disk.
+	ws.savedGroups = loadSavedGroups()
+	if err := ws.RemoveRepoFromGroup(second); err != nil {
+		t.Fatalf("remove: %v", err)
+	}
+	if err := ws.CloseProject(second); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	if err := ws.OpenProject(second); err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+
+	if n := len(ws.Projects()); n != 2 {
+		t.Fatalf("projects = %d, want 2: the split-out repo was regrouped from a stale snapshot", n)
+	}
+}
