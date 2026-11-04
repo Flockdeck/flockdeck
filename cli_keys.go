@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode/utf16"
 
 	"github.com/jmwri/flockdeck/internal/agent"
 	"github.com/jmwri/flockdeck/internal/apikey"
@@ -378,7 +379,18 @@ func redactURL(s string) string {
 // input without a newline is a key too — `printf %s "$k" | flockdeck keys set` —
 // so an EOF with something before it is not an error.
 func readKeyLine(r io.Reader) (string, error) {
-	line, err := bufio.NewReader(r).ReadString('\n')
+	br := bufio.NewReader(r)
+	// PowerShell 5.1's `>` writes UTF-16 with a byte-order mark. Read as bytes,
+	// the key would carry a NUL after every character and break every pane
+	// start for that agent, so a UTF-16 input is decoded first.
+	if head, _ := br.Peek(2); len(head) == 2 && (head[0] == 0xff && head[1] == 0xfe || head[0] == 0xfe && head[1] == 0xff) {
+		raw, err := io.ReadAll(io.LimitReader(br, 64<<10))
+		if err != nil {
+			return "", fmt.Errorf("read the key: %w", err)
+		}
+		br = bufio.NewReader(strings.NewReader(decodeUTF16(raw)))
+	}
+	line, err := br.ReadString('\n')
 	// A byte-order mark is what PowerShell puts in front of piped input when
 	// its output encoding is set to UTF-8, and `type` passes on the one a file
 	// saved by Notepad starts with. It is not part of any key, and stored with
@@ -387,7 +399,25 @@ func readKeyLine(r io.Reader) (string, error) {
 	if err != nil && !errors.Is(err, io.EOF) {
 		return "", fmt.Errorf("read the key: %w", err)
 	}
+	if strings.ContainsRune(line, 0) {
+		return "", errors.New("the input is not plain text (it holds NUL bytes, as UTF-16 or binary input does); save the key as UTF-8 or pipe it from echo")
+	}
 	return line, nil
+}
+
+// decodeUTF16 turns UTF-16 bytes that start with a byte-order mark into a
+// string. A trailing odd byte is dropped.
+func decodeUTF16(raw []byte) string {
+	big := raw[0] == 0xfe
+	units := make([]uint16, 0, len(raw)/2)
+	for i := 2; i+1 < len(raw); i += 2 {
+		if big {
+			units = append(units, uint16(raw[i])<<8|uint16(raw[i+1]))
+		} else {
+			units = append(units, uint16(raw[i+1])<<8|uint16(raw[i]))
+		}
+	}
+	return string(utf16.Decode(units))
 }
 
 // stdinIsTerminal reports whether there is a person at the other end of
