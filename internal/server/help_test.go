@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -203,5 +204,24 @@ func TestHelpIsServedAsATreeToTheNewInterface(t *testing.T) {
 		if len(p["tree"]) < 3 {
 			t.Errorf("page %s has no tree", p["slug"])
 		}
+	}
+}
+
+// TestAPanicInTheUpdateCheckIsReportedNotFatal covers the manual update check,
+// which runs on a goroutine of its own. A panic there with nothing recovering
+// it ends the whole process, and with it every running agent.
+func TestAPanicInTheUpdateCheckIsReportedNotFatal(t *testing.T) {
+	srv, _ := newTestServer(t)
+	srv.OnCheckForUpdates = func() (string, bool) { panic("an unexpected release shape") }
+	c := &controlClient{out: make(chan []byte, 8)}
+
+	srv.handleCommand(c, command{Cmd: "checkForUpdate"})
+
+	var note noticeMsg
+	if err := json.Unmarshal(nextRaw(t, c), &note); err != nil {
+		t.Fatal(err)
+	}
+	if note.Type != "notice" || !note.Error || !strings.Contains(note.Text, "checking for updates") {
+		t.Errorf("notice = %+v, want the panic reported as an error", note)
 	}
 }

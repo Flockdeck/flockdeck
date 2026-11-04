@@ -1953,7 +1953,12 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 			c.notify("Checking for updates is done on the machine Flockdeck runs on, not from a window reached through the relay", true)
 			return
 		}
-		go s.checkForUpdates(c)
+		go func() {
+			// Recovered here: a panic in a goroutine of its own, with nothing
+			// above it to catch it, ends the whole process and every agent.
+			defer s.surviveFor(c, "checking for updates")
+			s.checkForUpdates(c)
+		}()
 		return
 	case "helpers":
 		s.helpersList(c, cmd.Force)
