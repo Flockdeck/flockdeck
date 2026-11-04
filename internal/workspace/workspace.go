@@ -1227,6 +1227,9 @@ func (w *Workspace) openProjectInto(path string, into *ProjectGroup) error {
 	if open, ok := w.openRootFor(root); ok {
 		// Select it under the spelling it was opened with: the tabs already
 		// hold that one, and they are matched against it by string.
+		if into != nil {
+			w.moveRootToGroup(open, into)
+		}
 		w.SelectProject(open)
 		return nil
 	}

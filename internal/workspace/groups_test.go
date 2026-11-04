@@ -424,3 +424,27 @@ func TestEnsureGroupMatchesMembersByDirectory(t *testing.T) {
 		t.Errorf("api did not join the live group: roots = %v", first.Roots)
 	}
 }
+
+// TestAddRepoToGroupGroupsAFolderThatIsAlreadyOpen checks that adding a
+// folder open as its own project to another project groups it, instead of
+// selecting it and reporting success with nothing changed.
+func TestAddRepoToGroupGroupsAFolderThatIsAlreadyOpen(t *testing.T) {
+	isolateConfig(t)
+	ws, first, second := twoProjects(t)
+
+	if err := ws.AddRepoToGroup(first, second); err != nil {
+		t.Fatalf("add repo: %v", err)
+	}
+
+	projects := ws.Projects()
+	if len(projects) != 1 || len(projects[0].Members) != 2 {
+		t.Fatalf("projects = %+v, want one project of two members", projects)
+	}
+	saved, err := store.LoadGroups()
+	if err != nil {
+		t.Fatalf("load groups: %v", err)
+	}
+	if len(saved) != 1 || len(saved[0].Roots) != 2 {
+		t.Fatalf("saved groups = %+v, want one group of two roots", saved)
+	}
+}

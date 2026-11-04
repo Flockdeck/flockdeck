@@ -144,6 +144,28 @@ func (w *Workspace) addToGroup(g *ProjectGroup, root string) {
 	w.rootGroup[root] = g.ID
 }
 
+// moveRootToGroup moves an open root out of the group it is in and into
+// into. "Add Repo to This Project" on a folder that is already open as its
+// own project used to select it and report success without grouping it. A
+// group left with no members is dropped.
+func (w *Workspace) moveRootToGroup(root string, into *ProjectGroup) {
+	from := w.groupOf(root)
+	if from == into {
+		return
+	}
+	if from != nil {
+		from.Roots = slices.DeleteFunc(from.Roots, func(r string) bool { return sameDir(r, root) })
+		if len(from.Roots) == 0 {
+			delete(w.groups, from.ID)
+			delete(w.lastRootInGroup, from.ID)
+		} else if sameDir(from.Primary, root) {
+			from.Primary = from.Roots[0]
+		}
+	}
+	w.addToGroup(into, root)
+	w.wake()
+}
+
 // groupOf reports the group a root belongs to, or nil for a root that has
 // no live group -- which today means only a root that has never been
 // opened, since every open root is put through ensureGroup the moment it
