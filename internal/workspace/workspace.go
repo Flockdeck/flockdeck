@@ -3263,8 +3263,49 @@ func typeInto(s *session.Session, text string, submit bool) {
 
 // typeIntoFrom is typeInto with the source of the input named, so a line
 // Flockdeck types itself is not recorded as the user at the keyboard.
+//
+// Writes to one pane are taken one prompt at a time. Each prompt is its text,
+// a settle wait and an Enter, and two of them on goroutines of their own could
+// interleave: the second paste landing before the first Enter, so the Enter
+// submitted both together.
 func typeIntoFrom(s *session.Session, src session.InputSource, text string, submit bool) {
-	typeIntoSink(s, src, text, submit)
+	serialisedPerKey(s, func() { typeIntoSink(s, src, text, submit) })
+}
+
+// promptLocks hands out one lock per pane to serialisedPerKey, counting the
+// callers that hold or wait for it so the entry goes when the last is done.
+var promptLocks = struct {
+	sync.Mutex
+	m map[any]*promptLock
+}{m: map[any]*promptLock{}}
+
+type promptLock struct {
+	sync.Mutex
+	users int
+}
+
+// serialisedPerKey runs fn with every other call that has the same key held
+// off until it returns.
+func serialisedPerKey(key any, fn func()) {
+	promptLocks.Lock()
+	l := promptLocks.m[key]
+	if l == nil {
+		l = &promptLock{}
+		promptLocks.m[key] = l
+	}
+	l.users++
+	promptLocks.Unlock()
+
+	l.Lock()
+	defer func() {
+		l.Unlock()
+		promptLocks.Lock()
+		if l.users--; l.users == 0 {
+			delete(promptLocks.m, key)
+		}
+		promptLocks.Unlock()
+	}()
+	fn()
 }
 
 // promptSink is the part of a session typeIntoSink writes through, so a test can

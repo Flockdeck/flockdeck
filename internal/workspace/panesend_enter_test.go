@@ -135,3 +135,30 @@ func TestAnAgentThatNeverStartsIsReportedUnsent(t *testing.T) {
 		t.Error("no second Enter was sent before giving up")
 	}
 }
+
+// Two prompts for one pane must not interleave: each is its text, a wait and
+// its Enter, and the second paste arriving before the first Enter would have
+// the Enter submit both as one message.
+func TestPromptsToOnePaneAreNotInterleaved(t *testing.T) {
+	f := &fakeSink{bracketed: true}
+	key := new(int)
+	var wg sync.WaitGroup
+	for _, text := range []string{"a1\na2", "b1\nb2"} {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			serialisedPerKey(key, func() { typeIntoSink(f, session.InputFlockdeck, text, true) })
+		}()
+	}
+	wg.Wait()
+
+	if len(f.writes) != 4 {
+		t.Fatalf("%d writes, want 4: %+v", len(f.writes), f.writes)
+	}
+	if f.writes[1].data != "\r" || f.writes[3].data != "\r" {
+		t.Errorf("writes %+v, want each prompt followed by its own Enter", f.writes)
+	}
+	if len(promptLocks.m) != 0 {
+		t.Errorf("%d prompt locks left behind", len(promptLocks.m))
+	}
+}
