@@ -88,6 +88,17 @@ func (e *approveEnv) allow(t *testing.T, device string) {
 		t.Fatalf("refused: %+v", note)
 	}
 	waitUntil(t, "approval to be switched on for "+device, func() bool { return e.srv.approveSwitchOn(device) })
+	// setDeviceApprove ends by refreshing the paired devices in a goroutine of
+	// its own, and that refresh reads the preferences file through
+	// store.ReadPrefs, which moves a damaged file aside. A test that damages the
+	// file right after allow would race it. The refresh answers the window once
+	// it has queued its updates, and a round trip to the workspace goroutine
+	// runs them.
+	var refreshed map[string]any
+	readUntil(t, desk, "remoteDevices", &refreshed)
+	if _, ok := ask(e.srv, func() bool { return true }); !ok {
+		t.Fatal("the server closed before the device refresh settled")
+	}
 }
 
 // askChallenge opens the question for a device, as the dialog does, and returns
