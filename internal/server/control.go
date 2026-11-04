@@ -2158,7 +2158,13 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 				return fmt.Errorf("%s can't be removed: close another project first, or it would leave nothing open", filepath.Base(cmd.Root))
 			}
 			if err := s.ws.CloseProject(cmd.Root); err != nil {
-				return err
+				// CloseProject also fails after the project has closed, when
+				// its layout could not be saved. The project is being removed,
+				// so that layout is not wanted; reporting the failure and
+				// leaving it in the recent list kept a closed project listed.
+				if _, stillOpen := s.ws.OpenRootFor(cmd.Root); stillOpen {
+					return err
+				}
 			}
 			return store.ForgetRecent(cmd.Root)
 		})
