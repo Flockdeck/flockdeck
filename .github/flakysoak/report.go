@@ -367,6 +367,18 @@ func render(st State, in Input, missing []string) string {
 			body = body[:i] + "(Log excerpts left out: too many failing tests for one issue. See the run.)\n\n" + body[i+j+len("</details>\n\n"):]
 		}
 	}
+	if len(body)+len(state) > maxBody {
+		// Still too long, because each entry's state carries its whole
+		// excerpt. The table only shows one line of it, so keep that line.
+		short := st
+		short.Entries = make([]Entry, len(st.Entries))
+		for i, e := range st.Entries {
+			e.Excerpt = oneLine(e.Excerpt)
+			short.Entries[i] = e
+		}
+		sj, _ = json.Marshal(short)
+		state = stateOpen + "\n" + string(sj) + "\n" + stateClose + "\n"
+	}
 	return body + state
 }
 
