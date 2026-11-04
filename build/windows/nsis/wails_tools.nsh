@@ -197,7 +197,11 @@ RequestExecutionLevel "${REQUEST_EXECUTION_LEVEL}"
     CreateDirectory "$pluginsdir\webview2bootstrapper"
     SetOutPath "$pluginsdir\webview2bootstrapper"
     File "MicrosoftEdgeWebview2Setup.exe"
-    ExecWait '"$pluginsdir\webview2bootstrapper\MicrosoftEdgeWebview2Setup.exe" /silent /install'
+    ExecWait '"$pluginsdir\webview2bootstrapper\MicrosoftEdgeWebview2Setup.exe" /silent /install' $0
+    ${If} $0 != 0
+        DetailPrint "WebView2 Runtime setup failed (exit code $0)"
+        MessageBox MB_OK|MB_ICONEXCLAMATION "The WebView2 Runtime could not be installed (exit code $0). Flockdeck's own window needs it: until it is installed, Flockdeck opens in your default browser instead." /SD IDOK
+    ${EndIf}
     
     SetDetailsPrint both
     ok:
