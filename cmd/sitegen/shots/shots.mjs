@@ -44,10 +44,17 @@ const bin = path.join(work, "bin"), out = path.join(work, "out");
 for (const d of ["bin", "out", "appdata/flockdeck", "localappdata", "home", "tmp", "claude/subscription", "claude/apikey"]) {
   fs.mkdirSync(path.join(work, d), { recursive: true });
 }
-const git = execFileSync("where.exe", ["git"], { encoding: "utf8" }).split(/\r?\n/)[0].trim();
-const env = stagedEnv(work, path.dirname(git)); // throws if the state would be the live one
-const before = snapshot(LIVE);
-fs.writeFileSync(path.join(work, "live-before.json"), JSON.stringify(before, null, 1));
+let env, before;
+try {
+  const git = execFileSync("where.exe", ["git"], { encoding: "utf8" }).split(/\r?\n/)[0].trim();
+  env = stagedEnv(work, path.dirname(git)); // throws if the state would be the live one
+  before = snapshot(LIVE);
+  fs.writeFileSync(path.join(work, "live-before.json"), JSON.stringify(before, null, 1));
+} catch (err) {
+  // Nothing has been started yet, so the work directory is the only leftover.
+  fs.rmSync(work, { recursive: true, force: true });
+  throw err;
+}
 console.log("work directory", work);
 console.log("live state", LIVE.filter((d) => fs.existsSync(d)).join(", ") || "(none)", "-", Object.keys(before).length, "files");
 
