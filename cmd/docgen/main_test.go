@@ -140,3 +140,27 @@ func TestTheDocsAndTheSiteShipTheSameFonts(t *testing.T) {
 		t.Errorf("cmd/docgen/assets/fonts/%s is not in cmd/sitegen/assets/fonts", name)
 	}
 }
+
+// A page a run did not write is removed from the section folders, and nothing
+// else in the output is.
+func TestRemoveStalePages(t *testing.T) {
+	out := t.TempDir()
+	for _, f := range []string{"app/panes.html", "app/layout.html", "self-hosting/old.html", "index.html", "app/keep.txt"} {
+		if err := write(out, f, []byte("x")); err != nil {
+			t.Fatal(err)
+		}
+	}
+	written := map[string][]byte{"app/layout.html": nil, "index.html": nil}
+	if err := removeStalePages(out, written); err != nil {
+		t.Fatal(err)
+	}
+	for f, want := range map[string]bool{"app/panes.html": false, "self-hosting/old.html": false, "app/layout.html": true, "index.html": true, "app/keep.txt": true} {
+		_, err := os.Stat(filepath.Join(out, f))
+		if (err == nil) != want {
+			t.Errorf("%s present = %v, want %v", f, err == nil, want)
+		}
+	}
+	if err := removeStalePages(t.TempDir(), written); err != nil {
+		t.Errorf("an output with no section folders: %v", err)
+	}
+}
