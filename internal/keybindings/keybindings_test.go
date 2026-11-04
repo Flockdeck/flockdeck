@@ -211,6 +211,25 @@ func TestDamagedFileReadsAsDefaults(t *testing.T) {
 	}
 }
 
+func TestRemapKeepsACopyOfADamagedFile(t *testing.T) {
+	isolateConfig(t)
+	p, err := path()
+	if err != nil {
+		t.Fatalf("path: %v", err)
+	}
+	damaged := `{"version":1,"overrides":{"zoomPane":"Ctrl+Alt+Z",}}`
+	if err := os.WriteFile(p, []byte(damaged), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if _, err := SetBinding(testKeys, "closePane", "Ctrl+Alt+W"); err != nil {
+		t.Fatalf("SetBinding: %v", err)
+	}
+	got, err := os.ReadFile(p + ".bad")
+	if err != nil || string(got) != damaged {
+		t.Errorf("keybindings.json.bad = %q, %v; want the damaged file kept", got, err)
+	}
+}
+
 // TestBindingsForRemovedActionsAreIgnored covers keybindings.json files
 // written while Fan out and Todo existed. Their action ids are no longer in the
 // table: the file loads, the other bindings still apply, and the chord the old

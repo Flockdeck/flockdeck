@@ -92,7 +92,8 @@ func load() (*File, error) {
 	if json.Unmarshal(data, &f) != nil {
 		// Damaged, but a person's remapping is not worth a startup failure
 		// over: every binding just goes back to its default until the file is
-		// repaired or replaced by the next remap saved here.
+		// repaired or replaced by the next remap saved here, which first
+		// copies the damaged file to keybindings.json.bad.
 		return &File{Version: Version}, nil
 	}
 	return &f, nil
@@ -110,6 +111,15 @@ func save(f *File) error {
 	data, err := json.MarshalIndent(f, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encode %s: %w", FileName, err)
+	}
+	// A file that did not parse reads as no overrides, so this write is about
+	// to replace it with a near-empty one. Keep what was there beside it first,
+	// so a hand edit with a trailing comma is not lost along with its bindings.
+	if old, rerr := store.ReadState(p); rerr == nil {
+		var probe File
+		if len(strings.TrimSpace(string(old))) > 0 && json.Unmarshal(old, &probe) != nil {
+			_ = store.WriteAtomic(p+".bad", old)
+		}
 	}
 	if err := store.WriteAtomic(p, data); err != nil {
 		return fmt.Errorf("write %s: %w", FileName, err)
