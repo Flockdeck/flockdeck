@@ -59,6 +59,8 @@ const (
 // ignoredPath reports whether a change to path cannot change what is built or
 // deployed. What is ignored, and why:
 //   - .github/: CI and repo configuration; it is never in an image or a module.
+//   - .flockdeck/: the OKF knowledge bundle, notes about the code that no
+//     build reads. A bundle of 90 generated pages was reported as shipping.
 //   - repository configuration that no build reads into an image or module:
 //     .gitattributes, .editorconfig, .gitignore and CODEOWNERS,
 //     wherever they sit. A line-ending renormalisation is such a commit.
@@ -71,7 +73,7 @@ const (
 // Everything else (go.mod, Dockerfile, deploy/, config, non-markdown under
 // docs/) is treated as shipping, including anything unrecognised.
 func ignoredPath(p profile, path string) bool {
-	if strings.HasPrefix(path, ".github/") {
+	if strings.HasPrefix(path, ".github/") || strings.HasPrefix(path, ".flockdeck/") {
 		return true
 	}
 	if isRepoConfigFile(path) {
