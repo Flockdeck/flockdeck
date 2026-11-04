@@ -154,4 +154,3 @@ func TestSendToAStructuredPaneTellsWhyItWasRefused(t *testing.T) {
 		t.Errorf("an accepted send: %v", err)
 	}
 }
-

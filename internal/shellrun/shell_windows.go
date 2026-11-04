@@ -7,6 +7,8 @@ import (
 	"os"
 	"os/exec"
 	"syscall"
+
+	"github.com/jmwri/flockdeck/internal/sysproc"
 )
 
 // shellCommand is cmdline run through cmd.exe. The line is given to it as it
@@ -20,5 +22,6 @@ func shellCommand(ctx context.Context, cmdline string) *exec.Cmd {
 	}
 	c := exec.CommandContext(ctx, comspec)
 	c.SysProcAttr = &syscall.SysProcAttr{CmdLine: `"` + comspec + `" /d /s /c "` + cmdline + `"`}
+	sysproc.NoWindow(c)
 	return c
 }

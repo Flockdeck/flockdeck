@@ -254,7 +254,6 @@ func TestAnEchoedPromptInATurnIsIgnored(t *testing.T) {
 	}
 }
 
-
 // A change the agent accepted is shown at once, cleaned like any other text
 // from the agent, and not let into a part the agent never listed.
 func TestAcceptedSettingsAreRecorded(t *testing.T) {

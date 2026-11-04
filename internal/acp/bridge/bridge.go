@@ -217,7 +217,7 @@ type Bridge struct {
 	// liveSeen is set when an update that is not replay has come in while
 	// replaying is set.
 	liveSeen bool
-	pending   []Card
+	pending  []Card
 	plan     []acp.PlanEntry
 	usage    Usage
 	state    SessionState
