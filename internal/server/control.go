@@ -1658,6 +1658,18 @@ func (c *controlClient) notifyReq(text string, isErr bool, req string) {
 // Commands
 // ---------------------------------------------------------------------------
 
+// saveProjectMeta runs a write to the recent list's display settings and, if
+// it worked, reloads the workspace's cached copy. It is called on the
+// workspace goroutine, so one window's write and reload cannot interleave
+// with another's.
+func (s *Server) saveProjectMeta(write func() error) error {
+	if err := write(); err != nil {
+		return err
+	}
+	s.ws.ReloadProjectMeta()
+	return nil
+}
+
 // handleCommand applies a request from a window. Everything that touches the
 // workspace runs on its owner goroutine; anything slow (git) is done outside.
 func (s *Server) handleCommand(c *controlClient, cmd command) {
@@ -2083,22 +2095,30 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		// project the same way forgetRecent's own write is: both rewrite the
 		// same file, and side by side one could put back what the other had
 		// just changed.
-		if err, ok := ask(s, func() error { return store.SetProjectName(cmd.Root, cmd.Text) }); ok {
+		//
+		// The workspace's copy of the metadata is reloaded in the same step.
+		// Reloaded afterwards on this window's own goroutine, two windows could
+		// write v1 and v2 and then store them in the other order, leaving the
+		// cache with the older one.
+		if err, ok := ask(s, func() error {
+			return s.saveProjectMeta(func() error { return store.SetProjectName(cmd.Root, cmd.Text) })
+		}); ok {
 			if err != nil {
 				c.notify("Could not rename "+filepath.Base(cmd.Root)+": "+err.Error(), true)
 			} else {
 				// The open project's own name, part of the main snapshot
 				// rather than the recent list, has to be told to look again
 				// too -- ReloadAgents is why the picker's other settings do
-				// the same after a save.
-				s.ws.ReloadProjectMeta()
+				// the same after a save (saveProjectMeta reloads it).
 				s.wakeAsked()
 			}
 		}
 		s.recents(c)
 		return
 	case "archiveProject":
-		if err, ok := ask(s, func() error { return store.SetProjectArchived(cmd.Root, cmd.Archived) }); ok {
+		if err, ok := ask(s, func() error {
+			return s.saveProjectMeta(func() error { return store.SetProjectArchived(cmd.Root, cmd.Archived) })
+		}); ok {
 			if err != nil {
 				verb := "archive"
 				if !cmd.Archived {
@@ -2106,18 +2126,18 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 				}
 				c.notify("Could not "+verb+" "+filepath.Base(cmd.Root)+": "+err.Error(), true)
 			} else {
-				s.ws.ReloadProjectMeta()
 				s.wakeAsked()
 			}
 		}
 		s.recents(c)
 		return
 	case "reorderProjects":
-		if err, ok := ask(s, func() error { return store.ReorderProjects(cmd.Roots) }); ok {
+		if err, ok := ask(s, func() error {
+			return s.saveProjectMeta(func() error { return store.ReorderProjects(cmd.Roots) })
+		}); ok {
 			if err != nil {
 				c.notify("Could not reorder projects: "+err.Error(), true)
 			} else {
-				s.ws.ReloadProjectMeta()
 				s.wakeAsked()
 			}
 		}
