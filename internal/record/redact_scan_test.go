@@ -19,6 +19,9 @@ func patternFindOthers(s string) []Span {
 		out = append(out, Span{m[0], m[1], "private-key"})
 	}
 	for _, m := range bearerRe.FindAllStringSubmatchIndex(s, -1) {
+		if isPlainWord(s[m[5]:m[1]]) {
+			continue
+		}
 		out = append(out, Span{m[5], m[1], "bearer-token"})
 	}
 	for _, m := range urlCredRe.FindAllStringSubmatchIndex(s, -1) {

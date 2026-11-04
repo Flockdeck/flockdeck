@@ -115,6 +115,28 @@ var (
 	bearerRe = regexp.MustCompile(`(?i)\b(bearer|basic)(\s+)[A-Za-z0-9._~+/=\-]{12,}`)
 )
 
+// isPlainWord reports whether w looks like an English word: lowercase letters
+// only, with an optional leading capital. "basic implementation" matches the
+// bearer pattern, but a real token of 12 or more characters is all lowercase
+// letters only about once in 100,000 tries.
+func isPlainWord(w string) bool {
+	if w == "" {
+		return false
+	}
+	if 'A' <= w[0] && w[0] <= 'Z' {
+		w = w[1:]
+	}
+	if w == "" {
+		return false
+	}
+	for i := 0; i < len(w); i++ {
+		if w[i] < 'a' || w[i] > 'z' {
+			return false
+		}
+	}
+	return true
+}
+
 func isAlnum(b byte) bool {
 	return '0' <= b && b <= '9' || 'a' <= b && b <= 'z' || 'A' <= b && b <= 'Z'
 }
@@ -222,6 +244,9 @@ func findOthers(s string, wide bool) []Span {
 	if !ascii || strings.Contains(ls, "bearer") || strings.Contains(ls, "basic") {
 		// The scheme and the space after it stay; the credential goes.
 		for _, m := range bearerRe.FindAllStringSubmatchIndex(s, -1) {
+			if isPlainWord(s[m[5]:m[1]]) {
+				continue
+			}
 			out = append(out, Span{m[5], m[1], "bearer-token"})
 		}
 	}

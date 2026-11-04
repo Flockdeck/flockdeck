@@ -517,3 +517,16 @@ func TestProviderKeyShapesDoNotEatOrdinaryText(t *testing.T) {
 		}
 	}
 }
+
+func TestOrdinaryWordsAfterBasicAreKept(t *testing.T) {
+	for in, want := range map[string]string{
+		"write a basic implementation of the parser":   "write a basic implementation of the parser",
+		"basic authentication and Basic Configuration": "basic authentication and Basic Configuration",
+		"Authorization: Basic dXNlcjpwYXNzd29yZA==":    "Authorization: Basic [redacted]",
+		"Authorization: Bearer abcdefghijkl1234":       "Authorization: Bearer [redacted]",
+	} {
+		if got := Redact(in); got != want {
+			t.Errorf("Redact(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
