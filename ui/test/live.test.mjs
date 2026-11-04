@@ -324,6 +324,33 @@ test("a failed e2e.js load is reported, and retried on the next hello", async ()
   store.stop();
 });
 
+test("a registration the relay did not take is retried on a backoff until it is", async () => {
+  const { store } = await harness();
+  const results = [false, false, true];
+  const delays = [];
+  let due = null;
+  const loadE2E = async () => ({ ensureRegistered: async () => results.shift() });
+  watchRemoteHello(store, {
+    loadE2E,
+    onError() {},
+    setTimeout: (fn, ms) => { delays.push(ms); due = fn; return delays.length; },
+    clearTimeout() { due = null; },
+  });
+  store.start();
+  FakeWebSocket.last.open();
+  FakeWebSocket.last.frame(hello({ remote: true, e2ePublicKey: E2E_KEY }));
+  await settle(20);
+  assert.deepEqual(delays, [1000], "the failed registration was not scheduled again");
+  due();
+  await settle(20);
+  assert.deepEqual(delays, [1000, 2000]);
+  due();
+  await settle(20);
+  assert.deepEqual(delays, [1000, 2000], "a registration that worked was tried again");
+  assert.equal(results.length, 0);
+  store.stop();
+});
+
 test("a hello that carries an end-to-end key never opens a plain terminal", async () => {
   PtySocket.reset();
   FakeTerm.reset();

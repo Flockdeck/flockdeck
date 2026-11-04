@@ -444,6 +444,7 @@
   }
 
   let lastRegistered = null;
+  let registering = null;
 
   /** ensureRegistered registers this window's identity key with the relay
    *  (POST /.flockdeck-e2e-key, deskorigin.go) unless it already has -- safe
@@ -452,7 +453,9 @@
    *  failure (offline, the relay down) is swallowed -- a window that could
    *  not register yet still opens terminals, unencrypted, exactly as one
    *  whose desktop has no key of its own does, and the next successful call
-   *  catches it up.
+   *  catches it up. Resolves true once the relay holds the key (or there is no
+   *  key to register), false when the attempt failed, so a caller can try
+   *  again later -- see e2e-boot.js.
    *
    *  Only meaningful for a window reached through the relay -- app.js calls
    *  this behind its own remoteWindow check, since a window open on the
@@ -460,20 +463,30 @@
    *  against itself. */
   async function ensureRegistered() {
     const identity = await getIdentity();
-    if (!identity) return;
+    if (!identity) return true;
     const key = encodePublicKey(identity.publicKeyRaw);
-    if (lastRegistered === key) return;
-    try {
-      const resp = await fetch("/.flockdeck-e2e-key", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ publicKey: key }),
-      });
-      if (!resp.ok) return;
-      lastRegistered = key;
-    } catch {
-      // Retried the next time this is called -- see the doc comment above.
-    }
+    if (lastRegistered === key) return true;
+    // Calls that arrive while a request is out share it, so a retry and a
+    // first attempt do not post the same key twice.
+    if (registering && registering.key === key) return registering.promise;
+    const promise = (async () => {
+      try {
+        const resp = await fetch("/.flockdeck-e2e-key", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ publicKey: key }),
+        });
+        if (!resp.ok) return false;
+        lastRegistered = key;
+        return true;
+      } catch {
+        return false;
+      } finally {
+        registering = null;
+      }
+    })();
+    registering = { key, promise };
+    return promise;
   }
 
   window.FlockdeckE2E = {
