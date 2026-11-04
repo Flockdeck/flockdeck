@@ -293,7 +293,10 @@ main() {
 	# The archive carries an icon on Linux too, for the desktop entry below.
 	# macOS carries its own icon already, inside Flockdeck.app itself.
 	if [ "$os" = linux ]; then
-		tar -xzf "$tmp/$archive" -C "$tmp" flockdeck flockdeck.png || die "could not unpack $archive"
+		tar -xzf "$tmp/$archive" -C "$tmp" flockdeck || die "could not unpack $archive"
+		# Releases from before the icon was added have no flockdeck.png; the
+		# desktop entry below is skipped when it is missing.
+		tar -xzf "$tmp/$archive" -C "$tmp" flockdeck.png 2>/dev/null || true
 	else
 		# darwin: the only other os detect_os can name.
 		tar -xzf "$tmp/$archive" -C "$tmp" Flockdeck.app || die "could not unpack $archive"
