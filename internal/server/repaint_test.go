@@ -292,3 +292,49 @@ func TestTwoSimultaneousFreshAttachesAtLeastOneIsRepainted(t *testing.T) {
 		t.Errorf("two simultaneous fresh attaches produced %d repaint steps, want exactly 2 (one repaint fired once, not once per window): %v", len(got), got)
 	}
 }
+
+// TestRepaintOfAnUnsizedPaneGoesBackToItsOwnSize covers a pane no window has
+// measured. The size to put it back to was read from the pty after the step
+// that made it a row short, so the pane stayed a row short for good.
+func TestRepaintOfAnUnsizedPaneGoesBackToItsOwnSize(t *testing.T) {
+	rp := defaultRepaintHooks()
+	var mu sync.Mutex
+	var steps [][2]int
+	rp.resize = func(s *Server, id string, cols, rows int) {
+		mu.Lock()
+		steps = append(steps, [2]int{cols, rows})
+		mu.Unlock()
+		// As in the real thing, the pty takes the size it is given.
+		s.ws.ResizePaneTerminal(id, cols, rows)
+	}
+	rp.gap = 20 * time.Millisecond
+
+	srv, ws := newTestServer(t)
+	srv.rp = rp
+	paneID := nextState(t, dialControl(t, srv), nil).Tabs[0].Root.Pane
+	size, ok := ask(srv, func() [2]int {
+		cols, rows := ws.Pane(paneID).Sess.Size()
+		return [2]int{cols, rows}
+	})
+	if !ok || size[1] < 2 {
+		t.Fatalf("pane size = %v, answered %v", size, ok)
+	}
+
+	srv.do(func() { srv.repaintPane(paneID) })
+
+	for deadline := time.Now().Add(5 * time.Second); ; {
+		mu.Lock()
+		got := append([][2]int(nil), steps...)
+		mu.Unlock()
+		if len(got) == 2 {
+			if got[0] != [2]int{size[0], size[1] - 1} || got[1] != size {
+				t.Fatalf("the repaint went %v; want a row shorter, then back to %v", got, size)
+			}
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("the repaint took %d steps, want 2", len(got))
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}

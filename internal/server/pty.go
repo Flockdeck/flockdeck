@@ -723,8 +723,13 @@ func (s *Server) repaintPane(id string) {
 	time.AfterFunc(s.rp.gap, func() {
 		s.do(func() {
 			// Whatever size is right by then, in case a window has changed
-			// shape in the meantime.
-			if cols, rows := s.repaintSize(id); cols > 0 && rows > 0 {
+			// shape in the meantime. A pane nobody has measured has only the
+			// size the pty reports, which the step above has just made a row
+			// short, so it goes back to the size it had before.
+			if c, r := viewers.size(id); c > 0 && r > 0 {
+				cols, rows = c, r
+			}
+			if cols > 0 && rows > 0 {
 				s.rp.resize(s, id, cols, rows)
 			}
 		})
