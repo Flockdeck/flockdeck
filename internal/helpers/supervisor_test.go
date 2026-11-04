@@ -965,3 +965,18 @@ func TestTheLastPortFileIsReadSafely(t *testing.T) {
 		}
 	}
 }
+
+func TestStartRefusesWhenAnInstallBeginsDuringVerification(t *testing.T) {
+	e := fakeEntry("lens")
+	calls := 0
+	f := newSupFixture(t, []Entry{e}, func(c *Config) {
+		// Not busy at the first check, busy by the time the lock is taken.
+		c.InstallBusy = func(string) bool { calls++; return calls > 1 }
+	})
+	if _, err := f.sup.Start("lens"); err == nil {
+		t.Fatal("Start succeeded although an install began after the first check")
+	}
+	if f.sup.Active("lens") {
+		t.Error("a refused start left an active instance")
+	}
+}

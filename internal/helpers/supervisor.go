@@ -280,6 +280,13 @@ func (s *Supervisor) Start(id string) (Status, error) {
 		return Status{}, err
 	}
 	s.mu.Lock()
+	// VerifyInstall can take a while on a large binary, and an install may have
+	// begun meanwhile. Its busy check looks at Active, which is false until the
+	// instance is registered below, so look again here under the same lock.
+	if s.cfg.InstallBusy != nil && s.cfg.InstallBusy(id) {
+		s.mu.Unlock()
+		return Status{}, fmt.Errorf("%s is being installed; wait for that to finish", e.Name)
+	}
 	if in, ok := s.insts[id]; ok {
 		switch in.state {
 		case StateStarting, StateRunning, StateUnresponsive:
