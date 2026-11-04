@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/jmwri/flockdeck/internal/agent"
 	"github.com/jmwri/flockdeck/internal/gitx"
@@ -196,13 +198,26 @@ func (s *Server) effectiveKeys(remote bool) []keyView {
 	return remoteFiltered(views)
 }
 
+// readOverrides is keybindings.json's remappings. A read that fails is tried
+// again a couple of times: a virus scanner or a second window's write can hold
+// the file for a moment, and a failed read taken as "no remappings" would send
+// a window the built-in bindings while the user's own are still on disk.
+func readOverrides() (map[string]string, error) {
+	var err error
+	for try := 0; try < 3; try++ {
+		var f *keybindings.File
+		if f, err = keybindings.Load(); err == nil {
+			return f.Overrides, nil
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
+	return nil, err
+}
+
 // loadOverrides is keybindings.json's remappings, or none when it cannot be read.
 func loadOverrides() map[string]string {
-	f, err := keybindings.Load()
-	if err != nil {
-		return nil
-	}
-	return f.Overrides
+	m, _ := readOverrides()
+	return m
 }
 
 // keyDeltas is what a window needs, together with keys.json, to have the table
@@ -265,9 +280,22 @@ type keyTableMsg struct {
 	KeysHidden   []string          `json:"keysHidden,omitempty"`
 }
 
+// keyBroadcastMu serialises broadcastKeys. Each broadcast reads the file and
+// then sends, so two overlapping ones could send the older table last and leave
+// a window on it. Run one at a time, the last to start reads the newest file.
+var keyBroadcastMu sync.Mutex
+
 // broadcastKeys tells every window what the key table now is, one copy per
 // window since a window reached through the relay is sent fewer actions.
+//
+// When keybindings.json cannot be read, nothing is sent: a window keeps the
+// table it has rather than being told the built-in one.
 func (s *Server) broadcastKeys() {
+	keyBroadcastMu.Lock()
+	defer keyBroadcastMu.Unlock()
+	if _, err := readOverrides(); err != nil {
+		return
+	}
 	for _, cl := range s.clientList() {
 		msg := keyTableMsg{Type: "keyTable", Keys: s.effectiveKeys(cl.remote)}
 		msg.KeyOverrides, msg.KeysHidden = s.keyDeltas(cl.remote)
