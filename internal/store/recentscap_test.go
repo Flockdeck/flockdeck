@@ -72,3 +72,34 @@ func roots(list []Project) []string {
 	}
 	return out
 }
+
+// Opening a project that was placed by hand and is already first in the list
+// still refreshes its time, so the cap does not later count it as long unused.
+func TestTouchingAFirstPlacedProjectRefreshesItsTime(t *testing.T) {
+	isolateConfig(t)
+	long := time.Now().Add(-30 * 24 * time.Hour)
+	list := []Project{
+		{Root: "/repo/placed", LastUsed: long, Order: 1},
+		{Root: "/repo/other", LastUsed: long.Add(time.Hour)},
+	}
+	dir, err := Dir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := writeRecentsFile(filepath.Join(dir, recentsFile), list); err != nil {
+		t.Fatal(err)
+	}
+	if err := TouchRecent("/repo/placed"); err != nil {
+		t.Fatalf("touch: %v", err)
+	}
+	got, err := Recents()
+	if err != nil {
+		t.Fatalf("recents: %v", err)
+	}
+	if len(got) != 2 || !sameRoot(got[0].Root, "/repo/placed") || got[0].Order != 1 {
+		t.Fatalf("recents = %+v", got)
+	}
+	if time.Since(got[0].LastUsed) > time.Hour {
+		t.Errorf("LastUsed = %v, want it refreshed to now", got[0].LastUsed)
+	}
+}
