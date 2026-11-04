@@ -533,20 +533,26 @@ func (s *Server) batonCommand(c *controlClient, cmd command) {
 			s.Wake()
 		case "startFromBaton":
 			cwd := in.cwd
+			// What the worktree below made, taken away again if the agent
+			// then does not start; see DiscardMade.
+			cleanup := func(cause error) error { return cause }
 			if branch := strings.TrimSpace(cmd.Branch); branch != "" {
 				// Held until the agent is running there, like a spawned
 				// helper's own worktree; see lockRepo.
 				defer lockRepo(cwd)()
-				path, err := s.ws.PrepareWorktree(cwd, branch)
+				made, err := s.ws.PrepareWorktreeNew(cwd, branch)
 				if err != nil {
 					fail(err)
 					return
 				}
-				cwd = path
+				if repo := gitRoot(cwd); repo != "" && made.WorktreeCreated {
+					cleanup = func(cause error) error { return s.ws.DiscardMade(repo, made, cause) }
+				}
+				cwd = made.Path
 			}
 			bp, err := s.ws.PrepareBaton(cwd, b, task, in.src.Scrubber())
 			if err != nil {
-				fail(err)
+				fail(cleanup(err))
 				return
 			}
 			if recordSource(bp.ID, in.src.Spec.ID) != nil {
@@ -570,7 +576,7 @@ func (s *Server) batonCommand(c *controlClient, cmd command) {
 				return
 			}
 			if r.err != nil {
-				fail(r.err)
+				fail(cleanup(r.err))
 				return
 			}
 			saved.Started = r.id

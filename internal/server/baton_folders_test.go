@@ -75,3 +75,31 @@ func TestAWindowStartIntoAGatewayBranchNeedsTheTick(t *testing.T) {
 		t.Errorf("batonError = %+v, want the tick to be asked for", e)
 	}
 }
+
+// A start into a new worktree whose baton then cannot be prepared takes away the
+// worktree and branch it cut, rather than leaving them behind.
+func TestAFailedStartFromABatonDiscardsTheWorktreeItCut(t *testing.T) {
+	srv, ws := newTestServer(t)
+	writeCatalog(t, "git")
+	repo := plainRepo(t, false)
+	pane := parentIn(t, srv, ws, repo)
+	conn := dialControl(t, srv)
+	sendCmd(t, conn, command{Cmd: "makeBaton", ID: pane})
+	var draft batonDraftMsg
+	readUntil(t, conn, "batonDraft", &draft)
+
+	// A task far past the limit is refused once the worktree is cut.
+	sendCmd(t, conn, command{Cmd: "startFromBaton", ID: pane, Text: draft.Text, Agent: "gitcli", Branch: "feature-x", Confirmed: true,
+		Task: strings.Repeat("x", 64<<10)})
+	var e batonErrorMsg
+	readUntil(t, conn, "batonError", &e)
+	if e.Error == "" {
+		t.Fatalf("batonError = %+v, want the start refused", e)
+	}
+	if worktreeListed(t, repo, "feature-x") {
+		t.Error("the worktree cut for the failed start was left behind")
+	}
+	if strings.Contains(gitRun(t, repo, "branch", "--list", "feature-x"), "feature-x") {
+		t.Error("the branch cut for the failed start was left behind")
+	}
+}
