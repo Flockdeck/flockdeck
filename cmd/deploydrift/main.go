@@ -48,7 +48,12 @@ func run(ctx context.Context, args []string, getenv func(string) string, now tim
 	if err != nil || math.IsNaN(hours) || math.IsInf(hours, 0) || hours < 0 {
 		return fmt.Errorf("-threshold-hours %q is not a non-negative number", *thresholdHours)
 	}
-	threshold := time.Duration(hours * float64(time.Hour))
+	// A Duration holds about 292 years; beyond that the conversion wraps
+	// negative and flags every repo, so clamp to the largest value.
+	threshold := time.Duration(math.MaxInt64)
+	if hours < float64(math.MaxInt64)/float64(time.Hour) {
+		threshold = time.Duration(hours * float64(time.Hour))
+	}
 
 	readToken := getenv("DEPLOY_DRIFT_TOKEN")
 	if readToken == "" {

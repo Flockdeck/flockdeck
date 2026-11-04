@@ -11,6 +11,7 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -354,5 +355,59 @@ func TestPushSkipsADeviceWithAMalformedKey(t *testing.T) {
 	devices = []PushDevice{bad}
 	if sent, err := c.Push(context.Background(), n); err == nil || sent != 0 {
 		t.Errorf("Push with only a malformed device = %d, %v; want an error", sent, err)
+	}
+}
+
+// More devices than one batch holds are all sent to, in further batches, even
+// when the relay reports no stale keys.
+func TestPushSendsToEveryDeviceBeyondOneBatch(t *testing.T) {
+	const total = maxPushDevices + 5
+	b := newBrowser(t)
+	var devices []PushDevice
+	for i := 0; i < total; i++ {
+		devices = append(devices, b.device(fmt.Sprintf("d%02d", i)))
+	}
+	var mu sync.Mutex
+	var posts [][]PushMessage
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		switch r.URL.Path {
+		case "/api/v1/host/push/devices":
+			_ = json.NewEncoder(w).Encode(map[string]any{"devices": devices})
+		case "/api/v1/host/notify":
+			var req struct {
+				Messages []PushMessage `json:"messages"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&req)
+			posts = append(posts, req.Messages)
+			_, _ = fmt.Fprintf(w, `{"sent":%d}`, len(req.Messages))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	c := &Client{Relay: srv.URL, Token: "fdh_test"}
+	sent, err := c.Push(context.Background(), Notification{Title: "t", URL: "/d/h1/p1", Tag: "x"})
+	if err != nil || sent != total {
+		t.Fatalf("Push = %d, %v; want %d", sent, err, total)
+	}
+	seen := map[string]int{}
+	for _, p := range posts {
+		if len(p) > maxPushDevices {
+			t.Errorf("a batch of %d is over the %d the relay takes", len(p), maxPushDevices)
+		}
+		for _, m := range p {
+			seen[m.DeviceID]++
+		}
+	}
+	if len(seen) != total {
+		t.Errorf("%d devices were sent to, want %d", len(seen), total)
+	}
+	for id, n := range seen {
+		if n != 1 {
+			t.Errorf("%s was sent %d messages", id, n)
+		}
 	}
 }

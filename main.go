@@ -511,7 +511,7 @@ func usage(fs *flag.FlagSet) {
 	fmt.Fprintf(out, "  knowledge [status | on | off] [-project dir]\n")
 	fmt.Fprintf(out, "        whether agents' briefings point at the project's notes in .flockdeck/knowledge;\n")
 	fmt.Fprintf(out, "        on and off are refused inside a pane\n")
-	fmt.Fprintf(out, "  wake [status | on | off] [-agent id | -pane id]\n")
+	fmt.Fprintf(out, "  wake [status | on | off | text on|off] [-agent id | -pane id]\n")
 	fmt.Fprintf(out, "        the off switches for typed wake (global, per agent type, per pane) and the\n")
 	fmt.Fprintf(out, "        last wake events; on and off are refused inside a pane\n")
 	fmt.Fprintf(out, "  mcp-server\n")

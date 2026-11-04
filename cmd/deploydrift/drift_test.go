@@ -16,6 +16,8 @@ func TestIgnoredPath(t *testing.T) {
 	}{
 		{serviceProfile, ".github/workflows/release.yml", true},
 		{serviceProfile, ".github/scripts/x.sh", true},
+		{serviceProfile, ".flockdeck/knowledge/api/health.md", true},
+		{contentProfile, ".flockdeck/knowledge/index.md", true},
 		{serviceProfile, "internal/store/store_test.go", true},
 		{serviceProfile, "web/app.test.ts", true},
 		{serviceProfile, "web/app.spec.js", true},
@@ -234,6 +236,13 @@ func TestPinGap(t *testing.T) {
 	f.Repos[relayRepo].GoMod = "require github.com/Flockdeck/flockdeck-remote v0.10.2-0.20260920101010-abcdef123456\n"
 	if p := analyseWith(t, f, time.Hour); !p.Pin.NonRelease || !p.Pin.Behind {
 		t.Errorf("a pseudo-version pin is not a release: %+v", p.Pin)
+	}
+
+	// Replace and exclude entries name the module too, and must not be read as
+	// the pin, whichever comes first.
+	f.Repos[relayRepo].GoMod = "module x\n\nreplace (\n\tgithub.com/Flockdeck/flockdeck-remote => ../remote\n)\n\nexclude (\n\tgithub.com/Flockdeck/flockdeck-remote v0.9.0\n)\n\nrequire (\n\tgithub.com/other/mod v1.0.0\n\tgithub.com/Flockdeck/flockdeck-remote v0.10.1 // indirect\n)\n"
+	if p := analyseWith(t, f, time.Hour); p.Pin.Pin != "v0.10.1" || p.Pin.Behind {
+		t.Errorf("pin read from a replace or exclude entry: %+v", p.Pin)
 	}
 
 	f.Repos[relayRepo].GoMod = "module x\n"

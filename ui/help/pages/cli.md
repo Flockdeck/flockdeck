@@ -19,7 +19,7 @@ switched from inside the window. These are what is left.
 | `flockdeck -version` | Print the version |
 | `flockdeck recordings` | List the transcripts panes have recorded, newest first; `-dir` prints the folder, `-json` prints one JSON object per recording |
 | `flockdeck recordings export` | Write an agent's stored conversation as a transcript, whether or not the pane was recorded; `-o` chooses the file, `-reveal` shows it in your file manager |
-| `flockdeck baton` | List the handoffs agents have made (`list`), or print one (`show <baton-id>`; `-path` prints the file instead) |
+| `flockdeck baton` | List the handoffs agents have made (`flockdeck baton list`), or print one (`flockdeck baton show <baton-id>`; `-path` prints the file instead) |
 | `flockdeck team` | From inside a pane: list the agents in its project with role and status; `-json` for a script |
 | `flockdeck msg send` | From inside a pane: message another agent by pane id, name or role |
 | `flockdeck inbox` | From inside a pane: list unread messages, `-all` for every one; `inbox read <id>` prints one in full |
@@ -609,7 +609,8 @@ stored for the project and the question is not asked again.
 
 | Command | What it does |
 | --- | --- |
-| `flockdeck knowledge` | Show whether the pointer is on, and why (`status` is the same) |
+| `flockdeck knowledge` | Show whether the pointer is on, and why |
+| `flockdeck knowledge status` | The same as `flockdeck knowledge` |
 | `flockdeck knowledge on` | Point this project's agents at the notes |
 | `flockdeck knowledge off` | Stop pointing them there |
 
