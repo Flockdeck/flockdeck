@@ -703,6 +703,9 @@ var probedFolders = struct {
 type folderProbe struct {
 	transcripts int
 	cwds        []string
+	// blank is the size of each probed transcript that recorded no directory.
+	// One that has grown since may record one now, so it is probed again.
+	blank map[string]int64
 }
 
 // folderRecords returns the working directories the first few transcripts in
@@ -727,11 +730,12 @@ func folderRecords(dir string) ([]string, []os.DirEntry) {
 	probedFolders.Lock()
 	probe, ok := probedFolders.dirs[dir]
 	probedFolders.Unlock()
-	if ok && probe.transcripts == transcripts {
+	if ok && probe.transcripts == transcripts && blankUnchanged(probe.blank, files) {
 		return probe.cwds, files
 	}
 
-	probe = folderProbe{transcripts: transcripts, cwds: probeFolder(dir, files)}
+	cwds, blank := probeFolder(dir, files)
+	probe = folderProbe{transcripts: transcripts, cwds: cwds, blank: blank}
 	probedFolders.Lock()
 	probedFolders.dirs[dir] = probe
 	probedFolders.Unlock()
@@ -746,8 +750,7 @@ func folderRecords(dir string) ([]string, []os.DirEntry) {
 // leaves one with nothing in it, and a folder can be shared with a
 // neighbouring directory whose path derives the same name. Look past those,
 // up to a handful, rather than writing the folder off on the first answer.
-func probeFolder(dir string, files []os.DirEntry) []string {
-	var cwds []string
+func probeFolder(dir string, files []os.DirEntry) (cwds []string, blank map[string]int64) {
 	tried := 0
 	for _, f := range files {
 		if f.IsDir() || transcriptID(f.Name()) == "" {
@@ -755,12 +758,35 @@ func probeFolder(dir string, files []os.DirEntry) []string {
 		}
 		if got := transcriptCwd(filepath.Join(dir, f.Name())); got != "" {
 			cwds = append(cwds, got)
+		} else if info, err := f.Info(); err == nil {
+			if blank == nil {
+				blank = map[string]int64{}
+			}
+			blank[f.Name()] = info.Size()
 		}
 		if tried++; tried >= cwdProbeLimit {
 			break
 		}
 	}
-	return cwds
+	return cwds, blank
+}
+
+// blankUnchanged reports whether every transcript that recorded no directory
+// when a folder was probed is still the size it was.
+func blankUnchanged(blank map[string]int64, files []os.DirEntry) bool {
+	if len(blank) == 0 {
+		return true
+	}
+	for _, f := range files {
+		size, ok := blank[f.Name()]
+		if !ok {
+			continue
+		}
+		if info, err := f.Info(); err != nil || info.Size() != size {
+			return false
+		}
+	}
+	return true
 }
 
 // pathsIgnoreCase is whether two paths differing only in case are expected to
