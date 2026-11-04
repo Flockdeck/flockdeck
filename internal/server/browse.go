@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/jmwri/flockdeck/internal/store"
 )
@@ -269,14 +270,61 @@ func places() []dirEntry {
 		}
 	}
 	if runtime.GOOS == "windows" {
-		for c := 'C'; c <= 'Z'; c++ {
-			drive := string(c) + `:\`
-			if fi, err := os.Stat(drive); err == nil && fi.IsDir() {
-				out = append(out, dirEntry{Name: string(c) + ":", Path: drive})
-			}
-		}
+		out = append(out, driveEntries(isDir, driveWait)...)
 	} else {
 		out = append(out, dirEntry{Name: "/", Path: "/"})
+	}
+	return out
+}
+
+// driveWait is how long the listing waits for the drive letters to answer. A
+// drive mapped to a share that is offline can take the length of the network
+// timeout to fail a Stat, and the picker asks on every click.
+const driveWait = 300 * time.Millisecond
+
+// isDir reports whether path is a folder that can be looked at.
+func isDir(path string) bool {
+	fi, err := os.Stat(path)
+	return err == nil && fi.IsDir()
+}
+
+// driveEntries lists the drive letters C: to Z: that exist, asking all of
+// them at once and giving up on any that has not answered within wait. A drive
+// that is slow to answer is left out of this listing; the stat carries on in
+// its own goroutine and ends when the system gives up on it.
+func driveEntries(exists func(string) bool, wait time.Duration) []dirEntry {
+	const first, last = 'C', 'Z'
+	found := make([]chan bool, 0, last-first+1)
+	for c := first; c <= last; c++ {
+		ch := make(chan bool, 1)
+		found = append(found, ch)
+		go func(drive string) { ch <- exists(drive) }(string(c) + `:\`)
+	}
+	timeout := time.After(wait)
+	expired := false
+	var out []dirEntry
+	for i, ch := range found {
+		ok := false
+		if expired {
+			select {
+			case ok = <-ch:
+			default:
+			}
+		} else {
+			select {
+			case ok = <-ch:
+			case <-timeout:
+				expired = true
+				select {
+				case ok = <-ch:
+				default:
+				}
+			}
+		}
+		if ok {
+			letter := string(rune(first + rune(i)))
+			out = append(out, dirEntry{Name: letter + ":", Path: letter + `:\`})
+		}
 	}
 	return out
 }
