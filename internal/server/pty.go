@@ -212,7 +212,18 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 			s.Wake()
 		}()
 	}
+	// inputDone is closed when readInput has returned. The window's entry in
+	// the viewer table is dropped only after that: a resize or keystroke read
+	// after the drop would put the entry back, and nothing would remove it.
+	inputDone := make(chan struct{})
 	defer func() {
+		// Stop the reader first. Waiting is bounded because a keystroke being
+		// written to a stuck process would otherwise hold this handler.
+		cancel()
+		select {
+		case <-inputDone:
+		case <-time.After(inputStopWait):
+		}
 		// This window is no longer one the pane is sized for, so it goes back
 		// to the window used before it, or to what the rest can all show. Handed
 		// over rather than waited on: letting go of a connection should not
@@ -249,7 +260,10 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 	// armRepaint.
 	var repaint atomic.Bool
 	go s.applyResizes(ctx, id, measured, &repaint)
-	go s.readInput(ctx, cancel, tc, id, viewer, markUse, mayType, measured, &live)
+	go func() {
+		defer close(inputDone)
+		s.readInput(ctx, cancel, tc, id, viewer, markUse, mayType, measured, &live)
+	}()
 	var writes writeGauge
 	go keepalive(ctx, cancel, conn, &writes, s.pingInterval, s.pingTimeout)
 
@@ -324,6 +338,10 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 		live.Store(sess)
 	}
 }
+
+// inputStopWait bounds how long a closing terminal socket waits for its input
+// reader to return before it drops its viewer entry.
+const inputStopWait = 2 * time.Second
 
 // keepalive holds a quiet socket to account.
 //
