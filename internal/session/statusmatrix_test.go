@@ -772,3 +772,20 @@ func TestStatusMatrixOwnRedraw(t *testing.T) {
 		})
 	}
 }
+
+// TestExitedPaneIgnoresLateSubagentPermission: a background subagent's
+// permission request arriving after the pane's process has gone must not turn
+// the exited pane back into a working or waiting one.
+func TestExitedPaneIgnoresLateSubagentPermission(t *testing.T) {
+	f := newFakePTY()
+	t.Cleanup(func() { _ = f.Close() })
+	s := fakeSession(f)
+	s.Kind = KindAgent
+	feed(s, prompt, stop, by("a1", pre("Bash")))
+	s.mu.Lock()
+	s.status = StatusExited
+	s.mu.Unlock()
+	if st, _ := feed(s, by("a1", permRequest(""))); st != StatusExited {
+		t.Fatalf("status after a late subagent permission request = %v, want exited", st)
+	}
+}

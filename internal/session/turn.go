@@ -206,7 +206,7 @@ func (s *Session) subagentLocked(ev Event, st Status, detail string, ok bool) (S
 		// one that says the ask is over; and a prompt naming nothing is
 		// about the call that subagent just made, as it would be had that
 		// call been shown.
-		if call, kept := s.agentCalls[ev.Agent]; kept && st == StatusWaiting && detail == "" && s.status != StatusWaiting {
+		if call, kept := s.agentCalls[ev.Agent]; kept && st == StatusWaiting && detail == "" && s.status != StatusWaiting && s.status != StatusExited {
 			s.status, s.detail, s.toolInput = StatusWorking, call.tool, call.input
 		}
 		s.askingAgent = ev.Agent
