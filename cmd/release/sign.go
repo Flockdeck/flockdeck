@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -97,18 +98,30 @@ func runKeygen(path string, standby bool, stdout, stderr io.Writer) error {
 	}
 
 	fmt.Fprintln(stdout, selfupdate.EncodePublicKey(pub))
+	keyAccess := keyAccessNote(runtime.GOOS)
 	if standby {
-		fmt.Fprintf(stderr, "release: the private key is in %s, readable only by you. Keep this file\n", path)
+		fmt.Fprintf(stderr, "release: the private key is in %s, %s. Keep this file\n", path, keyAccess)
 		fmt.Fprintf(stderr, "release: offline only: never store it as a repository secret or in Terraform, since\n")
 		fmt.Fprintf(stderr, "release: that is exactly what the standby guards against losing. Copy it somewhere\n")
 		fmt.Fprintf(stderr, "release: offline, then delete the file from this machine.\n")
 		fmt.Fprintf(stderr, "release: the public key, printed above, goes in releaseKeyStandby in internal/selfupdate/releasekey.go.\n")
 		return nil
 	}
-	fmt.Fprintf(stderr, "release: the private key is in %s, readable only by you. Store its contents as the\n", path)
+	fmt.Fprintf(stderr, "release: the private key is in %s, %s. Store its contents as the\n", path, keyAccess)
 	fmt.Fprintf(stderr, "release: repository secret %s, keep a copy somewhere offline, and delete the file.\n", signingKeyEnv)
 	fmt.Fprintf(stderr, "release: the public key, printed above, goes in releaseKey in internal/selfupdate/releasekey.go.\n")
 	return nil
+}
+
+// keyAccessNote says who can read the key file. The 0600 mode keeps others
+// out on Unix; on Windows it only sets the read-only attribute, and the file
+// takes the access of the folder it is in, so claiming owner-only there would
+// be untrue.
+func keyAccessNote(goos string) string {
+	if goos == "windows" {
+		return "with the access of its folder (Windows does not make it owner-only, so check who can read that folder)"
+	}
+	return "readable only by you"
 }
 
 // signing is what -sign works from.

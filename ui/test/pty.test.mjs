@@ -355,6 +355,35 @@ test("a window with no identity of its own does not fall back to plain", async (
   assert.deepEqual(ws.sent, []);
 });
 
+test("a failed handshake on a superseded socket leaves the new socket's handshake and timer alone", async () => {
+  let release;
+  const slow = new Promise((r) => { release = r; });
+  let calls = 0;
+  const E2E = {
+    getIdentity: () => (++calls === 1 ? slow : Promise.resolve({})),
+    startTerminalHandshake: async () => ({ handshake: { finish: async () => { throw new Error("unused"); } }, hello: new Uint8Array([1]) }),
+  };
+  const made = make({ hostKey: "k", e2e: E2E });
+  made.pty.start();
+  const old = PtySocket.last;
+  old.open();
+  made.pty.retryNow();
+  const fresh = PtySocket.last;
+  fresh.open();
+  await waitFor(() => fresh.sent.length > 0, "the new socket's hello");
+  const quiet = console.error;
+  console.error = () => {};
+  try {
+    release(null); // the old socket's identity lookup now fails, late
+    await sleep(20);
+    assert.equal(fresh.closed, false, "the new socket was closed by the old one's failure");
+    made.clock.advance(10000);
+  } finally {
+    console.error = quiet;
+  }
+  assert.equal(fresh.closed, true, "the new socket's own handshake timeout was cleared");
+});
+
 test("more held bytes than 8 MiB closes the socket, though there are few frames", async () => {
   const h = await sealed();
   const { response } = await h.host.answer(h.ws.sent[0]);

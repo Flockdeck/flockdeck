@@ -278,3 +278,16 @@ func TestAgeFormatting(t *testing.T) {
 		}
 	}
 }
+
+func TestRunHugeThresholdDoesNotOverflowAndFlagEverything(t *testing.T) {
+	f := driftingFake(t)
+	for _, h := range []string{"99999999", "1e300"} {
+		out, err := run1(t, f, map[string]string{"DEPLOY_DRIFT_TOKEN": "r"}, "-dry-run", "-threshold-hours", h)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(out, "fingerprint:clear") {
+			t.Errorf("threshold %s flagged a repo:\n%s", h, out)
+		}
+	}
+}

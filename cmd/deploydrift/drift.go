@@ -331,18 +331,53 @@ func analyseRepo(ctx context.Context, c *ghClient, spec repoSpec, now time.Time,
 	return rep, nil
 }
 
-var remotePin = regexp.MustCompile(`(?im)^\s*(?:require\s+)?github\.com/Flockdeck/flockdeck-remote\s+(\S+)`)
+const remoteModule = "github.com/Flockdeck/flockdeck-remote"
+
+// findRemotePin is the version go.mod requires remote at. Only a require
+// directive counts, single-line or inside a require ( ... ) block: the module
+// also turns up in replace and exclude entries, whose second field is a path
+// or another version and not the pin.
+func findRemotePin(goMod []byte) (string, bool) {
+	block := ""
+	for _, line := range strings.Split(string(goMod), "\n") {
+		if i := strings.Index(line, "//"); i >= 0 {
+			line = line[:i]
+		}
+		f := strings.Fields(line)
+		if len(f) == 0 {
+			continue
+		}
+		if block != "" {
+			if f[0] == ")" {
+				block = ""
+				continue
+			}
+			if block == "require" && len(f) >= 2 && f[0] == remoteModule {
+				return f[1], true
+			}
+			continue
+		}
+		if len(f) == 2 && f[1] == "(" {
+			block = f[0]
+			continue
+		}
+		if f[0] == "require" && len(f) >= 3 && f[1] == remoteModule {
+			return f[2], true
+		}
+	}
+	return "", false
+}
 
 func analysePin(ctx context.Context, c *ghClient, remoteLatest string, now time.Time, threshold time.Duration) (*pinReport, error) {
 	raw, err := c.do(ctx, http.MethodGet, fmt.Sprintf("/repos/%s/%s/contents/go.mod?ref=main", org, relayRepo), "application/vnd.github.raw", nil, nil)
 	if err != nil {
 		return nil, err
 	}
-	m := remotePin.FindSubmatch(raw)
-	if m == nil {
+	pin, found := findRemotePin(raw)
+	if !found {
 		return nil, errors.New("relay go.mod does not require github.com/Flockdeck/flockdeck-remote")
 	}
-	pr := &pinReport{Pin: string(m[1]), Latest: remoteLatest}
+	pr := &pinReport{Pin: pin, Latest: remoteLatest}
 	pinV, pinOK := parseSemver(pr.Pin)
 	latestV, _ := parseSemver(remoteLatest)
 	switch {

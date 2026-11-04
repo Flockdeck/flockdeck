@@ -212,7 +212,21 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 			s.Wake()
 		}()
 	}
+	// Closed when readInput has returned. Set where the reader starts, which is
+	// after this defer is registered.
+	var readerDone chan struct{}
 	defer func() {
+		// The reader has to be finished before the window is forgotten: it
+		// records sizes and use, and a frame it is still reading would put the
+		// window straight back, leaving a size nothing is left to take away.
+		cancel()
+		conn.CloseNow()
+		if readerDone != nil {
+			select {
+			case <-readerDone:
+			case <-time.After(2 * time.Second):
+			}
+		}
 		// This window is no longer one the pane is sized for, so it goes back
 		// to the window used before it, or to what the rest can all show. Handed
 		// over rather than waited on: letting go of a connection should not
@@ -249,7 +263,11 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 	// armRepaint.
 	var repaint atomic.Bool
 	go s.applyResizes(ctx, id, measured, &repaint)
-	go s.readInput(ctx, cancel, tc, id, viewer, markUse, mayType, measured, &live)
+	readerDone = make(chan struct{})
+	go func() {
+		defer close(readerDone)
+		s.readInput(ctx, cancel, tc, id, viewer, markUse, mayType, measured, &live)
+	}()
 	var writes writeGauge
 	go keepalive(ctx, cancel, conn, &writes, s.pingInterval, s.pingTimeout)
 

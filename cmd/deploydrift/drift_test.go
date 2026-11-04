@@ -238,6 +238,13 @@ func TestPinGap(t *testing.T) {
 		t.Errorf("a pseudo-version pin is not a release: %+v", p.Pin)
 	}
 
+	// Replace and exclude entries name the module too, and must not be read as
+	// the pin, whichever comes first.
+	f.Repos[relayRepo].GoMod = "module x\n\nreplace (\n\tgithub.com/Flockdeck/flockdeck-remote => ../remote\n)\n\nexclude (\n\tgithub.com/Flockdeck/flockdeck-remote v0.9.0\n)\n\nrequire (\n\tgithub.com/other/mod v1.0.0\n\tgithub.com/Flockdeck/flockdeck-remote v0.10.1 // indirect\n)\n"
+	if p := analyseWith(t, f, time.Hour); p.Pin.Pin != "v0.10.1" || p.Pin.Behind {
+		t.Errorf("pin read from a replace or exclude entry: %+v", p.Pin)
+	}
+
 	f.Repos[relayRepo].GoMod = "module x\n"
 	if _, err := analyse(context.Background(), f.client(), testNow, time.Hour); err == nil {
 		t.Error("a go.mod with no remote requirement should fail loudly")

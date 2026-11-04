@@ -33,6 +33,10 @@ const pushRecord = 1024
 // maxPushDevices is as many devices as the relay takes messages for at once.
 const maxPushDevices = 32
 
+// maxPushBatches bounds the rounds one push takes, so an account with more
+// devices than that many batches hold is not walked for ever.
+const maxPushBatches = 8
+
 // Notification is what a push says, as the client's service worker reads it:
 // its title and body, the page a tap on it opens, and its tag, which a newer
 // notification with the same one replaces on the device.
@@ -95,12 +99,14 @@ func (c *Client) PushTo(ctx context.Context, notify func(deviceID string) (Notif
 	fitted := map[Notification][]byte{} // by notification: its JSON, cut to fit
 	sealed := map[string]string{}       // by device: the key its message was sealed to
 	sent := 0
-	for attempt := 0; attempt < 2; attempt++ {
+	staleRetried := false
+	for batch := 0; batch < maxPushBatches; batch++ {
 		devices, err := c.PushDevices(ctx)
 		if err != nil {
 			return sent, err
 		}
 		var msgs []PushMessage
+		more := false // devices were left for a further batch
 		for _, d := range devices {
 			n, ok := notify(d.DeviceID)
 			if !ok {
@@ -110,6 +116,7 @@ func (c *Client) PushTo(ctx context.Context, notify func(deviceID string) (Notif
 				continue
 			}
 			if len(msgs) == maxPushDevices {
+				more = true
 				break
 			}
 			plain, ok := fitted[n]
@@ -138,7 +145,13 @@ func (c *Client) PushTo(ctx context.Context, notify func(deviceID string) (Notif
 			return sent, err
 		}
 		sent += out.Sent
-		if out.Stale == 0 {
+		// Another round is for the devices that did not fit in this batch, and,
+		// once, for those whose keys the relay says changed.
+		retry := out.Stale > 0 && !staleRetried
+		if retry {
+			staleRetried = true
+		}
+		if !more && !retry {
 			break
 		}
 	}
