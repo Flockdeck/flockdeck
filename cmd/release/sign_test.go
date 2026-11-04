@@ -362,3 +362,12 @@ func TestSignRefusesAReleaseThatIsNotAsBuilt(t *testing.T) {
 		})
 	}
 }
+
+func TestKeyAccessNoteDoesNotPromiseOwnerOnlyOnWindows(t *testing.T) {
+	if got := keyAccessNote("linux"); got != "readable only by you" {
+		t.Errorf("linux: %q", got)
+	}
+	if got := keyAccessNote("windows"); strings.Contains(got, "only by you") {
+		t.Errorf("windows claims owner-only access: %q", got)
+	}
+}
