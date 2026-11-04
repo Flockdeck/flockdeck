@@ -101,6 +101,23 @@ func TestParseAuthStatus(t *testing.T) {
 	}
 }
 
+func TestParseAuthStatusPrefersActiveAccount(t *testing.T) {
+	text := "github.com\n" +
+		"  ✓ Logged in to github.com account personal (keyring)\n" +
+		"  - Active account: false\n" +
+		"  - Token scopes: 'gist'\n" +
+		"  ✓ Logged in to github.com account work (keyring)\n" +
+		"  - Active account: true\n" +
+		"  - Token scopes: 'repo'\n" +
+		"  ✓ Logged in to github.com account other (keyring)\n" +
+		"  - Active account: false\n" +
+		"  - Token scopes: 'read:org'\n"
+	st := parseAuthStatus(text)
+	if st.Account != "work" || st.Scopes != "repo" {
+		t.Errorf("got %+v, want the active account work with scopes repo", st)
+	}
+}
+
 func TestIsNoneFound(t *testing.T) {
 	if !isNoneFound(errors.New(`gh pr view: no pull requests found for branch "feature"`)) {
 		t.Error("want true for gh's own not-found wording")

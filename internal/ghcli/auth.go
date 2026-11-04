@@ -67,19 +67,37 @@ var (
 // anything structured. It is kept to a plain string in, struct out function
 // so a test can check it against gh's wording without running gh.
 func parseAuthStatus(text string) AuthStatus {
-	var st AuthStatus
+	// With several accounts logged in, gh prints one block per account and
+	// marks the one in use with "Active account: true". Collect the blocks and
+	// prefer the active one; older gh without the marker keeps the last block.
+	var blocks []AuthStatus
+	var active []bool
 	for _, line := range strings.Split(text, "\n") {
 		line = strings.TrimSpace(line)
 		if m := loggedInRe.FindStringSubmatch(line); m != nil {
-			st.LoggedIn = true
-			st.Host, st.Account = m[1], m[2]
+			blocks = append(blocks, AuthStatus{LoggedIn: true, Host: m[1], Account: m[2]})
+			active = append(active, false)
 			continue
 		}
+		if len(blocks) == 0 {
+			continue
+		}
+		last := len(blocks) - 1
 		if m := scopesRe.FindStringSubmatch(line); m != nil {
-			st.Scopes = strings.Trim(m[1], "'\" ")
+			blocks[last].Scopes = strings.Trim(m[1], "'\" ")
+		} else if strings.EqualFold(line, "- Active account: true") {
+			active[last] = true
 		}
 	}
-	return st
+	for i, a := range active {
+		if a {
+			return blocks[i]
+		}
+	}
+	if len(blocks) > 0 {
+		return blocks[len(blocks)-1]
+	}
+	return AuthStatus{}
 }
 
 // LoginEvent is one thing that happened during Login, sent as it happens so
