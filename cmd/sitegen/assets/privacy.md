@@ -105,8 +105,8 @@ worktrees are trusted, as the folder they came from already was.
 
 To show what each agent has spent, the app reads what the agents report about
 their own usage on your computer: the tokens, cost estimate and usage limits
-Claude Code hands its status line, and the token counts of the built-in API
-agents. It keeps those figures in memory only. Flockdeck sends them nowhere
+Claude Code hands its status line. It keeps those figures in memory only.
+Flockdeck sends them nowhere
 itself; if you turn on Flockdeck Remote, they are part of the state of your
 panes that your own paired devices receive through the relay, as
 [What passes through](#what-passes-through) describes.
@@ -257,15 +257,11 @@ catches a swapped key.
 
 The relay does not record, store or log the content of that traffic.
 It never receives your API keys, unless you type one in through Flockdeck Remote.
-Where a pane opens as a conversation rather than a terminal (a Claude Code
-pane), the conversation view is **not**
-end-to-end encrypted: its messages, what you search it for and the matches it
-finds, and any photo you attach reach the relay decrypted, over TLS, and the
-relay passes them on without storing them. What you type into the message box
-is the exception: it goes to the agent's terminal, end to end. Searching runs
-on your desktop, against what it has already kept. A photo you attach from
-your phone is kept only on your desktop, in Flockdeck's own folder, never your
-project, and removed after about a week.
+The chat view of a conversation is not sent to a phone or to the relay for
+now: opening a pane on a phone shows its terminal, which is end-to-end
+encrypted. A permission request or a question reaches the phone as a card
+that names the tool and nothing else; the command, file and question text
+stay on your desktop.
 
 Muting a single pane's notifications from a phone is held only in that
 desktop's memory while it keeps running: it is not persisted there or

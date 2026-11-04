@@ -71,9 +71,10 @@ devices without being able to read them, even on a relay you run yourself.
 Until both have registered, they are protected by TLS only.
 
 The rest still isn't: what each pane's agent has spent, its usage limits,
-which model routing chose for it, the conversation view of a pane, what you
-search in it and photos you attach reach the relay decrypted, over TLS, so it
-can route them. It doesn't record, store or log any of it.
+which model routing chose for it reach the relay decrypted, over TLS, so it
+can route them. It doesn't record, store or log any of it. The chat view of a
+pane, and the command or question in a permission request, are not sent to a
+phone for now.
 
 This defeats an honestly-run relay. Against one that's been actively
 compromised and tampered with to swap the keys it hands out at pairing, that

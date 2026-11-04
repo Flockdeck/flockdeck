@@ -42,8 +42,7 @@ flockdeck agents          # the agents it can run, and which are installed here
 ```
 
 In the window, `Ctrl+Shift+T` opens a new agent tab. `Ctrl+Shift+K` opens the command palette, which lists every
-action. `Ctrl+Shift+X` turns an agent's plan into several agents, each in its own
-worktree when the project is a git repository. `Ctrl+Shift+S` reviews, commits and pushes what an agent changed. `F1`
+action. `Ctrl+Shift+S` reviews, commits and pushes what an agent changed. `F1`
 opens the help. All the shortcuts are in [docs/keys.md](docs/keys.md).
 
 ## Flockdeck Remote
