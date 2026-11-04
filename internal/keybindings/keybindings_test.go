@@ -154,6 +154,26 @@ func TestResetBindingAndResetAll(t *testing.T) {
 	}
 }
 
+func TestResetBindingRefusesADefaultAnotherActionNowHolds(t *testing.T) {
+	isolateConfig(t)
+	split, _ := help.Lookup("splitRight")
+	if _, err := SetBinding(testKeys, "splitRight", "Ctrl+Alt+1"); err != nil {
+		t.Fatalf("SetBinding: %v", err)
+	}
+	if _, err := SetBinding(testKeys, "splitDown", split.Keys); err != nil {
+		t.Fatalf("SetBinding: %v", err)
+	}
+	_, err := ResetBinding(testKeys, "splitRight")
+	var ce *ConflictError
+	if !errors.As(err, &ce) || ce.With.ID != "splitDown" {
+		t.Fatalf("ResetBinding's error = %v, want a *ConflictError with splitDown", err)
+	}
+	f, _ := Load()
+	if f.Overrides["splitRight"] != "Ctrl+Alt+1" {
+		t.Errorf("a refused reset changed the override: %+v", f.Overrides)
+	}
+}
+
 func TestSetBindingRefusesARange(t *testing.T) {
 	isolateConfig(t)
 	if _, err := SetBinding(testKeys, "selectTab", "Ctrl+Alt+1"); err == nil {

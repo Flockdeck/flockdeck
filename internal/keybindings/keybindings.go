@@ -226,8 +226,13 @@ func SetBinding(t keytable.Table, id, keys string) (*File, error) {
 
 // ResetBinding takes id back to its built-in default, removing whatever
 // override it had -- including one that deliberately gave it no binding.
+//
+// The default can have been given to another action since, so it is checked
+// the way SetBinding checks a new binding and refused with a ConflictError
+// when another action holds it.
 func ResetBinding(t keytable.Table, id string) (*File, error) {
-	if _, ok := t.Lookup(id); !ok {
+	k, ok := t.Lookup(id)
+	if !ok {
 		return nil, fmt.Errorf("no such action: %s", id)
 	}
 	mu.Lock()
@@ -241,6 +246,9 @@ func ResetBinding(t keytable.Table, id string) (*File, error) {
 	}
 	if _, had := f.Overrides[id]; !had {
 		return f, nil
+	}
+	if with, has := conflict(t, id, k.Keys, f.Overrides); has {
+		return nil, &ConflictError{Keys: k.Keys, With: with}
 	}
 	delete(f.Overrides, id)
 	if len(f.Overrides) == 0 {
