@@ -103,6 +103,14 @@ jobs:
               ;;
           esac
           echo "pr-number=$pr" >> "$GITHUB_OUTPUT"
+          sha=$(jq -r '.head_sha' pr-meta.json)
+          case "$sha" in
+            *[!0-9a-f]*|'')
+              echo "::error::artifact head_sha '$sha' is not a commit hash"
+              exit 1
+              ;;
+          esac
+          echo "head-sha=$sha" >> "$GITHUB_OUTPUT"
 
       # Calls Gemini (model named by GEMINI_MODEL below) to review pr.diff
       # and writes review.md. llm-api-key never reaches the diff-producing
@@ -227,5 +235,15 @@ jobs:
         if: ${{ steps.review.outputs.skip != 'true' }}
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token || secrets.GITHUB_TOKEN }}
+          REVIEWED_SHA: ${{ steps.meta.outputs.head-sha }}
         run: |
+          # Runs for two pushes are not ordered, and this one may have waited
+          # on an approval or a retry while a newer push arrived. A review of
+          # a commit that is no longer the PR's head is dropped rather than
+          # posted after the newer one's.
+          current=$(gh pr view "${{ steps.meta.outputs.pr-number }}" --repo "${{ github.repository }}" --json headRefOid --jq .headRefOid)
+          if [ "$current" != "$REVIEWED_SHA" ]; then
+            echo "::notice::the PR head is now $current, not the reviewed $REVIEWED_SHA; not posting a stale review."
+            exit 0
+          fi
           gh pr comment "${{ steps.meta.outputs.pr-number }}" --repo "${{ github.repository }}" --body-file review.md
