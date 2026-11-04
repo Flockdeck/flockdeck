@@ -3,9 +3,9 @@ package structured
 import (
 	"context"
 	"errors"
-	"strconv"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"

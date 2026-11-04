@@ -3,8 +3,8 @@ package workspace
 import (
 	"os"
 	"strings"
-	"time"
 	"testing"
+	"time"
 
 	"github.com/jmwri/flockdeck/internal/acp/acptest"
 	"github.com/jmwri/flockdeck/internal/agent"

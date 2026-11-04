@@ -5,9 +5,13 @@ package changes
 import (
 	"context"
 	"os/exec"
+
+	"github.com/jmwri/flockdeck/internal/sysproc"
 )
 
 // shellCommand is cmdline run through the shell.
 func shellCommand(ctx context.Context, cmdline string) *exec.Cmd {
-	return exec.CommandContext(ctx, "/bin/sh", "-c", cmdline)
+	c := exec.CommandContext(ctx, "/bin/sh", "-c", cmdline)
+	sysproc.NoWindow(c)
+	return c
 }
