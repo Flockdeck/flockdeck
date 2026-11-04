@@ -528,3 +528,139 @@ func appendJSONL(t *testing.T, path string, lines ...string) {
 		t.Fatal(err)
 	}
 }
+
+// TestConversationOpenPushesWhatItTailedToOtherWatchers covers a second
+// window opening a pane whose transcript has grown without a hook event being
+// processed yet. Its own page holds the new lines, but the window already
+// watching was never sent them, and nothing else tails them again.
+func TestConversationOpenPushesWhatItTailedToOtherWatchers(t *testing.T) {
+	srv, ws := newTestServer(t)
+	home := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", home)
+	paneID := addAgentPane(t, srv, ws, "claude")
+	path := claudeTranscriptPath(home, ws.ActiveRoot(), paneID)
+	writeClaudeJSONL(t, path,
+		`{"type":"user","uuid":"u1","message":{"role":"user","content":"hello"}}`,
+	)
+
+	first := &controlClient{out: make(chan []byte, 8)}
+	srv.conversationOpen(first, paneID, "")
+	decodePage(t, nextRaw(t, first))
+
+	appendJSONL(t, path,
+		`{"type":"assistant","uuid":"a1","message":{"role":"assistant","content":[{"type":"text","text":"a late reply"}]}}`,
+	)
+	second := &controlClient{out: make(chan []byte, 8)}
+	srv.conversationOpen(second, paneID, "")
+	page := decodePage(t, nextRaw(t, second))
+	if len(page.Entries) != 2 {
+		t.Fatalf("second window's page = %+v, want both entries", page.Entries)
+	}
+
+	raw := nextRaw(t, first)
+	if msgType(t, raw) != "conversationAppend" {
+		t.Fatalf("first window got %s, want a conversationAppend", raw)
+	}
+	var app conversationAppendMsg
+	if err := json.Unmarshal(raw, &app); err != nil {
+		t.Fatal(err)
+	}
+	if len(app.Entries) != 1 || app.Entries[0].Markdown != "a late reply" {
+		t.Errorf("appended entries = %+v", app.Entries)
+	}
+}
+
+// TestAnEarlierCloseDoesNotCutTheDowngradeDelayShort covers one client closing
+// a pane, another opening and closing it before the first timer is due. The
+// first timer fires with nobody watching, which is true, but the last close was
+// owed the whole delay.
+func TestAnEarlierCloseDoesNotCutTheDowngradeDelayShort(t *testing.T) {
+	old := conversationIdleDowngradeDelay
+	conversationIdleDowngradeDelay = 400 * time.Millisecond
+	t.Cleanup(func() { conversationIdleDowngradeDelay = old })
+
+	srv, ws := newTestServer(t)
+	home := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", home)
+	paneID := addAgentPane(t, srv, ws, "claude")
+	writeClaudeJSONL(t, claudeTranscriptPath(home, ws.ActiveRoot(), paneID),
+		`{"type":"user","uuid":"u1","message":{"role":"user","content":"hello"}}`,
+	)
+
+	a := &controlClient{out: make(chan []byte, 8)}
+	b := &controlClient{out: make(chan []byte, 8)}
+	srv.conversationOpen(a, paneID, "")
+	decodePage(t, nextRaw(t, a))
+	srv.conversationClose(a, paneID) // timer due at 400ms
+	time.Sleep(250 * time.Millisecond)
+	srv.conversationOpen(b, paneID, "")
+	decodePage(t, nextRaw(t, b))
+	srv.conversationClose(b, paneID) // timer due at 650ms
+
+	time.Sleep(250 * time.Millisecond) // 500ms: past the first timer, before the second
+	pc, _ := srv.convos.lookup(paneID)
+	pc.mu.Lock()
+	n := pc.stream.EntryCount()
+	pc.mu.Unlock()
+	if n == 0 {
+		t.Error("the stream dropped to light when only the first close's delay was up")
+	}
+}
+
+// TestAnOpenForAClientThatIsGoneStillSchedulesTheDowngrade covers a window
+// that disconnects while its open is being answered. The stream was put in full
+// mode for it, and with no watcher no close would ever come to put it back.
+func TestAnOpenForAClientThatIsGoneStillSchedulesTheDowngrade(t *testing.T) {
+	old := conversationIdleDowngradeDelay
+	conversationIdleDowngradeDelay = 50 * time.Millisecond
+	t.Cleanup(func() { conversationIdleDowngradeDelay = old })
+
+	srv, ws := newTestServer(t)
+	home := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", home)
+	paneID := addAgentPane(t, srv, ws, "claude")
+	writeClaudeJSONL(t, claudeTranscriptPath(home, ws.ActiveRoot(), paneID),
+		`{"type":"user","uuid":"u1","message":{"role":"user","content":"hello"}}`,
+	)
+
+	gone := &controlClient{out: make(chan []byte, 8)}
+	gone.gone.Store(true)
+	srv.conversationOpen(gone, paneID, "")
+
+	// Full mode shows itself on the next tail, which reads the transcript from
+	// the top; light mode retains nothing.
+	time.Sleep(300 * time.Millisecond)
+	pc, ok := srv.convos.lookup(paneID)
+	if !ok {
+		t.Fatal("no conversation entry after the open")
+	}
+	pc.mu.Lock()
+	pc.stream.Refresh()
+	n := pc.stream.EntryCount()
+	pc.mu.Unlock()
+	if n != 0 {
+		t.Errorf("EntryCount = %d, the stream stayed in full mode after an open for a client that had gone", n)
+	}
+}
+
+// TestAClosedPaneLeavesNoConversationBehind checks the hub does not keep a
+// stream for a pane that has closed.
+func TestAClosedPaneLeavesNoConversationBehind(t *testing.T) {
+	srv, ws := newTestServer(t)
+	home := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", home)
+	paneID := addAgentPane(t, srv, ws, "claude")
+	writeClaudeJSONL(t, claudeTranscriptPath(home, ws.ActiveRoot(), paneID),
+		`{"type":"user","uuid":"u1","message":{"role":"user","content":"hello"}}`,
+	)
+	srv.ConversationHookEvent(paneID)
+	if _, ok := srv.convos.lookup(paneID); !ok {
+		t.Fatal("no conversation entry after a hook event")
+	}
+
+	srv.PaneClosed(paneID)
+
+	if _, ok := srv.convos.lookup(paneID); ok {
+		t.Error("the conversation entry outlived its pane")
+	}
+}

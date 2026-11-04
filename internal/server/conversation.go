@@ -2,6 +2,7 @@ package server
 
 import (
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jmwri/flockdeck/internal/agent"
@@ -61,6 +62,10 @@ type paneConvo struct {
 	supported bool
 	stream    transcript.Stream
 	watchers  map[*controlClient]bool
+	// downgradeGen numbers the light-mode timers scheduled for this pane. A
+	// timer acts only if no later one has been scheduled since, so the last
+	// close is the one that counts the delay.
+	downgradeGen atomic.Uint64
 }
 
 // get returns the pane's entry, creating it if this is the first client ever
@@ -83,6 +88,14 @@ func (h *conversationHub) lookup(paneID string) (*paneConvo, bool) {
 	defer h.mu.Unlock()
 	pc, ok := h.panes[paneID]
 	return pc, ok
+}
+
+// forget drops a closed pane's entry, with its stream. Without it the hub kept
+// a stream, and any entries it retained, for every pane ever opened.
+func (h *conversationHub) forget(paneID string) {
+	h.mu.Lock()
+	delete(h.panes, paneID)
+	h.mu.Unlock()
 }
 
 // watched lists the panes at least one client is currently watching, for the
@@ -131,9 +144,15 @@ func (h *conversationHub) dropClient(c *controlClient) {
 // re-checked when the timer fires rather than assumed, since a client may
 // have reopened the pane in the meantime.
 func (pc *paneConvo) scheduleLightDowngrade() {
+	gen := pc.downgradeGen.Add(1)
 	time.AfterFunc(conversationIdleDowngradeDelay, func() {
 		pc.mu.Lock()
 		defer pc.mu.Unlock()
+		// An earlier close's timer firing after a later close would drop the
+		// stream to light well short of the delay the later close was owed.
+		if pc.downgradeGen.Load() != gen {
+			return
+		}
 		if len(pc.watchers) == 0 && pc.stream != nil {
 			pc.stream.SetLight(true)
 		}
@@ -249,6 +268,12 @@ func (s *Server) conversationOpen(c *controlClient, paneID, after string) {
 		// A window that went while this was being answered has already been
 		// forgotten everywhere, and must not be put back as a watcher.
 		if c.gone.Load() {
+			// The stream was just put in full mode for a client that is not
+			// there; with nobody else watching, no close will ever come to
+			// schedule it back to light.
+			if len(pc.watchers) == 0 {
+				pc.scheduleLightDowngrade()
+			}
 			return
 		}
 		pc.watchers[c] = true
@@ -258,7 +283,10 @@ func (s *Server) conversationOpen(c *controlClient, paneID, after string) {
 		if c.remote {
 			s.Wake()
 		}
-		pc.stream.Refresh()
+		changed := pc.stream.Refresh()
+		if !isRuntimeStream(pc.stream) {
+			s.notePreview(paneID, changed)
+		}
 		// Drained, not read: a stream built just now from the whole file may
 		// have passed over a past /clear (an agent's own, which keeps the
 		// same session id -- see Stream.Reset) on its way to the end, and
@@ -268,8 +296,13 @@ func (s *Server) conversationOpen(c *controlClient, paneID, after string) {
 		// a /clear it does not recognise); left undrained here, the flag
 		// would instead surface later as a spurious reset on the first live
 		// append.
-		pc.stream.Reset()
+		wasReset := pc.stream.Reset()
 		snapshot := pc.stream.Snapshot()
+
+		// What this tail found is in the page below for the window opening the
+		// pane, but windows already watching it have only been sent what came
+		// before, and nothing else will tail those lines again.
+		s.pushTailed(paneID, pc, c, changed, wasReset, snapshot)
 
 		entries, atStart, cursor, reset := pageFor(snapshot, after)
 		c.sendJSON(conversationPageMsg{
@@ -277,6 +310,43 @@ func (s *Server) conversationOpen(c *controlClient, paneID, after string) {
 			Entries: entries, Cursor: cursor, AtStart: atStart, Reset: reset,
 		})
 	}()
+}
+
+// pushTailed sends the watchers of a pane other than except what a tail of its
+// stream found: the entries it added, or, if the conversation was replaced, a
+// fresh page marked reset. pc.mu must be held.
+func (s *Server) pushTailed(paneID string, pc *paneConvo, except *controlClient, changed []transcript.Entry, reset bool, snapshot []transcript.Entry) {
+	var others []*controlClient
+	for w := range pc.watchers {
+		if w != except {
+			others = append(others, w)
+		}
+	}
+	if len(others) == 0 {
+		return
+	}
+	if reset {
+		start := max(0, len(snapshot)-conversationPageSize)
+		page := snapshot[start:]
+		cursor := ""
+		if len(page) > 0 {
+			cursor = page[len(page)-1].ID
+		}
+		for _, w := range others {
+			w.sendJSON(conversationPageMsg{
+				Type: "conversationPage", ID: paneID, Supported: true, Agent: pc.spec.ID,
+				Entries: page, Cursor: cursor, AtStart: start == 0, Reset: true,
+			})
+		}
+		return
+	}
+	if len(changed) == 0 {
+		return
+	}
+	cursor := changed[len(changed)-1].ID
+	for _, w := range others {
+		w.sendJSON(conversationAppendMsg{Type: "conversationAppend", ID: paneID, Entries: changed, Cursor: cursor})
+	}
 }
 
 // syncStreamLocked makes pc match what the pane is running now, building a
@@ -467,9 +537,10 @@ func (s *Server) ConversationHookEvent(paneID string) {
 		}
 		pc = s.convos.get(paneID)
 		pc.mu.Lock()
-		// Nobody has this pane open yet -- it is only here for the inbox
-		// preview -- so its stream starts light.
-		s.syncStreamLocked(paneID, pc, r, true)
+		// Nobody had this pane open when it was looked up, so its stream
+		// starts light -- unless a client opened it between that look and
+		// this lock, which a switch back to light would undo.
+		s.syncStreamLocked(paneID, pc, r, len(pc.watchers) == 0)
 		pc.mu.Unlock()
 	}
 	s.refreshConversation(paneID, pc)
