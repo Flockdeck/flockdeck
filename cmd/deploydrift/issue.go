@@ -207,10 +207,12 @@ func syncIssue(ctx context.Context, c *ghClient, self string, p *picture) (syncR
 		if open == nil {
 			return syncResult{Action: "none"}, nil
 		}
-		if _, err := c.do(ctx, http.MethodPost, fmt.Sprintf("%s/%d/comments", base, open.Number), "", map[string]string{"body": "Nothing is drifting any more; closing."}, nil); err != nil {
+		// Closed first: if this fails, nothing has been posted, so the retry
+		// does not add the comment again.
+		if _, err := c.do(ctx, http.MethodPatch, fmt.Sprintf("%s/%d", base, open.Number), "", map[string]string{"body": body, "state": "closed", "state_reason": "completed"}, nil); err != nil {
 			return syncResult{}, err
 		}
-		_, err := c.do(ctx, http.MethodPatch, fmt.Sprintf("%s/%d", base, open.Number), "", map[string]string{"body": body, "state": "closed", "state_reason": "completed"}, nil)
+		_, err := c.do(ctx, http.MethodPost, fmt.Sprintf("%s/%d/comments", base, open.Number), "", map[string]string{"body": "Nothing is drifting any more; closing."}, nil)
 		return syncResult{Action: "closed", Commented: true}, err
 	}
 

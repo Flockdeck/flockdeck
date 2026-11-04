@@ -140,7 +140,7 @@ func TestIssueLifecycleDoesNotSpam(t *testing.T) {
 	if res := sync1(t, f, testNow.Add(48*time.Hour)); res.Action != "closed" {
 		t.Fatalf("clear run: %+v", res)
 	}
-	if got := f.writes(); !reflect.DeepEqual(got, []string{"POST comment #1", "PATCH state=closed #1"}) {
+	if got := f.writes(); !reflect.DeepEqual(got, []string{"PATCH state=closed #1", "POST comment #1"}) {
 		t.Fatalf("close writes = %v", got)
 	}
 
