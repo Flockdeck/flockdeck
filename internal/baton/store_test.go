@@ -178,3 +178,29 @@ func TestAnUnreadableSourcesFileIsLeftAlone(t *testing.T) {
 		t.Error("a copy of a folder was kept as a damaged file")
 	}
 }
+
+// A refused rename of the sources file is tried again, as every other record's
+// is, and not given up on at the first refusal.
+func TestSetSourceRetriesARefusedRename(t *testing.T) {
+	s := NewStore(filepath.Join(t.TempDir(), "batons"))
+	old := renameFile
+	t.Cleanup(func() { renameFile = old })
+	tries := 0
+	renameFile = func(a, b string) error {
+		tries++
+		if tries < 3 {
+			return errors.New("Access is denied")
+		}
+		return old(a, b)
+	}
+	id := NewID(time.Now())
+	if err := s.SetSource(id, "claude"); err != nil {
+		t.Fatalf("SetSource: %v", err)
+	}
+	if tries != 3 {
+		t.Errorf("renamed %d times, want 3", tries)
+	}
+	if got := s.readSources()[id]; got != "claude" {
+		t.Errorf("source = %q", got)
+	}
+}
