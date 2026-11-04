@@ -323,3 +323,36 @@ func TestPushToTellsEachDeviceItsOwnNotification(t *testing.T) {
 		}
 	}
 }
+
+// One device with a key that cannot be sealed to is skipped; the others still
+// get their copy. When nothing could be sealed, the error comes back.
+func TestPushSkipsADeviceWithAMalformedKey(t *testing.T) {
+	phone := newBrowser(t)
+	bad := PushDevice{DeviceID: "old", P256dh: phone.device("x").P256dh, Auth: "c2hvcnQ"}
+	var posts [][]PushMessage
+	devices := []PushDevice{bad, phone.device("phone")}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodGet {
+			_ = json.NewEncoder(w).Encode(map[string]any{"devices": devices})
+			return
+		}
+		var req struct {
+			Messages []PushMessage `json:"messages"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&req)
+		posts = append(posts, req.Messages)
+		_, _ = w.Write([]byte(`{"sent":1}`))
+	}))
+	defer srv.Close()
+	c := &Client{Relay: srv.URL, Token: "fdh_test"}
+	n := Notification{Title: "t", Body: "b"}
+	sent, err := c.Push(context.Background(), n)
+	if err != nil || sent != 1 || len(posts) != 1 || len(posts[0]) != 1 || posts[0][0].DeviceID != "phone" {
+		t.Fatalf("Push = %d, %v, posts %+v", sent, err, posts)
+	}
+	devices = []PushDevice{bad}
+	if sent, err := c.Push(context.Background(), n); err == nil || sent != 0 {
+		t.Errorf("Push with only a malformed device = %d, %v; want an error", sent, err)
+	}
+}
