@@ -41,3 +41,29 @@ func TestAFailedAddFromLeavesNoBranchBehind(t *testing.T) {
 		t.Errorf("the worktree asked to start at %s starts at %s", first[:7], got[:7])
 	}
 }
+
+// TestABranchMadeByAnotherIsNotUndone covers the failure of `worktree add -b`
+// on a branch that somebody else made between the existence check and the
+// add. The call did not make that branch, so it must not be deleted as the
+// leftover of its own attempt.
+func TestABranchMadeByAnotherIsNotUndone(t *testing.T) {
+	repo := newRepo(t)
+	gitRun(t, repo, "branch", "taken")
+	tip := strings.TrimSpace(gitRun(t, repo, "rev-parse", "taken"))
+
+	// Skip the existence check, as the losing side of the race does.
+	path := filepath.Join(t.TempDir(), "wt")
+	err := addWorktree(repo, path, "taken", true, "worktree", "add", "-b", "taken", "--no-track", "--", path)
+	if err == nil {
+		t.Fatal("git made a branch that was already there")
+	}
+	if !branchTakenFirst(err) {
+		t.Fatalf("error not recognised as a branch that was taken first: %v", err)
+	}
+	if branchTakenFirst(&gitError{"fatal: '/x' already exists"}) {
+		t.Error("a path that exists was taken for a branch that exists")
+	}
+	if got := strings.TrimSpace(gitRun(t, repo, "rev-parse", "taken")); got != tip {
+		t.Errorf("branch moved: %s, want %s", got, tip)
+	}
+}
