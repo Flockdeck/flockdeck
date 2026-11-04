@@ -1809,3 +1809,24 @@ func TestCommitKeepsTryingWhileTheLockIsHeld(t *testing.T) {
 		t.Errorf("the lock was met %d times, want 2", tries)
 	}
 }
+
+// TestChangesCountsNewFilesFromASubfolder checks the line count of an
+// untracked file when Changes is given a folder inside the repository. git
+// names the file from the repository root, so the count has to open it there.
+func TestChangesCountsNewFilesFromASubfolder(t *testing.T) {
+	t.Parallel()
+	repo := newRepo(t)
+	sub := filepath.Join(repo, "services", "api")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	write(t, sub, "new.go", "a\nb\nc\n")
+
+	files, err := Changes(sub)
+	if err != nil {
+		t.Fatalf("changes: %v", err)
+	}
+	if len(files) != 1 || files[0].Added != 3 {
+		t.Errorf("got %+v, want one untracked file with 3 lines added", files)
+	}
+}

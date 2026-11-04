@@ -89,7 +89,18 @@ func changes(dir string, limit int) ([]FileChange, error) {
 			files[i].Added, files[i].Removed = n.added, n.removed
 		}
 	}
-	countUntracked(dir, files, limit)
+	// git names every file from the top of the repository, whichever folder
+	// it was run in, so a new file is opened from there and not from dir.
+	base := dir
+	for i := range files {
+		if files[i].Untracked {
+			if root, err := Root(dir); err == nil {
+				base = root
+			}
+			break
+		}
+	}
+	countUntracked(base, files, limit)
 	return files, nil
 }
 
