@@ -339,6 +339,18 @@ func TestAnMsysPtyIsToldFromAScriptsPipe(t *testing.T) {
 	}
 }
 
+// The null device is a character device, but nobody is typing into it.
+func TestTheNullDeviceIsNotATerminal(t *testing.T) {
+	f, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if fileIsTerminal(f) {
+		t.Errorf("fileIsTerminal(%s) = true, want false", os.DevNull)
+	}
+}
+
 func TestKeysUsage(t *testing.T) {
 	isolateKeys(t)
 	for _, args := range [][]string{nil, {"-h"}, {"help"}} {

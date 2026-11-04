@@ -16,6 +16,7 @@ import (
 	"github.com/jmwri/flockdeck/internal/agent"
 	"github.com/jmwri/flockdeck/internal/apikey"
 	"github.com/jmwri/flockdeck/internal/creds"
+	"github.com/mattn/go-isatty"
 )
 
 // `flockdeck keys` is how an API key gets into Flockdeck without going anywhere it
@@ -395,9 +396,17 @@ func readKeyLine(r io.Reader) (string, error) {
 // Git Bash's window hands a program a pipe even when a person is typing into
 // it, and taken for a script's pipe it got no prompt: `flockdeck keys set`
 // there sat waiting with nothing on the screen to say what for.
+//
+// The null device is a character device too, so the mode bits are not enough:
+// a script run with stdin from /dev/null or NUL is not a person. isatty asks
+// the console or tty itself.
 func stdinIsTerminal() bool {
-	fi, err := os.Stdin.Stat()
-	return err == nil && fi.Mode()&os.ModeCharDevice != 0 || isMsysTerminal(os.Stdin)
+	return fileIsTerminal(os.Stdin)
+}
+
+// fileIsTerminal reports whether f is a console, a tty or an MSYS pty.
+func fileIsTerminal(f *os.File) bool {
+	return isatty.IsTerminal(f.Fd()) || isMsysTerminal(f)
 }
 
 // isMsysPtyName reports whether a pipe's name is one mintty or another Cygwin
