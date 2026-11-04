@@ -146,7 +146,7 @@ try {
   if (left.length) { failed = true; console.error("STILL RUNNING:", left); }
   else console.log("nothing of the harness's is running");
   try {
-    if (fs.existsSync(MARK)) fs.rmSync(CODE, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
+    if (ownsCode()) fs.rmSync(CODE, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
   } catch (err) {
     failed = true;
     console.error("could not remove " + CODE + ": remove it by hand;", err.message);
@@ -203,6 +203,21 @@ function checkStagedInstance(url) {
   console.log("staged instance", rec.url, "pid", rec.pid, "state in", path.join(work, "appdata", "flockdeck"));
 }
 
+// markerPID is the pid of the run that wrote the marker, or 0 if the marker
+// has none (an older run's).
+function markerPID() {
+  try { return Number(/^pid (\d+)/m.exec(fs.readFileSync(MARK, "utf8"))?.[1]) || 0; } catch { return 0; }
+}
+
+function pidAlive(pid) {
+  try { process.kill(pid, 0); return true; } catch (err) { return err.code === "EPERM"; }
+}
+
+// ownsCode is true when C:\code carries this run's marker.
+function ownsCode() {
+  return fs.existsSync(MARK) && markerPID() === process.pid;
+}
+
 // stageProjects makes the fictional projects under C:\code: shopfront with
 // three worktrees on feature branches (one with a new file, one with a
 // change), a fourth whose folder has gone, and three other projects for the
@@ -210,10 +225,12 @@ function checkStagedInstance(url) {
 function stageProjects() {
   if (fs.existsSync(CODE)) {
     if (!fs.existsSync(MARK)) throw new Error("C:\\code exists and is not the harness's: refusing to touch it");
+    const other = markerPID();
+    if (other && other !== process.pid && pidAlive(other)) throw new Error(`another shots run (pid ${other}) is using C:\\code`);
     fs.rmSync(CODE, { recursive: true, force: true });
   }
   fs.mkdirSync(CODE);
-  fs.writeFileSync(MARK, "made by cmd/sitegen/shots; removed when it finishes\n");
+  fs.writeFileSync(MARK, `made by cmd/sitegen/shots; removed when it finishes\npid ${process.pid}\n`);
   fs.writeFileSync(env.GIT_CONFIG_GLOBAL, "[user]\n\tname = Sam\n\temail = sam@example.com\n[init]\n\tdefaultBranch = main\n[core]\n\tautocrlf = false\n");
   const g = (cwd, ...a) => execFileSync("git", a, { cwd, env, stdio: "pipe" });
   const write = (root, files) => {
