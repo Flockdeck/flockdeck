@@ -538,9 +538,12 @@ func stage(ctx context.Context, rel *Release, dir string, chosen bool) (*Pending
 			return nil, err
 		}
 	}
-	if err := os.Remove(archive); err != nil {
-		return nil, err
-	}
+	// The archive is taken out so it does not travel into the staging folder
+	// with the binary. It has been checked and unpacked already, so a failure
+	// here (on Windows, a virus scanner still holding the file) must not undo
+	// that; at worst the archive is staged beside the binary and goes with it
+	// the next time the staging is replaced or discarded.
+	_ = os.Remove(archive)
 
 	commitMu.Lock()
 	defer commitMu.Unlock()
