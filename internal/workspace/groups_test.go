@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -401,4 +402,25 @@ func TestPersistGroupsKeepsAGroupWhoseFoldersAreAway(t *testing.T) {
 		}
 	}
 	t.Fatalf("groups.json = %+v, want the away group kept", got)
+}
+
+// TestEnsureGroupMatchesMembersByDirectory checks that a root spelled with
+// different case from the one already open joins the live group rather than
+// replacing it under the same saved id.
+func TestEnsureGroupMatchesMembersByDirectory(t *testing.T) {
+	isolateConfig(t)
+	ws := newTestWorkspace(t, t.TempDir())
+	web, api := filepath.Join(t.TempDir(), "Web"), filepath.Join(t.TempDir(), "Api")
+	ws.savedGroups = []store.ProjectGroup{{ID: "g", Name: "site", Primary: web, Roots: []string{web, api}}}
+
+	first := ws.ensureGroup(web)
+	again := ws.ensureGroup(strings.ToUpper(web))
+	joined := ws.ensureGroup(api)
+
+	if foldsCase && again != first {
+		t.Errorf("a differently cased spelling made a new group %+v, want the live one", again)
+	}
+	if joined != first || len(first.Roots) != 2 {
+		t.Errorf("api did not join the live group: roots = %v", first.Roots)
+	}
 }

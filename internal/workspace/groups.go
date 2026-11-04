@@ -86,22 +86,25 @@ func (w *Workspace) savedGroupFor(root string) (store.ProjectGroup, bool) {
 // singleton group of its own, named nothing (see groupDisplayNames, which
 // derives one the way projectNames always has).
 func (w *Workspace) ensureGroup(root string) *ProjectGroup {
-	if id, ok := w.rootGroup[root]; ok {
-		if g := w.groups[id]; g != nil {
-			return g
-		}
+	if g := w.groupOf(root); g != nil {
+		return g
 	}
 	if saved, ok := w.savedGroupFor(root); ok {
 		for _, other := range saved.Roots {
 			if sameDir(other, root) {
 				continue
 			}
-			if id, ok := w.rootGroup[other]; ok {
-				if g := w.groups[id]; g != nil {
-					w.addToGroup(g, root)
-					return g
-				}
+			if g := w.groupOf(other); g != nil {
+				w.addToGroup(g, root)
+				return g
 			}
+		}
+		// A live group already carrying the saved id, under another spelling
+		// of its members, is that group: starting a second one under the
+		// same id would replace it and drop its members.
+		if g := w.groups[saved.ID]; g != nil {
+			w.addToGroup(g, root)
+			return g
 		}
 		// The saved Primary may name a member that never rejoins this run,
 		// so the live group starts on the member actually in front of it,
