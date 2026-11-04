@@ -492,3 +492,26 @@ func TestOpenSaysSoWhenItCannotBeTakenAtAll(t *testing.T) {
 		t.Errorf("projects = %d, want %d", n, before)
 	}
 }
+
+// TestProbeKnowsAnInstanceThatIsShuttingDown covers a launch whose probe
+// arrives as the instance begins to stop. It must not read the answer as
+// something else on the port: that clears the record and starts a rival beside
+// agents that are still being saved.
+func TestProbeKnowsAnInstanceThatIsShuttingDown(t *testing.T) {
+	var s *Server
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.shuttingDown(w)
+	}))
+	defer ts.Close()
+
+	h, err := probeOnce(ts.URL, "token")
+	if !errors.Is(err, ErrShuttingDown) {
+		t.Fatalf("probe gave %v, want ErrShuttingDown", err)
+	}
+	if errors.Is(err, ErrNotOurs) {
+		t.Error("a shutting-down instance was reported as not ours")
+	}
+	if h == nil || h.PID == 0 {
+		t.Errorf("the answer did not say who it was: %+v", h)
+	}
+}

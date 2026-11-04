@@ -29,6 +29,10 @@ type healthMsg struct {
 	// leaving out the ones reached through the relay. A launch that finds one
 	// open has a window to bring back rather than a reason to open another.
 	Windows int `json:"windows"`
+	// ShuttingDown is set by an instance that has begun to stop. It is on its
+	// way out, not busy, and a launch has to wait for it to finish rather than
+	// wait for it to answer.
+	ShuttingDown bool `json:"shuttingDown,omitempty"`
 }
 
 // Version is reported by the health endpoint. main sets it at startup.
@@ -87,7 +91,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	select {
 	case s.cmds <- func() { done <- len(s.ws.Projects()) }:
 	case <-s.closed:
-		http.Error(w, "shutting down", http.StatusServiceUnavailable)
+		s.shuttingDown(w)
 		return
 	case <-r.Context().Done():
 		return
@@ -100,7 +104,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 	select {
 	case projects = <-done:
 	case <-s.closed:
-		http.Error(w, "shutting down", http.StatusServiceUnavailable)
+		s.shuttingDown(w)
 		return
 	case <-r.Context().Done():
 		return
@@ -129,6 +133,18 @@ func (s *Server) notReady(w http.ResponseWriter) {
 	w.WriteHeader(http.StatusServiceUnavailable)
 	_ = json.NewEncoder(w).Encode(healthMsg{
 		App: "flockdeck", Version: Version, PID: pid(), Windows: s.LocalClientCount(),
+	})
+}
+
+// shuttingDown answers a probe that arrived as the instance began to stop.
+// A bare text reply was read by the launch as something else listening on the
+// port, so it cleared the record and started a rival beside an instance still
+// saving its projects. This says who it is and that it is going.
+func (s *Server) shuttingDown(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusServiceUnavailable)
+	_ = json.NewEncoder(w).Encode(healthMsg{
+		App: "flockdeck", Version: Version, PID: pid(), ShuttingDown: true,
 	})
 }
 
@@ -358,6 +374,11 @@ var ErrNotReady = errors.New("the instance is not ready")
 // address came from is stale, and nothing there is to be asked to quit.
 var ErrNotOurs = errors.New("what answers there is not the instance on record")
 
+// ErrShuttingDown marks an instance that answered that it is stopping. A
+// launch treats it as it does a closed port with the process still running: it
+// waits for the instance to finish, and does not take the record for stale.
+var ErrShuttingDown = errors.New("the instance is shutting down")
+
 func probeOnce(baseURL, token string) (*healthMsg, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
 	defer cancel()
@@ -377,6 +398,9 @@ func probeOnce(baseURL, token string) (*healthMsg, error) {
 	var h healthMsg
 	decodeErr := json.NewDecoder(io.LimitReader(resp.Body, 64<<10)).Decode(&h)
 	if resp.StatusCode != http.StatusOK {
+		if decodeErr == nil && h.App == "flockdeck" && h.ShuttingDown {
+			return &h, fmt.Errorf("%w: %s", ErrShuttingDown, resp.Status)
+		}
 		if decodeErr == nil && h.App == "flockdeck" {
 			// Busy, and saying who it is: its process id is in what it said.
 			return &h, fmt.Errorf("%w: %s", ErrNotReady, resp.Status)

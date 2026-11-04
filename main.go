@@ -651,7 +651,7 @@ func quitRunning() error {
 	h, err := server.Identify(inst.URL, inst.Token)
 	switch {
 	case err == nil, errors.Is(err, server.ErrNotReady):
-	case refusedConnection(err):
+	case refusedConnection(err), errors.Is(err, server.ErrShuttingDown):
 		// Nothing listening there: an instance that has gone, or one on its
 		// way out.
 		return quitWithNothingListening(inst)
@@ -805,7 +805,7 @@ func runningInstance() (*store.Instance, string, error) {
 			// the worse mistake than a launch that has to wait or be told to
 			// try again.
 			return inst, base, nil
-		case refusedConnection(err):
+		case refusedConnection(err), errors.Is(err, server.ErrShuttingDown):
 			// Nothing listening, while the process that made the record still
 			// runs, is an instance on its way out: its port is closed before
 			// it saves every project, stops the agents and clears its record.
