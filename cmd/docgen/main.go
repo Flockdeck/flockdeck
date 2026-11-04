@@ -403,15 +403,20 @@ func titleAndSummary(src string) (string, string) {
 	return title, plainMarkdown(strings.Join(summary, " "))
 }
 
-var mdEmphasis = regexp.MustCompile("[`*_]")
+var mdEmphasis = regexp.MustCompile("[`*]")
 
+// mdUnderscore matches an underscore at the edge of a word, which is how
+// emphasis is written; one inside a word, as in RELAY_PUBLIC_URL, is part of
+// the name.
+var mdUnderscore = regexp.MustCompile(`(^|\W)_+|_+(\W|$)`)
 var mdLink = regexp.MustCompile(`\[([^\]]*)\]\([^)]*\)`)
 
 // plainMarkdown strips the handful of inline marks a summary line might
 // carry, so a meta description doesn't show literal asterisks or backticks.
 func plainMarkdown(s string) string {
 	s = mdLink.ReplaceAllString(s, "$1")
-	return mdEmphasis.ReplaceAllString(s, "")
+	s = mdEmphasis.ReplaceAllString(s, "")
+	return mdUnderscore.ReplaceAllString(s, "$1$2")
 }
 
 // ledeAfterH1 matches the first paragraph right after a page's top heading,

@@ -141,6 +141,19 @@ func TestTheDocsAndTheSiteShipTheSameFonts(t *testing.T) {
 	}
 }
 
+// An underscore inside a name is kept in a summary, and emphasis marks are not.
+func TestPlainMarkdownKeepsUnderscoresInNames(t *testing.T) {
+	for in, want := range map[string]string{
+		"Set `RELAY_PUBLIC_URL` and `RELAY_DATA_DIR` before first start.": "Set RELAY_PUBLIC_URL and RELAY_DATA_DIR before first start.",
+		"This is _very_ **bold** and *plain*.":                            "This is very bold and plain.",
+		"See [the guide](/x_y) for more.":                                 "See the guide for more.",
+	} {
+		if got := plainMarkdown(in); got != want {
+			t.Errorf("plainMarkdown(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
 // A page a run did not write is removed from the section folders, and nothing
 // else in the output is.
 func TestRemoveStalePages(t *testing.T) {
