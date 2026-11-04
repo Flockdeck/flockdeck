@@ -242,16 +242,26 @@ func runSums(out string) error {
 // its tar.gz, by buildLinuxPackages; macOS gets a real, ad-hoc-signed
 // Flockdeck.app instead of the bare binary every other platform ships,
 // carrying its own copy of the icon (see buildDarwinBundle).
-func packagePlatform(version, out, goos, goarch string) ([]string, error) {
+func packagePlatform(version, out, goos, goarch string) (names []string, err error) {
 	built := filepath.Join(out, fmt.Sprintf("%s-%s-%s%s", binary, goos, goarch, ext(goos)))
-	if err := build(version, goos, goarch, built); err != nil {
-		return nil, fmt.Errorf("build %s/%s: %w", goos, goarch, err)
-	}
 	// files are built for this archive alone and removed once it is written;
 	// keep is shipped beside them but is a repository asset used by every
 	// platform's archive it applies to, and must survive this function
 	// returning so the next platform can still package it too.
 	files := []archived{{built, binary + ext(goos)}}
+	// A run that fails part way leaves no loose binaries behind: they would be
+	// picked up by a later -sums over the same directory and listed in
+	// checksums.txt, and nothing else removes them.
+	defer func() {
+		if err != nil {
+			for _, f := range files {
+				os.Remove(f.path)
+			}
+		}
+	}()
+	if err := build(version, goos, goarch, built); err != nil {
+		return nil, fmt.Errorf("build %s/%s: %w", goos, goarch, err)
+	}
 	var keep []archived
 	var trees []archivedTree
 
@@ -306,7 +316,6 @@ func packagePlatform(version, out, goos, goarch string) ([]string, error) {
 		root = nil
 	}
 
-	var err error
 	if goos == "windows" {
 		err = writeZip(archive, root, keep)
 	} else {
@@ -315,7 +324,7 @@ func packagePlatform(version, out, goos, goarch string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("package %s: %w", name, err)
 	}
-	names := []string{name}
+	names = []string{name}
 
 	// A real .deb and .rpm, beside the tar.gz: apt/dnf resolve the GTK4 and
 	// WebKitGTK runtime libraries in the archive's stead, and both show
