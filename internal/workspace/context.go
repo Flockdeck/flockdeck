@@ -7,6 +7,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"github.com/jmwri/flockdeck/internal/agent"
 	"github.com/jmwri/flockdeck/internal/keytable"
@@ -447,9 +449,30 @@ func sameDir(a, b string) bool {
 func pathKey(dir string) string {
 	d := filepath.Clean(dir)
 	if foldsCase {
-		d = strings.ToLower(d)
+		d = foldPath(d)
 	}
 	return d
+}
+
+// foldPath folds case the way NTFS and APFS do: a letter is mapped to its
+// upper-case form, and only when that mapping round-trips. strings.ToLower
+// also joins letters those file systems keep apart, so two folders were one
+// project: the dotted capital I (U+0130) lower-cases to a plain i, the
+// dotless i and the long s upper-case to I and S, and the Kelvin sign
+// lower-cases to k.
+func foldPath(s string) string {
+	return strings.Map(func(r rune) rune {
+		if r < utf8.RuneSelf {
+			if 'a' <= r && r <= 'z' {
+				return r - 'a' + 'A'
+			}
+			return r
+		}
+		if u := unicode.ToUpper(r); u != r && unicode.ToLower(u) == r {
+			return u
+		}
+		return r
+	}, s)
 }
 
 // underDir reports whether dir is base or sits inside it.
@@ -463,7 +486,7 @@ func underDir(dir, base string) bool {
 	if foldsCase {
 		// Folded before the comparison, not after: filepath.Rel compares the
 		// two case sensitively, so folding its answer would be too late.
-		d, b = strings.ToLower(d), strings.ToLower(b)
+		d, b = foldPath(d), foldPath(b)
 	}
 	rel, err := filepath.Rel(b, d)
 	if err != nil {

@@ -38,3 +38,22 @@ func TestPathsFoldCaseOnlyWhereTheFilesystemDoes(t *testing.T) {
 		t.Errorf("underDir(%q, %q) where case is folded = false, want it inside", sub, lower)
 	}
 }
+
+// TestSameDirKeepsApartLettersTheFilesystemDoes covers names that
+// strings.ToLower joined but NTFS keeps apart: the dotted capital I and a
+// plain i are two folders, while ordinary accented letters still fold.
+func TestSameDirKeepsApartLettersTheFilesystemDoes(t *testing.T) {
+	was := foldsCase
+	t.Cleanup(func() { foldsCase = was })
+	foldsCase = true
+
+	if sameDir(filepath.Join("work", "\u0130app"), filepath.Join("work", "iapp")) {
+		t.Error("a dotted capital I folded onto a plain i")
+	}
+	if sameDir(filepath.Join("work", "\u0131app"), filepath.Join("work", "Iapp")) {
+		t.Error("a dotless i folded onto I")
+	}
+	if !sameDir(filepath.Join("work", "\u00c9tude"), filepath.Join("work", "\u00e9tude")) {
+		t.Error("an accented letter no longer folds")
+	}
+}
