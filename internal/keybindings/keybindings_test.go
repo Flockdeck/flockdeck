@@ -174,6 +174,18 @@ func TestResetBindingRefusesADefaultAnotherActionNowHolds(t *testing.T) {
 	}
 }
 
+func TestSetBindingRefusesAltDigitsTakenByTabSelection(t *testing.T) {
+	isolateConfig(t)
+	_, err := SetBinding(testKeys, "closePane", "Alt+2")
+	var ce *ConflictError
+	if !errors.As(err, &ce) || ce.With.ID != "selectTab" {
+		t.Fatalf("SetBinding's error = %v, want a *ConflictError with selectTab", err)
+	}
+	if _, err := SetBinding(testKeys, "closePane", "Ctrl+Alt+2"); err != nil {
+		t.Errorf("Ctrl+Alt+2 is not a tab chord but was refused: %v", err)
+	}
+}
+
 func TestSetBindingRefusesARange(t *testing.T) {
 	isolateConfig(t)
 	if _, err := SetBinding(testKeys, "selectTab", "Ctrl+Alt+1"); err == nil {

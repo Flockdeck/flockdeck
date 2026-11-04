@@ -157,6 +157,13 @@ func conflict(t keytable.Table, id, keys string, overrides map[string]string) (k
 	if sig == "" {
 		return keytable.Key{}, false
 	}
+	// selectTab owns Alt+1 to Alt+9 as a range, which signatureOf cannot
+	// express as one chord, so the range is checked here by name.
+	if id != "selectTab" && len(sig) == 3 && sig[:2] == "a:" && sig[2] >= '1' && sig[2] <= '9' {
+		if k, ok := t.Lookup("selectTab"); ok {
+			return k, true
+		}
+	}
 	for _, k := range t {
 		if k.ID == id {
 			continue
