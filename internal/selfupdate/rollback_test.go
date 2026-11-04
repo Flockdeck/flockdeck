@@ -130,8 +130,38 @@ func TestListFiltersDraftsAndPrereleases(t *testing.T) {
 	}
 }
 
-// The limit given is what GitHub is asked for, and a limit of zero or less
-// still asks for something rather than nothing.
+// Pre-releases among the newest do not cost the picker releases: the limit is
+// applied after they are dropped.
+func TestListFillsTheLimitPastPrereleases(t *testing.T) {
+	noSiteIndex(t)
+	pl := newPlace(t)
+	oldAPI := githubAPIURL
+	githubAPIURL = pl.srv.URL
+	t.Cleanup(func() { githubAPIURL = oldAPI })
+	api, err := json.Marshal([]map[string]any{
+		{"tag_name": "v1.5.0-rc.3"}, {"tag_name": "v1.5.0-rc.2"}, {"tag_name": "v1.5.0-rc.1"},
+		{"tag_name": "v1.4.2"}, {"tag_name": "v1.4.1"}, {"tag_name": "v1.4.0"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pl.set("/repos/"+Repo+"/releases", api)
+	rels, err := List(context.Background(), 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, rel := range rels {
+		got = append(got, rel.Version)
+	}
+	if want := "v1.4.2,v1.4.1"; strings.Join(got, ",") != want {
+		t.Errorf("List(ctx, 2) = %v, want %s", got, want)
+	}
+}
+
+// GitHub is asked for a full page whatever the limit, since drafts and
+// pre-releases are dropped afterwards, and a limit of zero or less still asks
+// for something rather than nothing.
 func TestListAsksGitHubForNReleases(t *testing.T) {
 	noSiteIndex(t)
 	pl := newPlace(t)
@@ -150,8 +180,8 @@ func TestListAsksGitHubForNReleases(t *testing.T) {
 	if len(reqs) != 2 {
 		t.Fatalf("List made %d requests, want 2", len(reqs))
 	}
-	if got := reqs[0].URL.Query().Get("per_page"); got != "5" {
-		t.Errorf("List(ctx, 5) asked per_page=%s", got)
+	if got := reqs[0].URL.Query().Get("per_page"); got != "100" {
+		t.Errorf("List(ctx, 5) asked per_page=%s, want a full page", got)
 	}
 	if got := reqs[1].URL.Query().Get("per_page"); got == "0" || got == "" {
 		t.Errorf("List(ctx, 0) asked per_page=%s, want some positive default", got)

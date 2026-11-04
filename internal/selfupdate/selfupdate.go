@@ -313,10 +313,17 @@ func List(ctx context.Context, limit int) ([]*Release, error) {
 	return listFromGitHub(ctx, limit)
 }
 
+// githubPageSize is the most releases GitHub returns in one page.
+const githubPageSize = 100
+
 // listFromGitHub is List's fallback, and its only source before releases.json
 // existed: GitHub's own listing of recent releases.
+//
+// GitHub is asked for a full page, not limit entries: drafts and pre-releases
+// are dropped after the fact, and asking for exactly limit would hand back
+// fewer than limit releases whenever any of the newest were among them.
 func listFromGitHub(ctx context.Context, limit int) ([]*Release, error) {
-	resp, err := get(ctx, fmt.Sprintf("%s/repos/%s/releases?per_page=%d", githubAPIURL, Repo, limit))
+	resp, err := get(ctx, fmt.Sprintf("%s/repos/%s/releases?per_page=%d", githubAPIURL, Repo, githubPageSize))
 	if err != nil {
 		return nil, err
 	}
@@ -332,6 +339,9 @@ func listFromGitHub(ctx context.Context, limit int) ([]*Release, error) {
 			continue
 		}
 		out = append(out, r)
+		if len(out) == limit {
+			break
+		}
 	}
 	return out, nil
 }
