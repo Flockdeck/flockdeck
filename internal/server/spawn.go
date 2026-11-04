@@ -637,7 +637,10 @@ func (s *Server) installSpawnHandler() {
 		// it, which looks exactly like one an agent is working in.
 		type start struct {
 			cwd string
-			err error
+			// project is what Spawn resolves the agent and model against; routing
+			// must read the same project's policy and default.
+			project string
+			err     error
 		}
 		var tabErr error
 		if req.Tab, tabErr = hooks.CleanTabName(req.Tab); tabErr != nil {
@@ -672,7 +675,7 @@ func (s *Server) installSpawnHandler() {
 					}
 				}
 			}
-			return start{cwd, err}
+			return start{cwd, s.ws.SpawnProject(req.Parent, ""), err}
 		})
 		// The agent's `flockdeck spawn` is blocked on this reply, so a
 		// closing workspace has to answer it rather than leave the command
@@ -725,7 +728,7 @@ func (s *Server) installSpawnHandler() {
 		var routed route.Decision
 		var baseAgent, baseModel string
 		if !req.Shell && req.Agent == "" && req.Model == "" {
-			routed, baseAgent, baseModel = routeSpawnChoice(s.ws.Catalog(), cwd, req.Task)
+			routed, baseAgent, baseModel = routeSpawnChoice(s.ws.Catalog(), in.project, req.Task)
 		}
 
 		// A baton goes to the agent it starts. When that is a different company the

@@ -250,8 +250,25 @@ func (s *Server) watchWaits(now time.Time) {
 		defer s.survive("sending a push notification")
 		ctx, cancel := context.WithTimeout(context.Background(), remoteCallTimeout)
 		defer cancel()
-		s.pushOutcome(send(ctx, s.recheckPush(out)))
+		err := send(ctx, s.recheckPush(out))
+		s.pushOutcome(err)
+		if err != nil {
+			// The relay was not reached, so these waits are still untold. They are
+			// tried again once minPushGap has passed since this attempt.
+			s.do(func() { s.forgetPushed(out.told) })
+		}
 	}()
+}
+
+// forgetPushed takes back the record that the devices were told of the waits in
+// told, for those still recorded as told of that same wait. It runs on the
+// workspace goroutine.
+func (s *Server) forgetPushed(told map[string]time.Time) {
+	for id, since := range told {
+		if s.push.pushed[id].Equal(since) {
+			delete(s.push.pushed, id)
+		}
+	}
 }
 
 // notifyRelay has the relay this machine is enrolled with push to the
@@ -278,6 +295,10 @@ type pushOut struct {
 	// and the relay being asked. Nil with an Approver means it cannot be
 	// checked, and the push is sent without it.
 	recheck func() bool
+	// told is, for each pane this push tells of, when its wait began: what
+	// pushDue recorded in pushState.pushed, so that a push that fails can
+	// undo it.
+	told map[string]time.Time
 }
 
 // notificationFor is the function PushTo asks for each device. A device that may
@@ -428,11 +449,14 @@ func (s *Server) pushDue(now time.Time) *pushOut {
 	if s.push.pushed == nil {
 		s.push.pushed = map[string]time.Time{}
 	}
+	told := make(map[string]time.Time, len(waits))
 	for _, w := range waits {
 		s.push.pushed[w.id] = w.since
+		told[w.id] = w.since
 	}
 	s.push.last = now
 	out := pushAbout(st.HostID, st.Name, waits, s.prefs.Push.Anonymous)
+	out.told = told
 	return &out
 }
 
