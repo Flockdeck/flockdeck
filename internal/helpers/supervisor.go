@@ -424,6 +424,7 @@ func (s *Supervisor) run(in *instance) {
 		preferred = r.Port
 	}
 	var crashes []time.Time
+	lastPort := 0
 	for {
 		var out outcome
 		portsTried := 0
@@ -435,6 +436,7 @@ func (s *Supervisor) run(in *instance) {
 			}
 			port, err := pick(preferred)
 			preferred = 0
+			lastPort = port
 			if err != nil {
 				out = outcome{fatal: err.Error()}
 				break
@@ -459,7 +461,10 @@ func (s *Supervisor) run(in *instance) {
 			return
 		}
 
-		// It was running and has ended on its own: a crash.
+		// It was running and has ended on its own: a crash. Ask for the same
+		// port again so a bookmark to it keeps working; ChoosePort falls back
+		// to another when something else has taken it.
+		preferred = lastPort
 		now := time.Now()
 		crashes = append(crashes, now)
 		kept := crashes[:0]
