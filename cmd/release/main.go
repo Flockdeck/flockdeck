@@ -401,7 +401,7 @@ func buildLinuxPackages(version, out, goarch, builtBinary string) ([]string, err
 // neither Dock/Spotlight/Launchpad-visible nor double-clickable as anything
 // but a loose Unix executable, which is exactly the "do I have to use a
 // terminal?" confusion this exists to fix.
-func buildDarwinBundle(built, version string) (string, error) {
+func buildDarwinBundle(built, version string) (_ string, err error) {
 	scratch, err := os.MkdirTemp("", "flockdeck-bundle-*")
 	if err != nil {
 		return "", err
@@ -415,6 +415,13 @@ func buildDarwinBundle(built, version string) (string, error) {
 	if err := os.MkdirAll(resourcesDir, 0o755); err != nil {
 		return "", err
 	}
+	// On success the caller removes the scratch directory once the bundle is
+	// archived; on any failure below nobody has the path, so it goes here.
+	defer func() {
+		if err != nil {
+			os.RemoveAll(scratch)
+		}
+	}()
 
 	program, err := os.ReadFile(built)
 	if err != nil {

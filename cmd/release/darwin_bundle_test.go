@@ -146,3 +146,23 @@ func TestDarwinBundleSignatureVerifies(t *testing.T) {
 		t.Errorf("codesign --verify passed a bundle whose program changed after signing:\n%s", out)
 	}
 }
+
+// A bundle that fails part way takes its scratch directory with it; nothing
+// else holds the path to remove it.
+func TestDarwinBundleFailureLeavesNoScratchDirectory(t *testing.T) {
+	tmp := t.TempDir()
+	t.Setenv("TMPDIR", tmp)
+	t.Setenv("TMP", tmp)
+	t.Setenv("TEMP", tmp)
+	missing := filepath.Join(t.TempDir(), "no-such-program")
+	if _, err := buildDarwinBundle(missing, "v1.2.3"); err == nil {
+		t.Fatal("buildDarwinBundle succeeded without a program to bundle")
+	}
+	left, err := os.ReadDir(tmp)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(left) != 0 {
+		t.Errorf("a failed bundle left %d entries in the temp directory", len(left))
+	}
+}
