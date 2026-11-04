@@ -17,6 +17,10 @@ import (
 // password it cannot ask for fails fast instead of sitting here for it.
 var installTimeout = 5 * time.Minute
 
+// installWaitDelay is how long Wait lingers on the output pipes after the
+// process has exited or been killed.
+var installWaitDelay = 5 * time.Second
+
 // Installer is one way to install gh on this machine: a package manager
 // command, or nothing more than a place to go and do it by hand.
 type Installer struct {
@@ -83,6 +87,10 @@ func TryInstall(ctx context.Context, in Installer, onLine func(string)) error {
 
 	cmd := exec.CommandContext(ctx, in.Command[0], in.Command[1:]...)
 	sysproc.NoWindow(cmd)
+	// Killing the package manager at the deadline does not close the output
+	// pipe if an installer child it started still holds it, and Wait would
+	// block on that pipe. WaitDelay makes Wait give up on it shortly after.
+	cmd.WaitDelay = installWaitDelay
 	var buf bytes.Buffer
 	cmd.Stdout = &buf
 	cmd.Stderr = &buf
