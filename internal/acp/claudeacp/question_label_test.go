@@ -50,7 +50,10 @@ func TestCancelWithAQuestionOpen(t *testing.T) {
 	h := newHarness(t, []step{expect(`"role":"user"`), emit(askRequest(askInput)),
 		expect(`"subtype":"interrupt"`), emit(`{"type":"control_cancel_request","request_id":"ask-1"}`), emit(lResultAborted)})
 	release := make(chan struct{})
-	h.onReq = func(rpcMsg) any { <-release; return answered("answer", `[{"question":0,"selected":[0]},{"question":1,"selected":[0]}]`) }
+	h.onReq = func(rpcMsg) any {
+		<-release
+		return answered("answer", `[{"question":0,"selected":[0]},{"question":1,"selected":[0]}]`)
+	}
 	defer close(release)
 	sid := h.start()
 	id := h.promptText(sid, "ask")

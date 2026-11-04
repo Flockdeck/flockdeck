@@ -94,7 +94,7 @@ func TestReplayIsOnlyForTheSessionBeingLoaded(t *testing.T) {
 
 type handlerFunc func(Update)
 
-func (f handlerFunc) Update(u Update) { f(u) }
+func (f handlerFunc) Update(u Update)                                    { f(u) }
 func (handlerFunc) Permission(context.Context, PermissionRequest) string { return "" }
 
 func TestResumeSessionHasNoReplay(t *testing.T) {

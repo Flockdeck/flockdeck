@@ -580,8 +580,8 @@ type command struct {
 	// card: {question, selected, other} for each, by position on the card.
 	Answers []bridge.Answer `json:"answers"`
 	Base    string          `json:"base"`
-	Force     bool   `json:"force"`
-	Push      bool   `json:"push"`
+	Force   bool            `json:"force"`
+	Push    bool            `json:"push"`
 	// File, Against, Context, IgnoreWhitespace, Side, Line, CommentID, Names,
 	// Confirm, Hash, Reviewer, Note, ExpectSha, Offset, Limit, From and To are the fields of the
 	// changes contract (docs/changes-api.md, section 2).
@@ -597,14 +597,14 @@ type command struct {
 	// RewindToken is the token of the push the structuredRewind or structuredFork
 	// was chosen from (structuredrewind.go).
 	RewindToken string `json:"rewindToken"`
-	Hash             string   `json:"hash"`
-	Reviewer         string   `json:"reviewer"`
-	Note             string   `json:"note"`
-	ExpectSha        string   `json:"expectSha"`
-	Offset           int      `json:"offset"`
-	Limit            int      `json:"limit"`
-	From             int      `json:"from"`
-	To               int      `json:"to"`
+	Hash        string `json:"hash"`
+	Reviewer    string `json:"reviewer"`
+	Note        string `json:"note"`
+	ExpectSha   string `json:"expectSha"`
+	Offset      int    `json:"offset"`
+	Limit       int    `json:"limit"`
+	From        int    `json:"from"`
+	To          int    `json:"to"`
 	// Setting and Value are structuredSet's: the id of the config option (for
 	// Kind "config") and the value to give the mode, model or option.
 	Setting string `json:"setting"`

@@ -3,7 +3,6 @@ package workspace
 import (
 	"strings"
 	"testing"
-
 )
 
 func helperContext(managerPeer string, sendMessage bool) PaneContext {
