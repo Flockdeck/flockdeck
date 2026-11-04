@@ -281,6 +281,8 @@ func ReadGit(dir string) GitFacts {
 	g.Branch, g.Head = st.Branch, st.Head
 	if ch, err := gitx.Changes(dir); err == nil {
 		g.Uncommitted = ch
+	} else {
+		g.Note = addNote(g.Note, "git could not list the uncommitted files ("+firstLine(err.Error())+")")
 	}
 	base := gitx.UpstreamOf(dir)
 	if base == "" {
@@ -294,9 +296,19 @@ func ReadGit(dir string) GitFacts {
 	if base != "" {
 		if files, n, err := gitx.Since(dir, base); err == nil {
 			g.Base, g.Commits, g.Committed = base, n, files
+		} else {
+			g.Note = addNote(g.Note, "git could not list the commits since "+base+" ("+firstLine(err.Error())+")")
 		}
 	}
 	return g
+}
+
+// addNote joins two reasons that part of the git facts is missing.
+func addNote(note, more string) string {
+	if note == "" {
+		return more
+	}
+	return note + "; " + more
 }
 
 // Pane is what the builder needs to know of the pane a baton is made from.
@@ -530,6 +542,11 @@ func filesSection(g GitFacts) string {
 			return "Not available: " + g.Note + "."
 		}
 		return "No files differ from the base."
+	}
+	// A list that is short because part of it could not be read says so, and
+	// is not left to read as the whole.
+	if g.Note != "" {
+		b.WriteString("\nNot available: " + g.Note + ".\n")
 	}
 	return strings.TrimRight(b.String(), "\n")
 }

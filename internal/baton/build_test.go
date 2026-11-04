@@ -220,3 +220,16 @@ func TestAReplayedPromptIsNotThePersonsWords(t *testing.T) {
 		t.Errorf("prompts = %q", a.Prompts)
 	}
 }
+
+func TestFilesSectionSaysWhenGitCouldNotListEverything(t *testing.T) {
+	g := GitFacts{Note: "git could not list the uncommitted files (timed out)"}
+	if got := filesSection(g); strings.Contains(got, "No files differ") || !strings.Contains(got, "timed out") {
+		t.Errorf("empty list with a note: %q", got)
+	}
+	g.Base = "main"
+	g.Committed = []gitx.FileChange{{Path: "a.go", Label: "modified"}}
+	got := filesSection(g)
+	if !strings.Contains(got, "a.go") || !strings.Contains(got, "timed out") {
+		t.Errorf("a partial list was left to read as the whole: %q", got)
+	}
+}
