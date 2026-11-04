@@ -8,11 +8,15 @@ type: application
 # The chart's own version, raised whenever anything in it changes -- kept
 # separate from appVersion below so a chart-only fix (a securityContext
 # tweak, a new value) does not force an application release.
-version: 0.1.0
+version: 0.1.1
 # The Flockdeck release this chart deploys when image.tag is not set. The
 # image is ghcr.io/flockdeck/flockdeck:<appVersion>, the v-prefixed tag
-# release.yml publishes.
-appVersion: "v0.1.0"
+# release.yml publishes. Nothing bumps this at release time, so it names the
+# release current when the chart last changed: raise it with the chart version
+# when cutting a release you want the chart to default to. It must be a tag
+# that exists on ghcr.io (the first image was v0.3.31), or an install with no
+# image.tag set cannot pull; chart_test.go checks the shape.
+appVersion: "v0.8.2"
 home: https://flockdeck.ai
 sources:
   - https://github.com/Flockdeck/flockdeck

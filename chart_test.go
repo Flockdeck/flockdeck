@@ -371,3 +371,21 @@ func TestChartValidatesAllowedHostsCharacters(t *testing.T) {
 		}
 	}
 }
+
+// With no image.tag set the chart pulls ghcr.io/flockdeck/flockdeck:<appVersion>.
+// The first image release was v0.3.31, so an appVersion that is not a
+// v-prefixed release at or after it (the chart shipped with v0.1.0, which was
+// never published) names an image that cannot be pulled.
+func TestChartAppVersionIsAPublishedImageTag(t *testing.T) {
+	m := regexp.MustCompile(`(?m)^appVersion:\s*"?v(\d+)\.(\d+)\.(\d+)"?\s*$`).FindStringSubmatch(readChartFile(t, "Chart.yaml"))
+	if m == nil {
+		t.Fatal(`Chart.yaml appVersion must be a v-prefixed release such as "v0.8.2", the tag release.yml publishes`)
+	}
+	var v [3]int
+	for i := range v {
+		v[i], _ = strconv.Atoi(m[i+1])
+	}
+	if v[0] == 0 && (v[1] < 3 || (v[1] == 3 && v[2] < 31)) {
+		t.Fatalf("Chart.yaml appVersion v%d.%d.%d predates the first published image (v0.3.31)", v[0], v[1], v[2])
+	}
+}
