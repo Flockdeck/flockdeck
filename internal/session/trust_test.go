@@ -799,3 +799,17 @@ func TestLockClaudeConfigGivesUpOnAStaleLockItCannotRemove(t *testing.T) {
 		t.Fatal("lockClaudeConfig did not give up on a stale lock it could not remove")
 	}
 }
+
+// TestInheritTrustReportsAnUnreadableConfig: a malformed configuration is
+// reported as unreadable, not as nobody having answered the trust question.
+func TestInheritTrustReportsAnUnreadableConfig(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	if err := os.WriteFile(filepath.Join(dir, ".claude.json"), []byte(`{"projects": {`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := InheritTrust(filepath.Join(dir, "repo"), filepath.Join(dir, "wt"))
+	if err == nil || !strings.Contains(err.Error(), "could not be read") {
+		t.Fatalf("err = %v, want one saying the configuration could not be read", err)
+	}
+}

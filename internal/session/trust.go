@@ -352,6 +352,13 @@ func InheritTrust(from, to string) error {
 	}
 	defer release()
 
+	// An unreadable or malformed file is reported as that, not as nobody
+	// having answered the trust question: IsTrusted reads it as untrusted.
+	cfg, err := readClaudeConfig()
+	if err != nil {
+		return err
+	}
+
 	// A fan-out shows this after "could not carry over folder trust: ", so it
 	// is the reason, and what to do about it.
 	if !IsTrusted(from) {
@@ -361,10 +368,6 @@ func InheritTrust(from, to string) error {
 		return nil
 	}
 
-	cfg, err := readClaudeConfig()
-	if err != nil {
-		return err
-	}
 	projects, _ := cfg["projects"].(map[string]any)
 	if projects == nil {
 		projects = map[string]any{}
