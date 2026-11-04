@@ -2,13 +2,17 @@ package ghcli
 
 import (
 	"errors"
+	"os"
 	"os/exec"
+	"path/filepath"
+	"strings"
 	"testing"
 )
 
 func TestInstalledAsksLookPath(t *testing.T) {
-	old := lookPath
-	defer func() { lookPath = old }()
+	old, oldOS := lookPath, goos
+	defer func() { lookPath, goos = old, oldOS }()
+	goos = "linux"
 
 	lookPath = func(string) (string, error) { return "/usr/bin/gh", nil }
 	if !Installed() {
@@ -17,6 +21,35 @@ func TestInstalledAsksLookPath(t *testing.T) {
 	lookPath = func(string) (string, error) { return "", exec.ErrNotFound }
 	if Installed() {
 		t.Error("Installed() = true, want false when lookPath does not find gh")
+	}
+}
+
+func TestInstalledFindsGhInProgramFilesOnWindows(t *testing.T) {
+	old, oldOS := lookPath, goos
+	defer func() { lookPath, goos = old, oldOS }()
+	lookPath = func(string) (string, error) { return "", exec.ErrNotFound }
+	goos = "windows"
+
+	pf := t.TempDir()
+	t.Setenv("ProgramFiles", pf)
+	t.Setenv("ProgramW6432", "")
+	t.Setenv("LocalAppData", "")
+	t.Setenv("PATH", "")
+	if Installed() {
+		t.Fatal("Installed() = true with no gh.exe anywhere")
+	}
+	dir := filepath.Join(pf, "GitHub CLI")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "gh.exe"), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if !Installed() {
+		t.Fatal("Installed() = false, want true when gh.exe is in Program Files")
+	}
+	if got := os.Getenv("PATH"); !strings.HasPrefix(got, dir) {
+		t.Errorf("PATH = %q, want it to start with %q", got, dir)
 	}
 }
 
@@ -98,6 +131,23 @@ func TestParseAuthStatus(t *testing.T) {
 	loggedOut := parseAuthStatus("")
 	if loggedOut.LoggedIn {
 		t.Errorf("got %+v, want not logged in for empty input", loggedOut)
+	}
+}
+
+func TestParseAuthStatusPrefersActiveAccount(t *testing.T) {
+	text := "github.com\n" +
+		"  ✓ Logged in to github.com account personal (keyring)\n" +
+		"  - Active account: false\n" +
+		"  - Token scopes: 'gist'\n" +
+		"  ✓ Logged in to github.com account work (keyring)\n" +
+		"  - Active account: true\n" +
+		"  - Token scopes: 'repo'\n" +
+		"  ✓ Logged in to github.com account other (keyring)\n" +
+		"  - Active account: false\n" +
+		"  - Token scopes: 'read:org'\n"
+	st := parseAuthStatus(text)
+	if st.Account != "work" || st.Scopes != "repo" {
+		t.Errorf("got %+v, want the active account work with scopes repo", st)
 	}
 }
 

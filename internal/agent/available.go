@@ -49,6 +49,9 @@ type probeResult struct {
 var probes = struct {
 	sync.Mutex
 	seen map[string]probeResult
+	// gen counts Refresh calls, so a probe that began before one can tell its
+	// answer is older than the refresh and leave it out of the cache.
+	gen int
 }{seen: map[string]probeResult{}}
 
 // now is the clock, replaceable so a test can watch an answer expire without
@@ -64,6 +67,7 @@ func Available(s Spec) bool {
 		probes.Unlock()
 		return got.ok
 	}
+	gen := probes.gen
 	probes.Unlock()
 
 	// The probe itself is deliberately outside the lock: it touches the disk,
@@ -73,7 +77,9 @@ func Available(s Spec) bool {
 	ok := probe(s)
 
 	probes.Lock()
-	probes.seen[s.ID] = probeResult{ok: ok, at: at}
+	if probes.gen == gen {
+		probes.seen[s.ID] = probeResult{ok: ok, at: at}
+	}
 	probes.Unlock()
 	return ok
 }
@@ -84,6 +90,7 @@ func Available(s Spec) bool {
 func Refresh() {
 	probes.Lock()
 	probes.seen = map[string]probeResult{}
+	probes.gen++
 	probes.Unlock()
 }
 

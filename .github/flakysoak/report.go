@@ -22,6 +22,9 @@ type State struct {
 	Entries     []Entry    `json:"entries"`
 	Resolved    []Resolved `json:"resolved,omitempty"`
 	CleanNights int        `json:"cleanNights"`
+	// LastCleanDate is the date the latest clean night was counted, so a
+	// second run on the same date is not counted as another night.
+	LastCleanDate string `json:"lastCleanDate,omitempty"`
 }
 
 // Entry is one flaky test, deduplicated by package and name across nights.
@@ -137,7 +140,7 @@ func Decide(in Input) Outcome {
 	if anyFailure {
 		news := merge(&st, in.Results, in.Night)
 		dropReturned(&st)
-		st.CleanNights = 0
+		st.CleanNights, st.LastCleanDate = 0, ""
 		out := Outcome{Title: IssueTitle, Body: render(st, in, missing), Comment: newComment(news, in.Night)}
 		switch {
 		case !in.Exists:
@@ -155,13 +158,16 @@ func Decide(in Input) Outcome {
 	if len(missing) > 0 || len(in.Results) == 0 || !in.Exists || !in.Open {
 		return Outcome{Action: "none", Title: IssueTitle}
 	}
-	st.CleanNights++
+	if st.LastCleanDate != in.Night.Date || st.CleanNights == 0 {
+		st.CleanNights++
+		st.LastCleanDate = in.Night.Date
+	}
 	if st.CleanNights >= in.CloseAfter {
 		for _, e := range st.Entries {
 			st.Resolved = append(st.Resolved, resolvedOf(e))
 		}
 		st.Entries = nil
-		st.CleanNights = 0
+		st.CleanNights, st.LastCleanDate = 0, ""
 		return Outcome{
 			Action: "close", Title: IssueTitle,
 			Body: render(st, in, nil),
@@ -360,6 +366,18 @@ func render(st State, in Input, missing []string) string {
 			j := strings.Index(body[i:], "</details>")
 			body = body[:i] + "(Log excerpts left out: too many failing tests for one issue. See the run.)\n\n" + body[i+j+len("</details>\n\n"):]
 		}
+	}
+	if len(body)+len(state) > maxBody {
+		// Still too long, because each entry's state carries its whole
+		// excerpt. The table only shows one line of it, so keep that line.
+		short := st
+		short.Entries = make([]Entry, len(st.Entries))
+		for i, e := range st.Entries {
+			e.Excerpt = oneLine(e.Excerpt)
+			short.Entries[i] = e
+		}
+		sj, _ = json.Marshal(short)
+		state = stateOpen + "\n" + string(sj) + "\n" + stateClose + "\n"
 	}
 	return body + state
 }

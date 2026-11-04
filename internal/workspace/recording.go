@@ -463,6 +463,14 @@ func (w *Workspace) syncRecording(id string, r *paneRecorder) {
 		}
 		w.mu.Unlock()
 		w.wake()
+		// The recorder may already hold the transcript file and the conversation
+		// from earlier looks, for an agent that has since left the catalog:
+		// stopped here, off this goroutine, since the stop waits for this look.
+		w.recAct.begin()
+		go func() {
+			defer w.recAct.end()
+			w.stopRecorder(id, false)
+		}()
 		return
 	}
 
@@ -501,7 +509,7 @@ func (w *Workspace) syncRecording(id string, r *paneRecorder) {
 			return
 		}
 		if !got {
-			w.endRecordingAsync(id, "another pane is already recording this conversation, so this one was not started")
+			w.endRecordingOf(id, r, "another pane is already recording this conversation, so this one was not started")
 			return
 		}
 		r.fresh = func() transcript.Follower { return w.followerFor(ex.Follow(spec, conv)) }
@@ -521,14 +529,14 @@ func (w *Workspace) syncRecording(id string, r *paneRecorder) {
 		if !r.synced {
 			why = fmt.Sprintf("the conversation was already longer than a transcript can be (%d MiB), so its transcript was cut there", record.MaxFileBytes>>20)
 		}
-		w.endRecordingAsync(id, why)
+		w.endRecordingOf(id, r, why)
 		return
 	case errors.Is(err, transcript.ErrRead):
 		// What is stored could not be read for now, a file another program has
 		// locked. Nothing was passed over, so it is tried again, later each time.
 		r.readFails++
 		if r.readFails >= recMaxReadFails {
-			w.endRecordingAsync(id, "the agent's stored conversation could not be read ("+err.Error()+")")
+			w.endRecordingOf(id, r, "the agent's stored conversation could not be read ("+err.Error()+")")
 			return
 		}
 		w.scheduleAfterFailure(id, r, r.readFails)
@@ -541,7 +549,7 @@ func (w *Workspace) syncRecording(id string, r *paneRecorder) {
 		r.follower, r.synced = r.fresh(), false
 		r.fails++
 		if r.fails >= recMaxFails {
-			w.endRecordingAsync(id, "its transcript could not be written ("+err.Error()+")")
+			w.endRecordingOf(id, r, "its transcript could not be written ("+err.Error()+")")
 			return
 		}
 		w.scheduleAfterFailure(id, r, r.fails)
@@ -785,6 +793,21 @@ func (w *Workspace) stopRecorders() {
 		r.finish()
 	}
 	w.recAct.wait()
+}
+
+// endRecordingOf is endRecordingAsync for a recorder's own look: if r was
+// stopped while the look ran, and so is no longer the pane's recording, the
+// pane's recording is not ended. A recording turned off and on again has a
+// newer recorder, which a stopped one's size cap or failure says nothing
+// about.
+func (w *Workspace) endRecordingOf(id string, r *paneRecorder, why string) {
+	r.ctl.Lock()
+	stopped := r.stopped
+	r.ctl.Unlock()
+	if stopped {
+		return
+	}
+	w.endRecordingAsync(id, why)
 }
 
 // endRecordingAsync ends a pane's recording, saying why, off the goroutine that

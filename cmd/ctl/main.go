@@ -14,6 +14,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/coder/websocket"
@@ -42,26 +43,12 @@ func main() {
 		fmt.Println("read:", err)
 		os.Exit(1)
 	}
-	// activeTab is the id of the active tab, not its position, so the focused
-	// pane is found by matching ids rather than by indexing.
-	var st struct {
-		ActiveTab string `json:"activeTab"`
-		Tabs      []struct {
-			ID    string `json:"id"`
-			Focus string `json:"focus"`
-		} `json:"tabs"`
-	}
-	if err := json.Unmarshal(data, &st); err != nil {
+	focus, err := focusedPane(data)
+	if err != nil {
 		fmt.Println("decode state:", err)
 		os.Exit(1)
 	}
-	focus := ""
-	for _, t := range st.Tabs {
-		if t.ID == st.ActiveTab {
-			focus = t.Focus
-			break
-		}
-	}
+	var focusMu sync.Mutex
 	fmt.Println("focused pane:", focus)
 
 	// A command the server refuses is answered with a notice and nothing else,
@@ -85,6 +72,13 @@ func main() {
 			}
 			switch {
 			case msg.Type == "state":
+				// The focus moves as commands run (a split focuses the new
+				// pane), so a command with no id goes to where it is now.
+				if f, err := focusedPane(data); err == nil && f != "" {
+					focusMu.Lock()
+					focus = f
+					focusMu.Unlock()
+				}
 				select {
 				case states <- struct{}{}:
 				default:
@@ -105,7 +99,9 @@ func main() {
 			continue
 		}
 		if _, ok := cmd["id"]; !ok {
+			focusMu.Lock()
 			cmd["id"] = focus
+			focusMu.Unlock()
 		}
 		out, _ := json.Marshal(cmd)
 		select { // a snapshot from before this command says nothing about it
@@ -128,4 +124,26 @@ func main() {
 	}
 	// Long enough for a notice that follows the last snapshot to be printed.
 	time.Sleep(250 * time.Millisecond)
+}
+
+// focusedPane is the focused pane of the active tab in a state snapshot.
+// activeTab is the id of the active tab, not its position, so it is found by
+// matching ids rather than by indexing.
+func focusedPane(data []byte) (string, error) {
+	var st struct {
+		ActiveTab string `json:"activeTab"`
+		Tabs      []struct {
+			ID    string `json:"id"`
+			Focus string `json:"focus"`
+		} `json:"tabs"`
+	}
+	if err := json.Unmarshal(data, &st); err != nil {
+		return "", err
+	}
+	for _, t := range st.Tabs {
+		if t.ID == st.ActiveTab {
+			return t.Focus, nil
+		}
+	}
+	return "", nil
 }

@@ -1264,9 +1264,12 @@ func remoteDeleteAccountCmd(args []string, rio remoteIO) error {
 		return err
 	}
 	cl := remote.NewClient(cfg, version)
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	preview, err := cl.AccountPreview(ctx)
+	// The preview and the delete each get their own deadline: the person reads
+	// the summary and types the phrase in between, and that wait is not the
+	// relay's to be held to.
+	previewCtx, cancelPreview := context.WithTimeout(context.Background(), 30*time.Second)
+	preview, err := cl.AccountPreview(previewCtx)
+	cancelPreview()
 	if err != nil {
 		return deleteAccountRefusal(cfg, err, false)
 	}
@@ -1299,6 +1302,8 @@ func remoteDeleteAccountCmd(args []string, rio remoteIO) error {
 		}
 	}
 
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
 	gone, err := cl.DeleteAccount(ctx)
 	if err != nil {
 		var refused *remote.APIError

@@ -367,9 +367,15 @@ var afterLockedAttempt func(attempt int)
 
 // indexLockOf is asked after a command that writes the index has failed with
 // failure. It is the lock's path when another git process held the index --
-// the failure names the lock, or the lock is there -- and empty when the
-// failure was something else.
+// the failure names the lock -- and empty when the failure was something
+// else.
 func indexLockOf(dir string, failure error) string {
+	// A lock that is there is not what made the command fail unless the
+	// failure names it: a hook's rejection or a missing identity with another
+	// git's lock in place was reported as the lock.
+	if !strings.Contains(failure.Error(), "index.lock") {
+		return ""
+	}
 	out, err := run(dir, "rev-parse", "--git-path", "index.lock")
 	if err != nil {
 		return ""
@@ -377,9 +383,6 @@ func indexLockOf(dir string, failure error) string {
 	lock := strings.TrimSpace(out)
 	if !filepath.IsAbs(lock) {
 		lock = filepath.Join(dir, lock)
-	}
-	if _, serr := os.Lstat(lock); serr != nil && !strings.Contains(failure.Error(), "index.lock") {
-		return ""
 	}
 	return lock
 }
@@ -393,6 +396,10 @@ func indexLockOf(dir string, failure error) string {
 // brief, which is the point of waiting for it -- so a failure that names the
 // lock file counts as having met it even when the file is no longer there.
 func waitForIndex(dir string, failure error) (lock string, held bool) {
+	// As indexLockOf: only a failure that names the lock is one it caused.
+	if !strings.Contains(failure.Error(), "index.lock") {
+		return "", false
+	}
 	out, err := run(dir, "rev-parse", "--git-path", "index.lock")
 	if err != nil {
 		return "", false
@@ -402,9 +409,6 @@ func waitForIndex(dir string, failure error) (lock string, held bool) {
 		lock = filepath.Join(dir, lock)
 	}
 	there := func() bool { _, serr := os.Lstat(lock); return serr == nil }
-	if !there() && !strings.Contains(failure.Error(), "index.lock") {
-		return "", false
-	}
 	for deadline := time.Now().Add(lockWait); there() && time.Now().Before(deadline); {
 		time.Sleep(100 * time.Millisecond)
 	}

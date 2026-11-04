@@ -2032,3 +2032,35 @@ func TestARenameIsFoundAcrossReads(t *testing.T) {
 		t.Errorf("counted %d line breaks, want 4", c.newlines)
 	}
 }
+
+func TestOpeningPromptSkipsMetaAndSidechainEntries(t *testing.T) {
+	transcript := strings.Join([]string{
+		`{"type":"user","isMeta":true,"cwd":"/w","message":{"role":"user","content":"Base directory for this skill: /x"}}`,
+		`{"type":"user","isSidechain":true,"cwd":"/w","message":{"role":"user","content":"a subagent's brief"}}`,
+		`{"type":"user","cwd":"/w","message":{"role":"user","content":"fix the build"}}`,
+	}, "\n") + "\n"
+	prompt, _, _, _ := openingPrompt(strings.NewReader(transcript))
+	if prompt != "fix the build" {
+		t.Errorf("prompt = %q, want the user's own", prompt)
+	}
+}
+
+// TestFolderRecordsReprobeATranscriptThatGainsItsDirectory: a transcript that
+// recorded no directory when it was probed may record one once it has grown.
+func TestFolderRecordsReprobeATranscriptThatGainsItsDirectory(t *testing.T) {
+	forgetTranscripts()
+	t.Cleanup(forgetTranscripts)
+
+	dir := filepath.Join(t.TempDir(), "a-project-folder")
+	id := "aaaaaaaa-3333-3333-3333-333333333333"
+	writeTranscript(t, dir, id, `{"type":"mode","mode":"normal"}`)
+	if got, _ := folderRecords(dir); len(got) != 0 {
+		t.Fatalf("probed %q, want nothing from a transcript with no directory", got)
+	}
+	writeTranscript(t, dir, id,
+		`{"type":"mode","mode":"normal"}`,
+		`{"type":"user","cwd":"`+jsonPath(`C:\later`)+`","message":{"role":"user","content":"hi"}}`)
+	if got, _ := folderRecords(dir); len(got) != 1 || !sameDir(got[0], `C:\later`) {
+		t.Errorf("probed %q, want the directory the transcript has since recorded", got)
+	}
+}

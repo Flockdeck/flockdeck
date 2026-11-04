@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -347,5 +348,103 @@ func TestGroupsPersistImmediately(t *testing.T) {
 	}
 	if len(saved) != 1 || saved[0].Name != "platform" {
 		t.Fatalf("saved groups = %+v, want one named platform", saved)
+	}
+}
+
+// TestReopeningASplitOutRepoKeepsItSplit covers a grouping undone and the
+// repo closed and reopened in the same run: ensureGroup must not read the
+// startup copy of groups.json and put the repo back in its old group.
+func TestReopeningASplitOutRepoKeepsItSplit(t *testing.T) {
+	isolateConfig(t)
+	ws, first, second := twoProjects(t)
+	if _, err := ws.NewGroupFrom([]string{first, second}, "platform"); err != nil {
+		t.Fatalf("group: %v", err)
+	}
+	// Simulate a restart having loaded the grouping from disk.
+	ws.savedGroups = loadSavedGroups()
+	if err := ws.RemoveRepoFromGroup(second); err != nil {
+		t.Fatalf("remove: %v", err)
+	}
+	if err := ws.CloseProject(second); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	if err := ws.OpenProject(second); err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+
+	if n := len(ws.Projects()); n != 2 {
+		t.Fatalf("projects = %d, want 2: the split-out repo was regrouped from a stale snapshot", n)
+	}
+}
+
+// TestPersistGroupsKeepsAGroupWhoseFoldersAreAway covers a saved grouping
+// whose members are on an unplugged drive: a later grouping change must not
+// write a groups.json without it.
+func TestPersistGroupsKeepsAGroupWhoseFoldersAreAway(t *testing.T) {
+	isolateConfig(t)
+	ws, first, _ := twoProjects(t)
+	awayA, awayB := t.TempDir()+"-gone-a", t.TempDir()+"-gone-b"
+	saved := store.ProjectGroup{ID: "away-group", Name: "offsite", Primary: awayA, Roots: []string{awayA, awayB}}
+	ws.savedGroups = []store.ProjectGroup{saved}
+	ws.away = []awayRoot{{root: awayA, starts: 1}, {root: awayB, starts: 1}}
+
+	if err := ws.RenameGroup(first, "renamed"); err != nil {
+		t.Fatalf("rename: %v", err)
+	}
+
+	got, err := store.LoadGroups()
+	if err != nil {
+		t.Fatalf("load groups: %v", err)
+	}
+	for _, g := range got {
+		if g.ID == "away-group" && len(g.Roots) == 2 && g.Name == "offsite" {
+			return
+		}
+	}
+	t.Fatalf("groups.json = %+v, want the away group kept", got)
+}
+
+// TestEnsureGroupMatchesMembersByDirectory checks that a root spelled with
+// different case from the one already open joins the live group rather than
+// replacing it under the same saved id.
+func TestEnsureGroupMatchesMembersByDirectory(t *testing.T) {
+	isolateConfig(t)
+	ws := newTestWorkspace(t, t.TempDir())
+	web, api := filepath.Join(t.TempDir(), "Web"), filepath.Join(t.TempDir(), "Api")
+	ws.savedGroups = []store.ProjectGroup{{ID: "g", Name: "site", Primary: web, Roots: []string{web, api}}}
+
+	first := ws.ensureGroup(web)
+	again := ws.ensureGroup(strings.ToUpper(web))
+	joined := ws.ensureGroup(api)
+
+	if foldsCase && again != first {
+		t.Errorf("a differently cased spelling made a new group %+v, want the live one", again)
+	}
+	if joined != first || len(first.Roots) != 2 {
+		t.Errorf("api did not join the live group: roots = %v", first.Roots)
+	}
+}
+
+// TestAddRepoToGroupGroupsAFolderThatIsAlreadyOpen checks that adding a
+// folder open as its own project to another project groups it, instead of
+// selecting it and reporting success with nothing changed.
+func TestAddRepoToGroupGroupsAFolderThatIsAlreadyOpen(t *testing.T) {
+	isolateConfig(t)
+	ws, first, second := twoProjects(t)
+
+	if err := ws.AddRepoToGroup(first, second); err != nil {
+		t.Fatalf("add repo: %v", err)
+	}
+
+	projects := ws.Projects()
+	if len(projects) != 1 || len(projects[0].Members) != 2 {
+		t.Fatalf("projects = %+v, want one project of two members", projects)
+	}
+	saved, err := store.LoadGroups()
+	if err != nil {
+		t.Fatalf("load groups: %v", err)
+	}
+	if len(saved) != 1 || len(saved[0].Roots) != 2 {
+		t.Fatalf("saved groups = %+v, want one group of two roots", saved)
 	}
 }

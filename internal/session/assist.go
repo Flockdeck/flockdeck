@@ -307,6 +307,13 @@ func (s *Session) assistIdle(written int64, since time.Time) {
 		}()
 	}
 	st, ok := s.assist.Assess(ctx, s.ID, tail)
+	if closedChan(s.reaped) {
+		// wait() may have forgotten the pane before this ask recorded its
+		// state, which would leave the entry behind for good. reaped is closed
+		// before wait() forgets, so either that Forget came after the ask or
+		// this one does.
+		s.assist.Forget(s.ID)
+	}
 	if !ok {
 		return
 	}

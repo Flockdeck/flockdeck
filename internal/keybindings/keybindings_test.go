@@ -154,6 +154,38 @@ func TestResetBindingAndResetAll(t *testing.T) {
 	}
 }
 
+func TestResetBindingRefusesADefaultAnotherActionNowHolds(t *testing.T) {
+	isolateConfig(t)
+	split, _ := help.Lookup("splitRight")
+	if _, err := SetBinding(testKeys, "splitRight", "Ctrl+Alt+1"); err != nil {
+		t.Fatalf("SetBinding: %v", err)
+	}
+	if _, err := SetBinding(testKeys, "splitDown", split.Keys); err != nil {
+		t.Fatalf("SetBinding: %v", err)
+	}
+	_, err := ResetBinding(testKeys, "splitRight")
+	var ce *ConflictError
+	if !errors.As(err, &ce) || ce.With.ID != "splitDown" {
+		t.Fatalf("ResetBinding's error = %v, want a *ConflictError with splitDown", err)
+	}
+	f, _ := Load()
+	if f.Overrides["splitRight"] != "Ctrl+Alt+1" {
+		t.Errorf("a refused reset changed the override: %+v", f.Overrides)
+	}
+}
+
+func TestSetBindingRefusesAltDigitsTakenByTabSelection(t *testing.T) {
+	isolateConfig(t)
+	_, err := SetBinding(testKeys, "closePane", "Alt+2")
+	var ce *ConflictError
+	if !errors.As(err, &ce) || ce.With.ID != "selectTab" {
+		t.Fatalf("SetBinding's error = %v, want a *ConflictError with selectTab", err)
+	}
+	if _, err := SetBinding(testKeys, "closePane", "Ctrl+Alt+2"); err != nil {
+		t.Errorf("Ctrl+Alt+2 is not a tab chord but was refused: %v", err)
+	}
+}
+
 func TestSetBindingRefusesARange(t *testing.T) {
 	isolateConfig(t)
 	if _, err := SetBinding(testKeys, "selectTab", "Ctrl+Alt+1"); err == nil {
@@ -176,6 +208,25 @@ func TestDamagedFileReadsAsDefaults(t *testing.T) {
 	}
 	if len(f.Overrides) != 0 {
 		t.Errorf("a damaged file should read as no overrides, got %+v", f.Overrides)
+	}
+}
+
+func TestRemapKeepsACopyOfADamagedFile(t *testing.T) {
+	isolateConfig(t)
+	p, err := path()
+	if err != nil {
+		t.Fatalf("path: %v", err)
+	}
+	damaged := `{"version":1,"overrides":{"zoomPane":"Ctrl+Alt+Z",}}`
+	if err := os.WriteFile(p, []byte(damaged), 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	if _, err := SetBinding(testKeys, "closePane", "Ctrl+Alt+W"); err != nil {
+		t.Fatalf("SetBinding: %v", err)
+	}
+	got, err := os.ReadFile(p + ".bad")
+	if err != nil || string(got) != damaged {
+		t.Errorf("keybindings.json.bad = %q, %v; want the damaged file kept", got, err)
 	}
 }
 

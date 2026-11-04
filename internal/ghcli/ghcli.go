@@ -13,14 +13,46 @@
 // Flockdeck to leak.
 package ghcli
 
-import "os/exec"
+import (
+	"os"
+	"os/exec"
+	"path/filepath"
+	"runtime"
+)
 
 // lookPath is a variable so a test can describe a machine with gh installed,
 // or not, without touching PATH.
 var lookPath = exec.LookPath
 
+// goos is a variable so a test can exercise the Windows fallback anywhere.
+var goos = runtime.GOOS
+
 // Installed reports whether the gh binary can be found on PATH.
+//
+// On Windows a winget install adds gh to the machine PATH, which a process
+// that is already running never sees. When PATH has no gh, the usual install
+// folders are checked and, if gh is there, its folder is added to this
+// process's PATH so the gh commands that follow can find it too.
 func Installed() bool {
-	_, err := lookPath("gh")
-	return err == nil
+	if _, err := lookPath("gh"); err == nil {
+		return true
+	}
+	if goos != "windows" {
+		return false
+	}
+	for _, env := range []string{"ProgramFiles", "ProgramW6432", "LocalAppData"} {
+		base := os.Getenv(env)
+		if base == "" {
+			continue
+		}
+		dir := filepath.Join(base, "GitHub CLI")
+		if env == "LocalAppData" {
+			dir = filepath.Join(base, "Programs", "GitHub CLI")
+		}
+		if fi, err := os.Stat(filepath.Join(dir, "gh.exe")); err == nil && !fi.IsDir() {
+			os.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+			return true
+		}
+	}
+	return false
 }

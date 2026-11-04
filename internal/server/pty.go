@@ -224,7 +224,7 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 		if readerDone != nil {
 			select {
 			case <-readerDone:
-			case <-time.After(2 * time.Second):
+			case <-time.After(inputStopWait):
 			}
 		}
 		// This window is no longer one the pane is sized for, so it goes back
@@ -342,6 +342,10 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 		live.Store(sess)
 	}
 }
+
+// inputStopWait bounds how long a closing terminal socket waits for its input
+// reader to return before it drops its viewer entry.
+const inputStopWait = 2 * time.Second
 
 // keepalive holds a quiet socket to account.
 //
@@ -723,8 +727,13 @@ func (s *Server) repaintPane(id string) {
 	time.AfterFunc(s.rp.gap, func() {
 		s.do(func() {
 			// Whatever size is right by then, in case a window has changed
-			// shape in the meantime.
-			if cols, rows := s.repaintSize(id); cols > 0 && rows > 0 {
+			// shape in the meantime. A pane nobody has measured has only the
+			// size the pty reports, which the step above has just made a row
+			// short, so it goes back to the size it had before.
+			if c, r := viewers.size(id); c > 0 && r > 0 {
+				cols, rows = c, r
+			}
+			if cols > 0 && rows > 0 {
 				s.rp.resize(s, id, cols, rows)
 			}
 		})

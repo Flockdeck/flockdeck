@@ -129,6 +129,8 @@ func TestKeysSetReadsStdin(t *testing.T) {
 		{name: "surrounding space", stdin: "  sk-padded  \r\n", want: "sk-padded"},
 		{name: "only the first line", stdin: "sk-first\nsk-second\n", want: "sk-first"},
 		{name: "a byte-order mark in front", stdin: "\xef\xbb\xbfsk-marked\r\n", want: "sk-marked"},
+		{name: "UTF-16 little-endian", stdin: "\xff\xfes\x00k\x00-\x00u\x00\r\x00\n\x00", want: "sk-u"},
+		{name: "UTF-16 big-endian", stdin: "\xfe\xff\x00s\x00k\x00-\x00b\x00\n", want: "sk-b"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -158,6 +160,13 @@ func TestKeysSetRefusesNothing(t *testing.T) {
 	}
 	if creds.Has("anthropic") {
 		t.Error("an empty key was stored anyway")
+	}
+}
+
+func TestKeysSetRefusesBinaryInput(t *testing.T) {
+	isolateKeys(t)
+	if _, err := runKeysCmd(t, "s\x00k\x00\n", "set", "anthropic"); err == nil {
+		t.Fatal("a key holding NUL bytes was accepted")
 	}
 }
 
@@ -336,6 +345,18 @@ func TestAnMsysPtyIsToldFromAScriptsPipe(t *testing.T) {
 		if got := isMsysPtyName(name); got != want {
 			t.Errorf("isMsysPtyName(%q) = %v, want %v", name, got, want)
 		}
+	}
+}
+
+// The null device is a character device, but nobody is typing into it.
+func TestTheNullDeviceIsNotATerminal(t *testing.T) {
+	f, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	if fileIsTerminal(f) {
+		t.Errorf("fileIsTerminal(%s) = true, want false", os.DevNull)
 	}
 }
 

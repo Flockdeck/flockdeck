@@ -123,7 +123,7 @@ func TestIssueLifecycleDoesNotSpam(t *testing.T) {
 	if res := sync1(t, f, testNow.Add(24*time.Hour)); !res.Commented {
 		t.Fatalf("a changed picture should comment: %+v", res)
 	}
-	if got := f.writes(); !reflect.DeepEqual(got, []string{"PATCH body #1", "POST comment #1"}) {
+	if got := f.writes(); !reflect.DeepEqual(got, []string{"POST comment #1", "PATCH body #1"}) {
 		t.Fatalf("changed writes = %v", got)
 	}
 	f.resetWrites()
@@ -140,7 +140,7 @@ func TestIssueLifecycleDoesNotSpam(t *testing.T) {
 	if res := sync1(t, f, testNow.Add(48*time.Hour)); res.Action != "closed" {
 		t.Fatalf("clear run: %+v", res)
 	}
-	if got := f.writes(); !reflect.DeepEqual(got, []string{"POST comment #1", "PATCH state=closed #1"}) {
+	if got := f.writes(); !reflect.DeepEqual(got, []string{"PATCH state=closed #1", "POST comment #1"}) {
 		t.Fatalf("close writes = %v", got)
 	}
 
@@ -164,6 +164,30 @@ func TestIssueLifecycleDoesNotSpam(t *testing.T) {
 	}
 	if len(f.Issues) != 1 {
 		t.Fatalf("there should still be exactly one tracking issue, got %d", len(f.Issues))
+	}
+}
+
+// A comment that fails must be tried again by the next run, which it would not
+// be if the body, with the fingerprint, had already been rewritten.
+func TestAFailedChangeCommentIsRetried(t *testing.T) {
+	f := driftingFake(t)
+	sync1(t, f, testNow)
+	f.Repos["flockdeck-billing"].Commits = commits(testNow, "b1", 40, "internal/x.go")
+
+	f.FailComment = 400
+	pic, err := analyse(context.Background(), f.client(), testNow, 24*time.Hour)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := syncIssue(context.Background(), writer(f), self, pic); err == nil {
+		t.Fatal("the failed comment should be an error")
+	}
+	f.resetWrites()
+	if res := sync1(t, f, testNow); !res.Commented {
+		t.Fatalf("the retry should comment: %+v", res)
+	}
+	if got := f.writes(); !reflect.DeepEqual(got, []string{"POST comment #1", "PATCH body #1"}) {
+		t.Fatalf("retry writes = %v", got)
 	}
 }
 

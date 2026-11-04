@@ -280,6 +280,13 @@ func (s *Supervisor) Start(id string) (Status, error) {
 		return Status{}, err
 	}
 	s.mu.Lock()
+	// VerifyInstall can take a while on a large binary, and an install may have
+	// begun meanwhile. Its busy check looks at Active, which is false until the
+	// instance is registered below, so look again here under the same lock.
+	if s.cfg.InstallBusy != nil && s.cfg.InstallBusy(id) {
+		s.mu.Unlock()
+		return Status{}, fmt.Errorf("%s is being installed; wait for that to finish", e.Name)
+	}
 	if in, ok := s.insts[id]; ok {
 		switch in.state {
 		case StateStarting, StateRunning, StateUnresponsive:
@@ -417,6 +424,7 @@ func (s *Supervisor) run(in *instance) {
 		preferred = r.Port
 	}
 	var crashes []time.Time
+	lastPort := 0
 	for {
 		var out outcome
 		portsTried := 0
@@ -428,6 +436,7 @@ func (s *Supervisor) run(in *instance) {
 			}
 			port, err := pick(preferred)
 			preferred = 0
+			lastPort = port
 			if err != nil {
 				out = outcome{fatal: err.Error()}
 				break
@@ -452,7 +461,10 @@ func (s *Supervisor) run(in *instance) {
 			return
 		}
 
-		// It was running and has ended on its own: a crash.
+		// It was running and has ended on its own: a crash. Ask for the same
+		// port again so a bookmark to it keeps working; ChoosePort falls back
+		// to another when something else has taken it.
+		preferred = lastPort
 		now := time.Now()
 		crashes = append(crashes, now)
 		kept := crashes[:0]
@@ -577,8 +589,23 @@ func (s *Supervisor) runOnce(in *instance, port int) (out outcome) {
 	errW.Close()
 	pg := attachProc(cmd, s.cfg.BreakCmd)
 	started, _ := store.ProcessStartedAt(cmd.Process.Pid)
-	_ = st.writeRun(in.id, RunInfo{PID: cmd.Process.Pid, Started: started, Port: port, StartedAt: time.Now().UTC(),
-		OwnerPID: s.ownerPID, OwnerStarted: s.ownerStarted})
+	rec := RunInfo{PID: cmd.Process.Pid, Started: started, Port: port, StartedAt: time.Now().UTC(),
+		OwnerPID: s.ownerPID, OwnerStarted: s.ownerStarted}
+	// Without this record a Windows stop cannot signal the helper, so a failed
+	// write is retried (a scanner often lets go within a moment) and, if it
+	// keeps failing, said in the helper's log rather than ignored.
+	var werr error
+	for try := 0; try < 5; try++ {
+		if werr = st.writeRun(in.id, rec); werr == nil {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if werr != nil {
+		msg := "flockdeck: could not record this run (" + werr.Error() + "); stopping it from the app may not work"
+		in.log.add(ringLine(msg))
+		_, _ = in.logw.Write([]byte(msg + "\n"))
+	}
 	s.set(in, func() { in.port, in.pid, in.owner = port, cmd.Process.Pid, "" })
 
 	banner := make(chan string, 1)

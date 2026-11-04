@@ -92,7 +92,8 @@ func load() (*File, error) {
 	if json.Unmarshal(data, &f) != nil {
 		// Damaged, but a person's remapping is not worth a startup failure
 		// over: every binding just goes back to its default until the file is
-		// repaired or replaced by the next remap saved here.
+		// repaired or replaced by the next remap saved here, which first
+		// copies the damaged file to keybindings.json.bad.
 		return &File{Version: Version}, nil
 	}
 	return &f, nil
@@ -110,6 +111,15 @@ func save(f *File) error {
 	data, err := json.MarshalIndent(f, "", "  ")
 	if err != nil {
 		return fmt.Errorf("encode %s: %w", FileName, err)
+	}
+	// A file that did not parse reads as no overrides, so this write is about
+	// to replace it with a near-empty one. Keep what was there beside it first,
+	// so a hand edit with a trailing comma is not lost along with its bindings.
+	if old, rerr := store.ReadState(p); rerr == nil {
+		var probe File
+		if len(strings.TrimSpace(string(old))) > 0 && json.Unmarshal(old, &probe) != nil {
+			_ = store.WriteAtomic(p+".bad", old)
+		}
 	}
 	if err := store.WriteAtomic(p, data); err != nil {
 		return fmt.Errorf("write %s: %w", FileName, err)
@@ -156,6 +166,13 @@ func conflict(t keytable.Table, id, keys string, overrides map[string]string) (k
 	sig := signatureOf(keys)
 	if sig == "" {
 		return keytable.Key{}, false
+	}
+	// selectTab owns Alt+1 to Alt+9 as a range, which signatureOf cannot
+	// express as one chord, so the range is checked here by name.
+	if id != "selectTab" && len(sig) == 3 && sig[:2] == "a:" && sig[2] >= '1' && sig[2] <= '9' {
+		if k, ok := t.Lookup("selectTab"); ok {
+			return k, true
+		}
 	}
 	for _, k := range t {
 		if k.ID == id {
@@ -226,8 +243,13 @@ func SetBinding(t keytable.Table, id, keys string) (*File, error) {
 
 // ResetBinding takes id back to its built-in default, removing whatever
 // override it had -- including one that deliberately gave it no binding.
+//
+// The default can have been given to another action since, so it is checked
+// the way SetBinding checks a new binding and refused with a ConflictError
+// when another action holds it.
 func ResetBinding(t keytable.Table, id string) (*File, error) {
-	if _, ok := t.Lookup(id); !ok {
+	k, ok := t.Lookup(id)
+	if !ok {
 		return nil, fmt.Errorf("no such action: %s", id)
 	}
 	mu.Lock()
@@ -241,6 +263,9 @@ func ResetBinding(t keytable.Table, id string) (*File, error) {
 	}
 	if _, had := f.Overrides[id]; !had {
 		return f, nil
+	}
+	if with, has := conflict(t, id, k.Keys, f.Overrides); has {
+		return nil, &ConflictError{Keys: k.Keys, With: with}
 	}
 	delete(f.Overrides, id)
 	if len(f.Overrides) == 0 {

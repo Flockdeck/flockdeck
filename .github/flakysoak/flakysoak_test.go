@@ -201,6 +201,23 @@ func TestCleanNightsCloseTheIssueAndAReturnReopensIt(t *testing.T) {
 	}
 }
 
+func TestTwoCleanRunsOnOneDateAreOneNight(t *testing.T) {
+	st := State{Entries: []Entry{{Package: pkg, Test: "TestX", OS: map[string]OSStat{"macos-latest": {Failed: 1, Runs: 5}}}}, CleanNights: 1, LastCleanDate: "2026-09-26"}
+	clean := []Result{passed("ubuntu-latest"), passed("macos-latest"), passed("windows-latest")}
+	o := Decide(Input{Prev: &st, Exists: true, Open: true, Results: clean, Expect: allOS, Night: night("2026-09-27"), CloseAfter: 3})
+	next, _ := ParseState(o.Body)
+	if o.Action != "update" || next.CleanNights != 2 {
+		t.Fatalf("action=%q clean=%d, want update and 2", o.Action, next.CleanNights)
+	}
+	again := Decide(Input{Prev: &next, Exists: true, Open: true, Results: clean, Expect: allOS, Night: night("2026-09-27"), CloseAfter: 3})
+	if again.Action != "update" {
+		t.Fatalf("a second run on the same date closed the issue: action=%q", again.Action)
+	}
+	if after, _ := ParseState(again.Body); after.CleanNights != 2 {
+		t.Errorf("clean nights after a second run on one date = %d, want 2", after.CleanNights)
+	}
+}
+
 func TestAnIncompleteNightIsNeitherCleanNorFailing(t *testing.T) {
 	st := State{Entries: []Entry{{Package: pkg, Test: "TestX", OS: map[string]OSStat{"macos-latest": {Failed: 1, Runs: 5}}}}, CleanNights: 2}
 	o := Decide(Input{Prev: &st, Exists: true, Open: true, Results: []Result{passed("ubuntu-latest"), passed("macos-latest")}, Expect: allOS, Night: night("2026-09-28"), CloseAfter: 3})
@@ -349,5 +366,25 @@ func TestATestNameCannotEscapeItsCell(t *testing.T) {
 	}
 	if strings.Count(row, "`") != 2 {
 		t.Errorf("the name's backtick ended its code span: %s", row)
+	}
+}
+
+func TestAHugeNightKeepsTheBodyUnderGitHubsLimit(t *testing.T) {
+	var fails []Failure
+	for i := 0; i < 40; i++ {
+		fails = append(fails, Failure{Package: pkg, Test: "TestFlaky" + strings.Repeat("x", i%8) + string(rune(65+i)), Failed: 2, Runs: 5,
+			Excerpt: "x_test.go:9: got 1\n" + strings.Repeat("a long line of output\n", 80)})
+	}
+	var results []Result
+	for _, o := range allOS {
+		results = append(results, Result{OS: o, Count: 5, Tests: 100, Failures: fails})
+	}
+	o := Decide(Input{Results: results, Expect: allOS, Night: night("2026-09-25"), CloseAfter: 3})
+	if len(o.Body) > 65536 {
+		t.Fatalf("body is %d bytes, over GitHub's 65536", len(o.Body))
+	}
+	st, ok := ParseState(o.Body)
+	if !ok || len(st.Entries) != 40 {
+		t.Fatalf("state did not round-trip: ok=%v entries=%d", ok, len(st.Entries))
 	}
 }

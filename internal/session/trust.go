@@ -352,6 +352,13 @@ func InheritTrust(from, to string) error {
 	}
 	defer release()
 
+	// An unreadable or malformed file is reported as that, not as nobody
+	// having answered the trust question: IsTrusted reads it as untrusted.
+	cfg, err := readClaudeConfig()
+	if err != nil {
+		return err
+	}
+
 	// A fan-out shows this after "could not carry over folder trust: ", so it
 	// is the reason, and what to do about it.
 	if !IsTrusted(from) {
@@ -361,10 +368,6 @@ func InheritTrust(from, to string) error {
 		return nil
 	}
 
-	cfg, err := readClaudeConfig()
-	if err != nil {
-		return err
-	}
 	projects, _ := cfg["projects"].(map[string]any)
 	if projects == nil {
 		projects = map[string]any{}
@@ -431,9 +434,13 @@ func lockClaudeConfig(path string) (release func(), err error) {
 			return nil, fmt.Errorf("lock the Claude Code configuration: %w", err)
 		}
 		if fi, err := os.Stat(lock); err == nil && time.Since(fi.ModTime()) > configLockStale {
-			// Left by a Claude Code that stopped while it held the lock.
-			os.Remove(lock)
-			continue
+			// Left by a Claude Code that stopped while it held the lock. If it
+			// cannot be removed (a directory with a file in it, a read-only
+			// one) fall through to the deadline check and the sleep instead of
+			// retrying at once.
+			if os.Remove(lock) == nil {
+				continue
+			}
 		}
 		if time.Now().After(deadline) {
 			return nil, errConfigBusy

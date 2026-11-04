@@ -89,7 +89,18 @@ func changes(dir string, limit int) ([]FileChange, error) {
 			files[i].Added, files[i].Removed = n.added, n.removed
 		}
 	}
-	countUntracked(dir, files, limit)
+	// git names every file from the top of the repository, whichever folder
+	// it was run in, so a new file is opened from there and not from dir.
+	base := dir
+	for i := range files {
+		if files[i].Untracked {
+			if root, err := Root(dir); err == nil {
+				base = root
+			}
+			break
+		}
+	}
+	countUntracked(base, files, limit)
 	return files, nil
 }
 
@@ -379,12 +390,13 @@ func Diff(dir, path string) (string, error) {
 	// which is how status names a repository sitting inside this one.
 	fi, lerr := os.Lstat(full)
 	var (
-		isNew bool
-		wg    sync.WaitGroup
+		isNew  bool
+		newErr error
+		wg     sync.WaitGroup
 	)
 	if lerr == nil && (!fi.IsDir() || strings.HasSuffix(path, "/")) {
 		wg.Add(1)
-		go func() { defer wg.Done(); isNew = untracked(dir, path) }()
+		go func() { defer wg.Done(); isNew, newErr = isUntracked(dir, path) }()
 	}
 
 	// HEAD covers staged and unstaged changes together, which is what someone
@@ -399,6 +411,11 @@ func Diff(dir, path string) (string, error) {
 	against := "HEAD"
 	out, err := gitDiff(dir, against, "--", pathspec(path))
 	wg.Wait()
+	// A lookup that failed is not an answer of "tracked": a new file would
+	// show the empty diff git gives for it, as if it matched the last commit.
+	if newErr != nil {
+		return "", newErr
+	}
 	if isNew {
 		if text, ok, nerr := newFileDiff(path, full, fi); ok || nerr != nil {
 			return text, nerr
@@ -627,8 +644,22 @@ func insideTree(path string) bool {
 // that used to make a tracked file's contents appear as one huge addition
 // whenever git failed for any reason.
 func untracked(dir, path string) bool {
-	out, err := run(dir, "ls-files", "--others", "--", pathspec(path))
-	return err == nil && strings.TrimSpace(out) != ""
+	yes, err := isUntracked(dir, path)
+	return err == nil && yes
+}
+
+// isUntracked is untracked with the failure of the lookup kept. A refusal of
+// the index while another git rewrites it is asked again, as status is.
+func isUntracked(dir, path string) (bool, error) {
+	var out string
+	err := retryIndex(func() (e error) {
+		out, e = runIndex(context.Background(), dir, "ls-files", "--others", "--", pathspec(path))
+		return e
+	})
+	if err != nil {
+		return false, err
+	}
+	return strings.TrimSpace(out) != "", nil
 }
 
 // renderAsAddition shows a file's content as one big addition. omitted is the

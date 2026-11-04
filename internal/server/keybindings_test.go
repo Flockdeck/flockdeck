@@ -3,6 +3,8 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -10,6 +12,7 @@ import (
 
 	"github.com/jmwri/flockdeck/internal/keybindings"
 	"github.com/jmwri/flockdeck/internal/keytable"
+	"github.com/jmwri/flockdeck/internal/store"
 	"github.com/jmwri/flockdeck/ui/help"
 )
 
@@ -169,4 +172,36 @@ func TestTheKeyTableIsTheOneTheServerWasGiven(t *testing.T) {
 	if n := len((&Server{}).effectiveKeys(false)); n != 0 {
 		t.Errorf("a server given no table sent %d actions", n)
 	}
+}
+
+// A keybindings.json that cannot be read is an error, not "no remappings":
+// broadcastKeys sends nothing for it rather than the built-in table, and a
+// read that fails once but then succeeds is retried.
+func TestReadOverridesReportsAnUnreadableFile(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("APPDATA", dir)         // Windows
+	t.Setenv("XDG_CONFIG_HOME", dir) // Linux
+	t.Setenv("HOME", dir)            // macOS and fallback
+	p, err := keybindingsPath()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// A directory where the file belongs reads as an error, not as absent.
+	if err := os.MkdirAll(p, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := readOverrides(); err == nil {
+		t.Error("readOverrides gave no error for an unreadable keybindings.json")
+	}
+	if got := loadOverrides(); got != nil {
+		t.Errorf("loadOverrides = %v, want none", got)
+	}
+}
+
+func keybindingsPath() (string, error) {
+	d, err := store.Dir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(d, keybindings.FileName), nil
 }

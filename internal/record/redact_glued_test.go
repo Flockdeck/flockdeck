@@ -23,7 +23,13 @@ func refRedact(s string) string {
 		return s
 	}
 	s = pemRe.ReplaceAllString(s, Redacted)
-	s = bearerRe.ReplaceAllString(s, "${1}${2}"+Redacted)
+	s = bearerRe.ReplaceAllStringFunc(s, func(m string) string {
+		sub := bearerRe.FindStringSubmatch(m)
+		if isPlainWord(m[len(sub[1])+len(sub[2]):]) {
+			return m
+		}
+		return sub[1] + sub[2] + Redacted
+	})
 	s = urlCredRe.ReplaceAllString(s, "${1}:"+Redacted+"@")
 	s = assignRe.ReplaceAllStringFunc(s, func(m string) string {
 		sub := assignRe.FindStringSubmatch(m)

@@ -480,12 +480,24 @@ func AddNewBranch(repoDir, path, branch string) error {
 		return &gitError{fmt.Sprintf("a branch called %s already exists, so it was not taken for a new worktree", branch)}
 	}
 	err := addWorktree(repoDir, path, branch, true, "worktree", "add", "-b", branch, "--no-track", "--", path)
-	if err != nil {
+	if err != nil && !branchTakenFirst(err) {
 		if uerr := undoNewBranch(repoDir, path, branch); uerr != nil {
 			return fmt.Errorf("%w (%v)", err, uerr)
 		}
 	}
 	return err
+}
+
+// branchTakenFirst reports whether a failed `git worktree add -b` failed
+// because the branch exists. Having checked that it did not, this call did not
+// make it: somebody else did in the moment between, and undoing a failed add
+// by deleting the branch would delete theirs.
+func branchTakenFirst(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "a branch named") && strings.Contains(msg, "already exists")
 }
 
 // worktreeAttempts is how many times a `git worktree add` is run when it
@@ -756,7 +768,7 @@ func AddFrom(repoDir, path, branch, base string) error {
 	// Under the worktree deadline, as AddNewBranch is: this too writes out a
 	// whole working tree.
 	err := addWorktree(repoDir, path, branch, newBranch, args...)
-	if err != nil && newBranch {
+	if err != nil && newBranch && !branchTakenFirst(err) {
 		// As AddNewBranch's: the branch -b made before a checkout that then
 		// failed stayed, at the base first asked for, and trying again with
 		// another base checked it out as it was -- from the wrong place.

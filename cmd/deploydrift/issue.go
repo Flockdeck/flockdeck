@@ -207,26 +207,31 @@ func syncIssue(ctx context.Context, c *ghClient, self string, p *picture) (syncR
 		if open == nil {
 			return syncResult{Action: "none"}, nil
 		}
-		if _, err := c.do(ctx, http.MethodPost, fmt.Sprintf("%s/%d/comments", base, open.Number), "", map[string]string{"body": "Nothing is drifting any more; closing."}, nil); err != nil {
+		// Closed first: if this fails, nothing has been posted, so the retry
+		// does not add the comment again.
+		if _, err := c.do(ctx, http.MethodPatch, fmt.Sprintf("%s/%d", base, open.Number), "", map[string]string{"body": body, "state": "closed", "state_reason": "completed"}, nil); err != nil {
 			return syncResult{}, err
 		}
-		_, err := c.do(ctx, http.MethodPatch, fmt.Sprintf("%s/%d", base, open.Number), "", map[string]string{"body": body, "state": "closed", "state_reason": "completed"}, nil)
+		_, err := c.do(ctx, http.MethodPost, fmt.Sprintf("%s/%d/comments", base, open.Number), "", map[string]string{"body": "Nothing is drifting any more; closing."}, nil)
 		return syncResult{Action: "closed", Commented: true}, err
 	}
 
 	if open != nil {
 		res := syncResult{Action: "unchanged"}
-		if open.Body != body {
-			if _, err := c.do(ctx, http.MethodPatch, fmt.Sprintf("%s/%d", base, open.Number), "", map[string]string{"body": body}, nil); err != nil {
-				return syncResult{}, err
-			}
-			res.Action = "updated"
-		}
+		// The comment goes first. The body carries the fingerprint the next
+		// run compares against, so if the body were written first and the
+		// comment failed, the retry would see no change and never post it.
 		if m := fingerprintRe.FindStringSubmatch(open.Body); m == nil || m[1] != fp {
 			if _, err := c.do(ctx, http.MethodPost, fmt.Sprintf("%s/%d/comments", base, open.Number), "", map[string]string{"body": changeComment(p)}, nil); err != nil {
 				return syncResult{}, err
 			}
 			res.Commented = true
+		}
+		if open.Body != body {
+			if _, err := c.do(ctx, http.MethodPatch, fmt.Sprintf("%s/%d", base, open.Number), "", map[string]string{"body": body}, nil); err != nil {
+				return syncResult{}, err
+			}
+			res.Action = "updated"
 		}
 		return res, nil
 	}

@@ -1658,6 +1658,39 @@ func (c *controlClient) notifyReq(text string, isErr bool, req string) {
 // Commands
 // ---------------------------------------------------------------------------
 
+// saveProjectMeta runs a write to the recent list's display settings and, if
+// it worked, reloads the workspace's cached copy. It is called on the
+// workspace goroutine, so one window's write and reload cannot interleave
+// with another's.
+func (s *Server) saveProjectMeta(write func() error) error {
+	if err := write(); err != nil {
+		return err
+	}
+	s.ws.ReloadProjectMeta()
+	return nil
+}
+
+// knownProject refuses a root that is neither open nor in the recent list.
+// Renaming or archiving one would add an entry stamped as just used, and a
+// window or paired phone sending many made-up roots pushed the real projects
+// out of the capped list. It is called on the workspace goroutine.
+func (s *Server) knownProject(root string) error {
+	if _, open := s.ws.OpenRootFor(root); open {
+		return nil
+	}
+	list, err := store.Recents()
+	if err != nil {
+		return err
+	}
+	key := store.MetaKey(root)
+	for _, p := range list {
+		if store.MetaKey(p.Root) == key {
+			return nil
+		}
+	}
+	return fmt.Errorf("%s is not a project Flockdeck knows", root)
+}
+
 // handleCommand applies a request from a window. Everything that touches the
 // workspace runs on its owner goroutine; anything slow (git) is done outside.
 func (s *Server) handleCommand(c *controlClient, cmd command) {
@@ -1920,7 +1953,12 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 			c.notify("Checking for updates is done on the machine Flockdeck runs on, not from a window reached through the relay", true)
 			return
 		}
-		go s.checkForUpdates(c)
+		go func() {
+			// Recovered here: a panic in a goroutine of its own, with nothing
+			// above it to catch it, ends the whole process and every agent.
+			defer s.surviveFor(c, "checking for updates")
+			s.checkForUpdates(c)
+		}()
 		return
 	case "helpers":
 		s.helpersList(c, cmd.Force)
@@ -2083,22 +2121,36 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		// project the same way forgetRecent's own write is: both rewrite the
 		// same file, and side by side one could put back what the other had
 		// just changed.
-		if err, ok := ask(s, func() error { return store.SetProjectName(cmd.Root, cmd.Text) }); ok {
+		//
+		// The workspace's copy of the metadata is reloaded in the same step.
+		// Reloaded afterwards on this window's own goroutine, two windows could
+		// write v1 and v2 and then store them in the other order, leaving the
+		// cache with the older one.
+		if err, ok := ask(s, func() error {
+			if err := s.knownProject(cmd.Root); err != nil {
+				return err
+			}
+			return s.saveProjectMeta(func() error { return store.SetProjectName(cmd.Root, cmd.Text) })
+		}); ok {
 			if err != nil {
 				c.notify("Could not rename "+filepath.Base(cmd.Root)+": "+err.Error(), true)
 			} else {
 				// The open project's own name, part of the main snapshot
 				// rather than the recent list, has to be told to look again
 				// too -- ReloadAgents is why the picker's other settings do
-				// the same after a save.
-				s.ws.ReloadProjectMeta()
+				// the same after a save (saveProjectMeta reloads it).
 				s.wakeAsked()
 			}
 		}
 		s.recents(c)
 		return
 	case "archiveProject":
-		if err, ok := ask(s, func() error { return store.SetProjectArchived(cmd.Root, cmd.Archived) }); ok {
+		if err, ok := ask(s, func() error {
+			if err := s.knownProject(cmd.Root); err != nil {
+				return err
+			}
+			return s.saveProjectMeta(func() error { return store.SetProjectArchived(cmd.Root, cmd.Archived) })
+		}); ok {
 			if err != nil {
 				verb := "archive"
 				if !cmd.Archived {
@@ -2106,18 +2158,18 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 				}
 				c.notify("Could not "+verb+" "+filepath.Base(cmd.Root)+": "+err.Error(), true)
 			} else {
-				s.ws.ReloadProjectMeta()
 				s.wakeAsked()
 			}
 		}
 		s.recents(c)
 		return
 	case "reorderProjects":
-		if err, ok := ask(s, func() error { return store.ReorderProjects(cmd.Roots) }); ok {
+		if err, ok := ask(s, func() error {
+			return s.saveProjectMeta(func() error { return store.ReorderProjects(cmd.Roots) })
+		}); ok {
 			if err != nil {
 				c.notify("Could not reorder projects: "+err.Error(), true)
 			} else {
-				s.ws.ReloadProjectMeta()
 				s.wakeAsked()
 			}
 		}
@@ -2138,7 +2190,13 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 				return fmt.Errorf("%s can't be removed: close another project first, or it would leave nothing open", filepath.Base(cmd.Root))
 			}
 			if err := s.ws.CloseProject(cmd.Root); err != nil {
-				return err
+				// CloseProject also fails after the project has closed, when
+				// its layout could not be saved. The project is being removed,
+				// so that layout is not wanted; reporting the failure and
+				// leaving it in the recent list kept a closed project listed.
+				if _, stillOpen := s.ws.OpenRootFor(cmd.Root); stillOpen {
+					return err
+				}
 			}
 			return store.ForgetRecent(cmd.Root)
 		})

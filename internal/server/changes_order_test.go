@@ -50,3 +50,33 @@ func TestAReviewListingDoesNotLandOnTopOfANewerOne(t *testing.T) {
 		t.Fatalf("the first checkout's listing (%q) landed after the second's", got)
 	}
 }
+
+// TestAListingThatPanicsDoesNotKeepItsWindow covers a listing that panics. The
+// panic is recovered, but the window's entry in the table of newest requests
+// was never removed, so the window stayed reachable from it for good.
+func TestAListingThatPanicsDoesNotKeepItsWindow(t *testing.T) {
+	srv, _ := newTestServer(t)
+	was := readChanges
+	t.Cleanup(func() { readChanges = was })
+	panicked := make(chan struct{})
+	readChanges = func(dir string) changesMsg {
+		defer close(panicked)
+		panic("an odd repository state")
+	}
+	c := &controlClient{out: make(chan []byte, 8)}
+	srv.listChanges(c, t.TempDir(), false)
+	<-panicked
+
+	for deadline := time.Now().Add(5 * time.Second); ; {
+		changeListings.Lock()
+		_, held := changeListings.seq[c]
+		changeListings.Unlock()
+		if !held {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the window is still in the table of newest listings after its listing panicked")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}

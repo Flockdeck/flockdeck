@@ -66,11 +66,12 @@ func (u *paneUse) has(pane string) bool {
 	return ok
 }
 
-// PaneClosed removes any relay-use record and inbox preview for a pane once
-// it has closed. It is installed as the workspace's pane-closed hook (see
-// Workspace.SetPaneClosedHook) so neither relayUse nor previewCache outlives
+// PaneClosed removes any relay-use record, inbox preview and conversation
+// stream for a pane once it has closed. It is installed as the workspace's
+// pane-closed hook (see Workspace.SetPaneClosedHook) so none of them outlives
 // the pane it describes.
 func (s *Server) PaneClosed(paneID string) {
 	relayUse.forget(paneID)
 	s.preview.drop(paneID)
+	s.convos.forget(paneID)
 }

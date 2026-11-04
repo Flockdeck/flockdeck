@@ -44,10 +44,17 @@ const bin = path.join(work, "bin"), out = path.join(work, "out");
 for (const d of ["bin", "out", "appdata/flockdeck", "localappdata", "home", "tmp", "claude/subscription", "claude/apikey"]) {
   fs.mkdirSync(path.join(work, d), { recursive: true });
 }
-const git = execFileSync("where.exe", ["git"], { encoding: "utf8" }).split(/\r?\n/)[0].trim();
-const env = stagedEnv(work, path.dirname(git)); // throws if the state would be the live one
-const before = snapshot(LIVE);
-fs.writeFileSync(path.join(work, "live-before.json"), JSON.stringify(before, null, 1));
+let env, before;
+try {
+  const git = execFileSync("where.exe", ["git"], { encoding: "utf8" }).split(/\r?\n/)[0].trim();
+  env = stagedEnv(work, path.dirname(git)); // throws if the state would be the live one
+  before = snapshot(LIVE);
+  fs.writeFileSync(path.join(work, "live-before.json"), JSON.stringify(before, null, 1));
+} catch (err) {
+  // Nothing has been started yet, so the work directory is the only leftover.
+  fs.rmSync(work, { recursive: true, force: true });
+  throw err;
+}
 console.log("work directory", work);
 console.log("live state", LIVE.filter((d) => fs.existsSync(d)).join(", ") || "(none)", "-", Object.keys(before).length, "files");
 
@@ -138,7 +145,12 @@ try {
   const left = await stopAll(work);
   if (left.length) { failed = true; console.error("STILL RUNNING:", left); }
   else console.log("nothing of the harness's is running");
-  if (fs.existsSync(MARK)) fs.rmSync(CODE, { recursive: true, force: true });
+  try {
+    if (ownsCode()) fs.rmSync(CODE, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
+  } catch (err) {
+    failed = true;
+    console.error("could not remove " + CODE + ": remove it by hand;", err.message);
+  }
   const after = snapshot(LIVE);
   fs.writeFileSync(path.join(work, "live-after.json"), JSON.stringify(after, null, 1));
   const d = compare(before, after);
@@ -191,6 +203,21 @@ function checkStagedInstance(url) {
   console.log("staged instance", rec.url, "pid", rec.pid, "state in", path.join(work, "appdata", "flockdeck"));
 }
 
+// markerPID is the pid of the run that wrote the marker, or 0 if the marker
+// has none (an older run's).
+function markerPID() {
+  try { return Number(/^pid (\d+)/m.exec(fs.readFileSync(MARK, "utf8"))?.[1]) || 0; } catch { return 0; }
+}
+
+function pidAlive(pid) {
+  try { process.kill(pid, 0); return true; } catch (err) { return err.code === "EPERM"; }
+}
+
+// ownsCode is true when C:\code carries this run's marker.
+function ownsCode() {
+  return fs.existsSync(MARK) && markerPID() === process.pid;
+}
+
 // stageProjects makes the fictional projects under C:\code: shopfront with
 // three worktrees on feature branches (one with a new file, one with a
 // change), a fourth whose folder has gone, and three other projects for the
@@ -198,10 +225,12 @@ function checkStagedInstance(url) {
 function stageProjects() {
   if (fs.existsSync(CODE)) {
     if (!fs.existsSync(MARK)) throw new Error("C:\\code exists and is not the harness's: refusing to touch it");
+    const other = markerPID();
+    if (other && other !== process.pid && pidAlive(other)) throw new Error(`another shots run (pid ${other}) is using C:\\code`);
     fs.rmSync(CODE, { recursive: true, force: true });
   }
   fs.mkdirSync(CODE);
-  fs.writeFileSync(MARK, "made by cmd/sitegen/shots; removed when it finishes\n");
+  fs.writeFileSync(MARK, `made by cmd/sitegen/shots; removed when it finishes\npid ${process.pid}\n`);
   fs.writeFileSync(env.GIT_CONFIG_GLOBAL, "[user]\n\tname = Sam\n\temail = sam@example.com\n[init]\n\tdefaultBranch = main\n[core]\n\tautocrlf = false\n");
   const g = (cwd, ...a) => execFileSync("git", a, { cwd, env, stdio: "pipe" });
   const write = (root, files) => {
@@ -351,10 +380,17 @@ async function startRelay() {
     const port = 41000 + Math.floor(Math.random() * 8000);
     const u = `http://127.0.0.1:${port}`;
     // Plans enforced, as on the shared relay: the account is on its trial.
-    start(path.join(bin, "flockdeck-relay.exe"), ["serve", "-public-url", u, "-addr", `127.0.0.1:${port}`, "-data", data, "-admin-addr=", "-enforce-plans"], work, "relay");
-    await sleep(2000);
-    try { if ((await fetch(u + "/readyz")).ok) { console.log("relay on", u); return u; } } catch {}
-    await stopAll(work);
+    const rp = start(path.join(bin, "flockdeck-relay.exe"), ["serve", "-public-url", u, "-addr", `127.0.0.1:${port}`, "-data", data, "-admin-addr=", "-enforce-plans"], work, "relay");
+    // A first start creates its database and may be scanned, so give it time
+    // while it is still running; only a relay that exited (the port was taken)
+    // or never answered is dropped. Only the relay is stopped: the staged
+    // desktop, the mock agents and the browser are already running.
+    for (let t = 0; t < 20000 && rp.exitCode === null; t += 500) {
+      await sleep(500);
+      try { if ((await fetch(u + "/readyz")).ok) { console.log("relay on", u); return u; } } catch {}
+    }
+    if (rp.exitCode === null) rp.kill();
+    procs.splice(procs.indexOf(rp), 1);
   }
   throw new Error("the relay did not start");
 }

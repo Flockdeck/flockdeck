@@ -376,12 +376,23 @@
     });
   }
 
-  function idbPut(db, key, value) {
+  // idbPutIfAbsent stores value under key unless a record is already there,
+  // and resolves with the record that is in the store afterwards. The read and
+  // the write are one transaction with nothing awaited in between, so two
+  // windows that start together cannot each keep a different value.
+  function idbPutIfAbsent(db, key, value) {
     return new Promise((resolve, reject) => {
       const tx = db.transaction(STORE, "readwrite");
-      tx.objectStore(STORE).put(value, key);
-      tx.oncomplete = () => resolve();
+      const store = tx.objectStore(STORE);
+      let kept = value;
+      const get = store.get(key);
+      get.onsuccess = () => {
+        if (get.result && get.result.privateKey && get.result.publicKeyRaw) kept = get.result;
+        else store.put(value, key);
+      };
+      tx.oncomplete = () => resolve(kept);
       tx.onerror = () => reject(tx.error);
+      tx.onabort = () => reject(tx.error || new Error("e2e: the key store write was aborted"));
     });
   }
 
@@ -422,11 +433,18 @@
     }
     const pair = await crypto.subtle.generateKey(ECDH_ALG, false, ["deriveBits"]);
     const publicKeyRaw = await exportRawPublicKey(pair.publicKey);
-    await idbPut(db, RECORD_ID, { privateKey: pair.privateKey, publicKeyRaw: publicKeyRaw.buffer.slice(0) });
+    // Another window may have stored its own key since the read above. The one
+    // that got into the store first is the identity, and this window's is dropped.
+    const kept = await idbPutIfAbsent(db, RECORD_ID, { privateKey: pair.privateKey, publicKeyRaw: publicKeyRaw.buffer.slice(0) });
+    if (kept.privateKey !== pair.privateKey) {
+      const keptRaw = new Uint8Array(kept.publicKeyRaw);
+      return { privateKey: kept.privateKey, publicKey: await importPublicKeyRaw(keptRaw), publicKeyRaw: keptRaw };
+    }
     return { privateKey: pair.privateKey, publicKey: pair.publicKey, publicKeyRaw };
   }
 
   let lastRegistered = null;
+  let registering = null;
 
   /** ensureRegistered registers this window's identity key with the relay
    *  (POST /.flockdeck-e2e-key, deskorigin.go) unless it already has -- safe
@@ -435,7 +453,9 @@
    *  failure (offline, the relay down) is swallowed -- a window that could
    *  not register yet still opens terminals, unencrypted, exactly as one
    *  whose desktop has no key of its own does, and the next successful call
-   *  catches it up.
+   *  catches it up. Resolves true once the relay holds the key (or there is no
+   *  key to register), false when the attempt failed, so a caller can try
+   *  again later -- see e2e-boot.js.
    *
    *  Only meaningful for a window reached through the relay -- app.js calls
    *  this behind its own remoteWindow check, since a window open on the
@@ -443,20 +463,30 @@
    *  against itself. */
   async function ensureRegistered() {
     const identity = await getIdentity();
-    if (!identity) return;
+    if (!identity) return true;
     const key = encodePublicKey(identity.publicKeyRaw);
-    if (lastRegistered === key) return;
-    try {
-      const resp = await fetch("/.flockdeck-e2e-key", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ publicKey: key }),
-      });
-      if (!resp.ok) return;
-      lastRegistered = key;
-    } catch {
-      // Retried the next time this is called -- see the doc comment above.
-    }
+    if (lastRegistered === key) return true;
+    // Calls that arrive while a request is out share it, so a retry and a
+    // first attempt do not post the same key twice.
+    if (registering && registering.key === key) return registering.promise;
+    const promise = (async () => {
+      try {
+        const resp = await fetch("/.flockdeck-e2e-key", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ publicKey: key }),
+        });
+        if (!resp.ok) return false;
+        lastRegistered = key;
+        return true;
+      } catch {
+        return false;
+      } finally {
+        registering = null;
+      }
+    })();
+    registering = { key, promise };
+    return promise;
   }
 
   window.FlockdeckE2E = {

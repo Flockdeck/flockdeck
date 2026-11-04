@@ -1274,7 +1274,10 @@ func TouchRecents(roots ...string) error {
 		if len(list) >= len(clean) {
 			first := true
 			for i, c := range clean {
-				if list[i].Root != c {
+				// A project placed by hand stays first however long ago it was
+				// used, so its time is the only thing that keeps it from being
+				// the one the cap lets go of. It is refreshed, not skipped.
+				if list[i].Root != c || list[i].Order != 0 {
 					first = false
 					break
 				}

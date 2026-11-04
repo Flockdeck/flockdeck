@@ -405,7 +405,11 @@ var idsRe = regexp.MustCompile(`[0-9]{8}-[0-9]{6}-[0-9a-f]{6}`)
 // scanIDs adds every baton id in r to refs, reading it in pieces, so a layout of
 // any size is searched and none is skipped. The end of one piece is kept in front
 // of the next so an id cut by the boundary is still found.
-func scanIDs(r io.Reader, refs map[string]bool) {
+//
+// A read that fails part way returns its error, with the ids found before it
+// in refs: the rest of the file was not searched, which is not the same as the
+// file naming nothing more.
+func scanIDs(r io.Reader, refs map[string]bool) error {
 	const chunk = 1 << 20
 	const keep = 32 // longer than an id
 	buf := make([]byte, 0, chunk+keep)
@@ -420,7 +424,10 @@ func scanIDs(r io.Reader, refs map[string]bool) {
 			buf = append(buf[:0], buf[len(buf)-keep:]...)
 		}
 		if err != nil {
-			return
+			if err == io.EOF {
+				return nil
+			}
+			return err
 		}
 	}
 }
@@ -450,7 +457,9 @@ func layoutRefs(stateDir string) (refs map[string]bool, unreadable []string, err
 			unreadable = append(unreadable, path)
 			continue
 		}
-		scanIDs(f, refs)
+		if err := scanIDs(f, refs); err != nil {
+			unreadable = append(unreadable, path)
+		}
 		_ = f.Close()
 	}
 	return refs, unreadable, nil

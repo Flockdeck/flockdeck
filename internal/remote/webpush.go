@@ -99,6 +99,7 @@ func (c *Client) PushTo(ctx context.Context, notify func(deviceID string) (Notif
 	fitted := map[Notification][]byte{} // by notification: its JSON, cut to fit
 	sealed := map[string]string{}       // by device: the key its message was sealed to
 	sent := 0
+	var sealErr error
 	staleRetried := false
 	for batch := 0; batch < maxPushBatches; batch++ {
 		devices, err := c.PushDevices(ctx)
@@ -129,7 +130,12 @@ func (c *Client) PushTo(ctx context.Context, notify func(deviceID string) (Notif
 			}
 			payload, err := Seal(d.P256dh, d.Auth, plain)
 			if err != nil {
-				return sent, fmt.Errorf("seal a notification for a paired device: %w", err)
+				// One device with a malformed key must not stop the rest being
+				// told. The error is returned only if nobody was sent anything.
+				if sealErr == nil {
+					sealErr = fmt.Errorf("seal a notification for a paired device: %w", err)
+				}
+				continue
 			}
 			sealed[d.DeviceID] = d.P256dh
 			msgs = append(msgs, PushMessage{DeviceID: d.DeviceID, P256dh: d.P256dh, Payload: payload})
@@ -154,6 +160,9 @@ func (c *Client) PushTo(ctx context.Context, notify func(deviceID string) (Notif
 		if !more && !retry {
 			break
 		}
+	}
+	if sent == 0 && sealErr != nil {
+		return 0, sealErr
 	}
 	return sent, nil
 }

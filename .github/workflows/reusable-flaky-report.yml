@@ -156,21 +156,25 @@ jobs:
         run: |
           out="$RUNNER_TEMP/outcome"
           action=$(jq -r .action "$out/outcome.json")
-          comment() { [ -s "$out/comment.md" ] && gh issue comment "$ISSUE_NUMBER" --body-file "$out/comment.md"; return 0; }
+          # The comment goes before any edit of the body: the body holds the
+          # state the next night reads, so if it were written first and the
+          # comment failed, the next night would find nothing new to announce.
+          # A failed comment fails the step, and the retry posts it again.
+          comment() { [ -s "$out/comment.md" ] || return 0; gh issue comment "$ISSUE_NUMBER" --body-file "$out/comment.md"; }
           case "$action" in
             create)
               gh label create flaky-tests --color fbca04 --description "A test that fails only sometimes, found by the nightly soak" 2>/dev/null || true
               gh issue create --title "Flaky tests" --label flaky-tests --body-file "$out/body.md" ;;
             update)
-              gh issue edit "$ISSUE_NUMBER" --body-file "$out/body.md"
-              comment ;;
-            reopen)
-              gh issue edit "$ISSUE_NUMBER" --body-file "$out/body.md"
-              gh issue reopen "$ISSUE_NUMBER"
-              comment ;;
-            close)
-              gh issue edit "$ISSUE_NUMBER" --body-file "$out/body.md"
               comment
+              gh issue edit "$ISSUE_NUMBER" --body-file "$out/body.md" ;;
+            reopen)
+              comment
+              gh issue edit "$ISSUE_NUMBER" --body-file "$out/body.md"
+              gh issue reopen "$ISSUE_NUMBER" ;;
+            close)
+              comment
+              gh issue edit "$ISSUE_NUMBER" --body-file "$out/body.md"
               gh issue close "$ISSUE_NUMBER" --reason completed ;;
             none) echo "Nothing to do." ;;
             *) echo "::error::unknown action $action"; exit 1 ;;

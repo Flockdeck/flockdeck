@@ -1,6 +1,8 @@
 package gitx
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"strings"
 )
@@ -19,7 +21,12 @@ func Push(dir string) (string, error) {
 	}
 	args := []string{"push"}
 	var remote string
-	upstream := UpstreamOf(dir)
+	upstream, uerr := upstreamAsked(dir)
+	if uerr != nil {
+		// Not knowing is not the same as having none: going on would set an
+		// upstream, and repoint a branch that tracks something else.
+		return "", uerr
+	}
 	if upstream == "" {
 		var err error
 		if remote, err = pushRemote(dir, branch); err != nil {
@@ -106,11 +113,22 @@ var errDetached = &gitError{"no branch is checked out here (a detached HEAD), so
 // read as "no upstream", and Push would then set one: on a branch tracking
 // something other than origin, that quietly repoints it.
 func UpstreamOf(dir string) string {
+	up, _ := upstreamAsked(dir)
+	return up
+}
+
+// upstreamAsked is UpstreamOf with the one failure that is not an answer kept:
+// git given up on at its deadline. git saying there is no upstream, or that the
+// one configured is gone from the remote, is an answer of "".
+func upstreamAsked(dir string) (string, error) {
 	out, err := run(dir, "rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}")
 	if err != nil {
-		return "" // no upstream configured
+		if errors.Is(err, context.DeadlineExceeded) {
+			return "", fmt.Errorf("could not tell which remote branch this one tracks, so nothing was changed: %w", err)
+		}
+		return "", nil // no upstream configured
 	}
-	return strings.TrimSpace(out)
+	return strings.TrimSpace(out), nil
 }
 
 // pushRemote picks where a branch with no upstream should go: "origin" by
@@ -150,7 +168,9 @@ func Pull(dir string) (string, error) {
 	if CurrentBranch(dir) == "" {
 		return "", errDetached
 	}
-	if UpstreamOf(dir) == "" {
+	if up, uerr := upstreamAsked(dir); uerr != nil {
+		return "", uerr
+	} else if up == "" {
 		return "", &gitError{"this branch does not track anything on the remote yet, so there is nothing to pull; push it first to set that up"}
 	}
 	args := []string{"pull", "--ff-only"}

@@ -248,27 +248,9 @@ func (s *Store) SetSource(id, agent string) error {
 		return fmt.Errorf("the sources file cannot be read, so it is left as it is: %w", err)
 	}
 	m[id] = agent
-	data, err := json.MarshalIndent(m, "", "  ")
-	if err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(s.dir, ".sources-*.tmp")
-	if err != nil {
-		return err
-	}
-	_, werr := tmp.Write(data)
-	if cerr := tmp.Close(); werr == nil {
-		werr = cerr
-	}
-	if werr != nil {
-		_ = os.Remove(tmp.Name())
-		return werr
-	}
-	if err := os.Rename(tmp.Name(), filepath.Join(s.dir, sourcesName)); err != nil {
-		_ = os.Remove(tmp.Name())
-		return err
-	}
-	return nil
+	// As every other record is written: the rename is tried again when the
+	// system refuses it, and the record is written in place after that.
+	return s.writeSources(m)
 }
 
 // keepBad writes raw to the first of path.bad, path.bad.1, path.bad.2 ... that

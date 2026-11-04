@@ -33,6 +33,10 @@ type RotatingWriter struct {
 	mu   sync.Mutex
 	f    *os.File
 	size int64
+	// retryAt, when non-zero, is the file size below which a failed rotation
+	// is not tried again, so one stuck rename does not repeat the whole shift
+	// of the older files on every line.
+	retryAt int64
 }
 
 // NewRotatingWriter is a writer with the default limits: 5 MiB and three old
@@ -95,9 +99,18 @@ func (w *RotatingWriter) Write(p []byte) (int, error) {
 			return 0, err
 		}
 	}
-	if w.size > 0 && w.size+int64(len(p)) > w.Max {
+	if w.size > 0 && w.size+int64(len(p)) > w.Max && w.size >= w.retryAt {
 		if err := w.rotate(); err != nil {
-			return 0, err
+			// Keep logging to the file that would not move, and try again
+			// only after another Max bytes have gone into it.
+			w.retryAt = w.size + w.Max
+			if w.f == nil {
+				if oerr := w.open(); oerr != nil {
+					return 0, oerr
+				}
+			}
+		} else {
+			w.retryAt = 0
 		}
 	}
 	n, err := w.f.Write(p)

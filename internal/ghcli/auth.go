@@ -3,6 +3,7 @@ package ghcli
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -67,19 +68,37 @@ var (
 // anything structured. It is kept to a plain string in, struct out function
 // so a test can check it against gh's wording without running gh.
 func parseAuthStatus(text string) AuthStatus {
-	var st AuthStatus
+	// With several accounts logged in, gh prints one block per account and
+	// marks the one in use with "Active account: true". Collect the blocks and
+	// prefer the active one; older gh without the marker keeps the last block.
+	var blocks []AuthStatus
+	var active []bool
 	for _, line := range strings.Split(text, "\n") {
 		line = strings.TrimSpace(line)
 		if m := loggedInRe.FindStringSubmatch(line); m != nil {
-			st.LoggedIn = true
-			st.Host, st.Account = m[1], m[2]
+			blocks = append(blocks, AuthStatus{LoggedIn: true, Host: m[1], Account: m[2]})
+			active = append(active, false)
 			continue
 		}
+		if len(blocks) == 0 {
+			continue
+		}
+		last := len(blocks) - 1
 		if m := scopesRe.FindStringSubmatch(line); m != nil {
-			st.Scopes = strings.Trim(m[1], "'\" ")
+			blocks[last].Scopes = strings.Trim(m[1], "'\" ")
+		} else if strings.EqualFold(line, "- Active account: true") {
+			active[last] = true
 		}
 	}
-	return st
+	for i, a := range active {
+		if a {
+			return blocks[i]
+		}
+	}
+	if len(blocks) > 0 {
+		return blocks[len(blocks)-1]
+	}
+	return AuthStatus{}
 }
 
 // LoginEvent is one thing that happened during Login, sent as it happens so
@@ -121,6 +140,10 @@ func parseOneTimeCode(line string) (string, bool) {
 	return code, true
 }
 
+// loginWaitDelay is how long Login lingers on gh's stderr after gh has
+// exited, in case a browser it started still holds the pipe.
+var loginWaitDelay = 2 * time.Second
+
 // Login walks a person through `gh auth login --web`: gh opens
 // github.com/login/device in their browser itself, showing a one-time code
 // there for them to copy in, and waits for that to be approved. Every event
@@ -153,10 +176,12 @@ func Login(ctx context.Context, onEvent func(LoginEvent)) error {
 	if err != nil {
 		return fmt.Errorf("gh auth login: %w", err)
 	}
-	stderr, err := cmd.StderrPipe()
-	if err != nil {
-		return fmt.Errorf("gh auth login: %w", err)
-	}
+	// stderr goes through an io.Pipe rather than cmd.StderrPipe so Wait can
+	// stop waiting on it: a browser that gh launched inherits the pipe and
+	// can hold it open long after gh has exited. WaitDelay bounds that.
+	stderr, stderrW := io.Pipe()
+	cmd.Stderr = stderrW
+	cmd.WaitDelay = loginWaitDelay
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("gh auth login: could not start: %w", err)
 	}
@@ -165,20 +190,32 @@ func Login(ctx context.Context, onEvent func(LoginEvent)) error {
 		stdin.Close()
 	}()
 
-	scanner := bufio.NewScanner(stderr)
-	for scanner.Scan() {
-		line := strings.TrimRight(scanner.Text(), "\r")
-		if line == "" {
-			continue
+	scanned := make(chan struct{})
+	go func() {
+		defer close(scanned)
+		scanner := bufio.NewScanner(stderr)
+		for scanner.Scan() {
+			line := strings.TrimRight(scanner.Text(), "\r")
+			if line == "" {
+				continue
+			}
+			if code, ok := parseOneTimeCode(line); ok {
+				onEvent(LoginEvent{Code: code, Line: line})
+				continue
+			}
+			onEvent(LoginEvent{Line: line})
 		}
-		if code, ok := parseOneTimeCode(line); ok {
-			onEvent(LoginEvent{Code: code, Line: line})
-			continue
-		}
-		onEvent(LoginEvent{Line: line})
-	}
+		_, _ = io.Copy(io.Discard, stderr)
+	}()
 
 	err = cmd.Wait()
+	_ = stderrW.Close()
+	<-scanned
+	if errors.Is(err, exec.ErrWaitDelay) {
+		// gh exited successfully; only a child still holding stderr kept
+		// Wait from returning at once.
+		err = nil
+	}
 	if err != nil {
 		if ctx.Err() == context.DeadlineExceeded {
 			err = fmt.Errorf("gh auth login: gave up after %s -- the code may have expired; try again", loginTimeout)

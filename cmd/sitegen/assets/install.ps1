@@ -70,7 +70,9 @@ function Install-Flockdeck {
         $pa = @($a.TrimStart('v') -split '\.') + @('0', '0', '0')
         $pb = @($b.TrimStart('v') -split '\.') + @('0', '0', '0')
         for ($i = 0; $i -lt 3; $i++) {
-            $na = [int]$pa[$i]; $nb = [int]$pb[$i]
+            # Only the leading digits count: a part such as 0-rc1 is patch 0.
+            $na = 0; if ($pa[$i] -match '^\d+') { $na = [int]$Matches[0] }
+            $nb = 0; if ($pb[$i] -match '^\d+') { $nb = [int]$Matches[0] }
             if ($na -ne $nb) { return $na -gt $nb }
         }
         return $false
@@ -118,6 +120,11 @@ function Install-Flockdeck {
     # directory, the one current on that drive.
     $trimmed = $dir.TrimEnd('\', '/')
     if ($trimmed -and -not $trimmed.EndsWith(':')) { $dir = $trimmed }
+    # A relative directory is made absolute against where the script was run,
+    # since PATH and the Start menu shortcut would otherwise keep it as typed.
+    if (-not [IO.Path]::IsPathRooted($dir) -or $dir -match '^[A-Za-z]:(?![\/])') {
+        $dir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($dir)
+    }
     $dest = Join-Path $dir 'flockdeck.exe'
     $archive = "flockdeck_${version}_windows_$arch.zip"
 

@@ -1351,3 +1351,50 @@ func TestNewerIgnoresAnUntaggedLocalBuild(t *testing.T) {
 		t.Error("a published release was treated as newer than an untagged local build")
 	}
 }
+
+// Two releases staged at once leave a record that names the release whose
+// binary is in the staging folder, not one release's record over the other's
+// binary.
+func TestConcurrentStagesLeaveARecordThatMatchesTheBinary(t *testing.T) {
+	nameA, archA := buildArchive(t, "program A")
+	hA := sha256.Sum256(archA)
+	srvA := releaseServer(t, nameA, archA, hex.EncodeToString(hA[:]))
+	nameB, archB := buildArchive(t, "program B")
+	hB := sha256.Sum256(archB)
+	srvB := releaseServer(t, nameB, archB, hex.EncodeToString(hB[:]))
+
+	dir := t.TempDir()
+	for i := 0; i < 10; i++ {
+		relA := fetchRelease(t, srvA.URL+"/release")
+		relB := fetchRelease(t, srvB.URL+"/release")
+		var wg sync.WaitGroup
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			if _, err := StageChosen(context.Background(), relA, dir); err != nil {
+				t.Errorf("StageChosen: %v", err)
+			}
+		}()
+		go func() {
+			defer wg.Done()
+			if _, err := Stage(context.Background(), relB, dir); err != nil {
+				t.Errorf("Stage: %v", err)
+			}
+		}()
+		wg.Wait()
+
+		p, ok := Load(dir)
+		if !ok {
+			t.Fatal("nothing staged")
+		}
+		got, err := os.ReadFile(p.Binary)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// A was staged as chosen and B was not, so the record's flag says
+		// whose binary it must be beside.
+		if p.Chosen != (string(got) == "program A") {
+			t.Fatalf("record has Chosen = %v but the staged binary is %q", p.Chosen, got)
+		}
+	}
+}

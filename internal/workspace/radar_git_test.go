@@ -1329,3 +1329,18 @@ func TestRadarTooBigACheckoutIsUnknownNotClean(t *testing.T) {
 		t.Errorf("the checkout was snapshotted %d times in three refreshes, want every refresh", got)
 	}
 }
+
+// Turning the radar off after Close must not clear the flag Close set: a
+// refresh still queued would otherwise start the radar again.
+func TestRadarOffKeepsTheClosedFlag(t *testing.T) {
+	w := radarWorkspace()
+	w.gitMu.Lock()
+	w.radar.closed = true
+	w.gitMu.Unlock()
+
+	w.radarOff(func(f func()) { f() })
+
+	if w.radarStart() {
+		t.Error("a refresh started the radar after Close because radarOff reset the closed flag")
+	}
+}

@@ -40,3 +40,12 @@ func TestUnifiedDiffFallsBackWhenTooLargeToCompare(t *testing.T) {
 		t.Error("expected a diff between two large, different texts")
 	}
 }
+
+func TestDiffSummaryCountsLinesThatStartWithDashesOrPluses(t *testing.T) {
+	before := "-- one\n-- two\nkeep\n"
+	after := "++ three\nkeep\n"
+	got := DiffSummary(unifiedDiff("q.sql", before, after) + "\n" + unifiedDiff("r.sql", before, after))
+	if want := "+2 -4 lines changed"; got != want {
+		t.Errorf("DiffSummary = %q, want %q", got, want)
+	}
+}

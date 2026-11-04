@@ -86,22 +86,25 @@ func (w *Workspace) savedGroupFor(root string) (store.ProjectGroup, bool) {
 // singleton group of its own, named nothing (see groupDisplayNames, which
 // derives one the way projectNames always has).
 func (w *Workspace) ensureGroup(root string) *ProjectGroup {
-	if id, ok := w.rootGroup[root]; ok {
-		if g := w.groups[id]; g != nil {
-			return g
-		}
+	if g := w.groupOf(root); g != nil {
+		return g
 	}
 	if saved, ok := w.savedGroupFor(root); ok {
 		for _, other := range saved.Roots {
 			if sameDir(other, root) {
 				continue
 			}
-			if id, ok := w.rootGroup[other]; ok {
-				if g := w.groups[id]; g != nil {
-					w.addToGroup(g, root)
-					return g
-				}
+			if g := w.groupOf(other); g != nil {
+				w.addToGroup(g, root)
+				return g
 			}
+		}
+		// A live group already carrying the saved id, under another spelling
+		// of its members, is that group: starting a second one under the
+		// same id would replace it and drop its members.
+		if g := w.groups[saved.ID]; g != nil {
+			w.addToGroup(g, root)
+			return g
 		}
 		// The saved Primary may name a member that never rejoins this run,
 		// so the live group starts on the member actually in front of it,
@@ -139,6 +142,28 @@ func (w *Workspace) addToGroup(g *ProjectGroup, root string) {
 		w.rootGroup = map[string]string{}
 	}
 	w.rootGroup[root] = g.ID
+}
+
+// moveRootToGroup moves an open root out of the group it is in and into
+// into. "Add Repo to This Project" on a folder that is already open as its
+// own project used to select it and report success without grouping it. A
+// group left with no members is dropped.
+func (w *Workspace) moveRootToGroup(root string, into *ProjectGroup) {
+	from := w.groupOf(root)
+	if from == into {
+		return
+	}
+	if from != nil {
+		from.Roots = slices.DeleteFunc(from.Roots, func(r string) bool { return sameDir(r, root) })
+		if len(from.Roots) == 0 {
+			delete(w.groups, from.ID)
+			delete(w.lastRootInGroup, from.ID)
+		} else if sameDir(from.Primary, root) {
+			from.Primary = from.Roots[0]
+		}
+	}
+	w.addToGroup(into, root)
+	w.wake()
 }
 
 // groupOf reports the group a root belongs to, or nil for a root that has
@@ -248,7 +273,63 @@ func (w *Workspace) persistGroups() error {
 			Roots: append([]string(nil), g.Roots...),
 		})
 	}
+	out = w.withAwayMembers(out)
+	// ensureGroup reads savedGroups when a root is reopened, so it has to see
+	// what was just written, not what the file held at startup: a grouping
+	// undone this run must not be re-applied when its repo is closed and
+	// reopened.
+	w.savedGroups = out
 	return store.SaveGroups(out)
+}
+
+// withAwayMembers adds back the saved members of groups whose folders are
+// away: listed in the session as unavailable, and so not open and not in any
+// live group. Writing only live groups dropped them, and the grouping with
+// them, the first time any grouping or name changed while a drive was
+// unplugged. Such a member rejoins its saved group id, so ensureGroup finds
+// it again when the folder returns.
+func (w *Workspace) withAwayMembers(out []store.ProjectGroup) []store.ProjectGroup {
+	if len(w.away) == 0 {
+		return out
+	}
+	for _, saved := range w.savedGroups {
+		var gone []string
+		for _, r := range saved.Roots {
+			if w.isAway(r) && w.groupOf(r) == nil {
+				gone = append(gone, r)
+			}
+		}
+		if len(gone) == 0 {
+			continue
+		}
+		merged := false
+		for i := range out {
+			if out[i].ID == saved.ID {
+				out[i].Roots = append(out[i].Roots, gone...)
+				merged = true
+				break
+			}
+		}
+		if !merged {
+			primary := saved.Primary
+			if !slices.ContainsFunc(gone, func(r string) bool { return sameDir(r, primary) }) {
+				primary = gone[0]
+			}
+			out = append(out, store.ProjectGroup{ID: saved.ID, Name: saved.Name, Primary: primary, Roots: gone})
+		}
+	}
+	return out
+}
+
+// isAway reports whether root is a project kept in the session list only
+// because its folder was missing at start.
+func (w *Workspace) isAway(root string) bool {
+	for _, a := range w.away {
+		if sameDir(a.root, root) {
+			return true
+		}
+	}
+	return false
 }
 
 // resolveGroup finds the live group a caller means by naming any one of

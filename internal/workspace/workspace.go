@@ -526,8 +526,8 @@ type Workspace struct {
 	rootGroup map[string]string
 	// savedGroups is what groups.json held at startup, read once and
 	// cross-referenced as each root is opened over the run -- see
-	// ensureGroup. It is never written to; persistGroups always writes the
-	// live groups map instead.
+	// ensureGroup. persistGroups replaces it with what it writes, so a
+	// grouping changed this run is not undone by a stale copy.
 	savedGroups []store.ProjectGroup
 	// lastRootInGroup remembers which member of a multi-repo project was
 	// last active, so switching to the project lands there rather than
@@ -1227,6 +1227,9 @@ func (w *Workspace) openProjectInto(path string, into *ProjectGroup) error {
 	if open, ok := w.openRootFor(root); ok {
 		// Select it under the spelling it was opened with: the tabs already
 		// hold that one, and they are matched against it by string.
+		if into != nil {
+			w.moveRootToGroup(open, into)
+		}
 		w.SelectProject(open)
 		return nil
 	}
@@ -3260,8 +3263,49 @@ func typeInto(s *session.Session, text string, submit bool) {
 
 // typeIntoFrom is typeInto with the source of the input named, so a line
 // Flockdeck types itself is not recorded as the user at the keyboard.
+//
+// Writes to one pane are taken one prompt at a time. Each prompt is its text,
+// a settle wait and an Enter, and two of them on goroutines of their own could
+// interleave: the second paste landing before the first Enter, so the Enter
+// submitted both together.
 func typeIntoFrom(s *session.Session, src session.InputSource, text string, submit bool) {
-	typeIntoSink(s, src, text, submit)
+	serialisedPerKey(s, func() { typeIntoSink(s, src, text, submit) })
+}
+
+// promptLocks hands out one lock per pane to serialisedPerKey, counting the
+// callers that hold or wait for it so the entry goes when the last is done.
+var promptLocks = struct {
+	sync.Mutex
+	m map[any]*promptLock
+}{m: map[any]*promptLock{}}
+
+type promptLock struct {
+	sync.Mutex
+	users int
+}
+
+// serialisedPerKey runs fn with every other call that has the same key held
+// off until it returns.
+func serialisedPerKey(key any, fn func()) {
+	promptLocks.Lock()
+	l := promptLocks.m[key]
+	if l == nil {
+		l = &promptLock{}
+		promptLocks.m[key] = l
+	}
+	l.users++
+	promptLocks.Unlock()
+
+	l.Lock()
+	defer func() {
+		l.Unlock()
+		promptLocks.Lock()
+		if l.users--; l.users == 0 {
+			delete(promptLocks.m, key)
+		}
+		promptLocks.Unlock()
+	}()
+	fn()
 }
 
 // promptSink is the part of a session typeIntoSink writes through, so a test can

@@ -129,3 +129,32 @@ func TestNeedsNoKey(t *testing.T) {
 		}
 	}
 }
+
+// TestRefreshDuringAProbeKeepsItsOldAnswerOut: a probe that began before a
+// Refresh must not write its (older) answer into the cache after it.
+func TestRefreshDuringAProbeKeepsItsOldAnswerOut(t *testing.T) {
+	stubProbes(t, nil)
+	spec := Spec{ID: "codex", Runner: RunnerCLI, Exe: "codex"}
+	installed := false
+	started, release := make(chan struct{}), make(chan struct{})
+	lookPath = func(string) (string, error) {
+		if !installed {
+			close(started)
+			<-release
+			return "", errors.New("not found")
+		}
+		return "/usr/bin/codex", nil
+	}
+	done := make(chan bool)
+	go func() { done <- Available(spec) }()
+	<-started
+	installed = true // codex is installed while the first probe is still looking
+	Refresh()
+	close(release)
+	if <-done {
+		t.Fatal("the in-flight probe should have seen codex missing")
+	}
+	if !Available(spec) {
+		t.Error("the answer from before the Refresh was cached over it")
+	}
+}

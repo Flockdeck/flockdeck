@@ -82,18 +82,40 @@ func main() {
 // Accept with an error this loop recognises as shutdown rather than a fault
 // worth logging).
 func serve(ctx context.Context, ln net.Listener) {
+	var delay time.Duration
 	for {
 		conn, err := ln.Accept()
 		if err != nil {
-			if ctx.Err() != nil {
+			if ctx.Err() != nil || errors.Is(err, net.ErrClosed) {
 				return
 			}
-			log.Printf("portproxy: accept: %v", err)
+			// A fault that lasts, such as running out of file descriptors,
+			// fails every call at once: back off, as net/http does, rather
+			// than spin on a core and flood the log.
+			if delay == 0 {
+				delay = acceptBackoffMin
+			} else if delay *= 2; delay > acceptBackoffMax {
+				delay = acceptBackoffMax
+			}
+			log.Printf("portproxy: accept: %v; retrying in %v", err, delay)
+			select {
+			case <-time.After(delay):
+			case <-ctx.Done():
+				return
+			}
 			continue
 		}
+		delay = 0
 		go handle(conn)
 	}
 }
+
+// The pause after a failed Accept starts at acceptBackoffMin and doubles up to
+// acceptBackoffMax while the failures go on.
+const (
+	acceptBackoffMin = 5 * time.Millisecond
+	acceptBackoffMax = time.Second
+)
 
 // dialTimeout bounds how long connecting to flockdeck's own loopback port is
 // given. The two share a network namespace and there is no real network

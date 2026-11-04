@@ -185,3 +185,22 @@ func assertErrorLogHas(t *testing.T, want string) {
 		t.Errorf("error.log = %q, want it to mention %q", data, want)
 	}
 }
+
+// TestLogGateLimitsRepeatedLines covers a loop of requests with a bogus link:
+// each kind of line reaches error.log once a minute, not once a request.
+func TestLogGateLimitsRepeatedLines(t *testing.T) {
+	var g logGate
+	now := time.Now()
+	if !g.allow("not recognised", now) {
+		t.Fatal("the first line was refused")
+	}
+	if g.allow("not recognised", now.Add(time.Second)) {
+		t.Error("a second line within the minute was let through")
+	}
+	if !g.allow("expired", now.Add(time.Second)) {
+		t.Error("a different kind of line was held back")
+	}
+	if !g.allow("not recognised", now.Add(linkLogEvery)) {
+		t.Error("a line after the interval was refused")
+	}
+}

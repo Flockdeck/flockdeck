@@ -55,8 +55,12 @@ jobs:
       # PR number instead, and the post job treats it as untrusted input.
       - name: Compute diff against base and write metadata
         run: |
-          git fetch origin "${{ inputs.base-ref }}" --depth=1
-          git diff "origin/${{ inputs.base-ref }}" "${{ inputs.head-sha }}" > pr.diff
+          # Three dots: the changes on the PR's side since it branched, not
+          # the difference to the base tip, which would show anything merged
+          # to base since as reverted. The merge base needs the history, which
+          # the full checkout above has, so the fetch is not shallow.
+          git fetch origin "${{ inputs.base-ref }}"
+          git diff "origin/${{ inputs.base-ref }}...${{ inputs.head-sha }}" > pr.diff
           jq -n \
             --argjson pr_number "${{ inputs.pr-number }}" \
             --arg head_sha "${{ inputs.head-sha }}" \

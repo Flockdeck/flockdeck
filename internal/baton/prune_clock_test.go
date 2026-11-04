@@ -314,3 +314,40 @@ func TestAPathNotedDuringACleanupIsNotLost(t *testing.T) {
 		t.Error("the first overflow file was not removed")
 	}
 }
+
+// failingReader gives data and then fails, as a layout does when the disk
+// errors part way through.
+type failingReader struct{ data []byte }
+
+func (r *failingReader) Read(p []byte) (int, error) {
+	if len(r.data) == 0 {
+		return 0, errors.New("read failed")
+	}
+	n := copy(p, r.data)
+	r.data = r.data[n:]
+	return n, nil
+}
+
+func (r *failingReader) Close() error { return nil }
+
+// A layout whose read fails part way is unreadable, and stops pruning that
+// run: the ids past the failure were never searched.
+func TestALayoutThatFailsMidReadStopsPruningThatRun(t *testing.T) {
+	quietCleanups(t)
+	withClock(t)
+	root := t.TempDir()
+	s := NewStore(filepath.Join(root, "batons"))
+	id := oldBaton(t, s, 2)
+	if err := os.WriteFile(filepath.Join(root, "layout-abc.json"), []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	old := openLayout
+	openLayout = func(string) (io.ReadCloser, error) {
+		return &failingReader{data: []byte("no ids in this part")}, nil
+	}
+	t.Cleanup(func() { openLayout = old })
+	removed, err := s.Prune(RetainFor, time.Now(), nil)
+	if err == nil || len(removed) != 0 || !has(s, id) {
+		t.Errorf("removed %v, err %v", removed, err)
+	}
+}

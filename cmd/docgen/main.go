@@ -21,9 +21,11 @@ package main
 import (
 	"bytes"
 	"embed"
+	"errors"
 	"flag"
 	"fmt"
 	"html/template"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -212,8 +214,39 @@ func run(out, contentDir, url, repo string) error {
 			return err
 		}
 	}
+	if err := removeStalePages(out, files); err != nil {
+		return err
+	}
 
 	fmt.Printf("wrote the docs site to %s: %d app pages, %d self-hosting pages\n", out, len(appPages), len(selfPages))
+	return nil
+}
+
+// removeStalePages deletes the .html pages in the two section folders that
+// this run did not write, so a page that was renamed or removed stops being
+// served. Nothing outside those folders is touched.
+func removeStalePages(out string, written map[string][]byte) error {
+	for _, dir := range []string{"app", "self-hosting"} {
+		entries, err := os.ReadDir(filepath.Join(out, dir))
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return fmt.Errorf("read %s: %w", dir, err)
+		}
+		for _, e := range entries {
+			name := dir + "/" + e.Name()
+			if e.IsDir() || !strings.HasSuffix(e.Name(), ".html") {
+				continue
+			}
+			if _, ok := written[name]; ok {
+				continue
+			}
+			if err := os.Remove(filepath.Join(out, dir, e.Name())); err != nil {
+				return fmt.Errorf("remove the stale page %s: %w", name, err)
+			}
+		}
+	}
 	return nil
 }
 
@@ -370,14 +403,20 @@ func titleAndSummary(src string) (string, string) {
 	return title, plainMarkdown(strings.Join(summary, " "))
 }
 
-var mdEmphasis = regexp.MustCompile("[`*_]")
+var mdEmphasis = regexp.MustCompile("[`*]")
+
+// mdUnderscore matches an underscore at the edge of a word, which is how
+// emphasis is written; one inside a word, as in RELAY_PUBLIC_URL, is part of
+// the name.
+var mdUnderscore = regexp.MustCompile(`(^|\W)_+|_+(\W|$)`)
 var mdLink = regexp.MustCompile(`\[([^\]]*)\]\([^)]*\)`)
 
 // plainMarkdown strips the handful of inline marks a summary line might
 // carry, so a meta description doesn't show literal asterisks or backticks.
 func plainMarkdown(s string) string {
 	s = mdLink.ReplaceAllString(s, "$1")
-	return mdEmphasis.ReplaceAllString(s, "")
+	s = mdEmphasis.ReplaceAllString(s, "")
+	return mdUnderscore.ReplaceAllString(s, "$1$2")
 }
 
 // ledeAfterH1 matches the first paragraph right after a page's top heading,

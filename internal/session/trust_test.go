@@ -768,3 +768,48 @@ func TestATrustCarryOverThatFailsSaysWhatHappensNext(t *testing.T) {
 		t.Errorf("busy = %q, want the reason alone, and that each agent will ask for itself", busy)
 	}
 }
+
+// TestLockClaudeConfigGivesUpOnAStaleLockItCannotRemove covers a stale lock
+// directory that holds a file, so removing it fails: the wait must still end at
+// its deadline instead of retrying without a pause.
+func TestLockClaudeConfigGivesUpOnAStaleLockItCannotRemove(t *testing.T) {
+	wait, stale := configLockWait, configLockStale
+	configLockWait, configLockStale = 150*time.Millisecond, time.Nanosecond
+	t.Cleanup(func() { configLockWait, configLockStale = wait, stale })
+
+	path := filepath.Join(t.TempDir(), ".claude.json")
+	lock := path + ".lock"
+	if err := os.Mkdir(lock, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(lock, "held"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 1)
+	go func() {
+		_, err := lockClaudeConfig(path)
+		done <- err
+	}()
+	select {
+	case err := <-done:
+		if !errors.Is(err, errConfigBusy) {
+			t.Fatalf("err = %v, want errConfigBusy", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("lockClaudeConfig did not give up on a stale lock it could not remove")
+	}
+}
+
+// TestInheritTrustReportsAnUnreadableConfig: a malformed configuration is
+// reported as unreadable, not as nobody having answered the trust question.
+func TestInheritTrustReportsAnUnreadableConfig(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	if err := os.WriteFile(filepath.Join(dir, ".claude.json"), []byte(`{"projects": {`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := InheritTrust(filepath.Join(dir, "repo"), filepath.Join(dir, "wt"))
+	if err == nil || !strings.Contains(err.Error(), "could not be read") {
+		t.Fatalf("err = %v, want one saying the configuration could not be read", err)
+	}
+}

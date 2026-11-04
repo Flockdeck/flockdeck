@@ -161,7 +161,10 @@ func escapeBody(text string) string {
 	}
 	lines := strings.Split(text, "\n")
 	for i, l := range lines {
-		if _, ok := knownHeading(l); ok {
+		// A line already written with backslashes in front of a heading gets
+		// one more, so that unescapeBody taking one off gives it back as it
+		// was and not as the heading.
+		if _, ok := knownHeading(strings.TrimLeft(l, `\`)); ok {
 			lines[i] = `\` + l
 		}
 	}
@@ -176,7 +179,7 @@ func unescapeBody(text string) string {
 	lines := strings.Split(text, "\n")
 	for i, l := range lines {
 		if rest, ok := strings.CutPrefix(l, `\`); ok {
-			if _, known := knownHeading(rest); known {
+			if _, known := knownHeading(strings.TrimLeft(rest, `\`)); known {
 				lines[i] = rest
 			}
 		}

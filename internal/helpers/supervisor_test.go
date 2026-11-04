@@ -965,3 +965,45 @@ func TestTheLastPortFileIsReadSafely(t *testing.T) {
 		}
 	}
 }
+
+func TestStartRefusesWhenAnInstallBeginsDuringVerification(t *testing.T) {
+	e := fakeEntry("lens")
+	calls := 0
+	f := newSupFixture(t, []Entry{e}, func(c *Config) {
+		// Not busy at the first check, busy by the time the lock is taken.
+		c.InstallBusy = func(string) bool { calls++; return calls > 1 }
+	})
+	if _, err := f.sup.Start("lens"); err == nil {
+		t.Fatal("Start succeeded although an install began after the first check")
+	}
+	if f.sup.Active("lens") {
+		t.Error("a refused start left an active instance")
+	}
+}
+
+func TestRestartAfterACrashAsksForTheSamePort(t *testing.T) {
+	state := filepath.Join(t.TempDir(), "runs")
+	var mu sync.Mutex
+	var asked, got []int
+	f := newSupFixture(t, []Entry{fakeEntry("lens", "--mode", "crash-once", "--after", "100ms", "--state", state)}, func(c *Config) {
+		c.PickPort = func(preferred int) (int, error) {
+			p, err := ChoosePort(preferred)
+			mu.Lock()
+			asked, got = append(asked, preferred), append(got, p)
+			mu.Unlock()
+			return p, err
+		}
+	})
+	if _, err := f.sup.Start("lens"); err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "a restart that is running", 60*time.Second, func() bool {
+		st := f.sup.Status("lens")
+		return countLines(state) == 2 && st.State == StateRunning && st.Restarts == 1
+	})
+	mu.Lock()
+	defer mu.Unlock()
+	if len(asked) < 2 || asked[1] != got[0] {
+		t.Errorf("asked for ports %v after being given %v; the restart should ask for the first port", asked, got)
+	}
+}
