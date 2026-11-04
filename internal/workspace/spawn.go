@@ -189,6 +189,16 @@ func (w *Workspace) SpawnTarget(parentPaneID, askedCwd, agentID, model string) (
 	return w.resolveChoice(w.helperProject(cwd, home), agentID, model)
 }
 
+// SpawnProject is the project Spawn resolves the agent and model of a helper
+// against: the project root, not the folder the parent pane is in, which may be
+// a subfolder or a linked worktree. Routing reads the project's policy and
+// default agent by this, so that it agrees with SpawnTarget. It must run on the
+// workspace goroutine.
+func (w *Workspace) SpawnProject(parentPaneID, askedCwd string) string {
+	cwd, home := w.spawnPlace(parentPaneID, askedCwd)
+	return w.helperProject(cwd, home)
+}
+
 // ApprovedTarget is the agent, and the company it sends what it is given to, that a
 // baton was approved for.
 type ApprovedTarget struct {

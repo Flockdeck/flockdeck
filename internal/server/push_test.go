@@ -470,6 +470,40 @@ func TestAPushIsSentAndItsFailureShown(t *testing.T) {
 	waitFor(t, func() bool { v := srv.remoteSnapshot(); return v != nil && v.PushError == refusal.Error() })
 }
 
+// A push that does not reach the relay is tried again for the same wait, once
+// the minimum gap has passed, instead of the wait being counted as told.
+func TestAFailedPushIsRetriedForTheSameWait(t *testing.T) {
+	srv, ws := newTestServer(t)
+	enrolled(srv)
+	sent := make(chan pushOut, 4)
+	var calls atomic.Int32
+	ask(srv, func() bool {
+		srv.push.send = func(_ context.Context, n pushOut) error {
+			sent <- n
+			if calls.Add(1) == 1 {
+				return errors.New("relay unreachable")
+			}
+			return nil
+		}
+		return true
+	})
+	_, since := waitingPane(t, srv, ws)
+	at := since.Add(time.Minute)
+	ask(srv, func() bool { srv.watchWaits(at); return true })
+	<-sent
+	// The failure is undone on the workspace goroutine; this runs after it.
+	waitFor(t, func() bool {
+		v, _ := ask(srv, func() int { return len(srv.push.pushed) })
+		return v == 0
+	})
+	ask(srv, func() bool { srv.watchWaits(at.Add(minPushGap + time.Second)); return true })
+	select {
+	case <-sent:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the wait was not pushed again after the first push failed")
+	}
+}
+
 // A pane muted from the phone is left out of the push entirely, while a
 // waiting pane that is not muted is still told of, by name, as though the
 // muted one did not exist.
