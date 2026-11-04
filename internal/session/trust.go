@@ -431,9 +431,13 @@ func lockClaudeConfig(path string) (release func(), err error) {
 			return nil, fmt.Errorf("lock the Claude Code configuration: %w", err)
 		}
 		if fi, err := os.Stat(lock); err == nil && time.Since(fi.ModTime()) > configLockStale {
-			// Left by a Claude Code that stopped while it held the lock.
-			os.Remove(lock)
-			continue
+			// Left by a Claude Code that stopped while it held the lock. If it
+			// cannot be removed (a directory with a file in it, a read-only
+			// one) fall through to the deadline check and the sleep instead of
+			// retrying at once.
+			if os.Remove(lock) == nil {
+				continue
+			}
 		}
 		if time.Now().After(deadline) {
 			return nil, errConfigBusy
