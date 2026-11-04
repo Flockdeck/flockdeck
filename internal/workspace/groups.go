@@ -248,12 +248,63 @@ func (w *Workspace) persistGroups() error {
 			Roots: append([]string(nil), g.Roots...),
 		})
 	}
+	out = w.withAwayMembers(out)
 	// ensureGroup reads savedGroups when a root is reopened, so it has to see
 	// what was just written, not what the file held at startup: a grouping
 	// undone this run must not be re-applied when its repo is closed and
 	// reopened.
 	w.savedGroups = out
 	return store.SaveGroups(out)
+}
+
+// withAwayMembers adds back the saved members of groups whose folders are
+// away: listed in the session as unavailable, and so not open and not in any
+// live group. Writing only live groups dropped them, and the grouping with
+// them, the first time any grouping or name changed while a drive was
+// unplugged. Such a member rejoins its saved group id, so ensureGroup finds
+// it again when the folder returns.
+func (w *Workspace) withAwayMembers(out []store.ProjectGroup) []store.ProjectGroup {
+	if len(w.away) == 0 {
+		return out
+	}
+	for _, saved := range w.savedGroups {
+		var gone []string
+		for _, r := range saved.Roots {
+			if w.isAway(r) && w.groupOf(r) == nil {
+				gone = append(gone, r)
+			}
+		}
+		if len(gone) == 0 {
+			continue
+		}
+		merged := false
+		for i := range out {
+			if out[i].ID == saved.ID {
+				out[i].Roots = append(out[i].Roots, gone...)
+				merged = true
+				break
+			}
+		}
+		if !merged {
+			primary := saved.Primary
+			if !slices.ContainsFunc(gone, func(r string) bool { return sameDir(r, primary) }) {
+				primary = gone[0]
+			}
+			out = append(out, store.ProjectGroup{ID: saved.ID, Name: saved.Name, Primary: primary, Roots: gone})
+		}
+	}
+	return out
+}
+
+// isAway reports whether root is a project kept in the session list only
+// because its folder was missing at start.
+func (w *Workspace) isAway(root string) bool {
+	for _, a := range w.away {
+		if sameDir(a.root, root) {
+			return true
+		}
+	}
+	return false
 }
 
 // resolveGroup finds the live group a caller means by naming any one of

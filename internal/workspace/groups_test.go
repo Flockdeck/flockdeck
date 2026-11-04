@@ -375,3 +375,30 @@ func TestReopeningASplitOutRepoKeepsItSplit(t *testing.T) {
 		t.Fatalf("projects = %d, want 2: the split-out repo was regrouped from a stale snapshot", n)
 	}
 }
+
+// TestPersistGroupsKeepsAGroupWhoseFoldersAreAway covers a saved grouping
+// whose members are on an unplugged drive: a later grouping change must not
+// write a groups.json without it.
+func TestPersistGroupsKeepsAGroupWhoseFoldersAreAway(t *testing.T) {
+	isolateConfig(t)
+	ws, first, _ := twoProjects(t)
+	awayA, awayB := t.TempDir()+"-gone-a", t.TempDir()+"-gone-b"
+	saved := store.ProjectGroup{ID: "away-group", Name: "offsite", Primary: awayA, Roots: []string{awayA, awayB}}
+	ws.savedGroups = []store.ProjectGroup{saved}
+	ws.away = []awayRoot{{root: awayA, starts: 1}, {root: awayB, starts: 1}}
+
+	if err := ws.RenameGroup(first, "renamed"); err != nil {
+		t.Fatalf("rename: %v", err)
+	}
+
+	got, err := store.LoadGroups()
+	if err != nil {
+		t.Fatalf("load groups: %v", err)
+	}
+	for _, g := range got {
+		if g.ID == "away-group" && len(g.Roots) == 2 && g.Name == "offsite" {
+			return
+		}
+	}
+	t.Fatalf("groups.json = %+v, want the away group kept", got)
+}
