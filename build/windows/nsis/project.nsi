@@ -110,7 +110,12 @@ Section "uninstall"
 
     RMDir /r "$AppData\${PRODUCT_EXECUTABLE}" # Remove the WebView2 DataPath
 
-    RMDir /r $INSTDIR
+    # Remove what the installer and self-update put here, not the folder: the
+    # user may have chosen a folder that holds other files.
+    Delete "$INSTDIR\${PRODUCT_EXECUTABLE}"
+    Delete "$INSTDIR\${PRODUCT_EXECUTABLE}.old"
+    Delete "$INSTDIR\${PRODUCT_EXECUTABLE}.old-*"
+    Delete "$INSTDIR\${PRODUCT_EXECUTABLE}.new"
 
     Delete "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk"
     Delete "$DESKTOP\${INFO_PRODUCTNAME}.lnk"
@@ -119,4 +124,7 @@ Section "uninstall"
     !insertmacro wails.unassociateCustomProtocols
 
     !insertmacro wails.deleteUninstaller
+
+    # Last, once uninstall.exe is gone. RMDir without /r leaves a folder that still holds anything.
+    RMDir "$INSTDIR"
 SectionEnd
