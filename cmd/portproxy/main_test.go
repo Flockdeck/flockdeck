@@ -1,7 +1,10 @@
 package main
 
 import (
+	"context"
+	"errors"
 	"net"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -148,4 +151,25 @@ func readFull(conn net.Conn, buf []byte) (int, error) {
 		}
 	}
 	return total, nil
+}
+
+// failingListener fails every Accept, as a process out of file descriptors does.
+type failingListener struct {
+	net.Listener
+	calls atomic.Int32
+}
+
+func (l *failingListener) Accept() (net.Conn, error) {
+	l.calls.Add(1)
+	return nil, errors.New("accept tcp: too many open files")
+}
+
+func TestServeBacksOffWhenAcceptKeepsFailing(t *testing.T) {
+	ln := &failingListener{}
+	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
+	defer cancel()
+	serve(ctx, ln)
+	if n := ln.calls.Load(); n > 20 {
+		t.Errorf("Accept was called %d times in 300ms; the loop is not backing off", n)
+	}
 }
