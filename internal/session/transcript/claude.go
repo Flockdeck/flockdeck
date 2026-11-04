@@ -250,7 +250,12 @@ type transcriptLine struct {
 	Type    string `json:"type"`
 	Cwd     string `json:"cwd"`
 	AiTitle string `json:"aiTitle"`
-	Message struct {
+	// IsMeta marks an entry the harness injected (an expanded command or skill
+	// body), and IsSidechain one that belongs to a subagent: neither is
+	// something the user asked.
+	IsMeta      bool `json:"isMeta"`
+	IsSidechain bool `json:"isSidechain"`
+	Message     struct {
 		Role    string          `json:"role"`
 		Content json.RawMessage `json:"content"`
 	} `json:"message"`
@@ -955,7 +960,7 @@ func openingPrompt(r io.Reader) (prompt, title, cwd string, read bool) {
 			}
 			continue
 		}
-		if prompt != "" || line.Type != "user" || line.Message.Role != "user" {
+		if prompt != "" || line.Type != "user" || line.Message.Role != "user" || line.IsMeta || line.IsSidechain {
 			continue
 		}
 		prompt = contentText(line.Message.Content)

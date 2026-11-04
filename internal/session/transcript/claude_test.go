@@ -2032,3 +2032,15 @@ func TestARenameIsFoundAcrossReads(t *testing.T) {
 		t.Errorf("counted %d line breaks, want 4", c.newlines)
 	}
 }
+
+func TestOpeningPromptSkipsMetaAndSidechainEntries(t *testing.T) {
+	transcript := strings.Join([]string{
+		`{"type":"user","isMeta":true,"cwd":"/w","message":{"role":"user","content":"Base directory for this skill: /x"}}`,
+		`{"type":"user","isSidechain":true,"cwd":"/w","message":{"role":"user","content":"a subagent's brief"}}`,
+		`{"type":"user","cwd":"/w","message":{"role":"user","content":"fix the build"}}`,
+	}, "\n") + "\n"
+	prompt, _, _, _ := openingPrompt(strings.NewReader(transcript))
+	if prompt != "fix the build" {
+		t.Errorf("prompt = %q, want the user's own", prompt)
+	}
+}
