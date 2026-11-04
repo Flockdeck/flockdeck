@@ -231,3 +231,27 @@ func TestTailLines(t *testing.T) {
 		t.Fatalf("tail of a big file = %q", got)
 	}
 }
+
+func TestRotatingWriterKeepsWritingWhenRotationFails(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "logs", "helper.log")
+	// A non-empty directory where helper.log.1 belongs makes both the delete
+	// and the rename of the final step fail.
+	blocker := filepath.Join(path + ".1")
+	if err := os.MkdirAll(filepath.Join(blocker, "x"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	w := &RotatingWriter{Path: path, Max: 20, Keep: 1}
+	defer w.Close()
+	for i := 1; i <= 6; i++ {
+		if _, err := fmt.Fprintf(w, "line %04d\n", i); err != nil {
+			t.Fatalf("write %d: %v", i, err)
+		}
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Count(string(b), "line ") != 6 {
+		t.Errorf("log = %q, want all six lines kept in the file that would not rotate", b)
+	}
+}
