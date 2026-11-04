@@ -201,16 +201,20 @@ func TestALayoutWithNoSessionIdStartsANewSession(t *testing.T) {
 	}
 }
 
-// When Claude's adapter moves the session id (after /clear) the layout is
-// saved at once through the hook, not at the next interval: the layout file has
-// the new id as soon as the turn ends.
+// When Claude's adapter moves the session id (after /clear) the hook is called,
+// so that the layout can be saved at once and not at the next interval: the
+// layout file has the new id as soon as the turn ends.
+//
+// The hook runs on the pane's runtime goroutine, and the workspace's tabs belong
+// to the goroutine that spawns and closes panes, so a real hook (the server's)
+// queues the save there and does not touch them. This one only says it was
+// called, and the test saves from its own goroutine.
 func TestMovedSessionIDIsSavedThroughTheHook(t *testing.T) {
 	ws, lead, root := structuredCrew(t)
 	onPath(t, "claude")
 	useFakeAgentWith(ws, "load,id=sess-1")
 	saved := make(chan struct{}, 4)
 	ws.SetSessionMovedHook(func(paneID string) {
-		_ = ws.SaveProject(root)
 		saved <- struct{}{}
 	})
 	id, err := ws.Spawn(lead, SpawnOptions{Task: "moved-session", Role: "worker", Agent: "claude-acp", Kind: session.KindClaude, SpawnedByAgent: true})
@@ -223,6 +227,9 @@ func TestMovedSessionIDIsSavedThroughTheHook(t *testing.T) {
 		t.Fatal("the hook was not called")
 	}
 	statusWithin(t, ws, id, session.StatusIdle)
+	if err := ws.SaveProject(root); err != nil {
+		t.Fatalf("save: %v", err)
+	}
 	if got := savedSessionOf(t, root, id); got != "11111111-2222-4333-8444-555555555555" {
 		t.Errorf("the layout holds session %q", got)
 	}
