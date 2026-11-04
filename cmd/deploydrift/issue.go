@@ -218,17 +218,20 @@ func syncIssue(ctx context.Context, c *ghClient, self string, p *picture) (syncR
 
 	if open != nil {
 		res := syncResult{Action: "unchanged"}
-		if open.Body != body {
-			if _, err := c.do(ctx, http.MethodPatch, fmt.Sprintf("%s/%d", base, open.Number), "", map[string]string{"body": body}, nil); err != nil {
-				return syncResult{}, err
-			}
-			res.Action = "updated"
-		}
+		// The comment goes first. The body carries the fingerprint the next
+		// run compares against, so if the body were written first and the
+		// comment failed, the retry would see no change and never post it.
 		if m := fingerprintRe.FindStringSubmatch(open.Body); m == nil || m[1] != fp {
 			if _, err := c.do(ctx, http.MethodPost, fmt.Sprintf("%s/%d/comments", base, open.Number), "", map[string]string{"body": changeComment(p)}, nil); err != nil {
 				return syncResult{}, err
 			}
 			res.Commented = true
+		}
+		if open.Body != body {
+			if _, err := c.do(ctx, http.MethodPatch, fmt.Sprintf("%s/%d", base, open.Number), "", map[string]string{"body": body}, nil); err != nil {
+				return syncResult{}, err
+			}
+			res.Action = "updated"
 		}
 		return res, nil
 	}

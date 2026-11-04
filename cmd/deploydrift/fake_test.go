@@ -47,7 +47,10 @@ type fakeGitHub struct {
 	Writes []string
 	// Deny, when a repo name is set, makes reads of it return this status.
 	Deny map[string]int
-	srv  *httptest.Server
+	// FailComment, when non-zero, makes the next comment POST return this
+	// status, once, and write nothing.
+	FailComment int
+	srv         *httptest.Server
 }
 
 func newFake(t *testing.T) *fakeGitHub {
@@ -202,6 +205,12 @@ func (f *fakeGitHub) serveIssues(w http.ResponseWriter, r *http.Request, rest st
 		f.Writes = append(f.Writes, fmt.Sprintf("POST issue #%d", is.Number))
 		jsonOut(w, toJSON(is))
 	case strings.HasSuffix(rest, "/comments") && r.Method == http.MethodPost:
+		if f.FailComment != 0 {
+			code := f.FailComment
+			f.FailComment = 0
+			http.Error(w, "injected failure", code)
+			return
+		}
 		n := strings.Split(rest, "/")[1]
 		f.Writes = append(f.Writes, "POST comment #"+n)
 		jsonOut(w, map[string]any{})
