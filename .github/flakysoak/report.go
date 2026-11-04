@@ -22,6 +22,9 @@ type State struct {
 	Entries     []Entry    `json:"entries"`
 	Resolved    []Resolved `json:"resolved,omitempty"`
 	CleanNights int        `json:"cleanNights"`
+	// LastCleanDate is the date the latest clean night was counted, so a
+	// second run on the same date is not counted as another night.
+	LastCleanDate string `json:"lastCleanDate,omitempty"`
 }
 
 // Entry is one flaky test, deduplicated by package and name across nights.
@@ -137,7 +140,7 @@ func Decide(in Input) Outcome {
 	if anyFailure {
 		news := merge(&st, in.Results, in.Night)
 		dropReturned(&st)
-		st.CleanNights = 0
+		st.CleanNights, st.LastCleanDate = 0, ""
 		out := Outcome{Title: IssueTitle, Body: render(st, in, missing), Comment: newComment(news, in.Night)}
 		switch {
 		case !in.Exists:
@@ -155,13 +158,16 @@ func Decide(in Input) Outcome {
 	if len(missing) > 0 || len(in.Results) == 0 || !in.Exists || !in.Open {
 		return Outcome{Action: "none", Title: IssueTitle}
 	}
-	st.CleanNights++
+	if st.LastCleanDate != in.Night.Date || st.CleanNights == 0 {
+		st.CleanNights++
+		st.LastCleanDate = in.Night.Date
+	}
 	if st.CleanNights >= in.CloseAfter {
 		for _, e := range st.Entries {
 			st.Resolved = append(st.Resolved, resolvedOf(e))
 		}
 		st.Entries = nil
-		st.CleanNights = 0
+		st.CleanNights, st.LastCleanDate = 0, ""
 		return Outcome{
 			Action: "close", Title: IssueTitle,
 			Body: render(st, in, nil),

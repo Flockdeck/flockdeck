@@ -201,6 +201,23 @@ func TestCleanNightsCloseTheIssueAndAReturnReopensIt(t *testing.T) {
 	}
 }
 
+func TestTwoCleanRunsOnOneDateAreOneNight(t *testing.T) {
+	st := State{Entries: []Entry{{Package: pkg, Test: "TestX", OS: map[string]OSStat{"macos-latest": {Failed: 1, Runs: 5}}}}, CleanNights: 1, LastCleanDate: "2026-09-26"}
+	clean := []Result{passed("ubuntu-latest"), passed("macos-latest"), passed("windows-latest")}
+	o := Decide(Input{Prev: &st, Exists: true, Open: true, Results: clean, Expect: allOS, Night: night("2026-09-27"), CloseAfter: 3})
+	next, _ := ParseState(o.Body)
+	if o.Action != "update" || next.CleanNights != 2 {
+		t.Fatalf("action=%q clean=%d, want update and 2", o.Action, next.CleanNights)
+	}
+	again := Decide(Input{Prev: &next, Exists: true, Open: true, Results: clean, Expect: allOS, Night: night("2026-09-27"), CloseAfter: 3})
+	if again.Action != "update" {
+		t.Fatalf("a second run on the same date closed the issue: action=%q", again.Action)
+	}
+	if after, _ := ParseState(again.Body); after.CleanNights != 2 {
+		t.Errorf("clean nights after a second run on one date = %d, want 2", after.CleanNights)
+	}
+}
+
 func TestAnIncompleteNightIsNeitherCleanNorFailing(t *testing.T) {
 	st := State{Entries: []Entry{{Package: pkg, Test: "TestX", OS: map[string]OSStat{"macos-latest": {Failed: 1, Runs: 5}}}}, CleanNights: 2}
 	o := Decide(Input{Prev: &st, Exists: true, Open: true, Results: []Result{passed("ubuntu-latest"), passed("macos-latest")}, Expect: allOS, Night: night("2026-09-28"), CloseAfter: 3})
