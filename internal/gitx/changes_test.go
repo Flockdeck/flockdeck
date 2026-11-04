@@ -1830,3 +1830,27 @@ func TestChangesCountsNewFilesFromASubfolder(t *testing.T) {
 		t.Errorf("got %+v, want one untracked file with 3 lines added", files)
 	}
 }
+
+// TestAnotherFailureIsNotReportedAsTheLock: with a lock file in place, a
+// failure that does not name it (a hook's rejection, no identity) was
+// retried and then reported as another git command using the repository.
+func TestAnotherFailureIsNotReportedAsTheLock(t *testing.T) {
+	repo := newRepo(t)
+	lock := filepath.Join(repo, ".git", "index.lock")
+	if err := os.WriteFile(lock, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Remove(lock) })
+
+	other := &gitError{"Author identity unknown"}
+	if got := indexLockOf(repo, other); got != "" {
+		t.Errorf("indexLockOf = %q for a failure that is not the lock", got)
+	}
+	if got, held := waitForIndex(repo, other); got != "" || held {
+		t.Errorf("waitForIndex = %q, %v for a failure that is not the lock", got, held)
+	}
+	named := &gitError{"fatal: Unable to create '" + lock + "': File exists."}
+	if got := indexLockOf(repo, named); got == "" {
+		t.Error("a failure naming the lock was not recognised")
+	}
+}
