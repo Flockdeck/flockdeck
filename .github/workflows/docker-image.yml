@@ -99,7 +99,11 @@ jobs:
           TAG: ${{ steps.version.outputs.tag }}
           FLOATING: ${{ steps.version.outputs.floating }}
         run: |
-          tags="$IMAGE:$TAG,$IMAGE:$TAG-${GITHUB_SHA::7}"
+          # The commit that was checked out, not GITHUB_SHA: a manual dispatch
+          # runs on the branch it was started from, whose head is not the
+          # tag's commit.
+          sha="$(git rev-parse --short=7 HEAD)"
+          tags="$IMAGE:$TAG,$IMAGE:$TAG-$sha"
           for t in $FLOATING; do
             tags="$tags,$IMAGE:$t"
           done
