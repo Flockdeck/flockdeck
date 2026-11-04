@@ -265,5 +265,10 @@ func WriteOverflow(path, text string) error {
 	if cerr := f.Close(); werr == nil {
 		werr = cerr
 	}
+	if werr != nil {
+		// A cut-short file is not left at the name: the caller treats the
+		// error as no overflow file and records nothing for pruning to remove.
+		_ = os.Remove(path)
+	}
 	return werr
 }
