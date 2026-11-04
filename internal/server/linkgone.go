@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/jmwri/flockdeck/internal/store"
@@ -76,12 +77,47 @@ func (s *Server) fateOf(link string) (linkFate, bool) {
 func (s *Server) serveLinkGone(w http.ResponseWriter, r *http.Request, link string) {
 	fate, known := s.fateOf(link)
 	heading, detail, logWord := linkGoneText(fate, known)
-	logNote("window link " + logWord)
+	// A page or script on this machine can loop on a bad link, so each kind is
+	// logged at most once a minute rather than once a request.
+	if s.linkLog.allow(logWord, time.Now()) {
+		logNote("window link " + logWord)
+	}
 
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusForbidden)
 	_, _ = w.Write([]byte(linkGoneHTML(heading, detail)))
+}
+
+// linkLogEvery is the least time between two error.log lines of one kind from
+// serveLinkGone.
+const linkLogEvery = time.Minute
+
+// logGate lets one line through per key in each interval, linkLogEvery unless
+// every is set. The zero value is ready to use.
+type logGate struct {
+	mu    sync.Mutex
+	every time.Duration
+	last  map[string]time.Time
+}
+
+// allow reports whether a line for key may be written at now, and counts it as
+// written if so.
+func (g *logGate) allow(key string, now time.Time) bool {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	every := g.every
+	if every == 0 {
+		every = linkLogEvery
+	}
+	if last, ok := g.last[key]; ok && now.Sub(last) < every {
+		return false
+	}
+	if g.last == nil {
+		g.last = map[string]time.Time{}
+	}
+	g.last[key] = now
+	return true
 }
 
 // linkGoneText is the heading and body serveLinkGone shows for fate, and the

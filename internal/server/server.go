@@ -130,6 +130,8 @@ type Server struct {
 	// serveLinkGone.
 	spentMu sync.Mutex
 	spent   map[string]linkFateEntry
+	// linkLog limits how often serveLinkGone writes to error.log.
+	linkLog logGate
 
 	ln   net.Listener
 	http *http.Server
