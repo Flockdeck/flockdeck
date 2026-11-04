@@ -1054,3 +1054,37 @@ func TestAStoppedLooksFailureDoesNotEndTheNewRecording(t *testing.T) {
 		t.Fatal("a stopped recorder's failure switched off the recording that replaced it")
 	}
 }
+
+// A recording whose agent leaves the catalog is over: the pane stops showing
+// as recording, and its recorder lets go of the transcript and conversation
+// instead of holding them for the rest of the run.
+func TestRecorderStopsWhenItsAgentLeavesTheCatalog(t *testing.T) {
+	home := claudeHome(t)
+	root := t.TempDir()
+	ws := newTestWorkspace(t, root)
+	p := recordingPane(t, ws, root, "gone")
+	storeConversation(t, home, p.ID, promptLine)
+	startRecording(t, ws, p.ID)
+	if ws.recorder(p.ID, false) == nil {
+		t.Fatal("setup: no recorder is running")
+	}
+
+	ws.mu.Lock()
+	p.Agent = "removed-from-agents-json"
+	ws.mu.Unlock()
+	ws.kickRecording(p.ID, true)
+	ws.recAct.wait()
+
+	if ws.PaneRecording(p.ID) {
+		t.Error("the pane still shows as recording")
+	}
+	if ws.recorder(p.ID, false) != nil {
+		t.Error("the recorder was left running with its transcript open")
+	}
+	ws.recMu.Lock()
+	owners := len(ws.recOwner)
+	ws.recMu.Unlock()
+	if owners != 0 {
+		t.Errorf("%d conversations are still claimed by a recorder", owners)
+	}
+}

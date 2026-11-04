@@ -463,6 +463,14 @@ func (w *Workspace) syncRecording(id string, r *paneRecorder) {
 		}
 		w.mu.Unlock()
 		w.wake()
+		// The recorder may already hold the transcript file and the conversation
+		// from earlier looks, for an agent that has since left the catalog:
+		// stopped here, off this goroutine, since the stop waits for this look.
+		w.recAct.begin()
+		go func() {
+			defer w.recAct.end()
+			w.stopRecorder(id, false)
+		}()
 		return
 	}
 
