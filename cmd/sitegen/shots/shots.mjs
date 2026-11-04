@@ -145,7 +145,12 @@ try {
   const left = await stopAll(work);
   if (left.length) { failed = true; console.error("STILL RUNNING:", left); }
   else console.log("nothing of the harness's is running");
-  if (fs.existsSync(MARK)) fs.rmSync(CODE, { recursive: true, force: true });
+  try {
+    if (fs.existsSync(MARK)) fs.rmSync(CODE, { recursive: true, force: true, maxRetries: 5, retryDelay: 500 });
+  } catch (err) {
+    failed = true;
+    console.error("could not remove " + CODE + ": remove it by hand;", err.message);
+  }
   const after = snapshot(LIVE);
   fs.writeFileSync(path.join(work, "live-after.json"), JSON.stringify(after, null, 1));
   const d = compare(before, after);
