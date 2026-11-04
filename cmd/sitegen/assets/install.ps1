@@ -120,6 +120,11 @@ function Install-Flockdeck {
     # directory, the one current on that drive.
     $trimmed = $dir.TrimEnd('\', '/')
     if ($trimmed -and -not $trimmed.EndsWith(':')) { $dir = $trimmed }
+    # A relative directory is made absolute against where the script was run,
+    # since PATH and the Start menu shortcut would otherwise keep it as typed.
+    if (-not [IO.Path]::IsPathRooted($dir) -or $dir -match '^[A-Za-z]:(?![\/])') {
+        $dir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($dir)
+    }
     $dest = Join-Path $dir 'flockdeck.exe'
     $archive = "flockdeck_${version}_windows_$arch.zip"
 
