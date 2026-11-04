@@ -170,6 +170,9 @@ spec:
             exec:
               command: ["/usr/local/bin/flockdeck-healthcheck"]
             periodSeconds: 5
+            # The script can take up to 4s (sh, jq twice, wget -T 4); an exec
+            # probe with no timeout is given 1s.
+            timeoutSeconds: 10
             failureThreshold: 24
           livenessProbe:
             exec:
