@@ -695,7 +695,9 @@ func (w *Workspace) pruneRadar(gen int) {
 func (w *Workspace) radarOff(apply func(func())) {
 	w.gitMu.Lock()
 	was := w.radar.on
-	w.radar = radarState{gen: w.radar.gen + 1}
+	// closed survives: Close has set it so no refresh starts the radar again,
+	// and a refresh already queued that finds the radar off must not undo it.
+	w.radar = radarState{gen: w.radar.gen + 1, closed: w.radar.closed}
 	w.gitMu.Unlock()
 	if was {
 		apply(func() { w.clearConflicts() })
