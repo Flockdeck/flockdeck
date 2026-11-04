@@ -1034,3 +1034,23 @@ func TestTranscriptFileIsTheRecordingElseTheExport(t *testing.T) {
 		t.Error("a pane that is not there had a transcript")
 	}
 }
+
+// A look that was stopped while it ran must not end the pane's recording when
+// it then reports a failure or the size cap: the pane may have been turned on
+// again, and the recording now running is a newer recorder's.
+func TestAStoppedLooksFailureDoesNotEndTheNewRecording(t *testing.T) {
+	home := claudeHome(t)
+	root := t.TempDir()
+	ws := newTestWorkspace(t, root)
+	p := recordingPane(t, ws, root, "again")
+	storeConversation(t, home, p.ID, promptLine)
+	startRecording(t, ws, p.ID)
+
+	stale := &paneRecorder{stopped: true}
+	ws.endRecordingOf(p.ID, stale, "its transcript reached its size cap")
+	ws.recAct.wait()
+
+	if !ws.PaneRecording(p.ID) {
+		t.Fatal("a stopped recorder's failure switched off the recording that replaced it")
+	}
+}
