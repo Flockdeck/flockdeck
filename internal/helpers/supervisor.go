@@ -584,8 +584,23 @@ func (s *Supervisor) runOnce(in *instance, port int) (out outcome) {
 	errW.Close()
 	pg := attachProc(cmd, s.cfg.BreakCmd)
 	started, _ := store.ProcessStartedAt(cmd.Process.Pid)
-	_ = st.writeRun(in.id, RunInfo{PID: cmd.Process.Pid, Started: started, Port: port, StartedAt: time.Now().UTC(),
-		OwnerPID: s.ownerPID, OwnerStarted: s.ownerStarted})
+	rec := RunInfo{PID: cmd.Process.Pid, Started: started, Port: port, StartedAt: time.Now().UTC(),
+		OwnerPID: s.ownerPID, OwnerStarted: s.ownerStarted}
+	// Without this record a Windows stop cannot signal the helper, so a failed
+	// write is retried (a scanner often lets go within a moment) and, if it
+	// keeps failing, said in the helper's log rather than ignored.
+	var werr error
+	for try := 0; try < 5; try++ {
+		if werr = st.writeRun(in.id, rec); werr == nil {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	if werr != nil {
+		msg := "flockdeck: could not record this run (" + werr.Error() + "); stopping it from the app may not work"
+		in.log.add(ringLine(msg))
+		_, _ = in.logw.Write([]byte(msg + "\n"))
+	}
 	s.set(in, func() { in.port, in.pid, in.owner = port, cmd.Process.Pid, "" })
 
 	banner := make(chan string, 1)
