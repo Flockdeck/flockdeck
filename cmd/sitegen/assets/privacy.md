@@ -83,7 +83,7 @@ The same folder also holds:
   256 KiB. None of this is sent anywhere by Flockdeck. If you use Flockdeck
   Remote, the typed line is part of the terminal contents it carries, like
   anything else typed;
-- a photo you attach to a message from a paired phone, removed after about a
+- a picture you attach to a prompt in a structured pane, removed after about a
   week;
 - if you turn on recording for a pane, or export a pane's transcript, a
   transcript file of that conversation, in a `recordings` folder there. It is
