@@ -188,6 +188,10 @@ func (s *Server) askApprove(c *controlClient, cmd command) {
 		c.notify(pageOnlyApprove, true)
 		return
 	}
+	if !s.phoneApprovalAvailable() {
+		c.notify(approveHeldText, true)
+		return
+	}
 	msg := approveChallengeMsg{Type: "approveChallenge", ID: cmd.ID, V: approveAckVersion, Text: approveAckText, ExpiresMS: int(approveChallengeLife / time.Millisecond)}
 	n, ok := s.approveAsk.give(c, cmd.ID)
 	if !ok {
