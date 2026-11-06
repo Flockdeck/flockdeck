@@ -97,9 +97,9 @@ func (s *Store) Load(id string) (Baton, error) {
 	if err != nil {
 		return Baton{}, err
 	}
-	if b.ID == "" {
-		b.ID = id
-	}
+	// A file's header is a claim anyone who can write files can make, so the id
+	// is the one the baton was asked for by, which is its file name.
+	b.ID = id
 	return b, nil
 }
 
