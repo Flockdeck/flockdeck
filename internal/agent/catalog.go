@@ -157,6 +157,7 @@ func Merge(f *File) *Catalog {
 			}
 			problems = append(problems, checkTokens(&merged)...)
 			problems = append(problems, checkTiers(&merged)...)
+			merged.edited = true
 			c.Specs[i] = merged
 			continue
 		}
@@ -294,14 +295,73 @@ func (c *Catalog) Find(id string) (Spec, bool) {
 // Visible returns the agents the picker offers, which is everything not hidden.
 // Unavailable agents are still here: somebody who has not installed Codex
 // should still learn that Flockdeck would run it.
+//
+// A terminal entry that the picker also offers a structured sibling for is
+// named as the terminal one, so the two read as a pair. One with no listed
+// sibling keeps its plain name, and so does one the user renamed.
 func (c *Catalog) Visible() []Spec {
 	out := make([]Spec, 0, len(c.Specs))
 	for _, s := range c.Specs {
-		if c.listed(s) {
-			out = append(out, s)
+		if !c.listed(s) {
+			continue
 		}
+		if s.Runner != RunnerACP && !s.edited {
+			if _, paired := c.structuredOf(s.ID); paired {
+				s.Name += " (terminal)"
+			}
+		}
+		out = append(out, s)
 	}
 	return out
+}
+
+// structuredOf is the structured entry the picker offers for the terminal
+// agent id: one that names id as its Terminal and is listed.
+func (c *Catalog) structuredOf(id string) (Spec, bool) {
+	for _, s := range c.Specs {
+		if s.Runner == RunnerACP && s.Terminal == id && c.listed(s) {
+			return s, true
+		}
+	}
+	return Spec{}, false
+}
+
+// ForNewPane is the agent id a new pane that asked for the bare agent id runs:
+// the structured entry for it where there is one on offer, and id itself
+// otherwise. A structured entry is on offer only while structured panes are on
+// (Catalog.Structured), which an explicit choice of terminal panes, or a host
+// remote devices can reach, turns off.
+//
+// An id that is not a built-in terminal entry the user left alone is returned
+// as it is: a user's agents.json entry over "claude" runs as they wrote it, a
+// structured id is already what it is, and an agent with no structured side
+// (Cursor Agent, Aider, a CLI of the user's own) has nothing to move to. Only
+// new panes go through this. A pane restored from a layout runs the id it
+// recorded.
+func (c *Catalog) ForNewPane(id string) string {
+	spec, ok := c.Find(id)
+	if !ok || spec.Runner == RunnerACP || spec.edited {
+		return id
+	}
+	if s, ok := c.structuredOf(id); ok {
+		return s.ID
+	}
+	return id
+}
+
+// TerminalOf is the id of the terminal entry for the agent id, for a request to
+// run the agent in a terminal: the Terminal of a structured entry, and id
+// itself for anything else. A structured entry whose terminal sibling is not in
+// the catalog (the user removed it) is returned as it is.
+func (c *Catalog) TerminalOf(id string) string {
+	spec, ok := c.Find(id)
+	if !ok || spec.Runner != RunnerACP || spec.Terminal == "" {
+		return id
+	}
+	if t, ok := c.Find(spec.Terminal); ok && t.Runner != RunnerACP {
+		return t.ID
+	}
+	return id
 }
 
 // DefaultsFor returns the agent and model a project starts panes with: its own

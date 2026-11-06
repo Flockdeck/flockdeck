@@ -201,11 +201,10 @@ func homeEnv() []string {
 // opencodeACPSpec is opencode in a structured pane: `opencode acp`, which ran a
 // whole turn with no login in the spike, on its free model. It is a separate
 // entry from the terminal one, so that choosing a pane's kind never changes
-// what an existing layout means. It is listed only for somebody who has opted
-// in to structured panes.
+// what an existing layout means. It is listed while structured panes are on.
 func opencodeACPSpec() Spec {
 	return Spec{
-		ID: "opencode-acp", Name: "opencode (structured)", Runner: RunnerACP,
+		ID: "opencode-acp", Name: "opencode (structured)", Runner: RunnerACP, Terminal: "opencode",
 		ACP: ACPSpec{Adapter: "opencode", Auth: AuthNone, PassEnv: homeEnv(), MCP: true},
 	}
 }
@@ -215,7 +214,7 @@ func opencodeACPSpec() Spec {
 // tool.
 func geminiACPSpec() Spec {
 	return Spec{
-		ID: "gemini-acp", Name: "Gemini CLI (structured)", Runner: RunnerACP, Hidden: true,
+		ID: "gemini-acp", Name: "Gemini CLI (structured)", Runner: RunnerACP, Hidden: true, Terminal: "gemini",
 		API: APISpec{Wire: "gemini", KeyEnv: []string{"GEMINI_API_KEY"}},
 		ACP: ACPSpec{Adapter: "gemini", Auth: AuthExternal, Login: "Run `gemini` once in a terminal and sign in.", PassEnv: homeEnv(), KeyMethod: "gemini-api-key"},
 	}
@@ -225,20 +224,20 @@ func geminiACPSpec() Spec {
 // checks it end to end has landed. Its session needs a Codex login.
 func codexACPSpec() Spec {
 	return Spec{
-		ID: "codex-acp", Name: "Codex (structured)", Runner: RunnerACP, Hidden: true,
+		ID: "codex-acp", Name: "Codex (structured)", Runner: RunnerACP, Hidden: true, Terminal: "codex",
 		API: APISpec{Wire: "openai", KeyEnv: []string{"OPENAI_API_KEY"}},
 		ACP: ACPSpec{Adapter: "codex-go", Auth: AuthExternal, Login: "Run `codex login` in a terminal.", PassEnv: homeEnv(), MCP: true},
 	}
 }
 
 // claudeACPSpec is Claude Code through Flockdeck's own adapter
-// (internal/acp/claudeacp), hidden until the task that checks it end to end has
-// landed. It stays startable by id, so a saved layout and the canary can run it.
-// Its session needs a Claude login (a subscription, made with `claude`) or
+// (internal/acp/claudeacp). It is listed and is what a new pane of Claude starts
+// as, unless the person chose terminal panes or remote devices can reach this
+// machine (see Catalog.ForNewPane). Its session needs a Claude login (a subscription, made with `claude`) or
 // ANTHROPIC_API_KEY, and the adapter is unavailable when claude is not installed.
 func claudeACPSpec() Spec {
 	return Spec{
-		ID: "claude-acp", Name: "Claude Code (structured)", Runner: RunnerACP, Hidden: true,
+		ID: "claude-acp", Name: "Claude Code (structured)", Runner: RunnerACP, Terminal: "claude",
 		API: APISpec{Wire: "anthropic", KeyEnv: []string{"ANTHROPIC_API_KEY"}},
 		ACP: ACPSpec{Adapter: "claude", Auth: AuthExternal, Login: "Run `claude` once in a terminal and sign in with your Claude subscription, or store an Anthropic API key in Settings.", PassEnv: homeEnv(), MCP: true},
 	}
