@@ -15,7 +15,7 @@ func TestDecideAllowsAReadOnlyCommand(t *testing.T) {
 	dir := cleanRepo(t)
 	for _, cmd := range []string{
 		"ls -la", "git status", "git status --short", "cat internal/review/review.go",
-		"git log -5", "git show HEAD~1", "pwd", "grep -rn TODO .",
+		"git log -5", "git show HEAD~1", "pwd", "grep -n TODO main.go",
 	} {
 		d := Decide("Bash", `{"command":`+quote(cmd)+`}`, dir)
 		if !d.Allow {
@@ -337,6 +337,12 @@ func TestDecideAsksForSecretFiles(t *testing.T) {
 		"cat tls.key", "cat .npmrc", "cat .netrc", "cat .git-credentials",
 		"cat config/credentials.json", "grep token aws-credentials",
 		"cat keystore.p12", "cat cert.pfx",
+		// A path given as a git revision and file has no slash before the name.
+		"git show HEAD:.env", "git show :.env", "git show HEAD:deploy/id_rsa", "git show main:config/credentials.json",
+		// A recursive search reaches secret files that are never named.
+		"grep -rn API_KEY .", "grep -R API_KEY .", "grep -nr API_KEY src", "grep --recursive API_KEY .",
+		"grep --recurs API_KEY .", "grep --dereference-recursive API_KEY .", "grep -d recurse API_KEY .",
+		"grep --directories=recurse API_KEY .",
 	}
 	for _, cmd := range asked {
 		if d := Decide("Bash", `{"command":`+quote(cmd)+`}`, dir); d.Allow {
@@ -345,7 +351,7 @@ func TestDecideAsksForSecretFiles(t *testing.T) {
 	}
 	allowed := []string{
 		"cat id_rsa.pub", "cat README.md", "cat environment.go",
-		"grep -rn TODO .", "cat main.key.go",
+		"grep -n TODO main.go", "cat main.key.go", "git show HEAD:README.md",
 	}
 	for _, cmd := range allowed {
 		if d := Decide("Bash", `{"command":`+quote(cmd)+`}`, dir); !d.Allow {
