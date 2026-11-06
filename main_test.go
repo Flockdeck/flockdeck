@@ -401,6 +401,8 @@ func TestParseSpawnReadsFlagsAfterTheTask(t *testing.T) {
 		{"an unquoted task with a flag on the end",
 			[]string{"tail", "the", "build", "log", "-shell", "-split"},
 			hooks.SpawnRequest{Task: "tail the build log", Shell: true, Split: true}},
+		{"terminal after the task", []string{"watch the build", "-agent", "claude", "-terminal"},
+			hooks.SpawnRequest{Task: "watch the build", Agent: "claude", Terminal: true}},
 		{"flags first still work", []string{"--split", "watch the build"},
 			hooks.SpawnRequest{Task: "watch the build", Split: true}},
 		{"a tab by title, after the task", []string{"review the change", "-role", "reviewer", "-tab", "  Login rate limit "},
@@ -421,6 +423,15 @@ func TestParseSpawnReadsFlagsAfterTheTask(t *testing.T) {
 		if got != c.want {
 			t.Errorf("%s: parseSpawn(%q) = %+v, want %+v", c.name, c.args, got, c.want)
 		}
+	}
+}
+
+// -terminal asks for a terminal pane, and a shell is one already, so the two
+// together are a contradiction that is said rather than dropped.
+func TestSpawnTerminalAndShellContradict(t *testing.T) {
+	req, err := parseSpawn([]string{"-shell", "-terminal"})
+	if err == nil || !strings.Contains(err.Error(), "-terminal") {
+		t.Errorf("parseSpawn(-shell -terminal) = %+v, %v, want an error naming -terminal", req, err)
 	}
 }
 

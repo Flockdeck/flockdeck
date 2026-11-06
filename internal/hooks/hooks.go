@@ -973,6 +973,10 @@ type SpawnRequest struct {
 	// asked for without an opinion is started exactly as it always was.
 	Agent string `json:"agent,omitempty"`
 	Model string `json:"model,omitempty"`
+	// Terminal asks for the agent in a terminal pane. A bare agent id starts the
+	// structured pane while structured panes are on; this is the way to ask for
+	// the terminal one. It is ignored for an agent with no structured version.
+	Terminal bool `json:"terminal,omitempty"`
 	// Role is the id of the role the helper is started as. Its agent and model
 	// are used only where the request names none of its own, and the caller's
 	// own role says whether it may start this one.

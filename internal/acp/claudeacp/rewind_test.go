@@ -475,3 +475,39 @@ func TestARewindOrForkBeforeTheFirstMessageStartsFromTheSource(t *testing.T) {
 		}
 	}
 }
+
+// After a rewind and a message to the rewound conversation, claude holds it
+// under the id the rewind gave it. A fork of the session by the id the client
+// prompts with must start from that file: the file under the client's id still
+// has the turns the rewind dropped, and has no message from after the rewind.
+func TestAForkAfterARewindStartsFromTheRewoundConversation(t *testing.T) {
+	h := newHarness(t, twoTurns())
+	sid := h.start()
+	stopReason(t, h.await(h.promptTurn(sid, "one", tok1)))
+	stopReason(t, h.await(h.promptTurn(sid, "two", tok2)))
+	if r := h.call("_flockdeck/rewind", map[string]any{"sessionId": sid, "beforeTurn": tok2}); r.Error != nil {
+		t.Fatalf("rewind = %+v", r.Error)
+	}
+	moved := lastSessionID(t, h)
+	if moved == sid {
+		t.Fatal("the rewind kept the id")
+	}
+	// A message to the rewound conversation, so that claude has written its file.
+	stopReason(t, h.await(h.promptTurn(sid, "one again", tok1)))
+
+	for _, at := range []string{msg2, ""} {
+		params := map[string]any{"sessionId": sid, "cwd": h.cwd, "mcpServers": []any{}}
+		want := "--resume " + moved + " --fork-session"
+		if at != "" {
+			params["_meta"] = map[string]any{"flockdeck.dev": map[string]any{"at": at}}
+			want = "--resume " + moved + " --resume-session-at " + at + " --fork-session"
+		}
+		if r := h.call("session/fork", params); r.Error != nil {
+			t.Fatalf("fork at %q = %+v", at, r.Error)
+		}
+		args := argsLines(h)
+		if got := args[len(args)-1]; !strings.Contains(got, want) {
+			t.Errorf("the fork at %q started claude with %q, want %q in it", at, got, want)
+		}
+	}
+}

@@ -185,7 +185,12 @@ func (s *server) openSession(m rpcMsg, kind string) {
 			return
 		}
 		// A session that has had no message has no file to fork: fork what it
-		// was made from.
+		// was made from. Otherwise the conversation is in the file of the id
+		// claude reports (claudeID), which after a rewind is not the id the
+		// client prompts with: the file under that id still holds the
+		// conversation as it was before the rewind, so forking it would bring
+		// back the dropped turns, and a fork point from after the rewind is not
+		// in it.
 		if src := s.session(forkOf); src != nil {
 			src.mu.Lock()
 			if src.pendingSrc != "" {
@@ -193,6 +198,8 @@ func (s *server) openSession(m rpcMsg, kind string) {
 				if at == "" {
 					at = src.pendingAt
 				}
+			} else if src.claudeID != "" {
+				forkOf = src.claudeID
 			}
 			src.mu.Unlock()
 		}
