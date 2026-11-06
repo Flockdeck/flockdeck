@@ -263,6 +263,15 @@ with the code `untested_version`. The bridge shows it in the conversation as "Th
 version has not been tested with Flockdeck". The text is the bridge's; the version string
 is only logged.
 
+Claude drops the allow rules of a project's `.claude/settings.json` in a folder it has not trusted, and 
+its trust dialog only appears in a terminal, never under `-p`. The only sign is a stderr line, 
+"Ignoring N permissions.allow entry from .claude/settings.json: this workspace has not been trusted. ..." 
+(claude 2.1.319). When the adapter reads it, it sends one `flockdeck_notice` with the code 
+`project_rules_ignored` per session, which the bridge shows as "Allow rules in this project's 
+.claude/settings.json are ignored until the folder is trusted. Run claude once in this folder in a 
+terminal pane and accept the trust prompt." Setting `projects["<folder>"].hasTrustDialogAccepted: true` 
+in claude's `.claude.json` also works (checked: no warning with it set).
+
 If claude's answer to the `initialize` control request is an error, or does not come within
 the control timeout (30 seconds), `session/new` fails with "Claude Code is unavailable",
 claude is ended, and nothing else is guessed. The handshake is the one place where a

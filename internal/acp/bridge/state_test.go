@@ -308,13 +308,14 @@ func TestNoticeCodesGiveFixedText(t *testing.T) {
 	b := New(Config{})
 	b.Update(acp.Update{Kind: acp.UpdateNotice, NoticeCode: "untested_version"})
 	b.Update(acp.Update{Kind: acp.UpdateNotice, NoticeCode: "new_conversation"})
+	b.Update(acp.Update{Kind: acp.UpdateNotice, NoticeCode: "project_rules_ignored"})
 	b.Update(acp.Update{Kind: acp.UpdateNotice, NoticeCode: "SECRET words"})
 	b.Update(acp.Update{Kind: acp.UpdateNotice})
 	var got []string
 	for _, e := range b.Snapshot() {
 		got = append(got, e.Kind+":"+e.Text)
 	}
-	want := []string{"notice:This Claude version has not been tested with Flockdeck", "notice:Started a new conversation."}
+	want := []string{"notice:This Claude version has not been tested with Flockdeck", "notice:Started a new conversation.", "notice:" + noticeTexts["project_rules_ignored"]}
 	if strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Errorf("entries = %q, want %q", got, want)
 	}
