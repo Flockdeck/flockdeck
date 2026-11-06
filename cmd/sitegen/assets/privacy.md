@@ -75,9 +75,13 @@ The same folder also holds:
   mode, which is off for every agent until you turn it on for one, the line
   is the message itself, cut to 300 characters on one line, for an agent that
   cannot run commands, and the log keeps that line, so it holds message text.
-  A structured agent (a beta feature) that you have opted in to text mode is
-  sent the message the same way, as a prompt over its protocol, with no
-  prompt rule involved, and the log keeps that line too.
+  A structured agent (the default for new Claude Code and opencode panes) is
+  sent each message as a prompt over its protocol, with no prompt rule and no
+  text mode involved. The log records that message by number with the panes,
+  its delivery states and how the turn ended, and holds none of its text. The
+  text is in the stored message, which is kept until the agent has handled it
+  (or it could not be delivered) and for a week after, or for 30 days if it
+  never was.
   A line is typed only where Flockdeck has a tested rule for recognising that
   agent's prompt, and none has yet. The log keeps the last 2,000 events or
   256 KiB. None of this is sent anywhere by Flockdeck. If you use Flockdeck

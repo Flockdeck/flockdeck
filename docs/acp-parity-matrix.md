@@ -1,6 +1,6 @@
 # ACP parity matrix: TUI actions against the structured pane
 
-Task T197. Refreshed on 28 Oct 2026 against origin/main 1be474cd (through #730). Flockdeck's structured pane, against what a user can do in the TUIs of Claude Code, Codex, Gemini CLI and opencode.
+Task T197. Refreshed on 6 Nov 2026 against origin/main 3afa44bf (through #758); the rows were last read in full on 28 Oct 2026 against 1be474cd (through #730), and only the rows named below changed on 6 Nov. New Claude Code and opencode panes now start as structured panes by default (T195), so this matrix describes the pane people get when they do nothing. Flockdeck's structured pane, against what a user can do in the TUIs of Claude Code, Codex, Gemini CLI and opencode.
 
 ## How to read this
 
@@ -144,14 +144,14 @@ ACP carries these as `modes` and `configOptions` in the `session/new` response, 
 | Log in | all | partial (T217, #727, #729): a pane in `needs setup` shows what the agent asked for in the Agent info panel, which opens by itself. Since API 1.24 (T232) the panel has a Sign in button when the adapter lists the `flockdeck-login` method (Claude and Codex do): the adapter runs `claude auth login` or `codex login`, the panel shows the address it prints as a link, and the pane restarts when the command ends well. No terminal is needed, Flockdeck asks for no password or key and stores nothing; the address is the only agent-originated string and is checked three times. Other adapters keep the manual route: a button that restarts the agent once the person has signed in with the agent's own tool. The catalog advice for `claude-acp` is still "Run `claude` once in a terminal and sign in with your Claude subscription, or store an Anthropic API key in Settings." Checked against claude 2.1.311 on 27 Oct 2026: with no login the prompt is refused as authentication required; with a login a one-word prompt is answered | `claude auth login` was checked live when piped (address on stdout, claude 2.1.312, no sign-in completed); `codex login` was not checked at all, and a completed sign-in was not seen (`docs/acp-claude-adapter.md`, "Signing in from Flockdeck") |
 | Use an API key instead of a login | Claude `ANTHROPIC_API_KEY`, Gemini `GEMINI_API_KEY`, Codex `OPENAI_API_KEY` | present for the hidden structured entries `gemini-acp`, `codex-acp` and `claude-acp`: a key stored in Settings or with `flockdeck keys set` is set in that agent's environment only, under its one variable. Not checked: a Claude pane started with a stored key against the real API | client |
 | Log out, change auth method | Claude `/logout`, Gemini `/auth`, opencode `/connect` | not built (T217): the panel says to use the agent's own tool and restart. The client has no `logout` call, and for Claude and Codex the login is a file in the agent's own config that Flockdeck must not delete or rewrite | ACP `logout` (auth capability); `authenticate` with another method |
-| Desktop alert when the agent needs a permission or finishes | Claude hooks, terminal bell | partial (#723): a permission wait, a setup need and a finished turn (ten seconds or more) raise a desktop notification while the window is behind (`lib/attention.js`, tested in `ui/test/interrupt-todos-notify.test.mjs`); not run in the real desktop app. A phone gets no push: `pushDue` skips a pane with no session, so it sees only the waiting status in its list | client |
-| Phone push for a permission or a finished turn | not a TUI feature, but Flockdeck terminal panes have it | missing by design (decided in #378, still a product question): structured data is refused over the relay | client plus sealed transport (T182 decision 5) |
+| Desktop alert when the agent needs a permission or finishes | Claude hooks, terminal bell | partial (#723): a permission wait, a setup need and a finished turn (ten seconds or more) raise a desktop notification while the window is behind (`lib/attention.js`, tested in `ui/test/interrupt-todos-notify.test.mjs`); not run in the real desktop app. A phone is sent "Answer on the desktop" when a structured pane waits (#750), with no card text, and cannot answer it yet; Allow and Deny on the phone are held until the phone app ships | client |
+| Phone push for a permission or a finished turn | not a TUI feature, but Flockdeck terminal panes have it | partial (#750, decided 6 Nov 2026): a waiting structured pane sends a fixed push, "Answer on the desktop", to paired devices that get pushes. The phone cannot answer: structured data is still refused over the relay and phone Allow and Deny are held off | client plus sealed transport (T182 decision 5) |
 | Stop all subagents (Ctrl+X Ctrl+K) | Claude | missing | adapter |
 | Quit or exit | all | present: close the pane | n/a |
 
 ## 8. Ten biggest gaps
 
-The list as first written, with the status on 1be474cd:
+The list as first written, with the status on 1be474cd (rows 7 and 10 re-read on 6 Nov):
 
 1. Slash command menu from `available_commands_update`: done (T210).
 2. Resume, history and session list: Claude resume with history done (#728). Codex resume opens empty. No session list.

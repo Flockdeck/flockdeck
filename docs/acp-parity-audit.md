@@ -1,16 +1,16 @@
 # ACP parity audit: does the structured pane match the TUIs?
 
-First written on 27 Oct 2026 against origin/main 36114765. Refreshed on 28 Oct 2026 against origin/main 1be474cd (through #730). The question is the claim in [acp-direction.md](acp-direction.md) decision 6 and the [parity matrix](acp-parity-matrix.md) that the structured pane has, or is about to have, parity with the Claude Code, Codex, Gemini and opencode TUIs.
+First written on 27 Oct 2026 against origin/main 36114765. Refreshed on 28 Oct 2026 against origin/main 1be474cd (through #730), and again on 6 Nov 2026 against origin/main 3afa44bf (through #758) for the decision to make structured the default for new Claude Code and opencode panes. The 6 Nov pass re-read the items below that changed; the gap table keeps its 28 Oct status column except where a row says otherwise. The question is the claim in [acp-direction.md](acp-direction.md) decision 6 and the [parity matrix](acp-parity-matrix.md) that the structured pane has, or is about to have, parity with the Claude Code, Codex, Gemini and opencode TUIs.
 
 ## What is still open
 
-The verdict is in the last section. This is the short version for deciding whether new Claude panes can default to structured. In order:
+The verdict is in the last section. This is the short version of what was open when the default was decided, with the 6 Nov status after each item. In order:
 
-1. Phone approval. A structured pane that waits for a permission or a question gets a desktop notification but no phone push, and the relay refuses structured data. A phone sees the pane as "waiting" in its list and cannot answer. Terminal panes do both today. This is a product decision, not a bug (#378).
-2. Allow always does not last. It covers shell commands only, exact command only, and lives in the adapter process, so every pane restart asks again. Persisting rules is not designed.
-3. Files cannot be rewound. Conversation rewind and fork work for Claude and Codex panes (#730), but nothing puts changed files back, and Esc Esc is not bound. People who lean on checkpoints will notice.
-4. Four Claude paths have never run against a real claude: the AskUserQuestion answer format, the whole rewind and fork path, a real usage-limit result, and which todo tool current claude uses in `-p` mode (the plan checklist handles TodoWrite only).
-5. Codex is not ready to be a default. It has only ever run against a fake app-server: no history on resume, no question card, no effort option, sign-in and rewind untested. Gemini and opencode were not checked at all in this refresh.
+1. Phone approval. A structured pane that waits for a permission or a question gets a desktop notification but no phone push, and the relay refuses structured data. A phone sees the pane as "waiting" in its list and cannot answer. Terminal panes do both today. This is a product decision, not a bug (#378). Status on 6 Nov: decided. A waiting structured pane sends a phone the push "Answer on the desktop" (#750); the phone still cannot answer, and phone Allow and Deny wait for the phone app. Installs with paired devices or remote access keep terminal as the default for new panes.
+2. Allow always does not last. It covers shell commands only, exact command only, and lives in the adapter process, so every pane restart asks again. Persisting rules is not designed. Status on 6 Nov: unchanged, and released as a known gap.
+3. Files cannot be rewound. Conversation rewind and fork work for Claude and Codex panes (#730), but nothing puts changed files back, and Esc Esc is not bound. People who lean on checkpoints will notice. Status on 6 Nov: unchanged, and released as a known gap.
+4. Four Claude paths have never run against a real claude: the AskUserQuestion answer format, the whole rewind and fork path, a real usage-limit result, and which todo tool current claude uses in `-p` mode (the plan checklist handles TodoWrite only). Status on 6 Nov: all four ran against claude 2.1.319 (see the live check below). A fork after a rewind failed and was fixed (#755), the checklist now draws from the task tools (#756), and AskUserQuestion, rewind and the context-full result worked. A usage-limit result was not provoked.
+5. Codex is not ready to be a default. It has only ever run against a fake app-server: no history on resume, no question card, no effort option, sign-in and rewind untested. Gemini and opencode were not checked at all in this refresh. Status on 6 Nov: Codex and Gemini keep their terminal entries as the default and their structured entries stay hidden until T192 has run them against the real programs.
 6. Smaller gaps: images reach the agent as a file path, not an image block; no Shift+Tab mode cycle or effort option; "approve and accept edits" on plan approval; a subagent's text is dropped; no "New conversation" button; no session picker.
 
 Everything in the ten must-fix items below is built for Claude except item 8 (desktop done, phone undecided) and item 10 (sign-in works for the link, not checked to completion).
@@ -123,22 +123,24 @@ Phone approval and view, the hook-driven status, and the task board (being remov
 
 - Codex: the adapter was built from a route document and a fake app-server and "never run against a real codex" (`acp-direction.md`). It has no effort option, no question handling, no history on resume, and a `plan` update path only for `turn/plan/updated`. Rewind, fork and sign-in exist and are fake only. Not ready to be a default by any standard here.
 - Gemini: native ACP; `loadSession: true` (from source), so resume should replay. Hidden entry, never unhidden. Mode and model switching come from the agent. Not run against a real Gemini.
-- opencode: native ACP, beta entry, most protocol coverage and most e2e tests. Not rechecked.
+- opencode: native ACP, the structured entry new opencode panes start as, most protocol coverage and most e2e tests. Not rechecked.
 
 ## Verdict
 
-The claim "structured panes have parity with the TUIs" is closer to true for Claude than on 27 Oct, and still not true. Prompt, queue, slash menu, model and mode switching, `@file`, `!`, export, copy, usage, interrupt keys, plan checklist, plan and diff on cards, question cards, failure wording, compaction and clear notices, resume with history, sign-in link, and conversation rewind and fork all exist on main. The blockers are in the list at the top: phone approval, allow-always that does not last, no file rewind, and four Claude paths never run for real.
+The claim "structured panes have parity with the TUIs" is closer to true for Claude than on 27 Oct, and still not true. Prompt, queue, slash menu, model and mode switching, `@file`, `!`, export, copy, usage, interrupt keys, plan checklist, plan and diff on cards, question cards, failure wording, compaction and clear notices, resume with history, sign-in link, and conversation rewind and fork all exist on main. The blockers are in the list at the top: phone approval, allow-always that does not last, no file rewind, and four Claude paths never run for real. By 6 Nov the last of these had been run, and the other three were accepted as known gaps.
+
+Verdict on 6 Nov 2026: structured is the default for new Claude Code and opencode panes, with the terminal entries kept as the opt-out. Parity is not claimed. What a structured pane lacks is listed in the release notes and in the help: the phone cannot answer, allow-always is forgotten when a pane restarts, files are not put back on rewind, and sign-in has not been seen to complete. Codex and Gemini are not part of the default. Agents with no route over ACP (Cursor Agent, Aider, shells, user CLI entries) stay in a terminal.
 
 Must fix before structured becomes the default for Claude panes, as listed on 27 Oct, with the status on 28 Oct:
 
 1. ExitPlanMode approval shows the plan. Done (#726). Remaining: "approve and accept edits".
 2. Esc interrupts the turn. Done (#723).
 3. Failure outcomes have fixed, distinct wording. Done (#724).
-4. Todo or plan rows are drawn. Done for TodoWrite (#723); the tool in current claude's `-p` mode is unchecked.
+4. Todo or plan rows are drawn. Done for TodoWrite (#723). Checked live on 6 Nov: claude 2.1.319 has no todo tool in `-p` mode unless `CLAUDE_CODE_ENABLE_TODO_TOOLS=1` is set; the adapter sets it and draws the task tools (#756).
 5. The approval card shows the diff for an edit. Done (#726).
 6. A resumed Claude pane shows its history. Done (#728).
 7. `/compact` and `/clear` work and the saved session follows a `/clear`. Done (#724, #725), checked on claude 2.1.312.
-8. Desktop notification for a waiting structured pane is traced and tested; the phone decision is made. Partial: the desktop path is traced and unit-tested (#723), the phone decision is not made (it is "no push" by default).
+8. Desktop notification for a waiting structured pane is traced and tested; the phone decision is made. Done on 6 Nov: the desktop path is traced and unit-tested (#723), and the phone is sent "Answer on the desktop" (#750). The phone cannot answer yet.
 9. The adapter checks the installed claude version at start. Done (#724).
 10. A new user can sign in without a terminal. Partial (#727, #729): the link is checked live on claude, a completed sign-in was not seen, codex is unchecked; the manual step stays as fallback.
 
@@ -167,6 +169,8 @@ Run against origin/main 1674ae74, with claude 2.1.319 (the manifest's `testedWit
 Not seen as a failure but worth knowing: `echo` is on claude's built-in list of commands that need no approval, so it is no use as a permission test. Haiku 5.5 has a 1,000,000-token window here, so a full-context test needs the 4.5 model.
 
 ### Tasks from this check
+
+Status on 6 Nov: task 1 is fixed (#755, fork after a rewind uses the conversation file claude holds), task 2 is fixed (#756, the adapter sets `CLAUDE_CODE_ENABLE_TODO_TOOLS`), and task 3 shows a notice in the pane (#756) with the one step to take.
 
 1. Fork at a turn point fails after a rewind. Reproduce: open a session, send two prompts with turn tokens, call `_flockdeck/rewind` before the second, send a third prompt with a token, call `_flockdeck/forkpoint` for the third and `session/fork` with the result. claude exits 1 with "No message found with message.uuid". Likely cause, not yet confirmed: `openSession` in `internal/acp/claudeacp/session.go` sets `forkOf` to the id the client passed, but after a rewind the conversation file is under `claudeID`, so claude looks for the new message in the old file. A fork of the whole conversation after a rewind (no `at`) is untested and may fork the old file.
 2. The plan checklist has nothing to draw on current claude. `describeTool` in `internal/acp/claudeacp/tools.go` handles TodoWrite only, and claude 2.1.319 under `-p` has no todo tool at all. Decide whether to drop the checklist from the claims for Claude panes, or check whether `--tools` or a setting turns a task tool on.

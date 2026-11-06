@@ -335,6 +335,14 @@ Here, Settings › **Flockdeck Remote** says what is sent:
 - **Send nothing identifying** has a notification say only "An agent on *this
   machine* needs you", rather than naming the pane and its project.
 
+A structured agent (a new Claude Code or opencode pane starts as one) that is waiting on a permission
+or a question also sends this notification. It says "Answer on the desktop" and nothing of what the
+agent asked. The phone cannot answer yet: the phone app does not offer Allow or Deny, and structured
+panes are not sent to a phone over the relay. Because of that, new panes on a machine with paired
+devices or remote access stay terminal by default; Settings, General, **New panes start as** can
+choose Structured there. An agent left running on a structured pane stalls at its first permission
+until someone answers at the desk.
+
 A single agent that is chatty and safe to leave can also be muted from the
 bell in its own header on the phone, which leaves it out of what is sent
 while it goes on showing as waiting everywhere, including here. Muting lives
