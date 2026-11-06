@@ -1,6 +1,6 @@
 # Flockdeck MCP server
 
-`flockdeck mcp-server` is a stdio MCP server built into the `flockdeck` binary. A structured pane's agent starts it from the `mcpServers` entry named `flockdeck` that Flockdeck puts in `session/new` (see [ACP adapters](acp-adapters.md)). It is hidden from the picker and is not run by hand. It is the way agents message each other once the shell inbox is retired (see [ACP direction](acp-direction.md)).
+`flockdeck mcp-server` is a stdio MCP server built into the `flockdeck` binary. A structured pane's agent starts it from the `mcpServers` entry named `flockdeck` that Flockdeck puts in `session/new` (see [ACP adapters](acp-adapters.md)). It is hidden from the picker and is not run by hand. It is how a structured pane's agent messages others. The shell inbox and `flockdeck msg` are the routes of terminal panes only (see [ACP direction](acp-direction.md)).
 
 An agent gets the entry when its catalog entry has the `mcp` flag and the workspace has a server to point it at. Structured panes are still opt-in, so no pane starts it until they are turned on.
 

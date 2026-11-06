@@ -44,6 +44,7 @@ type step struct {
 	Absent string          `json:"absent,omitempty"` // for Ms, no stdin line may contain this
 	Ms     int             `json:"ms,omitempty"`
 	Exit   *int            `json:"exit,omitempty"`
+	Stderr string          `json:"stderr,omitempty"` // write this line to stderr
 }
 
 func expect(s string) step { return step{Expect: s} }
@@ -219,6 +220,8 @@ func runFake() {
 			}
 		case st.Emit != nil:
 			write(string(st.Emit))
+		case st.Stderr != "":
+			fmt.Fprintln(os.Stderr, st.Stderr)
 		case st.Sleep > 0:
 			time.Sleep(time.Duration(st.Sleep) * time.Millisecond)
 		case st.Absent != "":

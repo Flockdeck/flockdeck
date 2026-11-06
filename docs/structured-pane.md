@@ -204,7 +204,7 @@ window reached through the relay, and once a Stop is out. Command+C is Copy. Whi
 shows the hint "Esc stops the turn". Double Escape is not bound (rewind, T215). The keys are in
 `drawer/interruptModel.js`.
 
-The agent's plan (the push's `plan`, from TodoWrite or the plan updates of the protocol) is drawn above the
+The agent's plan (the push's `plan`, from claude's Task tools, TodoWrite or the plan updates of the protocol) is drawn above the
 conversation as a collapsible checklist (T228, `drawer/TodoList.js`, `todoModel.js`): a head line with
 "N of M done" and the row in progress, and under it each row with its status (to do, in progress, done). It
 starts open while something is left and closed when all is done, and the person's choice is kept for each pane
