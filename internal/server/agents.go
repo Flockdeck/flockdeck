@@ -441,8 +441,11 @@ func (s *Server) refreshAgents() {
 // heard of.
 func buildCatalog(c *agent.Catalog, root string) agentCatalog {
 	base := c.DefaultsFor("")
+	// The picker marks as the default what a new pane would start as: the
+	// structured entry where structured panes are on. A saved pane with no
+	// agent still means the terminal one, which is DefaultsFor's answer.
 	out := agentCatalog{
-		Default: agentChoice{Agent: base.Agent, Model: base.Model},
+		Default: agentChoice{Agent: c.ForNewPane(base.Agent), Model: base.Model},
 		Err:     c.Notice,
 		Routing: routingOf(c, root),
 	}
@@ -450,7 +453,7 @@ func buildCatalog(c *agent.Catalog, root string) agentCatalog {
 	// actually differs. Marking the installation's default as this project's
 	// says something untrue about a project nobody has set anything for.
 	if proj := c.DefaultsFor(root); proj != base {
-		out.Project = &agentChoice{Agent: proj.Agent, Model: proj.Model}
+		out.Project = &agentChoice{Agent: c.ForNewPane(proj.Agent), Model: proj.Model}
 	}
 	for _, sp := range c.Visible() {
 		out.Items = append(out.Items, catalogAgent{

@@ -31,14 +31,20 @@ func ids(specs []Spec) []string {
 	return out
 }
 
-// The structured entries ship: opencode listed once opted in, Gemini, Codex and
-// Claude hidden.
+// The structured entries ship: opencode and Claude listed while structured
+// panes are on, Gemini and Codex hidden until their real-binary check reports.
 func TestBuiltinStructuredEntries(t *testing.T) {
 	c := optedIn(&File{})
 	if s, ok := c.Find("opencode-acp"); !ok || s.Runner != RunnerACP || s.ACP.Adapter != "opencode" || s.ACP.Auth != AuthNone {
 		t.Fatalf("opencode-acp = %+v, %v", s, ok)
 	}
-	for _, id := range []string{"gemini-acp", "codex-acp", "claude-acp"} {
+	if s, ok := c.Find("claude-acp"); !ok || s.Hidden || s.Runner != RunnerACP {
+		t.Errorf("claude-acp should exist and be listed: %+v, %v", s, ok)
+	}
+	if !slices.Contains(ids(c.Visible()), "claude-acp") {
+		t.Error("claude-acp is not offered")
+	}
+	for _, id := range []string{"gemini-acp", "codex-acp"} {
 		s, ok := c.Find(id)
 		if !ok || !s.Hidden || s.Runner != RunnerACP {
 			t.Errorf("%s should exist and be hidden: %+v, %v", id, s, ok)
@@ -56,8 +62,8 @@ func TestBuiltinStructuredEntries(t *testing.T) {
 	}
 }
 
-// claude-acp is startable by id (a saved layout and the canary name it) though
-// it is not listed, starts the hidden adapter `claude`, sends the Flockdeck MCP
+// claude-acp is listed and startable by id (a saved layout and the canary name
+// it), starts the hidden adapter `claude`, sends the Flockdeck MCP
 // server, and passes only the login locations of the environment.
 func TestClaudeACPEntry(t *testing.T) {
 	c := optedIn(&File{})
@@ -86,7 +92,10 @@ func TestClaudeACPEntry(t *testing.T) {
 	if _, ok := s.ACPAdapter(); !ok {
 		t.Error("the adapter is not in the manifest")
 	}
-	if _, ok := c.offered("claude-acp"); ok {
+	if _, ok := c.offered("claude-acp"); !ok {
+		t.Error("offered() refused claude-acp while structured panes are on")
+	}
+	if _, ok := c.offered("codex-acp"); ok {
 		t.Error("offered() accepted a hidden entry")
 	}
 	// The terminal Claude entry is unchanged and takes no structured key.
