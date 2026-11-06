@@ -332,6 +332,23 @@ func (s *Server) batonAgent(id string) (agent.Spec, error, bool) {
 	return a.spec, a.err, ok
 }
 
+// batonTarget is the agent a helper started from the pane id would run, worked out
+// as Spawn works it out: the named agent, or else the default of the pane's own
+// project, which need not be the project on screen. It asks the workspace
+// goroutine. The bool is false when Flockdeck could not answer.
+func (s *Server) batonTarget(paneID, cwd, agentID, model string) (agent.Spec, error, bool) {
+	type answer struct {
+		spec agent.Spec
+		err  error
+	}
+	a, ok := ask(s, func() answer {
+		resolved, _ := s.ws.SpawnTarget(paneID, cwd, agentID, model)
+		spec, err := s.ws.AgentSpecByID(resolved)
+		return answer{spec, err}
+	})
+	return a.spec, a.err, ok
+}
+
 // makeBaton drafts a baton from a pane and sends it to the window to edit.
 // Reading the transcript and asking git take a moment, so they happen off the
 // workspace goroutine, which only describes the pane.
@@ -439,7 +456,7 @@ func (s *Server) batonCommand(c *controlClient, cmd command) {
 		in.cwd = src.Pane.Cwd
 		if cmd.Cmd == "startFromBaton" {
 			var ok bool
-			if in.target, in.agentErr, ok = s.batonAgent(cmd.Agent); !ok {
+			if in.target, in.agentErr, ok = s.batonTarget(id, src.Pane.Cwd, cmd.Agent, cmd.Model); !ok {
 				s.batonFail(c, id, cmd.Cmd, cmd.Req, errors.New("Flockdeck could not answer; check flockdeck baton list before trying again"))
 				return
 			}
@@ -462,12 +479,28 @@ func (s *Server) batonCommand(c *controlClient, cmd command) {
 	// then waits for the approval notice in a window on this machine, the same one
 	// `spawn -baton-send-elsewhere` waits for, and for nothing else.
 	var approve *approvalInfo
+	// What Spawn is held to below: the agent and company that were judged here.
+	var approved *workspace.ApprovedTarget
 	if cmd.Cmd == "startFromBaton" {
 		from, fromWhy := workspace.BatonProviderDetail(in.src.Spec, in.src.Pane.Cwd)
 		// The company of the agent that will run is judged where it will run: in the
 		// worktree a branch asks for, with the settings of the checkout it is cut from.
 		to, toWhy := s.targetProvider(in.target, in.cwd, strings.TrimSpace(cmd.Branch))
-		if change := providerChange(in.src.Spec.ID, from, in.target.ID, to); change != "" {
+		change := providerChange(in.src.Spec.ID, from, in.target.ID, to)
+		if change == "" && from != to {
+			// The same agent, which the folder or branch it will work in routes to
+			// another company: that is a change of company all the same.
+			change = "it would go from " + providerText(from, fromWhy) + " to " + providerText(to, toWhy) + " in the folder it works in"
+		}
+		approved = &workspace.ApprovedTarget{
+			Agent: in.target.ID, Provider: to, SourceProvider: from,
+			ApprovalRequired: change != "",
+		}
+		if branch := strings.TrimSpace(cmd.Branch); branch != "" {
+			// The worktree is cut from the checkout, whose settings it has too.
+			approved.From = []string{in.cwd}
+		}
+		if change != "" {
 			switch {
 			case c.remote:
 				approve = &approvalInfo{

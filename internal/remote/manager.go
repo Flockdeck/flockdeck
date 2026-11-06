@@ -104,7 +104,14 @@ func (m *Manager) Reload() error {
 	// is opened or registered, but the enrolment stays known, for Status to
 	// say so and Client to reach the account's roster with.
 	off := cfg != nil && cfg.Disabled
-	if cfg != nil && !off {
+	// registerKey starts the end-to-end key registration. It runs only once
+	// m.cfg holds this reload's enrolment, because EnsureE2EKey builds its client
+	// from m.cfg: started earlier it could register the key with the relay the
+	// machine is moving away from.
+	registerKey := func() {
+		if cfg == nil || off {
+			return
+		}
 		// Best-effort, and never blocks bringing the tunnel up: a relay that
 		// cannot be reached right now for this leaves terminals unencrypted
 		// until the next Reload -- an app restart, or the dialog's "try
@@ -138,6 +145,7 @@ func (m *Manager) Reload() error {
 			renamed := cfg.Name != m.cfg.Name
 			m.cfg = cfg
 			m.mu.Unlock()
+			registerKey()
 			if renamed {
 				old.setName(cfg.Name)
 				if m.changed != nil {
@@ -153,6 +161,7 @@ func (m *Manager) Reload() error {
 	}
 	m.cfg, m.conn = cfg, next
 	m.mu.Unlock()
+	registerKey()
 
 	// The new tunnel is started before the old is stopped. Stopping the old
 	// tells the window to look, and what it reads by then is the new one,

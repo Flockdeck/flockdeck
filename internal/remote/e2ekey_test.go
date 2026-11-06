@@ -403,3 +403,28 @@ func TestE2ERosterThatCannotBeFetchedFallsBackToTheCachedKey(t *testing.T) {
 		t.Error("E2ECapable said yes for a device it has never had a key for")
 	}
 }
+
+// A reload that moves the machine to another relay registers the host key with
+// the new relay, never the old one, even when the identity is already cached
+// and the registration could run at once.
+func TestReloadRegistersTheKeyWithTheNewRelay(t *testing.T) {
+	isolate(t)
+	oldRelay, newRelay := newE2EFakeRelay(t), newE2EFakeRelay(t)
+	m := testManager(oldRelay.URL)
+	defer m.Close()
+	if _, err := m.hostE2EIdentity(); err != nil { // cached, so nothing slows the goroutine down
+		t.Fatal(err)
+	}
+	next := &Config{Relay: newRelay.URL, HostID: "h2", AccountID: "a1", Token: "fdh_test2"}
+	m.load = func() (*Config, error) { return next, nil }
+	if err := m.Reload(); err != nil {
+		t.Fatal(err)
+	}
+	waitFor(t, "the key registered with the new relay", func() bool {
+		_, calls := newRelay.lastKey()
+		return calls == 1
+	})
+	if _, calls := oldRelay.lastKey(); calls != 0 {
+		t.Errorf("the old relay was sent the key %d times", calls)
+	}
+}

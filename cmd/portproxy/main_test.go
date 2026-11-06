@@ -173,3 +173,43 @@ func TestServeBacksOffWhenAcceptKeepsFailing(t *testing.T) {
 		t.Errorf("Accept was called %d times in 300ms; the loop is not backing off", n)
 	}
 }
+
+// proxyReturns reports whether proxy finishes within a second.
+func proxyReturns(a, b net.Conn) bool {
+	done := make(chan struct{})
+	go func() { proxy(a, b); close(done) }()
+	select {
+	case <-done:
+		return true
+	case <-time.After(time.Second):
+		return false
+	}
+}
+
+func TestProxyDropsASilentConnection(t *testing.T) {
+	oldIdle := idleTimeout
+	idleTimeout = 100 * time.Millisecond
+	defer func() { idleTimeout = oldIdle }()
+
+	client, clientPeer := net.Pipe()
+	upstream, upstreamPeer := net.Pipe()
+	defer clientPeer.Close()
+	defer upstreamPeer.Close()
+	if !proxyReturns(client, upstream) {
+		t.Fatal("proxy kept a connection that sent nothing")
+	}
+}
+
+func TestProxyDropsASilentClientOnceUpstreamIsDone(t *testing.T) {
+	oldIdle, oldGrace := idleTimeout, drainGrace
+	idleTimeout, drainGrace = time.Hour, 100*time.Millisecond
+	defer func() { idleTimeout, drainGrace = oldIdle, oldGrace }()
+
+	client, clientPeer := net.Pipe()
+	upstream, upstreamPeer := net.Pipe()
+	defer clientPeer.Close()
+	upstreamPeer.Close() // flockdeck drops the connection
+	if !proxyReturns(client, upstream) {
+		t.Fatal("proxy kept a silent client after the upstream ended")
+	}
+}

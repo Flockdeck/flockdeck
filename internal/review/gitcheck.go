@@ -114,11 +114,13 @@ func harmlessValue(key, value string) bool {
 	return gitx.StandardLFSFilter(key, value)
 }
 
-// hasSubmodule reports whether the index in dir records a submodule: an entry
-// of mode 160000, whether or not .gitmodules names it. Anything git cannot
-// answer counts as a yes.
+// hasSubmodule reports whether the index in dir records a submodule anywhere in
+// the repository: an entry of mode 160000, whether or not .gitmodules names it.
+// ls-files lists only what is under the folder it runs in, and git status and
+// git diff still recurse into every submodule, so the pathspec :/ asks for the
+// whole repository. Anything git cannot answer counts as a yes.
 func hasSubmodule(dir string) bool {
-	out, err := gitIn(dir, "ls-files", "--stage")
+	out, err := gitIn(dir, "ls-files", "--stage", "--", ":/")
 	if err != nil {
 		return true
 	}

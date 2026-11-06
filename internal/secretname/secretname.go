@@ -280,4 +280,6 @@ func tokens(s string) []string {
 var secretWords = map[string]bool{
 	"secret": true, "secrets": true, "password": true, "passwords": true, "passwd": true,
 	"token": true, "apikey": true, "privatekey": true, "secretkey": true, "accesskey": true,
+	"apikeys": true, "privatekeys": true, "secretkeys": true, "accesskeys": true,
+	"rootkey": true,
 }

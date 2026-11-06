@@ -9,6 +9,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/jmwri/flockdeck/internal/helpers"
 	"github.com/jmwri/flockdeck/internal/record"
 	"github.com/jmwri/flockdeck/internal/store"
 )
@@ -109,7 +110,9 @@ func listRecordings(args []string, out io.Writer, stateDir func() (string, error
 		if project == "" {
 			project = in.Folder
 		}
-		fmt.Fprintf(out, "%s  %-20s %-20s %8s  %s\n", when, project, conversation, byteSize(in.Size), in.Path)
+		// The project comes from the recording's own first line and the path
+		// from folder names, so control characters are replaced before printing.
+		fmt.Fprintf(out, "%s  %-20s %-20s %8s  %s\n", when, helpers.Printable(project), helpers.Printable(conversation), byteSize(in.Size), helpers.Printable(in.Path))
 	}
 	return nil
 }

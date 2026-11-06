@@ -796,11 +796,25 @@ func unquote(w string) string {
 }
 
 // envAssign is a word that sets a variable for the command that follows it.
-var envAssign = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*=`)
+// It is NAME=value, or the PowerShell forms $env:NAME=value, ${env:NAME}=value
+// and $NAME=value.
+var envAssign = regexp.MustCompile(`^(?:[A-Za-z_][A-Za-z0-9_]*|\$\{?(?:[Ee][Nn][Vv]:)?[A-Za-z_][A-Za-z0-9_]*\}?)=`)
+
+// psVarWord is a PowerShell variable on its own, the left side of "$env:NAME = value".
+var psVarWord = regexp.MustCompile(`^\$\{?(?:[Ee][Nn][Vv]:)?[A-Za-z_][A-Za-z0-9_]*\}?$`)
 
 func dropAssignments(words []string) []string {
-	for len(words) > 0 && envAssign.MatchString(words[0]) {
-		words = words[1:]
+	for len(words) > 0 {
+		switch {
+		case envAssign.MatchString(words[0]):
+			words = words[1:]
+		case len(words) >= 3 && psVarWord.MatchString(words[0]) && words[1] == "=":
+			// The value is one word; a longer expression is read as the command
+			// that follows, which is kept as a program name and nothing else.
+			words = words[3:]
+		default:
+			return words
+		}
 	}
 	return words
 }

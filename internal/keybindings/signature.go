@@ -1,6 +1,10 @@
 package keybindings
 
-import "strings"
+import (
+	"strings"
+	"unicode"
+	"unicode/utf8"
+)
 
 // keyNames maps a binding's own spelling of a few keys, as help/keys.go and
 // the settings' capture field both write them, to the name signature keys
@@ -67,4 +71,96 @@ func signature(ctrl, shift, alt bool, key string) string {
 		sig += "a"
 	}
 	return sig + ":" + key
+}
+
+// namedKeys are the spellings of keys that are more than one character, as
+// signatureOf lower-cases them: the arrows in either of their spellings and
+// the editing and navigation keys. Function keys are checked separately.
+var namedKeys = map[string]bool{
+	"enter": true, "escape": true, "esc": true, "tab": true, "space": true,
+	"backspace": true, "delete": true, "insert": true, "home": true, "end": true,
+	"pageup": true, "pagedown": true,
+	"arrowleft": true, "arrowright": true, "arrowup": true, "arrowdown": true,
+	"←": true, "→": true, "↑": true, "↓": true,
+}
+
+// isFunctionKey reports whether name (any case) is F1 to F24.
+func isFunctionKey(name string) bool {
+	n := strings.ToLower(name)
+	if len(n) < 2 || len(n) > 3 || n[0] != 'f' {
+		return false
+	}
+	v := 0
+	for _, c := range n[1:] {
+		if c < '0' || c > '9' {
+			return false
+		}
+		v = v*10 + int(c-'0')
+	}
+	return v >= 1 && v <= 24 && n[1] != '0'
+}
+
+// validChord reports whether keys is a binding a window can type as one
+// keystroke and that does not take over ordinary typing: modifiers from Ctrl,
+// Alt and Shift (each at most once), then one key, with Ctrl or Alt among the
+// modifiers unless the key is a function key. It is the check the settings
+// dialog makes before it sends a binding, made again here because the server
+// is what saves it, for a window on this machine and one reached through the
+// relay alike: a bare letter saved as a binding is claimed from every
+// terminal, and a spelling signatureOf does not read (Cmd+K, Control+K) is a
+// binding nothing can press.
+func validChord(keys string) bool {
+	if keys == "" || strings.Contains(keys, "…") || keys != strings.TrimSpace(keys) {
+		return false
+	}
+	mods, key := "", keys
+	if i := strings.LastIndex(keys, "+"); i >= 0 {
+		mods, key = keys[:i], keys[i+1:]
+		if key == "" { // the key is "+" itself: "Ctrl++"
+			if !strings.HasSuffix(keys, "++") {
+				return false
+			}
+			key = "+"
+			mods = strings.TrimSuffix(mods, "+")
+		}
+		if mods == "" {
+			return false
+		}
+	}
+	var ctrl, shift, alt bool
+	if mods != "" {
+		for _, m := range strings.Split(mods, "+") {
+			switch strings.ToLower(m) {
+			case "ctrl":
+				if ctrl {
+					return false
+				}
+				ctrl = true
+			case "shift":
+				if shift {
+					return false
+				}
+				shift = true
+			case "alt":
+				if alt {
+					return false
+				}
+				alt = true
+			default:
+				return false
+			}
+		}
+	}
+	fn := isFunctionKey(key)
+	switch {
+	case fn, namedKeys[strings.ToLower(key)]:
+	case utf8.RuneCountInString(key) == 1 && key != " ":
+		r, _ := utf8.DecodeRuneInString(key)
+		if !unicode.IsPrint(r) {
+			return false
+		}
+	default:
+		return false
+	}
+	return fn || ctrl || alt
 }

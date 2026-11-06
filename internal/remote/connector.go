@@ -320,10 +320,10 @@ func lapsedMessage(err error) (string, bool) {
 	if !errors.As(err, &api) || api.Status != http.StatusPaymentRequired {
 		return "", false
 	}
-	if api.Message == "" {
+	if Plain(api.Message) == "" {
 		return "The relay has stopped Flockdeck Remote for this account until it is paid for. Subscribe from Devices on a paired phone or browser.", true
 	}
-	return api.Message, true
+	return Plain(api.Message), true
 }
 
 // revokedDetail says what a revoked host means, and what to do about it.
@@ -517,6 +517,7 @@ func why(err error) error {
 		// without a reason, and Revoked needs a message to see one.
 		var ce websocket.CloseError
 		errors.As(err, &ce)
+		ce.Reason = Plain(ce.Reason)
 		if ce.Reason == "" {
 			ce.Reason = "it closed the tunnel as revoked"
 		}
@@ -526,14 +527,14 @@ func why(err error) error {
 	case CloseLapsed:
 		var ce websocket.CloseError
 		errors.As(err, &ce)
-		return &APIError{Status: http.StatusPaymentRequired, Message: ce.Reason}
+		return &APIError{Status: http.StatusPaymentRequired, Message: Plain(ce.Reason)}
 	}
 	// The window shows this, so a close the relay gave a reason for says the
 	// reason, and not the library's account of receiving it.
 	var ce websocket.CloseError
 	switch {
-	case errors.As(err, &ce) && ce.Reason != "":
-		return errors.New("the relay closed the connection: " + ce.Reason)
+	case errors.As(err, &ce) && Plain(ce.Reason) != "":
+		return errors.New("the relay closed the connection: " + Plain(ce.Reason))
 	case err == nil, errors.Is(err, io.EOF), errors.As(err, &ce):
 		return errors.New("the relay closed the connection")
 	}

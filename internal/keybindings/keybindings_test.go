@@ -4,6 +4,7 @@ import (
 	"errors"
 	"github.com/jmwri/flockdeck/internal/keytable"
 	"os"
+	"strings"
 	"testing"
 
 	"github.com/jmwri/flockdeck/ui/help"
@@ -271,3 +272,31 @@ func TestBindingsForRemovedActionsAreIgnored(t *testing.T) {
 
 // testKeys is the front end's table in the shape the server's packages take.
 var testKeys = keytable.From(help.Keys)
+
+func TestEveryBuiltInBindingIsAValidChord(t *testing.T) {
+	for _, k := range help.Keys {
+		if k.Keys == "" || strings.Contains(k.Keys, "…") {
+			continue
+		}
+		if !validChord(k.Keys) {
+			t.Errorf("the built-in binding of %s, %q, is not a valid chord", k.ID, k.Keys)
+		}
+	}
+}
+
+func TestSetBindingRefusesWhatIsNotAChord(t *testing.T) {
+	isolateConfig(t)
+	for _, keys := range []string{"A", "a", "Shift+A", "Cmd+K", "Control+K", "Ctrl+", "Ctrl+Ctrl+K", "Ctrl+Kk", "Ctrl+K+", "Meta+K", "+", " ", "Ctrl+Alt", "F0", "Ctrl + K"} {
+		if _, err := SetBinding(testKeys, "closePane", keys); err == nil && strings.TrimSpace(keys) != "" {
+			t.Errorf("SetBinding accepted %q", keys)
+		}
+	}
+	for _, keys := range []string{"Ctrl+Shift+K", "Alt+9", "F5", "Ctrl+Alt+Shift+F12", "Ctrl+←", "Alt+Enter", "Ctrl+,"} {
+		if _, err := SetBinding(testKeys, "closePane", keys); err != nil {
+			var c *ConflictError
+			if !errors.As(err, &c) {
+				t.Errorf("SetBinding refused %q: %v", keys, err)
+			}
+		}
+	}
+}

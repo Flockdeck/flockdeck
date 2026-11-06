@@ -13,10 +13,10 @@
 # checklist, including the GitHub App and secrets this workflow expects.
 #
 # check-permission decides whether that gate applies at all: it asks the
-# GitHub API whether the actor who triggered pr-review.yml
-# (github.event.workflow_run.actor.login — the PR's own author, since
-# pr-review.yml runs on plain `pull_request`, never `pull_request_target`)
-# has write or admin access to this repo, and gate's own `if:` skips the
+# GitHub API whether the author of the PR that pr-review.yml ran for (found
+# from the run's head commit; the run's actor is not used, since a push or an
+# "Update branch" click makes someone else the actor) has write or admin
+# access to this repo, and gate's own `if:` skips the
 # job entirely when they do. An `if:` can't call the API itself, hence the
 # separate job — checking a live permission this way, rather than a
 # hardcoded username list, is what the environment gate's own setup step
@@ -71,29 +71,54 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            const actor = context.payload.workflow_run.actor.login;
+            // The author of the PR, not the actor of the run: for a push or
+            // an "Update branch" click the actor is whoever did that, who may
+            // have write access on a PR somebody else wrote. The PR is found
+            // from the run's head commit, which also works for a fork (the
+            // run's own pull_requests list is empty for one). No PR found, or
+            // any whose author cannot be read, is untrusted.
+            const sha = context.payload.workflow_run.head_sha;
+            let authors = [];
+            try {
+              const { data: prs } = await github.rest.repos.listPullRequestsAssociatedWithCommit({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                commit_sha: sha,
+              });
+              authors = prs.filter((p) => p.head.sha === sha && p.user).map((p) => p.user.login);
+            } catch (err) {
+              core.warning(`could not find the PR for ${sha}, treating as untrusted: ${err.message}`);
+            }
+            if (authors.length === 0) {
+              core.setOutput("trusted", false);
+              return;
+            }
             // A failed call (a transient API error, a since-deleted
             // account) must not read as trusted -- that would skip gate
-            // below and let an unreviewed actor's post run ungated, the
+            // below and let an unreviewed author's post run ungated, the
             // opposite of what this whole check is for. Left false, gate
             // still runs and asks for approval exactly as it did before
             // this check existed.
-            let trusted = false;
-            try {
-              const { data } = await github.rest.repos.getCollaboratorPermissionLevel({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                username: actor,
-              });
-              // write or admin is an established contributor, trusted with
-              // the same secrets this repo's own maintainers already have;
-              // maintain and below (read/triage/none -- what a first-time
-              // or forked-repo contributor gets on a public repo) go
-              // through the gate below.
-              trusted = data.permission === "admin" || data.permission === "write";
-              core.info(`${actor}'s permission on this repo is ${data.permission} (trusted: ${trusted})`);
-            } catch (err) {
-              core.warning(`could not check ${actor}'s permission on this repo, treating as untrusted: ${err.message}`);
+            let trusted = true;
+            for (const author of authors) {
+              try {
+                const { data } = await github.rest.repos.getCollaboratorPermissionLevel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  username: author,
+                });
+                // write or admin is an established contributor, trusted with
+                // the same secrets this repo's own maintainers already have;
+                // maintain and below (read/triage/none -- what a first-time
+                // or forked-repo contributor gets on a public repo) go
+                // through the gate below.
+                const ok = data.permission === "admin" || data.permission === "write";
+                core.info(`${author}'s permission on this repo is ${data.permission} (trusted: ${ok})`);
+                trusted = trusted && ok;
+              } catch (err) {
+                core.warning(`could not check ${author}'s permission on this repo, treating as untrusted: ${err.message}`);
+                trusted = false;
+              }
             }
             core.setOutput("trusted", trusted);
 
@@ -111,6 +136,7 @@ jobs:
     uses: Flockdeck/flockdeck/.github/workflows/reusable-pr-review-post.yml@main
     with:
       artifact-run-id: ${{ github.event.workflow_run.id }}
+      run-head-sha: ${{ github.event.workflow_run.head_sha }}
     secrets:
       review-app-id: ${{ secrets.PR_REVIEW_APP_ID }}
       review-app-private-key: ${{ secrets.PR_REVIEW_APP_PRIVATE_KEY }}
