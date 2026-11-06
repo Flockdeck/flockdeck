@@ -35,7 +35,7 @@ the adapter was tested with (2.1.311); see
 | `session/prompt` | one `user` line: text blocks as text, image blocks as base64 image blocks, a text resource or link as text; ends at claude's `result` line |
 | `agent_message_chunk`, `agent_thought_chunk` | `text_delta` and `thinking_delta` stream events |
 | `tool_call`, `tool_call_update` | `tool_use` blocks and `tool_result` blocks |
-| `plan` | the `TodoWrite` tool |
+| `plan` | the Task tools (`TaskCreate`, `TaskUpdate`; the adapter keeps the list and sends all of it after each change) and `TodoWrite` |
 | `session/request_permission` | a `can_use_tool` control request |
 | `session/cancel` | an `interrupt` control request |
 | `session/set_mode` | `set_permission_mode` (default, acceptEdits, plan) |
@@ -527,8 +527,8 @@ part of it. No API change is needed. What is replayed:
   and one `tool_call` for each `tool_use`, built by the same `describeTool` as a live turn.
   The tool's result is folded into that call (status `completed` or `failed`, the output, or the
   diff it was announced with for an edit), so a call and its result are one entry and one is
-  never dropped without the other. A result with no call in the file is dropped. TodoWrite is
-  not replayed, since a plan is current state.
+  never dropped without the other. A result with no call in the file is dropped. TodoWrite and the
+  Task tools are not replayed, since a plan is current state.
 - Never shown as the agent's words: a line with an `error` or `isApiErrorMessage`, and text
   from the model `<synthetic>` (claude's own local notes such as "No response requested.").
 

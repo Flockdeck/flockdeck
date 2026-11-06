@@ -58,7 +58,7 @@ type toolInfo struct {
 	name   string
 	kind   string
 	edit   bool
-	hidden bool // shown some other way (TodoWrite is a plan)
+	hidden bool // shown some other way (TodoWrite and the Task tools are a plan)
 }
 
 type openPerm struct {
@@ -69,9 +69,10 @@ type openPerm struct {
 func (p *openPerm) abandon() { p.once.Do(func() { close(p.abandoned) }) }
 
 type session struct {
-	srv *server
-	id  string
-	cwd string
+	srv   *server
+	tasks taskList // the Task tools' list, kept here because claude sends changes, not the list
+	id    string
+	cwd   string
 
 	// claudeID is the id claude reported when it is not ss.id, else "".
 	claudeID string
@@ -328,7 +329,7 @@ func (ss *session) start() error {
 	}
 	cmd := exec.Command(o.ClaudePath, args...)
 	cmd.Dir = ss.cwd
-	cmd.Env = o.Env
+	cmd.Env = withTodoTools(o.Env)
 	sysproc.NoWindow(cmd)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {

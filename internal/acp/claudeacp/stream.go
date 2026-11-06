@@ -291,12 +291,16 @@ func (ss *session) announce(id, name string, input json.RawMessage, display stri
 	}
 	ss.mu.Unlock()
 	d := describeTool(name, input, ss.cwd, display)
-	info := toolInfo{name: name, kind: d.kind, edit: d.kind == "edit", hidden: d.plan != nil}
+	info := toolInfo{name: name, kind: d.kind, edit: d.kind == "edit", hidden: d.plan != nil || d.task}
 	ss.mu.Lock()
 	ss.announced[id] = info
 	ss.mu.Unlock()
 	if d.plan != nil {
 		ss.srv.update(ss.id, map[string]any{"sessionUpdate": "plan", "entries": d.plan})
+		return info
+	}
+	if d.task {
+		ss.applyTask(id, name, input)
 		return info
 	}
 	u := map[string]any{"sessionUpdate": "tool_call", "toolCallId": id, "title": d.title, "kind": d.kind, "status": "pending"}
@@ -325,6 +329,9 @@ func (ss *session) handleUser(l line) {
 		ss.mu.Lock()
 		info, ok := ss.announced[b.ToolUseID]
 		ss.mu.Unlock()
+		if ok && info.name == "TaskCreate" {
+			ss.taskCreated(b.ToolUseID, resultText(b.Content), b.IsError)
+		}
 		if !ok || info.hidden {
 			continue
 		}
