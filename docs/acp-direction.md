@@ -17,7 +17,7 @@ Changed 6 Nov 2026 (T195): structured is the default for new Claude Code and ope
 
 - A person whose structured pane will not start, or needs a sign-in Flockdeck cannot finish, would otherwise have no way to use the agent. The terminal entry, Settings, General, "New panes start as", `flockdeck spawn -terminal` and the "Restart as terminal" button on a failed pane are the way back.
 - Some agents have no ACP route and cannot move: Cursor Agent, Aider, plain shells, and any CLI a user adds in `agents.json`. Their panes are terminals, so the terminal code (screen reading, typed wake, the shell inbox) keeps running for them.
-- A phone cannot yet answer a structured pane's permission request. It is told "Answer on the desktop". Installs with paired devices or remote access keep terminal as the default for new panes until the phone app and the relay path ship.
+- A phone cannot yet answer a structured pane's permission request. It is told "Answer on the desktop". Installs with paired devices or Remote keep terminal as the default for new panes until the phone app and the relay path ship.
 
 Codex and Gemini CLI stay terminal by default. Their structured entries are hidden until T192 has run them against the real programs. The default applies to new panes only: a saved layout restores each pane as it was. How the setting works is in the [structured pane](structured-pane.md) page and the help page "Agents and models".
 

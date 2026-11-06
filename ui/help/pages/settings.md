@@ -166,7 +166,7 @@ two pages: pick a section to open it, and **← All settings** goes back.
   New panes** in the settings. Kept in `prefs.json`.
 - New panes start as: **General** in the settings. Follow the default,
   Structured or Terminal, for a new Claude Code or opencode pane. The default is
-  structured, except on a machine that paired devices or remote access can
+  structured, except on a machine that paired devices or Remote can
   reach. It changes new panes only, and only from the machine itself. Kept in
   `prefs.json`; [Agents and models](#agents) says what to know about
   structured panes.

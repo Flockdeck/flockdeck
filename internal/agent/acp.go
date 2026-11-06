@@ -125,6 +125,10 @@ func (s Spec) ACPKeyEnv() string {
 	return name
 }
 
+// IsStructured says this Spec is a structured entry, one Flockdeck drives over
+// the Agent Client Protocol, as opposed to a terminal agent.
+func (s Spec) IsStructured() bool { return s.Runner == RunnerACP }
+
 // ACPAdapter returns the manifest entry a structured Spec starts.
 func (s Spec) ACPAdapter() (manifest.Adapter, bool) {
 	if s.Runner != RunnerACP {

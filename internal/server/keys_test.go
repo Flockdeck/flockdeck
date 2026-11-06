@@ -37,7 +37,11 @@ func TestUnreadableKeyStoreIsReported(t *testing.T) {
 // that take a key are hidden for now, so the dialog starts empty; a key stored
 // for one is listed on a row of its own, where it can be cleared.
 func TestKeysDialogIsAnswered(t *testing.T) {
-	srv, _ := newTestServer(t)
+	srv, ws := newTestServer(t)
+	// New panes start structured unless the person chose terminal, which lists
+	// Claude Code (structured); this test is about the agents that stay hidden.
+	chooseTerminalPanes(t)
+	ws.ReloadAgents()
 	conn := dialControl(t, srv)
 
 	sendCmd(t, conn, command{Cmd: "keys"})
@@ -94,7 +98,9 @@ func TestAKeyForAnAgentThatTakesNoneIsRefused(t *testing.T) {
 // A hidden agent that takes a key gets a row once it has a stored key, so the
 // key can be changed or cleared; without one it has none.
 func TestAHiddenKeyedAgentIsListedWhenItHasAKey(t *testing.T) {
-	srv, _ := newTestServer(t)
+	srv, ws := newTestServer(t)
+	chooseTerminalPanes(t)
+	ws.ReloadAgents()
 	conn := dialControl(t, srv)
 	sendCmd(t, conn, command{Cmd: "keys"})
 	var msg keysMsg
@@ -128,5 +134,16 @@ func TestAnUnusableKeyIsRefusedInTheDialog(t *testing.T) {
 	}
 	if names, _ := creds.Names(); len(names) != 0 {
 		t.Errorf("the store holds %v", names)
+	}
+}
+
+// chooseTerminalPanes stores the choice of terminal panes in the test's own
+// configuration folder, which the test has already pointed away from the real
+// one (newTestServer and the tests that set APPDATA do it first). A workspace
+// that already exists reads it with ReloadAgents.
+func chooseTerminalPanes(t *testing.T) {
+	t.Helper()
+	if err := store.SavePrefs(store.Prefs{Panes: store.PanesTerminal}); err != nil {
+		t.Fatal(err)
 	}
 }

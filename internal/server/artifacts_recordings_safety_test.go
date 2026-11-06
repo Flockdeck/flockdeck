@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/coder/websocket"
 	"github.com/jmwri/flockdeck/internal/artifacts"
 )
 
@@ -152,6 +153,12 @@ func TestRecordingsOpenPastTheRequestDeadlineShowsNothing(t *testing.T) {
 	e.allow(t)
 	writeRec(t, "shop-0a1b2c3d", "20261001T101530Z-0123abcd.jsonl", recStarted(),
 		recLine(2, "assistant_message", map[string]any{"text": "one"}))
+	// The id is read on a socket with the usual deadline: listing the
+	// recordings can take longer than the short one below on a slow disk, and
+	// the test is about the open.
+	listConn, listSess := e.open(t)
+	id := itemsOf(t, ask2(t, listConn, listSess, map[string]any{"op": "list", "kind": "recordings"}))[0]["id"]
+	_ = listConn.Close(websocket.StatusNormalClosure, "")
 	e.srv.artifacts.setTimings(func(tm *artifactTimings) {
 		tm.request = 150 * time.Millisecond
 		tm.hook = func(ctx context.Context, op string) {
@@ -161,7 +168,6 @@ func TestRecordingsOpenPastTheRequestDeadlineShowsNothing(t *testing.T) {
 		}
 	})
 	conn, sess := e.open(t)
-	id := itemsOf(t, ask2(t, conn, sess, map[string]any{"op": "list", "kind": "recordings"}))[0]["id"]
 	before := auditLines(t)
 
 	r := ask2(t, conn, sess, map[string]any{"op": "open", "kind": "recordings", "id": id})

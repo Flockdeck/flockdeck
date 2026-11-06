@@ -74,7 +74,7 @@ Agent, Aider, plain shells, and any command-line agent you add in `agents.json`.
 Codex and Gemini CLI stay in a terminal for now too; their structured versions
 are hidden until they have been tried against the real programs.
 
-On a machine with paired devices or remote access turned on, new panes stay
+On a machine with paired devices or Remote turned on, new panes stay
 terminal unless you choose Structured in Settings. A phone is told when a
 structured agent is waiting and cannot answer it yet, so a person away from the
 desk would be left with a stalled pane.

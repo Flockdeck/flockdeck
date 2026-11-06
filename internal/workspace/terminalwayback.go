@@ -3,7 +3,6 @@ package workspace
 import (
 	"errors"
 
-	"github.com/jmwri/flockdeck/internal/agent"
 	"github.com/jmwri/flockdeck/internal/session"
 )
 
@@ -43,7 +42,7 @@ func (w *Workspace) TerminalWayBack(p *Pane) string {
 		id = w.defaultAgentFor(p.Root)
 	}
 	spec, ok := cat.Find(id)
-	if !ok || spec.Runner != agent.RunnerACP {
+	if !ok || !spec.IsStructured() {
 		return ""
 	}
 	if t := cat.TerminalOf(id); t != id {

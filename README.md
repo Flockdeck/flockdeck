@@ -16,7 +16,7 @@ Claude Code is the default agent. Codex, Gemini CLI, Aider, opencode and Cursor'
 agent run the same way. A CLI agent uses whatever login it already has. `flockdeck
 keys` stores API keys, but no agent in the catalog takes one yet.
 
-New Claude Code and opencode panes start as structured panes: Flockdeck drives the agent over the Agent Client Protocol and the drawer shows the conversation. Settings, General, "New panes start as" (or `flockdeck spawn -terminal`, or the "(terminal)" entries in the picker) gives a terminal pane instead. Cursor Agent, Aider, shells, any CLI you add in `agents.json`, and for now Codex and Gemini CLI, run in a terminal. On a machine with paired devices or remote access, new panes stay terminal by default until the phone app can answer a structured pane; a phone is told "Answer on the desktop" when one waits. The task board is planned for removal, and Aider is planned to be dropped. See [docs/acp-direction.md](docs/acp-direction.md).
+New Claude Code and opencode panes start as structured panes: Flockdeck drives the agent over the Agent Client Protocol and the drawer shows the conversation. Settings, General, "New panes start as" (or `flockdeck spawn -terminal`, or the "(terminal)" entries in the picker) gives a terminal pane instead. Cursor Agent, Aider, shells, any CLI you add in `agents.json`, and for now Codex and Gemini CLI, run in a terminal. On a machine with paired devices or Remote, new panes stay terminal by default until the phone app can answer a structured pane; a phone is told "Answer on the desktop" when one waits. The task board is planned for removal, and Aider is planned to be dropped. See [docs/acp-direction.md](docs/acp-direction.md).
 
 ## Install
 

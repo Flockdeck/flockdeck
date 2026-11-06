@@ -1076,6 +1076,9 @@ func TestAPaneThatNeverStartedStillTakesASocket(t *testing.T) {
 	// Nothing on PATH, so the `claude` CLI cannot be found and the pane's
 	// process never starts.
 	t.Setenv("PATH", t.TempDir())
+	// A terminal pane is the one with a process that can fail to start; new
+	// panes are structured unless the person chose terminal.
+	chooseTerminalPanes(t)
 
 	ws, err := workspace.New(workspace.Options{Root: t.TempDir()})
 	if err != nil {

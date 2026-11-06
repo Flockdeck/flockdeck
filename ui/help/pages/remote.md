@@ -339,7 +339,7 @@ A structured agent (a new Claude Code or opencode pane starts as one) that is wa
 or a question also sends this notification. It says "Answer on the desktop" and nothing of what the
 agent asked. The phone cannot answer yet: the phone app does not offer Allow or Deny, and structured
 panes are not sent to a phone over the relay. Because of that, new panes on a machine with paired
-devices or remote access stay terminal by default; Settings, General, **New panes start as** can
+devices or Remote stay terminal by default; Settings, General, **New panes start as** can
 choose Structured there. An agent left running on a structured pane stalls at its first permission
 until someone answers at the desk.
 

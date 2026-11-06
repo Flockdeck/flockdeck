@@ -198,7 +198,7 @@ unavailable when `claude` is not on PATH.
 
 The picker lists the structured entries for Claude Code and opencode while new panes start structured,
 which is the default. Settings, General, "New panes start as" (the `panes` preference, not `agents.json`,
-which holds entries only) turns them off, and so do paired devices and remote access when no choice was made.
+which holds entries only) turns them off, and so do paired devices and Remote when no choice was made.
 The hidden Codex and Gemini entries can still be found by id.
 
 ## Gemini CLI and Codex end to end (T192)
