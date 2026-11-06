@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -82,9 +83,15 @@ func TestOwnAdapterWithNoExecutableIsUnavailable(t *testing.T) {
 }
 
 func TestOwnAdapterGetsHomeVariablesAndNoFlockdeckOnes(t *testing.T) {
+	// Windows ignores the case of a variable name, so the mixed spelling must
+	// still be found there. Linux and macOS do not, and read it as another name.
+	appData := "APPDATA"
+	if runtime.GOOS == "windows" {
+		appData = "AppData"
+	}
 	r := &Runtime{ctx: context.Background(), opts: Options{
 		Spec: ownSpec(),
-		Environ: []string{"HOME=/home/u", "USERPROFILE=/u/profile", "AppData=/u/appdata",
+		Environ: []string{"HOME=/home/u", "USERPROFILE=/u/profile", appData + "=/u/appdata",
 			"FLOCKDECK_TOKEN=secret", "flockdeck_api=x", "PERCH_TOKEN=s", "AWS_SECRET_ACCESS_KEY=k"},
 		Executable: func() (string, error) { return os.Executable() },
 	}}

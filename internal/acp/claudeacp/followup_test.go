@@ -106,13 +106,19 @@ func TestSilentTurnOfClaudesOwnStopsHoldingPrompts(t *testing.T) {
 	defer func() { testBusyIdle = old }()
 	h := newHarness(t, append(append([]step{}, ownTurn...),
 		expect(`"text":"mine"`), emit(resultWith("mine"))))
-	sid := h.start()
+	// claude's own turn starts when the session does, and the idle time runs from
+	// there. Starting the session can itself take longer than the idle time on a
+	// slow machine (under the race detector it did), by which point the turn has
+	// already been given up on and the prompt waits for nothing. So the time is
+	// taken from before the session starts: the prompt cannot be answered sooner
+	// than the idle time after that.
 	start := time.Now()
+	sid := h.start()
 	if got := stopReason(t, h.await(h.promptText(sid, "mine"))); got != "end_turn" {
 		t.Errorf("stop reason = %q", got)
 	}
 	if d := time.Since(start); d < 300*time.Millisecond || d > 10*time.Second {
-		t.Errorf("the prompt waited %v, want about the idle time", d)
+		t.Errorf("the session started and the prompt was answered in %v, want about the idle time", d)
 	}
 }
 
