@@ -87,17 +87,20 @@ func TestATurnIsNeverRoutedIntoAStructuredPane(t *testing.T) {
 	goroutinesBelow(t, goroutines+3, "after the turn")
 }
 
-// The spawn gate is AgentSpecByID: with structured panes off it refuses the
+// The spawn gate is AgentSpecByID: with terminal panes chosen it refuses the
 // agent itself, before anything tries to start it.
 func TestAgentSpecByIDRefusesAStructuredAgentWhileTheyAreOff(t *testing.T) {
 	isolateConfig(t)
 	teamAgents(t)
 	onPath(t, "opencode")
+	if err := store.SavePrefs(store.Prefs{Panes: store.PanesTerminal}); err != nil {
+		t.Fatal(err)
+	}
 	ws := newTestWorkspace(t, t.TempDir())
 	if _, err := ws.AgentSpecByID("opencode-acp"); err == nil || !strings.Contains(err.Error(), "turned off") {
 		t.Errorf("with the preference off: %v", err)
 	}
-	if err := store.SavePrefs(store.Prefs{StructuredPanes: true}); err != nil {
+	if err := store.SavePrefs(store.Prefs{Panes: store.PanesStructured}); err != nil {
 		t.Fatal(err)
 	}
 	ws.ReloadAgents()
@@ -105,7 +108,7 @@ func TestAgentSpecByIDRefusesAStructuredAgentWhileTheyAreOff(t *testing.T) {
 		t.Errorf("with the preference on: %v", err)
 	}
 	// Turning it off again applies when the catalog is read again.
-	if err := store.SavePrefs(store.Prefs{}); err != nil {
+	if err := store.SavePrefs(store.Prefs{Panes: store.PanesTerminal}); err != nil {
 		t.Fatal(err)
 	}
 	ws.ReloadAgents()

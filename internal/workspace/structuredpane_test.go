@@ -181,10 +181,13 @@ func TestStructuredHelpersCountAgainstTheCap(t *testing.T) {
 	}
 }
 
-// With the preference off a structured agent is refused as a spawn, and a pane
-// restored with it reports why in place.
+// With terminal panes chosen a structured agent is refused as a spawn, and a
+// pane restored with it reports why in place.
 func TestStructuredPanesAreOptIn(t *testing.T) {
 	isolateConfig(t)
+	if err := store.SavePrefs(store.Prefs{Panes: store.PanesTerminal}); err != nil {
+		t.Fatal(err)
+	}
 	teamAgents(t)
 	onPath(t, "opencode")
 	root := t.TempDir()
