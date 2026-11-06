@@ -23,6 +23,8 @@ func TestComponent(t *testing.T) {
 		"apikey.txt", "auth.json", "svc.keytab", ".dev.vars", "gradle.properties", ".terraformrc", "private_key.asc",
 		"x.env.json", "kubeconfig.yaml", "kubeconfig-prod", "kube.config", ".gitconfig", "known_hosts", "known_hosts.old",
 		"Login Data", "Login Data-journal", "cookies.sqlite", "access_key.csv",
+		// plural forms, as AWS and others name a downloaded file
+		"accessKeys.csv", "access_keys.csv", "api_keys.json", "apikeys.json", "private_keys.txt", "secret_keys.txt", "rootkey.csv",
 		// folders, as names
 		".git", ".ssh", ".aws", ".gnupg", ".kube", ".docker", ".azure", ".terraform", "secrets", "Private", ".secrets",
 	}
