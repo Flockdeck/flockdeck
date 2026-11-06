@@ -527,3 +527,23 @@ func TestNoLifecycleEventCanMarkALivePaneExited(t *testing.T) {
 		_ = f.Close()
 	}
 }
+
+func TestValidPaneIDAndSettingsFileName(t *testing.T) {
+	for _, id := range []string{"0b6f6f1e-3a1c-4c3e-9f55-0d1c2b3a4f5e", "p1", "abc_DEF-9"} {
+		if !ValidPaneID(id) {
+			t.Errorf("ValidPaneID(%q) = false", id)
+		}
+	}
+	for _, id := range []string{"", "../../x", `..\x`, "a/b", "a.b", "a b", "a\x00b", strings.Repeat("a", 65)} {
+		if ValidPaneID(id) {
+			t.Errorf("ValidPaneID(%q) = true", id)
+		}
+	}
+	dir := filepath.Join(t.TempDir(), "sessions")
+	if _, err := WriteHookSettingsWith("claude", dir, "../../../escaped", "flockdeck", "http://127.0.0.1:1", StatusLine{}); err == nil {
+		t.Error("WriteHookSettingsWith accepted a path as an id")
+	}
+	if _, err := os.Stat(filepath.Join(dir, "..", "..", "..", "escaped.settings.json")); err == nil {
+		t.Error("a settings file was written outside the folder")
+	}
+}

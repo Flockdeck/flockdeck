@@ -2624,7 +2624,9 @@ func (w *Workspace) destroyPane(id string) {
 	// needed.
 	forgetWorktreeProcess(id)
 	// The generated settings file is only meaningful while the pane lives.
-	_ = os.Remove(filepath.Join(w.settingsDir, id+".settings.json"))
+	if session.ValidPaneID(id) {
+		_ = os.Remove(filepath.Join(w.settingsDir, id+".settings.json"))
+	}
 	w.mu.Lock()
 	w.forgetRenames(id)
 	w.mu.Unlock()

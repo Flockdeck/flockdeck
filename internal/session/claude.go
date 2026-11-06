@@ -267,9 +267,30 @@ func WriteHookSettingsFor(exe, dir, sessionID, selfExe, endpoint string) (string
 	return WriteHookSettingsWith(exe, dir, sessionID, selfExe, endpoint, StatusLine{Mode: StatusLineOff})
 }
 
+// ValidPaneID reports whether id is safe to use as part of a file name: letters,
+// digits, hyphens and underscores only, and not long. A pane's id is a UUID, but
+// one read back from a saved layout is whatever the file says, and it names the
+// pane's settings file, which is written and removed by that name.
+func ValidPaneID(id string) bool {
+	if id == "" || len(id) > 64 {
+		return false
+	}
+	for _, c := range id {
+		switch {
+		case c >= 'a' && c <= 'z', c >= 'A' && c <= 'Z', c >= '0' && c <= '9', c == '-', c == '_':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 // WriteHookSettingsWith is WriteHookSettingsFor with the pane's status line
 // routed through Flockdeck as sl says.
 func WriteHookSettingsWith(exe, dir, sessionID, selfExe, endpoint string, sl StatusLine) (string, error) {
+	if !ValidPaneID(sessionID) {
+		return "", fmt.Errorf("%q is not a pane id, so no settings file is named after it", sessionID)
+	}
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", fmt.Errorf("create settings dir: %w", err)
 	}

@@ -581,7 +581,9 @@ func (w *Workspace) decodeNode(n *store.Node, tabRoot string, r *restoring) *lay
 		if p.Root == "" {
 			p.Root = tabRoot
 		}
-		if p.ID == "" || p.Cwd == "" {
+		// An id that is not safe in a file name is a layout edited by hand: the
+		// pane's settings file is named after it.
+		if !session.ValidPaneID(p.ID) || p.Cwd == "" {
 			return nil
 		}
 		// The size the pane was last drawn at. A restore starts every pane
