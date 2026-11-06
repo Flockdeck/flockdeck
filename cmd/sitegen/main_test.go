@@ -463,7 +463,7 @@ func TestThePrivacyPolicyDisclosesTypeSafe(t *testing.T) {
 		"holds no message text, except the line typed in text mode",
 		"the line is the message itself, cut to 300 characters",
 		"so it holds message text",
-		"A structured agent (the default for new Claude Code and opencode panes) is sent each message as a prompt over its protocol",
+		"A structured agent (the default for new Claude Code and opencode panes) is sent each message as a prompt over its protocol, with no prompt rule and no text mode involved. The log records that message by number with the panes, its delivery states and how the turn ended, and holds none of its text.",
 	} {
 		if !strings.Contains(policy, want) {
 			t.Errorf("privacy.html does not say %q", want)
