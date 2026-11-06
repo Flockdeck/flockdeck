@@ -115,6 +115,11 @@ type SpawnOptions struct {
 	// CLI keeps whatever it was configured with.
 	Agent string
 	Model string
+	// Terminal asks for the terminal version of the agent. A bare agent id
+	// (claude, opencode) starts the structured one while structured panes are
+	// on; Terminal is how a spawn gets the terminal pane instead. It changes
+	// nothing for an agent that has no structured version.
+	Terminal bool
 	// Role is the id of the role the child is started as, recorded on the pane
 	// and put in its environment. The caller has already checked it exists and
 	// folded the role's agent and model into Agent and Model.
@@ -185,8 +190,14 @@ func (w *Workspace) spawnPlace(parentPaneID, askedCwd string) (cwd, home string)
 // spawn and what the spawn runs cannot differ. It must run on the workspace
 // goroutine.
 func (w *Workspace) SpawnTarget(parentPaneID, askedCwd, agentID, model string) (string, string) {
+	return w.SpawnTargetAs(parentPaneID, askedCwd, agentID, model, false)
+}
+
+// SpawnTargetAs is SpawnTarget with terminal, which asks for the terminal
+// version of the agent where it has a structured one (SpawnOptions.Terminal).
+func (w *Workspace) SpawnTargetAs(parentPaneID, askedCwd, agentID, model string, terminal bool) (string, string) {
 	cwd, home := w.spawnPlace(parentPaneID, askedCwd)
-	return w.resolveChoice(w.helperProject(cwd, home), agentID, model)
+	return w.resolveSpawnChoice(w.helperProject(cwd, home), agentID, model, terminal)
 }
 
 // SpawnProject is the project Spawn resolves the agent and model of a helper
@@ -571,7 +582,7 @@ func (w *Workspace) Spawn(parentPaneID string, o SpawnOptions) (string, error) {
 	// helper that could not start in it.
 	agentID, model := o.Agent, o.Model
 	if o.Kind != session.KindShell {
-		agentID, model = w.SpawnTarget(parentPaneID, o.Cwd, o.Agent, o.Model)
+		agentID, model = w.SpawnTargetAs(parentPaneID, o.Cwd, o.Agent, o.Model, o.Terminal)
 		if _, err := w.AgentSpec(agentID); err != nil {
 			return "", err
 		}

@@ -226,6 +226,18 @@ type Spec struct {
 	NoDashDash bool `json:"noDashDash,omitempty"`
 	// Hidden keeps a built-in out of the picker without removing it.
 	Hidden bool `json:"hidden,omitempty"`
+	// Terminal is, on a structured entry, the id of the entry that runs the
+	// same agent in a terminal. It is the one map the picker, the default for a
+	// new pane and a request for the terminal version all read: a bare agent id
+	// resolves to the structured entry that names it here (Catalog.ForNewPane),
+	// and a structured id resolves back through it (Catalog.TerminalOf). An
+	// entry nothing names, and a structured one that names none, has no sibling.
+	Terminal string `json:"terminal,omitempty"`
+
+	// edited is set on a built-in that the user's agents.json has overridden.
+	// Such an entry runs as the user wrote it, so a bare id is never moved off it
+	// onto its structured sibling.
+	edited bool
 }
 
 // Tokens are the values an argument list may refer to. A token with no value
