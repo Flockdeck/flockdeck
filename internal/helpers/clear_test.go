@@ -88,7 +88,7 @@ func TestTheRecordIsGoneBeforeTheStateSaysStoppedOrFailed(t *testing.T) {
 		})
 	})
 	t.Run("a crash that ends it", func(t *testing.T) {
-		check(t, []string{"--mode", "crash", "--after", "50ms"}, StateFailed, func(f *supFixture) {
+		check(t, []string{"--mode", "crash", "--after", "500ms"}, StateFailed, func(f *supFixture) {
 			if _, err := f.sup.Start("lens"); err != nil {
 				t.Fatal(err)
 			}
