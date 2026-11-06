@@ -97,7 +97,7 @@ func (w *Workspace) startStructured(p *Pane, spec agent.Spec) {
 	p.savedTransport = TransportStructured
 	w.mu.Unlock()
 	if !w.agents().Structured {
-		failed(fmt.Errorf("%s is a structured agent, and structured panes are turned off. Turn on structuredPanes in prefs.json and restart the pane, or close it", spec.Name))
+		failed(fmt.Errorf("%s is a structured agent, and new panes are set to start in a terminal. Change that in Settings, under General, or restart this pane as a terminal agent, or close it", spec.Name))
 		return
 	}
 	if _, err := os.Stat(p.Cwd); err != nil {

@@ -28,7 +28,7 @@ import { Wake } from "./Wake.js";
 import { SPONSOR_URL } from "./links.js";
 import {
   ACCENTS, CURSORS, FONT_DEFAULT, FONT_MAX, FONT_MIN, FONT_SUGGESTIONS, SCROLLBACK_COUNTS, SCROLLBACK_MAX, SCROLLBACK_MIN,
-  STATUS_LINES, THEMES, WHY, fontStack,
+  PANES, PANES_WORDS, STATUS_LINES, THEMES, WHY, fontStack,
 } from "../lib/prefs.js";
 
 /** SECTIONS are the parts of the dialog. */
@@ -163,6 +163,12 @@ function General({ prefs, change, radar, remote }) {
     <${Row} id="set-auto-review" label="Auto-approve read-only in new panes"
       about="Only a command it is confident is read-only is let through without asking; anything else still asks. A pane opened by hand starts with this setting; a pane started from another one starts the way that pane is set.">
       <${Switch} id="set-auto-review-default" on=${prefs.autoReviewDefault} labelledBy="set-auto-review-label" onChange=${(on) => change("autoReviewDefault", on)} />
+    <//>
+    <${Row} id="set-panes" label="New panes start as" about=${PANES_WORDS}>
+      <select class="dialog-field" id="set-panes-list" aria-labelledby="set-panes-label" aria-describedby="set-panes-about" disabled=${remote}
+        value=${prefs.panes} onChange=${(e) => change("panes", e.target.value)}>
+        ${PANES.map(([v, name]) => html`<option key=${v} value=${v}>${name}</option>`)}
+      </select>
     <//>
     <${Row} id="set-radar" label="Show when two panes' work would conflict" about=${why ? RADAR_WORDS + " " + why : RADAR_WORDS}>
       <${Switch} id="set-radar-switch" on=${prefs.conflictRadar && !why} labelledBy="set-radar-label" disabled=${!!why} onChange=${(on) => change("conflictRadar", on)} />

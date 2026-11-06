@@ -59,7 +59,7 @@ test("a stored value in range is kept", () => {
     theme: "system", accent: "pink", fontSize: 20, fontFamily: "Fira Code", scrollback: 50000, cursorStyle: "underline",
     cursorSteady: true, screenReader: true, autoReviewDefault: true, dismissedTips: 0, wake: { off: false, agents: [], panes: [], textAgents: [] },
     notificationsOff: false, jevStatus: false, conflictRadar: false, push: { off: false, anonymous: false, delaySeconds: 30 },
-    statusLine: "auto", railExpanded: false, railWidth: 220, helpSeen: false, ui: {}, drawerW: 420, drawerH: 360, orient: "auto",
+    panes: "default", statusLine: "auto", railExpanded: false, railWidth: 220, helpSeen: false, ui: {}, drawerW: 420, drawerH: 360, orient: "auto",
   });
   assert.equal(prefsOf({ theme: "light" }).theme, "light");
 });
@@ -84,6 +84,9 @@ test("each setting round-trips: the command it sends and the value the desktop k
     ["statusLine", "on", { cmd: "statusLine", text: "on" }, (p) => p.statusLine === "on"],
     ["statusLine", "off", { cmd: "statusLine", text: "off" }, (p) => p.statusLine === "off"],
     ["statusLine", "auto", { cmd: "statusLine", text: "auto" }, (p) => p.statusLine === "auto"],
+    ["panes", "structured", { cmd: "panes", text: "structured" }, (p) => p.panes === "structured"],
+    ["panes", "terminal", { cmd: "panes", text: "terminal" }, (p) => p.panes === "terminal"],
+    ["panes", "default", { cmd: "panes", text: "default" }, (p) => p.panes === "default"],
     ["railExpanded", true, { cmd: "railExpanded", kind: "on" }, (p) => p.railExpanded === true],
     ["railExpanded", false, { cmd: "railExpanded", kind: "off" }, (p) => p.railExpanded === false],
     ["railWidth", 300, { cmd: "railWidth", size: 300 }, (p) => p.railWidth === 300],
@@ -103,7 +106,7 @@ test("a value the desktop would refuse is not sent", () => {
   for (const [name, value] of [
     ["theme", "neon"], ["accent", "red"], ["accent", "teal"], ["fontSize", 7], ["fontSize", 29], ["fontSize", 13.5], ["fontSize", "13"],
     ["fontFamily", "x".repeat(201)], ["fontFamily", 4], ["scrollback", 999], ["scrollback", 200001], ["scrollback", 1000.5],
-    ["cursorStyle", "zigzag"], ["nothing", 1], ["statusLine", "sometimes"], ["railWidth", 179], ["railWidth", 481], ["railWidth", "300"],
+    ["cursorStyle", "zigzag"], ["nothing", 1], ["statusLine", "sometimes"], ["panes", "both"], ["panes", ""], ["railWidth", 179], ["railWidth", 481], ["railWidth", "300"],
   ]) assert.equal(setting(name, value), null, name + " " + value);
   assert.ok(setting("fontSize", 8) && setting("fontSize", 28) && setting("scrollback", 1000) && setting("scrollback", 200000));
   assert.ok(setting("fontFamily", "x".repeat(200)));
@@ -666,4 +669,41 @@ test("lib/wake: commands, defaults and the order of switches", async () => {
   assert.equal(wakeEnabled(w, "aider", "p1"), false);
   assert.equal(wakeEnabled(w, "claude", "p2"), false);
   assert.equal(wakeEnabled(wakeOf({ off: true }), "claude", "p1"), false);
+});
+
+test("panes: the setting reads an explicit choice, the older structuredPanes key, and nothing", () => {
+  assert.equal(prefsOf({}).panes, "default");
+  assert.equal(prefsOf({ panes: "terminal" }).panes, "terminal");
+  assert.equal(prefsOf({ panes: "structured" }).panes, "structured");
+  assert.equal(prefsOf({ structuredPanes: true }).panes, "structured", "the older opt-in reads as structured");
+  assert.equal(prefsOf({ panes: "terminal", structuredPanes: true }).panes, "terminal", "an explicit choice wins");
+  assert.equal(prefsOf({ panes: "later-build-value" }).panes, "default", "a value this build does not know is no choice");
+  assert.equal(prefsOf({ panes: 3 }).panes, "default");
+  // Choosing the default clears the stored choice and the older key.
+  const patch = setting("panes", "default").patch;
+  assert.equal(prefsOf({ panes: "terminal", structuredPanes: true, ...patch }).panes, "default");
+});
+
+test("panes: the control says what changes and sends the choice", async () => {
+  await withPage({ panes: "terminal" }, async (m) => {
+    await m.connect();
+    await m.openSettings("general");
+    const list = m.container.find("#set-panes-list");
+    assert.ok(list, "the control is in General");
+    assert.deepEqual(list.findAll("option").map((o) => o.attributes.value), ["default", "structured", "terminal"]);
+    assert.equal(valueIn(list), "terminal");
+    const about = m.container.find("#set-panes-about").textContent;
+    assert.match(about, /new panes only/);
+    assert.match(about, /not ended/);
+    assert.doesNotMatch(about, /beta/i);
+    m.clear();
+    list.value = "structured";
+    list.dispatch("change");
+    await settle();
+    assert.deepEqual(m.sent("panes"), [{ cmd: "panes", text: "structured" }]);
+    list.value = "default";
+    list.dispatch("change");
+    await settle();
+    assert.deepEqual(m.sent("panes").map((c) => c.text), ["structured", "default"]);
+  });
 });
