@@ -103,3 +103,24 @@ func TestAFailedStartFromABatonDiscardsTheWorktreeItCut(t *testing.T) {
 		t.Error("the branch cut for the failed start was left behind")
 	}
 }
+
+// Starting the same agent the pane runs, into the worktree of a branch whose
+// committed settings send it through a gateway, is a change of company: the
+// tick is asked for even though the agent is the same.
+func TestAWindowStartOfTheSameAgentIntoAGatewayBranchNeedsTheTick(t *testing.T) {
+	srv, ws := newTestServer(t)
+	writeCatalog(t, "git")
+	repo := plainRepo(t, false)
+	branchWithGateway(t, repo, "gw")
+	pane := parentIn(t, srv, ws, repo) // runs claude-a
+	conn := dialControl(t, srv)
+	sendCmd(t, conn, command{Cmd: "makeBaton", ID: pane})
+	var draft batonDraftMsg
+	readUntil(t, conn, "batonDraft", &draft)
+	sendCmd(t, conn, command{Cmd: "startFromBaton", ID: pane, Text: draft.Text, Agent: "claude-a", Branch: "gw"})
+	var e batonErrorMsg
+	readUntil(t, conn, "batonError", &e)
+	if !strings.Contains(e.Error, "different company") {
+		t.Errorf("batonError = %+v, want the tick to be asked for", e)
+	}
+}
