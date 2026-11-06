@@ -1,6 +1,6 @@
 # The command line
 
-> Direction (27 Oct 2026): Flockdeck is moving to run every agent over ACP. `inbox`, `msg`, the typed wake line, `wake` and `task` below are planned removals, not removed yet; new agents will not use them. See docs/acp-direction.md in the repository.
+> `msg`, `inbox` and `wake` are the mail routes of terminal panes. A structured pane has no shell, so its agent sends with the `send_message` tool, looks at the team with `list_peers`, and gets mail as prompts. Terminal panes stay available as the opt-out and for agents without a structured route, so these commands keep working there.
 
 Once it is running you rarely need the command line: projects are opened and
 switched from inside the window. These are what is left.
@@ -21,8 +21,8 @@ switched from inside the window. These are what is left.
 | `flockdeck recordings export` | Write an agent's stored conversation as a transcript, whether or not the pane was recorded; `-o` chooses the file, `-reveal` shows it in your file manager |
 | `flockdeck baton` | List the handoffs agents have made (`flockdeck baton list`), or print one (`flockdeck baton show <baton-id>`; `-path` prints the file instead) |
 | `flockdeck team` | From inside a pane: list the agents in its project with role and status; `-json` for a script |
-| `flockdeck msg send` | From inside a pane: message another agent by pane id, name or role |
-| `flockdeck inbox` | From inside a pane: list unread messages, `-all` for every one; `inbox read <id>` prints one in full |
+| `flockdeck msg send` | From inside a terminal pane: message another agent by pane id, name or role |
+| `flockdeck inbox` | From inside a terminal pane: list unread messages, `-all` for every one; `inbox read <id>` prints one in full |
 | `flockdeck task` | From inside a pane: the project's shared task board (`add`, `list`, `show`, `assign`, `status`, `note`, `branch`, `baton`, `prune`) |
 | `flockdeck knowledge` | From a terminal outside Flockdeck: show (`status`) or set (`on`, `off`) whether a project's agents are pointed at the notes in `.flockdeck/knowledge` |
 | `flockdeck wake` | From a terminal outside Flockdeck: show (`status`) or set (`on`, `off`) the switches for typed wake, globally, per agent type or per pane |
@@ -200,7 +200,8 @@ agent started, and says so; it names at most twelve panes and gives the number l
 
 ## msg
 
-Run from inside a pane, this sends a message to another agent in the same project. It is the
+Run from inside a terminal pane, this sends a message to another agent in the same project. A
+structured pane has no shell and uses the `send_message` tool instead. It is the
 fallback channel: agents are told to message each other with the SendMessage tool of Claude Code,
 by the session name `ListAgents` shows, and to use `msg send` only when SendMessage fails or an
 agent has no such tool. Flockdeck's own notices (a helper idle or exited, task changes) always
@@ -233,7 +234,8 @@ open panes, not against the process that sent it, as with `spawn` and `close`.
 
 ## inbox
 
-Run from inside a pane, this reads the messages other agents have sent it:
+Run from inside a terminal pane, this reads the messages other agents have sent it. A structured
+pane has no inbox to read: its mail arrives as prompts.
 
 ```sh
 flockdeck inbox [-all] [-json] [-wait <duration>]
