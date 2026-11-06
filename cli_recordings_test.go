@@ -286,3 +286,21 @@ func TestExportCommandRevealsTheFileItWrote(t *testing.T) {
 		t.Errorf("err = %v", err)
 	}
 }
+
+func TestRecordingsListShowsNoTerminalControls(t *testing.T) {
+	state := recordingsState(t)
+	m := record.NewManager(state)
+	t.Cleanup(m.Close)
+	meta := record.Meta{Conversation: "abcdef0123456789", Project: "x]0;ty[2K", ProjectRoot: "/work/x", Agent: "claude"}
+	if err := m.Write(meta, transcript.ExportEvent{Time: time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC), Kind: transcript.ExportPrompt, Text: "hello"}); err != nil {
+		t.Fatal(err)
+	}
+	m.Finish(meta)
+	var out bytes.Buffer
+	if err := listRecordings(nil, &out, state); err != nil {
+		t.Fatal(err)
+	}
+	if strings.ContainsRune(out.String(), 0x1b) || strings.ContainsRune(out.String(), 0x07) {
+		t.Errorf("list contains control characters: %q", out.String())
+	}
+}
