@@ -122,6 +122,10 @@ func newTestServer(t *testing.T) (*Server, *workspace.Workspace) {
 	// test run by someone using this computer saw them at it and held every
 	// push back, failing eight tests that pass on an unattended runner.
 	setIdle(srv, time.Hour, false, true)
+	// Phone approval is held in the shipped build (phoneApprovalLive); the tests
+	// of the approval switch and socket need it on, and a test of the hold turns
+	// it off again.
+	srv.approveLiveOn = true
 	// Close only asks the workspace goroutine to stop; the change it is applying
 	// runs on, reading whatever package variables it reads. The next test swaps
 	// some of those -- usageOf, readChanges, panesIn -- so the cleanup waits for

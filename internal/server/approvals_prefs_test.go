@@ -517,10 +517,11 @@ func TestHelloSaysCanApproveToADeviceThatMay(t *testing.T) {
 
 type approveDevicesMsg struct {
 	Devices []struct {
-		ID         string `json:"id"`
-		Approve    bool   `json:"approve"`
-		ApproveKey string `json:"approveKey"`
-		Verify     string `json:"verify"`
+		ID          string `json:"id"`
+		Approve     bool   `json:"approve"`
+		ApproveKey  string `json:"approveKey"`
+		ApproveHeld bool   `json:"approveHeld"`
+		Verify      string `json:"verify"`
 	} `json:"devices"`
 }
 
@@ -685,5 +686,45 @@ func TestTheDialogShowsTheHostsWordsForApproval(t *testing.T) {
 	}
 	if !strings.Contains(approveAckText, "tampered relay") || approveAckVersion != 2 {
 		t.Errorf("the wording or its version changed (%d): raise approveAckVersion and read the plan before editing", approveAckVersion)
+	}
+}
+
+// While the phone app cannot answer a request (phoneApprovalLive is false) the
+// desk cannot turn approval on: the question is not asked, the switch is refused
+// even with a challenge, and the device list says the switch is held. Turning a
+// device off still works. The test server has approval available for the other
+// tests, so this one takes it away, as the shipped build has it.
+func TestApprovalIsHeldUntilThePhoneAppCanUseIt(t *testing.T) {
+	if phoneApprovalLive {
+		t.Skip("phone approval is live")
+	}
+	e := newApproveEnv(t)
+	desk := dialControlPage(t, e.srv)
+	// A challenge obtained while approval was available, as an old window holds.
+	ch := askChallenge(t, desk, "d1")
+	ask(e.srv, func() bool { e.srv.approveLiveOn = false; return true })
+
+	note := noticeAfter(t, desk, command{Cmd: "approveChallenge", ID: "d1"})
+	if !note.Error || note.Text != approveHeldText {
+		t.Errorf("the question was asked while held: %+v", note)
+	}
+	note = noticeAfter(t, desk, command{Cmd: "setDeviceApprove", ID: "d1", On: true, Nonce: ch.Nonce, V: ch.V})
+	if !note.Error || note.Text != approveHeldText {
+		t.Errorf("the switch was accepted while held: %+v", note)
+	}
+	if e.srv.approveSwitchOn("d1") {
+		t.Error("d1 may approve while approval is held")
+	}
+	sendCmd(t, desk, command{Cmd: "remoteDevices"})
+	var msg approveDevicesMsg
+	readUntil(t, desk, "remoteDevices", &msg)
+	for _, d := range msg.Devices {
+		if !d.ApproveHeld {
+			t.Errorf("device %s is not marked held: %+v", d.ID, d)
+		}
+	}
+	// Off is never held.
+	if note := noticeAfter(t, desk, command{Cmd: "setDeviceApprove", ID: "d1", On: false}); note.Text == approveHeldText {
+		t.Errorf("turning off was held: %+v", note)
 	}
 }
