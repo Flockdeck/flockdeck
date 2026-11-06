@@ -254,3 +254,18 @@ func TestCleanTextRemovesEscapesAndControls(t *testing.T) {
 		t.Errorf("Parse kept an escape: %v", err)
 	}
 }
+
+func TestStrictlyDropsPowerShellAssignments(t *testing.T) {
+	for in, want := range map[string]string{
+		`$env:DB_PASS="hunter2hunter2"; ./deploy`: "deploy",
+		`$env:DB_PASS=hunter2hunter2; ./deploy`:   "deploy",
+		`$env:DB_PASS = "hunter2hunter2"; deploy`: "deploy",
+		`$ENV:A=1; $env:B=2; deploy x`:            "deploy ...",
+		`$env:DB_PASS=hunter2hunter2`:             "",
+	} {
+		got := Strictly(in)
+		if got != want || strings.Contains(got, "hunter2") {
+			t.Errorf("Strictly(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
