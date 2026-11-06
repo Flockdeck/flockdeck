@@ -35,7 +35,7 @@ the adapter was tested with (2.1.311); see
 | `session/prompt` | one `user` line: text blocks as text, image blocks as base64 image blocks, a text resource or link as text; ends at claude's `result` line |
 | `agent_message_chunk`, `agent_thought_chunk` | `text_delta` and `thinking_delta` stream events |
 | `tool_call`, `tool_call_update` | `tool_use` blocks and `tool_result` blocks |
-| `plan` | the `TodoWrite` tool |
+| `plan` | the Task tools (`TaskCreate`, `TaskUpdate`; the adapter keeps the list and sends all of it after each change) and `TodoWrite` |
 | `session/request_permission` | a `can_use_tool` control request |
 | `session/cancel` | an `interrupt` control request |
 | `session/set_mode` | `set_permission_mode` (default, acceptEdits, plan) |
@@ -262,6 +262,15 @@ the command fails, the session still starts and the client gets a `flockdeck_not
 with the code `untested_version`. The bridge shows it in the conversation as "This Claude
 version has not been tested with Flockdeck". The text is the bridge's; the version string
 is only logged.
+
+Claude drops the allow rules of a project's `.claude/settings.json` in a folder it has not trusted, and 
+its trust dialog only appears in a terminal, never under `-p`. The only sign is a stderr line, 
+"Ignoring N permissions.allow entry from .claude/settings.json: this workspace has not been trusted. ..." 
+(claude 2.1.319). When the adapter reads it, it sends one `flockdeck_notice` with the code 
+`project_rules_ignored` per session, which the bridge shows as "Allow rules in this project's 
+.claude/settings.json are ignored until the folder is trusted. Run claude once in this folder in a 
+terminal pane and accept the trust prompt." Setting `projects["<folder>"].hasTrustDialogAccepted: true` 
+in claude's `.claude.json` also works (checked: no warning with it set).
 
 If claude's answer to the `initialize` control request is an error, or does not come within
 the control timeout (30 seconds), `session/new` fails with "Claude Code is unavailable",
@@ -527,8 +536,8 @@ part of it. No API change is needed. What is replayed:
   and one `tool_call` for each `tool_use`, built by the same `describeTool` as a live turn.
   The tool's result is folded into that call (status `completed` or `failed`, the output, or the
   diff it was announced with for an edit), so a call and its result are one entry and one is
-  never dropped without the other. A result with no call in the file is dropped. TodoWrite is
-  not replayed, since a plan is current state.
+  never dropped without the other. A result with no call in the file is dropped. TodoWrite and the
+  Task tools are not replayed, since a plan is current state.
 - Never shown as the agent's words: a line with an `error` or `isApiErrorMessage`, and text
   from the model `<synthetic>` (claude's own local notes such as "No response requested.").
 

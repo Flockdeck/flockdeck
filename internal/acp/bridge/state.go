@@ -211,6 +211,9 @@ func (b *Bridge) sessionUpdate(u acp.Update) bool {
 var noticeTexts = map[string]string{
 	"untested_version": "This Claude version has not been tested with Flockdeck",
 	"new_conversation": "Started a new conversation.",
+	// Claude drops allow rules from a project's .claude/settings.json in a folder it has
+	// not trusted, and a structured pane never shows its trust dialog.
+	"project_rules_ignored": "Allow rules in this project's .claude/settings.json are ignored until the folder is trusted. Run claude once in this folder in a terminal pane and accept the trust prompt.",
 	// Sent by an adapter that replays a stored conversation (the Claude adapter's
 	// session/load) when it could not show all of it.
 	"history_cut_earlier": "Earlier parts of this conversation are not shown.",
