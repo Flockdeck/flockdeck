@@ -171,3 +171,29 @@ func TestAPeerNamedTheUserIsNotShownAsThePerson(t *testing.T) {
 		t.Errorf("lead is labelled %q", got)
 	}
 }
+
+// A structured pane's agent has no hooks, no Flockdeck command line and none of
+// the FLOCKDECK_* variables, so its briefing names the two MCP tools and none of
+// the shell routes a terminal pane uses.
+func TestTheStructuredBriefingNamesOnlySendMessageAndListPeers(t *testing.T) {
+	c := PaneContext{PaneName: "one", Cwd: "/repo", CanSpawn: true, Structured: true, MailText: true,
+		Team: []team.Member{{Pane: "a", Self: true}, {Pane: "b"}}}
+	got := c.Render()
+	for _, want := range []string{"`send_message`", "`list_peers`"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the structured briefing does not name %s:\n%s", want, got)
+		}
+	}
+	for _, bad := range []string{"flockdeck inbox", " msg send", "flockdeck msg", "FLOCKDECK_", "flockdeck spawn", "flockdeck team",
+		"terminal panes", "report your own lifecycle", "SendMessage", "Monitor tool"} {
+		if strings.Contains(got, bad) {
+			t.Errorf("the structured briefing still contains %q:\n%s", bad, got)
+		}
+	}
+	term := PaneContext{PaneName: "one", Cwd: "/repo", CanSpawn: true}.Render()
+	for _, want := range []string{"terminal panes", "flockdeck inbox", "FLOCKDECK_TOKEN", "flockdeck spawn"} {
+		if !strings.Contains(term, want) {
+			t.Errorf("the terminal briefing lost %q", want)
+		}
+	}
+}

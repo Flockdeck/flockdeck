@@ -47,7 +47,7 @@ so.
 
 ## Structured agents (beta)
 
-> Direction (27 Oct 2026): structured agents are where Flockdeck is heading: every agent over ACP, with no terminal-pane agents, no inbox or typed wake, and no task board. Those are planned removals, not removed yet. Agents without native ACP will get an adapter built into the `flockdeck` binary. See docs/acp-direction.md in the repository.
+> Direction (27 Oct 2026): structured agents are where Flockdeck is heading: new Claude and opencode panes start structured by default. The shell inbox, `flockdeck msg` and typed wake are the mail routes of terminal panes, which stay as the opt-out and for agents with no structured route. A structured pane sends with `send_message`, looks at the team with `list_peers`, and gets mail as prompts. The task board is a planned removal. See docs/acp-direction.md in the repository.
 
 A structured agent is one Flockdeck talks to over the Agent Client Protocol
 instead of in a terminal. Its pane has no screen: the drawer
