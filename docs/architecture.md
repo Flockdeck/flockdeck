@@ -182,8 +182,8 @@ line" and "wake".
 
 A structured pane runs an agent over the Agent Client Protocol and not in a
 terminal. It is the default for new Claude Code and opencode panes, unless the
-`panes` preference says terminal or the machine has paired devices or remote
-access. A catalog entry with `RunnerACP` starts
+`panes` preference says terminal or the machine has paired devices or Remote.
+A catalog entry with `RunnerACP` starts
 as a structured pane, and the workspace reads it through the same `PaneRuntime`
 as a terminal pane (`internal/workspace/structuredpane.go`). It has no screen and
 no keys to type: `paneSend` and the wake line reach it as prompts, and a

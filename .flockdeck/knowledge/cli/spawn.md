@@ -25,6 +25,7 @@ Flags may come before or after the task: `orderSpawnArgs` moves them in front. E
 | `-shell` | false | Start a shell instead of an agent. |
 | `-record` | false | Record the helper's interaction; only works once recording is on in the window. |
 | `-agent <id>` | none | Agent to start; see [agents](/cli/agents.md). |
+| `-terminal` | false | Ask for the terminal version of an agent when a bare id such as `claude` would otherwise resolve to its structured entry. No effect on an agent with no structured entry. |
 | `-model <model>` | none | One of that agent's models. |
 | `-role <id>` | none | Role to start as. Its agent and model apply where `-agent` and `-model` are unset. |
 | `-baton <ref>` | none | Start from a handoff: `self`, a pane id, a baton id ([baton](/cli/baton.md)) or a notes file. An existing file is sent as `path:<absolute path>`. |

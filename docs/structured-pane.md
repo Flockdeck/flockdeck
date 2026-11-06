@@ -222,7 +222,7 @@ This section is for the person using one. It says what is true today and does no
 The default does not apply in three cases.
 
 - You chose terminal. Settings, General, "New panes start as" takes Follow the default, Structured or Terminal; the choice is stored as `panes` in `prefs.json` (API 1.28, the `panes` command) and changes new panes only, never a running one. The older `"structuredPanes": true` still reads as a choice of structured, and is replaced when the setting is changed.
-- Remote access is on, or the desk holds a record of a paired device (`remote.HostInUse`; a record that cannot be read counts as in use). With no choice made, new panes stay terminal there, because a phone is told when a structured pane waits but cannot answer it yet. Choosing Structured in Settings overrides this.
+- Remote is on, or the desk holds a record of a paired device (`remote.HostInUse`; a record that cannot be read counts as in use). With no choice made, new panes stay terminal there, because a phone is told when a structured pane waits but cannot answer it yet. Choosing Structured in Settings overrides this.
 - The agent has no structured entry. Cursor Agent, Aider, plain shells and any CLI in `agents.json` have no ACP route and stay in a terminal. Codex and Gemini CLI stay terminal for now: their structured entries are hidden until T192 has run them against the real programs. A user entry in `agents.json` that overrides `claude` or `opencode` runs as written.
 
 Ways to get a terminal pane, which stay available:

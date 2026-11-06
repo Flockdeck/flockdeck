@@ -16,6 +16,7 @@ import (
 	"github.com/jmwri/flockdeck/internal/hooks"
 	"github.com/jmwri/flockdeck/internal/layout"
 	"github.com/jmwri/flockdeck/internal/session"
+	"github.com/jmwri/flockdeck/internal/store"
 )
 
 // benchWorkspace builds workspace state by hand, with no sessions behind the
@@ -835,6 +836,9 @@ func TestNewPaneRecordsTheChoice(t *testing.T) {
 		wantAgent   string
 		wantModel   string
 		wantIsAgent bool
+		// panes is the person's stored choice of pane kind. The cases that mean
+		// the terminal agent say so; the last one leaves it unset.
+		panes string
 	}{
 		{
 			name:   "a shell keeps neither",
@@ -854,10 +858,22 @@ func TestNewPaneRecordsTheChoice(t *testing.T) {
 			choice:      Choice{Kind: session.KindClaude},
 			wantAgent:   agent.DefaultAgentID,
 			wantIsAgent: true,
+			panes:       store.PanesTerminal,
+		},
+		{
+			// With no stored choice a new pane is structured, so what is
+			// recorded is the structured entry.
+			name:        "an agent chosen by neither name records the structured default when nothing is stored",
+			choice:      Choice{Kind: session.KindClaude},
+			wantAgent:   "claude-acp",
+			wantIsAgent: true,
 		},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			if err := store.SavePrefs(store.Prefs{Panes: tc.panes}); err != nil {
+				t.Fatal(err)
+			}
 			ws := newTestWorkspace(t, root)
 			p := ws.newPane(tc.choice, root, "", "")
 			if p.IsAgent() != tc.wantIsAgent {
