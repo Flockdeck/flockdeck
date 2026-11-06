@@ -355,6 +355,9 @@ type accessState struct {
 	// unpaired. An enable that began before the change sees a different number
 	// when it comes to apply, and does not apply (applyDeviceApprove).
 	approveGen atomic.Uint64
+	// approveLiveOn makes phone approval available on one server whatever
+	// phoneApprovalLive says. Only a test sets it.
+	approveLiveOn bool
 	// approveAsk holds the one-time questions handed to windows at the desk, and
 	// approveFile the last read of the preferences file for the approval gate.
 	approveAsk  approveAsk

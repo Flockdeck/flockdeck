@@ -337,6 +337,8 @@ export function Remote({ status, roster, challenge = null, pair, outcome, remote
                 onClick=${() => ask("access:" + d.id, "Reset access for " + name + "?", ["Its access is not one this page knows, and the desktop treats it as view-only. It will be set to “" + ACCESS[1].label + "”."], "Reset access", () => setLevel(ACCESS[1]), about)}>${level.label}</button>`}
         ${remote
           ? null
+          : ap.held && !ap.on
+            ? null
           : ap.on
             ? html`<button type="button" class="dialog-btn remote-approve" aria-pressed="true" aria-label=${"Approving for " + name + ": on. Press to turn it off."}
                 onClick=${() => go(approveCommand(d.id, false))}>Approve: on</button>`
