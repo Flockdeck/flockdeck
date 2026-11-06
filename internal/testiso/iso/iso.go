@@ -302,6 +302,7 @@ var keptEnv = map[string]bool{
 	"FLOCKDECK_CANARY_ISO":          true,
 	"FLOCKDECK_CANARY_LOGIN":        true,
 	"FLOCKDECK_LIVE_AGENT_TESTS":    true,
+	"FLOCKDECK_LIVE_BIN":            true,
 	"FLOCKDECK_RADAR_BENCH_EDITS":   true,
 	"FLOCKDECK_RADAR_BENCH_PANES":   true,
 	"FLOCKDECK_RADAR_BENCH_REPO":    true,

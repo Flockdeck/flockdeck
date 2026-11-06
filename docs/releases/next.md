@@ -6,6 +6,12 @@ This is not a release file: it is the text to fold into the notes of the first r
 
 The window is now the team graph. Panes are nodes in a graph of who is working with whom, what each is doing and what is waiting on you. A pane opens in a drawer with its terminal or its conversation, a Changes tab, its task and its worktree. The old tiled window is gone: this release does not have it.
 
+## Removed: flockdeck chat and the API agents
+
+`flockdeck chat` and the agents that ran on it are gone (#705, API 1.15): Anthropic, OpenAI, Google and OpenAI-compatible endpoints. This is a breaking change. An `agents.json` entry that sets `api`, or that names one of the removed built-ins, is dropped with a notice. The command `setAgentAddress` and the message `agentAddress` are removed, and a server answers `setAgentAddress` as `unsupported`. The per-token model prices left the agent list too. Use a command-line agent such as Claude Code, Codex or Gemini CLI. `flockdeck keys` stays: a key you store is given to a structured agent that takes one.
+
+Structured panes (agents run over the Agent Client Protocol) stay a beta. They are off until `"structuredPanes": true` is in `prefs.json` in the state directory.
+
 ## What is missing
 
 These are things the old window did that the new one does not, and they are chosen, not forgotten:

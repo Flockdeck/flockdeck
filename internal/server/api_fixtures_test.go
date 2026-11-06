@@ -163,6 +163,37 @@ func recordGraphFixture(t *testing.T, spec fxSpec) []byte {
 		}
 	}
 
+	// A terminal pane has a lastOutput once its shell has written to the terminal,
+	// which a shell does a moment after it starts: at once on Windows, later on a
+	// loaded Linux runner. Read before that, the push lacks the field the fixture
+	// shows for the pane. Every pane is waited for, so the recording does not
+	// depend on how fast the shells start.
+	var every []string
+	for _, id := range ids {
+		every = append(every, id)
+	}
+	every = append(every, startup...)
+	quiet := func() []string {
+		left, ok := ask(srv, func() []string {
+			var left []string
+			for _, id := range every {
+				if p := ws.Pane(id); p != nil && p.Sess.LastOutput().IsZero() {
+					left = append(left, id)
+				}
+			}
+			return left
+		})
+		if !ok {
+			t.Fatal("the workspace did not answer")
+		}
+		return left
+	}
+	for deadline := time.Now().Add(30 * time.Second); len(quiet()) > 0; time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatalf("%s: panes %v never wrote to their terminal", spec.name, quiet())
+		}
+	}
+
 	recordingStall()
 	ask(srv, func() bool {
 		for _, id := range startup {

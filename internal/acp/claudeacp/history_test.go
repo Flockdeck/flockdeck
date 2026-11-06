@@ -126,7 +126,7 @@ func TestSessionLoadReplaysTheStoredConversation(t *testing.T) {
 		t.Errorf("the tool result is not in the tool call: %v", replay[2])
 	}
 	// The updates are for the id the client asked for, and claude resumes it.
-	for _, m := range h.msgs {
+	for _, m := range h.snapshotMsgs() {
 		if m.Method == "session/update" && !strings.Contains(string(m.Params), `"sessionId":"`+loadID+`"`) {
 			t.Errorf("an update for another session: %s", m.Params)
 		}
@@ -332,7 +332,7 @@ func TestSessionLoadUpdatesCarryTheIDAsAsked(t *testing.T) {
 		t.Fatalf("session/load = %+v", r.Error)
 	}
 	n := 0
-	for _, m := range h.msgs {
+	for _, m := range h.snapshotMsgs() {
 		if m.Method == "session/update" && strings.Contains(string(m.Params), "user_message_chunk") {
 			n++
 			if !strings.Contains(string(m.Params), `"sessionId":"`+asked+`"`) {
