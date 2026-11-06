@@ -359,3 +359,23 @@ func TestDecideAsksForSecretFiles(t *testing.T) {
 		}
 	}
 }
+
+// A submodule recorded elsewhere in the repository is found from a subfolder:
+// git status run there still reaches it.
+func TestHasSubmoduleSeesTheWholeRepositoryFromASubfolder(t *testing.T) {
+	dir := cleanRepo(t)
+	if err := os.MkdirAll(filepath.Join(dir, "pkg"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "pkg", "a"), []byte("a\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git(t, dir, "add", ".")
+	git(t, dir, "update-index", "--add", "--cacheinfo", "160000,1234567890123456789012345678901234567890,sub")
+	if !hasSubmodule(dir) {
+		t.Error("hasSubmodule missed an entry at the top of the repository")
+	}
+	if !hasSubmodule(filepath.Join(dir, "pkg")) {
+		t.Error("hasSubmodule missed an entry outside the folder the command runs in")
+	}
+}
