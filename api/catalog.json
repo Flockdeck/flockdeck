@@ -1,7 +1,7 @@
 {
   "api": {
     "major": 1,
-    "minor": 27
+    "minor": 28
   },
   "frames": [
     {
@@ -740,6 +740,12 @@
       "name": "paneSend",
       "access": "full",
       "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "panes",
+      "access": "full",
+      "since": "1.28",
       "status": "stable"
     },
     {

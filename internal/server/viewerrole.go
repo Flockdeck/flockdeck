@@ -138,7 +138,7 @@ var commandAccess = map[string]cmdAccess{
 	"cursorBlink": accessFull, "cursorStyle": accessFull, "screenReader": accessFull, "statusLine": accessFull,
 	"fontFamily": accessFull, "railExpanded": accessFull, "railWidth": accessFull, "theme": accessFull,
 	"accentColor": accessFull, "autoReviewDefault": accessFull,
-	"jevStatus": accessFull, "conflictRadar": accessFull,
+	"jevStatus": accessFull, "conflictRadar": accessFull, "panes": accessFull,
 	"permissionAnswer": accessFull, "wakeSwitch": accessFull,
 	"graphSnapshot": accessFull, "graphWatch": accessFull, "graphUnwatch": accessFull,
 	"changesWatch": accessFull, "changesUnwatch": accessFull, "changesSnapshot": accessFull, "filesPage": accessFull,
