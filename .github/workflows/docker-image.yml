@@ -51,8 +51,13 @@ jobs:
       # short-lived certificate from Sigstore's Fulcio, rather than a
       # signing key kept as a repository secret.
       id-token: write
+    # One group per tag: a second push of the same tag (or a dispatch rebuild
+    # of it) waits for the first, while a different tag gets its own group, so
+    # a newer tag queuing can never cancel an older tag's pending build. Every
+    # tag builds. Builds of different tags can therefore overlap, which is why
+    # the floating tags are decided in the last step (see "Apply tags").
     concurrency:
-      group: docker-image
+      group: docker-image-${{ github.event.inputs.tag || github.ref_name }}
       cancel-in-progress: false
     steps:
       - uses: actions/checkout@v7
@@ -60,39 +65,16 @@ jobs:
           ref: ${{ github.event.inputs.tag || github.ref }}
           persist-credentials: false
 
-      - name: Work out the version and tags
+      - name: Validate the version
         id: version
         env:
           TAG: ${{ github.event.inputs.tag || github.ref_name }}
-          GH_TOKEN: ${{ github.token }}
         run: |
           if ! printf '%s\n' "$TAG" | grep -Eq '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'; then
             echo "::error::$TAG is not a version release.yml would also accept; tag v1.2.3, or v1.2.3-rc.1 for a candidate"
             exit 1
           fi
           echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          # v1.2.3 also tags :v1.2, :v1 and :latest, but only where it is the
-          # newest stable release in that range: a backport (v0.3.40 cut after
-          # v0.4.1) or a workflow_dispatch rebuild of an old tag must not move
-          # a floating tag backwards, the same rule release.yml applies to
-          # GitHub's "latest" release. A candidate (v1.2.3-rc.1) only ever
-          # publishes its own exact tag plus the short-sha one below.
-          floating=""
-          case "$TAG" in
-            *-*) ;;
-            *)
-              minor="${TAG%.*}"
-              major="${minor%.*}"
-              all=$(gh api --paginate "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/v" --jq '.[].ref | sub("^refs/tags/"; "")' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || true)
-              # Include TAG itself so the comparison holds even if its ref is not listed yet.
-              newest() { { printf '%s\n' "$all"; echo "$TAG"; } | grep -E "$1" | sort -V | tail -n 1; }
-              [ "$(newest "^${minor//./\.}\.")" = "$TAG" ] && floating="$minor"
-              [ "$(newest "^${major//./\.}\.")" = "$TAG" ] && floating="$floating $major"
-              [ "$(newest '^v')" = "$TAG" ] && floating="$floating latest"
-              ;;
-          esac
-          echo "floating=$(echo $floating)" >> "$GITHUB_OUTPUT"
-          echo "floating tags for $TAG: ${floating:-none}"
 
       - uses: docker/setup-qemu-action@v3
       - uses: docker/setup-buildx-action@v3
@@ -103,22 +85,17 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build tag list
+      - name: Build exact tag list
         id: tags
         env:
           IMAGE: ghcr.io/flockdeck/flockdeck
           TAG: ${{ steps.version.outputs.tag }}
-          FLOATING: ${{ steps.version.outputs.floating }}
         run: |
           # The commit that was checked out, not GITHUB_SHA: a manual dispatch
           # runs on the branch it was started from, whose head is not the
           # tag's commit.
           sha="$(git rev-parse --short=7 HEAD)"
-          tags="$IMAGE:$TAG,$IMAGE:$TAG-$sha"
-          for t in $FLOATING; do
-            tags="$tags,$IMAGE:$t"
-          done
-          echo "tags=$tags" >> "$GITHUB_OUTPUT"
+          echo "tags=$IMAGE:$TAG,$IMAGE:$TAG-$sha" >> "$GITHUB_OUTPUT"
 
       # Multi-arch: amd64 and arm64, so a self-hoster on a Pi or an arm64
       # VPS (docs/self-hosting.md's "a NAS or a cheap VPS" case) gets a
@@ -197,14 +174,43 @@ jobs:
       # (including :latest) on the previous release. Re-tags the signed index
       # by digest without rebuilding, so the tags resolve to the exact digest
       # that was scanned and signed.
+      #
+      # The floating tags are worked out here, after the build, not at the
+      # start: builds of different tags run in parallel, so an older tag can
+      # finish after a newer one. v1.2.3 also tags :v1.2, :v1 and :latest, but
+      # only where it is the newest stable release in that range at this
+      # moment: a backport (v0.3.40 cut after v0.4.1), a slow older build or a
+      # workflow_dispatch rebuild of an old tag must not move a floating tag
+      # backwards, the same rule release.yml applies to GitHub's "latest"
+      # release. A candidate (v1.2.3-rc.1) only ever publishes its own exact
+      # tag plus the short-sha one.
       - name: Apply tags
         env:
           DIGEST: ${{ steps.build.outputs.digest }}
           TAGS: ${{ steps.tags.outputs.tags }}
+          TAG: ${{ steps.version.outputs.tag }}
+          IMAGE: ghcr.io/flockdeck/flockdeck
+          GH_TOKEN: ${{ github.token }}
         run: |
+          floating=""
+          case "$TAG" in
+            *-*) ;;
+            *)
+              minor="${TAG%.*}"
+              major="${minor%.*}"
+              all=$(gh api --paginate "repos/$GITHUB_REPOSITORY/git/matching-refs/tags/v" --jq '.[].ref | sub("^refs/tags/"; "")' | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' || true)
+              # Include TAG itself so the comparison holds even if its ref is not listed yet.
+              newest() { { printf '%s\n' "$all"; echo "$TAG"; } | grep -E "$1" | sort -V | tail -n 1; }
+              [ "$(newest "^${minor//./\.}\.")" = "$TAG" ] && floating="$minor"
+              [ "$(newest "^${major//./\.}\.")" = "$TAG" ] && floating="$floating $major"
+              [ "$(newest '^v')" = "$TAG" ] && floating="$floating latest"
+              ;;
+          esac
+          echo "floating tags for $TAG: ${floating:-none}"
           args=()
           for t in ${TAGS//,/ }; do args+=(-t "$t"); done
-          docker buildx imagetools create "${args[@]}" "ghcr.io/flockdeck/flockdeck@$DIGEST"
+          for t in $floating; do args+=(-t "$IMAGE:$t"); done
+          docker buildx imagetools create "${args[@]}" "$IMAGE@$DIGEST"
 
       - name: Summary
         env:
