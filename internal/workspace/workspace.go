@@ -36,6 +36,7 @@ import (
 	"github.com/jmwri/flockdeck/internal/hooks"
 	"github.com/jmwri/flockdeck/internal/layout"
 	"github.com/jmwri/flockdeck/internal/record"
+	"github.com/jmwri/flockdeck/internal/remote"
 	"github.com/jmwri/flockdeck/internal/review"
 	"github.com/jmwri/flockdeck/internal/route"
 	"github.com/jmwri/flockdeck/internal/session"
@@ -2253,11 +2254,13 @@ func (w *Workspace) resolveChoice(root, agentID, model string) (string, string) 
 	return spec.ID, model
 }
 
-// loadCatalog reads the catalog and sets the opt-in for structured agents from
-// the preferences, which is where the user turns it on.
+// loadCatalog reads the catalog and sets whether structured agents are offered
+// from the preferences: an explicit choice, else the default, which is on
+// unless remote devices can reach this machine (store.Prefs.StructuredOn).
 func loadCatalog() *agent.Catalog {
 	c := agent.Load()
-	c.Structured = store.LoadPrefs().StructuredPanes
+	p := store.LoadPrefs()
+	c.Structured = p.StructuredOn(remote.HostInUse(p))
 	return c
 }
 
