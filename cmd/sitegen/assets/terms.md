@@ -34,8 +34,7 @@ proxy. The desktop app itself is free, and never needs the relay.
   the desktop have each registered a key; the rest isn't.** From then on the
   relay carries your keystrokes and a terminal's output without being able to
   read them. Until then a terminal is protected by TLS only. It does decrypt, to route them, the state of your panes (status,
-  spend, usage limits, which model routing chose), the conversation view of a
-  pane and what you search in it, and photos you attach, as the
+  spend, usage limits, which model routing chose), as the
   [privacy policy](privacy.html) explains. Don't send anything through it you
   wouldn't send through a service you trust to that extent.
 - **Fair use.** The relay is shared, and it has limits on how often accounts
@@ -143,7 +142,7 @@ fraud. If you use the relay as a consumer, you keep your statutory rights.
 ## Third-party software and services
 
 Flockdeck runs agents and connects to model providers that you choose, such
-as Claude Code, Codex, Gemini CLI, or a model API. They are provided by
+as Claude Code, Codex or Gemini CLI. They are provided by
 others under their own terms and policies, and these terms don't cover them.
 
 ## Changes to these terms

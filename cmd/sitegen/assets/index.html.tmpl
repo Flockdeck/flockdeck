@@ -26,7 +26,7 @@
   <div class="hero-text">
   <p class="kicker"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 22 22" fill="none" stroke="currentColor" stroke-width="2"><circle cx="5" cy="4.5" r="2.5"/><circle cx="5" cy="17.5" r="2.5"/><circle cx="17" cy="9" r="2.5"/><path d="M5 7v8M5 13c0-3 12 0 12-4"/></svg> A worktree and branch for each agent</p>
   <h1>Run several agents in one repo. <em>Give each its own worktree.</em></h1>
-  <p class="lede">Flockdeck runs Claude Code, Codex, Gemini or your own model side
+  <p class="lede">Flockdeck runs Claude Code, Codex, Gemini and other coding agents side
      by side, and makes it one step to give each its own git worktree and
      branch, so parallel agents don't undo each other's edits.</p>
   <p class="lede second">Run it on your desk, or on hardware you already
@@ -174,7 +174,7 @@
     <div class="card">
       <span class="g">context</span>
       <h3>Agents that know the team</h3>
-      <p>Claude Code and the built-in API client are told which pane they're in
+      <p>Claude Code is told which pane it's in
          and what the others are working on, so they can coordinate instead of
          colliding.</p>
     </div>
@@ -311,11 +311,8 @@
     <div class="card">
       <span class="g">full app</span>
       <h3>The complete Flockdeck</h3>
-      <p>Every pane, every status and the agent picker. Claude Code
-         opens as a conversation, not a raw terminal, and the full interface is
-         one tap away. Attach a photo or
-         several, straight from the camera, and long replies, code and diffs
-         fold so you're not scrolling past them.</p>
+      <p>Every pane, every status and the agent picker. A pane opens
+         as its terminal.</p>
     </div>
     <div class="card">
       <span class="g">isolation</span>
@@ -323,7 +320,7 @@
       <p>Your devices open your own Flockdeck and nobody else's. Terminal input
          and output are end-to-end encrypted on top of the TLS connection once
          the device and the desktop have each registered a key. The rest, such
-         as a pane's state, its conversation view and photos, still reaches the
+         as a pane's state, still reaches the
          relay decrypted. <a href="trust.html">Trust &amp; privacy</a> spells
          out what is and isn't encrypted.</p>
     </div>
@@ -340,7 +337,7 @@
   </div>
   <figure class="figure phone">
     <img src="{{asset "remote-choices.png"}}" srcset="{{asset "remote-choices-585.png"}} 585w, {{asset "remote-choices.png"}} 1170w" sizes="(max-width: 880px) 300px, 280px" width="390" height="844" loading="lazy" alt="Flockdeck's web client on a phone, open on the shopfront-payments pane, where Claude Code is waiting on you. Its header says the pane is end-to-end encrypted, with a bell for notifications, a switch between Chat and Terminal, and a button for the text size. Over the terminal it repeats the question, Do you want to proceed?, and the command asking to run, go run ./cmd/migrate up, then offers the three answers as big buttons to tap: Yes; Yes, and don't ask again for go run; and No, and tell Claude what to do, with Escape under them and the row of keys below. A banner above says billing-service is waiting on you too.">
-    <figcaption class="caption">An agent's question, answered from your phone with a tap.</figcaption>
+    <figcaption class="caption">An agent waiting on you, as a phone shows it.</figcaption>
   </figure>
   </div>
   <p>Turn it on in <em>Settings › Flockdeck Remote</em>, from the command palette,
@@ -495,8 +492,7 @@ make package    <span class="c"># archives for all six platforms</span></code></
   <p>Flockdeck checks for updates, verifies every download and asks before it
      restarts, so an update never interrupts your work.</p>
   <p>Command-line agents use the login they already have, so Claude Code works
-     with no extra setup. To use a model API directly, add your key with
-     <code>flockdeck keys</code>.</p>
+     with no extra setup.</p>
   <p class="aside">Press <kbd>F1</kbd> in the app for the full guide and keyboard
      shortcuts, or read it at <a href="https://docs.flockdeck.ai/">docs.flockdeck.ai</a>.</p>
 </section>
@@ -548,7 +544,7 @@ make package    <span class="c"># archives for all six platforms</span></code></
     </details>
     <details>
       <summary>Do I need API keys?</summary>
-      <p>Not to start. Claude Code and the others use the login they already
+      <p>No. Claude Code and the others use the login they already
          have.</p>
     </details>
     <details>
@@ -562,21 +558,19 @@ make package    <span class="c"># archives for all six platforms</span></code></
     </details>
     <details>
       <summary>Can I use it from my phone?</summary>
-      <p>Yes. Turn on Flockdeck Remote and pair your phone with a QR code. A
-         Claude Code pane opens as a
-         conversation rather than a raw terminal: Markdown replies, diffs,
-         and a question or permission prompt answered with a tap, even
-         straight from the list of what's waiting. Long replies and code fold
-         so you're not scrolling past them, and you can send a photo or
-         several straight from the chat. You can search a
-         conversation, and start a new agent without going to the desk.
+      <p>Yes. Turn on Flockdeck Remote and pair your phone with a QR code. A pane
+         opens as its terminal, and the list shows which agents are waiting on
+         you and why. When an agent asks a question or for a permission, the
+         phone says which tool it is, but the command and the question stay on
+         the desktop: answer at the desk, or in the pane's terminal view on
+         the phone. You can start a new agent without going to the desk.
          Everything goes over TLS. On top of that, what you type into a
          terminal and what the agent prints back is end-to-end encrypted
          between your desktop and your device once both have registered a
          key, so the relay passes it on without being able to read it. Until
-         then it is protected by TLS only. The rest is not: the chat view of a
-         conversation, what you search for, photos you attach, and each pane's
-         status, spend and usage all reach the relay decrypted. You can also
+         then it is protected by TLS only. The rest is not: each pane's
+         status, spend and usage reach the relay decrypted. The chat view of a
+         conversation is not sent to a phone at all for now. You can also
          turn on notifications, so your phone tells you when an agent needs
          you and you're away from your desk. Those are end-to-end encrypted
          too: each one is sealed on your desktop for that device alone.</p>
