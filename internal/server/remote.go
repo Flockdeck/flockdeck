@@ -284,6 +284,10 @@ type remoteDeviceView struct {
 	// shows here as on and changed. Sent only to a window on this machine.
 	Approve    bool   `json:"approve,omitempty"`
 	ApproveKey string `json:"approveKey,omitempty"`
+	// ApproveHeld says the switch to turn approval on is not offered, because the
+	// phone app cannot answer a request yet (phoneApprovalLive). Sent only to a
+	// window on this machine.
+	ApproveHeld bool `json:"approveHeld,omitempty"`
 	// DeskFingerprint is the same for the device's other key, the one a
 	// window opened from this machine's own full interface uses
 	// (remote.KeyOriginDesk). That window shows the code on its own side.
@@ -383,6 +387,7 @@ func (s *Server) remoteDevices(c *controlClient) {
 					msg.Devices[i].Role, msg.Devices[i].WatchPanes = string(a.EffectiveRole()), a.WatchPanes
 					msg.Devices[i].Approve = a.ApproveOn(approveAckVersion) && !s.approvalStale(d, a)
 					msg.Devices[i].ApproveKey = s.approveKeyState(d)
+					msg.Devices[i].ApproveHeld = !s.phoneApprovalAvailable()
 				}
 			}
 		}

@@ -1332,7 +1332,11 @@ test("Remote: approving is turned on only for a verified device, with the host's
   assert.equal(approveCommand("", true, ch), null);
   assert.deepEqual(challengeCommand("d"), { cmd: "approveChallenge", id: "d" });
   assert.deepEqual(approveOffCommand(), { cmd: "setApprovalsOff" });
-  assert.deepEqual(approveView({}), { on: false, canTurnOn: false, note: "" });
+  assert.deepEqual(approveView({}), { on: false, held: false, canTurnOn: false, note: "" });
+  // Held by the host: the switch is not offered to turn approving on, and one already on keeps its switch.
+  assert.equal(approveView({ approveHeld: true, approveKey: "verified" }).held, true);
+  assert.equal(approveView({ approveHeld: true, approve: true, approveKey: "verified" }).on, true);
+  assert.equal(approveView({ approveHeld: "yes" }).held, false);
   assert.equal(approveView({ approve: true, approveKey: "verified" }).note, "");
   assert.match(approveView({ approve: true, approveKey: "changed" }).note, /not verified/);
   assert.match(APPROVE_ACK_WORDS, /tampered relay/);

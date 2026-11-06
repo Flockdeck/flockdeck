@@ -75,7 +75,6 @@ func newPushEnv(t *testing.T, card *bridge.Card, own bool) *pushEnv {
 		return real(id)
 	})
 	ask(e.srv, func() bool {
-		e.srv.push.structuredOn = true
 		// The desk is not in use.
 		e.srv.push.idleSince = func() (time.Duration, bool, bool) { return time.Hour, true, true }
 		return true
@@ -216,16 +215,63 @@ func TestSeveralWaitsAreOnePushWithNoApproverBody(t *testing.T) {
 	noMarkers(t, "the push", everything(t, n))
 }
 
-// Until the approvals socket is built, a structured pane's wait is not pushed:
-// what ships is structuredPushLive, and nothing in the test server sets it.
-func TestAStructuredWaitIsNotPushedWhileTheSwitchIsOff(t *testing.T) {
-	e := newPushEnv(t, markedCard(nil), true)
-	ask(e.srv, func() bool { e.srv.push.structuredOn = false; return true })
-	if structuredPushLive {
-		t.Skip("the push is live; TestStructuredPushNeedsTheApprovalsSocket is the test that matters")
+// The push is live in the shipped build (structuredPushLive), and the test server
+// does nothing to turn it on. The switch still turns it off for one server.
+func TestAStructuredWaitIsPushedByDefaultAndNotWithTheSwitchOff(t *testing.T) {
+	if !structuredPushLive {
+		t.Fatal("structuredPushLive is false: a structured wait would not be pushed to a phone")
 	}
+	e := newPushEnv(t, markedCard(nil), true)
+	if n := e.due(time.Hour); n == nil {
+		t.Fatal("a structured wait was not pushed with the push live")
+	}
+	e = newPushEnv(t, markedCard(nil), true)
+	ask(e.srv, func() bool { e.srv.push.structuredOff = true; return true })
 	if n := e.due(time.Hour); n != nil {
 		t.Errorf("a structured wait was pushed with the push off: %+v", n)
+	}
+}
+
+// While phone approval is held (phoneApprovalLive is false), no push says "Allow
+// or deny", whatever the card is, and no push holds a word of the card. Every
+// device is told "Answer on the desktop". The test server has approval available
+// so that the approval tests can run; this test takes it away, as the shipped
+// build has it.
+func TestAHeldApprovalMeansNoPushSaysAllowOrDeny(t *testing.T) {
+	if phoneApprovalLive {
+		t.Skip("phone approval is live; TestAStructuredWaitIsPushedInTwoWordings covers the wording")
+	}
+	cards := map[string]*bridge.Card{
+		"a command the phone could allow": markedCard(nil),
+		"an edit": markedCard(func(c *bridge.Card) {
+			path := inRoot("PATHMARKER.txt")
+			*c = *editCard(path, transcript.EditDiff(path, "DIFFMARKER one", "DIFFMARKER two"))
+			c.Tool, c.Summary = "TOOLMARKER", "SUMMARYMARKER"
+		}),
+		"a plan": markedCard(func(c *bridge.Card) { c.Kind = "switch_mode"; c.Body = "PLANMARKER" }),
+		"a question": markedCard(func(c *bridge.Card) {
+			c.Kind = bridge.QuestionKind
+			c.Questions = []bridge.Question{{Question: "QUESTIONMARKER"}}
+		}),
+		"no card": nil,
+	}
+	for name, card := range cards {
+		t.Run(name, func(t *testing.T) {
+			e := newPushEnv(t, card, true)
+			ask(e.srv, func() bool { e.srv.approveLiveOn = false; return true })
+			n := e.due(30 * time.Second)
+			if n == nil {
+				t.Fatal("a wait of 30 seconds was not pushed")
+			}
+			if n.Body != "Answer on the desktop. On desk" || n.Approver != nil {
+				t.Errorf("body %q approver %v", n.Body, n.Approver)
+			}
+			all := everything(t, n)
+			noMarkers(t, "the push", all)
+			if strings.Contains(all, "Allow or deny") {
+				t.Errorf("the push says Allow or deny: %s", all)
+			}
+		})
 	}
 }
 
@@ -285,7 +331,6 @@ func TestAStructuredPaneThatIsNotWaitingOnARequestIsNotPushed(t *testing.T) {
 	e.status(t, session.StatusIdle)
 	enrolled(e.srv)
 	ask(e.srv, func() bool {
-		e.srv.push.structuredOn = true
 		e.srv.push.idleSince = func() (time.Duration, bool, bool) { return time.Hour, true, true }
 		return true
 	})
@@ -298,7 +343,6 @@ func TestAStructuredPaneThatIsNotWaitingOnARequestIsNotPushed(t *testing.T) {
 func TestATerminalWaitIsPushedAsBefore(t *testing.T) {
 	srv, ws := newTestServer(t)
 	enrolled(srv)
-	ask(srv, func() bool { srv.push.structuredOn = true; return true })
 	id, since := waitingPane(t, srv, ws)
 	n := due(srv, since.Add(31*time.Second))
 	if n == nil || n.Body != "On desk" || n.Approver != nil || n.URL != "/d/h1/"+id {
@@ -546,7 +590,6 @@ func TestABlockedStructuredPaneIsNotPushedButABlockedTerminalIs(t *testing.T) {
 		return nil, false
 	})
 	ask(e.srv, func() bool {
-		e.srv.push.structuredOn = true
 		e.srv.push.idleSince = func() (time.Duration, bool, bool) { return time.Hour, true, true }
 		return true
 	})

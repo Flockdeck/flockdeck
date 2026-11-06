@@ -100,7 +100,7 @@ func TestAStartUnderWayBlocksAnUninstall(t *testing.T) {
 // Between a crash and the restart there is no process, and still an owner.
 func TestCrashBackoffBlocksAnUninstallAndAnInstall(t *testing.T) {
 	state := t.TempDir() + "/runs"
-	f := newSupFixture(t, []Entry{fakeEntry("lens", "--mode", "crash", "--after", "50ms", "--state", state)}, func(c *Config) {
+	f := newSupFixture(t, []Entry{fakeEntry("lens", "--mode", "crash", "--after", "500ms", "--state", state)}, func(c *Config) {
 		tm := *fastTimings()
 		tm.Backoff = []time.Duration{3 * time.Second, 3 * time.Second, 3 * time.Second}
 		c.Timings = &tm

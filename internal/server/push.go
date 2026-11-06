@@ -78,9 +78,10 @@ type pushState struct {
 	// say.
 	err atomic.Pointer[string]
 
-	// structuredOn turns the structured push on for one server. Only a test
-	// sets it; what ships is structuredPushLive.
-	structuredOn bool
+	// structuredOn turns the structured push on for one server whatever
+	// structuredPushLive says, and structuredOff turns it off. Only a test sets
+	// either; what ships is structuredPushLive.
+	structuredOn, structuredOff bool
 
 	// idleSince asks the OS how long it has gone without keyboard or mouse
 	// input, anywhere, and whether it is locked; nil is idle.Since. A test
@@ -102,14 +103,16 @@ type pushState struct {
 	desk   map[*controlClient]time.Time
 }
 
-// structuredPushLive says a structured pane's wait is pushed. It is false until
-// the sealed approvals socket (/ws/approvals) is built and routed: a push that
+// structuredPushLive says a structured pane's wait is pushed. It was false until
+// the sealed approvals socket (/ws/approvals) was built and routed: a push that
 // sends the person to a page where the card cannot be answered from the phone
-// is the reason #378 left structured panes out. The task that adds the socket
-// sets it true in the same change, and TestStructuredPushNeedsTheApprovalsSocket
-// fails if it is true and no route for the socket is registered. Nothing else
-// sets it: a test that needs the push on sets pushState.structuredOn.
-const structuredPushLive = false
+// is the reason #378 left structured panes out. It is true now that the socket
+// is routed, and TestStructuredPushNeedsTheApprovalsSocket fails if it is true
+// and no route for the socket is registered. The push says "Answer on the
+// desktop" and nothing of the card until the phone app can answer one
+// (phoneApprovalLive). A test that needs the push off sets
+// pushState.structuredOff.
+const structuredPushLive = true
 
 // What a push says of a structured wait, after the machine's name. The first is
 // told only to a device with approvals on, and only for a card the phone may
@@ -419,7 +422,7 @@ func (s *Server) pushDue(now time.Time) *pushOut {
 			if structured {
 				w.structured = true
 				card := sp.PendingPermission()
-				w.phoneCanAllow = projectCard(card, sp.OwnAdapter(), sp.ProjectRoot()).CanAllow
+				w.phoneCanAllow = s.phoneApprovalAvailable() && projectCard(card, sp.OwnAdapter(), sp.ProjectRoot()).CanAllow
 				if w.phoneCanAllow {
 					w.recheck = s.stillAllowable(id, card.Seq, sp.RuntimeToken())
 				}
@@ -497,7 +500,7 @@ func (s *Server) stillAllowable(id string, seq uint64, token string) func() bool
 // be pushed: the push is live, and the pane is a structured one. It runs on the
 // workspace goroutine.
 func (s *Server) structuredWait(p *workspace.Pane) (StructuredPane, bool) {
-	if s.structuredPane == nil || !(structuredPushLive || s.push.structuredOn) {
+	if s.structuredPane == nil || !((structuredPushLive && !s.push.structuredOff) || s.push.structuredOn) {
 		return nil, false
 	}
 	sp, ok := s.structuredPane(p.ID)
