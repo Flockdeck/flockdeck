@@ -141,6 +141,9 @@ func extraSpans(text string) (found []span, keep [][2]int) {
 	if strings.Contains(text, "export") || strings.Contains(text, "setx") {
 		found = append(found, rule("export", exportSpans(text))...)
 	}
+	if strings.Contains(lower, "env:") || strings.Contains(lower, "setenvironmentvariable") {
+		found = append(found, rule("psenv", psEnvSpans(text))...)
+	}
 	if strings.Contains(text, "name:") {
 		found = append(found, rule("k8s", k8sSpans(text))...)
 	}

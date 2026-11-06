@@ -15,7 +15,7 @@ func TestDecideAllowsAReadOnlyCommand(t *testing.T) {
 	dir := cleanRepo(t)
 	for _, cmd := range []string{
 		"ls -la", "git status", "git status --short", "cat internal/review/review.go",
-		"git log -5", "git show HEAD~1", "pwd", "grep -rn TODO .",
+		"git log -5", "git show HEAD~1", "pwd", "grep -n TODO main.go",
 	} {
 		d := Decide("Bash", `{"command":`+quote(cmd)+`}`, dir)
 		if !d.Allow {
@@ -337,6 +337,12 @@ func TestDecideAsksForSecretFiles(t *testing.T) {
 		"cat tls.key", "cat .npmrc", "cat .netrc", "cat .git-credentials",
 		"cat config/credentials.json", "grep token aws-credentials",
 		"cat keystore.p12", "cat cert.pfx",
+		// A path given as a git revision and file has no slash before the name.
+		"git show HEAD:.env", "git show :.env", "git show HEAD:deploy/id_rsa", "git show main:config/credentials.json",
+		// A recursive search reaches secret files that are never named.
+		"grep -rn API_KEY .", "grep -R API_KEY .", "grep -nr API_KEY src", "grep --recursive API_KEY .",
+		"grep --recurs API_KEY .", "grep --dereference-recursive API_KEY .", "grep -d recurse API_KEY .",
+		"grep --directories=recurse API_KEY .",
 	}
 	for _, cmd := range asked {
 		if d := Decide("Bash", `{"command":`+quote(cmd)+`}`, dir); d.Allow {
@@ -345,11 +351,31 @@ func TestDecideAsksForSecretFiles(t *testing.T) {
 	}
 	allowed := []string{
 		"cat id_rsa.pub", "cat README.md", "cat environment.go",
-		"grep -rn TODO .", "cat main.key.go",
+		"grep -n TODO main.go", "cat main.key.go", "git show HEAD:README.md",
 	}
 	for _, cmd := range allowed {
 		if d := Decide("Bash", `{"command":`+quote(cmd)+`}`, dir); !d.Allow {
 			t.Errorf("Decide asked about a harmless read: %q", cmd)
 		}
+	}
+}
+
+// A submodule recorded elsewhere in the repository is found from a subfolder:
+// git status run there still reaches it.
+func TestHasSubmoduleSeesTheWholeRepositoryFromASubfolder(t *testing.T) {
+	dir := cleanRepo(t)
+	if err := os.MkdirAll(filepath.Join(dir, "pkg"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "pkg", "a"), []byte("a\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	git(t, dir, "add", ".")
+	git(t, dir, "update-index", "--add", "--cacheinfo", "160000,1234567890123456789012345678901234567890,sub")
+	if !hasSubmodule(dir) {
+		t.Error("hasSubmodule missed an entry at the top of the repository")
+	}
+	if !hasSubmodule(filepath.Join(dir, "pkg")) {
+		t.Error("hasSubmodule missed an entry outside the folder the command runs in")
 	}
 }

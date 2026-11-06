@@ -40,6 +40,11 @@ on:
         # only use is download-artifact's run-id, which takes a string.
         type: string
         required: true
+      run-head-sha:
+        description: "Head commit of the run that produced the artifact (github.event.workflow_run.head_sha). When set, the artifact's pr_number must be a PR whose head is this commit, so a run cannot name another PR. Leave unset only when called as a second job in the same run, where the actor is already trusted."
+        type: string
+        required: false
+        default: ""
     secrets:
       review-app-id:
         description: "GitHub App ID used to mint a scoped installation token for posting the comment. Unset falls back to GITHUB_TOKEN (same-repo PRs only)."
@@ -89,6 +94,9 @@ jobs:
       # integer before it's ever interpolated into a shell command.
       - name: Validate metadata and extract the PR number
         id: meta
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_HEAD_SHA: ${{ inputs.run-head-sha }}
         run: |
           repo=$(jq -r '.repository' pr-meta.json)
           pr=$(jq -r '.pr_number' pr-meta.json)
@@ -110,6 +118,21 @@ jobs:
               exit 1
               ;;
           esac
+          # The artifact is written by the run being reviewed, which for a pull
+          # request is the PR's own version of the workflow, so nothing in it
+          # says which PR it belongs to. The run's own head commit does: the
+          # PR named must have that commit as its head.
+          if [ -n "$RUN_HEAD_SHA" ]; then
+            if [ "$sha" != "$RUN_HEAD_SHA" ]; then
+              echo "::error::artifact head_sha does not match the run that produced it"
+              exit 1
+            fi
+            pr_head=$(gh pr view "$pr" --repo "${{ github.repository }}" --json headRefOid --jq .headRefOid) || pr_head=""
+            if [ "$pr_head" != "$RUN_HEAD_SHA" ]; then
+              echo "::error::PR #$pr is not the PR the run was for"
+              exit 1
+            fi
+          fi
           echo "head-sha=$sha" >> "$GITHUB_OUTPUT"
 
       # Calls Gemini (model named by GEMINI_MODEL below) to review pr.diff

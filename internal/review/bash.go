@@ -116,6 +116,11 @@ func secretPath(arg string) bool {
 	if arg == "" || arg[0] == '-' {
 		return false
 	}
+	// A git revision and path, HEAD:.env or :.env (the index), has no slash
+	// before the file name: what follows the last colon is the path.
+	if i := strings.LastIndex(arg, ":"); i >= 0 && secretPath(arg[i+1:]) {
+		return true
+	}
 	base := arg
 	if i := strings.LastIndexAny(base, "/\\"); i >= 0 {
 		base = base[i+1:]
@@ -139,6 +144,25 @@ func secretPath(arg string) bool {
 	return false
 }
 
+// recursiveGrep reports whether arg makes grep read every file under a folder it
+// is given, which reaches files (.env, keys) that secretPath would stop if they
+// were named. It errs towards refusing: any short flag cluster holding r or R,
+// any long flag that abbreviates --recursive or --dereference-recursive, and
+// --directories=recurse in either spelling.
+func recursiveGrep(arg string) bool {
+	switch {
+	case arg == "recurse" || strings.HasSuffix(arg, "=recurse"):
+		return true
+	case strings.HasPrefix(arg, "--"):
+		name, _, _ := strings.Cut(arg, "=")
+		return len(name) >= 3 && (strings.HasPrefix("--recursive", name) ||
+			strings.HasPrefix("--dereference-recursive", name) && len(name) >= 4)
+	case strings.HasPrefix(arg, "-") && len(arg) > 1:
+		return strings.ContainsAny(arg, "rR")
+	}
+	return false
+}
+
 // readOnlyCommand reports whether cmd is a single call to one of the commands
 // above, reading only inside the project, with nothing in it that could make
 // it do more than that. It is deliberately conservative: a command it cannot
@@ -158,6 +182,13 @@ func readOnlyCommand(cmd string) (ok bool, gitSub string) {
 	for _, f := range fields[1:] {
 		if outsideProject(f) || secretPath(f) {
 			return false, ""
+		}
+	}
+	if fields[0] == "grep" {
+		for _, f := range fields[1:] {
+			if recursiveGrep(f) {
+				return false, ""
+			}
 		}
 	}
 	if safeCommands[fields[0]] {

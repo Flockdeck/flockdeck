@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 )
@@ -202,5 +203,37 @@ func TestSetSourceRetriesARefusedRename(t *testing.T) {
 	}
 	if got := s.readSources()[id]; got != "claude" {
 		t.Errorf("source = %q", got)
+	}
+}
+
+func TestStoreLoadReturnsTheIDItWasAskedFor(t *testing.T) {
+	s := NewStore(filepath.Join(t.TempDir(), "batons"))
+	a := sample()
+	if err := s.Save(a); err != nil {
+		t.Fatal(err)
+	}
+	other := NewID(time.Date(2026, 10, 2, 9, 0, 0, 0, time.UTC))
+	// A copy of the file whose header names another baton.
+	data, err := os.ReadFile(s.Path(a.ID))
+	if err != nil {
+		t.Fatal(err)
+	}
+	forged := strings.Replace(string(data), a.ID, other, 1)
+	if forged == string(data) {
+		t.Fatal("the header does not hold the id")
+	}
+	copyID := NewID(time.Date(2026, 10, 3, 9, 0, 0, 0, time.UTC))
+	if err := os.WriteFile(s.Path(copyID), []byte(forged), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Load(copyID)
+	if err != nil || got.ID != copyID {
+		t.Errorf("Load(%s) = %q, %v; want the id it was asked for", copyID, got.ID, err)
+	}
+	list, _ := s.List()
+	for _, b := range list {
+		if b.ID == other {
+			t.Errorf("List holds the forged id %s", other)
+		}
 	}
 }

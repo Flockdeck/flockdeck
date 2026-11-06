@@ -2,12 +2,15 @@ package remote
 
 import (
 	"context"
+	"errors"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/coder/websocket"
 )
 
 // serveNothing answers whatever comes down a tunnel with a 404.
@@ -103,5 +106,23 @@ func TestTheRosterCarriesThePlan(t *testing.T) {
 	roster, err = NewClient(&Config{Relay: f.URL, Token: f.token}, "v").Devices(context.Background())
 	if err != nil || roster.Plan != nil {
 		t.Errorf("a relay with no plans gave %+v, %v", roster, err)
+	}
+}
+
+// What the relay writes in a close frame is shown in the window, so it is
+// cleaned like every other string the relay sends.
+func TestCloseReasonsAreShownPlain(t *testing.T) {
+	dirty := "‮No action needed‬\x1b[2K\x1b]0;x\x07"
+	want := "No action needed[2K]0;x"
+	lapsed := why(websocket.CloseError{Code: CloseLapsed, Reason: dirty})
+	if msg, ok := lapsedMessage(lapsed); !ok || msg != want {
+		t.Errorf("lapsed message = %q, %v; want %q", msg, ok, want)
+	}
+	if got := why(websocket.CloseError{Code: websocket.StatusGoingAway, Reason: dirty}).Error(); got != "the relay closed the connection: "+want {
+		t.Errorf("close error = %q", got)
+	}
+	var api *APIError
+	if !errors.As(why(websocket.CloseError{Code: CloseRevoked, Reason: dirty}), &api) || api.Message != want {
+		t.Errorf("revoked message = %+v", api)
 	}
 }

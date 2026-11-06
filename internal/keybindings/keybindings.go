@@ -213,6 +213,9 @@ func SetBinding(t keytable.Table, id, keys string) (*File, error) {
 	if keys != "" && strings.Contains(keys, "…") {
 		return nil, fmt.Errorf("%s has no single binding to give", k.Name())
 	}
+	if keys != "" && !validChord(keys) {
+		return nil, fmt.Errorf("%q is not a binding: use Ctrl or Alt (plus Shift if you like) with a key, or a function key on its own", keys)
+	}
 	mu.Lock()
 	defer mu.Unlock()
 	f, err := load()

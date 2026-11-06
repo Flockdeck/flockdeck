@@ -644,6 +644,38 @@ func exportSpans(text string) []span {
 	return out
 }
 
+// ---- PowerShell: Set-Item env:NAME value ----
+
+// psEnvRe is a PowerShell cmdlet (or its alias) that sets an environment
+// variable through the env: drive, "Set-Item env:NAME value" and the forms with
+// -Path and -Value, and [Environment]::SetEnvironmentVariable('NAME', 'value').
+// The name and the value are separate words with no = between them, which is
+// why neither the assignment rules nor the flag rules see them.
+var psEnvRe = regexp.MustCompile(`(?i)\b(?:set-item|set-content|new-item|add-content|si|sc|ni|ac)[ \t]+(?:-(?:literal)?path[ \t]+)?["']?env:([A-Za-z_][A-Za-z0-9_]*)["']?[ \t]+(?:-value[ \t]+)?("[^"\n]*"|'[^'\n]*'|[^\s;|&)]+)|\[(?:System\.)?Environment\]::SetEnvironmentVariable\([ \t]*["']([A-Za-z_][A-Za-z0-9_]*)["'][ \t]*,[ \t]*("[^"\n]*"|'[^'\n]*')`)
+
+func psEnvSpans(text string) []span {
+	var out []span
+	for _, m := range psEnvRe.FindAllStringSubmatchIndex(text, -1) {
+		ns, ne, vs, ve := m[2], m[3], m[4], m[5]
+		if ns < 0 {
+			ns, ne, vs, ve = m[6], m[7], m[8], m[9]
+		}
+		name := strings.ToLower(text[ns:ne])
+		if !record.SecretName(name) || !endsInSecretWord(name) {
+			continue
+		}
+		a, b := vs, ve
+		if b-a >= 2 && (text[a] == '"' || text[a] == '\'') && text[b-1] == text[a] {
+			a, b = a+1, b-1
+		}
+		if b <= a || strings.HasPrefix(text[a:b], "[REDACTED: ") || placeholderAt(text[a:]) {
+			continue
+		}
+		out = append(out, span{a, b, "env-secret"})
+	}
+	return out
+}
+
 // ---- Kubernetes env entries ----
 
 // k8sRe is a "- name: API_TOKEN" entry and the "value:" line under it.
