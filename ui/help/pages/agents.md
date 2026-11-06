@@ -34,9 +34,10 @@ limit it is; [Spend and limits](#spend) explains the figures.
 ## Agents are programs
 
 Agents are the tools you would run in a terminal yourself: Claude Code,
-Codex, Gemini, Aider, opencode, Cursor's agent. Flockdeck runs the command in the
+Codex, Gemini, Aider, opencode, Cursor's agent. In a terminal pane Flockdeck runs the command in the
 pane's pseudo-terminal, so it behaves exactly as it does anywhere else and uses
-whatever login that tool already has. Flockdeck does not install agents. One whose
+whatever login that tool already has. New Claude Code and opencode panes are
+structured instead; see the next section. Flockdeck does not install agents. One whose
 command cannot be found or started is shown as unavailable.
 
 Flockdeck no longer has a chat client of its own for talking to a model API
@@ -45,14 +46,38 @@ OpenAI-compatible agents built on it, were removed. An `agents.json` entry that
 still has an `api` block, or `"runner": "api"`, is refused with a notice saying
 so.
 
-## Structured agents (beta)
+## Structured agents
 
-> Direction (27 Oct 2026): structured agents are where Flockdeck is heading: every agent over ACP, with no terminal-pane agents, no inbox or typed wake, and no task board. Those are planned removals, not removed yet. Agents without native ACP will get an adapter built into the `flockdeck` binary. See docs/acp-direction.md in the repository.
+> Direction (27 Oct 2026, updated 6 Nov 2026): new Claude Code and opencode panes start structured. The shell inbox, `flockdeck msg` and typed wake are the mail routes of terminal panes, which stay as the opt-out and for agents with no structured route. A structured pane sends with `send_message`, looks at the team with `list_peers`, and gets mail as prompts. The task board is a planned removal. See docs/acp-direction.md in the repository.
 
 A structured agent is one Flockdeck talks to over the Agent Client Protocol
 instead of in a terminal. Its pane has no screen: the drawer
-shows its conversation, a box to send it a prompt and a Stop button. Today the one offered is
-opencode (structured). There is none for Claude Code.
+shows its conversation, a box to send it a prompt and a Stop button.
+
+New Claude Code and opencode panes are structured by default. This applies to
+new panes only: a saved layout brings each pane back as it was, so a terminal
+pane stays a terminal pane.
+
+To use a terminal instead:
+
+- Settings, General, **New panes start as**: choose Terminal. Panes that are
+  already running are not ended.
+- The picker lists both, as "Claude Code (structured)" and "Claude Code
+  (terminal)", and the same for opencode.
+- `flockdeck spawn -terminal` starts the terminal version from the command line.
+- A structured pane that did not start, needs signing in, or whose agent ended
+  has a **Restart as terminal** button. The pane keeps its place and folder; the
+  conversation starts afresh.
+
+These agents have no structured version and always run in a terminal: Cursor
+Agent, Aider, plain shells, and any command-line agent you add in `agents.json`.
+Codex and Gemini CLI stay in a terminal for now too; their structured versions
+are hidden until they have been tried against the real programs.
+
+On a machine with paired devices or remote access turned on, new panes stay
+terminal unless you choose Structured in Settings. A phone is told when a
+structured agent is waiting and cannot answer it yet, so a person away from the
+desk would be left with a stalled pane.
 
 Type `/` at the start of the prompt box to list the commands the agent offers, with
 their argument hints. Keep typing to filter, move with the arrow keys, and press Enter
@@ -112,8 +137,9 @@ done and which is in progress, and each item with its state. Click the Plan line
 
 When a window is behind another, a structured agent that asks for a permission or needs setting up raises a
 desktop notification "needs you", and one that finishes a turn of ten seconds or more raises "finished". The notification names the pane and its branch and
-never what the agent asked or said. Phones paired through Flockdeck Remote are not pushed for a
-structured agent, because they cannot answer it; they see the pane as waiting in the list.
+never what the agent asked or said. A phone paired through Flockdeck Remote is sent "Answer on the desktop" when a
+structured agent is waiting, and cannot answer it yet: the phone app does not offer Allow or Deny, and
+nothing the agent asked reaches the phone.
 
 Start a line with `!` to run a command yourself: `!git status` runs in this pane's folder, as you, and
 shows its output in a list under the conversation. The agent is not asked and does not see it; press Send to
@@ -177,17 +203,11 @@ To sign out, use the agent's own tool and restart the agent. The agent's own `/h
 `/config`, `/permissions`, `/mcp`, `/hooks`, `/memory`, `/agents`, `/init` and `/status` work
 when it lists them in the `/` menu; type them like any other command.
 
-It is off until you turn it on. Put `"structuredPanes": true` in `prefs.json`
-in the state directory (there is no setting for it in the window); until then
-the picker does not offer a structured agent. Turning it off again takes effect
-when you restart a pane or when the agents are read again, and does not end a
-running pane.
-
 What to know before you use one:
 
 - **Approval is at the desk.** A permission request is answered from a window on
-  this machine, by choosing one of the options the agent offered. A phone gets no
-  notification for it and cannot answer it, and a window reached through the
+  this machine, by choosing one of the options the agent offered. A phone is told
+  to answer on the desktop and cannot answer it, and a window reached through the
   relay is told its name, status, directory, branch, project, agent and model, and
   no text the agent wrote. Nothing is answered for you; a request still open when you stop the turn, close or restart
   the pane or quit is answered *cancelled*.
@@ -217,31 +237,44 @@ What to know before you use one:
   do not trust. When a pane starts, Flockdeck reads what opencode resolves in that
   directory and, only if a command could still run without a card, the drawer header of the pane says "This agent may run commands and edit files without asking you first: in this repository Flockdeck could not make it ask, or could not check. A project's opencode.json or .opencode folder can also load plugins and MCP servers that run code, so no permission setting makes an opencode pane safe in a repository you do not trust." Open
   a repository you do not trust in a terminal pane, not a structured one.
-- **Mail needs an opt-in.** A structured agent has no `flockdeck` command and is
-  not given the pane identity one needs, so it cannot run `flockdeck inbox`. By
-  default it is not woken by mail at all, and its briefing says mail is not
-  available to it. `flockdeck wake text on -agent opencode-acp` turns it on for
-  that agent type. Then each wake is one prompt holding the oldest unread
-  message, as `Flockdeck message from agent "<role>": <text>` (`the user` for a
-  message you wrote), and the message counts as read once the agent takes it.
-  This puts text written by another agent in front of an agent that may run
-  commands, as if it were a turn from you. What limits it: the fixed start of the
-  line, one line with escapes and control characters removed, the sender label cut
-  at 32 characters, the text cut at 300 characters, and a briefing that tells the
-  agent to treat the text as a message from another agent and not as your
-  instruction. The agent cannot fetch what is cut. Leave it off for an agent you
-  would not trust with a peer's words.
-- **A login problem** shows as a blocked pane marked "needs setup", and as
-  "Needs setting up" in the Team view, with the one step to take: sign in with
-  the agent's own tool (Flockdeck never signs in), then start the pane again.
+- **Mail arrives as prompts.** A structured agent has no `flockdeck` command, so
+  it cannot run `flockdeck inbox` or `flockdeck msg`; those are for terminal
+  panes. It sends with the `send_message` tool and looks at the team with
+  `list_peers`. A message sent to it arrives as a prompt, with the first line
+  `Flockdeck message from agent "<role>":` (`the user` for a message you wrote)
+  and the text on one line after a fixed marker. This puts text written by
+  another agent in front of an agent that may run commands, as if it were a turn
+  from you. What limits it: the fixed first line in a block of its own, one line
+  with escapes and control characters removed, the sender label cut at 32
+  characters, and a briefing that tells the agent to treat the text as a message
+  from another agent and not as your instruction. There is no switch for it.
+- **Signing in.** A Claude Code pane that is not signed in shows as a blocked pane
+  marked "needs setup", and as "Needs setting up" in the Team view. Agent info
+  opens by itself. Press **Sign in** there: Flockdeck starts Claude's own login,
+  shows you the address it prints, and restarts the pane when the login ends.
+  Flockdeck never sees your password or key. If the button is not offered, sign in
+  with the agent's own tool and start the pane again, or use **Restart as
+  terminal**.
+- **Project permissions need a trusted folder.** Claude Code ignores the `allow`
+  rules in a project's `.claude/settings.json` in a folder you have not trusted,
+  and a structured pane cannot show its trust question. The pane says so when
+  that happens, and every command asks until you open Claude Code once in that
+  folder in a terminal pane and accept the prompt. `deny` rules and hooks in the
+  project's settings still apply.
 - **An agent that cannot be found or started** shows as "the agent is
   unavailable" and nothing more: not the command, not the reason, not anything
   the agent printed. The same words come back from a refused spawn.
 - **A restart starts a new session.** The earlier entries stay above a line saying
   the agent was restarted. If the new agent cannot be started, they stay too, with
   a line giving the reason.
-- **Nothing is recorded or exported.** Recording and export are not available for a
-  structured pane yet.
+- **Rewind and Always do less than in a terminal.** Going back removes the
+  conversation after a prompt and does not put back files the agent changed.
+  There is no Esc Esc and no `/undo`. **Always** on a permission card covers
+  shell commands only, the exact command only, and is forgotten when the pane
+  restarts, which Flockdeck does on an update; the agent then asks again.
+  Choosing the accept-edits mode in the mode selector asks less for edits.
+- **Recording is not available.** A structured pane is not recorded. Export saves
+  the conversation as Markdown, as above.
 
 ## Not every agent can do everything
 

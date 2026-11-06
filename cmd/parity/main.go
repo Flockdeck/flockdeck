@@ -170,10 +170,10 @@ func gather(root string) (Facts, error) {
 		return f, err
 	}
 	// The actions Live.js hands the shell are the arrow functions in the one
-	// object that useMemo builds, from "const actions" to its dependency list.
-	if i := strings.Index(live, "const actions = useMemo("); i >= 0 {
+	// object literal assigned to "const actions", up to its closing "  });".
+	if i := strings.Index(live, "const actions = ("); i >= 0 {
 		block := live[i:]
-		if j := strings.Index(block, "}), ["); j > 0 {
+		if j := strings.Index(block, "\n  });"); j > 0 {
 			block = block[:j]
 		}
 		for _, m := range liveAction.FindAllStringSubmatch(block, -1) {
@@ -192,7 +192,9 @@ func serverKnows(root string) (map[string]bool, error) {
 	if err != nil {
 		return nil, err
 	}
-	lit := regexp.MustCompile(`case "([A-Za-z0-9]+)"`)
+	// A case line can list several names: case "a", "b", "c":.
+	caseLine := regexp.MustCompile(`case ("[A-Za-z0-9]+"(?:,\s*"[A-Za-z0-9]+")*)`)
+	lit := regexp.MustCompile(`"([A-Za-z0-9]+)"`)
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".go") || strings.HasSuffix(e.Name(), "_test.go") {
 			continue
@@ -201,8 +203,10 @@ func serverKnows(root string) (map[string]bool, error) {
 		if err != nil {
 			return nil, err
 		}
-		for _, m := range lit.FindAllStringSubmatch(string(b), -1) {
-			out[m[1]] = true
+		for _, c := range caseLine.FindAllStringSubmatch(string(b), -1) {
+			for _, m := range lit.FindAllStringSubmatch(c[1], -1) {
+				out[m[1]] = true
+			}
 		}
 	}
 	return out, nil

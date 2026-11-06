@@ -763,7 +763,7 @@ func (s *Server) installSpawnHandler() {
 				approved *workspace.ApprovedTarget
 			}
 			v, ok := ask(s, func() verdict {
-				change, info, ap := s.batonChange(handoff, req.Parent, spawnCwd, cwd, req.Branch, agentID, modelID, req.Task)
+				change, info, ap := s.batonChange(handoff, req.Parent, spawnCwd, cwd, req.Branch, agentID, modelID, req.Task, req.Terminal)
 				return verdict{change, info, ap}
 			})
 			if !ok {
@@ -862,6 +862,7 @@ func (s *Server) installSpawnHandler() {
 				Kind:           kind,
 				Agent:          req.Agent,
 				Model:          req.Model,
+				Terminal:       req.Terminal,
 				Role:           req.Role,
 				SpawnedByAgent: true,
 				Record:         req.Record,

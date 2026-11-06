@@ -58,7 +58,7 @@ type toolInfo struct {
 	name   string
 	kind   string
 	edit   bool
-	hidden bool // shown some other way (TodoWrite is a plan)
+	hidden bool // shown some other way (TodoWrite and the Task tools are a plan)
 }
 
 type openPerm struct {
@@ -69,9 +69,13 @@ type openPerm struct {
 func (p *openPerm) abandon() { p.once.Do(func() { close(p.abandoned) }) }
 
 type session struct {
-	srv *server
-	id  string
-	cwd string
+	srv          *server
+	rulesIgnored atomic.Bool // claude said it dropped project allow rules for want of trust
+	rulesNoticed atomic.Bool // the notice about it was sent
+	opened       atomic.Bool // session/new has been answered: updates for the session reach the client
+	tasks        taskList    // the Task tools' list, kept here because claude sends changes, not the list
+	id           string
+	cwd          string
 
 	// claudeID is the id claude reported when it is not ss.id, else "".
 	claudeID string
@@ -181,7 +185,12 @@ func (s *server) openSession(m rpcMsg, kind string) {
 			return
 		}
 		// A session that has had no message has no file to fork: fork what it
-		// was made from.
+		// was made from. Otherwise the conversation is in the file of the id
+		// claude reports (claudeID), which after a rewind is not the id the
+		// client prompts with: the file under that id still holds the
+		// conversation as it was before the rewind, so forking it would bring
+		// back the dropped turns, and a fork point from after the rewind is not
+		// in it.
 		if src := s.session(forkOf); src != nil {
 			src.mu.Lock()
 			if src.pendingSrc != "" {
@@ -189,6 +198,8 @@ func (s *server) openSession(m rpcMsg, kind string) {
 				if at == "" {
 					at = src.pendingAt
 				}
+			} else if src.claudeID != "" {
+				forkOf = src.claudeID
 			}
 			src.mu.Unlock()
 		}
@@ -277,6 +288,8 @@ func (s *server) openSession(m rpcMsg, kind string) {
 		res["models"] = map[string]any{"currentModelId": ss.model, "availableModels": models}
 	}
 	s.reply(m.ID, res)
+	ss.opened.Store(true)
+	ss.noticeRulesIgnored()
 	if !tested {
 		s.update(ss.id, map[string]any{"sessionUpdate": "flockdeck_notice", "code": "untested_version"})
 	}
@@ -328,7 +341,7 @@ func (ss *session) start() error {
 	}
 	cmd := exec.Command(o.ClaudePath, args...)
 	cmd.Dir = ss.cwd
-	cmd.Env = o.Env
+	cmd.Env = withTodoTools(o.Env)
 	sysproc.NoWindow(cmd)
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
@@ -452,6 +465,10 @@ func (ss *session) drainStderr(r io.Reader) {
 	sc.Buffer(make([]byte, 64<<10), 1<<20)
 	for sc.Scan() {
 		ss.srv.logf("claude: %s", sc.Text())
+		if rulesIgnoredForTrust(sc.Text()) {
+			ss.rulesIgnored.Store(true)
+			ss.noticeRulesIgnored()
+		}
 	}
 	_, _ = io.Copy(io.Discard, r)
 }

@@ -56,8 +56,18 @@ type Prefs struct {
 	// RailWidth is how wide the rail is drawn while it is expanded, in
 	// pixels. Zero is the default width.
 	RailWidth int `json:"railWidth,omitempty"`
-	// StructuredPanes turns on the beta of agents that run in a structured pane
-	// rather than a terminal. Off, the picker does not offer them.
+	// Panes is which kind of pane a new pane of an agent that has both starts
+	// as: PanesStructured or PanesTerminal. Empty means the person has not
+	// chosen, and the default applies (see StructuredOn). An explicit
+	// PanesTerminal is stored, which a bool left out when false could not be.
+	// It is a key of its own, not a change of structuredPanes, so that an
+	// older build that rewrites the file keeps it as a key it does not know
+	// (see extra) instead of dropping it with a false.
+	Panes string `json:"panes,omitempty"`
+	// StructuredPanes is the older opt-in, written as true by builds that had
+	// structured panes in beta. It is still read, as a choice of PanesStructured
+	// when Panes is empty. It is written back as it was read until SetPanes
+	// clears it.
 	StructuredPanes bool `json:"structuredPanes,omitempty"`
 	// MCPServers are the stdio MCP servers the user wants every structured
 	// agent that takes them to start, besides Flockdeck's own. Their env may
@@ -202,6 +212,59 @@ type SpendPrefs struct {
 	// or empty for only where the user has a status line of their own, which
 	// it keeps. Those are the session.StatusLine constants.
 	StatusLine string `json:"statusLine,omitempty"`
+}
+
+// The values of Prefs.Panes.
+const (
+	PanesStructured = "structured"
+	PanesTerminal   = "terminal"
+)
+
+// PanesChoice is what the person has chosen for new panes: PanesStructured,
+// PanesTerminal, or empty when they have not. A Panes value this build does not
+// know reads as no choice, so that a value written by a newer build cannot
+// switch anything on or off here by accident. The older structuredPanes: true
+// reads as PanesStructured.
+func (p Prefs) PanesChoice() string {
+	switch p.Panes {
+	case PanesStructured, PanesTerminal:
+		return p.Panes
+	case "":
+		if p.StructuredPanes {
+			return PanesStructured
+		}
+	}
+	return ""
+}
+
+// StructuredOn reports whether new panes of an agent that has a structured
+// entry start structured. An explicit choice decides. With none, structured is
+// the default, except on a host that remote devices can reach (hostInUse, see
+// remote.HostInUse), where terminal stays the default until a phone can answer
+// a structured pane's prompts.
+func (p Prefs) StructuredOn(hostInUse bool) bool {
+	switch p.PanesChoice() {
+	case PanesStructured:
+		return true
+	case PanesTerminal:
+		return false
+	}
+	return !hostInUse
+}
+
+// SetPanes records the choice for new panes: PanesStructured, PanesTerminal, or
+// empty to go back to having made none. It reports whether that changed
+// anything, and refuses (false) any other value. It clears the older
+// structuredPanes key so the two cannot disagree in the file.
+func (p *Prefs) SetPanes(choice string) bool {
+	if choice != "" && choice != PanesStructured && choice != PanesTerminal {
+		return false
+	}
+	if p.Panes == choice && !p.StructuredPanes {
+		return false
+	}
+	p.Panes, p.StructuredPanes = choice, false
+	return true
 }
 
 // Dismissed reports whether a hint has been sent away.

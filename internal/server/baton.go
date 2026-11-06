@@ -195,10 +195,10 @@ var logf = func(format string, args ...any) {
 // The source is the one the application recorded, never the baton's header; where
 // none is recorded (a notes file, a baton the application did not record) the
 // company is not known. It must run on the workspace goroutine.
-func (s *Server) batonChange(h *handoff, parent, cwd, source, branch, agentID, model, task string) (string, approvalInfo, *workspace.ApprovedTarget) {
+func (s *Server) batonChange(h *handoff, parent, cwd, source, branch, agentID, model, task string, terminal bool) (string, approvalInfo, *workspace.ApprovedTarget) {
 	// The agent the helper will run, worked out as Spawn works it out: for the
 	// project of the pane that spawns it, which is not the one on screen.
-	resolved, _ := s.ws.SpawnTarget(parent, cwd, agentID, model)
+	resolved, _ := s.ws.SpawnTargetAs(parent, cwd, agentID, model, terminal)
 	target, err := s.ws.AgentSpecByID(resolved)
 	if err != nil {
 		return "", approvalInfo{}, nil // Spawn says so itself

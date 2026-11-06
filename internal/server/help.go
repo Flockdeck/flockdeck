@@ -805,6 +805,36 @@ func (s *Server) setStatusLine(c *controlClient, mode string) {
 	s.updatePrefs(c, func(p *store.Prefs) bool { return setPref(&p.Spend.StatusLine, mode) })
 }
 
+// setPanes records which kind of pane a new pane of an agent that has both
+// starts as: "structured", "terminal", or "default" to follow the default (see
+// store.Prefs.StructuredOn). It changes new panes only. A running pane is not
+// ended, and a pane restarted keeps the kind it was. A window reached through
+// the relay is refused: on an install a phone can reach, the default is
+// terminal because a phone cannot yet answer a structured pane's prompts, and
+// turning structured on is the desk's to decide.
+func (s *Server) setPanes(c *controlClient, choice string) {
+	if c.remote {
+		c.notify("Which kind of pane new panes start as can only be changed on the machine Flockdeck runs on, not from a window reached through the relay", true)
+		s.do(func() { c.sendJSON(prefsMsg{Type: "prefs", Prefs: prefsFor(c, s.prefs)}) })
+		return
+	}
+	if choice == "default" {
+		choice = ""
+	}
+	if choice != "" && choice != store.PanesStructured && choice != store.PanesTerminal {
+		return
+	}
+	s.updatePrefsThen(c, func(p *store.Prefs) bool { return p.SetPanes(choice) }, func(r prefsResult) {
+		if r == prefsFailed {
+			return
+		}
+		// The catalog reads the choice when it is loaded, so the picker and the
+		// next new pane see it at once.
+		s.ws.ReloadAgents()
+		s.probeAgents(s.ws.ActiveRoot())
+	})
+}
+
 // /help.json and the hello's whole key table stay for one release, for windows
 // that read the pages and the table from the server; the page that ships with
 // this one reads help.json and keys.json from /assets/ (see ui/help) and takes

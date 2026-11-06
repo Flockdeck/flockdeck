@@ -21,6 +21,7 @@ import { StreamDecision } from "./StreamDecision.js";
 import { Conversation } from "./Conversation.js";
 import { ChipsContext } from "./conv/chips.js";
 import { Structured } from "./Structured.js";
+import { WayBack, wayBackOf } from "./WayBack.js";
 import { Message } from "./Message.js";
 import { isViewer } from "../lib/role.js";
 import { managerTimeline, timelineEntries, isManager, mailFloor, withFloor } from "../graph/ManagerTimeline.js";
@@ -230,6 +231,9 @@ function DrawerBody({ store, snap = null, node, pane = null, now, maximised = fa
   // While the transcript is showing, the permission is asked there, in the flow, and
   // not a second time above the tabs. Another tab, or a transcript not loaded yet, has none to carry it.
   const inFlow = !!pending && !!conv && conv.supported === true && !conv.refused && shown === (asked ? "conversation" : "terminal");
+  // A structured pane that is not running offers the terminal version of its agent, to the desk and
+  // not to a viewer. A pane that failed to start has no terminal to draw, so the offer stands in for it.
+  const wayBack = !state.remote && !isViewer(state) ? wayBackOf(pane) : "";
   const details = state.details || null;
   const onDetail = (id) => store.requestDetail(id);
   const onOlder = () => store.olderConversation();
@@ -278,7 +282,10 @@ function DrawerBody({ store, snap = null, node, pane = null, now, maximised = fa
           ? html`<${FindBar} key=${node.pane} ctl=${ctl} name=${node.name} matches=${matches} initial=${lastFind} askSeq=${askSeq}
               onClose=${(words) => { setLastFind(words); setFinding(false); setMatches(null); }} />`
           : null}
-        ${terminal
+        ${wayBack ? html`<${WayBack} paneId=${node.pane} why=${pane.err || ""} onRestart=${(c) => store.send(c)} />` : null}
+        ${terminal && wayBack
+          ? null
+          : terminal
           ? html`<${TerminalView} key=${node.pane} store=${store} paneId=${node.pane} onReady=${(c) => { terminalRef.current = { pane: node.pane, ctl: c }; setCtl(c); }} ...${terminalOptions || {}} onMatches=${setMatches} />`
           : html`<${Structured} key=${node.pane} pane=${node.pane} snap=${state} st=${state.structured} error=${state.structuredError} cancelError=${state.cancelError} settingError=${state.settingError} queueResult=${state.queueResult} shellResult=${state.shellResult} exportResult=${state.exportResult} infoResult=${state.infoResult} signInResult=${state.signInResult} rewindResult=${state.rewindResult} desk=${!state.remote} store=${store} conv=${conv} onOlder=${onOlder} details=${details} onDetail=${onDetail} pending=${pending}
               search=${state.search} onSearch=${onSearch} onClearSearch=${onClearSearch} />`}

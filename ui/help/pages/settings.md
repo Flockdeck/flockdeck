@@ -164,9 +164,12 @@ two pages: pick a section to open it, and **← All settings** goes back.
   Kept in `prefs.json`.
 - Auto-approve read-only's own default: **General ›
   New panes** in the settings. Kept in `prefs.json`.
-- Structured agents (beta): no setting in the window. Put
-  `"structuredPanes": true` in `prefs.json` to have them offered;
-  [Agents and models](#agents) says what to know first.
+- New panes start as: **General** in the settings. Follow the default,
+  Structured or Terminal, for a new Claude Code or opencode pane. The default is
+  structured, except on a machine that paired devices or remote access can
+  reach. It changes new panes only, and only from the machine itself. Kept in
+  `prefs.json`; [Agents and models](#agents) says what to know about
+  structured panes.
 - Status detection with Jev: **Status detection** in the settings. Kept
   in `prefs.json`; off unless you turn it on, and only from the machine
   itself.

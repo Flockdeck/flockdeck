@@ -187,6 +187,8 @@ export function rosterOf(msg) {
       // Whether the desk let the device approve agent requests, and the state of the key it would do that with (API 1.26).
       approve: d.approve === true,
       approveKey: str(d.approveKey),
+      // The host says the phone app cannot answer a request yet, so the switch to turn approving on is not offered.
+      approveHeld: d.approveHeld === true,
     }));
   const hosts = (Array.isArray(m.hosts) ? m.hosts : [])
     .filter((h) => h && typeof h === "object")
@@ -411,11 +413,13 @@ export function approveOffCommand() {
 }
 
 /** approveView is what the desk draws for a device's approving: whether it is on, whether it can be turned on now (its code
- *  is marked verified), and a line to show when it is on but cannot work because the code is not. */
+ *  is marked verified), and a line to show when it is on but cannot work because the code is not. `held` is the host saying
+ *  the phone app cannot answer a request yet: the switch to turn approving on is then not drawn. A device that is already on
+ *  keeps its switch, so the desk can turn it off. */
 export function approveView(d) {
   const on = !!d.approve;
   const verified = d.approveKey === "verified";
-  return { on, canTurnOn: verified, note: on && !verified ? "Approving is on, but this device's code is not verified, so it will not work until you verify it again." : "" };
+  return { on, held: d.approveHeld === true, canTurnOn: verified, note: on && !verified ? "Approving is on, but this device's code is not verified, so it will not work until you verify it again." : "" };
 }
 
 export function roleCommand(id, level) {

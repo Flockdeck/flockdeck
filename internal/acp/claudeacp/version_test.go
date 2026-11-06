@@ -87,10 +87,18 @@ func TestVersionCheckRunsOnce(t *testing.T) {
 // with the notice.
 func TestVersionCommandHangsOrFails(t *testing.T) {
 	old, oldGrace := versionTimeout, versionGrace
-	versionTimeout, versionGrace = 300*time.Millisecond, 300*time.Millisecond
 	defer func() { versionTimeout, versionGrace = old, oldGrace }()
 	for _, out := range []string{"HANG", "EXIT1", "GRANDCHILD"} {
 		t.Run(out, func(t *testing.T) {
+			versionTimeout, versionGrace = 300*time.Millisecond, 300*time.Millisecond
+			if out == "GRANDCHILD" {
+				// This shim answers and exits, and the grace alone (which starts
+				// when it exits) is what stops the wait for its child. The timeout
+				// must outlast two starts of the test binary, which take longer
+				// than 300ms under the race detector on a busy machine; if it
+				// does not, the shim is killed before it answers.
+				versionTimeout = 10 * time.Second
+			}
 			h := newHarnessWith(t, mustExe(t), []step{expect("never")}, envVersion+"="+out)
 			began := time.Now()
 			h.start()

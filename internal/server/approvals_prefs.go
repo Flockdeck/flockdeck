@@ -24,6 +24,28 @@ import (
 // the person is asked. Turning it off needs none of them, and every way of
 // turning it on or off is refused to a window reached through the relay.
 
+// phoneApprovalLive says a phone can answer a permission request: the phone app
+// (flockdeck-remote, T6) has a screen for the card and speaks /ws/approvals, and
+// the relay passes that socket (T7). It is false until both ship. While it is
+// false the desk does not offer the per-device "Approve" switch or ask the
+// confirmation question, setDeviceApprove refuses to turn a device on, and a push
+// for a structured wait never says "Allow or deny": it says "Answer on the
+// desktop". A device that already has approval on keeps the switch so the desk can
+// turn it off. There is no phone app version to test instead: the relay does not
+// report one. Nothing else sets this; a test that needs approval on sets
+// accessState.approveLiveOn.
+const phoneApprovalLive = false
+
+// phoneApprovalAvailable is whether a device can be allowed to approve, and a
+// push may offer "Allow or deny".
+func (s *Server) phoneApprovalAvailable() bool {
+	return phoneApprovalLive || s.approveLiveOn
+}
+
+// approveHeldText is what the desk is told when it asks to turn approval on
+// while the phone app cannot use it.
+const approveHeldText = "Approving from a phone is not available yet, because the phone app cannot show an agent's request. Nothing was changed"
+
 // approveAckVersion is the wording version of approveAckText. Raise it when
 // what an approving device is shown changes: every device then stops counting
 // as on until the desk turns it on again and agrees to the new text.
@@ -103,6 +125,10 @@ func (s *Server) setDeviceApprove(c *controlClient, cmd command) {
 	if !cmd.On {
 		s.approveGen.Add(1)
 		s.applyDeviceApprove(c, device, false, 0, "")
+		return
+	}
+	if !s.phoneApprovalAvailable() {
+		c.notify(approveHeldText, true)
 		return
 	}
 	switch {

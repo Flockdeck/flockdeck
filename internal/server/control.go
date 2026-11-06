@@ -504,6 +504,12 @@ type paneView struct {
 	RoutedFromAgent string `json:"routedFromAgent,omitempty"`
 	Route           string `json:"route,omitempty"`
 	Err             string `json:"err,omitempty"`
+	// TerminalWayBack is the id of the terminal entry a structured pane that
+	// has stopped (it failed to start, needs signing in, or its agent ended)
+	// could be restarted as: the restartPane command with Kind "terminal". It
+	// is left out for a pane that is running and for an agent that has no
+	// terminal entry, which is how a window knows not to offer the button.
+	TerminalWayBack string `json:"terminalWayBack,omitempty"`
 	// Failed marks a pane whose process exited with an error or was killed,
 	// against one that exited cleanly; Err carries the exit code.
 	Failed    bool `json:"failed,omitempty"`
@@ -924,6 +930,7 @@ func (s *Server) snapshot() stateMsg {
 			if p.Err != nil {
 				pv.Err = p.Err.Error()
 			}
+			pv.TerminalWayBack = ws.TerminalWayBack(p)
 			// An exit with an error is told apart from a clean one, as a
 			// pane whose last turn ended in one is (outcomeOf's "failed").
 			if why, failed := p.Failed(); failed {
@@ -2014,6 +2021,9 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 	case "statusLine":
 		s.setStatusLine(c, cmd.Text)
 		return
+	case "panes":
+		s.setPanes(c, cmd.Text)
+		return
 	case "fontFamily":
 		s.setFontFamily(c, cmd.Text)
 		return
@@ -2357,6 +2367,15 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		case "focusPane":
 			ws.FocusPane(cmd.ID)
 		case "restartPane":
+			// Kind "terminal" restarts a structured pane that has stopped as
+			// the terminal version of its agent (see Workspace.TerminalWayBack).
+			if cmd.Kind == "terminal" {
+				if err := ws.RestartPaneAsTerminal(paneIDFor(ws, cmd.ID)); err != nil {
+					c.notify(err.Error(), true)
+					return
+				}
+				break
+			}
 			if !ws.RestartPaneByID(paneIDFor(ws, cmd.ID)) {
 				c.notify(paneGone, true)
 				return

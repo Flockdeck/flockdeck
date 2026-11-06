@@ -344,7 +344,7 @@ func (h *history) tool(b block) {
 		return
 	}
 	d := describeTool(b.Name, b.Input, h.cwd, "")
-	if d.plan != nil {
+	if d.plan != nil || d.task {
 		return // a plan is current state, not history
 	}
 	u := map[string]any{"sessionUpdate": "tool_call", "toolCallId": b.ID, "title": d.title, "kind": d.kind, "status": "pending"}

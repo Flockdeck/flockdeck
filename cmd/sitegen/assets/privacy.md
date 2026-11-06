@@ -75,15 +75,19 @@ The same folder also holds:
   mode, which is off for every agent until you turn it on for one, the line
   is the message itself, cut to 300 characters on one line, for an agent that
   cannot run commands, and the log keeps that line, so it holds message text.
-  A structured agent (a beta feature) that you have opted in to text mode is
-  sent the message the same way, as a prompt over its protocol, with no
-  prompt rule involved, and the log keeps that line too.
+  A structured agent (the default for new Claude Code and opencode panes) is
+  sent each message as a prompt over its protocol, with no prompt rule and no
+  text mode involved. The log records that message by number with the panes,
+  its delivery states and how the turn ended, and holds none of its text. The
+  text is in the stored message, which is kept until the agent has handled it
+  (or it could not be delivered) and for a week after, or for 30 days if it
+  never was.
   A line is typed only where Flockdeck has a tested rule for recognising that
   agent's prompt, and none has yet. The log keeps the last 2,000 events or
   256 KiB. None of this is sent anywhere by Flockdeck. If you use Flockdeck
   Remote, the typed line is part of the terminal contents it carries, like
   anything else typed;
-- a photo you attach to a message from a paired phone, removed after about a
+- a picture you attach to a prompt in a structured pane, removed after about a
   week;
 - if you turn on recording for a pane, or export a pane's transcript, a
   transcript file of that conversation, in a `recordings` folder there. It is
@@ -105,8 +109,8 @@ worktrees are trusted, as the folder they came from already was.
 
 To show what each agent has spent, the app reads what the agents report about
 their own usage on your computer: the tokens, cost estimate and usage limits
-Claude Code hands its status line, and the token counts of the built-in API
-agents. It keeps those figures in memory only. Flockdeck sends them nowhere
+Claude Code hands its status line. It keeps those figures in memory only.
+Flockdeck sends them nowhere
 itself; if you turn on Flockdeck Remote, they are part of the state of your
 panes that your own paired devices receive through the relay, as
 [What passes through](#what-passes-through) describes.
@@ -257,15 +261,11 @@ catches a swapped key.
 
 The relay does not record, store or log the content of that traffic.
 It never receives your API keys, unless you type one in through Flockdeck Remote.
-Where a pane opens as a conversation rather than a terminal (a Claude Code
-pane), the conversation view is **not**
-end-to-end encrypted: its messages, what you search it for and the matches it
-finds, and any photo you attach reach the relay decrypted, over TLS, and the
-relay passes them on without storing them. What you type into the message box
-is the exception: it goes to the agent's terminal, end to end. Searching runs
-on your desktop, against what it has already kept. A photo you attach from
-your phone is kept only on your desktop, in Flockdeck's own folder, never your
-project, and removed after about a week.
+The chat view of a conversation is not sent to a phone or to the relay for
+now: opening a pane on a phone shows its terminal, which is end-to-end
+encrypted. A permission request or a question reaches the phone as a card
+that names the tool and nothing else; the command, file and question text
+stay on your desktop.
 
 Muting a single pane's notifications from a phone is held only in that
 desktop's memory while it keeps running: it is not persisted there or

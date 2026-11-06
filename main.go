@@ -482,7 +482,7 @@ func usage(fs *flag.FlagSet) {
 	fmt.Fprintf(out, "Usage:\n  flockdeck [flags]\n\nFlags:\n")
 	fs.PrintDefaults()
 	fmt.Fprintf(out, "\nSubcommands:\n")
-	fmt.Fprintf(out, "  spawn [-worktree <branch> | -no-worktree] [-split] [-tab <title>] [-name <label>] [-shell] [-record] [-agent <id>] [-model <model>] [-role <id>] [-baton <ref> [-baton-send-elsewhere]] [-task <id>] <task>\n")
+	fmt.Fprintf(out, "  spawn [-worktree <branch> | -no-worktree] [-split] [-tab <title>] [-name <label>] [-shell] [-record] [-agent <id>] [-terminal] [-model <model>] [-role <id>] [-baton <ref> [-baton-send-elsewhere]] [-task <id>] <task>\n")
 	fmt.Fprintf(out, "        start another agent; run from inside a pane\n")
 	fmt.Fprintf(out, "        run flockdeck spawn -h for what the flags do\n")
 	fmt.Fprintf(out, "  baton list | baton show [-path] <baton-id>\n")
@@ -496,9 +496,9 @@ func usage(fs *flag.FlagSet) {
 	fmt.Fprintf(out, "  team [-json]\n")
 	fmt.Fprintf(out, "        list the agents of this pane's project, with role and status; run from inside a pane\n")
 	fmt.Fprintf(out, "  msg send <target> <text...>\n")
-	fmt.Fprintf(out, "        message another agent by pane id, name or role; run from inside a pane\n")
+	fmt.Fprintf(out, "        terminal-pane route (a structured pane uses its send_message tool): message another agent by pane id, name or role; run from inside a pane\n")
 	fmt.Fprintf(out, "  inbox [-all] [-json] [-wait <duration>] | inbox -follow | inbox read <id>\n")
-	fmt.Fprintf(out, "        the messages other agents sent this pane; run from inside a pane\n")
+	fmt.Fprintf(out, "        terminal-pane route (a structured pane gets mail as prompts): the messages other agents sent this pane; run from inside a pane\n")
 	fmt.Fprintf(out, "  task add <title> [-body text] [-role r] [-branch b] | list [-state s] [-role r] [-mine] [-json]\n")
 	fmt.Fprintf(out, "       | show <id> | assign <id> <who> | status <id> <state> [-note text] | note <id> <text>\n")
 	fmt.Fprintf(out, "       | branch <id> <branch> | baton <id> <baton-id> | prune [-days N]\n")
@@ -1845,6 +1845,9 @@ func parseSpawn(args []string) (hooks.SpawnRequest, error) {
 	if f.shell && (f.agent != "" || f.model != "") {
 		return hooks.SpawnRequest{}, fmt.Errorf("-shell starts a shell, so it cannot also take -agent or -model")
 	}
+	if f.shell && f.terminal {
+		return hooks.SpawnRequest{}, fmt.Errorf("-shell starts a shell, which is a terminal already, so it cannot also take -terminal")
+	}
 	if f.shell && f.record {
 		return hooks.SpawnRequest{}, fmt.Errorf("-shell starts a shell, which reports no events, so it cannot also take -record")
 	}
@@ -1873,6 +1876,7 @@ func parseSpawn(args []string) (hooks.SpawnRequest, error) {
 		Label:      team.PaneLabelText(f.name),
 		Shell:      f.shell,
 		Agent:      f.agent,
+		Terminal:   f.terminal,
 		Model:      f.model,
 		Role:       f.role,
 		Record:     f.record,
@@ -1895,6 +1899,7 @@ type spawnFlags struct {
 	name       string
 	shell      bool
 	record     bool
+	terminal   bool
 	baton      string
 	task       string
 	// batonElsewhere agrees to the baton going to an agent of another company.
@@ -1915,6 +1920,7 @@ func spawnFlagSet(f *spawnFlags) *flag.FlagSet {
 	fs.BoolVar(&f.shell, "shell", false, "start a shell instead of an agent")
 	fs.BoolVar(&f.record, "record", false, "record the helper's agent interaction as a transcript; off unless given, and only once recording has been turned on in the window")
 	fs.StringVar(&f.agent, "agent", "", "`id` of the agent to start; flockdeck agents lists them")
+	fs.BoolVar(&f.terminal, "terminal", false, "start the agent in a terminal pane; without it claude and opencode start as structured panes unless the user has chosen terminal panes")
 	fs.StringVar(&f.model, "model", "", "which of that agent's `model`s to ask for")
 	fs.StringVar(&f.role, "role", "", "`id` of the role to start the helper as; flockdeck agents lists them. The role's agent and model apply only where -agent and -model are not given")
 	// A value flag, never one with an optional value: a flag that may or may
@@ -2427,7 +2433,8 @@ func notInstalledWarning(id string) string {
 // missing from the rest, and a name that is not found has to say why.
 var agentCatalog = func() ([]agent.Spec, string, string) {
 	c := agent.Load()
-	c.Structured = store.LoadPrefs().StructuredPanes
+	p := store.LoadPrefs()
+	c.Structured = p.StructuredOn(remote.HostInUse(p))
 	// The command line is not standing in any one project, so what it checks a
 	// name against is the installation's default rather than a project's. A
 	// project that runs something else of its own is answered where the pane is

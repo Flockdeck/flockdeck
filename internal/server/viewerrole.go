@@ -138,7 +138,7 @@ var commandAccess = map[string]cmdAccess{
 	"cursorBlink": accessFull, "cursorStyle": accessFull, "screenReader": accessFull, "statusLine": accessFull,
 	"fontFamily": accessFull, "railExpanded": accessFull, "railWidth": accessFull, "theme": accessFull,
 	"accentColor": accessFull, "autoReviewDefault": accessFull,
-	"jevStatus": accessFull, "conflictRadar": accessFull,
+	"jevStatus": accessFull, "conflictRadar": accessFull, "panes": accessFull,
 	"permissionAnswer": accessFull, "wakeSwitch": accessFull,
 	"graphSnapshot": accessFull, "graphWatch": accessFull, "graphUnwatch": accessFull,
 	"changesWatch": accessFull, "changesUnwatch": accessFull, "changesSnapshot": accessFull, "filesPage": accessFull,
@@ -355,6 +355,9 @@ type accessState struct {
 	// unpaired. An enable that began before the change sees a different number
 	// when it comes to apply, and does not apply (applyDeviceApprove).
 	approveGen atomic.Uint64
+	// approveLiveOn makes phone approval available on one server whatever
+	// phoneApprovalLive says. Only a test sets it.
+	approveLiveOn bool
 	// approveAsk holds the one-time questions handed to windows at the desk, and
 	// approveFile the last read of the preferences file for the approval gate.
 	approveAsk  approveAsk

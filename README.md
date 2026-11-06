@@ -16,7 +16,7 @@ Claude Code is the default agent. Codex, Gemini CLI, Aider, opencode and Cursor'
 agent run the same way. A CLI agent uses whatever login it already has. `flockdeck
 keys` stores API keys, but no agent in the catalog takes one yet.
 
-Direction (27 Oct 2026): Flockdeck is moving to run every agent over the Agent Client Protocol, with no terminal-pane agents. The task board is planned for removal, and Aider is planned to be dropped. None of that has shipped. See [docs/acp-direction.md](docs/acp-direction.md).
+New Claude Code and opencode panes start as structured panes: Flockdeck drives the agent over the Agent Client Protocol and the drawer shows the conversation. Settings, General, "New panes start as" (or `flockdeck spawn -terminal`, or the "(terminal)" entries in the picker) gives a terminal pane instead. Cursor Agent, Aider, shells, any CLI you add in `agents.json`, and for now Codex and Gemini CLI, run in a terminal. On a machine with paired devices or remote access, new panes stay terminal by default until the phone app can answer a structured pane; a phone is told "Answer on the desktop" when one waits. The task board is planned for removal, and Aider is planned to be dropped. See [docs/acp-direction.md](docs/acp-direction.md).
 
 ## Install
 
@@ -42,8 +42,7 @@ flockdeck agents          # the agents it can run, and which are installed here
 ```
 
 In the window, `Ctrl+Shift+T` opens a new agent tab. `Ctrl+Shift+K` opens the command palette, which lists every
-action. `Ctrl+Shift+X` turns an agent's plan into several agents, each in its own
-worktree when the project is a git repository. `Ctrl+Shift+S` reviews, commits and pushes what an agent changed. `F1`
+action. `Ctrl+Shift+S` reviews, commits and pushes what an agent changed. `F1`
 opens the help. All the shortcuts are in [docs/keys.md](docs/keys.md).
 
 ## Flockdeck Remote

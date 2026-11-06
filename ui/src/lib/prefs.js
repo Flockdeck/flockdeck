@@ -68,6 +68,14 @@ export const RAIL_DEFAULT = 220;
 /** STATUS_LINES are the choices for Claude Code's usage limits: the stored value
  *  (empty is "auto" to the desktop) and the words for it. */
 export const STATUS_LINES = [["auto", "Only where I have a status line"], ["on", "Always"], ["off", "Never"]];
+/** PANES are the choices for the kind of pane a new pane of an agent that has both starts as: the
+ *  stored value ("default" is no choice, kept as empty or absent) and the words for it. */
+export const PANES = [["default", "Follow the default"], ["structured", "Structured"], ["terminal", "Terminal"]];
+/** PANES_WORDS say what the setting changes. The default is structured, except on a machine that
+ *  paired devices or remote access can reach. */
+export const PANES_WORDS = "Whether a new Claude or opencode pane shows a structured conversation or runs in a terminal. " +
+  "This changes new panes only; panes already running are not ended. Follow the default means structured, " +
+  "except on a machine that paired devices or remote access can reach, where it stays terminal.";
 /** SCROLLBACK_COUNTS are the lines offered in the list. */
 export const SCROLLBACK_COUNTS = [1000, 5000, 10000, 25000, 50000, 100000, 200000];
 /** FONT_SUGGESTIONS are the names the font field offers. */
@@ -103,6 +111,7 @@ export function prefsOf(raw) {
     jevStatus: r.jevStatus === true,
     conflictRadar: r.conflictRadar === true,
     push: pushOf(r.push),
+    panes: r.panes === "structured" || r.panes === "terminal" ? r.panes : !r.panes && r.structuredPanes === true ? "structured" : "default",
     statusLine: r.spend && (r.spend.statusLine === "on" || r.spend.statusLine === "off") ? r.spend.statusLine : "auto",
     railExpanded: r.railExpanded === true,
     drawerW: whole(ui[DRAWER_KEY]) && ui[DRAWER_KEY] >= DRAWER_MIN && ui[DRAWER_KEY] <= DRAWER_MAX ? ui[DRAWER_KEY] : DRAWER_DEFAULT,
@@ -314,6 +323,9 @@ export function setting(name, value, current = null, caps = null) {
       const spend = current && current.spend && typeof current.spend === "object" ? current.spend : {};
       return { command: { cmd: "statusLine", text: value }, patch: { spend: { ...spend, statusLine: value === "auto" ? "" : value } } };
     }
+    case "panes":
+      if (!PANES.some(([v]) => v === value)) return null;
+      return { command: { cmd: "panes", text: value }, patch: { panes: value === "default" ? "" : value, structuredPanes: false } };
     case "railExpanded":
       return { command: { cmd: "railExpanded", kind: value ? "on" : "off" }, patch: { railExpanded: !!value } };
     case "drawerW":

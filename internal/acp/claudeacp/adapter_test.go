@@ -3,6 +3,7 @@ package claudeacp
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -386,8 +387,15 @@ func TestTurns(t *testing.T) {
 
 // The shapes of the updates, one by one.
 func TestUpdateShapes(t *testing.T) {
+	// An absolute path of this platform: C:\scratch is only absolute on Windows,
+	// and anywhere else the adapter puts the working directory in front of it.
+	editPath := filepath.Join(t.TempDir(), "a.go")
+	quoted, err := json.Marshal(editPath)
+	if err != nil {
+		t.Fatal(err)
+	}
 	h := newHarness(t, []step{expect(`"role":"user"`),
-		emit(`{"type":"assistant","message":{"id":"m","content":[{"type":"tool_use","id":"toolu_E","name":"Edit","input":{"file_path":"C:\\scratch\\a.go","old_string":"x","new_string":"y"}}]},"parent_tool_use_id":null}`),
+		emit(`{"type":"assistant","message":{"id":"m","content":[{"type":"tool_use","id":"toolu_E","name":"Edit","input":{"file_path":` + string(quoted) + `,"old_string":"x","new_string":"y"}}]},"parent_tool_use_id":null}`),
 		emit(`{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_E","content":"updated"}]},"parent_tool_use_id":null}`),
 		emit(`{"type":"assistant","message":{"id":"m2","content":[{"type":"tool_use","id":"toolu_B","name":"Bash","input":{"command":"go test ./..."}}],"usage":{"input_tokens":5,"output_tokens":20,"cache_read_input_tokens":1000,"cache_creation_input_tokens":0}},"parent_tool_use_id":null}`),
 		emit(`{"type":"user","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_B","content":"ok"}]},"parent_tool_use_id":null}`),
@@ -405,14 +413,14 @@ func TestUpdateShapes(t *testing.T) {
 		t.Fatalf("got %d updates: %v", len(calls), calls)
 	}
 	edit := calls[0]
-	if edit["toolCallId"] != "toolu_E" || edit["kind"] != "edit" || edit["status"] != "pending" || edit["title"] != `Edit C:\scratch\a.go` {
+	if edit["toolCallId"] != "toolu_E" || edit["kind"] != "edit" || edit["status"] != "pending" || edit["title"] != "Edit "+editPath {
 		t.Errorf("edit call = %v", edit)
 	}
 	diff := edit["content"].([]any)[0].(map[string]any)
-	if diff["type"] != "diff" || diff["oldText"] != "x" || diff["newText"] != "y" || diff["path"] != `C:\scratch\a.go` {
+	if diff["type"] != "diff" || diff["oldText"] != "x" || diff["newText"] != "y" || diff["path"] != editPath {
 		t.Errorf("edit diff = %v", diff)
 	}
-	if loc := edit["locations"].([]any)[0].(map[string]any); loc["path"] != `C:\scratch\a.go` {
+	if loc := edit["locations"].([]any)[0].(map[string]any); loc["path"] != editPath {
 		t.Errorf("locations = %v", edit["locations"])
 	}
 	if done := calls[1]; done["status"] != "completed" || done["content"] != nil {

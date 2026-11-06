@@ -181,10 +181,13 @@ func TestStructuredHelpersCountAgainstTheCap(t *testing.T) {
 	}
 }
 
-// With the preference off a structured agent is refused as a spawn, and a pane
-// restored with it reports why in place.
+// With terminal panes chosen a structured agent is refused as a spawn, and a
+// pane restored with it reports why in place.
 func TestStructuredPanesAreOptIn(t *testing.T) {
 	isolateConfig(t)
+	if err := store.SavePrefs(store.Prefs{Panes: store.PanesTerminal}); err != nil {
+		t.Fatal(err)
+	}
 	teamAgents(t)
 	onPath(t, "opencode")
 	root := t.TempDir()
@@ -199,7 +202,7 @@ func TestStructuredPanesAreOptIn(t *testing.T) {
 	// A pane that already names the agent does not start.
 	tab := ws.NewTabWith(Choice{Kind: session.KindClaude, Agent: "opencode-acp"}, root, "")
 	p := ws.Pane(tab.Focus)
-	if p.Err == nil || p.Structured() || !strings.Contains(p.Err.Error(), "turned off") {
+	if p.Err == nil || p.Structured() || !strings.Contains(p.Err.Error(), "Settings") || strings.Contains(p.Err.Error(), "prefs.json") {
 		t.Errorf("pane err %v, structured %v", p.Err, p.Structured())
 	}
 }
@@ -536,7 +539,7 @@ func TestARestartThatCannotStartKeepsTheHistory(t *testing.T) {
 			func(t *testing.T, ws *Workspace, p *Pane, cwd string) { p.Cwd = cwd }},
 		{"structured panes are turned off",
 			func(t *testing.T, ws *Workspace, p *Pane, root string) {
-				if err := store.SavePrefs(store.Prefs{}); err != nil {
+				if err := store.SavePrefs(store.Prefs{Panes: store.PanesTerminal}); err != nil {
 					t.Fatal(err)
 				}
 				ws.ReloadAgents()

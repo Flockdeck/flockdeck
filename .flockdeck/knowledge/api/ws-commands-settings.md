@@ -19,6 +19,7 @@ Part of [/ws/control](/api/ws-control.md). Each preference command goes through 
 | `fontFamily`, `cursorStyle`, `statusLine`, `theme`, `accentColor` | `text` | appearance |
 | `notifications`, `updates`, `cursorBlink`, `pushNotify` | `kind` `off` | on/off pairs |
 | `screenReader`, `railExpanded`, `pushAnonymous`, `autoReviewDefault`, `conflictRadar`, `jevStatus` | `kind` `on` | on/off |
+| `panes` | `text` | which kind of pane new panes start as: `structured`, `terminal` or `default` (refused from a relay window) |
 | `pushDelay` | `size` | seconds before a wait is pushed to phones |
 | `presence` | `kind` `used` | the desk reports real input (suppresses phone pushes) |
 

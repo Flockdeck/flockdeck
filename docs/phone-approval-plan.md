@@ -2,6 +2,12 @@
 
 Written on 28 Oct 2026 against origin/main 0f97bdee (through #731). Design only; no code was changed or run for this page. The decision behind it is the user's: before structured panes become the default, a phone has to get a push when a structured pane waits for approval, and has to be able to allow or deny from the phone. This is item 1 of "What is still open" in the [parity audit](acp-parity-audit.md).
 
+## Status (6 Nov 2026)
+
+Phone approval is not available. The condition in the paragraph above, that a phone can allow or deny before structured panes become the default, was dropped on 6 Nov 2026: structured panes are the default for new Claude Code and opencode panes without it. What shipped is the push. A paired device that gets pushes is told "Answer on the desktop" when a structured pane waits, and it cannot answer. Phone Allow and Deny wait for the phone app (T6) and the relay path (T7); see "Phone approval is held" at the end of this page.
+
+To keep people who could not answer from being surprised, an install with paired devices or remote access turned on keeps terminal as the default for new panes until the phone app ships. Settings, General, "New panes start as" can still choose structured there.
+
 What I read: `internal/server/push.go`, `relayscrub.go`, `viewerrole.go`, `permission_answer.go`, `structured.go`, `structuredrewind.go`, `artifacts_socket.go`, `artifacts_consent.go`, `artifacts_audit.go`, `internal/e2e/e2e.go`, `internal/remote/webpush.go`, `internal/store/deviceaccess.go`, `docs/structured-pane.md`, `ui/help/pages/remote.md`, `api/README.md`, and the card code in `internal/acp/bridge` and `claudeacp/perm.go`. Not available here: the relay (`flockdeck-relay`) and the phone app (`flockdeck-remote`). Everything this page says about them comes from comments and docs in this repo, and is marked where it matters.
 
 ## Decisions
@@ -290,9 +296,9 @@ Known limits:
 
 ## T4 as built
 
-Written on 28 Oct 2026 against origin/main 3e8a5d06 (through #734). The push for a structured wait is in `internal/server/push.go` and is switched off: `structuredPushLive` is `false`. No API change.
+Written on 28 Oct 2026 against origin/main 3e8a5d06 (through #734). The push for a structured wait is in `internal/server/push.go`. It was switched off when it was built; on 6 Nov 2026 `structuredPushLive` became `true` (T195, W3), now that the approvals socket is routed. No API change.
 
-What it does, once on:
+What it does:
 
 - `pushDue` no longer skips a pane because it has no session. A pane with none is taken only if `structuredWait` finds it through the structured-pane lookup (`s.structuredPane`, the same one `permissionAnswer` uses, so no consumer asks which agent it is), and only while its status is waiting on a request. A structured pane that is blocked (needs setup) is not pushed, though a terminal pane that is blocked still is. The delay, the one push a minute, `deskInUse`, `phoneLook` and per-pane mute are the code they were.
 - Wording is as the table in section a says. One structured pane waiting: title `NAME · PROJECT needs you`; body `Allow or deny. On DESKTOP` for a device with the approvals switch on when `projectCard(...).CanAllow` is true, and `Answer on the desktop. On DESKTOP` for every other device and for every other card (plan, question, Deny only, an agent that is not ours, no card). Several waiting panes and Anonymous are as before, the same for every device. `CanAllow` is the test and not `Answerable`: a Deny only card is told "Answer on the desktop", since "Allow or deny" would promise a button the card does not have. The card is read for that yes or no and nothing else; `waitingAgent` holds two booleans and no card text.
@@ -302,9 +308,9 @@ What it does, once on:
 - The wording for a device with approvals on is checked again just before the push is sent (`recheckPush`, on the workspace goroutine). The card seq, the run token and `CanAllow` have to be the same as when the wait was noticed; if the card changed, is gone, or the check cannot run, every device is told "Answer on the desktop". The window that is left is the relay call itself.
 - A tap opens `/d/HOST/PANE`, as for a terminal pane.
 
-How it is kept from shipping before T3:
+How it was kept from shipping before T3:
 
-- `structuredPushLive` is a constant, `false`. The only other way to turn the push on is the unexported field `pushState.structuredOn`, which only tests set.
+- `structuredPushLive` was a constant, `false`; it is `true` now. A test can force the push on with `pushState.structuredOn` or off with `pushState.structuredOff`.
 - `TestStructuredPushNeedsTheApprovalsSocket` fails if the constant is `true` and no non-test Go file in `internal/server` calls `Handle` or `HandleFunc` with the literal `"/ws/approvals"` (found by parsing the files, so a comment, a string or a test file does not count). T3 registers the route in `server.go` beside `/ws/artifacts` and flips the constant in the same change. `TestTheRouteCheckSeesARegisteredHandler` shows the check finds `/ws/artifacts` in the real tree, finds a registration in a temporary file, and does not take a comment, a string or a test file for one.
 - The call has to name a handler `handleApprovals` (`s.handleApprovals` or `handleApprovals`), as `/ws/artifacts` has `handleArtifacts`, so a route registered with some other function does not satisfy it. A name proves nothing about what the handler does: reviewing T3 still has to check that it is the sealed one, and that the constant is flipped in the same change.
 
@@ -450,3 +456,13 @@ Three refusals in a row of the kind a correct client never causes close the sock
 - `AnswerPermission` is called on the socket's goroutine, not the workspace goroutine, as it is atomic. The file-system check of an edit's path in `phoneAnswer` also runs there.
 - The desk trace ("Allowed from PHONE") is T5. The desk's stderr line (`permissionLog`) now says "from a phone", with pane, card number and `allow_once` or `reject_once`.
 - Not run: a real relay or a real phone. The relay's handling of the path is research item R1 and T7.
+
+## Phone approval is held (6 Nov 2026, T195 W3)
+
+The push for a structured wait is live, but the phone app (T6) cannot show a card yet and the relay path (T7) is not built, so nothing may tell a person they can allow from a phone.
+
+- `phoneApprovalLive` (`internal/server/approvals_prefs.go`) is a constant, `false`. There is no minimum phone app version to test instead: the relay does not report one.
+- While it is false, a push never says "Allow or deny". Every device is told "Answer on the desktop. On DESKTOP", and the push holds no word of the card. `TestAHeldApprovalMeansNoPushSaysAllowOrDeny` checks this for a command, an edit, a plan, a question and no card.
+- While it is false, `approveChallenge` and `setDeviceApprove` with `on: true` are refused with a notice, so a device cannot be turned on from any window. Turning a device off, and the kill switch, still work.
+- The device list sent to a window on this machine carries `approveHeld: true`. The Remote settings page does not draw the "Approve: off" button then. A device that already has approving on keeps its "Approve: on" button, so the desk can turn it off.
+- Tests set `accessState.approveLiveOn` (on in `newTestServer`) to run the approval path. When T6 and T7 ship, set `phoneApprovalLive` to `true` in the same change.

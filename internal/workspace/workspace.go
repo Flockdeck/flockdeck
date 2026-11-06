@@ -36,6 +36,7 @@ import (
 	"github.com/jmwri/flockdeck/internal/hooks"
 	"github.com/jmwri/flockdeck/internal/layout"
 	"github.com/jmwri/flockdeck/internal/record"
+	"github.com/jmwri/flockdeck/internal/remote"
 	"github.com/jmwri/flockdeck/internal/review"
 	"github.com/jmwri/flockdeck/internal/route"
 	"github.com/jmwri/flockdeck/internal/session"
@@ -1969,6 +1970,15 @@ func (w *Workspace) startPane(p *Pane, resume bool) {
 		agentID := p.Agent
 		if agentID == "" {
 			agentID = w.defaultAgentFor(p.Root)
+			// A pane that recorded no agent was written before panes could
+			// choose, or by a build that left it out, and it ran in a terminal.
+			// If today's default is a structured entry (an agents.json that
+			// names one), the pane still comes back as the terminal agent, and
+			// is not started as a structured one on top of its terminal
+			// session. Only a layout that says it was structured gets that.
+			if p.savedTransport != TransportStructured {
+				agentID = w.agents().TerminalOf(agentID)
+			}
 		}
 		var ok bool
 		spec, ok = w.agents().Find(agentID)
@@ -2240,24 +2250,55 @@ func (w *Workspace) defaultAgentFor(root string) string {
 // would run a model nobody picked. An agent the catalog has no entry for is
 // left as asked too, so that starting it reports the problem in the pane
 // rather than quietly running something else.
+//
+// The default is the structured entry when structured panes are on (see
+// Catalog.ForNewPane), so a pane that asked for nothing is recorded as the
+// structured agent, and an empty Agent on a saved pane stays what it always
+// meant, the terminal agent. An id given is taken exactly: the picker's
+// "Claude Code (terminal)" row is the id "claude" and must stay terminal.
 func (w *Workspace) resolveChoice(root, agentID, model string) (string, string) {
+	return w.resolveChoiceAs(root, agentID, model, false, false)
+}
+
+// resolveSpawnChoice is resolveChoice for a helper started with `flockdeck
+// spawn`, where an agent named is the bare id the person typed rather than a
+// row of the picker: "claude" means the structured Claude while structured
+// panes are on. terminal asks for the terminal version of whichever agent it
+// is, which is how a spawn opts out.
+func (w *Workspace) resolveSpawnChoice(root, agentID, model string, terminal bool) (string, string) {
+	return w.resolveChoiceAs(root, agentID, model, true, terminal)
+}
+
+func (w *Workspace) resolveChoiceAs(root, agentID, model string, bare, terminal bool) (string, string) {
+	c := w.agents()
 	if agentID != "" {
+		switch {
+		case terminal:
+			agentID = c.TerminalOf(agentID)
+		case bare:
+			agentID = c.ForNewPane(agentID)
+		}
 		return agentID, model
 	}
 	agentID = w.defaultAgentFor(root)
-	c := w.agents()
 	if _, ok := c.Find(agentID); !ok {
 		return agentID, model
 	}
 	spec, model, _ := c.Resolve(root, agentID, model)
-	return spec.ID, model
+	// The default is a bare agent id however it was reached.
+	if terminal {
+		return c.TerminalOf(spec.ID), model
+	}
+	return c.ForNewPane(spec.ID), model
 }
 
-// loadCatalog reads the catalog and sets the opt-in for structured agents from
-// the preferences, which is where the user turns it on.
+// loadCatalog reads the catalog and sets whether structured agents are offered
+// from the preferences: an explicit choice, else the default, which is on
+// unless remote devices can reach this machine (store.Prefs.StructuredOn).
 func loadCatalog() *agent.Catalog {
 	c := agent.Load()
-	c.Structured = store.LoadPrefs().StructuredPanes
+	p := store.LoadPrefs()
+	c.Structured = p.StructuredOn(remote.HostInUse(p))
 	return c
 }
 

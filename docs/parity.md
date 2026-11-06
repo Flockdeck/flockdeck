@@ -8,12 +8,12 @@ It compares two lists the sources hold: the actions of the key table (`ui/help/k
 
 | | Actions | Commands |
 | --- | --- | --- |
-| done | 45 | 122 |
+| done | 45 | 121 |
 | replaced | 0 | 6 |
 | cut | 14 | 14 |
 | planned | 0 | 14 |
 | unclassified | 0 | 0 |
-| total | 59 | 156 |
+| total | 59 | 155 |
 
 Done means the new interface runs the action or sends the command under that name. Replaced means it sends another command for it. Cut is on purpose. Planned names the task on the board that owns it.
 
@@ -302,7 +302,7 @@ These are safety and security controls the new interface has to send. The list i
 
 ## Commands only the new interface sends
 
-`conversationClose`, `conversationDetail`, `conversationOlder`, `conversationOpen`, `conversationSearch`, `graphUnwatch`, `graphWatch`, `paneSend`, `permissionAnswer`, `structuredCancel`, `structuredUnwatch`, `structuredWatch`, `uiPrefs`, `wakeSwitch`
+`approveChallenge`, `approveMerge`, `attachImage`, `changesUnwatch`, `changesWatch`, `commentAdd`, `confirmChecks`, `conversationClose`, `conversationDetail`, `conversationOlder`, `conversationOpen`, `conversationSearch`, `diffContext`, `diffHunks`, `graphUnwatch`, `graphWatch`, `mergeBranch`, `paneName`, `paneSend`, `panes`, `permissionAnswer`, `requestReview`, `runChecks`, `setApprovalsOff`, `setDeviceApprove`, `structuredCancel`, `structuredExport`, `structuredFiles`, `structuredFork`, `structuredInfo`, `structuredQueueClear`, `structuredQueueEdit`, `structuredQueueRemove`, `structuredQueueSendNow`, `structuredRewind`, `structuredSet`, `structuredShellRemove`, `structuredShellRun`, `structuredShellSend`, `structuredShellStop`, `structuredSignInCancel`, `structuredSignIn`, `structuredUnwatch`, `structuredWatch`, `uiPrefs`, `unapproveMerge`, `wakeSwitch`
 
 ## What this does not cover
 
