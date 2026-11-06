@@ -15,6 +15,7 @@ type toolDesc struct {
 	locations []map[string]any
 	content   []any
 	plan      []map[string]any // set for TodoWrite, which is sent as a plan
+	task      bool             // TaskCreate, TaskUpdate, TaskList, TaskGet: the session keeps the list and sends it as a plan
 }
 
 // maxDiffRead is the most of an existing file read to show a Write as a diff.
@@ -156,6 +157,8 @@ func describeTool(name string, input json.RawMessage, cwd, display string) toolD
 		if plan := str(in, "plan"); strings.TrimSpace(plan) != "" {
 			d.content = []any{map[string]any{"type": "content", "content": map[string]any{"type": "text", "text": capText(plan)}}}
 		}
+	case "TaskCreate", "TaskUpdate", "TaskList", "TaskGet":
+		d.task = true
 	case "TodoWrite":
 		var todos []struct {
 			Content string `json:"content"`
