@@ -217,14 +217,25 @@ push. The markdown plan (`planMarkdown`) is not drawn.
 
 This section is for the person using one. It says what is true today and does not promise more.
 
-**It is a beta and it is opt-in.** Structured panes are off until `"structuredPanes": true` is in
-`prefs.json` in the state directory. There is no setting for it in the window. Until it is on, the
-picker does not offer a structured agent, and a layout that holds one shows the pane with a message
-saying so. Turning it off takes effect when the agents are read again or a pane is restarted; a
-running pane is not ended by it. Today the built-in entry that is offered is `opencode-acp`
-(opencode, structured). The Gemini and Codex entries are hidden until they have been checked end to
-end. There is no entry for Claude Code yet; a Go adapter for it is in progress (T204, see
-[ACP direction](acp-direction.md)). [ACP adapters](acp-adapters.md) lists the tested versions.
+**Structured is the default for new panes of Claude Code and opencode.** The picker lists "Claude Code (structured)" and "opencode (structured)", and a new pane started with a bare `claude` or `opencode` (the plain new-tab key, `flockdeck spawn`) runs the structured one. Nothing needs turning on. The default applies to new panes only: a saved layout restores each pane as it was, so a terminal pane stays a terminal pane.
+
+The default does not apply in three cases.
+
+- You chose terminal. Settings, General, "New panes start as" takes Follow the default, Structured or Terminal; the choice is stored as `panes` in `prefs.json` (API 1.28, the `panes` command) and changes new panes only, never a running one. The older `"structuredPanes": true` still reads as a choice of structured, and is replaced when the setting is changed.
+- Remote access is on, or the desk holds a record of a paired device (`remote.HostInUse`; a record that cannot be read counts as in use). With no choice made, new panes stay terminal there, because a phone is told when a structured pane waits but cannot answer it yet. Choosing Structured in Settings overrides this.
+- The agent has no structured entry. Cursor Agent, Aider, plain shells and any CLI in `agents.json` have no ACP route and stay in a terminal. Codex and Gemini CLI stay terminal for now: their structured entries are hidden until T192 has run them against the real programs. A user entry in `agents.json` that overrides `claude` or `opencode` runs as written.
+
+Ways to get a terminal pane, which stay available:
+
+- The picker also lists the terminal entries, named "Claude Code (terminal)" and "opencode (terminal)" while a structured sibling is on offer.
+- `flockdeck spawn -terminal` asks for the terminal version of a bare agent id. It does nothing for an agent without a structured entry, and it cannot be combined with `-shell`.
+- A structured pane that failed to start, needs signing in or whose agent ended offers "Restart as terminal" when its agent has a terminal sibling (`pane.terminalWayBack`, `restartPane` with `kind` `terminal`). The pane keeps its place and folder; the conversation starts afresh.
+
+[ACP adapters](acp-adapters.md) lists the tested versions.
+
+**Signing in.** A Claude Code pane that is not signed in is blocked as "needs setup", and Agent info opens by itself with a Sign in button (`structuredSignIn`). It runs `claude auth login` and restarts the pane when the command ends well. Flockdeck never holds the credential. A completed sign-in from the button has not been seen against a real account; the link step has.
+
+**Project trust.** claude drops the `permissions.allow` rules of a project's `.claude/settings.json` in a folder it has not trusted, and its trust dialog never appears when the adapter runs it. The adapter notices claude's warning and the pane shows a notice once per session saying the rules are ignored until the folder is trusted. Running claude once in that folder in a terminal pane and accepting the prompt trusts it. Until then each command asks. `deny` rules and hooks in the project's settings do apply (checked on claude 2.1.319).
 
 **Questions.** A card of kind `question` is a question the agent asks the person (Claude Code's
 `AskUserQuestion`). Only Flockdeck's own Claude Code adapter may ask one: for any other agent a request of kind
@@ -324,10 +335,19 @@ A terminal opencode pane is not started this way and keeps its own configuration
 
 **What a structured pane loses against a terminal pane:**
 
-- A phone gets no push notification for a pending permission, because it could not answer it
-  (`pushDue` skips a pane with no session). Structured data is still refused over the relay and that did not
-  change (T234). What a phone does get is the roster: a relay window sees the pane's status as waiting, with
-  the pane's name, and nothing the agent asked. Whether to push a fixed "needs you" is not decided.
+- A phone cannot answer a structured pane's permission request. When a structured pane waits, a paired device that
+  gets pushes is sent "Answer on the desktop", with no card text (#750); `phoneApprovalLive` is `false`, so no
+  push says "Allow or deny" and a device cannot be switched to approve until the phone app (T6) and the relay path
+  (T7) ship. Structured data is still refused over the relay (T234). A relay window sees the pane's status as
+  waiting, with the pane's name, and nothing the agent asked. On a terminal pane the push is as before.
+- Rewind takes the conversation back and does not touch files. The confirm text says so. There is no file rewind,
+  no double Escape and no `/undo`.
+- Allow always is not kept. For Claude it covers shell commands only, the exact command only, and is held in the
+  adapter's memory, so a pane restart (an update, a crash) asks again. There is no way to edit permission rules.
+  Accept-edits mode, chosen in the mode selector, is the practical way to ask less.
+- A subagent's own text is not shown, images reach the agent as a file path and not as an image block, and there
+  is no Shift+Tab mode cycle or session picker. [The parity audit](acp-parity-audit.md) has the whole list.
+- A structured pane is not recorded.
 - Desktop notifications work as they do for a terminal pane (`lib/attention.js`, `shell/Live.js`): a pane that
   asks for a permission becomes status waiting, and a pane that needs setup becomes blocked, so each raises
   "NAME needs you" with the fixed body "waiting for your answer" or "needs setting up" while the window is
@@ -335,8 +355,8 @@ A terminal opencode pane is not started this way and keeps its own configuration
   idle) raises "NAME finished" with the body "ready for your next message", only while the window is behind
   another, and does not count as waiting. The notification carries the pane's name and branch, cleaned and
   cut to 60 characters, and no text of the agent's: not the tool, the command or the activity. The setting is
-  the existing Desktop notifications switch. AskUserQuestion is not a structured question yet (the adapter denies it), so
-  there is none to notify about.
+  the existing Desktop notifications switch. A question from the agent (AskUserQuestion) is a card that waits like a
+  permission request, so it raises the same notification.
 - `permissionAnswer` is refused to a window reached through the relay, and to a device that may only
   view. So are the commands of section 1.
 - A relay window is told the pane's name, status, directory, branch, project, agent and model, and no
@@ -346,9 +366,8 @@ A terminal opencode pane is not started this way and keeps its own configuration
   `conversationSearch` to it for every pane, and it is sent no `conversationAppend`,
   `conversationDetail` or `conversationSearch`, so a structured pane's conversation does not reach it
   by this path either (`TestARelayWindowGetsNothingOfAStructuredPanesConversation`).
-- No export, since the conversation is not stored where Flockdeck reads it. The conversation
-  commands read it from memory (see the drawer section above).
-  A restored pane does resume the agent's own session when the agent can (section 6, resume).
+- Export saves the conversation as Markdown (`structuredExport`), at the desk only. The conversation commands read it from memory (see the drawer section above), so a pane that was closed has no
+  conversation to export. A restored pane does resume the agent's own session when the agent can (section 6, resume).
 - Mail reaches a structured agent as a `session/prompt` of two text blocks, with no opt-in. The agent
   is not given `FLOCKDECK_API`, `FLOCKDECK_TOKEN` or `FLOCKDECK_PANE` (names starting `FLOCKDECK_` are
   never passed to an agent), so it cannot run `flockdeck inbox`, and its briefing has its own Messages

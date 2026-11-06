@@ -60,9 +60,9 @@ and replaces it. `-solo` starts a separate instance instead.
   Fidelity comes from running the CLI in a terminal, not from parsing its output.
   The one exception is a structured pane: an agent that speaks the Agent Client
   Protocol (`agent.RunnerACP`) is talked to over that protocol, has no terminal,
-  and shows a stub line in the default window. It is the `structuredPanes` beta
-  in `prefs.json`, off by default, and the picker does not offer these agents
-  until it is on (see [Structured panes](#structured-panes) below and
+  and is drawn as a conversation in the drawer. New Claude Code and opencode panes
+  start this way by default; the `panes` preference in `prefs.json` chooses
+  between structured and terminal, and a terminal entry stays for each (see [Structured panes](#structured-panes) below and
   [ACP adapters](acp-adapters.md)).
 - Everything that reads a pane asks one interface. `workspace.PaneRuntime`
   (`internal/workspace/panekind.go`) answers for a pane's status and activity,
@@ -181,8 +181,9 @@ line" and "wake".
 ## Structured panes
 
 A structured pane runs an agent over the Agent Client Protocol and not in a
-terminal. It is a beta behind the `structuredPanes` preference, off by default.
-It is wired in: with the preference on, a catalog entry with `RunnerACP` starts
+terminal. It is the default for new Claude Code and opencode panes, unless the
+`panes` preference says terminal or the machine has paired devices or remote
+access. A catalog entry with `RunnerACP` starts
 as a structured pane, and the workspace reads it through the same `PaneRuntime`
 as a terminal pane (`internal/workspace/structuredpane.go`). It has no screen and
 no keys to type: `paneSend` and the wake line reach it as prompts, and a

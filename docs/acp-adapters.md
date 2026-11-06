@@ -196,9 +196,10 @@ keeps meaning what it did. `claude-acp` starts the `claude` adapter (Flockdeck's
 see [Claude Code adapter](acp-claude-adapter.md)), takes a key in `ANTHROPIC_API_KEY`, and is
 unavailable when `claude` is not on PATH.
 
-Structured entries are not offered in the picker until the beta is turned on:
-`"structuredPanes": true` in the preferences file (`prefs.json`), not in
-`agents.json`, which holds entries only. They can still be found by id.
+The picker lists the structured entries for Claude Code and opencode while new panes start structured,
+which is the default. Settings, General, "New panes start as" (the `panes` preference, not `agents.json`,
+which holds entries only) turns them off, and so do paired devices and remote access when no choice was made.
+The hidden Codex and Gemini entries can still be found by id.
 
 ## Gemini CLI and Codex end to end (T192)
 

@@ -2,6 +2,12 @@
 
 Written on 28 Oct 2026 against origin/main 0f97bdee (through #731). Design only; no code was changed or run for this page. The decision behind it is the user's: before structured panes become the default, a phone has to get a push when a structured pane waits for approval, and has to be able to allow or deny from the phone. This is item 1 of "What is still open" in the [parity audit](acp-parity-audit.md).
 
+## Status (6 Nov 2026)
+
+Phone approval is not available. The condition in the paragraph above, that a phone can allow or deny before structured panes become the default, was dropped on 6 Nov 2026: structured panes are the default for new Claude Code and opencode panes without it. What shipped is the push. A paired device that gets pushes is told "Answer on the desktop" when a structured pane waits, and it cannot answer. Phone Allow and Deny wait for the phone app (T6) and the relay path (T7); see "Phone approval is held" at the end of this page.
+
+To keep people who could not answer from being surprised, an install with paired devices or remote access turned on keeps terminal as the default for new panes until the phone app ships. Settings, General, "New panes start as" can still choose structured there.
+
 What I read: `internal/server/push.go`, `relayscrub.go`, `viewerrole.go`, `permission_answer.go`, `structured.go`, `structuredrewind.go`, `artifacts_socket.go`, `artifacts_consent.go`, `artifacts_audit.go`, `internal/e2e/e2e.go`, `internal/remote/webpush.go`, `internal/store/deviceaccess.go`, `docs/structured-pane.md`, `ui/help/pages/remote.md`, `api/README.md`, and the card code in `internal/acp/bridge` and `claudeacp/perm.go`. Not available here: the relay (`flockdeck-relay`) and the phone app (`flockdeck-remote`). Everything this page says about them comes from comments and docs in this repo, and is marked where it matters.
 
 ## Decisions
