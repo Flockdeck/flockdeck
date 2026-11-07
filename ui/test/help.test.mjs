@@ -406,6 +406,26 @@ test("a page of text that looks like markup draws no element from it", async () 
   } finally { m.done(); }
 });
 
+test("a key that names an action is cleaned with its id, and a bad id is dropped", () => {
+  const got = cleanNodes([{ t: "kbd", k: "splitRight", c: [{ x: "Ctrl+Shift+D" }] }, { t: "kbd", k: "a b<", c: [{ x: "F1" }] }, { t: "kbd", c: [{ x: "Esc" }] }]);
+  assert.deepEqual(got, [{ t: "kbd", k: "splitRight", c: [{ x: "Ctrl+Shift+D" }] }, { t: "kbd", c: [{ x: "F1" }] }, { t: "kbd", c: [{ x: "Esc" }] }]);
+});
+
+test("a page writes the key this person has set for an action, and the page's own when there is none", () => {
+  const nodes = [{ t: "p", c: [
+    { x: "Split with " }, { t: "kbd", k: "splitRight", c: [{ x: "Ctrl+Shift+D" }] },
+    { x: ", or " }, { t: "kbd", k: "unbound", c: [{ x: "Ctrl+B" }] },
+    { x: ", or " }, { t: "kbd", c: [{ x: "Esc" }] }, { x: "." },
+  ] }];
+  const keys = [{ id: "splitRight", keys: "Ctrl+Alt+R", label: "Split right" }, { id: "unbound", keys: "", label: "Nothing" }];
+  const remapped = renderToString(html`<${Tree} nodes=${nodes} keys=${keys} />`);
+  assert.ok(remapped.includes("<kbd>Ctrl+Alt+R</kbd>"), remapped);
+  assert.ok(!remapped.includes("Ctrl+Shift+D"), remapped);
+  assert.ok(remapped.includes("<kbd>Ctrl+B</kbd>") && remapped.includes("<kbd>Esc</kbd>"), remapped);
+  const plain = renderToString(html`<${Tree} nodes=${nodes} />`);
+  assert.ok(plain.includes("<kbd>Ctrl+Shift+D</kbd>"), plain);
+});
+
 test("the dialog can be given a page to open on", async () => {
   const dom = createDom();
   const restore = install(dom);

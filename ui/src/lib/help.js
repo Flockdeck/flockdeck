@@ -58,6 +58,8 @@ export function cleanNodes(nodes, depth = 0) {
     } else if (n.t === "a") {
       if (safeLink(n.h)) out.push({ t: "a", h: n.h, c: kids });
       else out.push(...kids);
+    } else if (n.t === "kbd" && typeof n.k === "string" && /^[A-Za-z0-9]{1,64}$/.test(n.k)) {
+      out.push({ t: "kbd", k: n.k, c: kids });
     } else {
       out.push({ t: n.t, c: kids });
     }
