@@ -16,7 +16,7 @@ import { html } from "../html.js";
 import { composing, LIST } from "./keys.js";
 import { Confirm } from "./Confirm.js";
 import { JevKey } from "./Jev.js";
-import { KEYS_INTRO, KEYS_NONE_WORDS, KEYS_RELAY_WORDS, canClear, clearKeyCommand, keyNotes, keyStatus, keysOf, setKeyCommand } from "../lib/apikeys.js";
+import { KEYS_INTRO, KEYS_NONE_WORDS, KEYS_RELAY_WORDS, canClear, clearKeyCommand, keyNotes, keyStatus, setKeyCommand, shownKeys } from "../lib/apikeys.js";
 
 /** Keys is the section. keys is the store's latest keys answer (or null), remote
  *  says this window was reached through the relay, send is the store's send, and
@@ -28,7 +28,7 @@ export function Keys({ keys, remote, send, news = "", jev = null }) {
   const [asking, setAsking] = useState("");
   const field = useRef(null);
   const buttons = useRef({});
-  const rows = keys ? keysOf(keys) : null;
+  const rows = keys ? shownKeys(keys) : null;
   useEffect(() => {
     setFailed(send({ cmd: "keys" }) === false);
   }, []);
