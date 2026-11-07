@@ -190,6 +190,42 @@ type session struct {
 	// does not say which call it answers.
 	secret     map[string]bool
 	lastSecret bool
+	// beat stops the heartbeat that keeps a replacement's modification time
+	// current (see startBeat); nil when there is none.
+	beat func()
+}
+
+// stopBeat ends the heartbeat, if there is one.
+func (s *session) stopBeat() {
+	if s.beat != nil {
+		s.beat()
+	}
+}
+
+// beatEvery is how often a replacement being written has its modification time
+// set to now, so that a Flockdeck that is open but idle does not look, to
+// another one's sweep, like one that quit. It is well under staleNewAfter.
+var beatEvery = time.Hour
+
+// startBeat touches path every beatEvery until the returned function is called,
+// which waits for the last touch to end.
+func startBeat(path string, every time.Duration) func() {
+	stop, done := make(chan struct{}), make(chan struct{})
+	go func() {
+		defer close(done)
+		t := time.NewTicker(every)
+		defer t.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case now := <-t.C:
+				_ = os.Chtimes(path, now, now)
+			}
+		}
+	}()
+	var once sync.Once
+	return func() { once.Do(func() { close(stop); <-done }) }
 }
 
 // NewManager returns a Manager writing under the state directory dir names.
@@ -314,6 +350,7 @@ var ErrClosed = errors.New("the transcripts are closed")
 // replacement, leaving a finished file it was to replace as it was.
 func (m *Manager) dropLocked(pane string) {
 	if s := m.open[pane]; s != nil {
+		s.stopBeat()
 		_ = s.f.Close()
 		if s.final != "" {
 			_ = os.Remove(s.path)
@@ -348,6 +385,7 @@ func (m *Manager) Finish(meta Meta) error {
 	if s.final != "" && werr == nil {
 		serr = syncFile(s.f)
 	}
+	s.stopBeat()
 	cerr := s.f.Close()
 	if serr != nil && cerr == nil {
 		cerr = serr
@@ -509,6 +547,7 @@ func (m *Manager) Discard(meta Meta) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if s := m.open[meta.Conversation]; s != nil {
+		s.stopBeat()
 		_ = s.f.Close()
 		_ = os.Remove(s.path)
 		delete(m.open, meta.Conversation)
@@ -589,7 +628,11 @@ func (m *Manager) openLocked(meta Meta, first time.Time) error {
 		_, err := os.Lstat(final)
 		replaces = err == nil
 	}
-	m.open[meta.Conversation] = &session{f: f, path: path, final: final, replaces: replaces, id: id, secret: map[string]bool{}}
+	sess := &session{f: f, path: path, final: final, replaces: replaces, id: id, secret: map[string]bool{}}
+	if final != "" {
+		sess.beat = startBeat(path, beatEvery)
+	}
+	m.open[meta.Conversation] = sess
 	if m.target == "" {
 		// Only Flockdeck's own folders are swept, never one beside a file the user
 		// chose.
