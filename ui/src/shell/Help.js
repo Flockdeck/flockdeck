@@ -18,11 +18,18 @@ export const NOT_YET = "not in this window yet";
 export const PALETTE_ONLY = "Command palette";
 
 /** Tree draws the nodes of a page. onPage is called with the slug of a link to
- *  another page. */
-export function Tree({ nodes, onPage }) {
+ *  another page. keys is the window's key table: a <kbd> that names an action
+ *  (k) is written with the binding that table has for it, so a key this person
+ *  has remapped reads as remapped, and with the page's own words when the table
+ *  has no binding for it. */
+export function Tree({ nodes, onPage, keys = null }) {
   return nodes.map((n, i) => {
     if (!n.t) return n.x;
-    const kids = n.c && n.c.length ? html`<${Tree} nodes=${n.c} onPage=${onPage} />` : null;
+    if (n.t === "kbd" && n.k && keys) {
+      const row = keys.find((k) => k && k.id === n.k);
+      if (row && typeof row.keys === "string" && row.keys !== "") return h("kbd", { key: i }, row.keys);
+    }
+    const kids = n.c && n.c.length ? html`<${Tree} nodes=${n.c} onPage=${onPage} keys=${keys} />` : null;
     if (n.t === "a") {
       if (n.h.startsWith("#")) {
         const slug = n.h.slice(1);
@@ -168,7 +175,7 @@ export function Help({ keys, implemented, load, slug = "", onClose }) {
   } else if (page && page.keys) {
     body = html`<${KeysPage} keys=${keys} implemented=${implemented} known=${known} onPage=${pick} />`;
   } else if (page) {
-    body = html`<${Tree} nodes=${page.tree} onPage=${pick} />`;
+    body = html`<${Tree} nodes=${page.tree} onPage=${pick} keys=${keys} />`;
   }
 
   return html`

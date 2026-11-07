@@ -128,3 +128,56 @@ func TestTreeLinksAreSlugsOrTheWeb(t *testing.T) {
 		t.Error("no cross-references in the trees")
 	}
 }
+
+// A <kbd> written from an action carries the action's id into the tree, so the
+// window can write the key its person has set; one with a bad id, or none, does not.
+func TestTreeKeepsTheActionBehindAKey(t *testing.T) {
+	nodes, err := treeOf(`<p><kbd data-key="splitRight">Ctrl+Shift+D</kbd> <kbd data-key="a b&lt;">F1</kbd> <kbd>Esc</kbd></p>`, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ks []Node
+	var walk func(ns []Node)
+	walk = func(ns []Node) {
+		for _, n := range ns {
+			if n.T == "kbd" {
+				ks = append(ks, n)
+			}
+			walk(n.C)
+		}
+	}
+	walk(nodes)
+	if len(ks) != 3 || ks[0].K != "splitRight" || ks[1].K != "" || ks[2].K != "" {
+		t.Errorf("kbd nodes = %+v", ks)
+	}
+}
+
+// A real page's [[key:…]] reaches the tree with its action.
+func TestPageKeysCarryTheirAction(t *testing.T) {
+	out, err := expand("Press [[key:splitRight]] and [[action:splitRight]].")
+	if err != nil {
+		t.Fatal(err)
+	}
+	h, err := toHTML(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nodes, err := treeOf(h, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	n := 0
+	var walk func(ns []Node)
+	walk = func(ns []Node) {
+		for _, x := range ns {
+			if x.T == "kbd" && x.K == "splitRight" {
+				n++
+			}
+			walk(x.C)
+		}
+	}
+	walk(nodes)
+	if n != 2 {
+		t.Errorf("found %d kbd nodes naming splitRight, want 2", n)
+	}
+}

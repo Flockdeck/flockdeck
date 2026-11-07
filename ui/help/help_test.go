@@ -152,7 +152,7 @@ func TestExpandInlineKey(t *testing.T) {
 	if err != nil {
 		t.Fatalf("expand: %v", err)
 	}
-	want := "Press <kbd>Ctrl+Shift+D</kbd> to split."
+	want := `Press <kbd data-key="splitRight">Ctrl+Shift+D</kbd> to split.`
 	if out != want {
 		t.Errorf("got %q, want %q", out, want)
 	}
@@ -316,7 +316,7 @@ func TestJSONExamplesParse(t *testing.T) {
 // its name, and the name is the part of the label a sentence would use.
 func TestExpandAction(t *testing.T) {
 	cases := map[string]string{
-		"[[action:splitRight]]":      "<kbd>Ctrl+Shift+D</kbd>",
+		"[[action:splitRight]]":      `<kbd data-key="splitRight">Ctrl+Shift+D</kbd>`,
 		"[[action:splitRightShell]]": "**Split right (shell)**",
 		// The palette needs the gloss after the dash; a page does not.
 		"[[action:detach]]": "**Detach**",

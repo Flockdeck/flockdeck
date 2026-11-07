@@ -58,11 +58,11 @@ func expand(src string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	out, err = expandInlineKeysWith(out, kbd)
+	out, err = expandInlineKeysWith(out, kbdFor)
 	if err != nil {
 		return "", err
 	}
-	return expandActionsWith(out, kbd)
+	return expandActionsWith(out, kbdFor)
 }
 
 // expandKeyTables replaces `{{keys}}` with every section and `{{keys:Name}}`
@@ -105,7 +105,7 @@ func expandKeyTables(src string) (string, error) {
 // action, wrapped however the destination wants it: <kbd> for the rendered
 // page, the bare keys for the contents summary, which the interface shows as
 // text.
-func expandInlineKeysWith(src string, wrap func(string) string) (string, error) {
+func expandInlineKeysWith(src string, wrap func(id, keys string) string) (string, error) {
 	return expandPlaceholders(src, "[[key:", func(id string) (string, error) {
 		k, ok := Lookup(id)
 		if !ok {
@@ -114,7 +114,7 @@ func expandInlineKeysWith(src string, wrap func(string) string) (string, error) 
 		if k.Keys == "" {
 			return "", fmt.Errorf("[[key:%s]]: %q has no binding; use [[action:%s]] instead", id, k.Label, id)
 		}
-		return wrap(k.Keys), nil
+		return wrap(id, k.Keys), nil
 	})
 }
 
@@ -125,14 +125,14 @@ func expandInlineKeysWith(src string, wrap func(string) string) (string, error) 
 // most at risk of going stale: an action with no binding could only be written
 // into a page by hand, so renaming it in the key table left every page that
 // mentioned it saying the old name with nothing to say so.
-func expandActionsWith(src string, wrap func(string) string) (string, error) {
+func expandActionsWith(src string, wrap func(id, keys string) string) (string, error) {
 	return expandPlaceholders(src, "[[action:", func(id string) (string, error) {
 		k, ok := Lookup(id)
 		if !ok {
 			return "", fmt.Errorf("[[action:%s]]: no such action", id)
 		}
 		if k.Keys != "" {
-			return wrap(k.Keys), nil
+			return wrap(id, k.Keys), nil
 		}
 		return "**" + k.Name() + "**", nil
 	})
@@ -140,6 +140,14 @@ func expandActionsWith(src string, wrap func(string) string) (string, error) {
 
 // kbd is how a binding is written into a rendered page.
 func kbd(keys string) string { return "<kbd>" + keys + "</kbd>" }
+
+// kbdFor is kbd for a binding that comes from a named action. The id rides on
+// the element (data-key) and on to the tree's node, so a window can write the
+// chord its person has set for the action, not the default this page was built
+// with.
+func kbdFor(id, keys string) string {
+	return `<kbd data-key="` + id + `">` + keys + "</kbd>"
+}
 
 // expandPlaceholders replaces every `<open>id]]` in src with what render makes
 // of the id inside it.
