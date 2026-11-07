@@ -25,6 +25,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -1162,7 +1163,62 @@ func run(opts options) error {
 		fmt.Fprintln(os.Stderr, "flockdeck: -shell has no effect, since this project's saved layout was restored (use -new -shell to start from a single shell)")
 	}
 
-	cfg := server.Config{Static: webui.FS(), Keys: keytable.From(help.Keys), HelpJSON: help.JSON}
+	// Shutdown can be requested by the window closing, by a signal, or by the
+	// user quitting from the UI.
+	quit := make(chan struct{})
+	var stopping sync.Once
+	stop := func() {
+		stopping.Do(func() {
+			close(quit)
+			// Everything past this point closes panes and kills their
+			// processes. A pane whose process will not die must not be able to
+			// keep the whole application alive with its window already gone,
+			// so the orderly shutdown is given a deadline of its own. The
+			// process exits normally long before this fires; it only ever runs
+			// when the shutdown has wedged.
+			go func() {
+				time.Sleep(shutdownGrace)
+				forceQuit()
+			}()
+		})
+	}
+
+	// A restart is a quit that comes back. The server only asks; the shutdown
+	// path decides what that means, which keeps the order -- save, replace,
+	// start again -- in one place.
+	onRestart := func() {
+		restarting.Store(true)
+		stop()
+	}
+	// Callbacks given to server.New, which is serving as soon as it returns,
+	// so they cannot be assigned afterwards. Two of them must not act until
+	// start-up is over, and are armed then:
+	//
+	//  - detaching lets go of the console, which only a detach after start-up
+	//    may do (see the call below);
+	//  - the last window closing stops the run, once a window is shown (see
+	//    showWindow).
+	//
+	// srvRef lets the last-window callback reach the server it belongs to.
+	var srvRef atomic.Pointer[server.Server]
+	var detachArmed, windowArmed atomic.Bool
+	cfg := server.Config{
+		Static: webui.FS(), Keys: keytable.From(help.Keys), HelpJSON: help.JSON,
+		OnQuit:    stop,
+		OnRestart: onRestart,
+		OnDetach: func() {
+			if detachArmed.Load() {
+				detachConsole()
+			}
+		},
+		OnLastClientGone: func() {
+			if windowArmed.Load() {
+				if s := srvRef.Load(); s != nil {
+					lastWindowGone(s, stop)
+				}
+			}
+		},
+	}
 	if dir, ok := webui.DirFS(); ok {
 		cfg.Static, cfg.StaticRemote = dir, cfg.Static
 	}
@@ -1171,6 +1227,7 @@ func run(opts options) error {
 		return err
 	}
 	defer srv.Close()
+	srvRef.Store(srv)
 	ws.SetWake(srv.Wake)
 	ws.SetConversationHook(srv.ConversationHookEvent)
 	ws.SetPaneClosedHook(srv.PaneClosed)
@@ -1201,40 +1258,12 @@ func run(opts options) error {
 	}
 	defer remoteAccess.Close()
 
-	// Shutdown can be requested by the window closing, by a signal, or by the
-	// user quitting from the UI.
-	quit := make(chan struct{})
-	var stopping sync.Once
-	stop := func() {
-		stopping.Do(func() {
-			close(quit)
-			// Everything past this point closes panes and kills their
-			// processes. A pane whose process will not die must not be able to
-			// keep the whole application alive with its window already gone,
-			// so the orderly shutdown is given a deadline of its own. The
-			// process exits normally long before this fires; it only ever runs
-			// when the shutdown has wedged.
-			go func() {
-				time.Sleep(shutdownGrace)
-				forceQuit()
-			}()
-		})
-	}
-
 	watchSignals(stop, forceQuit, srv.Detached)
 	// Closed once the layout and open projects are saved, which is what a
 	// session ending on Windows waits for before it lets the process go.
 	saved := make(chan struct{})
 	watchEndSession(stop, saved)
 
-	srv.OnQuit = stop
-	// A restart is a quit that comes back. The server only asks; the shutdown
-	// path decides what that means, which keeps the order — save, replace,
-	// start again — in one place.
-	srv.OnRestart = func() {
-		restarting.Store(true)
-		stop()
-	}
 	srv.OnCheckForUpdates = func() (string, bool) { return checkForUpdatesNow(srv) }
 	srv.OnListVersions = listVersionsNow
 	srv.OnInstallVersion = func(ctx context.Context, v string) (string, bool) { return installVersionNow(ctx, srv, v) }
@@ -1277,9 +1306,9 @@ func run(opts options) error {
 	// Only a detach after start-up lets go of the console: one made here, by
 	// -detach, would take it while start-up is still printing the address
 	// and how to stop the run, which then never reached the terminal.
-	srv.OnDetach = detachConsole
+	detachArmed.Store(true)
 
-	win, err := showWindow(opts, recorded, srv, stop)
+	win, err := showWindow(opts, recorded, srv, &windowArmed)
 	if err != nil {
 		return err
 	}
@@ -1363,7 +1392,7 @@ func run(opts options) error {
 //
 // recorded is whether this instance is the one on record, which is what
 // `flockdeck` attaches to and `flockdeck -quit` stops.
-func showWindow(opts options, recorded bool, srv *server.Server, stop func()) (*appwindow.Window, error) {
+func showWindow(opts options, recorded bool, srv *server.Server, armed *atomic.Bool) (*appwindow.Window, error) {
 	if opts.noWindow || opts.detach {
 		printServing(opts, recorded, srv.URL())
 		return nil, nil
@@ -1396,15 +1425,19 @@ func showWindow(opts options, recorded bool, srv *server.Server, stop func()) (*
 	// than a moment means nobody is looking any more. Only the windows on
 	// this machine count: one open through the relay is somebody elsewhere,
 	// and detaching is how the agents are left running for them.
-	srv.OnLastClientGone = func() {
-		go func() {
-			time.Sleep(windowGrace)
-			if srv.LocalClientCount() == 0 && !srv.Detached() {
-				stop()
-			}
-		}()
-	}
+	armed.Store(true)
 	return win, nil
+}
+
+// lastWindowGone stops the run when no window is left a moment later, unless
+// the instance has been detached on purpose.
+func lastWindowGone(srv *server.Server, stop func()) {
+	go func() {
+		time.Sleep(windowGrace)
+		if srv.LocalClientCount() == 0 && !srv.Detached() {
+			stop()
+		}
+	}()
 }
 
 // printServing says where a run without a window is serving, and how it is

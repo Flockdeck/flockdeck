@@ -419,6 +419,16 @@ type Config struct {
 	// hands over the function. With none, the address answers that the pages
 	// could not be rendered.
 	HelpJSON func(tree bool) ([]byte, error)
+
+	// OnQuit, OnRestart, OnDetach and OnLastClientGone are the server's
+	// callbacks into the program (see the fields of the same names on Server).
+	// They are given here, not assigned afterwards, because the server is
+	// handling requests as soon as New returns and the fields are read without
+	// a lock. A callback that must not act yet is gated by its owner.
+	OnQuit           func()
+	OnRestart        func()
+	OnDetach         func()
+	OnLastClientGone func()
 }
 
 // New starts a server for the workspace on a free loopback port.
@@ -461,6 +471,11 @@ func New(ws *workspace.Workspace, cfg Config) (*Server, error) {
 		gitNow:       make(chan struct{}, 1),
 		closed:       make(chan struct{}),
 		rp:           defaultRepaintHooks(),
+
+		OnQuit:           cfg.OnQuit,
+		OnRestart:        cfg.OnRestart,
+		OnDetach:         cfg.OnDetach,
+		OnLastClientGone: cfg.OnLastClientGone,
 
 		linkLife:       windowLinkLife,
 		loopDone:       make(chan struct{}),
