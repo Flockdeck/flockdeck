@@ -239,8 +239,9 @@ What to know before you use one:
   a repository you do not trust in a terminal pane, not a structured one.
 - **Mail arrives as prompts.** A structured agent has no `flockdeck` command, so
   it cannot run `flockdeck inbox` or `flockdeck msg`; those are for terminal
-  panes. It sends with the `send_message` tool and looks at the team with
-  `list_peers`. A message sent to it arrives as a prompt, with the first line
+  panes. It sends with the `send_message` tool, looks at the team with
+  `list_peers` and starts helpers with the `spawn` tool, which follows the rules of
+  `flockdeck spawn`. A message sent to it arrives as a prompt, with the first line
   `Flockdeck message from agent "<role>":` (`the user` for a message you wrote)
   and the text on one line after a fixed marker. This puts text written by
   another agent in front of an agent that may run commands, as if it were a turn

@@ -173,13 +173,13 @@ func TestAPeerNamedTheUserIsNotShownAsThePerson(t *testing.T) {
 }
 
 // A structured pane's agent has no hooks, no Flockdeck command line and none of
-// the FLOCKDECK_* variables, so its briefing names the two MCP tools and none of
+// the FLOCKDECK_* variables, so its briefing names the MCP tools (it starts helpers with spawn) and none of
 // the shell routes a terminal pane uses.
 func TestTheStructuredBriefingNamesOnlySendMessageAndListPeers(t *testing.T) {
 	c := PaneContext{PaneName: "one", Cwd: "/repo", CanSpawn: true, Structured: true, MailText: true,
 		Team: []team.Member{{Pane: "a", Self: true}, {Pane: "b"}}}
 	got := c.Render()
-	for _, want := range []string{"`send_message`", "`list_peers`"} {
+	for _, want := range []string{"`send_message`", "`list_peers`", "`spawn` tool"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the structured briefing does not name %s:\n%s", want, got)
 		}
