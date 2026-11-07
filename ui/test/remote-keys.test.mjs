@@ -505,6 +505,19 @@ test("API keys: Clear asks first and says what stays, and only then sends", () =
     assert.deepEqual(m.sent("keyClear"), [{ cmd: "keyClear", id: "local" }]);
   }));
 
+test("API keys: the Claude Code (structured) row is not drawn, though the desktop lists it", () =>
+  withPage({}, async (m) => {
+    await m.connect();
+    await m.openSettings("keys");
+    await m.push({
+      type: "keys",
+      items: [{ agent: "claude-acp", name: "Claude Code (structured)", set: true, source: "store", stored: true }, ...KEY_LIST.items],
+    });
+    assert.deepEqual(m.container.findAll(".key-row").map((r) => r.attributes["data-key"]), ["claude", "aider", "local", "ollama"]);
+    assert.equal(m.text().includes("Claude Code (structured)"), false);
+    assert.equal(keysOf({ items: [{ agent: "claude-acp" }] }).length, 1, "the key handling still reads the row");
+  }));
+
 test("API keys: names from the catalogue are text", () =>
   withPage({}, async (m) => {
     await m.connect();

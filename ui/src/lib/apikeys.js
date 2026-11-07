@@ -40,6 +40,15 @@ export function keysOf(msg) {
     }));
 }
 
+/** HIDDEN_KEY_ROWS are agents whose row the dialog leaves out. The desktop still
+ *  lists them and keySet and keyClear still work for them; only the row is not drawn. */
+export const HIDDEN_KEY_ROWS = ["claude-acp"];
+
+/** shownKeys is keysOf without the rows the dialog hides. */
+export function shownKeys(msg) {
+  return keysOf(msg).filter((k) => !HIDDEN_KEY_ROWS.includes(k.agent));
+}
+
 /** keyStatus says in words whether a row has a key and where it came from. */
 export function keyStatus(k) {
   if (k.notNeeded) return "needs no key";
