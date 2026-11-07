@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/jmwri/flockdeck/internal/agent"
 )
@@ -52,7 +53,19 @@ type claudeStream struct {
 	// SetLight. Zero value is false, so a freshly built stream defaults to
 	// full, matching every caller that built one before this field existed.
 	light bool
+
+	// reset is set when the stream moved to another copy of the transcript
+	// and rebuilt its entries from it; Reset reports it once.
+	reset bool
+	// checked is when the path was last looked up again, and repointEvery is
+	// how long to leave between lookups.
+	checked      time.Time
+	repointEvery time.Duration
 }
+
+// claudeRepointEvery is how often a stream that has a transcript looks again
+// for a more recently written copy of it.
+const claudeRepointEvery = 3 * time.Second
 
 func newClaudeStream(home, sessionID string) *claudeStream {
 	return &claudeStream{
@@ -60,7 +73,35 @@ func newClaudeStream(home, sessionID string) *claudeStream {
 		sessionID: sessionID,
 		index:     map[string]int{},
 		detail:    map[string]Detail{},
+
+		repointEvery: claudeRepointEvery,
 	}
+}
+
+// repoint looks for a copy of the transcript written more recently than the one
+// being read, and moves to it. Resuming a conversation from another working
+// directory files it under that directory's folder and carries on there, so the
+// copy this stream first found stops growing while the conversation goes on in
+// another. The new copy is read from its start and the entries rebuilt from it,
+// and Reset says so, since what a client holds may no longer be what is there.
+func (s *claudeStream) repoint() {
+	if now := time.Now(); now.Sub(s.checked) < s.repointEvery {
+		return
+	} else {
+		s.checked = now
+	}
+	p := claudePath(s.home, s.sessionID)
+	if p == "" || p == s.path {
+		return
+	}
+	s.path = p
+	s.offset = 0
+	s.carry = nil
+	s.autoID = 0
+	s.entries = nil
+	s.index = map[string]int{}
+	s.detail = map[string]Detail{}
+	s.reset = true
 }
 
 // Refresh implements Stream.
@@ -73,6 +114,9 @@ func (s *claudeStream) Refresh() []Entry {
 		if s.path == "" {
 			return nil
 		}
+		s.checked = time.Now()
+	} else {
+		s.repoint()
 	}
 	f, err := os.Open(s.path)
 	if err != nil {
@@ -113,9 +157,15 @@ func (s *claudeStream) Snapshot() []Entry {
 
 // Reset implements Stream. Claude Code's own /clear starts an entirely new
 // session id and file, which conversation.go's refreshConversation already
-// catches by noticing the id changed -- nothing in this stream is ever
-// replaced in place, so there is never anything to report here.
-func (s *claudeStream) Reset() bool { return false }
+// catches by noticing the id changed. What is reported here is the stream
+// moving to a newer copy of the same session's transcript (see repoint).
+func (s *claudeStream) Reset() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	r := s.reset
+	s.reset = false
+	return r
+}
 
 // SetLight implements Stream.
 func (s *claudeStream) SetLight(light bool) {
