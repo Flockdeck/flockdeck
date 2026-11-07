@@ -367,6 +367,22 @@ func (s *Store) leased(id string, now time.Time) bool {
 	return err == nil && now.Sub(fi.ModTime()) < leaseFor
 }
 
+// touchedSince reports whether the baton's file has a later time than when it was listed
+// (or is newer than the cutoff), or whether the used record now holds a use after the
+// cutoff. A baton that cannot be looked at is reported as touched: it is left for a later run.
+func (s *Store) touchedSince(id string, listed, cutoff time.Time) bool {
+	fi, err := os.Stat(s.Path(id))
+	if err != nil || fi.ModTime().After(listed) || fi.ModTime().After(cutoff) {
+		return true
+	}
+	if u, ok := s.readTimes(usedName); ok {
+		if t, err := time.Parse(time.RFC3339, u[id]); err == nil && t.After(cutoff) {
+			return true
+		}
+	}
+	return false
+}
+
 // sweepMarks removes the started-from marks that no longer protect anything: older
 // than leaseFor, or for a baton that is not stored any more.
 func (s *Store) sweepMarks(now time.Time) {
@@ -1018,6 +1034,7 @@ func (s *Store) Prune(maxAge time.Duration, now time.Time, inUse func(id string)
 	type candidate struct {
 		id   string
 		last time.Time
+		mod  time.Time // the file's time when it was listed
 	}
 	var cands []candidate
 	all := 0
@@ -1056,7 +1073,7 @@ func (s *Store) Prune(maxAge time.Duration, now time.Time, inUse func(id string)
 		if last.After(cutoff) || s.leased(id, now) || inUse != nil && inUse(id) {
 			continue
 		}
-		cands = append(cands, candidate{id, last})
+		cands = append(cands, candidate{id, last, info.ModTime()})
 	}
 	// A baton that looks that old is never removed (that is the safe side), and is said so
 	// once a day. When most of them look it the clock is the likelier fault, and is not
@@ -1082,6 +1099,13 @@ func (s *Store) Prune(maxAge time.Duration, now time.Time, inUse func(id string)
 	var firstErr error
 	old := map[string]bool{}
 	for _, c := range cands {
+		// The list was made from a snapshot that layoutRefs and the clock check may
+		// have taken a while over. The baton is looked at again just before it goes:
+		// a use or a start since then has moved its file time, and a started-from
+		// mark or the in-use check may have come.
+		if inUse != nil && inUse(c.id) || s.leased(c.id, now) || s.touchedSince(c.id, c.mod, cutoff) {
+			continue
+		}
 		if err := os.Remove(s.Path(c.id)); err != nil {
 			if firstErr == nil {
 				firstErr = err
