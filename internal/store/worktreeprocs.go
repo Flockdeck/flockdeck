@@ -32,6 +32,33 @@ const worktreeProcsFile = "worktree-procs.json"
 // see what the last one wrote.
 var worktreeProcsMu sync.Mutex
 
+// worktreeProcsLockWait is how long a read-modify-write waits for another
+// instance's (a -solo run beside this one shares the state folder) before going
+// on without the file lock. The other's whole turn is a read and a rename, so
+// this is far longer than it takes; going on is better than a pane that cannot
+// start or close because a crashed holder's lock never came free.
+var worktreeProcsLockWait = 3 * time.Second
+
+// lockWorktreeProcs takes the file lock that keeps two instances from reading the
+// file, each changing a different record, and the later write undoing the
+// earlier. It is held by the process, so a crash does not leave it behind. The
+// in-process mutex is taken first by the callers, so only one goroutine here
+// is ever waiting on it.
+func lockWorktreeProcs(path string) (unlock func()) {
+	lockPath := path + ".lock"
+	deadline := time.Now().Add(worktreeProcsLockWait)
+	for {
+		unlock, err := lockFile(lockPath)
+		if err == nil {
+			return unlock
+		}
+		if !errors.Is(err, ErrStartLocked) || time.Now().After(deadline) {
+			return func() {}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
 func worktreeProcsPath() (string, error) {
 	dir, err := Dir()
 	if err != nil {
@@ -46,6 +73,9 @@ func worktreeProcsPath() (string, error) {
 func TrackWorktreeProc(id string, pid int, started time.Time, path string) error {
 	worktreeProcsMu.Lock()
 	defer worktreeProcsMu.Unlock()
+	if path, err := worktreeProcsPath(); err == nil {
+		defer lockWorktreeProcs(path)()
+	}
 	recs, err := loadWorktreeProcsLocked()
 	if err != nil {
 		return err
@@ -61,6 +91,9 @@ func TrackWorktreeProc(id string, pid int, started time.Time, path string) error
 func UntrackWorktreeProc(id string) error {
 	worktreeProcsMu.Lock()
 	defer worktreeProcsMu.Unlock()
+	if path, err := worktreeProcsPath(); err == nil {
+		defer lockWorktreeProcs(path)()
+	}
 	recs, err := loadWorktreeProcsLocked()
 	if err != nil {
 		return err
