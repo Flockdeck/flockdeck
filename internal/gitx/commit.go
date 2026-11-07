@@ -332,8 +332,19 @@ var lockWait = 3 * time.Second
 // command gets: another brief git, an agent's next command, can have it again
 // by then, and on Windows a file just deleted can still be refused to git for
 // a moment. The commit then failed on a lock it had already waited for.
+//
+// Flockdeck's own index refresh (RefreshIndex) holds the same lock, and a refresh
+// of a large checkout runs for much longer than lockWait. It is never killed, so
+// a command that meets the lock while one is running waits for it to exit, for
+// commitRefreshWait at most, and then has lockWait more for anything else. And
+// from the moment a command is here no new refresh is started, so a commit is
+// never made to wait for one that began after it.
 func writingIndex(dir, input string, args ...string) error {
+	g := gateFor(dir)
+	g.beginCommit()
+	defer g.endCommit()
 	deadline := time.Now().Add(lockWait)
+	refreshCap := time.Now().Add(commitRefreshWait)
 	for attempt := 1; ; attempt++ {
 		_, _, err := runWithInput(networkTimeout, dir, input, args...)
 		if err == nil {
@@ -346,6 +357,13 @@ func writingIndex(dir, input string, args ...string) error {
 		if afterLockedAttempt != nil {
 			afterLockedAttempt(attempt)
 		}
+		if g.refreshing() && time.Now().Before(refreshCap) {
+			// The lock is the refresh's. Wait for it to end, and give whatever
+			// comes after the usual wait.
+			deadline = time.Now().Add(lockWait)
+			time.Sleep(lockPoll)
+			continue
+		}
 		if !time.Now().Before(deadline) {
 			if _, serr := os.Lstat(lock); serr == nil {
 				return indexHeld(lock)
@@ -355,6 +373,11 @@ func writingIndex(dir, input string, args ...string) error {
 		time.Sleep(lockPoll)
 	}
 }
+
+// commitRefreshWait is the longest a command that writes the index waits for
+// Flockdeck's own refresh to finish. It is indexStopWaiting, the longest anyone
+// waits for a refresh. A variable so a test can shorten it.
+var commitRefreshWait = indexStopWaiting
 
 // lockPoll is how long writingIndex waits between tries while another git
 // holds the index.
