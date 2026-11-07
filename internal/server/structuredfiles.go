@@ -331,6 +331,13 @@ func insideRegular(root, rel string) bool {
 	if err != nil {
 		return false
 	}
-	back, err := filepath.Rel(root, real)
+	// The root is resolved the same way as the file. A root that is itself
+	// reached through a link (macOS keeps /var and /tmp under /private) would
+	// otherwise make every file look as if it had left it.
+	realRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return false
+	}
+	back, err := filepath.Rel(realRoot, real)
 	return err == nil && back != ".." && !strings.HasPrefix(back, ".."+string(filepath.Separator)) && !filepath.IsAbs(back)
 }

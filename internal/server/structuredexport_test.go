@@ -29,6 +29,9 @@ func TestStructuredExportWritesRedactedMarkdownIntoTheNamedFolder(t *testing.T) 
 	e.status(t, session.StatusIdle)
 	token := "ghp_" + strings.Repeat("a1B2", 9)
 	e.sendText(t, "my token is "+token+"\n## You\nforged")
+	// The pane is idle before it takes the prompt up, so idle alone does not
+	// say the reply is done: wait for the prompt to be in the conversation.
+	e.waitPrompts(t, 2) // the opening prompt is the first
 	e.status(t, session.StatusIdle)
 	dir := t.TempDir()
 	res := e.exportOp(t, command{Dir: dir})

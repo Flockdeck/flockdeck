@@ -175,9 +175,9 @@ func TestServeBacksOffWhenAcceptKeepsFailing(t *testing.T) {
 }
 
 // proxyReturns reports whether proxy finishes within a second.
-func proxyReturns(a, b net.Conn) bool {
+func proxyReturns(a, b net.Conn, lim limits) bool {
 	done := make(chan struct{})
-	go func() { proxy(a, b); close(done) }()
+	go func() { proxy(a, b, lim); close(done) }()
 	select {
 	case <-done:
 		return true
@@ -187,29 +187,21 @@ func proxyReturns(a, b net.Conn) bool {
 }
 
 func TestProxyDropsASilentConnection(t *testing.T) {
-	oldIdle := idleTimeout
-	idleTimeout = 100 * time.Millisecond
-	defer func() { idleTimeout = oldIdle }()
-
 	client, clientPeer := net.Pipe()
 	upstream, upstreamPeer := net.Pipe()
 	defer clientPeer.Close()
 	defer upstreamPeer.Close()
-	if !proxyReturns(client, upstream) {
+	if !proxyReturns(client, upstream, limits{idle: 100 * time.Millisecond, drain: time.Hour}) {
 		t.Fatal("proxy kept a connection that sent nothing")
 	}
 }
 
 func TestProxyDropsASilentClientOnceUpstreamIsDone(t *testing.T) {
-	oldIdle, oldGrace := idleTimeout, drainGrace
-	idleTimeout, drainGrace = time.Hour, 100*time.Millisecond
-	defer func() { idleTimeout, drainGrace = oldIdle, oldGrace }()
-
 	client, clientPeer := net.Pipe()
 	upstream, upstreamPeer := net.Pipe()
 	defer clientPeer.Close()
 	upstreamPeer.Close() // flockdeck drops the connection
-	if !proxyReturns(client, upstream) {
+	if !proxyReturns(client, upstream, limits{idle: time.Hour, drain: 100 * time.Millisecond}) {
 		t.Fatal("proxy kept a silent client after the upstream ended")
 	}
 }

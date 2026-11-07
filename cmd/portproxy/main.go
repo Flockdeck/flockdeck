@@ -145,7 +145,7 @@ func handleConn(client net.Conn, target string) {
 		return
 	}
 	defer upstream.Close()
-	proxy(client, upstream)
+	proxy(client, upstream, defaultLimits)
 }
 
 // targetAddr is the host:port flockdeck actually bound this run, discovered
@@ -185,30 +185,39 @@ func hostFromInstanceURL(raw string) (string, error) {
 // being read before the proxy gives it up. flockdeck pings its WebSocket
 // connections every 30 seconds, so a live one never comes near it; one that
 // stays silent (never sent a request, or stopped halfway through one) is
-// dropped instead of holding two sockets and two goroutines for ever. It is a
-// variable so a test can shorten it.
-var idleTimeout = 2 * time.Minute
+// dropped instead of holding two sockets and two goroutines for ever.
+const idleTimeout = 2 * time.Minute
 
 // drainGrace is how long the client is given to finish once flockdeck has
 // closed its side. Nothing more can come back, so waiting longer only holds
 // the connection open for a client that has gone quiet.
-var drainGrace = 5 * time.Second
+const drainGrace = 5 * time.Second
+
+// limits are the two timeouts proxy applies. They are passed in rather than
+// read from package variables so a test can shorten them for one call without
+// racing the goroutines of any other connection still winding down.
+type limits struct {
+	idle  time.Duration
+	drain time.Duration
+}
+
+var defaultLimits = limits{idle: idleTimeout, drain: drainGrace}
 
 // proxy relays raw bytes both ways between a and b (a is the client, b the
 // upstream) until both directions have finished, half-closing each side's
 // write direction as its own copy ends, so the last bytes of an HTTP response,
 // or a WebSocket close frame, are not held back behind a request body or a
 // client that just stopped reading. A direction that sees no bytes for
-// idleTimeout ends, and once the upstream has finished the client has only
-// drainGrace left, so a silent client cannot keep the pair of sockets alive.
-func proxy(a, b net.Conn) {
+// lim.idle ends, and once the upstream has finished the client has only
+// lim.drain left, so a silent client cannot keep the pair of sockets alive.
+func proxy(a, b net.Conn, lim limits) {
 	var cutoff atomic.Int64 // unix nanoseconds; 0 until the upstream is done
 	done := make(chan struct{}, 2)
-	go func() { copyHalf(b, a, &cutoff); done <- struct{}{} }()
+	go func() { copyHalf(b, a, &cutoff, lim); done <- struct{}{} }()
 	go func() {
-		copyHalf(a, b, nil)
-		cutoff.Store(time.Now().Add(drainGrace).UnixNano())
-		_ = a.SetReadDeadline(time.Now().Add(drainGrace))
+		copyHalf(a, b, nil, lim)
+		cutoff.Store(time.Now().Add(lim.drain).UnixNano())
+		_ = a.SetReadDeadline(time.Now().Add(lim.drain))
 		done <- struct{}{}
 	}()
 	<-done
@@ -216,19 +225,19 @@ func proxy(a, b net.Conn) {
 }
 
 // copyHalf copies src to dst until src reaches EOF, goes idle for
-// idleTimeout, or either side errors, then half-closes dst's write side so
+// lim.idle, or either side errors, then half-closes dst's write side so
 // its peer sees the end of the stream promptly. A connection that cannot
 // half-close (nothing on the path here except *net.TCPConn) is closed outright
 // instead, which is what the other copyHalf goroutine's own read is about to
 // see fail anyway.
-func copyHalf(dst, src net.Conn, cutoff *atomic.Int64) {
+func copyHalf(dst, src net.Conn, cutoff *atomic.Int64, lim limits) {
 	buf := make([]byte, 32*1024)
 	for {
 		// Reading with a fresh deadline each time makes the timeout an idle
 		// one: it counts from the last bytes, not from the connection's start.
 		// Once the upstream is done, cutoff caps the deadline so a client that
 		// keeps sending a little cannot push it out again.
-		deadline := time.Now().Add(idleTimeout)
+		deadline := time.Now().Add(lim.idle)
 		if cutoff != nil {
 			if c := cutoff.Load(); c != 0 && c < deadline.UnixNano() {
 				deadline = time.Unix(0, c)
@@ -237,7 +246,7 @@ func copyHalf(dst, src net.Conn, cutoff *atomic.Int64) {
 		_ = src.SetReadDeadline(deadline)
 		n, err := src.Read(buf)
 		if n > 0 {
-			_ = dst.SetWriteDeadline(time.Now().Add(idleTimeout))
+			_ = dst.SetWriteDeadline(time.Now().Add(lim.idle))
 			if _, werr := dst.Write(buf[:n]); werr != nil {
 				break
 			}
