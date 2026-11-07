@@ -173,6 +173,9 @@ func (g *indexGate) startRefresh(dir string) int {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	switch {
+	case g.committing > 0:
+		// A commit is writing, or waiting to: housekeeping gives way to it.
+		return 0
 	case g.live >= 2:
 		if g.capLogged.IsZero() || now().Sub(g.capLogged) > time.Hour {
 			g.capLogged = now()

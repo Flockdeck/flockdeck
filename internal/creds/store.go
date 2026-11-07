@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/jmwri/flockdeck/internal/store"
 )
@@ -22,6 +23,33 @@ import (
 // keys set at once kept one, and eleven of the saves failed "Access is
 // denied".
 var storeMu sync.Mutex
+
+// lockFileName is the file whose lock keeps `flockdeck keys set` and the
+// window, which are separate processes, from each reading the store, adding a
+// key and writing it back over one another: storeMu does not reach another
+// process, and the rename in save is atomic but does not merge. It is a file of
+// its own because save replaces keys.json itself.
+const lockFileName = "keys.json.lock"
+
+// lockWait is how long a save waits for another process's. A save holds the lock
+// for one small read and write.
+const lockWait = 10 * time.Second
+
+// lockStore takes this process's mutex and then the file lock, in that order,
+// and returns what lets both go. A caller must hold it across load and save.
+func lockStore() (unlock func(), err error) {
+	dir, err := store.Dir()
+	if err != nil {
+		return nil, err
+	}
+	storeMu.Lock()
+	release, err := store.LockWait(filepath.Join(dir, lockFileName), lockWait)
+	if err != nil {
+		storeMu.Unlock()
+		return nil, fmt.Errorf("write %s: %w", keysFile, err)
+	}
+	return func() { release(); storeMu.Unlock() }, nil
+}
 
 // keysFile is the name of the store under the state directory. Its shape is
 // flat — agent id to key — because that is all it has to be, and a file a user
@@ -154,8 +182,11 @@ func Set(agentID, key string) error {
 	if !Usable(key) {
 		return ErrUnusable
 	}
-	storeMu.Lock()
-	defer storeMu.Unlock()
+	unlock, err := lockStore()
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	keys, err := load()
 	if err != nil {
 		return err
@@ -169,8 +200,11 @@ func Clear(agentID string) (bool, error) {
 	if reserved(agentID) {
 		return false, nil
 	}
-	storeMu.Lock()
-	defer storeMu.Unlock()
+	unlock, err := lockStore()
+	if err != nil {
+		return false, err
+	}
+	defer unlock()
 	keys, err := load()
 	if err != nil {
 		return false, err

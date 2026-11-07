@@ -30,8 +30,11 @@ func SetJevKey(key string) error {
 	if key == "" {
 		return errors.New("the key is empty")
 	}
-	storeMu.Lock()
-	defer storeMu.Unlock()
+	unlock, err := lockStore()
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	keys, err := load()
 	if err != nil {
 		return err
@@ -42,8 +45,11 @@ func SetJevKey(key string) error {
 
 // ClearJevKey removes the TypeSafe key and reports whether there was one.
 func ClearJevKey() (bool, error) {
-	storeMu.Lock()
-	defer storeMu.Unlock()
+	unlock, err := lockStore()
+	if err != nil {
+		return false, err
+	}
+	defer unlock()
 	keys, err := load()
 	if err != nil {
 		return false, err
