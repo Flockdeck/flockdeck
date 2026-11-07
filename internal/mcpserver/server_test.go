@@ -17,9 +17,20 @@ import (
 )
 
 type fake struct {
-	mu    sync.Mutex
-	sends [][2]string
-	err   error
+	mu     sync.Mutex
+	sends  [][2]string
+	spawns []hooks.MCPSpawnBody
+	err    error
+}
+
+func (f *fake) Spawn(_ context.Context, b hooks.MCPSpawnBody) (hooks.SpawnResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.err != nil {
+		return hooks.SpawnResult{}, f.err
+	}
+	f.spawns = append(f.spawns, b)
+	return hooks.SpawnResult{PaneID: "p7", Role: b.Role, Cwd: "/wt/x", Branch: b.Worktree}, nil
 }
 
 func (f *fake) Send(_ context.Context, to, text string) (hooks.MsgResult, error) {
@@ -100,7 +111,7 @@ func TestInitializeListAndCall(t *testing.T) {
 		t.Errorf("initialize = %+v", res)
 	}
 	tools := got[1]["result"].(map[string]any)["tools"].([]any)
-	if len(tools) != 2 || tools[0].(map[string]any)["name"] != "send_message" || tools[1].(map[string]any)["name"] != "list_peers" {
+	if len(tools) != 3 || tools[0].(map[string]any)["name"] != "send_message" || tools[1].(map[string]any)["name"] != "list_peers" || tools[2].(map[string]any)["name"] != "spawn" {
 		t.Errorf("tools = %+v", tools)
 	}
 	for _, tl := range tools {
@@ -305,5 +316,75 @@ func TestAPIBackendCallsFlockdeckAsThePaneOfTheToken(t *testing.T) {
 	got = run(t, API{URL: srv.BaseURL(), Token: tok}, initLine, call(2, "list_peers", `{}`))
 	if text, isErr := toolText(t, got[1]); !isErr || strings.Contains(text, tok) {
 		t.Errorf("closed server = %q %v", text, isErr)
+	}
+}
+
+func TestSpawnPassesItsArgumentsToTheBackend(t *testing.T) {
+	f := &fake{}
+	got := run(t, f, initLine,
+		call(2, "spawn", `{"task":"fix the race","role":"worker","name":"race fix","tab":"races","worktree":"fix/race","split":true,"agent":"claude","model":"m","terminal":true}`),
+		call(3, "spawn", `{"task":"look at it","no_worktree":true}`))
+	text, isErr := toolText(t, got[1])
+	if isErr || !strings.Contains(text, `"paneId":"p7"`) || !strings.Contains(text, `"branch":"fix/race"`) {
+		t.Errorf("spawn = %q %v", text, isErr)
+	}
+	if len(f.spawns) != 2 {
+		t.Fatalf("the backend saw %d spawns, want 2", len(f.spawns))
+	}
+	want := hooks.MCPSpawnBody{Task: "fix the race", Role: "worker", Name: "race fix", Tab: "races", Worktree: "fix/race", Split: true, Agent: "claude", Model: "m", Terminal: true}
+	if f.spawns[0] != want {
+		t.Errorf("first spawn = %+v, want %+v", f.spawns[0], want)
+	}
+	if !f.spawns[1].NoWorktree || f.spawns[1].Task != "look at it" {
+		t.Errorf("second spawn = %+v", f.spawns[1])
+	}
+}
+
+func TestSpawnRefusesBadArguments(t *testing.T) {
+	f := &fake{}
+	got := run(t, f, initLine,
+		call(2, "spawn", `{}`),
+		call(3, "spawn", `{"task":"  "}`),
+		call(4, "spawn", `{"task":"x","parent":"p9"}`),
+		call(5, "spawn", `{"task":"x","token":"t"}`),
+		call(6, "spawn", `{"task":"x","shell":true}`),
+		call(7, "spawn", `{"task":"x","split":"yes"}`),
+		call(8, "spawn", `{"task":7}`),
+		call(9, "spawn", `[]`))
+	for i, m := range got[1:] {
+		if errCode(m) != -32602 {
+			t.Errorf("case %d = %+v, want -32602", i, m)
+		}
+	}
+	if len(f.spawns) != 0 {
+		t.Error("a bad call reached the backend")
+	}
+}
+
+func TestSpawnRefusalIsAToolError(t *testing.T) {
+	got := run(t, &fake{err: errors.New("a worker may not start a manager")}, initLine, call(2, "spawn", `{"task":"x","role":"manager"}`))
+	if text, isErr := toolText(t, got[1]); !isErr || !strings.Contains(text, "may not start") {
+		t.Errorf("reply = %q, %v", text, isErr)
+	}
+}
+
+func TestAPIBackendSpawnsAsThePaneOfTheToken(t *testing.T) {
+	srv, err := hooks.Serve(func(hooks.Event) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer srv.Close()
+	var seen hooks.SpawnRequest
+	srv.SetSpawnHandler(func(r hooks.SpawnRequest) (hooks.SpawnResult, error) {
+		seen = r
+		return hooks.SpawnResult{PaneID: "p5", Cwd: "/wt/a"}, nil
+	})
+	tok := srv.IssuePaneToken("pA")
+	got := run(t, API{URL: srv.BaseURL(), Token: tok}, initLine, call(2, "spawn", `{"task":"do it","role":"worker","tab":"t"}`))
+	if text, isErr := toolText(t, got[1]); isErr || !strings.Contains(text, `"paneId":"p5"`) {
+		t.Errorf("spawn = %q %v", text, isErr)
+	}
+	if seen.Parent != "pA" || seen.Task != "do it" || seen.Role != "worker" || seen.Tab != "t" {
+		t.Errorf("the handler saw %+v", seen)
 	}
 }

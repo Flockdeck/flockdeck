@@ -55,6 +55,8 @@ flockdeck spawn [-worktree <branch> | -no-worktree] [-split] [-tab <title>] [-na
                 [-agent <id>] [-terminal] [-model <model>] [-role <id>] [-baton <ref>] [-baton-send-elsewhere] [-task <id>] <task>
 ```
 
+A structured pane has no shell and starts helpers with the `spawn` tool of Flockdeck's MCP server instead. It takes `task`, `role`, `name`, `tab`, `worktree`, `no_worktree`, `split`, `agent`, `model` and `terminal`, which work as the flags of those names do, and the same rules apply. It has no `-shell`, `-record`, `-baton` or `-task`.
+
 A helper an agent starts is given a git worktree and a branch of its own, cut from the caller's current commit and named from its task, unless the caller names the branch with `-worktree`, passes `-no-worktree`, or starts it in a role that reads or shares the checkout (the `manager`, `planner` and `reviewer`) or as a shell. Uncommitted changes in the caller's checkout are not carried over. `spawn` prints the branch and directory it cut. In a directory that is not a git repository, or when the worktree cannot be cut, the start is refused with a note naming `-no-worktree`; it never falls back to the caller's checkout on its own.
 
 `-tab <title>` puts the helper in the tab with that title in the caller's project, and

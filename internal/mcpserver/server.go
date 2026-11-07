@@ -1,6 +1,6 @@
 // Package mcpserver is the Flockdeck MCP server: a stdio server an agent starts
-// from the mcpServers entry Flockdeck gives its session, with two tools,
-// send_message and list_peers.
+// from the mcpServers entry Flockdeck gives its session, with three tools,
+// send_message, list_peers and spawn.
 //
 // The server knows who it speaks for only through the token in its own
 // environment, which Flockdeck issued for one pane. It never takes a pane id
@@ -37,6 +37,7 @@ var knownProtocols = map[string]bool{"2024-11-05": true, "2025-03-26": true, "20
 type Backend interface {
 	Send(ctx context.Context, to, text string) (hooks.MsgResult, error)
 	Peers(ctx context.Context) (hooks.MCPPeers, error)
+	Spawn(ctx context.Context, body hooks.MCPSpawnBody) (hooks.SpawnResult, error)
 }
 
 // API is the Backend that calls Flockdeck's loopback API with a pane's token.
@@ -48,6 +49,10 @@ func (a API) Send(ctx context.Context, to, text string) (hooks.MsgResult, error)
 
 func (a API) Peers(ctx context.Context) (hooks.MCPPeers, error) {
 	return hooks.MCPListPeers(ctx, a.URL, a.Token)
+}
+
+func (a API) Spawn(ctx context.Context, body hooks.MCPSpawnBody) (hooks.SpawnResult, error) {
+	return hooks.MCPSpawn(ctx, a.URL, a.Token, body)
 }
 
 // Options are what Run needs besides the streams.
@@ -224,8 +229,8 @@ func (s *session) handle(ctx context.Context, line []byte) error {
 			"protocolVersion": v,
 			"capabilities":    map[string]any{"tools": map[string]any{}},
 			"serverInfo":      map[string]any{"name": "flockdeck", "version": s.opt.Version},
-			"instructions": "send_message sends text to another agent pane of this project; list_peers lists them. " +
-				"The sender is always the pane this server was started for.",
+			"instructions": "send_message sends text to another agent pane of this project; list_peers lists them; spawn starts a helper agent. " +
+				"The sender, and the pane a helper is started for, is always the pane this server was started for.",
 		}, nil)
 	case "ping":
 		return s.reply(req.ID, map[string]any{}, nil)
@@ -264,6 +269,30 @@ var toolList = []map[string]any{
 		"name":        "list_peers",
 		"description": "List the agent panes of this project: pane id, label, role, agent and status. Your own entry is marked self.",
 		"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}, "additionalProperties": false},
+	},
+	{
+		"name": "spawn",
+		"description": "Start a helper agent for this pane, as `flockdeck spawn` does. The helper works on `task` and is a pane of this project. " +
+			"Unless `role` names one that shares the checkout, or no_worktree is set, a helper that works on its own branch " +
+			"gets a git worktree and a branch named from its task; `worktree` names the branch. " +
+			"The role you are in decides which roles you may start. Returns the new pane id and where it works.",
+		"inputSchema": map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"task":        map[string]any{"type": "string", "description": "What the helper is to do. Required."},
+				"role":        map[string]any{"type": "string", "description": "Id of the role to start the helper as, such as worker, reviewer or tester."},
+				"name":        map[string]any{"type": "string", "description": "What the helper works on, in 2-5 words, up to 40 characters. Made from the task when not given."},
+				"tab":         map[string]any{"type": "string", "description": "Title of the tab to put the helper in: the tab of that name in this project, made if there is none. Use one title for the panes of one piece of work. Up to 60 characters."},
+				"worktree":    map[string]any{"type": "string", "description": "Branch for the helper's own git worktree, made for it."},
+				"no_worktree": map[string]any{"type": "boolean", "description": "Start the helper in your own checkout instead of a worktree. Cannot be combined with worktree."},
+				"split":       map[string]any{"type": "boolean", "description": "Place the helper beside this pane instead of in a new tab. tab takes precedence."},
+				"agent":       map[string]any{"type": "string", "description": "Id of the agent to start. The role's agent applies where this is not given."},
+				"model":       map[string]any{"type": "string", "description": "Which of that agent's models to ask for."},
+				"terminal":    map[string]any{"type": "boolean", "description": "Start the agent in a terminal pane instead of a structured one."},
+			},
+			"required":             []string{"task"},
+			"additionalProperties": false,
+		},
 	},
 }
 
@@ -310,6 +339,19 @@ func (s *session) call(ctx context.Context, params json.RawMessage) (any, *rpcEr
 			return text(err.Error(), true), nil
 		}
 		return jsonText(res), nil
+	case "spawn":
+		body, bad := spawnArgs(p.Arguments)
+		if bad != "" {
+			return nil, &rpcError{-32602, bad}
+		}
+		if strings.TrimSpace(body.Task) == "" {
+			return nil, &rpcError{-32602, "task must not be empty"}
+		}
+		res, err := s.opt.Backend.Spawn(ctx, body)
+		if err != nil {
+			return text(err.Error(), true), nil
+		}
+		return jsonText(res), nil
 	case "list_peers":
 		if _, bad := strictArgs(p.Arguments); bad != "" {
 			return nil, &rpcError{-32602, bad}
@@ -351,6 +393,43 @@ func strictArgs(raw json.RawMessage, names ...string) (map[string]string, string
 		}
 	}
 	return out, ""
+}
+
+// spawnArgs reads the arguments of a spawn call. Like strictArgs it refuses any
+// member the tool does not list, which is how a parent, a token or a pane id
+// passed by the model is turned down, and it checks each member's type.
+// bad is the reason, or "".
+func spawnArgs(raw json.RawMessage) (hooks.MCPSpawnBody, string) {
+	var body hooks.MCPSpawnBody
+	m := map[string]json.RawMessage{}
+	if t := bytes.TrimSpace(raw); len(t) > 0 && string(t) != "null" {
+		if err := json.Unmarshal(t, &m); err != nil {
+			return body, "arguments must be an object"
+		}
+	}
+	strs := map[string]*string{
+		"task": &body.Task, "role": &body.Role, "name": &body.Name, "tab": &body.Tab,
+		"worktree": &body.Worktree, "agent": &body.Agent, "model": &body.Model,
+	}
+	bools := map[string]*bool{"no_worktree": &body.NoWorktree, "split": &body.Split, "terminal": &body.Terminal}
+	for k, v := range m {
+		switch {
+		case strs[k] != nil:
+			if err := json.Unmarshal(v, strs[k]); err != nil {
+				return body, fmt.Sprintf("argument %s must be a string", k)
+			}
+		case bools[k] != nil:
+			if err := json.Unmarshal(v, bools[k]); err != nil {
+				return body, fmt.Sprintf("argument %s must be true or false", k)
+			}
+		default:
+			return body, fmt.Sprintf("unknown argument %q; the parent of a helper is fixed by Flockdeck and takes no argument", truncate(k, 40))
+		}
+	}
+	if _, ok := m["task"]; !ok {
+		return body, "argument task is required"
+	}
+	return body, ""
 }
 
 func contains(l []string, s string) bool {

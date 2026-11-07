@@ -28,6 +28,8 @@ const (
 	// PathMCPSend and PathMCPPeers are the endpoints of the two MCP tools.
 	PathMCPSend  = "/mcp/send"
 	PathMCPPeers = "/mcp/peers"
+	// PathMCPSpawn is the endpoint of the spawn tool.
+	PathMCPSpawn = "/mcp/spawn"
 
 	// maxMCPBody is the most a request body may hold: the largest message
 	// escaped as JSON, with room for the field names.
@@ -40,6 +42,20 @@ const (
 	// peersBurst and peersEvery are the same for list_peers.
 	peersBurst = 30
 	peersEvery = time.Second
+	// spawnBurst helpers may be started at once by one pane, and one more is
+	// allowed every spawnEvery: 6 a minute for a pane that keeps going. Each one
+	// is a process and, by default, a worktree.
+	spawnBurst = 3
+	spawnEvery = 10 * time.Second
+)
+
+// mcpKind says which tool a request is for, and so which rate limit it counts against.
+type mcpKind int
+
+const (
+	kindPeers mcpKind = iota
+	kindSend
+	kindSpawn
 )
 
 // MCPSendBody is the body of a send. It has no pane: unknown fields are refused,
@@ -47,6 +63,23 @@ const (
 type MCPSendBody struct {
 	To   string `json:"to"`
 	Text string `json:"text"`
+}
+
+// MCPSpawnBody is the body of a spawn: the options of `flockdeck spawn` that make
+// sense for an agent with no shell. It has no parent, token, shell, baton, task
+// id or record: unknown fields are refused, and the parent is the pane of the
+// bearer token.
+type MCPSpawnBody struct {
+	Task       string `json:"task"`
+	Role       string `json:"role,omitempty"`
+	Name       string `json:"name,omitempty"`
+	Tab        string `json:"tab,omitempty"`
+	Worktree   string `json:"worktree,omitempty"`
+	NoWorktree bool   `json:"no_worktree,omitempty"`
+	Split      bool   `json:"split,omitempty"`
+	Agent      string `json:"agent,omitempty"`
+	Model      string `json:"model,omitempty"`
+	Terminal   bool   `json:"terminal,omitempty"`
 }
 
 // MCPPeer is one pane of the caller's project as list_peers shows it. It has
@@ -97,6 +130,7 @@ type paneTokens struct {
 	byPane map[string][32]byte
 	send   map[string]*bucket
 	peers  map[string]*bucket
+	spawn  map[string]*bucket
 }
 
 // IssuePaneToken makes a token that acts as pane and no other, and drops the one
@@ -117,7 +151,7 @@ func (s *Server) IssuePaneToken(pane string) string {
 	pt := &s.paneTok
 	if pt.byHash == nil {
 		pt.byHash, pt.byPane = map[[32]byte]string{}, map[string][32]byte{}
-		pt.send, pt.peers = map[string]*bucket{}, map[string]*bucket{}
+		pt.send, pt.peers, pt.spawn = map[string]*bucket{}, map[string]*bucket{}, map[string]*bucket{}
 	}
 	if old, ok := pt.byPane[pane]; ok {
 		delete(pt.byHash, old)
@@ -137,6 +171,7 @@ func (s *Server) RevokePaneToken(pane string) {
 	}
 	delete(pt.send, pane)
 	delete(pt.peers, pane)
+	delete(pt.spawn, pane)
 }
 
 // paneOf is the pane a token was issued for. Tokens are looked up by hash, so
@@ -150,7 +185,7 @@ func (s *Server) paneOf(token string) (string, bool) {
 }
 
 // limit takes one event from the pane's bucket of the given kind.
-func (s *Server) limit(pane string, send bool) (bool, time.Duration) {
+func (s *Server) limit(pane string, kind mcpKind) (bool, time.Duration) {
 	now := time.Now()
 	if s.mcpNow != nil {
 		now = s.mcpNow()
@@ -158,8 +193,11 @@ func (s *Server) limit(pane string, send bool) (bool, time.Duration) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	m, burst, every := s.paneTok.peers, peersBurst, peersEvery
-	if send {
+	switch kind {
+	case kindSend:
 		m, burst, every = s.paneTok.send, sendBurst, sendEvery
+	case kindSpawn:
+		m, burst, every = s.paneTok.spawn, spawnBurst, spawnEvery
 	}
 	if m == nil {
 		return false, every
@@ -174,7 +212,7 @@ func (s *Server) limit(pane string, send bool) (bool, time.Duration) {
 
 // mcpCaller checks the bearer token and the rate limit and returns the pane the
 // request acts as. It has written the refusal when it returns false.
-func (s *Server) mcpCaller(w http.ResponseWriter, r *http.Request, send bool) (string, bool) {
+func (s *Server) mcpCaller(w http.ResponseWriter, r *http.Request, kind mcpKind) (string, bool) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return "", false
@@ -191,7 +229,7 @@ func (s *Server) mcpCaller(w http.ResponseWriter, r *http.Request, send bool) (s
 	}
 	// Every authenticated call counts, a refused one too: a loop of bad calls
 	// is as much a flood as a loop of good ones.
-	if ok, wait := s.limit(pane, send); !ok {
+	if ok, wait := s.limit(pane, kind); !ok {
 		secs := int(wait.Seconds()) + 1
 		w.Header().Set("Retry-After", fmt.Sprint(secs))
 		http.Error(w, fmt.Sprintf("too many requests from this pane; wait %d seconds and try again", secs), http.StatusTooManyRequests)
@@ -232,7 +270,7 @@ func readStrict(w http.ResponseWriter, r *http.Request, v any) bool {
 }
 
 func (s *Server) handleMCPSend(w http.ResponseWriter, r *http.Request) {
-	pane, ok := s.mcpCaller(w, r, true)
+	pane, ok := s.mcpCaller(w, r, kindSend)
 	if !ok {
 		return
 	}
@@ -265,7 +303,7 @@ func (s *Server) handleMCPSend(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleMCPPeers(w http.ResponseWriter, r *http.Request) {
-	pane, ok := s.mcpCaller(w, r, false)
+	pane, ok := s.mcpCaller(w, r, kindPeers)
 	if !ok {
 		return
 	}
@@ -293,14 +331,79 @@ func (s *Server) handleMCPPeers(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(out)
 }
 
+// handleMCPSpawn starts a helper for the pane of the token. It builds the same
+// SpawnRequest `flockdeck spawn` posts and gives it to the same handler, so the
+// checks of the role the caller is in, the room for helpers, the agent and the
+// role asked for, the worktree default and the routing of the helper to a
+// project all apply as they do to the command.
+func (s *Server) handleMCPSpawn(w http.ResponseWriter, r *http.Request) {
+	pane, ok := s.mcpCaller(w, r, kindSpawn)
+	if !ok {
+		return
+	}
+	var body MCPSpawnBody
+	if !readStrict(w, r, &body) {
+		return
+	}
+	req, err := body.request(pane)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	s.mu.RLock()
+	fn := s.onSpawn
+	s.mu.RUnlock()
+	if fn == nil {
+		http.Error(w, "spawning is not available", http.StatusServiceUnavailable)
+		return
+	}
+	req.Ctx = r.Context()
+	res, err := fn(req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(res)
+}
+
+// request checks the body as `flockdeck spawn` checks its flags and returns the
+// request for pane to make.
+func (b MCPSpawnBody) request(pane string) (SpawnRequest, error) {
+	task := strings.TrimSpace(b.Task)
+	if task == "" {
+		return SpawnRequest{}, errors.New("a task is required")
+	}
+	if b.NoWorktree && b.Worktree != "" {
+		return SpawnRequest{}, errors.New("worktree asks for a worktree and no_worktree for none, so they cannot go together")
+	}
+	tab, err := CleanTabName(b.Tab)
+	if err != nil {
+		return SpawnRequest{}, errors.New(strings.Replace(err.Error(), "-tab", "tab", 1))
+	}
+	return SpawnRequest{
+		Parent:     pane,
+		Task:       task,
+		Branch:     strings.TrimSpace(b.Worktree),
+		NoWorktree: b.NoWorktree,
+		Split:      b.Split,
+		Tab:        tab,
+		Label:      team.PaneLabelText(b.Name),
+		Agent:      b.Agent,
+		Model:      b.Model,
+		Terminal:   b.Terminal,
+		Role:       b.Role,
+	}, nil
+}
+
 // postBearer is post with the token in a header and nothing of it in the body.
-func postBearer[Res any](ctx context.Context, api, path, token string, req any) (Res, error) {
+func postBearer[Res any](ctx context.Context, api, path, token string, wait time.Duration, req any) (Res, error) {
 	var none Res
 	body, err := json.Marshal(req)
 	if err != nil {
 		return none, err
 	}
-	ctx, cancel := context.WithTimeout(ctx, teamTimeout)
+	ctx, cancel := context.WithTimeout(ctx, wait)
 	defer cancel()
 	httpReq, err := http.NewRequestWithContext(ctx, http.MethodPost, api+path, bytes.NewReader(body))
 	if err != nil {
@@ -313,7 +416,10 @@ func postBearer[Res any](ctx context.Context, api, path, token string, req any) 
 		// The error of net/http names the URL and nothing of the token, but the
 		// answer to a model is fixed text all the same.
 		if errors.Is(err, context.DeadlineExceeded) {
-			return none, fmt.Errorf("Flockdeck did not answer within %s; try again shortly", teamTimeout)
+			if path == PathMCPSpawn {
+				return none, fmt.Errorf("Flockdeck did not answer within %s; the helper may still be starting, so call list_peers before asking again", wait)
+			}
+			return none, fmt.Errorf("Flockdeck did not answer within %s; try again shortly", wait)
 		}
 		return none, errors.New("Flockdeck is not answering; it may have been closed since this pane started")
 	}
@@ -334,10 +440,20 @@ func postBearer[Res any](ctx context.Context, api, path, token string, req any) 
 
 // MCPSend is the client half of the send_message tool.
 func MCPSend(ctx context.Context, api, token, to, text string) (MsgResult, error) {
-	return postBearer[MsgResult](ctx, api, PathMCPSend, token, MCPSendBody{To: to, Text: text})
+	return postBearer[MsgResult](ctx, api, PathMCPSend, token, teamTimeout, MCPSendBody{To: to, Text: text})
 }
 
 // MCPListPeers is the client half of the list_peers tool.
 func MCPListPeers(ctx context.Context, api, token string) (MCPPeers, error) {
-	return postBearer[MCPPeers](ctx, api, PathMCPPeers, token, struct{}{})
+	return postBearer[MCPPeers](ctx, api, PathMCPPeers, token, teamTimeout, struct{}{})
+}
+
+// MCPSpawn is the client half of the spawn tool. It waits as long as `flockdeck
+// spawn` does for a helper that needs no say-so from the user.
+func MCPSpawn(ctx context.Context, api, token string, body MCPSpawnBody) (SpawnResult, error) {
+	res, err := postBearer[SpawnResult](ctx, api, PathMCPSpawn, token, spawnTimeout, body)
+	if err == nil && res.PaneID == "" {
+		return res, errors.New("Flockdeck accepted the request but named no pane")
+	}
+	return res, err
 }

@@ -718,6 +718,7 @@ func Serve(on func(Event)) (*Server, error) {
 	mux.HandleFunc("/task", s.handleTask())
 	mux.HandleFunc(PathMCPSend, s.handleMCPSend)
 	mux.HandleFunc(PathMCPPeers, s.handleMCPPeers)
+	mux.HandleFunc(PathMCPSpawn, s.handleMCPSpawn)
 	s.srv = &http.Server{Handler: mux, ReadHeaderTimeout: 5 * time.Second}
 
 	go func() { _ = s.srv.Serve(ln) }()
