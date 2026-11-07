@@ -172,11 +172,11 @@ func renderPage(slug string) (Page, error) {
 // summaryText turns one paragraph of page source into the plain sentence the
 // contents list shows.
 func summaryText(src string) (string, error) {
-	expanded, err := expandInlineKeysWith(src, func(keys string) string { return keys })
+	expanded, err := expandInlineKeysWith(src, func(_, keys string) string { return keys })
 	if err != nil {
 		return "", err
 	}
-	expanded, err = expandActionsWith(expanded, func(keys string) string { return keys })
+	expanded, err = expandActionsWith(expanded, func(_, keys string) string { return keys })
 	if err != nil {
 		return "", err
 	}

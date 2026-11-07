@@ -34,6 +34,9 @@ import (
 // top-level command dispatches to.
 func runKeys(args []string) error {
 	k := keysIO{in: os.Stdin, out: os.Stdout}
+	if len(args) > 0 && args[0] == "set" && stdinMissing(os.Stdin) {
+		return errors.New(noStdinMessage)
+	}
 	// The prompt is only written when somebody is there to read it. Piped
 	// into, `flockdeck keys set` is a script, and a script's output should not
 	// gain a line of instructions addressed to a person.
@@ -42,6 +45,24 @@ func runKeys(args []string) error {
 		k.hide = hideInput
 	}
 	return keysCmd(args, k)
+}
+
+// noStdinMessage is what `keys set` says when it has no standard input at all.
+// The Windows release is a GUI program and is given none; it does not attach
+// the console's input (see useConsole), because the shell goes on reading the
+// keyboard itself and a typed key would be split between the two. A pipe or a
+// file gives it one, and Settings in the window needs none.
+const noStdinMessage = "this build has no standard input to read a key from: pipe it in, as in `echo <key> | flockdeck keys set <agent>` " +
+	"(or `Get-Clipboard | flockdeck keys set <agent>` in PowerShell), or store it in Settings in the window"
+
+// stdinMissing reports whether f is not an open handle, which is what a GUI
+// program starts with for standard input when nothing was redirected to it.
+func stdinMissing(f *os.File) bool {
+	if f == nil {
+		return true
+	}
+	_, err := f.Stat()
+	return err != nil
 }
 
 // `flockdeck keys` is dispatched by main, beside `hook` and `spawn`.

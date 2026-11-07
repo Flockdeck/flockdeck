@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jmwri/flockdeck/internal/agent"
 )
@@ -541,5 +542,71 @@ func appendRaw(t *testing.T, path, s string) {
 	defer f.Close()
 	if _, err := f.WriteString(s); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// Resuming a conversation from another working directory carries it on in a
+// copy under that directory's folder; the stream moves to the copy, rebuilds
+// its entries from it and says so through Reset.
+func TestClaudeStreamMovesToANewerCopyAndResets(t *testing.T) {
+	home := copyFixtureHome(t)
+	oldPath := filepath.Join(home, "projects", "proj1", fixtureSessionID+".jsonl")
+	st, ok := StreamFor(fixtureSpec(home), fixtureSessionID)
+	if !ok {
+		t.Fatal("StreamFor: unsupported")
+	}
+	cs := st.(*claudeStream)
+	cs.repointEvery = 0
+	st.Refresh()
+	if st.Reset() {
+		t.Fatal("Reset before any move")
+	}
+	before := len(st.Snapshot())
+	if before == 0 {
+		t.Fatal("no entries from the first copy")
+	}
+
+	// The same conversation, continued in another folder.
+	old, err := os.ReadFile(oldPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if i := bytes.LastIndexByte(old, '\n'); i >= 0 {
+		old = old[:i+1] // drop the deliberately partial last line
+	}
+	extra := `{"type":"user","uuid":"u-resumed-1","sessionId":"` + fixtureSessionID + `","timestamp":"2030-01-01T00:00:00Z","message":{"role":"user","content":"after the resume"}}` + "\n"
+	newDir := filepath.Join(home, "projects", "proj2")
+	if err := os.MkdirAll(newDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	newPath := filepath.Join(newDir, fixtureSessionID+".jsonl")
+	if err := os.WriteFile(newPath, append(old, extra...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	later := time.Now().Add(time.Hour)
+	if err := os.Chtimes(newPath, later, later); err != nil {
+		t.Fatal(err)
+	}
+
+	changed := st.Refresh()
+	if !st.Reset() {
+		t.Fatal("Reset not reported after moving to the newer copy")
+	}
+	if st.Reset() {
+		t.Error("Reset reported twice")
+	}
+	if _, found := entryByID(changed, "u-resumed-1"); !found {
+		t.Errorf("entry written after the resume not returned; changed=%d", len(changed))
+	}
+	if _, found := entryByID(st.Snapshot(), "u-resumed-1"); !found {
+		t.Error("entry written after the resume missing from Snapshot")
+	}
+	if got := len(st.Snapshot()); got <= before {
+		t.Errorf("snapshot has %d entries, want more than the first copy's %d", got, before)
+	}
+	// Staying on the new copy: nothing further to report.
+	st.Refresh()
+	if st.Reset() {
+		t.Error("Reset reported without a further move")
 	}
 }

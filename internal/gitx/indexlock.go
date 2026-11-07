@@ -85,6 +85,11 @@ type indexGate struct {
 	lockPath      string
 	lockAt        time.Time
 	lockLogged    time.Time
+
+	// committing counts the commands that write the index for somebody (writingIndex)
+	// and are running now. No refresh is started while one is, and one that is live
+	// is waited for by them, within commitRefreshWait.
+	committing int
 }
 
 var (
@@ -272,6 +277,20 @@ func (g *indexGate) endWrite() {
 		close(g.drainCh)
 		g.drainCh = nil
 	}
+	g.mu.Unlock()
+}
+
+// beginCommit and endCommit bracket a command that writes the index on a person's
+// behalf, so that no refresh starts under it.
+func (g *indexGate) beginCommit() {
+	g.mu.Lock()
+	g.committing++
+	g.mu.Unlock()
+}
+
+func (g *indexGate) endCommit() {
+	g.mu.Lock()
+	g.committing--
 	g.mu.Unlock()
 }
 

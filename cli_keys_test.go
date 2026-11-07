@@ -616,3 +616,30 @@ func TestKeysCheckSkipsAKeyTheAgentWouldNotGet(t *testing.T) {
 		t.Errorf("check: %v\n%s", err, out)
 	}
 }
+
+// A `keys set` with no standard input at all, as the Windows release started
+// from a terminal has when nothing was piped in, says how to give it one
+// instead of failing with "The handle is invalid".
+func TestKeysSetWithoutStandardInputSaysWhatToDo(t *testing.T) {
+	f, err := os.Open(os.DevNull)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stdinMissing(f) {
+		t.Fatal("an open file reads as missing")
+	}
+	f.Close()
+	if !stdinMissing(f) {
+		t.Fatal("a closed file reads as present")
+	}
+	if !stdinMissing(nil) {
+		t.Fatal("no file reads as present")
+	}
+	old := os.Stdin
+	os.Stdin = f
+	defer func() { os.Stdin = old }()
+	err = runKeys([]string{"set", "codex"})
+	if err == nil || !strings.Contains(err.Error(), "pipe it in") {
+		t.Fatalf("got %v, want advice to pipe the key in", err)
+	}
+}

@@ -21,6 +21,9 @@ type Node struct {
 	X string `json:"x,omitempty"`
 	// H is a link's address: "#slug" for another page, or an http(s) address.
 	H string `json:"h,omitempty"`
+	// K is, on a <kbd> that writes the binding of an action, the id of that
+	// action, so the interface can write the binding its person has set.
+	K string `json:"k,omitempty"`
 	// C are the children of an element.
 	C []Node `json:"c,omitempty"`
 }
@@ -85,6 +88,13 @@ func convert(n *html.Node, slugs map[string]bool, depth int) []Node {
 		return kids
 	}
 	out := Node{T: n.Data, C: kids}
+	if n.Data == "kbd" {
+		for _, a := range n.Attr {
+			if a.Key == "data-key" && keyIDOK(a.Val) {
+				out.K = a.Val
+			}
+		}
+	}
 	if n.Data == "a" {
 		for _, a := range n.Attr {
 			if a.Key == "href" && linkOK(a.Val, slugs) {
@@ -106,4 +116,17 @@ func linkOK(dest string, slugs map[string]bool) bool {
 		return slugs[s]
 	}
 	return strings.HasPrefix(dest, "https://") || strings.HasPrefix(dest, "http://")
+}
+
+// keyIDOK is whether s is the shape of an action id: letters and digits.
+func keyIDOK(s string) bool {
+	if s == "" || len(s) > 64 {
+		return false
+	}
+	for _, r := range s {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9') {
+			return false
+		}
+	}
+	return true
 }
