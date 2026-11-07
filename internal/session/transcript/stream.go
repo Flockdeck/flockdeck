@@ -142,8 +142,9 @@ type Stream interface {
 	// file rather than starting a new one, the way the removed chat client's
 	// did: Claude Code needs nothing here, because its /clear is already
 	// caught by the session id changing under it (see
-	// internal/server/conversation.go's refreshConversation), so its Stream
-	// always answers false.
+	// internal/server/conversation.go's refreshConversation). Its Stream
+	// answers true only when it moves to a more recently written copy of the
+	// same session's transcript, after a resume from another directory.
 	Reset() bool
 
 	// SetLight switches the stream between its two memory modes. Light

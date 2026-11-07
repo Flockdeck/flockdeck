@@ -507,3 +507,34 @@ func TestAnExportAndARecordingBothRetryTheMove(t *testing.T) {
 		t.Errorf("a recording tried %v, want [%d]", tries, moveTries)
 	}
 }
+
+// A replacement that is open but idle keeps a current modification time, so
+// another Flockdeck's sweep does not take it for one that was abandoned.
+func TestStartBeatTouchesFile(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "x.jsonl.0123456789ab.new")
+	if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-72 * time.Hour)
+	if err := os.Chtimes(p, old, old); err != nil {
+		t.Fatal(err)
+	}
+	stop := startBeat(p, 5*time.Millisecond)
+	defer stop()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		fi, err := os.Stat(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if time.Since(fi.ModTime()) < time.Hour {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the file's time was not refreshed")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	stop()
+	stop() // stopping twice is harmless
+}
