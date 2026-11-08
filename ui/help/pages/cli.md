@@ -23,7 +23,7 @@ switched from inside the window. These are what is left.
 | `flockdeck team` | From inside a pane: list the agents in its project with role and status; `-json` for a script |
 | `flockdeck msg send` | From inside a terminal pane: message another agent by pane id, name or role |
 | `flockdeck inbox` | From inside a terminal pane: list unread messages, `-all` for every one; `inbox read <id>` prints one in full |
-| `flockdeck task` | From inside a pane: the project's shared task board (`add`, `list`, `show`, `assign`, `status`, `note`, `branch`, `baton`, `prune`) |
+| `flockdeck task` | From inside a pane: the project's shared task board (`add`, `list`, `show`, `assign`, `status`, `note`, `branch`, `baton`, `depends`, `estimate`, `team`, `prune`) |
 | `flockdeck knowledge` | From a terminal outside Flockdeck: show (`status`) or set (`on`, `off`) whether a project's agents are pointed at the notes in `.flockdeck/knowledge` |
 | `flockdeck wake` | From a terminal outside Flockdeck: show (`status`) or set (`on`, `off`) the switches for typed wake, globally, per agent type or per pane |
 | `flockdeck agents` | List the agents and models that `-agent` and `spawn` accept, and which are installed here |
