@@ -237,3 +237,36 @@ func TestStoreLoadReturnsTheIDItWasAskedFor(t *testing.T) {
 		}
 	}
 }
+
+func TestStoreSaveLeavesNoTempFileAndNoPartialBaton(t *testing.T) {
+	dir := t.TempDir()
+	s := NewStore(dir)
+	b := sample()
+	if err := s.Save(b); err != nil {
+		t.Fatal(err)
+	}
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".tmp") {
+			t.Errorf("temp file left behind: %s", e.Name())
+		}
+	}
+	// A save that finds the name taken still leaves nothing behind.
+	if err := s.Save(b); !errors.Is(err, ErrExists) {
+		t.Fatalf("second save = %v, want ErrExists", err)
+	}
+	entries, _ = os.ReadDir(dir)
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".tmp") {
+			t.Errorf("temp file left behind after a refused save: %s", e.Name())
+		}
+	}
+	// A crashed save's leftover is not listed as a baton.
+	if err := os.WriteFile(filepath.Join(dir, "."+NewID(time.Now())+".md.tmp"), []byte("---\nid: x\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	list, err := s.List()
+	if err != nil || len(list) != 1 {
+		t.Errorf("List = %d batons, %v; want 1", len(list), err)
+	}
+}
