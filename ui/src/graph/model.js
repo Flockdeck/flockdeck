@@ -23,6 +23,8 @@
 // children) but not the tab a helper was started in with `spawn -tab`, so there
 // is no tab grouping to draw. The model does not guess one.
 
+import { askedRecords, isCovered } from "./overlapAsked.js";
+
 // The words a scrubbed prompt is given when a graph is sent through the relay (internal/server/relayscrub.go).
 const DETAILS_ON_DESKTOP = "details on the desktop";
 
@@ -45,7 +47,7 @@ export const QUIET_KINDS = ["stale-unread", "stuck"];
 
 /** isLoud says a list of needs holds one that asks something of the person now. A pane that ended has its block in red and its box is not drawn loud. */
 export function isLoud(needs) {
-  return !!needs && needs.some((n) => !QUIET_KINDS.includes(n.kind) && n.kind !== "down");
+  return !!needs && needs.some((n) => !QUIET_KINDS.includes(n.kind) && n.kind !== "down" && !n.asked);
 }
 
 /** A short reason for a kind of need. A kind this file does not know is shown as it is. */
@@ -300,7 +302,7 @@ export function emptyModel() {
  *   "queued" is "not told yet" (see
  *   Edges.js).
  */
-export function buildGraphModel(msg) {
+export function buildGraphModel(msg, asked = askedRecords()) {
   if (!isObject(msg) || msg.type !== "graph") return emptyModel();
   const nodes = list(msg.nodes).map(nodeOf).filter((n) => n.pane !== "");
   const byPane = new Map();
@@ -308,10 +310,16 @@ export function buildGraphModel(msg) {
 
   const teams = list(msg.teams).map((t) => teamOf(t, byPane));
   const soloNeeds = list(msg.soloNeeds).map((n) => needOf(n, ""));
+  // A file overlap the manager was asked about, with no new files since, waits on the workers: it is marked asked and is not counted as needing the person.
+  const markAsk = (n) => {
+    if (n.kind === "conflict" && isCovered(asked && asked[n.id], n.text)) n.asked = true;
+  };
+  for (const t of teams) for (const n of t.needs) markAsk(n);
+  for (const n of soloNeeds) markAsk(n);
   const needs = [];
   // Loops, not needs.push(...list): a spread of a very long list throws.
-  for (const t of teams) for (const n of t.needs) needs.push(n);
-  for (const n of soloNeeds) needs.push(n);
+  for (const t of teams) for (const n of t.needs) if (!n.asked) needs.push(n);
+  for (const n of soloNeeds) if (!n.asked) needs.push(n);
 
   const needsByPane = new Map();
   const note = (id, item) => {
@@ -319,10 +327,17 @@ export function buildGraphModel(msg) {
     if (!needsByPane.has(id)) needsByPane.set(id, []);
     needsByPane.get(id).push(item);
   };
-  for (const item of needs) {
+  // The panes still carry an asked overlap (its chip and its quiet block), though it is not in needs.
+  const shownNeeds = [];
+  for (const t of teams) for (const n of t.needs) shownNeeds.push(n);
+  for (const n of soloNeeds) shownNeeds.push(n);
+  for (const item of shownNeeds) {
     note(item.pane, item);
     if (item.other && item.other !== item.pane) note(item.other, item);
   }
+
+  for (const t of teams) t.needs = t.needs.filter((n) => !n.asked);
+  const soloCounted = soloNeeds.filter((n) => !n.asked);
 
   const edges = { spawn: [], message: [], sent: [] };
   for (const raw of list(msg.edges)) {
@@ -340,7 +355,7 @@ export function buildGraphModel(msg) {
     solo: ids(msg.solo)
       .map((id) => byPane.get(id))
       .filter(Boolean),
-    soloNeeds,
+    soloNeeds: soloCounted,
     soloNeedsHidden: num(msg.soloNeedsHidden),
     needs,
     needsByPane,
@@ -407,7 +422,7 @@ export function needsYouOf(model, pane) {
   const n = model.byPane.get(pane);
   if (!n) return false;
   const state = stateKey(n);
-  return (model.needsByPane.get(pane) || []).some((x) => !QUIET_KINDS.includes(x.kind)) || state === "waiting" || state === "blocked" || state === "exited" || state === "failed";
+  return (model.needsByPane.get(pane) || []).some((x) => !QUIET_KINDS.includes(x.kind) && !x.asked) || state === "waiting" || state === "blocked" || state === "exited" || state === "failed";
 }
 
 // The frames of every team's tree by pane, built once per model. The outline's rows

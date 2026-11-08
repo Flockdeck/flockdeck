@@ -26,6 +26,7 @@ import { PermissionCard, DETAILS_ON_DESKTOP_WORDS, DESK_WORDS } from "../drawer/
 import { labelOf } from "./model.js";
 import { usePaneSend } from "./ManagerBar.js";
 import { showControls } from "../drawer/diff/diffModel.js";
+import { askedRecords, isCovered, markAsked, subscribeAsked } from "./overlapAsked.js";
 
 export const KINDS = ["permission", "ask", "conflict", "down"];
 export const NO_MANAGER_WORDS = "This team has no manager to ask.";
@@ -149,17 +150,49 @@ function Question({ need, ctx, options, tail }) {
     ${note ? html`<p key="refused" class="dec-status dec-status--error" role="alert">${note}</p>` : null}`;
 }
 
-function Conflict({ model, need, ctx }) {
+/** useAskedRecord is the record of the overlap with this need id, redrawn when it changes. */
+function useAskedRecord(id) {
+  const [rec, setRec] = useState(() => askedRecords()[id]);
+  useEffect(() => {
+    setRec(askedRecords()[id]);
+    return subscribeAsked(() => setRec(askedRecords()[id]));
+  }, [id]);
+  return rec;
+}
+
+/** conflictAsk is the line sent to the manager and the button that sends it, shared by the first ask and Ask again. */
+function useConflictAsk(model, need, ctx) {
   const [state, send, why] = useAsk(ctx);
   const manager = ctx.manager || null;
   const ask = () => {
     if (!manager) return;
     send(manager.pane, askText({ who: nameOf(model, need.pane) + " and " + nameOf(model, need.other), files: String(need.text || "") }));
   };
+  // Once the desk has taken the line the overlap is recorded as asked, so it survives a redraw, a remount and a reload.
+  useEffect(() => {
+    if (state === "sent") markAsked(need.id, need.text);
+  }, [state]);
+  return { state, why, manager, ask };
+}
+
+function Conflict({ model, need, ctx }) {
+  const { state, why, manager, ask } = useConflictAsk(model, need, ctx);
   const see = ctx.onSee ? html`<button type="button" tabindex=${tabOf(ctx)} class="dec-btn" onClick=${() => ctx.onSee(need.pane)}>See in Review</button>` : null;
   if (!ctx.store) return html`<${Buttons}>${see}<//><p class="dec-more">${DESK_WORDS}</p>`;
   return html`<${Buttons}>
       <button type="button" tabindex=${tabOf(ctx)} class="dec-btn dec-btn--primary" disabled=${!manager} aria-disabled=${state === "sent" || state === "sending" ? "true" : undefined} title=${manager ? "" : NO_MANAGER_WORDS} onClick=${ask}>${state === "sent" ? "Manager asked" : "Ask mgr to sort it out"}</button>
+      ${see}
+    <//>
+    ${state === "failed" ? html`<p class="dec-status dec-status--error" role="alert">${showControls(clip(why, 160))}</p>` : null}`;
+}
+
+/** ConflictWaiting is the buttons of an overlap the manager was asked about: the chip says so, and sending again needs Ask again. */
+function ConflictWaiting({ model, need, ctx }) {
+  const { state, why, manager, ask } = useConflictAsk(model, need, ctx);
+  const see = ctx.onSee ? html`<button type="button" tabindex=${tabOf(ctx)} class="dec-btn dec-btn--ghost" onClick=${() => ctx.onSee(need.pane)}>See in Review</button>` : null;
+  return html`<p class="dec-chip" role="status">Manager asked, waiting on the workers</p>
+    <${Buttons}>
+      ${ctx.store ? html`<button type="button" tabindex=${tabOf(ctx)} class="dec-btn dec-btn--ghost" disabled=${!manager} aria-disabled=${state === "sending" ? "true" : undefined} title=${manager ? "" : NO_MANAGER_WORDS} onClick=${ask}>${state === "sending" ? "Asking" : "Ask again"}</button>` : null}
       ${see}
     <//>
     ${state === "failed" ? html`<p class="dec-status dec-status--error" role="alert">${showControls(clip(why, 160))}</p>` : null}`;
@@ -193,14 +226,17 @@ export function DecisionBlock({ model, need, ctx = {} }) {
   const latest = useRef(ctx);
   latest.current = ctx;
   useEffect(() => () => { if (pressed.current && latest.current.onGone) latest.current.onGone(need.pane); }, []);
+  const rec = useAskedRecord(need.kind === "conflict" ? need.id : "");
+  const waiting = need.kind === "conflict" && (need.asked === true || isCovered(rec, need.text));
   const hasOptions = questionOptions(ctx.panes && ctx.panes.get(need.pane)).length > 0;
   let body = null;
   if (need.kind === "permission") body = html`<${Permission} model=${model} need=${need} ctx=${ctx} tail=${open} />`;
   else if (need.kind === "ask") body = html`<${Question} need=${need} ctx=${ctx} options=${questionOptions(ctx.panes && ctx.panes.get(need.pane))} tail=${open} />`;
-  else if (need.kind === "conflict") body = html`<${Conflict} model=${model} need=${need} ctx=${ctx} />`;
+  else if (waiting) body = html`<${ConflictWaiting} key="waiting" model=${model} need=${need} ctx=${ctx} />`;
+  else if (need.kind === "conflict") body = html`<${Conflict} key="first" model=${model} need=${need} ctx=${ctx} />`;
   else if (need.kind === "down") body = html`<${Down} need=${need} who=${d.who} ctx=${ctx} />`;
   const age = need.kind === "down" ? d.age + " ago" : need.kind === "conflict" ? d.age : "waiting " + d.age;
-  return html`<section class=${"ask dec dec--" + d.tone} role="group" aria-label=${d.head + " for " + d.who} data-decision=${need.kind} data-pane=${need.pane} onClick=${() => { pressed.current = true; }}>
+  return html`<section class=${"ask dec dec--" + d.tone + (waiting ? " dec--quiet" : "")} data-asked=${waiting ? "true" : undefined} role="group" aria-label=${d.head + " for " + d.who} data-decision=${need.kind} data-pane=${need.pane} onClick=${() => { pressed.current = true; }}>
     <header class="dec-head">
       <svg class="dec-icon" width="16" height="16" viewBox="-10 -10 20 20" aria-hidden="true"><${Icon} kind=${need.kind} x=${0} y=${0} /></svg>
       <span class="dec-kind">${d.head}</span>

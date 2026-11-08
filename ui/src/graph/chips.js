@@ -32,7 +32,7 @@ export function chipsOf(model, node, needs, now) {
   for (const n of model.needsByPane.get(node.pane) || []) {
     if (n.kind !== "conflict") continue;
     const other = n.pane === node.pane ? n.other : n.pane;
-    if (other && other !== node.pane && model.byPane.has(other) && !linked.has("overlap|" + other) && linked.add("overlap|" + other)) out.push({ kind: "overlap", text: "overlaps " + clip(nameOf(model, other), 14), to: other, toName: nameOf(model, other), title: n.text });
+    if (other && other !== node.pane && model.byPane.has(other) && !linked.has("overlap|" + other) && linked.add("overlap|" + other)) out.push({ kind: "overlap", text: (n.asked ? "waiting on the workers: " : "") + "overlaps " + clip(nameOf(model, other), 14), to: other, toName: nameOf(model, other), title: n.text, ...(n.asked ? { asked: true } : {}) });
   }
   const w = node.waitingOn;
   if (w.kind === "helpers") {
