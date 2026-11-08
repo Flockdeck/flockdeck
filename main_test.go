@@ -640,6 +640,27 @@ func TestUsageNamesEveryKeysCommand(t *testing.T) {
 	}
 }
 
+// The task summary in the top-level usage is a hand-written copy of task's own
+// list, and it had left out depends, estimate and team.
+func TestUsageNamesEveryTaskCommand(t *testing.T) {
+	var buf bytes.Buffer
+	fs := flockdeckFlagSet(&cliFlags{})
+	fs.SetOutput(&buf)
+	usage(fs)
+	out := buf.String()
+	start := strings.Index(out, "  task add ")
+	end := strings.Index(out, "the project's shared task board")
+	if start < 0 || end < start {
+		t.Fatalf("the usage has no task block:\n%s", out)
+	}
+	block := out[start:end]
+	for _, sub := range []string{"add", "list", "show", "assign", "status", "note", "branch", "baton", "depends", "estimate", "team", "prune"} {
+		if !strings.Contains(block, sub+" ") {
+			t.Errorf("the usage's task summary does not name %q", sub)
+		}
+	}
+}
+
 // The settings that have no flag are only discoverable if the usage names them.
 func TestUsageNamesTheEnvironment(t *testing.T) {
 	var buf bytes.Buffer
