@@ -610,3 +610,33 @@ func TestClaudeStreamMovesToANewerCopyAndResets(t *testing.T) {
 		t.Error("Reset reported without a further move")
 	}
 }
+
+func TestClaudeStreamRebuildsWhenItsFileIsReplacedByAShorterOne(t *testing.T) {
+	home := copyFixtureHome(t)
+	path := filepath.Join(home, "projects", "proj1", fixtureSessionID+".jsonl")
+	st, ok := StreamFor(fixtureSpec(home), fixtureSessionID)
+	if !ok {
+		t.Fatal("StreamFor: unsupported")
+	}
+	st.Refresh()
+	if len(st.Snapshot()) == 0 {
+		t.Fatal("no entries from the first read")
+	}
+	st.Reset()
+
+	// The same file name, now holding a much shorter conversation.
+	fresh := `{"type":"user","uuid":"u-fresh-1","sessionId":"` + fixtureSessionID + `","timestamp":"2030-01-01T00:00:00Z","message":{"role":"user","content":"start over"}}` + "\n"
+	if err := os.WriteFile(path, []byte(fresh), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	changed := st.Refresh()
+	if !st.Reset() {
+		t.Error("Reset not reported after the file was replaced")
+	}
+	if _, found := entryByID(changed, "u-fresh-1"); !found {
+		t.Errorf("entry from the replacement not returned; changed=%d", len(changed))
+	}
+	if got := len(st.Snapshot()); got != 1 {
+		t.Errorf("snapshot has %d entries, want only the replacement's 1", got)
+	}
+}
