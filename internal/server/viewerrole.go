@@ -146,7 +146,7 @@ var commandAccess = map[string]cmdAccess{
 	"commentReopen": accessFull, "runChecks": accessFull, "confirmChecks": accessFull, "requestReview": accessFull, "submitReview": accessFull,
 	"approveMerge": accessFull, "unapproveMerge": accessFull, "mergeBranch": accessFull,
 	"structuredSnapshot": accessFull, "structuredWatch": accessFull, "structuredUnwatch": accessFull, "structuredCancel": accessFull, "structuredSet": accessFull, "structuredFiles": accessFull,
-	"structuredQueueEdit": accessFull, "structuredQueueRemove": accessFull, "structuredQueueClear": accessFull, "structuredQueueSendNow": accessFull, "structuredExport": accessFull, "structuredInfo": accessFull, "structuredSignIn": accessFull, "structuredSignInCancel": accessFull,
+	"structuredQueueEdit": accessFull, "structuredQueueRemove": accessFull, "structuredQueueClear": accessFull, "structuredQueueSendNow": accessFull, "structuredExport": accessFull, "structuredInfo": accessFull, "structuredRules": accessFull, "structuredRuleRevoke": accessFull, "structuredSignIn": accessFull, "structuredSignInCancel": accessFull,
 	"structuredShellRun": accessFull, "structuredShellStop": accessFull, "structuredShellRemove": accessFull, "structuredShellSend": accessFull,
 	"structuredRewind": accessFull, "structuredFork": accessFull,
 	"teamSnapshot": accessFull, "teamWatch": accessFull, "teamUnwatch": accessFull, "taskList": accessFull,

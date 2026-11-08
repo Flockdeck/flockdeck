@@ -675,3 +675,9 @@
 .way-back { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 12px 16px; background: var(--bg-inset); color: var(--fg-dim); font-size: 13px; overflow-wrap: anywhere; }
 .way-back-why { color: var(--exited); }
 .way-back-words { color: var(--fg-dim); }
+.info-rules { display: flex; flex-direction: column; gap: 4px; }
+.info-rules-title { margin: 0; font-size: 12px; font-weight: 600; }
+.info-rule-list { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.info-rule { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
+.info-rule-text { flex: 1 1 14em; min-width: 0; overflow-wrap: anywhere; }
+.info-rule-dir { opacity: 0.7; overflow-wrap: anywhere; }

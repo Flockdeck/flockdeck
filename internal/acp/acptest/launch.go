@@ -270,3 +270,6 @@ func WithRewind() Option { return withSession("rewind") }
 
 // WithRewindHang makes the agent take _flockdeck/rewind and never answer it.
 func WithRewindHang() Option { return withSession("rewindhang") }
+
+// WithPermRules gives the agent the permission rules extension (permrules.go).
+func WithPermRules() Option { return withSession("permrules") }

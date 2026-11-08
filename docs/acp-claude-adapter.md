@@ -645,3 +645,13 @@ client, one of them a restored pane resuming. `internal/agent` has the tests of 
 catalog entry (key slot, passEnv, MCP flag, hidden, availability).
 `TestCanaryClaudeSession` is the only test that starts a real claude, and only under the
 `acp_canary` tag.
+
+## Permission rules extension
+
+The adapter advertises `agentCapabilities._meta["flockdeck.dev"].permRules = 1`. `_flockdeck/permrules
+{sessionId}` answers `{rules: [{id, tool, text, cut}]}`, one for each allow-always rule of the session, sorted
+by id, at most 200. `text` is the `command` of the rule's input, cut to 2,000 bytes; it is not redacted here,
+and the host redacts it before a window sees it. `id` is `r` and 16 hex digits of the SHA-256 of the rule key
+(`acp.RuleID`), so it does not change while the rule exists. `_flockdeck/permrule_revoke {sessionId, id}` drops
+the rule with that id and answers `{revoked}`; an id nobody holds answers `false`. A malformed id or an unknown
+session is invalid params. Both calls take the session's lock only, so they answer during a turn.

@@ -334,3 +334,12 @@ test binary started again. The fake answers the session requests itself, plays a
 lines for the rest, and logs everything it receives, its arguments, its environment and its
 process id. One test starts the adapter as a child and drives it with `internal/acp`'s
 client. No test starts a real codex.
+
+## Permission rules extension
+
+The adapter advertises `agentCapabilities._meta["flockdeck.dev"].permRules = 1`. `_flockdeck/permrules
+{sessionId}` answers `{rules: [{id, tool, text, cut, dir}]}`, one for each allow-always rule of the session,
+sorted by id, at most 200. `tool` is `command`, `text` the command (cut to 2,000 bytes, not redacted here) and
+`dir` the directory the rule is tied to (cut to 300 bytes). `id` is `acp.RuleID` of the rule key, as for the
+Claude adapter. `_flockdeck/permrule_revoke {sessionId, id}` drops the rule with that id and answers
+`{revoked}`. Nothing is sent to codex: the rule was never sent there.
