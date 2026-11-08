@@ -305,3 +305,16 @@ func TestFilesAMatchLateInAHugeListIsFound(t *testing.T) {
 		t.Errorf("%d names, cut %v", len(got), cut)
 	}
 }
+
+func TestFilesARootReachedThroughALinkStillListsItsFiles(t *testing.T) {
+	real := t.TempDir()
+	writeTree(t, real, "ok.txt", "sub/in.txt")
+	link := filepath.Join(t.TempDir(), "root")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skipf("no symlinks here: %v", err)
+	}
+	got, _ := pickFiles(context.Background(), link, []string{"ok.txt", "sub/in.txt"}, "")
+	if !slices.Equal(got, []string{"ok.txt", "sub/in.txt"}) {
+		t.Errorf("got %v", got)
+	}
+}
