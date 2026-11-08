@@ -216,6 +216,8 @@ type AgentCapabilities struct {
 	// extension in rewind.go: it names the turns of a session by a token the
 	// client sends, can truncate a session to a turn, and can fork one at a turn.
 	Rewind bool
+	// PermRules says the same of the permission rules extension in permrules.go.
+	PermRules bool
 
 	Raw json.RawMessage
 }
@@ -238,6 +240,8 @@ func parseCapabilities(raw json.RawMessage) AgentCapabilities {
 	if ext, ok := w.Meta[ExtKey].(map[string]any); ok {
 		v, _ := ext["rewind"].(float64)
 		c.Rewind = v == ExtVersion
+		p, _ := ext["permRules"].(float64)
+		c.PermRules = p == ExtVersion
 	}
 	return c
 }

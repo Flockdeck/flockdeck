@@ -1,7 +1,7 @@
 {
   "api": {
     "major": 1,
-    "minor": 28
+    "minor": 29
   },
   "frames": [
     {
@@ -1190,6 +1190,18 @@
       "name": "structuredRewind",
       "access": "full",
       "since": "1.25",
+      "status": "stable"
+    },
+    {
+      "name": "structuredRuleRevoke",
+      "access": "full",
+      "since": "1.29",
+      "status": "stable"
+    },
+    {
+      "name": "structuredRules",
+      "access": "full",
+      "since": "1.29",
       "status": "stable"
     },
     {

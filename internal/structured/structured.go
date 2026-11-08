@@ -126,7 +126,8 @@ type Command struct {
 	// Own says the program is an adapter Flockdeck builds into its own binary,
 	// which a test sets by hand. Only such an adapter is trusted to run a sign-in.
 	Own bool
-	// Rewind says the program is one of Flockdeck's own adapters with the rewind
+	// Rewind says the program is one of Flockdeck's own adapters with the flockdeck.dev
+	// extensions (rewind and permission rules, which share this flag), with the rewind
 	// extension, so its claim of it is believed. resolve sets it from the
 	// manifest; a test that supplies a Command sets it for its fake agent.
 	Rewind bool
@@ -1391,15 +1392,16 @@ func (r *Runtime) launch() bool {
 	r.mu.Unlock()
 
 	cfg := acp.Config{
-		Path:            cmd.Path,
-		Args:            cmd.Args,
-		Dir:             r.opts.Cwd,
-		Env:             cmd.env,
-		Handler:         handler{Handler: r.br.AnswerHandler(r.ask), r: r},
-		OnProtocolError: func(string) { r.protoErrs.Add(1); r.notify() },
-		ClientName:      "flockdeck",
-		RewindAllowed:   cmd.Rewind,
-		RewindTimeout:   cmd.RewindTimeout,
+		Path:             cmd.Path,
+		Args:             cmd.Args,
+		Dir:              r.opts.Cwd,
+		Env:              cmd.env,
+		Handler:          handler{Handler: r.br.AnswerHandler(r.ask), r: r},
+		OnProtocolError:  func(string) { r.protoErrs.Add(1); r.notify() },
+		ClientName:       "flockdeck",
+		RewindAllowed:    cmd.Rewind,
+		PermRulesAllowed: cmd.Rewind,
+		RewindTimeout:    cmd.RewindTimeout,
 	}
 	if rec != nil {
 		cfg.Tap = rec.Tap

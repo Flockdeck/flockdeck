@@ -164,6 +164,10 @@ type Config struct {
 	// Capabilities().Rewind is false whatever the agent says, so no turn token
 	// and no rewind call is sent to it.
 	RewindAllowed bool
+	// PermRulesAllowed is the same for the permission rules extension (permrules.go):
+	// set only for one of Flockdeck's own adapters. Without it Capabilities().PermRules
+	// is false whatever the agent says.
+	PermRulesAllowed bool
 	// RewindTimeout bounds _flockdeck/rewind. Zero means three minutes.
 	RewindTimeout time.Duration
 	// SetupTimeout bounds initialize and session/new, whatever the caller's

@@ -96,3 +96,46 @@ export function signInView(st) {
   const url = state === "waiting" ? safeSignInUrl(b.url) : null;
   return { available: b.available === true, state, url, host: url ? new URL(url).hostname : null };
 }
+
+// Allow-always rules (API 1.29, cap structuredRules). The desktop lists the
+// commands the agent will run without asking, redacted and cut, and drops one by
+// the id the agent gave it. Everything shown is text, never markup, and a rule
+// is named by its id, never by its place in the list.
+export const RULES_TITLE_WORDS = "Commands always allowed in this session";
+export const RULES_NONE_WORDS = "No command is always allowed in this session.";
+export const RULES_HINT_WORDS = "The agent runs these without asking. They last until the agent restarts. Long commands are cut and secrets are hidden here.";
+export const RULES_REMOVE_WORDS = "Remove";
+export const RULES_WAITING_WORDS = "Asking for the list.";
+export const RULES_NOT_SENT_WORDS = "Not connected to Flockdeck, so the ask was not sent.";
+export const RULES_FAILED_WORDS = "The list could not be read.";
+export const RULES_REVOKE_FAILED_WORDS = "The rule could not be removed. It may be gone already.";
+
+const RULE_ID = /^r[0-9a-f]{16}$/;
+
+/** rulesAvailable says the push says the agent keeps rules that can be listed. */
+export function rulesAvailable(st) {
+  return !!st && !!st.capabilities && st.capabilities.permRules === true;
+}
+
+/** rulesMessage asks for the list of a pane; ruleRevokeMessage removes the rule with that id. Each is null without what it needs. */
+export function rulesMessage(pane, req) {
+  if (typeof pane !== "string" || pane === "" || typeof req !== "string" || req === "") return null;
+  return { cmd: "structuredRules", id: pane, req };
+}
+export function ruleRevokeMessage(pane, ruleId, req) {
+  if (typeof pane !== "string" || pane === "" || typeof ruleId !== "string" || !RULE_ID.test(ruleId) || typeof req !== "string" || req === "") return null;
+  return { cmd: "structuredRuleRevoke", id: pane, entry: ruleId, req };
+}
+
+/** ruleRows reads a rules answer's list as { id, tool, text, cut, dir }, at most 100, each cleaned and cut again. An entry without a well-formed id is left out. */
+export function ruleRows(rules) {
+  const clean = (s, n) => String(s == null ? "" : s).replace(/[\p{C}]/gu, " ").replace(/\s+/g, " ").trim().slice(0, n);
+  const out = [];
+  for (const r of Array.isArray(rules) ? rules : []) {
+    if (!r || typeof r.id !== "string" || !RULE_ID.test(r.id) || out.length >= 100) continue;
+    const text = clean(r.text, 300);
+    if (!text) continue;
+    out.push({ id: r.id, tool: clean(r.tool, 40), text, cut: r.cut === true || String(r.text || "").length > 300, dir: clean(r.dir, 200) });
+  }
+  return out;
+}

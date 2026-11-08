@@ -195,6 +195,9 @@ type agent struct {
 	chosen map[string]string
 	// turnTokens are the turn tokens prompts carried, oldest first (rewind.go).
 	turnTokens []string
+	// rules are the allow-always rules the agent holds (permrules.go).
+	rules       []permRule
+	rulesSeeded bool
 }
 
 func newAgent() *agent {
@@ -344,6 +347,7 @@ func (a *agent) handle(m msg) {
 			caps["sessionCapabilities"] = sc
 		}
 		a.rewindCaps(caps)
+		a.permRulesCaps(caps)
 		res := map[string]any{
 			"protocolVersion":   1,
 			"agentCapabilities": caps,
@@ -430,6 +434,8 @@ func (a *agent) handle(m msg) {
 		a.result(m.ID, res)
 	case m.Method == "session/load" || m.Method == "session/resume":
 		a.reopen(m)
+	case a.hasSessionOpt("permrules") && (m.Method == "_flockdeck/permrules" || m.Method == "_flockdeck/permrule_revoke"):
+		a.permRulesCall(m)
 	case a.hasSessionOpt("rewind") && (m.Method == "session/fork" || m.Method == "_flockdeck/rewind" || m.Method == "_flockdeck/forkpoint"):
 		a.rewindCall(m)
 	case m.Method == "session/cancel":

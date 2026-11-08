@@ -267,6 +267,10 @@ type teamResultMsg struct {
 	Redacted int    `json:"redacted,omitempty"`
 	// Info answers structuredInfo: the agent's facts as plain text.
 	Info string `json:"info,omitempty"`
+	// Rules answers structuredRules: the allow-always rules, redacted and cut.
+	// Revoked answers structuredRuleRevoke with the id that was dropped.
+	Rules   []structuredRuleView `json:"rules,omitempty"`
+	Revoked string               `json:"revoked,omitempty"`
 	// Text answers structuredRewind: the text of the prompt that was taken back,
 	// for the person to send again. Pane, below, answers structuredFork with the
 	// new pane's id.

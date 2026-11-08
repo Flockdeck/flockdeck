@@ -195,6 +195,9 @@ type structuredCapabilities struct {
 	// Rewind says the agent can go back to an earlier turn and fork at one
 	// (structuredRewind, structuredFork). Only Flockdeck's own adapters can.
 	Rewind bool `json:"rewind"`
+	// PermRules says the agent keeps allow-always rules it can list and drop
+	// (structuredRules, structuredRuleRevoke). Since API 1.29.
+	PermRules bool `json:"permRules"`
 }
 
 // structuredMsg is what structuredSnapshot answers with and what a watching
@@ -427,7 +430,7 @@ func buildStructuredSession(m *structuredMsg, sn structured.Snapshot) {
 		c := ss.Capabilities
 		m.Capabilities = &structuredCapabilities{LoadSession: c.LoadSession, Image: c.Prompt.Image, Audio: c.Prompt.Audio,
 			EmbeddedContext: c.Prompt.EmbeddedContext, MCPHTTP: c.MCP.HTTP, MCPSSE: c.MCP.SSE,
-			ListSessions: c.List, ResumeSession: c.Resume, ForkSession: c.Fork, Rewind: c.Rewind}
+			ListSessions: c.List, ResumeSession: c.Resume, ForkSession: c.Fork, Rewind: c.Rewind, PermRules: c.PermRules}
 	}
 }
 
@@ -489,6 +492,8 @@ func (s *Server) structuredCommand(c *controlClient, cmd command) {
 		s.do(func() { s.structuredSignInCancel(c, cmd) })
 	case "structuredInfo":
 		s.do(func() { s.structuredInfo(c, cmd) })
+	case "structuredRules", "structuredRuleRevoke":
+		s.do(func() { s.structuredRules(c, cmd) })
 	case "structuredShellRun", "structuredShellStop", "structuredShellRemove", "structuredShellSend":
 		s.do(func() { s.structuredShell(c, cmd) })
 	case "structuredRewind", "structuredFork":

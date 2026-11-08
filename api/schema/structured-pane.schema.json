@@ -153,7 +153,8 @@
         "listSessions": { "type": "boolean", "description": "It lists its stored sessions." },
         "resumeSession": { "type": "boolean", "description": "It can resume a session without replaying it." },
         "forkSession": { "type": "boolean", "description": "It can fork a session." },
-        "rewind": { "type": "boolean", "description": "It is one of Flockdeck's own adapters and can go back to an earlier prompt and fork at one (structuredRewind, structuredFork). Since API 1.25." }
+        "rewind": { "type": "boolean", "description": "It is one of Flockdeck's own adapters and can go back to an earlier prompt and fork at one (structuredRewind, structuredFork). Since API 1.25." },
+        "permRules": { "type": "boolean", "description": "It is one of Flockdeck's own adapters and keeps allow-always rules it can list and drop (structuredRules, structuredRuleRevoke). Absent before API 1.29." }
       }
     },
     "setup": {

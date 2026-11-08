@@ -9,15 +9,56 @@
 import { useEffect, useRef, useState } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
 import { showControls } from "./diff/diffModel.js";
-import { infoMessage, restartMessage, infoRows, answerFor, needsSignIn, signInMessage, signInCancelMessage, signInRefused, signInView, SIGNIN_REFUSED_WORDS, SIGNIN_COPY_WORDS, SIGNIN_COPIED_WORDS, SIGNIN_COPY_FAILED_WORDS, SIGNIN_START_WORDS, SIGNIN_CANCEL_WORDS, SIGNIN_STARTING_WORDS, SIGNIN_WAITING_WORDS, SIGNIN_DONE_WORDS, SIGNIN_FAILED_WORDS, SIGNIN_NOT_SENT_WORDS, SIGNIN_LINK_WORDS, INFO_NOT_SENT_WORDS, INFO_WAITING_WORDS, INFO_LOGOUT_WORDS, INFO_RESTART_NOT_SENT_WORDS } from "./infoModel.js";
+import { infoMessage, restartMessage, infoRows, answerFor, needsSignIn, signInMessage, signInCancelMessage, signInRefused, signInView, SIGNIN_REFUSED_WORDS, SIGNIN_COPY_WORDS, SIGNIN_COPIED_WORDS, SIGNIN_COPY_FAILED_WORDS, SIGNIN_START_WORDS, SIGNIN_CANCEL_WORDS, SIGNIN_STARTING_WORDS, SIGNIN_WAITING_WORDS, SIGNIN_DONE_WORDS, SIGNIN_FAILED_WORDS, SIGNIN_NOT_SENT_WORDS, SIGNIN_LINK_WORDS, INFO_NOT_SENT_WORDS, INFO_WAITING_WORDS, INFO_LOGOUT_WORDS, INFO_RESTART_NOT_SENT_WORDS, rulesAvailable, rulesMessage, ruleRevokeMessage, ruleRows, RULES_TITLE_WORDS, RULES_NONE_WORDS, RULES_HINT_WORDS, RULES_REMOVE_WORDS, RULES_WAITING_WORDS, RULES_NOT_SENT_WORDS, RULES_FAILED_WORDS, RULES_REVOKE_FAILED_WORDS } from "./infoModel.js";
 
 let infoSeq = 0;
 
 /** InfoPanel draws the facts. result is the store's infoResult; it is shown only when its req is the one this panel sent for this pane. */
-export function InfoPanel({ pane, st, store, result = null, signInResult = null, onClose }) {
+export function InfoPanel({ pane, st, store, result = null, signInResult = null, rulesResult = null, onClose }) {
   const [req, setReq] = useState("");
   const [note, setNote] = useState("");
+  // The allow-always rules (API 1.29). list is null until the agent has answered; a rule is removed by the id it came with.
+  const rulesOn = rulesAvailable(st);
+  const [rulesReq, setRulesReq] = useState("");
+  const [rulesNote, setRulesNote] = useState("");
+  const [rules, setRules] = useState(null);
+  const askRules = () => {
+    if (!rulesOn) return;
+    const next = "r" + ++infoSeq;
+    const msg = rulesMessage(pane, next);
+    if (msg && store.send(msg)) setRulesReq(next);
+    else {
+      setRulesReq("");
+      setRulesNote(RULES_NOT_SENT_WORDS);
+    }
+  };
+  const revoke = (ruleId) => {
+    const next = "r" + ++infoSeq;
+    const msg = ruleRevokeMessage(pane, ruleId, next);
+    if (msg && store.send(msg)) {
+      setRulesReq(next);
+      setRulesNote("");
+    } else setRulesNote(RULES_NOT_SENT_WORDS);
+  };
+  useEffect(() => {
+    const r = rulesResult;
+    if (!r || r.id !== pane || !rulesReq || r.req !== rulesReq) return;
+    if (r.op === "structuredRules") {
+      if (r.ok) {
+        setRules(ruleRows(r.rules));
+        setRulesNote("");
+      } else setRulesNote(RULES_FAILED_WORDS);
+      return;
+    }
+    // Whatever the answer to a removal, the list is read again: it shows what the agent holds now.
+    setRulesNote(r.ok ? "" : RULES_REVOKE_FAILED_WORDS);
+    askRules();
+  }, [rulesResult]);
+  useEffect(() => {
+    setRules(null);
+  }, [pane]);
   const ask = () => {
+    askRules();
     const next = "i" + ++infoSeq;
     const msg = infoMessage(pane, next);
     if (msg && store.send(msg)) {
@@ -28,7 +69,7 @@ export function InfoPanel({ pane, st, store, result = null, signInResult = null,
       setNote(INFO_NOT_SENT_WORDS);
     }
   };
-  useEffect(ask, [pane, st && st.phase]);
+  useEffect(ask, [pane, st && st.phase, rulesOn]);
   const mine = answerFor(result, pane, req);
   const rows = mine && mine.ok ? infoRows(mine.info) : [];
   const login = needsSignIn(st);
@@ -105,6 +146,22 @@ export function InfoPanel({ pane, st, store, result = null, signInResult = null,
       : null}
     ${rows.length
       ? html`<dl class="info-rows">${rows.map((r) => html`<div class="info-row"><dt>${r.name}</dt><dd>${r.value}</dd></div>`)}</dl>`
+      : null}
+    ${rulesOn
+      ? html`<div class="info-rules" data-info-rules="on">
+          <h4 class="info-rules-title">${RULES_TITLE_WORDS}</h4>
+          ${rules === null && !rulesNote ? html`<p class="structured-note" role="status">${RULES_WAITING_WORDS}</p>` : null}
+          ${rules !== null && rules.length === 0 ? html`<p class="structured-note">${RULES_NONE_WORDS}</p>` : null}
+          ${rules !== null && rules.length
+            ? html`<ul class="info-rule-list">${rules.map((r) => html`<li class="info-rule" key=${r.id} data-rule=${r.id}>
+                <code class="info-rule-text" title=${r.cut ? "Cut: the command is longer than this" : r.text}>${r.text}${r.cut ? " …" : ""}</code>
+                ${r.dir ? html`<span class="info-rule-dir">in ${r.dir}</span>` : null}
+                <button type="button" class="drawer-btn info-rule-remove" aria-label=${"Remove the rule for " + r.text.slice(0, 60)} onClick=${() => revoke(r.id)}>${RULES_REMOVE_WORDS}</button>
+              </li>`)}</ul>`
+            : null}
+          ${rulesNote ? html`<p class="structured-note structured-note--unsent" role="status" data-info-rules-note="on">${rulesNote}</p>` : null}
+          <p class="structured-note structured-note--hint">${RULES_HINT_WORDS}</p>
+        </div>`
       : null}
     ${req && !mine ? html`<p class="structured-note" role="status">${INFO_WAITING_WORDS}</p>` : null}
     ${mine && !mine.ok ? html`<p class="structured-note structured-note--unsent" role="status" data-info="failed">${showControls(String(mine.error || "The facts could not be read."))}</p>` : null}
