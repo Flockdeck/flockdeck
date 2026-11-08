@@ -38,8 +38,8 @@ func TestRuleViewsRedactBeforeTheyCutAndNeverShowMoreThanTheLimit(t *testing.T) 
 			t.Errorf("text of %d bytes", len(v.Text))
 		}
 	}
-	if !got[1].Cut && !strings.Contains(got[1].Text, "REDACTED") {
-		t.Errorf("the long rule is neither cut nor redacted: %+v", got[1])
+	if !got[1].Cut {
+		t.Errorf("the long rule: %+v", got[1])
 	}
 	if got[2].Text != "ls -la" || got[2].Dir != "/work" {
 		t.Errorf("control characters: %+v", got[2])
@@ -99,5 +99,24 @@ func TestStructuredRulesNeedAnAgentThatKeepsThem(t *testing.T) {
 	}
 	if r := e.rulesOp(t, command{Cmd: "structuredRuleRevoke", ID: e.child, Entry: "r0000000000000001"}); r.OK || r.Error != structuredNoRules {
 		t.Errorf("revoke: %+v", r)
+	}
+}
+
+// A private key block the adapter's cut left unterminated is still redacted, and
+// the visible head of a long command is redacted with the text after it in view.
+func TestRuleViewsRedactAnUnterminatedPrivateKey(t *testing.T) {
+	body := strings.Repeat("MIIEvQIBADANBgkqhkiG9w0BAQEFAASC", 40)
+	text := "echo '-----BEGIN PRIVATE KEY-----\n" + body // no END line: cut by the adapter
+	got := ruleViews([]acp.Rule{{ID: "r0000000000000001", Tool: "Bash", Text: text, Cut: true}})
+	if strings.Contains(got[0].Text, "MIIEvQ") || strings.Contains(got[0].Text, "BEGIN PRIVATE") && strings.Contains(got[0].Text, "MIIE") {
+		t.Errorf("key material reached the view: %q", got[0].Text)
+	}
+	if !got[0].Cut {
+		t.Error("the adapter's cut was lost")
+	}
+	// A key whose header the adapter cut in half shows nothing a reader could use.
+	half := strings.Repeat("a", 50) + " -----BEGIN PRIV"
+	if v := ruleViews([]acp.Rule{{ID: "r0000000000000001", Text: half, Cut: true}}); strings.Contains(v[0].Text, "MII") {
+		t.Errorf("%q", v[0].Text)
 	}
 }

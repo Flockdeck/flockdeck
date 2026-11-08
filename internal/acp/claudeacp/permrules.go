@@ -3,6 +3,7 @@ package claudeacp
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"sort"
 	"strings"
 
@@ -11,7 +12,56 @@ import (
 
 // The permission rules extension (internal/acp/permrules.go): list the
 // allow-always rules of a session and drop one by id. The rule key is the tool
-// and its canonical input (see ruleKey), so the text shown is the command in it.
+// and its canonical input (see ruleKey), so the text shown is the command in it,
+// led by a marker for each other field the rule is tied to.
+
+// maxRuleMarkers bounds the markers in front of a command.
+const maxRuleMarkers = 6
+
+// markerValue is a field's value for a marker, short and on one line.
+func markerValue(v any) string {
+	s := fmt.Sprint(v)
+	s = strings.Join(strings.Fields(s), " ")
+	if len(s) > 40 {
+		s = strings.ToValidUTF8(s[:40], "") + "..."
+	}
+	return s
+}
+
+// ruleMarkers names the fields of a rule's input other than the command, so
+// that two rules for the same command that differ in one of them read
+// differently. dangerouslyDisableSandbox is the riskier grant and is first.
+func ruleMarkers(m map[string]any) string {
+	var out []string
+	if v, ok := m["dangerouslyDisableSandbox"]; ok {
+		if b, isBool := v.(bool); isBool && b {
+			out = append(out, "(sandbox off)")
+		} else if !isBool || b {
+			out = append(out, "(dangerouslyDisableSandbox="+markerValue(v)+")")
+		}
+	}
+	if v, ok := m["run_in_background"]; ok {
+		if b, isBool := v.(bool); isBool && b {
+			out = append(out, "(background)")
+		} else if !isBool {
+			out = append(out, "(run_in_background="+markerValue(v)+")")
+		}
+	}
+	var rest []string
+	for k := range m {
+		if k != "command" && k != "dangerouslyDisableSandbox" && k != "run_in_background" {
+			rest = append(rest, k)
+		}
+	}
+	sort.Strings(rest)
+	for _, k := range rest {
+		out = append(out, "("+markerValue(k)+"="+markerValue(m[k])+")")
+	}
+	if len(out) > maxRuleMarkers {
+		out = append(out[:maxRuleMarkers], "(...)")
+	}
+	return strings.Join(out, " ")
+}
 
 // ruleView is the rule kept under key as the client is shown it. The text is
 // not redacted here; the host does that.
@@ -24,6 +74,9 @@ func ruleView(key string) acp.Rule {
 	if dec.Decode(&m) == nil {
 		if c, ok := m["command"].(string); ok {
 			text = c
+			if marks := ruleMarkers(m); marks != "" {
+				text = marks + " " + c
+			}
 		}
 	}
 	text, cut := acp.ClipRuleText(text)

@@ -311,7 +311,7 @@ func (c *Client) Initialize(ctx context.Context) (InitResult, error) {
 	}
 	r.Capabilities = parseCapabilities(r.AgentCapabilities)
 	r.Capabilities.Rewind = r.Capabilities.Rewind && c.cfg.RewindAllowed
-	r.Capabilities.PermRules = r.Capabilities.PermRules && c.cfg.RewindAllowed
+	r.Capabilities.PermRules = r.Capabilities.PermRules && c.cfg.PermRulesAllowed
 	c.mu.Lock()
 	c.authMethods = r.AuthMethods
 	c.caps = r.Capabilities

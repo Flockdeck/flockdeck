@@ -83,3 +83,63 @@ func TestRuleViewCutsALongCommandAndKeepsTheToolName(t *testing.T) {
 		t.Error("the cut broke a character")
 	}
 }
+
+// After a revoke the same command asks again; before it, it does not.
+func TestARevokedRuleAsksAgain(t *testing.T) {
+	const input = `{"command":"make deploy"}`
+	h := newHarness(t, []step{
+		expect(`"role":"user"`), emit(bashRequest("p1", "toolu_1", input)), expect(`"request_id":"p1"`), emit(lResultOK),
+		expect(`"role":"user"`), emit(bashRequest("p2", "toolu_2", input)), expect(`"request_id":"p2"`), emit(lResultOK),
+		expect(`"role":"user"`), emit(bashRequest("p3", "toolu_3", input)), expect(`"request_id":"p3"`), emit(lResultOK),
+	})
+	h.onReq = func(rpcMsg) any { return outcome("allow_always") }
+	sid := h.start()
+	stopReason(t, h.await(h.promptText(sid, "one")))
+	if n := len(h.requests("session/request_permission")); n != 1 {
+		t.Fatalf("%d cards after the first call, want 1", n)
+	}
+	stopReason(t, h.await(h.promptText(sid, "two")))
+	if n := len(h.requests("session/request_permission")); n != 1 {
+		t.Fatalf("%d cards after a repeat, want 1: the rule should have allowed it", n)
+	}
+	rules := rulesOf(t, h, sid)
+	if len(rules) != 1 {
+		t.Fatalf("rules = %+v", rules)
+	}
+	if r := h.call("_flockdeck/permrule_revoke", map[string]any{"sessionId": sid, "id": rules[0].ID}); r.Error != nil {
+		t.Fatal(r.Error)
+	}
+	stopReason(t, h.await(h.promptText(sid, "three")))
+	if n := len(h.requests("session/request_permission")); n != 2 {
+		t.Errorf("%d cards after the revoke, want 2: the command was not asked about again", n)
+	}
+}
+
+// Rules for the same command that differ in a field the rule covers read
+// differently, and the riskier one says so.
+func TestRulesThatDifferInExtraFieldsReadDifferently(t *testing.T) {
+	in := func(s string) string { return ruleView(ruleKey("Bash", json.RawMessage(s))).Text }
+	plain := in(`{"command":"npm test"}`)
+	sandbox := in(`{"command":"npm test","dangerouslyDisableSandbox":true}`)
+	bg := in(`{"command":"npm test","run_in_background":true}`)
+	timeout := in(`{"command":"npm test","timeout":600000}`)
+	described := in(`{"command":"npm test","description":"anything"}`)
+	seen := map[string]bool{}
+	for _, s := range []string{plain, sandbox, bg, timeout} {
+		if seen[s] {
+			t.Errorf("two rules read alike: %q", s)
+		}
+		seen[s] = true
+	}
+	if plain != "npm test" || described != plain {
+		t.Errorf("a plain rule reads %q, with a description %q", plain, described)
+	}
+	if !strings.HasPrefix(sandbox, "(sandbox off) ") || !strings.HasPrefix(bg, "(background) ") || !strings.Contains(timeout, "timeout=600000") {
+		t.Errorf("markers: %q %q %q", sandbox, bg, timeout)
+	}
+	// The marker survives a long command: it is in front.
+	long := ruleView(ruleKey("Bash", json.RawMessage(`{"command":"`+strings.Repeat("z", 5000)+`","dangerouslyDisableSandbox":true}`)))
+	if !strings.HasPrefix(long.Text, "(sandbox off) ") || !long.Cut {
+		t.Errorf("long rule: cut=%v starts %q", long.Cut, long.Text[:20])
+	}
+}
