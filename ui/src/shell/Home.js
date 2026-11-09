@@ -16,9 +16,10 @@
 //
 // Every text here came from the desktop, an agent or a person, and is drawn as
 // text.
-import { useEffect, useMemo, useRef } from "../vendor/hooks.mjs";
+import { useEffect, useMemo, useRef, useState } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
 import { buildGraphModel } from "../graph/model.js";
+import { askedRecords, subscribeAsked } from "../graph/overlapAsked.js";
 import { RosterList } from "../graph/List.js";
 import { clip } from "../graph/Node.js";
 
@@ -67,7 +68,10 @@ function Line({ children, kind }) {
 export function Home({ snap, selected, onShown, onOpen = null, open = "" }) {
   const last = useRef(null); // { root, model } of the last graph push that could be drawn
   const g = snap.graph;
-  const model = useMemo(() => (usable(g) ? buildGraphModel(g) : null), [g]);
+  // The overlaps the manager was asked about are kept in the browser; the model is built again when that record changes.
+  const [asked, setAsked] = useState(askedRecords);
+  useEffect(() => subscribeAsked(() => setAsked(askedRecords())), []);
+  const model = useMemo(() => (usable(g) ? buildGraphModel(g, asked) : null), [g, asked]);
   if (model && model.ok && (!selected || sameProject(g.root, selected))) {
     last.current = { root: g.root, model };
   } else if (last.current && selected && !sameProject(last.current.root, selected)) {
