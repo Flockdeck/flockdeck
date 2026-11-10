@@ -29,6 +29,9 @@ func (b *Bridge) TruncateBefore(id string) (string, bool) {
 	for _, it := range b.items[at:] {
 		b.detail -= it.detail
 		b.inline -= it.inl
+		if it.e.Kind == transcript.KindImage {
+			b.images--
+		}
 		if it.keyed {
 			delete(b.tools, it.key)
 		}

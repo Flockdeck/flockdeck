@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"image"
@@ -16,6 +17,7 @@ import (
 	_ "image/png"  // registers png
 
 	"github.com/jmwri/flockdeck/internal/acp"
+	"github.com/jmwri/flockdeck/internal/session/transcript"
 	"github.com/jmwri/flockdeck/internal/store"
 	"github.com/jmwri/flockdeck/internal/structured"
 )
@@ -101,6 +103,60 @@ func loadPaneImages(root, paneID string, refs []imageRef) ([]structured.Image, e
 		out = append(out, im)
 	}
 	return out, nil
+}
+
+// promptPictureKey splits the detail key of one picture of a prompt, "e12#0":
+// the prompt entry's id and the picture's place in its images.
+func promptPictureKey(key string) (entry string, n int, ok bool) {
+	entry, num, found := strings.Cut(key, "#")
+	if !found || entry == "" || num == "" || len(num) > 2 {
+		return "", 0, false
+	}
+	for _, r := range num {
+		if r < '0' || r > '9' {
+			return "", 0, false
+		}
+	}
+	n = 0
+	for _, r := range num {
+		n = n*10 + int(r-'0')
+	}
+	return entry, n, true
+}
+
+// maxPromptPictureDetail is the most a picture is, decoded, to be sent back in one
+// conversationDetail (about 1.4 MB of base64). The window scales what it sends to
+// 600 KB, so this does not bite for a picture it attached; a larger one that
+// another client sent is answered as gone rather than as one big message.
+const maxPromptPictureDetail = 1 << 20
+
+// promptPictureDetail is the bytes of picture n of the prompt entry id, read
+// from the pane's uploads folder. It reports false for an entry that is not a
+// prompt, a place that holds no picture, and a file that is gone or not one
+// readUpload accepts. The name comes from Flockdeck's own record of the prompt,
+// and readUpload checks its shape again.
+func promptPictureDetail(root, paneID string, entries []transcript.Entry, id string, n int) (transcript.Detail, bool) {
+	for _, e := range entries {
+		if e.ID != id {
+			continue
+		}
+		if e.Kind != transcript.KindPrompt || n >= len(e.Images) || e.Images[n].Upload == "" {
+			return transcript.Detail{}, false
+		}
+		if paneID == "" || paneID == "." || paneID == ".." || strings.ContainsAny(paneID, `/\:`+"\x00") || filepath.Base(paneID) != paneID {
+			return transcript.Detail{}, false
+		}
+		paneDir, err := filepath.EvalSymlinks(filepath.Join(root, paneID))
+		if err != nil {
+			return transcript.Detail{}, false
+		}
+		im, err := readUpload(paneDir, e.Images[n].Upload)
+		if err != nil || len(im.Data) > maxPromptPictureDetail {
+			return transcript.Detail{}, false
+		}
+		return transcript.Detail{Data: base64.StdEncoding.EncodeToString(im.Data)}, true
+	}
+	return transcript.Detail{}, false
 }
 
 // uploadName is the file name of path inside paneDir (already resolved), or an

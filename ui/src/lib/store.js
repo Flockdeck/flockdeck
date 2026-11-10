@@ -240,6 +240,10 @@ function nullMap(...sources) {
 
 /** MAX_DETAILS bounds the entry details held: a tool's output and a diff can each be large. */
 export const MAX_DETAILS = 12;
+/** MAX_PIC_DETAILS bounds the prompt-picture details held ("<entry>#<n>" keys). They have a budget of their own, so a thumbnail
+ *  asked for cannot push out a tool output the person opened, nor the other way round. */
+export const MAX_PIC_DETAILS = 8;
+const isPicKey = (k) => /#\d+$/.test(k);
 
 /** MACHINE_ONLY are the commands that change what the machine runs: updating,
  *  restarting, detaching, quitting. A remote window sends none of them, and the
@@ -1187,8 +1191,11 @@ export function createStore(opts) {
       const items = nullMap(snap.details);
       delete items[entry];
       // Oldest asked for first, by the number each was given (ids may be numbers, which JS orders itself).
-      const keys = Object.keys(items).sort((a, b) => items[a].n - items[b].n);
-      while (keys.length >= MAX_DETAILS) delete items[keys.shift()];
+      // Only entries of the same kind compete, and one still loading goes last, so an answer on its way is not dropped for one that has arrived.
+      const pic = isPicKey(entry);
+      const keys = Object.keys(items).filter((k) => isPicKey(k) === pic)
+        .sort((a, b) => (items[a].state === "loading") - (items[b].state === "loading") || items[a].n - items[b].n);
+      while (keys.length >= (pic ? MAX_PIC_DETAILS : MAX_DETAILS)) delete items[keys.shift()];
       Object.defineProperty(items, entry, { value: { state: "loading", n: ++detailSeq }, enumerable: true, writable: true, configurable: true });
       set({ details: items });
       guardDetail(entry);

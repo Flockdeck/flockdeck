@@ -399,7 +399,8 @@ test("Retry is not offered when the newest prompt was not typed here or carries 
     assert.equal(m.container.findAll(".conv-retry").length, 0, "an older typed prompt must not get Retry when a newer prompt is not the person's");
     await m.set({ conversation: convOf([entry(1, { kind: "prompt", text: "look at this", typed: true, images: [{ mediaType: "image/png", bytes: 3 }] })]) });
     assert.equal(m.container.findAll(".conv-retry").length, 0);
-    assert.equal(m.container.find(".conv-pics").textContent, "1 picture");
+    assert.equal(m.container.find(".conv-pics").getAttribute("aria-label"), "1 picture");
+    assert.equal(m.container.findAll(".conv-thumb").length, 1, "the picture is a thumbnail now, not a note");
   }));
 
 test("a cancel refusal is shown for its own pane and not for another one opened after it", () =>

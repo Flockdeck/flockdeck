@@ -76,6 +76,7 @@ func (b *Bridge) resetItems() {
 	b.tools = map[[sha256.Size]byte]*item{}
 	b.mails = nil
 	b.detail, b.inline, b.detailFrom = 0, 0, b.seq
+	b.images = 0
 	b.inFlight = false
 }
 
@@ -115,6 +116,9 @@ func (b *Bridge) trimReplay() {
 		it := b.items[n]
 		b.detail -= it.detail
 		b.inline -= it.inl
+		if it.e.Kind == transcript.KindImage {
+			b.images--
+		}
 		if it.keyed {
 			delete(b.tools, it.key)
 		}

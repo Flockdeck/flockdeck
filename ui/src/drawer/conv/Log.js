@@ -183,7 +183,7 @@ export function Log({ entries, atStart = true, older = "idle", onOlder = null, d
   // Retry is on the newest prompt only.
   let lastPrompt = "";
   if (onRetry) for (let i = entries.length - 1; i >= 0; i--) if (entries[i] && entries[i].kind === "prompt") { lastPrompt = entries[i].id; break; }
-  const rowOf = (e) => html`<${Row} key=${e.id} entry=${e} open=${!!opened[e.id]} onToggle=${toggle} detail=${details ? details[e.id] : null} onRetry=${e.id === lastPrompt ? onRetry : null} />`;
+  const rowOf = (e) => html`<${Row} key=${e.id} entry=${e} open=${!!opened[e.id]} onToggle=${toggle} detail=${details ? details[e.id] : null} onRetry=${e.id === lastPrompt ? onRetry : null} details=${e.kind === "prompt" && Array.isArray(e.images) && e.images.length ? details : null} onDetail=${onDetail} />`;
   const items = [];
   for (const it of groupEntries(shown)) {
     if (!it.steps) {

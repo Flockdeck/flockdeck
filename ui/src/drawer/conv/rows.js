@@ -25,6 +25,7 @@ import { Markdown } from "./markdown.js";
 import { CopyReply } from "./CopyReply.js";
 import { ToolBody } from "./Tool.js";
 import { ImageBody, imageWords } from "./Image.js";
+import { PromptPics } from "./PromptPics.js";
 import { stepsWords } from "./steps.js";
 import { chunkText } from "./chunks.js";
 import { rowTime } from "./time.js";
@@ -145,8 +146,8 @@ function ShowAll({ all, onToggle }) {
  *  gives the whole text. onRetry is given to the newest prompt only, and sends its text again. Retry
  *  is drawn only on a prompt the person typed (entry.typed, which the app sets) and that has no
  *  pictures: the pictures may be gone by now, so a retry would send the text without them. A prompt
- *  with pictures says how many it had. */
-function PromptRow({ entry: e, nested, onRetry }) {
+ *  with pictures draws them as thumbnails (PromptPics), or says how many it had when none can be asked for. */
+function PromptRow({ entry: e, nested, onRetry, details, onDetail }) {
   const [all, setAll] = useState(false);
   const full = text(e.text);
   const cut = full.length > MAX_TEXT;
@@ -158,7 +159,7 @@ function PromptRow({ entry: e, nested, onRetry }) {
   return html`<li class="conv-row conv-prompt" data-ctx="convRow" data-kind="prompt" data-entry=${nested ? null : e.id} tabindex="-1">
     <div class="conv-bubble"><span class="conv-sr">You: </span><p class="conv-text">${body}</p></div>
     ${left > 0 ? html`<p class="conv-cut">${left.toLocaleString("en-US")} more characters are not shown.</p>` : null}
-    ${pics > 0 ? html`<p class="conv-pics">${pics === 1 ? "1 picture" : pics + " pictures"}</p>` : null}
+    ${pics > 0 ? html`<${PromptPics} entry=${e} details=${details} onDetail=${nested ? null : onDetail} />` : null}
     <${Foot} ts=${e.ts} actions=${cut || !nested || retry} keep=${cut || retry}>
       ${cut ? html`<${ShowAll} all=${all} onToggle=${() => setAll(!all)} />` : null}
       ${nested ? null : html`<${CopyReply} text=${full} label="Copy this prompt" />`}
@@ -189,11 +190,11 @@ function ReplyRow({ entry: e, nested }) {
 }
 
 /** Row is one entry. open, onToggle, detail and nested are for a tool or helper row. */
-export function Row({ entry: e, open = false, onToggle = null, detail = null, nested = false, onRetry = null }) {
+export function Row({ entry: e, open = false, onToggle = null, detail = null, nested = false, onRetry = null, details = null, onDetail = null }) {
   const kind = text(e.kind);
   switch (kind) {
     case "prompt":
-      return html`<${PromptRow} entry=${e} nested=${nested} onRetry=${onRetry} />`;
+      return html`<${PromptRow} entry=${e} nested=${nested} onRetry=${onRetry} details=${details} onDetail=${onDetail} />`;
     case "reply":
       return html`<${ReplyRow} entry=${e} nested=${nested} />`;
     case "thinking":

@@ -639,6 +639,36 @@ A prompt that fails after it was sent, or that meets an agent that does not take
 has started, is not kept for a retry: its text stays in the conversation as the prompt entry and the turn
 ends with a notice, but the pictures are dropped with it, so the person attaches them again.
 
+Reading the pictures back needs no new field and no API version. `conversationDetail` takes the key
+`<prompt entry id>#<n>` for picture `n` (0 to 3) of that prompt's `images`, and answers with `detail.data`
+(base64 in the picture's own media type) read from the pane's uploads folder under the same checks as a send.
+A picture that was swept after 7 days, was never there, or is named by an entry that is not a prompt is answered
+with `gone`, and the window says "No longer available". The prompt row draws each as a thumbnail that a click
+enlarges; a window that cannot ask (one reached through the relay) says "N pictures" instead. Retry stays off
+a prompt with pictures.
+
+A picture over 1 MiB decoded (about 1.4 MB of base64) is answered with `gone` too, so one reply stays a
+sensible size. The window scales what it attaches to 600 KB, so this only meets a picture another client sent
+(the server takes up to 5 MB). The key is a read of the prompt like the rest of `conversationDetail`: a viewer
+device the desk has let watch panes may send it, as for any conversation detail, and so may read the pictures of
+the prompts. A relay window is refused as for the other conversation commands.
+
+The window asks for the pictures of rows near the viewport only, at most 4 at a time, and the store holds
+8 prompt pictures apart from the 12 tool details, so one kind does not push out the other. A picture the store
+lost before it answered is asked for again up to 3 times and then says "No longer available".
+
+### Pictures an agent returns
+
+An ACP `image` content block in a tool call's content, or an agent message chunk, becomes an `image` entry
+(`mediaType`, `bytes`, `width`, `height`, `hasDetail`), drawn by the image row; the bytes come with
+`conversationDetail` as `detail.data`. The block is the agent's and is not trusted: only png, jpeg, gif and
+webp are kept, the data must be only base64 characters, a picture over 700 KiB decoded (about 930 KB of base64 in one
+`conversationDetail`; the 1 MiB of the control socket is the most the server reads from a window, not a limit on
+what it sends) is dropped, one tool entry makes at most 4 pictures and a session holds at
+most 100, and a tool update that repeats a picture does not make it twice. A refused picture makes no entry
+and no error. Its bytes are part of the detail budget and the oldest are dropped first, after which the row
+says "No longer available". The window draws a picture only from a `data:` address and not above 8 MB.
+
 The prompt entry carries `images`: for each picture its `mediaType`, `bytes`, `width` and `height` (when
 the image header could be read) and `upload`, the file's name in the pane's uploads folder (not a path). The
 bytes are not kept in the conversation. A window that shows a thumbnail has to ask for the file, and it

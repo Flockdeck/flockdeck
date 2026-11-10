@@ -151,6 +151,16 @@ func (s *StructuredStream) Detail(id string) (transcript.Detail, bool) {
 	if inline == nil {
 		return transcript.Detail{Text: structuredGone}, true
 	}
+	if inline.Kind == transcript.KindImage {
+		// The picture's own bytes, whole: a cut base64 string is no picture. An
+		// image the runtime no longer holds is gone, so the row says so.
+		if fetch != nil {
+			if d, ok := fetch(id); ok && d.Data != "" {
+				return transcript.Detail{Data: d.Data}, true
+			}
+		}
+		return transcript.Detail{}, false
+	}
 	// A prompt or notice carries its words in Text, a reply in Markdown.
 	text, diff := cmp.Or(inline.Text, inline.Markdown), inline.Diff
 	if fetch != nil {

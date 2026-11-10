@@ -113,6 +113,8 @@ export function fakeStore(snap) {
     watchConversation() { return true; },
     olderConversation() { return false; },
     unwatchConversation() {},
+    // The full body of one entry (a tool's output, a picture): asked for, never answered here.
+    requestDetail() { return true; },
     get sent() { return sent; },
     get watched() { return watched; },
     subscribe(fn) { subs.add(fn); return () => subs.delete(fn); },

@@ -35,12 +35,13 @@ async function mount(st = push(), { wrap = false, pane = "p3" } = {}) {
   const container = dom.document.createElement("div");
   dom.body.appendChild(container);
   const store = fakeStore({ connection: "open", hello: { type: "hello" }, state: {}, files: null, attached: null });
-  const box = () => html`<${Structured} pane=${pane} snap=${store.getState()} st=${st} store=${store} desk=${true} />`;
+  const view = { conv: null, details: null, asked: [] };
+  const box = () => html`<${Structured} pane=${pane} snap=${store.getState()} st=${st} store=${store} desk=${true} conv=${view.conv} details=${view.details} onDetail=${(k) => { view.asked.push(k); return true; }} />`;
   const draw = () => render(wrap ? html`<section class="drawer-body" data-drawer-pane=${pane}>${box()}</section>` : box(), container);
   draw();
   await settle();
   const m = {
-    dom, container, store,
+    dom, container, store, view,
     box: () => container.find(".structured-input"),
     form: () => container.find(".structured-prompt"),
     host: () => container.find(".drawer-body"),
@@ -282,6 +283,51 @@ test("a picture added while a send is out stays when the desk takes the prompt; 
     await result(m, attaches(m)[1].req);
     await m.wait(30);
     assert.deepEqual(states(m), ["ready"]);
+  } finally {
+    await m.done();
+  }
+});
+
+// ---------------------------------------------------------------- the prompt row after a send
+
+test("a prompt sent with pictures shows them in its row: thumbnails asked for by key, the count for a label, and no Retry", async () => {
+  const m = await mount();
+  try {
+    m.box().enter("look at these");
+    await settle();
+    paste(m, png({ name: "a.png" }), png({ name: "b.png" }));
+    await m.wait(30);
+    await result(m, attaches(m)[0].req);
+    await m.wait(30);
+    await result(m, attaches(m)[1].req);
+    await m.wait(30);
+    m.box().keydown("Enter");
+    const sent = paneSends(m)[0];
+    assert.equal(sent.images.length, 2);
+    await m.took(sent);
+    await m.wait(30);
+    assert.deepEqual(chipsOf(m), [], "the chips go once the desk has the prompt");
+    // The desk records the prompt with what it sent: metadata only, and typed.
+    const images = sent.images.map((im, i) => ({ mediaType: "image/png", bytes: 3, upload: "1-" + i + ".png" }));
+    m.view.conv = { id: "p3", supported: true, entries: [{ id: "e7", kind: "prompt", ts: "2026-11-10T09:00:00Z", text: "look at these", typed: true, images }], atStart: true, older: "idle", refused: "" };
+    await m.set({});
+    const row = m.container.find(".conv-prompt");
+    assert.ok(row, "the prompt row is drawn");
+    assert.equal(row.find(".conv-pics").getAttribute("aria-label"), "2 pictures");
+    assert.equal(row.findAll(".conv-thumb").length, 2, "one thumbnail slot for each picture");
+    assert.equal(row.find(".conv-retry"), null, "Retry would send the words without the pictures");
+    assert.ok(row.find(".conv-copy-reply"), "Copy stays");
+    assert.deepEqual(m.view.asked, ["e7#0", "e7#1"], "each picture is asked for under the prompt's id and its place");
+    // The bytes arrive: a thumbnail is drawn from them, and one swept after a week says so.
+    m.view.details = {
+      "e7#0": { state: "ok", n: 1, detail: { data: "iVBORw0KGgo=" } },
+      "e7#1": { state: "gone", n: 2 },
+    };
+    await m.set({});
+    const thumbs = m.container.findAll(".conv-thumb");
+    assert.match(thumbs[0].find("img").getAttribute("src"), /^data:image\/png;base64,/);
+    assert.match(thumbs[1].textContent, /No longer available/);
+    assert.equal(m.container.find(".conv-prompt .conv-retry"), null);
   } finally {
     await m.done();
   }

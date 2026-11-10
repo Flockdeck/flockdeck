@@ -484,6 +484,22 @@ func (s *Server) conversationDetailReq(c *controlClient, paneID, entryID string)
 	if !pc.supported || pc.stream == nil {
 		return
 	}
+	if base, n, isPic := promptPictureKey(entryID); isPic {
+		// One picture of a prompt: its bytes come from the pane's uploads folder,
+		// and a picture swept after a week or never there is gone.
+		root, err := uploadsRoot()
+		var detail transcript.Detail
+		ok := false
+		if err == nil {
+			detail, ok = promptPictureDetail(root, paneID, pc.stream.Snapshot(), base, n)
+		}
+		if !ok {
+			c.sendJSON(conversationDetailMsg{Type: "conversationDetail", ID: paneID, Entry: entryID, Gone: true})
+			return
+		}
+		c.sendJSON(conversationDetailMsg{Type: "conversationDetail", ID: paneID, Entry: entryID, Detail: detail})
+		return
+	}
 	detail, ok := pc.stream.Detail(entryID)
 	if !ok {
 		c.sendJSON(conversationDetailMsg{Type: "conversationDetail", ID: paneID, Entry: entryID, Gone: true})
