@@ -437,3 +437,34 @@ func TestToolCallIDsFromTheAgentAreBounded(t *testing.T) {
 		t.Errorf("entries = %d, label %d bytes, status %s", len(got), len(got[1].Label), got[1].Status)
 	}
 }
+
+// A prompt entry is marked typed only when the person's own box sent it. A
+// replayed prompt, a system turn and a plain StartTurn are not, and the marker
+// is on the wire only when true.
+func TestOnlyATypedTurnIsMarkedTyped(t *testing.T) {
+	b, _ := newBridge(Config{})
+	b.BeginReplay()
+	b.Update(replayed(text(acp.UpdateUserMessageChunk, "replayed")))
+	b.EndReplay()
+	b.TurnStart("system")
+	b.StartTurnImages("plain", nil)
+	b.StartTypedTurn("typed", []transcript.PromptImage{{MediaType: "image/png"}})
+	want := map[string]bool{"replayed": false, "system": false, "plain": false, "typed": true}
+	n := 0
+	for _, e := range b.Snapshot() {
+		if e.Kind != transcript.KindPrompt {
+			continue
+		}
+		n++
+		if w, ok := want[e.Text]; !ok || e.Typed != w {
+			t.Errorf("prompt %q typed = %v, want %v", e.Text, e.Typed, w)
+		}
+		raw, _ := json.Marshal(e)
+		if has := strings.Contains(string(raw), `"typed":true`); has != want[e.Text] {
+			t.Errorf("prompt %q on the wire: %s", e.Text, raw)
+		}
+	}
+	if n != 4 {
+		t.Fatalf("%d prompts, want 4", n)
+	}
+}

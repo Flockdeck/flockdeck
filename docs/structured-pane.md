@@ -149,6 +149,11 @@ notice that says something went wrong: a turn that ended for any reason but a no
 restart that failed. Every other notice has no `tone`. A window draws a failure notice in its error colour
 and as a block, apart from a plain note. A value a window does not know is drawn as a plain notice.
 
+A `prompt` entry has an optional `typed` (API 1.32, cap `promptTyped`), `true` on a prompt the person typed in
+the pane's own box. A replayed prompt, a prompt Flockdeck or another agent sent (the opening prompt, a wake, a
+shell's output, mail) and any prompt of a session read from disk have no `typed`. A window offers Retry on a
+typed prompt only, and not on one with `images`. The text of a prompt is never cut on the wire.
+
 ## 4. Limits and throttling
 
 | What | Limit |

@@ -385,7 +385,7 @@ session.
   page. A pane id the workspace does not have gets no reply at all, so a window
   probing for ids learns nothing.
 - **Entries** have an `id`, a `kind` and a `ts` (RFC 3339), and the fields of that
-  kind: `prompt` (`text`), `reply` (`markdown`), `thinking` (`chars`, `seconds`),
+  kind: `prompt` (`text`, and from API 1.32 `typed`), `reply` (`markdown`), `thinking` (`chars`, `seconds`),
   `tool` (`name`, `label`, `status` of `running`, `ok` or `error`, `summary`,
   `diff`, `hasDetail`), `subagent` (`status`, `description`, `report`,
   `hasDetail`), `compaction` (`turns`), `notice` (`text`, and from API 1.31 `tone`), `image`

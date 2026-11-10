@@ -541,6 +541,9 @@ type queued struct {
 	// system is set for a prompt Flockdeck sent on its own: the opening prompt.
 	// It is not the person's text.
 	system bool
+	// typed is set for a prompt the person typed in the pane's own box (SendTyped).
+	// Its entry is marked, so a window may offer Retry on it.
+	typed bool
 }
 
 // Image is a picture for a prompt: the bytes the agent is sent, and what the
@@ -689,7 +692,15 @@ func (r *Runtime) SendMail(tag int, peer, body string, blocks ...string) error {
 }
 
 func (r *Runtime) send(tag int, blocks ...string) error {
-	return r.enqueue(tag, nil, false, nil, blocks...)
+	return r.enqueue(tag, nil, false, false, nil, blocks...)
+}
+
+// SendTyped queues a prompt the person typed in the pane's own box, with the
+// pictures it carries. It is SendImages, and the prompt's entry is marked as
+// typed so a window may offer Retry on it. Nothing Flockdeck or another agent
+// sends is marked.
+func (r *Runtime) SendTyped(text string, images []Image) error {
+	return r.enqueue(0, nil, false, true, images, text)
 }
 
 // SendImages queues a prompt of text and pictures. The pictures go to the agent
@@ -702,14 +713,14 @@ func (r *Runtime) SendImages(text string, images []Image) error {
 	if len(images) == 0 {
 		return r.send(0, text)
 	}
-	return r.enqueue(0, nil, false, images, text)
+	return r.enqueue(0, nil, false, false, images, text)
 }
 
 // SendSystem is Send for a prompt Flockdeck makes on its own, such as the
 // pane's opening prompt. The queue lists it as Flockdeck's and not the person's,
 // and the person cannot edit or remove it.
 func (r *Runtime) SendSystem(text string) error {
-	return r.enqueue(0, nil, true, nil, text)
+	return r.enqueue(0, nil, true, false, nil, text)
 }
 
 // NoteSent shows in the conversation that this session sent message id to peer.
@@ -729,10 +740,10 @@ func (r *Runtime) NoteMailState(id int, state string) {
 }
 
 func (r *Runtime) sendMail(tag int, mail *bridge.Mail, blocks ...string) error {
-	return r.enqueue(tag, mail, false, nil, blocks...)
+	return r.enqueue(tag, mail, false, false, nil, blocks...)
 }
 
-func (r *Runtime) enqueue(tag int, mail *bridge.Mail, system bool, images []Image, blocks ...string) error {
+func (r *Runtime) enqueue(tag int, mail *bridge.Mail, system, typed bool, images []Image, blocks ...string) error {
 	size := 0
 	for _, b := range blocks {
 		size += len(b)
@@ -784,7 +795,7 @@ func (r *Runtime) enqueue(tag int, mail *bridge.Mail, system bool, images []Imag
 			return ErrQueueImagesFull
 		}
 	}
-	r.queue = append(r.queue, queued{id: int(itemSeq.Add(1)), blocks: slices.Clone(blocks), images: slices.Clone(images), tag: tag, mail: mail, system: system})
+	r.queue = append(r.queue, queued{id: int(itemSeq.Add(1)), blocks: slices.Clone(blocks), images: slices.Clone(images), tag: tag, mail: mail, system: system, typed: typed})
 	r.mu.Unlock()
 	select {
 	case r.wake <- struct{}{}:
@@ -1832,7 +1843,11 @@ func (r *Runtime) loop() {
 			r.br.TurnStart(strings.Join(q.blocks, "\n"))
 			token = r.addMark("")
 		default:
-			entry, _ := r.br.StartTurnImages(strings.Join(q.blocks, "\n"), promptImages(q.images))
+			start := r.br.StartTurnImages
+			if q.typed {
+				start = r.br.StartTypedTurn
+			}
+			entry, _ := start(strings.Join(q.blocks, "\n"), promptImages(q.images))
 			token = r.addMark(entry)
 		}
 		r.notify()

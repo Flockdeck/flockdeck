@@ -678,7 +678,7 @@ func (w *Workspace) sendImagesTo(p *Pane, text string, images []structured.Image
 	if !ok {
 		return ErrSendImages
 	}
-	err := sr.rt.SendImages(text, images)
+	err := sr.rt.SendTyped(text, images)
 	if errors.Is(err, acp.ErrNoImages) {
 		return ErrSendImages
 	}
