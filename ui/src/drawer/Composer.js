@@ -4,7 +4,7 @@
 // send-once guard and the notes under the box. Structured keeps the settings, Stop, the panels and the
 // Escape handler (interruptModel.js), and reaches the box through two refs:
 //   live: { draft, menuOpen } as of the last draw, which the Escape handler reads.
-//   api:  { restore(text), focus() }, for the rewind panel and the queue list.
+//   api:  { restore(text), focus(), send(text) }, for the rewind panel, the queue list and Retry on a prompt.
 // The keys the box owns are described at the top of Structured.js.
 import { useEffect, useRef, useState } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
@@ -252,6 +252,10 @@ export function Composer({ pane, snap, st, store, controls, applySetting, onOwn,
         return;
       }
     }
+    dispatch(text);
+  };
+  // The send itself, for the box and for a prompt sent again from the conversation (api.send).
+  const dispatch = (text) => {
     const next = sendTo((m) => store.send(m), snap, pane, text);
     if (next) {
       sentText.current = text;
@@ -398,6 +402,14 @@ export function Composer({ pane, snap, st, store, controls, applySetting, onOwn,
   live.current = { draft, menuOpen: !!menu || names.length > 0 };
   api.current = {
     focus: () => { if (box.current && box.current.focus) box.current.focus(); },
+    // Sends text as a prompt through the same path as Send, leaving the draft alone. False when a send is out.
+    send: (t) => {
+      const text = String(t || "").trim();
+      if (!text || busy.current) return false;
+      expire();
+      dispatch(text);
+      return true;
+    },
     restore: (t) => { setDraft((d) => restoredDraft(d, t)); if (box.current && box.current.focus) box.current.focus(); },
   };
   const optId = (i) => "slash-" + pane + "-" + i;

@@ -30,6 +30,11 @@ type Entry struct {
 
 	// prompt.text, notice.text
 	Text string `json:"text,omitempty"`
+	// notice.tone: ToneFailure on a notice that says something went wrong (a turn
+	// that ended badly, a session that could not be resumed). Absent for any
+	// other notice. A window draws a failure apart from a plain note; a window
+	// that does not know the field draws the notice as a plain one.
+	Tone string `json:"tone,omitempty"`
 	// reply.markdown
 	Markdown string `json:"markdown,omitempty"`
 	// thinking.chars, thinking.seconds
@@ -72,6 +77,12 @@ type Entry struct {
 	// stay in the pane's uploads folder (and are swept after a week), so a window
 	// that wants one asks for it and may be told it is gone.
 	Images []PromptImage `json:"images,omitempty"`
+	// prompt.typed: true on a prompt the person typed in this pane's own box. It
+	// is absent on a replayed prompt, on a prompt Flockdeck or another agent sent
+	// (the opening prompt, a wake, a shell's output) and on any prompt of a
+	// session read from disk. A window offers Retry on a typed prompt only. It is
+	// set from Flockdeck's own record of who sent the prompt, never from the text.
+	Typed bool `json:"typed,omitempty"`
 
 	// Replayed is set on a prompt entry that an agent replayed from an earlier
 	// session (ACP session/load). It is the agent's text, not words the person
@@ -94,6 +105,9 @@ const (
 	// prompt, or one it sent. It is never a prompt, whatever the body says.
 	KindMessage = "message"
 )
+
+// ToneFailure is the one notice tone: the notice reports a failure.
+const ToneFailure = "failure"
 
 // Directions of a message entry.
 const (

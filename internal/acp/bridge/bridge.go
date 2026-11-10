@@ -424,10 +424,20 @@ func (b *Bridge) StartTurn(text string) (string, []transcript.Entry) {
 // StartTurnImages is StartTurn for a prompt that carried pictures. The prompt
 // entry lists them as metadata; the bytes are not kept here.
 func (b *Bridge) StartTurnImages(text string, images []transcript.PromptImage) (string, []transcript.Entry) {
+	return b.startTurn(text, images, false)
+}
+
+// StartTypedTurn is StartTurnImages for a prompt the person typed in the pane's
+// own box. The entry is marked Typed, which is what lets a window offer Retry.
+func (b *Bridge) StartTypedTurn(text string, images []transcript.PromptImage) (string, []transcript.Entry) {
+	return b.startTurn(text, images, true)
+}
+
+func (b *Bridge) startTurn(text string, images []transcript.PromptImage, typed bool) (string, []transcript.Entry) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.closeMerges()
-	id := b.add(transcript.Entry{Kind: transcript.KindPrompt, Text: text, Images: images}).e.ID
+	id := b.add(transcript.Entry{Kind: transcript.KindPrompt, Text: text, Images: images, Typed: typed}).e.ID
 	b.inFlight = true
 	b.enforce()
 	return id, b.take(true)
@@ -447,7 +457,7 @@ func (b *Bridge) TurnEnd(stop string) []transcript.Entry {
 	case acp.StopCancelled:
 		b.add(transcript.Entry{Kind: transcript.KindNotice, Text: "Turn cancelled."})
 	default:
-		b.add(transcript.Entry{Kind: transcript.KindNotice, Text: "Turn ended: " + line(stop, labelCap)})
+		b.add(transcript.Entry{Kind: transcript.KindNotice, Tone: transcript.ToneFailure, Text: "Turn ended: " + line(stop, labelCap)})
 	}
 	b.enforce()
 	return b.take(true)

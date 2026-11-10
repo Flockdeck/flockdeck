@@ -66,7 +66,7 @@ import { useEffect, useRef, useState } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
 import { clip } from "../graph/Node.js";
 import { showControls } from "./diff/diffModel.js";
-import { Conversation } from "./Conversation.js";
+import { Conversation, Skeleton, ErrorBlock } from "./Conversation.js";
 import { Icon, toolKind } from "./conv/rows.js";
 import { controlsOf, controlFor, setMessage, parseSetting } from "./settingsModel.js";
 import { Composer } from "./Composer.js";
@@ -86,6 +86,18 @@ export { SEND_NOT_SENT_WORDS, STOP_NOT_SENT_WORDS, FILES_DELAY_MS, ATTACH_WAIT_M
 // Each Stop carries its own req, so the store can tell which pane a refusal is for.
 let cancelSeq = 0;
 let settingSeq = 0;
+/** emptyTips are the ways to start that the empty conversation lists: the slash menu, the file picker, the
+ *  person's own shell and, when the agent takes pictures, paste. */
+export function emptyTips(st) {
+  const tips = [
+    { key: "/", words: "commands and modes" },
+    { key: "@", words: "a file in this folder" },
+    { key: "!", words: "a shell command of your own" },
+  ];
+  if (st && st.capabilities && st.capabilities.image) tips.push({ key: "Paste", words: "or drop a picture" });
+  return tips;
+}
+
 /** SET_NOT_SENT_WORDS is what the selectors say when the store did not send the change. */
 export const SET_NOT_SENT_WORDS = "Not connected to Flockdeck, so the change was not sent.";
 
@@ -153,9 +165,9 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
   const [confirming, setConfirming] = useState(null);
   // What the composer reports and offers: the draft and whether a list is open, for the Escape handler; and focus and restore.
   const live = useRef({ draft: "", menuOpen: false });
-  const composer = useRef({ focus: () => {}, restore: () => {} });
-  if (error) return html`<p class="drawer-stub conv-refused" role="status">${clip(String(error.error || ""), 300)}</p>`;
-  if (!st || st.id !== pane) return html`<p class="drawer-stub">Loading the agent.</p>`;
+  const composer = useRef({ focus: () => {}, restore: () => {}, send: () => false });
+  if (error) return html`<${ErrorBlock} title="Could not open this pane" words=${clip(String(error.error || ""), 300)} onRetry=${desk ? () => store.retryStructured() : null} />`;
+  if (!st || st.id !== pane) return html`<${Skeleton} words="Loading the agent." />`;
   const act = activityOf(st, conv && conv.entries ? conv.entries : []);
   const expire = () => {
     setSettingNote(null);
@@ -266,7 +278,8 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
       ${desk && rewinding === pane ? html`<${RewindPanel} pane=${pane} store=${store} st=${st} entries=${conv && conv.entries ? conv.entries : []} result=${rewindResult} onText=${(t) => composer.current.restore(t)} onClose=${() => setRewinding("")} />` : null}
       ${desk && exporting === pane ? html`<${ExportPanel} pane=${pane} store=${store} result=${exportResult} onClose=${() => setExporting("")} />` : null}
       <${Conversation} lead=${lead} items=${stripItems} conv=${conv} onOlder=${onOlder} details=${details} onDetail=${onDetail} pending=${pending}
-        search=${search} onSearch=${onSearch} onClearSearch=${onClearSearch} canExport=${desk} onExport=${() => setExporting(pane)} className="structured-log" />
+        search=${search} onSearch=${onSearch} onClearSearch=${onClearSearch} canExport=${desk} onExport=${() => setExporting(pane)} className="structured-log"
+        tips=${desk ? emptyTips(st) : null} onRetry=${desk ? () => store.retryConversation() : null} onRetryPrompt=${desk && st.status !== "working" && st.status !== "waiting" ? (t) => composer.current.send(t) : null} />
       ${desk ? html`<${ShellList} rows=${shellOf(st)} pane=${pane} store=${store} result=${shellResult} />` : null}
       ${desk ? html`<${QueueList} rows=${queue} pane=${pane} store=${store} result=${queueResult} working=${st.status === "working"} focusBox=${() => composer.current.focus()} />` : null}
       ${desk

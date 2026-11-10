@@ -363,7 +363,43 @@ test("before the first push it says it is loading, and a refused watch says why"
   with_(null, {}, async (m) => {
     assert.ok(m.container.find(".drawer-stub").textContent.includes("Loading the agent"));
     await m.set({ structuredError: { error: "Too many structured panes are being watched" } });
-    assert.equal(m.container.find(".drawer-stub").textContent, "Too many structured panes are being watched");
+    // A state block with the reason and a Retry, which asks again.
+    const block = m.container.find(".conv-refused");
+    assert.match(block.getAttribute("class"), /chg-error/);
+    assert.equal(block.find("span").textContent, "Too many structured panes are being watched");
+    assert.ok(block.find(".conv-retry-open"));
+  }));
+
+test("the empty conversation lists /, @, ! and paste, and paste only for an agent that takes pictures", () =>
+  with_(push(), { entries: [] }, async (m) => {
+    const keys = () => m.container.find(".conv-tips").findAll("kbd").map((k) => k.textContent);
+    assert.deepEqual(keys(), ["/", "@", "!"]);
+    await m.set({ structured: push({ capabilities: { image: true } }) });
+    assert.deepEqual(keys(), ["/", "@", "!", "Paste"]);
+  }));
+
+test("Retry is on the newest prompt only, sends its text through the Send path and is gone while a turn runs", () =>
+  with_(push(), { entries: [entry(1, { kind: "prompt", text: "first", typed: true }), entry(2), entry(3, { kind: "prompt", text: "run the tests", typed: true }), entry(4, { kind: "notice", text: "Turn ended: refusal", tone: "failure" })] }, async (m) => {
+    const buttons = m.container.findAll(".conv-retry");
+    assert.equal(buttons.length, 1);
+    buttons[0].click();
+    await settle();
+    assert.deepEqual(m.store.sent.map(plain), [{ cmd: "paneSend", id: "p3", text: "run the tests" }]);
+    assert.ok(m.store.sent[0].req);
+    // A second press while that send is out sends nothing.
+    m.container.find(".conv-retry").click();
+    await settle();
+    assert.equal(m.store.sent.length, 1);
+    await m.set({ structured: push({ status: "working" }) });
+    assert.equal(m.container.findAll(".conv-retry").length, 0);
+  }));
+
+test("Retry is not offered when the newest prompt was not typed here or carries pictures", () =>
+  with_(push(), { entries: [entry(1, { kind: "prompt", text: "first", typed: true }), entry(2, { kind: "prompt", text: "from a wake" })] }, async (m) => {
+    assert.equal(m.container.findAll(".conv-retry").length, 0, "an older typed prompt must not get Retry when a newer prompt is not the person's");
+    await m.set({ conversation: convOf([entry(1, { kind: "prompt", text: "look at this", typed: true, images: [{ mediaType: "image/png", bytes: 3 }] })]) });
+    assert.equal(m.container.findAll(".conv-retry").length, 0);
+    assert.equal(m.container.find(".conv-pics").textContent, "1 picture");
   }));
 
 test("a cancel refusal is shown for its own pane and not for another one opened after it", () =>

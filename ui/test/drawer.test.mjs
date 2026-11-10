@@ -110,7 +110,7 @@ const store = fakeStore({ hello: { type: "hello" }, state: paneState({ p1: {}, p
 
 test("a structured pane shows its own view and no terminal", () => {
   const out = renderToString(html`<${Drawer} store=${store} node=${node({ structured: true })} now=${NOW} />`);
-  assert.ok(out.includes("data-structured-pane") || out.includes("Loading the agent."), "the structured view was not drawn");
+  assert.ok(out.includes("data-structured-pane") || out.includes("conv-skeleton"), "the structured view was not drawn");
   assert.ok(out.includes("structured</span>"), "the kind label was not drawn");
   assert.ok(!out.includes("terminal-pane"), "a terminal was made for a structured pane");
   assert.match(out, /role="tab"[^>]*aria-selected="true"[^>]*>Transcript</, "the first tab is the transcript");
