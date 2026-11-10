@@ -153,11 +153,14 @@ output in a fenced block marked as program output, without further scrubbing, so
 Commands an agent starts in the background are not listed: Flockdeck does not run the agent's commands
 for it, so they show only as the agent's tool output.
 
-When the agent takes images, paste one into the box, drop one on it, or press Attach
-image. Flockdeck saves the picture in its own state folder, not in your checkout, and
-writes `[image: path]` into the text for the agent to read. A large picture is scaled
-down first, and one picture is attached at a time. Agents that do not take images get
-no Attach image button and say so if you paste one.
+When the agent takes images, paste them into the box, drop them anywhere on the drawer, or
+press Attach image and choose several. Each shows as a small chip above the text with a
+thumbnail, its size and dimensions and a remove button, up to four to a prompt. Flockdeck
+saves the pictures in its own state folder, not in your checkout, and sends them with the
+prompt as images; nothing is added to your text. A large picture is scaled down first (a
+PNG stays a PNG when it fits). A picture that cannot be attached says so on its own chip and
+the rest go on; remove it to send. For agents that do not take images the Attach image
+button is dimmed, and pasting or dropping a picture says so.
 
 The strip at the top of the conversation shows what the agent is doing, how much of its
 context window is used (a bar and a percentage), and the model and mode pickers. Press the

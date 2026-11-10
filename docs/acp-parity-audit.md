@@ -42,7 +42,7 @@ The first version of this audit found the rows in the left column stale. All of 
 | Run an agent-advertised command | Done (T210). `/compact`, `/context` and `/clear` run under `claude -p` 2.1.312. |
 | Resume a past session | Claude done (#728): the pane shows its earlier conversation, replayed from claude's session file. Codex open: `loadSession` is false and the pane opens empty. No session picker. |
 | Approve or reject a plan | Done (#726): the card shows the plan text. Partial: no "approve and accept edits". |
-| Image paste | Partial (#716). Both adapters accept `image` blocks. `Client.PromptTurnImages` sends them (T248) but the composer does not use it yet, so the agent still gets `[image: path]`. |
+| Image paste | Partial (#716). Both adapters accept `image` blocks. `Client.PromptTurnImages` sends them (T248) and the composer uses it (T252), so the agent gets real image blocks. |
 | Matrix section 8, ten biggest gaps | Rewritten with a status per item. |
 | Open question 2 (can Claude set mode, model, interrupt) | Answered: the adapter does all three. Effort is not offered. |
 

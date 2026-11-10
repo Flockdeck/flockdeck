@@ -618,5 +618,5 @@ the image header could be read) and `upload`, the file's name in the pane's uplo
 bytes are not kept in the conversation. A window that shows a thumbnail has to ask for the file, and it
 may be gone.
 
-The window's composer still writes `[image: path]` into the text and sends no `images` yet; that changes
-with the multi-image composer.
+The window's composer sends the pictures as `images` and writes nothing into the text (since API 1.32; see
+the prompt box above).
