@@ -267,6 +267,24 @@ func TestOtherStopReasonsLeaveANotice(t *testing.T) {
 	}
 }
 
+func TestOnlyBadTurnEndsAndFailureNoticesCarryTheFailureTone(t *testing.T) {
+	for stop, want := range map[string]string{"cancelled": "", "max_tokens": transcript.ToneFailure, "refusal": transcript.ToneFailure} {
+		b, _ := newBridge(Config{})
+		b.TurnStart("go")
+		b.TurnEnd(stop)
+		if got := b.Snapshot(); got[1].Tone != want {
+			t.Errorf("stop %q: tone %q, want %q", stop, got[1].Tone, want)
+		}
+	}
+	b, _ := newBridge(Config{})
+	b.Notice("Started a new conversation.")
+	b.Failure("Could not resume.")
+	got := b.Snapshot()
+	if got[0].Tone != "" || got[1].Tone != transcript.ToneFailure || got[1].Kind != transcript.KindNotice {
+		t.Errorf("tones: %+v", got)
+	}
+}
+
 func TestLongToolOutputIsSummarizedAndKeptForDetail(t *testing.T) {
 	b, _ := newBridge(Config{})
 	b.TurnStart("go")

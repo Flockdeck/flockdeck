@@ -51,10 +51,20 @@ func (b *Bridge) DropReplay() {
 // Notice adds a notice entry to the conversation and returns what is due to be
 // handed out.
 func (b *Bridge) Notice(text string) []transcript.Entry {
+	return b.notice(text, "")
+}
+
+// Failure is Notice for something that went wrong: the entry carries the
+// failure tone, so a window draws it apart from a plain note.
+func (b *Bridge) Failure(text string) []transcript.Entry {
+	return b.notice(text, transcript.ToneFailure)
+}
+
+func (b *Bridge) notice(text, tone string) []transcript.Entry {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.closeMerges()
-	b.add(transcript.Entry{Kind: transcript.KindNotice, Text: line(text, labelCap)})
+	b.add(transcript.Entry{Kind: transcript.KindNotice, Tone: tone, Text: line(text, labelCap)})
 	b.enforce()
 	return b.take(true)
 }

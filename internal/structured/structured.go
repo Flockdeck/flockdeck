@@ -1709,7 +1709,7 @@ func (r *Runtime) open(c *acp.Client, caps acp.AgentCapabilities, mcp []acp.MCPS
 	r.mu.Lock()
 	delete(r.dead, created.SessionID) // the agent made it afresh
 	r.mu.Unlock()
-	r.br.Notice(ResumeFailedText)
+	r.br.Failure(ResumeFailedText)
 	return created, ResumeFailed, nil
 }
 

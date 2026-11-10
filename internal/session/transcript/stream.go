@@ -30,6 +30,11 @@ type Entry struct {
 
 	// prompt.text, notice.text
 	Text string `json:"text,omitempty"`
+	// notice.tone: ToneFailure on a notice that says something went wrong (a turn
+	// that ended badly, a session that could not be resumed). Absent for any
+	// other notice. A window draws a failure apart from a plain note; a window
+	// that does not know the field draws the notice as a plain one.
+	Tone string `json:"tone,omitempty"`
 	// reply.markdown
 	Markdown string `json:"markdown,omitempty"`
 	// thinking.chars, thinking.seconds
@@ -94,6 +99,9 @@ const (
 	// prompt, or one it sent. It is never a prompt, whatever the body says.
 	KindMessage = "message"
 )
+
+// ToneFailure is the one notice tone: the notice reports a failure.
+const ToneFailure = "failure"
 
 // Directions of a message entry.
 const (

@@ -447,7 +447,7 @@ func (b *Bridge) TurnEnd(stop string) []transcript.Entry {
 	case acp.StopCancelled:
 		b.add(transcript.Entry{Kind: transcript.KindNotice, Text: "Turn cancelled."})
 	default:
-		b.add(transcript.Entry{Kind: transcript.KindNotice, Text: "Turn ended: " + line(stop, labelCap)})
+		b.add(transcript.Entry{Kind: transcript.KindNotice, Tone: transcript.ToneFailure, Text: "Turn ended: " + line(stop, labelCap)})
 	}
 	b.enforce()
 	return b.take(true)

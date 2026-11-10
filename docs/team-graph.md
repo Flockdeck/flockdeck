@@ -388,7 +388,7 @@ session.
   kind: `prompt` (`text`), `reply` (`markdown`), `thinking` (`chars`, `seconds`),
   `tool` (`name`, `label`, `status` of `running`, `ok` or `error`, `summary`,
   `diff`, `hasDetail`), `subagent` (`status`, `description`, `report`,
-  `hasDetail`), `compaction` (`turns`), `notice` (`text`), `image`
+  `hasDetail`), `compaction` (`turns`), `notice` (`text`, and from API 1.31 `tone`), `image`
   (`mediaType`, `bytes`, `width`, `height`, `hasDetail`) and, for a structured pane
   from API 1.14, `message` (`dir` of `in` or `out`, `peer`, `msg`, `delivery`, `text`;
   see `docs/structured-pane.md`). A tool's output over

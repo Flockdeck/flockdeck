@@ -27,7 +27,7 @@ const apiCatalogPath = "../../api/catalog.json"
 // command or message raises the major; one that adds raises the minor.
 const (
 	apiMajor = 1
-	apiMinor = 30
+	apiMinor = 31
 )
 
 // addedIn names the minor version a command arrived in; any other is 1.0.
@@ -83,6 +83,7 @@ func init() {
 	addedIn["structuredRules"], addedIn["structuredRuleRevoke"] = "1.29", "1.29"
 	// Pictures in a prompt (paneSend images, the queue item's images, the prompt entry's images) came with
 	// structuredImages (1.30). No command is new, so nothing is added to addedIn.
+	// The tone of a notice entry came with noticeTone (1.31). No command is new, so nothing is added to addedIn.
 	// The person's own shell commands came with structuredShell (1.21).
 	for _, n := range []string{"structuredShellRun", "structuredShellStop", "structuredShellRemove", "structuredShellSend"} {
 		addedIn[n] = "1.21"

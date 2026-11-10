@@ -332,7 +332,7 @@ func (r *Runtime) openFork(c *acp.Client, mcp []acp.MCPServer) (acp.SessionNew, 
 	if err != nil {
 		return created, ResumeNone, err
 	}
-	r.br.Notice(ForkFailedText)
+	r.br.Failure(ForkFailedText)
 	return created, ResumeNone, nil
 }
 

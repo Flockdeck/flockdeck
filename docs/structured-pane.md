@@ -141,6 +141,14 @@ the bridge's cap (10000 entries) plus the history kept across restarts (2000). A
 `conversationDetail` for an entry the runtime no longer holds answers with a one-line notice. Like the
 push, they are for a window on this machine; a window through the relay is refused them.
 
+Every entry carries `ts`, an RFC 3339 time in UTC, and the drawer shows it at the foot of a row.
+
+A `notice` entry has an optional `tone` (API 1.31, cap `noticeTone`). The only value is `failure`, set on a
+notice that says something went wrong: a turn that ended for any reason but a normal end or a cancel
+(`Turn ended: max_tokens`), a session that could not be resumed or a fork that could not be made, and a
+restart that failed. Every other notice has no `tone`. A window draws a failure notice in its error colour
+and as a block, apart from a plain note. A value a window does not know is drawn as a plain notice.
+
 ## 4. Limits and throttling
 
 | What | Limit |
