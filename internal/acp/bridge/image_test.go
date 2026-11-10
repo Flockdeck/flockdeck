@@ -138,3 +138,88 @@ func TestPictureDetailIsTrimmedWithTheBudgetAndTheEntryStays(t *testing.T) {
 		t.Error("detail kept past the budget")
 	}
 }
+
+// countImages is what b.images should be: the image entries held.
+func countImages(b *Bridge) int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	n := 0
+	for _, it := range b.items {
+		if it.e.Kind == transcript.KindImage {
+			n++
+		}
+	}
+	return n
+}
+
+func TestTheImageCountFollowsAReplay(t *testing.T) {
+	b, _ := newBridge(Config{})
+	for i := 0; i < maxImages; i++ {
+		b.Update(acp.Update{Kind: acp.UpdateAgentMessageChunk, Content: imgBlock("image/png", pngB64(t, 1, 1))})
+	}
+	b.BeginReplay()
+	if b.images != 0 {
+		t.Fatalf("count after a reset = %d", b.images)
+	}
+	b.Update(replayed(acp.Update{Kind: acp.UpdateAgentMessageChunk, Content: imgBlock("image/png", pngB64(t, 2, 2))}))
+	b.EndReplay()
+	if n := len(imageEntries(b)); n != 1 || b.images != 1 {
+		t.Errorf("entries = %d, count = %d, want 1 and 1", n, b.images)
+	}
+}
+
+func TestTheImageCountFollowsATrimmedReplay(t *testing.T) {
+	b, _ := newBridge(Config{MaxEntries: 20})
+	b.BeginReplay()
+	for i := 0; i < 80; i++ {
+		b.Update(replayed(text(acp.UpdateAgentMessageChunk, "a")))
+		b.Update(replayed(acp.Update{Kind: acp.UpdateAgentMessageChunk, Content: imgBlock("image/png", pngB64(t, i%7+1, 1))}))
+	}
+	b.EndReplay()
+	if b.Dropped() == 0 {
+		t.Fatal("the replay was not trimmed")
+	}
+	if got, want := b.images, countImages(b); got != want {
+		t.Errorf("count = %d, images held = %d", got, want)
+	}
+}
+
+func TestTheImageCountFollowsARewind(t *testing.T) {
+	b, _ := newBridge(Config{})
+	id, _ := b.StartTurn("draw")
+	for i := 0; i < 3; i++ {
+		b.Update(acp.Update{Kind: acp.UpdateAgentMessageChunk, Content: imgBlock("image/png", pngB64(t, i+1, 1))})
+	}
+	if b.images != 3 {
+		t.Fatalf("count = %d", b.images)
+	}
+	if _, ok := b.TruncateBefore(id); !ok {
+		t.Fatal("no rewind")
+	}
+	if b.images != 0 || countImages(b) != 0 {
+		t.Errorf("count = %d, held = %d, want none", b.images, countImages(b))
+	}
+	// Rewinding over and over does not use up the allowance.
+	for round := 0; round < maxImages; round++ {
+		id, _ = b.StartTurn("again")
+		b.Update(acp.Update{Kind: acp.UpdateAgentMessageChunk, Content: imgBlock("image/png", pngB64(t, 1, 1))})
+		b.TruncateBefore(id)
+	}
+	b.Update(acp.Update{Kind: acp.UpdateAgentMessageChunk, Content: imgBlock("image/png", pngB64(t, 3, 3))})
+	if n := len(imageEntries(b)); n != 1 {
+		t.Errorf("after %d rewinds a picture made %d entries, want 1", maxImages, n)
+	}
+}
+
+func TestARepeatedToolUpdateKeepsTheCountAndTheEntry(t *testing.T) {
+	b, _ := newBridge(Config{})
+	data := pngB64(t, 1, 1)
+	b.Update(toolCall("c1", "read", "Read"))
+	// The same picture twice in one update, then again in later updates and the completion.
+	b.Update(toolUpdate("c1", "in_progress", imgContent("image/png", data), imgContent("image/png", data)))
+	b.Update(toolUpdate("c1", "in_progress", imgContent("image/png", data)))
+	b.Update(toolUpdate("c1", "completed", outText("ok"), imgContent("image/png", data)))
+	if n := len(imageEntries(b)); n != 1 || b.images != 1 {
+		t.Errorf("entries = %d, count = %d, want 1 and 1", n, b.images)
+	}
+}
