@@ -212,16 +212,28 @@ this. There is no setting for the send key.
 
 The box is one bordered composer (`drawer/Composer.js`): an empty strip for pictures on top, the text, and one
 control row with Attach image (when the agent takes pictures), `@`, `/` and one button on the right. The
-button is Send; while the agent works or waits and the box is empty it is Stop, which drops the queue as before.
-With text in the box it stays Send and the text goes to the queue. `@` puts an @ at the caret, `/` starts a command
-in an empty box. "Stop, keep queue" is in the header of the queue list. Under the composer there is one status
+button is Send; while the agent works or waits (status `working` or `waiting`) and the box is empty it is Stop. Waiting
+cancels the permission request, as before. With text in the box, even a draft restored from storage, there is no Stop:
+the button reads "Send (queues)" so the person can see why, and the text goes to the queue. Stop keeps the waiting
+prompts, like Escape and Ctrl+C; Clear in the queue list is how to drop them. When a send is accepted while the agent
+works, Send turns into Stop in the same place, so that button ignores a press for 500 ms and the focus goes back to the
+text box (Escape and the refusal's refocus rely on that). Attach image is always drawn: dimmed with `aria-disabled`
+and a paperclip icon when the agent takes no pictures, and pressing it says so; `/` is dimmed the same way while the box
+has text, and says commands start an empty box. `@` puts an @ at the caret, `/` starts a command
+in an empty box. Under the composer there is one status
 line, not a stack: the most urgent of the refusals and failures (the text, a `!` command, Stop, a setting, a
 picture), then a warning about a picture, then a hint (stopping, what `!` does, how to stop the turn). The order
-is in `drawer/composerNotes.js`. The mode confirmation keeps its own block above the line.
+is in `drawer/composerNotes.js`. With a `!` command in the box its hint outranks every error that is not about
+sending the text or running the command. A setting note, a setting refusal, a Stop refusal and a picture error or
+warning go away when the draft changes, when the person sends, stops or changes a setting again, and when the turn
+ends. The line is two live regions, one `role="status"` and one `role="alert"`, that keep their roles; the text moves
+between them. The mode confirmation keeps its own block above the line. If the box goes away (the pane's push goes null or
+another pane opens) while a send is out, the sent text goes into the history, where Up brings it back, and not into
+the draft: the desk may have taken it, and the draft would send it twice. If the desk then refused it, the refusal is
+not shown and the text is only in the history.
 
 Escape stops a running turn, and so does Ctrl+C when no text is selected (T227). Both send
-`structuredCancel` with `keepQueue` set when prompts are waiting, so the waiting prompts are not lost the way
-they are with the Stop button; the button still drops the queue, and "Stop, keep queue" in the queue header keeps it. Escape works while the pane is working; Ctrl+C works while it is working or waiting on a permission (the request
+`structuredCancel` with `keepQueue` set when prompts are waiting, as the Stop button and `/stop` do. Escape works while the pane is working; Ctrl+C works while it is working or waiting on a permission (the request
 is answered cancelled, never allowed). With a permission open Escape is left to the card, and the hint then
 says only Ctrl+C. Both work from an empty prompt box or from anywhere else in the drawer. A held key (auto-repeat)
 is ignored, and several presses before the page redraws send one Stop; it can be sent again once the turn has ended. They are left alone when a slash or file list is open (Escape closes the list), when the
