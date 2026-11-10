@@ -1,5 +1,7 @@
 package server
 
+import "github.com/jmwri/flockdeck/internal/structured"
+
 // paneSendMsg is the answer to a paneSend that was accepted. Queued says the
 // pane was in the middle of a turn, so the text waits behind it; Shell says
 // the pane is a plain shell.
@@ -35,8 +37,21 @@ func (s *Server) paneSend(c *controlClient, cmd command) {
 		c.notifyReq(paneSendDeskOnly, true, cmd.Req)
 		return
 	}
+	// The pictures are read here, off the workspace goroutine, and only when the
+	// send names any.
+	var images []structured.Image
+	if len(cmd.Images) > 0 {
+		root, err := uploadsRoot()
+		if err == nil {
+			images, err = loadPaneImages(root, cmd.ID, cmd.Images)
+		}
+		if err != nil {
+			c.notifyReq(err.Error(), true, cmd.Req)
+			return
+		}
+	}
 	s.do(func() {
-		res, err := s.ws.SendToPaneThen(cmd.ID, cmd.Text, cmd.AllowShell, func(err error) { c.notifyReq(err.Error(), true, cmd.Req) })
+		res, err := s.ws.SendToPaneImages(cmd.ID, cmd.Text, images, cmd.AllowShell, func(err error) { c.notifyReq(err.Error(), true, cmd.Req) })
 		if err != nil {
 			c.notifyReq(err.Error(), true, cmd.Req)
 			return
