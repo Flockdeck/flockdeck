@@ -8,6 +8,10 @@ import { html } from "../src/html.js";
 import { Row } from "../src/drawer/conv/rows.js";
 import { PromptPics, picKey } from "../src/drawer/conv/PromptPics.js";
 import { createDom, install, settle } from "./dom.mjs";
+import { FakeWebSocket, harness, hello } from "./fakes.mjs";
+import { useStore } from "../src/lib/use-store.js";
+import { MAX_DETAILS, MAX_PIC_DETAILS } from "../src/lib/store.js";
+import { MAX_INFLIGHT, MAX_ASKS } from "../src/drawer/conv/PromptPics.js";
 
 const PNG = "iVBORw0KGgo=";
 const prompt = (images) => ({ id: "e3", kind: "prompt", ts: "2026-11-10T09:00:00Z", text: "look", typed: true, images });
@@ -102,3 +106,111 @@ test("a prompt with pictures keeps no Retry, however it is drawn", () => {
   }
   assert.equal(renderToString(html`<${PromptPics} entry=${{ id: "e1" }} />`), "");
 });
+
+async function up() {
+  const h = await harness();
+  h.store.start();
+  FakeWebSocket.last.open();
+  FakeWebSocket.last.frame(hello());
+  h.store.watchConversation("p1");
+  return { ...h, ws: FakeWebSocket.last };
+}
+
+test("pictures of several prompts all arrive, at most four asked at once, and none stays loading", () =>
+  page(async (box, draw) => {
+    const { store, ws } = await up();
+    const rows = ["a", "b", "c", "d", "e"].map((id) => ({ ...prompt([pic(), pic(), pic(), pic()]), id }));
+    const List = () => {
+      const snap = useStore(store);
+      return html`<div>${rows.map((r) => html`<${Row} key=${r.id} entry=${r} details=${snap.details} onDetail=${store.requestDetail} />`)}</div>`;
+    };
+    await draw(html`<${List} />`);
+    let answered = 0;
+    for (let round = 0; round < 20 && answered < 20; round++) {
+      const open = ws.commands("conversationDetail").slice(answered);
+      assert.ok(open.length <= MAX_INFLIGHT, "asked " + open.length + " at once");
+      assert.ok(open.length > 0, "nothing asked while pictures are missing");
+      for (const c of open) ws.frame({ type: "conversationDetail", id: "p1", entry: c.entry, detail: { data: PNG } });
+      answered += open.length;
+      await settle();
+    }
+    assert.equal(box.findAll("img").length, 20);
+    assert.ok(!/Loading the image/.test(box.textContent));
+  }));
+
+test("a picture the store lost is asked for again, then says it is no longer available", () =>
+  page(async (box, draw) => {
+    const asked = [];
+    // A store that drops every key at once: the row never sees an answer.
+    await draw(html`<${Row} entry=${prompt([pic()])} details=${{}} onDetail=${(k) => { asked.push(k); return true; }} />`);
+    assert.equal(asked.length, 1);
+    await draw(html`<${Row} entry=${prompt([pic()])} details=${{ "e3#0": { state: "loading", n: 1 } }} onDetail=${(k) => { asked.push(k); return true; }} />`);
+    for (let i = 0; i < MAX_ASKS + 1; i++) {
+      await draw(html`<${Row} entry=${prompt([pic()])} details=${{ "e3#0": { state: "loading", n: i + 2 } }} onDetail=${(k) => { asked.push(k); return true; }} />`);
+      await draw(html`<${Row} entry=${prompt([pic()])} details=${{}} onDetail=${(k) => { asked.push(k); return true; }} />`);
+    }
+    assert.equal(asked.length, MAX_ASKS);
+    assert.match(box.find(".conv-thumb").textContent, /No longer available/);
+  }));
+
+test("pictures have a budget of their own and do not push out a tool's detail", async () => {
+  const { store } = await up();
+  store.requestDetail("t1");
+  for (let i = 0; i < MAX_PIC_DETAILS + 4; i++) store.requestDetail("e" + i + "#0");
+  const keys = Object.keys(store.getState().details);
+  assert.ok(keys.includes("t1"));
+  assert.equal(keys.filter((k) => k.includes("#")).length, MAX_PIC_DETAILS);
+  for (let i = 0; i < MAX_DETAILS + 2; i++) store.requestDetail("t" + (i + 2));
+  const after = Object.keys(store.getState().details);
+  assert.equal(after.filter((k) => k.includes("#")).length, MAX_PIC_DETAILS, "tool asks leave the pictures alone");
+});
+
+test("an answered picture goes last when the store makes room", async () => {
+  const { store, ws } = await up();
+  store.requestDetail("a#0");
+  for (let i = 1; i < MAX_PIC_DETAILS; i++) store.requestDetail("a#" + i);
+  ws.frame({ type: "conversationDetail", id: "p1", entry: "a#3", detail: { data: PNG } });
+  store.requestDetail("b#0");
+  const d = store.getState().details;
+  assert.ok(d["a#0"], "a picture still loading was dropped for one that had answered");
+  assert.equal(d["a#3"], undefined);
+});
+
+test("Escape shrinks an enlarged picture and focus stays on its button", () =>
+  page(async (box, draw) => {
+    const details = { "e3#0": { state: "ok", n: 1, detail: { data: PNG } } };
+    await draw(html`<${Row} entry=${prompt([pic()])} details=${details} onDetail=${() => true} />`);
+    const btn = box.find(".conv-image");
+    btn.click();
+    await settle();
+    assert.equal(box.find(".conv-image").getAttribute("aria-pressed"), "true");
+    assert.equal(box.ownerDocument.activeElement, box.find(".conv-image"));
+    const ev = box.find(".conv-image").keydown("Escape");
+    await settle();
+    assert.equal(box.find(".conv-image").getAttribute("aria-pressed"), "false");
+    assert.ok(ev.stopped);
+    assert.equal(box.ownerDocument.activeElement, box.find(".conv-image"));
+    // Escape on a small picture is left for whoever else wants it.
+    assert.ok(!box.find(".conv-image").keydown("Escape").stopped);
+  }));
+
+test("with an observer, a row asks only once it is near the viewport", () =>
+  page(async (box, draw) => {
+    const seen = [];
+    globalThis.IntersectionObserver = class {
+      constructor(cb) { this.cb = cb; seen.push(this); }
+      observe() {}
+      disconnect() {}
+    };
+    try {
+      const asked = [];
+      await draw(html`<${Row} entry=${prompt([pic(), pic()])} details=${{}} onDetail=${(k) => { asked.push(k); return true; }} />`);
+      assert.equal(asked.length, 0);
+      assert.equal(box.findAll(".conv-thumb").length, 2);
+      seen[0].cb([{ isIntersecting: true }]);
+      await settle();
+      assert.deepEqual(asked, ["e3#0", "e3#1"]);
+    } finally {
+      delete globalThis.IntersectionObserver;
+    }
+  }));
