@@ -210,9 +210,18 @@ a picture pasted, dropped or chosen is scaled to under 600 KiB, sent with `attac
 is written as `[image: path]`; one is in flight at a time. A window reached through the relay has none of
 this. There is no setting for the send key.
 
+The box is one bordered composer (`drawer/Composer.js`): an empty strip for pictures on top, the text, and one
+control row with Attach image (when the agent takes pictures), `@`, `/` and one button on the right. The
+button is Send; while the agent works or waits and the box is empty it is Stop, which drops the queue as before.
+With text in the box it stays Send and the text goes to the queue. `@` puts an @ at the caret, `/` starts a command
+in an empty box. "Stop, keep queue" is in the header of the queue list. Under the composer there is one status
+line, not a stack: the most urgent of the refusals and failures (the text, a `!` command, Stop, a setting, a
+picture), then a warning about a picture, then a hint (stopping, what `!` does, how to stop the turn). The order
+is in `drawer/composerNotes.js`. The mode confirmation keeps its own block above the line.
+
 Escape stops a running turn, and so does Ctrl+C when no text is selected (T227). Both send
 `structuredCancel` with `keepQueue` set when prompts are waiting, so the waiting prompts are not lost the way
-they are with the Stop button; the button still drops the queue. Escape works while the pane is working; Ctrl+C works while it is working or waiting on a permission (the request
+they are with the Stop button; the button still drops the queue, and "Stop, keep queue" in the queue header keeps it. Escape works while the pane is working; Ctrl+C works while it is working or waiting on a permission (the request
 is answered cancelled, never allowed). With a permission open Escape is left to the card, and the hint then
 says only Ctrl+C. Both work from an empty prompt box or from anywhere else in the drawer. A held key (auto-repeat)
 is ignored, and several presses before the page redraws send one Stop; it can be sent again once the turn has ended. They are left alone when a slash or file list is open (Escape closes the list), when the

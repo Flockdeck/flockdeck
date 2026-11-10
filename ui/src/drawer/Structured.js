@@ -2,7 +2,7 @@
 // latest structured push of the pane being watched (store.structured): one strip
 // (activity, the context meter, the mode and model pickers, search and a More menu
 // with Agent info), then the pane's conversation, which fills the height left, and
-// a prompt box with a Stop button.
+// the composer (Composer.js), whose one button is Send, or Stop while the agent works and the box is empty.
 //
 // - The activity is the tool still running, with an icon for its kind and
 //   the first file its summary names; with none running it is the push's own
@@ -11,7 +11,7 @@
 //   the same rows, paging, search, Copy and steps. The push carries no entries
 //   of its own. The activity line reads the tool still running from the same
 //   conversation.
-// - The prompt box sends paneSend and Stop sends structuredCancel. Both are
+// - The composer sends paneSend and Stop sends structuredCancel. Both are
 //   desk-only commands, so a window reached through the relay draws neither.
 //   The draft goes when the desk says it took the text, not when the socket
 //   did, so a text the desk refuses (the agent is gone, over 16 KiB) is said
