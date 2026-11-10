@@ -9,6 +9,7 @@
 // on screen. It is not one of the keyboard regions: it is reached with Tab like
 // any control, and takes the keyboard once when the graph first names a manager.
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "../vendor/hooks.mjs";
+import { guardFileDrops } from "./dropGuard.js";
 import { html } from "../html.js";
 import { ModalScrim } from "./inert.js";
 import { useStore } from "../lib/use-store.js";
@@ -260,6 +261,8 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
   // the desktop answers. A change it refuses (a viewer's) is answered with a
   // notice, which ends the wait and puts the window back to what is kept.
   const page = win || (typeof window !== "undefined" ? window : null);
+  // A file dropped where nothing takes it must not navigate the window to it.
+  useEffect(() => guardFileDrops(page), [page]);
   const kept_prefs = kept.current.hello.prefs;
   const lastPrefs = useRef(kept_prefs);
   useEffect(() => {

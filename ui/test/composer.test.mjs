@@ -10,7 +10,7 @@ import {
   onFirstLine, onLastLine, mentionAt, mentionText, insertMention, cleanFiles, loadComposer, saveComposer, pruneComposer, forgetComposerMemory,
 } from "../src/drawer/composerModel.js";
 import { sizeOf, tooBig, DIM_REFUSE, planImage, imageName, pickImages, prepareImage, SEND_MAX, SOURCE_MAX, ImageError } from "../src/drawer/imageAttach.js";
-import { resetPacing, MAX_IMAGES, IMAGE_TOO_MANY_WORDS, sizeWords, infoWords, blocksSend, imageRefs } from "../src/drawer/Attachments.js";
+import { resetPacing, forgetAttachments, MAX_IMAGES, IMAGE_TOO_MANY_WORDS, sizeWords, infoWords, blocksSend, imageRefs } from "../src/drawer/Attachments.js";
 import { createDom, install, settle } from "./dom.mjs";
 import { fakeStore } from "./termfakes.mjs";
 
@@ -190,7 +190,7 @@ test("pictures: the type and size decide the route, and names are cut to a file 
   assert.deepEqual(pickImages({ files: [{ type: "image/png", n: 1 }, { type: "image/png", n: 2 }] }, 1).map((f) => f.n), [1]);
   assert.deepEqual(pickImages(null), []);
   const small = { type: "image/png", size: 3, name: "s.png", arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer };
-  assert.deepEqual(await prepareImage(small, null), { name: "s.png", mediaType: "image/png", data: "AQID", bytes: 3, width: 0, height: 0 });
+  assert.deepEqual(await prepareImage(small, null), { name: "s.png", mediaType: "image/png", data: "AQID", bytes: 3, width: 0, height: 0, note: "" });
   await assert.rejects(prepareImage({ type: "image/png", size: SEND_MAX + 1, name: "big.png", arrayBuffer: async () => pngHead(4000, 3000) }, null), ImageError);
   await assert.rejects(prepareImage({ type: "application/pdf", size: 5, name: "x" }, null), ImageError);
   // A large one is scaled down by the browser's own calls; a result still too large is refused.
@@ -218,7 +218,7 @@ const push = (over = {}) => ({ type: "structured", id: "p3", kind: "structured",
 let seq = 0;
 
 async function mount(st = push(), { pane = "p3", desk = true, keep = false } = {}) {
-  if (!keep) forgetComposerMemory();
+  if (!keep) { forgetComposerMemory(); forgetAttachments(); }
   const dom = createDom();
   const restore = install(dom);
   const container = dom.document.createElement("div");
@@ -691,7 +691,7 @@ test("a picture whose header declares too many pixels is refused before anything
   await assert.rejects(prepareImage(file(30000, 30000, SEND_MAX + 1), env), /too many pixels/);
   await assert.rejects(prepareImage(file(30000, 30000, 100), env), /too many pixels/, "a small file declaring a huge picture");
   assert.equal(decoded, 0, "a picture was decoded before its size was checked");
-  await assert.rejects(prepareImage({ type: "image/png", size: SEND_MAX + 1, name: "y", arrayBuffer: async () => new Uint8Array(40).buffer }, env), /size could not be read/);
+  await assert.rejects(prepareImage({ type: "image/png", size: SEND_MAX + 1, name: "y", arrayBuffer: async () => new Uint8Array(40).buffer }, env), /could not be read/);
 });
 
 test("Enter sends while the list is open until a name is chosen with an arrow key; Tab takes the highlighted name", async () => {
