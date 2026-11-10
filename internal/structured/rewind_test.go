@@ -146,7 +146,12 @@ func TestATurnThatDidNotEndHasNoPointAfterIt(t *testing.T) {
 	if err := r.Send("slow"); err != nil {
 		t.Fatal(err)
 	}
-	until(t, r, "the slow turn", func(s Snapshot) bool { return s.Status == "working" })
+	// The agent has the prompt once it has begun to answer. "working" alone is set
+	// before the prompt is written, and a cancel that reaches the agent ahead of the
+	// prompt is dropped as one left over from an earlier turn.
+	until(t, r, "the slow turn", func(s Snapshot) bool {
+		return s.Status == "working" && strings.Contains(replies(s), "working...")
+	})
 	if err := r.Cancel(); err != nil {
 		t.Fatal(err)
 	}
