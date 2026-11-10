@@ -162,7 +162,7 @@ test("the menu has a count for screen readers, groups that are not options, and 
     assert.equal(box.getAttribute("aria-autocomplete"), "list");
     assert.equal(box.getAttribute("role"), "combobox");
     assert.equal(m.container.find(".sr-only").textContent, "2 commands");
-    assert.deepEqual(m.container.findAll("div").filter((e) => e.getAttribute("role") === "group").map((e) => e.getAttribute("aria-label")), ["From the agent"]);
+    assert.deepEqual(m.container.find(".slash-menu").findAll("div").filter((e) => e.getAttribute("role") === "group").map((e) => e.getAttribute("aria-label")), ["From the agent"]);
     assert.equal(m.container.findAll("li").length, 0);
   } finally {
     await m.done();

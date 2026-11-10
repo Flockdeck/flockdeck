@@ -84,7 +84,7 @@ async function mount(st = push(), { desk = true, selection = "" } = {}) {
   return {
     container, store, dom,
     box: () => container.find(".structured-input"),
-    facts: () => container.find(".structured-facts"),
+    facts: () => container.find(".conv-strip"),
     show: async (over) => { cur = push(over); draw(); await settle(); },
     cancels: () => store.sent.filter((c) => c.cmd === "structuredCancel"),
     done: async () => { render(null, container); await settle(); restore(); },

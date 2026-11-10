@@ -9,7 +9,7 @@ import { renderToString } from "./vendor/render-to-string.mjs";
 import { html } from "../src/html.js";
 import { groupEntries, defaultOpen, stepsWords, lastSaid } from "../src/drawer/conv/steps.js";
 import { imageSrc, decodedBytes, imageWords, sizeWords, ImageBody, MAX_IMAGE_BYTES, NOT_DRAWN_WORDS, TOO_BIG_WORDS } from "../src/drawer/conv/Image.js";
-import { Toolbar, snippetParts, NO_MATCH_WORDS, NOT_LOADED_WORDS, MORE_MATCHES_WORDS, EXPORT_UNAVAILABLE_WORDS, NOT_SENT_WORDS } from "../src/drawer/conv/Toolbar.js";
+import { Toolbar, snippetParts, NO_MATCH_WORDS, NOT_LOADED_WORDS, MORE_MATCHES_WORDS, NOT_SENT_WORDS } from "../src/drawer/conv/Toolbar.js";
 import { entryText, conversationText } from "../src/drawer/conv/text.js";
 import { Log } from "../src/drawer/conv/Log.js";
 import { Conversation } from "../src/drawer/Conversation.js";
@@ -275,6 +275,8 @@ test("the search form sends the query when submitted, lists matches, takes a loa
   const base = { entries, onSearch: (q) => (sent.push(q), true), onClear() {}, onJump: (id) => jumps.push(id) };
   const m = await mountToolbar({ ...base, search: null });
   try {
+    m.container.find(".conv-search-toggle").click();
+    await settle();
     m.container.find(".conv-search-input").enter("needle");
     await settle();
     m.container.find(".conv-search").dispatch("submit");
@@ -314,6 +316,8 @@ test("a search the store did not send says so, an empty one clears, and Clear dr
   const cleared = [];
   const m = await mountToolbar({ entries: [], search: null, onSearch: () => false, onClear: () => cleared.push(1), onJump() {} });
   try {
+    m.container.find(".conv-search-toggle").click();
+    await settle();
     m.container.find(".conv-search-input").enter("abc");
     await settle();
     m.container.find(".conv-search").dispatch("submit");
@@ -331,25 +335,38 @@ test("a search the store did not send says so, an empty one clears, and Clear dr
   }
 });
 
-test("Copy puts the loaded entries on the clipboard and says how many; Export is a button only for a pane that has an exporter", async () => {
+test("Copy puts the loaded entries on the clipboard and says how many; Export is a menu item only for a pane that has an exporter", async () => {
   const copied = [];
   const exported = [];
   const entries = [say("a", "prompt"), say("b")];
   const m = await mountToolbar({ entries, onSearch() { return true; }, onClear() {}, onJump() {}, copy: async (t) => (copied.push(t), true) });
   try {
+    m.container.find(".conv-more-btn").click();
+    await settle();
     m.container.find(".conv-copy").click();
     await settle();
     assert.deepEqual(copied, ["You: words a\n\nAgent: words b"]);
     assert.equal(m.container.find(".conv-copied").textContent, "Copied 2 entries that are loaded.");
-    assert.equal(m.container.find(".conv-export"), null);
-    assert.equal(m.container.find(".conv-export-note").textContent, EXPORT_UNAVAILABLE_WORDS);
+    m.container.find(".conv-more-btn").click();
+    await settle();
+    assert.equal(m.container.find(".conv-export"), null, "no Export item without an exporter");
+    assert.equal(m.container.find(".conv-export-note"), null, "and no sentence about it");
+    m.container.find(".conv-more-btn").click();
+    await settle();
     await m.draw({ entries, onSearch() { return true; }, onClear() {}, onJump() {}, canExport: true, onExport: () => exported.push(1), copy: async () => false });
+    m.container.find(".conv-more-btn").click();
+    await settle();
     m.container.find(".conv-export").click();
     assert.equal(exported.length, 1);
+    await settle();
+    m.container.find(".conv-more-btn").click();
+    await settle();
     m.container.find(".conv-copy").click();
     await settle();
     assert.equal(m.container.find(".conv-copied").textContent, "Couldn't copy.");
     await m.draw({ entries: [], onSearch() { return true; }, onClear() {}, onJump() {} });
+    m.container.find(".conv-more-btn").click();
+    await settle();
     assert.ok(m.container.find(".conv-copy").disabled === true || m.container.find(".conv-copy").getAttribute("disabled") !== null, "Copy on nothing");
   } finally {
     m.done();

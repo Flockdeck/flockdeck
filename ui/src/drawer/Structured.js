@@ -1,9 +1,10 @@
 // The drawer's view of a structured pane, which has no terminal. It draws the
-// latest structured push of the pane being watched (store.structured): the
-// activity line, the context used of its size and the cost when the agent
-// reported one, then the pane's conversation, and a prompt box with a Stop button.
+// latest structured push of the pane being watched (store.structured): one strip
+// (activity, the context meter, the mode and model pickers, search and a More menu
+// with Agent info), then the pane's conversation, which fills the height left, and
+// a prompt box with a Stop button.
 //
-// - The activity line is the tool still running, with an icon for its kind and
+// - The activity is the tool still running, with an icon for its kind and
 //   the first file its summary names; with none running it is the push's own
 //   activity text, and with that empty it says the agent is idle.
 // - The conversation is the one a terminal agent's drawer has (Conversation.js):
@@ -24,7 +25,7 @@
 //   belong to an input method's composition are left alone.
 //
 // - The mode, the model and the other settings the agent offers (the push's modes,
-//   models and configOptions) are a row of selectors above the conversation
+//   models and configOptions) are small selectors in the strip above the conversation
 //   (settingsModel.js). Choosing a value sends structuredSet; the selector shows
 //   the value the agent reports, so a change the agent refused puts the old one
 //   back and the desk's refusal is said under the box. /mode and /model are
@@ -107,22 +108,7 @@ export const SET_NOT_SENT_WORDS = "Not connected to Flockdeck, so the change was
 
 export const IDLE_WORDS = "Idle";
 
-const finite = (n) => typeof n === "number" && Number.isFinite(n) && n > 0;
-
-/** contextText is "12,400 of 200,000 tokens used", or an empty string when the
- *  agent reported no size. */
-export function contextText(usage) {
-  if (!usage || !finite(usage.size)) return "";
-  const used = finite(usage.used) ? usage.used : 0;
-  return used.toLocaleString("en-US") + " of " + usage.size.toLocaleString("en-US") + " tokens used";
-}
-
-/** costText is the cost the agent reported, or an empty string. */
-export function costText(usage) {
-  if (!usage || !finite(usage.cost)) return "";
-  const cur = typeof usage.currency === "string" ? usage.currency.replace(/[^A-Za-z$€£¥]/g, "").slice(0, 8) : "";
-  return usage.cost.toFixed(2) + (cur ? " " + cur : "");
-}
+export { contextText, costText } from "./usageModel.js";
 
 /** fileOf is the first word of a tool summary that looks like a file: it has a
  *  path separator or a short extension. */
@@ -322,8 +308,6 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
   if (error) return html`<p class="drawer-stub conv-refused" role="status">${clip(String(error.error || ""), 300)}</p>`;
   if (!st || st.id !== pane) return html`<p class="drawer-stub">Loading the agent.</p>`;
   const act = activityOf(st, conv && conv.entries ? conv.entries : []);
-  const ctx = contextText(st.usage);
-  const cost = costText(st.usage);
   const submit = (e) => {
     if (e && e.preventDefault) e.preventDefault();
     const text = draft.trim();
@@ -543,6 +527,25 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
     if (!imageOk) setImageNote(IMAGE_UNSUPPORTED_WORDS);
     else attach(pics[0]);
   };
+  const lead = html`<span class="structured-dot" data-status=${st.status} aria-hidden="true"></span>
+    <p class="structured-activity" data-activity=${act ? "on" : "off"}>
+      ${act
+        ? html`<${Icon} kind=${act.kind} /><span class="structured-title">${clip(act.title, 160)}</span>${act.file ? html`<span class="structured-file">${clip(act.file, 160)}</span>` : null}`
+        : html`<span class="structured-title">${IDLE_WORDS}</span>`}
+    </p>
+    <${UsageMeter} usage=${st.usage} />
+    ${controls.length
+      ? html`<div class="structured-settings" ref=${settingsEl} role="group" aria-label="Agent settings">
+          ${controls.map((c) => html`<label class="structured-setting"><span class="structured-setting-name">${c.label}</span>
+            <select class="structured-select" data-setting=${c.key} title=${c.label} value=${c.current} onChange=${(e) => change(c, e.target.value)}>
+              ${c.choices.some((o) => o.value === c.current) ? null : html`<option value="" disabled>Not set</option>`}
+              ${c.choices.map((o) => html`<option value=${o.value} title=${o.description || undefined}>${(o.group ? o.group + ": " : "") + o.label}</option>`)}
+            </select></label>`)}
+        </div>`
+      : null}`;
+  const stripItems = desk
+    ? [{ label: "Agent info", className: "structured-info-btn", expanded: infoFor === pane || needsSignIn(st), disabled: needsSignIn(st), title: needsSignIn(st) ? "Open until the agent is signed in" : undefined, onClick: () => setInfoFor(infoFor === pane ? "" : pane) }]
+    : [];
   const optId = (i) => "slash-" + pane + "-" + i;
   const row = (it, i) => html`<div id=${optId(i)} role="option" class=${"slash-item" + (i === at ? " slash-item--on" : "")} aria-selected=${i === at ? "true" : "false"} data-slash=${it.name}
     onMouseDown=${(e) => e.preventDefault()} onMouseEnter=${() => setSelKey(keyOf(it))} onClick=${() => choose(it)}>
@@ -550,32 +553,11 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
   </div>`;
   return html`
     <div class="structured" data-structured-pane=${pane} onKeyDown=${onRootKey}>
-      <div class="structured-facts">
-        <p class="structured-activity" data-activity=${act ? "on" : "off"}>
-          ${act
-            ? html`<${Icon} kind=${act.kind} /><span class="structured-title">${clip(act.title, 160)}</span>${act.file ? html`<span class="structured-file">${clip(act.file, 160)}</span>` : null}`
-            : html`<span class="structured-title">${IDLE_WORDS}</span>`}
-        </p>
-        ${ctx || cost
-          ? html`<p class="structured-usage">${ctx ? html`<span class="structured-context">${ctx}</span>` : null}${cost ? html`<span class="structured-cost">${cost}</span>` : null}</p>`
-          : null}
-        <${UsageMeter} usage=${st.usage} />
-        ${desk ? html`<button type="button" class="drawer-btn structured-info-btn" aria-expanded=${infoFor === pane || needsSignIn(st) ? "true" : "false"} disabled=${needsSignIn(st)} title=${needsSignIn(st) ? "Open until the agent is signed in" : undefined} onClick=${() => setInfoFor(infoFor === pane ? "" : pane)}>Agent info</button>` : null}
-      </div>
       <${TodoList} st=${st} pane=${pane} />
       ${desk && (infoFor === pane || needsSignIn(st)) ? html`<${InfoPanel} pane=${pane} st=${st} store=${store} result=${infoResult} signInResult=${signInResult} rulesResult=${rulesResult} onClose=${() => setInfoFor("")} />` : null}
       ${desk && rewinding === pane ? html`<${RewindPanel} pane=${pane} store=${store} st=${st} entries=${conv && conv.entries ? conv.entries : []} result=${rewindResult} onText=${(t) => { setDraft((d) => restoredDraft(d, t)); if (box.current && box.current.focus) box.current.focus(); }} onClose=${() => setRewinding("")} />` : null}
       ${desk && exporting === pane ? html`<${ExportPanel} pane=${pane} store=${store} result=${exportResult} onClose=${() => setExporting("")} />` : null}
-      ${controls.length
-        ? html`<div class="structured-settings" ref=${settingsEl} role="group" aria-label="Agent settings">
-            ${controls.map((c) => html`<label class="structured-setting"><span class="structured-setting-name">${c.label}</span>
-              <select class="structured-select" data-setting=${c.key} value=${c.current} onChange=${(e) => change(c, e.target.value)}>
-                ${c.choices.some((o) => o.value === c.current) ? null : html`<option value="" disabled>Not set</option>`}
-                ${c.choices.map((o) => html`<option value=${o.value} title=${o.description || undefined}>${(o.group ? o.group + ": " : "") + o.label}</option>`)}
-              </select></label>`)}
-          </div>`
-        : null}
-      <${Conversation} conv=${conv} onOlder=${onOlder} details=${details} onDetail=${onDetail} pending=${pending}
+      <${Conversation} lead=${lead} items=${stripItems} conv=${conv} onOlder=${onOlder} details=${details} onDetail=${onDetail} pending=${pending}
         search=${search} onSearch=${onSearch} onClearSearch=${onClearSearch} canExport=${desk} onExport=${() => setExporting(pane)} className="structured-log" />
       ${desk ? html`<${ShellList} rows=${shellOf(st)} pane=${pane} store=${store} result=${shellResult} />` : null}
       ${desk ? html`<${QueueList} rows=${queue} pane=${pane} store=${store} result=${queueResult} working=${st.status === "working"} focusBox=${() => box.current && box.current.focus && box.current.focus()} />` : null}

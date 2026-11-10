@@ -35,7 +35,8 @@ const n = (v) => v.toLocaleString("en-US");
 
 /** meterText is the short line beside the bar: the share of the window used, or
  *  "Usage details" when only a cost was reported, or "" when nothing was. The
- *  exact counts and the cost are in the line above it and in the detail. */
+ *  exact counts and the cost are not in the strip: they are in the detail, and in
+ *  the button's title (which shows only on hover). */
 export function meterText(usage) {
   const u = usageOf(usage);
   if (u.pct !== null) return u.pct + "% of context";
@@ -56,3 +57,20 @@ export function detailRows(usage) {
 
 /** NOT_REPORTED_WORDS says what this agent's usage report does not hold. */
 export const NOT_REPORTED_WORDS = "These are the figures the agent last reported. Its report has no split of tokens in and out and no breakdown of the context, so none is shown.";
+
+const finite = (n) => typeof n === "number" && Number.isFinite(n) && n > 0;
+
+/** contextText is "12,400 of 200,000 tokens used", or an empty string when the
+ *  agent reported no size. */
+export function contextText(usage) {
+  if (!usage || !finite(usage.size)) return "";
+  const used = finite(usage.used) ? usage.used : 0;
+  return used.toLocaleString("en-US") + " of " + usage.size.toLocaleString("en-US") + " tokens used";
+}
+
+/** costText is the cost the agent reported, or an empty string. */
+export function costText(usage) {
+  if (!usage || !finite(usage.cost)) return "";
+  const cur = typeof usage.currency === "string" ? usage.currency.replace(/[^A-Za-z$€£¥]/g, "").slice(0, 8) : "";
+  return usage.cost.toFixed(2) + (cur ? " " + cur : "");
+}

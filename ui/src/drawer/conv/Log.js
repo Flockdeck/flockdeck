@@ -8,7 +8,8 @@
 //   elements.
 // - Scrolling to the top asks for earlier rows too, so reading back needs no
 //   button. Rows added above what is being read do not move it.
-// - The list follows new entries only while it is at the bottom. Away from the
+// - The list follows new entries only while it is at the bottom, and stays at the bottom when its
+//   own height changes (the composer grows, a panel opens). Away from the
 //   bottom, new entries are counted on a chip, "N new below", that goes to the
 //   bottom.
 // - Runs of two or more tool rows are one "N steps" row (steps.js): closed to its
@@ -100,6 +101,18 @@ export function Log({ entries, atStart = true, older = "idle", onOlder = null, d
     }
     was.current = { height: el.scrollHeight, top: top.current, last: lastId, ids: new Set(ids) };
   });
+
+  // The list is a flex item that gives up height when the composer grows or a panel opens. A reader
+  // who is following the bottom keeps following it, so the last rows are not left under the edge.
+  useEffect(() => {
+    const el = listRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return undefined;
+    const watch = new ResizeObserver(() => {
+      if (following.current && listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
+    });
+    watch.observe(el);
+    return () => watch.disconnect();
+  }, []);
 
   const canEarlier = start > 0 || !atStart;
   const atLimit = start === 0 && shown.length >= MAX_ROWS && !atStart;

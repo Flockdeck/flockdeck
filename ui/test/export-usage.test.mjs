@@ -96,11 +96,15 @@ test("Copy last reply copies the last reply and the reply button copies its own 
     const copy = (t) => { copied.push(t); return Promise.resolve(true); };
     const bar = (entries) => html`<${Toolbar} entries=${entries} onSearch=${() => true} onClear=${() => {}} onJump=${() => {}} copy=${copy} />`;
     await m.draw(bar([{ id: "e1", kind: "reply", markdown: "first" }, { id: "e2", kind: "prompt", text: "q" }, { id: "e3", kind: "reply", markdown: "second" }]));
+    m.container.find(".conv-more-btn").click();
+    await settle();
     m.container.find(".conv-copy-last").click();
     await settle();
     assert.deepEqual(copied, ["second"]);
     assert.ok(m.container.find(".conv-copied").textContent.includes("last reply"));
     await m.draw(bar([{ id: "e2", kind: "prompt", text: "q" }]));
+    m.container.find(".conv-more-btn").click();
+    await settle();
     assert.ok(m.container.find(".conv-copy-last").disabled, "Copy last reply was on with no reply");
     await m.draw(html`<${CopyReply} text="the whole reply" copy=${copy} />`);
     m.container.find(".conv-copy-reply").click();
@@ -198,8 +202,10 @@ test("the drawer draws the meter, and Export in the conversation toolbar opens t
       await m.draw(html`<${Structured} pane="p3" snap=${store.getState()} st=${push()} store=${store} desk=${desk} conv=${{ supported: true, entries: [], atStart: true }} onSearch=${() => true} />`);
       assert.equal(m.container.find(".usage-line").textContent, "25% of context");
       assert.equal(m.container.find(".export-panel"), null);
+      m.container.find(".conv-more-btn").click();
+      await settle();
       const btn = m.container.find(".conv-export");
-      assert.equal(!!btn, desk, "the Export button is on the desk only");
+      assert.equal(!!btn, desk, "the Export item is on the desk only");
       if (btn) {
         btn.click();
         await settle();

@@ -130,8 +130,8 @@ ACP carries these as `modes` and `configOptions` in the `session/new` response, 
 
 | Action | In which TUI | Status | Provided by |
 | --- | --- | --- | --- |
-| Copy the last response (`/copy`, `/copy N`) | Claude, Gemini | present (T216): toolbar Copy for the loaded entries, Copy last reply, a Copy button on each reply, and Copy on each code block | client |
-| Export the conversation (`/export`, `/chat share`) | Claude, Gemini, opencode | present (T216): Export in the conversation bar writes a Markdown file into a folder the person names (`structuredExport`, API 1.20), redacted, with mail marked and thinking only if chosen. Desk only. No JSON form | client: serialise the bridge entries to Markdown or JSON; or ACP `session/load` replay if the agent's own history is wanted |
+| Copy the last response (`/copy`, `/copy N`) | Claude, Gemini | present (T216): Copy for the loaded entries and Copy last reply in the More menu, a Copy button on each reply, and Copy on each code block | client |
+| Export the conversation (`/export`, `/chat share`) | Claude, Gemini, opencode | present (T216): Export in the More menu of the conversation strip writes a Markdown file into a folder the person names (`structuredExport`, API 1.20), redacted, with mail marked and thinking only if chosen. Desk only. No JSON form | client: serialise the bridge entries to Markdown or JSON; or ACP `session/load` replay if the agent's own history is wanted |
 | Save and restore a named checkpoint | Gemini `/chat save` | missing | client, with session load |
 | Search the conversation | Claude (Ctrl+R is history, transcript search), others | present: `conversationSearch` | n/a |
 | Scroll back through long history | all | present: pages, Older | n/a |
