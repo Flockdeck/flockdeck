@@ -82,6 +82,14 @@ const (
 	// picture to 600 KB before it is attached; this is the backstop, and is under
 	// the 5 MB the Claude API takes.
 	MaxImageBytes = 5 << 20
+	// MaxPromptImageBytes is the most picture data one prompt carries, and
+	// MaxQueueImageBytes the most the waiting prompts hold together. The queue
+	// keeps the bytes in memory until a prompt is sent, so 16 prompts of 4 full
+	// pictures would otherwise be 320 MB. A base64 line of 8 MB is about 10.7 MB,
+	// under the 32 MiB the Codex adapter reads from the client; the Claude adapter
+	// has no cap on a line.
+	MaxPromptImageBytes = 8 << 20
+	MaxQueueImageBytes  = 16 << 20
 	// closeWait bounds how long Close waits for the loop to end.
 	closeWait = 15 * time.Second
 	// tapPoll is how often the recorder's lost lines are looked for.
@@ -98,6 +106,11 @@ var (
 	ErrNotRunning = errors.New("structured: the agent is not running")
 	// ErrQueueFull is returned by Send when too many prompts are waiting.
 	ErrQueueFull = errors.New("structured: too many prompts are waiting")
+	// ErrImagesTooLarge and ErrQueueImagesFull are returned by SendImages when the
+	// pictures of the prompt, or of the prompt and those already waiting, are over
+	// the cap. They are sentences for a window to show.
+	ErrImagesTooLarge  = errors.New("Those pictures are too large to send together. Send fewer or smaller ones")
+	ErrQueueImagesFull = errors.New("Too many pictures are waiting to be sent. Try again when the queue has gone through some")
 	// ErrStale is returned by Answer when the request is not open any more,
 	// is not the one the answer was meant for, or was never asked.
 	ErrStale = errors.New("structured: no such open permission request")
@@ -730,10 +743,15 @@ func (r *Runtime) enqueue(tag int, mail *bridge.Mail, system bool, images []Imag
 	if len(images) > MaxImages {
 		return fmt.Errorf("structured: a prompt takes at most %d images", MaxImages)
 	}
+	imageBytes := 0
 	for _, im := range images {
 		if len(im.Data) == 0 || len(im.Data) > MaxImageBytes {
 			return fmt.Errorf("structured: an image is empty or over %d bytes", MaxImageBytes)
 		}
+		imageBytes += len(im.Data)
+	}
+	if imageBytes > MaxPromptImageBytes {
+		return ErrImagesTooLarge
 	}
 	if size > maxPrompt {
 		return fmt.Errorf("structured: the prompt is %d bytes; the most is %d", size, maxPrompt)
@@ -753,6 +771,18 @@ func (r *Runtime) enqueue(tag int, mail *bridge.Mail, system bool, images []Imag
 	if len(images) > 0 && r.client != nil && !r.client.Capabilities().Prompt.Image {
 		r.mu.Unlock()
 		return acp.ErrNoImages
+	}
+	if imageBytes > 0 {
+		held := imageBytes
+		for _, q := range r.queue {
+			for _, im := range q.images {
+				held += len(im.Data)
+			}
+		}
+		if held > MaxQueueImageBytes {
+			r.mu.Unlock()
+			return ErrQueueImagesFull
+		}
 	}
 	r.queue = append(r.queue, queued{id: int(itemSeq.Add(1)), blocks: slices.Clone(blocks), images: slices.Clone(images), tag: tag, mail: mail, system: system})
 	r.mu.Unlock()

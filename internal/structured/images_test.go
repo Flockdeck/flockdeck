@@ -107,3 +107,34 @@ func TestAQueuedImagePromptShowsItsCountAndEditKeepsTheImages(t *testing.T) {
 		t.Errorf("an image prompt could not be edited to no text: %v", err)
 	}
 }
+
+func TestImageByteCapsPerPromptAndPerQueue(t *testing.T) {
+	r := begin(t, fakeOptions(t, acptest.WithConfigOptions()))
+	slowTurn(t, r)
+	// Four pictures of 3 MB are 12 MB: over the 8 MB a prompt carries, though each
+	// is under the 5 MB one may be.
+	var big []Image
+	for i := 0; i < MaxImages; i++ {
+		big = append(big, pngImage(3<<20))
+	}
+	if err := r.SendImages("big", big); !errors.Is(err, ErrImagesTooLarge) {
+		t.Fatalf("err = %v, want ErrImagesTooLarge", err)
+	}
+	// Two prompts of 2 x 3 MB hold 12 MB of the 16 MB the queue takes, so a 5 MB one is refused
+	// and the text-only ones are not.
+	four := []Image{pngImage(3 << 20), pngImage(3 << 20)}
+	for i := 0; i < 2; i++ {
+		if err := r.SendImages("fits", four); err != nil {
+			t.Fatalf("prompt %d: %v", i+1, err)
+		}
+	}
+	if err := r.SendImages("one more", []Image{pngImage(MaxImageBytes - 100)}); !errors.Is(err, ErrQueueImagesFull) {
+		t.Fatalf("err = %v, want ErrQueueImagesFull", err)
+	}
+	if err := r.Send("words"); err != nil {
+		t.Errorf("a text prompt was refused by the picture cap: %v", err)
+	}
+	if n := r.Snapshot().Queued; n != 3 {
+		t.Errorf("queued = %d, want 3", n)
+	}
+}
