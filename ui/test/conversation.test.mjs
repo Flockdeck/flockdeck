@@ -346,7 +346,7 @@ test("a device that may only view sees the refusal on the tab, once", () =>
     m.tabs()[1].click();
     await settle();
     const said = m.container.find(".conv-refused");
-    assert.ok(said && said.textContent.startsWith(VIEWER_REFUSED_PHRASE));
+    assert.ok(said && said.find("span").textContent.startsWith(VIEWER_REFUSED_PHRASE));
     assert.equal(m.ws.commands("conversationOpen").length, 1);
   }));
 
@@ -383,6 +383,29 @@ test("a refusal after the conversation was shown does not replace it", async () 
   assert.equal(c.supported, true);
   assert.equal(c.refused, "");
   assert.deepEqual(ids(c), ["e1", "e2", "e3"]);
+});
+
+test("retryConversation asks again after a refusal and clears it; with nothing watched it asks nothing", async () => {
+  const { store, ws } = await up();
+  assert.equal(store.retryConversation(), false);
+  store.watchConversation("p1");
+  ws.frame({ type: "notice", text: "The desk could not read it", error: true });
+  assert.equal(ws.commands("conversationOpen").length, 1);
+  assert.equal(store.retryConversation(), true);
+  assert.equal(ws.commands("conversationOpen").length, 2);
+  const c = store.getState().conversation;
+  assert.equal(c.refused, "");
+  assert.equal(c.supported, null);
+});
+
+test("retryStructured asks for the structured watch again and clears its error", async () => {
+  const { store, ws } = await up();
+  assert.equal(store.retryStructured(), false);
+  store.watchStructured("p1");
+  assert.equal(ws.commands("structuredWatch").length, 1);
+  assert.equal(store.retryStructured(), true);
+  assert.equal(ws.commands("structuredWatch").length, 2);
+  assert.equal(store.getState().structuredError, null);
 });
 
 test("long reply text is cut, from the markdown field and from the text field", () => {

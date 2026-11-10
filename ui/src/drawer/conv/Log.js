@@ -33,13 +33,13 @@ function rowsOf(el) {
   return el && el.querySelectorAll ? Array.from(el.querySelectorAll("[data-entry]")) : [];
 }
 
-/** Log draws entries. details is the store's answers for opened rows and
+/** Log draws entries. onRetry, when given, puts Retry on the newest prompt and is called with its text. details is the store's answers for opened rows and
  *  onDetail asks for one (by entry id). pending is { node, card }: a card drawn
  *  after the running tool it was asked for (pendingAfter), or at the end, such as
  *  a permission waiting where it was asked. atStart says there is nothing before the first one;
  *  older is "loading" while the page before is asked for; onOlder asks for it.
  *  A log with atStart set has no Older button once all it holds is drawn. */
-export function Log({ entries, atStart = true, older = "idle", onOlder = null, details = null, onDetail = null, pending = null, jump = null, label = "Conversation", className = "", children = null }) {
+export function Log({ entries, atStart = true, older = "idle", onOlder = null, details = null, onDetail = null, pending = null, jump = null, label = "Conversation", className = "", onRetry = null, children = null }) {
   const listRef = useRef(null);
   const following = useRef(true);
   const top = useRef("");
@@ -180,7 +180,10 @@ export function Log({ entries, atStart = true, older = "idle", onOlder = null, d
   };
 
   const pendingLi = (key) => html`<li key=${key} class="conv-row conv-pending" data-pending="">${pending.node}</li>`;
-  const rowOf = (e) => html`<${Row} key=${e.id} entry=${e} open=${!!opened[e.id]} onToggle=${toggle} detail=${details ? details[e.id] : null} />`;
+  // Retry is on the newest prompt only.
+  let lastPrompt = "";
+  if (onRetry) for (let i = entries.length - 1; i >= 0; i--) if (entries[i] && entries[i].kind === "prompt") { lastPrompt = entries[i].id; break; }
+  const rowOf = (e) => html`<${Row} key=${e.id} entry=${e} open=${!!opened[e.id]} onToggle=${toggle} detail=${details ? details[e.id] : null} onRetry=${e.id === lastPrompt ? onRetry : null} />`;
   const items = [];
   for (const it of groupEntries(shown)) {
     if (!it.steps) {

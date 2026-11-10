@@ -193,10 +193,13 @@
 .drawer-panel[hidden] { display: none; }
 
 /* The conversation tab. Everything on a row is drawn as text. */
-.conv { flex: 1 1 auto; min-height: 0; overflow: auto; padding: 8px 12px; outline: none; }
+/* One spacing scale for the rows: 4, 8 and 12 px. */
+.conv { --sp-1: 4px; --sp-2: 8px; --sp-3: 12px; flex: 1 1 auto; min-height: 0; overflow: auto; padding: var(--sp-2) var(--sp-3); outline: none; }
 .conv:focus-visible { box-shadow: inset 0 0 0 2px var(--accent); }
-.conv-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
-.conv-empty { margin: 0; color: var(--fg-dim); font-size: var(--fs-lg); }
+.conv-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--sp-2); }
+.conv-empty { margin: 0; font-size: var(--fs-lg); }
+.conv-tips { margin: var(--sp-2) 0 0; padding: 0; list-style: none; display: grid; gap: var(--sp-1); }
+.conv-tips kbd { padding: 0 var(--sp-1); border: 1px solid var(--line-strong); border-radius: var(--radius-sm); color: var(--fg); font-family: var(--mono); font-size: var(--fs-md); }
 .conv-older {
   display: block;
   margin: 0 auto 8px;
@@ -214,13 +217,29 @@
 .conv-older:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .conv-row { font-size: var(--fs-lg); overflow-wrap: anywhere; }
 .conv-who { display: block; font-size: var(--fs-sm); color: var(--fg-dim); }
-.conv-text { margin: 2px 0 0; white-space: pre-wrap; }
-/* A chat: what the person said sits to the right in a tinted bubble, what the agent said to the left in a raised one. */
-.conv-prompt, .conv-reply { padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; max-width: min(100%, 46em); }
-.conv-prompt { align-self: flex-end; background: var(--accent-subtle); border-color: var(--accent-line); }
-.conv-prompt .conv-who { text-align: right; }
-.conv-reply { align-self: flex-start; background: var(--bg-raised); }
+.conv-text { margin: var(--sp-1) 0 0; white-space: pre-wrap; }
+/* No You or Agent label: what the person said sits to the right in a tinted bubble, what the agent said
+ * runs the full width with no bubble. A screen reader gets the speaker from .conv-sr. */
+.conv-prompt, .conv-reply { position: relative; }
+.conv-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.conv-prompt { align-self: flex-end; display: flex; flex-direction: column; align-items: flex-end; max-width: min(100%, 46em); }
+.conv-bubble { padding: var(--sp-2) var(--sp-3); border: 1px solid var(--accent-line); border-radius: var(--radius-lg); background: var(--accent-subtle); }
+.conv-bubble .conv-text { margin: 0; }
+.conv-reply { padding: 0 var(--sp-1); }
+.conv-prompt .conv-cut { align-self: flex-end; }
+/* The foot of a prompt or reply: its time and its actions. Shown on hover and focus, and always on a touch
+ * screen; one with Show all or Retry on it stays shown. */
+.conv-foot { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1) var(--sp-2); min-height: 20px; margin-top: var(--sp-1); color: var(--fg-dim); font-size: var(--fs-sm); opacity: 0; }
+.conv-row:hover .conv-foot, .conv-row:focus-within .conv-foot, .conv-foot.is-kept { opacity: 1; }
+@media (hover: none) { .conv-foot { opacity: 1; } }
+.conv-prompt .conv-foot { justify-content: flex-end; }
+.conv-time { font-variant-numeric: tabular-nums; }
+.conv-showall, .conv-retry { background: none; border: 0; padding: 0 var(--sp-1); font: inherit; font-size: var(--fs-sm); color: var(--fg-dim); cursor: pointer; }
+.conv-showall:hover, .conv-retry:hover, .conv-foot .conv-copy-reply:hover { color: var(--fg); text-decoration: underline; }
+.conv-showall:focus-visible, .conv-retry:focus-visible, .conv-copy-reply:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 .conv-thought, .conv-note { color: var(--fg-dim); font-size: var(--fs-md); }
+/* A notice that reports a failure: a block with the error colour, apart from a plain note. */
+.conv-note--failure { padding: var(--sp-2) var(--sp-3); border: 1px solid var(--exited-line); border-left: 3px solid var(--exited); border-radius: var(--radius); background: var(--exited-subtle); color: var(--fg); }
 .conv-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .conv-tool { font-size: var(--fs-md); }
 .conv-tool-head {
@@ -675,7 +694,7 @@
 .export-field { display: flex; gap: 8px; align-items: center; }
 .export-dir { flex: 1; min-width: 0; }
 .export-actions { display: flex; gap: 8px; }
-.conv-copy-reply { float: right; background: none; border: 0; padding: 0 4px; font: inherit; font-size: var(--fs-sm); color: var(--fg-dim); cursor: pointer; }
+.conv-copy-reply { background: none; border: 0; padding: 0 4px; font: inherit; font-size: var(--fs-sm); color: var(--fg-dim); cursor: pointer; }
 
 .structured-shell { border: 1px solid var(--panel-line); border-radius: var(--radius); padding: 6px 8px; display: flex; flex-direction: column; gap: 4px; font-size: var(--fs-md); }
 .structured-shell-item { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
@@ -731,3 +750,14 @@
 .composer-status--warning { color: var(--waiting); }
 .composer-status--hint { color: var(--fg-dim); }
 .queue-head-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 4px 8px; }
+
+/* Loading: grey lines where the rows will be. */
+.conv-skeleton { position: relative; display: flex; flex-direction: column; gap: var(--sp-2); }
+.conv-skel { display: block; height: 14px; border-radius: var(--radius-sm); background: var(--line-subtle); animation: conv-pulse 1.4s ease-in-out infinite; }
+.conv-skel--wide { width: 90%; }
+.conv-skel--mid { width: 65%; }
+.conv-skel--end { align-self: flex-end; width: 55%; }
+.conv-skel--short { width: 30%; }
+@keyframes conv-pulse { 50% { opacity: 0.45; } }
+@media (prefers-reduced-motion: reduce) { .conv-skel { animation: none; } }
+.conv-retry-open { margin-top: var(--sp-2); }

@@ -21,6 +21,8 @@
 //   store.unwatchStructured()
 //   store.watchConversation(id)              // one pane's conversation, for the drawer's tab
 //   store.olderConversation()                // the page before the entries held
+//   store.retryConversation()               // ask again after a refused or lost open
+//   store.retryStructured()                 // ask again after a refused structured watch
 //   store.unwatchConversation()
 //
 // The snapshot:
@@ -1141,6 +1143,21 @@ export function createStore(opts) {
       set({ conversation: { id, supported: null, entries: [], atStart: false, older: "idle", refused: "" }, details: nullMap(), search: null });
       if (snap.hello) sendConversationOpen();
       return true;
+    },
+    /** retryConversation asks again for the conversation of the pane watched, after
+     *  the desktop refused it or never answered. It does nothing in a remote window
+     *  and returns whether an ask went out. */
+    retryConversation() {
+      const c = snap.conversation;
+      if (snap.remote || watchingConv === null || !c || c.id !== watchingConv) return false;
+      set({ conversation: { ...c, supported: null, refused: "", older: "idle" } });
+      return snap.hello ? sendConversationOpen() : false;
+    },
+    /** retryStructured asks again for the structured pane watched, after its watch was refused. */
+    retryStructured() {
+      if (snap.remote || watchingPane === null) return false;
+      set({ structured: null, structuredError: null });
+      return snap.hello ? sendStructuredWatch() : false;
     },
     /** olderConversation asks for the page before the entries held. It asks once
      *  at a time, and not at all at the start of the conversation. */

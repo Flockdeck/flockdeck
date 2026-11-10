@@ -260,6 +260,19 @@ cut to 200 characters on one line, control and invisible characters removed, dra
 push. The markdown plan (`planMarkdown`) is not drawn.
 
 
+**Rows and states** (`drawer/conv/rows.js`, `Conversation.js`). The person's prompt is a bubble on the
+right and the agent's reply runs the full width with no bubble; there is no "You" or "Agent" label (a
+screen reader still gets the speaker from hidden text). The entry's `ts` is shown as a clock time at the foot
+of a prompt or reply, on hover and focus, and always on a touch screen. A prompt has Copy; the newest prompt
+has Retry while no turn runs, which sends its text again through the same path as Send. A prompt over 4,000
+characters, a reply over 20,000 and tool output over 4 KiB are cut with the amount left out, and Show all
+draws more of them in pieces (about 4,000 or 20,000 characters, never one node) up to 100,000 characters for a
+prompt, 200,000 for a reply and 256 KiB for tool output; Copy gives all of the text whatever is drawn. An
+empty conversation lists `/`, `@`, `!` and, for an agent that takes pictures, paste. Loading is a skeleton. A
+refusal, or a watch the desk refused, is the Changes tab's error block with Retry (not in a window through the
+relay). A notice with `tone` `failure` is drawn as an error block. An entry of a kind the page does not know
+is still drawn as "Unknown entry".
+
 ## 6. Using a structured pane
 
 This section is for the person using one. It says what is true today and does not promise more.
