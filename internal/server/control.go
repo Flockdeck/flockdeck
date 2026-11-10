@@ -1264,7 +1264,10 @@ type controlClient struct {
 	// asking for either as fast as it can send frames.
 	startAgentLimit  rateLimiter
 	attachImageLimit rateLimiter
-	filesLimit       rateLimiter
+	// sendImagesLimit bounds paneSend calls that name pictures: each reads up to
+	// 20 MB from disk.
+	sendImagesLimit rateLimiter
+	filesLimit      rateLimiter
 
 	// gone is set once the window has disconnected and been forgotten by the
 	// conversation hub (see conversationHub.dropClient), so that a chat open
