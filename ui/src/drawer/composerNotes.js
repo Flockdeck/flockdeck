@@ -2,6 +2,9 @@
 // there; this picks the single one worth reading now. A note that needs an action outranks one that
 // asks for care, and that outranks a hint:
 //
+// A "!" command in the box puts its hint above every error and warning that is not about sending the
+// text or running the command (a failed Stop, a setting, a picture).
+//
 //   error:   the text was refused or not sent, the "!" command was refused, Stop was not sent, a
 //            setting was refused, the desk answered a Stop with an error, a picture failed
 //   warning: a picture that is not taken now (one is already attaching, the agent takes none)
@@ -42,6 +45,9 @@ export function composerNotes(f = {}) {
       if (f.refused) out.push(note("refused", level, f.refused, "alert", true));
       if (f.sendFailed) out.push(note("send-failed", level, SEND_NOT_SENT_WORDS, "alert", true));
       if (f.shellOn && f.shellNote) out.push(note("shell-note", level, f.shellNote, "alert"));
+      // With a "!" command in the box the hint of what it does outranks what is below: those are about
+      // something else and are not what the person is deciding on now.
+      if (f.shellOn) return out;
       if (f.stopFailed) out.push(note("stop-failed", level, STOP_NOT_SENT_WORDS));
       if (f.setting) out.push(note("setting", level, f.setting));
       if (f.settingError) out.push(note("setting-error", level, f.settingError));
@@ -57,6 +63,10 @@ export function composerNotes(f = {}) {
     return out;
   };
   for (const level of LEVELS) {
+    if (level === "warning" && f.shellOn) {
+      const hint = at("hint")[0];
+      if (hint) return hint;
+    }
     const found = at(level);
     if (found.length) return found[0];
   }

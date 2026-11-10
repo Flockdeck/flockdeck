@@ -12,7 +12,7 @@ test("nothing to say gives null, and so does a pane that is idle", () => {
 
 test("the levels are error, then warning, then hint", () => {
   assert.deepEqual(LEVELS, ["error", "warning", "hint"]);
-  const all = { refused: "r", image: { text: "wait", level: "warning" }, stopping: true, status: "working", shellOn: true };
+  const all = { refused: "r", image: { text: "wait", level: "warning" }, stopping: true, status: "working" };
   assert.equal(composerNotes(all).level, "error");
   assert.equal(composerNotes({ ...all, refused: "" }).level, "warning");
   assert.equal(composerNotes({ ...all, refused: "", image: null }).level, "hint");
@@ -35,6 +35,8 @@ test("inside the error level the order is the one written down", () => {
     const n = composerNotes(cur);
     seen.push(n.id);
     cur = { ...cur, [keys[i]]: clear[keys[i]] };
+    // The "!" hint outranks what is below the shell note, so the box is no longer a "!" one from here on.
+    if (keys[i] === "shellNote") cur.shellOn = false;
   }
   assert.deepEqual(seen, ids);
   assert.equal(composerNotes({ ...cur, shellOn: false }), null);
@@ -67,4 +69,17 @@ test("hints: stopping, then what a bang does, then how to stop a running turn", 
   assert.ok(w.text.startsWith(INTERRUPT_HINT) && /waits in the queue/.test(w.text));
   assert.equal(composerNotes({ status: "waiting" }).text, INTERRUPT_HINT_WAITING);
   assert.equal(composerNotes({ status: "working", stopping: true }).id, "stopping");
+});
+
+test("the shell hint outranks errors and warnings that are not about sending", () => {
+  const others = { stopFailed: true, setting: "s", settingError: "se", cancelError: "c", image: { text: "i", level: "error" } };
+  assert.equal(composerNotes({ ...others, shellOn: true }).id, "shell-hint");
+  assert.equal(composerNotes({ shellOn: true, image: { text: "wait", level: "warning" } }).id, "shell-hint");
+  assert.equal(composerNotes({ ...others, shellOn: false }).id, "stop-failed");
+});
+
+test("a send failure, a refusal and the shell command's own refusal stay above the shell hint", () => {
+  assert.equal(composerNotes({ shellOn: true, refused: "gone", stopFailed: true }).id, "refused");
+  assert.equal(composerNotes({ shellOn: true, sendFailed: true, cancelError: "c" }).id, "send-failed");
+  assert.equal(composerNotes({ shellOn: true, shellNote: "no", cancelError: "c" }).id, "shell-note");
 });

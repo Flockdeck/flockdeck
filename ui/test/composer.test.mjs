@@ -470,7 +470,13 @@ const attaches = (m) => m.store.sent.filter((c) => c.cmd === "attachImage");
 test("a picture is taken only when the agent takes pictures, and its path goes into the text", async () => {
   const no = await mount(push({ capabilities: { image: false } }));
   try {
-    assert.equal(no.container.find(".structured-attach"), null);
+    const dim = no.container.find(".structured-attach");
+    assert.equal(dim.getAttribute("aria-disabled"), "true", "Attach is not dimmed");
+    assert.equal(dim.disabled, false);
+    dim.click();
+    await no.wait(20);
+    assert.match(no.container.find(".structured-prompt").textContent, new RegExp(IMAGE_UNSUPPORTED_WORDS));
+    assert.deepEqual(attaches(no), []);
     const ev = paste(no, png());
     await no.wait(20);
     assert.equal(ev.defaultPrevented, true);

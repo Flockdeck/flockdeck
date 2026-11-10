@@ -32,13 +32,18 @@ export const IMAGE_NOT_SENT_WORDS = "Not connected to Flockdeck, so the picture 
 export const IMAGE_WAITING_WORDS = "Wait for the first picture to attach.";
 export const IMAGE_FAILED_WORDS = "That picture could not be read.";
 export const IMAGE_UNSUPPORTED_WORDS = "This agent does not take pictures.";
+export const COMMANDS_NEED_EMPTY_WORDS = "Commands start an empty box. Clear the text first.";
+/** STOP_GUARD_MS is how long after a send is accepted that Stop, which takes Send's place, ignores a press. */
+export const STOP_GUARD_MS = 500;
 
 /** Composer is the box. pane, snap, st and store are Structured's; controls are the agent's settings (for
  *  the "/" menu); applySetting(text) answers "none" when the text is not a settings request, "done" when it
  *  was made and "kept" when it was refused or waits for a yes; onOwn(id) runs Flockdeck's /info, /rewind,
  *  /fork, /mode and /model; stop(keep) sends Stop; stopping and stopFailed are Stop's state; settingText,
- *  settingError and cancelError are the words about a setting and a Stop, for the status line; shellResult is the store's answer to a "!" command; tail is the settings confirm, drawn above the status line. */
-export function Composer({ pane, snap, st, store, controls, applySetting, onOwn, stop, stopping = false, stopFailed = false, settingText = "", settingError = "", cancelError = "", tail = null, shellResult = null, live, api }) {
+ *  settingError and cancelError are the words about a setting and a Stop, for the status line, and onExpire() is
+ *  called when they are stale: the draft changed, the person sent or stopped again, or the turn ended;
+ *  shellResult is the store's answer to a "!" command; tail is the settings confirm, drawn above the status line. */
+export function Composer({ pane, snap, st, store, controls, applySetting, onOwn, stop, onExpire = null, stopping = false, stopFailed = false, settingText = "", settingError = "", cancelError = "", tail = null, shellResult = null, live, api }) {
   // The draft and the history are kept per pane (composerModel.js), so they outlive this component.
   const kept = useRef(null);
   if (kept.current === null) kept.current = loadComposer(pane);
@@ -61,6 +66,24 @@ export function Composer({ pane, snap, st, store, controls, applySetting, onOwn,
   const seenAttach = useRef(snap && snap.attached ? snap.attached.seq : 0);
   const fileInput = useRef(null);
   const [sendFailed, setSendFailed] = useState("");
+  // Words that are not about the text in the box go stale: when the draft changes, the person acts again, or the turn ends.
+  const expireRef = useRef(onExpire);
+  expireRef.current = onExpire;
+  const expire = () => {
+    if (expireRef.current) expireRef.current();
+    setImageNote((n) => (n && n.level !== "hint" ? null : n));
+  };
+  const firstDraft = useRef(true);
+  useEffect(() => {
+    if (firstDraft.current) { firstDraft.current = false; return; }
+    expire();
+  }, [draft]);
+  const wasRunning = useRef(st.status === "working" || st.status === "waiting");
+  useEffect(() => {
+    const now = st.status === "working" || st.status === "waiting";
+    if (wasRunning.current && !now) expire();
+    wasRunning.current = now;
+  }, [st.status]);
   // A "!" command in flight: its req, and what the last one was refused with. The draft stays until the desk has taken it.
   const [shellReq, setShellReq] = useState("");
   const [shellNote, setShellNote] = useState("");
@@ -91,6 +114,7 @@ export function Composer({ pane, snap, st, store, controls, applySetting, onOwn,
   // The send in flight: the mark outcomeOf follows. Set at once, so a second Send before the page has redrawn does not send again.
   const [mark, setMark] = useState(null);
   const busy = useRef(false);
+  const inFlight = useRef(false);
   const box = useRef(null);
   const sendBtn = useRef(null);
   // The menu's chosen row, and the draft whose menu was closed with Escape.
@@ -98,6 +122,7 @@ export function Composer({ pane, snap, st, store, controls, applySetting, onOwn,
   const [closedFor, setClosedFor] = useState(null);
   const outcome = mark ? outcomeOf(snap || {}, mark) : null;
   if (!outcome || outcome.kind !== "sending") busy.current = false;
+  inFlight.current = !!outcome && outcome.kind === "sending";
   const taken = !!outcome && outcome.kind === "sent";
   // The text goes once the desk has taken it; a refused one stays to be changed or sent again.
   useEffect(() => {
@@ -125,7 +150,17 @@ export function Composer({ pane, snap, st, store, controls, applySetting, onOwn,
     // A draft the person has edited after recalling a prompt is no longer that recall.
     if (recalling.current.nav.at >= 0 && draft !== recalling.current.text) recalling.current = { nav: NO_RECALL, text: null };
   }, [draft, pane, taken]);
-  useEffect(() => flushSave, []);
+  // A send still out when the box goes away (the pane's push went null, another pane was opened) cannot be
+  // followed: the draft is not kept as unsent text, which would be sent twice if the desk took it, and the text
+  // goes into the history instead, where Up brings it back if the desk refused it.
+  useEffect(() => () => {
+    if (inFlight.current && sentText.current) {
+      history.current = pushHistory(history.current, sentText.current);
+      latest.current = { ...latest.current, draft: "" };
+      unsaved.current = true;
+    }
+    flushSave();
+  }, []);
   // What is kept for a pane that is no longer open goes.
   useEffect(() => {
     const panes = snap && snap.state && snap.state.panes;
@@ -181,10 +216,19 @@ export function Composer({ pane, snap, st, store, controls, applySetting, onOwn,
     if (held && held !== doc.body && held !== sendBtn.current && !(held.contains && held.contains(el))) return;
     el.focus();
   }, [refusedNow, mark]);
+  // After a send the keyboard goes back to the box: Send is off while the answer is awaited and may turn into Stop,
+  // and Escape, the refusal's refocus and the next line all need the focus in the text.
+  const focusBox = () => { if (box.current && box.current.focus) box.current.focus(); };
+  // Stop takes Send's place in the same spot when a send is accepted; a second press of that spot is ignored for a moment.
+  const stopGuard = useRef(0);
   const submit = (e) => {
     if (e && e.preventDefault) e.preventDefault();
     const text = draft.trim();
     if (!text || busy.current) return;
+    expire();
+    try { submitText(text); } finally { focusBox(); }
+  };
+  const submitText = (text) => {
     // A "!" first runs the rest as the person's own command, never the agent's. A leading space sends it to the agent instead.
     const bang = shellText(draft);
     if (bang !== null) {
@@ -212,6 +256,7 @@ export function Composer({ pane, snap, st, store, controls, applySetting, onOwn,
     if (next) {
       sentText.current = text;
       busy.current = true;
+      stopGuard.current = Date.now() + STOP_GUARD_MS;
       setMark(next);
       setSendFailed("");
     } else {
@@ -227,7 +272,7 @@ export function Composer({ pane, snap, st, store, controls, applySetting, onOwn,
   const choose = (it) => {
     if (it.group === "own") {
       setDraft("");
-      if (it.id === "stop") stop(false);
+      if (it.id === "stop") { expire(); stop(); }
       if (it.id === "info" || it.id === "rewind" || it.id === "fork") onOwn(it.id);
       if (it.id === "mode" || it.id === "model") {
         onOwn(it.id);
@@ -361,6 +406,12 @@ export function Composer({ pane, snap, st, store, controls, applySetting, onOwn,
     <span class="slash-name">/${it.name}</span>${it.hint ? html`<span class="slash-hint">${it.hint}</span>` : null}${it.description ? html`<span class="slash-desc">${it.description}</span>` : null}
   </div>`;
   const running = st.status === "working" || st.status === "waiting";
+  const pressStop = () => {
+    if (Date.now() < stopGuard.current) { focusBox(); return; }
+    expire();
+    stop();
+    focusBox();
+  };
   // While the agent works and nothing is typed the button is Stop; with text in the box it is Send, which queues the text.
   const showStop = running && draft.trim() === "";
   // The "@" button puts an @ at the caret, after a space when the word before it is not over, which opens the file list.
@@ -379,6 +430,10 @@ export function Composer({ pane, snap, st, store, controls, applySetting, onOwn,
   // The "/" button starts a command; commands only count at the start of an empty box.
   const addSlash = () => {
     if (sending) return;
+    if (draft !== "") {
+      setImageNote({ text: COMMANDS_NEED_EMPTY_WORDS, level: "warning" });
+      return;
+    }
     putCaret.current = 1;
     setCaret(1);
     setDraft("/");
@@ -395,6 +450,7 @@ export function Composer({ pane, snap, st, store, controls, applySetting, onOwn,
     "stopping": { "data-stopping": "on" },
     "working": st.status === "working" ? { "data-interrupt-hint": "on", "data-queue-hint": "on" } : { "data-interrupt-hint": "on" },
   }[noted.id] || {};
+  const noteClass = (n) => "structured-note composer-status composer-status--" + n.level + (n.level === "error" ? " structured-note--unsent" : n.level === "hint" ? " structured-note--hint" : "") + (n.send ? " structured-note--send" : "");
   return html`<form class="structured-prompt composer" onSubmit=${submit}>
       ${menu
         ? html`<div class="slash-menu" role="listbox" aria-label="Commands" id=${"slash-" + pane}>
@@ -420,23 +476,29 @@ export function Composer({ pane, snap, st, store, controls, applySetting, onOwn,
           onPaste=${(e) => onPicture(e.clipboardData, e)} onDragOver=${(e) => { if (imageOk && e.dataTransfer && pickImages(e.dataTransfer).length) e.preventDefault(); }} onDrop=${(e) => onPicture(e.dataTransfer, e)}
           readOnly=${outcome && outcome.kind === "sending"} aria-busy=${outcome && outcome.kind === "sending" ? "true" : undefined} onInput=${(e) => { setDraft(e.target.value); setCaret(caretOf(e.target)[0]); setSendFailed(""); setShellNote(""); if (outcome && outcome.kind === "refused") setMark(null); }}></textarea>
         <div class="composer-tools">
+          <button type="button" class="composer-tool structured-attach" aria-label="Attach image" title=${imageOk ? "Attach image" : IMAGE_UNSUPPORTED_WORDS}
+            aria-disabled=${imageOk ? undefined : "true"} data-dim=${imageOk ? undefined : "on"} onClick=${() => { if (!imageOk) setImageNote({ text: IMAGE_UNSUPPORTED_WORDS, level: "warning" }); else if (fileInput.current) fileInput.current.click(); }}>
+            <svg class="composer-glyph" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M13.5 7.5 8 13a3.2 3.2 0 0 1-4.5-4.5l5.6-5.6a2.1 2.1 0 0 1 3 3L6.4 11.3a1 1 0 0 1-1.4-1.4L10.5 4.4" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" /></svg>
+          </button>
           ${imageOk
-            ? html`<button type="button" class="composer-tool structured-attach" aria-label="Attach image" title="Attach image" onClick=${() => fileInput.current && fileInput.current.click()}>+</button>
-                <input ref=${fileInput} type="file" class="sr-only" tabindex="-1" aria-hidden="true" accept=${IMAGE_TYPES.join(",")}
+            ? html`<input ref=${fileInput} type="file" class="sr-only" tabindex="-1" aria-hidden="true" accept=${IMAGE_TYPES.join(",")}
                   onChange=${(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; attach(f); }} />`
             : null}
           <button type="button" class="composer-tool composer-mention" aria-label="Mention a file" title="Mention a file" disabled=${draft.startsWith("!")} onClick=${addMention}>@</button>
-          <button type="button" class="composer-tool composer-command" aria-label="Commands" title=${draft === "" ? "Commands" : "Commands start an empty box"} disabled=${draft !== ""} onClick=${addSlash}>/</button>
+          <button type="button" class="composer-tool composer-command" aria-label="Commands" title=${draft === "" ? "Commands" : COMMANDS_NEED_EMPTY_WORDS} aria-disabled=${draft !== "" ? "true" : undefined} data-dim=${draft !== "" ? "on" : undefined} onClick=${addSlash}>/</button>
           <span class="composer-gap"></span>
           ${showStop
-            ? html`<button key="stop" type="button" class="drawer-btn composer-send composer-send--stop structured-stop" onClick=${() => stop(false)}>Stop</button>`
-            : html`<button key="send" ref=${sendBtn} type="submit" class="drawer-btn composer-send structured-send" disabled=${draft.trim() === "" || (outcome && outcome.kind === "sending")}>Send</button>`}
+            ? html`<button key="stop" type="button" class="drawer-btn composer-send composer-send--stop structured-stop" onClick=${pressStop}>Stop</button>`
+            : html`<button key="send" ref=${sendBtn} type="submit" class="drawer-btn composer-send structured-send" disabled=${draft.trim() === "" || (outcome && outcome.kind === "sending")}
+                aria-label=${running ? "Send (queues)" : undefined} title=${running ? "The agent is working, so this is queued. Stop returns when the box is empty." : undefined}>${running ? "Send (queues)" : "Send"}</button>`}
         </div>
       </div>
       ${tail}
-      ${noted
-        ? html`<p class=${"structured-note composer-status composer-status--" + noted.level + (noted.level === "error" ? " structured-note--unsent" : noted.level === "hint" ? " structured-note--hint" : "") + (noted.send ? " structured-note--send" : "")}
-            role=${noted.role} data-note=${noted.id} ...${statusAttrs}>${showControls(noted.text)}</p>`
-        : null}
+      ${noted && noted.role === "status"
+        ? html`<p class=${noteClass(noted)} role="status" data-note=${noted.id} ...${statusAttrs}>${showControls(noted.text)}</p>`
+        : html`<p class="sr-only" role="status"></p>`}
+      ${noted && noted.role === "alert"
+        ? html`<p class=${noteClass(noted)} role="alert" data-note=${noted.id} ...${statusAttrs}>${showControls(noted.text)}</p>`
+        : html`<p class="sr-only" role="alert"></p>`}
     </form>`;
 }

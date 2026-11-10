@@ -4,6 +4,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { render } from "../src/vendor/preact.mjs";
 import { html } from "../src/html.js";
+import { IMAGE_UNSUPPORTED_WORDS, COMMANDS_NEED_EMPTY_WORDS, STOP_GUARD_MS } from "../src/drawer/Composer.js";
 import { Structured } from "../src/drawer/Structured.js";
 import { forgetComposerMemory } from "../src/drawer/composerModel.js";
 import { createDom, install, settle } from "./dom.mjs";
@@ -44,11 +45,19 @@ test("the composer is the images slot, the text, one control row and one status 
   }
 });
 
-test("the attach button is only there when the agent takes images", async () => {
+test("the attach button is dimmed, not disabled, when the agent takes no images, and says why when pressed", async () => {
   const m = await mount(push());
   try {
-    assert.equal(m.container.find(".structured-attach"), null);
-    assert.deepEqual(m.container.find(".composer-tools").findAll("button").map((b) => b.textContent), ["@", "/", "Send"]);
+    const a = m.container.find(".structured-attach");
+    assert.equal(a.getAttribute("aria-disabled"), "true");
+    assert.equal(a.disabled, false);
+    assert.equal(a.getAttribute("aria-label"), "Attach image");
+    assert.ok(a.find("svg"), "no icon");
+    assert.equal(m.container.find(".structured-attach input"), null);
+    assert.equal(m.container.find('input[type="file"]'), null, "a file input for an agent without pictures");
+    a.click();
+    await settle();
+    assert.equal(m.container.find(".composer-status").textContent, IMAGE_UNSUPPORTED_WORDS);
   } finally {
     await m.done();
   }
@@ -66,7 +75,8 @@ test("Send becomes Stop while the agent works and nothing is typed, and Send aga
     m.container.find(".structured-input").enter("one more thing");
     await settle();
     const send = m.container.find(".composer-send");
-    assert.equal(send.textContent, "Send");
+    assert.equal(send.textContent, "Send (queues)", "no cue why Stop is gone");
+    assert.equal(send.getAttribute("aria-label"), "Send (queues)");
     assert.equal(send.getAttribute("type"), "submit");
     assert.equal(m.container.find(".structured-stop"), null);
     m.container.find(".structured-input").enter("");
@@ -83,13 +93,11 @@ test("Send becomes Stop while the agent works and nothing is typed, and Send aga
   }
 });
 
-test("Stop, keep queue is in the queue's header and not in the composer", async () => {
+test("Stop keeps the queue and the queue header has no Stop", async () => {
   const m = await mount(push({ status: "working", queued: 1, queue: [item(7, "a")] }));
   try {
-    assert.equal(m.container.find(".composer").find(".structured-stop-keep"), null, "still in the composer");
-    const keep = m.container.find(".queue-head").find(".structured-stop-keep");
-    assert.ok(keep, "not in the queue header");
-    keep.click();
+    assert.equal(m.container.find(".structured-stop-keep"), null, "Stop, keep queue is still there");
+    m.container.find(".composer").find(".structured-stop").click();
     await settle();
     assert.deepEqual(m.store.sent.filter((c) => c.cmd === "structuredCancel").map((c) => c.keepQueue), [true]);
   } finally {
@@ -111,7 +119,13 @@ test("the at and slash buttons put the character in the box, the at after a spac
     m.container.find(".composer-mention").click();
     await settle();
     assert.equal(val(), "look at @");
-    assert.equal(m.container.find(".composer-command").disabled, true, "slash with text in the box");
+    const cmd = m.container.find(".composer-command");
+    assert.equal(cmd.getAttribute("aria-disabled"), "true", "slash with text in the box");
+    assert.equal(cmd.disabled, false);
+    cmd.click();
+    await settle();
+    assert.equal(val(), "look at @", "a dimmed slash changed the text");
+    assert.equal(m.container.find(".composer-status").textContent, COMMANDS_NEED_EMPTY_WORDS);
     box().enter("");
     await settle();
     m.container.find(".composer-command").click();

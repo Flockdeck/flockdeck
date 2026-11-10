@@ -2,7 +2,7 @@
 // latest structured push of the pane being watched (store.structured): one strip
 // (activity, the context meter, the mode and model pickers, search and a More menu
 // with Agent info), then the pane's conversation, which fills the height left, and
-// the composer (Composer.js), whose one button is Send, or Stop while the agent works and the box is empty.
+// the composer (Composer.js), whose one button is Send, or Stop while the agent works (or waits) and the box is empty.
 //
 // - The activity is the tool still running, with an icon for its kind and
 //   the first file its summary names; with none running it is the push's own
@@ -51,7 +51,9 @@
 //   "[image: path]", for the agent to read. One picture at a time is in flight.
 //
 // - Escape stops a running turn, and so does Ctrl+C when no text is selected (interruptModel.js): both
-//   send what Stop sends, keeping the waiting prompts (the person did not ask to lose them; Stop drops them).
+//   send what the Stop button sends. All three keep the waiting prompts; Clear in the queue list drops them.
+//   Stop is shown while the status is working or waiting and the box is empty; with text, the button is
+//   "Send (queues)". With a permission request open (waiting) Stop cancels that request.
 //   Escape in the box is the box's own until it is empty, and with a permission request open Escape is the
 //   card's (only Ctrl+C stops the turn then); a held key and a second press before the redraw send once;
 //   and a menu, the settings dialogs, a select or the
@@ -143,6 +145,9 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
   const [rewinding, setRewinding] = useState("");
   // What the last change of a setting got that the desk did not say: { pane, text }.
   const [settingNote, setSettingNote] = useState(null);
+  // The store's cancelError and settingError objects the person has moved past (the draft changed, they sent or
+  // stopped again, the turn ended). A new refusal is a new object, so it shows.
+  const [gone, setGone] = useState({ cancel: null, setting: null });
   const settingsEl = useRef(null);
   // A change to a value that reads as running without asking, waiting for the person's yes: { pane, key, value, label }.
   const [confirming, setConfirming] = useState(null);
@@ -152,8 +157,14 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
   if (error) return html`<p class="drawer-stub conv-refused" role="status">${clip(String(error.error || ""), 300)}</p>`;
   if (!st || st.id !== pane) return html`<p class="drawer-stub">Loading the agent.</p>`;
   const act = activityOf(st, conv && conv.entries ? conv.entries : []);
-  const stop = (keepQueue = false) => {
-    const ok = store.send(stopMessage(pane, keepQueue === true, "c" + ++cancelSeq));
+  const expire = () => {
+    setSettingNote(null);
+    setGone({ cancel: cancelError, setting: settingError });
+  };
+  // Stop keeps the waiting prompts, as Escape and Ctrl+C do; Clear in the queue list drops them.
+  const stop = () => {
+    expire();
+    const ok = store.send(stopMessage(pane, queueOf(st).length > 0, "c" + ++cancelSeq));
     setStopFailed(ok ? "" : pane);
     // The turn ends when the agent says so, which may be a moment after the press.
     setStopping(ok && st.status === "working" ? pane : "");
@@ -163,6 +174,7 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
   const controls = desk ? controlsOf(st) : [];
   // Every route to a change (a selector, "/mode yolo") comes through here, so a confirm cannot be skipped by one of them.
   const change = (control, value, confirmed = false) => {
+    expire();
     const msg = setMessage(pane, control, value, "s" + ++settingSeq);
     if (!msg) {
       setSettingNote({ pane, text: "That is not on the agent's list any more." });
@@ -215,7 +227,7 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
     };
     if (!interruptKey(e, ctx)) return;
     e.preventDefault();
-    if (stop(queue.length > 0)) keyStop.current = pane;
+    if (stop()) keyStop.current = pane;
   };
   const lead = html`<span class="structured-dot" data-status=${st.status} aria-hidden="true"></span>
     <p class="structured-activity" data-activity=${act ? "on" : "off"}>
@@ -256,10 +268,10 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
       <${Conversation} lead=${lead} items=${stripItems} conv=${conv} onOlder=${onOlder} details=${details} onDetail=${onDetail} pending=${pending}
         search=${search} onSearch=${onSearch} onClearSearch=${onClearSearch} canExport=${desk} onExport=${() => setExporting(pane)} className="structured-log" />
       ${desk ? html`<${ShellList} rows=${shellOf(st)} pane=${pane} store=${store} result=${shellResult} />` : null}
-      ${desk ? html`<${QueueList} rows=${queue} pane=${pane} store=${store} result=${queueResult} working=${st.status === "working"} onStopKeep=${() => stop(true)} focusBox=${() => composer.current.focus()} />` : null}
+      ${desk ? html`<${QueueList} rows=${queue} pane=${pane} store=${store} result=${queueResult} working=${st.status === "working"} focusBox=${() => composer.current.focus()} />` : null}
       ${desk
-        ? html`<${Composer} pane=${pane} snap=${snap} st=${st} store=${store} controls=${controls} applySetting=${applySetting} onOwn=${onOwn} stop=${stop}
-            stopping=${stopping === pane} stopFailed=${stopFailed === pane} settingText=${settingNote && settingNote.pane === pane ? clip(settingNote.text, 300) : ""} settingError=${settingError && settingError.id === pane ? clip(String(settingError.error || ""), 300) : ""} cancelError=${cancelError && cancelError.id === pane ? clip(String(cancelError.error || ""), 300) : ""} shellResult=${shellResult} tail=${tail} live=${live} api=${composer} />`
+        ? html`<${Composer} pane=${pane} snap=${snap} st=${st} store=${store} controls=${controls} applySetting=${applySetting} onOwn=${onOwn} stop=${stop} onExpire=${expire}
+            stopping=${stopping === pane} stopFailed=${stopFailed === pane} settingText=${settingNote && settingNote.pane === pane ? clip(settingNote.text, 300) : ""} settingError=${settingError && settingError !== gone.setting && settingError.id === pane ? clip(String(settingError.error || ""), 300) : ""} cancelError=${cancelError && cancelError !== gone.cancel && cancelError.id === pane ? clip(String(cancelError.error || ""), 300) : ""} shellResult=${shellResult} tail=${tail} live=${live} api=${composer} />`
         : null}
     </div>
   `;

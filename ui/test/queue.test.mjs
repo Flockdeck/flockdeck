@@ -241,13 +241,14 @@ test("a command the socket did not send says so, and nothing is marked sent", as
 
 // ---------------------------------------------------------------- Stop and the working hint
 
-test("Stop drops the queue as before, Stop and keep queue keeps it, and the pane says it is stopping", async () => {
+test("Stop keeps the queue, like Escape and Ctrl+C, the queue header has no Stop of its own, and the pane says it is stopping", async () => {
   const m = await mount(queued(row(7, "user", "a")));
   try {
     assert.ok(m.container.find("[data-queue-hint]"), "no hint that what is typed now waits");
+    assert.equal(m.container.find(".structured-stop-keep"), null, "a second Stop in the queue header");
     m.container.find(".structured-stop").click();
     await settle();
-    assert.deepEqual(cmds(m, "structuredCancel").map((c) => c.keepQueue), [undefined]);
+    assert.deepEqual(cmds(m, "structuredCancel").map((c) => c.keepQueue), [true]);
     assert.ok(m.container.find("[data-stopping]"), "no sign that the turn is being stopped");
     assert.equal(m.container.find("[data-queue-hint]"), null);
     await m.push(push({ status: "idle" }));
@@ -255,16 +256,11 @@ test("Stop drops the queue as before, Stop and keep queue keeps it, and the pane
   } finally {
     await m.done();
   }
-  const k = await mount(queued(row(7, "user", "a")));
-  try {
-    k.container.find(".structured-stop-keep").click();
-    assert.deepEqual(cmds(k, "structuredCancel").map((c) => c.keepQueue), [true]);
-  } finally {
-    await k.done();
-  }
   const none = await mount(push({ status: "working" }));
   try {
-    assert.equal(none.container.find(".structured-stop-keep"), null, "keep-queue Stop with nothing queued");
+    none.container.find(".structured-stop").click();
+    await settle();
+    assert.deepEqual(cmds(none, "structuredCancel").map((c) => c.keepQueue), [undefined], "keep asked with nothing waiting");
   } finally {
     await none.done();
   }
