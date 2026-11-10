@@ -67,7 +67,7 @@ import { showControls } from "./diff/diffModel.js";
 import { Conversation } from "./Conversation.js";
 import { Icon, toolKind } from "./conv/rows.js";
 import { controlsOf, controlFor, setMessage, parseSetting } from "./settingsModel.js";
-import { Composer, STOP_NOT_SENT_WORDS } from "./Composer.js";
+import { Composer } from "./Composer.js";
 import { QueueList } from "./QueueList.js";
 import { UsageMeter } from "./UsageMeter.js";
 import { ExportPanel } from "./ExportPanel.js";
@@ -246,10 +246,7 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
           }}>Change it</button>
           <button type="button" class="drawer-btn structured-confirm-no" onClick=${() => setConfirming(null)}>Cancel</button>
         </div>`
-      : null}
-    ${settingNote && settingNote.pane === pane ? html`<p class="structured-note structured-note--unsent" role="status">${showControls(clip(settingNote.text, 300))}</p>` : null}
-    ${settingError && settingError.id === pane ? html`<p class="structured-note" role="status">${showControls(clip(String(settingError.error || ""), 300))}</p>` : null}
-    ${cancelError && cancelError.id === pane ? html`<p class="structured-note" role="status">${showControls(clip(String(cancelError.error || ""), 300))}</p>` : null}`;
+      : null}`;
   return html`
     <div class="structured" data-structured-pane=${pane} onKeyDown=${onRootKey}>
       <${TodoList} st=${st} pane=${pane} />
@@ -259,10 +256,10 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
       <${Conversation} lead=${lead} items=${stripItems} conv=${conv} onOlder=${onOlder} details=${details} onDetail=${onDetail} pending=${pending}
         search=${search} onSearch=${onSearch} onClearSearch=${onClearSearch} canExport=${desk} onExport=${() => setExporting(pane)} className="structured-log" />
       ${desk ? html`<${ShellList} rows=${shellOf(st)} pane=${pane} store=${store} result=${shellResult} />` : null}
-      ${desk ? html`<${QueueList} rows=${queue} pane=${pane} store=${store} result=${queueResult} working=${st.status === "working"} focusBox=${() => composer.current.focus()} />` : null}
+      ${desk ? html`<${QueueList} rows=${queue} pane=${pane} store=${store} result=${queueResult} working=${st.status === "working"} onStopKeep=${() => stop(true)} focusBox=${() => composer.current.focus()} />` : null}
       ${desk
         ? html`<${Composer} pane=${pane} snap=${snap} st=${st} store=${store} controls=${controls} applySetting=${applySetting} onOwn=${onOwn} stop=${stop}
-            stopping=${stopping === pane} stopFailed=${stopFailed === pane} queueLength=${queue.length} shellResult=${shellResult} tail=${tail} live=${live} api=${composer} />`
+            stopping=${stopping === pane} stopFailed=${stopFailed === pane} settingText=${settingNote && settingNote.pane === pane ? clip(settingNote.text, 300) : ""} settingError=${settingError && settingError.id === pane ? clip(String(settingError.error || ""), 300) : ""} cancelError=${cancelError && cancelError.id === pane ? clip(String(cancelError.error || ""), 300) : ""} shellResult=${shellResult} tail=${tail} live=${live} api=${composer} />`
         : null}
     </div>
   `;
