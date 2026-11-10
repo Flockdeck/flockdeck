@@ -189,7 +189,7 @@ test("the real drawer shows the overlay on its section when a file is dragged ov
     await settle();
     const host = container.find(".drawer-body");
     assert.ok(host, "no drawer section");
-    if (!container.find(".structured-prompt")) return; // the harness cannot draw the box here; the wiring is covered above
+    assert.ok(container.find(".structured-prompt"), "the drawer drew no prompt box");
     host.dispatch("dragenter", files());
     assert.equal(host.getAttribute("data-drop"), "on");
     host.dispatch("dragleave", files());
