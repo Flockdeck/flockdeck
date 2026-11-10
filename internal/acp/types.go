@@ -35,6 +35,9 @@ type ContentBlock struct {
 	Text     string `json:"text,omitempty"`
 	MimeType string `json:"mimeType,omitempty"`
 	URI      string `json:"uri,omitempty"`
+	// Data is an image block's bytes, base64, as the agent sent it. It is the
+	// agent's text and untrusted.
+	Data string `json:"data,omitempty"`
 
 	Raw json.RawMessage `json:"-"`
 }
