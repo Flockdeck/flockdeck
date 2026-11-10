@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	_ "image/gif"  // registers gif with image.DecodeConfig, for dimensions only
@@ -125,8 +126,19 @@ func uploadName(paneDir, path string) (string, error) {
 	if !sameUploadDir(filepath.Dir(resolved), paneDir) {
 		return "", errors.New(imageNotUploaded)
 	}
-	return filepath.Base(resolved), nil
+	name := filepath.Base(resolved)
+	if !uploadFileName.MatchString(name) {
+		return "", errors.New(imageNotUploaded)
+	}
+	return name, nil
 }
+
+// uploadFileName is the shape of a name saveAttachedImage gives a file: a
+// number, a dash, a name of letters, digits, dashes and underscores, and the
+// extension of the sniffed type. Nothing else in the folder is read. This
+// leaves out a colon (a Windows alternate data stream, "x.png:stream") and a
+// reserved device name ("CON", "NUL", "COM1"), which cannot have this shape.
+var uploadFileName = regexp.MustCompile(`^[0-9]+-[A-Za-z0-9_-]{1,60}\.(png|jpg|gif|webp)$`)
 
 // sameUploadDir says a and b name the same folder. Both are cleaned; on Windows the
 // comparison ignores case, as the file system does.
@@ -137,7 +149,23 @@ func sameUploadDir(a, b string) bool {
 
 // readUpload reads one saved picture, name in paneDir, and checks it.
 func readUpload(paneDir, name string) (structured.Image, error) {
-	f, err := os.Open(filepath.Join(paneDir, name))
+	if !uploadFileName.MatchString(name) {
+		return structured.Image{}, errors.New(imageNotUploaded)
+	}
+	full := filepath.Join(paneDir, name)
+	// Lstat before open: only a regular file is opened, so a link, a device or a
+	// folder is never opened to find out what it is.
+	li, err := os.Lstat(full)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return structured.Image{}, errors.New(imageGone)
+		}
+		return structured.Image{}, errors.New(imageUnreadable)
+	}
+	if !li.Mode().IsRegular() {
+		return structured.Image{}, errors.New(imageNotUploaded)
+	}
+	f, err := os.Open(full)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return structured.Image{}, errors.New(imageGone)
@@ -145,8 +173,10 @@ func readUpload(paneDir, name string) (structured.Image, error) {
 		return structured.Image{}, errors.New(imageUnreadable)
 	}
 	defer f.Close()
+	// The file opened is the one that was checked: a swap between the Lstat and
+	// the open is refused.
 	st, err := f.Stat()
-	if err != nil || !st.Mode().IsRegular() {
+	if err != nil || !st.Mode().IsRegular() || !os.SameFile(li, st) {
 		return structured.Image{}, errors.New(imageNotUploaded)
 	}
 	if st.Size() == 0 || st.Size() > structured.MaxImageBytes {

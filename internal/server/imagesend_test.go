@@ -6,6 +6,7 @@ import (
 	"image"
 	"image/png"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -59,23 +60,23 @@ func TestLoadPaneImagesReadsAnUploadOfThePane(t *testing.T) {
 func TestLoadPaneImagesRefusesPathsOutsideThePanesFolder(t *testing.T) {
 	root := t.TempDir()
 	data := testPNG(t, 1, 1)
-	own := writeUpload(t, root, "pane-a", "ok.png", data)
-	other := writeUpload(t, root, "pane-b", "theirs.png", data)
+	own := writeUpload(t, root, "pane-a", "1-ok.png", data)
+	other := writeUpload(t, root, "pane-b", "1-theirs.png", data)
 	outsideDir := t.TempDir()
 	outside := filepath.Join(outsideDir, "outside.png")
 	if err := os.WriteFile(outside, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	nested := writeUpload(t, filepath.Join(root, "pane-a"), "sub", "deep.png", data)
+	nested := writeUpload(t, filepath.Join(root, "pane-a"), "sub", "1-deep.png", data)
 
 	cases := map[string]string{
 		"another pane's upload":    other,
 		"a file elsewhere":         outside,
-		"traversal into a pane":    filepath.Join(root, "pane-a", "..", "pane-b", "theirs.png"),
+		"traversal into a pane":    filepath.Join(root, "pane-a", "..", "pane-b", "1-theirs.png"),
 		"traversal out of the dir": filepath.Join(root, "pane-a", "..", "..", filepath.Base(outsideDir), "outside.png"),
 		"a subfolder of the pane":  nested,
 		"the folder itself":        filepath.Join(root, "pane-a"),
-		"a relative path":          filepath.Join("pane-a", "ok.png"),
+		"a relative path":          filepath.Join("pane-a", "1-ok.png"),
 		"an empty path":            "",
 		"a nul byte":               own + "\x00.png",
 	}
@@ -106,7 +107,7 @@ func TestLoadPaneImagesRefusesPathsOutsideThePanesFolder(t *testing.T) {
 
 func TestLoadPaneImagesRefusesAPaneIdThatPicksAnotherFolder(t *testing.T) {
 	root := t.TempDir()
-	p := writeUpload(t, root, "pane-b", "theirs.png", testPNG(t, 1, 1))
+	p := writeUpload(t, root, "pane-b", "1-theirs.png", testPNG(t, 1, 1))
 	for _, id := range []string{"", ".", "..", "pane-a/../pane-b", `pane-a\..\pane-b`, "../" + filepath.Base(root) + "/pane-b"} {
 		if _, err := loadPaneImages(root, id, []imageRef{{Path: p}}); err == nil {
 			t.Errorf("pane id %q was accepted", id)
@@ -125,7 +126,7 @@ func TestLoadPaneImagesFollowsNoLinkOutOfTheFolder(t *testing.T) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	link := filepath.Join(dir, "link.png")
+	link := filepath.Join(dir, "1-link.png")
 	if err := os.Symlink(secret, link); err != nil {
 		t.Skipf("cannot make a symbolic link here: %v", err)
 	}
@@ -136,9 +137,9 @@ func TestLoadPaneImagesFollowsNoLinkOutOfTheFolder(t *testing.T) {
 
 func TestLoadPaneImagesChecksTheBytesAndTheSizeAndTheCount(t *testing.T) {
 	root := t.TempDir()
-	notImage := writeUpload(t, root, "pane-a", "notes.png", []byte("hello, not a picture"))
-	empty := writeUpload(t, root, "pane-a", "empty.png", nil)
-	big := writeUpload(t, root, "pane-a", "big.png", append(testPNG(t, 1, 1), make([]byte, structured.MaxImageBytes)...))
+	notImage := writeUpload(t, root, "pane-a", "1-notes.png", []byte("hello, not a picture"))
+	empty := writeUpload(t, root, "pane-a", "1-empty.png", nil)
+	big := writeUpload(t, root, "pane-a", "1-big.png", append(testPNG(t, 1, 1), make([]byte, structured.MaxImageBytes)...))
 	for name, p := range map[string]string{"text named .png": notImage, "an empty file": empty, "an oversize file": big} {
 		if _, err := loadPaneImages(root, "pane-a", []imageRef{{Path: p}}); err == nil {
 			t.Errorf("%s was read", name)
@@ -252,5 +253,68 @@ func TestLoadPaneImagesWithNoFolderSaysGoneOnlyForItsOwnPath(t *testing.T) {
 	theirs := filepath.Join(root, "pane-b", "1-shot.png")
 	if _, err := loadPaneImages(root, "pane-a", []imageRef{{Path: theirs}}); err == nil || !strings.Contains(err.Error(), "not attached to this pane") {
 		t.Errorf("another pane's path with no folder: %v", err)
+	}
+}
+
+func TestLoadPaneImagesRefusesNamesAFileOfTheUploaderWouldNotHave(t *testing.T) {
+	root := t.TempDir()
+	own := writeUpload(t, root, "pane-a", "1-ok.png", testPNG(t, 1, 1))
+	dir := filepath.Dir(own)
+	// A name the uploader never makes is not read, even when it is a picture.
+	odd := writeUpload(t, root, "pane-a", "plain.png", testPNG(t, 1, 1))
+	cases := map[string]string{
+		"an alternate data stream": own + ":stream",
+		"a colon in the name":      filepath.Join(dir, "1-a:b.png"),
+		"a reserved device name":   filepath.Join(dir, "CON"),
+		"a device name with ext":   filepath.Join(dir, "NUL.png"),
+		"a name with no number":    odd,
+		"a name with a space":      filepath.Join(dir, "1-a b.png"),
+	}
+	for name, p := range cases {
+		if _, err := loadPaneImages(root, "pane-a", []imageRef{{Path: p}}); err == nil {
+			t.Errorf("%s: %q was read", name, p)
+		}
+	}
+	if _, err := loadPaneImages(root, "pane-a", []imageRef{{Path: own}}); err != nil {
+		t.Errorf("the control file was refused: %v", err)
+	}
+}
+
+// A junction needs no privilege on Windows, so it stands in for the symbolic link
+// the test above skips there.
+func TestLoadPaneImagesFollowsNoJunctionOutOfTheFolder(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("junctions are Windows only")
+	}
+	root := t.TempDir()
+	elsewhere := t.TempDir()
+	if err := os.WriteFile(filepath.Join(elsewhere, "1-x.png"), testPNG(t, 1, 1), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(root, "pane-a")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("cmd", "/c", "mklink", "/J", filepath.Join(dir, "sub"), elsewhere).CombinedOutput(); err != nil {
+		t.Skipf("cannot make a junction here: %v %s", err, out)
+	}
+	if _, err := loadPaneImages(root, "pane-a", []imageRef{{Path: filepath.Join(dir, "sub", "1-x.png")}}); err == nil {
+		t.Error("a file reached through a junction to outside the folder was read")
+	}
+}
+
+func TestPaneSendWithPicturesIsRateLimitedPerWindow(t *testing.T) {
+	e := newStructuredEnv(t, "plain")
+	e.waitIdle(t)
+	bad := []imageRef{{Path: filepath.Join(t.TempDir(), "1-x.png")}}
+	for i := 0; i < sendImagesRateLimit; i++ {
+		raw := structuredReply(t, e.srv, e.c, command{Cmd: "paneSend", ID: e.child, Text: "x", Images: bad, Req: "r"}, "notice")
+		if strings.Contains(string(raw), "too quickly") {
+			t.Fatalf("send %d was limited too early: %s", i+1, raw)
+		}
+	}
+	raw := structuredReply(t, e.srv, e.c, command{Cmd: "paneSend", ID: e.child, Text: "x", Images: bad, Req: "r"}, "notice")
+	if !strings.Contains(string(raw), "too quickly") {
+		t.Errorf("the send past the limit was answered %s", raw)
 	}
 }

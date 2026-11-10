@@ -545,16 +545,26 @@ Since API 1.30 (cap `structuredImages`).
 picture attached to that pane. The pictures go to the agent as ACP `image` content blocks after the text,
 when the agent said `promptCapabilities.image` at initialize. For an agent that did not, nothing is sent
 and the window gets the notice "This agent does not take images". A prompt takes at most 4 pictures of up
-to 5 MB each, and may have no text. A pane that is not a structured pane refuses pictures with the same
-notice.
+to 5 MB each, 8 MB in all, and may have no text. The waiting prompts hold at most 16 MB of pictures
+between them, since the queue keeps the bytes in memory; past that the send is refused with a plain
+sentence. A window may send at most 6 `paneSend` calls with pictures in 10 seconds, and the files are read
+on a goroutine of their own, not on the window's read loop. A pane that is not a structured pane refuses
+pictures with the same notice.
 
 The path is not trusted. The server reads a file only if it is a regular file directly inside
 `<state dir>/uploads/<that pane>` once links are resolved. A path that climbs out with `..`, goes through a
 link to somewhere else, lies in another pane's folder, is relative, or on Windows is drive-relative, rooted
-without a drive, a UNC path or a device path, is refused with "That picture was not attached to this
+without a drive, a UNC path or a device path (those Windows cases are tested on Windows only), is refused with "That picture was not attached to this
 pane, so it was not sent", which names no path. A file that has been swept (uploads are kept 7 days) is
-refused with "That picture is no longer available". The bytes are sniffed again, and only png, jpeg, gif and
-webp are sent.
+refused with "That picture is no longer available". Only a file named the way the upload names it (a
+number, a dash, letters, digits, dashes and underscores, and the extension of its type) is read, which
+leaves out a colon (an alternate data stream) and reserved device names such as `CON`. The file is checked
+with `Lstat` before it is opened and must be the same file after the open. The bytes are sniffed again, and
+only png, jpeg, gif and webp are sent.
+
+A prompt that fails after it was sent, or that meets an agent that does not take images only once the agent
+has started, is not kept for a retry: its text stays in the conversation as the prompt entry and the turn
+ends with a notice, but the pictures are dropped with it, so the person attaches them again.
 
 The prompt entry carries `images`: for each picture its `mediaType`, `bytes`, `width` and `height` (when
 the image header could be read) and `upload`, the file's name in the pane's uploads folder (not a path). The
