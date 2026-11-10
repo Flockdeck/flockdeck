@@ -17,8 +17,9 @@ import (
 // of these is a bound, and a refused picture is dropped with no entry and no
 // error.
 const (
-	// maxImageBytes is the most a picture is, decoded. Its base64 then fits in
-	// one message of the control socket (1 MiB) with room for the envelope.
+	// maxImageBytes is the most a picture is, decoded: about 930 KB of base64
+	// in one conversationDetail. (The control socket's 1 MiB is the most the
+	// server reads from a window; the reply path has no such limit.)
 	maxImageBytes = 700 << 10
 	// maxImagesPerTool is how many pictures one tool entry makes entries for.
 	maxImagesPerTool = 4

@@ -72,3 +72,22 @@ func TestPromptPictureDetailServesTheUploadOrSaysGone(t *testing.T) {
 		t.Error("a removed file was served")
 	}
 }
+
+func TestPromptPictureDetailIsCappedAndAnswersGoneBeyondIt(t *testing.T) {
+	root := t.TempDir()
+	ok := make([]byte, maxPromptPictureDetail)
+	copy(ok, testPNG(t, 2, 2))
+	over := make([]byte, maxPromptPictureDetail+1)
+	copy(over, testPNG(t, 2, 2))
+	writeUpload(t, root, "pane-a", "1-ok.png", ok)
+	writeUpload(t, root, "pane-a", "2-over.png", over)
+	entries := []transcript.Entry{{ID: "e1", Kind: transcript.KindPrompt, Images: []transcript.PromptImage{
+		{MediaType: "image/png", Upload: "1-ok.png"}, {MediaType: "image/png", Upload: "2-over.png"},
+	}}}
+	if _, got := promptPictureDetail(root, "pane-a", entries, "e1", 0); !got {
+		t.Error("a picture at the cap was refused")
+	}
+	if _, got := promptPictureDetail(root, "pane-a", entries, "e1", 1); got {
+		t.Error("a picture over the cap was served")
+	}
+}

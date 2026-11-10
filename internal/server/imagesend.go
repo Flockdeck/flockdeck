@@ -124,6 +124,12 @@ func promptPictureKey(key string) (entry string, n int, ok bool) {
 	return entry, n, true
 }
 
+// maxPromptPictureDetail is the most a picture is, decoded, to be sent back in one
+// conversationDetail (about 1.4 MB of base64). The window scales what it sends to
+// 600 KB, so this does not bite for a picture it attached; a larger one that
+// another client sent is answered as gone rather than as one big message.
+const maxPromptPictureDetail = 1 << 20
+
 // promptPictureDetail is the bytes of picture n of the prompt entry id, read
 // from the pane's uploads folder. It reports false for an entry that is not a
 // prompt, a place that holds no picture, and a file that is gone or not one
@@ -145,7 +151,7 @@ func promptPictureDetail(root, paneID string, entries []transcript.Entry, id str
 			return transcript.Detail{}, false
 		}
 		im, err := readUpload(paneDir, e.Images[n].Upload)
-		if err != nil {
+		if err != nil || len(im.Data) > maxPromptPictureDetail {
 			return transcript.Detail{}, false
 		}
 		return transcript.Detail{Data: base64.StdEncoding.EncodeToString(im.Data)}, true
