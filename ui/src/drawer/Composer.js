@@ -17,20 +17,16 @@ import { sendKey, rowsFor, pushHistory, recall, NO_RECALL, onFirstLine, onLastLi
 import { restoredDraft } from "./rewindModel.js";
 import { composerNotes, SEND_NOT_SENT_WORDS, STOP_NOT_SENT_WORDS } from "./composerNotes.js";
 import { shellText, shellRunMessage, shellWait, SHELL_EMPTY_WORDS, SHELL_ONE_LINE_WORDS, SHELL_NOT_SENT_WORDS, SHELL_NO_ANSWER_WORDS } from "./shellModel.js";
-import { prepareImage, pickImages, attachNote, ImageError, IMAGE_TYPES } from "./imageAttach.js";
+import { pickImages, otherFiles, hasText, IMAGE_TYPES } from "./imageAttach.js";
+import { useAttachments, Attachments, pruneAttachments, MAX_IMAGES, blocksSend, imageRefs, ATTACH_WAIT_MS, IMAGE_NOT_SENT_WORDS, IMAGE_WAITING_WORDS, IMAGE_FAILED_WORDS } from "./Attachments.js";
 
-export { SEND_NOT_SENT_WORDS, STOP_NOT_SENT_WORDS };
+export { SEND_NOT_SENT_WORDS, STOP_NOT_SENT_WORDS, ATTACH_WAIT_MS, IMAGE_NOT_SENT_WORDS, IMAGE_WAITING_WORDS, IMAGE_FAILED_WORDS };
 let filesSeq = 0;
 let shellRunSeq = 0;
 /** FILES_DELAY_MS is how long the box waits after the last keystroke of a mention before asking for names. */
 export const FILES_DELAY_MS = 120;
-/** ATTACH_WAIT_MS is how long a picture is waited for before the box takes another. */
-export const ATTACH_WAIT_MS = 15000;
 /** SAVE_DELAY_MS is how long the draft waits after the last change before it is written to storage. */
 export const SAVE_DELAY_MS = 300;
-export const IMAGE_NOT_SENT_WORDS = "Not connected to Flockdeck, so the picture was not sent.";
-export const IMAGE_WAITING_WORDS = "Wait for the first picture to attach.";
-export const IMAGE_FAILED_WORDS = "That picture could not be read.";
 export const IMAGE_UNSUPPORTED_WORDS = "This agent does not take pictures.";
 export const COMMANDS_NEED_EMPTY_WORDS = "Commands start an empty box. Clear the text first.";
 /** STOP_GUARD_MS is how long after a send is accepted that Stop, which takes Send's place, ignores a press. */
@@ -58,13 +54,32 @@ export function Composer({ pane, snap, st, store, controls, applySetting, onOwn,
   const [fileKey, setFileKey] = useState(null);
   const [filesClosedFor, setFilesClosedFor] = useState(null);
   const askedFiles = useRef({ req: "", q: null });
-  // Pictures: the one in flight, what the last attempt said, and the newest result already handled.
-  // imageNote is { text, level } for composerNotes, or null.
+  // Pictures are state beside the text (Attachments.js). imageNote is what the last attempt said, { text, level }
+  // for composerNotes, or null.
   const [imageNote, setImageNote] = useState(null);
-  const attaching = useRef(false);
-  const attachTimer = useRef(null);
-  const seenAttach = useRef(snap && snap.attached ? snap.attached.seq : 0);
+  // inFlight is read when the box goes away: pictures sent with a prompt still out are not kept for the pane.
+  const att = useAttachments({ pane, store, snap, onNote: setImageNote, sending: () => inFlight.current });
+  // The keys of the chips a send took, so that when the desk has taken it only those go, and a picture added
+  // while the send was out stays.
+  const sentKeys = useRef([]);
+  const removeButtons = useRef({});
+  const refocus = useRef(null);
+  // After Remove the keyboard goes to the next chip's Remove, or the one before it, or the box: not to the page.
+  const onRemove = (key) => {
+    const i = att.chips.findIndex((c) => c.key === key);
+    const other = att.chips[i + 1] || att.chips[i - 1];
+    refocus.current = other ? other.key : "box";
+    att.remove(key);
+  };
+  useEffect(() => {
+    const k = refocus.current;
+    if (k === null) return;
+    refocus.current = null;
+    const el = k === "box" ? box.current : removeButtons.current[k];
+    if (el && el.focus) el.focus();
+  }, [att.chips]);
   const fileInput = useRef(null);
+  const formRef = useRef(null);
   const [sendFailed, setSendFailed] = useState("");
   // Words that are not about the text in the box go stale: when the draft changes, the person acts again, or the turn ends.
   const expireRef = useRef(onExpire);
@@ -131,6 +146,8 @@ export function Composer({ pane, snap, st, store, controls, applySetting, onOwn,
     recalling.current = { nav: NO_RECALL, text: null };
     setDraft("");
     setMark(null);
+    att.removeMany(sentKeys.current);
+    sentKeys.current = [];
   }, [taken, mark]);
   // The draft is written 300 ms after the last change, and at once when the box goes away.
   const unsaved = useRef(false);
@@ -164,7 +181,7 @@ export function Composer({ pane, snap, st, store, controls, applySetting, onOwn,
   // What is kept for a pane that is no longer open goes.
   useEffect(() => {
     const panes = snap && snap.state && snap.state.panes;
-    if (panes && typeof panes === "object" && Object.keys(panes).length) pruneComposer(Object.keys(panes));
+    if (panes && typeof panes === "object" && Object.keys(panes).length) { pruneComposer(Object.keys(panes)); pruneAttachments(Object.keys(panes)); }
   }, []);
   const sendingNow = !!outcome && outcome.kind === "sending";
   const mention = !sendingNow && !draft.startsWith("!") ? mentionAt(draft, caret === null ? draft.length : caret) : null;
@@ -187,23 +204,6 @@ export function Composer({ pane, snap, st, store, controls, applySetting, onOwn,
     putCaret.current = null;
     if (c !== null && el && el.setSelectionRange) el.setSelectionRange(c, c);
   });
-  const attachedNow = snap ? snap.attached : null;
-  useEffect(() => {
-    const a = attachedNow;
-    if (!a || !(a.seq > seenAttach.current)) return;
-    seenAttach.current = a.seq;
-    if (a.id !== pane || !attaching.current) return;
-    attaching.current = false;
-    clearTimeout(attachTimer.current);
-    if (a.error) {
-      setImageNote({ text: clip(String(a.error), 200), level: "error" });
-      return;
-    }
-    setImageNote(null);
-    setDraft((d) => d + (d === "" || /\s$/.test(d) ? "" : "\n") + attachNote(a.path) + " ");
-    setCaret(null);
-  }, [attachedNow, pane]);
-  useEffect(() => () => clearTimeout(attachTimer.current), []);
   // Send is off while the answer is awaited, which takes the keyboard from it; a refusal gives it back to the text,
   // unless the person has moved on to something else in the meantime.
   const refusedNow = !!outcome && outcome.kind === "refused";
@@ -224,7 +224,7 @@ export function Composer({ pane, snap, st, store, controls, applySetting, onOwn,
   const submit = (e) => {
     if (e && e.preventDefault) e.preventDefault();
     const text = draft.trim();
-    if (!text || busy.current) return;
+    if ((!text && !att.chips.length) || busy.current) return;
     expire();
     try { submitText(text); } finally { focusBox(); }
   };
@@ -252,13 +252,22 @@ export function Composer({ pane, snap, st, store, controls, applySetting, onOwn,
         return;
       }
     }
-    dispatch(text);
+    // Pictures go as paneSend's images, not as text. A box that cannot send them, or whose pictures are not all
+    // attached, says so and keeps both the text and the pictures.
+    const held = att.chips.length ? (!imageOk ? IMAGE_UNSUPPORTED_WORDS : blocksSend(att.chips)) : "";
+    if (held) {
+      setImageNote({ text: held, level: "warning" });
+      return;
+    }
+    dispatch(text, att.chips);
   };
-  // The send itself, for the box and for a prompt sent again from the conversation (api.send).
-  const dispatch = (text) => {
-    const next = sendTo((m) => store.send(m), snap, pane, text);
+  // The send itself, for the box and for a prompt sent again from the conversation (api.send). The pictures
+  // are the box's chips for the first and none for the second: only a prompt without pictures can be sent again.
+  const dispatch = (text, chips) => {
+    const next = sendTo((m) => store.send(m), snap, pane, text, imageRefs(chips));
     if (next) {
       sentText.current = text;
+      sentKeys.current = chips.map((c) => c.key);
       busy.current = true;
       stopGuard.current = Date.now() + STOP_GUARD_MS;
       setMark(next);
@@ -370,34 +379,65 @@ export function Composer({ pane, snap, st, store, controls, applySetting, onOwn,
       submit();
     }
   };
-  const attach = async (file) => {
-    if (!file) return;
-    if (attaching.current) {
-      setImageNote({ text: IMAGE_WAITING_WORDS, level: "warning" });
-      return;
-    }
-    attaching.current = true;
-    setImageNote({ text: "Attaching the picture.", level: "hint" });
-    clearTimeout(attachTimer.current);
-    attachTimer.current = setTimeout(() => { attaching.current = false; setImageNote({ text: IMAGE_FAILED_WORDS, level: "error" }); }, ATTACH_WAIT_MS);
-    try {
-      const img = await prepareImage(file);
-      if (!store.send({ cmd: "attachImage", id: pane, name: img.name, mediaType: img.mediaType, data: img.data })) throw new ImageError(IMAGE_NOT_SENT_WORDS);
-    } catch (err) {
-      attaching.current = false;
-      clearTimeout(attachTimer.current);
-      setImageNote({ text: err instanceof ImageError ? err.message : IMAGE_FAILED_WORDS, level: "error" });
-    }
-  };
   const imageOk = !!st.capabilities && st.capabilities.image === true;
   // A picture dropped or pasted: taken when the agent takes pictures, said no to otherwise. Text is left to the box.
   const onPicture = (data, e) => {
-    const pics = pickImages(data);
+    const pics = pickImages(data, MAX_IMAGES * 4);
     if (!pics.length) return;
+    // A paste that carries text as well (cells from Excel, a page from Word come with a picture of themselves)
+    // is the text's: the box pastes it and takes no picture.
+    if (hasText(data)) return;
     e.preventDefault();
     if (!imageOk) setImageNote({ text: IMAGE_UNSUPPORTED_WORDS, level: "warning" });
-    else attach(pics[0]);
+    else att.add(pics, { left: otherFiles(data) });
   };
+  // A file dropped anywhere on the drawer is taken, with an overlay while one is over it. The drawer's own
+  // element holds the listeners (the box alone would be a small target); a file that is not a picture is
+  // refused in words. A drop that lands outside the drawer is cancelled for the whole page (shell/dropGuard.js).
+  // The overlay follows a count of what the drag has entered and left, which a removed element or a drag that
+  // ends elsewhere leaves wrong; so the count is also reset when the drag ends, a drop lands anywhere, the window
+  // loses focus or Escape is pressed, and every dragover over the drawer sets the overlay again.
+  const dropRef = useRef(null);
+  dropRef.current = { imageOk, add: att.add, note: setImageNote };
+  useEffect(() => {
+    let host = formRef.current;
+    for (let n = host; n; n = n.parentNode) if (n.getAttribute && n.getAttribute("data-drawer-pane") !== null) { host = n; break; }
+    if (!host || !host.addEventListener) return;
+    const win = (host.ownerDocument && host.ownerDocument.defaultView) || (typeof window !== "undefined" ? window : null);
+    let depth = 0;
+    const hasFiles = (e) => !!e.dataTransfer && Array.from(e.dataTransfer.types || []).includes("Files");
+    const show = (on) => {
+      if (on) {
+        const v = dropRef.current.imageOk ? "on" : "no";
+        if (host.getAttribute("data-drop") === v) return;
+        host.setAttribute("data-drop", v);
+        host.setAttribute("data-drop-words", dropRef.current.imageOk ? "Drop pictures to attach them" : IMAGE_UNSUPPORTED_WORDS);
+      } else if (host.getAttribute("data-drop") !== null) {
+        host.removeAttribute("data-drop");
+        host.removeAttribute("data-drop-words");
+      }
+    };
+    const reset = () => { depth = 0; show(false); };
+    const enter = (e) => { if (!hasFiles(e)) return; e.preventDefault(); depth++; show(true); };
+    const over = (e) => { if (!hasFiles(e)) return; e.preventDefault(); if (depth < 1) depth = 1; show(true); };
+    const leave = (e) => { if (!hasFiles(e)) return; depth = Math.max(0, depth - 1); if (depth === 0) show(false); };
+    const drop = (e) => {
+      if (!hasFiles(e)) return;
+      e.preventDefault();
+      reset();
+      const pics = pickImages(e.dataTransfer, MAX_IMAGES * 4);
+      const d = dropRef.current;
+      if (!pics.length) d.note({ text: "That is not a picture the agent can take.", level: "warning" });
+      else if (!d.imageOk) d.note({ text: IMAGE_UNSUPPORTED_WORDS, level: "warning" });
+      else d.add(pics, { left: otherFiles(e.dataTransfer) });
+    };
+    const ons = [["dragenter", enter], ["dragover", over], ["dragleave", leave], ["drop", drop]];
+    ons.forEach(([t, f]) => host.addEventListener(t, f));
+    const escape = (e) => { if (e && e.key === "Escape") reset(); };
+    const wins = win && win.addEventListener ? [["dragend", reset], ["drop", reset], ["blur", reset], ["keydown", escape]] : [];
+    wins.forEach(([t, f]) => win.addEventListener(t, f));
+    return () => { ons.forEach(([t, f]) => host.removeEventListener(t, f)); wins.forEach(([t, f]) => win.removeEventListener(t, f)); reset(); };
+  }, []);
   // What the rest of the drawer reads and calls.
   live.current = { draft, menuOpen: !!menu || names.length > 0 };
   api.current = {
@@ -407,7 +447,7 @@ export function Composer({ pane, snap, st, store, controls, applySetting, onOwn,
       const text = String(t || "").trim();
       if (!text || busy.current) return false;
       expire();
-      dispatch(text);
+      dispatch(text, []);
       return true;
     },
     restore: (t) => { setDraft((d) => restoredDraft(d, t)); if (box.current && box.current.focus) box.current.focus(); },
@@ -425,7 +465,7 @@ export function Composer({ pane, snap, st, store, controls, applySetting, onOwn,
     focusBox();
   };
   // While the agent works and nothing is typed the button is Stop; with text in the box it is Send, which queues the text.
-  const showStop = running && draft.trim() === "";
+  const showStop = running && draft.trim() === "" && !att.chips.length;
   // The "@" button puts an @ at the caret, after a space when the word before it is not over, which opens the file list.
   const addMention = () => {
     if (sending) return;
@@ -463,7 +503,7 @@ export function Composer({ pane, snap, st, store, controls, applySetting, onOwn,
     "working": st.status === "working" ? { "data-interrupt-hint": "on", "data-queue-hint": "on" } : { "data-interrupt-hint": "on" },
   }[noted.id] || {};
   const noteClass = (n) => "structured-note composer-status composer-status--" + n.level + (n.level === "error" ? " structured-note--unsent" : n.level === "hint" ? " structured-note--hint" : "") + (n.send ? " structured-note--send" : "");
-  return html`<form class="structured-prompt composer" onSubmit=${submit}>
+  return html`<form ref=${formRef} class="structured-prompt composer" onSubmit=${submit}>
       ${menu
         ? html`<div class="slash-menu" role="listbox" aria-label="Commands" id=${"slash-" + pane}>
             ${menu.own.length ? html`<div role="group" aria-label="Flockdeck"><p class="slash-group" aria-hidden="true">Flockdeck</p>${menu.own.map((c, i) => row({ ...c, group: "own" }, i))}</div>` : null}
@@ -481,11 +521,11 @@ export function Composer({ pane, snap, st, store, controls, applySetting, onOwn,
       ${filesOpen && fresh && reply.more ? html`<p class="slash-group mention-note">More files match. Type more of the name.</p>` : null}
       ${filesOpen && fresh && reply.error ? html`<p class="slash-group mention-note" role="status">${showControls(clip(String(reply.error), 200))}</p>` : null}
       <div class="composer-box">
-        <div class="composer-images" data-composer-slot="images"></div>
+        <div class="composer-images" data-composer-slot="images"><${Attachments} chips=${att.chips} remove=${onRemove} buttons=${removeButtons} /></div>
         <textarea ref=${box} class="structured-input" aria-label="Message to the agent" placeholder="Enter sends, Shift+Enter adds a line" rows=${rowsFor(draft)} value=${draft}
           role=${menu || names.length ? "combobox" : undefined} aria-expanded=${menu || names.length ? "true" : undefined} aria-autocomplete=${menu || names.length ? "list" : undefined} aria-controls=${menu ? "slash-" + pane : names.length ? "mention-" + pane : undefined} aria-activedescendant=${menu && at >= 0 ? optId(at) : names.length ? "mention-" + pane + "-" + nameAt : undefined}
           onKeyDown=${onKey} onKeyUp=${(e) => setCaret(caretOf(e.target)[0])} onClick=${(e) => setCaret(caretOf(e.target)[0])}
-          onPaste=${(e) => onPicture(e.clipboardData, e)} onDragOver=${(e) => { if (imageOk && e.dataTransfer && pickImages(e.dataTransfer).length) e.preventDefault(); }} onDrop=${(e) => onPicture(e.dataTransfer, e)}
+          onPaste=${(e) => onPicture(e.clipboardData, e)}
           readOnly=${outcome && outcome.kind === "sending"} aria-busy=${outcome && outcome.kind === "sending" ? "true" : undefined} onInput=${(e) => { setDraft(e.target.value); setCaret(caretOf(e.target)[0]); setSendFailed(""); setShellNote(""); if (outcome && outcome.kind === "refused") setMark(null); }}></textarea>
         <div class="composer-tools">
           <button type="button" class="composer-tool structured-attach" aria-label="Attach image" title=${imageOk ? "Attach image" : IMAGE_UNSUPPORTED_WORDS}
@@ -493,18 +533,19 @@ export function Composer({ pane, snap, st, store, controls, applySetting, onOwn,
             <svg class="composer-glyph" viewBox="0 0 16 16" width="16" height="16" aria-hidden="true" focusable="false"><path d="M13.5 7.5 8 13a3.2 3.2 0 0 1-4.5-4.5l5.6-5.6a2.1 2.1 0 0 1 3 3L6.4 11.3a1 1 0 0 1-1.4-1.4L10.5 4.4" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round" /></svg>
           </button>
           ${imageOk
-            ? html`<input ref=${fileInput} type="file" class="sr-only" tabindex="-1" aria-hidden="true" accept=${IMAGE_TYPES.join(",")}
-                  onChange=${(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; attach(f); }} />`
+            ? html`<input ref=${fileInput} type="file" class="sr-only" tabindex="-1" aria-hidden="true" accept=${IMAGE_TYPES.join(",")} multiple
+                  onChange=${(e) => { const fs = Array.from(e.target.files || []); e.target.value = ""; att.add(fs); }} />`
             : null}
           <button type="button" class="composer-tool composer-mention" aria-label="Mention a file" title="Mention a file" disabled=${draft.startsWith("!")} onClick=${addMention}>@</button>
           <button type="button" class="composer-tool composer-command" aria-label="Commands" title=${draft === "" ? "Commands" : COMMANDS_NEED_EMPTY_WORDS} aria-disabled=${draft !== "" ? "true" : undefined} data-dim=${draft !== "" ? "on" : undefined} onClick=${addSlash}>/</button>
           <span class="composer-gap"></span>
           ${showStop
             ? html`<button key="stop" type="button" class="drawer-btn composer-send composer-send--stop structured-stop" onClick=${pressStop}>Stop</button>`
-            : html`<button key="send" ref=${sendBtn} type="submit" class="drawer-btn composer-send structured-send" disabled=${draft.trim() === "" || (outcome && outcome.kind === "sending")}
+            : html`<button key="send" ref=${sendBtn} type="submit" class="drawer-btn composer-send structured-send" disabled=${(draft.trim() === "" && !att.chips.length) || (outcome && outcome.kind === "sending")}
                 aria-label=${running ? "Send (queues)" : undefined} title=${running ? "The agent is working, so this is queued. Stop returns when the box is empty." : undefined}>${running ? "Send (queues)" : "Send"}</button>`}
         </div>
       </div>
+      <p class="sr-only" role="status" aria-live="polite" data-attach-live="on">${att.announce}</p>
       ${tail}
       ${noted && noted.role === "status"
         ? html`<p class=${noteClass(noted)} role="status" data-note=${noted.id} ...${statusAttrs}>${showControls(noted.text)}</p>`

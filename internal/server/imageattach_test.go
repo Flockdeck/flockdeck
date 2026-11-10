@@ -34,13 +34,16 @@ func TestAttachImageSavesUnderStoreDir(t *testing.T) {
 	paneID := addAgentPane(t, srv, ws, "claude")
 
 	c := &controlClient{out: make(chan []byte, 8)}
-	srv.attachImage(c, paneID, "IMG_0001.jpg", "image/png", tinyPNGBase64Bytes)
+	srv.attachImage(c, paneID, "r1", "IMG_0001.jpg", "image/png", tinyPNGBase64Bytes)
 	msg := decodeAttachResult(t, nextRaw(t, c))
 	if msg.Error != "" {
 		t.Fatalf("attachImage refused a valid picture: %s", msg.Error)
 	}
 	if msg.Path == "" {
 		t.Fatal("no path came back for a saved picture")
+	}
+	if msg.Req != "r1" {
+		t.Errorf("req = %q, want the request's req echoed so a chip can be matched", msg.Req)
 	}
 
 	dir, err := store.Dir()
@@ -74,7 +77,7 @@ func TestAttachImageSavesUnderStoreDir(t *testing.T) {
 func TestAttachImageRefusesAPaneItCannotSee(t *testing.T) {
 	srv, _ := newTestServer(t)
 	c := &controlClient{out: make(chan []byte, 8)}
-	srv.attachImage(c, "no-such-pane", "photo.jpg", "image/jpeg", tinyPNGBase64Bytes)
+	srv.attachImage(c, "no-such-pane", "r1", "photo.jpg", "image/jpeg", tinyPNGBase64Bytes)
 	msg := decodeAttachResult(t, nextRaw(t, c))
 	if msg.Error == "" || msg.Path != "" {
 		t.Errorf("attaching to an unknown pane should be refused, got %+v", msg)
@@ -91,7 +94,7 @@ func TestAttachImageRefusesADisguisedFile(t *testing.T) {
 
 	notAPicture := base64.StdEncoding.EncodeToString([]byte("#!/bin/sh\necho hi\n"))
 	c := &controlClient{out: make(chan []byte, 8)}
-	srv.attachImage(c, paneID, "totally-a.png", "image/png", notAPicture)
+	srv.attachImage(c, paneID, "r1", "totally-a.png", "image/png", notAPicture)
 	msg := decodeAttachResult(t, nextRaw(t, c))
 	if msg.Error == "" || msg.Path != "" {
 		t.Errorf("a file that is not really a picture should be refused, got %+v", msg)
@@ -115,7 +118,7 @@ func TestAttachImageRefusesOversizeData(t *testing.T) {
 	huge := make([]byte, maxAttachedImageBytes+1)
 	copy(huge, []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'})
 	c := &controlClient{out: make(chan []byte, 8)}
-	srv.attachImage(c, paneID, "big.png", "image/png", base64.StdEncoding.EncodeToString(huge))
+	srv.attachImage(c, paneID, "r1", "big.png", "image/png", base64.StdEncoding.EncodeToString(huge))
 	msg := decodeAttachResult(t, nextRaw(t, c))
 	if msg.Error == "" || msg.Path != "" {
 		t.Errorf("an oversized picture should be refused, got %+v", msg)
@@ -136,22 +139,25 @@ func TestAttachImageIsRateLimitedPerWindow(t *testing.T) {
 	c.attachImageLimit.now = func() time.Time { return frozen }
 
 	for i := 0; i < attachImageRateLimit; i++ {
-		srv.attachImage(c, paneID, "photo.png", "image/png", tinyPNGBase64Bytes)
+		srv.attachImage(c, paneID, "r1", "photo.png", "image/png", tinyPNGBase64Bytes)
 		msg := decodeAttachResult(t, nextRaw(t, c))
 		if msg.Error != "" {
 			t.Fatalf("call %d: attachImage said %q, want it to succeed", i, msg.Error)
 		}
 	}
 
-	srv.attachImage(c, paneID, "photo.png", "image/png", tinyPNGBase64Bytes)
+	srv.attachImage(c, paneID, "r1", "photo.png", "image/png", tinyPNGBase64Bytes)
 	msg := decodeAttachResult(t, nextRaw(t, c))
 	if msg.Error == "" || msg.Path != "" {
 		t.Fatalf("call %d: attachImage said %+v, want a rate-limit refusal", attachImageRateLimit, msg)
 	}
+	if msg.Req != "r1" {
+		t.Errorf("a rate-limit refusal has req %q, want the request's own", msg.Req)
+	}
 
 	// A second window is unaffected: the limit is per connection, not global.
 	other := &controlClient{out: make(chan []byte, 8)}
-	srv.attachImage(other, paneID, "photo.png", "image/png", tinyPNGBase64Bytes)
+	srv.attachImage(other, paneID, "r1", "photo.png", "image/png", tinyPNGBase64Bytes)
 	msg = decodeAttachResult(t, nextRaw(t, other))
 	if msg.Error != "" {
 		t.Fatalf("a fresh window was refused by another window's rate limit: %q", msg.Error)

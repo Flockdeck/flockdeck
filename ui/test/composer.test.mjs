@@ -4,12 +4,13 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { render } from "../src/vendor/preact.mjs";
 import { html } from "../src/html.js";
-import { Structured, FILES_DELAY_MS, SAVE_DELAY_MS, IMAGE_UNSUPPORTED_WORDS, IMAGE_WAITING_WORDS } from "../src/drawer/Structured.js";
+import { Structured, FILES_DELAY_MS, SAVE_DELAY_MS, IMAGE_UNSUPPORTED_WORDS } from "../src/drawer/Structured.js";
 import {
   sendKey, rowsFor, ROWS_MAX, pushHistory, HISTORY_MAX, ENTRY_MAX, DRAFT_MAX, PANES_MAX, recall, NO_RECALL,
   onFirstLine, onLastLine, mentionAt, mentionText, insertMention, cleanFiles, loadComposer, saveComposer, pruneComposer, forgetComposerMemory,
 } from "../src/drawer/composerModel.js";
-import { sizeOf, tooBig, DIM_REFUSE, planImage, imageName, attachNote, pickImages, prepareImage, SEND_MAX, SOURCE_MAX, ImageError } from "../src/drawer/imageAttach.js";
+import { sizeOf, tooBig, DIM_REFUSE, planImage, imageName, pickImages, prepareImage, SEND_MAX, SOURCE_MAX, ImageError } from "../src/drawer/imageAttach.js";
+import { resetPacing, forgetAttachments, MAX_IMAGES, IMAGE_TOO_MANY_WORDS, sizeWords, infoWords, blocksSend, imageRefs } from "../src/drawer/Attachments.js";
 import { createDom, install, settle } from "./dom.mjs";
 import { fakeStore } from "./termfakes.mjs";
 
@@ -185,12 +186,11 @@ test("pictures: the type and size decide the route, and names are cut to a file 
   assert.equal(imageName("x\u0007y.png"), "xy.png");
   assert.equal(imageName(""), "image");
   assert.ok(imageName("n".repeat(500)).length <= 80);
-  assert.equal(attachNote("C:\\s\\a.png"), "[image: C:\\s\\a.png]");
-  assert.equal(attachNote("a\nb"), "[image: ab]");
-  assert.deepEqual(pickImages({ files: [{ type: "text/plain" }, { type: "image/png", n: 1 }, { type: "image/jpeg", n: 2 }] }).map((f) => f.n), [1]);
+  assert.deepEqual(pickImages({ files: [{ type: "text/plain" }, { type: "image/png", n: 1 }, { type: "image/jpeg", n: 2 }] }).map((f) => f.n), [1, 2]);
+  assert.deepEqual(pickImages({ files: [{ type: "image/png", n: 1 }, { type: "image/png", n: 2 }] }, 1).map((f) => f.n), [1]);
   assert.deepEqual(pickImages(null), []);
   const small = { type: "image/png", size: 3, name: "s.png", arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer };
-  assert.deepEqual(await prepareImage(small, null), { name: "s.png", mediaType: "image/png", data: "AQID" });
+  assert.deepEqual(await prepareImage(small, null), { name: "s.png", mediaType: "image/png", data: "AQID", bytes: 3, width: 0, height: 0, note: "" });
   await assert.rejects(prepareImage({ type: "image/png", size: SEND_MAX + 1, name: "big.png", arrayBuffer: async () => pngHead(4000, 3000) }, null), ImageError);
   await assert.rejects(prepareImage({ type: "application/pdf", size: 5, name: "x" }, null), ImageError);
   // A large one is scaled down by the browser's own calls; a result still too large is refused.
@@ -199,7 +199,16 @@ test("pictures: the type and size decide the route, and names are cut to a file 
     makeCanvas: () => ({ draw() {}, toBlob: async () => ({ size, arrayBuffer: async () => new Uint8Array(size).buffer }) }),
   });
   const big = { type: "image/png", size: SEND_MAX + 1, name: "big.png", arrayBuffer: async () => pngHead(4000, 3000) };
-  assert.equal((await prepareImage(big, env(10))).mediaType, "image/jpeg");
+  // A PNG that fits when scaled stays a PNG.
+  assert.equal((await prepareImage(big, env(10))).mediaType, "image/png");
+  // One that fits only as a JPEG falls back to it.
+  const jpegOnly = {
+    createImageBitmap: async () => ({ width: 4000, height: 3000, close() {} }),
+    makeCanvas: () => ({ draw() {}, toBlob: async (type) => { const size = type === "image/png" ? SEND_MAX + 1 : 10; return { size, arrayBuffer: async () => new Uint8Array(size).buffer }; } }),
+  };
+  assert.equal((await prepareImage(big, jpegOnly)).mediaType, "image/jpeg");
+  // A WebP source has no PNG to keep.
+  assert.equal((await prepareImage({ ...big, type: "image/webp" }, env(10))).mediaType, "image/jpeg");
   await assert.rejects(prepareImage(big, env(SEND_MAX + 1)), ImageError);
 });
 
@@ -209,7 +218,7 @@ const push = (over = {}) => ({ type: "structured", id: "p3", kind: "structured",
 let seq = 0;
 
 async function mount(st = push(), { pane = "p3", desk = true, keep = false } = {}) {
-  if (!keep) forgetComposerMemory();
+  if (!keep) { forgetComposerMemory(); forgetAttachments(); }
   const dom = createDom();
   const restore = install(dom);
   const container = dom.document.createElement("div");
@@ -276,7 +285,7 @@ test("Up and Down walk this pane's earlier prompts, and Down comes back to the d
       m.box().keydown("Enter");
       await settle();
       await m.took(m.store.sent[m.store.sent.length - 1]);
-      assert.equal(m.box().value, "");
+      assert.equal(m.box().value || "", "");
     }
     m.box().enter("unsent draft");
     await settle();
@@ -464,10 +473,15 @@ test("text without an @ word asks for nothing", async () => {
 });
 
 const png = (over = {}) => ({ type: "image/png", size: 3, name: "shot.png", arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer, ...over });
-const paste = (m, file) => m.box().dispatch("paste", { clipboardData: { files: [file] } });
+const paste = (m, ...files) => m.box().dispatch("paste", { clipboardData: { files } });
 const attaches = (m) => m.store.sent.filter((c) => c.cmd === "attachImage");
+const paneSends = (m) => m.store.sent.filter((c) => c.cmd === "paneSend");
+const upath = (req) => "C:\\state\\uploads\\p3\\" + req + ".png";
+const result = (m, req, over = {}) => m.set({ attached: { type: "attachImageResult", id: "p3", req, path: upath(req), seq: ++seq, ...over } });
+const chipsOf = (m) => m.container.findAll(".attach-chip");
+const prompt = (m) => m.container.find(".structured-prompt").textContent;
 
-test("a picture is taken only when the agent takes pictures, and its path goes into the text", async () => {
+test("a picture is taken only when the agent takes pictures", async () => {
   const no = await mount(push({ capabilities: { image: false } }));
   try {
     const dim = no.container.find(".structured-attach");
@@ -475,60 +489,187 @@ test("a picture is taken only when the agent takes pictures, and its path goes i
     assert.equal(dim.disabled, false);
     dim.click();
     await no.wait(20);
-    assert.match(no.container.find(".structured-prompt").textContent, new RegExp(IMAGE_UNSUPPORTED_WORDS));
-    assert.deepEqual(attaches(no), []);
+    assert.match(prompt(no), new RegExp(IMAGE_UNSUPPORTED_WORDS));
     const ev = paste(no, png());
     await no.wait(20);
     assert.equal(ev.defaultPrevented, true);
     assert.deepEqual(attaches(no), []);
-    assert.match(no.container.find(".structured-prompt").textContent, new RegExp(IMAGE_UNSUPPORTED_WORDS));
+    assert.deepEqual(chipsOf(no), []);
+    assert.match(prompt(no), new RegExp(IMAGE_UNSUPPORTED_WORDS));
     // Text on the clipboard is left alone.
     assert.equal(no.box().dispatch("paste", { clipboardData: { files: [] } }).defaultPrevented, false);
   } finally {
     await no.done();
   }
+});
+
+test("pictures become chips, go to the desk one at a time by req, and are sent as images, not text", async () => {
+  resetPacing();
   const m = await mount(push({ capabilities: { image: true } }));
   try {
-    assert.ok(m.container.find(".structured-attach"));
-    m.box().enter("look at this");
+    assert.notEqual(m.container.find("input").getAttribute("multiple"), null, "the picker is single-select");
+    m.box().enter("look at these");
     await settle();
-    paste(m, png());
-    await m.wait(20);
-    assert.deepEqual(attaches(m).map((c) => [c.id, c.name, c.mediaType, c.data]), [["p3", "shot.png", "image/png", "AQID"]]);
-    // One at a time.
-    paste(m, png());
-    await m.wait(20);
+    paste(m, png({ name: "a.png" }), png({ name: "b.png" }), png({ name: "c.png" }));
+    await m.wait(30);
+    assert.equal(chipsOf(m).length, 3);
+    assert.deepEqual(attaches(m).map((c) => [c.id, c.name, c.mediaType, c.data]), [["p3", "a.png", "image/png", "AQID"]], "only the first is in flight");
+    // Send waits for all of them.
+    m.box().keydown("Enter");
+    assert.deepEqual(paneSends(m), []);
+    await settle();
+    assert.match(prompt(m), /Wait for the pictures to attach/);
+    // A result for another pane, or with a req nobody asked for, is not matched.
+    await m.set({ attached: { type: "attachImageResult", id: "p9", req: attaches(m)[0].req, path: "C:\\other.png", seq: ++seq } });
+    await result(m, "nope");
+    await m.wait(30);
     assert.equal(attaches(m).length, 1);
-    assert.match(m.container.find(".structured-prompt").textContent, new RegExp(IMAGE_WAITING_WORDS));
-    // The path of another pane's picture, or an old one, is not ours.
-    await m.set({ attached: { type: "attachImageResult", id: "p9", path: "C:\\other.png", seq: 1 } });
-    assert.equal(m.box().value, "look at this");
-    await m.set({ attached: { type: "attachImageResult", id: "p3", path: "C:\\state\\a.png", seq: 2 } });
-    assert.equal(m.box().value, "look at this\n[image: C:\\state\\a.png] ");
-    // A result nobody asked for is not inserted.
-    await m.set({ attached: { type: "attachImageResult", id: "p3", path: "C:\\state\\b.png", seq: 3 } });
-    assert.equal(m.box().value, "look at this\n[image: C:\\state\\a.png] ");
+    await result(m, attaches(m)[0].req);
+    await m.wait(30);
+    assert.equal(attaches(m).length, 2);
+    await result(m, attaches(m)[1].req);
+    await m.wait(30);
+    await result(m, attaches(m)[2].req);
+    await m.wait(30);
+    assert.deepEqual(chipsOf(m).map((c) => c.getAttribute("data-state")), ["ready", "ready", "ready"]);
+    assert.equal(m.box().value, "look at these", "a path was written into the text");
+    m.box().keydown("Enter");
+    assert.equal(paneSends(m).length, 1);
+    const sent = paneSends(m)[0];
+    assert.equal(sent.text, "look at these");
+    assert.deepEqual(sent.images, attaches(m).map((c) => ({ path: upath(c.req) })));
+    assert.equal(chipsOf(m).length, 3, "the chips went before the desk took the prompt");
+    await m.took(sent);
+    assert.deepEqual(chipsOf(m), [], "the chips stayed after a sent prompt");
   } finally {
     await m.done();
   }
 });
 
-test("a picture the desk refuses, one that is not a picture and a dropped one are said or taken", async () => {
+test("a prompt takes four pictures; a failed one fails alone and blocks Send until it is removed", async () => {
+  resetPacing();
   const m = await mount(push({ capabilities: { image: true } }));
   try {
-    const ev = m.box().dispatch("drop", { dataTransfer: { files: [png({ name: "dropped.png" })] } });
+    m.box().enter("go");
+    await settle();
+    paste(m, ...["a", "b", "c", "d", "e"].map((n) => png({ name: n + ".png" })));
+    await m.wait(30);
+    assert.equal(chipsOf(m).length, MAX_IMAGES);
+    assert.match(prompt(m), new RegExp(IMAGE_TOO_MANY_WORDS));
+    // The second is refused by the desk; the batch goes on.
+    await result(m, attaches(m)[0].req);
+    await m.wait(30);
+    await result(m, attaches(m)[1].req, { path: undefined, error: "that file is not a picture Flockdeck can attach" });
+    await m.wait(30);
+    assert.equal(attaches(m).length, 3, "a failed picture stopped the batch");
+    await result(m, attaches(m)[2].req);
+    await m.wait(30);
+    await result(m, attaches(m)[3].req);
+    await m.wait(30);
+    assert.deepEqual(chipsOf(m).map((c) => c.getAttribute("data-state")), ["ready", "error", "ready", "ready"]);
+    assert.match(chipsOf(m)[1].textContent, /not a picture Flockdeck can attach/);
+    m.box().keydown("Enter");
+    assert.deepEqual(paneSends(m), []);
+    await settle();
+    assert.match(prompt(m), /Remove the pictures that did not attach/);
+    chipsOf(m)[1].find(".attach-remove").click();
     await m.wait(20);
-    assert.equal(ev.defaultPrevented, true);
-    assert.equal(attaches(m)[0].name, "dropped.png");
-    await m.set({ attached: { type: "attachImageResult", id: "p3", error: "too many pictures attached too quickly", seq: 10 } });
-    assert.equal(m.box().getAttribute("value"), "");
-    assert.match(m.container.find(".structured-prompt").textContent, /too many pictures/);
-    const pdf = m.box().dispatch("paste", { clipboardData: { files: [{ type: "application/pdf", size: 5, name: "a.pdf" }] } });
-    assert.equal(pdf.defaultPrevented, false, "a file that is not a picture was taken from the box");
-    assert.equal(attaches(m).length, 1);
+    assert.equal(chipsOf(m).length, 3);
+    m.box().keydown("Enter");
+    assert.equal(paneSends(m)[0].images.length, 3);
   } finally {
     await m.done();
   }
+});
+
+test("a picture can be sent with no text", async () => {
+  resetPacing();
+  const m = await mount(push({ capabilities: { image: true } }));
+  try {
+    paste(m, png({ name: "only.png" }));
+    await m.wait(30);
+    await result(m, attaches(m)[0].req);
+    await m.wait(30);
+    assert.equal(m.box().value || "", "");
+    m.box().keydown("Enter");
+    assert.equal(paneSends(m).length, 1);
+    assert.equal(paneSends(m)[0].text, "");
+    assert.equal(paneSends(m)[0].images.length, 1);
+  } finally {
+    await m.done();
+  }
+});
+
+test("chips use object URLs that are revoked when a chip goes and when the box does", async () => {
+  resetPacing();
+  const made = [];
+  const revoked = [];
+  const keep = [URL.createObjectURL, URL.revokeObjectURL];
+  URL.createObjectURL = () => { const u = "blob:" + made.length; made.push(u); return u; };
+  URL.revokeObjectURL = (u) => revoked.push(u);
+  const m = await mount(push({ capabilities: { image: true } }));
+  try {
+    paste(m, png({ name: "a.png" }), png({ name: "b.png" }));
+    await m.wait(30);
+    assert.deepEqual(chipsOf(m).map((c) => c.find("img").getAttribute("src")), ["blob:0", "blob:1"]);
+    chipsOf(m)[0].find(".attach-remove").click();
+    await m.wait(20);
+    assert.deepEqual(revoked, ["blob:0"]);
+  } finally {
+    await m.done();
+    [URL.createObjectURL, URL.revokeObjectURL] = keep;
+  }
+  assert.deepEqual(revoked, ["blob:0", "blob:1"]);
+});
+
+test("a file dragged over the drawer shows the overlay, and a drop adds the pictures; a file that is not one is said no to", async () => {
+  resetPacing();
+  const m = await mount(push({ capabilities: { image: true } }));
+  try {
+    const form = m.container.find(".structured-prompt");
+    const files = (...f) => ({ dataTransfer: { types: ["Files"], files: f } });
+    const over = form.dispatch("dragenter", files());
+    assert.equal(over.defaultPrevented, true);
+    assert.equal(form.getAttribute("data-drop"), "on");
+    form.dispatch("dragleave", files());
+    assert.equal(form.getAttribute("data-drop"), null);
+    assert.equal(form.dispatch("dragenter", { dataTransfer: { types: ["text/plain"], files: [] } }).defaultPrevented, false, "a text drag was taken");
+    form.dispatch("dragenter", files());
+    const drop = form.dispatch("drop", files(png({ name: "d1.png" }), png({ name: "d2.png" })));
+    await m.wait(30);
+    assert.equal(drop.defaultPrevented, true);
+    assert.equal(form.getAttribute("data-drop"), null);
+    assert.equal(chipsOf(m).length, 2);
+    const pdf = form.dispatch("drop", files({ type: "application/pdf", size: 5, name: "a.pdf" }));
+    await m.wait(20);
+    assert.equal(pdf.defaultPrevented, true, "a file that is not a picture was left to open in the window");
+    assert.equal(chipsOf(m).length, 2);
+    assert.match(prompt(m), /not a picture the agent can take/);
+  } finally {
+    await m.done();
+  }
+  const no = await mount(push({ capabilities: { image: false } }));
+  try {
+    const form = no.container.find(".structured-prompt");
+    form.dispatch("dragenter", { dataTransfer: { types: ["Files"], files: [] } });
+    assert.equal(form.getAttribute("data-drop"), "no");
+    assert.equal(form.getAttribute("data-drop-words"), IMAGE_UNSUPPORTED_WORDS);
+  } finally {
+    await no.done();
+  }
+});
+
+test("the chip words: sizes, dimensions, what blocks a send and the images named", () => {
+  assert.equal(sizeWords(500), "500 B");
+  assert.equal(sizeWords(212 * 1024), "212 KB");
+  assert.equal(sizeWords(1.5 * 1024 * 1024), "1.5 MB");
+  assert.equal(infoWords({ width: 1600, height: 900, bytes: 212 * 1024 }), "1600 \u00d7 900 \u00b7 212 KB");
+  assert.equal(infoWords({ origSize: 2048 }), "2 KB");
+  assert.equal(blocksSend([]), "");
+  assert.equal(blocksSend([{ status: "ready" }]), "");
+  assert.match(blocksSend([{ status: "ready" }, { status: "uploading" }]), /Wait/);
+  assert.match(blocksSend([{ status: "error" }]), /Remove/);
+  assert.deepEqual(imageRefs([{ status: "ready", path: "a" }, { status: "error", path: "b" }, { status: "ready", path: "c" }]), [{ path: "a" }, { path: "c" }]);
 });
 
 test("a picture whose header declares too many pixels is refused before anything decodes it", async () => {
@@ -550,7 +691,7 @@ test("a picture whose header declares too many pixels is refused before anything
   await assert.rejects(prepareImage(file(30000, 30000, SEND_MAX + 1), env), /too many pixels/);
   await assert.rejects(prepareImage(file(30000, 30000, 100), env), /too many pixels/, "a small file declaring a huge picture");
   assert.equal(decoded, 0, "a picture was decoded before its size was checked");
-  await assert.rejects(prepareImage({ type: "image/png", size: SEND_MAX + 1, name: "y", arrayBuffer: async () => new Uint8Array(40).buffer }, env), /size could not be read/);
+  await assert.rejects(prepareImage({ type: "image/png", size: SEND_MAX + 1, name: "y", arrayBuffer: async () => new Uint8Array(40).buffer }, env), /could not be read/);
 });
 
 test("Enter sends while the list is open until a name is chosen with an arrow key; Tab takes the highlighted name", async () => {

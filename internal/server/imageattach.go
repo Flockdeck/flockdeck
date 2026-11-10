@@ -20,10 +20,13 @@ import (
 // the repository it is working in.
 
 // attachImageResultMsg answers an attachImage command: the saved path, or an
-// error the phone shows in place of the chip it was about to draw.
+// error the phone shows in place of the chip it was about to draw. Req is the
+// request's own req, echoed (since API 1.33), so a window sending several
+// pictures matches each result to its chip.
 type attachImageResultMsg struct {
 	Type  string `json:"type"`
 	ID    string `json:"id"`
+	Req   string `json:"req,omitempty"`
 	Path  string `json:"path,omitempty"`
 	Error string `json:"error,omitempty"`
 }
@@ -52,9 +55,9 @@ const (
 
 // attachImage saves a picture the phone sent for a pane's prompt, and answers
 // with the path an agent in that pane can read it back from.
-func (s *Server) attachImage(c *controlClient, paneID, name, mediaType, dataB64 string) {
+func (s *Server) attachImage(c *controlClient, paneID, req, name, mediaType, dataB64 string) {
 	if !c.attachImageLimit.allow(attachImageRateLimit, attachImageRateWindow) {
-		c.sendJSON(attachImageResultMsg{Type: "attachImageResult", ID: paneID, Error: "too many pictures attached too quickly"})
+		c.sendJSON(attachImageResultMsg{Type: "attachImageResult", ID: paneID, Req: req, Error: "too many pictures attached too quickly"})
 		return
 	}
 	go func() {
@@ -68,15 +71,15 @@ func (s *Server) attachImage(c *controlClient, paneID, name, mediaType, dataB64 
 		// is actively waiting on, unlike a background conversation stream
 		// nobody may still be watching.
 		if r := s.resolvePane(paneID); !r.found {
-			c.sendJSON(attachImageResultMsg{Type: "attachImageResult", ID: paneID, Error: paneGone})
+			c.sendJSON(attachImageResultMsg{Type: "attachImageResult", ID: paneID, Req: req, Error: paneGone})
 			return
 		}
 		path, err := saveAttachedImage(paneID, name, mediaType, dataB64)
 		if err != nil {
-			c.sendJSON(attachImageResultMsg{Type: "attachImageResult", ID: paneID, Error: err.Error()})
+			c.sendJSON(attachImageResultMsg{Type: "attachImageResult", ID: paneID, Req: req, Error: err.Error()})
 			return
 		}
-		c.sendJSON(attachImageResultMsg{Type: "attachImageResult", ID: paneID, Path: path})
+		c.sendJSON(attachImageResultMsg{Type: "attachImageResult", ID: paneID, Req: req, Path: path})
 	}()
 }
 
