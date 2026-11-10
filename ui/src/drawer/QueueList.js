@@ -20,6 +20,9 @@ import { clip } from "../graph/Node.js";
 import { showControls } from "./diff/diffModel.js";
 import { queueMessage, hasUserItems, QUEUE_GONE_WORDS } from "./queueModel.js";
 
+/** imagesLabel is what the queue list says about the pictures a waiting prompt carries. */
+export const imagesLabel = (n) => "+" + n + (n === 1 ? " image" : " images");
+
 export const QUEUE_NOT_SENT_WORDS = "Not connected to Flockdeck, so that was not sent.";
 let queueSeq = 0;
 
@@ -125,6 +128,7 @@ export function QueueList({ rows, pane, store, result = null, working = false, f
             <button type="button" class="drawer-btn queue-cancel" disabled=${!!edit.req} onClick=${() => closeEdit(r.id)}>Cancel</button>
           </span>`
       : html`<span class="queue-text" dir="auto">${showControls(clip(r.text, 300))}</span>
+          ${r.images ? html`<span class="queue-images">${imagesLabel(r.images)}</span>` : null}
           <span class="queue-actions">
             ${r.editable ? html`<button type="button" class="drawer-btn queue-edit-btn" aria-label=${"Edit waiting prompt " + r.pos} onClick=${() => { setNote(""); setEdit({ id: r.id, text: r.raw, req: "" }); }}>Edit</button>` : null}
             ${r.removable ? html`<button type="button" class="drawer-btn queue-remove" aria-label=${"Remove waiting prompt " + r.pos} onClick=${() => run("remove", r.id)}>Remove</button>` : null}

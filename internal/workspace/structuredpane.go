@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jmwri/flockdeck/internal/acp"
 	"github.com/jmwri/flockdeck/internal/acp/bridge"
 	"github.com/jmwri/flockdeck/internal/agent"
 	"github.com/jmwri/flockdeck/internal/creds"
@@ -668,4 +669,18 @@ func (w *Workspace) armStructuredIdle(p *Pane, parent string, sr *structuredRunt
 			w.notifyParent(p, parent, "finished its turn and is idle; its report is in `flockdeck inbox` if it sent one, and `flockdeck task list` shows its task")
 		}
 	})
+}
+
+// sendImagesTo queues text and pictures on the structured pane p. A runtime that
+// is not a structured one cannot take pictures.
+func (w *Workspace) sendImagesTo(p *Pane, text string, images []structured.Image) error {
+	sr, ok := p.setRuntime().(*structuredRuntime)
+	if !ok {
+		return ErrSendImages
+	}
+	err := sr.rt.SendImages(text, images)
+	if errors.Is(err, acp.ErrNoImages) {
+		return ErrSendImages
+	}
+	return err
 }

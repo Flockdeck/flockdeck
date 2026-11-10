@@ -679,6 +679,9 @@ type command struct {
 	// phone calls the file. See imageattach.go.
 	MediaType string `json:"mediaType"`
 	Data      string `json:"data"`
+	// Images is paneSend's own: the pictures sent with the text, each named by
+	// the path attachImageResult gave. See imagesend.go.
+	Images []imageRef `json:"images"`
 	// SHA256 and Purge are the Helpers dialog's own: the archive hash that was
 	// shown for an install, and whether an uninstall also deletes the helper's
 	// data folder. See helpers_ui.go.
@@ -1261,7 +1264,10 @@ type controlClient struct {
 	// asking for either as fast as it can send frames.
 	startAgentLimit  rateLimiter
 	attachImageLimit rateLimiter
-	filesLimit       rateLimiter
+	// sendImagesLimit bounds paneSend calls that name pictures: each reads up to
+	// 20 MB from disk.
+	sendImagesLimit rateLimiter
+	filesLimit      rateLimiter
 
 	// gone is set once the window has disconnected and been forgotten by the
 	// conversation hub (see conversationHub.dropClient), so that a chat open

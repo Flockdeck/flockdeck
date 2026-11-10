@@ -47,6 +47,9 @@ type structuredQueueItem struct {
 	Peer    string `json:"peer,omitempty"`
 	Text    string `json:"text"`
 	Clipped bool   `json:"clipped,omitempty"`
+	// Images is how many pictures the prompt carries. The queue list shows "+N
+	// images", and editing the text keeps them.
+	Images int `json:"images,omitempty"`
 }
 
 // buildStructuredQueue adds the waiting prompts, in the order they will be sent.
@@ -60,6 +63,7 @@ func buildStructuredQueue(m *structuredMsg, sn structured.Snapshot) {
 		var cut bool
 		it.Text, cut = clipStructured(text, structuredQueueTextCut)
 		it.Clipped = q.Clipped || cut
+		it.Images = q.Images
 		switch {
 		case q.Mail:
 			it.Kind = "mail"

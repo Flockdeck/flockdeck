@@ -3,6 +3,7 @@ package acp
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -428,22 +429,48 @@ func (c *Client) Prompt(ctx context.Context, sessionID, text string) (string, er
 	return c.PromptBlocks(ctx, sessionID, text)
 }
 
+// Image is a picture sent in a prompt: its media type and its bytes. The client
+// base64-encodes the bytes into an ACP image content block.
+type Image struct {
+	MediaType string
+	Data      []byte
+}
+
+// ErrNoImages is returned when a prompt carries pictures and the agent did not
+// say at initialize that it takes them.
+var ErrNoImages = errors.New("This agent does not take images")
+
 // PromptBlocks is Prompt with the prompt in several text content blocks, in the
 // order given. Every agent takes text blocks, and a prompt with more than one
 // keeps them apart, so a sender's words can be kept out of the block that says
 // who the sender is.
 func (c *Client) PromptBlocks(ctx context.Context, sessionID string, blocks ...string) (string, error) {
-	var r struct {
-		StopReason string `json:"stopReason"`
+	return c.promptContent(ctx, sessionID, "", blocks, nil)
+}
+
+// promptContent builds the prompt array (the text blocks, then one image block
+// per picture) and sends it. A prompt with pictures is refused with ErrNoImages,
+// and nothing is sent, unless the agent has promptCapabilities.image. token names
+// the turn when the agent has the rewind extension.
+func (c *Client) promptContent(ctx context.Context, sessionID, token string, blocks []string, images []Image) (string, error) {
+	if len(images) > 0 && !c.Capabilities().Prompt.Image {
+		return "", ErrNoImages
 	}
-	content := make([]any, 0, len(blocks))
+	content := make([]any, 0, len(blocks)+len(images))
 	for _, b := range blocks {
 		content = append(content, map[string]any{"type": "text", "text": b})
 	}
-	err := c.call(ctx, "session/prompt", map[string]any{
-		"sessionId": sessionID,
-		"prompt":    content,
-	}, &r)
+	for _, im := range images {
+		content = append(content, map[string]any{"type": "image", "mimeType": im.MediaType, "data": base64.StdEncoding.EncodeToString(im.Data)})
+	}
+	params := map[string]any{"sessionId": sessionID, "prompt": content}
+	if token != "" && c.Capabilities().Rewind && ValidTurn(token) {
+		params["_meta"] = map[string]any{ExtKey: map[string]any{"turn": token}}
+	}
+	var r struct {
+		StopReason string `json:"stopReason"`
+	}
+	err := c.call(ctx, "session/prompt", params, &r)
 	return r.StopReason, err
 }
 

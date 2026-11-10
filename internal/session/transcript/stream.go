@@ -2,6 +2,16 @@ package transcript
 
 import "github.com/jmwri/flockdeck/internal/agent"
 
+// PromptImage describes one picture sent with a prompt. Upload is the file's
+// name in the pane's uploads folder, never a path.
+type PromptImage struct {
+	MediaType string `json:"mediaType"`
+	Bytes     int    `json:"bytes"`
+	Width     int    `json:"width,omitempty"`
+	Height    int    `json:"height,omitempty"`
+	Upload    string `json:"upload,omitempty"`
+}
+
 // Entry is one agent-agnostic event out of a conversation: a prompt, a reply,
 // a tool call, and the rest of the kinds the phone's chat view draws. It is
 // the shape every adapter translates its own format into, and the shape the
@@ -57,6 +67,11 @@ type Entry struct {
 	Bytes     int    `json:"bytes,omitempty"`
 	Width     int    `json:"width,omitempty"`
 	Height    int    `json:"height,omitempty"`
+
+	// prompt.images: the pictures the prompt carried, as metadata only. The bytes
+	// stay in the pane's uploads folder (and are swept after a week), so a window
+	// that wants one asks for it and may be told it is gone.
+	Images []PromptImage `json:"images,omitempty"`
 
 	// Replayed is set on a prompt entry that an agent replayed from an earlier
 	// session (ACP session/load). It is the agent's text, not words the person

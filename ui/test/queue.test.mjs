@@ -6,7 +6,7 @@ import { render } from "../src/vendor/preact.mjs";
 import { html } from "../src/html.js";
 import { Structured } from "../src/drawer/Structured.js";
 import { queueOf, queueMessage, stopMessage, hasUserItems, QUEUE_MAX, QUEUE_TEXT_MAX } from "../src/drawer/queueModel.js";
-import { QUEUE_NOT_SENT_WORDS } from "../src/drawer/QueueList.js";
+import { QUEUE_NOT_SENT_WORDS, imagesLabel } from "../src/drawer/QueueList.js";
 import { QUEUE_GONE_WORDS } from "../src/drawer/queueModel.js";
 import { createDom, install, settle } from "./dom.mjs";
 import { fakeStore } from "./termfakes.mjs";
@@ -375,4 +375,15 @@ test("a refusal note goes when the list changes", async () => {
   } finally {
     await m.done();
   }
+});
+
+test("a waiting prompt with pictures says how many, and an edit keeps them", () => {
+  const rows = queueOf(push({ queue: [
+    row(1, "user", "look", { images: 2 }), row(2, "user", "one", { images: 1 }), row(3, "user", "none"),
+    row(4, "user", "bad", { images: -1 }), row(5, "user", "odd", { images: "3" }),
+  ] }));
+  assert.deepEqual(rows.map((r) => r.images), [2, 1, 0, 0, 0]);
+  assert.equal(imagesLabel(2), "+2 images");
+  assert.equal(imagesLabel(1), "+1 image");
+  assert.ok(rows[0].editable, "a prompt with pictures can still be edited");
 });

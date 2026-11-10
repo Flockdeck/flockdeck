@@ -418,10 +418,16 @@ func (b *Bridge) TurnStart(text string) []transcript.Entry {
 
 // StartTurn is TurnStart that also returns the id of the prompt entry.
 func (b *Bridge) StartTurn(text string) (string, []transcript.Entry) {
+	return b.StartTurnImages(text, nil)
+}
+
+// StartTurnImages is StartTurn for a prompt that carried pictures. The prompt
+// entry lists them as metadata; the bytes are not kept here.
+func (b *Bridge) StartTurnImages(text string, images []transcript.PromptImage) (string, []transcript.Entry) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.closeMerges()
-	id := b.add(transcript.Entry{Kind: transcript.KindPrompt, Text: text}).e.ID
+	id := b.add(transcript.Entry{Kind: transcript.KindPrompt, Text: text, Images: images}).e.ID
 	b.inFlight = true
 	b.enforce()
 	return id, b.take(true)
