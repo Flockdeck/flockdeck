@@ -96,8 +96,10 @@ test("a structured pane's drawer draws the activity and usage from the push and 
       assert.equal(m.container.find(".structured-title").textContent, "Run go test");
       assert.equal(m.container.find(".structured-file").textContent, "./internal/x/y_test.go");
       assert.ok(m.container.find(".conv-icon--run"), "no icon of the tool's kind");
-      assert.equal(m.container.find(".structured-context").textContent, "1,000 of 8,000 tokens used");
-      assert.equal(m.container.find(".structured-cost").textContent, "1.25 USD");
+      // The context is shown once, in the strip's meter; the exact counts and the cost are its title.
+      assert.equal(m.container.find(".structured-context"), null);
+      assert.equal(m.container.find(".usage-line").textContent, "13% of context");
+      assert.equal(m.container.find(".usage-meter-btn").getAttribute("title"), "1,000 of 8,000 tokens used, 1.25 USD. Show the usage detail");
       assert.equal(m.container.findAll(".conv-row").length, 3);
       assert.equal(m.container.find(".drawer-kind").textContent, "structured");
     },
@@ -106,7 +108,7 @@ test("a structured pane's drawer draws the activity and usage from the push and 
 test("an idle pane with no usage says Idle and draws no usage line", () =>
   with_(push(), { entries: [] }, async (m) => {
     assert.equal(m.container.find(".structured-title").textContent, "Idle");
-    assert.equal(m.container.find(".structured-usage"), null);
+    assert.equal(m.container.find(".usage-meter"), null);
     assert.ok(m.container.find(".conv-empty"));
   }));
 

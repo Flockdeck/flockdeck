@@ -126,6 +126,9 @@ test("Agent info opens from the button and from /info, on the desk only, and ope
       const store = fakeStore({ connection: "open", hello: { type: "hello" }, state: {} });
       const draw = (st) => m.draw(html`<${Structured} pane="p1" snap=${store.getState()} st=${st} store=${store} desk=${desk} />`);
       await draw(push());
+      // Agent info is an item of the strip's more menu.
+      m.container.find(".conv-more-btn").click();
+      await settle();
       assert.equal(!!m.container.find(".structured-info-btn"), desk);
       assert.equal(m.container.find(".info-panel"), null);
       if (desk) {
@@ -146,6 +149,8 @@ test("Agent info opens from the button and from /info, on the desk only, and ope
       await draw(push({ phase: "setup", setup: { kind: "login", message: "m" } }));
       assert.equal(!!m.container.find("[data-info-login]"), desk);
       if (desk) {
+        m.container.find(".conv-more-btn").click();
+        await settle();
         const toggle = m.container.find(".structured-info-btn");
         assert.equal(toggle.getAttribute("disabled") !== null, true, "the header button still toggles while the sign-in is needed");
         assert.equal(m.container.find(".info-close"), null);
