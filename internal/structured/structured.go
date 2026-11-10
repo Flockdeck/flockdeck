@@ -76,6 +76,12 @@ const (
 	maxQueue = 16
 	// maxPrompt is the longest prompt Send takes.
 	maxPrompt = 1 << 20
+	// MaxImages is how many pictures one prompt carries (the plan's decision 4).
+	MaxImages = 4
+	// MaxImageBytes is the largest picture in a prompt. The window scales a
+	// picture to 600 KB before it is attached; this is the backstop, and is under
+	// the 5 MB the Claude API takes.
+	MaxImageBytes = 5 << 20
 	// closeWait bounds how long Close waits for the loop to end.
 	closeWait = 15 * time.Second
 	// tapPoll is how often the recorder's lost lines are looked for.
@@ -512,6 +518,9 @@ type queued struct {
 	// of the runtime that replaced it.
 	id     int
 	blocks []string
+	// images are the pictures that follow the text blocks in the prompt. They are
+	// kept whole in memory until the prompt is sent or removed.
+	images []Image
 	tag    int
 	// mail is set for a prompt that carries a message from a peer. The
 	// conversation shows it as that message and not as something the person typed.
@@ -519,6 +528,15 @@ type queued struct {
 	// system is set for a prompt Flockdeck sent on its own: the opening prompt.
 	// It is not the person's text.
 	system bool
+}
+
+// Image is a picture for a prompt: the bytes the agent is sent, and what the
+// conversation shows about it. Upload is the file's name in the pane's uploads
+// folder, for the thumbnail; it is not a path.
+type Image struct {
+	acp.Image
+	Width, Height int
+	Upload        string
 }
 
 // QueueItem is one prompt waiting for its turn, as a window is shown it.
@@ -537,6 +555,8 @@ type QueueItem struct {
 	// Clipped says Text is the start of a longer text, so it is not offered for
 	// editing.
 	Clipped bool
+	// Images is how many pictures the prompt carries. Editing the text keeps them.
+	Images int
 }
 
 // QueueTextCap bounds the text of an item in a snapshot. A prompt over it is
@@ -656,14 +676,27 @@ func (r *Runtime) SendMail(tag int, peer, body string, blocks ...string) error {
 }
 
 func (r *Runtime) send(tag int, blocks ...string) error {
-	return r.enqueue(tag, nil, false, blocks...)
+	return r.enqueue(tag, nil, false, nil, blocks...)
+}
+
+// SendImages queues a prompt of text and pictures. The pictures go to the agent
+// as image content blocks after the text. It returns acp.ErrNoImages, and queues
+// nothing, when the agent has said it does not take images; an agent that has not
+// answered initialize yet is checked when the prompt comes up, and the prompt is
+// then dropped with a notice. At most MaxImages pictures, each at most
+// MaxImageBytes. A prompt of pictures alone is allowed.
+func (r *Runtime) SendImages(text string, images []Image) error {
+	if len(images) == 0 {
+		return r.send(0, text)
+	}
+	return r.enqueue(0, nil, false, images, text)
 }
 
 // SendSystem is Send for a prompt Flockdeck makes on its own, such as the
 // pane's opening prompt. The queue lists it as Flockdeck's and not the person's,
 // and the person cannot edit or remove it.
 func (r *Runtime) SendSystem(text string) error {
-	return r.enqueue(0, nil, true, text)
+	return r.enqueue(0, nil, true, nil, text)
 }
 
 // NoteSent shows in the conversation that this session sent message id to peer.
@@ -683,16 +716,24 @@ func (r *Runtime) NoteMailState(id int, state string) {
 }
 
 func (r *Runtime) sendMail(tag int, mail *bridge.Mail, blocks ...string) error {
-	return r.enqueue(tag, mail, false, blocks...)
+	return r.enqueue(tag, mail, false, nil, blocks...)
 }
 
-func (r *Runtime) enqueue(tag int, mail *bridge.Mail, system bool, blocks ...string) error {
+func (r *Runtime) enqueue(tag int, mail *bridge.Mail, system bool, images []Image, blocks ...string) error {
 	size := 0
 	for _, b := range blocks {
 		size += len(b)
 	}
-	if size == 0 || strings.TrimSpace(strings.Join(blocks, "")) == "" {
+	if len(images) == 0 && (size == 0 || strings.TrimSpace(strings.Join(blocks, "")) == "") {
 		return errors.New("structured: the prompt is empty")
+	}
+	if len(images) > MaxImages {
+		return fmt.Errorf("structured: a prompt takes at most %d images", MaxImages)
+	}
+	for _, im := range images {
+		if len(im.Data) == 0 || len(im.Data) > MaxImageBytes {
+			return fmt.Errorf("structured: an image is empty or over %d bytes", MaxImageBytes)
+		}
 	}
 	if size > maxPrompt {
 		return fmt.Errorf("structured: the prompt is %d bytes; the most is %d", size, maxPrompt)
@@ -706,7 +747,14 @@ func (r *Runtime) enqueue(tag int, mail *bridge.Mail, system bool, blocks ...str
 		r.mu.Unlock()
 		return ErrQueueFull
 	}
-	r.queue = append(r.queue, queued{id: int(itemSeq.Add(1)), blocks: slices.Clone(blocks), tag: tag, mail: mail, system: system})
+	// An agent that has answered initialize and does not take images is told so
+	// now, before anything waits. One that has not answered yet is checked when
+	// the prompt comes up.
+	if len(images) > 0 && r.client != nil && !r.client.Capabilities().Prompt.Image {
+		r.mu.Unlock()
+		return acp.ErrNoImages
+	}
+	r.queue = append(r.queue, queued{id: int(itemSeq.Add(1)), blocks: slices.Clone(blocks), images: slices.Clone(images), tag: tag, mail: mail, system: system})
 	r.mu.Unlock()
 	select {
 	case r.wake <- struct{}{}:
@@ -741,7 +789,7 @@ func (r *Runtime) queueItemsLocked() []QueueItem {
 	}
 	out := make([]QueueItem, 0, len(r.queue))
 	for _, q := range r.queue {
-		it := QueueItem{ID: q.id, System: q.system}
+		it := QueueItem{ID: q.id, System: q.system, Images: len(q.images)}
 		var text string
 		if q.mail != nil {
 			it.Mail, it.Peer, text = true, q.mail.Peer, q.mail.Text
@@ -769,9 +817,6 @@ func (r *Runtime) EditQueued(id int, text string) error {
 	if len(text) > maxPrompt {
 		return fmt.Errorf("structured: the prompt is %d bytes; the most is %d", len(text), maxPrompt)
 	}
-	if strings.TrimSpace(text) == "" {
-		return errors.New("structured: the prompt is empty")
-	}
 	r.mu.Lock()
 	i := r.queueIndexLocked(id)
 	switch {
@@ -787,6 +832,9 @@ func (r *Runtime) EditQueued(id int, text string) error {
 	case len(strings.Join(r.queue[i].blocks, "\n")) > QueueTextCap:
 		r.mu.Unlock()
 		return ErrClipped
+	case strings.TrimSpace(text) == "" && len(r.queue[i].images) == 0:
+		r.mu.Unlock()
+		return errors.New("structured: the prompt is empty")
 	}
 	r.queue[i].blocks = []string{text}
 	r.mu.Unlock()
@@ -1754,12 +1802,18 @@ func (r *Runtime) loop() {
 			r.br.TurnStart(strings.Join(q.blocks, "\n"))
 			token = r.addMark("")
 		default:
-			entry, _ := r.br.StartTurn(strings.Join(q.blocks, "\n"))
+			entry, _ := r.br.StartTurnImages(strings.Join(q.blocks, "\n"), promptImages(q.images))
 			token = r.addMark(entry)
 		}
 		r.notify()
 		r.turnEvent(TurnEvent{What: TurnBegan, Tag: q.tag})
-		stop, err := c.PromptTurn(r.ctx, r.session, token, q.blocks...)
+		// A prompt with pictures for an agent that does not take them comes back
+		// ErrNoImages without anything being sent.
+		var images []acp.Image
+		for _, im := range q.images {
+			images = append(images, im.Image)
+		}
+		stop, err := c.PromptTurnImages(r.ctx, r.session, token, q.blocks, images)
 		r.endMark(token, err == nil && stop == acp.StopEndTurn)
 		r.mu.Lock()
 		asked := r.asked
@@ -1793,6 +1847,18 @@ func (r *Runtime) loop() {
 		r.turnEvent(TurnEvent{What: TurnEnded, Tag: q.tag, Stop: stop, Asked: asked})
 		r.notify()
 	}
+}
+
+// promptImages is the metadata the prompt entry shows for pictures.
+func promptImages(images []Image) []transcript.PromptImage {
+	if len(images) == 0 {
+		return nil
+	}
+	out := make([]transcript.PromptImage, 0, len(images))
+	for _, im := range images {
+		out = append(out, transcript.PromptImage{MediaType: im.MediaType, Bytes: len(im.Data), Width: im.Width, Height: im.Height, Upload: im.Upload})
+	}
+	return out
 }
 
 func (r *Runtime) pop() (queued, bool) {

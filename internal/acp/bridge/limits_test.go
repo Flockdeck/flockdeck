@@ -3,6 +3,7 @@ package bridge
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -225,7 +226,7 @@ func TestASecondToolCallForAKnownIDChangesNothing(t *testing.T) {
 	before := b.Snapshot()
 	b.Update(toolCall("c1", "edit", "rewritten"))
 	after := b.Snapshot()
-	if len(after) != len(before) || after[1] != before[1] {
+	if len(after) != len(before) || !reflect.DeepEqual(after[1], before[1]) {
 		t.Errorf("before %+v, after %+v", before[1], after[1])
 	}
 }
