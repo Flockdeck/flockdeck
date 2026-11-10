@@ -52,18 +52,33 @@ export function Toolbar({ entries, search = null, onSearch, onClear, onJump, can
   const field = useRef(null);
   const menuKey = useRef(false);
   const moreBtn = useRef(null);
+  const menuEl = useRef(null);
   const wasOpen = useRef(false);
   const searching = searchOpen || !!search || q !== "";
   // Opening the search puts the caret in its field.
   useEffect(() => {
     if (searchOpen && field.current && field.current.focus) field.current.focus();
   }, [searchOpen]);
-  // Closing the menu from the keyboard gives the focus back to its button.
+  // Opening the menu puts the keyboard on its first item. Closing it with Escape or by
+  // choosing an item gives the keyboard back to its button, since the focused item is gone.
+  // Closing it with the mouse or by tabbing away leaves the focus where the person put it.
   useEffect(() => {
-    if (wasOpen.current && !menuOpen && moreBtn.current && moreBtn.current.focus && menuKey.current) moreBtn.current.focus();
+    if (menuOpen) {
+      const first = menuItems()[0];
+      if (first && first.focus) first.focus();
+    } else if (wasOpen.current && menuKey.current && moreBtn.current && moreBtn.current.focus) {
+      moreBtn.current.focus();
+    }
     wasOpen.current = menuOpen;
     menuKey.current = false;
   }, [menuOpen]);
+  // The items that can take the keyboard, in order.
+  const menuItems = () => (menuEl.current && menuEl.current.querySelectorAll ? Array.from(menuEl.current.querySelectorAll('[role="menuitem"]')).filter((b) => !b.disabled) : []);
+  // closeMenu closes it; back says the keyboard goes to the More button.
+  const closeMenu = (back) => {
+    menuKey.current = !!back;
+    setMenuOpen(false);
+  };
   const held = new Set(entries.map((e) => e.id));
   const submit = (e) => {
     if (e && e.preventDefault) e.preventDefault();
@@ -81,27 +96,45 @@ export function Toolbar({ entries, search = null, onSearch, onClear, onJump, can
     onClear();
   };
   const doCopy = () => {
-    setMenuOpen(false);
+    closeMenu(true);
     const out = conversationText(entries);
     copy(out).then((ok) => {
       setCopied(ok ? "Copied " + entries.length + (entries.length === 1 ? " entry" : " entries") + " that are loaded." : "Couldn't copy.");
     });
   };
   const doCopyLast = () => {
-    setMenuOpen(false);
+    closeMenu(true);
     copy(lastReply(entries)).then((ok) => setCopied(ok ? "Copied the last reply." : "Couldn't copy."));
   };
   const needle = search ? Array.from(search.q.trim()).length : 0;
   const lastText = lastReply(entries);
   const exportOn = canExport && onExport;
-  // Escape closes the menu and is not passed on, so it does not also stop the running turn.
+  // The menu's keys, only while it is open: Escape closes it and is not passed on, so it does
+  // not also stop the running turn; the arrows, Home and End move between items. With the menu
+  // closed every key, Escape included, goes on to whoever wants it (ArrowDown on the button opens it).
   const onMenuKey = (e) => {
+    if (!menuOpen) {
+      if ((e.key === "ArrowDown" || e.key === "ArrowUp") && e.target === moreBtn.current) {
+        e.preventDefault();
+        setMenuOpen(true);
+      }
+      return;
+    }
     if (e.key === "Escape") {
       e.preventDefault();
       e.stopPropagation();
-      menuKey.current = true;
-      setMenuOpen(false);
+      closeMenu(true);
+      return;
     }
+    const moves = { ArrowDown: 1, ArrowUp: -1, Home: "first", End: "last" };
+    if (!(e.key in moves) || e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return;
+    const list = menuItems();
+    if (list.length === 0) return;
+    e.preventDefault();
+    const at = list.indexOf(e.target);
+    const m = moves[e.key];
+    const next = m === "first" ? 0 : m === "last" ? list.length - 1 : at < 0 ? (m > 0 ? 0 : list.length - 1) : (at + m + list.length) % list.length;
+    if (list[next].focus) list[next].focus();
   };
   const onMenuBlur = (e) => {
     const next = e.relatedTarget;
@@ -119,11 +152,11 @@ export function Toolbar({ entries, search = null, onSearch, onClear, onJump, can
         <button type="button" ref=${moreBtn} class="conv-icon-btn conv-more-btn" aria-label="More" title="More" aria-haspopup="menu" aria-expanded=${menuOpen ? "true" : "false"} aria-controls="conv-menu" onClick=${() => setMenuOpen(!menuOpen)}>
           <svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false"><circle cx="3" cy="8" r="1.4" fill="currentColor"/><circle cx="8" cy="8" r="1.4" fill="currentColor"/><circle cx="13" cy="8" r="1.4" fill="currentColor"/></svg></button>
         ${menuOpen
-          ? html`<div id="conv-menu" class="conv-menu" role="menu" aria-label="More">
-              ${items.map((it) => item("conv-menu-item--extra " + (it.className || ""), it.label, () => { setMenuOpen(false); it.onClick(); }, { disabled: !!it.disabled, title: it.title, "aria-expanded": it.expanded === undefined ? undefined : it.expanded ? "true" : "false" }))}
+          ? html`<div id="conv-menu" ref=${menuEl} class="conv-menu" role="menu" aria-label="More">
+              ${items.map((it) => item("conv-menu-item--extra " + (it.className || ""), it.label, () => { closeMenu(true); it.onClick(); }, { disabled: !!it.disabled, title: it.title, "aria-expanded": it.expanded === undefined ? undefined : it.expanded ? "true" : "false" }))}
               ${item("conv-copy", "Copy", doCopy, { disabled: entries.length === 0 })}
               ${item("conv-copy-last", "Copy last reply", doCopyLast, { disabled: lastText === "" })}
-              ${exportOn ? item("conv-export", "Export", () => { setMenuOpen(false); onExport(); }) : null}
+              ${exportOn ? item("conv-export", "Export", () => { closeMenu(true); onExport(); }) : null}
             </div>`
           : null}
       </div>
