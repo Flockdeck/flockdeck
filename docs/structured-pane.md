@@ -82,7 +82,7 @@ refused in the same words, so a window probing for ids learns nothing: the `team
 | `status` | `working`, `waiting` or `idle`, while the phase is `ready`. |
 | `activity` | A line naming what a working agent is doing. |
 | `queued` | How many prompts wait behind the running turn. |
-| `queue` | The waiting prompts, next first (API 1.19): `id`, `pos`, `kind` (`user`, `mail` or `flockdeck`), `state` (`queued`), `peer` (mail only), `text` (cut to 2000 bytes) and `clipped`. For `user` the text is exactly as typed, so an edit starts from it; for `mail` the text and `peer` have format and direction characters (Unicode Cf, such as U+202E) removed. A message from another agent is `kind` `mail` with the sender in `peer`; its body never carries the sender, and a window draws `peer` and `text` apart. Prompts the person sent while the turn runs, and mail handed over by the delivery service, are in the same list; mail past the 16 the runtime holds waits in the store and is not listed. |
+| `queue` | The waiting prompts, next first (API 1.19): `id`, `pos`, `kind` (`user`, `mail` or `flockdeck`), `state` (`queued`), `peer` (mail only), `text` (cut to 2000 bytes), `clipped` and `images` (how many pictures the prompt carries, absent for none; an edit of the text keeps them). For `user` the text is exactly as typed, so an edit starts from it; for `mail` the text and `peer` have format and direction characters (Unicode Cf, such as U+202E) removed. A message from another agent is `kind` `mail` with the sender in `peer`; its body never carries the sender, and a window draws `peer` and `text` apart. Prompts the person sent while the turn runs, and mail handed over by the delivery service, are in the same list; mail past the 16 the runtime holds waits in the store and is not listed. |
 | `shell` | The person's own commands, the oldest first, at most 8 (API 1.20): `id`, `cmd` (one line, cut to 500 characters), `state` (`running`, `exited`, `stopped`, `timeout` or `failed`), `code` (only for `exited`), `text` and `cut`. `text` is the output as plain text: escape sequences, carriage-return overwrites, control characters other than line break and tab, and format characters (U+202E and the like) are removed, and it is cut to its newest 8 KiB (`cut` says the start was let go; the runtime keeps at most 64 KiB). A window draws it as text only. |
 | `err` | The last thing that went wrong, as one cleaned line. It says what last went wrong and not that something is wrong now; show it with the phase and status. |
 | `setup` | While the phase is `needs setup`: `kind` (`login`; before API 1.16 also `node` and `install`), a `message` (the cause) and a `fix` (what to do about it, when there is advice). |
@@ -346,7 +346,7 @@ A terminal opencode pane is not started this way and keeps its own configuration
   no double Escape and no `/undo`.
 - Allow always covers shell commands only, the exact command only, and is held in the adapter's memory, so a pane restart (an update, a crash) asks again. Agent info lists the rules of the session and removes one (`structuredRules`, `structuredRuleRevoke`); there is no way to add or edit one.
   Accept-edits mode, chosen in the mode selector, is the practical way to ask less.
-- A subagent's own text is not shown, images reach the agent as a file path and not as an image block, and there
+- A subagent's own text is not shown, the composer still gives the agent a picture as a file path (the server side of image blocks is in, see Pictures in a prompt), and there
   is no Shift+Tab mode cycle or session picker. [The parity audit](acp-parity-audit.md) has the whole list.
 - A structured pane is not recorded.
 - Desktop notifications work as they do for a terminal pane (`lib/attention.js`, `shell/Live.js`): a pane that
@@ -536,3 +536,28 @@ The new pane's window shows the fork notice but not the earlier turns. Files the
 - A phone, or any window through the relay.
 - Sending a prompt. A window uses `paneSend`, which sends a prompt over the protocol to a structured
   pane (`docs/team-graph.md`, section 6).
+
+### Pictures in a prompt
+
+`paneSend` takes `images`, a list of `{ path }`, where each path is what `attachImageResult` returned for a
+picture attached to that pane. The pictures go to the agent as ACP `image` content blocks after the text,
+when the agent said `promptCapabilities.image` at initialize. For an agent that did not, nothing is sent
+and the window gets the notice "This agent does not take images". A prompt takes at most 4 pictures of up
+to 5 MB each, and may have no text. A pane that is not a structured pane refuses pictures with the same
+notice.
+
+The path is not trusted. The server reads a file only if it is a regular file directly inside
+`<state dir>/uploads/<that pane>` once links are resolved. A path that climbs out with `..`, goes through a
+link to somewhere else, lies in another pane's folder, is relative, or on Windows is drive-relative, rooted
+without a drive, a UNC path or a device path, is refused with "That picture was not attached to this
+pane, so it was not sent", which names no path. A file that has been swept (uploads are kept 7 days) is
+refused with "That picture is no longer available". The bytes are sniffed again, and only png, jpeg, gif and
+webp are sent.
+
+The prompt entry carries `images`: for each picture its `mediaType`, `bytes`, `width` and `height` (when
+the image header could be read) and `upload`, the file's name in the pane's uploads folder (not a path). The
+bytes are not kept in the conversation. A window that shows a thumbnail has to ask for the file, and it
+may be gone.
+
+The window's composer still writes `[image: path]` into the text and sends no `images` yet; that changes
+with the multi-image composer.
