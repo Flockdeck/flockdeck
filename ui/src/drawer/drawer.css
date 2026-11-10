@@ -404,6 +404,11 @@
 .conv-image img { display: block; max-width: 160px; max-height: 120px; }
 .conv-image.is-big { cursor: zoom-out; }
 .conv-image.is-big img { max-width: 100%; max-height: none; }
+.conv-thumbs { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; max-width: 100%; }
+.conv-thumb { min-width: 0; max-width: 100%; }
+.conv-thumb .conv-image { margin: 0; max-width: 100%; }
+.conv-thumb .conv-image.is-big { flex-basis: 100%; }
+.conv-thumb .conv-detail-state { margin: 0; }
 .conv-toolbar { display: flex; flex-direction: column; gap: 4px; padding: 0; box-sizing: border-box; border-bottom: 1px solid var(--panel-line); }
 /* The one header strip: activity, context meter, model and mode, search and more. It wraps rather than clips at the narrowest drawer. */
 .conv-strip { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 6px 12px; font-size: var(--fs-md); color: var(--fg-dim); min-width: 0; }
