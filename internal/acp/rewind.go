@@ -47,22 +47,14 @@ func ValidTurn(s string) bool { return turnToken.MatchString(s) }
 // PromptTurn is PromptBlocks that names the turn with token, when the agent has
 // the extension. Without it, the token is not sent.
 func (c *Client) PromptTurn(ctx context.Context, sessionID, token string, blocks ...string) (string, error) {
-	if token == "" || !c.Capabilities().Rewind || !ValidTurn(token) {
-		return c.PromptBlocks(ctx, sessionID, blocks...)
-	}
-	var r struct {
-		StopReason string `json:"stopReason"`
-	}
-	content := make([]any, 0, len(blocks))
-	for _, b := range blocks {
-		content = append(content, map[string]any{"type": "text", "text": b})
-	}
-	err := c.call(ctx, "session/prompt", map[string]any{
-		"sessionId": sessionID,
-		"prompt":    content,
-		"_meta":     map[string]any{ExtKey: map[string]any{"turn": token}},
-	}, &r)
-	return r.StopReason, err
+	return c.promptContent(ctx, sessionID, token, blocks, nil)
+}
+
+// PromptTurnImages is PromptTurn for a prompt that also carries pictures, which
+// follow the text blocks. It returns ErrNoImages without sending when the agent
+// does not take images.
+func (c *Client) PromptTurnImages(ctx context.Context, sessionID, token string, blocks []string, images []Image) (string, error) {
+	return c.promptContent(ctx, sessionID, token, blocks, images)
 }
 
 // Rewind drops the turn named by beforeTurn, and every turn after it, from the

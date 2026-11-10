@@ -773,14 +773,23 @@ func (a *agent) prompt(id, params json.RawMessage, n int) {
 	var p struct {
 		SessionID string `json:"sessionId"`
 		Prompt    []struct {
-			Text string `json:"text"`
+			Type     string `json:"type"`
+			Text     string `json:"text"`
+			MimeType string `json:"mimeType"`
+			Data     string `json:"data"`
 		} `json:"prompt"`
 	}
 	_ = json.Unmarshal(params, &p)
 	a.noteTurn(params)
+	var images []string
+
 	sid, ask := p.SessionID, ""
 	var blocks []string
 	for _, b := range p.Prompt {
+		if b.Type == "image" {
+			images = append(images, b.MimeType+":"+strconv.Itoa(len(b.Data)))
+			continue
+		}
 		blocks = append(blocks, b.Text)
 	}
 	if len(blocks) > 0 {
@@ -809,6 +818,12 @@ func (a *agent) prompt(id, params json.RawMessage, n int) {
 	case "moved-bad":
 		a.update(sid, map[string]any{"sessionUpdate": "flockdeck_session", "newSessionId": "../x --dangerous"})
 		a.chunk(sid, "moved")
+		done("end_turn")
+
+	case "images":
+		// Says what image blocks the prompt carried: the count, then each block's
+		// media type and the length of its base64 data.
+		a.chunk(sid, "images="+strconv.Itoa(len(images))+" "+strings.Join(images, ","))
 		done("end_turn")
 
 	case "whoami":
