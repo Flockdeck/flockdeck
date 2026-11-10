@@ -281,17 +281,20 @@
 
 .drawer-warn { margin: 6px 0 0; padding: 6px 10px; border: 1px solid var(--waiting-line); border-radius: 6px; background: var(--waiting-subtle); color: var(--fg); font-size: var(--fs-md); line-height: 1.4; }
 .drawer-kind { flex: 0 0 auto; padding: 1px 6px; border: 1px solid var(--line); border-radius: 8px; color: var(--fg-dim); font-size: var(--fs-sm); }
-/* The pane fills the drawer's panel and the log takes what the other parts leave, so the log is the one scroller;
- * the pane scrolls only when the rest alone is taller than the drawer. */
-.structured { flex: 1 1 auto; display: flex; flex-direction: column; gap: 8px; min-height: 0; overflow-y: auto; }
+/* The pane fills the drawer's panel and the log takes what the other parts leave. The log is the one scroller
+ * of the pane (the pane itself does not scroll, so the strip's menu and the usage detail are not clipped by it).
+ * The strip and the composer keep their size; the panels between them (plan, info, rewind, export, shell, queue)
+ * give up height first, down to a few lines, and scroll inside themselves past 30vh. */
+.structured { flex: 1 1 auto; display: flex; flex-direction: column; gap: 8px; min-height: 0; }
 .structured > * { flex: none; }
+.structured > :not(.conv-toolbar):not(.structured-prompt):not(.structured-log):not(.drawer-stub) { flex: 0 1 auto; min-height: 3em; max-height: 30vh; overflow-y: auto; }
 .structured-title { font-family: var(--mono); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .structured-file { color: var(--fg-dim); }
 .structured-todos { border: 1px solid var(--panel-line); border-radius: var(--radius); font-size: var(--fs-md); }
 .structured-todos-head { display: flex; align-items: baseline; gap: 8px; width: 100%; min-width: 0; padding: 4px 8px; font: inherit; color: var(--fg); background: none; border: 0; text-align: left; cursor: pointer; }
 .structured-todos-title { flex: none; color: var(--fg-dim); }
 .structured-todos-sum { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.structured-todos-list { margin: 0; padding: 2px 8px 6px; list-style: none; display: flex; flex-direction: column; gap: 2px; max-height: 30vh; overflow-y: auto; }
+.structured-todos-list { margin: 0; padding: 2px 8px 6px; list-style: none; display: flex; flex-direction: column; gap: 2px; }
 .structured-todo { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
 .structured-todo-mark { flex: none; width: 8px; height: 8px; border: 1px solid var(--fg-dim); border-radius: 2px; }
 .structured-todo[data-status="in_progress"] .structured-todo-mark { border-color: var(--working); background: var(--working); }
@@ -299,12 +302,13 @@
 .structured-todo[data-status="completed"] .structured-todo-text { color: var(--fg-dim); text-decoration: line-through; }
 .structured-todo-text { min-width: 0; overflow-wrap: anywhere; }
 .structured-todo--more { color: var(--fg-dim); }
-.structured-settings { display: flex; flex: none; align-items: center; gap: 6px; min-width: 0; }
-.structured-setting { display: flex; align-items: center; min-width: 0; }
+.structured-settings { display: flex; flex: 0 1 auto; flex-wrap: wrap; align-items: center; gap: 4px 8px; min-width: 0; }
+.structured-setting { display: flex; align-items: center; gap: 4px; min-width: 0; }
+.structured-setting-name { flex: none; font-size: var(--fs-sm); color: var(--fg-dim); }
 .structured-select { max-width: 9em; font: inherit; font-size: var(--fs-md); color: var(--fg); background: var(--bg-inset); border: 1px solid var(--line-strong); border-radius: var(--radius); padding: 2px 6px; }
-.structured > .structured-log { flex: 1 1 auto; min-height: 8em; }
+.structured > .structured-log { flex: 1 1 auto; min-height: 3em; }
 .structured-prompt { display: flex; flex-wrap: wrap; gap: 8px; align-items: flex-end; }
-.structured-input { flex: 1 1 240px; resize: vertical; font: inherit; color: var(--fg); background: var(--bg-inset); border: 1px solid var(--line-strong); border-radius: var(--radius); padding: 6px 8px; }
+.structured-input { flex: 1 1 240px; max-height: 30vh; resize: vertical; font: inherit; color: var(--fg); background: var(--bg-inset); border: 1px solid var(--line-strong); border-radius: var(--radius); padding: 6px 8px; }
 .structured-input::placeholder { color: var(--fg-dim); }
 .mention-note { flex: 1 0 100%; margin: 0; }
 .mention-path { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
@@ -382,7 +386,7 @@
 .conv-image.is-big img { max-width: 100%; max-height: none; }
 .conv-toolbar { display: flex; flex-direction: column; gap: 4px; padding: 0; box-sizing: border-box; border-bottom: 1px solid var(--panel-line); }
 /* The one header strip: activity, context meter, model and mode, search and more. It wraps rather than clips at the narrowest drawer. */
-.conv-strip { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 6px 12px; font-size: var(--fs-md); color: var(--fg-dim); min-width: 0; }
+.conv-strip { position: relative; display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; padding: 6px 12px; font-size: var(--fs-md); color: var(--fg-dim); min-width: 0; }
 .structured-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; background: var(--fg-dim); }
 .structured-dot[data-status="working"] { background: var(--working); }
 .structured-dot[data-status="waiting"] { background: var(--waiting); }
@@ -489,7 +493,7 @@
 .drawer-message .structured-note { flex: 1 1 100%; margin: 0; }
 
 /* A helper's name in a reply: a chip that opens that agent. */
-.conv-chip { font: inherit; font-size: 0.95em; padding: 0 6px; border: 1px solid var(--accent-line); border-radius: 10px; background: var(--accent-subtle); color: var(--fg); cursor: pointer; }
+.conv-chip { font: inherit; font-size: var(--fs-md); padding: 0 6px; border: 1px solid var(--accent-line); border-radius: 10px; background: var(--accent-subtle); color: var(--fg); cursor: pointer; }
 .conv-chip:hover { border-color: var(--accent); }
 .conv-chip:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
@@ -654,11 +658,12 @@
 .conv-event--down { border-left-color: var(--waiting); color: var(--fg); }
 
 /* Usage meter, export panel and per-reply copy (structured panes) */
-.usage-meter { position: relative; font-size: var(--fs-md); }
+/* The detail hangs under the whole strip, not under the meter, so it cannot run off the pane's right edge. */
+.usage-meter { font-size: var(--fs-md); min-width: 0; }
 .usage-meter-btn { display: inline-flex; align-items: center; gap: 8px; background: none; border: 0; padding: 0; color: var(--fg-dim); font: inherit; cursor: pointer; }
 .usage-bar { width: 64px; height: 6px; border-radius: 3px; background: var(--panel-line); overflow: hidden; display: inline-block; }
 .usage-bar-fill { display: block; height: 100%; background: var(--accent, currentColor); }
-.usage-detail { position: absolute; top: 100%; left: 0; z-index: 10; min-width: 240px; margin-top: 4px; padding: 8px; border: 1px solid var(--panel-line); border-radius: 6px; background: var(--bg-raised, var(--bg)); }
+.usage-detail { position: absolute; top: 100%; left: 12px; right: 12px; z-index: 10; max-width: 320px; margin-top: 2px; box-sizing: border-box; padding: 8px; border: 1px solid var(--panel-line); border-radius: 6px; background: var(--bg-raised, var(--bg)); }
 .usage-rows { margin: 0; }
 .usage-row { display: flex; justify-content: space-between; gap: 16px; }
 .usage-row dt { color: var(--fg-dim); }
@@ -683,7 +688,7 @@
 .info-row dt { flex: 0 0 9em; opacity: 0.7; }
 .info-row dd { margin: 0; overflow-wrap: anywhere; min-width: 0; }
 .rewind-panel { display: flex; flex-direction: column; gap: 6px; padding: 8px; border: 1px solid var(--panel-line); border-radius: 6px; font-size: var(--fs-md); }
-.rewind-points { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-height: 40vh; overflow-y: auto; }
+.rewind-points { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
 .rewind-point { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; justify-content: space-between; }
 .rewind-text { flex: 1 1 12em; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rewind-actions, .rewind-confirm { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }

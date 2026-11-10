@@ -536,8 +536,8 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
     <${UsageMeter} usage=${st.usage} />
     ${controls.length
       ? html`<div class="structured-settings" ref=${settingsEl} role="group" aria-label="Agent settings">
-          ${controls.map((c) => html`<label class="structured-setting"><span class="structured-setting-name sr-only">${c.label}</span>
-            <select class="structured-select" data-setting=${c.key} value=${c.current} onChange=${(e) => change(c, e.target.value)}>
+          ${controls.map((c) => html`<label class="structured-setting"><span class="structured-setting-name">${c.label}</span>
+            <select class="structured-select" data-setting=${c.key} title=${c.label} value=${c.current} onChange=${(e) => change(c, e.target.value)}>
               ${c.choices.some((o) => o.value === c.current) ? null : html`<option value="" disabled>Not set</option>`}
               ${c.choices.map((o) => html`<option value=${o.value} title=${o.description || undefined}>${(o.group ? o.group + ": " : "") + o.label}</option>`)}
             </select></label>`)}
