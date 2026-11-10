@@ -379,7 +379,7 @@ test("the empty conversation lists /, @, ! and paste, and paste only for an agen
   }));
 
 test("Retry is on the newest prompt only, sends its text through the Send path and is gone while a turn runs", () =>
-  with_(push(), { entries: [entry(1, { kind: "prompt", text: "first" }), entry(2), entry(3, { kind: "prompt", text: "run the tests" }), entry(4, { kind: "notice", text: "Turn ended: refusal", tone: "failure" })] }, async (m) => {
+  with_(push(), { entries: [entry(1, { kind: "prompt", text: "first", typed: true }), entry(2), entry(3, { kind: "prompt", text: "run the tests", typed: true }), entry(4, { kind: "notice", text: "Turn ended: refusal", tone: "failure" })] }, async (m) => {
     const buttons = m.container.findAll(".conv-retry");
     assert.equal(buttons.length, 1);
     buttons[0].click();
@@ -392,6 +392,14 @@ test("Retry is on the newest prompt only, sends its text through the Send path a
     assert.equal(m.store.sent.length, 1);
     await m.set({ structured: push({ status: "working" }) });
     assert.equal(m.container.findAll(".conv-retry").length, 0);
+  }));
+
+test("Retry is not offered when the newest prompt was not typed here or carries pictures", () =>
+  with_(push(), { entries: [entry(1, { kind: "prompt", text: "first", typed: true }), entry(2, { kind: "prompt", text: "from a wake" })] }, async (m) => {
+    assert.equal(m.container.findAll(".conv-retry").length, 0, "an older typed prompt must not get Retry when a newer prompt is not the person's");
+    await m.set({ conversation: convOf([entry(1, { kind: "prompt", text: "look at this", typed: true, images: [{ mediaType: "image/png", bytes: 3 }] })]) });
+    assert.equal(m.container.findAll(".conv-retry").length, 0);
+    assert.equal(m.container.find(".conv-pics").textContent, "1 picture");
   }));
 
 test("a cancel refusal is shown for its own pane and not for another one opened after it", () =>

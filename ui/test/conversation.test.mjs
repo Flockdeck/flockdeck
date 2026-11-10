@@ -204,7 +204,7 @@ test("a tool row has an icon for its kind", () => {
 
 test("the list says so when it is empty, has Older until the start, and the refusal in place of a list", () => {
   const base = { id: "p1", supported: true, entries: [], atStart: true, older: "idle", refused: "" };
-  assert.ok(renderToString(html`<${Conversation} conv=${base} />`).includes(NO_ENTRIES_WORDS));
+  assert.ok(renderToString(html`<${Conversation} conv=${base} />`).includes("conv-empty"), "the empty block is in the page; its words come on the next tick");
   assert.ok(!renderToString(html`<${Conversation} conv=${base} />`).includes("conv-older"));
   assert.ok(renderToString(html`<${Conversation} conv=${{ ...base, atStart: false, entries: [entry(1)] }} />`).includes("conv-older"));
   const loading = renderToString(html`<${Conversation} conv=${{ ...base, atStart: false, older: "loading", entries: [entry(1)] }} />`);

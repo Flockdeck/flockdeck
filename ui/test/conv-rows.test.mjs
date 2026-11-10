@@ -142,11 +142,52 @@ test("a short row has no Show all, and the foot is not kept open for it", () => 
 test("Retry is drawn only when the row is given onRetry, and sends the whole prompt text", () => {
   const sent = [];
   const long = "t".repeat(MAX_TEXT + 10);
-  return page(html`<${Row} entry=${e({ kind: "prompt", text: long })} onRetry=${(t) => sent.push(t)} />`, async (box) => {
+  return page(html`<${Row} entry=${e({ kind: "prompt", text: long, typed: true })} onRetry=${(t) => sent.push(t)} />`, async (box) => {
     box.find(".conv-retry").click();
-    assert.deepEqual(sent, [long]);
-    assert.ok(!renderToString(html`<${Row} entry=${e({ kind: "prompt", text: "a" })} />`).includes("conv-retry"));
+    assert.deepEqual(sent, [long], "the text the window holds is sent whole, not the cut one");
+    assert.ok(!renderToString(html`<${Row} entry=${e({ kind: "prompt", text: "a", typed: true })} />`).includes("conv-retry"));
   });
+});
+
+test("Retry is for a prompt the person typed: a replayed, system, wake or any prompt without the typed mark has none", () => {
+  const on = () => {};
+  const has = (entry) => renderToString(html`<${Row} entry=${e({ kind: "prompt", text: "go", ...entry })} onRetry=${on} />`).includes("conv-retry");
+  assert.ok(has({ typed: true }));
+  for (const typed of [undefined, false, null, "true", 1, "yes"]) assert.ok(!has({ typed }), String(typed));
+  assert.ok(!has({}), "a prompt from an older app, which does not say, is not offered Retry");
+  // The mark is read from the entry's field, never from the words.
+  assert.ok(!has({ text: "typed: true" }));
+});
+
+test("a prompt with pictures says how many, has no Retry, and keeps Copy", () => {
+  const on = () => {};
+  const draw = (images) => renderToString(html`<${Row} entry=${e({ kind: "prompt", text: "look", typed: true, images })} onRetry=${on} />`);
+  const one = draw([{ mediaType: "image/png", bytes: 10 }]);
+  assert.match(one, /<p class="conv-pics">1 picture<\/p>/);
+  assert.ok(!one.includes("conv-retry"));
+  assert.ok(one.includes("Copy this prompt"));
+  assert.match(draw([{}, {}, {}]), /<p class="conv-pics">3 pictures<\/p>/);
+  // No pictures: no note, and Retry stays.
+  for (const none of [undefined, [], null, "x"]) {
+    const out = draw(none);
+    assert.ok(!out.includes("conv-pics"), String(none));
+    assert.ok(out.includes("conv-retry"), String(none));
+  }
+  assert.ok(!one.includes("is-kept"), "nothing on the foot needs keeping open");
+});
+
+test("a nested prompt or reply with no usable time and no action draws no foot", () => {
+  for (const kind of ["prompt", "reply"]) {
+    for (const ts of [undefined, "", "not a time"]) {
+      const out = renderToString(html`<${Row} entry=${e({ kind, text: "x", markdown: "x", ts })} nested=${true} />`);
+      assert.ok(!out.includes("conv-foot"), kind + " " + String(ts));
+    }
+    // With a time, or when it is not nested (Copy), the foot is there.
+    assert.ok(renderToString(html`<${Row} entry=${e({ kind, text: "x", markdown: "x" })} nested=${true} />`).includes("conv-foot"));
+    assert.ok(renderToString(html`<${Row} entry=${e({ kind, text: "x", markdown: "x", ts: undefined })} />`).includes("conv-foot"));
+  }
+  // A cut nested prompt has Show all, so it has a foot even with no time.
+  assert.ok(renderToString(html`<${Row} entry=${e({ kind: "prompt", text: "t".repeat(MAX_TEXT + 1), ts: undefined })} nested=${true} />`).includes("conv-showall"));
 });
 
 // --- notices --------------------------------------------------------------------
@@ -202,23 +243,65 @@ test("tool output past the ceiling says what is left after Show all; short outpu
 // --- states ------------------------------------------------------------------------
 
 test("the empty state is a block that lists the ways to start; without tips it is the one line", () => {
-  const tips = emptyTips({ capabilities: { image: true } });
-  const out = renderToString(html`<${EmptyState} tips=${tips} />`);
-  assert.match(out, /chg-state conv-empty/);
-  assert.ok(out.includes(NO_ENTRIES_WORDS));
-  for (const k of ["/", "@", "!", "Paste"]) assert.ok(out.includes("<kbd>" + k + "</kbd>"), k);
-  assert.ok(!renderToString(html`<${EmptyState} />`).includes("kbd"));
   assert.deepEqual(emptyTips({}).map((t) => t.key), ["/", "@", "!"]);
   assert.deepEqual(emptyTips(null).map((t) => t.key), ["/", "@", "!"]);
+  const tips = emptyTips({ capabilities: { image: true } });
+  return page(html`<${EmptyState} tips=${tips} />`, async (box, redraw) => {
+    assert.ok(box.find(".conv-empty"));
+    assert.ok(box.textContent.includes(NO_ENTRIES_WORDS));
+    assert.deepEqual(box.findAll("kbd").map((k) => k.textContent), ["/", "@", "!", "Paste"]);
+    await redraw(html`<${EmptyState} />`);
+    assert.equal(box.findAll("kbd").length, 0);
+  });
 });
 
-test("loading is a skeleton that still says it in words for a screen reader", () => {
+test("the empty state is in the page as an empty live region and filled on the next tick", async () => {
+  const dom = createDom();
+  const restore = install(dom);
+  try {
+    const box = dom.document.createElement("div");
+    dom.body.appendChild(box);
+    render(html`<${EmptyState} tips=${emptyTips({})} />`, box);
+    const region = box.querySelector('[role="status"]');
+    assert.ok(region, "no live region");
+    assert.equal(region.textContent, "", "the region mounted already holding its words, which many screen readers do not announce");
+    await settle();
+    assert.ok(region.textContent.includes(NO_ENTRIES_WORDS));
+    assert.equal(box.querySelector('[role="status"]'), region, "the region was replaced when it was filled");
+  } finally {
+    restore();
+  }
+});
+test("loading is a skeleton that still says it in words for a screen reader", async () => {
   const out = renderToString(html`<${Conversation} conv=${null} />`);
   assert.match(out, /conv-skeleton/);
   assert.match(out, /aria-busy="true"/);
-  assert.ok(out.includes(LOADING_WORDS));
-  assert.ok(renderToString(html`<${Skeleton} words="Loading the agent." />`).includes("Loading the agent."));
+  assert.match(out, /role="status"/);
   assert.ok(renderToString(html`<${Conversation} conv=${{ id: "p", supported: null, entries: [] }} />`).includes("conv-skeleton"));
+  await page(html`<${Conversation} conv=${null} />`, async (box, redraw) => {
+    assert.ok(box.textContent.includes(LOADING_WORDS));
+    await redraw(html`<${Skeleton} words="Loading the agent." />`);
+    assert.ok(box.textContent.includes("Loading the agent."));
+  });
+});
+
+test("the loading words are put in the live region after it is in the page, not with it", async () => {
+  const dom = createDom();
+  const restore = install(dom);
+  try {
+    const box = dom.document.createElement("div");
+    dom.body.appendChild(box);
+    render(html`<${Skeleton} />`, box);
+    const region = box.querySelector('[role="status"]');
+    assert.ok(region);
+    assert.ok(!region.textContent.includes(LOADING_WORDS), "the words were there on the first draw");
+    assert.ok(region.querySelector(".conv-skel"), "the grey lines are drawn at once");
+    await settle();
+    assert.ok(region.textContent.includes(LOADING_WORDS));
+    assert.equal(box.querySelector('[role="status"]'), region);
+  } finally {
+    restore();
+  }
 });
 
 test("a refusal is the Changes tab's error block with Retry when it can be retried", () => {
@@ -226,6 +309,8 @@ test("a refusal is the Changes tab's error block with Retry when it can be retri
   const none = renderToString(html`<${Conversation} conv=${conv} />`);
   assert.match(none, /chg-state chg-error[^"]*conv-refused/);
   assert.ok(none.includes("The desk said no"));
+  assert.match(none, /role="alert"/, "an error is announced as an alert, which needs no second draw");
+  assert.ok(!none.includes('role="status"'));
   assert.ok(!none.includes("conv-retry-open"));
   let asked = 0;
   return page(html`<${Conversation} conv=${conv} onRetry=${() => { asked++; }} />`, async (box) => {

@@ -128,11 +128,12 @@ function ToolRow({ entry: e, label, kind, open, onToggle, detail, nested }) {
   </li>`;
 }
 
-/** Foot is the line under a prompt or reply: its time, then its actions. keep says an action is on it
- *  that must stay visible (Show all, Retry), so the line is not left for hover and focus. */
-function Foot({ ts, keep = false, children }) {
+/** Foot is the line under a prompt or reply: its time, then its actions. actions says there is at
+ *  least one (the children are an array, which is truthy even when every action is null). keep says
+ *  an action is on it that must stay visible (Show all, Retry), so the line is not left for hover and focus. */
+function Foot({ ts, actions = false, keep = false, children }) {
   const t = rowTime(ts);
-  if (!t && !children) return null;
+  if (!t && !actions) return null;
   return html`<div class=${"conv-foot" + (keep ? " is-kept" : "")}>${t ? html`<time class="conv-time" datetime=${t.iso} title=${t.full}>${t.label}</time>` : null}${children}</div>`;
 }
 
@@ -141,21 +142,27 @@ function ShowAll({ all, onToggle }) {
 }
 
 /** PromptRow is the person's words in a bubble on the right. A long one is cut with Show all; Copy
- *  gives the whole text. onRetry is given to the newest prompt only, and sends its text again. */
+ *  gives the whole text. onRetry is given to the newest prompt only, and sends its text again. Retry
+ *  is drawn only on a prompt the person typed (entry.typed, which the app sets) and that has no
+ *  pictures: the pictures may be gone by now, so a retry would send the text without them. A prompt
+ *  with pictures says how many it had. */
 function PromptRow({ entry: e, nested, onRetry }) {
   const [all, setAll] = useState(false);
   const full = text(e.text);
   const cut = full.length > MAX_TEXT;
   const shown = !cut ? full : all ? full.slice(0, EXPAND_MAX_TEXT) : full.slice(0, MAX_TEXT);
   const left = full.length - shown.length;
+  const pics = Array.isArray(e.images) ? e.images.length : 0;
+  const retry = !!onRetry && !nested && e.typed === true && pics === 0;
   const body = !cut ? clip(full, MAX_TEXT) : all ? chunkText(shown, CHUNK_TEXT).map((c, i) => html`<span key=${i}>${c}</span>`) : shown;
   return html`<li class="conv-row conv-prompt" data-ctx="convRow" data-kind="prompt" data-entry=${nested ? null : e.id} tabindex="-1">
     <div class="conv-bubble"><span class="conv-sr">You: </span><p class="conv-text">${body}</p></div>
     ${left > 0 ? html`<p class="conv-cut">${left.toLocaleString("en-US")} more characters are not shown.</p>` : null}
-    <${Foot} ts=${e.ts} keep=${cut || !!onRetry}>
+    ${pics > 0 ? html`<p class="conv-pics">${pics === 1 ? "1 picture" : pics + " pictures"}</p>` : null}
+    <${Foot} ts=${e.ts} actions=${cut || !nested || retry} keep=${cut || retry}>
       ${cut ? html`<${ShowAll} all=${all} onToggle=${() => setAll(!all)} />` : null}
       ${nested ? null : html`<${CopyReply} text=${full} label="Copy this prompt" />`}
-      ${onRetry && !nested ? html`<button type="button" class="conv-retry" aria-label="Retry this prompt" onClick=${() => onRetry(full)}>Retry</button>` : null}
+      ${retry ? html`<button type="button" class="conv-retry" aria-label="Retry this prompt" onClick=${() => onRetry(full)}>Retry</button>` : null}
     <//>
   </li>`;
 }
@@ -174,7 +181,7 @@ function ReplyRow({ entry: e, nested }) {
       ? chunkText(shown, CHUNK_REPLY, true).map((c, i) => html`<${Markdown} key=${i} text=${c} />`)
       : html`<${Markdown} text=${shown} />`}
     ${left > 0 ? html`<p class="conv-cut">${left.toLocaleString("en-US")} more characters are not shown.</p>` : null}
-    <${Foot} ts=${e.ts} keep=${cut}>
+    <${Foot} ts=${e.ts} actions=${cut || !nested} keep=${cut}>
       ${cut ? html`<${ShowAll} all=${all} onToggle=${() => setAll(!all)} />` : null}
       ${nested ? null : html`<${CopyReply} text=${full} />`}
     <//>

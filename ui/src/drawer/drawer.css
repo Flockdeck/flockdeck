@@ -226,7 +226,7 @@
 .conv-bubble { padding: var(--sp-2) var(--sp-3); border: 1px solid var(--accent-line); border-radius: var(--radius-lg); background: var(--accent-subtle); }
 .conv-bubble .conv-text { margin: 0; }
 .conv-reply { padding: 0 var(--sp-1); }
-.conv-prompt .conv-cut { align-self: flex-end; }
+.conv-prompt .conv-cut, .conv-prompt .conv-pics { align-self: flex-end; }
 /* The foot of a prompt or reply: its time and its actions. Shown on hover and focus, and always on a touch
  * screen; one with Show all or Retry on it stays shown. */
 .conv-foot { display: flex; flex-wrap: wrap; align-items: center; gap: var(--sp-1) var(--sp-2); min-height: 20px; margin-top: var(--sp-1); color: var(--fg-dim); font-size: var(--fs-sm); opacity: 0; }
@@ -248,7 +248,7 @@
 }
 .conv-tool-head:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .conv-tool-summary { margin: 4px 0 0 22px; color: var(--fg-dim); font-family: var(--mono); white-space: pre-wrap; }
-.conv-cut, .conv-limit { margin: 4px 0 0; color: var(--fg-dim); font-size: var(--fs-md); }
+.conv-cut, .conv-limit, .conv-pics { margin: 4px 0 0; color: var(--fg-dim); font-size: var(--fs-md); }
 .conv-limit { text-align: center; }
 .conv-unknown { color: var(--waiting); }
 .conv-new {

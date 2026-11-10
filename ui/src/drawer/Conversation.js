@@ -11,7 +11,7 @@
 //
 // Everything on a row is what an agent, a tool or a person wrote. It is drawn as
 // text or as sanitised Markdown, never as markup.
-import { useState } from "../vendor/hooks.mjs";
+import { useState, useEffect } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
 import { Log } from "./conv/Log.js";
 import { Toolbar } from "./conv/Toolbar.js";
@@ -21,10 +21,24 @@ export const NO_ENTRIES_WORDS = "Nothing has been said yet.";
 export const LOADING_WORDS = "Loading the conversation.";
 export const REFUSED_TITLE = "Could not open the conversation";
 
-/** Skeleton is the loading block: grey lines where rows will be, and the words for a screen reader. */
+/** useFilled is false on the first draw and true from the next tick. A live region that mounts already
+ *  holding its words is not announced by many screen readers: the region has to be in the page empty
+ *  first and then be filled. */
+function useFilled() {
+  const [filled, setFilled] = useState(false);
+  useEffect(() => {
+    const id = setTimeout(() => setFilled(true), 0);
+    return () => clearTimeout(id);
+  }, []);
+  return filled;
+}
+
+/** Skeleton is the loading block: grey lines where rows will be, and the words for a screen reader.
+ *  The words are put in the live region on the tick after it is drawn (useFilled). */
 export function Skeleton({ words = LOADING_WORDS }) {
+  const filled = useFilled();
   return html`<div class="drawer-stub conv-skeleton" role="status" aria-busy="true">
-    <span class="conv-sr">${words}</span>
+    ${filled ? html`<span class="conv-sr">${words}</span>` : null}
     <span class="conv-skel conv-skel--end" aria-hidden="true"></span>
     <span class="conv-skel conv-skel--wide" aria-hidden="true"></span>
     <span class="conv-skel conv-skel--mid" aria-hidden="true"></span>
@@ -33,9 +47,10 @@ export function Skeleton({ words = LOADING_WORDS }) {
   </div>`;
 }
 
-/** ErrorBlock is a refusal or a failure in the Changes tab's state block, with Retry when there is something to retry. */
+/** ErrorBlock is a refusal or a failure in the Changes tab's state block, with Retry when there is something to retry.
+ *  It is role alert, which a screen reader announces when it appears, filled or not. */
 export function ErrorBlock({ title, words, onRetry = null }) {
-  return html`<div class="drawer-stub chg-state chg-error conv-refused" role="status">
+  return html`<div class="drawer-stub chg-state chg-error conv-refused" role="alert">
     <strong>${title}</strong>
     <span>${words}</span>
     ${onRetry ? html`<button type="button" class="drawer-btn conv-retry-open" onClick=${onRetry}>Retry</button>` : null}
@@ -45,11 +60,14 @@ export function ErrorBlock({ title, words, onRetry = null }) {
 /** EmptyState is what an empty conversation says. tips are the ways to start that the pane's box has
  *  (a list of { key, words }); a pane without a box of its own passes none. */
 export function EmptyState({ tips = null }) {
+  const filled = useFilled();
   return html`<div class="chg-state conv-empty" role="status">
-    <strong>${NO_ENTRIES_WORDS}</strong>
-    ${tips && tips.length
-      ? html`<span>Type a message below. Besides plain text, the box takes:</span>
-        <ul class="conv-tips">${tips.map((t) => html`<li key=${t.key}><kbd>${t.key}</kbd> ${t.words}</li>`)}</ul>`
+    ${filled
+      ? html`<strong>${NO_ENTRIES_WORDS}</strong>
+        ${tips && tips.length
+          ? html`<span>Type a message below. Besides plain text, the box takes:</span>
+            <ul class="conv-tips">${tips.map((t) => html`<li key=${t.key}><kbd>${t.key}</kbd> ${t.words}</li>`)}</ul>`
+          : null}`
       : null}
   </div>`;
 }
