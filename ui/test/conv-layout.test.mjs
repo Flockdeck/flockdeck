@@ -96,9 +96,14 @@ test("the drawer uses one panel border and a three-step type scale", () => {
   assert.doesNotMatch(css, /var\(--border/, "the undefined --border token is still used");
   assert.match(css, /--panel-line: var\(--line\)/);
   for (const [name, px] of [["sm", 11], ["md", 12], ["lg", 13]]) assert.match(css, new RegExp("--fs-" + name + ": " + px + "px"));
-  // Outside the token definitions no 11, 12 or 13 px size is written out.
+  // Outside the token definitions no 11, 12 or 13 px size is written out, and no em size either.
   const body = css.replace(/--fs-(sm|md|lg): \d+px;/g, "");
   assert.doesNotMatch(body, /font(-size)?:[^;]*\b1[123](\.5)?px/);
+  assert.doesNotMatch(body, /font-size:\s*[\d.]+r?em/);
+  // The sizes that are written out are the ones docs/structured-pane.md names: the drawer title (15), Markdown
+  // headings (15, 16) and the diff's add-comment button (14, 20 on a coarse pointer).
+  const written = [...body.matchAll(/font-size:\s*(\d+(?:\.\d+)?)px/g)].map((m) => Number(m[1]));
+  assert.deepEqual([...new Set(written)].sort((x, y) => x - y), [14, 15, 16, 20]);
   assert.equal((css.match(/^\.conv-who \{/gm) || []).length, 1, "a second .conv-who rule cancels the first");
   assert.doesNotMatch(css, /\.conv-who \{[^}]*text-transform: uppercase/);
 });

@@ -35,7 +35,8 @@ const n = (v) => v.toLocaleString("en-US");
 
 /** meterText is the short line beside the bar: the share of the window used, or
  *  "Usage details" when only a cost was reported, or "" when nothing was. The
- *  exact counts and the cost are in the line above it and in the detail. */
+ *  exact counts and the cost are not in the strip: they are in the detail, and in
+ *  the button's title (which shows only on hover). */
 export function meterText(usage) {
   const u = usageOf(usage);
   if (u.pct !== null) return u.pct + "% of context";
