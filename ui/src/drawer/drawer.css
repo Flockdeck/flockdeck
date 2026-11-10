@@ -332,7 +332,7 @@
 .queue-mail { color: var(--fg-dim); white-space: nowrap; }
 .queue-peer { font-weight: 600; }
 .queue-text { flex: 1 1 200px; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 4.5em; overflow: hidden; }
-.queue-images { flex: none; font-size: 11px; color: var(--text-dim, inherit); opacity: 0.8; white-space: nowrap; }
+.queue-images { flex: none; font-size: var(--fs-sm); color: var(--fg-dim); opacity: 0.8; white-space: nowrap; }
 .queue-edit { flex: 1 1 240px; font: inherit; color: var(--fg); background: var(--bg-inset); border: 1px solid var(--line-strong); border-radius: var(--radius); padding: 4px 6px; resize: vertical; }
 .queue-actions { display: inline-flex; gap: 4px; }
 
