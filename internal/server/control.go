@@ -1885,7 +1885,7 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		s.conversationSearch(c, cmd.ID, cmd.Q)
 		return
 	case "attachImage":
-		s.attachImage(c, cmd.ID, cmd.Name, cmd.MediaType, cmd.Data)
+		s.attachImage(c, cmd.ID, cmd.Req, cmd.Name, cmd.MediaType, cmd.Data)
 		return
 	case "resumeConversation":
 		s.resumeConversation(c, cmd.ID, cmd.Path, titleFor(cmd.Text, cmd.Path), cmd.Agent)

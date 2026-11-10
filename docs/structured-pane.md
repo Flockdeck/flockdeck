@@ -206,9 +206,13 @@ earlier prompts and back to the draft; the history (50 prompts of at most 8 KiB)
 are kept per pane in the window's local storage, for the 30 panes used last, and in memory when storage
 is missing or full. `@` after white space asks `structuredFiles` (after a 120 ms pause, one answer matched
 by its `req`) and lists the names; choosing one writes `@path ` as text. When `capabilities.image` is set,
-a picture pasted, dropped or chosen is scaled to under 600 KiB, sent with `attachImage`, and its saved path
-is written as `[image: path]`; one is in flight at a time. A window reached through the relay has none of
-this. There is no setting for the send key.
+pictures pasted, dropped anywhere on the drawer or chosen with Attach image (several at once) become chips
+beside the text, up to 4: a thumbnail, the name, the size and dimensions, a progress bar and a remove
+button. Each is scaled to under 600 KiB (a PNG stays a PNG when one fits, otherwise it becomes a JPEG),
+sent with `attachImage` one at a time, and its saved path is sent as `paneSend` `images` when the prompt is
+sent. Nothing is written into the text. A picture that fails says so on its own chip and the others go on;
+Send waits for the rest and is held while a failed chip is still there. A window reached through the relay
+has none of this. There is no setting for the send key.
 
 The box is one bordered composer (`drawer/Composer.js`): an empty strip for pictures on top, the text, and one
 control row with Attach image (when the agent takes pictures), `@`, `/` and one button on the right. The
@@ -587,6 +591,12 @@ between them, since the queue keeps the bytes in memory; past that the send is r
 sentence. A window may send at most 6 `paneSend` calls with pictures in 10 seconds, and the files are read
 on a goroutine of their own, not on the window's read loop. A pane that is not a structured pane refuses
 pictures with the same notice.
+
+Since API 1.32 (cap `attachImageReq`), `attachImage` takes a `req` and `attachImageResult` copies it back,
+on a refusal too, so a window attaching several pictures matches each result to its chip. A window with no
+`req` gets none back, as before. The desk allows 10 `attachImage` calls in 10 seconds per window, so the
+window sends a prompt's pictures one at a time, waiting for each result, and holds back a call when ten
+were made in the last ten seconds.
 
 The path is not trusted. The server reads a file only if it is a regular file directly inside
 `<state dir>/uploads/<that pane>` once links are resolved. A path that climbs out with `..`, goes through a
