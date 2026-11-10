@@ -159,13 +159,14 @@ writes `[image: path]` into the text for the agent to read. A large picture is s
 down first, and one picture is attached at a time. Agents that do not take images get
 no Attach image button and say so if you paste one.
 
-The header shows how much of the agent's context window is used, as a bar and a
-percentage; press it for the figures: tokens used, the window, what is left, and the cost
+The strip at the top of the conversation shows what the agent is doing, how much of its
+context window is used (a bar and a percentage), and the model and mode pickers. Press the
+bar for the figures: tokens used, the window, what is left, and the cost
 if the agent reports one. These are the numbers the agent last sent. A figure it did not
 send says "Not reported", and tokens in and out and a breakdown of the context are not
 shown, because the agent's report does not have them. Each reply has a Copy button, and
-Copy last reply in the conversation bar copies the newest one as plain text; a code block
-has its own Copy.
+Copy last reply, in the strip's More menu (the three dots), copies the newest one as plain text; a code block
+has its own Copy. The search button next to More opens the conversation search.
 
 Going back and forking (the claude and codex agents only; other agents do not show it): type
 `/rewind` or `/fork` in the prompt box. The list shows the prompts you can go back to. "Go back to before
@@ -177,7 +178,7 @@ prompt, and a prompt that follows a stopped turn, have no point before them. A f
 as the original, so two agents can edit the same files, and its window starts empty. Both are on the machine
 Flockdeck runs on.
 
-Export, in the conversation bar, saves the conversation as a Markdown file. Type the full
+Export, in the More menu, saves the conversation as a Markdown file. Type the full
 path of a folder that exists; Flockdeck makes a new file there named `flockdeck-` and the pane's
 name and the time, never replacing one, and says where. The file holds your prompts, the
 agent's replies, each tool call with its summary, helper reports, notices, and mail from other
@@ -192,7 +193,7 @@ checkout's `.env` files and the shapes of keys. It is a filter, so read the file
 share it. Export is on the machine Flockdeck runs on; a window reached through the relay has
 no Export.
 
-Agent info, a button in the header (or `/info`), lists what the agent says about itself: its
+Agent info, in the More menu (or `/info`), lists what the agent says about itself: its
 name and version, the ways it signs in, the session, mode and model, what it can do, the
 names of the MCP servers the session was given, the folder and the adapter. It shows names only,
 with no keys and no MCP command, arguments or environment.

@@ -170,10 +170,14 @@ makes whenever the workspace changes.
 ## 5. The drawer view
 
 The drawer draws a structured pane from this watch and from its conversation
-(`drawer/Structured.js`). The header carries a "structured" label beside the name. The panel shows the
-activity line, which is the tool still running (read from the conversation) with an icon for its kind
-and the first file its summary names, or the push's activity text, or "Idle". It shows the context used of
-its size, and the cost when the agent reported one. Under them is the pane's conversation, drawn by the
+(`drawer/Structured.js`). The header carries a "structured" label beside the name. The conversation fills the
+height of the drawer: the log is the one scroller, and the plan, panels, queue and prompt box take what
+they need under or over it. One strip sits above the log (`conv/Toolbar.js` with a lead from
+`Structured.js`). It holds a status dot, the activity (the tool still running, read from the conversation, with
+an icon for its kind and the first file its summary names, or the push's activity text, or "Idle"), the usage
+meter (a bar and a percentage; the exact counts and the cost are its title and its detail), the model and mode
+pickers and any other setting the agent offers, a search button and a More menu. The More menu holds Agent
+info, Copy, Copy last reply and, on the desk, Export. Under the strip is the pane's conversation, drawn by the
 same component as a terminal agent's Conversation tab (`drawer/Conversation.js`, `drawer/conv/`): the
 same rows, paging with Older, search, Copy, and runs of tool rows folded into "N steps". A structured
 pane has no Conversation tab of its own, since this is it. Replies are sanitised Markdown: nothing in
@@ -181,8 +185,13 @@ one is put into the page as markup, a link is made only for http and https addre
 20,000 characters is cut with a note saying how much is not shown. Opening a tool row asks for its
 output or diff with `conversationDetail` (4 KiB of output and 64 KiB of diff are drawn, and the cut is
 said), and a permission waiting on the pane is drawn in the list after the tool it was asked for, as the
-same card the top of the drawer has. Export is not offered for a structured pane (there is no stored
-transcript to export), and the toolbar says so. Every text is drawn as text.
+same card the top of the drawer has. A pane with no exporter has no Export item (there is no stored
+transcript to export). Every text is drawn as text.
+
+The drawer's panels share one border (`--panel-line`, the shell's `--line`) and the drawer's text is on three
+sizes (`--fs-sm`, `--fs-md`, `--fs-lg`: 11, 12 and 13 px), both set on `.drawer-body` in `drawer/drawer.css`.
+Screenshots of the old layout (activity line, usage text, a row of labelled selectors and a toolbar of five
+buttons above the log, which stopped at half the window height) no longer match.
 
 The prompt box (T212) takes several lines: Enter or Ctrl/Command+Enter sends and Shift+Enter adds a line,
 and the box grows from two to ten rows. Up on the first line and Down on the last step through the pane's
