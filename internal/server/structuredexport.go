@@ -59,55 +59,59 @@ func (s *Server) structuredExport(c *controlClient, cmd command) {
 	agentID := src.Pane.Agent
 	id, dir, req, thinking := cmd.ID, cmd.Dir, cmd.Req, cmd.Thinking
 	go func() {
-		defer structuredExporting.Delete(id)
-		// A panic is still answered, so that the window does not wait for ever.
-		defer func() {
-			if r := recover(); r != nil {
-				s.reportPanic(c, "exporting a conversation", r)
-				refuse(c, cmd, errStructured(structuredExportFailed))
+		// The pane is freed before the answer is sent, so that a window which
+		// starts another export on the answer is not told one is still running.
+		answer := func() (send func()) {
+			// A panic is still answered, so that the window does not wait for ever.
+			defer func() {
+				if r := recover(); r != nil {
+					structuredExporting.Delete(id)
+					s.reportPanic(c, "exporting a conversation", r)
+					send = func() { refuse(c, cmd, errStructured(structuredExportFailed)) }
+				}
+			}()
+			base, err := src.CheckedScrubber()
+			if err != nil {
+				return func() { refuse(c, cmd, errStructured(structuredExportNoScrub)) }
 			}
+			sc := base.WithDeadline(time.Now().Add(structuredExportBudget))
+			opts := mdexport.Options{
+				Title:    title,
+				Agent:    agentID,
+				Exported: time.Now().UTC().Format(time.RFC3339),
+				Thinking: thinking,
+				Scrub: func(t string) (string, int) {
+					out, reds := sc.Scrub(baton.CleanText(t))
+					return out, baton.RedactionCount(reds)
+				},
+			}
+			if thinking {
+				opts.ThinkingText = func(eid string) (string, bool) {
+					d, ok := rt.Detail(eid)
+					return d.Text, ok
+				}
+			}
+			res, err := exportRender(entries, opts)
+			var path string
+			if err == nil {
+				path, err = mdexport.WriteNew(dir, title, time.Now().Format("20060102-150405"), []byte(res.Markdown))
+			}
+			if err != nil {
+				return func() { refuse(c, cmd, errStructured(exportWords(err))) }
+			}
+			m := teamResultMsg{Type: "teamResult", Req: req, Op: "structuredExport", OK: true, Path: path, Entries: res.Entries, Redacted: res.Redactions}
+			var warn []string
+			if res.Cut {
+				warn = append(warn, "The file was cut at the size limit and later entries are left out")
+			}
+			if mdexport.ScrubbedAway(res.Markdown) > 0 {
+				warn = append(warn, "Some text was too large or took too long to redact, so it was replaced with a mark and is not in the file")
+			}
+			m.Warning = strings.Join(warn, ". ")
+			return func() { c.sendJSON(m) }
 		}()
-		base, err := src.CheckedScrubber()
-		if err != nil {
-			refuse(c, cmd, errStructured(structuredExportNoScrub))
-			return
-		}
-		sc := base.WithDeadline(time.Now().Add(structuredExportBudget))
-		opts := mdexport.Options{
-			Title:    title,
-			Agent:    agentID,
-			Exported: time.Now().UTC().Format(time.RFC3339),
-			Thinking: thinking,
-			Scrub: func(t string) (string, int) {
-				out, reds := sc.Scrub(baton.CleanText(t))
-				return out, baton.RedactionCount(reds)
-			},
-		}
-		if thinking {
-			opts.ThinkingText = func(eid string) (string, bool) {
-				d, ok := rt.Detail(eid)
-				return d.Text, ok
-			}
-		}
-		res, err := exportRender(entries, opts)
-		var path string
-		if err == nil {
-			path, err = mdexport.WriteNew(dir, title, time.Now().Format("20060102-150405"), []byte(res.Markdown))
-		}
-		if err != nil {
-			refuse(c, cmd, errStructured(exportWords(err)))
-			return
-		}
-		m := teamResultMsg{Type: "teamResult", Req: req, Op: "structuredExport", OK: true, Path: path, Entries: res.Entries, Redacted: res.Redactions}
-		var warn []string
-		if res.Cut {
-			warn = append(warn, "The file was cut at the size limit and later entries are left out")
-		}
-		if mdexport.ScrubbedAway(res.Markdown) > 0 {
-			warn = append(warn, "Some text was too large or took too long to redact, so it was replaced with a mark and is not in the file")
-		}
-		m.Warning = strings.Join(warn, ". ")
-		c.sendJSON(m)
+		structuredExporting.Delete(id)
+		answer()
 	}()
 }
 
