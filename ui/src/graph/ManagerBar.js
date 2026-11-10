@@ -105,11 +105,13 @@ export function outcomeOf(snap, pending) {
   return { kind: "sending", text: "Sending…" };
 }
 
-/** sendTo sends text to a pane as a paneSend with a req of its own, for a button that answers or asks something. It returns the mark outcomeOf follows, or null when the socket did not take the command. */
-export function sendTo(send, snap, pane, text) {
+/** sendTo sends text to a pane as a paneSend with a req of its own, for a button that answers or asks something; images, when given, are the paths attachImageResult returned. It returns the mark outcomeOf follows, or null when the socket did not take the command. */
+export function sendTo(send, snap, pane, text, images) {
   const s = snap || {};
   const mark = { pane, notice: s.notice ? s.notice.seq : 0, sent: s.sent ? s.sent.seq : 0, hello: s.hello || null, req: newReq() };
-  return send({ cmd: "paneSend", id: pane, text, req: mark.req }) ? mark : null;
+  const cmd = { cmd: "paneSend", id: pane, text, req: mark.req };
+  if (Array.isArray(images) && images.length) cmd.images = images;
+  return send(cmd) ? mark : null;
 }
 
 /**

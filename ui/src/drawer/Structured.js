@@ -46,9 +46,10 @@
 //   (the reply to the ask made for it). Tab takes the highlighted name; Enter takes one only after an
 //   arrow key or the mouse has chosen it, and otherwise sends. Choosing one writes "@path" into the
 //   text; the file is not read here. A window reached through the relay has no list.
-// - When the agent takes images (capabilities.image of the push), a picture pasted, dropped or chosen
-//   with Attach image is saved by the desktop (attachImage) and its path goes into the text as
-//   "[image: path]", for the agent to read. One picture at a time is in flight.
+// - When the agent takes images (capabilities.image of the push), pictures pasted, dropped on the
+//   drawer or chosen with Attach image become chips beside the text (Attachments.js), up to 4. Each is
+//   saved by the desktop (attachImage, one at a time, matched by req) and its path is sent as paneSend's
+//   images; nothing is written into the text.
 //
 // - Escape stops a running turn, and so does Ctrl+C when no text is selected (interruptModel.js): both
 //   send what the Stop button sends. All three keep the waiting prompts; Clear in the queue list drops them.
