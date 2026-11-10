@@ -141,6 +141,19 @@ the bridge's cap (10000 entries) plus the history kept across restarts (2000). A
 `conversationDetail` for an entry the runtime no longer holds answers with a one-line notice. Like the
 push, they are for a window on this machine; a window through the relay is refused them.
 
+Every entry carries `ts`, an RFC 3339 time in UTC, and the drawer shows it at the foot of a row.
+
+A `notice` entry has an optional `tone` (API 1.31, cap `noticeTone`). The only value is `failure`, set on a
+notice that says something went wrong: a turn that ended for any reason but a normal end or a cancel
+(`Turn ended: max_tokens`), a session that could not be resumed or a fork that could not be made, and a
+restart that failed. Every other notice has no `tone`. A window draws a failure notice in its error colour
+and as a block, apart from a plain note. A value a window does not know is drawn as a plain notice.
+
+A `prompt` entry has an optional `typed` (API 1.32, cap `promptTyped`), `true` on a prompt the person typed in
+the pane's own box. A replayed prompt, a prompt Flockdeck or another agent sent (the opening prompt, a wake, a
+shell's output, mail) and any prompt of a session read from disk have no `typed`. A window offers Retry on a
+typed prompt only, and not on one with `images`. The text of a prompt is never cut on the wire.
+
 ## 4. Limits and throttling
 
 | What | Limit |
@@ -255,6 +268,19 @@ starts open while something is left and closed when all is done, and the person'
 cut to 200 characters on one line, control and invisible characters removed, drawn as text. It follows every
 push. The markdown plan (`planMarkdown`) is not drawn.
 
+
+**Rows and states** (`drawer/conv/rows.js`, `Conversation.js`). The person's prompt is a bubble on the
+right and the agent's reply runs the full width with no bubble; there is no "You" or "Agent" label (a
+screen reader still gets the speaker from hidden text). The entry's `ts` is shown as a clock time at the foot
+of a prompt or reply, on hover and focus, and always on a touch screen. A prompt has Copy; the newest prompt
+has Retry while no turn runs, which sends its text again through the same path as Send. A prompt over 4,000
+characters, a reply over 20,000 and tool output over 4 KiB are cut with the amount left out, and Show all
+draws more of them in pieces (about 4,000 or 20,000 characters, never one node) up to 100,000 characters for a
+prompt, 200,000 for a reply and 256 KiB for tool output; Copy gives all of the text whatever is drawn. An
+empty conversation lists `/`, `@`, `!` and, for an agent that takes pictures, paste. Loading is a skeleton. A
+refusal, or a watch the desk refused, is the Changes tab's error block with Retry (not in a window through the
+relay). A notice with `tone` `failure` is drawn as an error block. An entry of a kind the page does not know
+is still drawn as "Unknown entry".
 
 ## 6. Using a structured pane
 
@@ -592,7 +618,7 @@ sentence. A window may send at most 6 `paneSend` calls with pictures in 10 secon
 on a goroutine of their own, not on the window's read loop. A pane that is not a structured pane refuses
 pictures with the same notice.
 
-Since API 1.32 (cap `attachImageReq`), `attachImage` takes a `req` and `attachImageResult` copies it back,
+Since API 1.33 (cap `attachImageReq`), `attachImage` takes a `req` and `attachImageResult` copies it back,
 on a refusal too, so a window attaching several pictures matches each result to its chip. A window with no
 `req` gets none back, as before. The desk allows 10 `attachImage` calls in 10 seconds per window, so the
 window sends a prompt's pictures one at a time, waiting for each result, and holds back a call when ten
@@ -618,5 +644,5 @@ the image header could be read) and `upload`, the file's name in the pane's uplo
 bytes are not kept in the conversation. A window that shows a thumbnail has to ask for the file, and it
 may be gone.
 
-The window's composer sends the pictures as `images` and writes nothing into the text (since API 1.32; see
+The window's composer sends the pictures as `images` and writes nothing into the text (since API 1.33; see
 the prompt box above).

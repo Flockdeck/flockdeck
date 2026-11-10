@@ -4,7 +4,7 @@ import { useState } from "../../vendor/hooks.mjs";
 import { html } from "../../html.js";
 import { copyText } from "./markdown.js";
 
-export function CopyReply({ text, copy = copyText }) {
+export function CopyReply({ text, copy = copyText, label = "Copy this reply" }) {
   const [said, setSaid] = useState("");
   const go = () => {
     copy(String(text || "")).then((ok) => {
@@ -12,7 +12,7 @@ export function CopyReply({ text, copy = copyText }) {
       setTimeout(() => setSaid(""), 1500);
     });
   };
-  return html`<button type="button" class="conv-copy-reply" aria-label="Copy this reply" onClick=${go}>${said || "Copy"}</button>`;
+  return html`<button type="button" class="conv-copy-reply" aria-label=${label} onClick=${go}>${said || "Copy"}</button>`;
 }
 
 /** lastReply is the text of the newest reply among the entries, or "". */

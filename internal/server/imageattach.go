@@ -21,7 +21,7 @@ import (
 
 // attachImageResultMsg answers an attachImage command: the saved path, or an
 // error the phone shows in place of the chip it was about to draw. Req is the
-// request's own req, echoed (since API 1.32), so a window sending several
+// request's own req, echoed (since API 1.33), so a window sending several
 // pictures matches each result to its chip.
 type attachImageResultMsg struct {
 	Type  string `json:"type"`

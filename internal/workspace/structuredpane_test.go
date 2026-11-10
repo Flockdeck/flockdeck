@@ -643,6 +643,10 @@ func TestAStartErrorKeepsTheHistory(t *testing.T) {
 	if len(p.history) != 4 || p.history[0].Text != "earlier 0" || !strings.Contains(p.history[3].Text, "could not be started") {
 		t.Errorf("history after the failed start: %v", idsOf(p.history))
 	}
+	// The line is a failure notice, so the window draws it as one.
+	if n := len(p.history); n > 0 && (p.history[n-1].Kind != transcript.KindNotice || p.history[n-1].Tone != transcript.ToneFailure) {
+		t.Errorf("the restart-failed line is %+v, want a notice with the failure tone", p.history[n-1])
+	}
 }
 
 // Two failures in a row leave one failure line, the later one, after the history.
@@ -705,5 +709,47 @@ func TestFailureLinesAtTheCapKeepUniqueIDs(t *testing.T) {
 			t.Errorf("entry id %q is shown twice: %v", e.ID, idsOf(p.history))
 		}
 		ids[e.ID] = true
+	}
+}
+
+// The person's text sent into a structured pane is marked typed, which is what a
+// window needs to offer Retry; the opening prompt and a wake are not.
+func TestOnlyTextSentToThePaneByThePersonIsMarkedTyped(t *testing.T) {
+	ws, lead, _ := structuredCrew(t)
+	id := spawnStructured(t, ws, lead, "plain")
+	statusWithin(t, ws, id, session.StatusIdle)
+	if err := ws.Runtime(ws.Pane(id)).Wake("plain wake"); err != nil {
+		t.Fatal(err)
+	}
+	waitPrompts := func(n int) {
+		for end := time.Now().Add(30 * time.Second); time.Now().Before(end); time.Sleep(25 * time.Millisecond) {
+			es, _ := ws.StructuredEntries(id)
+			prompts, last := 0, ""
+			for _, e := range es {
+				if e.Kind == transcript.KindPrompt {
+					prompts++
+				}
+				last = e.Kind
+			}
+			if st, _ := ws.Pane(id).Status(); prompts >= n && last == transcript.KindReply && st == session.StatusIdle {
+				return
+			}
+		}
+		t.Fatalf("never reached %d prompts", n)
+	}
+	waitPrompts(2)
+	if _, err := ws.SendToPane(id, "plain typed", false); err != nil {
+		t.Fatal(err)
+	}
+	waitPrompts(3)
+	es, _ := ws.StructuredEntries(id)
+	typed := map[string]bool{}
+	for _, e := range es {
+		if e.Kind == transcript.KindPrompt {
+			typed[e.Text] = e.Typed
+		}
+	}
+	if len(typed) != 3 || !typed["plain typed"] || typed["plain wake"] || typed["plain"] {
+		t.Errorf("typed by prompt: %v", typed)
 	}
 }

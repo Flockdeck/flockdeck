@@ -389,6 +389,7 @@ test("a jump from a search result lands on the entry in the conversation panel",
     assert.equal(dom.document.activeElement.getAttribute("data-entry"), "e2");
     // A conversation not yet there, or refused, has no toolbar.
     render(html`<${Conversation} conv=${null} />`, container);
+    await settle();
     assert.equal(container.find(".conv-toolbar"), null);
   } finally {
     restore();

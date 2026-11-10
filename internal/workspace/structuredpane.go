@@ -81,7 +81,7 @@ func (w *Workspace) startStructured(p *Pane, spec agent.Spec) {
 		// two are never given one id. A failure straight after a failure takes its
 		// place, so a pane that cannot start does not push the conversation out.
 		p.failedSeq++
-		note := transcript.Entry{ID: fmt.Sprintf("restart-failed-%d", p.failedSeq), Kind: transcript.KindNotice,
+		note := transcript.Entry{ID: fmt.Sprintf("restart-failed-%d", p.failedSeq), Kind: transcript.KindNotice, Tone: transcript.ToneFailure,
 			TS: time.Now().UTC().Format(time.RFC3339), Text: "The agent could not be started again: " + err.Error()}
 		keep := prior
 		if n := len(keep); n > 0 && strings.HasPrefix(keep[n-1].ID, "restart-failed-") {
@@ -678,7 +678,7 @@ func (w *Workspace) sendImagesTo(p *Pane, text string, images []structured.Image
 	if !ok {
 		return ErrSendImages
 	}
-	err := sr.rt.SendImages(text, images)
+	err := sr.rt.SendTyped(text, images)
 	if errors.Is(err, acp.ErrNoImages) {
 		return ErrSendImages
 	}

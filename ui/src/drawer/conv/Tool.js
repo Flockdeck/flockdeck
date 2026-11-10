@@ -10,7 +10,10 @@
 //
 // The text is what a tool or an agent said. It is drawn as text.
 import { html } from "../../html.js";
+import { useState } from "../../vendor/hooks.mjs";
 import { capBytes, cutWords } from "./cap.js";
+import { chunkText } from "./chunks.js";
+import { CopyReply } from "./CopyReply.js";
 import { Diff } from "./Diff.js";
 
 /** OUTPUT_CAP is how many bytes of a tool's output are drawn. */
@@ -20,12 +23,25 @@ export const GONE_WORDS = "No longer available.";
 export const FAILED_WORDS = "Could not load. Open again to retry.";
 export const NOT_ASKED_WORDS = "Not connected to Flockdeck, so the full output was not asked for.";
 
-/** Output is a tool's output text, cut at OUTPUT_CAP with the cut said. */
+/** OUTPUT_ALL_CAP is how many bytes Show all draws, in pieces of OUTPUT_CHUNK characters. */
+export const OUTPUT_ALL_CAP = 256 << 10;
+export const OUTPUT_CHUNK = 4000;
+
+/** Output is a tool's output text, cut at OUTPUT_CAP with the cut said. A cut one has Show all, which
+ *  draws up to OUTPUT_ALL_CAP in pieces and not as one node, and Copy, which gives all of it. */
 export function Output({ text }) {
-  const cut = capBytes(text, OUTPUT_CAP);
+  const [all, setAll] = useState(false);
+  const cut = capBytes(text, all ? OUTPUT_ALL_CAP : OUTPUT_CAP);
+  const long = all || cut.more > 0;
   return html`<div class="conv-output">
-    <pre class="conv-output-text">${cut.text}</pre>
+    <pre class="conv-output-text">${all ? chunkText(cut.text, OUTPUT_CHUNK).map((c, i) => html`<span key=${i}>${c}</span>`) : cut.text}</pre>
     ${cut.more > 0 ? html`<p class="conv-cut" data-cut="output">${cutWords("Output", cut.more)}</p>` : null}
+    ${long
+      ? html`<div class="conv-foot is-kept">
+          <button type="button" class="conv-showall" aria-expanded=${all ? "true" : "false"} onClick=${() => setAll(!all)}>${all ? "Show less" : "Show all"}</button>
+          <${CopyReply} text=${text} label="Copy this output" />
+        </div>`
+      : null}
   </div>`;
 }
 

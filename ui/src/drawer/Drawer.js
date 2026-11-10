@@ -292,7 +292,7 @@ function DrawerBody({ store, snap = null, node, pane = null, now, maximised = fa
       </div>
       ${hasConv
         ? html`<div class="drawer-panel" role="tabpanel" id="drawer-panel-conversation" aria-labelledby="drawer-tab-conversation" hidden=${shown !== "conversation"}>
-            <${Conversation} conv=${conv} onOlder=${onOlder} details=${details} onDetail=${onDetail} pending=${pending}
+            <${Conversation} conv=${conv} onOlder=${onOlder} details=${details} onDetail=${onDetail} pending=${pending} onRetry=${state.remote ? null : () => store.retryConversation()}
               search=${state.search} onSearch=${onSearch} onClearSearch=${onClearSearch} canExport=${canExport} onExport=${() => tx.exportTranscript(node.pane)} />
             ${terminal && !state.remote && !isViewer(state) && !node.shell
               ? html`<${Message} key=${node.pane} pane=${node.pane} name=${node.name} store=${store} />`

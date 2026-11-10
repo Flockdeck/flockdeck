@@ -147,7 +147,8 @@ func (w *Workspace) SendToPaneImages(id, text string, images []structured.Image,
 		// A prompt over the protocol, queued behind a running turn; no keys are
 		// typed, because there is no terminal.
 		var err error
-		if len(images) > 0 {
+		if _, ok := p.setRuntime().(*structuredRuntime); ok || len(images) > 0 {
+			// The person's own text: its entry is marked typed, which Retry needs.
 			err = w.sendImagesTo(p, text, images)
 		} else {
 			err = w.Runtime(p).Wake(text)
