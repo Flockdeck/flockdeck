@@ -61,7 +61,8 @@
         "state": { "const": "queued" },
         "peer": { "type": "string", "maxLength": 100, "description": "For mail: the sender's label, one line, with format and direction characters removed. Show it beside the text and never inside it." },
         "text": { "type": "string", "description": "The prompt, or for mail the message body, cut to 2000 bytes. Plain text; draw it as text and never as markup. For kind user it is the person's text as typed (tabs, indentation and joiners kept, control characters other than line break and tab removed), so an edit can start from it; mail has its format and direction characters (Unicode Cf) removed." },
-        "clipped": { "const": true, "description": "Present when text was cut. Such a prompt cannot be edited; the desk refuses an edit of one." }
+        "clipped": { "const": true, "description": "Present when text was cut. Such a prompt cannot be edited; the desk refuses an edit of one." },
+        "images": { "type": "integer", "minimum": 1, "description": "How many pictures the prompt carries (since API 1.30, cap structuredImages). Absent for none. Show it as \"+N images\"; an edit of the text keeps them." }
       }
     },
     "filesMessage": {

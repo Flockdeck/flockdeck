@@ -82,7 +82,7 @@ refused in the same words, so a window probing for ids learns nothing: the `team
 | `status` | `working`, `waiting` or `idle`, while the phase is `ready`. |
 | `activity` | A line naming what a working agent is doing. |
 | `queued` | How many prompts wait behind the running turn. |
-| `queue` | The waiting prompts, next first (API 1.19): `id`, `pos`, `kind` (`user`, `mail` or `flockdeck`), `state` (`queued`), `peer` (mail only), `text` (cut to 2000 bytes), `clipped` and `images` (how many pictures the prompt carries, absent for none; an edit of the text keeps them). For `user` the text is exactly as typed, so an edit starts from it; for `mail` the text and `peer` have format and direction characters (Unicode Cf, such as U+202E) removed. A message from another agent is `kind` `mail` with the sender in `peer`; its body never carries the sender, and a window draws `peer` and `text` apart. Prompts the person sent while the turn runs, and mail handed over by the delivery service, are in the same list; mail past the 16 the runtime holds waits in the store and is not listed. |
+| `queue` | The waiting prompts, next first (API 1.19): `id`, `pos`, `kind` (`user`, `mail` or `flockdeck`), `state` (`queued`), `peer` (mail only), `text` (cut to 2000 bytes), `clipped` and `images` (since API 1.30: how many pictures the prompt carries, absent for none; an edit of the text keeps them). For `user` the text is exactly as typed, so an edit starts from it; for `mail` the text and `peer` have format and direction characters (Unicode Cf, such as U+202E) removed. A message from another agent is `kind` `mail` with the sender in `peer`; its body never carries the sender, and a window draws `peer` and `text` apart. Prompts the person sent while the turn runs, and mail handed over by the delivery service, are in the same list; mail past the 16 the runtime holds waits in the store and is not listed. |
 | `shell` | The person's own commands, the oldest first, at most 8 (API 1.20): `id`, `cmd` (one line, cut to 500 characters), `state` (`running`, `exited`, `stopped`, `timeout` or `failed`), `code` (only for `exited`), `text` and `cut`. `text` is the output as plain text: escape sequences, carriage-return overwrites, control characters other than line break and tab, and format characters (U+202E and the like) are removed, and it is cut to its newest 8 KiB (`cut` says the start was let go; the runtime keeps at most 64 KiB). A window draws it as text only. |
 | `err` | The last thing that went wrong, as one cleaned line. It says what last went wrong and not that something is wrong now; show it with the phase and status. |
 | `setup` | While the phase is `needs setup`: `kind` (`login`; before API 1.16 also `node` and `install`), a `message` (the cause) and a `fix` (what to do about it, when there is advice). |
@@ -538,6 +538,8 @@ The new pane's window shows the fork notice but not the earlier turns. Files the
   pane (`docs/team-graph.md`, section 6).
 
 ### Pictures in a prompt
+
+Since API 1.30 (cap `structuredImages`).
 
 `paneSend` takes `images`, a list of `{ path }`, where each path is what `attachImageResult` returned for a
 picture attached to that pane. The pictures go to the agent as ACP `image` content blocks after the text,
