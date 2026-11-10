@@ -66,14 +66,46 @@ func (s *Store) Save(b Baton) error {
 	if err := os.MkdirAll(s.dir, 0o700); err != nil {
 		return err
 	}
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	// The text goes into a file of its own first and is linked under the
+	// baton's name once it is whole, so a reader or a crash never meets a
+	// half-written baton. A link refuses an existing name, which keeps the
+	// rule that a baton is never replaced.
+	tmp := filepath.Join(s.dir, "."+b.ID+".md.tmp")
+	if err := writeNew(tmp, Render(b)); err != nil {
+		if errors.Is(err, fs.ErrExist) {
+			// A leftover of a crashed save of this id, or a save of it in
+			// flight. Neither is a baton, so the caller can try again.
+			return fmt.Errorf("a save of baton %s is already in progress: %w", b.ID, err)
+		}
+		return err
+	}
+	defer os.Remove(tmp)
+	err := os.Link(tmp, path)
 	if errors.Is(err, fs.ErrExist) {
 		return ErrExists
+	}
+	if err == nil {
+		return nil
+	}
+	// A folder that cannot hold hard links (FAT, some network shares) gets the
+	// old way: create the final name and write into it.
+	return writeNew(path, Render(b), true)
+}
+
+// writeNew creates path, which must not exist, and writes text to it. With
+// removeOnFail a failed write removes the file again.
+func writeNew(path, text string, removeOnFail ...bool) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if errors.Is(err, fs.ErrExist) {
+		if len(removeOnFail) > 0 {
+			return ErrExists
+		}
+		return err
 	}
 	if err != nil {
 		return err
 	}
-	_, werr := f.WriteString(Render(b))
+	_, werr := f.WriteString(text)
 	if cerr := f.Close(); werr == nil {
 		werr = cerr
 	}

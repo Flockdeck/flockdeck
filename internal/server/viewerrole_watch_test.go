@@ -54,7 +54,7 @@ func TestAWatcherDoesNotRepaintThePane(t *testing.T) {
 		return steps
 	}
 
-	srv, _ := newTestServer(t)
+	srv, ws := newTestServer(t)
 	srv.rp = rp
 	paneID := nextState(t, dialControl(t, srv), nil).Tabs[0].Root.Pane
 	setAccess(t, srv, "watch-dev", "viewer", true)
@@ -66,6 +66,14 @@ func TestAWatcherDoesNotRepaintThePane(t *testing.T) {
 		t.Fatalf("a watcher opening a full-screen pane resized it %d times", n)
 	}
 	watcher.CloseNow()
+	// Closing the socket is not the server letting go of it: the stream
+	// unsubscribes when it notices. The repaint is made only for a window that
+	// is alone on the pane (armRepaint), so a device that connected before the
+	// watcher was gone was one of two and was never repainted for.
+	waitFor(t, func() bool {
+		n, ok := ask(srv, func() int { return ws.Pane(paneID).Sess.Subscribers() })
+		return ok && n == 0
+	})
 
 	// A device that can type, opening the same kind of pane, is repainted for.
 	full := dialRemotePTYDevice(t, ts, paneID, "full-dev")

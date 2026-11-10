@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strings"
 	"sync"
@@ -303,5 +304,134 @@ func TestMCPEndpointsSayWhenNothingIsInstalled(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusMethodNotAllowed {
 		t.Errorf("GET = %d", resp.StatusCode)
+	}
+}
+
+func TestMCPSpawnActsAsThePaneOfTheTokenAndMirrorsTheCLI(t *testing.T) {
+	srv, _ := newServer(t)
+	var seen []SpawnRequest
+	srv.SetSpawnHandler(func(r SpawnRequest) (SpawnResult, error) {
+		seen = append(seen, r)
+		return SpawnResult{PaneID: "p9", Cwd: "/wt", Branch: r.Branch, Role: r.Role}, nil
+	})
+	a, b := srv.IssuePaneToken("pA"), srv.IssuePaneToken("pB")
+	res, err := MCPSpawn(context.Background(), srv.BaseURL(), a, MCPSpawnBody{
+		Task: " build it ", Role: "worker", Name: "the build", Tab: "work", Worktree: "feat/x", Split: true, Agent: "claude", Model: "m", Terminal: true,
+	})
+	if err != nil || res.PaneID != "p9" || res.Branch != "feat/x" {
+		t.Fatalf("spawn = %+v, %v", res, err)
+	}
+	if _, err := MCPSpawn(context.Background(), srv.BaseURL(), b, MCPSpawnBody{Task: "t", NoWorktree: true}); err != nil {
+		t.Fatal(err)
+	}
+	if len(seen) != 2 {
+		t.Fatalf("the handler saw %d requests", len(seen))
+	}
+	g := seen[0]
+	if g.Parent != "pA" || g.Task != "build it" || g.Role != "worker" || g.Label != team.PaneLabelText("the build") || g.Tab != "work" ||
+		g.Branch != "feat/x" || !g.Split || g.Agent != "claude" || g.Model != "m" || !g.Terminal || g.Ctx == nil {
+		t.Errorf("first request = %+v", g)
+	}
+	if g.Shell || g.Baton != "" || g.TaskID != "" || g.Record || g.BatonElsewhere || g.Token != "" {
+		t.Errorf("a field the tool does not offer was set: %+v", g)
+	}
+	if seen[1].Parent != "pB" || !seen[1].NoWorktree {
+		t.Errorf("second request = %+v", seen[1])
+	}
+}
+
+func TestMCPSpawnRefusesWhatTheCLIRefuses(t *testing.T) {
+	srv, _ := newServer(t)
+	calls := 0
+	srv.SetSpawnHandler(func(SpawnRequest) (SpawnResult, error) { calls++; return SpawnResult{PaneID: "p"}, nil })
+	tok := srv.IssuePaneToken("pA")
+	for name, body := range map[string]MCPSpawnBody{
+		"no task":              {},
+		"blank task":           {Task: "  "},
+		"worktree and none":    {Task: "x", Worktree: "b", NoWorktree: true},
+		"tab with a line feed": {Task: "x", Tab: "a\nb"},
+		"tab too long":         {Task: "x", Tab: strings.Repeat("t", MaxTabName+1)},
+	} {
+		if _, err := MCPSpawn(context.Background(), srv.BaseURL(), tok, body); err == nil {
+			t.Errorf("%s: spawned", name)
+		}
+	}
+	if calls != 0 {
+		t.Errorf("the handler ran %d times for refused requests", calls)
+	}
+}
+
+func TestMCPSpawnRefusesFieldsAndTokensItDoesNotKnow(t *testing.T) {
+	srv, _ := newServer(t)
+	calls := 0
+	srv.SetSpawnHandler(func(SpawnRequest) (SpawnResult, error) { calls++; return SpawnResult{PaneID: "p"}, nil })
+	tok := srv.IssuePaneToken("pA")
+	// A refused call counts against the limit too, so the clock moves on.
+	now := time.Unix(1000, 0)
+	srv.mcpNow = func() time.Time { return now }
+	for _, body := range []string{
+		`{"task":"x","parent":"pB"}`, `{"task":"x","token":"t"}`, `{"task":"x","shell":true}`,
+		`{"task":"x","baton":"self"}`, `{"task":"x","taskId":"1"}`, `{"task":"x","record":true}`,
+	} {
+		now = now.Add(spawnEvery)
+		if code, _ := rawMCP(t, srv, PathMCPSpawn, tok, body); code != 400 {
+			t.Errorf("%s = %d, want 400", body, code)
+		}
+	}
+	if code, _ := rawMCP(t, srv, PathMCPSpawn, "", `{"task":"x"}`); code != 403 {
+		t.Errorf("no token = %d, want 403", code)
+	}
+	if code, _ := rawMCP(t, srv, PathMCPSpawn, "nope", `{"task":"x"}`); code != 403 {
+		t.Errorf("wrong token = %d, want 403", code)
+	}
+	if calls != 0 {
+		t.Errorf("the handler ran %d times", calls)
+	}
+}
+
+func TestMCPSpawnWithoutAHandlerIsUnavailable(t *testing.T) {
+	srv, _ := newServer(t)
+	tok := srv.IssuePaneToken("pA")
+	if code, _ := rawMCP(t, srv, PathMCPSpawn, tok, `{"task":"x"}`); code != 503 {
+		t.Errorf("= %d, want 503", code)
+	}
+}
+
+func TestMCPSpawnPassesTheRefusalOfTheHandlerOn(t *testing.T) {
+	srv, _ := newServer(t)
+	srv.SetSpawnHandler(func(SpawnRequest) (SpawnResult, error) {
+		return SpawnResult{}, errors.New("a worker may not start a manager")
+	})
+	tok := srv.IssuePaneToken("pA")
+	_, err := MCPSpawn(context.Background(), srv.BaseURL(), tok, MCPSpawnBody{Task: "x", Role: "manager"})
+	if err == nil || !strings.Contains(err.Error(), "may not start a manager") {
+		t.Errorf("err = %v", err)
+	}
+}
+
+func TestMCPSpawnIsRateLimitedPerPane(t *testing.T) {
+	srv, _ := newServer(t)
+	now := time.Unix(1000, 0)
+	srv.mcpNow = func() time.Time { return now }
+	srv.SetSpawnHandler(func(SpawnRequest) (SpawnResult, error) { return SpawnResult{PaneID: "p"}, nil })
+	a, b := srv.IssuePaneToken("pA"), srv.IssuePaneToken("pB")
+	for i := 0; i < spawnBurst; i++ {
+		if code, _ := rawMCP(t, srv, PathMCPSpawn, a, `{"task":"x"}`); code != 200 {
+			t.Fatalf("spawn %d = %d", i, code)
+		}
+	}
+	if code, _ := rawMCP(t, srv, PathMCPSpawn, a, `{"task":"x"}`); code != 429 {
+		t.Errorf("over the burst = %d, want 429", code)
+	}
+	if code, _ := rawMCP(t, srv, PathMCPSpawn, b, `{"task":"x"}`); code != 200 {
+		t.Errorf("another pane = %d, want its own bucket", code)
+	}
+	// The send bucket is separate.
+	if code, _ := rawMCP(t, srv, PathMCPPeers, a, `{}`); code == 429 {
+		t.Error("list_peers shares the spawn bucket")
+	}
+	now = now.Add(spawnEvery)
+	if code, _ := rawMCP(t, srv, PathMCPSpawn, a, `{"task":"x"}`); code != 200 {
+		t.Errorf("after the refill = %d, want 200", code)
 	}
 }

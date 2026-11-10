@@ -397,6 +397,7 @@ func TestAnUnrelatedSaveDoesNotWriteBackAGrantTheFileTookAway(t *testing.T) {
 func TestTheGateDoesNotQuarantineADamagedFileAndCachesTheRead(t *testing.T) {
 	e := newApproveEnv(t)
 	e.allow(t, "d1")
+	quietGit(t, e.srv)
 	path := prefsPath(t)
 	dir := filepath.Dir(path)
 	damaged := []byte("{ not json")

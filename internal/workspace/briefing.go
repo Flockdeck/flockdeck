@@ -147,6 +147,8 @@ func (c PaneContext) render(viaPrompt bool) string {
 		}
 
 		writeCommandLine(&b, flockdeck)
+	} else if c.CanSpawn && !c.Shell && c.Structured && rights != spawnNone {
+		c.writeStructuredSpawn(&b, rights == spawnRoles)
 	}
 
 	b.WriteString("\n## The user's view\n\n" +
@@ -411,6 +413,31 @@ func (c PaneContext) writeTasks(b *strings.Builder) {
 			when += fmt.Sprintf(", at %s", c.Taken.Format("15:04 MST"))
 		}
 		fmt.Fprintf(b, "\nThe board %s: %s. This is a snapshot; `%s task list` is current.\n", when, c.TaskCounts.Phrase(), flockdeck)
+	}
+}
+
+// writeStructuredSpawn is the Starting agents section for a pane with no
+// terminal: it starts helpers with the spawn tool of Flockdeck's MCP server,
+// which takes the options of `flockdeck spawn` that suit an agent with no shell.
+func (c PaneContext) writeStructuredSpawn(b *strings.Builder, roles bool) {
+	b.WriteString("\n## Starting agents\n\n")
+	if roles {
+		fmt.Fprintf(b, "Your role may start agents in these roles: %s.", strings.Join(c.RoleSpawns, ", "))
+		if c.RolePlain {
+			b.WriteString(" It may also start an agent with no role.")
+		}
+		b.WriteString(" ")
+	}
+	b.WriteString("Start a helper with the `spawn` tool of the flockdeck MCP server. It takes `task` (required), `role`, `name`, `tab`, " +
+		"`worktree`, `no_worktree`, `split`, `agent`, `model` and `terminal`, which work as the flags of the same names on the spawn command do. " +
+		"The helper opens in a new tab titled after its task unless you give `tab` (one title for everything that belongs to one piece of work) or `split`. " +
+		"A helper with no role, or a worker, tester or docs one, gets a git worktree and a branch named from its task. " +
+		"The result has the new pane id and where it works; keep the id, and take others from `list_peers`. " +
+		"Each helper inherits nothing from your conversation, so its task has to stand on its own. ")
+	if roles {
+		b.WriteString("Your role is to hand work out, so start helpers without asking the user first, and only as many as the work needs.\n\n")
+	} else {
+		b.WriteString("Start helpers when the user asks for parallel work, and only as many as the work needs.\n\n")
 	}
 }
 

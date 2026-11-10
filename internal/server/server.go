@@ -204,6 +204,11 @@ type Server struct {
 	// that a test can set the package's and have no goroutine of an earlier
 	// server read it.
 	gitEvery time.Duration
+	// gitReads counts the refreshes of the panes' checkouts that are running
+	// on a goroutine of their own. A refresh reads the preferences file, which
+	// moves a damaged one aside, so a test that damages the file has to know
+	// none is still to come; see quietGit.
+	gitReads atomic.Int32
 
 	// loopDone is closed when the workspace goroutine returns. See Stopped.
 	loopDone chan struct{}
@@ -824,7 +829,11 @@ func (s *Server) refreshShownGit() {
 		for _, t := range s.ws.VisibleTabs() {
 			ids = append(ids, t.Tree.Panes()...)
 		}
-		go s.ws.RefreshGitOf(s.do, ids)
+		s.gitReads.Add(1)
+		go func() {
+			defer s.gitReads.Add(-1)
+			s.ws.RefreshGitOf(s.do, ids)
+		}()
 	})
 }
 
