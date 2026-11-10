@@ -704,3 +704,30 @@
 .info-rule { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
 .info-rule-text { flex: 1 1 14em; min-width: 0; overflow-wrap: anywhere; }
 .info-rule-dir { opacity: 0.7; overflow-wrap: anywhere; }
+/* The composer: images strip, text, one control row, then one status line. */
+.structured-prompt.composer { display: flex; flex-direction: column; flex-wrap: nowrap; align-items: stretch; gap: 6px; min-width: 0; }
+.composer-box { display: flex; flex-direction: column; min-width: 0; background: var(--bg-inset); border: 1px solid var(--line-strong); border-radius: var(--radius); }
+.composer-box:focus-within { border-color: var(--accent); }
+.composer-images { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 8px 0; }
+.composer-images:empty { display: none; }
+.composer .structured-input { flex: none; width: 100%; box-sizing: border-box; border: 0; background: transparent; resize: none; padding: 8px 10px; min-height: 44px; }
+.composer .structured-input:focus-visible { outline: none; }
+.composer-tools { display: flex; align-items: center; gap: 6px; padding: 4px 6px 6px; min-width: 0; }
+.composer-gap { flex: 1 1 auto; }
+.composer-tool { flex: none; min-width: 28px; height: 26px; padding: 0 6px; font: inherit; font-size: var(--fs-md); color: var(--fg-dim); background: transparent; border: 1px solid transparent; border-radius: var(--radius); cursor: pointer; }
+.composer-tool:hover:not(:disabled) { color: var(--fg); background: var(--bg-hover); }
+.composer-tool:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.composer-tool:disabled { opacity: 0.4; cursor: default; }
+.composer-tool[aria-disabled="true"] { opacity: 0.5; cursor: default; }
+.composer-tool[aria-disabled="true"]:hover { color: var(--fg-dim); background: transparent; }
+.composer-glyph { display: block; }
+.composer-send { white-space: nowrap; }
+.composer-send { flex: none; min-height: 26px; padding: 0 12px; font-weight: 600; color: var(--on-accent); background: var(--accent); border-color: var(--accent); }
+.composer-send:hover:not(:disabled) { background: var(--accent-strong); }
+.composer-send:disabled { opacity: 0.5; }
+.composer-send--stop, .composer-send--stop:hover { color: var(--fg); background: var(--bg-overlay); border-color: var(--line-strong); }
+.composer-status { flex: none; padding: 0 2px; font-size: var(--fs-sm); overflow-wrap: anywhere; }
+.composer-status--error { color: var(--exited); }
+.composer-status--warning { color: var(--waiting); }
+.composer-status--hint { color: var(--fg-dim); }
+.queue-head-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 4px 8px; }

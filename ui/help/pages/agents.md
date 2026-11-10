@@ -124,8 +124,8 @@ and the pane's opening prompt is marked "From Flockdeck". You cannot edit or rem
 Clear leaves them; Send now works on them, and a mail turn you cancel that way counts as handled. Send now ends the
 running turn (the agent is told to cancel) and sends that prompt next with the rest of the
 queue behind it, which is the nearest ACP has to steering an agent mid-turn: the agent does
-not read your text while it works. Stop ends the turn and drops the whole queue; Stop, keep
-queue ends the turn and goes on to the next prompt. Mail beyond the 16 the pane holds waits
+not read your text while it works. Stop ends the turn and goes on to the next prompt, as do Esc and
+Ctrl+C. Clear in the queue list drops the waiting prompts. While the agent works and the box has text, the button reads Send (queues) and Stop is hidden. Mail beyond the 16 the pane holds waits
 in the inbox and is not listed until there is room.
 
 While a turn runs, Esc stops it, and so does Ctrl+C when no text is selected (with text selected it

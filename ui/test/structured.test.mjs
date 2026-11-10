@@ -199,16 +199,16 @@ test("Send is off while a send is out, the refusal is an alert and goes when the
   }));
 
 test("a refusal does not take the keyboard from something the person moved to meanwhile", () =>
-  with_(push(), {}, async (m) => {
+  with_(push({ status: "working" }), {}, async (m) => {
     m.container.find(".structured-input").enter("run the tests");
     await settle();
     m.container.find(".structured-prompt").dispatch("submit");
     await settle();
     const box = m.container.find(".structured-input");
     const before = box.focusCalls;
-    m.container.find(".structured-stop").focus();
+    m.container.find(".composer-mention").focus();
     await refused(m, m.store.sent[0], "That agent is gone, so the text was not sent.");
-    assert.equal(box.focusCalls, before, "the refusal took the focus from Stop");
+    assert.equal(box.focusCalls, before, "the refusal took the focus from the @ button");
     assert.ok(m.container.find(".structured-note--send"), "the refusal was not said");
   }));
 
@@ -228,14 +228,14 @@ test("a text whose connection dropped before the desk answered is said and stays
   }));
 
 test("Stop sends structuredCancel for this pane, and a refusal is shown", () =>
-  with_(push(), {}, async (m) => {
+  with_(push({ status: "working" }), {}, async (m) => {
     m.container.find(".structured-stop").click();
     await settle();
     assert.equal(m.store.sent.length, 1);
     assert.equal(m.store.sent[0].cmd, "structuredCancel");
     assert.equal(m.store.sent[0].id, "p3");
     assert.ok(m.store.sent[0].req);
-    assert.equal(m.container.find(".structured-note"), null);
+    assert.equal(m.container.find(".structured-note--unsent"), null);
     await m.set({ cancelError: { id: "p3", error: "That pane has nothing running to stop" } });
     assert.equal(m.container.find(".structured-note").textContent, "That pane has nothing running to stop");
   }));
@@ -247,7 +247,7 @@ test("a Stop refusal shows the characters that reorder text", () =>
   }));
 
 test("a Stop the store did not send says so, and the words go when a Stop is sent or another pane is opened", () =>
-  with_(push(), {}, async (m) => {
+  with_(push({ status: "working" }), {}, async (m) => {
     let up = false;
     m.store.send = (cmd) => { m.store.sent.push(cmd); return up; };
     m.container.find(".structured-stop").click();
@@ -261,7 +261,7 @@ test("a Stop the store did not send says so, and the words go when a Stop is sen
     m.container.find(".structured-stop").click();
     await settle();
     assert.ok(m.container.find(".structured-note--unsent"));
-    await m.set({ structured: push({ id: "p4" }) }, { ...node, pane: "p4" });
+    await m.set({ structured: push({ id: "p4", status: "working" }) }, { ...node, pane: "p4" });
     assert.equal(m.container.find(".structured-note--unsent"), null, "the words followed the drawer to another pane");
   }));
 
@@ -275,7 +275,7 @@ test("on the real store, a Stop pressed between the socket opening and the hello
   const ws = FakeWebSocket.last;
   ws.open();
   try {
-    render(html`<${Structured} pane="p3" st=${push()} store=${store} />`, container);
+    render(html`<${Structured} pane="p3" st=${push({ status: "working" })} store=${store} />`, container);
     await settle();
     container.find(".structured-stop").click();
     await settle();
@@ -323,9 +323,9 @@ test("a Send the store did not send says so and keeps the draft; the words go wh
   }));
 
 test("the words and the draft stay with their pane: p3, p4, p3 shows nothing that was not pressed, and a draft is sent to the pane it was typed in", () =>
-  with_(push(), {}, async (m) => {
+  with_(push({ status: "working" }), {}, async (m) => {
     m.store.send = (cmd) => { m.store.sent.push(cmd); return cmd.cmd !== "structuredCancel" && cmd.id === "p4"; };
-    const to = (id) => m.set({ structured: push({ id }) }, { ...node, pane: id });
+    const to = (id) => m.set({ structured: push({ id, status: "working" }) }, { ...node, pane: id });
     // Stop fails on p3, then p4 is opened, then p3 again: the words are not pressed for p3 the second time.
     m.container.find(".structured-stop").click();
     await settle();
@@ -367,12 +367,12 @@ test("before the first push it says it is loading, and a refused watch says why"
   }));
 
 test("a cancel refusal is shown for its own pane and not for another one opened after it", () =>
-  with_(push(), {}, async (m) => {
+  with_(push({ status: "working" }), {}, async (m) => {
     await m.set({ cancelError: { id: "p3", error: "That pane has nothing running to stop" } });
-    assert.ok(m.container.find(".structured-note"));
-    await m.set({ structured: push({ id: "p9" }), cancelError: { id: "p3", error: "That pane has nothing running to stop" } }, { ...node, pane: "p9" });
+    assert.ok(m.container.find(".structured-note--unsent"));
+    await m.set({ structured: push({ id: "p9", status: "working" }), cancelError: { id: "p3", error: "That pane has nothing running to stop" } }, { ...node, pane: "p9" });
     assert.ok(m.container.find(".structured-stop"), "the other pane's view was not drawn");
-    assert.equal(m.container.find(".structured-note"), null, "pane p3's refusal was shown on pane p9");
+    assert.equal(m.container.find(".structured-note--unsent"), null, "pane p3's refusal was shown on pane p9");
   }));
 
 test("rows keep their DOM elements when entries come in below", () =>

@@ -28,7 +28,7 @@ let queueSeq = 0;
 
 /** QueueList is the list. rows is queueOf(push); result is the store's latest answer to a queue command,
  *  { id, req, ok, error }; working says a turn is running, so Send now ends it; focusBox puts the focus in the
- *  prompt box. */
+ *  prompt box. Stop is the composer's button and keeps these prompts; Clear here drops them. */
 export function QueueList({ rows, pane, store, result = null, working = false, focusBox = null }) {
   // The prompt being edited: { id, text, req } where req is the Save in flight, or "".
   const [edit, setEdit] = useState(null);
@@ -138,9 +138,9 @@ export function QueueList({ rows, pane, store, result = null, working = false, f
   </li>`;
   return html`<section ref=${root} class="structured-queue" aria-label="Waiting prompts" data-queue=${rows.length}>
     <p class="queue-head"><span>${rows.length === 1 ? "1 prompt waiting" : rows.length + " prompts waiting"}</span>
-      ${hasUserItems(rows)
+      <span class="queue-head-actions">${hasUserItems(rows)
         ? html`<button type="button" class="drawer-btn queue-clear" title=${rows.some((r) => r.mail || r.system) ? "Removes yours; messages from other agents and Flockdeck's own prompt stay" : "Removes every waiting prompt"} onClick=${() => run("clear")}>Clear</button>`
-        : null}</p>
+        : null}</span></p>
     <ol class="queue-list">${rows.map(item)}</ol>
     ${note ? html`<p class="structured-note structured-note--unsent" role="status">${note}</p>` : null}
     ${refused ? html`<p class="structured-note" role="status">${showControls(clip(refused, 300))}</p>` : null}
