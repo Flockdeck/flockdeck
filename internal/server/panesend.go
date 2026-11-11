@@ -1,5 +1,11 @@
 package server
 
+import (
+	"time"
+
+	"github.com/jmwri/flockdeck/internal/structured"
+)
+
 // paneSendMsg is the answer to a paneSend that was accepted. Queued says the
 // pane was in the middle of a turn, so the text waits behind it; Shell says
 // the pane is a plain shell.
@@ -35,8 +41,43 @@ func (s *Server) paneSend(c *controlClient, cmd command) {
 		c.notifyReq(paneSendDeskOnly, true, cmd.Req)
 		return
 	}
+	if len(cmd.Images) == 0 {
+		s.sendToPane(c, cmd, nil)
+		return
+	}
+	// A send with pictures reads files, and handleCommand runs on the window's
+	// read loop, so the read is rate limited and done on a goroutine of its own:
+	// one window cannot stall its other commands, or the disk, with it.
+	if !c.sendImagesLimit.allow(sendImagesRateLimit, sendImagesRateWindow) {
+		c.notifyReq("Too many pictures were sent too quickly. Try again in a moment", true, cmd.Req)
+		return
+	}
+	go func() {
+		defer s.surviveFor(c, "sending a prompt with pictures")
+		root, err := uploadsRoot()
+		var images []structured.Image
+		if err == nil {
+			images, err = loadPaneImages(root, cmd.ID, cmd.Images)
+		}
+		if err != nil {
+			c.notifyReq(err.Error(), true, cmd.Req)
+			return
+		}
+		s.sendToPane(c, cmd, images)
+	}()
+}
+
+// sendImagesRateLimit and sendImagesRateWindow bound a window's paneSend calls
+// that name pictures.
+const (
+	sendImagesRateLimit  = 6
+	sendImagesRateWindow = 10 * time.Second
+)
+
+// sendToPane hands the text, and the pictures already read, to the workspace.
+func (s *Server) sendToPane(c *controlClient, cmd command, images []structured.Image) {
 	s.do(func() {
-		res, err := s.ws.SendToPaneThen(cmd.ID, cmd.Text, cmd.AllowShell, func(err error) { c.notifyReq(err.Error(), true, cmd.Req) })
+		res, err := s.ws.SendToPaneImages(cmd.ID, cmd.Text, images, cmd.AllowShell, func(err error) { c.notifyReq(err.Error(), true, cmd.Req) })
 		if err != nil {
 			c.notifyReq(err.Error(), true, cmd.Req)
 			return

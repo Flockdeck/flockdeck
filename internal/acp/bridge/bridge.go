@@ -21,8 +21,10 @@
 //   - Tool output is capped (transcript.ToolOutputCap) in the entry's summary
 //     and the full text is kept for Detail.
 //   - Unknown update kinds and content block types produce no entry and no
-//     error. Subagent and image entries are not produced: ACP gave nothing for
-//     them.
+//     error. Subagent entries are not produced: ACP gave nothing for them. An image
+//     content block in a tool's content or an agent reply is an image entry
+//     (image.go): only png, jpeg, gif and webp, only base64, at most
+//     maxImageBytes decoded, a few per tool and a bounded number per session.
 //   - Session state is kept apart from the conversation (state.go): the slash
 //     commands, the mode, the models and config options, the markdown plan and
 //     the title. A compaction notice is a notice entry. A user_message_chunk
@@ -177,7 +179,12 @@ type item struct {
 	// text is what Detail returns as Text: a thinking block's text, a tool's
 	// full output. diff is a tool's full diff.
 	text, diff string
-	detail     int // bytes held in text and diff
+	// data is an image entry's bytes, base64: what Detail returns as Data.
+	data   string
+	detail int // bytes held in text, diff and data
+	// imgs are the hashes of the pictures a tool entry has already made entries
+	// for, so an update that repeats its content does not make them again.
+	imgs       map[uint64]struct{}
 	inl        int // bytes held inline in e, counted against the text budget
 	seq        int
 	lastEmit   time.Time
@@ -224,6 +231,7 @@ type Bridge struct {
 	seeded   seeded
 	detail   int
 	inline   int
+	images   int // image entries held, bounded by maxImages
 	dropped  int
 	// summaries counts the times a tool's output was taken in, for tests.
 	summaries int
@@ -308,6 +316,9 @@ func (b *Bridge) drop(done func(removed int) bool) {
 			}
 			if it.e.Kind == transcript.KindMessage {
 				delete(b.mails, mailKey{it.e.MsgID, it.e.Dir})
+			}
+			if it.e.Kind == transcript.KindImage {
+				b.images--
 			}
 			b.dropped++
 			removed++
@@ -403,10 +414,10 @@ func (b *Bridge) Detail(id string) (transcript.Detail, bool) {
 		return transcript.Detail{}, false
 	}
 	it := b.items[i]
-	if it.text == "" && it.diff == "" {
+	if it.text == "" && it.diff == "" && it.data == "" {
 		return transcript.Detail{}, false
 	}
-	return transcript.Detail{Text: it.text, Diff: it.diff}, true
+	return transcript.Detail{Text: it.text, Diff: it.diff, Data: it.data}, true
 }
 
 // TurnStart records the person's prompt and marks the turn in flight. The
@@ -418,10 +429,26 @@ func (b *Bridge) TurnStart(text string) []transcript.Entry {
 
 // StartTurn is TurnStart that also returns the id of the prompt entry.
 func (b *Bridge) StartTurn(text string) (string, []transcript.Entry) {
+	return b.StartTurnImages(text, nil)
+}
+
+// StartTurnImages is StartTurn for a prompt that carried pictures. The prompt
+// entry lists them as metadata; the bytes are not kept here.
+func (b *Bridge) StartTurnImages(text string, images []transcript.PromptImage) (string, []transcript.Entry) {
+	return b.startTurn(text, images, false)
+}
+
+// StartTypedTurn is StartTurnImages for a prompt the person typed in the pane's
+// own box. The entry is marked Typed, which is what lets a window offer Retry.
+func (b *Bridge) StartTypedTurn(text string, images []transcript.PromptImage) (string, []transcript.Entry) {
+	return b.startTurn(text, images, true)
+}
+
+func (b *Bridge) startTurn(text string, images []transcript.PromptImage, typed bool) (string, []transcript.Entry) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.closeMerges()
-	id := b.add(transcript.Entry{Kind: transcript.KindPrompt, Text: text}).e.ID
+	id := b.add(transcript.Entry{Kind: transcript.KindPrompt, Text: text, Images: images, Typed: typed}).e.ID
 	b.inFlight = true
 	b.enforce()
 	return id, b.take(true)
@@ -441,7 +468,7 @@ func (b *Bridge) TurnEnd(stop string) []transcript.Entry {
 	case acp.StopCancelled:
 		b.add(transcript.Entry{Kind: transcript.KindNotice, Text: "Turn cancelled."})
 	default:
-		b.add(transcript.Entry{Kind: transcript.KindNotice, Text: "Turn ended: " + line(stop, labelCap)})
+		b.add(transcript.Entry{Kind: transcript.KindNotice, Tone: transcript.ToneFailure, Text: "Turn ended: " + line(stop, labelCap)})
 	}
 	b.enforce()
 	return b.take(true)
@@ -716,6 +743,13 @@ func chunkText(c *acp.ContentBlock) string {
 }
 
 func (b *Bridge) chunk(u acp.Update, kind string) {
+	if kind == transcript.KindReply && u.Content != nil && u.Content.Type == "image" {
+		// A picture in a reply is its own entry, after the text before it. A
+		// picture that is refused says nothing: the reply goes on.
+		b.closeMerges()
+		b.addImage(u.Content, nil)
+		return
+	}
 	text := chunkText(u.Content)
 	if text == "" {
 		return
@@ -821,6 +855,9 @@ func (b *Bridge) tool(u acp.Update) {
 			if c.Content != nil && c.Content.Type == "text" && c.Content.Text != "" {
 				texts = append(texts, c.Content.Text)
 			}
+			if c.Content != nil && c.Content.Type == "image" {
+				b.addImage(c.Content, it)
+			}
 		case "diff":
 			path, newText := line(c.Path, 1024), clean(capBytes(c.NewText, maxText))
 			if c.OldText == nil {
@@ -923,7 +960,7 @@ func (b *Bridge) trim() {
 			continue
 		}
 		b.detail -= it.detail
-		it.text, it.diff, it.detail = "", "", 0
+		it.text, it.diff, it.data, it.detail = "", "", "", 0
 		it.e.HasDetail = false
 		it.dirty = true
 	}

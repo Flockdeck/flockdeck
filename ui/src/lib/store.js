@@ -21,6 +21,8 @@
 //   store.unwatchStructured()
 //   store.watchConversation(id)              // one pane's conversation, for the drawer's tab
 //   store.olderConversation()                // the page before the entries held
+//   store.retryConversation()               // ask again after a refused or lost open
+//   store.retryStructured()                 // ask again after a refused structured watch
 //   store.unwatchConversation()
 //
 // The snapshot:
@@ -238,6 +240,10 @@ function nullMap(...sources) {
 
 /** MAX_DETAILS bounds the entry details held: a tool's output and a diff can each be large. */
 export const MAX_DETAILS = 12;
+/** MAX_PIC_DETAILS bounds the prompt-picture details held ("<entry>#<n>" keys). They have a budget of their own, so a thumbnail
+ *  asked for cannot push out a tool output the person opened, nor the other way round. */
+export const MAX_PIC_DETAILS = 8;
+const isPicKey = (k) => /#\d+$/.test(k);
 
 /** MACHINE_ONLY are the commands that change what the machine runs: updating,
  *  restarting, detaching, quitting. A remote window sends none of them, and the
@@ -1142,6 +1148,21 @@ export function createStore(opts) {
       if (snap.hello) sendConversationOpen();
       return true;
     },
+    /** retryConversation asks again for the conversation of the pane watched, after
+     *  the desktop refused it or never answered. It does nothing in a remote window
+     *  and returns whether an ask went out. */
+    retryConversation() {
+      const c = snap.conversation;
+      if (snap.remote || watchingConv === null || !c || c.id !== watchingConv) return false;
+      set({ conversation: { ...c, supported: null, refused: "", older: "idle" } });
+      return snap.hello ? sendConversationOpen() : false;
+    },
+    /** retryStructured asks again for the structured pane watched, after its watch was refused. */
+    retryStructured() {
+      if (snap.remote || watchingPane === null) return false;
+      set({ structured: null, structuredError: null });
+      return snap.hello ? sendStructuredWatch() : false;
+    },
     /** olderConversation asks for the page before the entries held. It asks once
      *  at a time, and not at all at the start of the conversation. */
     olderConversation() {
@@ -1170,8 +1191,11 @@ export function createStore(opts) {
       const items = nullMap(snap.details);
       delete items[entry];
       // Oldest asked for first, by the number each was given (ids may be numbers, which JS orders itself).
-      const keys = Object.keys(items).sort((a, b) => items[a].n - items[b].n);
-      while (keys.length >= MAX_DETAILS) delete items[keys.shift()];
+      // Only entries of the same kind compete, and one still loading goes last, so an answer on its way is not dropped for one that has arrived.
+      const pic = isPicKey(entry);
+      const keys = Object.keys(items).filter((k) => isPicKey(k) === pic)
+        .sort((a, b) => (items[a].state === "loading") - (items[b].state === "loading") || items[a].n - items[b].n);
+      while (keys.length >= (pic ? MAX_PIC_DETAILS : MAX_DETAILS)) delete items[keys.shift()];
       Object.defineProperty(items, entry, { value: { state: "loading", n: ++detailSeq }, enumerable: true, writable: true, configurable: true });
       set({ details: items });
       guardDetail(entry);

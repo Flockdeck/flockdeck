@@ -48,7 +48,12 @@ test("a structured pane that is not running is offered it above its own view", (
   const pane = { structured: true, terminalWayBack: "opencode" };
   const out = renderToString(html`<${Drawer} store=${storeOf(pane)} node=${node({ structured: true, agent: "opencode-acp" })} pane=${pane} now=${NOW} />`);
   assert.ok(out.includes("Restart as terminal"));
-  assert.ok(out.includes("data-structured-pane") || out.includes("Loading the agent."), "the structured view went");
+  // The structured view is still drawn, here as its loading skeleton (the words "Loading the agent." are put in its
+  // live region after it is in the page, so they are not in a first render), and the offer comes before it.
+  const view = out.indexOf("conv-skeleton");
+  assert.ok(view > 0, "the structured view went");
+  assert.ok(out.indexOf("Restart as terminal") < view, "the offer is not above the view");
+  assert.ok(!out.includes("terminal-pane"), "a terminal was drawn for a pane that has none");
 });
 
 test("no way back is offered where the desktop sent none, to a viewer, or through the relay", () => {

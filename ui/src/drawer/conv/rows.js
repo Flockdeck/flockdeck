@@ -4,7 +4,7 @@
 // drawn as an "Unknown entry" row, so a new kind on the desktop shows up as
 // something to report and not as a gap.
 //
-// - A prompt is the person's words, drawn as text.
+// - A prompt is the person's words, drawn as text in a bubble on the right; a long one is cut, with Show all and Copy.
 // - A reply is the agent's words, drawn as sanitised Markdown (markdown.js); over
 //   MAX_REPLY characters the rest is left out and the row says how much.
 // - A message is mail between agents (kind "message"): a message from a peer, or one
@@ -25,7 +25,10 @@ import { Markdown } from "./markdown.js";
 import { CopyReply } from "./CopyReply.js";
 import { ToolBody } from "./Tool.js";
 import { ImageBody, imageWords } from "./Image.js";
+import { PromptPics } from "./PromptPics.js";
 import { stepsWords } from "./steps.js";
+import { chunkText } from "./chunks.js";
+import { rowTime } from "./time.js";
 
 /** MAX_TEXT cuts a prompt, a notice or a title. */
 export const MAX_TEXT = 4000;
@@ -34,6 +37,12 @@ export const MAX_REPLY = 20000;
 /** MAX_SUMMARY cuts the summary an opened tool row shows. */
 export const MAX_SUMMARY = 2000;
 export const NO_SUMMARY_WORDS = "Nothing more is held for this call.";
+/** Show all draws a long prompt or reply to these ceilings, in pieces of CHUNK_TEXT and CHUNK_REPLY
+ *  characters; past a ceiling the row says how much is left out, and Copy still gives the whole text. */
+export const EXPAND_MAX_TEXT = 100000;
+export const EXPAND_MAX_REPLY = 200000;
+export const CHUNK_TEXT = 4000;
+export const CHUNK_REPLY = 20000;
 /** MAX_NESTED is how many of a helper agent's own entries are drawn. */
 export const MAX_NESTED = 200;
 
@@ -120,20 +129,74 @@ function ToolRow({ entry: e, label, kind, open, onToggle, detail, nested }) {
   </li>`;
 }
 
+/** Foot is the line under a prompt or reply: its time, then its actions. actions says there is at
+ *  least one (the children are an array, which is truthy even when every action is null). keep says
+ *  an action is on it that must stay visible (Show all, Retry), so the line is not left for hover and focus. */
+function Foot({ ts, actions = false, keep = false, children }) {
+  const t = rowTime(ts);
+  if (!t && !actions) return null;
+  return html`<div class=${"conv-foot" + (keep ? " is-kept" : "")}>${t ? html`<time class="conv-time" datetime=${t.iso} title=${t.full}>${t.label}</time>` : null}${children}</div>`;
+}
+
+function ShowAll({ all, onToggle }) {
+  return html`<button type="button" class="conv-showall" aria-expanded=${all ? "true" : "false"} onClick=${onToggle}>${all ? "Show less" : "Show all"}</button>`;
+}
+
+/** PromptRow is the person's words in a bubble on the right. A long one is cut with Show all; Copy
+ *  gives the whole text. onRetry is given to the newest prompt only, and sends its text again. Retry
+ *  is drawn only on a prompt the person typed (entry.typed, which the app sets) and that has no
+ *  pictures: the pictures may be gone by now, so a retry would send the text without them. A prompt
+ *  with pictures draws them as thumbnails (PromptPics), or says how many it had when none can be asked for. */
+function PromptRow({ entry: e, nested, onRetry, details, onDetail }) {
+  const [all, setAll] = useState(false);
+  const full = text(e.text);
+  const cut = full.length > MAX_TEXT;
+  const shown = !cut ? full : all ? full.slice(0, EXPAND_MAX_TEXT) : full.slice(0, MAX_TEXT);
+  const left = full.length - shown.length;
+  const pics = Array.isArray(e.images) ? e.images.length : 0;
+  const retry = !!onRetry && !nested && e.typed === true && pics === 0;
+  const body = !cut ? clip(full, MAX_TEXT) : all ? chunkText(shown, CHUNK_TEXT).map((c, i) => html`<span key=${i}>${c}</span>`) : shown;
+  return html`<li class="conv-row conv-prompt" data-ctx="convRow" data-kind="prompt" data-entry=${nested ? null : e.id} tabindex="-1">
+    <div class="conv-bubble"><span class="conv-sr">You: </span><p class="conv-text">${body}</p></div>
+    ${left > 0 ? html`<p class="conv-cut">${left.toLocaleString("en-US")} more characters are not shown.</p>` : null}
+    ${pics > 0 ? html`<${PromptPics} entry=${e} details=${details} onDetail=${nested ? null : onDetail} />` : null}
+    <${Foot} ts=${e.ts} actions=${cut || !nested || retry} keep=${cut || retry}>
+      ${cut ? html`<${ShowAll} all=${all} onToggle=${() => setAll(!all)} />` : null}
+      ${nested ? null : html`<${CopyReply} text=${full} label="Copy this prompt" />`}
+      ${retry ? html`<button type="button" class="conv-retry" aria-label="Retry this prompt" onClick=${() => onRetry(full)}>Retry</button>` : null}
+    <//>
+  </li>`;
+}
+
+/** ReplyRow is the agent's words as Markdown, the width of the list and with no bubble. A long one is
+ *  cut with Show all, which draws it in pieces, each its own Markdown node. */
+function ReplyRow({ entry: e, nested }) {
+  const [all, setAll] = useState(false);
+  const full = text(e.markdown || e.text);
+  const cut = full.length > MAX_REPLY;
+  const shown = !cut ? full : all ? full.slice(0, EXPAND_MAX_REPLY) : full.slice(0, MAX_REPLY);
+  const left = full.length - shown.length;
+  return html`<li class="conv-row conv-reply" data-ctx="convRow" data-kind="reply" data-entry=${nested ? null : e.id} tabindex="-1">
+    <span class="conv-sr">Agent: </span>
+    ${cut && all
+      ? chunkText(shown, CHUNK_REPLY, true).map((c, i) => html`<${Markdown} key=${i} text=${c} />`)
+      : html`<${Markdown} text=${shown} />`}
+    ${left > 0 ? html`<p class="conv-cut">${left.toLocaleString("en-US")} more characters are not shown.</p>` : null}
+    <${Foot} ts=${e.ts} actions=${cut || !nested} keep=${cut}>
+      ${cut ? html`<${ShowAll} all=${all} onToggle=${() => setAll(!all)} />` : null}
+      ${nested ? null : html`<${CopyReply} text=${full} />`}
+    <//>
+  </li>`;
+}
+
 /** Row is one entry. open, onToggle, detail and nested are for a tool or helper row. */
-export function Row({ entry: e, open = false, onToggle = null, detail = null, nested = false }) {
+export function Row({ entry: e, open = false, onToggle = null, detail = null, nested = false, onRetry = null, details = null, onDetail = null }) {
   const kind = text(e.kind);
   switch (kind) {
     case "prompt":
-      return html`<li class="conv-row conv-prompt" data-ctx="convRow" data-kind="prompt" data-entry=${nested ? null : e.id} tabindex="-1"><span class="conv-who">You</span><p class="conv-text">${clip(text(e.text), MAX_TEXT)}</p></li>`;
-    case "reply": {
-      const full = text(e.markdown || e.text);
-      const cut = full.length > MAX_REPLY;
-      return html`<li class="conv-row conv-reply" data-ctx="convRow" data-kind="reply" data-entry=${nested ? null : e.id} tabindex="-1"><span class="conv-who">Agent</span>${nested ? null : html`<${CopyReply} text=${full} />`}
-        <${Markdown} text=${cut ? full.slice(0, MAX_REPLY) : full} />
-        ${cut ? html`<p class="conv-cut">${(full.length - MAX_REPLY).toLocaleString("en-US")} more characters are not shown.</p>` : null}
-      </li>`;
-    }
+      return html`<${PromptRow} entry=${e} nested=${nested} onRetry=${onRetry} details=${details} onDetail=${onDetail} />`;
+    case "reply":
+      return html`<${ReplyRow} entry=${e} nested=${nested} />`;
     case "thinking":
       return html`<li class="conv-row conv-thought" data-kind="thinking" data-entry=${nested ? null : e.id} tabindex="-1">${thoughtWords(e)}</li>`;
     case "tool":
@@ -143,6 +206,8 @@ export function Row({ entry: e, open = false, onToggle = null, detail = null, ne
     case "compaction":
       return html`<li class="conv-row conv-note" data-kind="compaction" data-entry=${nested ? null : e.id} tabindex="-1">${typeof e.turns === "number" ? "Conversation compacted (" + e.turns + " turns)" : "Conversation compacted"}</li>`;
     case "notice":
+      // A tone the page does not know is a plain notice.
+      if (e.tone === "failure") return html`<li class="conv-row conv-note conv-note--failure" data-kind="notice" data-tone="failure" data-entry=${nested ? null : e.id} tabindex="-1">${clip(text(e.text), 400)}</li>`;
       return html`<li class="conv-row conv-note" data-kind="notice" data-entry=${nested ? null : e.id} tabindex="-1">${clip(text(e.text), 400)}</li>`;
     case "message": {
       const out = e.dir === "out";

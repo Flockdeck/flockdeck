@@ -33,7 +33,7 @@ var (
 	// enough; the probe runs in the background (gitx.MergeTreeSupport) and the
 	// next refresh sees its answer.
 	radarEnabled = func() bool {
-		if !store.LoadPrefs().ConflictRadar {
+		if !store.PeekConflictRadar() {
 			return false
 		}
 		ok, _, known := gitx.MergeTreeSupport()

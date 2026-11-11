@@ -1,16 +1,17 @@
 // The drawer's view of a structured pane, which has no terminal. It draws the
-// latest structured push of the pane being watched (store.structured): the
-// activity line, the context used of its size and the cost when the agent
-// reported one, then the pane's conversation, and a prompt box with a Stop button.
+// latest structured push of the pane being watched (store.structured): one strip
+// (activity, the context meter, the mode and model pickers, search and a More menu
+// with Agent info), then the pane's conversation, which fills the height left, and
+// the composer (Composer.js), whose one button is Send, or Stop while the agent works (or waits) and the box is empty.
 //
-// - The activity line is the tool still running, with an icon for its kind and
+// - The activity is the tool still running, with an icon for its kind and
 //   the first file its summary names; with none running it is the push's own
 //   activity text, and with that empty it says the agent is idle.
 // - The conversation is the one a terminal agent's drawer has (Conversation.js):
 //   the same rows, paging, search, Copy and steps. The push carries no entries
 //   of its own. The activity line reads the tool still running from the same
 //   conversation.
-// - The prompt box sends paneSend and Stop sends structuredCancel. Both are
+// - The composer sends paneSend and Stop sends structuredCancel. Both are
 //   desk-only commands, so a window reached through the relay draws neither.
 //   The draft goes when the desk says it took the text, not when the socket
 //   did, so a text the desk refuses (the agent is gone, over 16 KiB) is said
@@ -24,7 +25,7 @@
 //   belong to an input method's composition are left alone.
 //
 // - The mode, the model and the other settings the agent offers (the push's modes,
-//   models and configOptions) are a row of selectors above the conversation
+//   models and configOptions) are small selectors in the strip above the conversation
 //   (settingsModel.js). Choosing a value sends structuredSet; the selector shows
 //   the value the agent reports, so a change the agent refused puts the old one
 //   back and the desk's refusal is said under the box. /mode and /model are
@@ -45,12 +46,15 @@
 //   (the reply to the ask made for it). Tab takes the highlighted name; Enter takes one only after an
 //   arrow key or the mouse has chosen it, and otherwise sends. Choosing one writes "@path" into the
 //   text; the file is not read here. A window reached through the relay has no list.
-// - When the agent takes images (capabilities.image of the push), a picture pasted, dropped or chosen
-//   with Attach image is saved by the desktop (attachImage) and its path goes into the text as
-//   "[image: path]", for the agent to read. One picture at a time is in flight.
+// - When the agent takes images (capabilities.image of the push), pictures pasted, dropped on the
+//   drawer or chosen with Attach image become chips beside the text (Attachments.js), up to 4. Each is
+//   saved by the desktop (attachImage, one at a time, matched by req) and its path is sent as paneSend's
+//   images; nothing is written into the text.
 //
 // - Escape stops a running turn, and so does Ctrl+C when no text is selected (interruptModel.js): both
-//   send what Stop sends, keeping the waiting prompts (the person did not ask to lose them; Stop drops them).
+//   send what the Stop button sends. All three keep the waiting prompts; Clear in the queue list drops them.
+//   Stop is shown while the status is working or waiting and the box is empty; with text, the button is
+//   "Send (queues)". With a permission request open (waiting) Stop cancels that request.
 //   Escape in the box is the box's own until it is empty, and with a permission request open Escape is the
 //   card's (only Ctrl+C stops the turn then); a held key and a second press before the redraw send once;
 //   and a menu, the settings dialogs, a select or the
@@ -63,66 +67,45 @@ import { useEffect, useRef, useState } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
 import { clip } from "../graph/Node.js";
 import { showControls } from "./diff/diffModel.js";
-import { outcomeOf, sendTo } from "../graph/ManagerBar.js";
-import { Conversation } from "./Conversation.js";
+import { Conversation, Skeleton, ErrorBlock } from "./Conversation.js";
 import { Icon, toolKind } from "./conv/rows.js";
-import { menuOf, flatten, insertText, keyOf, selectedIndex, OWN_COMMANDS } from "./slashModel.js";
-import { controlsOf, controlFor, setMessage, ownCommandsFor, parseSetting } from "./settingsModel.js";
-import { sendKey, rowsFor, pushHistory, recall, NO_RECALL, onFirstLine, onLastLine, mentionAt, insertMention, cleanFiles, loadComposer, saveComposer, pruneComposer } from "./composerModel.js";
+import { controlsOf, controlFor, setMessage, parseSetting } from "./settingsModel.js";
+import { Composer } from "./Composer.js";
 import { QueueList } from "./QueueList.js";
 import { UsageMeter } from "./UsageMeter.js";
 import { ExportPanel } from "./ExportPanel.js";
 import { InfoPanel } from "./InfoPanel.js";
 import { needsSignIn } from "./infoModel.js";
 import { RewindPanel } from "./RewindPanel.js";
-import { restoredDraft } from "./rewindModel.js";
 import { queueOf, stopMessage } from "./queueModel.js";
 import { ShellList } from "./ShellList.js";
 import { TodoList } from "./TodoList.js";
-import { interruptKey, selectedText, INTERRUPT_HINT, INTERRUPT_HINT_WAITING } from "./interruptModel.js";
-import { shellText, shellOf, shellRunMessage, shellWait, SHELL_EMPTY_WORDS, SHELL_ONE_LINE_WORDS, SHELL_NOT_SENT_WORDS, SHELL_NO_ANSWER_WORDS } from "./shellModel.js";
-import { prepareImage, pickImages, attachNote, ImageError, IMAGE_TYPES } from "./imageAttach.js";
+import { interruptKey, selectedText } from "./interruptModel.js";
+import { shellOf } from "./shellModel.js";
 
-/** SEND_NOT_SENT_WORDS is what the prompt box says when the store did not send the text; the draft stays. */
-export const SEND_NOT_SENT_WORDS = "Not connected to Flockdeck, so the text was not sent.";
-/** STOP_NOT_SENT_WORDS is what Stop says when the store did not send it: the socket is down or the hello is not in. */
-export const STOP_NOT_SENT_WORDS = "Not connected to Flockdeck, so Stop was not sent.";
+export { SEND_NOT_SENT_WORDS, STOP_NOT_SENT_WORDS, FILES_DELAY_MS, ATTACH_WAIT_MS, SAVE_DELAY_MS, IMAGE_NOT_SENT_WORDS, IMAGE_WAITING_WORDS, IMAGE_FAILED_WORDS, IMAGE_UNSUPPORTED_WORDS } from "./Composer.js";
 // Each Stop carries its own req, so the store can tell which pane a refusal is for.
 let cancelSeq = 0;
 let settingSeq = 0;
-let filesSeq = 0;
-let shellRunSeq = 0;
-/** FILES_DELAY_MS is how long the box waits after the last keystroke of a mention before asking for names. */
-export const FILES_DELAY_MS = 120;
-/** ATTACH_WAIT_MS is how long a picture is waited for before the box takes another. */
-export const ATTACH_WAIT_MS = 15000;
-/** SAVE_DELAY_MS is how long the draft waits after the last change before it is written to storage. */
-export const SAVE_DELAY_MS = 300;
-export const IMAGE_NOT_SENT_WORDS = "Not connected to Flockdeck, so the picture was not sent.";
-export const IMAGE_WAITING_WORDS = "Wait for the first picture to attach.";
-export const IMAGE_FAILED_WORDS = "That picture could not be read.";
-export const IMAGE_UNSUPPORTED_WORDS = "This agent does not take pictures.";
+/** emptyTips are the ways to start that the empty conversation lists: the slash menu, the file picker, the
+ *  person's own shell and, when the agent takes pictures, paste. */
+export function emptyTips(st) {
+  const tips = [
+    { key: "/", words: "commands and modes" },
+    { key: "@", words: "a file in this folder" },
+    { key: "!", words: "a shell command of your own" },
+  ];
+  if (st && st.capabilities && st.capabilities.image) tips.push({ key: "Paste", words: "or drop a picture" });
+  return tips;
+}
+
 /** SET_NOT_SENT_WORDS is what the selectors say when the store did not send the change. */
 export const SET_NOT_SENT_WORDS = "Not connected to Flockdeck, so the change was not sent.";
 
+
 export const IDLE_WORDS = "Idle";
 
-const finite = (n) => typeof n === "number" && Number.isFinite(n) && n > 0;
-
-/** contextText is "12,400 of 200,000 tokens used", or an empty string when the
- *  agent reported no size. */
-export function contextText(usage) {
-  if (!usage || !finite(usage.size)) return "";
-  const used = finite(usage.used) ? usage.used : 0;
-  return used.toLocaleString("en-US") + " of " + usage.size.toLocaleString("en-US") + " tokens used";
-}
-
-/** costText is the cost the agent reported, or an empty string. */
-export function costText(usage) {
-  if (!usage || !finite(usage.cost)) return "";
-  const cur = typeof usage.currency === "string" ? usage.currency.replace(/[^A-Za-z$€£¥]/g, "").slice(0, 8) : "";
-  return usage.cost.toFixed(2) + (cur ? " " + cur : "");
-}
+export { contextText, costText } from "./usageModel.js";
 
 /** fileOf is the first word of a tool summary that looks like a file: it has a
  *  path separator or a short extension. */
@@ -154,26 +137,6 @@ export function activityOf(st, entries = []) {
  *  reached through the relay. snap is the store's snapshot, which carries the
  *  desk's answer to a send. */
 export function Structured({ pane, snap, st, error = null, cancelError = null, settingError = null, queueResult = null, shellResult = null, exportResult = null, infoResult = null, signInResult = null, rewindResult = null, rulesResult = null, desk = true, store, conv = null, onOlder = null, details = null, onDetail = null, pending = null, search = null, onSearch = null, onClearSearch = null }) {
-  // The draft and the history are kept per pane (composerModel.js), so they outlive this component.
-  const kept = useRef(null);
-  if (kept.current === null) kept.current = loadComposer(pane);
-  const [draft, setDraft] = useState(kept.current.draft);
-  const history = useRef(kept.current.history);
-  const recalling = useRef({ nav: NO_RECALL, text: null });
-  const sentText = useRef("");
-  // The caret as the box last reported it, or null for the end; and where to put it after the next draw.
-  const [caret, setCaret] = useState(null);
-  const putCaret = useRef(null);
-  // The mention list: the key of the chosen name, the draft whose list was closed with Escape, and the names asked for.
-  const [fileKey, setFileKey] = useState(null);
-  const [filesClosedFor, setFilesClosedFor] = useState(null);
-  const askedFiles = useRef({ req: "", q: null });
-  // Pictures: the one in flight, what the last attempt said, and the newest result already handled.
-  const [imageNote, setImageNote] = useState("");
-  const attaching = useRef(false);
-  const attachTimer = useRef(null);
-  const seenAttach = useRef(snap && snap.attached ? snap.attached.seq : 0);
-  const fileInput = useRef(null);
   // The pane a Stop that was not sent was pressed for, so the words do not follow the drawer to another pane.
   const [stopFailed, setStopFailed] = useState("");
   // The pane whose Stop was sent while a turn ran; it clears when the push says the turn is over.
@@ -187,195 +150,44 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
   useEffect(() => {
     if (stopping && (!st || st.status !== "working")) setStopping("");
   }, [stopping, st && st.status]);
-  const [sendFailed, setSendFailed] = useState("");
   // The pane whose export panel is open.
   const [exporting, setExporting] = useState("");
   // The pane whose agent info is open.
   const [infoFor, setInfoFor] = useState("");
   // The pane whose rewind and fork panel is open.
   const [rewinding, setRewinding] = useState("");
-  // A "!" command in flight: its req, and what the last one was refused with. The draft stays until the desk has taken it.
-  const [shellReq, setShellReq] = useState("");
-  const [shellNote, setShellNote] = useState("");
-  useEffect(() => {
-    if (!shellReq || !shellResult || shellResult.req !== shellReq) return;
-    setShellReq("");
-    if (shellResult.ok) {
-      history.current = pushHistory(history.current, sentText.current);
-      recalling.current = { nav: NO_RECALL, text: null };
-      setDraft("");
-      setShellNote("");
-    } else {
-      setShellNote(clip(String(shellResult.error || ""), 200));
-    }
-  }, [shellResult]);
-  // No answer within shellWait.ms, or the socket went away, ends the wait, so "!" cannot stay stuck; the text stays.
-  const connected = !snap || !snap.connection || snap.connection === "open";
-  useEffect(() => {
-    if (!shellReq) return;
-    if (!connected) {
-      setShellReq("");
-      setShellNote(SHELL_NO_ANSWER_WORDS);
-      return;
-    }
-    const t = setTimeout(() => { setShellReq(""); setShellNote(SHELL_NO_ANSWER_WORDS); }, shellWait.ms);
-    return () => clearTimeout(t);
-  }, [shellReq, connected]);
   // What the last change of a setting got that the desk did not say: { pane, text }.
   const [settingNote, setSettingNote] = useState(null);
+  // The store's cancelError and settingError objects the person has moved past (the draft changed, they sent or
+  // stopped again, the turn ended). A new refusal is a new object, so it shows.
+  const [gone, setGone] = useState({ cancel: null, setting: null });
   const settingsEl = useRef(null);
   // A change to a value that reads as running without asking, waiting for the person's yes: { pane, key, value, label }.
   const [confirming, setConfirming] = useState(null);
-  // The send in flight: the mark outcomeOf follows. Set at once, so a second Send before the page has redrawn does not send again.
-  const [mark, setMark] = useState(null);
-  const busy = useRef(false);
-  const box = useRef(null);
-  const sendBtn = useRef(null);
-  // The menu's chosen row, and the draft whose menu was closed with Escape.
-  const [selKey, setSelKey] = useState(null);
-  const [closedFor, setClosedFor] = useState(null);
-  const outcome = mark ? outcomeOf(snap || {}, mark) : null;
-  if (!outcome || outcome.kind !== "sending") busy.current = false;
-  const taken = !!outcome && outcome.kind === "sent";
-  // The text goes once the desk has taken it; a refused one stays to be changed or sent again.
-  useEffect(() => {
-    if (!taken) return;
-    history.current = pushHistory(history.current, sentText.current);
-    recalling.current = { nav: NO_RECALL, text: null };
-    setDraft("");
-    setMark(null);
-  }, [taken, mark]);
-  // The draft is written 300 ms after the last change, and at once when the box goes away.
-  const unsaved = useRef(false);
-  const saveTimer = useRef(null);
-  const latest = useRef({ draft, pane });
-  latest.current = { draft, pane };
-  const flushSave = () => {
-    clearTimeout(saveTimer.current);
-    if (!unsaved.current) return;
-    unsaved.current = false;
-    saveComposer(latest.current.pane, { draft: latest.current.draft, history: history.current });
-  };
-  useEffect(() => {
-    unsaved.current = true;
-    clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(flushSave, SAVE_DELAY_MS);
-    // A draft the person has edited after recalling a prompt is no longer that recall.
-    if (recalling.current.nav.at >= 0 && draft !== recalling.current.text) recalling.current = { nav: NO_RECALL, text: null };
-  }, [draft, pane, taken]);
-  useEffect(() => flushSave, []);
-  // What is kept for a pane that is no longer open goes.
-  useEffect(() => {
-    const panes = snap && snap.state && snap.state.panes;
-    if (panes && typeof panes === "object" && Object.keys(panes).length) pruneComposer(Object.keys(panes));
-  }, []);
-  const sendingNow = !!outcome && outcome.kind === "sending";
-  const mention = desk && !sendingNow && !draft.startsWith("!") ? mentionAt(draft, caret === null ? draft.length : caret) : null;
-  const mentionQuery = mention ? mention.query : null;
-  useEffect(() => {
-    setFileKey(null);
-  }, [mentionQuery]);
-  useEffect(() => {
-    if (!desk || mentionQuery === null) return;
-    const t = setTimeout(() => {
-      const req = "f" + ++filesSeq;
-      askedFiles.current = { req, q: mentionQuery };
-      store.send({ cmd: "structuredFiles", id: pane, q: mentionQuery, req });
-    }, FILES_DELAY_MS);
-    return () => clearTimeout(t);
-  }, [mentionQuery, pane, desk]);
-  useEffect(() => {
-    const el = box.current;
-    const c = putCaret.current;
-    putCaret.current = null;
-    if (c !== null && el && el.setSelectionRange) el.setSelectionRange(c, c);
-  });
-  const attachedNow = snap ? snap.attached : null;
-  useEffect(() => {
-    const a = attachedNow;
-    if (!a || !(a.seq > seenAttach.current)) return;
-    seenAttach.current = a.seq;
-    if (a.id !== pane || !attaching.current) return;
-    attaching.current = false;
-    clearTimeout(attachTimer.current);
-    if (a.error) {
-      setImageNote(clip(String(a.error), 200));
-      return;
-    }
-    setImageNote("");
-    setDraft((d) => d + (d === "" || /\s$/.test(d) ? "" : "\n") + attachNote(a.path) + " ");
-    setCaret(null);
-  }, [attachedNow, pane]);
-  useEffect(() => () => clearTimeout(attachTimer.current), []);
-  // Send is off while the answer is awaited, which takes the keyboard from it; a refusal gives it back to the text,
-  // unless the person has moved on to something else in the meantime.
-  const refusedNow = !!outcome && outcome.kind === "refused";
-  useEffect(() => {
-    const el = box.current;
-    if (!refusedNow || !el || !el.focus) return;
-    const doc = el.ownerDocument;
-    const held = doc && doc.activeElement;
-    // The drawer's own panel holding the keyboard is not something the person moved to.
-    if (held && held !== doc.body && held !== sendBtn.current && !(held.contains && held.contains(el))) return;
-    el.focus();
-  }, [refusedNow, mark]);
-  if (error) return html`<p class="drawer-stub conv-refused" role="status">${clip(String(error.error || ""), 300)}</p>`;
-  if (!st || st.id !== pane) return html`<p class="drawer-stub">Loading the agent.</p>`;
+  // What the composer reports and offers: the draft and whether a list is open, for the Escape handler; and focus and restore.
+  const live = useRef({ draft: "", menuOpen: false });
+  const composer = useRef({ focus: () => {}, restore: () => {}, send: () => false });
+  if (error) return html`<${ErrorBlock} title="Could not open this pane" words=${clip(String(error.error || ""), 300)} onRetry=${desk ? () => store.retryStructured() : null} />`;
+  if (!st || st.id !== pane) return html`<${Skeleton} words="Loading the agent." />`;
   const act = activityOf(st, conv && conv.entries ? conv.entries : []);
-  const ctx = contextText(st.usage);
-  const cost = costText(st.usage);
-  const submit = (e) => {
-    if (e && e.preventDefault) e.preventDefault();
-    const text = draft.trim();
-    if (!text || busy.current) return;
-    // A "!" first runs the rest as the person's own command, never the agent's. A leading space sends it to the agent instead.
-    const bang = shellText(draft);
-    if (bang !== null) {
-      if (shellReq) return;
-      const req = "hr" + ++shellRunSeq;
-      const msg = shellRunMessage(pane, bang, req);
-      if (!msg) setShellNote(bang === "" ? SHELL_EMPTY_WORDS : SHELL_ONE_LINE_WORDS);
-      else if (!store.send(msg)) setShellNote(SHELL_NOT_SENT_WORDS);
-      else {
-        sentText.current = text;
-        setShellReq(req);
-        setShellNote("");
-      }
-      return;
-    }
-    // A leading space sends the text to the agent as it is, so an agent's own /mode command can still be reached.
-    const asked = /^\s/.test(draft) ? null : parseSetting(text, controls);
-    if (asked) {
-      if (asked.error) {
-        setSettingNote({ pane, text: asked.error });
-      } else if (change(asked.control, asked.value)) {
-        setDraft("");
-      }
-      return;
-    }
-    const next = sendTo((m) => store.send(m), snap, pane, text);
-    if (next) {
-      sentText.current = text;
-      busy.current = true;
-      setMark(next);
-      setSendFailed("");
-    } else {
-      setMark(null);
-      setSendFailed(pane);
-    }
+  const expire = () => {
+    setSettingNote(null);
+    setGone({ cancel: cancelError, setting: settingError });
   };
-  const stop = (keepQueue = false) => {
-    const ok = store.send(stopMessage(pane, keepQueue === true, "c" + ++cancelSeq));
+  // Stop keeps the waiting prompts, as Escape and Ctrl+C do; Clear in the queue list drops them.
+  const stop = () => {
+    expire();
+    const ok = store.send(stopMessage(pane, queueOf(st).length > 0, "c" + ++cancelSeq));
     setStopFailed(ok ? "" : pane);
     // The turn ends when the agent says so, which may be a moment after the press.
     setStopping(ok && st.status === "working" ? pane : "");
     return ok;
   };
   const queue = queueOf(st);
-  const sending = !!outcome && outcome.kind === "sending";
   const controls = desk ? controlsOf(st) : [];
   // Every route to a change (a selector, "/mode yolo") comes through here, so a confirm cannot be skipped by one of them.
   const change = (control, value, confirmed = false) => {
+    expire();
     const msg = setMessage(pane, control, value, "s" + ++settingSeq);
     if (!msg) {
       setSettingNote({ pane, text: "That is not on the agent's list any more." });
@@ -392,113 +204,28 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
     setSettingNote(ok ? null : { pane, text: SET_NOT_SENT_WORDS });
     return ok;
   };
-  const menu = desk && !sending && !draft.startsWith("!") && closedFor !== draft ? menuOf(draft, st.commands, ownCommandsFor(OWN_COMMANDS, controls, !!st.capabilities && st.capabilities.rewind === true)) : null;
-  const items = flatten(menu);
-  // The chosen row is found by its command, so a list that changes under the person does not move it; -1 is none.
-  const at = menu ? selectedIndex(items, selKey, menu.query) : -1;
-  const choose = (it) => {
-    if (it.group === "own") {
-      setDraft("");
-      if (it.id === "stop") stop(false);
-      if (it.id === "info") setInfoFor(pane);
-      if (it.id === "rewind" || it.id === "fork") setRewinding(pane);
-      if (it.id === "mode" || it.id === "model") {
-        const c = controlFor(controls, it.id);
-        const el = c && settingsEl.current && settingsEl.current.querySelector ? settingsEl.current.querySelector('[data-setting="' + c.key + '"]') : null;
-        if (el && el.focus) {
-          el.focus();
-          if (el.showPicker) {
-            try { el.showPicker(); } catch (_) { /* a picker may refuse outside a gesture */ }
-          }
+  // The composer asks for these: a settings request typed into the box, and Flockdeck's own commands that are not the composer's.
+  const applySetting = (text) => {
+    const asked = parseSetting(text, controls);
+    if (!asked) return "none";
+    if (asked.error) {
+      setSettingNote({ pane, text: asked.error });
+      return "kept";
+    }
+    return change(asked.control, asked.value) ? "done" : "kept";
+  };
+  const onOwn = (id) => {
+    if (id === "info") setInfoFor(pane);
+    if (id === "rewind" || id === "fork") setRewinding(pane);
+    if (id === "mode" || id === "model") {
+      const c = controlFor(controls, id);
+      const el = c && settingsEl.current && settingsEl.current.querySelector ? settingsEl.current.querySelector('[data-setting="' + c.key + '"]') : null;
+      if (el && el.focus) {
+        el.focus();
+        if (el.showPicker) {
+          try { el.showPicker(); } catch (_) { /* a picker may refuse outside a gesture */ }
         }
-        setSelKey(null);
-        setSendFailed("");
-        return;
       }
-    } else {
-      setDraft(insertText(it));
-    }
-    setSelKey(null);
-    setSendFailed("");
-    if (box.current && box.current.focus) box.current.focus();
-  };
-  // The names the mention list shows: those of the reply to the latest ask, while the @ word is still being typed.
-  const reply = snap ? snap.files : null;
-  // Fresh: the reply to the ask made for the word as it stands. In the wait after a keystroke the list is
-  // the previous word's, so it is not shown and nothing from it can be chosen.
-  const fresh = !!mention && !!reply && reply.id === pane && reply.req !== "" && reply.req === askedFiles.current.req && askedFiles.current.q === mentionQuery;
-  const filesOpen = !!mention && filesClosedFor !== draft;
-  const names = filesOpen && fresh ? cleanFiles(reply.files) : [];
-  const nameAt = names.length ? Math.max(0, names.indexOf(fileKey)) : -1;
-  const pickName = (name) => {
-    const r = insertMention(draft, mention, name);
-    putCaret.current = r.caret;
-    setCaret(r.caret);
-    setDraft(r.text);
-    setFileKey(null);
-    setSendFailed("");
-    if (box.current && box.current.focus) box.current.focus();
-  };
-  const caretOf = (el) => {
-    if (typeof el.selectionStart === "number") return [el.selectionStart, typeof el.selectionEnd === "number" ? el.selectionEnd : el.selectionStart];
-    const end = typeof el.value === "string" ? el.value.length : draft.length;
-    return [end, end];
-  };
-  const recallTo = (e, dir) => {
-    const r = recall(history.current, recalling.current.nav, dir, draft);
-    if (!r) return;
-    e.preventDefault();
-    recalling.current = { nav: r.nav, text: r.text };
-    setCaret(null);
-    setDraft(r.text);
-    setSendFailed("");
-  };
-  const onKey = (e) => {
-    // A key that belongs to an input method's composition is the method's, not the menu's.
-    if (e.isComposing || e.keyCode === 229) return;
-    if (menu) {
-      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-        e.preventDefault();
-        const down = e.key === "ArrowDown";
-        setSelKey(keyOf(items[at < 0 ? (down ? 0 : items.length - 1) : (at + (down ? 1 : items.length - 1)) % items.length]));
-        return;
-      } else if (((e.key === "Enter" && !e.shiftKey) || e.key === "Tab") && at >= 0) {
-        e.preventDefault();
-        choose(items[at]);
-        return;
-      } else if (e.key === "Escape") {
-        e.preventDefault();
-        e.stopPropagation();
-        setClosedFor(draft);
-        return;
-      }
-    } else if (names.length) {
-      if (e.key === "ArrowDown" || e.key === "ArrowUp") {
-        e.preventDefault();
-        const down = e.key === "ArrowDown";
-        setFileKey(names[(nameAt + (down ? 1 : names.length - 1)) % names.length]);
-        return;
-      } else if ((e.key === "Tab" && !e.shiftKey || e.key === "Enter" && !e.shiftKey && fileKey !== null) && nameAt >= 0) {
-        // Tab takes the highlighted name; Enter takes one only after an arrow key or the mouse chose it,
-        // so a prompt that ends in an @ word can be sent with Enter.
-        e.preventDefault();
-        pickName(names[nameAt]);
-        return;
-      } else if (e.key === "Escape") {
-        e.preventDefault();
-        e.stopPropagation();
-        setFilesClosedFor(draft);
-        return;
-      }
-    }
-    const [from, to] = caretOf(e.target || box.current);
-    if (e.key === "ArrowUp" && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey && onFirstLine(draft, from, to)) {
-      recallTo(e, -1);
-    } else if (e.key === "ArrowDown" && !e.shiftKey && !e.ctrlKey && !e.altKey && !e.metaKey && onLastLine(draft, from, to)) {
-      recallTo(e, 1);
-    } else if (sendKey(e) === "send") {
-      e.preventDefault();
-      submit();
     }
   };
   // Escape, or Ctrl+C over no selection, stops a running turn from the box or from anywhere in the drawer. The
@@ -507,133 +234,58 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
     const el = e && e.target;
     const win = el && el.ownerDocument ? el.ownerDocument.defaultView : null;
     const ctx = {
-      desk, working: st.status === "working" || st.status === "waiting", waiting: st.status === "waiting", draft, stopping: stopping === pane || keyStop.current === pane,
-      menuOpen: !!menu || names.length > 0, dialogOpen: (!!confirming && confirming.pane === pane) || exporting === pane || rewinding === pane,
+      desk, working: st.status === "working" || st.status === "waiting", waiting: st.status === "waiting", draft: live.current.draft, stopping: stopping === pane || keyStop.current === pane,
+      menuOpen: live.current.menuOpen, dialogOpen: (!!confirming && confirming.pane === pane) || exporting === pane || rewinding === pane,
       selected: selectedText(win, el),
     };
     if (!interruptKey(e, ctx)) return;
     e.preventDefault();
-    if (stop(queue.length > 0)) keyStop.current = pane;
+    if (stop()) keyStop.current = pane;
   };
-  const attach = async (file) => {
-    if (!file) return;
-    if (attaching.current) {
-      setImageNote(IMAGE_WAITING_WORDS);
-      return;
-    }
-    attaching.current = true;
-    setImageNote("Attaching the picture.");
-    clearTimeout(attachTimer.current);
-    attachTimer.current = setTimeout(() => { attaching.current = false; setImageNote(IMAGE_FAILED_WORDS); }, ATTACH_WAIT_MS);
-    try {
-      const img = await prepareImage(file);
-      if (!store.send({ cmd: "attachImage", id: pane, name: img.name, mediaType: img.mediaType, data: img.data })) throw new ImageError(IMAGE_NOT_SENT_WORDS);
-    } catch (err) {
-      attaching.current = false;
-      clearTimeout(attachTimer.current);
-      setImageNote(err instanceof ImageError ? err.message : IMAGE_FAILED_WORDS);
-    }
-  };
-  const imageOk = desk && !!st.capabilities && st.capabilities.image === true;
-  // A picture dropped or pasted: taken when the agent takes pictures, said no to otherwise. Text is left to the box.
-  const onPicture = (data, e) => {
-    const pics = pickImages(data);
-    if (!pics.length) return;
-    e.preventDefault();
-    if (!imageOk) setImageNote(IMAGE_UNSUPPORTED_WORDS);
-    else attach(pics[0]);
-  };
-  const optId = (i) => "slash-" + pane + "-" + i;
-  const row = (it, i) => html`<div id=${optId(i)} role="option" class=${"slash-item" + (i === at ? " slash-item--on" : "")} aria-selected=${i === at ? "true" : "false"} data-slash=${it.name}
-    onMouseDown=${(e) => e.preventDefault()} onMouseEnter=${() => setSelKey(keyOf(it))} onClick=${() => choose(it)}>
-    <span class="slash-name">/${it.name}</span>${it.hint ? html`<span class="slash-hint">${it.hint}</span>` : null}${it.description ? html`<span class="slash-desc">${it.description}</span>` : null}
-  </div>`;
+  const lead = html`<span class="structured-dot" data-status=${st.status} aria-hidden="true"></span>
+    <p class="structured-activity" data-activity=${act ? "on" : "off"}>
+      ${act
+        ? html`<${Icon} kind=${act.kind} /><span class="structured-title">${clip(act.title, 160)}</span>${act.file ? html`<span class="structured-file">${clip(act.file, 160)}</span>` : null}`
+        : html`<span class="structured-title">${IDLE_WORDS}</span>`}
+    </p>
+    <${UsageMeter} usage=${st.usage} />
+    ${controls.length
+      ? html`<div class="structured-settings" ref=${settingsEl} role="group" aria-label="Agent settings">
+          ${controls.map((c) => html`<label class="structured-setting"><span class="structured-setting-name">${c.label}</span>
+            <select class="structured-select" data-setting=${c.key} title=${c.label} value=${c.current} onChange=${(e) => change(c, e.target.value)}>
+              ${c.choices.some((o) => o.value === c.current) ? null : html`<option value="" disabled>Not set</option>`}
+              ${c.choices.map((o) => html`<option value=${o.value} title=${o.description || undefined}>${(o.group ? o.group + ": " : "") + o.label}</option>`)}
+            </select></label>`)}
+        </div>`
+      : null}`;
+  const stripItems = desk
+    ? [{ label: "Agent info", className: "structured-info-btn", expanded: infoFor === pane || needsSignIn(st), disabled: needsSignIn(st), title: needsSignIn(st) ? "Open until the agent is signed in" : undefined, onClick: () => setInfoFor(infoFor === pane ? "" : pane) }]
+    : [];
+  const tail = html`${confirming && confirming.pane === pane
+      ? html`<div class="structured-note structured-confirm" role="alert" data-confirm=${confirming.key}>
+          <span>Change ${confirming.label}? The agent may then run commands and edit files without asking.</span>
+          <button type="button" class="drawer-btn structured-confirm-yes" onClick=${() => {
+            const c = controls.find((x) => x.key === confirming.key);
+            if (c) change(c, confirming.value, true);
+            else { setConfirming(null); setSettingNote({ pane, text: "That is not on the agent's list any more." }); }
+          }}>Change it</button>
+          <button type="button" class="drawer-btn structured-confirm-no" onClick=${() => setConfirming(null)}>Cancel</button>
+        </div>`
+      : null}`;
   return html`
     <div class="structured" data-structured-pane=${pane} onKeyDown=${onRootKey}>
-      <div class="structured-facts">
-        <p class="structured-activity" data-activity=${act ? "on" : "off"}>
-          ${act
-            ? html`<${Icon} kind=${act.kind} /><span class="structured-title">${clip(act.title, 160)}</span>${act.file ? html`<span class="structured-file">${clip(act.file, 160)}</span>` : null}`
-            : html`<span class="structured-title">${IDLE_WORDS}</span>`}
-        </p>
-        ${ctx || cost
-          ? html`<p class="structured-usage">${ctx ? html`<span class="structured-context">${ctx}</span>` : null}${cost ? html`<span class="structured-cost">${cost}</span>` : null}</p>`
-          : null}
-        <${UsageMeter} usage=${st.usage} />
-        ${desk ? html`<button type="button" class="drawer-btn structured-info-btn" aria-expanded=${infoFor === pane || needsSignIn(st) ? "true" : "false"} disabled=${needsSignIn(st)} title=${needsSignIn(st) ? "Open until the agent is signed in" : undefined} onClick=${() => setInfoFor(infoFor === pane ? "" : pane)}>Agent info</button>` : null}
-      </div>
       <${TodoList} st=${st} pane=${pane} />
       ${desk && (infoFor === pane || needsSignIn(st)) ? html`<${InfoPanel} pane=${pane} st=${st} store=${store} result=${infoResult} signInResult=${signInResult} rulesResult=${rulesResult} onClose=${() => setInfoFor("")} />` : null}
-      ${desk && rewinding === pane ? html`<${RewindPanel} pane=${pane} store=${store} st=${st} entries=${conv && conv.entries ? conv.entries : []} result=${rewindResult} onText=${(t) => { setDraft((d) => restoredDraft(d, t)); if (box.current && box.current.focus) box.current.focus(); }} onClose=${() => setRewinding("")} />` : null}
+      ${desk && rewinding === pane ? html`<${RewindPanel} pane=${pane} store=${store} st=${st} entries=${conv && conv.entries ? conv.entries : []} result=${rewindResult} onText=${(t) => composer.current.restore(t)} onClose=${() => setRewinding("")} />` : null}
       ${desk && exporting === pane ? html`<${ExportPanel} pane=${pane} store=${store} result=${exportResult} onClose=${() => setExporting("")} />` : null}
-      ${controls.length
-        ? html`<div class="structured-settings" ref=${settingsEl} role="group" aria-label="Agent settings">
-            ${controls.map((c) => html`<label class="structured-setting"><span class="structured-setting-name">${c.label}</span>
-              <select class="structured-select" data-setting=${c.key} value=${c.current} onChange=${(e) => change(c, e.target.value)}>
-                ${c.choices.some((o) => o.value === c.current) ? null : html`<option value="" disabled>Not set</option>`}
-                ${c.choices.map((o) => html`<option value=${o.value} title=${o.description || undefined}>${(o.group ? o.group + ": " : "") + o.label}</option>`)}
-              </select></label>`)}
-          </div>`
-        : null}
-      <${Conversation} conv=${conv} onOlder=${onOlder} details=${details} onDetail=${onDetail} pending=${pending}
-        search=${search} onSearch=${onSearch} onClearSearch=${onClearSearch} canExport=${desk} onExport=${() => setExporting(pane)} className="structured-log" />
+      <${Conversation} lead=${lead} items=${stripItems} conv=${conv} onOlder=${onOlder} details=${details} onDetail=${onDetail} pending=${pending}
+        search=${search} onSearch=${onSearch} onClearSearch=${onClearSearch} canExport=${desk} onExport=${() => setExporting(pane)} className="structured-log"
+        tips=${desk ? emptyTips(st) : null} onRetry=${desk ? () => store.retryConversation() : null} onRetryPrompt=${desk && st.status !== "working" && st.status !== "waiting" ? (t) => composer.current.send(t) : null} />
       ${desk ? html`<${ShellList} rows=${shellOf(st)} pane=${pane} store=${store} result=${shellResult} />` : null}
-      ${desk ? html`<${QueueList} rows=${queue} pane=${pane} store=${store} result=${queueResult} working=${st.status === "working"} focusBox=${() => box.current && box.current.focus && box.current.focus()} />` : null}
+      ${desk ? html`<${QueueList} rows=${queue} pane=${pane} store=${store} result=${queueResult} working=${st.status === "working"} focusBox=${() => composer.current.focus()} />` : null}
       ${desk
-        ? html`<form class="structured-prompt" onSubmit=${submit}>
-            ${menu
-              ? html`<div class="slash-menu" role="listbox" aria-label="Commands" id=${"slash-" + pane}>
-                  ${menu.own.length ? html`<div role="group" aria-label="Flockdeck"><p class="slash-group" aria-hidden="true">Flockdeck</p>${menu.own.map((c, i) => row({ ...c, group: "own" }, i))}</div>` : null}
-                  ${menu.agent.length ? html`<div role="group" aria-label="From the agent"><p class="slash-group" aria-hidden="true">From the agent</p>${menu.agent.map((c, i) => row({ ...c, group: "agent" }, menu.own.length + i))}</div>` : null}
-                </div>
-                <p class="sr-only" role="status">${items.length === 1 ? "1 command" : items.length + " commands"}</p>`
-              : null}
-            ${names.length
-              ? html`<div class="slash-menu mention-menu" role="listbox" aria-label="Files" id=${"mention-" + pane}>
-                  ${names.map((n, i) => html`<div id=${"mention-" + pane + "-" + i} role="option" class=${"slash-item" + (i === nameAt ? " slash-item--on" : "")} aria-selected=${i === nameAt ? "true" : "false"} data-mention=${n}
-                    onMouseDown=${(e) => e.preventDefault()} onMouseEnter=${() => setFileKey(n)} onClick=${() => pickName(n)}><span class="slash-name mention-path" dir="auto">${n}</span></div>`)}
-                </div>
-                <p class="sr-only" role="status">${names.length === 1 ? "1 file" : names.length + " files"}</p>`
-              : null}
-            ${filesOpen && fresh && reply.more ? html`<p class="slash-group mention-note">More files match. Type more of the name.</p>` : null}
-            ${filesOpen && fresh && reply.error ? html`<p class="slash-group mention-note" role="status">${showControls(clip(String(reply.error), 200))}</p>` : null}
-            <textarea ref=${box} class="structured-input" aria-label="Message to the agent" placeholder="Enter sends, Shift+Enter adds a line" rows=${rowsFor(draft)} value=${draft}
-              role=${menu || names.length ? "combobox" : undefined} aria-expanded=${menu || names.length ? "true" : undefined} aria-autocomplete=${menu || names.length ? "list" : undefined} aria-controls=${menu ? "slash-" + pane : names.length ? "mention-" + pane : undefined} aria-activedescendant=${menu && at >= 0 ? optId(at) : names.length ? "mention-" + pane + "-" + nameAt : undefined}
-              onKeyDown=${onKey} onKeyUp=${(e) => setCaret(caretOf(e.target)[0])} onClick=${(e) => setCaret(caretOf(e.target)[0])}
-              onPaste=${(e) => onPicture(e.clipboardData, e)} onDragOver=${(e) => { if (imageOk && e.dataTransfer && pickImages(e.dataTransfer).length) e.preventDefault(); }} onDrop=${(e) => onPicture(e.dataTransfer, e)}
-              readOnly=${outcome && outcome.kind === "sending"} aria-busy=${outcome && outcome.kind === "sending" ? "true" : undefined} onInput=${(e) => { setDraft(e.target.value); setCaret(caretOf(e.target)[0]); setSendFailed(""); setShellNote(""); if (outcome && outcome.kind === "refused") setMark(null); }}></textarea>
-            <button ref=${sendBtn} type="submit" class="drawer-btn structured-send" disabled=${draft.trim() === "" || (outcome && outcome.kind === "sending")}>Send</button>
-            <button type="button" class="drawer-btn structured-stop" onClick=${() => stop(false)}>Stop</button>
-            ${queue.length ? html`<button type="button" class="drawer-btn structured-stop-keep" title="Ends the current turn and sends the waiting prompts" onClick=${() => stop(true)}>Stop, keep queue</button>` : null}
-            ${imageOk
-              ? html`<button type="button" class="drawer-btn structured-attach" onClick=${() => fileInput.current && fileInput.current.click()}>Attach image</button>
-                  <input ref=${fileInput} type="file" class="sr-only" tabindex="-1" aria-hidden="true" accept=${IMAGE_TYPES.join(",")}
-                    onChange=${(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ""; attach(f); }} />`
-              : null}
-            ${imageNote ? html`<p class="structured-note" role="status">${showControls(clip(imageNote, 200))}</p>` : null}
-            ${outcome && outcome.kind === "refused" ? html`<p class="structured-note structured-note--unsent structured-note--send" role="alert">${showControls(clip(outcome.text, 300))}</p>` : null}
-            ${sendFailed === pane ? html`<p class="structured-note structured-note--unsent structured-note--send" role="alert">${SEND_NOT_SENT_WORDS}</p>` : null}
-            ${draft.startsWith("!") ? html`<p class="structured-note structured-note--hint" data-shell-hint="on">Runs in this folder as you. The agent is not asked and does not see it unless you send the output.</p>` : null}
-            ${shellNote && draft.startsWith("!") ? html`<p class="structured-note structured-note--unsent" role="alert" data-shell-note="on">${showControls(shellNote)}</p>` : null}
-            ${(st.status === "working" || st.status === "waiting") && stopping !== pane ? html`<p class="structured-note structured-note--hint" data-interrupt-hint="on">${st.status === "waiting" ? INTERRUPT_HINT_WAITING : INTERRUPT_HINT}</p>` : null}
-            ${stopping === pane ? html`<p class="structured-note" role="status" data-stopping="on">Stopping the turn.</p>` : null}
-            ${st.status === "working" && !stopping ? html`<p class="structured-note structured-note--hint" data-queue-hint="on">The agent is working. What you send now waits in the queue.</p>` : null}
-            ${stopFailed === pane ? html`<p class="structured-note structured-note--unsent" role="status">${STOP_NOT_SENT_WORDS}</p>` : null}
-            ${confirming && confirming.pane === pane
-              ? html`<div class="structured-note structured-confirm" role="alert" data-confirm=${confirming.key}>
-                  <span>Change ${confirming.label}? The agent may then run commands and edit files without asking.</span>
-                  <button type="button" class="drawer-btn structured-confirm-yes" onClick=${() => {
-                    const c = controls.find((x) => x.key === confirming.key);
-                    if (c) change(c, confirming.value, true);
-                    else { setConfirming(null); setSettingNote({ pane, text: "That is not on the agent's list any more." }); }
-                  }}>Change it</button>
-                  <button type="button" class="drawer-btn structured-confirm-no" onClick=${() => setConfirming(null)}>Cancel</button>
-                </div>`
-              : null}
-            ${settingNote && settingNote.pane === pane ? html`<p class="structured-note structured-note--unsent" role="status">${showControls(clip(settingNote.text, 300))}</p>` : null}
-            ${settingError && settingError.id === pane ? html`<p class="structured-note" role="status">${showControls(clip(String(settingError.error || ""), 300))}</p>` : null}
-            ${cancelError && cancelError.id === pane ? html`<p class="structured-note" role="status">${showControls(clip(String(cancelError.error || ""), 300))}</p>` : null}
-          </form>`
+        ? html`<${Composer} pane=${pane} snap=${snap} st=${st} store=${store} controls=${controls} applySetting=${applySetting} onOwn=${onOwn} stop=${stop} onExpire=${expire}
+            stopping=${stopping === pane} stopFailed=${stopFailed === pane} settingText=${settingNote && settingNote.pane === pane ? clip(settingNote.text, 300) : ""} settingError=${settingError && settingError !== gone.setting && settingError.id === pane ? clip(String(settingError.error || ""), 300) : ""} cancelError=${cancelError && cancelError !== gone.cancel && cancelError.id === pane ? clip(String(cancelError.error || ""), 300) : ""} shellResult=${shellResult} tail=${tail} live=${live} api=${composer} />`
         : null}
     </div>
   `;

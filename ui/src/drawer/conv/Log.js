@@ -8,7 +8,8 @@
 //   elements.
 // - Scrolling to the top asks for earlier rows too, so reading back needs no
 //   button. Rows added above what is being read do not move it.
-// - The list follows new entries only while it is at the bottom. Away from the
+// - The list follows new entries only while it is at the bottom, and stays at the bottom when its
+//   own height changes (the composer grows, a panel opens). Away from the
 //   bottom, new entries are counted on a chip, "N new below", that goes to the
 //   bottom.
 // - Runs of two or more tool rows are one "N steps" row (steps.js): closed to its
@@ -32,13 +33,13 @@ function rowsOf(el) {
   return el && el.querySelectorAll ? Array.from(el.querySelectorAll("[data-entry]")) : [];
 }
 
-/** Log draws entries. details is the store's answers for opened rows and
+/** Log draws entries. onRetry, when given, puts Retry on the newest prompt and is called with its text. details is the store's answers for opened rows and
  *  onDetail asks for one (by entry id). pending is { node, card }: a card drawn
  *  after the running tool it was asked for (pendingAfter), or at the end, such as
  *  a permission waiting where it was asked. atStart says there is nothing before the first one;
  *  older is "loading" while the page before is asked for; onOlder asks for it.
  *  A log with atStart set has no Older button once all it holds is drawn. */
-export function Log({ entries, atStart = true, older = "idle", onOlder = null, details = null, onDetail = null, pending = null, jump = null, label = "Conversation", className = "", children = null }) {
+export function Log({ entries, atStart = true, older = "idle", onOlder = null, details = null, onDetail = null, pending = null, jump = null, label = "Conversation", className = "", onRetry = null, children = null }) {
   const listRef = useRef(null);
   const following = useRef(true);
   const top = useRef("");
@@ -100,6 +101,18 @@ export function Log({ entries, atStart = true, older = "idle", onOlder = null, d
     }
     was.current = { height: el.scrollHeight, top: top.current, last: lastId, ids: new Set(ids) };
   });
+
+  // The list is a flex item that gives up height when the composer grows or a panel opens. A reader
+  // who is following the bottom keeps following it, so the last rows are not left under the edge.
+  useEffect(() => {
+    const el = listRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return undefined;
+    const watch = new ResizeObserver(() => {
+      if (following.current && listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
+    });
+    watch.observe(el);
+    return () => watch.disconnect();
+  }, []);
 
   const canEarlier = start > 0 || !atStart;
   const atLimit = start === 0 && shown.length >= MAX_ROWS && !atStart;
@@ -167,7 +180,10 @@ export function Log({ entries, atStart = true, older = "idle", onOlder = null, d
   };
 
   const pendingLi = (key) => html`<li key=${key} class="conv-row conv-pending" data-pending="">${pending.node}</li>`;
-  const rowOf = (e) => html`<${Row} key=${e.id} entry=${e} open=${!!opened[e.id]} onToggle=${toggle} detail=${details ? details[e.id] : null} />`;
+  // Retry is on the newest prompt only.
+  let lastPrompt = "";
+  if (onRetry) for (let i = entries.length - 1; i >= 0; i--) if (entries[i] && entries[i].kind === "prompt") { lastPrompt = entries[i].id; break; }
+  const rowOf = (e) => html`<${Row} key=${e.id} entry=${e} open=${!!opened[e.id]} onToggle=${toggle} detail=${details ? details[e.id] : null} onRetry=${e.id === lastPrompt ? onRetry : null} details=${e.kind === "prompt" && Array.isArray(e.images) && e.images.length ? details : null} onDetail=${onDetail} />`;
   const items = [];
   for (const it of groupEntries(shown)) {
     if (!it.steps) {

@@ -37,6 +37,8 @@ export function queueOf(st) {
     const system = q.kind === "flockdeck";
     const own = q.kind === "user";
     const clipped = q.clipped === true;
+    // images is how many pictures the prompt carries (at most 4 are sent); an edit of the text keeps them.
+    const images = Number.isInteger(q.images) && q.images > 0 ? Math.min(q.images, 16) : 0;
     out.push({
       id: q.id,
       pos: out.length + 1,
@@ -48,6 +50,7 @@ export function queueOf(st) {
       text: cutText(q.text, QUEUE_TEXT_MAX),
       raw: own && typeof q.text === "string" ? q.text : "",
       clipped,
+      images,
       editable: own && !clipped,
       removable: own,
     });

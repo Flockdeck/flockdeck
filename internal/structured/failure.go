@@ -35,6 +35,9 @@ const resetWindow = 31 * 24 * time.Hour
 // only when the data holds one as a Unix time inside resetWindow, written in
 // Flockdeck's own format and the local zone.
 func failureText(err error, now time.Time) string {
+	if errors.Is(err, acp.ErrNoImages) {
+		return acp.ErrNoImages.Error() + "."
+	}
 	var rpc *acp.RPCError
 	if !errors.As(err, &rpc) || len(rpc.Data) == 0 || len(rpc.Data) > 512 {
 		return agentError

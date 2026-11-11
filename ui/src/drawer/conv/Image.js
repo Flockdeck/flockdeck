@@ -5,8 +5,8 @@
 // nothing is fetched from the network. Only the formats a browser draws without
 // running anything are drawn (PNG, JPEG, GIF, WebP), the base64 must be only
 // base64 characters, and over MAX_IMAGE_BYTES the picture is not drawn and the
-// row says so. A click on the picture toggles its size.
-import { useState } from "../../vendor/hooks.mjs";
+// row says so. A click on the picture toggles its size, Escape makes it small again, and focus stays on the button.
+import { useRef, useState } from "../../vendor/hooks.mjs";
 import { html } from "../../html.js";
 
 /** MAX_IMAGE_BYTES is the most an image drawn here is, in decoded bytes. */
@@ -46,6 +46,18 @@ export function imageWords(e) {
 /** ImageBody is what an opened image row shows: the picture, or why not. */
 export function ImageBody({ entry: e, detail }) {
   const [big, setBig] = useState(false);
+  const btn = useRef(null);
+  const toggle = (v) => {
+    setBig(v);
+    if (btn.current && typeof btn.current.focus === "function") btn.current.focus();
+  };
+  // Escape shrinks an enlarged picture and stops there, so it does not also close what holds the row.
+  const onKey = (ev) => {
+    if (ev.key === "Escape" && big) {
+      ev.stopPropagation();
+      toggle(false);
+    }
+  };
   // No detail yet is an empty region, not nothing: the words of the first state then arrive as a change.
   if (!detail) return html`<p class="conv-detail-state" role="status"></p>`;
   const data = detail.detail && typeof detail.detail.data === "string" ? detail.detail.data : "";
@@ -54,7 +66,7 @@ export function ImageBody({ entry: e, detail }) {
   // The words stay in one element, empty when the picture is drawn, so a screen reader announces a change in it.
   const say = detail.state === "loading" ? "Loading the image…" : detail.state === "gone" ? "No longer available." : detail.state === "failed" ? "Could not load. Open again to retry." : !src ? NOT_DRAWN_WORDS : tooBig ? TOO_BIG_WORDS : "";
   return html`<p class="conv-detail-state" data-detail=${detail.state === "loading" || detail.state === "gone" || detail.state === "failed" ? detail.state : undefined} role="status">${say}</p>
-    ${say ? null : html`<button type="button" class=${"conv-image" + (big ? " is-big" : "")} aria-label=${imageWords(e) + (big ? ", press to make it small" : ", press to make it larger")} aria-pressed=${big ? "true" : "false"} onClick=${() => setBig(!big)}>
+    ${say ? null : html`<button type="button" ref=${btn} onKeyDown=${onKey} class=${"conv-image" + (big ? " is-big" : "")} aria-label=${imageWords(e) + (big ? ", press to make it small" : ", press to make it larger")} aria-pressed=${big ? "true" : "false"} onClick=${() => toggle(!big)}>
       <img src=${src} alt=${imageWords(e)} />
     </button>`}`;
 }

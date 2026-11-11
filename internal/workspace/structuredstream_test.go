@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"fmt"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -190,7 +191,7 @@ func TestAnAppendDuringAPageRequestDoesNotReorderOrChangeThePage(t *testing.T) {
 	}
 	wg.Wait()
 	for i := range want {
-		if snap[i] != want[i] && snap[i].ID != want[i].ID {
+		if !reflect.DeepEqual(snap[i], want[i]) && snap[i].ID != want[i].ID {
 			t.Fatalf("entry %d of the page changed", i)
 		}
 	}

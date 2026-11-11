@@ -96,8 +96,10 @@ test("a structured pane's drawer draws the activity and usage from the push and 
       assert.equal(m.container.find(".structured-title").textContent, "Run go test");
       assert.equal(m.container.find(".structured-file").textContent, "./internal/x/y_test.go");
       assert.ok(m.container.find(".conv-icon--run"), "no icon of the tool's kind");
-      assert.equal(m.container.find(".structured-context").textContent, "1,000 of 8,000 tokens used");
-      assert.equal(m.container.find(".structured-cost").textContent, "1.25 USD");
+      // The context is shown once, in the strip's meter; the exact counts and the cost are its title.
+      assert.equal(m.container.find(".structured-context"), null);
+      assert.equal(m.container.find(".usage-line").textContent, "13% of context");
+      assert.equal(m.container.find(".usage-meter-btn").getAttribute("title"), "1,000 of 8,000 tokens used, 1.25 USD. Show the usage detail");
       assert.equal(m.container.findAll(".conv-row").length, 3);
       assert.equal(m.container.find(".drawer-kind").textContent, "structured");
     },
@@ -106,7 +108,7 @@ test("a structured pane's drawer draws the activity and usage from the push and 
 test("an idle pane with no usage says Idle and draws no usage line", () =>
   with_(push(), { entries: [] }, async (m) => {
     assert.equal(m.container.find(".structured-title").textContent, "Idle");
-    assert.equal(m.container.find(".structured-usage"), null);
+    assert.equal(m.container.find(".usage-meter"), null);
     assert.ok(m.container.find(".conv-empty"));
   }));
 
@@ -197,16 +199,16 @@ test("Send is off while a send is out, the refusal is an alert and goes when the
   }));
 
 test("a refusal does not take the keyboard from something the person moved to meanwhile", () =>
-  with_(push(), {}, async (m) => {
+  with_(push({ status: "working" }), {}, async (m) => {
     m.container.find(".structured-input").enter("run the tests");
     await settle();
     m.container.find(".structured-prompt").dispatch("submit");
     await settle();
     const box = m.container.find(".structured-input");
     const before = box.focusCalls;
-    m.container.find(".structured-stop").focus();
+    m.container.find(".composer-mention").focus();
     await refused(m, m.store.sent[0], "That agent is gone, so the text was not sent.");
-    assert.equal(box.focusCalls, before, "the refusal took the focus from Stop");
+    assert.equal(box.focusCalls, before, "the refusal took the focus from the @ button");
     assert.ok(m.container.find(".structured-note--send"), "the refusal was not said");
   }));
 
@@ -226,14 +228,14 @@ test("a text whose connection dropped before the desk answered is said and stays
   }));
 
 test("Stop sends structuredCancel for this pane, and a refusal is shown", () =>
-  with_(push(), {}, async (m) => {
+  with_(push({ status: "working" }), {}, async (m) => {
     m.container.find(".structured-stop").click();
     await settle();
     assert.equal(m.store.sent.length, 1);
     assert.equal(m.store.sent[0].cmd, "structuredCancel");
     assert.equal(m.store.sent[0].id, "p3");
     assert.ok(m.store.sent[0].req);
-    assert.equal(m.container.find(".structured-note"), null);
+    assert.equal(m.container.find(".structured-note--unsent"), null);
     await m.set({ cancelError: { id: "p3", error: "That pane has nothing running to stop" } });
     assert.equal(m.container.find(".structured-note").textContent, "That pane has nothing running to stop");
   }));
@@ -245,7 +247,7 @@ test("a Stop refusal shows the characters that reorder text", () =>
   }));
 
 test("a Stop the store did not send says so, and the words go when a Stop is sent or another pane is opened", () =>
-  with_(push(), {}, async (m) => {
+  with_(push({ status: "working" }), {}, async (m) => {
     let up = false;
     m.store.send = (cmd) => { m.store.sent.push(cmd); return up; };
     m.container.find(".structured-stop").click();
@@ -259,7 +261,7 @@ test("a Stop the store did not send says so, and the words go when a Stop is sen
     m.container.find(".structured-stop").click();
     await settle();
     assert.ok(m.container.find(".structured-note--unsent"));
-    await m.set({ structured: push({ id: "p4" }) }, { ...node, pane: "p4" });
+    await m.set({ structured: push({ id: "p4", status: "working" }) }, { ...node, pane: "p4" });
     assert.equal(m.container.find(".structured-note--unsent"), null, "the words followed the drawer to another pane");
   }));
 
@@ -273,7 +275,7 @@ test("on the real store, a Stop pressed between the socket opening and the hello
   const ws = FakeWebSocket.last;
   ws.open();
   try {
-    render(html`<${Structured} pane="p3" st=${push()} store=${store} />`, container);
+    render(html`<${Structured} pane="p3" st=${push({ status: "working" })} store=${store} />`, container);
     await settle();
     container.find(".structured-stop").click();
     await settle();
@@ -321,9 +323,9 @@ test("a Send the store did not send says so and keeps the draft; the words go wh
   }));
 
 test("the words and the draft stay with their pane: p3, p4, p3 shows nothing that was not pressed, and a draft is sent to the pane it was typed in", () =>
-  with_(push(), {}, async (m) => {
+  with_(push({ status: "working" }), {}, async (m) => {
     m.store.send = (cmd) => { m.store.sent.push(cmd); return cmd.cmd !== "structuredCancel" && cmd.id === "p4"; };
-    const to = (id) => m.set({ structured: push({ id }) }, { ...node, pane: id });
+    const to = (id) => m.set({ structured: push({ id, status: "working" }) }, { ...node, pane: id });
     // Stop fails on p3, then p4 is opened, then p3 again: the words are not pressed for p3 the second time.
     m.container.find(".structured-stop").click();
     await settle();
@@ -361,16 +363,53 @@ test("before the first push it says it is loading, and a refused watch says why"
   with_(null, {}, async (m) => {
     assert.ok(m.container.find(".drawer-stub").textContent.includes("Loading the agent"));
     await m.set({ structuredError: { error: "Too many structured panes are being watched" } });
-    assert.equal(m.container.find(".drawer-stub").textContent, "Too many structured panes are being watched");
+    // A state block with the reason and a Retry, which asks again.
+    const block = m.container.find(".conv-refused");
+    assert.match(block.getAttribute("class"), /chg-error/);
+    assert.equal(block.find("span").textContent, "Too many structured panes are being watched");
+    assert.ok(block.find(".conv-retry-open"));
+  }));
+
+test("the empty conversation lists /, @, ! and paste, and paste only for an agent that takes pictures", () =>
+  with_(push(), { entries: [] }, async (m) => {
+    const keys = () => m.container.find(".conv-tips").findAll("kbd").map((k) => k.textContent);
+    assert.deepEqual(keys(), ["/", "@", "!"]);
+    await m.set({ structured: push({ capabilities: { image: true } }) });
+    assert.deepEqual(keys(), ["/", "@", "!", "Paste"]);
+  }));
+
+test("Retry is on the newest prompt only, sends its text through the Send path and is gone while a turn runs", () =>
+  with_(push(), { entries: [entry(1, { kind: "prompt", text: "first", typed: true }), entry(2), entry(3, { kind: "prompt", text: "run the tests", typed: true }), entry(4, { kind: "notice", text: "Turn ended: refusal", tone: "failure" })] }, async (m) => {
+    const buttons = m.container.findAll(".conv-retry");
+    assert.equal(buttons.length, 1);
+    buttons[0].click();
+    await settle();
+    assert.deepEqual(m.store.sent.map(plain), [{ cmd: "paneSend", id: "p3", text: "run the tests" }]);
+    assert.ok(m.store.sent[0].req);
+    // A second press while that send is out sends nothing.
+    m.container.find(".conv-retry").click();
+    await settle();
+    assert.equal(m.store.sent.length, 1);
+    await m.set({ structured: push({ status: "working" }) });
+    assert.equal(m.container.findAll(".conv-retry").length, 0);
+  }));
+
+test("Retry is not offered when the newest prompt was not typed here or carries pictures", () =>
+  with_(push(), { entries: [entry(1, { kind: "prompt", text: "first", typed: true }), entry(2, { kind: "prompt", text: "from a wake" })] }, async (m) => {
+    assert.equal(m.container.findAll(".conv-retry").length, 0, "an older typed prompt must not get Retry when a newer prompt is not the person's");
+    await m.set({ conversation: convOf([entry(1, { kind: "prompt", text: "look at this", typed: true, images: [{ mediaType: "image/png", bytes: 3 }] })]) });
+    assert.equal(m.container.findAll(".conv-retry").length, 0);
+    assert.equal(m.container.find(".conv-pics").getAttribute("aria-label"), "1 picture");
+    assert.equal(m.container.findAll(".conv-thumb").length, 1, "the picture is a thumbnail now, not a note");
   }));
 
 test("a cancel refusal is shown for its own pane and not for another one opened after it", () =>
-  with_(push(), {}, async (m) => {
+  with_(push({ status: "working" }), {}, async (m) => {
     await m.set({ cancelError: { id: "p3", error: "That pane has nothing running to stop" } });
-    assert.ok(m.container.find(".structured-note"));
-    await m.set({ structured: push({ id: "p9" }), cancelError: { id: "p3", error: "That pane has nothing running to stop" } }, { ...node, pane: "p9" });
+    assert.ok(m.container.find(".structured-note--unsent"));
+    await m.set({ structured: push({ id: "p9", status: "working" }), cancelError: { id: "p3", error: "That pane has nothing running to stop" } }, { ...node, pane: "p9" });
     assert.ok(m.container.find(".structured-stop"), "the other pane's view was not drawn");
-    assert.equal(m.container.find(".structured-note"), null, "pane p3's refusal was shown on pane p9");
+    assert.equal(m.container.find(".structured-note--unsent"), null, "pane p3's refusal was shown on pane p9");
   }));
 
 test("rows keep their DOM elements when entries come in below", () =>

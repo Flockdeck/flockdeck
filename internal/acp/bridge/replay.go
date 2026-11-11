@@ -51,10 +51,20 @@ func (b *Bridge) DropReplay() {
 // Notice adds a notice entry to the conversation and returns what is due to be
 // handed out.
 func (b *Bridge) Notice(text string) []transcript.Entry {
+	return b.notice(text, "")
+}
+
+// Failure is Notice for something that went wrong: the entry carries the
+// failure tone, so a window draws it apart from a plain note.
+func (b *Bridge) Failure(text string) []transcript.Entry {
+	return b.notice(text, transcript.ToneFailure)
+}
+
+func (b *Bridge) notice(text, tone string) []transcript.Entry {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.closeMerges()
-	b.add(transcript.Entry{Kind: transcript.KindNotice, Text: line(text, labelCap)})
+	b.add(transcript.Entry{Kind: transcript.KindNotice, Tone: tone, Text: line(text, labelCap)})
 	b.enforce()
 	return b.take(true)
 }
@@ -66,6 +76,7 @@ func (b *Bridge) resetItems() {
 	b.tools = map[[sha256.Size]byte]*item{}
 	b.mails = nil
 	b.detail, b.inline, b.detailFrom = 0, 0, b.seq
+	b.images = 0
 	b.inFlight = false
 }
 
@@ -105,6 +116,9 @@ func (b *Bridge) trimReplay() {
 		it := b.items[n]
 		b.detail -= it.detail
 		b.inline -= it.inl
+		if it.e.Kind == transcript.KindImage {
+			b.images--
+		}
 		if it.keyed {
 			delete(b.tools, it.key)
 		}

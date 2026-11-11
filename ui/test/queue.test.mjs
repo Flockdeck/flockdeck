@@ -6,7 +6,7 @@ import { render } from "../src/vendor/preact.mjs";
 import { html } from "../src/html.js";
 import { Structured } from "../src/drawer/Structured.js";
 import { queueOf, queueMessage, stopMessage, hasUserItems, QUEUE_MAX, QUEUE_TEXT_MAX } from "../src/drawer/queueModel.js";
-import { QUEUE_NOT_SENT_WORDS } from "../src/drawer/QueueList.js";
+import { QUEUE_NOT_SENT_WORDS, imagesLabel } from "../src/drawer/QueueList.js";
 import { QUEUE_GONE_WORDS } from "../src/drawer/queueModel.js";
 import { createDom, install, settle } from "./dom.mjs";
 import { fakeStore } from "./termfakes.mjs";
@@ -241,13 +241,14 @@ test("a command the socket did not send says so, and nothing is marked sent", as
 
 // ---------------------------------------------------------------- Stop and the working hint
 
-test("Stop drops the queue as before, Stop and keep queue keeps it, and the pane says it is stopping", async () => {
+test("Stop keeps the queue, like Escape and Ctrl+C, the queue header has no Stop of its own, and the pane says it is stopping", async () => {
   const m = await mount(queued(row(7, "user", "a")));
   try {
     assert.ok(m.container.find("[data-queue-hint]"), "no hint that what is typed now waits");
+    assert.equal(m.container.find(".structured-stop-keep"), null, "a second Stop in the queue header");
     m.container.find(".structured-stop").click();
     await settle();
-    assert.deepEqual(cmds(m, "structuredCancel").map((c) => c.keepQueue), [undefined]);
+    assert.deepEqual(cmds(m, "structuredCancel").map((c) => c.keepQueue), [true]);
     assert.ok(m.container.find("[data-stopping]"), "no sign that the turn is being stopped");
     assert.equal(m.container.find("[data-queue-hint]"), null);
     await m.push(push({ status: "idle" }));
@@ -255,16 +256,11 @@ test("Stop drops the queue as before, Stop and keep queue keeps it, and the pane
   } finally {
     await m.done();
   }
-  const k = await mount(queued(row(7, "user", "a")));
-  try {
-    k.container.find(".structured-stop-keep").click();
-    assert.deepEqual(cmds(k, "structuredCancel").map((c) => c.keepQueue), [true]);
-  } finally {
-    await k.done();
-  }
   const none = await mount(push({ status: "working" }));
   try {
-    assert.equal(none.container.find(".structured-stop-keep"), null, "keep-queue Stop with nothing queued");
+    none.container.find(".structured-stop").click();
+    await settle();
+    assert.deepEqual(cmds(none, "structuredCancel").map((c) => c.keepQueue), [undefined], "keep asked with nothing waiting");
   } finally {
     await none.done();
   }
@@ -375,4 +371,15 @@ test("a refusal note goes when the list changes", async () => {
   } finally {
     await m.done();
   }
+});
+
+test("a waiting prompt with pictures says how many, and an edit keeps them", () => {
+  const rows = queueOf(push({ queue: [
+    row(1, "user", "look", { images: 2 }), row(2, "user", "one", { images: 1 }), row(3, "user", "none"),
+    row(4, "user", "bad", { images: -1 }), row(5, "user", "odd", { images: "3" }),
+  ] }));
+  assert.deepEqual(rows.map((r) => r.images), [2, 1, 0, 0, 0]);
+  assert.equal(imagesLabel(2), "+2 images");
+  assert.equal(imagesLabel(1), "+1 image");
+  assert.ok(rows[0].editable, "a prompt with pictures can still be edited");
 });

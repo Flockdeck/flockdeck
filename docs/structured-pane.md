@@ -82,7 +82,7 @@ refused in the same words, so a window probing for ids learns nothing: the `team
 | `status` | `working`, `waiting` or `idle`, while the phase is `ready`. |
 | `activity` | A line naming what a working agent is doing. |
 | `queued` | How many prompts wait behind the running turn. |
-| `queue` | The waiting prompts, next first (API 1.19): `id`, `pos`, `kind` (`user`, `mail` or `flockdeck`), `state` (`queued`), `peer` (mail only), `text` (cut to 2000 bytes) and `clipped`. For `user` the text is exactly as typed, so an edit starts from it; for `mail` the text and `peer` have format and direction characters (Unicode Cf, such as U+202E) removed. A message from another agent is `kind` `mail` with the sender in `peer`; its body never carries the sender, and a window draws `peer` and `text` apart. Prompts the person sent while the turn runs, and mail handed over by the delivery service, are in the same list; mail past the 16 the runtime holds waits in the store and is not listed. |
+| `queue` | The waiting prompts, next first (API 1.19): `id`, `pos`, `kind` (`user`, `mail` or `flockdeck`), `state` (`queued`), `peer` (mail only), `text` (cut to 2000 bytes), `clipped` and `images` (since API 1.30: how many pictures the prompt carries, absent for none; an edit of the text keeps them). For `user` the text is exactly as typed, so an edit starts from it; for `mail` the text and `peer` have format and direction characters (Unicode Cf, such as U+202E) removed. A message from another agent is `kind` `mail` with the sender in `peer`; its body never carries the sender, and a window draws `peer` and `text` apart. Prompts the person sent while the turn runs, and mail handed over by the delivery service, are in the same list; mail past the 16 the runtime holds waits in the store and is not listed. |
 | `shell` | The person's own commands, the oldest first, at most 8 (API 1.20): `id`, `cmd` (one line, cut to 500 characters), `state` (`running`, `exited`, `stopped`, `timeout` or `failed`), `code` (only for `exited`), `text` and `cut`. `text` is the output as plain text: escape sequences, carriage-return overwrites, control characters other than line break and tab, and format characters (U+202E and the like) are removed, and it is cut to its newest 8 KiB (`cut` says the start was let go; the runtime keeps at most 64 KiB). A window draws it as text only. |
 | `err` | The last thing that went wrong, as one cleaned line. It says what last went wrong and not that something is wrong now; show it with the phase and status. |
 | `setup` | While the phase is `needs setup`: `kind` (`login`; before API 1.16 also `node` and `install`), a `message` (the cause) and a `fix` (what to do about it, when there is advice). |
@@ -141,6 +141,19 @@ the bridge's cap (10000 entries) plus the history kept across restarts (2000). A
 `conversationDetail` for an entry the runtime no longer holds answers with a one-line notice. Like the
 push, they are for a window on this machine; a window through the relay is refused them.
 
+Every entry carries `ts`, an RFC 3339 time in UTC, and the drawer shows it at the foot of a row.
+
+A `notice` entry has an optional `tone` (API 1.31, cap `noticeTone`). The only value is `failure`, set on a
+notice that says something went wrong: a turn that ended for any reason but a normal end or a cancel
+(`Turn ended: max_tokens`), a session that could not be resumed or a fork that could not be made, and a
+restart that failed. Every other notice has no `tone`. A window draws a failure notice in its error colour
+and as a block, apart from a plain note. A value a window does not know is drawn as a plain notice.
+
+A `prompt` entry has an optional `typed` (API 1.32, cap `promptTyped`), `true` on a prompt the person typed in
+the pane's own box. A replayed prompt, a prompt Flockdeck or another agent sent (the opening prompt, a wake, a
+shell's output, mail) and any prompt of a session read from disk have no `typed`. A window offers Retry on a
+typed prompt only, and not on one with `images`. The text of a prompt is never cut on the wire.
+
 ## 4. Limits and throttling
 
 | What | Limit |
@@ -170,10 +183,19 @@ makes whenever the workspace changes.
 ## 5. The drawer view
 
 The drawer draws a structured pane from this watch and from its conversation
-(`drawer/Structured.js`). The header carries a "structured" label beside the name. The panel shows the
-activity line, which is the tool still running (read from the conversation) with an icon for its kind
-and the first file its summary names, or the push's activity text, or "Idle". It shows the context used of
-its size, and the cost when the agent reported one. Under them is the pane's conversation, drawn by the
+(`drawer/Structured.js`). The header carries a "structured" label beside the name. The conversation fills the
+height of the drawer. The pane does not scroll; the log does. The strip and the prompt box keep their size, and
+the plan, panels and queue between them give up height first and scroll inside themselves past 30% of the window
+height. If panels are stacked on a very short drawer, the drawer's own scrollbar reaches the prompt box. One strip sits above the log (`conv/Toolbar.js` with a lead from
+`Structured.js`). It holds a status dot, the activity (the tool still running, read from the conversation, with
+an icon for its kind and the first file its summary names, or the push's activity text, or "Idle"), the usage
+meter (a bar and a percentage), the model and mode pickers (each with its name beside it) and any other setting the
+agent offers, a search button and a More menu. The exact counts and the cost are not in the strip: they are in the
+usage detail that the meter's button opens, and in the button's tooltip, which shows only on hover. The More menu holds Agent
+info, Copy, Copy last reply and, on the desk, Export. It is a menu in the keyboard sense: it opens on the first
+item, Arrow Up and Down, Home and End move between items, Escape closes it without stopping the running turn,
+and the keyboard goes back to the More button when it closes. With the menu closed, Escape on the button goes on
+to stop the turn as it does anywhere else in the pane. Under the strip is the pane's conversation, drawn by the
 same component as a terminal agent's Conversation tab (`drawer/Conversation.js`, `drawer/conv/`): the
 same rows, paging with Older, search, Copy, and runs of tool rows folded into "N steps". A structured
 pane has no Conversation tab of its own, since this is it. Replies are sanitised Markdown: nothing in
@@ -181,8 +203,15 @@ one is put into the page as markup, a link is made only for http and https addre
 20,000 characters is cut with a note saying how much is not shown. Opening a tool row asks for its
 output or diff with `conversationDetail` (4 KiB of output and 64 KiB of diff are drawn, and the cut is
 said), and a permission waiting on the pane is drawn in the list after the tool it was asked for, as the
-same card the top of the drawer has. Export is not offered for a structured pane (there is no stored
-transcript to export), and the toolbar says so. Every text is drawn as text.
+same card the top of the drawer has. A pane with no exporter has no Export item (there is no stored
+transcript to export). Every text is drawn as text.
+
+The drawer's panels share one border (`--panel-line`, the shell's `--line`) and the drawer's body text is on three
+sizes (`--fs-sm`, `--fs-md`, `--fs-lg`: 11, 12 and 13 px), both set on `.drawer-body` in `drawer/drawer.css`.
+Five sizes are written out on purpose: the drawer title (15 px), Markdown headings (15 and 16 px) and the diff's
+add-comment button (14 px, 20 px on a coarse pointer).
+Screenshots of the old layout (activity line, usage text, a row of labelled selectors and a toolbar of five
+buttons above the log, which stopped at half the window height) no longer match.
 
 The prompt box (T212) takes several lines: Enter or Ctrl/Command+Enter sends and Shift+Enter adds a line,
 and the box grows from two to ten rows. Up on the first line and Down on the last step through the pane's
@@ -190,13 +219,38 @@ earlier prompts and back to the draft; the history (50 prompts of at most 8 KiB)
 are kept per pane in the window's local storage, for the 30 panes used last, and in memory when storage
 is missing or full. `@` after white space asks `structuredFiles` (after a 120 ms pause, one answer matched
 by its `req`) and lists the names; choosing one writes `@path ` as text. When `capabilities.image` is set,
-a picture pasted, dropped or chosen is scaled to under 600 KiB, sent with `attachImage`, and its saved path
-is written as `[image: path]`; one is in flight at a time. A window reached through the relay has none of
-this. There is no setting for the send key.
+pictures pasted, dropped anywhere on the drawer or chosen with Attach image (several at once) become chips
+beside the text, up to 4: a thumbnail, the name, the size and dimensions, a progress bar and a remove
+button. Each is scaled to under 600 KiB (a PNG stays a PNG when one fits, otherwise it becomes a JPEG),
+sent with `attachImage` one at a time, and its saved path is sent as `paneSend` `images` when the prompt is
+sent. Nothing is written into the text. A picture that fails says so on its own chip and the others go on;
+Send waits for the rest and is held while a failed chip is still there. A window reached through the relay
+has none of this. There is no setting for the send key.
+
+The box is one bordered composer (`drawer/Composer.js`): an empty strip for pictures on top, the text, and one
+control row with Attach image (when the agent takes pictures), `@`, `/` and one button on the right. The
+button is Send; while the agent works or waits (status `working` or `waiting`) and the box is empty it is Stop. Waiting
+cancels the permission request, as before. With text in the box, even a draft restored from storage, there is no Stop:
+the button reads "Send (queues)" so the person can see why, and the text goes to the queue. Stop keeps the waiting
+prompts, like Escape and Ctrl+C; Clear in the queue list is how to drop them. When a send is accepted while the agent
+works, Send turns into Stop in the same place, so that button ignores a press for 500 ms and the focus goes back to the
+text box (Escape and the refusal's refocus rely on that). Attach image is always drawn: dimmed with `aria-disabled`
+and a paperclip icon when the agent takes no pictures, and pressing it says so; `/` is dimmed the same way while the box
+has text, and says commands start an empty box. `@` puts an @ at the caret, `/` starts a command
+in an empty box. Under the composer there is one status
+line, not a stack: the most urgent of the refusals and failures (the text, a `!` command, Stop, a setting, a
+picture), then a warning about a picture, then a hint (stopping, what `!` does, how to stop the turn). The order
+is in `drawer/composerNotes.js`. With a `!` command in the box its hint outranks every error that is not about
+sending the text or running the command. A setting note, a setting refusal, a Stop refusal and a picture error or
+warning go away when the draft changes, when the person sends, stops or changes a setting again, and when the turn
+ends. The line is two live regions, one `role="status"` and one `role="alert"`, that keep their roles; the text moves
+between them. The mode confirmation keeps its own block above the line. If the box goes away (the pane's push goes null or
+another pane opens) while a send is out, the sent text goes into the history, where Up brings it back, and not into
+the draft: the desk may have taken it, and the draft would send it twice. If the desk then refused it, the refusal is
+not shown and the text is only in the history.
 
 Escape stops a running turn, and so does Ctrl+C when no text is selected (T227). Both send
-`structuredCancel` with `keepQueue` set when prompts are waiting, so the waiting prompts are not lost the way
-they are with the Stop button; the button still drops the queue. Escape works while the pane is working; Ctrl+C works while it is working or waiting on a permission (the request
+`structuredCancel` with `keepQueue` set when prompts are waiting, as the Stop button and `/stop` do. Escape works while the pane is working; Ctrl+C works while it is working or waiting on a permission (the request
 is answered cancelled, never allowed). With a permission open Escape is left to the card, and the hint then
 says only Ctrl+C. Both work from an empty prompt box or from anywhere else in the drawer. A held key (auto-repeat)
 is ignored, and several presses before the page redraws send one Stop; it can be sent again once the turn has ended. They are left alone when a slash or file list is open (Escape closes the list), when the
@@ -214,6 +268,19 @@ starts open while something is left and closed when all is done, and the person'
 cut to 200 characters on one line, control and invisible characters removed, drawn as text. It follows every
 push. The markdown plan (`planMarkdown`) is not drawn.
 
+
+**Rows and states** (`drawer/conv/rows.js`, `Conversation.js`). The person's prompt is a bubble on the
+right and the agent's reply runs the full width with no bubble; there is no "You" or "Agent" label (a
+screen reader still gets the speaker from hidden text). The entry's `ts` is shown as a clock time at the foot
+of a prompt or reply, on hover and focus, and always on a touch screen. A prompt has Copy; the newest prompt
+has Retry while no turn runs, which sends its text again through the same path as Send. A prompt over 4,000
+characters, a reply over 20,000 and tool output over 4 KiB are cut with the amount left out, and Show all
+draws more of them in pieces (about 4,000 or 20,000 characters, never one node) up to 100,000 characters for a
+prompt, 200,000 for a reply and 256 KiB for tool output; Copy gives all of the text whatever is drawn. An
+empty conversation lists `/`, `@`, `!` and, for an agent that takes pictures, paste. Loading is a skeleton. A
+refusal, or a watch the desk refused, is the Changes tab's error block with Retry (not in a window through the
+relay). A notice with `tone` `failure` is drawn as an error block. An entry of a kind the page does not know
+is still drawn as "Unknown entry".
 
 ## 6. Using a structured pane
 
@@ -346,7 +413,7 @@ A terminal opencode pane is not started this way and keeps its own configuration
   no double Escape and no `/undo`.
 - Allow always covers shell commands only, the exact command only, and is held in the adapter's memory, so a pane restart (an update, a crash) asks again. Agent info lists the rules of the session and removes one (`structuredRules`, `structuredRuleRevoke`); there is no way to add or edit one.
   Accept-edits mode, chosen in the mode selector, is the practical way to ask less.
-- A subagent's own text is not shown, images reach the agent as a file path and not as an image block, and there
+- A subagent's own text is not shown, the composer still gives the agent a picture as a file path (the server side of image blocks is in, see Pictures in a prompt), and there
   is no Shift+Tab mode cycle or session picker. [The parity audit](acp-parity-audit.md) has the whole list.
 - A structured pane is not recorded.
 - Desktop notifications work as they do for a terminal pane (`lib/attention.js`, `shell/Live.js`): a pane that
@@ -536,3 +603,76 @@ The new pane's window shows the fork notice but not the earlier turns. Files the
 - A phone, or any window through the relay.
 - Sending a prompt. A window uses `paneSend`, which sends a prompt over the protocol to a structured
   pane (`docs/team-graph.md`, section 6).
+
+### Pictures in a prompt
+
+Since API 1.30 (cap `structuredImages`).
+
+`paneSend` takes `images`, a list of `{ path }`, where each path is what `attachImageResult` returned for a
+picture attached to that pane. The pictures go to the agent as ACP `image` content blocks after the text,
+when the agent said `promptCapabilities.image` at initialize. For an agent that did not, nothing is sent
+and the window gets the notice "This agent does not take images". A prompt takes at most 4 pictures of up
+to 5 MB each, 8 MB in all, and may have no text. The waiting prompts hold at most 16 MB of pictures
+between them, since the queue keeps the bytes in memory; past that the send is refused with a plain
+sentence. A window may send at most 6 `paneSend` calls with pictures in 10 seconds, and the files are read
+on a goroutine of their own, not on the window's read loop. A pane that is not a structured pane refuses
+pictures with the same notice.
+
+Since API 1.33 (cap `attachImageReq`), `attachImage` takes a `req` and `attachImageResult` copies it back,
+on a refusal too, so a window attaching several pictures matches each result to its chip. A window with no
+`req` gets none back, as before. The desk allows 10 `attachImage` calls in 10 seconds per window, so the
+window sends a prompt's pictures one at a time, waiting for each result, and holds back a call when ten
+were made in the last ten seconds.
+
+The path is not trusted. The server reads a file only if it is a regular file directly inside
+`<state dir>/uploads/<that pane>` once links are resolved. A path that climbs out with `..`, goes through a
+link to somewhere else, lies in another pane's folder, is relative, or on Windows is drive-relative, rooted
+without a drive, a UNC path or a device path (those Windows cases are tested on Windows only), is refused with "That picture was not attached to this
+pane, so it was not sent", which names no path. A file that has been swept (uploads are kept 7 days) is
+refused with "That picture is no longer available". Only a file named the way the upload names it (a
+number, a dash, letters, digits, dashes and underscores, and the extension of its type) is read, which
+leaves out a colon (an alternate data stream) and reserved device names such as `CON`. The file is checked
+with `Lstat` before it is opened and must be the same file after the open. The bytes are sniffed again, and
+only png, jpeg, gif and webp are sent.
+
+A prompt that fails after it was sent, or that meets an agent that does not take images only once the agent
+has started, is not kept for a retry: its text stays in the conversation as the prompt entry and the turn
+ends with a notice, but the pictures are dropped with it, so the person attaches them again.
+
+Reading the pictures back needs no new field and no API version. `conversationDetail` takes the key
+`<prompt entry id>#<n>` for picture `n` (0 to 3) of that prompt's `images`, and answers with `detail.data`
+(base64 in the picture's own media type) read from the pane's uploads folder under the same checks as a send.
+A picture that was swept after 7 days, was never there, or is named by an entry that is not a prompt is answered
+with `gone`, and the window says "No longer available". The prompt row draws each as a thumbnail that a click
+enlarges; a window that cannot ask (one reached through the relay) says "N pictures" instead. Retry stays off
+a prompt with pictures.
+
+A picture over 1 MiB decoded (about 1.4 MB of base64) is answered with `gone` too, so one reply stays a
+sensible size. The window scales what it attaches to 600 KB, so this only meets a picture another client sent
+(the server takes up to 5 MB). The key is a read of the prompt like the rest of `conversationDetail`: a viewer
+device the desk has let watch panes may send it, as for any conversation detail, and so may read the pictures of
+the prompts. A relay window is refused as for the other conversation commands.
+
+The window asks for the pictures of rows near the viewport only, at most 4 at a time, and the store holds
+8 prompt pictures apart from the 12 tool details, so one kind does not push out the other. A picture the store
+lost before it answered is asked for again up to 3 times and then says "No longer available".
+
+### Pictures an agent returns
+
+An ACP `image` content block in a tool call's content, or an agent message chunk, becomes an `image` entry
+(`mediaType`, `bytes`, `width`, `height`, `hasDetail`), drawn by the image row; the bytes come with
+`conversationDetail` as `detail.data`. The block is the agent's and is not trusted: only png, jpeg, gif and
+webp are kept, the data must be only base64 characters, a picture over 700 KiB decoded (about 930 KB of base64 in one
+`conversationDetail`; the 1 MiB of the control socket is the most the server reads from a window, not a limit on
+what it sends) is dropped, one tool entry makes at most 4 pictures and a session holds at
+most 100, and a tool update that repeats a picture does not make it twice. A refused picture makes no entry
+and no error. Its bytes are part of the detail budget and the oldest are dropped first, after which the row
+says "No longer available". The window draws a picture only from a `data:` address and not above 8 MB.
+
+The prompt entry carries `images`: for each picture its `mediaType`, `bytes`, `width` and `height` (when
+the image header could be read) and `upload`, the file's name in the pane's uploads folder (not a path). The
+bytes are not kept in the conversation. A window that shows a thumbnail has to ask for the file, and it
+may be gone.
+
+The window's composer sends the pictures as `images` and writes nothing into the text (since API 1.33; see
+the prompt box above).

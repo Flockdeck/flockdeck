@@ -21,6 +21,7 @@ var (
 	ErrSendShell      = errors.New("That pane is a shell, and a shell runs whatever it is sent, so the text was not sent")
 	ErrSendPermission = errors.New("That pane is waiting on a permission prompt, which is answered with its choice buttons and not by text, so the text was not sent")
 	ErrSendInFlight   = errors.New("The pane is still taking in the last text sent to it, so this was not sent. Try again in a moment")
+	ErrSendImages     = errors.New("This agent does not take images")
 	ErrSendQueueFull  = errors.New("That pane already has as many prompts waiting as it takes, so the text was not sent. Try again when it has worked through them")
 	// ErrSendNotSubmitted is not an early refusal: the text was written and the
 	// agent did not start a turn on it, after a second Enter.
@@ -93,6 +94,14 @@ func (w *Workspace) SendToPane(id, text string, allowShell bool) (SendResult, er
 // start a turn on it: after the Enter and a second one a second apart. A pane
 // that was busy is not checked, since its status says nothing about the text.
 func (w *Workspace) SendToPaneThen(id, text string, allowShell bool, unsent func(error)) (SendResult, error) {
+	return w.SendToPaneImages(id, text, nil, allowShell, unsent)
+}
+
+// SendToPaneImages is SendToPaneThen for a prompt that also carries pictures.
+// Only a structured pane takes them, as image content blocks after the text; any
+// other pane is refused with ErrSendImages, and so is a structured pane whose
+// agent did not say it takes images. The pictures are already read and checked.
+func (w *Workspace) SendToPaneImages(id, text string, images []structured.Image, allowShell bool, unsent func(error)) (SendResult, error) {
 	var res SendResult
 	p := w.Pane(id)
 	if p == nil {
@@ -105,8 +114,11 @@ func (w *Workspace) SendToPaneThen(id, text string, allowShell bool, unsent func
 		return res, ErrSendTooLong
 	}
 	text = stripControls(text)
-	if strings.TrimSpace(text) == "" {
+	if strings.TrimSpace(text) == "" && len(images) == 0 {
 		return res, ErrSendEmpty
+	}
+	if len(images) > 0 && !p.Structured() {
+		return res, ErrSendImages
 	}
 	res.Shell = !p.IsAgent()
 	if res.Shell && !allowShell {
@@ -124,7 +136,9 @@ func (w *Workspace) SendToPaneThen(id, text string, allowShell bool, unsent func
 		return res, ErrSendInFlight
 	}
 	res.Queued = w.Runtime(p).Activity() == ActivityWorking
-	if w.routeFirstTurn(p, text) {
+	// A pane's first turn may be routed by what the text says, and routing sends
+	// the text alone, so a prompt with pictures is not offered to it.
+	if len(images) == 0 && w.routeFirstTurn(p, text) {
 		w.releaseSend(p)
 		res.Routed, res.Queued = true, false
 		return res, nil
@@ -132,7 +146,13 @@ func (w *Workspace) SendToPaneThen(id, text string, allowShell bool, unsent func
 	if p.Structured() {
 		// A prompt over the protocol, queued behind a running turn; no keys are
 		// typed, because there is no terminal.
-		err := w.Runtime(p).Wake(text)
+		var err error
+		if _, ok := p.setRuntime().(*structuredRuntime); ok || len(images) > 0 {
+			// The person's own text: its entry is marked typed, which Retry needs.
+			err = w.sendImagesTo(p, text, images)
+		} else {
+			err = w.Runtime(p).Wake(text)
+		}
 		w.releaseSend(p)
 		switch {
 		case errors.Is(err, structured.ErrNotRunning):

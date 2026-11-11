@@ -20,12 +20,15 @@ import { clip } from "../graph/Node.js";
 import { showControls } from "./diff/diffModel.js";
 import { queueMessage, hasUserItems, QUEUE_GONE_WORDS } from "./queueModel.js";
 
+/** imagesLabel is what the queue list says about the pictures a waiting prompt carries. */
+export const imagesLabel = (n) => "+" + n + (n === 1 ? " image" : " images");
+
 export const QUEUE_NOT_SENT_WORDS = "Not connected to Flockdeck, so that was not sent.";
 let queueSeq = 0;
 
 /** QueueList is the list. rows is queueOf(push); result is the store's latest answer to a queue command,
  *  { id, req, ok, error }; working says a turn is running, so Send now ends it; focusBox puts the focus in the
- *  prompt box. */
+ *  prompt box. Stop is the composer's button and keeps these prompts; Clear here drops them. */
 export function QueueList({ rows, pane, store, result = null, working = false, focusBox = null }) {
   // The prompt being edited: { id, text, req } where req is the Save in flight, or "".
   const [edit, setEdit] = useState(null);
@@ -125,6 +128,7 @@ export function QueueList({ rows, pane, store, result = null, working = false, f
             <button type="button" class="drawer-btn queue-cancel" disabled=${!!edit.req} onClick=${() => closeEdit(r.id)}>Cancel</button>
           </span>`
       : html`<span class="queue-text" dir="auto">${showControls(clip(r.text, 300))}</span>
+          ${r.images ? html`<span class="queue-images">${imagesLabel(r.images)}</span>` : null}
           <span class="queue-actions">
             ${r.editable ? html`<button type="button" class="drawer-btn queue-edit-btn" aria-label=${"Edit waiting prompt " + r.pos} onClick=${() => { setNote(""); setEdit({ id: r.id, text: r.raw, req: "" }); }}>Edit</button>` : null}
             ${r.removable ? html`<button type="button" class="drawer-btn queue-remove" aria-label=${"Remove waiting prompt " + r.pos} onClick=${() => run("remove", r.id)}>Remove</button>` : null}
@@ -134,9 +138,9 @@ export function QueueList({ rows, pane, store, result = null, working = false, f
   </li>`;
   return html`<section ref=${root} class="structured-queue" aria-label="Waiting prompts" data-queue=${rows.length}>
     <p class="queue-head"><span>${rows.length === 1 ? "1 prompt waiting" : rows.length + " prompts waiting"}</span>
-      ${hasUserItems(rows)
+      <span class="queue-head-actions">${hasUserItems(rows)
         ? html`<button type="button" class="drawer-btn queue-clear" title=${rows.some((r) => r.mail || r.system) ? "Removes yours; messages from other agents and Flockdeck's own prompt stay" : "Removes every waiting prompt"} onClick=${() => run("clear")}>Clear</button>`
-        : null}</p>
+        : null}</span></p>
     <ol class="queue-list">${rows.map(item)}</ol>
     ${note ? html`<p class="structured-note structured-note--unsent" role="status">${note}</p>` : null}
     ${refused ? html`<p class="structured-note" role="status">${showControls(clip(refused, 300))}</p>` : null}

@@ -11,7 +11,7 @@ The verdict is in the last section. This is the short version of what was open w
 3. Files cannot be rewound. Conversation rewind and fork work for Claude and Codex panes (#730), but nothing puts changed files back, and Esc Esc is not bound. People who lean on checkpoints will notice. Status on 6 Nov: unchanged, and released as a known gap.
 4. Four Claude paths have never run against a real claude: the AskUserQuestion answer format, the whole rewind and fork path, a real usage-limit result, and which todo tool current claude uses in `-p` mode (the plan checklist handles TodoWrite only). Status on 6 Nov: all four ran against claude 2.1.319 (see the live check below). A fork after a rewind failed and was fixed (#755), the checklist now draws from the task tools (#756), and AskUserQuestion, rewind and the context-full result worked. A usage-limit result was not provoked.
 5. Codex is not ready to be a default. It has only ever run against a fake app-server: no history on resume, no question card, no effort option, sign-in and rewind untested. Gemini and opencode were not checked at all in this refresh. Status on 6 Nov: Codex and Gemini keep their terminal entries as the default and their structured entries stay hidden until T192 has run them against the real programs.
-6. Smaller gaps: images reach the agent as a file path, not an image block; no Shift+Tab mode cycle or effort option; "approve and accept edits" on plan approval; a subagent's text is dropped; no "New conversation" button; no session picker.
+6. Smaller gaps: the composer still gives the agent a picture as a file path (the server sends image blocks since T248, the composer does not use it yet); no Shift+Tab mode cycle or effort option; "approve and accept edits" on plan approval; a subagent's text is dropped; no "New conversation" button; no session picker.
 
 Everything in the ten must-fix items below is built for Claude except item 8 (desktop done, phone undecided) and item 10 (sign-in works for the link, not checked to completion).
 
@@ -42,7 +42,7 @@ The first version of this audit found the rows in the left column stale. All of 
 | Run an agent-advertised command | Done (T210). `/compact`, `/context` and `/clear` run under `claude -p` 2.1.312. |
 | Resume a past session | Claude done (#728): the pane shows its earlier conversation, replayed from claude's session file. Codex open: `loadSession` is false and the pane opens empty. No session picker. |
 | Approve or reject a plan | Done (#726): the card shows the plan text. Partial: no "approve and accept edits". |
-| Image paste | Partial (#716). Both adapters accept `image` blocks, but `Client.PromptBlocks` builds text blocks only (`internal/acp/calls.go`), so the agent gets `[image: path]`. |
+| Image paste | Partial (#716). Both adapters accept `image` blocks. `Client.PromptTurnImages` sends them (T248) and the composer uses it (T252), so the agent gets real image blocks. |
 | Matrix section 8, ten biggest gaps | Rewritten with a status per item. |
 | Open question 2 (can Claude set mode, model, interrupt) | Answered: the adapter does all three. Effort is not offered. |
 
@@ -92,7 +92,7 @@ Severity is for a daily Claude Code user switching from the TUI. Blocker means t
 | `/compact` | Summarise, optional focus text | Done for Claude (#724): runs under `claude -p` 2.1.312 and shows the compaction notice. | Done | None. |
 | `@file` mentions | Picker; file contents added | Done as text (#716): the picker inserts `@path`; Claude reads the file with its own tool. | Low | None. |
 | `!` shell | Runs a command, output joins the context | Done (#721). Output joins the conversation only when the person presses "Send to agent". | Low | None. |
-| Image paste | Ctrl+V, chip in prompt | Partial (#716): paste, drop and button work; the agent receives a path, not an image block. | Medium | Send `image` blocks when `promptCapabilities.image` is set. |
+| Image paste | Ctrl+V, chip in prompt | Partial (#716): paste, drop and button work; the agent receives a path, not an image block; the server side of image blocks is done (T248), the composer is not. | Medium | Have the composer send `images`. |
 | Large paste | `[Pasted text +N lines]` chip | Open: the text goes in full. | Low | None. |
 | Prompt history, drafts | Up, Ctrl+R | Partial (#716): Up/Down over the last 50, drafts kept per pane; no Ctrl+R. | Low | None. |
 | Prompt suggestions, Vim mode, themes | Ghost text, configurable | Open, not wanted. | Low | None. |

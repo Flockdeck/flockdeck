@@ -141,6 +141,9 @@ var agentTypeAllowed = map[string]map[string]agentTypeAllow{
 		"matchEntryText | transcript.KindReply":  {1, "a transcript entry's kind"},
 		"matchEntryText | transcript.KindTool":   {1, "a transcript entry's kind"},
 	},
+	"internal/server/imagesend.go": {
+		"promptPictureDetail | e.Kind != transcript.KindPrompt": {1, "a transcript entry's kind"},
+	},
 	"internal/server/jevkey.go": {
 		"Server.jevKey | \"clear\"": {1, "the subcommand word of jevKey, not an agent type"},
 		"Server.jevKey | \"set\"":   {1, "the subcommand word of jevKey, not an agent type"},
@@ -190,12 +193,15 @@ var agentTypeAllowed = map[string]map[string]agentTypeAllow{
 	"internal/workspace/claudelink.go": {
 		"resolveClaudeLink | e.Type != \"tree\"": {1, "a git tree entry's type"},
 	},
+	"internal/workspace/structuredstream.go": {
+		"StructuredStream.Detail | inline.Kind == transcript.KindImage": {1, "a transcript entry's kind"},
+	},
 	"internal/workspace/context.go": {
 		"Workspace.PaneContext | p.Kind == session.KindShell":   {1, "whether a pane is a shell or an agent, to brief it; not which agent"},
 		"Workspace.PaneContext | sib.Kind == session.KindShell": {1, "whether a pane is a shell or an agent, to brief it; not which agent"},
 	},
 	"internal/workspace/panesend.go": {
-		"Workspace.SendToPaneThen | p.Sess": {1, "types into a terminal session; a structured pane is sent its prompt through its runtime just above"},
+		"Workspace.SendToPaneImages | p.Sess": {1, "types into a terminal session; a structured pane is sent its prompt through its runtime just above (the body moved here from SendToPaneThen)"},
 	},
 	"internal/server/agents.go": {
 		// The agents list describes the catalog, which is where an agent's runner
