@@ -52,3 +52,24 @@ func PrefsStamp() (mod time.Time, size int64, ok bool) {
 	}
 	return fi.ModTime(), fi.Size(), true
 }
+
+// PeekConflictRadar is whether the conflict radar is switched on, read from the
+// preferences file without moving a damaged file aside or noting the read. The
+// radar asks on every git refresh, from a goroutine nobody is waiting on, and
+// that is no place to quarantine the user's file: a damaged or unreadable file
+// leaves the radar off, and the next real read of the preferences deals with
+// the file as it always did.
+func PeekConflictRadar() bool {
+	dir, err := Dir()
+	if err != nil {
+		return false
+	}
+	data, err := readState(filepath.Join(dir, prefsFile))
+	if err != nil {
+		return false
+	}
+	var v struct {
+		ConflictRadar bool `json:"conflictRadar"`
+	}
+	return json.Unmarshal(data, &v) == nil && v.ConflictRadar
+}
