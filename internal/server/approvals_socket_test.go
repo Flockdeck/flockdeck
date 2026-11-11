@@ -1430,6 +1430,9 @@ func TestForgedDeviceIdsCannotFillTheLogOrRotateOutDecisions(t *testing.T) {
 func TestALogThatCannotBeWrittenIsToldToTheDesk(t *testing.T) {
 	e := newApprovalsEnv(t)
 	desk := dialControlPage(t, e.srv)
+	// The dial returns once the handshake is done, a moment before the server
+	// lists the window; a notice sent in between reaches nobody.
+	waitUntil(t, "the window to be listed", func() bool { return len(e.srv.clientList()) > 0 })
 	e.srv.approvals.deniedLog.dir = func() (string, error) { return "", errors.New("disk full") }
 	e.srv.approvalDenied("d9", "x", "disabled")
 	var note noticeMsg
