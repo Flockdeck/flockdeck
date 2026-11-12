@@ -1722,6 +1722,12 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 	if c.refuseRemoteText(cmd) {
 		return
 	}
+	// A folder a window reached through the relay names has to be part of a
+	// project Flockdeck knows, or browse's limit is undone by any command that
+	// opens or acts in another one (remote_paths.go).
+	if s.refuseRemotePaths(c, cmd) {
+		return
+	}
 	switch cmd.Cmd {
 	case "setDeviceRole":
 		s.setDeviceRole(c, cmd)
