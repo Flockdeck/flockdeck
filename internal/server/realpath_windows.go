@@ -44,12 +44,22 @@ func finalPathName(h syscall.Handle) (string, bool) {
 		}
 		buf = make([]uint16, n)
 	}
-	s := syscall.UTF16ToString(buf)
+	return filepath.Clean(trimVerbatimPrefix(syscall.UTF16ToString(buf))), true
+}
+
+// trimVerbatimPrefix turns the name GetFinalPathNameByHandle gives back into an
+// ordinary one: the verbatim form of a drive path loses its prefix, and the
+// verbatim form of a share becomes the usual two-backslash UNC path. The
+// prefixes are built from one backslash so that none is typed doubled.
+func trimVerbatimPrefix(s string) string {
+	const bs = "\x5c"
+	verbatim := bs + bs + "?" + bs
+	unc := verbatim + "UNC" + bs
 	switch {
-	case strings.HasPrefix(s, `\?\UNC\`):
-		s = `\` + s[len(`\?\UNC\`):]
-	case strings.HasPrefix(s, `\?\`):
-		s = s[len(`\?\`):]
+	case strings.HasPrefix(s, unc):
+		return bs + bs + s[len(unc):]
+	case strings.HasPrefix(s, verbatim):
+		return s[len(verbatim):]
 	}
-	return filepath.Clean(s), true
+	return s
 }
