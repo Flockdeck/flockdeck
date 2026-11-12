@@ -113,6 +113,11 @@
 .tab-close { display: grid; place-items: center; min-width: 24px; min-height: 24px; margin-right: 2px; padding: 0; border-radius: var(--radius-sm); opacity: 0.8; }
 .tab-close:hover { background: var(--bg-hover); }
 .tab:hover .tab-close, .tab.is-active .tab-close, .tab-close:focus-visible { opacity: 1; }
+/* A tab's orange count is a button of its own after the tab's button: it opens the goal's needs-you list. */
+.tab-needs { cursor: pointer; margin: 0 4px 0 -4px; align-self: center; }
+.tab-needs:hover, .tab-needs[aria-expanded="true"] { border-color: var(--waiting); }
+.tab-needs:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.tabs-restore .badge { margin-left: 6px; }
 .tab-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .tab-rename {
   font: inherit;
