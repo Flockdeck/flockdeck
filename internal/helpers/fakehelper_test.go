@@ -133,13 +133,19 @@ func runFakeHelper(args []string) {
 	}
 	fmt.Println("fake helper: second line of output")
 
-	// The crash modes are timed from the first successful readiness check, so
-	// a slow machine cannot make the helper die before it was ever running.
+	// The crash modes are timed from the first /healthz, which the supervisor
+	// asks for only after it has called the helper running. Timing from the
+	// first /readyz left a gap: on a slow machine the helper could die before
+	// the supervisor finished its ready checks, and that is a failed start, not
+	// a crash.
 	var armed sync.Once
 	arm := func() {}
 	started := time.Now()
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+		// The supervisor asks for /healthz only once it has called the helper
+		// running, so a crash timed from here cannot land before that.
+		arm()
 		if *mode == "unhealthy" && time.Since(started) > *after {
 			http.Error(w, "unhealthy", http.StatusInternalServerError)
 			return
@@ -151,7 +157,6 @@ func runFakeHelper(args []string) {
 			http.Error(w, "not ready", http.StatusServiceUnavailable)
 			return
 		}
-		arm()
 		_, _ = w.Write([]byte("ready"))
 	})
 	var serving sync.Once
