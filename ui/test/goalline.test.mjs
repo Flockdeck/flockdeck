@@ -98,9 +98,12 @@ test("a goal's tab shows how many panes in it need you, in its badge and its nam
     { id: "g2", kind: "team", label: "Other", title: "Other goal", activity: "", needs: 0 },
   ];
   const out = renderToString(html`<${GoalStrip} tabs=${tabs} active="g1" onSelect=${() => {}} canStep=${() => false} />`);
-  assert.match(out, /badge badge--waiting tab-needs" aria-hidden="true">3</);
-  assert.match(out, /aria-label="Team, waiting, 3 need you"/);
+  assert.match(out, /<button type="button" class="badge badge--waiting tab-needs"[^>]*aria-label="3 items need you in Team. Open the list" title="3 items need you in this goal. Open the list"[^>]*>3<\/button>/);
+  assert.match(out, /aria-label="Team, waiting, 3 items need you"/);
   assert.doesNotMatch(out, /aria-label="Other[^"]*need/);
+  const one = renderToString(html`<${GoalStrip} tabs=${[{ ...tabs[0], needs: 1 }]} active="g1" onSelect=${() => {}} canStep=${() => false} />`);
+  assert.match(one, /aria-label="Team, waiting, 1 item needs you"/);
+  assert.match(one, /title="1 item needs you in this goal. Open the list"/);
 });
 
 import { HAS_TREE, TREE_VIEW, firstViewOf, viewsOf } from "../src/shell/Views.js";

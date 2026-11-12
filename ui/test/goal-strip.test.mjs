@@ -421,7 +421,15 @@ test("archiving says how to get the tab back, and a dot on the + says an archive
     assert.equal(m.container.find(".tabs-plus-dot"), null);
     await click(m, m.tabs()[0].find(".tab-close"));
     assert.ok(m.container.find(".tabs-plus-dot"), "the first goal has a pane waiting on the person");
-    assert.match(m.container.find(".tabs-plus").getAttribute("aria-label"), /an archived goal needs you/);
+    const plus = m.container.find(".tabs-plus");
+    assert.match(plus.getAttribute("aria-label"), /^New tab and tab actions\. Archived goal needs you: Ship 01-six-helpers-one… \(\d+\)$/, "the button names the goal");
+    assert.equal(plus.getAttribute("title"), plus.getAttribute("aria-label"));
+    await m.plus();
+    const entry = m.container.find(".tabs-restore");
+    assert.match(entry.getAttribute("aria-label"), /^Show Ship 01-six-helpers-one…, \d+ items? needs? you$/);
+    assert.match(entry.find(".badge--waiting").textContent, /^\d+$/);
+    assert.match(m.container.find(".tabs-menu-head").textContent, /Archived goals \(hidden tabs\)\. Choose one to show it again\./);
+    assert.equal(m.container.find(".tabs-menu-head").getAttribute("aria-hidden"), null, "the heading is read");
   }));
 
 test("the older single tabs key is still read, and the next change carries its choices to the three keys and removes it", () =>
@@ -431,4 +439,44 @@ test("the older single tabs key is still read, and the next change carries its c
     m.clear();
     await m.click(m.tabs()[0].find(".tab-close"));
     assert.deepEqual(m.sent("uiPrefs"), [{ cmd: "uiPrefs", ui: { "tabs.archived": [ONE], "tabs.names": { [TWO]: "Tests" }, tabs: null } }]);
+  }));
+
+test("an archived entry shows its count when its goal has items, and none when it has none", () =>
+  withPage({}, async (m) => {
+    await m.connect();
+    await click(m, m.tabs()[1].find(".tab-close"));
+    await click(m, m.tabs()[0].find(".tab-close"));
+    await m.plus();
+    const entries = m.container.findAll(".tabs-restore");
+    assert.equal(entries.length, 2);
+    assert.match(entries[0].getAttribute("aria-label"), /^Show .+, \d+ items? needs? you$/);
+    assert.ok(entries[0].find(".badge--waiting"));
+    assert.equal(entries[1].getAttribute("aria-label").startsWith("Show "), true);
+    assert.doesNotMatch(entries[1].getAttribute("aria-label"), /need/);
+    assert.equal(entries[1].find(".badge--waiting"), null);
+  }));
+
+test("the tab's orange badge is a button that opens the goal's needs-you list, with the same count", () =>
+  withPage({}, async (m) => {
+    await m.connect();
+    const doc = m.dom.document;
+    const badge = m.tabs()[0].find(".tab-needs");
+    assert.equal(badge.nodeName, "BUTTON");
+    assert.equal(badge.parentNode, m.tabs()[0], "beside the tab's own button, not inside it");
+    assert.match(badge.getAttribute("aria-label"), /^\d+ items? needs? you in .+\. Open the list$/);
+    assert.match(badge.getAttribute("title"), /^\d+ items? needs? you in this goal\. Open the list$/);
+    const n = Number(badge.textContent);
+    await click(m, badge);
+    const pop = m.container.find(".popover");
+    assert.ok(pop, "the list did not open");
+    assert.equal(pop.find(".needs-head").textContent, "Needs you (" + n + ")");
+    assert.equal(pop.findAll(".needs-row").length, n, "the count and the list are one number");
+    assert.ok(pop.contains(doc.activeElement), "the keyboard went into the list");
+    pop.keydown("Escape", {});
+    await settle();
+    assert.equal(m.container.find(".popover"), null);
+    assert.equal(doc.activeElement, m.tabs()[0].find(".tab-needs"), "Escape gives the keyboard back to the badge");
+    await click(m, m.tabs()[0].find(".tab-needs"));
+    await click(m, m.container.find(".popover").find(".needs-pick"));
+    assert.equal(m.container.find(".popover"), null, "choosing a row closes the list");
   }));

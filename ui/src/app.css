@@ -443,7 +443,7 @@ button { font: inherit; color: inherit; }
   background: var(--bg-raised);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.35);
+  box-shadow: var(--shadow-2);
 }
 .popover:focus { outline: none; }
 .popover .needs { margin: 0; }

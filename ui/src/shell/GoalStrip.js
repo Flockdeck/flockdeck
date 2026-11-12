@@ -11,14 +11,25 @@ import { useEffect, useRef, useState } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
 import { composing, LIST } from "./keys.js";
 import { viewsOf, firstViewOf } from "./Views.js";
+import { Popover } from "./Popover.js";
+import { agentsWords, attentionOf, itemsWords, plusNeedsOf, plusWords } from "../graph/GoalTabs.js";
 
 /** TITLE_MAX is the most characters of a name the person may give a goal's tab. */
 export const TITLE_MAX = 80;
 
 function labelFor(t) {
-  const n = t.needs;
-  return t.label + (t.activity ? ", " + t.activity : "") + (n > 0 ? ", " + n + (n === 1 ? " needs" : " need") + " you" : "");
+  return t.label + (t.activity ? ", " + t.activity : "") + (t.needs > 0 ? ", " + itemsWords(t.needs) : "");
 }
+
+/** tipFor is the tab's tooltip: the goal's title, then how many of its panes wait
+ *  on the person and how many work, when any. */
+function tipFor(t) {
+  const more = [t.waiting > 0 ? agentsWords(t.waiting) : "", t.working > 0 ? t.working + " working" : ""].filter(Boolean);
+  return [t.title].concat(more).join(". ");
+}
+
+/** dotWords is what a tab's dot means, for its tooltip. */
+const dotWords = (activity) => (activity === "waiting" ? "Waiting for you" : "Working");
 
 /** GoalStrip draws the tabs. tabs and archived are from goalTabsOf, active is the
  *  open tab's id. canStep(id, dir) says whether a goal can move that way. The
@@ -27,7 +38,15 @@ function labelFor(t) {
 export function GoalStrip({
   tabs, archived = [], active, onSelect, onRename, onArchive, onRestore, onMove, onStep, canStep,
   onStartTeam = null, onNewAgent = null, onChoose = null, onNewShell = null, onHistory = null, onFind = null, nav = null,
+  needsList = null, win = null,
 }) {
+  // The tab whose needs-you list is open, and the badge it came from.
+  const [listing, setListing] = useState(null);
+  const closeList = (back) => {
+    const el = listing && listing.el;
+    setListing(null);
+    if (back && el && el.focus) el.focus();
+  };
   const [renaming, setRenaming] = useState("");
   const [stop, setStop] = useState("");
   const [dragging, setDragging] = useState("");
@@ -126,19 +145,25 @@ export function GoalStrip({
               ? (e) => { e.preventDefault(); onMove(dragging, goals.findIndex((g) => g.id === t.id)); setDragging(""); }
               : undefined}
             onDragEnd=${() => setDragging("")}>
-            <button type="button" class="tab-pick" role="tab" aria-selected=${t.id === active ? "true" : "false"} aria-label=${labelFor(t)} aria-keyshortcuts=${goal && onArchive ? LIST.remove : undefined} title=${t.title}
+            <button type="button" class="tab-pick" role="tab" aria-selected=${t.id === active ? "true" : "false"} aria-label=${labelFor(t)} aria-keyshortcuts=${goal && onArchive ? LIST.remove : undefined} title=${tipFor(t)}
               tabindex=${t.id === stopId ? "0" : "-1"} onFocus=${() => setStop(t.id)} onClick=${() => onSelect(t.id)}
               onDblClick=${goal && onRename ? () => setRenaming(t.id) : undefined}>
               <span class="tab-title">${t.label}</span>
-              ${t.needs > 0 ? html`<span class="badge badge--waiting tab-needs" aria-hidden="true">${t.needs}</span>` : t.activity ? html`<span class=${"tab-dot tab-dot--" + t.activity} aria-hidden="true"></span>` : null}
+              ${t.needs > 0 ? null : t.activity ? html`<span class=${"tab-dot tab-dot--" + t.activity} aria-hidden="true" title=${dotWords(t.activity)}></span>` : null}
             </button>
+            ${t.needs > 0
+              ? html`<button type="button" class="badge badge--waiting tab-needs" aria-label=${itemsWords(t.needs) + " in " + t.label + ". Open the list"} title=${itemsWords(t.needs) + " in this goal. Open the list"}
+                  aria-haspopup=${needsList ? "dialog" : undefined} aria-expanded=${listing && listing.id === t.id ? "true" : "false"}
+                  onClick=${(e) => { if (!needsList) return onSelect(t.id); setListing(listing && listing.id === t.id ? null : { id: t.id, el: e.currentTarget }); }}>${t.needs}</button>`
+              : null}
             ${goal && onArchive
               ? html`<button type="button" class="tab-close" aria-hidden="true" tabindex="-1" title="Archive this goal's tab" onClick=${() => archive(t.id)}>×</button>`
               : null}
           </li>`;
         })}
       </ul>
-      <${PlusMenu} dot=${archived.some((t) => t.needs > 0)}>${(act) => html`
+      ${listing && needsList ? html`<${Popover} anchor=${listing.el} label=${"Needs you in " + ((tabs.find((t) => t.id === listing.id) || {}).label || "this goal")} win=${win} onClose=${closeList}>${needsList(listing.id, () => closeList(false))}<//>` : null}
+      <${PlusMenu} waiting=${plusNeedsOf(archived)}>${(act) => html`
         ${onStartTeam ? html`<button type="button" role="menuitem" class="tabs-btn tabs-team" onClick=${act(onStartTeam)}>Start a team…</button>` : null}
         ${onNewAgent ? html`<button type="button" role="menuitem" class="tabs-btn" onClick=${act(onNewAgent)}>New agent tab</button>` : null}
         ${onChoose ? html`<button type="button" role="menuitem" class="tabs-btn" onClick=${act(onChoose)}>Choose agent…</button>` : null}
@@ -153,8 +178,11 @@ export function GoalStrip({
               <button type="button" role="menuitem" class="tabs-btn" onClick=${act(() => onStep(current.id, 1))} disabled=${!canStep(current.id, 1)}>Move right</button>` : null}`
           : null}
         ${archived.length > 0 && onRestore
-          ? html`<hr class="tabs-sep" /><div role="group" aria-label="Archived goals"><p class="tabs-menu-head" aria-hidden="true">Archived goals</p>
-              ${archived.map((t) => html`<button key=${t.id} type="button" role="menuitem" class="tabs-btn tabs-restore" data-tab=${t.id} data-ctx="tab" data-archived="1" title=${t.title} onClick=${act(() => onRestore(t.id))}>Show ${t.label}</button>`)}</div>`
+          ? html`<hr class="tabs-sep" /><div role="group" aria-label="Archived goals"><p class="tabs-menu-head">Archived goals (hidden tabs). Choose one to show it again.</p>
+              ${archived.map((t) => {
+                const a = attentionOf(t);
+                return html`<button key=${t.id} type="button" role="menuitem" class="tabs-btn tabs-restore" data-tab=${t.id} data-ctx="tab" data-archived="1" aria-label=${"Show " + t.label + (a ? ", " + a.words : "")} title=${tipFor(t)} onClick=${act(() => onRestore(t.id))}>Show ${t.label}${a ? html` <span class="badge badge--waiting" aria-hidden="true" title=${a.words}>${a.n}</span>` : null}</button>`;
+              })}</div>`
           : null}`}<//>
     </div>
   `;
@@ -178,7 +206,9 @@ export function ViewBar({ view = firstViewOf(), views = null, onView }) {
  *  item gives the keyboard back to the "+" and closes the menu before the action
  *  runs (a dialog the action opens then takes the "+" as where to return to); Escape closes it and gives the keyboard back to the "+";
  *  Up and Down move along the items; a press outside closes it. */
-export function PlusMenu({ children, dot = false }) {
+export function PlusMenu({ children, waiting = [] }) {
+  const dot = waiting.length > 0;
+  const words = plusWords(waiting);
   const [open, setOpen] = useState(false);
   const box = useRef(null);
   const items = () => (box.current ? [...box.current.querySelectorAll('[role="menuitem"]')].filter((b) => !b.disabled) : []);
@@ -226,7 +256,7 @@ export function PlusMenu({ children, dot = false }) {
   };
   return html`
     <div class="tabs-plus-box" ref=${box} onKeyDown=${onKeyDown}>
-      <button type="button" class="tabs-plus" aria-label=${"New tab and tab actions" + (dot ? ", an archived goal needs you" : "")} title=${dot ? "An archived goal needs you" : "New tab and tab actions"} aria-haspopup="menu" aria-expanded=${open ? "true" : "false"}
+      <button type="button" class="tabs-plus" aria-label=${"New tab and tab actions" + (dot ? ". " + words : "")} title=${"New tab and tab actions" + (dot ? ". " + words : "")} aria-haspopup="menu" aria-expanded=${open ? "true" : "false"}
         onClick=${() => setOpen(!open)}>+${dot ? html`<span class="tabs-plus-dot" aria-hidden="true"></span>` : null}</button>
       ${open ? html`<div class="tabs-menu" role="menu" aria-label="Tab actions">${children(act)}</div>` : null}
     </div>

@@ -27,6 +27,7 @@ import { Tree, totalOf } from "../graph/Tree.js";
 import { Deps } from "../graph/DepsView.js";
 import { Board, ChangesView, Replay, firstViewOf, viewsOf } from "./Views.js";
 import { GoalLine } from "../graph/GoalLine.js";
+import { NeedsYou } from "../graph/NeedsYou.js";
 import { TreeNotes } from "../graph/TreeNotes.js";
 import { Home, sameProject, rosterOf } from "./Home.js";
 import { Start } from "./Start.js";
@@ -856,6 +857,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
   >${snap.state
       ? html`<${GoalStrip} tabs=${goal.tabs} archived=${goal.archived} active=${activeTab} onSelect=${showTab}
           onRename=${tabDo.rename} onArchive=${tabDo.archive} onRestore=${tabDo.restore} onMove=${tabDo.move} onStep=${tabDo.step} canStep=${(id, dir) => canStep(goal.tabs, id, dir)}
+          needsList=${current && current.ok ? (id, done) => html`<${NeedsYou} model=${scopeModel(current, id)} onSelect=${(pane) => { done(); reveal(pane); drawer.open(pane); }} />` : null} win=${win}
           onStartTeam=${snap.remote || viewer ? null : () => setStarting("team")}
           onNewAgent=${viewer ? null : () => startTab(newTabCommand({ kind: "agent" }))} onChoose=${viewer ? null : () => setStarting("agent")} onNewShell=${viewer ? null : () => startTab(newTabCommand({ kind: "shell" }))}
           onHistory=${snap.remote || viewer ? null : () => setHistoryOpen(true)} onFind=${snap.remote ? null : () => setFindingPane(true)} nav=${navBlock} />
