@@ -1,6 +1,7 @@
 package server
 
 import (
+	"github.com/jmwri/flockdeck/internal/gitx"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -236,5 +237,68 @@ func TestRealPathFollowsALinkAboveAMissingLeaf(t *testing.T) {
 	}
 	if !srv.insideKnownProject(filepath.Join(known, "not-made-yet")) {
 		t.Error("a folder that does not exist yet inside the project was judged outside it")
+	}
+}
+
+// A sibling folder that happens to be named like the repo is not the place a
+// worktree goes: only the default place is, or one git already lists.
+func TestARelayWindowWorktreeRuleIsTheDefaultPlaceOnly(t *testing.T) {
+	srv, _, repo := newRepoServer(t)
+	phone := dialPhone(t, srv)
+	var note noticeMsg
+
+	sibling := repo + "-x"
+	if err := os.MkdirAll(sibling, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.RemoveAll(sibling) })
+	sendCmd(t, phone, command{Cmd: "worktreeAdd", Root: repo, Text: "wt-sib", Path: filepath.Join(repo+"-x", "inner")})
+	wantRefusal(t, phone, "worktreeAdd into a sibling folder named like the repo")
+	sendCmd(t, phone, command{Cmd: "worktreeAdd", Root: repo, Text: "wt-sib2", Path: repo + "-other"})
+	wantRefusal(t, phone, "worktreeAdd at a sibling path that is not the default one")
+	sendCmd(t, phone, command{Cmd: "worktreeAdd", Root: repo, Text: "wt-inside", Path: filepath.Join(repo, "nested-wt")})
+	wantRefusal(t, phone, "worktreeAdd inside the repo")
+	if _, err := os.Stat(filepath.Join(repo, "nested-wt")); err == nil {
+		t.Error("a relay window made a worktree inside the repo")
+	}
+	sendCmd(t, phone, command{Cmd: "worktreeRemove", Root: repo, Path: sibling, Force: true})
+	wantRefusal(t, phone, "worktreeRemove of a sibling folder named like the repo")
+	if _, err := os.Stat(sibling); err != nil {
+		t.Errorf("a relay window removed the sibling folder: %v", err)
+	}
+	inside := filepath.Join(repo, "plain-folder")
+	if err := os.MkdirAll(inside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sendCmd(t, phone, command{Cmd: "worktreeRemove", Root: repo, Path: inside, Force: true})
+	wantRefusal(t, phone, "worktreeRemove of a folder in the repo that is not a worktree")
+	sendCmd(t, phone, command{Cmd: "worktreeRemove", Root: repo, Path: repo, Force: true})
+	wantRefusal(t, phone, "worktreeRemove of the main worktree")
+	if _, err := os.Stat(inside); err != nil {
+		t.Errorf("a relay window removed a folder that is not a worktree: %v", err)
+	}
+
+	// The default place works, named or left for the server to choose.
+	want := gitx.DefaultWorktreePath(repo, "wt-named")
+	t.Cleanup(func() { os.RemoveAll(want) })
+	sendCmd(t, phone, command{Cmd: "worktreeAdd", Root: repo, Text: "wt-named", Path: want})
+	readQuick(t, phone, "notice", &note)
+	if note.Error {
+		t.Fatalf("worktreeAdd at the default path was refused: %+v", note)
+	}
+	if _, err := os.Stat(want); err != nil {
+		t.Fatalf("no worktree at %s: %v", want, err)
+	}
+	sendCmd(t, phone, command{Cmd: "worktreeRemove", Root: repo, Path: want, Force: true})
+	readQuick(t, phone, "notice", &note)
+	if note.Error {
+		t.Errorf("worktreeRemove of a listed worktree was refused: %+v", note)
+	}
+	auto := gitx.DefaultWorktreePath(repo, "wt-auto")
+	t.Cleanup(func() { os.RemoveAll(auto) })
+	sendCmd(t, phone, command{Cmd: "worktreeAdd", Root: repo, Text: "wt-auto"})
+	readQuick(t, phone, "notice", &note)
+	if note.Error {
+		t.Errorf("worktreeAdd with no path was refused: %+v", note)
 	}
 }

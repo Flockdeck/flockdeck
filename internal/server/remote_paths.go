@@ -76,13 +76,10 @@ func (s *Server) refuseRemotePaths(c *controlClient, cmd command) bool {
 	}
 	switch cmd.Cmd {
 	case "worktreeAdd", "worktreeRemove":
-		if path == "" && cmd.Cmd == "worktreeAdd" {
-			return false
-		}
 		// The repo the worktree belongs to: the one named, else the active
 		// project's own, as worktreeTarget chooses.
 		repo := s.worktreeTarget(root)
-		if path == "" || !s.remoteWorktreePathOK(repo, path) {
+		if !s.remoteWorktreeOK(cmd.Cmd, repo, strings.TrimSpace(cmd.Text), path) {
 			return deny()
 		}
 		return false
@@ -115,30 +112,30 @@ func (s *Server) remotePathKnown(path string) bool {
 	return false
 }
 
-// remoteWorktreePathOK reports whether a window may make or remove a worktree
-// of repo at path: inside the project, one git already lists for it, or where
-// a new one is put by default, beside the repo and named after it.
-func (s *Server) remoteWorktreePathOK(repo, path string) bool {
+// remoteWorktreeOK reports whether a window may add or remove a worktree of
+// repo. The repo must be a known project. An added worktree goes where
+// addWorktree puts it when no path is sent, or at exactly that place named: a
+// sibling that merely looks like it, or a folder inside the repo, is refused. A
+// removed one must be a worktree git lists for the repo, and not the main one.
+func (s *Server) remoteWorktreeOK(cmd, repo, branch, path string) bool {
 	if !s.insideKnownProject(repo) {
 		return false
 	}
-	path = filepath.Clean(path)
-	real := store.MetaKey(realPath(path))
-	if underPath(real, store.MetaKey(realPath(repo))) {
-		return true
+	if cmd == "worktreeAdd" {
+		return path == "" || samePath(filepath.Clean(path), filepath.Clean(gitx.DefaultWorktreePath(repo, branch)))
 	}
-	if wts, err := gitx.List(repo); err == nil {
-		for _, wt := range wts {
-			if !wt.Main && samePath(store.MetaKey(realPath(wt.Path)), real) {
-				return true
-			}
+	if path == "" {
+		return false
+	}
+	real := store.MetaKey(realPath(path))
+	wts, err := gitx.List(repo)
+	if err != nil {
+		return false
+	}
+	for _, wt := range wts {
+		if !wt.Main && samePath(store.MetaKey(realPath(wt.Path)), real) {
+			return true
 		}
 	}
-	top := repo
-	if r, err := gitx.Root(repo); err == nil {
-		top = r
-	}
-	top = filepath.Clean(top)
-	return samePath(filepath.Dir(path), filepath.Dir(top)) &&
-		strings.HasPrefix(strings.ToLower(filepath.Base(path)), strings.ToLower(filepath.Base(top))+"-")
+	return false
 }
