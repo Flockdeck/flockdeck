@@ -203,3 +203,38 @@ func TestARelayWindowOpenProjectFoldsCaseOnWindows(t *testing.T) {
 		t.Errorf("openProject of the open project in other case: %+v, projects %v", note, projectRoots(srv))
 	}
 }
+
+// makeLinkOut makes link, a directory junction on Windows and a symlink
+// elsewhere, leading to target; the test is skipped where that cannot be done.
+func makeLinkOut(t *testing.T, link, target string) {
+	t.Helper()
+	if runtime.GOOS == "windows" {
+		if out, err := exec.Command("cmd", "/c", "mklink", "/J", link, target).CombinedOutput(); err != nil {
+			t.Skipf("mklink /J: %v: %s", err, out)
+		}
+	} else if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlink: %v", err)
+	}
+	t.Cleanup(func() { os.Remove(link) })
+}
+
+// A path whose last part does not exist yet is judged by where the part that
+// does exist really is: proj/link/new, with link leading out and new not made,
+// is outside the project.
+func TestRealPathFollowsALinkAboveAMissingLeaf(t *testing.T) {
+	srv, ws := newTestServer(t)
+	known := ws.ActiveRoot()
+	outside := t.TempDir()
+	makeLinkOut(t, filepath.Join(known, "way-out"), outside)
+	missing := filepath.Join(known, "way-out", "new", "deeper")
+
+	if got, want := realPath(missing), filepath.Join(realPath(outside), "new", "deeper"); !strings.EqualFold(got, want) {
+		t.Errorf("realPath(%s) = %s, want %s", missing, got, want)
+	}
+	if srv.insideKnownProject(missing) {
+		t.Errorf("%s, which leads out of the project through a link, was judged inside it", missing)
+	}
+	if !srv.insideKnownProject(filepath.Join(known, "not-made-yet")) {
+		t.Error("a folder that does not exist yet inside the project was judged outside it")
+	}
+}

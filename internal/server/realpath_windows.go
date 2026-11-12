@@ -9,12 +9,12 @@ import (
 
 var procGetFinalPathNameByHandleW = syscall.NewLazyDLL("kernel32.dll").NewProc("GetFinalPathNameByHandleW")
 
-// realPath is where path really is. filepath.EvalSymlinks follows symbolic
-// links but not directory junctions, which a user can make without any
-// privilege, so the system's own name for an open handle is asked first: it has
-// been through every kind of link. A path that cannot be opened is resolved as
-// far as EvalSymlinks can.
-func realPath(path string) string {
+// resolveExisting is where an existing path really is. filepath.EvalSymlinks
+// follows symbolic links but not directory junctions, which a user can make
+// without any privilege, so the system's own name for an open handle is asked
+// first: it has been through every kind of link. A path that cannot be opened
+// is resolved as far as EvalSymlinks can; ok is false if neither can.
+func resolveExisting(path string) (string, bool) {
 	if name, err := syscall.UTF16PtrFromString(path); err == nil {
 		h, err := syscall.CreateFile(name, 0,
 			syscall.FILE_SHARE_READ|syscall.FILE_SHARE_WRITE|syscall.FILE_SHARE_DELETE,
@@ -22,14 +22,14 @@ func realPath(path string) string {
 		if err == nil {
 			defer syscall.CloseHandle(h)
 			if s, ok := finalPathName(h); ok {
-				return s
+				return s, true
 			}
 		}
 	}
 	if r, err := filepath.EvalSymlinks(path); err == nil {
-		return r
+		return r, true
 	}
-	return path
+	return "", false
 }
 
 func finalPathName(h syscall.Handle) (string, bool) {
