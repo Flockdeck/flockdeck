@@ -20,7 +20,7 @@ export function initialOf(name) {
  *  makes it the project the window watches. At phone width it is a bar along the
  *  top (the CSS lays it out; narrow only drops the collapse button, which has no
  *  use there). Project names are text. */
-export function Rail({ projects = [], active = "", collapsed = false, narrow = false, width = null, onWidth = null, onDrag = null, onSelect, onToggle, onSettings, onProjects, railRef, foot = null, panes = null, paneRoot = "", onOpenPane = null, win = null }) {
+export function Rail({ projects = [], active = "", collapsed = false, narrow = false, width = null, onWidth = null, onDrag = null, onSelect, onToggle, onSettings, onProjects, railRef, foot = null, panes = null, paneRoot = "", onOpenPane = null, win = null, openOnly = false }) {
   const cls = "rail" + (narrow ? " rail--bar" : "");
   // The project whose waiting list is open, and the badge it came from. The list
   // is drawn from the push's panes once the push is for that project.
@@ -30,8 +30,13 @@ export function Rail({ projects = [], active = "", collapsed = false, narrow = f
     setAsk(null);
     if (back && el && el.focus) el.focus();
   };
+  // A window that cannot choose the project the desk shows (a relay or a viewer)
+  // only has the panes of the project it was sent, so only that project's count
+  // can open a list; the others stay a count, with words.
+  const listable = (root) => !openOnly || root === paneRoot;
   const onWaiting = (root, el) => {
     if (ask && ask.root === root) return close(true);
+    if (!listable(root)) return;
     if (root !== active && onSelect) onSelect(root);
     setAsk({ root, el });
   };
@@ -41,7 +46,7 @@ export function Rail({ projects = [], active = "", collapsed = false, narrow = f
       <ul class="rail-list">
         ${projects.length === 0
           ? html`<li class="rail-empty">No projects open</li>`
-          : projects.map((p) => html`<${RailItem} key=${p.root} project=${p} active=${p.root === active} onSelect=${onSelect} onWaiting=${onWaiting} open=${!!ask && ask.root === p.root} />`)}
+          : projects.map((p) => html`<${RailItem} key=${p.root} project=${p} active=${p.root === active} onSelect=${onSelect} onWaiting=${onWaiting} listable=${listable(p.root)} open=${!!ask && ask.root === p.root} />`)}
       </ul>
       <div class="rail-foot">
         ${onProjects ? html`<${FootButton} cls="rail-projects" glyph="+" label="Manage projects" onClick=${onProjects} />` : null}
@@ -75,7 +80,7 @@ export function FootButton({ cls, glyph, label, title = label, pressed, onClick 
  *  that wait on the person or are blocked, in every tab and goal of the project;
  *  choosing it opens the project and lists them. The teal count is the panes at
  *  work, a span with a tooltip. */
-export function RailItem({ project, active, onSelect, onWaiting = null, open = false }) {
+export function RailItem({ project, active, onSelect, onWaiting = null, open = false, listable = true }) {
   const { root, name, waiting = 0, working = 0 } = project;
   // The name is hidden when the rail is narrow, so the button carries it, and
   // the counts, in its label.
@@ -97,7 +102,9 @@ export function RailItem({ project, active, onSelect, onWaiting = null, open = f
         <span class="rail-name">${name}</span>
         ${working > 0 ? html`<span class="badge badge--working" role="img" aria-label=${working + (working === 1 ? " agent working" : " agents working")} title=${working + (working === 1 ? " agent working" : " agents working")}>${working}</span>` : null}
       </button>
-      ${waiting > 0
+      ${waiting > 0 && !listable
+        ? html`<span class="badge badge--waiting rail-waiting rail-waiting--count" role="img" aria-label=${words} title=${words + " (panes, not requests). Open the project on the desktop to see them"}>${waiting}</span>`
+        : waiting > 0
         ? html`<button type="button" class="badge badge--waiting rail-waiting" aria-haspopup="dialog" aria-expanded=${open ? "true" : "false"}
             aria-label=${words + ". Open the list"}
             title=${words + (active ? ". Open the list" : ". Open the project and list them") + " (panes, not requests)"}

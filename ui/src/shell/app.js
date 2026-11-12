@@ -174,7 +174,7 @@ export function useMedia(matchMedia, query) {
  *  to a box in it. window is the page's, passed in for a test. helpLoad fetches
  *  the help pages (lib/help.js); the default asks the page's own address. blocked
  *  says a view's modal dialog is open, and no key then reaches an action. */
-export function Shell({ hello, state, notice, onDismissNotice, onWatch, narrow: narrowProp, matchMedia, top, children, drawer, maximised = false, mainRef, bottom = null, total = "", window: win, actions = NO_ACTIONS, blocked = false, onSettings, onProjects, helpLoad, railFoot = null, paletteItems = null, railExpanded, railWidth = RAIL_DEFAULT, onRailExpanded, onRailWidth, drawerW = DRAWER_DEFAULT, onDrawerW = null, drawerH = DRAWER_H_DEFAULT, onDrawerH = null, orient = "side", keysOff = false, welcome = false, onHelpOpened, menuCtx = null, onOpenPane = null }) {
+export function Shell({ hello, state, notice, onDismissNotice, onWatch, narrow: narrowProp, matchMedia, top, children, drawer, maximised = false, mainRef, bottom = null, total = "", window: win, actions = NO_ACTIONS, blocked = false, onSettings, onProjects, helpLoad, railFoot = null, paletteItems = null, railExpanded, railWidth = RAIL_DEFAULT, onRailExpanded, onRailWidth, drawerW = DRAWER_DEFAULT, onDrawerW = null, drawerH = DRAWER_H_DEFAULT, onDrawerH = null, orient = "side", keysOff = false, welcome = false, onHelpOpened, menuCtx = null, onOpenPane = null, openOnly = false }) {
   const keys = keysOf(hello);
   const bindings = useMemo(() => bindingsFrom(keys), [keys]);
   const broken = useMemo(() => unreadable(keys), [keys]);
@@ -304,6 +304,7 @@ export function Shell({ hello, state, notice, onDismissNotice, onWatch, narrow: 
         panes=${state && state.panes}
         paneRoot=${(state && state.root) || ""}
         onOpenPane=${onOpenPane}
+        openOnly=${openOnly}
         win=${win}
         onToggle=${() => act({ type: "action", id: "toggleRail" })}
         onSettings=${onSettings}

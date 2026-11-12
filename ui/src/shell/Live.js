@@ -840,6 +840,7 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
     blocked=${!!starting || settingsOpen || updatesAt >= 0 || quitAsk || historyOpen || !!infoFor || findingPane || helpersOpen || projectsOpen || !!baton || teamOpen || agentsOpen || worktreesOpen || closeAsk}
     onSettings=${() => openSettings("general")}
     onOpenPane=${(id) => { reveal(id); drawer.open(id); }}
+    openOnly=${snap.remote || viewer}
     onProjects=${viewer ? null : () => setProjectsOpen(true)}
     paletteItems=${paletteItems}
     menuCtx=${menuCtx}
