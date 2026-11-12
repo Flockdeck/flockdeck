@@ -59,8 +59,26 @@ const browseDeskOnly = "Folders outside the projects Flockdeck knows are listed 
 // one on the recent list. Links are followed on both sides, so a link inside a
 // project that leads out of it does not count.
 func (s *Server) insideKnownProject(path string) bool {
+	roots := s.knownRoots()
+	if roots == nil {
+		return false
+	}
+	real := func(p string) string { return store.MetaKey(realPath(p)) }
+	target := real(path)
+	for _, r := range roots {
+		rel, err := filepath.Rel(real(r), target)
+		if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return true
+		}
+	}
+	return false
+}
+
+// knownRoots is the root of every open project and member repo and of every
+// project on the recent list. It is nil when the workspace did not answer.
+func (s *Server) knownRoots() []string {
 	roots, ok := ask(s, func() []string {
-		var out []string
+		out := []string{}
 		for _, p := range s.ws.Projects() {
 			out = append(out, p.Root)
 			for _, m := range p.Members {
@@ -70,27 +88,14 @@ func (s *Server) insideKnownProject(path string) bool {
 		return out
 	})
 	if !ok {
-		return false
+		return nil
 	}
 	if list, err := store.Recents(); err == nil {
 		for _, p := range list {
 			roots = append(roots, p.Root)
 		}
 	}
-	real := func(p string) string {
-		if r, err := filepath.EvalSymlinks(p); err == nil {
-			p = r
-		}
-		return store.MetaKey(p)
-	}
-	target := real(path)
-	for _, r := range roots {
-		rel, err := filepath.Rel(real(r), target)
-		if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			return true
-		}
-	}
-	return false
+	return roots
 }
 
 // browse lists the directories inside path so the picker can navigate the file
@@ -132,7 +137,11 @@ func (s *Server) browse(c *controlClient, path, req string) {
 			return
 		}
 		msg.Path = abs
-		msg.Places = places()
+		// The places are the machine's own: home, Documents, drive letters, the
+		// root. A window that may see only the known projects has no use for them.
+		if !c.remote {
+			msg.Places = places()
+		}
 		// The parent is filled in before the listing is attempted. A directory
 		// that cannot be read — one belonging to another user, say — is exactly
 		// where the picker most needs its way back out, and leaving this until
