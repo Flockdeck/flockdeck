@@ -23,8 +23,12 @@ export function placeOf(rect, side, win) {
  *  onClose(false) by a press or focus outside; onClose("gone") when the button left the page. */
 export function Popover({ anchor, label, side = "below", onClose, win = null, children }) {
   const box = useRef(null);
+  // The latest onClose: the owner makes a new one on every render, and the
+  // listeners below are not set again for that.
+  const closing = useRef(onClose);
+  closing.current = onClose;
   // A press outside, or focus leaving the panel, closes it. It takes the
-  // keyboard when it opens.
+  // keyboard when it opens, and again when it comes from another button.
   useEffect(() => {
     const el = box.current;
     const pick = el ? el.querySelector("button") : null;
@@ -32,22 +36,22 @@ export function Popover({ anchor, label, side = "below", onClose, win = null, ch
     else if (el && el.focus) el.focus();
     const doc = el && el.ownerDocument;
     const inside = (n) => !!n && ((box.current && box.current.contains(n)) || !!(anchor && anchor.contains && anchor.contains(n)));
-    const away = (e) => { if (!inside(e.target)) onClose(false); };
+    const away = (e) => { if (!inside(e.target)) closing.current(false); };
     // Tab out of the panel (or a click that moves focus) leaves with a target that is not in it. A null target is the window losing focus, which keeps the panel.
-    const left = (e) => { if (e.relatedTarget && !inside(e.relatedTarget)) onClose(false); };
+    const left = (e) => { if (e.relatedTarget && !inside(e.relatedTarget)) closing.current(false); };
     if (doc && doc.addEventListener) doc.addEventListener("mousedown", away);
     if (el && el.addEventListener) el.addEventListener("focusout", left);
     return () => {
       if (doc && doc.removeEventListener) doc.removeEventListener("mousedown", away);
       if (el && el.removeEventListener) el.removeEventListener("focusout", left);
     };
-  }, []);
+  }, [anchor]);
   // The badge it came from can go while the panel is open (the count fell to
   // nothing and the owner drew no button). The panel goes with it, and onClose("gone")
   // says the keyboard cannot go back to that button.
   useEffect(() => {
     const doc = anchor && anchor.ownerDocument;
-    if (!anchor || !doc || !doc.body || !doc.body.contains(anchor)) onClose("gone");
+    if (!anchor || !doc || !doc.body || !doc.body.contains(anchor)) closing.current("gone");
   });
   const rows = () => (box.current ? [...box.current.querySelectorAll("button")].filter((b) => !b.disabled) : []);
   const onKeyDown = (e) => {
