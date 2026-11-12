@@ -43,7 +43,8 @@ export function GoalStrip({
   // The tab whose needs-you list is open, and the badge it came from.
   const [listing, setListing] = useState(null);
   const closeList = (back) => {
-    const el = listing && listing.el;
+    // When the badge is gone (the tab has nothing left for the person) the keyboard goes to the tab.
+    const el = listing && (back === "gone" ? listing.home : listing.el);
     setListing(null);
     if (back && el && el.focus) el.focus();
   };
@@ -154,7 +155,7 @@ export function GoalStrip({
             ${t.needs > 0
               ? html`<button type="button" class="badge badge--waiting tab-needs" aria-label=${itemsWords(t.needs) + " in " + t.label + ". Open the list"} title=${itemsWords(t.needs) + " in this goal. Open the list"}
                   aria-haspopup=${needsList ? "dialog" : undefined} aria-expanded=${listing && listing.id === t.id ? "true" : "false"}
-                  onClick=${(e) => { if (!needsList) return onSelect(t.id); setListing(listing && listing.id === t.id ? null : { id: t.id, el: e.currentTarget }); }}>${t.needs}</button>`
+                  onClick=${(e) => { if (!needsList) return onSelect(t.id); setListing(listing && listing.id === t.id ? null : { id: t.id, el: e.currentTarget, home: e.currentTarget.parentNode.querySelector('[role="tab"]') }); }}>${t.needs}</button>`
               : null}
             ${goal && onArchive
               ? html`<button type="button" class="tab-close" aria-hidden="true" tabindex="-1" title="Archive this goal's tab" onClick=${() => archive(t.id)}>×</button>`

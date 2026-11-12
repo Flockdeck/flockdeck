@@ -480,3 +480,19 @@ test("the tab's orange badge is a button that opens the goal's needs-you list, w
     await click(m, m.container.find(".popover").find(".needs-pick"));
     assert.equal(m.container.find(".popover"), null, "choosing a row closes the list");
   }));
+
+test("the tab's list closes when its badge goes, and the keyboard goes to the tab", () =>
+  withPage({}, async (m) => {
+    await m.connect();
+    const doc = m.dom.document;
+    await click(m, m.tabs()[0].find(".tab-needs"));
+    assert.ok(m.container.find(".popover"), "the list did not open");
+    // The goal's items are answered and its panes stop waiting: the count is 0 and the badge is not drawn.
+    const g = graph();
+    g.teams = g.teams.map((t) => (t.id === ONE ? { ...t, needs: [] } : t));
+    g.nodes = g.nodes.map((n) => (n.team === ONE ? { ...n, activity: "idle", status: "idle" } : n));
+    await m.push(g);
+    assert.equal(m.tabs()[0].find(".tab-needs"), null, "the badge is gone");
+    assert.equal(m.container.find(".popover"), null, "the list went with it");
+    assert.equal(doc.activeElement, m.tabs()[0].find('[role="tab"]'), "the keyboard is on the tab");
+  }));

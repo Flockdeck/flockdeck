@@ -263,3 +263,22 @@ test("Escape from any row closes the list and returns to the badge", async () =>
     assert.equal(doc.activeElement, m.badge("/work/a"));
   });
 });
+
+test("the rail's list closes when the count reaches zero and the keyboard goes to the project's button", async () => {
+  const one = { p1: panes.p1 };
+  await withRail({ root: "/work/a", projects: [project("/work/a", "alpha", one)], panes: one }, async (m) => {
+    const doc = m.dom.document;
+    m.badge("/work/a").click();
+    await settle();
+    assert.ok(m.container.find(".popover").contains(doc.activeElement));
+    const none = { p1: { ...panes.p1, activity: "idle", status: "idle" } };
+    await m.set({ root: "/work/a", projects: [project("/work/a", "alpha", none)], panes: none });
+    assert.equal(m.badge("/work/a"), undefined, "the badge is gone");
+    assert.equal(m.container.find(".popover"), null, "and so is the list");
+    assert.equal(doc.activeElement, m.container.find(".rail-item"), "the keyboard is on the project, not lost");
+    // A later wait does not bring the old list back.
+    await m.set({ root: "/work/a", projects: [project("/work/a", "alpha", one)], panes: one });
+    assert.equal(m.container.find(".popover"), null);
+    assert.equal(m.badge("/work/a").attributes["aria-expanded"], "false");
+  });
+});

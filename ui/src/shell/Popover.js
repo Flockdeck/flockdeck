@@ -42,6 +42,13 @@ export function Popover({ anchor, label, side = "below", onClose, win = null, ch
       if (el && el.removeEventListener) el.removeEventListener("focusout", left);
     };
   }, []);
+  // The badge it came from can go while the panel is open (the count fell to
+  // nothing and the owner drew no button). The panel goes with it, and onClose("gone")
+  // says the keyboard cannot go back to that button.
+  useEffect(() => {
+    const doc = anchor && anchor.ownerDocument;
+    if (!anchor || !doc || !doc.body || !doc.body.contains(anchor)) onClose("gone");
+  });
   const rows = () => (box.current ? [...box.current.querySelectorAll("button")].filter((b) => !b.disabled) : []);
   const onKeyDown = (e) => {
     if (composing(e) || e.ctrlKey || e.altKey || e.metaKey) return;

@@ -26,7 +26,8 @@ export function Rail({ projects = [], active = "", collapsed = false, narrow = f
   // is drawn from the push's panes once the push is for that project.
   const [ask, setAsk] = useState(null);
   const close = (back) => {
-    const el = ask && ask.el;
+    // When the badge is gone (the count fell to nothing) the keyboard goes to the project's own button.
+    const el = ask && (back === "gone" ? ask.home : ask.el);
     setAsk(null);
     if (back && el && el.focus) el.focus();
   };
@@ -38,7 +39,7 @@ export function Rail({ projects = [], active = "", collapsed = false, narrow = f
     if (ask && ask.root === root) return close(true);
     if (!listable(root)) return;
     if (root !== active && onSelect) onSelect(root);
-    setAsk({ root, el });
+    setAsk({ root, el, home: el && el.parentNode && el.parentNode.querySelector ? el.parentNode.querySelector(".rail-item") : null });
   };
   const askedOf = ask ? projects.find((p) => p.root === ask.root) : null;
   return html`
