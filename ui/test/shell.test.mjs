@@ -60,10 +60,10 @@ test("a project name that holds markup is drawn as text", () => {
 
 test("waiting and working counts are on the rail", () => {
   const out = draw({ narrow: false });
-  assert.match(out, /badge badge--waiting" aria-hidden="true" title="2 agents waiting \(panes, not requests\)">2</);
-  assert.match(out, /badge badge--working" aria-hidden="true" title="3 agents working">3</);
+  assert.match(out, /badge badge--waiting rail-waiting"[^>]*aria-label="2 agents waiting for you. Open the list"[^>]*>2</);
+  assert.match(out, /badge badge--working" role="img" aria-label="3 agents working" title="3 agents working">3</);
   // The button carries the name and the counts, since the name can be hidden.
-  assert.match(out, /aria-label="alpha, 2 waiting"/);
+  assert.match(out, /aria-label="alpha, 2 waiting for you"/);
   assert.match(out, /aria-label="beta, 3 working"/);
 });
 
@@ -85,13 +85,11 @@ test("the drawer region shows only when something is put in it", () => {
 // The rail switches the project that is watched.
 test("choosing a project in the rail reports its root", () => {
   const chosen = [];
-  const tree = expand(Rail({ projects: fakeState.projects, active: "/work/b", onSelect: (r) => chosen.push(r) }));
-  const buttons = find(tree, (n) => n.type === "button" && n.props["data-root"]);
-  assert.equal(buttons.length, 3);
-  buttons.find((b) => b.props["data-root"] === "/work/a").props.onClick();
-  assert.deepEqual(chosen, ["/work/a"]);
-  assert.equal(buttons.find((b) => b.props["data-root"] === "/work/b").props["aria-current"], "true");
-  assert.equal(buttons.find((b) => b.props["data-root"] === "/work/a").props["aria-current"], undefined);
+  const out = renderToString(html`<${Rail} projects=${fakeState.projects} active="/work/b" onSelect=${(r) => chosen.push(r)} />`);
+  assert.equal((out.match(/data-root=/g) || []).length, 3);
+  assert.match(out, /aria-current="true"[^>]*data-root="\/work\/b"/);
+  assert.equal((out.match(/aria-current/g) || []).length, 1);
+  // The click itself is in behaviour.test.mjs, which draws the page.
 });
 
 test("the shell starts on the project the state names, or the first", () => {
@@ -152,7 +150,7 @@ test("a collapsed rail shows each project's initial and the button still has its
   assert.equal(initialOf(""), "?");
   const out = draw({ narrow: false });
   assert.match(out, /rail-initial" aria-hidden="true">A</);
-  assert.match(out, /aria-label="alpha, 2 waiting"/);
+  assert.match(out, /aria-label="alpha, 2 waiting for you"/);
 });
 
 test("a state push naming another active project moves the selection; a repeat does not", () => {

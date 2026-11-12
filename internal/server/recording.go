@@ -38,10 +38,21 @@ func recordSpawnRefusal(shell, acknowledged bool) error {
 	return nil
 }
 
+// recordPaneDeskOnly is what a window reached through the relay is told when it
+// asks to start or stop a recording.
+const recordPaneDeskOnly = "Recording a pane is turned on and off on the machine Flockdeck runs on, not from a window reached through the relay"
+
 // recordPane starts or stops a pane's recording. The first start of all is put
 // to the user in the window and arrives confirmed; it is checked here as well,
 // so a client that skips the question cannot skip the answer.
 func (s *Server) recordPane(c *controlClient, cmd command) {
+	// A window reached through the relay can send confirmed as true without
+	// anyone having read at the desk what a recording stores, so the whole
+	// command is the desk's.
+	if c.remote {
+		c.notify(recordPaneDeskOnly, true)
+		return
+	}
 	if cmd.Recording && !store.LoadPrefs().RecordingAcknowledged {
 		if !cmd.Confirmed {
 			c.notify(recordingConfirmNotice, true)

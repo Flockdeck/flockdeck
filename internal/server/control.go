@@ -1722,6 +1722,12 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 	if c.refuseRemoteText(cmd) {
 		return
 	}
+	// A folder a window reached through the relay names has to be part of a
+	// project Flockdeck knows, or browse's limit is undone by any command that
+	// opens or acts in another one (remote_paths.go).
+	if s.refuseRemotePaths(c, cmd) {
+		return
+	}
 	switch cmd.Cmd {
 	case "setDeviceRole":
 		s.setDeviceRole(c, cmd)
@@ -2486,6 +2492,13 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 			}
 			ws.ToggleBroadcastMember()
 		case "sendPrompt":
+			// Text typed into a pane is the desk's, as paneSend is: this socket
+			// is readable and forgeable by the relay, and the sealed terminal is
+			// where a phone types.
+			if c.remote {
+				c.notify(paneSendDeskOnly, true)
+				return
+			}
 			// The bar names the pane it was opened on, and the prompt goes
 			// there. Focus can move while it is open -- the desk clicking
 			// another pane, a spawned helper opening in a tab, a pane picked

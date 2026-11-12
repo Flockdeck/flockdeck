@@ -145,7 +145,11 @@ test("the strip says so when nothing needs the person, and counts what the graph
     nodes: [{ pane: "m", depth: 0, team: "m", name: "boss", status: "idle", activity: "idle" }],
     solo: [],
   });
-  assert.match(renderToString(html`<${NeedsYou} model=${some} />`), /and 4 more not shown/);
+  const out = renderToString(html`<${NeedsYou} model=${some} />`);
+  assert.match(out, /and 4 more not shown/);
+  // The tab's badge counts the left-out ones too (5), so the heading says how many of them the list holds.
+  assert.match(out, /Needs you \(showing 1 of 5\)/);
+  assert.doesNotMatch(out, /Needs you \(\d+\)</, "no bare count that the rows do not add up to");
 });
 
 test("rowOf names a pane by its id when it has no node", () => {
