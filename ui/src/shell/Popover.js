@@ -19,30 +19,48 @@ export function placeOf(rect, side, win) {
 }
 
 /** Popover draws children in a panel named `label`. anchor is the button it came
- *  from; onClose(true) is called by Escape, which should give the button the keyboard. */
+ *  from; onClose(true) is called by Escape, which should give the button the keyboard;
+ *  onClose(false) by a press or focus outside; onClose("gone") when the button left the page. */
 export function Popover({ anchor, label, side = "below", onClose, win = null, children }) {
   const box = useRef(null);
+  // A press outside, or focus leaving the panel, closes it. It takes the
+  // keyboard when it opens.
   useEffect(() => {
     const el = box.current;
     const pick = el ? el.querySelector("button") : null;
     if (pick && pick.focus) pick.focus();
     else if (el && el.focus) el.focus();
     const doc = el && el.ownerDocument;
-    const away = (e) => {
-      if (box.current && !box.current.contains(e.target) && !(anchor && anchor.contains && anchor.contains(e.target))) onClose(false);
-    };
+    const inside = (n) => !!n && ((box.current && box.current.contains(n)) || !!(anchor && anchor.contains && anchor.contains(n)));
+    const away = (e) => { if (!inside(e.target)) onClose(false); };
+    // Tab out of the panel (or a click that moves focus) leaves with a target that is not in it. A null target is the window losing focus, which keeps the panel.
+    const left = (e) => { if (e.relatedTarget && !inside(e.relatedTarget)) onClose(false); };
     if (doc && doc.addEventListener) doc.addEventListener("mousedown", away);
-    return () => { if (doc && doc.removeEventListener) doc.removeEventListener("mousedown", away); };
+    if (el && el.addEventListener) el.addEventListener("focusout", left);
+    return () => {
+      if (doc && doc.removeEventListener) doc.removeEventListener("mousedown", away);
+      if (el && el.removeEventListener) el.removeEventListener("focusout", left);
+    };
   }, []);
+  const rows = () => (box.current ? [...box.current.querySelectorAll("button")].filter((b) => !b.disabled) : []);
   const onKeyDown = (e) => {
     if (composing(e) || e.ctrlKey || e.altKey || e.metaKey) return;
     if (e.key === LIST.cancel) {
       e.preventDefault();
       e.stopPropagation();
       onClose(true);
-    } else if (e.key === LIST.tab) {
-      onClose(true);
+      return;
     }
+    // Tab walks the rows, as the browser does; leaving the panel closes it (focusout above).
+    const down = e.key === LIST.down, up = e.key === LIST.up, home = e.key === LIST.home, end = e.key === LIST.end;
+    if (!down && !up && !home && !end) return;
+    const list = rows();
+    if (list.length === 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const at = list.indexOf(e.target);
+    const to = home ? 0 : end ? list.length - 1 : down ? (at + 1) % list.length : (at - 1 + list.length) % list.length;
+    if (list[to] && list[to].focus) list[to].focus();
   };
   const rect = anchor && anchor.getBoundingClientRect ? anchor.getBoundingClientRect() : null;
   return html`<div class="popover" role="dialog" aria-label=${label} tabindex="-1" ref=${box} style=${placeOf(rect, side, win || (typeof window !== "undefined" ? window : null)) || undefined} onKeyDown=${onKeyDown}>${children}</div>`;

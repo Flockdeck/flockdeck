@@ -198,3 +198,68 @@ test("the badge toggles its own list", async () => {
     assert.equal(m.container.find(".popover"), null);
   });
 });
+
+test("the list is walked from the keyboard: arrows move between rows and wrap, Tab does not close it", async () => {
+  const state = { root: "/work/a", projects: [project("/work/a", "alpha", panes)], panes };
+  await withRail(state, async (m) => {
+    const doc = m.dom.document;
+    m.badge("/work/a").click();
+    await settle();
+    const picks = m.rows().map((r) => r.find(".needs-pick"));
+    assert.equal(picks.length, 4);
+    assert.equal(doc.activeElement, picks[0], "the first row has the keyboard");
+    const key = (k) => doc.activeElement.keydown(k);
+    assert.equal(key("ArrowDown").defaultPrevented, true);
+    assert.equal(doc.activeElement, picks[1]);
+    key("ArrowDown");
+    key("ArrowDown");
+    assert.equal(doc.activeElement, picks[3]);
+    key("ArrowDown");
+    assert.equal(doc.activeElement, picks[0], "Down wraps to the first row");
+    key("ArrowUp");
+    assert.equal(doc.activeElement, picks[3], "Up wraps to the last row");
+    key("Home");
+    assert.equal(doc.activeElement, picks[0]);
+    key("End");
+    assert.equal(doc.activeElement, picks[3]);
+    // Tab is left to the browser: it moves from row to row and the panel stays.
+    assert.equal(key("Tab").defaultPrevented, false);
+    assert.ok(m.container.find(".popover"), "Tab alone does not close it");
+    assert.equal(m.badge("/work/a").attributes["aria-expanded"], "true");
+  });
+});
+
+test("focus moving from one row to another keeps the list; focus leaving the panel closes it without taking the keyboard back", async () => {
+  const state = { root: "/work/a", projects: [project("/work/a", "alpha", panes)], panes };
+  await withRail(state, async (m) => {
+    const doc = m.dom.document;
+    m.badge("/work/a").click();
+    await settle();
+    const picks = m.rows().map((r) => r.find(".needs-pick"));
+    picks[0].dispatch("focusout", { relatedTarget: picks[1] });
+    picks[1].dispatch("focusout", { relatedTarget: null });
+    await settle();
+    assert.ok(m.container.find(".popover"), "a move inside the panel, or the window losing focus, keeps it");
+    const outside = m.container.find(".rail-projects") || m.container.find(".rail-toggle");
+    assert.ok(outside, "there is a control outside the panel to move to");
+    outside.focus();
+    picks[3].dispatch("focusout", { relatedTarget: outside });
+    await settle();
+    assert.equal(m.container.find(".popover"), null, "Tab out of the last row closes it");
+    assert.equal(doc.activeElement, outside, "the keyboard stays where the person moved it");
+  });
+});
+
+test("Escape from any row closes the list and returns to the badge", async () => {
+  const state = { root: "/work/a", projects: [project("/work/a", "alpha", panes)], panes };
+  await withRail(state, async (m) => {
+    m.badge("/work/a").click();
+    await settle();
+    const doc = m.dom.document;
+    doc.activeElement.keydown("ArrowDown");
+    doc.activeElement.keydown("Escape");
+    await settle();
+    assert.equal(m.container.find(".popover"), null);
+    assert.equal(doc.activeElement, m.badge("/work/a"));
+  });
+});
