@@ -154,7 +154,8 @@ func runFakeHelper(args []string) {
 		arm()
 		_, _ = w.Write([]byte("ready"))
 	})
-	go func() { _ = http.Serve(ln, mux) }()
+	var serving sync.Once
+	serve := func() { serving.Do(func() { go func() { _ = http.Serve(ln, mux) }() }) }
 
 	sig := make(chan os.Signal, 4)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
@@ -201,9 +202,17 @@ func runFakeHelper(args []string) {
 			"--marker", *marker, "--drain", drain.String())
 		child.Stdout, child.Stderr = os.Stdout, os.Stderr
 		_ = child.Start()
+		serve()
 		<-sig
 		os.Exit(0)
 	}
+
+	// Serving starts only now, with arm settled. A probe that came in earlier
+	// waits in the listener's queue; one answered while a mode was still being
+	// set up (the grandchild's start takes a while on Windows) would have called
+	// the no-op arm, the supervisor stops asking once it has an answer, and the
+	// helper would never have crashed.
+	serve()
 
 	for {
 		<-sig
