@@ -66,6 +66,11 @@ func (s *Server) insideKnownProject(path string) bool {
 	real := func(p string) string { return store.MetaKey(realPath(p)) }
 	target := real(path)
 	for _, r := range roots {
+		// A root that really lies outside the folder its own path sits in is a
+		// link put where a project was, and is not what was made known.
+		if !underPath(real(r), real(filepath.Dir(r))) {
+			continue
+		}
 		rel, err := filepath.Rel(real(r), target)
 		if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 			return true

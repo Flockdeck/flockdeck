@@ -2,6 +2,7 @@ package server
 
 import (
 	"github.com/jmwri/flockdeck/internal/gitx"
+	"github.com/jmwri/flockdeck/internal/store"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -358,5 +359,38 @@ func TestARelayWindowDiffAndCommitStayInTheProject(t *testing.T) {
 	out, _ := exec.Command("git", "-C", repo, "ls-files").Output()
 	if strings.Contains(string(out), "secret.txt") {
 		t.Errorf("a file outside the project was staged: %s", out)
+	}
+}
+
+// A recent project that was deleted and replaced by a junction to somewhere else
+// must not make that somewhere else known.
+func TestARelayWindowDoesNotKnowAReplacedRecentProject(t *testing.T) {
+	srv, _ := newTestServer(t)
+	outside := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(outside, "private"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	recent := filepath.Join(t.TempDir(), "old-project")
+	if err := os.MkdirAll(recent, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.TouchRecent(recent); err != nil {
+		t.Fatal(err)
+	}
+	if !srv.insideKnownProject(recent) {
+		t.Fatal("a recent project is not known")
+	}
+	if err := os.Remove(recent); err != nil {
+		t.Fatal(err)
+	}
+	makeLinkOut(t, recent, outside)
+
+	private := filepath.Join(outside, "private")
+	if srv.insideKnownProject(private) || srv.insideKnownProject(recent) {
+		t.Error("a recent project replaced by a link to another folder made that folder known")
+	}
+	phone := dialPhone(t, srv)
+	if m := browseThrough(t, phone, private); m.Error == "" || len(m.Entries) != 0 {
+		t.Errorf("browse of the folder the link leads to: %d entries, error %q, want a refusal", len(m.Entries), m.Error)
 	}
 }
