@@ -430,6 +430,9 @@ button { font: inherit; color: inherit; }
   cursor: pointer;
 }
 .rail-waiting:hover, .rail-waiting[aria-expanded="true"] { border-color: var(--waiting); }
+/* A project that cannot open a list (a relay or viewer window): the count is not a control. */
+.rail-waiting--count { cursor: default; }
+.rail-waiting--count:hover { border-color: var(--waiting-line); }
 .rail-waiting:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 /* The panel a count or a tab's badge opens, over the page. */
 .popover {
