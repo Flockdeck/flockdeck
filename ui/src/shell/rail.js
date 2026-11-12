@@ -42,12 +42,17 @@ export function Rail({ projects = [], active = "", collapsed = false, narrow = f
     setAsk({ root, el, home: el && el.parentNode && el.parentNode.querySelector ? el.parentNode.querySelector(".rail-item") : null });
   };
   const askedOf = ask ? projects.find((p) => p.root === ask.root) : null;
+  // The panel is drawn inside its project's row, after the badge, so the keyboard
+  // goes from the badge into the list and on to the next project.
+  const listOf = () => html`<${Popover} anchor=${ask.el} label=${"Agents waiting for you in " + askedOf.name} side=${narrow ? "below" : "right"} win=${win} onClose=${close}>
+      <${WaitingList} panes=${paneRoot === ask.root ? panes || {} : null} onOpen=${(pane) => { close(false); if (onOpenPane) onOpenPane(pane); }} />
+    <//>`;
   return html`
     <nav class=${cls} aria-label="Projects" tabindex="-1" ref=${railRef}>
       <ul class="rail-list">
         ${projects.length === 0
           ? html`<li class="rail-empty">No projects open</li>`
-          : projects.map((p) => html`<${RailItem} key=${p.root} project=${p} active=${p.root === active} onSelect=${onSelect} onWaiting=${onWaiting} listable=${listable(p.root)} open=${!!ask && ask.root === p.root} />`)}
+          : projects.map((p) => html`<${RailItem} key=${p.root} project=${p} active=${p.root === active} onSelect=${onSelect} onWaiting=${onWaiting} listable=${listable(p.root)} open=${!!ask && ask.root === p.root}>${ask && askedOf && ask.root === p.root ? listOf() : null}<//>`)}
       </ul>
       <div class="rail-foot">
         ${onProjects ? html`<${FootButton} cls="rail-projects" glyph="+" label="Manage projects" onClick=${onProjects} />` : null}
@@ -57,11 +62,6 @@ export function Rail({ projects = [], active = "", collapsed = false, narrow = f
           ? null
           : html`<${FootButton} cls="rail-toggle" glyph=${collapsed ? "»" : "«"} label=${collapsed ? "Widen" : "Narrow"} pressed=${collapsed ? "true" : "false"} onClick=${onToggle} />`}
       </div>
-      ${ask && askedOf
-        ? html`<${Popover} anchor=${ask.el} label=${"Agents waiting for you in " + askedOf.name} side=${narrow ? "below" : "right"} win=${win} onClose=${close}>
-            <${WaitingList} panes=${paneRoot === ask.root ? panes || {} : null} onOpen=${(pane) => { close(false); if (onOpenPane) onOpenPane(pane); }} />
-          <//>`
-        : null}
       ${!narrow && !collapsed && width !== null && onWidth ? html`<${Resize} width=${width} onWidth=${onWidth} onDrag=${onDrag} />` : null}
     </nav>
   `;
@@ -81,7 +81,7 @@ export function FootButton({ cls, glyph, label, title = label, pressed, onClick 
  *  that wait on the person or are blocked, in every tab and goal of the project;
  *  choosing it opens the project and lists them. The teal count is the panes at
  *  work, a span with a tooltip. */
-export function RailItem({ project, active, onSelect, onWaiting = null, open = false, listable = true }) {
+export function RailItem({ project, active, onSelect, onWaiting = null, open = false, listable = true, children = null }) {
   const { root, name, waiting = 0, working = 0 } = project;
   // The name is hidden when the rail is narrow, so the button carries it, and
   // the counts, in its label.
@@ -111,6 +111,7 @@ export function RailItem({ project, active, onSelect, onWaiting = null, open = f
             title=${words + (active ? ". Open the list" : ". Open the project and list them") + " (panes, not requests)"}
             onClick=${(e) => onWaiting && onWaiting(root, e.currentTarget)}>${waiting}</button>`
         : null}
+      ${children}
     </li>
   `;
 }

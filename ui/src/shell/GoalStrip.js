@@ -137,6 +137,7 @@ export function GoalStrip({
             }} />`;
           }
           const goal = t.kind === "team";
+          // The badge stays in its tab's li, though a button in a tablist is not a tab: the list scrolls sideways as one row, so a badge outside it would not move with its tab.
           const cls = "tab goaltab" + (t.id === active ? " is-active" : "") + (t.activity ? " tab--" + t.activity : "") + (dragging === t.id ? " is-dragging" : "");
           return html`<li key=${t.id} class=${cls} role="presentation" data-tab=${t.id} data-kind=${t.kind} data-ctx="tab"
             draggable=${goal && onMove ? "true" : undefined}

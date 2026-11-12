@@ -282,3 +282,17 @@ test("the rail's list closes when the count reaches zero and the keyboard goes t
     assert.equal(m.badge("/work/a").attributes["aria-expanded"], "false");
   });
 });
+
+test("the list is drawn inside its project's row, right after the badge, so the keyboard order matches the picture", async () => {
+  const a = { p1: panes.p1 };
+  const b = { p2: panes.p2 };
+  const projects = [project("/work/a", "alpha", a), project("/work/b", "beta", b)];
+  await withRail({ root: "/work/a", projects, panes: a }, async (m) => {
+    m.badge("/work/a").click();
+    await settle();
+    const badge = m.badge("/work/a");
+    const pop = m.container.find(".popover");
+    assert.equal(pop.parentNode, badge.parentNode, "in the same row as the badge");
+    assert.equal(badge.nextSibling, pop, "directly after it");
+  });
+});
