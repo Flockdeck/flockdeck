@@ -2486,6 +2486,13 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 			}
 			ws.ToggleBroadcastMember()
 		case "sendPrompt":
+			// Text typed into a pane is the desk's, as paneSend is: this socket
+			// is readable and forgeable by the relay, and the sealed terminal is
+			// where a phone types.
+			if c.remote {
+				c.notify(paneSendDeskOnly, true)
+				return
+			}
 			// The bar names the pane it was opened on, and the prompt goes
 			// there. Focus can move while it is open -- the desk clicking
 			// another pane, a spawned helper opening in a tab, a pane picked

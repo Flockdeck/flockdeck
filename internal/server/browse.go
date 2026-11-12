@@ -51,6 +51,48 @@ type recentView struct {
 	Archived bool `json:"archived,omitempty"`
 }
 
+// browseDeskOnly is what a window reached through the relay is told when it
+// lists a folder that is not inside an open or recent project.
+const browseDeskOnly = "Folders outside the projects Flockdeck knows are listed on the machine it runs on, not from a window reached through the relay"
+
+// insideKnownProject reports whether path is, or is inside, an open project or
+// one on the recent list. Links are followed on both sides, so a link inside a
+// project that leads out of it does not count.
+func (s *Server) insideKnownProject(path string) bool {
+	roots, ok := ask(s, func() []string {
+		var out []string
+		for _, p := range s.ws.Projects() {
+			out = append(out, p.Root)
+			for _, m := range p.Members {
+				out = append(out, m.Root)
+			}
+		}
+		return out
+	})
+	if !ok {
+		return false
+	}
+	if list, err := store.Recents(); err == nil {
+		for _, p := range list {
+			roots = append(roots, p.Root)
+		}
+	}
+	real := func(p string) string {
+		if r, err := filepath.EvalSymlinks(p); err == nil {
+			p = r
+		}
+		return store.MetaKey(p)
+	}
+	target := real(path)
+	for _, r := range roots {
+		rel, err := filepath.Rel(real(r), target)
+		if err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return true
+		}
+	}
+	return false
+}
+
 // browse lists the directories inside path so the picker can navigate the file
 // system. A browser cannot give us a real directory path — the File System
 // Access API hands out opaque handles — so choosing a project has to be served
@@ -81,13 +123,21 @@ func (s *Server) browse(c *controlClient, path, req string) {
 			c.sendJSON(msg)
 			return
 		}
+		// A window reached through the relay is let into the folders of a project
+		// Flockdeck knows and nowhere else: the listing would otherwise map the
+		// whole machine for whoever holds a phone, or the relay it goes through.
+		if c.remote && !s.insideKnownProject(abs) {
+			msg.Error = browseDeskOnly
+			c.sendJSON(msg)
+			return
+		}
 		msg.Path = abs
 		msg.Places = places()
 		// The parent is filled in before the listing is attempted. A directory
 		// that cannot be read — one belonging to another user, say — is exactly
 		// where the picker most needs its way back out, and leaving this until
 		// afterwards disabled the up control and stranded whoever walked in.
-		if parent := filepath.Dir(abs); parent != abs {
+		if parent := filepath.Dir(abs); parent != abs && (!c.remote || s.insideKnownProject(parent)) {
 			msg.Parent = parent
 		}
 
