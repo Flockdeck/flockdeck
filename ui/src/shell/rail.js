@@ -1,5 +1,8 @@
+import { useRef, useState } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
 import { composing, LIST } from "./keys.js";
+import { Popover } from "./Popover.js";
+import { WaitingList, waitingWords } from "./WaitingList.js";
 import { RAIL_MAX, RAIL_MIN } from "../lib/prefs.js";
 
 /** STEP is how far one arrow key press moves the rail, in pixels. */
@@ -17,14 +20,28 @@ export function initialOf(name) {
  *  makes it the project the window watches. At phone width it is a bar along the
  *  top (the CSS lays it out; narrow only drops the collapse button, which has no
  *  use there). Project names are text. */
-export function Rail({ projects = [], active = "", collapsed = false, narrow = false, width = null, onWidth = null, onDrag = null, onSelect, onToggle, onSettings, onProjects, railRef, foot = null }) {
+export function Rail({ projects = [], active = "", collapsed = false, narrow = false, width = null, onWidth = null, onDrag = null, onSelect, onToggle, onSettings, onProjects, railRef, foot = null, panes = null, paneRoot = "", onOpenPane = null, win = null }) {
   const cls = "rail" + (narrow ? " rail--bar" : "");
+  // The project whose waiting list is open, and the badge it came from. The list
+  // is drawn from the push's panes once the push is for that project.
+  const [ask, setAsk] = useState(null);
+  const close = (back) => {
+    const el = ask && ask.el;
+    setAsk(null);
+    if (back && el && el.focus) el.focus();
+  };
+  const onWaiting = (root, el) => {
+    if (ask && ask.root === root) return close(true);
+    if (root !== active && onSelect) onSelect(root);
+    setAsk({ root, el });
+  };
+  const askedOf = ask ? projects.find((p) => p.root === ask.root) : null;
   return html`
     <nav class=${cls} aria-label="Projects" tabindex="-1" ref=${railRef}>
       <ul class="rail-list">
         ${projects.length === 0
           ? html`<li class="rail-empty">No projects open</li>`
-          : projects.map((p) => html`<${RailItem} key=${p.root} project=${p} active=${p.root === active} onSelect=${onSelect} />`)}
+          : projects.map((p) => html`<${RailItem} key=${p.root} project=${p} active=${p.root === active} onSelect=${onSelect} onWaiting=${onWaiting} open=${!!ask && ask.root === p.root} />`)}
       </ul>
       <div class="rail-foot">
         ${onProjects ? html`<${FootButton} cls="rail-projects" glyph="+" label="Manage projects" onClick=${onProjects} />` : null}
@@ -34,6 +51,11 @@ export function Rail({ projects = [], active = "", collapsed = false, narrow = f
           ? null
           : html`<${FootButton} cls="rail-toggle" glyph=${collapsed ? "»" : "«"} label=${collapsed ? "Widen" : "Narrow"} pressed=${collapsed ? "true" : "false"} onClick=${onToggle} />`}
       </div>
+      ${ask && askedOf
+        ? html`<${Popover} anchor=${ask.el} label=${"Agents waiting for you in " + askedOf.name} side=${narrow ? "below" : "right"} win=${win} onClose=${close}>
+            <${WaitingList} panes=${paneRoot === ask.root ? panes || {} : null} onOpen=${(pane) => { close(false); if (onOpenPane) onOpenPane(pane); }} />
+          <//>`
+        : null}
       ${!narrow && !collapsed && width !== null && onWidth ? html`<${Resize} width=${width} onWidth=${onWidth} onDrag=${onDrag} />` : null}
     </nav>
   `;
@@ -48,16 +70,22 @@ export function FootButton({ cls, glyph, label, title = label, pressed, onClick 
   </button>`;
 }
 
-export function RailItem({ project, active, onSelect }) {
+/** RailItem is one project: its button and, beside it, the orange count as a
+ *  button of its own (a button inside a button is not valid). The count is panes
+ *  that wait on the person or are blocked, in every tab and goal of the project;
+ *  choosing it opens the project and lists them. The teal count is the panes at
+ *  work, a span with a tooltip. */
+export function RailItem({ project, active, onSelect, onWaiting = null, open = false }) {
   const { root, name, waiting = 0, working = 0 } = project;
   // The name is hidden when the rail is narrow, so the button carries it, and
   // the counts, in its label.
-  const label = [name, waiting > 0 ? waiting + " waiting" : "", working > 0 ? working + " working" : ""].filter(Boolean).join(", ");
+  const label = [name, waiting > 0 ? waiting + " waiting for you" : "", working > 0 ? working + " working" : ""].filter(Boolean).join(", ");
+  const words = waiting > 0 ? waitingWords(waiting) : "";
   return html`
-    <li>
+    <li class="rail-row">
       <button
         type="button"
-        class=${"rail-item" + (active ? " is-active" : "")}
+        class=${"rail-item" + (active ? " is-active" : "") + (waiting > 0 ? " has-waiting" : "")}
         aria-current=${active ? "true" : undefined}
         aria-label=${label}
         title=${label}
@@ -67,9 +95,14 @@ export function RailItem({ project, active, onSelect }) {
       >
         <span class="rail-initial" aria-hidden="true">${initialOf(name)}</span>
         <span class="rail-name">${name}</span>
-        ${waiting > 0 ? html`<span class="badge badge--waiting" aria-hidden="true" title=${waiting + (waiting === 1 ? " agent waiting" : " agents waiting") + " (panes, not requests)"}>${waiting}</span>` : null}
-        ${working > 0 ? html`<span class="badge badge--working" aria-hidden="true" title=${working + (working === 1 ? " agent working" : " agents working")}>${working}</span>` : null}
+        ${working > 0 ? html`<span class="badge badge--working" role="img" aria-label=${working + (working === 1 ? " agent working" : " agents working")} title=${working + (working === 1 ? " agent working" : " agents working")}>${working}</span>` : null}
       </button>
+      ${waiting > 0
+        ? html`<button type="button" class="badge badge--waiting rail-waiting" aria-haspopup="dialog" aria-expanded=${open ? "true" : "false"}
+            aria-label=${words + ". Open the list"}
+            title=${words + (active ? ". Open the list" : ". Open the project and list them") + " (panes, not requests)"}
+            onClick=${(e) => onWaiting && onWaiting(root, e.currentTarget)}>${waiting}</button>`
+        : null}
     </li>
   `;
 }
