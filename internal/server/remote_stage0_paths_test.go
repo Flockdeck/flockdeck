@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 // The browse limit only holds while a window cannot make a folder known by
@@ -300,5 +301,62 @@ func TestARelayWindowWorktreeRuleIsTheDefaultPlaceOnly(t *testing.T) {
 	readQuick(t, phone, "notice", &note)
 	if note.Error {
 		t.Errorf("worktreeAdd with no path was refused: %+v", note)
+	}
+}
+
+// diff names a file and commit lists files; neither lets a relay window read or
+// stage something outside the project it was let into.
+func TestARelayWindowDiffAndCommitStayInTheProject(t *testing.T) {
+	srv, _, repo := newRepoServer(t)
+	outside := t.TempDir()
+	const secret = "TOP-SECRET-CONTENT"
+	secretFile := filepath.Join(outside, "secret.txt")
+	if err := os.WriteFile(secretFile, []byte(secret+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	makeLinkOut(t, filepath.Join(repo, "way-out"), outside)
+	phone := dialPhone(t, srv)
+
+	rel, err := filepath.Rel(repo, secretFile)
+	if err != nil {
+		rel = filepath.Join("..", "..", "secret.txt")
+	}
+	// A name that leaves the tree by its spelling, or by a link in it, is
+	// refused to a relay window.
+	for _, name := range []string{
+		rel, filepath.ToSlash(rel), secretFile, filepath.ToSlash(secretFile),
+		"way-out/secret.txt", filepath.Join("way-out", "secret.txt"),
+	} {
+		sendCmd(t, phone, command{Cmd: "diff", Path: repo, Text: name})
+		wantRefusal(t, phone, "diff of "+name+", a file outside the project")
+	}
+	// A file of the project's own is still shown.
+	if err := os.WriteFile(filepath.Join(repo, "mine.txt"), []byte("mine"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sendCmd(t, phone, command{Cmd: "diff", Path: repo, Text: "mine.txt"})
+	var own diffMsg
+	readQuick(t, phone, "diff", &own)
+	if own.Error != "" || !strings.Contains(own.Text, "mine") {
+		t.Errorf("diff of a file in the project: %+v", own)
+	}
+
+	head := func() string {
+		out, err := exec.Command("git", "-C", repo, "rev-parse", "HEAD").Output()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return string(out)
+	}
+	before := head()
+	sendCmd(t, phone, command{Cmd: "commit", Path: repo, Text: "stage0 outside files",
+		Files: []string{rel, secretFile, "way-out/secret.txt"}})
+	time.Sleep(500 * time.Millisecond)
+	if head() != before {
+		t.Error("a commit that listed files outside the project made a commit")
+	}
+	out, _ := exec.Command("git", "-C", repo, "ls-files").Output()
+	if strings.Contains(string(out), "secret.txt") {
+		t.Errorf("a file outside the project was staged: %s", out)
 	}
 }

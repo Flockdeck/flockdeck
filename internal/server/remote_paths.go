@@ -87,7 +87,28 @@ func (s *Server) refuseRemotePaths(c *controlClient, cmd command) bool {
 	if f.path && path != "" && !s.remotePathKnown(path) {
 		return deny()
 	}
+	if cmd.Cmd == "diff" && !s.remoteDiffFileInside(path, cmd.Text) {
+		return deny()
+	}
 	return false
+}
+
+// remoteDiffFileInside reports whether the file a diff names is, where it really
+// is, inside the working tree it is asked of. gitx already refuses a name that
+// leaves the tree by its spelling; a junction or link inside the tree that leads
+// out is only seen once links are followed, and git then reads the file through it.
+func (s *Server) remoteDiffFileInside(path, file string) bool {
+	if file == "" {
+		return true
+	}
+	// A rooted name or one with a drive is no name inside the tree, however
+	// Join would spell it.
+	if filepath.IsAbs(file) || filepath.VolumeName(file) != "" || strings.HasPrefix(file, "/") || strings.HasPrefix(file, string(filepath.Separator)) {
+		return false
+	}
+	top := repoRoot(s.reviewDir(path))
+	target := store.MetaKey(realPath(filepath.Join(top, filepath.FromSlash(file))))
+	return underPath(target, store.MetaKey(realPath(top)))
 }
 
 // remotePathKnown reports whether path is, or is inside, an open or recent
