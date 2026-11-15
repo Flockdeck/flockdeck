@@ -812,15 +812,13 @@ func TestLoadIgnoresAnotherSchemaVersion(t *testing.T) {
 	}
 }
 
-// TestVersion1LayoutIsMigrated covers the upgrade a user gets for nothing: a
-// layout saved by a build that knew only Claude comes back with every tab and
-// every pane, each agent pane now saying which agent it runs.
-//
-// This is the promise that somebody who only ever runs Claude notices nothing.
-// Getting it wrong quarantines the file, and the first they would know of it
-// is an empty workspace where their tabs were.
-func TestVersion1LayoutIsMigrated(t *testing.T) {
+// TestVersion1LayoutIsKeptAside checks a layout from a build that knew only
+// Claude, which this build no longer migrates, is not restored and is not
+// lost: Load ignores it, moves it to a .damaged file, and the
+// user is told where it went.
+func TestVersion1LayoutIsKeptAside(t *testing.T) {
 	isolateConfig(t)
+	TakeKept()
 
 	p, err := path("/repo/a")
 	if err != nil {
@@ -831,75 +829,26 @@ func TestVersion1LayoutIsMigrated(t *testing.T) {
 	v1 := []byte(`{
 	  "version": 1,
 	  "root": ` + strconv.Quote(filepath.Clean("/repo/a")) + `,
-	  "active": 1,
 	  "tabs": [
-	    {"title": "api", "focus": "pane-1", "root": {"dir": "h", "children": [
-	      {"pane": {"id": "pane-1", "kind": "claude", "cwd": "/repo/a", "name": "worker"}},
-	      {"pane": {"id": "pane-2", "kind": "shell", "cwd": "/repo/a/sub"}}
-	    ]}},
-	    {"title": "docs", "root": {"pane": {"id": "pane-3", "kind": "claude", "cwd": "/repo/a"}}}
+	    {"title": "api", "focus": "pane-1", "root": {"pane": {"id": "pane-1", "kind": "claude", "cwd": "/repo/a"}}}
 	  ]
 	}`)
 	if err := os.WriteFile(p, v1, 0o600); err != nil {
 		t.Fatalf("write layout: %v", err)
 	}
 
-	got, err := Load("/repo/a")
-	if err != nil || got == nil {
-		t.Fatalf("Load = %v, %v; a version 1 layout must still restore", got, err)
+	if got, err := Load("/repo/a"); err != nil || got != nil {
+		t.Fatalf("Load = %v, %v; a version 1 layout should restore nothing without failing", got, err)
 	}
-	if got.Version != Version {
-		t.Errorf("version %d, want %d", got.Version, Version)
+	kept := TakeKept()
+	if len(kept) != 1 || kept[0].Path != p+damagedSuffix {
+		t.Fatalf("kept = %+v, want the layout reported at %s", kept, p+damagedSuffix)
 	}
-	if len(got.Tabs) != 2 || got.Active != 1 {
-		t.Fatalf("restored %d tabs, active %d; want 2 and 1", len(got.Tabs), got.Active)
+	if aside, err := os.ReadFile(p + damagedSuffix); err != nil || string(aside) != string(v1) {
+		t.Errorf("the version 1 layout was not kept intact: %q, %v", aside, err)
 	}
-
-	tests := []struct {
-		name  string
-		pane  *Pane
-		kind  string
-		agent string
-	}{
-		{"a claude pane becomes an agent pane running claude",
-			got.Tabs[0].Root.Children[0].Pane, "agent", "claude"},
-		{"a shell pane stays a shell with no agent",
-			got.Tabs[0].Root.Children[1].Pane, "shell", ""},
-		{"panes in later tabs are migrated too",
-			got.Tabs[1].Root.Pane, "agent", "claude"},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			if tc.pane == nil {
-				t.Fatal("the leaf lost its pane")
-			}
-			if tc.pane.Kind != tc.kind {
-				t.Errorf("kind %q, want %q", tc.pane.Kind, tc.kind)
-			}
-			if tc.pane.Agent != tc.agent {
-				t.Errorf("agent %q, want %q", tc.pane.Agent, tc.agent)
-			}
-			// Version 1 never recorded a model, and inventing one here would
-			// pin a pane to a model the user never chose.
-			if tc.pane.Model != "" {
-				t.Errorf("model %q, want none", tc.pane.Model)
-			}
-		})
-	}
-
-	// The migration happens in memory: the file on disk is left as it was
-	// until something saves over it, so a run that only looks does not rewrite
-	// the user's layout and a step back to the older build still finds one it
-	// can read.
-	after, err := os.ReadFile(p)
-	if err != nil {
-		t.Fatalf("read back: %v", err)
-	}
-	if string(after) != string(v1) {
-		t.Errorf("Load rewrote the layout on disk: %s", after)
-	}
-	if _, err := os.Stat(p + damagedSuffix); err == nil {
-		t.Error("a version 1 layout was quarantined; it should have been migrated")
+	if _, err := os.Stat(p); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("the version 1 layout is still under its own name: Stat = %v", err)
 	}
 }
 

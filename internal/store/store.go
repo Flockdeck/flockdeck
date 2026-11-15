@@ -25,10 +25,8 @@ import (
 // Version is the schema version of the persisted state.
 //
 // Version 2 is where a pane began saying which agent it runs and which model
-// it was asked for. Version 1 knew only one agent, so its panes are "claude"
-// or "shell"; they are brought forward on the way in rather than being thrown
-// away, because a layout is the user's open tabs and losing them on an upgrade
-// would be unforgivable.
+// it was asked for. A layout of any other version is not read: Load moves it
+// aside as a .damaged file and the project opens empty.
 const Version = 2
 
 // State is the whole persisted workspace.
@@ -274,7 +272,7 @@ func load(root string, restoring bool) (*State, error) {
 		quarantine(p, layoutWhat(root), KeptDamaged)
 		return nil, nil
 	}
-	if !migrate(&s) {
+	if s.Version != Version {
 		// Not damage but a layout from a build that numbered the format
 		// differently, most often a newer one the user has just stepped back
 		// from. It meets the same end as a damaged file, ignored now and
@@ -299,50 +297,6 @@ func load(root string, restoring bool) (*State, error) {
 		return nil, nil
 	}
 	return &s, nil
-}
-
-// migrate brings a layout read from disk up to the schema this build writes,
-// reporting whether it could. A version it does not recognise — a newer one,
-// or a zero from a file that is not a layout at all — is left for the caller
-// to put aside.
-//
-// It works on the value in memory and leaves the file alone. The next save
-// writes the current version over it, so a run that only looks at a layout
-// does not rewrite it, and an upgrade costs the user nothing and asks them
-// nothing.
-func migrate(s *State) bool {
-	switch s.Version {
-	case Version:
-		return true
-	case 1:
-		// Version 1 had one agent, so a pane was "claude" or "shell" and there
-		// was nothing else to say about it. Every one of those Claude panes is
-		// an agent pane running the agent named "claude", with whatever model
-		// the CLI was already configured with — which is an empty model, not a
-		// guess at which one it was.
-		for i := range s.Tabs {
-			migratePaneKinds(s.Tabs[i].Root)
-		}
-		s.Version = Version
-		return true
-	}
-	return false
-}
-
-// migratePaneKinds rewrites version 1's pane kinds throughout one tab's tree.
-func migratePaneKinds(n *Node) {
-	if n == nil {
-		return
-	}
-	if n.Pane != nil && n.Pane.Kind != "shell" {
-		n.Pane.Kind = "agent"
-		if n.Pane.Agent == "" {
-			n.Pane.Agent = "claude"
-		}
-	}
-	for _, c := range n.Children {
-		migratePaneKinds(c)
-	}
 }
 
 // layoutWhat names a project's saved layout as the user is told of it, the
