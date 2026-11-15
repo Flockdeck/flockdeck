@@ -228,6 +228,7 @@ type Bridge struct {
 	// replaying is set.
 	liveSeen bool
 	pending  []Card
+	retry    *retryRow
 	plan     []acp.PlanEntry
 	usage    Usage
 	state    SessionState
@@ -397,6 +398,9 @@ func (b *Bridge) Activity() string {
 	if !b.inFlight && !b.background {
 		return ""
 	}
+	if s := b.retryActivity(); s != "" {
+		return s
+	}
 	for i := len(b.items) - 1; i >= 0; i-- {
 		if e := b.items[i].e; e.Kind == transcript.KindTool && e.Status == transcript.StatusRunning {
 			return e.Label
@@ -491,6 +495,7 @@ func (b *Bridge) startTurn(text string, images []transcript.PromptImage, typed b
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.closeMerges()
+	b.endRetry()
 	id := b.add(transcript.Entry{Kind: transcript.KindPrompt, Text: text, Images: images, Typed: typed}).e.ID
 	b.inFlight = true
 	b.enforce()
@@ -505,6 +510,7 @@ func (b *Bridge) TurnEnd(stop string) []transcript.Entry {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.inFlight = false
+	b.endRetry()
 	// A turn of ours ending means the agent is not in one of its own. If claude's
 	// own turn starts right after our result and its busy true lands before this
 	// TurnEnd, this clears it too early. The effect is the old behaviour (the next
@@ -741,6 +747,11 @@ func (b *Bridge) Update(u acp.Update) {
 // update is Update for an update that is not part of a replay. Call with b.mu
 // held.
 func (b *Bridge) update(u acp.Update) {
+	switch u.Kind {
+	case acp.UpdateAgentMessageChunk, acp.UpdateAgentThoughtChunk, acp.UpdateToolCall, acp.UpdateToolCallUpdate:
+		// The agent is producing output again: a retry has worked.
+		b.endRetry()
+	}
 	switch u.Kind {
 	case acp.UpdateAgentMessageChunk:
 		b.chunk(u, transcript.KindReply)

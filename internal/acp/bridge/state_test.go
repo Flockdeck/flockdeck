@@ -320,3 +320,72 @@ func TestNoticeCodesGiveFixedText(t *testing.T) {
 		t.Errorf("entries = %q, want %q", got, want)
 	}
 }
+
+func retryUpdate(attempt, max int, class string) acp.Update {
+	return acp.Update{Kind: acp.UpdateNotice, NoticeCode: acp.NoticeAPIRetry, NoticeAttempt: attempt, NoticeMax: max, NoticeClass: class}
+}
+
+// A run of retries is one row that changes. The row and the activity line use
+// Flockdeck's words with the numbers and a class from a closed set; when the
+// agent goes on the row stays as a past note.
+func TestRetryNoticeIsOneUpdatingRow(t *testing.T) {
+	b := New(Config{})
+	b.StartTurn("go")
+	for i := 1; i <= 8; i++ {
+		b.Update(retryUpdate(i, 10, "overloaded"))
+	}
+	b.Update(retryUpdate(9, 10, "SECRET text"))
+	var rows []string
+	for _, e := range b.Snapshot() {
+		if e.Kind == "notice" {
+			rows = append(rows, e.Text)
+		}
+	}
+	if len(rows) != 1 || rows[0] != "Claude is retrying (attempt 9 of 10, error)" {
+		t.Errorf("rows = %q", rows)
+	}
+	if got := b.Activity(); got != "retrying (attempt 9 of 10, error)" {
+		t.Errorf("activity = %q", got)
+	}
+	b.Update(retryUpdate(10, 10, "rate_limit"))
+	b.Update(acp.Update{Kind: acp.UpdateAgentMessageChunk, Content: &acp.ContentBlock{Type: "text", Text: "hello"}})
+	if got := b.Activity(); strings.Contains(got, "retrying") {
+		t.Errorf("activity after the agent went on = %q", got)
+	}
+	var texts []string
+	for _, e := range b.Snapshot() {
+		if e.Kind == "notice" {
+			texts = append(texts, e.Text)
+		}
+	}
+	if len(texts) != 1 || texts[0] != "Claude retried 10 times (rate limited)" {
+		t.Errorf("notices after = %q", texts)
+	}
+	// A later loop makes a new row.
+	b.Update(retryUpdate(1, 10, "network"))
+	if n := len(b.Snapshot()); n != 4 {
+		t.Errorf("entries = %d, want prompt, old row, reply and new row", n)
+	}
+}
+
+func TestRetryRowEndsWithTheTurn(t *testing.T) {
+	b := New(Config{})
+	b.StartTurn("go")
+	b.Update(retryUpdate(1, 5, "overloaded"))
+	b.Update(retryUpdate(0, 5, "overloaded"))    // dropped
+	b.Update(retryUpdate(6, 5, "overloaded"))    // dropped
+	b.Update(retryUpdate(1, 5000, "overloaded")) // dropped
+	b.TurnEnd("end_turn")
+	if got := b.Activity(); got != "" {
+		t.Errorf("activity = %q", got)
+	}
+	var texts []string
+	for _, e := range b.Snapshot() {
+		if e.Kind == "notice" {
+			texts = append(texts, e.Text)
+		}
+	}
+	if len(texts) != 1 || texts[0] != "Claude retried once (overloaded)" {
+		t.Errorf("notices = %q", texts)
+	}
+}

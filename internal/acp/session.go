@@ -26,6 +26,10 @@ const (
 	// UpdateNotice is a Flockdeck adapter's request for a fixed notice. It carries
 	// a code, never text: the bridge owns the wording (NoticeText in the bridge).
 	UpdateNotice = "flockdeck_notice"
+	// NoticeAPIRetry is the flockdeck_notice code for a request that failed and is
+	// being retried. Unlike the other codes it also carries "attempt", "max" (whole
+	// numbers) and "class" (one of the bridge's retry classes).
+	NoticeAPIRetry = "api_retry"
 	// UpdateSessionID is a Flockdeck adapter telling the client the id to save
 	// for resuming the session, after the agent moved the conversation to a new
 	// one (Claude's /clear). The session keeps the id it has for prompts.

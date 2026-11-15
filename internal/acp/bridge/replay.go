@@ -73,6 +73,7 @@ func (b *Bridge) notice(text, tone string) []transcript.Entry {
 // never used twice. Call with b.mu held.
 func (b *Bridge) resetItems() {
 	b.items = nil
+	b.retry = nil
 	b.tools = map[[sha256.Size]byte]*item{}
 	b.mails = nil
 	b.detail, b.inline, b.detailFrom = 0, 0, b.seq

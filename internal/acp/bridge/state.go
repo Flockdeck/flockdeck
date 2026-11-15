@@ -198,6 +198,10 @@ func (b *Bridge) sessionUpdate(u acp.Update) bool {
 	case acp.UpdateSubagentText:
 		b.subagentText(u)
 	case acp.UpdateNotice:
+		if u.NoticeCode == acp.NoticeAPIRetry {
+			b.retryNotice(u)
+			return true
+		}
 		// The agent names a notice by code; the words are Flockdeck's. An
 		// unknown code is dropped.
 		if text, ok := noticeTexts[u.NoticeCode]; ok {

@@ -63,6 +63,13 @@ type line struct {
 	// rate_limit_event
 	RateLimit *rateLimitInfo `json:"rate_limit_info"`
 
+	// system/api_retry, read by handleAPIRetry. Raw so that an odd value on
+	// some other line cannot make that whole line unreadable.
+	RetryAttempt    json.RawMessage `json:"attempt"`
+	RetryMax        json.RawMessage `json:"max_retries"`
+	RetryStatus     json.RawMessage `json:"error_status"`
+	RetryNoResponse json.RawMessage `json:"no_response"`
+
 	// system/compact_boundary
 	CompactMeta *struct {
 		Trigger    string `json:"trigger"`
@@ -140,6 +147,8 @@ func (ss *session) handleLine(l line) {
 			ss.handleInit(l)
 		case "compact_boundary":
 			ss.handleCompact(l)
+		case "api_retry":
+			ss.handleAPIRetry(l)
 		}
 	case "rate_limit_event":
 		if l.RateLimit != nil && l.RateLimit.Status == "rejected" {
