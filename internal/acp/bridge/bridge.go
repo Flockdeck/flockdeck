@@ -748,9 +748,19 @@ func (b *Bridge) Update(u acp.Update) {
 // held.
 func (b *Bridge) update(u acp.Update) {
 	switch u.Kind {
-	case acp.UpdateAgentMessageChunk, acp.UpdateAgentThoughtChunk, acp.UpdateToolCall, acp.UpdateToolCallUpdate:
-		// The agent is producing output again: a retry has worked.
+	case acp.UpdateAgentMessageChunk, acp.UpdateAgentThoughtChunk, acp.UpdateToolCall, acp.UpdateToolCallUpdate,
+		acp.UpdateCompaction, acp.UpdateCompactionUpdate, acp.UpdateSubagentText:
+		// The agent is producing output or going on again: a retry has worked.
 		b.endRetry()
+	case acp.UpdateBusy:
+		// A turn of the agent's own that ends has no TurnEnd to settle the row.
+		if !u.Busy {
+			b.endRetry()
+		}
+	case acp.UpdateNotice:
+		if u.NoticeCode != acp.NoticeAPIRetry {
+			b.endRetry()
+		}
 	}
 	switch u.Kind {
 	case acp.UpdateAgentMessageChunk:

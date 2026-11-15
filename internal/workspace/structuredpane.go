@@ -551,6 +551,7 @@ var ErrTooManyForks = errors.New("that pane already has too many forks open")
 func (w *Workspace) restartStructured(p *Pane, old *structuredRuntime, resume string) {
 	// The old session's entries are numbered e1, e2... like the next session's,
 	// so they take the generation as a prefix on becoming history.
+	old.rt.SettleRetry()
 	cur := old.rt.Snapshot().Entries
 	history := append([]transcript.Entry(nil), old.prior...)
 	for _, e := range cur {

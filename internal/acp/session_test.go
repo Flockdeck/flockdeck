@@ -295,3 +295,20 @@ func TestSessionIDUpdateKeepsOnlyTheID(t *testing.T) {
 		t.Errorf("update = %+v", u)
 	}
 }
+
+func TestRetryNoticeDecodingRejectsOddNumbers(t *testing.T) {
+	for in, want := range map[string][2]int{
+		`{"sessionUpdate":"flockdeck_notice","code":"api_retry","attempt":2,"max":10,"class":"overloaded"}`: {2, 10},
+		`{"sessionUpdate":"flockdeck_notice","code":"api_retry","attempt":1.5,"max":10}`:                    {0, 0},
+		`{"sessionUpdate":"flockdeck_notice","code":"api_retry","attempt":-1,"max":10}`:                     {0, 0},
+		`{"sessionUpdate":"flockdeck_notice","code":"api_retry","attempt":1,"max":1e30}`:                    {0, 0},
+		`{"sessionUpdate":"flockdeck_notice","code":"api_retry","attempt":"2","max":10}`:                    {0, 10},
+		`{"sessionUpdate":"flockdeck_notice","code":"api_retry","attempt":[1],"max":{"a":1}}`:               {0, 0},
+		`{"sessionUpdate":"flockdeck_notice","code":"other","attempt":2,"max":10,"class":"x"}`:              {0, 0},
+	} {
+		u := decodeUpdate("s", json.RawMessage(in))
+		if u.NoticeAttempt != want[0] || u.NoticeMax != want[1] {
+			t.Errorf("%s: attempt %d max %d, want %v", in, u.NoticeAttempt, u.NoticeMax, want)
+		}
+	}
+}

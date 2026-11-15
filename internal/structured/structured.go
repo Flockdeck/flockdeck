@@ -1198,9 +1198,16 @@ func (r *Runtime) Close() error {
 	return nil
 }
 
+// SettleRetry turns a retry note that is still showing into the past note. A
+// restart calls it before it keeps the entries, since the old agent will not
+// end its turn.
+func (r *Runtime) SettleRetry() { r.br.SettleRetry() }
+
 // finish moves to a final phase (unless one was reached already), releases
 // every waiting request as cancelled and stops the loop.
 func (r *Runtime) finish(p Phase) {
+	// A retry the agent was in the middle of will not be followed by a turn end.
+	r.br.SettleRetry()
 	r.mu.Lock()
 	if p == PhaseClosed {
 		r.closed = true

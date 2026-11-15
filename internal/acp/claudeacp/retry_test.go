@@ -69,3 +69,29 @@ func TestRetryClass(t *testing.T) {
 		}
 	}
 }
+
+func TestAPIRetryWithOddNumbersSendsNothing(t *testing.T) {
+	retry := func(a, m string) string {
+		return `{"type":"system","subtype":"api_retry","attempt":` + a + `,"max_retries":` + m + `,"error_status":529,"error":"overloaded","session_id":"SID"}`
+	}
+	h := newHarness(t, []step{expect(`"go"`),
+		emit(retry("99999999999999999999", "10")),
+		emit(retry("-1", "10")),
+		emit(retry("1.5", "10")),
+		emit(retry("1", "1e3")),
+		emit(retry("1", "1000")),
+		emit(retry("0", "10")),
+		emit(retry("null", "10")),
+		emit(retry("[1]", "{}")),
+		emit(`{"type":"result","subtype":"success","is_error":false,"result":"","num_turns":1,"session_id":"SID","usage":{"input_tokens":1,"output_tokens":1},"modelUsage":{}}`),
+	})
+	sid := h.start()
+	if r := h.await(h.promptText(sid, "go")); r.Error != nil {
+		t.Fatalf("prompt: %+v", r.Error)
+	}
+	for _, u := range h.updates() {
+		if u["code"] == "api_retry" {
+			t.Errorf("an odd retry line made an update: %v", u)
+		}
+	}
+}

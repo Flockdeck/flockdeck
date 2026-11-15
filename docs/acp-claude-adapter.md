@@ -232,7 +232,7 @@ is `network`. Nothing else of the line is passed on, and a line whose numbers do
 (attempt below 1 or past the maximum, or over 999) is dropped. The pane takes this notice only from
 its own Claude adapter. The bridge shows one `notice` row, "Claude is retrying (attempt 2 of 10,
 overloaded)", and the pane's `activity` says "retrying (attempt 2 of 10, overloaded)". Further
-retries change that row in place. When claude produces output again, or the turn ends, the activity
+retries change that row in place. When claude produces output again, compacts, reports a subagent's text, stops a turn of its own or the pane closes or restarts, or the turn ends, the activity
 line goes and the row becomes "Claude retried 3 times (overloaded)". Stop is not affected: cancel
 sends the interrupt as always and ends claude if the turn does not end in time. That it ends a turn
 that is waiting between retries was not tried against a real claude.
