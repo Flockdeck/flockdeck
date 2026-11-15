@@ -10,7 +10,15 @@ const (
 	optAllow       = "allow"
 	optAllowAlways = "allow_always"
 	optReject      = "reject"
+	// optAllowAcceptEdits is offered on an ExitPlanMode card only. It allows the
+	// plan and moves the session to acceptEdits.
+	optAllowAcceptEdits = "allow_accept_edits"
 )
+
+// planRejectedMessage is what claude is told when the person rejects a plan.
+// The card has no field for typed feedback, so it asks claude to keep planning
+// and to ask what to change.
+const planRejectedMessage = "The user rejected this plan. Stay in plan mode: do not start the work. Ask what they want changed, then present a revised plan."
 
 // canAlways reports whether a tool may be allowed for the rest of the session.
 // Only a shell command may: the rule is the command with all its input, so it
@@ -107,7 +115,14 @@ func (ss *session) handleControlRequest(l line) {
 	if len(d.content) > 0 {
 		call["content"] = d.content
 	}
+	isPlan := req.ToolName == "ExitPlanMode"
 	options := []any{map[string]any{"optionId": optAllow, "name": "Allow", "kind": "allow_once"}}
+	if isPlan {
+		options = []any{
+			map[string]any{"optionId": optAllow, "name": "Approve, ask before edits", "kind": "allow_once"},
+			map[string]any{"optionId": optAllowAcceptEdits, "name": "Approve and accept edits", "kind": "allow_once"},
+		}
+	}
 	if canAlways(req.ToolName) {
 		options = append(options, map[string]any{"optionId": optAllowAlways, "name": "Always allow this command", "kind": "allow_always"})
 	}
@@ -121,11 +136,19 @@ func (ss *session) handleControlRequest(l line) {
 		ss.respond(l.RequestID, map[string]any{"behavior": "deny", "message": "The permission request was cancelled."})
 	case res.optionID == optAllow:
 		ss.allow(l.RequestID, toolID, req.Input)
+	case res.optionID == optAllowAcceptEdits && isPlan:
+		// claude takes the mode change from the answer itself; it reports the
+		// mode it ended up in at the start of the next turn, which corrects the
+		// one shown here if it did not apply it.
+		ss.allowWith(l.RequestID, toolID, req.Input, []any{map[string]any{"type": "setMode", "mode": "acceptEdits", "destination": "session"}})
+		ss.noteMode("acceptEdits")
 	case res.optionID == optAllowAlways && canAlways(req.ToolName):
 		ss.mu.Lock()
 		ss.allowed[key] = true
 		ss.mu.Unlock()
 		ss.allow(l.RequestID, toolID, req.Input)
+	case res.optionID == optReject && isPlan:
+		ss.respond(l.RequestID, map[string]any{"behavior": "deny", "message": planRejectedMessage})
 	default: // reject, or an option that was not offered
 		ss.respond(l.RequestID, map[string]any{"behavior": "deny", "message": "The user rejected this tool call."})
 	}
@@ -194,10 +217,31 @@ func (ss *session) askPermission(requestID string, call map[string]any, options 
 }
 
 func (ss *session) allow(requestID, toolID string, input json.RawMessage) {
+	ss.allowWith(requestID, toolID, input, nil)
+}
+
+// noteMode records a mode the session was moved to by an answer and tells the
+// client, unless it is the mode already shown.
+func (ss *session) noteMode(id string) {
+	ss.mu.Lock()
+	changed := ss.mode != id
+	ss.mode = id
+	ss.mu.Unlock()
+	if changed {
+		ss.srv.update(ss.id, map[string]any{"sessionUpdate": "current_mode_update", "currentModeId": id})
+	}
+}
+
+// allowWith allows the call; permissions, when set, is sent as updatedPermissions.
+func (ss *session) allowWith(requestID, toolID string, input json.RawMessage, permissions []any) {
 	if len(input) == 0 {
 		input = json.RawMessage(`{}`)
 	}
-	ss.respond(requestID, map[string]any{"behavior": "allow", "updatedInput": input})
+	resp := map[string]any{"behavior": "allow", "updatedInput": input}
+	if len(permissions) > 0 {
+		resp["updatedPermissions"] = permissions
+	}
+	ss.respond(requestID, resp)
 	ss.mu.Lock()
 	info, ok := ss.announced[toolID]
 	ss.mu.Unlock()

@@ -82,7 +82,22 @@ The real shape of an `ExitPlanMode` request was captured from `claude` 2.1.312 i
 `"requires_user_interaction": true`. The plan text is in `plan`; the file path is not read. There was no `allowedPrompts` field in that capture.
 
 `ExitPlanMode` goes to the client with the plan as text content of the tool call
-(cut at 64 KiB here and at 32 KiB on the card). A request with no plan text is denied
+(cut at 64 KiB here and at 32 KiB on the card). Its card has three options, none of them
+"always": `allow` ("Approve, ask before edits", allow once), `allow_accept_edits` ("Approve and
+accept edits", also allow once) and `reject`. The second answers with `behavior: allow` and
+`updatedPermissions: [{type: setMode, mode: acceptEdits, destination: session}]`, the shape claude
+uses in its own `permission_suggestions`, and the adapter sends a `current_mode_update` for
+`acceptEdits` at once. If claude reports a different mode at the start of the next turn, that
+report replaces it. The id is honoured on an `ExitPlanMode` card only; on any other card it is
+denied like an option that was not offered. Reject is denied with "The user rejected this plan.
+Stay in plan mode ...", so claude keeps planning and asks what to change; a cancelled card gets the
+generic cancelled text. The phone never reaches the options of a plan card: `projectCard` returns
+`whyPlan` for a `switch_mode` card first (`docs/phone-approval-plan.md`). Only if the option set
+were put on another kind of card would the two `allow_once` options matter, and then the phone's
+plain Allow finds two and is refused. Run against claude 2.1.325 on 15 Nov 2026: after
+`allow_accept_edits` the Write that followed went through with no card, and after plain `allow` it
+raised one, so claude applies `updatedPermissions` on an `ExitPlanMode` allow. What claude reports
+at the start of the next turn was not seen; the fake covers that the report replaces the mode shown. A request with no plan text is denied
 with a fixed message and no card, so a plan is never approved unseen. The same
 holds for an edit: the tool call of a permission request carries the diff.
 
@@ -354,8 +369,7 @@ The pane saves NEW at once, so a restart or crash after a rewind and before the 
   the client has to decide where such updates show, and a turn that starts in the
   few milliseconds between the check and the write is taken for the prompt's.
 - Steering a running turn with a second message (above).
-- Approving a plan with automatic acceptance of edits: Allow on `ExitPlanMode` is a plain
-  allow, and a mode change claude reports afterwards is passed on.
+- Plan approval with typed feedback: Reject on `ExitPlanMode` is denied with a fixed message.
 - `bypassPermissions` mode, API-key login through `authenticate`, delegating Bash and file
   access to the client's terminal and file system.
 - Tool output while a tool runs: claude sends it at completion only.
