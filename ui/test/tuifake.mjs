@@ -39,9 +39,9 @@ export class FakeTui {
     else if (tok === "up") this.cursor = Math.max(1, this.cursor - 1);
     else if (tok === "left") { if (this.at > 0) { this.at--; this.cursor = 1; } }
     else if (tok === "right") { if (!onText) this.next(); }
+    else if (tok === "space" && onText) { this.text[this.at] += " "; if (q.multiSelect) this.picked[this.at].add(this.other); }
     else if (tok === "space" && q.multiSelect) {
-      if (onText) this.text[this.at] += " ";
-      else if (this.cursor <= q.options.length) { const s = this.picked[this.at]; s.has(this.cursor) ? s.delete(this.cursor) : s.add(this.cursor); }
+      if (this.cursor <= q.options.length) { const s = this.picked[this.at]; s.has(this.cursor) ? s.delete(this.cursor) : s.add(this.cursor); }
     } else if (tok === "enter") {
       if (q.multiSelect) {
         if (this.cursor <= q.options.length) { const s = this.picked[this.at]; s.has(this.cursor) ? s.delete(this.cursor) : s.add(this.cursor); }

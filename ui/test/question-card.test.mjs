@@ -8,6 +8,7 @@ import { render } from "../src/vendor/preact.mjs";
 import { renderToString } from "./vendor/render-to-string.mjs";
 import { html } from "../src/html.js";
 import { PermissionCard, StreamPermission } from "../src/drawer/Prompt.js";
+import { cleanText } from "../src/drawer/tuiQuestion.js";
 import { QuestionForm, blank, pick, type, problem, answers, MAX_OTHER_BYTES, TOO_LONG_WORDS, INCOMPLETE_WORDS } from "../src/drawer/questions.js";
 import { useStore } from "../src/lib/use-store.js";
 import { createDom, install, settle } from "./dom.mjs";
@@ -469,6 +470,32 @@ test("an answer that does not fit where it is typed cannot be sent, and the form
     container.findAll(".prompt-other-text")[0].enter("short");
     await settle();
     assert.ok(!isDisabled(container.find(".prompt-send")));
+    assert.equal(sent.length, 0);
+  } finally {
+    restore();
+  }
+});
+
+test("a typed answer that cleans to nothing is not an answer, and the problem is judged on the cleaned text", () => {
+  const st = (text) => type(pick(blank(questions), questions, 1, 0), questions, 0, text);
+  for (const empty of ["\u0007", "​​", " ⁠ ﻿ ", "\u0007\n"]) {
+    assert.equal(cleanText(empty), "", JSON.stringify(empty));
+    const s = st(empty);
+    assert.ok(problem(questions, s, null, cleanText), "a text of nothing was accepted: " + JSON.stringify(empty));
+    assert.equal(answers(questions, s, cleanText), null);
+  }
+  const ok = st("a​b\u0007c");
+  assert.equal(problem(questions, ok, null, cleanText), "");
+  assert.deepEqual(answers(questions, ok, cleanText)[0], { question: 0, selected: [], other: "ab c" });
+});
+
+test("a form whose text cleans to nothing cannot be sent", async () => {
+  const { container, sent, restore } = await form({ tidy: cleanText });
+  try {
+    option(container, 1, 0).click();
+    container.findAll(".prompt-other-text")[0].enter("​\u0007");
+    await settle();
+    assert.ok(isDisabled(container.find(".prompt-send")));
     assert.equal(sent.length, 0);
   } finally {
     restore();

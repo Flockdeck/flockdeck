@@ -44,13 +44,30 @@ export const MISMATCH = Object.freeze({
   wide: "Your own answer is longer than the terminal is wide, so it cannot be typed in one row. Shorten it, or answer in the terminal.",
 });
 
-/** ROW_PREFIX is the most a row's own text starts after: "❯ 4. [✔] ". */
-export const ROW_PREFIX = 10;
+/** ROW_PREFIX is what a row's own text starts after, "❯ 4. [✔] ", and two columns more so that a width miscounted by one character still fits. */
+export const ROW_PREFIX = 12;
 
-const wide = (ch) => ch.codePointAt(0) >= 0x1100 && (ch.codePointAt(0) <= 0x115f || (ch.codePointAt(0) >= 0x2e80 && ch.codePointAt(0) <= 0xa4cf) || (ch.codePointAt(0) >= 0xac00 && ch.codePointAt(0) <= 0xd7a3) || (ch.codePointAt(0) >= 0xf900 && ch.codePointAt(0) <= 0xfaff) || (ch.codePointAt(0) >= 0xfe30 && ch.codePointAt(0) <= 0xfe6f) || (ch.codePointAt(0) >= 0xff00 && ch.codePointAt(0) <= 0xff60) || (ch.codePointAt(0) >= 0x1f300 && ch.codePointAt(0) <= 0x1faff));
+// Code points drawn two columns wide: East Asian wide and fullwidth forms, and the symbols with an emoji presentation.
+const WIDE = [
+  [0x1100, 0x115f], [0x231a, 0x231b], [0x2329, 0x232a], [0x23e9, 0x23ec], [0x23f0, 0x23f0], [0x23f3, 0x23f3],
+  [0x25fd, 0x25fe], [0x2614, 0x2615], [0x2648, 0x2653], [0x267f, 0x267f], [0x2693, 0x2693], [0x26a1, 0x26a1],
+  [0x26aa, 0x26ab], [0x26bd, 0x26be], [0x26c4, 0x26c5], [0x26ce, 0x26ce], [0x26d4, 0x26d4], [0x26ea, 0x26ea],
+  [0x26f2, 0x26f3], [0x26f5, 0x26f5], [0x26fa, 0x26fa], [0x26fd, 0x26fd], [0x2705, 0x2705], [0x270a, 0x270b],
+  [0x2728, 0x2728], [0x274c, 0x274c], [0x274e, 0x274e], [0x2753, 0x2755], [0x2757, 0x2757], [0x2795, 0x2797],
+  [0x27b0, 0x27b0], [0x27bf, 0x27bf], [0x2b1b, 0x2b1c], [0x2b50, 0x2b50], [0x2b55, 0x2b55],
+  [0x2e80, 0x303e], [0x3041, 0x33ff], [0x3400, 0x4dbf], [0x4e00, 0x9fff], [0xa000, 0xa4cf], [0xa960, 0xa97f],
+  [0xac00, 0xd7a3], [0xf900, 0xfaff], [0xfe10, 0xfe19], [0xfe30, 0xfe6f], [0xff00, 0xff60], [0xffe0, 0xffe6],
+  [0x1f004, 0x1f004], [0x1f0cf, 0x1f0cf], [0x1f18e, 0x1f18e], [0x1f191, 0x1f19a], [0x1f200, 0x1f2ff],
+  [0x1f300, 0x1f64f], [0x1f680, 0x1f6ff], [0x1f7e0, 0x1f7eb], [0x1f90c, 0x1f9ff], [0x1fa70, 0x1faff],
+  [0x20000, 0x3fffd],
+];
+const wide = (cp) => WIDE.some(([lo, hi]) => cp >= lo && cp <= hi);
 
-/** cellWidth is how many terminal columns a text takes. */
-export const cellWidth = (t) => [...String(t)].reduce((n, ch) => n + (wide(ch) ? 2 : 1), 0);
+/** cellWidth is how many terminal columns a text takes. A variation selector can make the symbol before it wide, so it counts one. */
+export const cellWidth = (t) => [...String(t)].reduce((n, ch) => {
+  const cp = ch.codePointAt(0);
+  return n + (cp === 0xfe0f ? 1 : wide(cp) ? 2 : 1);
+}, 0);
 
 /** fitsRow says a typed answer stays on one row of a terminal cols wide, which is what lets the echo be checked. */
 export const fitsRow = (text, cols) => !(cols > 0) || cellWidth(text) + ROW_PREFIX <= cols;
@@ -71,7 +88,8 @@ const ONE_BAR = /^\s*[☐☒]\s+[^☐☒✔←→]+$/;
 
 /** cleanText is a typed answer as one line of printable text, which is all the TUI's text row can be given. */
 export function cleanText(s) {
-  return norm(String(s).replace(/[\u0000-\u001f\u007f-\u009f]/g, " "));
+  // Control characters become spaces. Characters that draw nothing (zero width, soft hyphen, direction marks) are dropped, since the row's echo would not show them.
+  return norm(String(s).replace(/[\u0000-\u001f\u007f-\u009f]/g, " ").replace(/[­؜᠎​-‏‪-‮⁠-⁤⁦-⁯﻿]/g, ""));
 }
 
 /**
@@ -84,9 +102,27 @@ export function cleanText(s) {
  */
 export function parseScreen(lines) {
   if (!Array.isArray(lines)) return null;
+  // The screen ends at claude's footer; a line drawn below it (a task list, the agent's output) is not part of the question.
+  let end = lines.length;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    if (/^\s*(Enter to |Esc to )/.test(lines[i])) {
+      end = i;
+      break;
+    }
+  }
+  // The bar is the nearest one above the numbered rows: find the row 1, then look up from it.
+  let first = -1;
+  for (let i = end - 1; i >= 0; i--) {
+    const m = OPTION_ROW.exec(lines[i]);
+    if (m && Number(m[2]) === 1) {
+      first = i;
+      break;
+    }
+  }
+  if (first < 0) return null;
   let bar = -1;
   let one = false;
-  for (let i = lines.length - 1; i >= 0; i--) {
+  for (let i = first - 1; i >= 0 && i >= first - 40; i--) {
     if (TAB_BAR.test(lines[i])) {
       bar = i;
       break;

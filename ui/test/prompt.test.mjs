@@ -14,7 +14,7 @@ import { html } from "../src/html.js";
 import { Live } from "../src/shell/Live.js";
 import {
   Prompt, Question, diffRows, KEYS, NOT_DELIVERED_WORDS, MAX_DIFF_LINES, DESK_WORDS, NOT_CONNECTED_WORDS, IN_TERMINAL_WORDS, DETAILS_ON_DESKTOP_WORDS,
-  NOT_TAKEN_WORDS, NO_TERMINAL_WORDS,
+  NOT_TAKEN_WORDS, NO_TERMINAL_WORDS, CUT_WORDS, RUNNING_WORDS,
 } from "../src/drawer/Prompt.js";
 import { createDom, install, settle } from "./dom.mjs";
 import { FakeWebSocket, harness, hello } from "./fakes.mjs";
@@ -721,3 +721,37 @@ test("a viewer sees the permission choices disabled with the sentence, and nothi
     a.done();
   }
 });
+
+test("a form that is drawn again while it types says its run was cut, and a second copy says a run is going", () =>
+  withPage({ extra: { [CART]: { ask: ASK2 } } }, async (m) => {
+    await m.connect();
+    await m.open(CART);
+    PtySocket.last.open();
+    await settle();
+    claudeAsks(m, ASK2.questions);
+    const sock = PtySocket.last;
+    const first = sock.send;
+    let sends = 0;
+    sock.send = (d) => { if (typeof d !== "string" && ++sends <= 1) first(d); else if (typeof d === "string") first(d); };
+    m.card().findAll(".prompt-question")[0].findAll("input").find((i) => i.getAttribute("data-option") === "1").click();
+    m.card().findAll(".prompt-question")[1].findAll("input").find((i) => i.getAttribute("data-option") === "0").click();
+    await settle();
+    m.card().find(".prompt-send").click();
+    await settle();
+    // Another copy of the card for the same pane, as the conversation draws one, presses while the first run is going.
+    const dom2 = m.container.ownerDocument.createElement("div");
+    m.dom.body.appendChild(dom2);
+    render(html`<${Question} node=${{ pane: CART, name: "cart" }} ask=${ASK2} snap=${{ remote: false }} store=${{}} sendKeys=${(t, done) => { done(true); return true; }} readScreen=${() => FakeTerm.last.screen} />`, dom2);
+    await settle();
+    for (const q of [0, 1]) dom2.findAll(".prompt-question")[q].findAll("input").find((i) => i.getAttribute("data-option") === "0").click();
+    await settle();
+    dom2.find(".prompt-send").click();
+    await settle();
+    assert.ok(dom2.textContent.includes(RUNNING_WORDS), "the second copy said nothing: " + dom2.textContent.slice(0, 200));
+    render(null, dom2);
+    // The first form goes while it is typing; the card drawn in its place says the run was cut.
+    await m.push(stateOf(graph(), {}));
+    await m.push(stateOf(graph(), { [CART]: { ask: ASK2 } }));
+    await m.push({ type: "pong" });
+    assert.ok(m.card() && m.card().textContent.includes(CUT_WORDS), "the run was cut and nothing said so");
+  }));

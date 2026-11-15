@@ -268,6 +268,11 @@ const typeKeys = (sendKeys) => (keys) => new Promise((resolve) => {
 
 // The panes a form of this window is answering now. A second press, from a second copy of the card, does nothing.
 const driving = new Set();
+// The panes whose run was cut off by their form going while it was typing, and when. A form drawn again for the same pane says so.
+const cutRuns = new Map();
+const CUT_SHOWN_MS = 15000;
+export const CUT_WORDS = "An answer was being typed when this card was redrawn, so it was stopped part way. Check the terminal, then send again.";
+export const RUNNING_WORDS = "An answer to this question is already being typed, from another copy of this card.";
 
 export const NO_TERMINAL_WORDS = "The terminal is not open in this window, so this card cannot answer. Open the Terminal tab, or answer in the terminal.";
 
@@ -275,12 +280,18 @@ export const NO_TERMINAL_WORDS = "The terminal is not open in this window, so th
 // screen with keys (tuiQuestion.js), reading the screen before each one.
 function TerminalQuestionForm({ pane, ask, sendKeys, readScreen, readCols = null, viewer = false, waitMs = ANSWER_WAIT_MS }) {
   const [phase, setPhase] = useState(""); // "", "sending" or "sent"
-  const [note, setNote] = useState("");
+  const [note, setNote] = useState(() => {
+    const at = cutRuns.get(pane);
+    cutRuns.delete(pane);
+    return at && Date.now() - at < CUT_SHOWN_MS ? CUT_WORDS : "";
+  });
   const busy = useRef(false);
+  const running = useRef(false);
   const abort = useRef(null);
   // The card going (answered, replaced, the drawer closed) stops a run that is still typing.
   useEffect(() => () => {
     if (abort.current) abort.current.abort();
+    if (running.current) cutRuns.set(pane, Date.now());
     if (busy.current) driving.delete(pane);
   }, []);
   useEffect(() => {
@@ -295,8 +306,13 @@ function TerminalQuestionForm({ pane, ask, sendKeys, readScreen, readCols = null
   const readable = readScreen() !== null;
   const cols = () => (readCols ? readCols() : 0);
   const onSend = async (_opt, a) => {
-    if (busy.current || driving.has(pane) || viewer || !a) return;
+    if (busy.current || viewer || !a) return;
+    if (driving.has(pane)) {
+      setNote(RUNNING_WORDS);
+      return;
+    }
     busy.current = true;
+    running.current = true;
     driving.add(pane);
     const ctl = new AbortController();
     abort.current = ctl;
@@ -305,10 +321,12 @@ function TerminalQuestionForm({ pane, ask, sendKeys, readScreen, readCols = null
     try {
       await drive(ask.questions, a, { screen: readScreen, cols, send: typeKeys(sendKeys), wait: (ms) => new Promise((r) => setTimeout(r, ms)), signal: ctl.signal });
       driving.delete(pane);
+      running.current = false;
       if (!ctl.signal.aborted) setPhase("sent");
     } catch (e) {
       driving.delete(pane);
       if (ctl.signal.aborted) return;
+      running.current = false;
       busy.current = false;
       setPhase("");
       setNote(e instanceof Mismatch ? e.reason : MISMATCH.moved);

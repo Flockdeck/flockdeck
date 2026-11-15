@@ -67,12 +67,15 @@ export function type(state, questions, qi, text) {
   return state.map((s, i) => (i === qi ? next : s));
 }
 
+/** otherOf is the text of "Other" as it will be sent: tidied, then trimmed. A text that tidies to nothing is none. */
+const otherOf = (s, tidy) => (tidy ? tidy(s.other) : s.other).trim();
+
 /** problem says why the form cannot be sent, or "" when it can. fits, if given, says whether a typed answer can be typed where the answer goes. */
-export function problem(questions, state, fits = null) {
+export function problem(questions, state, fits = null, tidy = null) {
   if (!Array.isArray(questions) || questions.length === 0 || state.length !== questions.length) return INCOMPLETE_WORDS;
   for (let i = 0; i < questions.length; i++) {
     const s = state[i];
-    const other = s.other.trim();
+    const other = otherOf(s, tidy);
     if (s.otherOn && bytes(other) > MAX_OTHER_BYTES) return TOO_LONG_WORDS;
     if (s.otherOn && !other) return OTHER_EMPTY_WORDS;
     if (s.otherOn && fits && !fits(other)) return TOO_WIDE_WORDS;
@@ -83,21 +86,21 @@ export function problem(questions, state, fits = null) {
 }
 
 /** answers is what permissionAnswer carries: one entry for each question, by its position, or null when the form cannot be sent. */
-export function answers(questions, state) {
-  if (problem(questions, state)) return null;
+export function answers(questions, state, tidy = null) {
+  if (problem(questions, state, null, tidy)) return null;
   return state.map((s, i) => {
     const a = { question: i, selected: [...s.selected] };
-    const other = s.other.trim();
+    const other = otherOf(s, tidy);
     if (s.otherOn && other) a.other = other;
     return a;
   });
 }
 
 /** firstOpen is the position of the first question with no answer, or -1. */
-export function firstOpen(questions, state) {
+export function firstOpen(questions, state, tidy = null) {
   return questions.findIndex((q, i) => {
     const s = state[i];
-    return !s || s.selected.length + (s.otherOn && s.other.trim() ? 1 : 0) === 0;
+    return !s || s.selected.length + (s.otherOn && otherOf(s, tidy) ? 1 : 0) === 0;
   });
 }
 
@@ -107,8 +110,8 @@ export function summaryOf(questions, state, tidy = (t) => t) {
     const s = state[i] || { selected: [], other: "", otherOn: false };
     const opts = Array.isArray(q.options) ? q.options : [];
     const parts = s.selected.map((oi) => (opts[oi] ? opts[oi].label : "")).filter(Boolean);
-    const other = s.other.trim();
-    if (s.otherOn && other) parts.push(tidy(other));
+    const other = otherOf(s, tidy);
+    if (s.otherOn && other) parts.push(other);
     return { header: q.header || "", question: q.question, text: parts.join(", "), set: parts.length > 0 };
   });
 }
@@ -129,13 +132,13 @@ export function QuestionForm({ card, allow, refuse, done, locked = false, locked
   const questions = Array.isArray(card.questions) ? card.questions : [];
   const [state, setState] = useState(() => blank(questions));
   const [nudge, setNudge] = useState(false);
-  const why = problem(questions, state, fits);
-  const shut = done || locked;
   const clean = tidy || ((t) => t);
+  const why = problem(questions, state, fits, clean);
+  const shut = done || locked;
   const touched = state.some((s) => s.selected.length || s.other || s.otherOn);
   const sendNow = () => {
     if (shut || why || !allow) return;
-    onSend(allow, answers(questions, state).map((a) => (a.other ? { ...a, other: clean(a.other) } : a)));
+    onSend(allow, answers(questions, state, clean));
   };
   // Number keys choose option n of the question the keyboard is in, and one past the last is "Other". In the text box a digit is text.
   const onKeys = (qi) => (e) => {
@@ -167,7 +170,7 @@ export function QuestionForm({ card, allow, refuse, done, locked = false, locked
     }
   };
   const summary = summaryOf(questions, state, clean);
-  const open = firstOpen(questions, state);
+  const open = firstOpen(questions, state, clean);
   const lack = why && open >= 0 ? why + " Question " + (open + 1) + " has none." : why;
   return html`<div class="prompt-questions">
     <div class="prompt-qlist">

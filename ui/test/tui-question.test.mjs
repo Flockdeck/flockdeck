@@ -4,7 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { FakeTui } from "./tuifake.mjs";
-import { parseScreen, sameQuestion, drive, Mismatch, MISMATCH, KEY, cleanText, fitsRow } from "../src/drawer/tuiQuestion.js";
+import { parseScreen, sameQuestion, drive, Mismatch, MISMATCH, KEY, cleanText, fitsRow, cellWidth } from "../src/drawer/tuiQuestion.js";
 
 const questions = [
   { header: "Color", question: "Pick a color?", options: [{ label: "Red", description: "warm" }, { label: "Green", description: "leafy" }, { label: "Blue", description: "cool" }] },
@@ -278,7 +278,7 @@ test("typed text that cannot stay on one row of the terminal is refused before a
   const long = "w".repeat(120);
   await assert.rejects(drive(questions, [ans([], long), ans([0]), ans([0])], tui.io()), (e) => e.reason === MISMATCH.wide);
   assert.deepEqual(tui.sent, []);
-  tui.cols = 130;
+  tui.cols = 140;
   await drive(questions, [ans([], long), ans([0]), ans([0])], tui.io());
   assert.equal(tui.answerOf(0), long);
   assert.ok(fitsRow("é".repeat(40), 100) && !fitsRow("日".repeat(50), 100), "a wide character takes two columns");
@@ -319,4 +319,33 @@ test("two windows driving one terminal never submit a mix of their answers", asy
     }
     assert.ok(runs.every((r) => r.status === "fulfilled" || r.reason instanceof Mismatch));
   }
+});
+
+test("wide characters are counted as two columns: CJK extensions, emoji symbols, fullwidth forms", () => {
+  for (const ch of ["\u{20000}", "\u{2A6DF}", "✅", "❌", "⚡", "⭐", "⌚", "☔", "\u{1F004}", "\u{1F0CF}", "\u{1F18E}", "\u{1F191}", "\u{1F200}", "￠", "￦", "\u{1F600}", "日"]) {
+    assert.equal(cellWidth(ch), 2, "U+" + ch.codePointAt(0).toString(16));
+  }
+  assert.equal(cellWidth("✔"), 1, "a plain check mark is one column");
+  assert.equal(cellWidth("✔️"), 2, "with an emoji selector it is two");
+  assert.ok(!fitsRow("✅".repeat(45), 100), "45 check-mark emoji are 90 columns");
+  assert.ok(fitsRow("✅".repeat(40), 100));
+});
+
+test("a typed check-mark emoji and a CJK extension character stay on the row they are typed on", async () => {
+  const tui = new FakeTui(questions);
+  tui.cols = 100;
+  const text = "✅ done \u{20000}\u{20001}";
+  await drive(questions, [ans([], text), ans([0]), ans([0])], tui.io());
+  assert.equal(tui.answerOf(0), text);
+});
+
+test("a line with a box drawn below the question is not taken for its bar", () => {
+  const below = [...ONE, "", "☐ write the tests", "☒ read the docs"];
+  const s = parseScreen(below);
+  assert.equal(s && s.one, true, "the task list below the footer was read as the bar");
+  assert.ok(sameQuestion(s, questions[0]));
+  const inside = ONE.slice();
+  inside.splice(ONE.findIndex((l) => l.includes("Chat about")), 0, " ☐ stray line");
+  assert.ok(sameQuestion(parseScreen(inside), questions[0]));
+  assert.equal(parseScreen([...SINGLE, " ☐ not a bar either"]).tabs, 3);
 });
