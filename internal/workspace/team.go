@@ -227,20 +227,36 @@ func (w *Workspace) projectPanes(myRoot, self string, agentsOnly bool) []*Pane {
 		if p == nil || agentsOnly && !p.IsAgent() {
 			continue
 		}
-		if id != self {
-			root := w.rootOf(id)
-			g := w.groupOf(root)
-			if myGroup != nil && g != nil {
-				if g.ID != myGroup.ID {
-					continue
-				}
-			} else if !sameDir(root, myRoot) {
-				continue
-			}
+		if id != self && !w.inProjectOf(myRoot, myGroup, id) {
+			continue
 		}
 		out = append(out, p)
 	}
 	return out
+}
+
+// inProjectOf says whether the pane id is in the project whose directory is
+// myRoot, and whose group is myGroup when it has one.
+func (w *Workspace) inProjectOf(myRoot string, myGroup *ProjectGroup, id string) bool {
+	root := w.rootOf(id)
+	if g := w.groupOf(root); myGroup != nil && g != nil {
+		return g.ID == myGroup.ID
+	}
+	return sameDir(root, myRoot)
+}
+
+// PaneInProject says whether the pane id is open and in the same project as the
+// pane self, which is the only kind of pane an agent may act on. It must run on
+// the workspace goroutine.
+func (w *Workspace) PaneInProject(self, id string) bool {
+	if w.Pane(self) == nil || w.Pane(id) == nil {
+		return false
+	}
+	if self == id {
+		return true
+	}
+	root := w.rootOf(self)
+	return w.inProjectOf(root, w.groupOf(root), id)
 }
 
 // memberOf describes a pane for the roster. roles are the role ids a label may

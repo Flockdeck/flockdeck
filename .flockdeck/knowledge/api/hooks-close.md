@@ -9,7 +9,7 @@ code_paths: [internal/hooks/hooks.go]
 ---
 # POST /close
 
-Client: `hooks.Close(api, token, pane, req)`, 15 second timeout (longer than peer-name because `finished` can tear down panes across every open project).
+Client: `hooks.Close(api, token, pane, req)`, 15 second timeout (longer than peer-name because `finished` can tear down many panes of the caller's project).
 
 ## Request (`CloseRequest`, at most 1 MiB)
 

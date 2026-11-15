@@ -22,14 +22,23 @@ func (s *Server) installCloseHandler() {
 	}
 	hookSrv.SetCloseHandler(func(req hooks.CloseRequest) (hooks.CloseResult, error) {
 		if req.Finished {
-			res, ok := ask(s, func() hooks.CloseResult {
-				panes, tabs, locked := s.ws.CloseFinishedPanes()
-				return hooks.CloseResult{Panes: panes, Tabs: tabs, Locked: locked}
+			// Only the caller's own project: a pane of another project is not
+			// the caller's to close, so it is not even looked at.
+			type finished struct {
+				res hooks.CloseResult
+				err error
+			}
+			res, ok := ask(s, func() finished {
+				if s.ws.Pane(req.Pane) == nil {
+					return finished{err: fmt.Errorf("no pane %q is open here", req.Pane)}
+				}
+				panes, tabs, locked := s.ws.CloseFinishedPanesOf(req.Pane)
+				return finished{res: hooks.CloseResult{Panes: panes, Tabs: tabs, Locked: locked}}
 			})
 			if !ok {
 				return hooks.CloseResult{}, errShuttingDown
 			}
-			return res, nil
+			return res.res, res.err
 		}
 
 		// Closing itself has no place going through this: the reply to this
@@ -46,7 +55,9 @@ func (s *Server) installCloseHandler() {
 			err error
 		}
 		out, ok := ask(s, func() outcome {
-			if s.ws.Pane(req.Target) == nil {
+			// A pane of another project is refused the same way as one that is
+			// not there, so the answer does not say whether it exists.
+			if !s.ws.PaneInProject(req.Pane, req.Target) {
 				return outcome{err: fmt.Errorf("no pane %q is open here", req.Target)}
 			}
 			// Checked before the working rule, and not something -force gets
