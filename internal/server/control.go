@@ -608,14 +608,16 @@ type command struct {
 	// back with the conversation.
 	RestoreFiles bool     `json:"restoreFiles"`
 	FilePaths    []string `json:"filePaths"`
-	Hash         string   `json:"hash"`
-	Reviewer     string   `json:"reviewer"`
-	Note         string   `json:"note"`
-	ExpectSha    string   `json:"expectSha"`
-	Offset       int      `json:"offset"`
-	Limit        int      `json:"limit"`
-	From         int      `json:"from"`
-	To           int      `json:"to"`
+	// FileIDs go with FilePaths, one for each: the id the list showed for the file.
+	FileIDs   []string `json:"fileIds"`
+	Hash      string   `json:"hash"`
+	Reviewer  string   `json:"reviewer"`
+	Note      string   `json:"note"`
+	ExpectSha string   `json:"expectSha"`
+	Offset    int      `json:"offset"`
+	Limit     int      `json:"limit"`
+	From      int      `json:"from"`
+	To        int      `json:"to"`
 	// Setting and Value are structuredSet's: the id of the config option (for
 	// Kind "config") and the value to give the mode, model or option.
 	Setting string `json:"setting"`

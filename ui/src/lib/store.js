@@ -710,7 +710,7 @@ export function createStore(opts) {
         if (msg.op === "structuredRewind" || msg.op === "structuredFork" || msg.op === "structuredRewindFiles") {
           const id = rewindPanes.get(msg.req) || "";
           rewindPanes.delete(msg.req);
-          set({ rewindResult: { id, req: String(msg.req || ""), op: msg.op, ok: !!msg.ok, error: msg.ok ? "" : String(msg.error || ""), text: msg.ok && typeof msg.text === "string" ? msg.text : "", cut: msg.ok && msg.cut === true, pane: msg.ok && typeof msg.pane === "string" ? msg.pane : "", files: Array.isArray(msg.files) ? msg.files.slice(0, 300) : [], restore: msg.ok && msg.restore && typeof msg.restore === "object" ? msg.restore : null } });
+          set({ rewindResult: { id, req: String(msg.req || ""), op: msg.op, ok: !!msg.ok, error: msg.ok ? "" : String(msg.error || ""), text: msg.ok && typeof msg.text === "string" ? msg.text : "", cut: msg.ok && msg.cut === true, pane: msg.ok && typeof msg.pane === "string" ? msg.pane : "", files: Array.isArray(msg.files) ? msg.files.slice(0, 300) : [], blocked: Array.isArray(msg.blocked) ? msg.blocked.slice(0, 300) : [], nestedRepos: Array.isArray(msg.nestedRepos) ? msg.nestedRepos.slice(0, 50) : [], restore: msg.ok && msg.restore && typeof msg.restore === "object" ? msg.restore : null } });
         }
         if (typeof msg.op === "string" && msg.op.startsWith("structuredShell")) {
           const id = shellPanes.get(msg.req) || "";

@@ -176,7 +176,7 @@ func (r *Runtime) Rewind(id, token string) (string, error) {
 
 // rewind is Rewind. When files is not nil it is the list of files the person
 // confirmed to be put back, and out says what became of them; see RewindFiles.
-func (r *Runtime) rewind(id, token string, files []string, out *FilesOutcome) (string, error) {
+func (r *Runtime) rewind(id, token string, files []filerewind.Confirm, out *FilesOutcome) (string, error) {
 	r.mu.Lock()
 	c, session := r.client, r.session
 	if c == nil || r.phase != PhaseReady {
@@ -268,6 +268,14 @@ func (r *Runtime) rewind(id, token string, files []string, out *FilesOutcome) (s
 	// confirmed; a failure here leaves the conversation back and says so.
 	if files != nil && out != nil {
 		out.Result, out.Err = r.restoreFiles(tree, files)
+		if (out.Err != nil || len(out.Result.Failed) > 0) && len(cut) > 0 && cut[0].ckpt.Ref != "" {
+			// The restore did not finish. The checkpoint of the prompt is the only
+			// copy the person can restore from by hand, so it is kept.
+			if kept, err := filerewind.Keep(r.opts.Cwd, cut[0].ckpt.Ref); err == nil {
+				out.Result.Kept = kept
+			}
+			cut = cut[1:]
+		}
 	}
 	r.dropMarks(cut)
 	return text, nil

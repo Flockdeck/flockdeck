@@ -61,6 +61,8 @@ const (
 	structuredFilesChanged = "The files changed since the list was shown. Look at the list again and confirm it"
 	structuredFilesTooMany = "More than 300 files differ, which is too many to list and confirm. Go back without the files, or put them back with git"
 	structuredFilesFailed  = "Flockdeck could not compare the files with the saved ones"
+	structuredFilesBlocked = "Some files cannot be put back safely, so nothing was changed. Go back without the files, or deal with the files listed first"
+	structuredFilesNoIDs   = "Name each file with its id from the list"
 )
 
 // rewindFileView is one file of a restore. Path is relative to the repository
@@ -68,25 +70,68 @@ const (
 type rewindFileView struct {
 	Path   string `json:"path"`
 	Action string `json:"action"`
+	// ID names the file as it is now. A restore carries it back with the path.
+	ID string `json:"id"`
+}
+
+// rewindBlockedView is a file that cannot be put back safely, and why in fixed
+// words.
+type rewindBlockedView struct {
+	Path   string `json:"path"`
+	Reason string `json:"reason"`
 }
 
 // rewindRestoreView says what a restore of files did. Error is set when the
 // conversation went back but the files were not all put back.
 type rewindRestoreView struct {
-	Written int      `json:"written"`
-	Removed int      `json:"removed"`
-	Undo    string   `json:"undo,omitempty"`
-	Failed  []string `json:"failed,omitempty"`
-	Error   string   `json:"error,omitempty"`
+	Written int    `json:"written"`
+	Removed int    `json:"removed"`
+	Undo    string `json:"undo,omitempty"`
+	// Kept is the checkpoint ref kept after a restore that did not finish.
+	Kept   string   `json:"kept,omitempty"`
+	Failed []string `json:"failed,omitempty"`
+	Error  string   `json:"error,omitempty"`
 }
 
 func fileViews(cs []filerewind.Change) []rewindFileView {
 	out := make([]rewindFileView, 0, len(cs))
 	for _, c := range cs {
 		p, _ := clipStructured(c.Path, 400)
-		out = append(out, rewindFileView{Path: p, Action: string(c.Action)})
+		out = append(out, rewindFileView{Path: p, Action: string(c.Action), ID: c.ID})
 	}
 	return out
+}
+
+func blockedViews(bs []filerewind.BlockedItem) []rewindBlockedView {
+	var out []rewindBlockedView
+	for _, b := range bs {
+		p, _ := clipStructured(b.Path, 400)
+		out = append(out, rewindBlockedView{Path: p, Reason: b.Reason})
+	}
+	return out
+}
+
+// listingMsg is a teamResult carrying a listing of files.
+func listingMsg(cmd command, l filerewind.Listing) teamResultMsg {
+	m := teamResultMsg{Type: "teamResult", Req: cmd.Req, Op: cmd.Cmd, Files: fileViews(l.Changes), Blocked: blockedViews(l.Blocked)}
+	for _, p := range l.Skipped {
+		p, _ = clipStructured(p, 400)
+		m.NestedRepos = append(m.NestedRepos, p)
+	}
+	return m
+}
+
+// confirmedFiles pairs the paths and ids of a command. A list whose two halves
+// differ in length is not a confirmation.
+func confirmedFiles(cmd command) ([]filerewind.Confirm, bool) {
+	if len(cmd.FilePaths) != len(cmd.FileIDs) {
+		return nil, false
+	}
+	out := make([]filerewind.Confirm, 0, len(cmd.FilePaths))
+	for i, p := range cmd.FilePaths {
+		out = append(out, filerewind.Confirm{Path: p, ID: cmd.FileIDs[i]})
+	}
+	return out, true
 }
 
 // filesRefusal is the fixed text for an error about the files.
@@ -104,6 +149,10 @@ func filesRefusal(err error) (string, bool) {
 		return structured.FilesWhyNoGit, true
 	case errors.Is(err, filerewind.ErrMidOperation):
 		return structured.FilesWhyMid, true
+	case errors.Is(err, filerewind.ErrTooBig):
+		return structured.FilesWhyTooBig, true
+	case errors.Is(err, filerewind.ErrSlow):
+		return structured.FilesWhySlow, true
 	}
 	return "", false
 }
@@ -175,7 +224,12 @@ func (s *Server) structuredRewind(c *controlClient, cmd command) {
 		var out structured.FilesOutcome
 		var err error
 		if cmd.RestoreFiles {
-			text, out, err = rt.RewindFiles(cmd.Entry, cmd.RewindToken, cmd.FilePaths)
+			confirmed, ok := confirmedFiles(cmd)
+			if !ok {
+				refuse(c, cmd, errStructured(structuredFilesNoIDs))
+				return
+			}
+			text, out, err = rt.RewindFiles(cmd.Entry, cmd.RewindToken, confirmed)
 		} else {
 			text, err = rt.Rewind(cmd.Entry, cmd.RewindToken)
 		}
@@ -201,7 +255,7 @@ func (s *Server) structuredRewind(c *controlClient, cmd command) {
 		cut, wasCut := clipStructured(text, structuredRewindTextCut)
 		msg := teamResultMsg{Type: "teamResult", Req: cmd.Req, Op: cmd.Cmd, OK: true, Text: cut, Cut: wasCut}
 		if cmd.RestoreFiles {
-			v := &rewindRestoreView{Written: out.Result.Written, Removed: out.Result.Removed, Undo: out.Result.Undo}
+			v := &rewindRestoreView{Written: out.Result.Written, Removed: out.Result.Removed, Undo: out.Result.Undo, Kept: out.Result.Kept}
 			for _, f := range out.Result.Failed {
 				f, _ = clipStructured(f, 400)
 				v.Failed = append(v.Failed, f)
@@ -222,7 +276,9 @@ func (s *Server) doRewindFiles(c *controlClient, cmd command, rt *structured.Run
 		refuseWithFiles(c, cmd, err)
 		return
 	}
-	c.sendJSON(teamResultMsg{Type: "teamResult", Req: cmd.Req, Op: cmd.Cmd, OK: true, Files: fileViews(plan)})
+	m := listingMsg(cmd, plan)
+	m.OK = true
+	c.sendJSON(m)
 }
 
 // refuseWithFiles refuses a command for err. A list that went out of date is
@@ -230,7 +286,15 @@ func (s *Server) doRewindFiles(c *controlClient, cmd command, rt *structured.Run
 func refuseWithFiles(c *controlClient, cmd command, err error) {
 	var fe *structured.FilesError
 	if errors.As(err, &fe) {
-		c.sendJSON(teamResultMsg{Type: "teamResult", Req: cmd.Req, Op: cmd.Cmd, Error: structuredFilesChanged, Files: fileViews(fe.Now)})
+		m := listingMsg(cmd, fe.Now)
+		m.Error = structuredFilesChanged
+		c.sendJSON(m)
+		return
+	}
+	var be *filerewind.BlockedError
+	if errors.As(err, &be) {
+		m := teamResultMsg{Type: "teamResult", Req: cmd.Req, Op: cmd.Cmd, Error: structuredFilesBlocked, Blocked: blockedViews(be.Items)}
+		c.sendJSON(m)
 		return
 	}
 	if text, ok := filesRefusal(err); ok {
@@ -251,6 +315,9 @@ func filesFailureText(err error) string {
 	var fe *structured.FilesError
 	if errors.As(err, &fe) {
 		return "The files changed after you confirmed the list, so none were put back. The conversation did go back."
+	}
+	if errors.Is(err, filerewind.ErrBlocked) {
+		return "Some files could not be put back safely, so none were. The conversation did go back."
 	}
 	if text, ok := filesRefusal(err); ok {
 		return strings.TrimRight(text, ".") + ". The conversation did go back."

@@ -39,6 +39,8 @@ const (
 	FilesWhyNoGit   = "Git is not installed, so Flockdeck has no saved files to put back. Only the conversation can go back."
 	FilesWhyMid     = "A merge, rebase or similar operation was under way when that prompt was sent, so its files were not saved. Only the conversation can go back."
 	FilesWhyFailed  = "Flockdeck could not save the files when that prompt was sent. Only the conversation can go back."
+	FilesWhyTooBig  = "The folder has too many changed or untracked files (over 3000), or one over 32 MB, so its files were not saved when that prompt was sent. Only the conversation can go back."
+	FilesWhySlow    = "Saving the files took too long, so they were not saved when that prompt was sent. Only the conversation can go back."
 )
 
 // FilesOutcome says what became of the files in a RewindFiles call whose
@@ -52,7 +54,7 @@ type FilesOutcome struct {
 
 // FilesError carries the list as it is now when it differs from the one
 // confirmed, so that the window can show it again.
-type FilesError struct{ Now []filerewind.Change }
+type FilesError struct{ Now filerewind.Listing }
 
 func (e *FilesError) Error() string { return ErrFilesChanged.Error() }
 func (e *FilesError) Unwrap() error { return ErrFilesChanged }
@@ -67,6 +69,10 @@ func whyText(err error) string {
 		return FilesWhyNoGit
 	case errors.Is(err, filerewind.ErrMidOperation):
 		return FilesWhyMid
+	case errors.Is(err, filerewind.ErrTooBig):
+		return FilesWhyTooBig
+	case errors.Is(err, filerewind.ErrSlow):
+		return FilesWhySlow
 	}
 	return FilesWhyFailed
 }
@@ -82,6 +88,7 @@ func (r *Runtime) checkpoint() filerewind.Checkpoint {
 	c := r.client
 	if r.ckptRun == "" {
 		r.ckptRun = newToken()
+		filerewind.Register(r.ckptRun)
 	}
 	run, n := r.ckptRun, len(r.marks)+1
 	r.mu.Unlock()
@@ -152,6 +159,9 @@ func (r *Runtime) dropMarks(marks []mark) {
 // before a restore are kept.
 func (r *Runtime) dropCheckpoints() {
 	r.mu.Lock()
+	if r.ckptRun != "" {
+		filerewind.Unregister(r.ckptRun)
+	}
 	marks := slices.Clone(r.marks)
 	for i := range r.marks {
 		r.marks[i].ckpt = filerewind.Checkpoint{}
@@ -207,10 +217,10 @@ func (r *Runtime) treeFor(id, token string) (string, error) {
 // FilePlan lists the files going back to before the prompt entry id would
 // change: edited ones get their earlier content, deleted ones come back, and
 // ones created since are removed. Nothing is changed.
-func (r *Runtime) FilePlan(id, token string) ([]filerewind.Change, error) {
+func (r *Runtime) FilePlan(id, token string) (filerewind.Listing, error) {
 	tree, err := r.treeFor(id, token)
 	if err != nil {
-		return nil, err
+		return filerewind.Listing{}, err
 	}
 	return filerewind.Plan(r.ctx, r.opts.Cwd, tree)
 }
@@ -220,56 +230,40 @@ func (r *Runtime) FilePlan(id, token string) ([]filerewind.Change, error) {
 // that list nothing happens at all and the error is a *FilesError. Once the
 // conversation has gone back, a failure to write the files is in out.Err and
 // the error returned is nil.
-func (r *Runtime) RewindFiles(id, token string, files []string) (string, FilesOutcome, error) {
+func (r *Runtime) RewindFiles(id, token string, files []filerewind.Confirm) (string, FilesOutcome, error) {
 	var out FilesOutcome
 	if files == nil {
-		files = []string{}
+		files = []filerewind.Confirm{}
 	}
 	text, err := r.rewind(id, token, files, &out)
 	return text, out, err
 }
 
-// checkFiles is the check made before the conversation goes back.
-func (r *Runtime) checkFiles(tree string, files []string) error {
-	now, err := filerewind.Plan(r.ctx, r.opts.Cwd, tree)
-	if err != nil {
-		return err
-	}
-	if !samePaths(now, files) {
-		return &FilesError{Now: now}
-	}
-	return nil
+// checkFiles is the check made before the conversation goes back. A list that
+// does not match the files, or a file that cannot be put back safely, stops the
+// rewind before anything changes.
+func (r *Runtime) checkFiles(tree string, files []filerewind.Confirm) error {
+	err := filerewind.Check(r.ctx, r.opts.Cwd, tree, files)
+	return asFilesError(err)
 }
 
-func samePaths(now []filerewind.Change, files []string) bool {
-	if len(now) != len(files) {
-		return false
+// asFilesError wraps a changed-list error in a FilesError.
+func asFilesError(err error) error {
+	var ce *filerewind.ChangedError
+	if errors.As(err, &ce) {
+		return &FilesError{Now: ce.Now}
 	}
-	have := map[string]bool{}
-	for _, c := range now {
-		have[c.Path] = true
-	}
-	seen := map[string]bool{}
-	for _, f := range files {
-		if !have[f] || seen[f] {
-			return false
-		}
-		seen[f] = true
-	}
-	return true
+	return err
 }
 
 // restoreFiles writes the files back after the conversation went back.
-func (r *Runtime) restoreFiles(tree string, files []string) (filerewind.Result, error) {
+func (r *Runtime) restoreFiles(tree string, files []filerewind.Confirm) (filerewind.Result, error) {
 	r.mu.Lock()
 	r.undoSeq++
 	name := fmt.Sprintf("%s/%s-%d", r.ckptRun, time.Now().UTC().Format("20060102T150405"), r.undoSeq)
 	r.mu.Unlock()
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(r.ctx), 2*time.Minute)
 	defer cancel()
-	res, now, err := filerewind.Restore(ctx, r.opts.Cwd, tree, files, name)
-	if errors.Is(err, filerewind.ErrChanged) {
-		return res, &FilesError{Now: now}
-	}
-	return res, err
+	res, err := filerewind.Restore(ctx, r.opts.Cwd, tree, files, name)
+	return res, asFilesError(err)
 }

@@ -30,7 +30,7 @@ const st = (over = {}) => ({ status: "idle", capabilities: { rewind: true }, rew
 test("the file commands carry the confirmed list, and a rewind without one is as before", () => {
   assert.deepEqual(filesMessage("p1", "e3", "r1", "4.0"), { cmd: "structuredRewindFiles", id: "p1", req: "r1", entry: "e3", rewindToken: "4.0" });
   assert.equal(filesMessage("p1", "", "r1", "4.0"), null);
-  assert.deepEqual(rewindMessage("p1", "e3", "r1", "4.0", ["a.txt", 3, "b/c.txt"]), { cmd: "structuredRewind", id: "p1", req: "r1", entry: "e3", confirm: true, rewindToken: "4.0", restoreFiles: true, filePaths: ["a.txt", "b/c.txt"] });
+  assert.deepEqual(rewindMessage("p1", "e3", "r1", "4.0", [{ path: "a.txt", id: "i1" }, 3, { path: "b/c.txt" }, { path: "d", id: "i2" }]), { cmd: "structuredRewind", id: "p1", req: "r1", entry: "e3", confirm: true, rewindToken: "4.0", restoreFiles: true, filePaths: ["a.txt", "d"], fileIds: ["i1", "i2"] });
   assert.equal(rewindMessage("p1", "e3", "r1", "4.0").restoreFiles, undefined);
   assert.equal(rewindMessage("p1", "e3", "r1", "4.0", []).restoreFiles, true, "an empty confirmed list is still a list");
 });
@@ -41,7 +41,7 @@ test("saved files are offered per prompt, with the server's reason when there ar
   assert.equal(filesOffered(st(), "e3"), false);
   assert.equal(filesWhy(st({ rewindFilesWhy: "Not a repo.\n" })), "Not a repo.");
   assert.equal(filesWhy(st()), "");
-  assert.deepEqual(filesOf([{ path: "a.txt", action: "remove" }, { path: "b", action: "chmod" }, { path: "", action: "remove" }, null]), [{ path: "a.txt", action: "remove" }]);
+  assert.deepEqual(filesOf([{ path: "a.txt", action: "remove" }, { path: "b", action: "chmod" }, { path: "", action: "remove" }, null]), [{ path: "a.txt", action: "remove", id: "" }]);
 });
 
 test("answers about files are plain words with the git ref", () => {
@@ -51,8 +51,8 @@ test("answers about files are plain words with the git ref", () => {
   assert.ok(r.words.includes("Not restored: a.txt: busy"));
   assert.ok(!resultWords({ ok: true, op: "structuredRewind", text: "x" }).words.includes("Files:"));
   assert.equal(restoreWords(null), "");
-  assert.deepEqual(resultWords({ ok: true, op: "structuredRewindFiles", files: [{ path: "a", action: "overwrite" }] }).files, [{ path: "a", action: "overwrite" }]);
-  assert.deepEqual(resultWords({ ok: false, error: "changed", files: [{ path: "a", action: "remove" }] }).files, [{ path: "a", action: "remove" }]);
+  assert.deepEqual(resultWords({ ok: true, op: "structuredRewindFiles", files: [{ path: "a", action: "overwrite" }] }).files, [{ path: "a", action: "overwrite", id: "" }]);
+  assert.deepEqual(resultWords({ ok: false, error: "changed", files: [{ path: "a", action: "remove" }] }).files, [{ path: "a", action: "remove", id: "" }]);
 });
 
 test("the panel shows the files, sends the list the person saw, and shows a new list after a refusal", async () => {
@@ -77,13 +77,13 @@ test("the panel shows the files, sends the list the person saw, and shows a new 
     await settle();
     assert.deepEqual([sent[0].cmd, sent[0].entry, sent[0].rewindToken], ["structuredRewindFiles", "e3", "4.0"]);
     assert.equal(sent.length, 1, "nothing was rewound by asking");
-    await draw({ id: "p1", req: sent[0].req, op: "structuredRewindFiles", ok: true, files: [{ path: "a.txt", action: "overwrite" }, { path: "new.txt", action: "remove" }] });
+    await draw({ id: "p1", req: sent[0].req, op: "structuredRewindFiles", ok: true, files: [{ path: "a.txt", action: "overwrite", id: "i1" }, { path: "new.txt", action: "remove", id: "i2" }] });
     const rows = m.container.findAll(".rewind-file");
     assert.equal(rows.length, 2);
     assert.ok(rows[1].textContent.includes("new.txt") && rows[1].textContent.includes("deleted"));
     m.container.find(".rewind-yes-files").dispatch("click");
     await settle();
-    assert.deepEqual(sent[1], { cmd: "structuredRewind", id: "p1", req: sent[1].req, entry: "e3", confirm: true, rewindToken: "4.0", restoreFiles: true, filePaths: ["a.txt", "new.txt"] });
+    assert.deepEqual(sent[1], { cmd: "structuredRewind", id: "p1", req: sent[1].req, entry: "e3", confirm: true, rewindToken: "4.0", restoreFiles: true, filePaths: ["a.txt", "new.txt"], fileIds: ["i1", "i2"] });
     await draw({ id: "p1", req: sent[1].req, op: "structuredRewind", ok: true, text: "second", restore: { written: 1, removed: 1, undo: "refs/flockdeck/rewind-undo/u1" } });
     assert.equal(m.container.find(".rewind-confirm"), null, "the confirm step closes when the rewind went through");
     assert.ok(m.container.find(".structured-note").textContent.includes("1 put back, 1 deleted"));
@@ -92,10 +92,10 @@ test("the panel shows the files, sends the list the person saw, and shows a new 
     await settle();
     m.container.find(".rewind-files-show").dispatch("click");
     await settle();
-    await draw({ id: "p1", req: sent[2].req, op: "structuredRewindFiles", ok: true, files: [{ path: "a.txt", action: "overwrite" }] });
+    await draw({ id: "p1", req: sent[2].req, op: "structuredRewindFiles", ok: true, files: [{ path: "a.txt", action: "overwrite", id: "i3" }] });
     m.container.find(".rewind-yes-files").dispatch("click");
     await settle();
-    await draw({ id: "p1", req: sent[3].req, op: "structuredRewind", ok: false, error: "The files changed since the list was shown.", files: [{ path: "a.txt", action: "overwrite" }, { path: "late.txt", action: "remove" }] });
+    await draw({ id: "p1", req: sent[3].req, op: "structuredRewind", ok: false, error: "The files changed since the list was shown.", files: [{ path: "a.txt", action: "overwrite", id: "i4" }, { path: "late.txt", action: "remove", id: "i5" }] });
     assert.ok(m.container.find(".structured-note--unsent").textContent.includes("changed"));
     assert.equal(m.container.findAll(".rewind-file").length, 2, "the new list is shown to confirm again");
   } finally {
@@ -148,4 +148,26 @@ test("Esc Esc opens rewind only for an idle pane that can go back, and not from 
   ];
   for (const [why, k, c] of cases) assert.deepEqual(escEsc(k, 1000, 1100, c), { open: false, last: 0 }, why);
   assert.equal(escEsc(key({ target: { localName: "textarea" } }), 1000, 1100, ctx({ draft: "" })).open, true, "an empty box counts as no text");
+});
+
+test("a blocked list names the files and offers no put-back button", async () => {
+  const m = await mount();
+  try {
+    const sent = [];
+    const store = { send: (c) => { sent.push(c); return true; } };
+    const s = st({ rewindFiles: ["e3"] });
+    const draw = (result) => m.draw(html`<${RewindPanel} pane="p1" store=${store} st=${s} entries=${entries} result=${result} onText=${() => {}} onClose=${() => {}} />`);
+    await draw(null);
+    m.container.findAll(".rewind-back")[1].dispatch("click");
+    await settle();
+    m.container.find(".rewind-files-show").dispatch("click");
+    await settle();
+    await draw({ id: "p1", req: sent[0].req, op: "structuredRewindFiles", ok: true, files: [{ path: "a.txt", action: "overwrite", id: "i1" }], blocked: [{ path: "x/keep.txt", reason: "exists and git ignores it" }], nestedRepos: ["sub"] });
+    assert.equal(m.container.find(".rewind-yes-files"), null);
+    assert.ok(m.container.find(".rewind-file").textContent.includes("git ignores it"));
+    assert.ok(m.container.find('[data-files="nested"]').textContent.includes("sub"));
+    assert.ok(m.container.find(".rewind-yes"), "the conversation alone can still go back");
+  } finally {
+    await m.done();
+  }
 });

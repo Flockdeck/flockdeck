@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -63,21 +64,38 @@ func repoRuntime(t *testing.T) (*Runtime, Snapshot, string) {
 	r := begin(t, o)
 	until(t, r, "ready", idle)
 	put(t, dir, "a.txt", "v1\n")
-	sendAndSettle(t, r, "plain a", 1)
+	typedAndSettle(t, r, "plain a", 1)
 	put(t, dir, "a.txt", "v2\n")
-	sendAndSettle(t, r, "plain b", 2)
+	typedAndSettle(t, r, "plain b", 2)
 	put(t, dir, "a.txt", "v3\n")
 	put(t, dir, "made.txt", "made\n")
 	if err := os.Remove(filepath.Join(dir, "keep.txt")); err != nil {
 		t.Fatal(err)
 	}
-	s := sendAndSettle(t, r, "plain c", 3)
+	s := typedAndSettle(t, r, "plain c", 3)
 	return r, s, dir
 }
 
-func paths(cs []filerewind.Change) string {
+// typedAndSettle sends a prompt as the person's box does.
+func typedAndSettle(t *testing.T, r *Runtime, text string, want int) Snapshot {
+	t.Helper()
+	if err := r.SendTyped(text, nil); err != nil {
+		t.Fatal(err)
+	}
+	return until(t, r, "turn of "+text, func(s Snapshot) bool { return idle(s) && len(prompts(s)) == want })
+}
+
+func confirmAll(l filerewind.Listing) []filerewind.Confirm {
+	out := []filerewind.Confirm{}
+	for _, c := range l.Changes {
+		out = append(out, filerewind.Confirm{Path: c.Path, ID: c.ID})
+	}
+	return out
+}
+
+func paths(l filerewind.Listing) string {
 	var out []string
-	for _, c := range cs {
+	for _, c := range l.Changes {
 		out = append(out, string(c.Action)+":"+c.Path)
 	}
 	return strings.Join(out, ",")
@@ -104,11 +122,7 @@ func TestFilesComeBackWithTheConversation(t *testing.T) {
 	if got(dir, "a.txt") != "v3\n" {
 		t.Fatal("the plan changed a file")
 	}
-	var list []string
-	for _, c := range plan {
-		list = append(list, c.Path)
-	}
-	text, out, err := r.RewindFiles(ids[1], r.RewindToken(), list)
+	text, out, err := r.RewindFiles(ids[1], r.RewindToken(), confirmAll(plan))
 	if err != nil || out.Err != nil {
 		t.Fatalf("rewind: %v, files: %v", err, out.Err)
 	}
@@ -149,10 +163,7 @@ func TestAListThatWentOutOfDateChangesNothing(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var list []string
-	for _, c := range plan {
-		list = append(list, c.Path)
-	}
+	list := confirmAll(plan)
 	// A file changes after the list was shown.
 	put(t, dir, "late.txt", "late\n")
 	_, _, err = r.RewindFiles(ids[1], r.RewindToken(), list)
@@ -170,8 +181,11 @@ func TestAListThatWentOutOfDateChangesNothing(t *testing.T) {
 		t.Error("a file was touched")
 	}
 	// And the pane can still be gone back in the usual way, and then again with the list.
-	list = append(list, "late.txt")
-	text, out, err := r.RewindFiles(ids[1], r.RewindToken(), list)
+	now, err := r.FilePlan(ids[1], r.RewindToken())
+	if err != nil {
+		t.Fatal(err)
+	}
+	text, out, err := r.RewindFiles(ids[1], r.RewindToken(), confirmAll(now))
 	if err != nil || out.Err != nil || text != "plain b" {
 		t.Fatalf("second try: %q %v %v", text, err, out.Err)
 	}
@@ -188,7 +202,7 @@ func TestAPaneOutsideARepoOffersNoFiles(t *testing.T) {
 	until(t, r, "ready", idle)
 	var s Snapshot
 	for i, txt := range []string{"plain a", "plain b"} {
-		s = sendAndSettle(t, r, txt, i+1)
+		s = typedAndSettle(t, r, txt, i+1)
 	}
 	if len(s.FilePoints) != 0 || s.FilesWhy != FilesWhyNotRepo {
 		t.Fatalf("points = %v, why = %q", s.FilePoints, s.FilesWhy)
@@ -222,12 +236,76 @@ func TestFileRewindIsOffUnlessAsked(t *testing.T) {
 	gitCmd(t, dir, "commit", "-q", "-m", "first")
 	r := begin(t, o)
 	until(t, r, "ready", idle)
-	sendAndSettle(t, r, "plain a", 1)
-	s := sendAndSettle(t, r, "plain b", 2)
+	typedAndSettle(t, r, "plain a", 1)
+	s := typedAndSettle(t, r, "plain b", 2)
 	if len(s.FilePoints) != 0 || s.FilesWhy != "" {
 		t.Errorf("points = %v, why = %q", s.FilePoints, s.FilesWhy)
 	}
 	if refs := gitCmd(t, dir, "for-each-ref", "refs/flockdeck/"); refs != "" {
 		t.Errorf("refs were written: %q", refs)
+	}
+}
+
+// Review item 9: only prompts the person typed are checkpointed.
+func TestOnlyTypedPromptsAreCheckpointed(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git is not installed")
+	}
+	o := fakeOptions(t, acptest.WithRewind())
+	o.FileRewind = true
+	dir := o.Cwd
+	t.Setenv("GIT_CEILING_DIRECTORIES", filepath.Dir(dir))
+	gitCmd(t, dir, "init", "-q")
+	put(t, dir, "a.txt", "v0\n")
+	gitCmd(t, dir, "add", "-A")
+	gitCmd(t, dir, "commit", "-q", "-m", "first")
+	r := begin(t, o)
+	until(t, r, "ready", idle)
+	typedAndSettle(t, r, "plain a", 1)
+	sendAndSettle(t, r, "plain b", 2) // sent by another agent or tool: not typed
+	s := typedAndSettle(t, r, "plain c", 3)
+	ids := promptIDs(s)
+	if len(s.FilePoints) != 1 || s.FilePoints[0] != ids[2] {
+		t.Errorf("file points = %v, prompts = %v", s.FilePoints, ids)
+	}
+	if n := strings.Count(gitCmd(t, dir, "for-each-ref", filerewind.RefPrefix), "\n"); n != 2 {
+		t.Errorf("checkpoint refs = %d, want 2", n)
+	}
+}
+
+// Review item 3: a restore that did not finish keeps the checkpoint.
+func TestACheckpointIsKeptWhenTheFilesWereNotAllPutBack(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("a held-open file blocks a delete on Windows")
+	}
+	r, s, dir := repoRuntime(t)
+	ids := promptIDs(s)
+	plan, err := r.FilePlan(ids[1], r.RewindToken())
+	if err != nil {
+		t.Fatal(err)
+	}
+	held, err := os.Open(filepath.Join(dir, "made.txt"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer held.Close()
+	_, out, err := r.RewindFiles(ids[1], r.RewindToken(), confirmAll(plan))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Result.Failed) == 0 || out.Result.Kept == "" {
+		t.Fatalf("result = %+v", out.Result)
+	}
+	refs := gitCmd(t, dir, "for-each-ref", "--format=%(refname)", filerewind.UndoPrefix)
+	if !strings.Contains(refs, out.Result.Kept) {
+		t.Errorf("the kept ref is not there: %q", refs)
+	}
+	// What the kept ref holds is the files at the prompt.
+	if got := strings.ReplaceAll(gitCmd(t, dir, "show", out.Result.Kept+":a.txt"), "\r\n", "\n"); got != "v2\n" {
+		t.Errorf("kept a.txt = %q", got)
+	}
+	// The checkpoints of the prompts that went are not left behind, apart from the kept one.
+	if left := gitCmd(t, dir, "for-each-ref", "--format=%(refname)", filerewind.RefPrefix); strings.Count(left, "\n") != 1 {
+		t.Errorf("checkpoint refs: %q", left)
 	}
 }

@@ -281,8 +281,12 @@ type teamResultMsg struct {
 	// and a structuredRewind refused because the files differ from the list it
 	// carried with the list as it is now (API 1.34). Restore says what a
 	// structuredRewind with restoreFiles did to the files.
-	Files   []rewindFileView   `json:"files,omitempty"`
-	Restore *rewindRestoreView `json:"restore,omitempty"`
+	Files []rewindFileView `json:"files,omitempty"`
+	// NestedRepos names submodules and nested repositories that differ and are not
+	// touched. Blocked names the files that make a restore unsafe, each with why.
+	NestedRepos []string            `json:"nestedRepos,omitempty"`
+	Blocked     []rewindBlockedView `json:"blocked,omitempty"`
+	Restore     *rewindRestoreView  `json:"restore,omitempty"`
 	// Pane and Message name the message a mark-seen changed.
 	Pane    string `json:"pane,omitempty"`
 	Message int    `json:"message,omitempty"`

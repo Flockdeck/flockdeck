@@ -356,6 +356,12 @@ func fileWrite(t *testing.T, dir, rel, body string) {
 // when the first typed prompt is sent, v2 at the second, and v3 after it.
 func fileRewindEnv(t *testing.T) (*structuredEnv, []string, string) {
 	t.Helper()
+	return fileRewindEnvWith(t, nil)
+}
+
+// fileRewindEnvWith runs setup in the repository before the first prompt.
+func fileRewindEnvWith(t *testing.T, setup func(dir string)) (*structuredEnv, []string, string) {
+	t.Helper()
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git is not installed")
 	}
@@ -365,6 +371,9 @@ func fileRewindEnv(t *testing.T) (*structuredEnv, []string, string) {
 	fileWrite(t, dir, "a.txt", "v0\n")
 	fileGit(t, dir, "add", "-A")
 	fileGit(t, dir, "commit", "-q", "-m", "first")
+	if setup != nil {
+		setup(dir)
+	}
 	e := newStructuredEnvWith(t, "plain", structuredEnvOpts{Args: []string{acptest.ArgSessions + "rewind"}, Cwd: dir})
 	e.status(t, session.StatusIdle)
 	for i, txt := range []string{"plain one", "plain two"} {
@@ -402,7 +411,7 @@ func TestRewindFilesListsWhatWouldChangeAndChangesNothing(t *testing.T) {
 	if !res.OK || len(res.Files) != 2 {
 		t.Fatalf("answer = %+v", res)
 	}
-	if res.Files[0] != (rewindFileView{Path: "a.txt", Action: "overwrite"}) || res.Files[1] != (rewindFileView{Path: "new.txt", Action: "remove"}) {
+	if res.Files[0].Path != "a.txt" || res.Files[0].Action != "overwrite" || res.Files[1].Path != "new.txt" || res.Files[1].Action != "remove" || res.Files[0].ID == "" || res.Files[1].ID == "" {
 		t.Errorf("files = %+v", res.Files)
 	}
 	if fileText(dir, "a.txt") != "v3\n" || fileText(dir, "new.txt") != "new\n" {
@@ -414,9 +423,21 @@ func TestRewindFilesListsWhatWouldChangeAndChangesNothing(t *testing.T) {
 	}
 }
 
+// confirmFrom builds the confirmation of a listing, as a window does.
+func confirmFrom(files []rewindFileView) ([]string, []string) {
+	var paths, ids []string
+	for _, f := range files {
+		paths = append(paths, f.Path)
+		ids = append(ids, f.ID)
+	}
+	return paths, ids
+}
+
 func TestRewindWithTheConfirmedFilesPutsThemBack(t *testing.T) {
 	e, ids, dir := fileRewindEnv(t)
-	res := e.rewindOp(t, e.c, command{Cmd: "structuredRewind", Entry: ids[1], Confirm: true, RestoreFiles: true, FilePaths: []string{"a.txt", "new.txt"}})
+	list := e.rewindOp(t, e.c, command{Cmd: "structuredRewindFiles", Entry: ids[1]})
+	fp, fi := confirmFrom(list.Files)
+	res := e.rewindOp(t, e.c, command{Cmd: "structuredRewind", Entry: ids[1], Confirm: true, RestoreFiles: true, FilePaths: fp, FileIDs: fi})
 	if !res.OK || res.Text != "plain two" || res.Restore == nil {
 		t.Fatalf("answer = %+v", res)
 	}
@@ -443,11 +464,24 @@ func TestRewindWithAStaleFileListIsRefusedWithTheNewList(t *testing.T) {
 	e, ids, dir := fileRewindEnv(t)
 	before := len(e.entries(t))
 	// The person confirmed a.txt only; new.txt is also different.
-	res := e.rewindOp(t, e.c, command{Cmd: "structuredRewind", Entry: ids[1], Confirm: true, RestoreFiles: true, FilePaths: []string{"a.txt"}})
+	list := e.rewindOp(t, e.c, command{Cmd: "structuredRewindFiles", Entry: ids[1]})
+	fp, fi := confirmFrom(list.Files)
+	res := e.rewindOp(t, e.c, command{Cmd: "structuredRewind", Entry: ids[1], Confirm: true, RestoreFiles: true, FilePaths: fp[:1], FileIDs: fi[:1]})
 	if res.OK || res.Error != structuredFilesChanged || len(res.Files) != 2 {
 		t.Fatalf("answer = %+v", res)
 	}
-	if len(e.entries(t)) != before || fileText(dir, "a.txt") != "v3\n" {
+	// A file edited after the list was shown is refused, with its new id.
+	fileWrite(t, dir, "a.txt", "v4 edited later\n")
+	res = e.rewindOp(t, e.c, command{Cmd: "structuredRewind", Entry: ids[1], Confirm: true, RestoreFiles: true, FilePaths: fp, FileIDs: fi})
+	if res.OK || res.Error != structuredFilesChanged || fileText(dir, "a.txt") != "v4 edited later\n" {
+		t.Fatalf("edited file: %+v", res)
+	}
+	// Paths without ids are not a confirmation.
+	res = e.rewindOp(t, e.c, command{Cmd: "structuredRewind", Entry: ids[1], Confirm: true, RestoreFiles: true, FilePaths: fp})
+	if res.OK || res.Error != structuredFilesNoIDs {
+		t.Fatalf("no ids: %+v", res)
+	}
+	if len(e.entries(t)) != before || fileText(dir, "a.txt") != "v4 edited later\n" {
 		t.Error("a refused rewind changed something")
 	}
 }
@@ -477,5 +511,25 @@ func TestRewindFilesInAFolderWithoutGitSaysWhy(t *testing.T) {
 	res = e.rewindOp(t, e.c, command{Cmd: "structuredRewind", Entry: id, Confirm: true, RestoreFiles: true})
 	if res.OK || res.Error != structuredNoFiles {
 		t.Errorf("rewind with files: %+v", res)
+	}
+}
+
+func TestRewindWithAFileThatCannotBePutBackSafelyIsRefusedAndChangesNothing(t *testing.T) {
+	e, ids, dir := fileRewindEnvWith(t, func(dir string) { fileWrite(t, dir, "notes.txt", "old notes\n") })
+	before := len(e.entries(t))
+	// notes.txt was part of the saved files; git ignores it now.
+	fileWrite(t, dir, ".gitignore", "notes.txt\n")
+	fileWrite(t, dir, "notes.txt", "new notes\n")
+	list := e.rewindOp(t, e.c, command{Cmd: "structuredRewindFiles", Entry: ids[1]})
+	if !list.OK || len(list.Blocked) != 1 || list.Blocked[0].Path != "notes.txt" || list.Blocked[0].Reason != "exists and git ignores it" {
+		t.Fatalf("preview = %+v", list)
+	}
+	fp, fi := confirmFrom(list.Files)
+	res := e.rewindOp(t, e.c, command{Cmd: "structuredRewind", Entry: ids[1], Confirm: true, RestoreFiles: true, FilePaths: fp, FileIDs: fi})
+	if res.OK || res.Error != structuredFilesBlocked || len(res.Blocked) != 1 {
+		t.Fatalf("answer = %+v", res)
+	}
+	if len(e.entries(t)) != before || fileText(dir, "notes.txt") != "new notes\n" || fileText(dir, "a.txt") != "v3\n" {
+		t.Error("a refused rewind changed something")
 	}
 }

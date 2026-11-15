@@ -40,6 +40,7 @@ import (
 	"github.com/jmwri/flockdeck/internal/acp/manifest"
 	"github.com/jmwri/flockdeck/internal/acp/permprobe"
 	"github.com/jmwri/flockdeck/internal/agent"
+	"github.com/jmwri/flockdeck/internal/filerewind"
 	"github.com/jmwri/flockdeck/internal/record"
 	"github.com/jmwri/flockdeck/internal/session/transcript"
 	"github.com/jmwri/flockdeck/internal/shellrun"
@@ -1894,7 +1895,10 @@ func (r *Runtime) loop() {
 			}
 			// The files are saved before the prompt goes out, so the copy is of
 			// the files as they were when it was sent.
-			ckpt := r.checkpoint()
+			var ckpt filerewind.Checkpoint
+			if q.typed {
+				ckpt = r.checkpoint()
+			}
 			entry, _ := start(strings.Join(q.blocks, "\n"), promptImages(q.images))
 			token = r.addMark(entry)
 			r.setCheckpoint(token, ckpt)

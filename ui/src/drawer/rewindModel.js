@@ -12,7 +12,9 @@ export const REWIND_CONFIRM_WORDS = "removes this prompt and everything after it
 export const REWIND_CUT_WORDS = "The prompt was long; only its start was put back.";
 export const FILES_NONE_WORDS = "No saved files exist for this prompt, so only the conversation can go back.";
 export const FILES_EMPTY_WORDS = "No files differ from how they were when this prompt was sent.";
-export const FILES_SAFE_WORDS = "Only the files listed are changed. Ignored files and the git index are left alone. Before anything is written, the files as they are now are saved in git, and the answer names where.";
+export const FILES_SAFE_WORDS = "Only the files listed are changed. Ignored files, files behind a link and the git index are left alone. Before anything is written, the files as they are now are saved in git, and the answer names where.";
+export const FILES_BLOCKED_WORDS = "These files cannot be put back safely, so the files are not put back. Deal with them, or go back without the files:";
+export const FILES_NESTED_WORDS = "Not touched, because they are nested repositories or submodules:";
 export const FILES_ACTION_WORDS = { overwrite: "gets its earlier content back", recreate: "is written back (it was deleted)", remove: "is deleted (it was created later)" };
 
 const clean = (s, n) => String(s == null ? "" : s).replace(/[\p{C}]/gu, " ").replace(/\s+/g, " ").trim().slice(0, n);
@@ -50,10 +52,24 @@ export function rewindMessage(pane, entry, req, token, files) {
   if (!pane || !entry || typeof entry !== "string") return null;
   const m = { cmd: "structuredRewind", id: pane, req, entry, confirm: true, rewindToken: typeof token === "string" ? token : "" };
   if (Array.isArray(files)) {
+    // files are { path, id } as the list showed them.
+    const ok = files.filter((f) => f && typeof f.path === "string" && typeof f.id === "string");
     m.restoreFiles = true;
-    m.filePaths = files.filter((f) => typeof f === "string");
+    m.filePaths = ok.map((f) => f.path);
+    m.fileIds = ok.map((f) => f.id);
   }
   return m;
+}
+
+/** blockedOf keeps the files an answer says cannot be put back, with the reason. */
+export function blockedOf(list) {
+  if (!Array.isArray(list)) return [];
+  return list.filter((b) => b && typeof b.path === "string" && b.path).map((b) => ({ path: clean(b.path, 400), reason: clean(b.reason, 120) }));
+}
+
+/** nestedOf keeps the names of nested repositories an answer says were skipped. */
+export function nestedOf(list) {
+  return Array.isArray(list) ? list.filter((p) => typeof p === "string" && p).map((p) => clean(p, 400)) : [];
 }
 
 /** filesMessage asks what going back to before entry would change in the files. */
@@ -77,7 +93,7 @@ export function filesOf(list) {
   if (!Array.isArray(list)) return [];
   const out = [];
   for (const f of list) {
-    if (f && typeof f.path === "string" && f.path && Object.prototype.hasOwnProperty.call(FILES_ACTION_WORDS, f.action)) out.push({ path: f.path.replace(/[\p{C}]/gu, " ").slice(0, 400), action: f.action });
+    if (f && typeof f.path === "string" && f.path && Object.prototype.hasOwnProperty.call(FILES_ACTION_WORDS, f.action)) out.push({ path: f.path.replace(/[\p{C}]/gu, " ").slice(0, 400), action: f.action, id: typeof f.id === "string" ? f.id.slice(0, 64) : "" });
   }
   return out;
 }
@@ -103,9 +119,9 @@ export function restoredDraft(draft, text) {
  *  pane and request: { ok, words, text, pane }. */
 export function resultWords(r) {
   if (!r) return null;
-  if (!r.ok) return { ok: false, words: clean(r.error, 300) || "That did not work.", text: "", pane: "", files: filesOf(r.files) };
+  if (!r.ok) return { ok: false, words: clean(r.error, 300) || "That did not work.", text: "", pane: "", files: filesOf(r.files), blocked: blockedOf(r.blocked), nested: [] };
   if (r.op === "structuredFork") return { ok: true, words: "Started a new pane beside this one.", text: "", pane: r.pane || "" };
-  if (r.op === "structuredRewindFiles") return { ok: true, words: "", text: "", pane: "", files: filesOf(r.files) };
+  if (r.op === "structuredRewindFiles") return { ok: true, words: "", text: "", pane: "", files: filesOf(r.files), blocked: blockedOf(r.blocked), nested: nestedOf(r.nestedRepos) };
   return { ok: true, words: "Went back. The prompt is in the box to edit and send again." + (r.cut === true ? " " + REWIND_CUT_WORDS : "") + restoreWords(r.restore), text: typeof r.text === "string" ? r.text : "", pane: "", files: [] };
 }
 
@@ -115,6 +131,7 @@ export function restoreWords(r) {
   if (!r || typeof r !== "object") return "";
   const n = (v) => (Number.isInteger(v) && v > 0 ? v : 0);
   let w = " Files: " + n(r.written) + " put back, " + n(r.removed) + " deleted.";
+  if (typeof r.kept === "string" && r.kept) w += " The saved files from the prompt are kept in git as " + clean(r.kept, 200) + ", so you can put them back by hand (git checkout " + clean(r.kept, 200) + " -- <file>).";
   if (typeof r.undo === "string" && r.undo) w += " The files as they were before are saved in git as " + clean(r.undo, 200) + " (git checkout " + clean(r.undo, 200) + " -- . puts them back).";
   if (typeof r.error === "string" && r.error) w += " " + clean(r.error, 300);
   if (Array.isArray(r.failed) && r.failed.length) w += " Not restored: " + r.failed.slice(0, 5).map((f) => clean(f, 200)).join("; ") + (r.failed.length > 5 ? "; and " + (r.failed.length - 5) + " more." : ".");

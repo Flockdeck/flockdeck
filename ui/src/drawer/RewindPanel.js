@@ -13,7 +13,7 @@
 import { useState, useEffect } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
 import { showControls } from "./diff/diffModel.js";
-import { pointsOf, rewindOffered, canAct, rewindMessage, forkMessage, filesMessage, filesOffered, filesWhy, resultWords, REWIND_NOT_SENT_WORDS, REWIND_NOT_OFFERED_WORDS, REWIND_BUSY_WORDS, REWIND_NONE_WORDS, REWIND_CONFIRM_WORDS, FILES_NONE_WORDS, FILES_EMPTY_WORDS, FILES_SAFE_WORDS, FILES_ACTION_WORDS } from "./rewindModel.js";
+import { pointsOf, rewindOffered, canAct, rewindMessage, forkMessage, filesMessage, filesOffered, filesWhy, resultWords, REWIND_NOT_SENT_WORDS, REWIND_NOT_OFFERED_WORDS, REWIND_BUSY_WORDS, REWIND_NONE_WORDS, REWIND_CONFIRM_WORDS, FILES_NONE_WORDS, FILES_EMPTY_WORDS, FILES_SAFE_WORDS, FILES_ACTION_WORDS, FILES_BLOCKED_WORDS, FILES_NESTED_WORDS } from "./rewindModel.js";
 
 let rewindSeq = 0;
 
@@ -44,7 +44,7 @@ export function RewindPanel({ pane, store, st, entries = [], result = null, onTe
     }
     if (!asking || !Array.isArray(mine.files)) return;
     // A list for the prompt being asked about, or the new list of a refusal.
-    if ((mine.ok && mine.files !== undefined && result.op === "structuredRewindFiles") || (!mine.ok && mine.files.length)) setListing({ entry: asking, files: mine.files });
+    if ((mine.ok && mine.files !== undefined && result.op === "structuredRewindFiles") || (!mine.ok && (mine.files.length || (mine.blocked && mine.blocked.length)))) setListing({ entry: asking, files: mine.files, blocked: mine.blocked || [], nested: mine.nested || [] });
   }, [req, mine && mine.ok]);
   const offered = rewindOffered(st);
   const idle = canAct(st);
@@ -72,11 +72,17 @@ export function RewindPanel({ pane, store, st, entries = [], result = null, onTe
     if (!listing || listing.entry !== id) {
       return html`<button type="button" class="drawer-btn rewind-files-show" disabled=${off} onClick=${() => go(filesMessage(pane, id, "", st.rewindToken), true)}>Show files to put back</button>`;
     }
-    if (listing.files.length === 0) return html`<span class="rewind-files-note" data-files="empty">${FILES_EMPTY_WORDS}</span>`;
+    const nested = listing.nested && listing.nested.length ? html`<span class="rewind-files-note" data-files="nested">${FILES_NESTED_WORDS} ${listing.nested.map((p) => showControls(p)).join(", ")}</span>` : null;
+    if (listing.blocked && listing.blocked.length) {
+      return html`<span class="rewind-files" data-files="blocked"><span class="rewind-files-note">${FILES_BLOCKED_WORDS}</span>
+        <ul class="rewind-file-list">${listing.blocked.map((b) => html`<li key=${b.path} class="rewind-file" data-action="blocked"><span class="rewind-file-path">${showControls(b.path)}</span> ${b.reason}</li>`)}</ul>${nested}</span>`;
+    }
+    if (listing.files.length === 0) return html`<span class="rewind-files" data-files="empty"><span class="rewind-files-note">${FILES_EMPTY_WORDS}</span>${nested}</span>`;
     return html`<span class="rewind-files" data-files="list">
       <ul class="rewind-file-list">${listing.files.map((f) => html`<li key=${f.path} class="rewind-file" data-action=${f.action}><span class="rewind-file-path">${showControls(f.path)}</span> ${FILES_ACTION_WORDS[f.action]}</li>`)}</ul>
+      ${nested}
       <span class="rewind-files-note">${FILES_SAFE_WORDS}</span>
-      <button type="button" class="drawer-btn rewind-yes-files" disabled=${off} onClick=${() => go(rewindMessage(pane, id, "", st.rewindToken, listing.files.map((f) => f.path)), true)}>Go back and put these files back</button>
+      <button type="button" class="drawer-btn rewind-yes-files" disabled=${off} onClick=${() => go(rewindMessage(pane, id, "", st.rewindToken, listing.files), true)}>Go back and put these files back</button>
     </span>`;
   };
   return html`<div class="rewind-panel" role="group" aria-label="Go back or fork">
