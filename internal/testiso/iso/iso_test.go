@@ -33,8 +33,8 @@ func TestRedirectClearsClaudeConfigDir(t *testing.T) {
 // for its tests).
 func TestClearOwnEnvUnsetsWhatTheProgramReads(t *testing.T) {
 	cleared := []string{
-		"FLOCKDECK_PANE", "PERCH_PANE", "FLOCKDECK_TOKEN", "FLOCKDECK_SIGNING_KEY", "FLOCKDECK_RELAY",
-		"FLOCKDECK_UPDATE", "PERCH_BASE_URL", "FLOCKDECK_SOMETHING_ADDED_LATER", "CODEX_HOME", "GIT_CONFIG_COUNT",
+		"FLOCKDECK_PANE", "FLOCKDECK_TOKEN", "FLOCKDECK_SIGNING_KEY", "FLOCKDECK_RELAY",
+		"FLOCKDECK_UPDATE", "FLOCKDECK_SOMETHING_ADDED_LATER", "CODEX_HOME", "GIT_CONFIG_COUNT",
 	}
 	kept := []string{"FLOCKDECK_LIVE_AGENT_TESTS", "FLOCKDECK_TEST_S3_ENDPOINT", "FLOCKDECK_ACPTEST_MARKER", realConfigEnv}
 	for _, name := range append(append([]string(nil), cleared...), kept...) {
@@ -108,9 +108,9 @@ const probeEnv = "ISO_PROBE_CHILD"
 // The names the child is given and must not see, and the ones it must.
 var (
 	probeCleared = []string{
-		"FLOCKDECK_API", "PERCH_API", "FLOCKDECK_TOKEN", "PERCH_TOKEN", "FLOCKDECK_PANE", "PERCH_PANE",
+		"FLOCKDECK_API", "FLOCKDECK_TOKEN", "FLOCKDECK_PANE",
 		"FLOCKDECK_PANE_NAME", "FLOCKDECK_PROJECT", "FLOCKDECK_ROLE", "FLOCKDECK_AGENT", "FLOCKDECK_MODEL",
-		"FLOCKDECK_LAUNCH", "FLOCKDECK_SIGNING_KEY", "FLOCKDECK_RELAY", "FLOCKDECK_UPDATE", "PERCH_SOMETHING_NEW",
+		"FLOCKDECK_LAUNCH", "FLOCKDECK_SIGNING_KEY", "FLOCKDECK_RELAY", "FLOCKDECK_UPDATE",
 		"CODEX_HOME", "GIT_CONFIG_COUNT",
 	}
 	probeKept = []string{"FLOCKDECK_LIVE_AGENT_TESTS", "FLOCKDECK_TEST_SOMETHING", "FLOCKDECK_ACPTEST_MARKER"}
@@ -128,7 +128,7 @@ func TestMainClearsTheProgramsVariablesBeforeTests(t *testing.T) {
 	var env []string
 	for _, kv := range os.Environ() {
 		name, _, _ := strings.Cut(kv, "=")
-		if name == realConfigEnv || name == realHomeEnv || strings.HasPrefix(name, "FLOCKDECK_") || strings.HasPrefix(name, "PERCH_") {
+		if name == realConfigEnv || name == realHomeEnv || strings.HasPrefix(name, "FLOCKDECK_") {
 			continue
 		}
 		env = append(env, kv)

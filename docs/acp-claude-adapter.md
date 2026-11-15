@@ -240,7 +240,7 @@ that is waiting between retries was not tried against a real claude.
 ### Environment
 
 The adapter starts claude in the environment it was given, minus every `FLOCKDECK_`
-and `PERCH_` variable. The client must pass what claude reads its login from
+variable. The client must pass what claude reads its login from
 (`HOME` or `USERPROFILE`, `APPDATA`); the client's default environment has none of
 them. `FLOCKDECK_CLAUDE_BIN` names the executable when it is not on `PATH`.
 MCP servers in `session/new` are written to `mcp.json` in a private temporary
@@ -459,7 +459,7 @@ Rules the code keeps (tests in `internal/acp/agentlogin`, `claudeacp/login_test.
   Without that, a prompt that never ended its line would leave the pane at "starting" until the
   timeout.
 - The command runs in the temp directory, not the project's, so it reads and writes nothing there.
-  Its environment is the adapter's without Flockdeck's own variables (`FLOCKDECK_*`, `PERCH_*`) and
+  Its environment is the adapter's without Flockdeck's own variables (`FLOCKDECK_*`) and
   without anything named like a key or token (`*API_KEY*`, `*AUTH_TOKEN*`). The host does not give the
   sign-in's adapter the stored API key at all, and does give it `HTTP_PROXY`, `HTTPS_PROXY`,
   `NO_PROXY` and `ALL_PROXY` from Flockdeck's own environment, since the login needs the person's

@@ -236,7 +236,7 @@ func (p *PermissionProbe) check(a Adapter) error {
 var launchEnvRe = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
 
 // checkLaunchEnv accepts a few plain names and short values. A name that is
-// Flockdeck's own (FLOCKDECK_, PERCH_) is refused, as the entry-level passEnv refuses it.
+// Flockdeck's own (FLOCKDECK_) is refused, as the entry-level passEnv refuses it.
 func checkLaunchEnv(env map[string]string) error {
 	if len(env) > 4 {
 		return errors.New("launchEnv takes at most 4 variables")
@@ -245,7 +245,7 @@ func checkLaunchEnv(env map[string]string) error {
 		switch {
 		case !launchEnvRe.MatchString(name) || len(name) > 60:
 			return fmt.Errorf("launchEnv name %q is not a variable name in capitals", clipText(name, 40))
-		case strings.HasPrefix(name, "FLOCKDECK_") || strings.HasPrefix(name, "PERCH_"):
+		case strings.HasPrefix(name, "FLOCKDECK_"):
 			return fmt.Errorf("launchEnv may not set %s: those names are Flockdeck's own", name)
 		case v == "" || len(v) > 400 || hasControl(v):
 			return fmt.Errorf("launchEnv %s must be text of 1 to 400 characters with no control character", name)

@@ -162,9 +162,9 @@ type ACPSpec struct {
 	Login string `json:"login,omitempty"`
 	// PassEnv names the variables of Flockdeck's own environment that the agent
 	// is given beyond acp.MinimalEnv. It is the whole list: the rest of the
-	// environment is not passed. Names starting FLOCKDECK_ or PERCH_ (in any
+	// environment is not passed. Names starting FLOCKDECK_ (in any
 	// case) are refused, since Flockdeck sets its tokens and the pane's
-	// identity under both; at most 64 names are read. Case matters on Linux and
+	// identity under that prefix; at most 64 names are read. Case matters on Linux and
 	// macOS and does not on Windows.
 	PassEnv []string `json:"passEnv,omitempty"`
 	// MCP reports that the agent takes per-session mcpServers.

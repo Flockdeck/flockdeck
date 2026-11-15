@@ -21,7 +21,6 @@ func TestTheHookTakesTheSecretFromThePane(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = srv.Close() })
-	t.Setenv("PERCH_TOKEN", "")
 
 	for _, c := range []struct {
 		name, env string

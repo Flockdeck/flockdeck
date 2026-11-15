@@ -276,7 +276,6 @@ func TestLaunchEnvIsChecked(t *testing.T) {
 	for name, env := range map[string]string{
 		"lower case name":  `{"opencode_x":"1"}`,
 		"flockdeck name":   `{"FLOCKDECK_TOKEN":"1"}`,
-		"perch name":       `{"PERCH_TOKEN":"1"}`,
 		"name with equals": `{"A=B":"1"}`,
 		"empty value":      `{"A":""}`,
 		"control value":    `{"A":"x\u0007y"}`,
@@ -287,11 +286,12 @@ func TestLaunchEnvIsChecked(t *testing.T) {
 			t.Errorf("%s: accepted", name)
 		}
 	}
-	m, err := Parse([]byte(wrap(base(`{"B_TWO":"2","A_ONE":"1"}`))))
+	// A PERCH_ name is an ordinary variable.
+	m, err := Parse([]byte(wrap(base(`{"B_TWO":"2","A_ONE":"1","PERCH_X":"3"}`))))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := m.Adapters[0].LaunchEnvList(); len(got) != 2 || got[0] != "A_ONE=1" || got[1] != "B_TWO=2" {
+	if got := m.Adapters[0].LaunchEnvList(); len(got) != 3 || got[0] != "A_ONE=1" || got[1] != "B_TWO=2" || got[2] != "PERCH_X=3" {
 		t.Errorf("LaunchEnvList = %v, want sorted by name", got)
 	}
 }

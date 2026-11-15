@@ -512,11 +512,10 @@ func TestStartRefusesWhatCannotRun(t *testing.T) {
 }
 
 // The child sees MinimalEnv and what the entry lists, and nothing of a
-// poisoned parent: not Flockdeck's tokens under either prefix, not a key.
+// poisoned parent: not Flockdeck's tokens in any case, not a key.
 func TestThePoisonedParentEnvironmentDoesNotReachTheChild(t *testing.T) {
 	t.Setenv("FLOCKDECK_TOKEN", "poison-flockdeck")
-	t.Setenv("PERCH_TOKEN", "poison-perch")
-	t.Setenv("perch_api", "poison-lower")
+	t.Setenv("flockdeck_api", "poison-lower")
 	t.Setenv("ANTHROPIC_API_KEY", "poison-key")
 	t.Setenv("OPENAI_API_KEY", "poison-openai")
 	t.Setenv("KEEP_ME", "kept-value")
@@ -527,7 +526,7 @@ func TestThePoisonedParentEnvironmentDoesNotReachTheChild(t *testing.T) {
 	}
 	o := Options{
 		// Listing the reserved names must not pass them either.
-		Spec: agent.Spec{ID: "fake", ACP: agent.ACPSpec{PassEnv: []string{"KEEP_ME", "FLOCKDECK_TOKEN", "PERCH_TOKEN", "perch_api", "PATH"}}},
+		Spec: agent.Spec{ID: "fake", ACP: agent.ACPSpec{PassEnv: []string{"KEEP_ME", "FLOCKDECK_TOKEN", "flockdeck_api", "PATH"}}},
 		Cwd:  acptest.SessionDir(t),
 		// A nil Env is the environment built from the entry.
 		Command: &Command{Path: exe, Args: []string{acptest.ArgAgent}},
@@ -538,7 +537,7 @@ func TestThePoisonedParentEnvironmentDoesNotReachTheChild(t *testing.T) {
 	}
 	s := until(t, r, "the environment", func(s Snapshot) bool { return idle(s) && strings.Contains(replies(s), "=") })
 	got := replies(s)
-	for _, poison := range []string{"poison-flockdeck", "poison-perch", "poison-lower", "poison-key", "poison-openai", "FLOCKDECK_TOKEN", "PERCH_TOKEN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "FLOCKDECK_"} {
+	for _, poison := range []string{"poison-flockdeck", "poison-lower", "poison-key", "poison-openai", "FLOCKDECK_TOKEN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY", "FLOCKDECK_"} {
 		if strings.Contains(got, poison) {
 			t.Errorf("the child saw %q:\n%s", poison, got)
 		}

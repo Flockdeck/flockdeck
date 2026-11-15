@@ -252,12 +252,12 @@ func TestACPEnvironmentIsExactlyTheAllowlist(t *testing.T) {
 		t.Error("an entry that lists nothing passes nothing")
 	}
 
-	c := Merge(&File{Agents: raw(`{"id":"x","runner":"acp","acp":{"adapter":"opencode","passEnv":["HOME","FLOCKDECK_TOKEN","flockdeck_relay","PERCH_TOKEN","perch_api","A B","1X"]}}`)})
+	c := Merge(&File{Agents: raw(`{"id":"x","runner":"acp","acp":{"adapter":"opencode","passEnv":["HOME","FLOCKDECK_TOKEN","flockdeck_relay","A B","1X"]}}`)})
 	x, _ := c.Find("x")
 	if !slices.Equal(x.ACP.PassEnv, []string{"HOME"}) {
 		t.Errorf("PassEnv = %v", x.ACP.PassEnv)
 	}
-	for _, want := range []string{`"FLOCKDECK_TOKEN" is dropped`, `"flockdeck_relay" is dropped`, `"PERCH_TOKEN" is dropped`, `"perch_api" is dropped`, `"A B" is not a variable name`, `"1X" is not a variable name`} {
+	for _, want := range []string{`"FLOCKDECK_TOKEN" is dropped`, `"flockdeck_relay" is dropped`, `"A B" is not a variable name`, `"1X" is not a variable name`} {
 		if !strings.Contains(c.Notice, want) {
 			t.Errorf("notice %q should say %s", c.Notice, want)
 		}
@@ -268,7 +268,7 @@ func TestACPEnvironmentIsExactlyTheAllowlist(t *testing.T) {
 		}
 		for _, name := range s.ACP.PassEnv {
 			up := strings.ToUpper(name)
-			if strings.HasPrefix(up, "FLOCKDECK_") || strings.HasPrefix(up, "PERCH_") || strings.Contains(up, "KEY") || strings.Contains(up, "TOKEN") {
+			if strings.HasPrefix(up, "FLOCKDECK_") || strings.Contains(up, "KEY") || strings.Contains(up, "TOKEN") {
 				t.Errorf("%s passes %s", s.ID, name)
 			}
 		}
@@ -312,11 +312,12 @@ func TestStructuredAvailabilityFollowsTheManifestCommand(t *testing.T) {
 // ACPPassEnv holds the line itself: a Spec built any other way than through
 // the catalog is still refused the reserved names, whatever their case.
 func TestACPPassEnvEnforcesTheRulesOnItsOwn(t *testing.T) {
-	environ := []string{"HOME=/h", "FLOCKDECK_TOKEN=a", "PERCH_TOKEN=b", "perch_api=c", "Flockdeck_x=d", "ANTHROPIC_API_KEY=k", "PATH=/bin"}
-	s := Spec{Runner: RunnerACP, ACP: ACPSpec{Adapter: "opencode", PassEnv: []string{"HOME", "FLOCKDECK_TOKEN", "PERCH_TOKEN", "perch_api", "Flockdeck_x", "PATH"}}}
+	environ := []string{"HOME=/h", "FLOCKDECK_TOKEN=a", "PERCH_TOKEN=b", "Flockdeck_x=d", "ANTHROPIC_API_KEY=k", "PATH=/bin"}
+	s := Spec{Runner: RunnerACP, ACP: ACPSpec{Adapter: "opencode", PassEnv: []string{"HOME", "FLOCKDECK_TOKEN", "PERCH_TOKEN", "Flockdeck_x", "PATH"}}}
 	got := s.ACPPassEnv(environ)
-	if !slices.Equal(got, []string{"HOME=/h"}) {
-		t.Errorf("got %v, want only HOME (PATH is MinimalEnv's)", got)
+	// PERCH_TOKEN is an ordinary variable now: it is passed when named.
+	if !slices.Equal(got, []string{"HOME=/h", "PERCH_TOKEN=b"}) {
+		t.Errorf("got %v, want HOME and PERCH_TOKEN (PATH is MinimalEnv's)", got)
 	}
 }
 

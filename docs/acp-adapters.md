@@ -128,10 +128,9 @@ manifest instead of a program, and says what the agent may see:
 - `passEnv` is the whole list of variables the agent gets from Flockdeck's
   environment, on top of the few that let it find programs and a temp folder
   (`acp.MinimalEnv`), and it holds at most 64 names. Keys and tokens are not
-  passed unless an entry names them. A name starting `FLOCKDECK_` or `PERCH_`
-  is refused in any case, since Flockdeck sets its tokens and the pane's
-  identity under both; the refusal is made again where the environment is
-  built, so an entry that skipped the catalog's check is still held to it. A
+  passed unless an entry names them. A name starting `FLOCKDECK_` is refused in any
+  case, since Flockdeck sets its tokens and the pane's identity under that
+  prefix; the refusal is made again where the environment is built, so an entry that skipped the catalog's check is still held to it. A
   name `acp.MinimalEnv` already gives (`PATH` and the like) is not passed twice.
   Names are compared exactly on Linux and macOS and without regard to case on
   Windows.
@@ -141,7 +140,7 @@ manifest instead of a program, and says what the agent may see:
   `flockdeck keys set` is set in: `GEMINI_API_KEY` for Gemini CLI,
   `OPENAI_API_KEY` for Codex. The runtime sets it in the adapter's environment
   after the launch check has run and nowhere else; the Go adapters pass their
-  environment on to claude and codex (minus `FLOCKDECK_` and `PERCH_`
+  environment on to claude and codex (minus `FLOCKDECK_`
   variables), so a key reaches the agent that way. opencode has no slot: it
   keeps its own provider logins. A variable exported in Flockdeck's environment
   is the agent's key only if `passEnv` lists it, and `FLOCKDECK_API_KEY` and
@@ -164,7 +163,7 @@ the servers in the `mcpServers` list of `prefs.json` (`name`, `command`, `args`,
 `env`, `off`). Flockdeck's entry is left out until the server exists
 (`Workspace.UseMCPToken`). A user entry with a bad or repeated name, the name
 `flockdeck`, no command or a control character is skipped, at most 16 servers
-are sent, and a variable starting `FLOCKDECK_` or `PERCH_` is dropped from a
+are sent, and a variable starting `FLOCKDECK_` is dropped from a
 user entry in any case. Nothing is taken from Flockdeck's own environment. The
 list is never sent to a window, since an `env` may hold a key.
 

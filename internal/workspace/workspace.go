@@ -2164,18 +2164,11 @@ func (w *Workspace) paneEnv(p *Pane, agentID, model string) []string {
 		{"PANE_NAME", p.Name},
 		{"PROJECT", w.rootOf(p.ID)},
 	}
-	// Both spellings go into the environment for now. The pane name and the
-	// project are documented for the user's own shell prompt to read, so a
-	// prompt written against the names an earlier build used would go blank on
-	// upgrade with nothing on screen to say why. The old set can be dropped a
-	// release after the rename.
-	env := make([]string, 0, 2*len(vars)+2)
+	env := make([]string, 0, len(vars)+2)
 	for _, v := range vars {
-		env = append(env, "FLOCKDECK_"+v[0]+"="+v[1], "PERCH_"+v[0]+"="+v[1])
+		env = append(env, "FLOCKDECK_"+v[0]+"="+v[1])
 	}
-	// Which agent and model the pane is running only under the name in use
-	// now: they are new, so there is no prompt or script written against an
-	// older spelling of them to keep working. A shell pane is neither and is
+	// Which agent and model the pane is running. A shell pane is neither and is
 	// told nothing, rather than being told it is an agent with no name.
 	if agentID != "" {
 		env = append(env, "FLOCKDECK_AGENT="+agentID)

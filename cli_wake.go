@@ -67,10 +67,10 @@ type wakeEnv struct {
 
 func runWake(args []string, out io.Writer) error {
 	return runWakeWith(wakeEnv{
-		inPane:   func() bool { return quietPaneEnv("PANE") != "" },
+		inPane:   func() bool { return paneEnv("PANE") != "" || oldPaneEnv() },
 		events:   readWakeEvents,
 		terminal: wakeTerminal,
-		paneAPI:  func() bool { return quietPaneEnv("API") != "" || quietPaneEnv("TOKEN") != "" },
+		paneAPI:  func() bool { return paneEnv("API") != "" || paneEnv("TOKEN") != "" || oldPaneEnv() },
 		read:     store.ReadWake,
 		offersText: func(id string) bool {
 			spec, ok := agent.Load().Find(id)

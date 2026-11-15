@@ -224,7 +224,6 @@ func TestHelperGetsTheEnvironmentItShould(t *testing.T) {
 	e := fakeEntry("lens", "--dump-env", dump)
 	t.Setenv("FLOCKDECK_TOKEN", "secret-token")
 	t.Setenv("FLOCKDECK_API", "http://127.0.0.1:1")
-	t.Setenv("PERCH_TOKEN", "old-secret")
 	t.Setenv("MY_API_KEY", "secret-key")
 	t.Setenv("GITHUB_TOKEN", "secret-gh")
 	f := newSupFixture(t, []Entry{e})
@@ -236,7 +235,7 @@ func TestHelperGetsTheEnvironmentItShould(t *testing.T) {
 		t.Fatal(err)
 	}
 	env := string(b)
-	for _, bad := range []string{"secret-token", "secret-key", "secret-gh", "old-secret", "FLOCKDECK_", "PERCH_", "_API_KEY", "GITHUB_TOKEN"} {
+	for _, bad := range []string{"secret-token", "secret-key", "secret-gh", "FLOCKDECK_", "_API_KEY", "GITHUB_TOKEN"} {
 		if strings.Contains(env, bad) {
 			t.Errorf("the child's environment contains %q", bad)
 		}

@@ -195,8 +195,8 @@ is redacted as a whole and as the token). It is a log and nothing else. The clie
 
 ### Environment
 
-The adapter starts codex in the environment it was given, minus every `FLOCKDECK_` and
-`PERCH_` variable in any letter case, also when the caller passes an environment of its
+The adapter starts codex in the environment it was given, minus every `FLOCKDECK_`
+variable in any letter case, also when the caller passes an environment of its
 own. The client must pass what codex reads its login and settings from (`HOME` or
 `USERPROFILE`, `APPDATA`, `CODEX_HOME`, `OPENAI_API_KEY` if used); the client's default
 environment has none of them. `FLOCKDECK_CODEX_BIN` names the executable when it is not

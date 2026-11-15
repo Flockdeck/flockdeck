@@ -330,7 +330,7 @@ func kept(name string) bool {
 	return false
 }
 
-// clearOwnEnv unsets every FLOCKDECK_ and PERCH_ variable but the kept ones.
+// clearOwnEnv unsets every FLOCKDECK_ variable but the kept ones.
 // Those are the pane identity a test run from an agent inside a Flockdeck pane
 // inherits (the hook client reads it as its own, so a test that does not set it
 // passes on CI and fails there), and the switches the program reads (the relay,
@@ -342,7 +342,7 @@ func kept(name string) bool {
 func clearOwnEnv() {
 	for _, kv := range os.Environ() {
 		name, _, _ := strings.Cut(kv, "=")
-		if (strings.HasPrefix(name, "FLOCKDECK_") || strings.HasPrefix(name, "PERCH_")) && !kept(name) {
+		if strings.HasPrefix(name, "FLOCKDECK_") && !kept(name) {
 			os.Unsetenv(name)
 		}
 	}

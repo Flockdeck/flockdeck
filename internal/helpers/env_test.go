@@ -19,11 +19,10 @@ func envMap(env []string) map[string]string {
 var secretNames = []string{
 	"FLOCKDECK_TOKEN", "FLOCKDECK_API", "FLOCKDECK_PANE", "FLOCKDECK_AGENT", "FLOCKDECK_API_KEY",
 	"FLOCKDECK_RELAY", "FLOCKDECK_DIR", "FLOCKDECK_UPDATE", "FLOCKDECK_SOMETHING_NEW",
-	"PERCH_TOKEN", "PERCH_API", "PERCH_PANE", "PERCH_AGENT",
 	"ANTHROPIC_API_KEY", "OPENAI_API_KEY", "TYPESAFE_API_KEY", "GEMINI_API_KEY", "MY_API_KEY",
 	"GITHUB_TOKEN", "GH_TOKEN", "AWS_SECRET_ACCESS_KEY", "AWS_ACCESS_KEY_ID", "NPM_TOKEN",
 	"SSH_AUTH_SOCK", "CLAUDE_CONFIG_DIR", "CLAUDECODE", "ANTHROPIC_AUTH_TOKEN",
-	"flockdeck_token", "Flockdeck_Api", "perch_token", "anthropic_api_key",
+	"flockdeck_token", "Flockdeck_Api", "anthropic_api_key",
 }
 
 func TestBuildEnvKeepsSecretsOut(t *testing.T) {
@@ -42,7 +41,7 @@ func TestBuildEnvKeepsSecretsOut(t *testing.T) {
 		}
 		name, _, _ := strings.Cut(kv, "=")
 		up := strings.ToUpper(name)
-		if strings.HasPrefix(up, "FLOCKDECK_") || strings.HasPrefix(up, "PERCH_") || strings.HasSuffix(up, "_API_KEY") ||
+		if strings.HasPrefix(up, "FLOCKDECK_") || strings.HasSuffix(up, "_API_KEY") ||
 			strings.HasSuffix(up, "_TOKEN") {
 			t.Errorf("%s reached the child", name)
 		}

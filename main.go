@@ -32,7 +32,6 @@ import (
 	"github.com/jmwri/flockdeck/internal/agent"
 	"github.com/jmwri/flockdeck/internal/appwindow"
 	"github.com/jmwri/flockdeck/internal/hooks"
-	"github.com/jmwri/flockdeck/internal/legacyenv"
 	"github.com/jmwri/flockdeck/internal/remote"
 	"github.com/jmwri/flockdeck/internal/server"
 	"github.com/jmwri/flockdeck/internal/session"
@@ -1745,19 +1744,32 @@ var errReported = errors.New("already reported")
 // nothing left to do, so the command succeeds rather than failing.
 var errHelpAsked = errors.New("usage shown")
 
-// paneEnv reads one of the variables a pane carries, accepting the name an
-// earlier build used alongside the one in use now. A pane started by an
-// instance of that build is still running with the old names in its
-// environment, and an agent inside it should not lose the ability to spawn
-// just because the binary on its PATH has been upgraded. The old names are due
-// to be removed after legacyenv.RemovalDate; until then using one prints a
-// warning to stderr, once per name. The hook and the status line, which run as
-// a new process on every event, use quietPaneEnv instead.
-func paneEnv(name string) string { return legacyenv.GetWarn(os.Stderr, name) }
+// paneEnv reads one of the variables a pane carries: FLOCKDECK_<name>.
+func paneEnv(name string) string { return os.Getenv("FLOCKDECK_" + name) }
 
-// quietPaneEnv is paneEnv without the warning, for commands whose stderr has to
-// stay clean.
-func quietPaneEnv(name string) string { return legacyenv.Get(name) }
+// errOldPane is what a command says in a pane that an earlier build started,
+// whose environment has the PERCH_ names and none of the FLOCKDECK_ ones.
+var errOldPane = errors.New("this pane was started by an older Flockdeck and still has the old PERCH_ variable names; restart the pane")
+
+// oldPaneEnv says the environment has a PERCH_ pane name. It checks that one
+// is present and never reads its value, so an old name is not an identity.
+func oldPaneEnv() bool {
+	for _, n := range []string{"API", "TOKEN", "PANE"} {
+		if _, ok := os.LookupEnv("PERCH_" + n); ok {
+			return true
+		}
+	}
+	return false
+}
+
+// oldPaneOr is errOldPane when the pane carries only the old names, and err
+// otherwise.
+func oldPaneOr(err error) error {
+	if paneEnv("API") == "" && paneEnv("TOKEN") == "" && paneEnv("PANE") == "" && oldPaneEnv() {
+		return errOldPane
+	}
+	return err
+}
 
 // runSpawn implements the `spawn` subcommand, which starts another agent from
 // inside a pane.
@@ -1785,8 +1797,8 @@ func runSpawn(args []string) error {
 		// this in a terminal of their own was told only where it works, and
 		// an agent in a pane whose environment had lost them had nothing to
 		// go on at all.
-		return fmt.Errorf("this only works inside a flockdeck pane, which is started with FLOCKDECK_API and FLOCKDECK_TOKEN set, " +
-			"and they are not set here; from any other terminal, run `flockdeck` to open the window and start the agent there")
+		return oldPaneOr(fmt.Errorf("this only works inside a flockdeck pane, which is started with FLOCKDECK_API and FLOCKDECK_TOKEN set, " +
+			"and they are not set here; from any other terminal, run `flockdeck` to open the window and start the agent there"))
 	}
 
 	res, err := hooks.Spawn(api, token, pane, req)
@@ -2075,8 +2087,8 @@ func runPeerName(args []string) error {
 		// Worded the same as runSpawn's own: somebody who typed this in a
 		// terminal of their own was told only where it works, and an agent in
 		// a pane whose environment had lost them had nothing to go on at all.
-		return fmt.Errorf("this only works inside a flockdeck pane, which is started with FLOCKDECK_API and FLOCKDECK_TOKEN set, " +
-			"and they are not set here; from any other terminal, run `flockdeck` to open the window and start the agent there")
+		return oldPaneOr(fmt.Errorf("this only works inside a flockdeck pane, which is started with FLOCKDECK_API and FLOCKDECK_TOKEN set, " +
+			"and they are not set here; from any other terminal, run `flockdeck` to open the window and start the agent there"))
 	}
 	if err := hooks.PeerName(api, token, pane, name); err != nil {
 		return err
@@ -2116,8 +2128,8 @@ func runPaneName(args []string) error {
 	token := paneEnv("TOKEN")
 	pane := paneEnv("PANE")
 	if api == "" || token == "" {
-		return fmt.Errorf("this only works inside a flockdeck pane, which is started with FLOCKDECK_API and FLOCKDECK_TOKEN set, " +
-			"and they are not set here; from any other terminal, run `flockdeck` to open the window and start the agent there")
+		return oldPaneOr(fmt.Errorf("this only works inside a flockdeck pane, which is started with FLOCKDECK_API and FLOCKDECK_TOKEN set, " +
+			"and they are not set here; from any other terminal, run `flockdeck` to open the window and start the agent there"))
 	}
 	res, err := hooks.PaneName(api, token, pane, *target, text)
 	if err != nil {
@@ -2221,8 +2233,8 @@ func runClose(args []string) error {
 	token := paneEnv("TOKEN")
 	pane := paneEnv("PANE")
 	if api == "" || token == "" {
-		return fmt.Errorf("this only works inside a flockdeck pane, which is started with FLOCKDECK_API and FLOCKDECK_TOKEN set, " +
-			"and they are not set here; from any other terminal, run `flockdeck` to open the window and start the agent there")
+		return oldPaneOr(fmt.Errorf("this only works inside a flockdeck pane, which is started with FLOCKDECK_API and FLOCKDECK_TOKEN set, " +
+			"and they are not set here; from any other terminal, run `flockdeck` to open the window and start the agent there"))
 	}
 
 	res, err := hooks.Close(api, token, pane, req)
@@ -2543,7 +2555,7 @@ func hook(args []string, stdin io.Reader, stdout, stderr io.Writer) {
 		return
 	}
 	if *token == "" {
-		*token = quietPaneEnv("TOKEN")
+		*token = paneEnv("TOKEN")
 	}
 	// Stderr is the one place a hook can complain: Claude Code shows it under
 	// --debug, and it neither fails the session nor lands in the stdout that

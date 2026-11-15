@@ -8,7 +8,7 @@ import (
 )
 
 func TestCleanEnvIsNeverNil(t *testing.T) {
-	if got := cleanEnv([]string{"FLOCKDECK_A=1", "perch_b=2"}); got == nil || len(got) != 0 {
+	if got := cleanEnv([]string{"FLOCKDECK_A=1", "flockdeck_b=2"}); got == nil || len(got) != 0 {
 		t.Errorf("cleanEnv = %#v: a nil Env would hand the child the parent's environment", got)
 	}
 	o := Options{Env: []string{"FLOCKDECK_A=1"}}

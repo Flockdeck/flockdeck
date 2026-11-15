@@ -119,10 +119,8 @@ func TestGuardAllowsLoopback(t *testing.T) {
 // package with FLOCKDECK_LAUNCH=x go test to see it hold.
 func TestNoPaneIdentityInheritedFromTheEnvironment(t *testing.T) {
 	for _, name := range []string{"API", "TOKEN", "PANE", "PANE_NAME", "PROJECT", "ROLE", "AGENT", "MODEL", "LAUNCH"} {
-		for _, prefix := range []string{"FLOCKDECK_", "PERCH_"} {
-			if v, ok := os.LookupEnv(prefix + name); ok {
-				t.Errorf("%s%s is set to %q", prefix, name, v)
-			}
+		if v, ok := os.LookupEnv("FLOCKDECK_" + name); ok {
+			t.Errorf("FLOCKDECK_%s is set to %q", name, v)
 		}
 	}
 }
