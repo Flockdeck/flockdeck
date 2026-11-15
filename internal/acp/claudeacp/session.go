@@ -122,6 +122,7 @@ type session struct {
 	mu        sync.Mutex
 	idle      *sync.Cond                      // on mu: claude finished a turn it started itself, a cancel, or the session ended
 	busy      bool                            // claude is in a turn that no prompt of ours started
+	busyMu    sync.Mutex                      // taken before mu by whoever changes busy, until its flockdeck_busy update is sent, so the updates go out in the order the changes were made
 	waiters   map[string]chan json.RawMessage // our control requests, by request_id
 	cur       *turn
 	gen       int
@@ -392,13 +393,19 @@ func (ss *session) busyWatchdog() {
 	for {
 		select {
 		case <-t.C:
+			ss.busyMu.Lock()
 			ss.mu.Lock()
-			if ss.busy && time.Since(ss.lastLine) > idle {
+			cleared := ss.busy && time.Since(ss.lastLine) > idle
+			if cleared {
 				ss.busy = false
 				ss.idle.Broadcast()
 				ss.srv.logf("claude's own turn sent nothing for %v; prompts no longer wait for it", idle)
 			}
 			ss.mu.Unlock()
+			if cleared {
+				ss.srv.update(ss.id, map[string]any{"sessionUpdate": "flockdeck_busy", "busy": false})
+			}
+			ss.busyMu.Unlock()
 		case <-ss.dead:
 			return
 		case <-ss.quit:
@@ -448,7 +455,18 @@ func (ss *session) adopt(reported string) {
 
 func (ss *session) markDead() {
 	ss.deadOne.Do(func() { close(ss.dead) })
-	ss.wake()
+	// A claude that has gone is not in a turn: tell the client, or it would keep
+	// prompts waiting for a result that cannot come.
+	ss.busyMu.Lock()
+	ss.mu.Lock()
+	wasBusy := ss.busy
+	ss.busy = false
+	ss.idle.Broadcast()
+	ss.mu.Unlock()
+	if wasBusy {
+		ss.srv.update(ss.id, map[string]any{"sessionUpdate": "flockdeck_busy", "busy": false})
+	}
+	ss.busyMu.Unlock()
 }
 
 // wake lets a prompt that waits for claude's own turn look again.

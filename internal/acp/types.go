@@ -165,6 +165,13 @@ type Update struct {
 
 	// NewSessionID is set for flockdeck_session.
 	NewSessionID string
+
+	// Busy is set for flockdeck_busy.
+	Busy bool
+
+	// SubagentText is set for flockdeck_subagent_text, with ToolCallID naming the
+	// tool call that started the subagent.
+	SubagentText string
 }
 
 // decodeUpdate builds an Update from the update object. It never fails: the
@@ -265,6 +272,19 @@ func decodeUpdate(sessionID string, raw json.RawMessage) Update {
 		}
 		_ = json.Unmarshal(raw, &w)
 		u.NewSessionID = w.ID
+	case UpdateBusy:
+		var w struct {
+			Busy bool `json:"busy"`
+		}
+		_ = json.Unmarshal(raw, &w)
+		u.Busy = w.Busy
+	case UpdateSubagentText:
+		var w struct {
+			ToolCallID string `json:"toolCallId"`
+			Text       string `json:"text"`
+		}
+		_ = json.Unmarshal(raw, &w)
+		u.ToolCallID, u.SubagentText = w.ToolCallID, w.Text
 	case UpdateNotice:
 		var w struct {
 			Code string `json:"code"`

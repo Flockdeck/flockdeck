@@ -455,3 +455,26 @@ test("a structured pane has no Conversation tab: the conversation is the body of
     assert.equal(m.container.findAll(".conv").length, 1, "a second list");
     assert.equal(m.container.findAll(".conv-row").length, 1);
   }));
+
+test("while the agent works on its own a note says so, Send queues and Stop is offered", async () => {
+  await with_(push({ phase: "ready", status: "idle", background: true }), {}, async (m) => {
+    const note = m.container.querySelector('[data-background="on"]');
+    assert.ok(note, "no background note");
+    assert.match(note.textContent, /background task/);
+    assert.match(note.textContent, /waits in the queue/);
+    assert.ok(m.container.querySelector(".structured-stop"), "Stop is not offered");
+    await m.set({ structured: push({ phase: "ready", status: "idle" }) });
+    assert.equal(m.container.querySelector('[data-background="on"]'), null);
+    assert.equal(m.container.querySelector(".structured-stop"), null);
+  });
+});
+
+test("the Send button says the agent works in the background when it does", async () => {
+  await with_(push({ phase: "ready", status: "working", background: true }), {}, async (m) => {
+    m.container.find(".structured-input").enter("next");
+    await settle();
+    const send = m.container.querySelector(".structured-send");
+    assert.ok(send, "no Send button");
+    assert.match(send.getAttribute("title") || "", /in the background/);
+  });
+});

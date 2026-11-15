@@ -30,6 +30,15 @@ const (
 	// for resuming the session, after the agent moved the conversation to a new
 	// one (Claude's /clear). The session keeps the id it has for prompts.
 	UpdateSessionID = "flockdeck_session"
+	// UpdateBusy is a Flockdeck adapter saying whether the agent is in a turn
+	// that no prompt of ours started (Claude's finished background task). A
+	// prompt sent meanwhile would wait inside the adapter, so the client holds it
+	// in its own queue instead.
+	UpdateBusy = "flockdeck_busy"
+	// UpdateSubagentText is text a subagent wrote, for the tool call that started
+	// the subagent (toolCallId). ACP has no field for it; it is the agent's text
+	// and gets the same cleaning and caps as any other.
+	UpdateSubagentText = "flockdeck_subagent_text"
 )
 
 // Command is one slash command an agent offers.

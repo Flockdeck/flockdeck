@@ -81,6 +81,7 @@ refused in the same words, so a window probing for ids learns nothing: the `team
 | `phase` | `starting`, `needs setup`, `ready`, `exited`, `failed` or `closed`. |
 | `status` | `working`, `waiting` or `idle`, while the phase is `ready`. |
 | `activity` | A line naming what a working agent is doing. |
+| `background` | `true` while the agent works on a turn no prompt of this window started, such as a finished background task (API 1.34, cap `subagentText`). Only the Claude adapter says so. A prompt sent meanwhile stays in `queue` and goes out when the turn ends; Stop ends the agent's turn. `status` is `working` while `background` is `true`, so the pane list and the finished notice follow the agent's own turns as they follow a prompt's, and the notice fires after each background turn, even a short one. Only the pane's own Claude adapter can set it; the same adapter's `sub` is the only one taken, and any other agent's is ignored. It is absent when the phase is not `ready`, and Send now ends the agent's turn. The drawer shows a note and offers Stop. Absent otherwise. |
 | `queued` | How many prompts wait behind the running turn. |
 | `queue` | The waiting prompts, next first (API 1.19): `id`, `pos`, `kind` (`user`, `mail` or `flockdeck`), `state` (`queued`), `peer` (mail only), `text` (cut to 2000 bytes), `clipped` and `images` (since API 1.30: how many pictures the prompt carries, absent for none; an edit of the text keeps them). For `user` the text is exactly as typed, so an edit starts from it; for `mail` the text and `peer` have format and direction characters (Unicode Cf, such as U+202E) removed. A message from another agent is `kind` `mail` with the sender in `peer`; its body never carries the sender, and a window draws `peer` and `text` apart. Prompts the person sent while the turn runs, and mail handed over by the delivery service, are in the same list; mail past the 16 the runtime holds waits in the store and is not listed. |
 | `shell` | The person's own commands, the oldest first, at most 8 (API 1.20): `id`, `cmd` (one line, cut to 500 characters), `state` (`running`, `exited`, `stopped`, `timeout` or `failed`), `code` (only for `exited`), `text` and `cut`. `text` is the output as plain text: escape sequences, carriage-return overwrites, control characters other than line break and tab, and format characters (U+202E and the like) are removed, and it is cut to its newest 8 KiB (`cut` says the start was let go; the runtime keeps at most 64 KiB). A window draws it as text only. |
@@ -148,6 +149,12 @@ notice that says something went wrong: a turn that ended for any reason but a no
 (`Turn ended: max_tokens`), a session that could not be resumed or a fork that could not be made, and a
 restart that failed. Every other notice has no `tone`. A window draws a failure notice in its error colour
 and as a block, apart from a plain note. A value a window does not know is drawn as a plain notice.
+
+A `tool` entry has an optional `sub` (API 1.34, cap `subagentText`): what the subagent that tool call started has
+said, as plain text, cut to 8 KiB (a cut one ends with `[more not shown]`). Only the Claude adapter fills it, for a
+Task or Agent call. It is the agent's text: it is cleaned like any other agent text, drawn as text under the row
+and never as markup, and a window through the relay is not sent conversation entries at all. The subagent's
+thinking and its tool results are not passed on.
 
 A `prompt` entry has an optional `typed` (API 1.32, cap `promptTyped`), `true` on a prompt the person typed in
 the pane's own box. A replayed prompt, a prompt Flockdeck or another agent sent (the opening prompt, a wake, a

@@ -334,6 +334,9 @@ type Snapshot struct {
 	// models, settings, markdown plan, title and capabilities.
 	Session bridge.SessionState
 	Entries []transcript.Entry
+	// Background says the agent is working on a turn that no prompt of ours
+	// started. Prompts wait in Queue until it ends.
+	Background bool
 	// Queued is how many prompts wait behind the running turn.
 	Queued int
 	// Queue lists them, the next to be sent first.
@@ -952,8 +955,12 @@ func (r *Runtime) SendNow(id int) error {
 	rest := slices.Delete(slices.Clone(r.queue), i, i+1)
 	r.queue = slices.Insert(rest, 0, q)
 	var err error
-	if r.inTurn {
-		r.asked = true
+	// The agent's own turn holds the queue as a prompt's turn does, so ending it
+	// is what lets this prompt go.
+	if r.inTurn || (r.br != nil && r.br.Background()) {
+		if r.inTurn {
+			r.asked = true
+		}
 		if r.phase == PhaseReady && r.client != nil && r.session != "" {
 			err = r.client.Cancel(r.session)
 		}
@@ -1138,6 +1145,7 @@ func (r *Runtime) Snapshot() Snapshot {
 	s.Dropped = r.br.Dropped()
 	s.Pending = r.br.Pending()
 	s.Activity = r.br.Activity()
+	s.Background = s.Phase == PhaseReady && r.br.Background()
 	s.RewindPoints = r.RewindPoints()
 	s.Epoch = r.Epoch()
 	s.RewindToken = r.RewindToken()
@@ -1244,8 +1252,28 @@ func (h handler) Update(u acp.Update) {
 		h.r.noteMoved(u.NewSessionID)
 		return
 	}
+	// Only Flockdeck's own Claude adapter says when it is busy on its own or what
+	// a subagent wrote. From any other agent these would let it hold the queue for
+	// ever or put text under any tool row.
+	if (u.Kind == acp.UpdateBusy || u.Kind == acp.UpdateSubagentText) && !h.r.ownClaude() {
+		return
+	}
 	h.Handler.Update(u)
 	h.r.notify()
+	if u.Kind == acp.UpdateBusy {
+		// The loop holds prompts while the agent works on its own; it must look
+		// again when that ends.
+		select {
+		case h.r.wake <- struct{}{}:
+		default:
+		}
+	}
+}
+
+// ownClaude says the pane runs Flockdeck's own Claude adapter, not a test's
+// command or another agent.
+func (r *Runtime) ownClaude() bool {
+	return r.opts.Command == nil && r.opts.Spec.ACPOwnClaude()
 }
 
 // ownClaudeAdapter is the manifest id of Flockdeck's Claude adapter, the only
@@ -1910,6 +1938,12 @@ func (r *Runtime) pop() (queued, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.phase != PhaseReady || len(r.queue) == 0 || r.rewinding {
+		return queued{}, false
+	}
+	// The agent is in a turn no prompt of ours started. A prompt sent now would
+	// wait for it inside the agent, with nothing to show for it, so it waits here,
+	// in the queue the person can see, edit and clear. Stop ends the agent's turn.
+	if r.br != nil && r.br.Background() {
 		return queued{}, false
 	}
 	t := r.queue[0]

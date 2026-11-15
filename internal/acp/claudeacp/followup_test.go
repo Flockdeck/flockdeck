@@ -120,6 +120,17 @@ func TestSilentTurnOfClaudesOwnStopsHoldingPrompts(t *testing.T) {
 	if d := time.Since(start); d < 300*time.Millisecond || d > 10*time.Second {
 		t.Errorf("the session started and the prompt was answered in %v, want about the idle time", d)
 	}
+	// the client was told the turn began and that the wait ended
+	var busy []bool
+	for _, u := range h.updates() {
+		if u["sessionUpdate"] == "flockdeck_busy" {
+			b, _ := u["busy"].(bool)
+			busy = append(busy, b)
+		}
+	}
+	if len(busy) != 2 || !busy[0] || busy[1] {
+		t.Errorf("flockdeck_busy updates = %v, want [true false]", busy)
+	}
 }
 
 // Integers too large for a float64 stay different.
@@ -132,4 +143,64 @@ func TestRuleKeyKeepsLargeNumbers(t *testing.T) {
 	if ruleKey("Bash", json.RawMessage(`{"command":"x"} {"y":1}`)) == ruleKey("Bash", json.RawMessage(`{"command":"x"}`)) {
 		t.Error("trailing data is ignored")
 	}
+}
+
+// busySeq is the flockdeck_busy values sent so far, in order.
+func busySeq(h *harness) []bool {
+	var out []bool
+	for _, u := range h.updates() {
+		if u["sessionUpdate"] == "flockdeck_busy" {
+			b, _ := u["busy"].(bool)
+			out = append(out, b)
+		}
+	}
+	return out
+}
+
+func waitBusySeq(t *testing.T, h *harness, want []bool, d time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(d)
+	for {
+		got := busySeq(h)
+		if len(got) == len(want) {
+			ok := true
+			for i := range got {
+				ok = ok && got[i] == want[i]
+			}
+			if ok {
+				return
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("flockdeck_busy updates = %v, want %v", got, want)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// A claude that exits during its own turn is no longer in one: the client is
+// told, or it would hold prompts for a result that cannot come.
+func TestClaudeExitingDuringItsOwnTurnClearsBusy(t *testing.T) {
+	h := newHarness(t, append(append([]step{}, ownTurn...), sleep(300), exitWith(1)))
+	h.start()
+	waitBusySeq(t, h, []bool{true, false}, 10*time.Second)
+}
+
+// So is one that was ended because it ignored the interrupt.
+func TestClaudeEndedAfterAnIgnoredInterruptClearsBusy(t *testing.T) {
+	h := newHarness(t, append(append([]step{}, ownTurn...), sleep(60000)))
+	sid := h.start()
+	waitBusySeq(t, h, []bool{true}, 10*time.Second)
+	h.notify("session/cancel", map[string]any{"sessionId": sid})
+	waitBusySeq(t, h, []bool{true, false}, 12*time.Second)
+}
+
+// A watchdog false is followed by a later init true, in that order.
+func TestBusyFalseFromTheWatchdogComesBeforeALaterTrue(t *testing.T) {
+	old := testBusyIdle
+	testBusyIdle = 300 * time.Millisecond
+	defer func() { testBusyIdle = old }()
+	h := newHarness(t, append(append([]step{}, ownTurn...), sleep(1500), emit(lInit), emit(lMsgStart), sleep(5000)))
+	h.start()
+	waitBusySeq(t, h, []bool{true, false, true}, 10*time.Second)
 }

@@ -219,11 +219,11 @@ func TestTurns(t *testing.T) {
 			want: want{stop: "end_turn", kinds: []string{"agent_thought_chunk", "usage_update"}, thought: "ponder"},
 		},
 		{
-			name: "subagent text is left out",
+			name: "subagent text goes to its tool call, not the reply",
 			steps: []step{expect(`"role":"user"`),
 				emit(`{"type":"assistant","message":{"id":"msg_s","content":[{"type":"text","text":"inner"}]},"parent_tool_use_id":"toolu_T"}`),
 				emit(lResultOK)},
-			want: want{stop: "end_turn", kinds: []string{"usage_update"}},
+			want: want{stop: "end_turn", kinds: []string{"flockdeck_subagent_text", "usage_update"}},
 		},
 		{
 			name: "bash call and result",

@@ -132,6 +132,10 @@ export function activityOf(st, entries = []) {
   return { title, kind: running ? toolKind(running.name) : "other", file: running ? fileOf(running.summary) : "" };
 }
 
+/** BACKGROUND_WORDS is shown while the agent works on a turn nobody asked for here, such as a finished
+ *  background task. A prompt typed meanwhile waits in the queue instead of being held out of sight. */
+export const BACKGROUND_WORDS = "The agent is working on a background task. A prompt you send waits in the queue and goes out when it finishes. Stop ends it.";
+
 /** Structured is the panel. st is the store's structured push, or null before the
  *  first one; error is the store's structuredError; desk is false in a window
  *  reached through the relay. snap is the store's snapshot, which carries the
@@ -234,7 +238,7 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
     const el = e && e.target;
     const win = el && el.ownerDocument ? el.ownerDocument.defaultView : null;
     const ctx = {
-      desk, working: st.status === "working" || st.status === "waiting", waiting: st.status === "waiting", draft: live.current.draft, stopping: stopping === pane || keyStop.current === pane,
+      desk, working: st.status === "working" || st.status === "waiting" || st.background === true, waiting: st.status === "waiting", draft: live.current.draft, stopping: stopping === pane || keyStop.current === pane,
       menuOpen: live.current.menuOpen, dialogOpen: (!!confirming && confirming.pane === pane) || exporting === pane || rewinding === pane,
       selected: selectedText(win, el),
     };
@@ -282,6 +286,9 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
         search=${search} onSearch=${onSearch} onClearSearch=${onClearSearch} canExport=${desk} onExport=${() => setExporting(pane)} className="structured-log"
         tips=${desk ? emptyTips(st) : null} onRetry=${desk ? () => store.retryConversation() : null} onRetryPrompt=${desk && st.status !== "working" && st.status !== "waiting" ? (t) => composer.current.send(t) : null} />
       ${desk ? html`<${ShellList} rows=${shellOf(st)} pane=${pane} store=${store} result=${shellResult} />` : null}
+      ${desk && st.background === true
+        ? html`<p class="structured-note structured-note--background" role="status" data-background="on">${BACKGROUND_WORDS}</p>`
+        : null}
       ${desk ? html`<${QueueList} rows=${queue} pane=${pane} store=${store} result=${queueResult} working=${st.status === "working"} focusBox=${() => composer.current.focus()} />` : null}
       ${desk
         ? html`<${Composer} pane=${pane} snap=${snap} st=${st} store=${store} controls=${controls} applySetting=${applySetting} onOwn=${onOwn} stop=${stop} onExpire=${expire}

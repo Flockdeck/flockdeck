@@ -193,6 +193,10 @@ func (b *Bridge) sessionUpdate(u acp.Update) bool {
 		}
 		b.closeMerges()
 		b.add(transcript.Entry{Kind: transcript.KindNotice, Text: text})
+	case acp.UpdateBusy:
+		b.background = u.Busy
+	case acp.UpdateSubagentText:
+		b.subagentText(u)
 	case acp.UpdateNotice:
 		// The agent names a notice by code; the words are Flockdeck's. An
 		// unknown code is dropped.
