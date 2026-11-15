@@ -279,11 +279,16 @@ func load(root string, restoring bool) (*State, error) {
 		// written over on the way out, so it is kept for the same reason:
 		// going forward again is then a matter of moving one file back.
 		//
-		// Only a higher number is a newer build's. Zero, or less, is a file
-		// that is not a layout at all, which is damage by another name.
+		// A higher number is a newer build's, and a lower one above zero is an
+		// older build's, in a form this build no longer converts. Zero, or
+		// less, is a file that is not a layout at all, which is damage by
+		// another name.
 		why := KeptDamaged
-		if s.Version > Version {
+		switch {
+		case s.Version > Version:
 			why = KeptNewer
+		case s.Version > 0:
+			why = KeptOlder
 		}
 		quarantine(p, layoutWhat(root), why)
 		return nil, nil
@@ -415,6 +420,9 @@ const (
 	// KeptNewer is a layout saved by a newer build, in a form this one does
 	// not know.
 	KeptNewer
+	// KeptOlder is a layout saved by an older build, in a form this one no
+	// longer converts.
+	KeptOlder
 )
 
 // Sentence says what happened to the file, and where it is now, in the words
@@ -425,8 +433,26 @@ func (k Kept) Sentence() string {
 		return k.What + " could not be used, because its file is damaged; the file has been set aside rather than saved over, and is kept as " + k.Path
 	case KeptNewer:
 		return k.What + " could not be used, because it was saved by a newer version of Flockdeck; the file has been set aside rather than saved over, and is kept as " + k.Path
+	case KeptOlder:
+		return k.What + " could not be used, because it was saved by an older version of Flockdeck that this one can no longer read; the file has been set aside rather than saved over, and is kept as " + k.Path
 	}
 	return k.What + " could not be read, so it was moved aside rather than saved over; it is kept as " + k.Path
+}
+
+// LegacyDirNotice returns the sentence to tell the user when the state
+// directory an earlier build used, "perch", still sits beside this one, or ""
+// when it does not. Nothing reads or moves that directory any more. It costs
+// one stat, so it is for a caller that asks once, never for Dir.
+func LegacyDirNotice() string {
+	base, err := os.UserConfigDir()
+	if err != nil {
+		return ""
+	}
+	old := filepath.Join(base, "perch")
+	if fi, err := os.Stat(old); err != nil || !fi.IsDir() {
+		return ""
+	}
+	return "State from an older version is in " + old + " and is not read any more. Nothing was deleted."
 }
 
 // TakeKept returns the files moved aside since it was last called, and

@@ -30,8 +30,11 @@ const (
 var uiKey = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9._-]{0,63}$`)
 
 // The keys the interface already used as fields of Prefs. They are in the blob
-// now; the fields are still read (to migrate a file written before) and are
-// still sent, filled from the blob, so that an older interface keeps working.
+// now. The fields are still read and are not moved into the blob: an old file
+// keeps them as written, and a window falls back to them where the blob has no
+// value. They are also sent, filled from the blob, so that an older interface
+// keeps working. Resetting one of these settings removes its blob key, so the
+// value in an old file can show again.
 const (
 	UIFontSize   = "fontSize"
 	UIFontFamily = "fontFamily"
@@ -141,7 +144,8 @@ func (p Prefs) uiBool(key string) (bool, bool) {
 
 // withLegacyUI fills the old fields from the blob. A window built before the
 // blob existed reads these, so it still sees the size and the welcome it was
-// given. They are not written to the file.
+// given. The filled values are written to the file only if the file already
+// had the field set: an old file keeps its fields and writes them back.
 func (p Prefs) withLegacyUI() Prefs {
 	if n, ok := p.uiInt(UIFontSize); ok {
 		p.FontSize = n

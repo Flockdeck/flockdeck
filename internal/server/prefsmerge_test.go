@@ -34,7 +34,7 @@ func TestSavingOnePreferenceKeepsTheOthersOnDisk(t *testing.T) {
 	if !saved.Dismissed("palette") {
 		t.Fatalf("the dismissed hint was not saved: %+v", saved)
 	}
-	// The size is in the interface's blob on disk .
+	// The size is in the interface's blob on disk.
 	if string(saved.UI["fontSize"]) != "20" {
 		t.Errorf("saving a dismissed hint put the font size back to %s; want the 20 another instance saved", saved.UI["fontSize"])
 	}

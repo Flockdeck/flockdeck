@@ -841,8 +841,8 @@ func TestVersion1LayoutIsKeptAside(t *testing.T) {
 		t.Fatalf("Load = %v, %v; a version 1 layout should restore nothing without failing", got, err)
 	}
 	kept := TakeKept()
-	if len(kept) != 1 || kept[0].Path != p+damagedSuffix {
-		t.Fatalf("kept = %+v, want the layout reported at %s", kept, p+damagedSuffix)
+	if len(kept) != 1 || kept[0].Path != p+damagedSuffix || kept[0].Why != KeptOlder {
+		t.Fatalf("kept = %+v, want the layout reported at %s as KeptOlder", kept, p+damagedSuffix)
 	}
 	if aside, err := os.ReadFile(p + damagedSuffix); err != nil || string(aside) != string(v1) {
 		t.Errorf("the version 1 layout was not kept intact: %q, %v", aside, err)
