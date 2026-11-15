@@ -15,6 +15,11 @@ const (
 	optAllowAcceptEdits = "allow_accept_edits"
 )
 
+// planRejectedMessage is what claude is told when the person rejects a plan.
+// The card has no field for typed feedback, so it asks claude to keep planning
+// and to ask what to change.
+const planRejectedMessage = "The user rejected this plan. Stay in plan mode: do not start the work. Ask what they want changed, then present a revised plan."
+
 // canAlways reports whether a tool may be allowed for the rest of the session.
 // Only a shell command may: the rule is the command with all its input, so it
 // covers that call and no other. A rule for an edit tool, WebFetch, Agent or an
@@ -142,6 +147,8 @@ func (ss *session) handleControlRequest(l line) {
 		ss.allowed[key] = true
 		ss.mu.Unlock()
 		ss.allow(l.RequestID, toolID, req.Input)
+	case res.optionID == optReject && isPlan:
+		ss.respond(l.RequestID, map[string]any{"behavior": "deny", "message": planRejectedMessage})
 	default: // reject, or an option that was not offered
 		ss.respond(l.RequestID, map[string]any{"behavior": "deny", "message": "The user rejected this tool call."})
 	}

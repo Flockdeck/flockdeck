@@ -69,10 +69,49 @@ func TestPlanApprovedWithAcceptEditsSetsTheMode(t *testing.T) {
 	}
 }
 
-func TestPlanRejectedDenies(t *testing.T) {
+func TestPlanRejectedDeniesWithKeepPlanningText(t *testing.T) {
 	log, _ := runPlan(t, "reject")
-	if logHas(log, `"behavior":"allow"`) || !logHas(log, `"behavior":"deny"`) {
+	if logHas(log, `"behavior":"allow"`) || !logHas(log, `"behavior":"deny"`) || !logHas(log, "Stay in plan mode") {
 		t.Errorf("log = %v", log)
+	}
+}
+
+func TestPlanCardCancelledDeniesWithoutAMode(t *testing.T) {
+	h := newHarness(t, []step{expect(`"role":"user"`), emit(exitPlanRequest(`{"plan":"1. Add the card"}`)),
+		expect(`"request_id":"plan-1"`), emit(lResultOK)})
+	h.onReq = func(rpcMsg) any { return cancelledOutcome() }
+	sid := h.start()
+	stopReason(t, h.await(h.promptText(sid, "go")))
+	log := readLog(h.log)
+	if logHas(log, `"behavior":"allow"`) || logHas(log, "updatedPermissions") || !logHas(log, "The permission request was cancelled.") || logHas(log, "Stay in plan mode") {
+		t.Errorf("log = %v", log)
+	}
+	for _, u := range h.updates() {
+		if u["sessionUpdate"] == "current_mode_update" {
+			t.Errorf("mode update after a cancelled plan card: %v", u)
+		}
+	}
+}
+
+// If claude does not keep acceptEdits, what it reports at the next turn
+// replaces the mode shown after the answer.
+func TestLaterInitReportReplacesAcceptEdits(t *testing.T) {
+	h := newHarness(t, []step{
+		expect(`"role":"user"`), emit(exitPlanRequest(`{"plan":"1. Add the card"}`)), expect(`"request_id":"plan-1"`), emit(lResultOK),
+		expect(`"role":"user"`), emit(lInit), emit(lResultOK),
+	})
+	h.onReq = func(rpcMsg) any { return outcome("allow_accept_edits") }
+	sid := h.start()
+	stopReason(t, h.await(h.promptText(sid, "go")))
+	stopReason(t, h.await(h.promptText(sid, "again")))
+	var modes []string
+	for _, u := range h.updates() {
+		if u["sessionUpdate"] == "current_mode_update" {
+			modes = append(modes, u["currentModeId"].(string))
+		}
+	}
+	if got := strings.Join(modes, ","); got != "acceptEdits,default" {
+		t.Errorf("mode updates = %q, want acceptEdits,default", got)
 	}
 }
 
