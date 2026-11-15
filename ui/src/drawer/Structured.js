@@ -286,7 +286,7 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
         search=${search} onSearch=${onSearch} onClearSearch=${onClearSearch} canExport=${desk} onExport=${() => setExporting(pane)} className="structured-log"
         tips=${desk ? emptyTips(st) : null} onRetry=${desk ? () => store.retryConversation() : null} onRetryPrompt=${desk && st.status !== "working" && st.status !== "waiting" ? (t) => composer.current.send(t) : null} />
       ${desk ? html`<${ShellList} rows=${shellOf(st)} pane=${pane} store=${store} result=${shellResult} />` : null}
-      ${desk && st.background === true && st.status !== "working" && st.status !== "waiting"
+      ${desk && st.background === true
         ? html`<p class="structured-note structured-note--background" role="status" data-background="on">${BACKGROUND_WORDS}</p>`
         : null}
       ${desk ? html`<${QueueList} rows=${queue} pane=${pane} store=${store} result=${queueResult} working=${st.status === "working"} focusBox=${() => composer.current.focus()} />` : null}

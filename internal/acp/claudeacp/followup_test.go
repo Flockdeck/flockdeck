@@ -144,3 +144,53 @@ func TestRuleKeyKeepsLargeNumbers(t *testing.T) {
 		t.Error("trailing data is ignored")
 	}
 }
+
+// busySeq is the flockdeck_busy values sent so far, in order.
+func busySeq(h *harness) []bool {
+	var out []bool
+	for _, u := range h.updates() {
+		if u["sessionUpdate"] == "flockdeck_busy" {
+			b, _ := u["busy"].(bool)
+			out = append(out, b)
+		}
+	}
+	return out
+}
+
+func waitBusySeq(t *testing.T, h *harness, want []bool, d time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(d)
+	for {
+		got := busySeq(h)
+		if len(got) == len(want) {
+			ok := true
+			for i := range got {
+				ok = ok && got[i] == want[i]
+			}
+			if ok {
+				return
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("flockdeck_busy updates = %v, want %v", got, want)
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+}
+
+// A claude that exits during its own turn is no longer in one: the client is
+// told, or it would hold prompts for a result that cannot come.
+func TestClaudeExitingDuringItsOwnTurnClearsBusy(t *testing.T) {
+	h := newHarness(t, append(append([]step{}, ownTurn...), sleep(300), exitWith(1)))
+	h.start()
+	waitBusySeq(t, h, []bool{true, false}, 10*time.Second)
+}
+
+// So is one that was ended because it ignored the interrupt.
+func TestClaudeEndedAfterAnIgnoredInterruptClearsBusy(t *testing.T) {
+	h := newHarness(t, append(append([]step{}, ownTurn...), sleep(60000)))
+	sid := h.start()
+	waitBusySeq(t, h, []bool{true}, 10*time.Second)
+	h.notify("session/cancel", map[string]any{"sessionId": sid})
+	waitBusySeq(t, h, []bool{true, false}, 12*time.Second)
+}

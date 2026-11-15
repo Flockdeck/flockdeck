@@ -340,7 +340,9 @@ func (b *Bridge) Status() Status {
 	switch {
 	case len(b.pending) > 0:
 		return StatusWaiting
-	case b.inFlight:
+	case b.inFlight || b.background:
+		// A turn the agent started on its own is work too: the pane list, the
+		// push and the finished notice follow it as they follow a prompt's turn.
 		return StatusWorking
 	}
 	return StatusIdle
@@ -381,6 +383,7 @@ func (b *Bridge) subagentText(u acp.Update) {
 	it.e.Sub = next
 	it.dirty = true
 	b.reinline(it)
+	b.enforce()
 }
 
 // Activity is the line for what the agent is doing now: the open permission
@@ -391,7 +394,7 @@ func (b *Bridge) Activity() string {
 	if len(b.pending) > 0 {
 		return "waiting for permission: " + b.pending[0].Tool
 	}
-	if !b.inFlight {
+	if !b.inFlight && !b.background {
 		return ""
 	}
 	for i := len(b.items) - 1; i >= 0; i-- {
@@ -502,6 +505,8 @@ func (b *Bridge) TurnEnd(stop string) []transcript.Entry {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.inFlight = false
+	// A turn of ours ending means the agent is not in one of its own.
+	b.background = false
 	b.closeMerges()
 	switch stop {
 	case acp.StopEndTurn, "":

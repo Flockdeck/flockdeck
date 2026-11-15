@@ -193,6 +193,7 @@ func (ss *session) handleLine(l line) {
 // is passed on.
 func (ss *session) handleInit(l line) {
 	startedBusy := false
+	ss.busyMu.Lock()
 	ss.mu.Lock()
 	if ss.cur == nil {
 		// claude begins a turn that no prompt of ours started: a finished
@@ -209,6 +210,7 @@ func (ss *session) handleInit(l line) {
 	if startedBusy {
 		ss.srv.update(ss.id, map[string]any{"sessionUpdate": "flockdeck_busy", "busy": true})
 	}
+	ss.busyMu.Unlock()
 	ss.adopt(l.SessionID)
 	if changed {
 		ss.srv.update(ss.id, map[string]any{"sessionUpdate": "current_mode_update", "currentModeId": l.PermissionMode})
@@ -383,6 +385,7 @@ func (ss *session) handleUser(l line) {
 
 func (ss *session) handleResult(l line) {
 	// usage first, so the update arrives before the prompt's answer
+	ss.busyMu.Lock()
 	ss.mu.Lock()
 	used := ss.lastUsed
 	if used == 0 && l.Usage != nil {
@@ -406,6 +409,7 @@ func (ss *session) handleResult(l line) {
 	if wasBusy {
 		ss.srv.update(ss.id, map[string]any{"sessionUpdate": "flockdeck_busy", "busy": false})
 	}
+	ss.busyMu.Unlock()
 	if window > 0 {
 		u := map[string]any{"sessionUpdate": "usage_update", "used": used, "size": window}
 		if l.TotalCostUSD > 0 {

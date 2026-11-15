@@ -83,3 +83,15 @@ func TestBackgroundFollowsTheBusyUpdates(t *testing.T) {
 		t.Error("busy false not taken")
 	}
 }
+
+func TestBackgroundTurnIsWorkingAndATurnEndClearsIt(t *testing.T) {
+	b := New(Config{})
+	b.Update(acp.Update{Kind: acp.UpdateBusy, Busy: true})
+	if got := b.Status(); got != StatusWorking {
+		t.Errorf("status = %q, want working while the agent works on its own", got)
+	}
+	b.TurnEnd(acp.StopEndTurn)
+	if b.Background() || b.Status() != StatusIdle {
+		t.Errorf("background %v, status %q after a turn ended", b.Background(), b.Status())
+	}
+}

@@ -955,8 +955,12 @@ func (r *Runtime) SendNow(id int) error {
 	rest := slices.Delete(slices.Clone(r.queue), i, i+1)
 	r.queue = slices.Insert(rest, 0, q)
 	var err error
-	if r.inTurn {
-		r.asked = true
+	// The agent's own turn holds the queue as a prompt's turn does, so ending it
+	// is what lets this prompt go.
+	if r.inTurn || (r.br != nil && r.br.Background()) {
+		if r.inTurn {
+			r.asked = true
+		}
 		if r.phase == PhaseReady && r.client != nil && r.session != "" {
 			err = r.client.Cancel(r.session)
 		}
@@ -1141,7 +1145,7 @@ func (r *Runtime) Snapshot() Snapshot {
 	s.Dropped = r.br.Dropped()
 	s.Pending = r.br.Pending()
 	s.Activity = r.br.Activity()
-	s.Background = r.br.Background()
+	s.Background = s.Phase == PhaseReady && r.br.Background()
 	s.RewindPoints = r.RewindPoints()
 	s.Epoch = r.Epoch()
 	s.RewindToken = r.RewindToken()
@@ -1248,6 +1252,12 @@ func (h handler) Update(u acp.Update) {
 		h.r.noteMoved(u.NewSessionID)
 		return
 	}
+	// Only Flockdeck's own Claude adapter says when it is busy on its own or what
+	// a subagent wrote. From any other agent these would let it hold the queue for
+	// ever or put text under any tool row.
+	if (u.Kind == acp.UpdateBusy || u.Kind == acp.UpdateSubagentText) && !h.r.ownClaude() {
+		return
+	}
 	h.Handler.Update(u)
 	h.r.notify()
 	if u.Kind == acp.UpdateBusy {
@@ -1258,6 +1268,12 @@ func (h handler) Update(u acp.Update) {
 		default:
 		}
 	}
+}
+
+// ownClaude says the pane runs Flockdeck's own Claude adapter, not a test's
+// command or another agent.
+func (r *Runtime) ownClaude() bool {
+	return r.opts.Command == nil && r.opts.Spec.ACPOwnClaude()
 }
 
 // ownClaudeAdapter is the manifest id of Flockdeck's Claude adapter, the only
