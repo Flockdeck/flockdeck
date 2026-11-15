@@ -342,7 +342,6 @@ func ReadPrefs() (Prefs, error) {
 		return Prefs{accessLost: true}, nil
 	}
 	p.extra = unknownPrefs(data)
-	p.migrateUI()
 	return p, nil
 }
 

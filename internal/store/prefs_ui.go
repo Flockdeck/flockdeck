@@ -139,26 +139,6 @@ func (p Prefs) uiBool(key string) (bool, bool) {
 	return string(raw) == "true", string(raw) == "true" || string(raw) == "false"
 }
 
-// migrateUI moves the settings that were fields of Prefs into the blob, where it
-// has none of its own for them, and clears the fields so the file is written
-// without them. It runs when the file is read. A value the blob already has wins:
-// it is the newer.
-func (p *Prefs) migrateUI() {
-	move := func(key string, value any, set bool) {
-		if !set {
-			return
-		}
-		if _, has := p.UI[key]; !has {
-			p.SetUIValue(key, value)
-		}
-	}
-	move(UIFontSize, p.FontSize, p.FontSize != 0)
-	move(UIFontFamily, p.FontFamily, p.FontFamily != "")
-	move(UIHelpSeen, true, p.HelpSeen)
-	move(UIScrollback, p.Scrollback, p.Scrollback != 0)
-	p.FontSize, p.FontFamily, p.HelpSeen, p.Scrollback = 0, "", false, 0
-}
-
 // withLegacyUI fills the old fields from the blob. A window built before the
 // blob existed reads these, so it still sees the size and the welcome it was
 // given. They are not written to the file.
