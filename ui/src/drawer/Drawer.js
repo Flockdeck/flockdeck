@@ -88,6 +88,12 @@ export function screenFor(ref, pane) {
   return () => held.ctl.screenLines();
 }
 
+/** colsFor is the width of the terminal held in ref for a pane, or 0 (see keysFor). */
+export function colsFor(ref, pane) {
+  const held = ref && ref.current;
+  return held && held.pane === pane && held.ctl && held.ctl.screenCols ? held.ctl.screenCols() : 0;
+}
+
 /** hasTerminal says whether a pane can have a terminal. A structured pane is
  *  driven over a protocol and has none. */
 export function hasTerminal(node, pane) {
@@ -231,6 +237,7 @@ function DrawerBody({ store, snap = null, node, pane = null, now, maximised = fa
     const send = keysFor(terminalRef, node.pane);
     return !!send && send(text, done);
   };
+  const readCols = () => colsFor(terminalRef, node.pane);
   const readScreen = () => {
     const read = screenFor(terminalRef, node.pane);
     return read ? read() : null;
@@ -242,7 +249,7 @@ function DrawerBody({ store, snap = null, node, pane = null, now, maximised = fa
   const asked = terminal && !state.remote && waitingOn(node, pane) === "ask";
   const pending = card
     ? { card, node: html`<${StreamPermission} node=${node} card=${card} snap=${state} store=${store} />` }
-    : asked ? { card: {}, node: html`<${StreamDecision} key=${"ask" + (pane && pane.statusSince) + "|" + pane.ask.questions.map((q) => q.question).join("")} node=${node} pane=${pane} snap=${state} store=${store} now=${now} sendKeys=${sendKeys} readScreen=${readScreen} />` } : null;
+    : asked ? { card: {}, node: html`<${StreamDecision} key=${"ask" + (pane && pane.statusSince) + "|" + pane.ask.questions.map((q) => q.question).join("")} node=${node} pane=${pane} snap=${state} store=${store} now=${now} sendKeys=${sendKeys} readScreen=${readScreen} readCols=${readCols} />` } : null;
   // While the transcript is showing, the permission is asked there, in the flow, and
   // not a second time above the tabs. Another tab, or a transcript not loaded yet, has none to carry it.
   const inFlow = !!pending && !!conv && conv.supported === true && !conv.refused && shown === (asked ? "conversation" : "terminal");
@@ -278,7 +285,7 @@ function DrawerBody({ store, snap = null, node, pane = null, now, maximised = fa
               : null}
           </div>`
         : null}
-      ${inFlow ? null : html`<${Prompt} node=${node} pane=${pane} snap=${state} store=${store} sendKeys=${sendKeys} readScreen=${readScreen} terminal=${terminal} />`}
+      ${inFlow ? null : html`<${Prompt} node=${node} pane=${pane} snap=${state} store=${store} sendKeys=${sendKeys} readScreen=${readScreen} readCols=${readCols} terminal=${terminal} />`}
       <div class="drawer-tabs" role="tablist" aria-label="Views of this agent" onKeyDown=${tabKeys}>
         <button type="button" role="tab" id="drawer-tab-terminal" aria-selected=${shown === "terminal" ? "true" : "false"} aria-controls="drawer-panel-terminal" tabindex=${shown === "terminal" ? 0 : -1} ref=${(el) => { tabRefs.current.terminal = el; }} class=${"drawer-tab" + (shown === "terminal" ? " is-active" : "")} onClick=${() => setTab("terminal")}>${terminal ? "Terminal" : "Transcript"}</button>
         ${hasConv

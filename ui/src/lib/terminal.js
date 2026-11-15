@@ -628,6 +628,8 @@ export function createTerminal(opts) {
       }
       return out;
     },
+    /** screenCols is how many columns the terminal has, or 0 while there is none. */
+    screenCols() { return term ? term.cols || 0 : 0; },
     /** searchReady loads the search addon the first time, and resolves with
      *  whether Find in terminal can work. After a failure the next call tries again. */
     searchReady() {

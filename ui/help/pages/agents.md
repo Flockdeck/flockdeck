@@ -239,7 +239,8 @@ What to know before you use one:
   typed in an *Other* row, the card types nothing more, says so, and leaves the
   rest to you in the terminal. Before it submits it checks that the review lists
   exactly your answers. To cancel, or to chat about the question, use the terminal.
-  A phone gets no question card and cannot send these keys.
+  Your own answer must fit on one row of the terminal; the card says so when it
+  does not. A phone gets no question card and cannot send these keys.
 - **opencode is started to ask, which a repository can override.** opencode, as
   shipped, runs commands and edits files without a question, so Flockdeck starts it
   with `bash` and `edit` set to ask, and each arrives as a permission card. This

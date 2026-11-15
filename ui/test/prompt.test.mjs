@@ -13,8 +13,8 @@ import { renderToString } from "./vendor/render-to-string.mjs";
 import { html } from "../src/html.js";
 import { Live } from "../src/shell/Live.js";
 import {
-  Prompt, diffRows, KEYS, NOT_DELIVERED_WORDS, MAX_DIFF_LINES, DESK_WORDS, NOT_CONNECTED_WORDS, IN_TERMINAL_WORDS, DETAILS_ON_DESKTOP_WORDS,
-  NOT_TAKEN_WORDS,
+  Prompt, Question, diffRows, KEYS, NOT_DELIVERED_WORDS, MAX_DIFF_LINES, DESK_WORDS, NOT_CONNECTED_WORDS, IN_TERMINAL_WORDS, DETAILS_ON_DESKTOP_WORDS,
+  NOT_TAKEN_WORDS, NO_TERMINAL_WORDS,
 } from "../src/drawer/Prompt.js";
 import { createDom, install, settle } from "./dom.mjs";
 import { FakeWebSocket, harness, hello } from "./fakes.mjs";
@@ -282,24 +282,53 @@ test("a question is a form of real options, and Send answers picks them in claud
     assert.match(m.status(), /Waiting for the agent/);
   }));
 
-test("a terminal that cannot be read gets no keys, and the card says to answer in the terminal", () =>
+test("a card with no terminal to read in this window is shut, and says why", () => {
+  const out = renderToString(html`<${Question} node=${{ pane: "p", name: "p" }} ask=${ASK2} snap=${{ remote: false }} store=${{}} sendKeys=${() => true} readScreen=${() => null} />`);
+  assert.ok(out.includes(NO_TERMINAL_WORDS), out);
+  assert.ok(!/<input(?![^>]*disabled)/.test(out), "an input is open: " + out);
+});
+
+test("a terminal that shows a shell gets no keys", () =>
   withPage({ extra: { [CART]: { ask: ASK2 } } }, async (m) => {
     await m.connect();
     await m.open(CART);
     PtySocket.last.open();
     await settle();
+    FakeTerm.last.screen = ["$ npm test", "ok"];
     m.card().findAll(".prompt-question")[0].findAll("input").find((i) => i.getAttribute("data-option") === "0").click();
     m.card().findAll(".prompt-question")[1].findAll("input").find((i) => i.getAttribute("data-option") === "1").click();
     await settle();
     m.card().find(".prompt-send").click();
     await settle();
-    assert.deepEqual(m.typed(), [], "keys were typed with no screen to check");
-    assert.match(m.card().find(".prompt-status--error").textContent, /nothing was sent/);
-    FakeTerm.last.screen = ["$ npm test", "ok"];
-    m.card().find(".prompt-send").click();
-    await settle();
     assert.deepEqual(m.typed(), [], "keys were typed while the terminal showed a shell");
     assert.match(m.card().find(".prompt-status--error").textContent, /not showing the question/);
+  }));
+
+test("a run is stopped when the card goes, and a second press while one runs does nothing", () =>
+  withPage({ extra: { [CART]: { ask: ASK2 } } }, async (m) => {
+    await m.connect();
+    await m.open(CART);
+    PtySocket.last.open();
+    await settle();
+    const tui = claudeAsks(m, ASK2.questions);
+    // The terminal answers slowly, so the run is still going when the card is taken away.
+    const sock = PtySocket.last;
+    const fast = sock.send;
+    let held = 0;
+    sock.send = (d) => { if (typeof d !== "string") held++; if (held <= 1) fast(d); };
+    m.card().findAll(".prompt-question")[0].findAll("input").find((i) => i.getAttribute("data-option") === "1").click();
+    m.card().findAll(".prompt-question")[1].findAll("input").find((i) => i.getAttribute("data-option") === "0").click();
+    await settle();
+    m.card().find(".prompt-send").click();
+    m.card().find(".prompt-send").click();
+    await settle();
+    assert.ok(held <= 2, "a second press typed as well: " + held);
+    await m.push(stateOf(graph(), {}));
+    await new Promise((r) => setTimeout(r, 200));
+    const before = held;
+    await new Promise((r) => setTimeout(r, 200));
+    assert.equal(held, before, "a run went on typing after its card was gone");
+    assert.equal(tui.submitted, false);
   }));
 
 test("a viewer's window shows the form shut and types nothing", () =>

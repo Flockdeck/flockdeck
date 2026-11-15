@@ -38,6 +38,11 @@ Enter to select · Tab/Arrow keys to navigate · Esc to cancel
 | A digit | Moves the cursor to that row, without picking. | Toggles that option, cursor stays. On the text row it is text. |
 | Typing | On the text row it fills the row ("Type something." becomes the text). | Same, and the row's box is ticked. |
 
+A question asked alone differs (captured the same way, one question per run):
+
+- a single-choice question has no arrows and no Submit tab, only its header (` ☐ Color`), the footer says `↑/↓ to navigate`, and Enter on a row, or on the text row holding text, submits at once. There is no review screen.
+- a multiple-choice question has the usual bar (`←  ☐ Extras  ✔ Submit  →`), Space toggles, Right goes to the review, and the review lists `→ Salt, xyz`.
+
 A question that was answered shows `✔` after its choice when you go back to it, and the cursor starts on row 1 again.
 After the last question comes a review screen:
 
@@ -83,6 +88,15 @@ expects:
 - The review must list the card's questions with exactly the answers the form holds, or Submit is not pressed. Cancel is
   never pressed.
 - Any step that does not show its result within 2.5 seconds stops the run.
+- A lone single-choice question has no review, so its Enter is the submission: the screen is read again just before it and
+  the key is typed in the same step, and it is sent only if the question, the cursor row and the typed text are still as
+  expected. The review's Enter is guarded the same way.
+- A typed answer is cleaned to one line of printable text, and the form shows the cleaned text. It must fit on one row of
+  the terminal (its width, less 10 columns for the row's number and box); a longer one is refused in the form and by the
+  driver, because the echo of a wrapped row cannot be compared.
+- Two questions with the same text and the same labels are refused, because the screen cannot tell them apart.
+- The run stops before its next key when the card goes (answered, replaced, drawer closed). A window whose terminal is not
+  open shows the form shut and says so. A second press while a run is going does nothing.
 
 A stop leaves the terminal as it is. The card says why and that nothing more was typed, and the person finishes in the
 terminal below. Some answers may already have been entered by then; the terminal shows them.
@@ -94,6 +108,14 @@ is cleared by the scrub, `internal/server/relayscrub.go`), so it has no form and
 form shut and types nothing (`isViewer`, and the terminal socket refuses a viewer's input anyway). The keys travel on the
 terminal socket, the path the permission buttons already use. No command was added and `paneSend` is not used.
 
+## Two windows
+
+Two desk windows can each be driving the same pane. There is no lock across windows: the terminal socket and the server
+carry none, and adding one needs a protocol change. What holds instead is that every key is checked against a fresh
+read, and Submit (or a lone question's Enter) is typed in the step right after the read that approves it, so one window
+cannot submit an answer set its own checks did not match to the screen. A window that loses the race finds a different
+screen and stops. The window left between its read and its key reaching claude (a network round trip) is not closed.
+
 ## Not covered
 
 - Claude's "Chat about this" and Esc (cancel) are left to the terminal.
@@ -101,3 +123,6 @@ terminal socket, the path the permission buttons already use. No command was add
   capture is of 2.1.325 only.
 - A question whose option label is cut by the terminal's width is matched by its visible start; a question whose text
   wraps differently is matched after joining its lines.
+- A single-choice question asked alone with no header may be drawn without its header line; that is not read, and the card
+  falls back to the terminal. The captures had a header every time.
+- The race between two windows described above.

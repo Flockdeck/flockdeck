@@ -8,7 +8,7 @@ import { render } from "../src/vendor/preact.mjs";
 import { renderToString } from "./vendor/render-to-string.mjs";
 import { html } from "../src/html.js";
 import { PermissionCard, StreamPermission } from "../src/drawer/Prompt.js";
-import { blank, pick, type, problem, answers, MAX_OTHER_BYTES, TOO_LONG_WORDS, INCOMPLETE_WORDS } from "../src/drawer/questions.js";
+import { QuestionForm, blank, pick, type, problem, answers, MAX_OTHER_BYTES, TOO_LONG_WORDS, INCOMPLETE_WORDS } from "../src/drawer/questions.js";
 import { useStore } from "../src/lib/use-store.js";
 import { createDom, install, settle } from "./dom.mjs";
 import { FakeWebSocket, harness, hello } from "./fakes.mjs";
@@ -391,4 +391,86 @@ test("Enter sends once every question is answered, and does nothing before", asy
 test("a window reached through the relay still has no inputs, and the option list is not a second way to answer", () => {
   const out = draw(html`<${PermissionCard} node=${{ pane: "p1" }} card=${questionCard()} snap=${{ ...idle, remote: true }} store=${noStore} />`);
   assert.ok(!out.includes("prompt-chosen") && !out.includes("prompt-other"), out);
+});
+
+// --- Enter, input methods, what will be typed -------------------------------------
+
+async function form(props) {
+  const dom = createDom();
+  const restore = install(dom);
+  const container = dom.document.createElement("div");
+  dom.body.appendChild(container);
+  const sent = [];
+  render(html`<${QuestionForm} card=${{ questions }} allow=${{ id: "go" }} onSend=${(o, a) => sent.push(a)} ...${props} />`, container);
+  await settle();
+  return { container, sent, restore };
+}
+const key = (el, k, init = {}) => el.dispatch("keydown", { key: k, ctrlKey: false, altKey: false, metaKey: false, ...init });
+
+test("Enter that ends an input method's composition does not send", async () => {
+  const { container, sent, restore } = await form({});
+  try {
+    option(container, 0, 0).click();
+    option(container, 1, 1).click();
+    await settle();
+    const box = container.findAll(".prompt-other-text")[0];
+    key(box, "Enter", { isComposing: true });
+    key(box, "Enter", { keyCode: 229 });
+    await settle();
+    assert.equal(sent.length, 0);
+    key(box, "Enter");
+    await settle();
+    assert.equal(sent.length, 1);
+  } finally {
+    restore();
+  }
+});
+
+test("Enter on an incomplete form says what is missing", async () => {
+  const { container, sent, restore } = await form({});
+  try {
+    option(container, 0, 0).click();
+    await settle();
+    key(option(container, 0, 0), "Enter");
+    await settle();
+    assert.equal(sent.length, 0);
+    const alert = container.find(".prompt-status--error");
+    assert.ok(alert, "Enter said nothing");
+    assert.match(alert.textContent, /Answer every question/);
+    assert.match(alert.textContent, /Question 2/);
+  } finally {
+    restore();
+  }
+});
+
+test("the list shows the text that will be typed, not the text that was typed", async () => {
+  const { container, sent, restore } = await form({ tidy: (t) => t.replace(/\s+/g, " ").trim().toUpperCase() });
+  try {
+    option(container, 1, 0).click();
+    container.findAll(".prompt-other-text")[0].enter("two\nlines");
+    await settle();
+    assert.match(container.find(".prompt-chosen").textContent, /TWO LINES/);
+    container.find(".prompt-send").click();
+    await settle();
+    assert.deepEqual(sent[0][0], { question: 0, selected: [], other: "TWO LINES" });
+  } finally {
+    restore();
+  }
+});
+
+test("an answer that does not fit where it is typed cannot be sent, and the form says why", async () => {
+  const { container, sent, restore } = await form({ fits: (t) => t.length <= 10 });
+  try {
+    option(container, 1, 0).click();
+    container.findAll(".prompt-other-text")[0].enter("a very long answer indeed");
+    await settle();
+    assert.ok(isDisabled(container.find(".prompt-send")));
+    assert.match(container.find(".prompt-more").textContent, /longer than the terminal/);
+    container.findAll(".prompt-other-text")[0].enter("short");
+    await settle();
+    assert.ok(!isDisabled(container.find(".prompt-send")));
+    assert.equal(sent.length, 0);
+  } finally {
+    restore();
+  }
 });

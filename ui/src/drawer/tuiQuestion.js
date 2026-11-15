@@ -17,6 +17,9 @@
 //                    so no digit is ever sent here
 //   after the last   a "Review your answers" screen lists "question -> answer" and
 //                    asks "1. Submit answers / 2. Cancel", the cursor on Submit
+//   one question     a single-choice question alone has no arrows, no Submit tab
+//                    (" ☐ Color") and no review: Enter on a row submits at once. A
+//                    multiple-choice question alone has the usual tab bar and review.
 //
 // The screen is not known: the person may have moved the cursor or answered a
 // question by hand. So no key is sent without reading the screen first. Every
@@ -36,7 +39,21 @@ export const MISMATCH = Object.freeze({
   oldText: "The terminal already has text typed in a question. Answer there.",
   review: "The terminal's review does not match these answers, so nothing was submitted. Check it and answer there.",
   notSent: "The keys did not reach the terminal.",
+  aborted: "Stopped, because this card is gone.",
+  duplicate: "Two of the questions look the same, so this card cannot tell them apart. Answer in the terminal.",
+  wide: "Your own answer is longer than the terminal is wide, so it cannot be typed in one row. Shorten it, or answer in the terminal.",
 });
+
+/** ROW_PREFIX is the most a row's own text starts after: "❯ 4. [✔] ". */
+export const ROW_PREFIX = 10;
+
+const wide = (ch) => ch.codePointAt(0) >= 0x1100 && (ch.codePointAt(0) <= 0x115f || (ch.codePointAt(0) >= 0x2e80 && ch.codePointAt(0) <= 0xa4cf) || (ch.codePointAt(0) >= 0xac00 && ch.codePointAt(0) <= 0xd7a3) || (ch.codePointAt(0) >= 0xf900 && ch.codePointAt(0) <= 0xfaff) || (ch.codePointAt(0) >= 0xfe30 && ch.codePointAt(0) <= 0xfe6f) || (ch.codePointAt(0) >= 0xff00 && ch.codePointAt(0) <= 0xff60) || (ch.codePointAt(0) >= 0x1f300 && ch.codePointAt(0) <= 0x1faff));
+
+/** cellWidth is how many terminal columns a text takes. */
+export const cellWidth = (t) => [...String(t)].reduce((n, ch) => n + (wide(ch) ? 2 : 1), 0);
+
+/** fitsRow says a typed answer stays on one row of a terminal cols wide, which is what lets the echo be checked. */
+export const fitsRow = (text, cols) => !(cols > 0) || cellWidth(text) + ROW_PREFIX <= cols;
 
 /** Mismatch is thrown when the screen is not what the next key needs. */
 export class Mismatch extends Error {
@@ -49,6 +66,8 @@ export class Mismatch extends Error {
 const norm = (s) => String(s == null ? "" : s).replace(/\s+/g, " ").trim();
 const OPTION_ROW = /^(❯|>| ) (\d+)\. (.*)$/;
 const TAB_BAR = /^\s*←\s+(.*?)\s*Submit\s+→\s*$/;
+// A single-choice question asked alone has just its own box and header.
+const ONE_BAR = /^\s*[☐☒]\s+[^☐☒✔←→]+$/;
 
 /** cleanText is a typed answer as one line of printable text, which is all the TUI's text row can be given. */
 export function cleanText(s) {
@@ -58,16 +77,23 @@ export function cleanText(s) {
 /**
  * parseScreen reads claude's question screen out of the terminal's rows (plain text, one string a row).
  * It returns null when none is showing, else
- *   { kind: "question", tabs, question, rows: [{ n, label, cursor, checked }], cursor, multi }
+ *   { kind: "question", tabs, one, question, rows: [{ n, label, cursor, checked }], cursor, multi }
+ *   (one: the bar is a lone header, for a single-choice question asked alone)
  *   { kind: "review", tabs, entries: [{ question, answer }], rows, cursor }
  * rows are the numbered rows. For a question the last row is "Chat about this" and the one before it is the text row.
  */
 export function parseScreen(lines) {
   if (!Array.isArray(lines)) return null;
   let bar = -1;
+  let one = false;
   for (let i = lines.length - 1; i >= 0; i--) {
     if (TAB_BAR.test(lines[i])) {
       bar = i;
+      break;
+    }
+    if (ONE_BAR.test(lines[i])) {
+      bar = i;
+      one = true;
       break;
     }
   }
@@ -100,6 +126,7 @@ export function parseScreen(lines) {
         cur.answer = norm(cur.answer + " " + t.replace(/^→\s*/, ""));
       }
     }
+    if (one) return null;
     return { kind: "review", tabs, entries, rows: rows.map((r) => ({ n: r.n, label: norm(r.raw), cursor: r.cursor })), cursor };
   }
   if (rows.length < 3 || text.length === 0) return null;
@@ -109,7 +136,8 @@ export function parseScreen(lines) {
     if (m) return { n: r.n, label: norm(m[2]), cursor: r.cursor, checked: m[1] === "✔" };
     return { n: r.n, label: norm(r.raw.replace(/ ✔$/, "")), cursor: r.cursor, checked: / ✔$/.test(r.raw) };
   });
-  return { kind: "question", tabs, question: norm(text.join(" ")), rows: out, cursor, multi };
+  if (one && multi) return null;
+  return { kind: "question", tabs, one, question: norm(text.join(" ")), rows: out, cursor, multi };
 }
 
 const PLACEHOLDER = /^Type something\.?$/;
@@ -142,19 +170,29 @@ export function expectedReview(q, a) {
  * drive answers a card's questions in claude's TUI. answers is what the form sends
  * ([{ question, selected, other }], by position). io is
  *   screen()          the terminal's rows now, or null
+ *   cols()            how many columns the terminal has (optional)
  *   send(keys)        types keys, resolving true when they reached the socket
  *   wait(ms)          a delay (a test gives it a fake)
- * It resolves when the review was checked and Submit was sent, and rejects with a
- * Mismatch, saying why, as soon as the screen is not what the next key needs.
+ * signal, if given, stops the run before its next key when it is aborted.
+ * It resolves when Submit was sent, and rejects with a Mismatch, saying why, as soon
+ * as the screen is not what the next key needs.
  */
-export async function drive(questions, answers, io, { stepMs = 2500, pollMs = 40 } = {}) {
+export async function drive(questions, answers, io, { stepMs = 2500, pollMs = 40, signal = null } = {}) {
   if (!Array.isArray(questions) || !Array.isArray(answers) || questions.length === 0 || answers.length !== questions.length) throw new Mismatch(MISMATCH.shape);
+  const keyOf = (q) => norm(q.question) + "\u0001" + (Array.isArray(q.options) ? q.options.map((o) => norm(o.label)).join("\u0002") : "");
+  if (new Set(questions.map(keyOf)).size !== questions.length) throw new Mismatch(MISMATCH.duplicate);
+  const cols = io.cols ? io.cols() : 0;
+  const alive = () => {
+    if (signal && signal.aborted) throw new Mismatch(MISMATCH.aborted);
+  };
   const read = () => {
+    alive();
     const l = io.screen();
     if (!l) throw new Mismatch(MISMATCH.noScreen);
     return parseScreen(l);
   };
   const type = async (keys) => {
+    alive();
     if (!(await io.send(keys))) throw new Mismatch(MISMATCH.notSent);
   };
   // until polls the screen for one that satisfies ok, and gives up with why.
@@ -174,10 +212,16 @@ export async function drive(questions, answers, io, { stepMs = 2500, pollMs = 40
     await type((by > 0 ? KEY.down : KEY.up).repeat(Math.abs(by)));
     return until((s) => sameQuestion(s, q) && s.cursor === row);
   };
+  for (const a of answers) {
+    if (a && a.other && !fitsRow(cleanText(a.other), cols)) throw new Mismatch(MISMATCH.wide);
+  }
 
   let s = read();
   if (!s || s.kind !== "question") throw new Mismatch(MISMATCH.notQuestion);
   if (s.tabs !== questions.length) throw new Mismatch(MISMATCH.shape);
+  // A single-choice question asked alone has no review: Enter on its row is the answer.
+  const alone = s.one === true;
+  if (alone && (questions.length !== 1 || questions[0].multiSelect)) throw new Mismatch(MISMATCH.shape);
   let at = questions.findIndex((q) => sameQuestion(s, q));
   if (at < 0) throw new Mismatch(MISMATCH.otherQuestion);
   while (at > 0) {
@@ -204,7 +248,11 @@ export async function drive(questions, answers, io, { stepMs = 2500, pollMs = 40
         await type(text);
         s = await until((x) => sameQuestion(x, q) && x.cursor === row && x.rows[row - 1].label === text);
       }
+      // Enter is the answer here, or on a lone question the whole submission: read once more, and type it in the same breath.
+      const now = read();
+      if (!now || !sameQuestion(now, q) || now.cursor !== row || (text && now.rows[row - 1].label !== text)) throw new Mismatch(MISMATCH.moved);
       await type(KEY.enter);
+      if (alone) return;
     } else {
       const want = new Set(picked);
       if (want.size + (text ? 1 : 0) === 0 || picked.some((i) => !(i >= 0 && i < opts))) throw new Mismatch(MISMATCH.shape);
@@ -230,14 +278,18 @@ export async function drive(questions, answers, io, { stepMs = 2500, pollMs = 40
     }
   }
 
-  const done = await until((x) => x.kind === "review");
-  if (done.entries.length !== questions.length) throw new Mismatch(MISMATCH.review);
-  for (let i = 0; i < questions.length; i++) {
-    const a = answers[i];
-    const want = expectedReview(questions[i], { selected: a.selected, other: a.other ? cleanText(a.other) : "" });
-    if (done.entries[i].question !== norm(questions[i].question) || done.entries[i].answer !== want) throw new Mismatch(MISMATCH.review);
-  }
-  const submit = done.rows[done.cursor - 1];
-  if (!submit || !/^Submit answers/.test(submit.label)) throw new Mismatch(MISMATCH.review);
+  const reviewOk = (x) => {
+    if (!x || x.kind !== "review" || x.entries.length !== questions.length) return false;
+    for (let i = 0; i < questions.length; i++) {
+      const a = answers[i];
+      const want = expectedReview(questions[i], { selected: a.selected, other: a.other ? cleanText(a.other) : "" });
+      if (x.entries[i].question !== norm(questions[i].question) || x.entries[i].answer !== want) return false;
+    }
+    const submit = x.rows[x.cursor - 1];
+    return !!submit && /^Submit answers/.test(submit.label);
+  };
+  await until((x) => x.kind === "review");
+  // Judged on a read taken now, and the key typed with nothing awaited between: another window may have been at the same screen.
+  if (!reviewOk(read())) throw new Mismatch(MISMATCH.review);
   await type(KEY.enter);
 }

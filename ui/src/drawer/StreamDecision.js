@@ -17,7 +17,7 @@ import { showControls } from "./diff/diffModel.js";
 import { Question, IN_TERMINAL_WORDS, canForm } from "./Prompt.js";
 
 /** StreamDecision draws the card. node and pane are the graph's and the state push's entries for the pane, snap the store's snapshot and store the store. */
-export function StreamDecision({ node, pane, snap, store, now = Date.now(), sendKeys = null, readScreen = null }) {
+export function StreamDecision({ node, pane, snap, store, now = Date.now(), sendKeys = null, readScreen = null, readCols = null }) {
   const [picked, setPicked] = useState("");
   // One send at a time: a second click before the card is drawn again finds it answered, and a refusal leaves the choices to be pressed again.
   const [out, go] = usePaneSend(snap, (m) => store.send(m));
@@ -40,7 +40,7 @@ export function StreamDecision({ node, pane, snap, store, now = Date.now(), send
     <p class="prompt-label">${clip(name, 40)}, decision for you</p>
     <h3 class="prompt-title">${age ? "Waiting " + age : "Waiting on you"}</h3>
     ${form
-      ? html`<${Question} node=${node} ask=${ask} snap=${snap} store=${store} sendKeys=${sendKeys} readScreen=${readScreen} />`
+      ? html`<${Question} node=${node} ask=${ask} snap=${snap} store=${store} sendKeys=${sendKeys} readScreen=${readScreen} readCols=${readCols} />`
       : options.length > 0 && !snap.remote
       ? html`${questions.map((q) => html`<p class="prompt-text">${q.question}</p>`)}
           <div class="prompt-choices" role="group" aria-label="Choices">

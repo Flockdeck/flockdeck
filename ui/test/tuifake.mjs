@@ -12,6 +12,12 @@ export class FakeTui {
     this.submitted = false;
     this.cancelled = false;
     this.qs.forEach((q, i) => { if (q.multiSelect) this.picked[i] = new Set(); });
+    // A single-choice question alone has a lone header and no review; Enter on a row submits.
+    this.one = qs.length === 1 && !qs[0].multiSelect;
+    this.footer = "Enter to select · Tab/Arrow keys to navigate · Esc to cancel";
+    this.cols = 110;
+    this.drift = null; // a function that changes the rows drawn, for a claude that draws differently
+    this.onSend = null; // called with the keys, before they are pressed
   }
   get review() { return this.at >= this.qs.length; }
   get q() { return this.qs[this.at]; }
@@ -41,6 +47,7 @@ export class FakeTui {
         if (this.cursor <= q.options.length) { const s = this.picked[this.at]; s.has(this.cursor) ? s.delete(this.cursor) : s.add(this.cursor); }
       } else if (this.cursor <= q.options.length || (onText && this.text[this.at])) {
         this.picked[this.at] = this.cursor;
+        if (this.one) { this.submitted = true; return; }
         this.next();
       }
     } else if (tok.length === 1 && tok >= " ") {
@@ -58,6 +65,7 @@ export class FakeTui {
   }
   send(keys) {
     this.sent.push(keys);
+    if (this.onSend) this.onSend(keys, this);
     const map = { "\x1b[B": "down", "\x1b[A": "up", "\x1b[C": "right", "\x1b[D": "left", "\r": "enter", " ": "space" };
     for (let i = 0; i < keys.length;) {
       const three = keys.slice(i, i + 3);
@@ -73,8 +81,13 @@ export class FakeTui {
     return p == null ? "" : label(p);
   }
   lines() {
+    const rows = this.draw();
+    return this.drift ? this.drift(rows) : rows;
+  }
+  draw() {
+    if (this.submitted && this.one) return ["● User answered Claude's questions:", "  ⎿  · " + this.qs[0].question + " → " + this.answerOf(0)];
     const done = (i) => (this.qs[i].multiSelect ? this.picked[i].size > 0 : this.picked[i] != null);
-    const bar = "←  " + this.qs.map((q, i) => (done(i) ? "☒ " : "☐ ") + (q.header || "")).join("  ") + "  ✔ Submit  →";
+    const bar = this.one ? " ☐ " + (this.qs[0].header || "") : "←  " + this.qs.map((q, i) => (done(i) ? "☒ " : "☐ ") + (q.header || "")).join("  ") + "  ✔ Submit  →";
     if (this.review) {
       const out = [bar, "", "Review your answers", ""];
       this.qs.forEach((q, i) => out.push(" ● " + q.question, "   → " + this.answerOf(i)));
@@ -96,11 +109,11 @@ export class FakeTui {
     const mark = q.multiSelect ? (this.picked[this.at].has(n) ? "[✔] " : "[ ] ") : "";
     out.push((this.cursor === n ? "❯" : " ") + " " + n + ". " + mark + label);
     if (q.multiSelect) out.push("     Next");
-    out.push("─".repeat(100), "  " + (n + 1) + ". Chat about this", "", "Enter to select · Tab/Arrow keys to navigate · Esc to cancel");
+    out.push("─".repeat(100), "  " + (n + 1) + ". Chat about this", "", this.footer);
     return out;
   }
   io() {
-    return { screen: () => this.lines(), send: async (k) => this.send(k), wait: async () => {} };
+    return { screen: () => this.lines(), cols: () => this.cols, send: async (k) => this.send(k), wait: async () => {} };
   }
 }
 

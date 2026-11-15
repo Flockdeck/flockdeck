@@ -23,6 +23,7 @@ export const TOO_LONG_WORDS = "That answer is too long.";
 export const INCOMPLETE_WORDS = "Answer every question to send.";
 export const OTHER_EMPTY_WORDS = "Type your own answer, or choose an option.";
 export const NOT_ANSWERED_YET_WORDS = "Not answered yet";
+export const TOO_WIDE_WORDS = "That answer is longer than the terminal is wide. Shorten it, or answer in the terminal.";
 export const KEYS_WORDS = "Arrow keys move, Space chooses, 1 to 9 choose an option, Enter sends when every question is answered.";
 
 const bytes = (s) => new TextEncoder().encode(String(s)).length;
@@ -66,14 +67,15 @@ export function type(state, questions, qi, text) {
   return state.map((s, i) => (i === qi ? next : s));
 }
 
-/** problem says why the form cannot be sent, or "" when it can. */
-export function problem(questions, state) {
+/** problem says why the form cannot be sent, or "" when it can. fits, if given, says whether a typed answer can be typed where the answer goes. */
+export function problem(questions, state, fits = null) {
   if (!Array.isArray(questions) || questions.length === 0 || state.length !== questions.length) return INCOMPLETE_WORDS;
   for (let i = 0; i < questions.length; i++) {
     const s = state[i];
     const other = s.other.trim();
     if (s.otherOn && bytes(other) > MAX_OTHER_BYTES) return TOO_LONG_WORDS;
     if (s.otherOn && !other) return OTHER_EMPTY_WORDS;
+    if (s.otherOn && fits && !fits(other)) return TOO_WIDE_WORDS;
     const n = s.selected.length + (s.otherOn && other ? 1 : 0);
     if (n === 0 || (!questions[i].multiSelect && n > 1)) return INCOMPLETE_WORDS;
   }
@@ -91,14 +93,22 @@ export function answers(questions, state) {
   });
 }
 
-/** summaryOf is what the form says is chosen, for each question: { header, question, text, set }. text is the labels chosen and the typed text, joined by ", ". */
-export function summaryOf(questions, state) {
+/** firstOpen is the position of the first question with no answer, or -1. */
+export function firstOpen(questions, state) {
+  return questions.findIndex((q, i) => {
+    const s = state[i];
+    return !s || s.selected.length + (s.otherOn && s.other.trim() ? 1 : 0) === 0;
+  });
+}
+
+/** summaryOf is what the form says is chosen, for each question: { header, question, text, set }. text is the labels chosen and the typed text, joined by ", ". tidy changes the typed text to what will really be typed. */
+export function summaryOf(questions, state, tidy = (t) => t) {
   return (Array.isArray(questions) ? questions : []).map((q, i) => {
     const s = state[i] || { selected: [], other: "", otherOn: false };
     const opts = Array.isArray(q.options) ? q.options : [];
     const parts = s.selected.map((oi) => (opts[oi] ? opts[oi].label : "")).filter(Boolean);
     const other = s.other.trim();
-    if (s.otherOn && other) parts.push(other);
+    if (s.otherOn && other) parts.push(tidy(other));
     return { header: q.header || "", question: q.question, text: parts.join(", "), set: parts.length > 0 };
   });
 }
@@ -111,17 +121,21 @@ const focusIn = (root, selector) => {
 /**
  * QuestionForm draws the questions of a card, what is chosen, and the buttons. onSend gets the allowing option
  * and the answers; onSkip is called for the refusing option (a form with none has no Skip). done says an answer
- * is on its way, and the form is shut; locked says nothing may be sent from this window.
+ * is on its way, and the form is shut; locked says nothing may be sent from this window, and why is the sentence
+ * that says so. tidy is what a typed answer is changed to on its way (a terminal takes one line of printable text), and
+ * fits says whether it can be typed where it goes.
  */
-export function QuestionForm({ card, allow, refuse, done, locked = false, tabIndex = undefined, onSend, onSkip }) {
+export function QuestionForm({ card, allow, refuse, done, locked = false, lockedWhy = "", tabIndex = undefined, tidy = null, fits = null, onSend, onSkip }) {
   const questions = Array.isArray(card.questions) ? card.questions : [];
   const [state, setState] = useState(() => blank(questions));
-  const why = problem(questions, state);
+  const [nudge, setNudge] = useState(false);
+  const why = problem(questions, state, fits);
   const shut = done || locked;
+  const clean = tidy || ((t) => t);
   const touched = state.some((s) => s.selected.length || s.other || s.otherOn);
   const sendNow = () => {
     if (shut || why || !allow) return;
-    onSend(allow, answers(questions, state));
+    onSend(allow, answers(questions, state).map((a) => (a.other ? { ...a, other: clean(a.other) } : a)));
   };
   // Number keys choose option n of the question the keyboard is in, and one past the last is "Other". In the text box a digit is text.
   const onKeys = (qi) => (e) => {
@@ -130,9 +144,11 @@ export function QuestionForm({ card, allow, refuse, done, locked = false, tabInd
     const input = target && target.localName === "input";
     const inText = input && target.getAttribute("type") === "text";
     if (e.key === "Enter") {
-      if (!input) return;
+      // Enter that ends an input method's composition is not a press of Enter.
+      if (!input || e.isComposing || e.keyCode === 229) return;
       e.preventDefault();
-      sendNow();
+      if (why) setNudge(true);
+      else sendNow();
       return;
     }
     if (inText || !/^[1-9]$/.test(e.key)) return;
@@ -150,7 +166,9 @@ export function QuestionForm({ card, allow, refuse, done, locked = false, tabInd
       focusIn(box, '[data-option="' + (n - 1) + '"]');
     }
   };
-  const summary = summaryOf(questions, state);
+  const summary = summaryOf(questions, state, clean);
+  const open = firstOpen(questions, state);
+  const lack = why && open >= 0 ? why + " Question " + (open + 1) + " has none." : why;
   return html`<div class="prompt-questions">
     <div class="prompt-qlist">
     ${questions.map((q, qi) => {
@@ -189,7 +207,9 @@ export function QuestionForm({ card, allow, refuse, done, locked = false, tabInd
       ${allow ? html`<button type="button" class="prompt-choice prompt-choice--allow_once prompt-send" data-option=${allow.id} disabled=${shut || !!why} tabindex=${tabIndex} onClick=${sendNow}>${SEND_WORDS}</button>` : null}
       ${refuse ? html`<button type="button" class="prompt-choice prompt-choice--reject_once prompt-skip" data-option=${refuse.id} disabled=${shut} tabindex=${tabIndex} onClick=${() => onSkip(refuse)}>${SKIP_WORDS}</button>` : null}
     </div>
-    ${!shut && why && touched ? html`<p class="prompt-more">${why}</p>` : null}
+    ${!shut && why && nudge ? html`<p class="prompt-status prompt-status--error" role="alert">${lack}</p>` : null}
+    ${!shut && why && touched && !nudge ? html`<p class="prompt-more">${why}</p>` : null}
+    ${locked && lockedWhy ? html`<p class="prompt-more">${lockedWhy}</p>` : null}
     ${!shut ? html`<p class="prompt-hint">${KEYS_WORDS}</p>` : null}
   </div>`;
 }

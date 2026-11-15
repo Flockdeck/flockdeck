@@ -35,7 +35,7 @@ import { showControls } from "./diff/diffModel.js";
 import { shownName } from "../graph/model.js";
 import { ManagerBar } from "../graph/ManagerBar.js";
 import { QuestionForm } from "./questions.js";
-import { drive, Mismatch, MISMATCH } from "./tuiQuestion.js";
+import { drive, Mismatch, MISMATCH, cleanText, fitsRow } from "./tuiQuestion.js";
 
 /** KEYS is what each terminal choice types: Yes is Enter, the default of Claude
  *  Code's prompt, and No is Esc, its own "No, and tell Claude what to do
@@ -266,12 +266,23 @@ const typeKeys = (sendKeys) => (keys) => new Promise((resolve) => {
   if (!sendKeys(keys, (ok) => resolve(!!ok))) resolve(false);
 });
 
+// The panes a form of this window is answering now. A second press, from a second copy of the card, does nothing.
+const driving = new Set();
+
+export const NO_TERMINAL_WORDS = "The terminal is not open in this window, so this card cannot answer. Open the Terminal tab, or answer in the terminal.";
+
 // A terminal pane's question as a form. Sending drives claude's own question
 // screen with keys (tuiQuestion.js), reading the screen before each one.
-function TerminalQuestionForm({ ask, sendKeys, readScreen, viewer = false, waitMs = ANSWER_WAIT_MS }) {
+function TerminalQuestionForm({ pane, ask, sendKeys, readScreen, readCols = null, viewer = false, waitMs = ANSWER_WAIT_MS }) {
   const [phase, setPhase] = useState(""); // "", "sending" or "sent"
   const [note, setNote] = useState("");
   const busy = useRef(false);
+  const abort = useRef(null);
+  // The card going (answered, replaced, the drawer closed) stops a run that is still typing.
+  useEffect(() => () => {
+    if (abort.current) abort.current.abort();
+    if (busy.current) driving.delete(pane);
+  }, []);
   useEffect(() => {
     if (phase !== "sent") return undefined;
     const t = setTimeout(() => {
@@ -281,15 +292,23 @@ function TerminalQuestionForm({ ask, sendKeys, readScreen, viewer = false, waitM
     }, waitMs);
     return () => clearTimeout(t);
   }, [phase, waitMs]);
+  const readable = readScreen() !== null;
+  const cols = () => (readCols ? readCols() : 0);
   const onSend = async (_opt, a) => {
-    if (busy.current || viewer || !a) return;
+    if (busy.current || driving.has(pane) || viewer || !a) return;
     busy.current = true;
+    driving.add(pane);
+    const ctl = new AbortController();
+    abort.current = ctl;
     setPhase("sending");
     setNote("");
     try {
-      await drive(ask.questions, a, { screen: readScreen, send: typeKeys(sendKeys), wait: (ms) => new Promise((r) => setTimeout(r, ms)) });
-      setPhase("sent");
+      await drive(ask.questions, a, { screen: readScreen, cols, send: typeKeys(sendKeys), wait: (ms) => new Promise((r) => setTimeout(r, ms)), signal: ctl.signal });
+      driving.delete(pane);
+      if (!ctl.signal.aborted) setPhase("sent");
     } catch (e) {
+      driving.delete(pane);
+      if (ctl.signal.aborted) return;
       busy.current = false;
       setPhase("");
       setNote(e instanceof Mismatch ? e.reason : MISMATCH.moved);
@@ -297,7 +316,8 @@ function TerminalQuestionForm({ ask, sendKeys, readScreen, viewer = false, waitM
   };
   const says = viewer ? VIEWER_WORDS : phase === "sending" ? "Answering in the terminal…" : phase === "sent" ? ANSWER_SENT_WORDS : "";
   return html`
-    <${QuestionForm} card=${ask} done=${phase !== ""} locked=${viewer} allow=${{ id: "answer" }} onSend=${onSend} />
+    <${QuestionForm} card=${ask} done=${phase !== ""} locked=${viewer || !readable} lockedWhy=${!viewer && !readable ? NO_TERMINAL_WORDS : ""} allow=${{ id: "answer" }} onSend=${onSend}
+      tidy=${cleanText} fits=${(t) => fitsRow(cleanText(t), cols())} />
     <p class="prompt-more">${CANCEL_IN_TERMINAL_WORDS}</p>
     <p key="status" class="prompt-status" role="status">${says}</p>
     ${note && !viewer ? html`<p key="refused" class="prompt-status prompt-status--error" role="alert">${note}</p>` : null}
@@ -306,9 +326,9 @@ function TerminalQuestionForm({ ask, sendKeys, readScreen, viewer = false, waitM
 
 // A question: its text and options, and what answers it. In a window on the desk with a terminal it is a form
 // that answers in the terminal's own question screen. Without one it is the text, and the box that sends a line.
-export function Question({ node, ask, snap, store, sendKeys = null, readScreen = null, waitMs = ANSWER_WAIT_MS }) {
+export function Question({ node, ask, snap, store, sendKeys = null, readScreen = null, readCols = null, waitMs = ANSWER_WAIT_MS }) {
   if (!snap.remote && sendKeys && readScreen && canForm(ask.questions)) {
-    return html`<${TerminalQuestionForm} ask=${ask} sendKeys=${sendKeys} readScreen=${readScreen} viewer=${isViewer(snap)} waitMs=${waitMs} />`;
+    return html`<${TerminalQuestionForm} pane=${node.pane} ask=${ask} sendKeys=${sendKeys} readScreen=${readScreen} readCols=${readCols} viewer=${isViewer(snap)} waitMs=${waitMs} />`;
   }
   return html`
     ${ask.questions.map((q) => html`<div class="prompt-question">
@@ -331,7 +351,7 @@ export function Question({ node, ask, snap, store, sendKeys = null, readScreen =
  * store's snapshot, store the store, and sendKeys types into the pane's terminal
  * (the terminal's sendKeys). terminal says whether the pane has one.
  */
-export function Prompt({ node, pane = null, snap, store, sendKeys, readScreen = null, terminal = true, waitMs = ANSWER_WAIT_MS }) {
+export function Prompt({ node, pane = null, snap, store, sendKeys, readScreen = null, readCols = null, terminal = true, waitMs = ANSWER_WAIT_MS }) {
   const kind = waitingOn(node, pane);
   if (!kind) return null;
   let body = null;
@@ -359,7 +379,7 @@ export function Prompt({ node, pane = null, snap, store, sendKeys, readScreen = 
   } else if (kind === "ask") {
     id = idOf("a", pane.statusSince, pane.ask.questions.map((q) => q.question).join("\u0002"));
     title = "Question";
-    body = html`<${Question} key=${id} node=${node} ask=${pane.ask} snap=${snap} store=${store} sendKeys=${sendKeys} readScreen=${readScreen} waitMs=${waitMs} />`;
+    body = html`<${Question} key=${id} node=${node} ask=${pane.ask} snap=${snap} store=${store} sendKeys=${sendKeys} readScreen=${readScreen} readCols=${readCols} waitMs=${waitMs} />`;
   }
   if (!body) {
     // The graph says the pane waits on the person, and the state push has not said
