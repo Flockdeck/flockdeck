@@ -27,7 +27,7 @@ const apiCatalogPath = "../../api/catalog.json"
 // command or message raises the major; one that adds raises the minor.
 const (
 	apiMajor = 1
-	apiMinor = 34
+	apiMinor = 35
 )
 
 // addedIn names the minor version a command arrived in; any other is 1.0.
@@ -88,6 +88,8 @@ func init() {
 	// attachImageResult echoing the request's req (1.33, cap attachImageReq) adds no message either.
 	// A subagent's text on its tool entry (sub) and the background flag of the structured push came with
 	// subagentText (1.34). No command is new either.
+	// Putting files back with a rewind came with structuredRewindFiles (1.35), and restoreFiles on structuredRewind.
+	addedIn["structuredRewindFiles"] = "1.35"
 	// The person's own shell commands came with structuredShell (1.21).
 	for _, n := range []string{"structuredShellRun", "structuredShellStop", "structuredShellRemove", "structuredShellSend"} {
 		addedIn[n] = "1.21"

@@ -9,6 +9,7 @@ import (
 	"github.com/google/uuid"
 
 	"github.com/jmwri/flockdeck/internal/acp"
+	"github.com/jmwri/flockdeck/internal/filerewind"
 )
 
 // Going back to an earlier point of the conversation, and starting a new
@@ -75,6 +76,9 @@ type mark struct {
 	token    string
 	entry    string
 	complete bool
+	// ckpt is the files as they were when the prompt was sent, if a checkpoint
+	// was made (filerewind.go).
+	ckpt filerewind.Checkpoint
 }
 
 func newToken() string { return uuid.NewString() }
@@ -165,8 +169,14 @@ func (r *Runtime) idleLocked() bool {
 // Rewind takes the agent back to before the prompt entry id, and takes that
 // prompt and everything after it out of the conversation. It returns the
 // prompt's text. The agent's own history is cut by the agent; if it does not
-// say it did, nothing here changes.
+// say it did, nothing here changes. Files are not touched; see RewindFiles.
 func (r *Runtime) Rewind(id, token string) (string, error) {
+	return r.rewind(id, token, nil, nil)
+}
+
+// rewind is Rewind. When files is not nil it is the list of files the person
+// confirmed to be put back, and out says what became of them; see RewindFiles.
+func (r *Runtime) rewind(id, token string, files []filerewind.Confirm, out *FilesOutcome) (string, error) {
 	r.mu.Lock()
 	c, session := r.client, r.session
 	if c == nil || r.phase != PhaseReady {
@@ -193,12 +203,29 @@ func (r *Runtime) Rewind(id, token string) (string, error) {
 		return "", ErrNoPoint
 	}
 	turn := r.marks[i].token
+	tree := r.marks[i].ckpt.Tree
+	if files != nil && tree == "" {
+		r.mu.Unlock()
+		return "", ErrNoFiles
+	}
 	// Nothing is sent to the agent until the rewind ends (see pop). The agent
 	// tells us, as part of the rewind, that the conversation moved to a new id.
 	r.rewinding, r.rewindMove = true, true
 	from := r.sessionIDLocked()
 	r.rewindFrom = ""
 	r.mu.Unlock()
+
+	// The list the person confirmed is checked against the files now before the
+	// conversation moves, so that a list that went out of date stops everything.
+	if files != nil {
+		if err := r.checkFiles(tree, files); err != nil {
+			r.mu.Lock()
+			r.rewinding, r.rewindMove = false, false
+			r.mu.Unlock()
+			r.wakeLoop()
+			return "", err
+		}
+	}
 
 	err := c.Rewind(r.ctx, session, turn)
 
@@ -225,8 +252,10 @@ func (r *Runtime) Rewind(id, token string) (string, error) {
 	// the agent and the marks agree, and an entry the bridge no longer holds is
 	// gone from the window already.
 	text, _ := r.br.TruncateBefore(id)
+	var cut []mark
 	for j, m := range r.marks {
 		if m.token == turn {
+			cut = slices.Clone(r.marks[j:])
 			r.marks = r.marks[:j:j]
 			break
 		}
@@ -235,6 +264,24 @@ func (r *Runtime) Rewind(id, token string) (string, error) {
 	r.mu.Unlock()
 	r.notify()
 	r.wakeLoop()
+	// The conversation is back. The files follow, from the list that was
+	// confirmed; a failure here leaves the conversation back and says so.
+	if files != nil && out != nil {
+		out.Result, out.Err = r.restoreFiles(tree, files)
+		if (out.Err != nil || len(out.Result.Failed) > 0) && len(cut) > 0 && cut[0].ckpt.Ref != "" {
+			// The restore did not finish. The checkpoint of the prompt is the only
+			// copy the person can restore from by hand, so it is kept.
+			// If the ref cannot be moved it stays where it is and is named as it
+			// is. It is not dropped with the other cut checkpoints.
+			if kept, err := filerewind.Keep(r.opts.Cwd, cut[0].ckpt.Ref); err == nil {
+				out.Result.Kept = kept
+			} else {
+				out.Result.Kept = cut[0].ckpt.Ref
+			}
+			cut = cut[1:]
+		}
+	}
+	r.dropMarks(cut)
 	return text, nil
 }
 

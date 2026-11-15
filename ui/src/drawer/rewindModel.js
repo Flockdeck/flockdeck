@@ -8,8 +8,15 @@ export const REWIND_NOT_SENT_WORDS = "Not connected to Flockdeck, so the request
 export const REWIND_NOT_OFFERED_WORDS = "This agent cannot go back to an earlier point, so there is nothing to go back to or fork from.";
 export const REWIND_BUSY_WORDS = "Stop the turn first. Going back and forking wait until the agent is idle.";
 export const REWIND_NONE_WORDS = "No earlier prompt can be gone back to yet. The first prompt of a conversation has no point before it, and neither has one that follows a turn that was stopped.";
-export const REWIND_CONFIRM_WORDS = "removes this prompt and everything after it from the conversation and from the agent, including messages other agents sent after it. Files the agent changed are not put back, and pictures attached to the prompt are not put back in the box.";
+export const REWIND_CONFIRM_WORDS = "removes this prompt and everything after it from the conversation and from the agent, including messages other agents sent after it. Files the agent changed are not put back by going back alone, and pictures attached to the prompt are not put back in the box.";
 export const REWIND_CUT_WORDS = "The prompt was long; only its start was put back.";
+export const FILES_NONE_WORDS = "No saved files exist for this prompt, so only the conversation can go back.";
+export const FILES_EMPTY_WORDS = "No files differ from how they were when this prompt was sent.";
+export const FILES_SAFE_WORDS = "Only the files listed are changed. Ignored files, files behind a link and the git index are left alone. Before anything is written, the files as they are now are saved in git, and the answer names where.";
+export const FILES_BLOCKED_WORDS = "These files cannot be put back safely, so the files are not put back. Deal with them, or go back without the files:";
+export const FILES_FILTER_WORDS = "Files stored with Git LFS, or run through any other git filter or working-tree encoding, are never put back, because checking them out would run the filter. Go back without the files, then restore those by hand.";
+export const FILES_NESTED_WORDS = "Not touched, because they are nested repositories or submodules:";
+export const FILES_ACTION_WORDS = { overwrite: "gets its earlier content back", recreate: "is written back (it was deleted)", remove: "is deleted (it was created later)" };
 
 const clean = (s, n) => String(s == null ? "" : s).replace(/[\p{C}]/gu, " ").replace(/\s+/g, " ").trim().slice(0, n);
 
@@ -40,10 +47,61 @@ export function canAct(st) {
 }
 
 /** rewindMessage is the command to go back to before entry. It always confirms:
- *  the panel asks the person first. */
-export function rewindMessage(pane, entry, req, token) {
+ *  the panel asks the person first. With files (an array of the paths the person
+ *  was shown) it also puts those files back. */
+export function rewindMessage(pane, entry, req, token, files) {
   if (!pane || !entry || typeof entry !== "string") return null;
-  return { cmd: "structuredRewind", id: pane, req, entry, confirm: true, rewindToken: typeof token === "string" ? token : "" };
+  const m = { cmd: "structuredRewind", id: pane, req, entry, confirm: true, rewindToken: typeof token === "string" ? token : "" };
+  if (Array.isArray(files)) {
+    // files are { path, id } as the list showed them.
+    const ok = files.filter((f) => f && typeof f.path === "string" && typeof f.id === "string");
+    m.restoreFiles = true;
+    m.filePaths = ok.map((f) => f.path);
+    m.fileIds = ok.map((f) => f.id);
+  }
+  return m;
+}
+
+/** blockedOf keeps the files an answer says cannot be put back, with the reason. */
+export function blockedOf(list) {
+  if (!Array.isArray(list)) return [];
+  return list.filter((b) => b && typeof b.path === "string" && b.path).map((b) => ({ path: clean(b.path, 400), reason: clean(b.reason, 120) }));
+}
+
+/** hasFilterBlock says one of the blocked files is held back by a git filter (LFS) or an encoding. */
+export function hasFilterBlock(blocked) {
+  return Array.isArray(blocked) && blocked.some((b) => b && typeof b.reason === "string" && b.reason.includes("git filter"));
+}
+
+/** nestedOf keeps the names of nested repositories an answer says were skipped. */
+export function nestedOf(list) {
+  return Array.isArray(list) ? list.filter((p) => typeof p === "string" && p).map((p) => clean(p, 400)) : [];
+}
+
+/** filesMessage asks what going back to before entry would change in the files. */
+export function filesMessage(pane, entry, req, token) {
+  if (!pane || !entry || typeof entry !== "string") return null;
+  return { cmd: "structuredRewindFiles", id: pane, req, entry, rewindToken: typeof token === "string" ? token : "" };
+}
+
+/** filesOffered says the push lists entry as having saved files. */
+export function filesOffered(st, entry) {
+  return !!st && Array.isArray(st.rewindFiles) && st.rewindFiles.includes(entry);
+}
+
+/** filesWhy is the server's words for why the latest prompt has no saved files, or "". */
+export function filesWhy(st) {
+  return st && typeof st.rewindFilesWhy === "string" ? clean(st.rewindFilesWhy, 400) : "";
+}
+
+/** filesOf keeps the files of an answer that have a path and a known action. */
+export function filesOf(list) {
+  if (!Array.isArray(list)) return [];
+  const out = [];
+  for (const f of list) {
+    if (f && typeof f.path === "string" && f.path && Object.prototype.hasOwnProperty.call(FILES_ACTION_WORDS, f.action)) out.push({ path: f.path.replace(/[\p{C}]/gu, " ").slice(0, 400), action: f.action, id: typeof f.id === "string" ? f.id.slice(0, 64) : "" });
+  }
+  return out;
 }
 
 /** forkMessage is the command to fork before entry, or the whole conversation
@@ -67,7 +125,26 @@ export function restoredDraft(draft, text) {
  *  pane and request: { ok, words, text, pane }. */
 export function resultWords(r) {
   if (!r) return null;
-  if (!r.ok) return { ok: false, words: clean(r.error, 300) || "That did not work.", text: "", pane: "" };
+  if (!r.ok) return { ok: false, words: clean(r.error, 300) || "That did not work.", text: "", pane: "", files: filesOf(r.files), blocked: blockedOf(r.blocked), nested: [] };
   if (r.op === "structuredFork") return { ok: true, words: "Started a new pane beside this one.", text: "", pane: r.pane || "" };
-  return { ok: true, words: "Went back. The prompt is in the box to edit and send again." + (r.cut === true ? " " + REWIND_CUT_WORDS : ""), text: typeof r.text === "string" ? r.text : "", pane: "" };
+  if (r.op === "structuredRewindFiles") return { ok: true, words: "", text: "", pane: "", files: filesOf(r.files), blocked: blockedOf(r.blocked), nested: nestedOf(r.nestedRepos) };
+  return { ok: true, words: "Went back. The prompt is in the box to edit and send again." + (r.cut === true ? " " + REWIND_CUT_WORDS : "") + restoreWords(r.restore), text: typeof r.text === "string" ? r.text : "", pane: "", files: [] };
+}
+
+/** restoreWords says what a restore of files did: the counts, the git ref that
+ *  holds the files from before it, and what went wrong, if anything. */
+export function restoreWords(r) {
+  if (!r || typeof r !== "object") return "";
+  const n = (v) => (Number.isInteger(v) && v > 0 ? v : 0);
+  let w = " Files: " + n(r.written) + " put back, " + n(r.removed) + " deleted.";
+  if (typeof r.kept === "string" && r.kept) w += " The saved files from the prompt are kept in git as " + clean(r.kept, 200) + ", so you can put them back by hand (git checkout " + clean(r.kept, 200) + " -- <file>).";
+  if (typeof r.undo === "string" && r.undo) w += " The files as they were before are saved in git as " + clean(r.undo, 200) + " (git checkout " + clean(r.undo, 200) + " -- . puts them back).";
+  if (typeof r.error === "string" && r.error) w += " " + clean(r.error, 300);
+  const blocked = blockedOf(r.blocked);
+  if (blocked.length) {
+    w += " Not put back, because they could not be put back safely: " + blocked.slice(0, 5).map((b) => b.path + (b.reason ? " (" + b.reason + ")" : "")).join("; ") + (blocked.length > 5 ? "; and " + (blocked.length - 5) + " more." : ".");
+    if (hasFilterBlock(blocked)) w += " " + FILES_FILTER_WORDS;
+  }
+  if (Array.isArray(r.failed) && r.failed.length) w += " Not restored: " + r.failed.slice(0, 5).map((f) => clean(f, 200)).join("; ") + (r.failed.length > 5 ? "; and " + (r.failed.length - 5) + " more." : ".");
+  return w;
 }
