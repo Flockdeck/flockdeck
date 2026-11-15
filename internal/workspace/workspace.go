@@ -2872,6 +2872,18 @@ func (w *Workspace) ClosePaneByID(id string) bool {
 // A finished pane that is locked is left open, and counted in locked so the
 // caller can say so rather than seem to have found nothing.
 func (w *Workspace) CloseFinishedPanes() (panesClosed, tabsClosed, locked int) {
+	return w.closeFinished(func(string) bool { return true })
+}
+
+// CloseFinishedPanesOf is CloseFinishedPanes for an agent: it closes the finished
+// panes of the project the pane self is in, and no other. If self is not open it
+// closes nothing.
+func (w *Workspace) CloseFinishedPanesOf(self string) (panesClosed, tabsClosed, locked int) {
+	return w.closeFinished(func(id string) bool { return w.PaneInProject(self, id) })
+}
+
+// closeFinished closes the finished panes that in accepts.
+func (w *Workspace) closeFinished(in func(id string) bool) (panesClosed, tabsClosed, locked int) {
 	before := make(map[string]bool, len(w.Tabs))
 	for _, t := range w.Tabs {
 		before[t.ID] = true
@@ -2879,7 +2891,7 @@ func (w *Workspace) CloseFinishedPanes() (panesClosed, tabsClosed, locked int) {
 	var ids []string
 	for _, t := range w.Tabs {
 		for _, id := range t.Tree.Panes() {
-			if !w.paneFinished(id) {
+			if !in(id) || !w.paneFinished(id) {
 				continue
 			}
 			if w.PaneLocked(id) {
