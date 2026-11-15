@@ -13,6 +13,7 @@ import (
 
 	"github.com/jmwri/flockdeck/internal/acp/acptest"
 	"github.com/jmwri/flockdeck/internal/filerewind"
+	"github.com/jmwri/flockdeck/internal/gitx"
 )
 
 func gitCmd(t *testing.T, dir string, args ...string) string {
@@ -370,7 +371,7 @@ func TestAFailedSaveNamesTheFileAndBacksOff(t *testing.T) {
 		t.Fatalf("why = %q", s.FilesWhy)
 	}
 	s = typedAndSettle(t, r, "p2", 2)
-	if !strings.Contains(s.FilesWhy, "skips it for the next") || !strings.Contains(s.FilesWhy, "docs/bad.u16") {
+	if !strings.Contains(s.FilesWhy, "fails until the cause is fixed") || !strings.Contains(s.FilesWhy, "docs/bad.u16") || strings.Contains(s.FilesWhy, "took too long") {
 		t.Errorf("why while skipping = %q", s.FilesWhy)
 	}
 	if refs := gitCmd(t, dir, "for-each-ref", filerewind.RefPrefix); refs != "" {
@@ -450,5 +451,26 @@ func TestACheckpointThatCannotBeMovedIsKeptWhereItIs(t *testing.T) {
 	}
 	if got := strings.ReplaceAll(gitCmd(t, dir, "show", out.Result.Kept+":a.txt"), "\r\n", "\n"); got != "v2\n" {
 		t.Errorf("kept a.txt = %q", got)
+	}
+}
+
+func TestTheSkipTextSaysWhetherToWaitOrToFix(t *testing.T) {
+	slow := skipText(filerewind.ErrSlow, "x")
+	fixme := skipText(&filerewind.FileError{Path: "a", Err: filerewind.ErrEncoding}, "x")
+	unsafe := skipText(&gitx.UnsafeReadConfigError{Key: "core.fsmonitor"}, "x")
+	other := skipText(errors.New("boom"), "x")
+	if !strings.Contains(slow, "took too long") || strings.Contains(slow, "fixed") {
+		t.Errorf("slow = %q", slow)
+	}
+	for _, s := range []string{fixme, unsafe} {
+		if !strings.Contains(s, "until the cause is fixed") || strings.Contains(s, "took too long") {
+			t.Errorf("fixable = %q", s)
+		}
+	}
+	if !strings.Contains(other, "failed") || strings.Contains(other, "took too long") {
+		t.Errorf("other = %q", other)
+	}
+	if got := whyText(&gitx.UnsafeReadConfigError{Key: "core.fsmonitor"}); !strings.Contains(got, "core.fsmonitor") || !strings.Contains(got, "waiting will not help") {
+		t.Errorf("unsafe config why = %q", got)
 	}
 }

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/jmwri/flockdeck/internal/filerewind"
+	"github.com/jmwri/flockdeck/internal/gitx"
 )
 
 // Putting files back when a pane goes back to an earlier prompt.
@@ -106,6 +107,10 @@ func whyText(err error) string {
 		return FilesWhySlow
 	case errors.Is(err, filerewind.ErrSlowNow):
 		return FilesWhySlowNow
+	case errors.As(err, new(*gitx.UnsafeReadConfigError)):
+		var ue *gitx.UnsafeReadConfigError
+		errors.As(err, &ue)
+		return fmt.Sprintf("This repository's git setting %s is one Flockdeck will not run, so the files were not saved when that prompt was sent. Change the setting; waiting will not help. Only the conversation can go back.", whyFile(ue.Key))
 	case errors.Is(err, filerewind.ErrEncoding):
 		var fe *filerewind.FileError
 		if errors.As(err, &fe) && fe.Path != "" {
@@ -130,6 +135,26 @@ func tooBigText(err error) string {
 		return fmt.Sprintf("%s is %d MB, over the limit of %d MB for one file, so the files were not saved when that prompt was sent. Move it out of the folder or ignore it in .gitignore.%s", whyFile(te.Path), te.Size>>20, filerewind.MaxFileBytes>>20, tail)
 	}
 	return fmt.Sprintf("The changed and untracked files add up to more than %d MB (the limit was passed at %s), so they were not saved when that prompt was sent. Ignore or move the large ones.%s", filerewind.MaxTotalBytes>>20, whyFile(te.Path), tail)
+}
+
+// fixable says a failed save will fail the same way, at once, until something
+// in the folder or the repository's settings is changed.
+func fixable(err error) bool {
+	var unsafe *gitx.UnsafeReadConfigError
+	return errors.Is(err, filerewind.ErrEncoding) || errors.As(err, &unsafe)
+}
+
+// skipText is the reason shown for the prompts that skip saving after a failed
+// save. A save that took too long may work later, so the person waits; one that
+// fails at once does not, so the person is told to fix it.
+func skipText(err error, why string) string {
+	switch {
+	case fixable(err):
+		return fmt.Sprintf("Saving the files fails until the cause is fixed, so Flockdeck skips it for the next %d prompts and then tries again. %s", skipPrompts, why)
+	case errors.Is(err, filerewind.ErrSlow):
+		return fmt.Sprintf("Saving the files took too long for an earlier prompt, so Flockdeck skips it for the next %d prompts and then tries again. %s", skipPrompts, why)
+	}
+	return fmt.Sprintf("Saving the files failed for an earlier prompt, so Flockdeck skips it for the next %d prompts and then tries again. %s", skipPrompts, why)
 }
 
 // backsOff says a failed save is one worth skipping the next prompts for: it
@@ -174,7 +199,7 @@ func (r *Runtime) checkpoint() filerewind.Checkpoint {
 	switch {
 	case err != nil && backsOff(err):
 		r.ckptSkip = skipPrompts
-		r.ckptSkipWhy = fmt.Sprintf("Saving the files failed or took too long for an earlier prompt, so Flockdeck skips it for the next %d prompts and then tries again. The reason was: %s", skipPrompts, r.filesWhy)
+		r.ckptSkipWhy = skipText(err, r.filesWhy)
 	case err == nil && took > slowSave:
 		r.ckptSkip = skipPrompts
 		r.ckptSkipWhy = fmt.Sprintf("Saving the files took %d seconds for an earlier prompt, so Flockdeck skips it for the next %d prompts and then tries again. Only the conversation can go back.", int(took.Seconds()), skipPrompts)

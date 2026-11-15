@@ -880,3 +880,109 @@ func TestAnEncodingFailureNamesTheFile(t *testing.T) {
 		t.Fatalf("err = %#v", err)
 	}
 }
+
+// A file the agent replaced with a folder of the same name: the checkpoint has
+// x, the files now have x/a.txt. Check and Restore both read the listed paths.
+func TestAFileReplacedByAFolderRestores(t *testing.T) {
+	dir := newRepo(t)
+	write(t, dir, "x", "was a file\n")
+	cp := capture(t, dir, "t/30")
+	if err := os.Remove(filepath.Join(dir, "x")); err != nil {
+		t.Fatal(err)
+	}
+	write(t, dir, "x/a.txt", "now a folder\n")
+	plan, err := Plan(ctxb(), dir, cp.Tree)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "recreate:x,remove:x/a.txt"; paths(plan) != want || len(plan.Blocked) != 0 {
+		t.Fatalf("plan = %s (blocked %v), want %s", paths(plan), plan.Blocked, want)
+	}
+	if err := Check(ctxb(), dir, cp.Tree, confirmAll(plan)); err != nil {
+		t.Fatalf("check: %v", err)
+	}
+	res, err := Restore(ctxb(), dir, cp.Tree, confirmAll(plan), "t-30")
+	if err != nil || len(res.Failed) != 0 || res.Written != 1 || res.Removed != 1 {
+		t.Fatalf("restore: %+v, %v", res, err)
+	}
+	if read(t, dir, "x") != "was a file\n" {
+		t.Errorf("x = %q", read(t, dir, "x"))
+	}
+}
+
+// Check makes the read Restore makes, so a failure of it shows before the
+// conversation moves: a path that git cannot read stops it.
+func TestCheckFailsWhereRestoreWouldBeforeAnythingMoves(t *testing.T) {
+	dir := newRepo(t)
+	cp := capture(t, dir, "t/31")
+	write(t, dir, "n.txt", "n\n")
+	plan, _ := Plan(ctxb(), dir, cp.Tree)
+	ctx, cancel := context.WithCancel(ctxb())
+	cancel()
+	if err := Check(ctx, dir, cp.Tree, confirmAll(plan)); err == nil {
+		t.Fatal("a cancelled check passed")
+	}
+	if err := Check(ctxb(), dir, cp.Tree, confirmAll(plan)); err != nil {
+		t.Fatalf("check: %v", err)
+	}
+}
+
+func TestSweepRemovesOldTemporaryObjectsOnly(t *testing.T) {
+	dir := newRepo(t)
+	objs := filepath.Join(dir, ".git", "objects")
+	old := time.Now().Add(-2 * time.Hour)
+	mk := func(rel string, mt time.Time) string {
+		p := filepath.Join(objs, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(p, []byte("half"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(p, mt, mt); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	oldTop, oldSub := mk("tmp_obj_old", old), mk("ab/tmp_obj_old", old)
+	fresh, sub := mk("tmp_obj_fresh", time.Now()), mk("ab/tmp_obj_fresh", time.Now())
+	other := mk("ab/cdef", old) // a real object file name pattern is not touched
+	r, _ := locate(ctxb(), dir)
+	r.sweep(time.Now())
+	for _, p := range []string{oldTop, oldSub} {
+		if _, err := os.Lstat(p); err == nil {
+			t.Errorf("%s is still there", p)
+		}
+	}
+	for _, p := range []string{fresh, sub, other} {
+		if _, err := os.Lstat(p); err != nil {
+			t.Errorf("%s was removed", p)
+		}
+	}
+}
+
+// A marker dated in the future does not protect its run, and is removed.
+func TestAMarkerFromTheFutureIsStale(t *testing.T) {
+	dir := newRepo(t)
+	backdatedCheckpoint(t, dir, RefPrefix+"skewed/1", 10*24*time.Hour)
+	r, _ := locate(ctxb(), dir)
+	r.touchMarker("skewed")
+	future := time.Now().Add(48 * time.Hour)
+	if err := os.Chtimes(r.markerPath("skewed"), future, future); err != nil {
+		t.Fatal(err)
+	}
+	if r.liveElsewhere("skewed", time.Now()) {
+		t.Error("a marker dated two days ahead counts as live")
+	}
+	r.touchMarker("fine")
+	if !r.liveElsewhere("fine", time.Now().Add(-5*time.Second)) {
+		t.Error("a few seconds of clock difference made a fresh marker stale")
+	}
+	r.sweep(time.Now())
+	if strings.Contains(gitIn(t, dir, "for-each-ref", "--format=%(refname)", RefPrefix), "skewed") {
+		t.Error("the run with a future marker kept its checkpoint")
+	}
+	if _, err := os.Stat(r.markerPath("skewed")); err == nil {
+		t.Error("the future marker was kept")
+	}
+}

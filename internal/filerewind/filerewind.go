@@ -455,11 +455,21 @@ func check(ctx context.Context, dir, tree string, confirmed []Confirm) error {
 		return err
 	}
 	defer os.RemoveAll(tmp)
-	l, _, err := r.evaluate(ctx, tmp, tree)
+	l, now, err := r.evaluate(ctx, tmp, tree)
 	if err != nil {
 		return timeoutErr(ctx, err)
 	}
-	return judge(l, confirmed)
+	if err := judge(l, confirmed); err != nil {
+		return err
+	}
+	// The read Restore makes before it writes, made now, so that a failure of it
+	// shows before the conversation moves.
+	if len(l.Changes) > 0 {
+		if _, err := r.recheck(ctx, tmp, tree, now, l.Changes); err != nil {
+			return timeoutErr(ctx, err)
+		}
+	}
+	return nil
 }
 
 func judge(l Listing, confirmed []Confirm) error {
@@ -881,9 +891,28 @@ func (r repo) recheck(ctx context.Context, tmp, tree, now string, listed []Chang
 		}
 		names = append(names, c.Path)
 	}
-	in := strings.NewReader(strings.Join(names, "\x00") + "\x00")
-	if _, err := git(ctx, r.root, env, in, "update-index", "--add", "--remove", "-z", "--stdin"); err != nil {
-		return nil, err
+	// A listed path that is a folder on disk now (a file that was replaced by a
+	// folder) cannot be hashed as a file; the files under it are listed on their
+	// own, so the path is only taken out of the copy.
+	var files, folders []string
+	for _, n := range names {
+		if fi, err := os.Lstat(filepath.Join(r.root, filepath.FromSlash(n))); err == nil && fi.IsDir() {
+			folders = append(folders, n)
+		} else {
+			files = append(files, n)
+		}
+	}
+	if len(files) > 0 {
+		in := strings.NewReader(strings.Join(files, "\x00") + "\x00")
+		if _, err := git(ctx, r.root, env, in, "update-index", "--add", "--remove", "-z", "--stdin"); err != nil {
+			return nil, err
+		}
+	}
+	if len(folders) > 0 {
+		in := strings.NewReader(strings.Join(folders, "\x00") + "\x00")
+		if _, err := git(ctx, r.root, env, in, "update-index", "--force-remove", "-z", "--stdin"); err != nil {
+			return nil, err
+		}
 	}
 	again, err := git(ctx, r.root, env, nil, "write-tree")
 	if err != nil {

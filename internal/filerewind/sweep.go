@@ -127,8 +127,37 @@ func (r repo) liveElsewhere(run string, now time.Time) bool {
 	if err != nil {
 		return false
 	}
-	age := now.Sub(fi.ModTime())
-	return age < liveTTL && age > -liveTTL
+	return freshMarker(now.Sub(fi.ModTime()))
+}
+
+// clockSlack is how far in the future a marker's time may be before it is
+// distrusted: a few seconds of difference between clocks is not skew.
+const clockSlack = time.Minute
+
+// freshMarker says a marker of this age is a live run's. A time in the future
+// beyond the slack is a clock that was wrong, and counts as stale: otherwise
+// the marker would be kept, and protect its run, until the clock caught up.
+func freshMarker(age time.Duration) bool {
+	return age < liveTTL && age > -clockSlack
+}
+
+// tmpObjectAge is how old a tmp_obj_* file in the object folder must be before
+// sweep removes it. No git process writes one for an hour; a capture that was
+// killed leaves one behind, up to the size of the file it was storing.
+const tmpObjectAge = time.Hour
+
+// sweepTmpObjects removes the old half-written object files in the objects
+// folder of the checkout.
+func (r repo) sweepTmpObjects(now time.Time) {
+	dir := filepath.Join(r.commonDir, "objects")
+	for _, pat := range []string{"tmp_obj_*", filepath.Join("??", "tmp_obj_*")} {
+		matches, _ := filepath.Glob(filepath.Join(dir, pat))
+		for _, m := range matches {
+			if fi, err := os.Lstat(m); err == nil && fi.Mode().IsRegular() && now.Sub(fi.ModTime()) > tmpObjectAge {
+				_ = os.Remove(m)
+			}
+		}
+	}
 }
 
 // sweepOnce sweeps a repository the first time this process saves files in it.
@@ -184,6 +213,7 @@ func (r repo) sweep(now time.Time) {
 		}
 	}
 	r.sweepMarkers(now)
+	r.sweepTmpObjects(now)
 }
 
 // sweepMarkers removes the markers of runs that died.
@@ -193,7 +223,7 @@ func (r repo) sweepMarkers(now time.Time) {
 		return
 	}
 	for _, e := range entries {
-		if fi, err := e.Info(); err == nil && !isLive(e.Name()) && now.Sub(fi.ModTime()) > liveTTL {
+		if fi, err := e.Info(); err == nil && !isLive(e.Name()) && !freshMarker(now.Sub(fi.ModTime())) {
 			_ = os.Remove(filepath.Join(r.commonDir, liveDirName, e.Name()))
 		}
 	}
