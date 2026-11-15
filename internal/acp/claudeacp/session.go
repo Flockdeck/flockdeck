@@ -393,12 +393,16 @@ func (ss *session) busyWatchdog() {
 		select {
 		case <-t.C:
 			ss.mu.Lock()
-			if ss.busy && time.Since(ss.lastLine) > idle {
+			cleared := ss.busy && time.Since(ss.lastLine) > idle
+			if cleared {
 				ss.busy = false
 				ss.idle.Broadcast()
 				ss.srv.logf("claude's own turn sent nothing for %v; prompts no longer wait for it", idle)
 			}
 			ss.mu.Unlock()
+			if cleared {
+				ss.srv.update(ss.id, map[string]any{"sessionUpdate": "flockdeck_busy", "busy": false})
+			}
 		case <-ss.dead:
 			return
 		case <-ss.quit:

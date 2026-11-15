@@ -53,7 +53,20 @@ are `edit`; Bash is `execute`; Glob and Grep are `search`; WebFetch and WebSearc
 are `fetch`; Task is `think`; anything else is `other`). An edit carries a diff: Edit
 and MultiEdit use the old and new strings of the input, Write reads the file as it
 is on disk (up to 1 MiB) for the old text. A result longer than 64 KiB is cut. The
-tool calls of a subagent are shown; its text is not.
+tool calls of a subagent are shown. Its text (an assistant message whose
+`parent_tool_use_id` names a tool call) goes to the client as a `flockdeck_subagent_text`
+update with `toolCallId` and `text`, each message cut to 4 KiB. The bridge adds it to the
+tool entry as `sub`, cleaned like any agent text and cut to 8 KiB in total. A subagent's
+thinking is not passed on.
+
+### Turns claude starts on its own
+
+When claude begins a turn that no prompt started (a finished background task), the adapter
+sends `flockdeck_busy` with `busy: true`, and `busy: false` when that turn's `result`
+arrives or after `BusyIdle` (120 s) without a line. A prompt that arrives meanwhile waits
+inside the adapter. A client that understands the update, as Flockdeck does, keeps the
+prompt in its own queue instead, shows a note and offers Stop. `session/cancel` interrupts
+claude's turn as it does a prompt's.
 
 ### Permissions
 

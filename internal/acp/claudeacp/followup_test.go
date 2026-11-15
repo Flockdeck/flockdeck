@@ -120,6 +120,17 @@ func TestSilentTurnOfClaudesOwnStopsHoldingPrompts(t *testing.T) {
 	if d := time.Since(start); d < 300*time.Millisecond || d > 10*time.Second {
 		t.Errorf("the session started and the prompt was answered in %v, want about the idle time", d)
 	}
+	// the client was told the turn began and that the wait ended
+	var busy []bool
+	for _, u := range h.updates() {
+		if u["sessionUpdate"] == "flockdeck_busy" {
+			b, _ := u["busy"].(bool)
+			busy = append(busy, b)
+		}
+	}
+	if len(busy) != 2 || !busy[0] || busy[1] {
+		t.Errorf("flockdeck_busy updates = %v, want [true false]", busy)
+	}
 }
 
 // Integers too large for a float64 stay different.

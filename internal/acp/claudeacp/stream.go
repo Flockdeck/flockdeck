@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 )
 
 // maxLine is the longest line read from claude. A tool result can be large; a
@@ -191,10 +192,12 @@ func (ss *session) handleLine(l line) {
 // A mode that changed behind our back (leaving plan mode after ExitPlanMode)
 // is passed on.
 func (ss *session) handleInit(l line) {
+	startedBusy := false
 	ss.mu.Lock()
 	if ss.cur == nil {
 		// claude begins a turn that no prompt of ours started: a finished
 		// background task. Prompts wait for its result.
+		startedBusy = !ss.busy
 		ss.busy = true
 	}
 	changed := l.PermissionMode != "" && l.PermissionMode != ss.mode && knownMode(l.PermissionMode)
@@ -203,6 +206,9 @@ func (ss *session) handleInit(l line) {
 	}
 	ss.sawInit = true
 	ss.mu.Unlock()
+	if startedBusy {
+		ss.srv.update(ss.id, map[string]any{"sessionUpdate": "flockdeck_busy", "busy": true})
+	}
 	ss.adopt(l.SessionID)
 	if changed {
 		ss.srv.update(ss.id, map[string]any{"sessionUpdate": "current_mode_update", "currentModeId": l.PermissionMode})
@@ -268,7 +274,11 @@ func (ss *session) handleAssistant(l line) {
 	for _, b := range blocks {
 		switch b.Type {
 		case "text":
-			if !streamed && !l.nested() && b.Text != "" {
+			if l.nested() {
+				ss.subagentText(l, b.Text)
+				continue
+			}
+			if !streamed && b.Text != "" {
 				ss.srv.update(ss.id, map[string]any{"sessionUpdate": "agent_message_chunk", "content": textContent(b.Text)})
 			}
 		case "thinking":
@@ -279,6 +289,28 @@ func (ss *session) handleAssistant(l line) {
 			ss.announce(b.ID, b.Name, b.Input, "")
 		}
 	}
+}
+
+// maxSubagentText is the most of one subagent message that is passed on. The
+// bridge keeps less of it in total; this stops a long message crossing the pipe.
+const maxSubagentText = 4 << 10
+
+// subagentText passes on what a subagent wrote, for the tool call that started
+// it. It is the agent's text and goes through the same cleaning and caps in the
+// bridge as the reply does. Thinking of a subagent is not passed on.
+func (ss *session) subagentText(l line, text string) {
+	var parent string
+	if json.Unmarshal(l.ParentToolUseID, &parent) != nil || parent == "" || strings.TrimSpace(text) == "" {
+		return
+	}
+	if len(text) > maxSubagentText {
+		n := maxSubagentText
+		for n > 0 && !utf8.RuneStart(text[n]) {
+			n--
+		}
+		text = text[:n]
+	}
+	ss.srv.update(ss.id, map[string]any{"sessionUpdate": "flockdeck_subagent_text", "toolCallId": parent, "text": text})
 }
 
 // announce sends the tool_call for a tool use, once. title is claude's own
@@ -367,9 +399,13 @@ func (ss *session) handleResult(l line) {
 	cancelled := t != nil && t.cancelled
 	facts := ss.facts
 	ss.facts = turnFacts{}
+	wasBusy := ss.busy
 	ss.busy = false
 	ss.idle.Broadcast()
 	ss.mu.Unlock()
+	if wasBusy {
+		ss.srv.update(ss.id, map[string]any{"sessionUpdate": "flockdeck_busy", "busy": false})
+	}
 	if window > 0 {
 		u := map[string]any{"sessionUpdate": "usage_update", "used": used, "size": window}
 		if l.TotalCostUSD > 0 {

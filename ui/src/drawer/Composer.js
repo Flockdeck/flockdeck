@@ -457,7 +457,8 @@ export function Composer({ pane, snap, st, store, controls, applySetting, onOwn,
     onMouseDown=${(e) => e.preventDefault()} onMouseEnter=${() => setSelKey(keyOf(it))} onClick=${() => choose(it)}>
     <span class="slash-name">/${it.name}</span>${it.hint ? html`<span class="slash-hint">${it.hint}</span>` : null}${it.description ? html`<span class="slash-desc">${it.description}</span>` : null}
   </div>`;
-  const running = st.status === "working" || st.status === "waiting";
+  // A turn the agent started on its own (background) holds a prompt back as a running turn does, so Send queues it.
+  const running = st.status === "working" || st.status === "waiting" || st.background === true;
   const pressStop = () => {
     if (Date.now() < stopGuard.current) { focusBox(); return; }
     expire();
@@ -542,7 +543,7 @@ export function Composer({ pane, snap, st, store, controls, applySetting, onOwn,
           ${showStop
             ? html`<button key="stop" type="button" class="drawer-btn composer-send composer-send--stop structured-stop" onClick=${pressStop}>Stop</button>`
             : html`<button key="send" ref=${sendBtn} type="submit" class="drawer-btn composer-send structured-send" disabled=${(draft.trim() === "" && !att.chips.length) || (outcome && outcome.kind === "sending")}
-                aria-label=${running ? "Send (queues)" : undefined} title=${running ? "The agent is working, so this is queued. Stop returns when the box is empty." : undefined}>${running ? "Send (queues)" : "Send"}</button>`}
+                aria-label=${running ? "Send (queues)" : undefined} title=${running ? (st.background === true && st.status !== "working" ? "The agent is working in the background, so this is queued. Stop returns when the box is empty." : "The agent is working, so this is queued. Stop returns when the box is empty.") : undefined}>${running ? "Send (queues)" : "Send"}</button>`}
         </div>
       </div>
       <p class="sr-only" role="status" aria-live="polite" data-attach-live="on">${att.announce}</p>

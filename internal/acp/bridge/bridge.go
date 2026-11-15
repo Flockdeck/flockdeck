@@ -218,6 +218,9 @@ type Bridge struct {
 	mails    map[mailKey]*item
 	seq      int
 	inFlight bool
+	// background says the agent is in a turn of its own, one no prompt of ours
+	// started (flockdeck_busy).
+	background bool
 	// replaying is set between BeginReplay and EndReplay: only then are updates
 	// marked as replay taken in.
 	replaying bool
@@ -277,7 +280,7 @@ func (b *Bridge) add(e transcript.Entry) *item {
 // reinline recounts the text an entry holds inline.
 func (b *Bridge) reinline(it *item) {
 	e := &it.e
-	n := len(e.Markdown) + len(e.Diff) + len(e.Text) + len(e.Summary) + len(e.Label)
+	n := len(e.Markdown) + len(e.Diff) + len(e.Text) + len(e.Summary) + len(e.Label) + len(e.Sub)
 	b.inline += n - it.inl
 	it.inl = n
 }
@@ -341,6 +344,43 @@ func (b *Bridge) Status() Status {
 		return StatusWorking
 	}
 	return StatusIdle
+}
+
+// Background says the agent is working on a turn that no prompt of ours
+// started, such as a finished background task. A prompt sent now would wait
+// for it inside the agent.
+func (b *Bridge) Background() bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.background
+}
+
+// subagentText adds what a subagent said to the tool entry that started it.
+// The text is cleaned like any agent text and the entry holds at most
+// transcript.SubCap bytes of it. Text for a call this bridge has not seen, or
+// that was dropped, is ignored. Call with b.mu held.
+func (b *Bridge) subagentText(u acp.Update) {
+	if u.ToolCallID == "" {
+		return
+	}
+	it := b.tools[sha256.Sum256([]byte(u.ToolCallID))]
+	if it == nil || it.e.Kind != transcript.KindTool {
+		return
+	}
+	text := strings.TrimSpace(clean(capBytes(u.SubagentText, transcript.SubCap)))
+	if text == "" || strings.HasSuffix(it.e.Sub, transcript.SubCutMark) {
+		return
+	}
+	next := text
+	if it.e.Sub != "" {
+		next = it.e.Sub + "\n\n" + text
+	}
+	if len(next) > transcript.SubCap {
+		next = capBytes(next, transcript.SubCap) + transcript.SubCutMark
+	}
+	it.e.Sub = next
+	it.dirty = true
+	b.reinline(it)
 }
 
 // Activity is the line for what the agent is doing now: the open permission

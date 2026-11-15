@@ -50,6 +50,11 @@ type Entry struct {
 	Diff      string `json:"diff,omitempty"`
 	HasDetail bool   `json:"hasDetail,omitempty"`
 
+	// tool.sub: what the subagent a tool row started has said, as plain text and
+	// cut to SubCap. Only an agent that reports it fills it (the Claude adapter,
+	// for a Task or Agent call). It is the agent's text, not Flockdeck's.
+	Sub string `json:"sub,omitempty"`
+
 	// subagent.description, subagent.report
 	Description string `json:"description,omitempty"`
 	Report      string `json:"report,omitempty"`
@@ -134,6 +139,13 @@ type Detail struct {
 	// pictures stays small until one is actually drawn.
 	Data string `json:"data,omitempty"`
 }
+
+// SubCap is the most a tool entry's Sub holds, in bytes. Text past it is
+// dropped and the entry ends with SubCutMark.
+const SubCap = 8 << 10
+
+// SubCutMark ends a Sub that was cut.
+const SubCutMark = "\n[more not shown]"
 
 // Size caps from the protocol contract: a tool result over ToolOutputCap
 // never arrives inline, and a diff over DiffCap becomes a summary with detail

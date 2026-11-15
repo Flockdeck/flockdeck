@@ -324,3 +324,18 @@ test("an ErrorBlock gives its title and words", () => {
   const out = renderToString(html`<${ErrorBlock} title="Title" words="Words" />`);
   assert.ok(out.includes("<strong>Title</strong>") && out.includes("<span>Words</span>"));
 });
+
+// --- subagent text -----------------------------------------------------------
+
+test("a tool row shows what its subagent said, as text, under the row", () => {
+  const tool = { id: "e2", kind: "tool", ts: "2026-10-21T09:05:00Z", name: "other", label: "Agent: look", status: "running", sub: "found <b>two</b> files\n\nnow checking" };
+  const out = renderToString(html`<${Row} entry=${tool} />`);
+  assert.match(out, /data-sub/);
+  assert.match(out, /found &lt;b>two&lt;\/b> files/);
+  assert.doesNotMatch(out, /<b>two/);
+});
+
+test("a tool row with no subagent text has no subagent block", () => {
+  const out = renderToString(html`<${Row} entry=${{ id: "e2", kind: "tool", ts: "2026-10-21T09:05:00Z", name: "bash", label: "ls", status: "ok" }} />`);
+  assert.doesNotMatch(out, /data-sub/);
+});

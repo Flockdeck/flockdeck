@@ -334,6 +334,9 @@ type Snapshot struct {
 	// models, settings, markdown plan, title and capabilities.
 	Session bridge.SessionState
 	Entries []transcript.Entry
+	// Background says the agent is working on a turn that no prompt of ours
+	// started. Prompts wait in Queue until it ends.
+	Background bool
 	// Queued is how many prompts wait behind the running turn.
 	Queued int
 	// Queue lists them, the next to be sent first.
@@ -1138,6 +1141,7 @@ func (r *Runtime) Snapshot() Snapshot {
 	s.Dropped = r.br.Dropped()
 	s.Pending = r.br.Pending()
 	s.Activity = r.br.Activity()
+	s.Background = r.br.Background()
 	s.RewindPoints = r.RewindPoints()
 	s.Epoch = r.Epoch()
 	s.RewindToken = r.RewindToken()
@@ -1246,6 +1250,14 @@ func (h handler) Update(u acp.Update) {
 	}
 	h.Handler.Update(u)
 	h.r.notify()
+	if u.Kind == acp.UpdateBusy {
+		// The loop holds prompts while the agent works on its own; it must look
+		// again when that ends.
+		select {
+		case h.r.wake <- struct{}{}:
+		default:
+		}
+	}
 }
 
 // ownClaudeAdapter is the manifest id of Flockdeck's Claude adapter, the only
@@ -1910,6 +1922,12 @@ func (r *Runtime) pop() (queued, bool) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if r.phase != PhaseReady || len(r.queue) == 0 || r.rewinding {
+		return queued{}, false
+	}
+	// The agent is in a turn no prompt of ours started. A prompt sent now would
+	// wait for it inside the agent, with nothing to show for it, so it waits here,
+	// in the queue the person can see, edit and clear. Stop ends the agent's turn.
+	if r.br != nil && r.br.Background() {
 		return queued{}, false
 	}
 	t := r.queue[0]

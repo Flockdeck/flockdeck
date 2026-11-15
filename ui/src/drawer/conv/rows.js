@@ -34,6 +34,8 @@ import { rowTime } from "./time.js";
 export const MAX_TEXT = 4000;
 /** MAX_REPLY is how much of one reply is drawn as Markdown. */
 export const MAX_REPLY = 20000;
+/** MAX_SUB cuts what a subagent said, drawn under the tool row that started it. The desktop cuts it too. */
+export const MAX_SUB = 8300;
 /** MAX_SUMMARY cuts the summary an opened tool row shows. */
 export const MAX_SUMMARY = 2000;
 export const NO_SUMMARY_WORDS = "Nothing more is held for this call.";
@@ -113,6 +115,7 @@ function Nested({ entries }) {
 function ToolRow({ entry: e, label, kind, open, onToggle, detail, nested }) {
   const status = text(e.status);
   const summary = text(e.summary);
+  const said = e.kind === "tool" && typeof e.sub === "string" ? e.sub.trim() : "";
   const inner = detail && detail.state === "ok" && detail.detail && Array.isArray(detail.detail.entries) ? detail.detail.entries : null;
   return html`<li class=${"conv-row conv-tool" + statusClass(status) + (open ? " is-open" : "")} data-ctx="convRow" data-kind=${e.kind} data-entry=${nested ? null : e.id} data-nested=${nested ? "" : null} tabindex="-1">
     <button type="button" class="conv-tool-head" aria-expanded=${open ? "true" : "false"} onClick=${onToggle ? () => onToggle(e.id) : null}>
@@ -120,6 +123,7 @@ function ToolRow({ entry: e, label, kind, open, onToggle, detail, nested }) {
       <span class="conv-tool-title">${clip(label, 160)}</span>
       ${status ? html`<span class="conv-status">${status}</span>` : null}
     </button>
+    ${said ? html`<p class="conv-tool-sub" data-sub="">${clip(said, MAX_SUB)}</p>` : null}
     ${open
       ? html`<p class="conv-tool-summary">${summary ? clip(summary, MAX_SUMMARY) : NO_SUMMARY_WORDS}</p>
         ${e.kind === "subagent" && e.report ? html`<p class="conv-tool-report">${clip(text(e.report), MAX_TEXT)}</p>` : null}

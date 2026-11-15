@@ -203,22 +203,26 @@ type structuredCapabilities struct {
 // structuredMsg is what structuredSnapshot answers with and what a watching
 // window is pushed. Gone is the last message of a watch whose pane has closed.
 type structuredMsg struct {
-	Type     string                `json:"type"`
-	Req      string                `json:"req,omitempty"`
-	ID       string                `json:"id"`
-	Kind     string                `json:"kind"`
-	Gone     bool                  `json:"gone,omitempty"`
-	Phase    string                `json:"phase,omitempty"`
-	Status   string                `json:"status,omitempty"`
-	Activity string                `json:"activity,omitempty"`
-	Queued   int                   `json:"queued,omitempty"`
-	Queue    []structuredQueueItem `json:"queue,omitempty"`
-	Shell    []structuredShellItem `json:"shell,omitempty"`
-	Err      string                `json:"err,omitempty"`
-	Setup    *structuredSetup      `json:"setup,omitempty"`
-	Plan     []structuredPlanRow   `json:"plan"`
-	Card     *structuredCard       `json:"card,omitempty"`
-	Usage    structuredUsage       `json:"usage"`
+	Type     string `json:"type"`
+	Req      string `json:"req,omitempty"`
+	ID       string `json:"id"`
+	Kind     string `json:"kind"`
+	Gone     bool   `json:"gone,omitempty"`
+	Phase    string `json:"phase,omitempty"`
+	Status   string `json:"status,omitempty"`
+	Activity string `json:"activity,omitempty"`
+	Queued   int    `json:"queued,omitempty"`
+	// Background says the agent is working on a turn no prompt of ours started
+	// (a finished background task). Prompts wait in the queue until it ends.
+	// Since API 1.34 (cap subagentText).
+	Background bool                  `json:"background,omitempty"`
+	Queue      []structuredQueueItem `json:"queue,omitempty"`
+	Shell      []structuredShellItem `json:"shell,omitempty"`
+	Err        string                `json:"err,omitempty"`
+	Setup      *structuredSetup      `json:"setup,omitempty"`
+	Plan       []structuredPlanRow   `json:"plan"`
+	Card       *structuredCard       `json:"card,omitempty"`
+	Usage      structuredUsage       `json:"usage"`
 
 	Title        string                   `json:"title,omitempty"`
 	Commands     []structuredCommandRow   `json:"commands,omitempty"`
@@ -274,7 +278,7 @@ func clipLine(s string, max int) (string, bool) {
 // mail, and nothing of the agent's environment is in it.
 func buildStructured(id string, sn structured.Snapshot) structuredMsg {
 	m := structuredMsg{Type: "structured", ID: id, Kind: "structured",
-		Phase: string(sn.Phase), Status: string(sn.Status), Queued: sn.Queued,
+		Phase: string(sn.Phase), Status: string(sn.Status), Queued: sn.Queued, Background: sn.Background,
 		Plan:  []structuredPlanRow{},
 		Usage: structuredUsage{Used: sn.Usage.Used, Size: sn.Usage.Size, Cost: sn.Usage.Cost, Currency: sn.Usage.Currency}}
 	m.Activity, _ = clipLine(sn.Activity, structuredLabelCut)
