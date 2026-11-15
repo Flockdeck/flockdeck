@@ -1,5 +1,7 @@
 package session
 
+import "time"
+
 // Event is one lifecycle event as the workspace hands it to a session: the
 // event's name, the tool it names, a Notification's type, a SessionStart's
 // source, the tool input it carries, and the subagent a tool event came from
@@ -81,9 +83,19 @@ func (s *Session) ApplyEvent(ev Event) {
 	mapped := ok
 	st, detail, ok = s.turnLocked(ev, st, detail, ok)
 	changed := false
+	var settleSeq uint64
+	settle := false
 	switch {
 	case ok:
 		changed = s.setStatusLocked(st, detail, ev.ToolInput)
+		// A tool event that landed after the turn's end shows working until
+		// its own Post comes, and that Post may never: the call was refused,
+		// or the hook gave up. If the idle nudge has already been and gone
+		// nothing else will end it, so the pane settles once it is quiet.
+		if s.turn == turnClosed && s.strayTools > 0 && s.status == StatusWorking && s.hooksSeen && s.answerQuiet > 0 {
+			s.answeredTime = time.Now()
+			settle, settleSeq = true, s.hookSeq
+		}
 	case mapped:
 		// Dropped as stale, but still the agent reporting: see hookSeq.
 		s.hookSeq++
@@ -91,6 +103,9 @@ func (s *Session) ApplyEvent(ev Event) {
 	s.mu.Unlock()
 	if changed {
 		s.changed()
+	}
+	if settle {
+		go s.settleAnswered(settleSeq)
 	}
 }
 

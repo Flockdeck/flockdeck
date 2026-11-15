@@ -1017,6 +1017,9 @@ func (s *Session) settleAnswered(seq uint64) {
 		s.statusSince = time.Now()
 		s.detail = ""
 		s.compacting = false
+		if s.turn == turnClosed {
+			s.strayTools = 0
+		}
 		s.mu.Unlock()
 		s.changed()
 		return
