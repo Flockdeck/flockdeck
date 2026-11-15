@@ -468,3 +468,13 @@ test("while the agent works on its own a note says so, Send queues and Stop is o
     assert.equal(m.container.querySelector(".structured-stop"), null);
   });
 });
+
+test("the Send button says the agent works in the background when it does", async () => {
+  await with_(push({ phase: "ready", status: "working", background: true }), {}, async (m) => {
+    m.container.find(".structured-input").enter("next");
+    await settle();
+    const send = m.container.querySelector(".structured-send");
+    assert.ok(send, "no Send button");
+    assert.match(send.getAttribute("title") || "", /in the background/);
+  });
+});

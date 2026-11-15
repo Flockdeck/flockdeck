@@ -543,7 +543,7 @@ export function Composer({ pane, snap, st, store, controls, applySetting, onOwn,
           ${showStop
             ? html`<button key="stop" type="button" class="drawer-btn composer-send composer-send--stop structured-stop" onClick=${pressStop}>Stop</button>`
             : html`<button key="send" ref=${sendBtn} type="submit" class="drawer-btn composer-send structured-send" disabled=${(draft.trim() === "" && !att.chips.length) || (outcome && outcome.kind === "sending")}
-                aria-label=${running ? "Send (queues)" : undefined} title=${running ? (st.background === true && st.status !== "working" ? "The agent is working in the background, so this is queued. Stop returns when the box is empty." : "The agent is working, so this is queued. Stop returns when the box is empty.") : undefined}>${running ? "Send (queues)" : "Send"}</button>`}
+                aria-label=${running ? "Send (queues)" : undefined} title=${running ? (st.background === true ? "The agent is working in the background, so this is queued. Stop returns when the box is empty." : "The agent is working, so this is queued. Stop returns when the box is empty.") : undefined}>${running ? "Send (queues)" : "Send"}</button>`}
         </div>
       </div>
       <p class="sr-only" role="status" aria-live="polite" data-attach-live="on">${att.announce}</p>

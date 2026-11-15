@@ -63,7 +63,7 @@ thinking is not passed on.
 
 When claude begins a turn that no prompt started (a finished background task), the adapter
 sends `flockdeck_busy` with `busy: true`, and `busy: false` when that turn's `result`
-arrives, after `BusyIdle` (120 s) without a line, or when claude exits. Updates are sent in the order the changes were made. A prompt that arrives meanwhile waits
+arrives, after `BusyIdle` (120 s) without a line, or when claude exits. Updates are sent in the order the changes were made. Because Flockdeck counts such a turn as working, its finished notice fires after each background turn, even a short one. A prompt that arrives meanwhile waits
 inside the adapter. A client that understands the update, as Flockdeck does, keeps the
 prompt in its own queue instead, shows a note and offers Stop. `session/cancel` interrupts
 claude's turn as it does a prompt's.

@@ -505,7 +505,11 @@ func (b *Bridge) TurnEnd(stop string) []transcript.Entry {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	b.inFlight = false
-	// A turn of ours ending means the agent is not in one of its own.
+	// A turn of ours ending means the agent is not in one of its own. If claude's
+	// own turn starts right after our result and its busy true lands before this
+	// TurnEnd, this clears it too early. The effect is the old behaviour (the next
+	// prompt waits inside the adapter), not a stuck state: the adapter's busy false
+	// still comes when that turn ends.
 	b.background = false
 	b.closeMerges()
 	switch stop {

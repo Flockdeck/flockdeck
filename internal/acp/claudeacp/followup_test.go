@@ -194,3 +194,13 @@ func TestClaudeEndedAfterAnIgnoredInterruptClearsBusy(t *testing.T) {
 	h.notify("session/cancel", map[string]any{"sessionId": sid})
 	waitBusySeq(t, h, []bool{true, false}, 12*time.Second)
 }
+
+// A watchdog false is followed by a later init true, in that order.
+func TestBusyFalseFromTheWatchdogComesBeforeALaterTrue(t *testing.T) {
+	old := testBusyIdle
+	testBusyIdle = 300 * time.Millisecond
+	defer func() { testBusyIdle = old }()
+	h := newHarness(t, append(append([]step{}, ownTurn...), sleep(1500), emit(lInit), emit(lMsgStart), sleep(5000)))
+	h.start()
+	waitBusySeq(t, h, []bool{true, false, true}, 10*time.Second)
+}
