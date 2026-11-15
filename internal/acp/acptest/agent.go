@@ -31,6 +31,7 @@
 //	line N      one notification of exactly N bytes, then a chunk
 //	stderr-flood  4 MiB on stderr in one line, then plain
 //	spam-perm   fifty permission requests at once, reports how many were answered
+//	retry-wait  sends a flockdeck_notice api_retry (attempt 3 of 10, overloaded), then waits for a cancel
 //	ratelimit   answers the prompt with the JSON-RPC error -32603 "rate limit exceeded"
 //	limit-class answers with -32603 and data {"class":"usage_limit","resetsAt":<two hours on>}
 //	forged-class answers with -32603 "SECRET-AGENT-TEXT" and a class that is not one of the fixed ones
@@ -895,6 +896,17 @@ func (a *agent) prompt(id, params json.RawMessage, n int) {
 	case "blocks":
 		a.chunk(sid, fmt.Sprintf("blocks=%d", len(blocks)))
 		done("end_turn")
+
+	case "retry-wait":
+		// What Flockdeck's Claude adapter sends while claude retries a request,
+		// then a turn that stays open until it is cancelled.
+		a.update(sid, map[string]any{"sessionUpdate": "flockdeck_notice", "code": "api_retry", "attempt": 3, "max": 10, "class": "overloaded"})
+		select {
+		case <-a.cancels:
+			done("cancelled")
+		case <-time.After(30 * time.Second):
+			done("end_turn")
+		}
 
 	case "slow":
 		a.chunk(sid, "working...")
