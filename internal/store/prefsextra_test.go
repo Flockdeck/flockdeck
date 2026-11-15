@@ -21,7 +21,11 @@ func TestASettingThisBuildDoesNotKnowSurvivesAChangeMadeHere(t *testing.T) {
 		t.Fatal(err)
 	}
 	file := filepath.Join(dir, prefsFile)
-	written := `{"fontSize": 17, "helpSeen": true, "themeFromTheFuture": {"accent": "teal"}, "spend": {"statusLine": "on"}}`
+	// The two settings are in the ui blob, as every build since it wrote them.
+	// A top-level helpSeen from a file older than that is no longer moved there,
+	// so it would stay in the file after a reset: see
+	// TestAnOldFileIsNotMovedIntoTheBlob.
+	written := `{"ui": {"fontSize": 17, "helpSeen": true}, "themeFromTheFuture": {"accent": "teal"}, "spend": {"statusLine": "on"}}`
 	if err := os.WriteFile(file, []byte(written), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +58,7 @@ func TestASettingThisBuildDoesNotKnowSurvivesAChangeMadeHere(t *testing.T) {
 		t.Errorf("a setting put back to its default came back from the file: %s", data)
 	}
 	if _, ok := got["fontSize"]; ok {
-		t.Errorf("the old font size field was written back after it moved into the blob: %s", data)
+		t.Errorf("the old font size field was written back beside the blob: %s", data)
 	}
 	back := LoadPrefs()
 	if n, _ := back.uiInt(UIFontSize); n != 17 || !back.Dismissed("palette") || back.Spend.StatusLine != "on" {

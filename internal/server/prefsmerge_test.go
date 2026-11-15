@@ -17,7 +17,9 @@ func TestSavingOnePreferenceKeepsTheOthersOnDisk(t *testing.T) {
 	nextHello(t, conn)
 
 	// Another instance, started after this one, changes the font size.
-	if err := store.SavePrefs(store.Prefs{FontSize: 20}); err != nil {
+	other := store.Prefs{}
+	other.SetUIValue(store.UIFontSize, 20)
+	if err := store.SavePrefs(other); err != nil {
 		t.Fatalf("save: %v", err)
 	}
 	sendCmd(t, conn, command{Cmd: "dismissTip", ID: "palette"})
@@ -32,7 +34,7 @@ func TestSavingOnePreferenceKeepsTheOthersOnDisk(t *testing.T) {
 	if !saved.Dismissed("palette") {
 		t.Fatalf("the dismissed hint was not saved: %+v", saved)
 	}
-	// The size is in the interface's blob on disk (an old-style field is moved there on read).
+	// The size is in the interface's blob on disk.
 	if string(saved.UI["fontSize"]) != "20" {
 		t.Errorf("saving a dismissed hint put the font size back to %s; want the 20 another instance saved", saved.UI["fontSize"])
 	}

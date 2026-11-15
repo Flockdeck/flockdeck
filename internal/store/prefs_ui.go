@@ -30,8 +30,11 @@ const (
 var uiKey = regexp.MustCompile(`^[A-Za-z][A-Za-z0-9._-]{0,63}$`)
 
 // The keys the interface already used as fields of Prefs. They are in the blob
-// now; the fields are still read (to migrate a file written before) and are
-// still sent, filled from the blob, so that an older interface keeps working.
+// now. The fields are still read and are not moved into the blob: an old file
+// keeps them as written, and a window falls back to them where the blob has no
+// value. They are also sent, filled from the blob, so that an older interface
+// keeps working. Resetting one of these settings removes its blob key, so the
+// value in an old file can show again.
 const (
 	UIFontSize   = "fontSize"
 	UIFontFamily = "fontFamily"
@@ -139,29 +142,10 @@ func (p Prefs) uiBool(key string) (bool, bool) {
 	return string(raw) == "true", string(raw) == "true" || string(raw) == "false"
 }
 
-// migrateUI moves the settings that were fields of Prefs into the blob, where it
-// has none of its own for them, and clears the fields so the file is written
-// without them. It runs when the file is read. A value the blob already has wins:
-// it is the newer.
-func (p *Prefs) migrateUI() {
-	move := func(key string, value any, set bool) {
-		if !set {
-			return
-		}
-		if _, has := p.UI[key]; !has {
-			p.SetUIValue(key, value)
-		}
-	}
-	move(UIFontSize, p.FontSize, p.FontSize != 0)
-	move(UIFontFamily, p.FontFamily, p.FontFamily != "")
-	move(UIHelpSeen, true, p.HelpSeen)
-	move(UIScrollback, p.Scrollback, p.Scrollback != 0)
-	p.FontSize, p.FontFamily, p.HelpSeen, p.Scrollback = 0, "", false, 0
-}
-
 // withLegacyUI fills the old fields from the blob. A window built before the
 // blob existed reads these, so it still sees the size and the welcome it was
-// given. They are not written to the file.
+// given. The filled values are written to the file only if the file already
+// had the field set: an old file keeps its fields and writes them back.
 func (p Prefs) withLegacyUI() Prefs {
 	if n, ok := p.uiInt(UIFontSize); ok {
 		p.FontSize = n

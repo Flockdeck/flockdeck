@@ -329,6 +329,9 @@ type Server struct {
 	// not rename, which is a new name every time. Only the workspace goroutine
 	// touches it.
 	saveFailShown bool
+	// legacyDirTold makes the notice about a leftover state directory go out
+	// once a run.
+	legacyDirTold sync.Once
 
 	// push is what the paired devices are told of waits. See push.go.
 	push pushState
@@ -933,6 +936,11 @@ func (s *Server) tellKept() {
 	for _, k := range store.TakeKept() {
 		s.notifyAll(k.Sentence(), true)
 	}
+	s.legacyDirTold.Do(func() {
+		if msg := store.LegacyDirNotice(); msg != "" {
+			s.notifyAll(msg, true)
+		}
+	})
 }
 
 // authorised reports whether a request carries the token, either as the query

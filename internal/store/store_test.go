@@ -812,15 +812,13 @@ func TestLoadIgnoresAnotherSchemaVersion(t *testing.T) {
 	}
 }
 
-// TestVersion1LayoutIsMigrated covers the upgrade a user gets for nothing: a
-// layout saved by a build that knew only Claude comes back with every tab and
-// every pane, each agent pane now saying which agent it runs.
-//
-// This is the promise that somebody who only ever runs Claude notices nothing.
-// Getting it wrong quarantines the file, and the first they would know of it
-// is an empty workspace where their tabs were.
-func TestVersion1LayoutIsMigrated(t *testing.T) {
+// TestVersion1LayoutIsKeptAside checks a layout from a build that knew only
+// Claude, which this build no longer migrates, is not restored and is not
+// lost: Load ignores it, moves it to a .damaged file, and the
+// user is told where it went.
+func TestVersion1LayoutIsKeptAside(t *testing.T) {
 	isolateConfig(t)
+	TakeKept()
 
 	p, err := path("/repo/a")
 	if err != nil {
@@ -831,75 +829,26 @@ func TestVersion1LayoutIsMigrated(t *testing.T) {
 	v1 := []byte(`{
 	  "version": 1,
 	  "root": ` + strconv.Quote(filepath.Clean("/repo/a")) + `,
-	  "active": 1,
 	  "tabs": [
-	    {"title": "api", "focus": "pane-1", "root": {"dir": "h", "children": [
-	      {"pane": {"id": "pane-1", "kind": "claude", "cwd": "/repo/a", "name": "worker"}},
-	      {"pane": {"id": "pane-2", "kind": "shell", "cwd": "/repo/a/sub"}}
-	    ]}},
-	    {"title": "docs", "root": {"pane": {"id": "pane-3", "kind": "claude", "cwd": "/repo/a"}}}
+	    {"title": "api", "focus": "pane-1", "root": {"pane": {"id": "pane-1", "kind": "claude", "cwd": "/repo/a"}}}
 	  ]
 	}`)
 	if err := os.WriteFile(p, v1, 0o600); err != nil {
 		t.Fatalf("write layout: %v", err)
 	}
 
-	got, err := Load("/repo/a")
-	if err != nil || got == nil {
-		t.Fatalf("Load = %v, %v; a version 1 layout must still restore", got, err)
+	if got, err := Load("/repo/a"); err != nil || got != nil {
+		t.Fatalf("Load = %v, %v; a version 1 layout should restore nothing without failing", got, err)
 	}
-	if got.Version != Version {
-		t.Errorf("version %d, want %d", got.Version, Version)
+	kept := TakeKept()
+	if len(kept) != 1 || kept[0].Path != p+damagedSuffix || kept[0].Why != KeptOlder {
+		t.Fatalf("kept = %+v, want the layout reported at %s as KeptOlder", kept, p+damagedSuffix)
 	}
-	if len(got.Tabs) != 2 || got.Active != 1 {
-		t.Fatalf("restored %d tabs, active %d; want 2 and 1", len(got.Tabs), got.Active)
+	if aside, err := os.ReadFile(p + damagedSuffix); err != nil || string(aside) != string(v1) {
+		t.Errorf("the version 1 layout was not kept intact: %q, %v", aside, err)
 	}
-
-	tests := []struct {
-		name  string
-		pane  *Pane
-		kind  string
-		agent string
-	}{
-		{"a claude pane becomes an agent pane running claude",
-			got.Tabs[0].Root.Children[0].Pane, "agent", "claude"},
-		{"a shell pane stays a shell with no agent",
-			got.Tabs[0].Root.Children[1].Pane, "shell", ""},
-		{"panes in later tabs are migrated too",
-			got.Tabs[1].Root.Pane, "agent", "claude"},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			if tc.pane == nil {
-				t.Fatal("the leaf lost its pane")
-			}
-			if tc.pane.Kind != tc.kind {
-				t.Errorf("kind %q, want %q", tc.pane.Kind, tc.kind)
-			}
-			if tc.pane.Agent != tc.agent {
-				t.Errorf("agent %q, want %q", tc.pane.Agent, tc.agent)
-			}
-			// Version 1 never recorded a model, and inventing one here would
-			// pin a pane to a model the user never chose.
-			if tc.pane.Model != "" {
-				t.Errorf("model %q, want none", tc.pane.Model)
-			}
-		})
-	}
-
-	// The migration happens in memory: the file on disk is left as it was
-	// until something saves over it, so a run that only looks does not rewrite
-	// the user's layout and a step back to the older build still finds one it
-	// can read.
-	after, err := os.ReadFile(p)
-	if err != nil {
-		t.Fatalf("read back: %v", err)
-	}
-	if string(after) != string(v1) {
-		t.Errorf("Load rewrote the layout on disk: %s", after)
-	}
-	if _, err := os.Stat(p + damagedSuffix); err == nil {
-		t.Error("a version 1 layout was quarantined; it should have been migrated")
+	if _, err := os.Stat(p); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("the version 1 layout is still under its own name: Stat = %v", err)
 	}
 }
 
@@ -1176,202 +1125,6 @@ func writeLayoutAt(t *testing.T, path string, s *State) {
 	}
 }
 
-// TestLoadAdoptsALayoutSavedUnderTheOldName covers the upgrade that started
-// normalizing roots before hashing them. That changed the file name every
-// layout was stored under, so without this the first run of the new build
-// opens an empty workspace and the real one is never looked at again.
-func TestLoadAdoptsALayoutSavedUnderTheOldName(t *testing.T) {
-	isolateConfig(t)
-	skipUnlessRootsFold(t)
-
-	root := filepath.Join(t.TempDir(), "Repo", "App")
-	old, err := legacyPath(root)
-	if err != nil {
-		t.Fatalf("legacy path: %v", err)
-	}
-	if old == "" {
-		t.Fatal("root is already in normal form, so it cannot exercise the old name")
-	}
-	current, err := path(root)
-	if err != nil {
-		t.Fatalf("path: %v", err)
-	}
-	if old == current {
-		t.Fatal("old and new names match, so there is no upgrade to test")
-	}
-	writeLayoutAt(t, old, &State{
-		Version: Version,
-		Root:    filepath.Clean(root),
-		Tabs:    []Tab{{Title: "last night"}},
-	})
-
-	got, err := Load(root)
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
-	if got == nil {
-		t.Fatal("upgrading lost the saved layout")
-	}
-	if len(got.Tabs) != 1 || got.Tabs[0].Title != "last night" {
-		t.Errorf("restored %+v, want the single tab that was saved", got.Tabs)
-	}
-
-	// The layout is moved rather than copied, so the next save writes to one
-	// file and a later run does not have two to choose between.
-	if _, err := os.Stat(current); err != nil {
-		t.Errorf("layout was not moved to the name in use now: %v", err)
-	}
-	if _, err := os.Stat(old); !errors.Is(err, fs.ErrNotExist) {
-		t.Errorf("layout under the old name = %v, want it moved away", err)
-	}
-}
-
-// TestLoadPrefersTheNameInUseNow checks the migration cannot undo later work:
-// once the new build has saved, that is the layout, and a stale file left
-// under the old name must not come back.
-func TestLoadPrefersTheNameInUseNow(t *testing.T) {
-	isolateConfig(t)
-	skipUnlessRootsFold(t)
-
-	root := filepath.Join(t.TempDir(), "Repo", "App")
-	old, err := legacyPath(root)
-	if err != nil {
-		t.Fatalf("legacy path: %v", err)
-	}
-	writeLayoutAt(t, old, &State{
-		Version: Version,
-		Root:    filepath.Clean(root),
-		Tabs:    []Tab{{Title: "stale"}},
-	})
-	if err := Save(root, &State{Tabs: []Tab{{Title: "current"}}}); err != nil {
-		t.Fatalf("save: %v", err)
-	}
-
-	got, err := Load(root)
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
-	if got == nil || len(got.Tabs) != 1 || got.Tabs[0].Title != "current" {
-		t.Fatalf("restored %+v, want the layout saved under the name in use now", got)
-	}
-	if _, err := os.Stat(old); err != nil {
-		t.Errorf("file under the old name = %v, want it left untouched", err)
-	}
-}
-
-// TestLoadLeavesAnotherProjectsLegacyLayoutAlone checks the root recorded in a
-// layout is still what decides whether it is this project's, on the migration
-// path too. A file reached only through a hash collision must be neither
-// restored nor renamed over this project's name, which would lose it for the
-// project it really belongs to.
-func TestLoadLeavesAnotherProjectsLegacyLayoutAlone(t *testing.T) {
-	isolateConfig(t)
-	skipUnlessRootsFold(t)
-
-	root := filepath.Join(t.TempDir(), "Repo", "App")
-	old, err := legacyPath(root)
-	if err != nil {
-		t.Fatalf("legacy path: %v", err)
-	}
-	writeLayoutAt(t, old, &State{
-		Version: Version,
-		Root:    filepath.Clean(filepath.Join(t.TempDir(), "Other", "Project")),
-		Tabs:    []Tab{{Title: "someone else's"}},
-	})
-
-	got, err := Load(root)
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
-	if got != nil {
-		t.Errorf("restored %+v, want nothing for a layout belonging to another root", got)
-	}
-	if _, err := os.Stat(old); err != nil {
-		t.Errorf("other project's layout = %v, want it left where it was", err)
-	}
-}
-
-// TestDirAdoptsStateSavedUnderTheOldName checks that renaming the program does
-// not strand what the previous name saved. Everything is below one directory —
-// every layout, the auth token, the generated per-session settings — so the
-// upgrade has to bring the directory with it or the first run after it opens
-// an empty workspace beside a full one nobody will look in again.
-func TestDirAdoptsStateSavedUnderTheOldName(t *testing.T) {
-	isolateConfig(t)
-	base, err := os.UserConfigDir()
-	if err != nil {
-		t.Fatalf("UserConfigDir: %v", err)
-	}
-	old := filepath.Join(base, legacyDirName)
-	if err := os.MkdirAll(old, 0o700); err != nil {
-		t.Fatalf("create the old directory: %v", err)
-	}
-	want := `{"version":1,"root":"/repo"}`
-	if err := os.WriteFile(filepath.Join(old, "layout-abc.json"), []byte(want), 0o600); err != nil {
-		t.Fatalf("seed a layout: %v", err)
-	}
-
-	dir, err := Dir()
-	if err != nil {
-		t.Fatalf("Dir: %v", err)
-	}
-	if filepath.Base(dir) != "flockdeck" {
-		t.Errorf("Dir() = %q, want the directory named for the program in use now", dir)
-	}
-	got, err := os.ReadFile(filepath.Join(dir, "layout-abc.json"))
-	if err != nil {
-		t.Fatalf("the saved layout did not come across: %v", err)
-	}
-	if string(got) != want {
-		t.Errorf("layout = %q, want %q", got, want)
-	}
-	if _, err := os.Stat(old); !errors.Is(err, fs.ErrNotExist) {
-		t.Errorf("the old directory was left behind: Stat = %v, want it moved", err)
-	}
-}
-
-// TestDirNeverWritesOverStateAlreadySaved checks the adoption cannot destroy
-// this build's own state. Once anything has been saved under the name in use
-// now, that is the state to use and the old directory is only a leftover: a
-// migration that ran a second time and moved it over the top would replace a
-// live layout with a stale one.
-func TestDirNeverWritesOverStateAlreadySaved(t *testing.T) {
-	isolateConfig(t)
-	base, err := os.UserConfigDir()
-	if err != nil {
-		t.Fatalf("UserConfigDir: %v", err)
-	}
-	old := filepath.Join(base, legacyDirName)
-	if err := os.MkdirAll(old, 0o700); err != nil {
-		t.Fatalf("create the old directory: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(old, "layout-abc.json"), []byte("stale"), 0o600); err != nil {
-		t.Fatalf("seed the old layout: %v", err)
-	}
-	cur := filepath.Join(base, "flockdeck")
-	if err := os.MkdirAll(cur, 0o700); err != nil {
-		t.Fatalf("create the current directory: %v", err)
-	}
-	if err := os.WriteFile(filepath.Join(cur, "layout-abc.json"), []byte("current"), 0o600); err != nil {
-		t.Fatalf("seed the current layout: %v", err)
-	}
-
-	dir, err := Dir()
-	if err != nil {
-		t.Fatalf("Dir: %v", err)
-	}
-	got, err := os.ReadFile(filepath.Join(dir, "layout-abc.json"))
-	if err != nil {
-		t.Fatalf("read the layout: %v", err)
-	}
-	if string(got) != "current" {
-		t.Errorf("layout = %q, want the state already saved under the name in use now", got)
-	}
-	if _, err := os.Stat(old); err != nil {
-		t.Errorf("the old directory should be left alone, not consumed: %v", err)
-	}
-}
-
 // TestDamagedLayoutIsKeptRatherThanOverwritten checks a layout that will not
 // parse survives the run that could not read it. Starting empty is fine;
 // starting empty and then saving over the only copy of the user's tabs is how
@@ -1403,39 +1156,6 @@ func TestDamagedLayoutIsKeptRatherThanOverwritten(t *testing.T) {
 	}
 	if string(kept) != string(broken) {
 		t.Errorf("kept copy is %q, want the file exactly as it was: %q", kept, broken)
-	}
-}
-
-// TestDamagedLegacyLayoutIsKeptUnderItsOwnName checks the copy is made of the
-// file that was actually read. A layout still under the pre-normalization name
-// is read from there, so quarantining the name in use now would move nothing
-// and leave the damaged file to be found and rejected again every run.
-func TestDamagedLegacyLayoutIsKeptUnderItsOwnName(t *testing.T) {
-	if runtime.GOOS != "windows" && runtime.GOOS != "darwin" {
-		t.Skip("roots are only respelled on case-folding platforms")
-	}
-	isolateConfig(t)
-
-	root := filepath.Clean("/Repo/Legacy")
-	old, err := legacyPath(root)
-	if err != nil {
-		t.Fatalf("legacy path: %v", err)
-	}
-	if old == "" {
-		t.Fatal("this root should have a distinct pre-normalization name")
-	}
-	if err := os.WriteFile(old, []byte("{ truncated"), 0o600); err != nil {
-		t.Fatalf("write legacy layout: %v", err)
-	}
-
-	if got, err := Load(root); err != nil || got != nil {
-		t.Fatalf("Load = %v, %v; want nothing restored and no error", got, err)
-	}
-	if _, err := os.Stat(old); !errors.Is(err, fs.ErrNotExist) {
-		t.Errorf("the damaged legacy layout is still in place; it will be rejected again every run")
-	}
-	if _, err := os.Stat(old + damagedSuffix); err != nil {
-		t.Errorf("the damaged legacy layout was not kept: %v", err)
 	}
 }
 
@@ -1598,59 +1318,6 @@ func TestARecordIsNotAnsweredForByAProcessThatStartedAfterIt(t *testing.T) {
 	// Made a day before this process started: the id has been given out since.
 	if (&Instance{PID: os.Getpid(), Started: time.Now().Add(-24 * time.Hour)}).StillRunning() {
 		t.Error("a process that started a day after the record was made reads as the one that made it")
-	}
-}
-
-// TestConfigDirFollowsTheInstanceThatWonTheUpgrade checks the run that loses
-// the race to rename the old state directory ends up in the same place as the
-// run that won it.
-//
-// Two instances starting together on the first run after the rename both find
-// nothing under the name in use now and both try the move. One succeeds. The
-// loser's rename fails with the source already gone, and if it carries on
-// under the old name it creates that directory again, empty, and writes its
-// layouts, its recent projects and its instance record into somewhere nothing
-// will ever adopt — including the other instance, which is looking for a
-// record it will not find.
-func TestConfigDirFollowsTheInstanceThatWonTheUpgrade(t *testing.T) {
-	isolateConfig(t)
-	base, err := os.UserConfigDir()
-	if err != nil {
-		t.Fatalf("user config dir: %v", err)
-	}
-	old := filepath.Join(base, legacyDirName)
-	if err := os.MkdirAll(old, 0o700); err != nil {
-		t.Fatalf("create legacy dir: %v", err)
-	}
-	saved := []byte(`[{"root":"/repo/kept"}]`)
-	if err := os.WriteFile(filepath.Join(old, recentsFile), saved, 0o600); err != nil {
-		t.Fatalf("write legacy state: %v", err)
-	}
-
-	// The other instance, getting its move in between our look and our rename.
-	real := renameDir
-	t.Cleanup(func() { renameDir = real })
-	renameDir = func(from, to string) error {
-		if err := real(from, to); err != nil {
-			return err
-		}
-		return errors.New("the other instance moved it first")
-	}
-
-	dir, err := Dir()
-	if err != nil {
-		t.Fatalf("dir: %v", err)
-	}
-	want := filepath.Join(base, "flockdeck")
-	if dir != want {
-		t.Fatalf("state dir is %s, want %s: this run would write where nothing looks", dir, want)
-	}
-	got, err := os.ReadFile(filepath.Join(dir, recentsFile))
-	if err != nil {
-		t.Fatalf("the moved state is not in the directory being used: %v", err)
-	}
-	if string(got) != string(saved) {
-		t.Errorf("recents = %q, want %q", got, saved)
 	}
 }
 
@@ -1841,8 +1508,8 @@ func BenchmarkRunSavesChangedLayout(b *testing.B) {
 // — is load-bearing in a way nothing else in the package is. Change any of
 // them and the application looks up a name nothing was ever written to, finds
 // nothing, and opens an empty workspace beside the layout it should have
-// restored. That has happened once already; legacyPath exists to carry that
-// change's victims across.
+// restored. That has happened once already, and a fallback to the old name
+// carried its victims across until it was removed.
 //
 // So these values are not an implementation detail to be updated when the test
 // goes red. A failure here means every saved layout in the world has just been
@@ -1906,28 +1573,6 @@ func TestLayoutFileNamesAreFixed(t *testing.T) {
 	}
 	if got, err := path(fsRoot); err != nil || got != filepath.Join(dir, fsWant) {
 		t.Errorf("path(%q) = %s, %v, want %s", fsRoot, got, err, filepath.Join(dir, fsWant))
-	}
-
-	// And the name the same root was saved under before it was folded, which
-	// is what Load falls back to. Where case is not folded there is no second
-	// name to fall back to and there never was.
-	old, err := legacyPath(root)
-	if err != nil {
-		t.Fatalf("legacy path: %v", err)
-	}
-	switch runtime.GOOS {
-	case "windows":
-		if old != filepath.Join(dir, "layout-baed5f9e244c96f0.json") {
-			t.Errorf("legacyPath(%q) = %s, want layout-baed5f9e244c96f0.json", root, old)
-		}
-	case "darwin":
-		if old != filepath.Join(dir, "layout-1fb07467504dc246.json") {
-			t.Errorf("legacyPath(%q) = %s, want layout-1fb07467504dc246.json", root, old)
-		}
-	default:
-		if old != "" {
-			t.Errorf("legacyPath(%q) = %s, want no fallback name on a platform that does not fold case", root, old)
-		}
 	}
 }
 
@@ -2119,63 +1764,6 @@ func TestARenameThatCannotWorkIsNotWaitedOut(t *testing.T) {
 	}
 	if waited := time.Since(start); waited > contentionBudget/2 {
 		t.Errorf("it waited %v before reporting a failure that was never going to change", waited)
-	}
-}
-
-// TestTheStateDirectoryIsDecidedOnceARun checks a run that had to fall back to
-// the directory the old name points at stays there.
-//
-// The move to the name in use now can fail for a reason that goes away —
-// a file a detached instance still holds open, on Windows — and looking again
-// later would then succeed and rename the directory out from under everything
-// that had already been handed its old path. The settings directory each agent
-// is launched with is worked out once at startup and kept; move it half way
-// through the run and every agent afterwards writes into a tree nothing looks
-// at again.
-func TestTheStateDirectoryIsDecidedOnceARun(t *testing.T) {
-	isolateConfig(t)
-	base, err := os.UserConfigDir()
-	if err != nil {
-		t.Fatalf("user config dir: %v", err)
-	}
-	old := filepath.Join(base, legacyDirName)
-	if err := os.MkdirAll(old, 0o700); err != nil {
-		t.Fatalf("create legacy dir: %v", err)
-	}
-
-	real := renameDir
-	t.Cleanup(func() { renameDir = real })
-	refused := false
-	renameDir = func(from, to string) error {
-		if !refused {
-			refused = true
-			return errors.New("held open by a detached instance")
-		}
-		return real(from, to)
-	}
-
-	first, err := Dir()
-	if err != nil {
-		t.Fatalf("dir: %v", err)
-	}
-	if first != old {
-		t.Fatalf("state dir is %s, want the old name %s while the move cannot be made", first, old)
-	}
-	// Whatever the run hands out now is held for as long as it runs.
-	sessions, err := SessionsDir()
-	if err != nil {
-		t.Fatalf("sessions dir: %v", err)
-	}
-
-	again, err := Dir()
-	if err != nil {
-		t.Fatalf("dir again: %v", err)
-	}
-	if again != first {
-		t.Errorf("the run moved from %s to %s part way through; every path already handed out points into the first", first, again)
-	}
-	if _, err := os.Stat(sessions); err != nil {
-		t.Errorf("the settings directory handed out earlier is gone: %v", err)
 	}
 }
 

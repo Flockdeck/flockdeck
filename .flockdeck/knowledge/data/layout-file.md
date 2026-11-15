@@ -33,6 +33,6 @@ Absent fields mean the pre-feature meaning; they are all `omitempty`.
 
 ## Migration
 
-Version 1 had only "claude" and "shell" kinds; `migrate` rewrites them in memory to agent panes (agent "claude", empty model). Any other version, or an unparseable file, is moved aside (see [state files set aside](/gotchas/unreadable-state-files-are-set-aside.md)). A newer version is kept as `KeptNewer`.
+Only the current version is read. A layout of any other version (including the old version 1, whose panes were "claude" or "shell") or an unparseable file is moved aside as `.damaged` and the project opens empty (see [state files set aside](/gotchas/unreadable-state-files-are-set-aside.md)). A newer version is reported as `KeptNewer`; an older one is reported as damaged.
 
 See [store](/packages/store.md).

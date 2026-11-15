@@ -94,7 +94,10 @@ func TestPatchDoesNotChangeACopyThatSharesTheMap(t *testing.T) {
 	}
 }
 
-func TestAnOldFileIsMovedIntoTheBlobAndWrittenWithoutTheOldFields(t *testing.T) {
+// A prefs.json from before the blob is no longer moved into it. The four old
+// top-level settings stay where they are, so a window still reads them through
+// the old fields and nothing in the file is dropped or rewritten.
+func TestAnOldFileIsNotMovedIntoTheBlob(t *testing.T) {
 	isolateConfig(t)
 	dir, err := Dir()
 	if err != nil {
@@ -109,53 +112,17 @@ func TestAnOldFileIsMovedIntoTheBlobAndWrittenWithoutTheOldFields(t *testing.T) 
 	if err != nil {
 		t.Fatal(err)
 	}
-	for k, want := range map[string]string{"fontSize": "17", "fontFamily": `"Fira Code"`, "helpSeen": "true", "scrollback": "5000"} {
-		if string(p.UI[k]) != want {
-			t.Errorf("ui[%s] = %s, want %s", k, p.UI[k], want)
-		}
+	if len(p.UI) != 0 {
+		t.Errorf("the blob was filled from the old fields: %v", p.UI)
 	}
-	if p.FontSize != 0 || p.FontFamily != "" || p.HelpSeen || p.Scrollback != 0 {
-		t.Errorf("the old fields were not cleared: %+v", p)
+	if p.FontSize != 17 || p.FontFamily != "Fira Code" || !p.HelpSeen || p.Scrollback != 5000 {
+		t.Errorf("the old fields were not read as they are: %+v", p)
 	}
 	if !p.Dismissed("welcome") || p.Theme != "light" {
 		t.Errorf("a setting that stays typed was lost: %+v", p)
 	}
-	if err := SavePrefs(p); err != nil {
-		t.Fatal(err)
-	}
-	data, _ := os.ReadFile(file)
-	var got map[string]json.RawMessage
-	if err := json.Unmarshal(data, &got); err != nil {
-		t.Fatal(err)
-	}
-	for _, k := range []string{"fontSize", "fontFamily", "helpSeen", "scrollback"} {
-		if _, ok := got[k]; ok {
-			t.Errorf("%s is still a top-level key of the file: %s", k, data)
-		}
-	}
-	if _, ok := got["ui"]; !ok {
-		t.Errorf("no ui in the file: %s", data)
-	}
-	if _, ok := got["dismissedTips"]; !ok {
-		t.Errorf("dismissedTips was dropped: %s", data)
-	}
-	// Read again, nothing moves twice and nothing is lost.
-	again, _ := ReadPrefs()
-	if string(again.UI["fontSize"]) != "17" || len(again.UI) != 4 {
-		t.Errorf("second read: %v", again.UI)
-	}
-}
-
-func TestAValueAlreadyInTheBlobWinsOverTheOldField(t *testing.T) {
-	isolateConfig(t)
-	dir, _ := Dir()
-	file := filepath.Join(dir, prefsFile)
-	if err := os.WriteFile(file, []byte(`{"fontSize": 17, "ui": {"fontSize": 20}}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	p, _ := ReadPrefs()
-	if string(p.UI["fontSize"]) != "20" {
-		t.Errorf("ui = %v", p.UI)
+	if after, _ := os.ReadFile(file); string(after) != old {
+		t.Errorf("reading rewrote the file: %s", after)
 	}
 }
 

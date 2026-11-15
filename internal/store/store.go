@@ -25,10 +25,8 @@ import (
 // Version is the schema version of the persisted state.
 //
 // Version 2 is where a pane began saying which agent it runs and which model
-// it was asked for. Version 1 knew only one agent, so its panes are "claude"
-// or "shell"; they are brought forward on the way in rather than being thrown
-// away, because a layout is the user's open tabs and losing them on an upgrade
-// would be unforgivable.
+// it was asked for. A layout of any other version is not read: Load moves it
+// aside as a .damaged file and the project opens empty.
 const Version = 2
 
 // State is the whole persisted workspace.
@@ -167,97 +165,13 @@ func Dir() (string, error) {
 	if DirGuard != nil {
 		DirGuard(base)
 	}
-	dir := stateDir(base)
+	dir := filepath.Join(base, "flockdeck")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", fmt.Errorf("create config dir: %w", err)
 	}
 	makePrivate(dir)
 	return dir, nil
 }
-
-// stateDir works out which directory this run keeps its state in, and having
-// worked it out once, keeps saying so.
-//
-// Every call into this package goes through Dir, and without this every one of
-// them also stats a directory belonging to a build the user stopped running
-// long ago: a fifth of a millisecond, on the path of every load and every
-// save, for a migration that can only ever happen once.
-//
-// Remembering the answer also pins it. Where the move could not be made the
-// old directory is used where it stands, and a second attempt later in the
-// same run could succeed and move the state out from under everything already
-// written to it. One run, one directory.
-var stateDir = func() func(base string) string {
-	var (
-		mu     sync.Mutex
-		under  string
-		chosen string
-	)
-	return func(base string) string {
-		mu.Lock()
-		defer mu.Unlock()
-		// Keyed on the base, because the tests move it: a remembered answer
-		// for somewhere else is no answer at all.
-		if chosen != "" && under == base {
-			return chosen
-		}
-		chosen = adoptLegacyDir(base, filepath.Join(base, "flockdeck"))
-		under = base
-		return chosen
-	}
-}()
-
-// legacyDirName is the directory this state was kept in before the program was
-// renamed. It is looked at only when nothing has been saved under the name in
-// use now, and can be dropped a release after the rename.
-const legacyDirName = "perch"
-
-// adoptLegacyDir moves state saved under the name an earlier build used to the
-// name in use now, and returns the directory to work in.
-//
-// Everything below the directory travels in one rename — every saved layout,
-// the auth token, the generated per-session settings and the browser profile —
-// so upgrading opens the tabs the user left rather than an empty workspace
-// beside a layout nothing would ever look at again.
-//
-// It moves the old directory only when nothing exists under the new name. A
-// directory already there is this build's own state and is never written over,
-// which also makes the migration harmless to run on every call.
-//
-// Where the move cannot be made the old directory is used where it stands. On
-// Windows a file still held open by a detached instance is enough to fail a
-// rename, and continuing to write to the old name costs nothing next to
-// starting empty.
-func adoptLegacyDir(base, dir string) string {
-	if _, err := os.Stat(dir); !errors.Is(err, fs.ErrNotExist) {
-		return dir
-	}
-	old := filepath.Join(base, legacyDirName)
-	if fi, err := os.Stat(old); err != nil || !fi.IsDir() {
-		return dir
-	}
-	if err := renameDir(old, dir); err != nil {
-		// A second instance starting at the same moment can be part-way through
-		// this very move: it looked for the name in use now, found nothing, and
-		// got its rename in first. Ours then fails and the old directory is
-		// already gone. Handing back the old name there would have this run
-		// create it again, empty, and write every layout, the recent list and
-		// its own instance record into a directory nothing will ever adopt,
-		// because the name in use now exists and the old one is never looked at
-		// again. The two instances would not even find each other, each reading
-		// an instance record the other never wrote.
-		if fi, err := os.Stat(dir); err == nil && fi.IsDir() {
-			return dir
-		}
-		return old
-	}
-	return dir
-}
-
-// renameDir moves a directory. It is a variable so a test can stand in for the
-// instant between one instance finding nothing under the name in use now and
-// another moving the old directory onto it.
-var renameDir = os.Rename
 
 // makePrivate narrows a directory that was created before it was kept private,
 // or by a umask that let group and other in. Windows does not express
@@ -296,47 +210,6 @@ func path(root string) (string, error) {
 		return "", err
 	}
 	return filepath.Join(dir, "layout-"+hashRoot(root)+".json"), nil
-}
-
-// legacyPath returns the layout file a root was saved under before roots were
-// normalized on their way into the hash. Those builds hashed the root exactly
-// as it was spelled, so on the platforms that fold case the upgrade moved the
-// file name out from under every saved layout: the app looked up a name
-// nothing had ever been written to, found nothing, and opened an empty
-// workspace while the layout it should have restored sat beside it under the
-// old name.
-//
-// It returns "" where the two names cannot differ, which is every platform
-// that does not fold case and every root already spelled in normal form.
-func legacyPath(root string) (string, error) {
-	clean := filepath.Clean(root)
-	if clean == normalizeRoot(root) {
-		return "", nil
-	}
-	dir, err := Dir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, "layout-"+hashString(clean)+".json"), nil
-}
-
-// readLegacy returns the contents of a layout saved under the
-// pre-normalization name, along with the path it was read from so the caller
-// can adopt it once it has been checked. A missing file is the ordinary case:
-// it simply means nothing was saved under the old name either.
-//
-// The path comes back with a read that failed too, so the caller can record
-// that file as unread: it is the one holding the user's tabs.
-func readLegacy(root string) (string, []byte, error) {
-	old, err := legacyPath(root)
-	if err != nil {
-		return "", nil, err
-	}
-	if old == "" {
-		return "", nil, fs.ErrNotExist
-	}
-	data, err := readState(old)
-	return old, data, err
 }
 
 // normalizeRoot puts a workspace path into the one form used for comparing and
@@ -383,20 +256,6 @@ func load(root string, restoring bool) (*State, error) {
 	if restoring {
 		noteRead(p, err)
 	}
-	// Nothing under the name in use now may only mean this layout was last
-	// saved by a build that named it differently.
-	legacy := ""
-	if errors.Is(err, fs.ErrNotExist) {
-		legacy, data, err = readLegacy(root)
-		// The old name is then the file that could not be read, and it is not
-		// the one the save writes: that goes to the name in use now, and every
-		// load after it finds that and never looks at the old name again. Left
-		// unrecorded, the tabs it held stayed under a name nothing reads, and
-		// nothing said where. Recorded, the save moves it aside and says so.
-		if restoring && legacy != "" {
-			noteRead(legacy, err)
-		}
-	}
 	if err != nil {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil, nil
@@ -410,23 +269,28 @@ func load(root string, restoring bool) (*State, error) {
 		// this very name on the way out, so the damaged file is the last copy
 		// of the user's tabs and this would be the moment it went for good.
 		// Moved aside it costs nothing and can still be repaired by hand.
-		quarantine(from(p, legacy), layoutWhat(root), KeptDamaged)
+		quarantine(p, layoutWhat(root), KeptDamaged)
 		return nil, nil
 	}
-	if !migrate(&s) {
+	if s.Version != Version {
 		// Not damage but a layout from a build that numbered the format
 		// differently, most often a newer one the user has just stepped back
 		// from. It meets the same end as a damaged file, ignored now and
 		// written over on the way out, so it is kept for the same reason:
 		// going forward again is then a matter of moving one file back.
 		//
-		// Only a higher number is a newer build's. Zero, or less, is a file
-		// that is not a layout at all, which is damage by another name.
+		// A higher number is a newer build's, and a lower one above zero is an
+		// older build's, in a form this build no longer converts. Zero, or
+		// less, is a file that is not a layout at all, which is damage by
+		// another name.
 		why := KeptDamaged
-		if s.Version > Version {
+		switch {
+		case s.Version > Version:
 			why = KeptNewer
+		case s.Version > 0:
+			why = KeptOlder
 		}
-		quarantine(from(p, legacy), layoutWhat(root), why)
+		quarantine(p, layoutWhat(root), why)
 		return nil, nil
 	}
 	// The filename is a hash of the root, so a file can only be the wrong one
@@ -437,73 +301,12 @@ func load(root string, restoring bool) (*State, error) {
 	if s.Root != "" && !sameRoot(s.Root, root) {
 		return nil, nil
 	}
-	// Only once the layout has been shown to be this project's is the old file
-	// moved to the name in use now, so a rejected one is left where it is
-	// rather than being renamed over this project's name. Moving it is best
-	// effort: a layout that cannot be renamed has still been read, and failing
-	// to tidy the old file away matters far less than losing the tabs it holds.
-	if legacy != "" {
-		_ = os.Rename(legacy, p)
-	}
 	return &s, nil
-}
-
-// migrate brings a layout read from disk up to the schema this build writes,
-// reporting whether it could. A version it does not recognise — a newer one,
-// or a zero from a file that is not a layout at all — is left for the caller
-// to put aside.
-//
-// It works on the value in memory and leaves the file alone. The next save
-// writes the current version over it, so a run that only looks at a layout
-// does not rewrite it, and an upgrade costs the user nothing and asks them
-// nothing.
-func migrate(s *State) bool {
-	switch s.Version {
-	case Version:
-		return true
-	case 1:
-		// Version 1 had one agent, so a pane was "claude" or "shell" and there
-		// was nothing else to say about it. Every one of those Claude panes is
-		// an agent pane running the agent named "claude", with whatever model
-		// the CLI was already configured with — which is an empty model, not a
-		// guess at which one it was.
-		for i := range s.Tabs {
-			migratePaneKinds(s.Tabs[i].Root)
-		}
-		s.Version = Version
-		return true
-	}
-	return false
-}
-
-// migratePaneKinds rewrites version 1's pane kinds throughout one tab's tree.
-func migratePaneKinds(n *Node) {
-	if n == nil {
-		return
-	}
-	if n.Pane != nil && n.Pane.Kind != "shell" {
-		n.Pane.Kind = "agent"
-		if n.Pane.Agent == "" {
-			n.Pane.Agent = "claude"
-		}
-	}
-	for _, c := range n.Children {
-		migratePaneKinds(c)
-	}
 }
 
 // layoutWhat names a project's saved layout as the user is told of it, the
 // same way whether it is moved aside at the read or at the save.
 func layoutWhat(root string) string { return "the saved layout for " + filepath.Clean(root) }
-
-// from returns the file a layout was actually read from: the name in use now,
-// unless it came from the pre-normalization name.
-func from(current, legacy string) string {
-	if legacy != "" {
-		return legacy
-	}
-	return current
-}
 
 // damagedSuffix marks a state file this build could not use. It is not
 // ".json", so nothing looks for it again, and it holds no ".tmp", so the sweep
@@ -564,14 +367,6 @@ func Save(root string, s *State) error {
 	if err := keepUnread(p, layoutWhat(s.Root)); err != nil {
 		return fmt.Errorf("write layout: %w", err)
 	}
-	// A layout still under the name an earlier build gave it, which could not
-	// be read, is moved aside too. The save does not write over it, but once
-	// this save is there nothing reads the old name again.
-	if old, err := legacyPath(root); err == nil && old != "" {
-		if err := keepUnread(old, layoutWhat(s.Root)); err != nil {
-			return fmt.Errorf("write layout: %w", err)
-		}
-	}
 	if err := writeAtomic(p, data); err != nil {
 		return fmt.Errorf("write layout: %w", err)
 	}
@@ -625,6 +420,9 @@ const (
 	// KeptNewer is a layout saved by a newer build, in a form this one does
 	// not know.
 	KeptNewer
+	// KeptOlder is a layout saved by an older build, in a form this one no
+	// longer converts.
+	KeptOlder
 )
 
 // Sentence says what happened to the file, and where it is now, in the words
@@ -635,8 +433,26 @@ func (k Kept) Sentence() string {
 		return k.What + " could not be used, because its file is damaged; the file has been set aside rather than saved over, and is kept as " + k.Path
 	case KeptNewer:
 		return k.What + " could not be used, because it was saved by a newer version of Flockdeck; the file has been set aside rather than saved over, and is kept as " + k.Path
+	case KeptOlder:
+		return k.What + " could not be used, because it was saved by an older version of Flockdeck that this one can no longer read; the file has been set aside rather than saved over, and is kept as " + k.Path
 	}
 	return k.What + " could not be read, so it was moved aside rather than saved over; it is kept as " + k.Path
+}
+
+// LegacyDirNotice returns the sentence to tell the user when the state
+// directory an earlier build used, "perch", still sits beside this one, or ""
+// when it does not. Nothing reads or moves that directory any more. It costs
+// one stat, so it is for a caller that asks once, never for Dir.
+func LegacyDirNotice() string {
+	base, err := os.UserConfigDir()
+	if err != nil {
+		return ""
+	}
+	old := filepath.Join(base, "perch")
+	if fi, err := os.Stat(old); err != nil || !fi.IsDir() {
+		return ""
+	}
+	return "State from an older version is in " + old + " and is not read any more. Nothing was deleted."
 }
 
 // TakeKept returns the files moved aside since it was last called, and
