@@ -128,17 +128,32 @@ test("the choices are read from the preferences, keeping only what is well forme
   assert.deepEqual(s, { names: { a: "Hi" }, order: ["a", "b"], archived: [] });
 });
 
-test("the value written drops goals that are gone, keeps the rest sorted, and is null when empty", () => {
+test("the value written keeps every goal's choices, sorted, and is null when empty", () => {
   const model = graph();
-  const s = { names: { t2: "Tests", gone: "Old", t1: "Billing" }, order: ["t2", "gone", "t1"], archived: ["gone", "t1"] };
+  const s = { names: { t2: "Tests", other: "Old", t1: "Billing" }, order: ["t2", "other", "t1"], archived: ["other", "t1"] };
   const v = tabsValueOf(s, model);
-  assert.deepEqual(v, { names: { t1: "Billing", t2: "Tests" }, order: ["t2", "t1"], archived: ["t1"] });
-  assert.deepEqual(Object.keys(v.names), ["t1", "t2"], "sorted, so a pending value matches the desk's");
+  // The preferences are shared by every project and the model is one project's, so a goal it does not list may belong to another project: it is kept.
+  assert.deepEqual(v, { names: { other: "Old", t1: "Billing", t2: "Tests" }, order: ["t2", "other", "t1"], archived: ["other", "t1"] });
+  assert.deepEqual(Object.keys(v.names), ["other", "t1", "t2"], "sorted, so a pending value matches the desk's");
   assert.equal(tabsValueOf(emptyTabs(), model), null);
-  assert.equal(tabsValueOf({ names: { gone: "x" }, order: [], archived: [] }, model), null);
-  // With no graph nothing is known, so nothing is dropped.
-  assert.deepEqual(tabsValueOf(s, buildGraphModel(null)).order, ["t2", "gone", "t1"]);
+  assert.deepEqual(tabsValueOf(s, buildGraphModel(null)).order, ["t2", "other", "t1"]);
   assert.deepEqual(tabsStateOf({ [TABS_KEY]: v }), { names: v.names, order: v.order, archived: v.archived });
+});
+
+test("a goal archived in one project stays archived after a change made in another", () => {
+  // Project A: the person closes goal t1.
+  let s = archiveTab(emptyTabs(), "t1");
+  let ui = tabsKeysOf(s, graph(), {});
+  assert.deepEqual(ui[ARCHIVED_KEY], ["t1"]);
+  // Project B lists other goals only; the person renames one there.
+  const b = buildGraphModel({ type: "graph", nodes: [node("x1")], teams: [{ id: "tb", manager: "x1", members: ["x1"], goal: "B work" }], solo: [] });
+  s = renameTab(tabsStateOf({ [ARCHIVED_KEY]: ["t1"] }), "tb", "Mine");
+  const writes = tabsKeysOf(s, b, { [ARCHIVED_KEY]: ["t1"] });
+  assert.equal(ARCHIVED_KEY in writes, false, "the archive is not rewritten, let alone emptied");
+  // Back in project A the goal is still closed.
+  const back = goalTabsOf(graph(), tabsStateOf({ [ARCHIVED_KEY]: ["t1"], [NAMES_KEY]: { tb: "Mine" } }));
+  assert.deepEqual(ids(back), ["t2", SOLO]);
+  assert.deepEqual(back.archived.map((t) => t.id), ["t1"]);
 });
 
 test("a goal started for a task is labelled with the task's title, and the tooltip has the id", () => {

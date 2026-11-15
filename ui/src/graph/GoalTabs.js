@@ -6,8 +6,8 @@
 // one key, "tabs": a name they gave a goal, the order they put the tabs in, and
 // the goals they archived. Archiving only hides a tab in this interface; the
 // team goes on. All three are keyed by team id and are looked up in the graph, so
-// an entry for a team the push no longer lists does nothing, and is dropped the
-// next time the value is written.
+// an entry for a team the push no longer lists does nothing. It is kept, because
+// the preferences are shared by every project and the graph is one project's.
 /** TABS_KEY is the key of the interface's preferences the tab choices are kept under. */
 export const TABS_KEY = "tabs";
 
@@ -208,16 +208,19 @@ export function restoreTab(state, id) {
 /**
  * tabsValueOf is the value to write under TABS_KEY, or null when nothing is
  * chosen (the key is then removed). Entries for a team the model does not list are
- * dropped, but only from a model that is a graph: with none, nothing is known and
- * nothing is dropped.
+ * kept: see the note in the body. `model` is no longer used and stays so callers
+ * do not change.
  */
 export function tabsValueOf(state, model) {
-  const known = model && model.ok ? new Set(model.teams.map((t) => t.id)) : null;
-  const keep = (id) => known === null || known.has(id);
+  // Nothing is dropped for being missing from the model. The preferences are shared
+  // by every project and the model is the graph of the one on screen, so a goal it
+  // does not list may be another project's: dropping it here un-archived that
+  // project's closed tabs the next time any choice was written. The lists are
+  // capped instead, as they are when read.
   const names = {};
-  for (const id of Object.keys(state.names).sort()) if (keep(id)) names[id] = state.names[id];
-  const order = state.order.filter(keep);
-  const archived = state.archived.filter(keep);
+  for (const id of Object.keys(state.names).sort().slice(0, KEEP)) names[id] = state.names[id];
+  const order = state.order.slice(0, KEEP);
+  const archived = state.archived.slice(-KEEP);
   if (Object.keys(names).length === 0 && order.length === 0 && archived.length === 0) return null;
   const value = {};
   if (Object.keys(names).length > 0) value.names = names;
