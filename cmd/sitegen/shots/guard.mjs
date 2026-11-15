@@ -10,8 +10,9 @@
 //     attempt set those and still wrote into the real %APPDATA%\flockdeck.
 //   - Everything the harness starts gets an environment built from an allow
 //     list, never the caller's with a few names taken out. A pane's shell
-//     carries FLOCKDECK_API, FLOCKDECK_TOKEN, FLOCKDECK_PANE and the rest, which point straight at the live instance: a mock
-//     agent that saw them would post its figures, or start panes, there.
+//     carries FLOCKDECK_API, FLOCKDECK_TOKEN, FLOCKDECK_PANE and the rest,
+//     which point straight at the live instance: a mock agent that saw them
+//     would post its figures, or start panes, there.
 //   - The live state directory is listed, with sizes, times and hashes, before
 //     anything starts and after everything has stopped, and the two listings
 //     compared.

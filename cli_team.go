@@ -29,7 +29,7 @@ var errNotInPane = errors.New("this only works inside a flockdeck pane, which is
 func paneCaller() (api, token, pane string, err error) {
 	api, token, pane = paneEnv("API"), paneEnv("TOKEN"), paneEnv("PANE")
 	if api == "" || token == "" || pane == "" {
-		return "", "", "", errNotInPane
+		return "", "", "", oldPaneOr(errNotInPane)
 	}
 	return api, token, pane, nil
 }

@@ -13,8 +13,9 @@ import (
 )
 
 // flockdeckEnvNames collects the variables Flockdeck itself reads or sets: every
-// FLOCKDECK_ name in the usage text, and every name paneEnv is asked for. It is driven from the program so that a variable
-// added later is covered without anyone editing this test.
+// FLOCKDECK_ name in the usage text, and every name paneEnv is asked for. It
+// is driven from the program so that a variable added later is covered without
+// anyone editing this test.
 func flockdeckEnvNames(t *testing.T) []string {
 	t.Helper()
 	names := map[string]bool{}

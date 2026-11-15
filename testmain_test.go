@@ -13,6 +13,12 @@ import (
 // directory, the stored keys and the real network (docs/testing.md).
 func TestMain(m *testing.M) {
 	openBrowser = func(string) error { return nil }
+	// A test run from a pane an earlier build started inherits its PERCH_
+	// names, which commands read as "this pane is old". Tests that want that
+	// set them themselves (oldpane_test.go).
+	for _, n := range []string{"API", "TOKEN", "PANE"} {
+		os.Unsetenv("PERCH_" + n)
+	}
 	os.Exit(testiso.Main(m))
 }
 

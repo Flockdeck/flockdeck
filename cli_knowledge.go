@@ -45,7 +45,7 @@ type knowledgeEnv struct {
 
 func runKnowledge(args []string, out io.Writer) error {
 	return runKnowledgeWith(knowledgeEnv{
-		inPane:     func() bool { return quietPaneEnv("PANE") != "" },
+		inPane:     func() bool { return paneEnv("PANE") != "" || oldPaneEnv() },
 		projectOf:  projectRootOf,
 		visibility: ghcli.Visibility,
 	}, args, out)

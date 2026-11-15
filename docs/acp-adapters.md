@@ -128,10 +128,9 @@ manifest instead of a program, and says what the agent may see:
 - `passEnv` is the whole list of variables the agent gets from Flockdeck's
   environment, on top of the few that let it find programs and a temp folder
   (`acp.MinimalEnv`), and it holds at most 64 names. Keys and tokens are not
-  passed unless an entry names them. A name starting `FLOCKDECK_`
-  is refused in any case, since Flockdeck sets its tokens and the pane's
-  identity under that prefix; the refusal is made again where the environment is
-  built, so an entry that skipped the catalog's check is still held to it. A
+  passed unless an entry names them. A name starting `FLOCKDECK_` is refused in any
+  case, since Flockdeck sets its tokens and the pane's identity under that
+  prefix; the refusal is made again where the environment is built, so an entry that skipped the catalog's check is still held to it. A
   name `acp.MinimalEnv` already gives (`PATH` and the like) is not passed twice.
   Names are compared exactly on Linux and macOS and without regard to case on
   Windows.

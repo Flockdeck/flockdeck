@@ -66,7 +66,7 @@ func statusline(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	// machine can read. --token is still taken, for a pane an earlier build
 	// started.
 	if *token == "" {
-		*token = quietPaneEnv("TOKEN")
+		*token = paneEnv("TOKEN")
 	}
 	input, _ := io.ReadAll(io.LimitReader(stdin, maxStatusInput))
 
