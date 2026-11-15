@@ -16,8 +16,22 @@ const (
 	listIDc = "cccccccc-5c2a-4a3e-9d7a-6f1f3f0b9c11"
 )
 
-// storeNamed writes a stored session of cwd under id, with the given age.
+// storeNamed writes a stored session of cwd under id, with the given age. Each
+// line that names no cwd is given the folder's, as claude writes it.
 func storeNamed(t *testing.T, projects, cwd, id string, age time.Duration, lines ...string) string {
+	t.Helper()
+	stamped := make([]string, len(lines))
+	for i, l := range lines {
+		stamped[i] = l
+		if !strings.Contains(l, `"cwd"`) {
+			stamped[i] = at(cwd, l)
+		}
+	}
+	return storeRaw(t, projects, cwd, id, age, stamped...)
+}
+
+// storeRaw writes the lines as they are.
+func storeRaw(t *testing.T, projects, cwd, id string, age time.Duration, lines ...string) string {
 	t.Helper()
 	dir := filepath.Join(projects, nonWord.ReplaceAllString(cwd, "-"))
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -32,6 +46,15 @@ func storeNamed(t *testing.T, projects, cwd, id string, age time.Duration, lines
 		t.Fatal(err)
 	}
 	return p
+}
+
+// at gives a line the cwd claude writes in it.
+func at(cwd, line string) string {
+	var m map[string]any
+	_ = json.Unmarshal([]byte(line), &m)
+	m["cwd"] = cwd
+	b, _ := json.Marshal(m)
+	return string(b)
 }
 
 func TestListSessionsIsNewestFirstWithTheFirstPromptAsTitle(t *testing.T) {
@@ -74,7 +97,7 @@ func TestListSessionsReportsTheFolderTheFileNames(t *testing.T) {
 	cwd := t.TempDir()
 	// claude spells the folder with dashes, so two folders can share a directory;
 	// the line's own cwd is what tells them apart.
-	storeNamed(t, projects, cwd, listIDa, time.Hour, jl(map[string]any{"type": "system", "cwd": "/somewhere/else"}), userLine("hello"))
+	storeRaw(t, projects, cwd, listIDa, time.Hour, jl(map[string]any{"type": "system", "cwd": "/somewhere/else"}), userLine("hello"))
 	got := listSessions(projects, cwd)
 	if len(got) != 1 || got[0].Cwd != "/somewhere/else" {
 		t.Fatalf("listed %+v", got)
@@ -127,5 +150,45 @@ func TestSessionListIsAdvertisedAndAnswered(t *testing.T) {
 	}
 	if bad := h.call("session/list", map[string]any{"cwd": "relative/path"}); bad.Error == nil {
 		t.Error("a relative cwd was accepted")
+	}
+}
+
+func TestListSessionsLeavesOutAFileThatNamesNoFolder(t *testing.T) {
+	projects := filepath.Join(t.TempDir(), "projects")
+	cwd := t.TempDir()
+	storeRaw(t, projects, cwd, listIDa, time.Hour, userLine("no cwd anywhere"))
+	storeNamed(t, projects, cwd, listIDb, 2*time.Hour, userLine("has one"))
+	got := listSessions(projects, cwd)
+	if len(got) != 1 || got[0].ID != listIDb {
+		t.Fatalf("listed %+v", got)
+	}
+}
+
+// With more files than the old cap of 5000 the newest is still found, though
+// the directory is read in name order and its id sorts last.
+func TestListSessionsFindsTheNewestOfAVeryLargeDirectory(t *testing.T) {
+	projects := filepath.Join(t.TempDir(), "projects")
+	cwd := t.TempDir()
+	dir := filepath.Join(projects, nonWord.ReplaceAllString(cwd, "-"))
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	line := at(cwd, userLine("p"))
+	old := time.Now().Add(-48 * time.Hour)
+	for i := 0; i < historyMaxDirs+200; i++ {
+		p := filepath.Join(dir, fmt.Sprintf("%08x-5c2a-4a3e-9d7a-6f1f3f0b9c11.jsonl", i+1))
+		if err := os.WriteFile(p, []byte(line+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(p, old, old); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// Name order puts this last; its time makes it the newest.
+	newest := "ffffffff-5c2a-4a3e-9d7a-6f1f3f0b9c11"
+	storeNamed(t, projects, cwd, newest, time.Minute, userLine("the newest"))
+	got := listSessions(projects, cwd)
+	if len(got) == 0 || got[0].ID != newest || len(got) > listMax {
+		t.Fatalf("listed %d, first %+v", len(got), got)
 	}
 }

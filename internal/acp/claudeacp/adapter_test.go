@@ -110,7 +110,7 @@ func TestSessionNewRefusals(t *testing.T) {
 	})
 	t.Run("unknown method", func(t *testing.T) {
 		h := newHarness(t, nil)
-		r := h.call("session/list", map[string]any{})
+		r := h.call("session/nope", map[string]any{})
 		if r.Error == nil || r.Error.Code != codeMethodNotFound {
 			t.Errorf("got %+v", r)
 		}

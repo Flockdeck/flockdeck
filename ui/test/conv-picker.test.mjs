@@ -47,6 +47,7 @@ test("the commands carry the id, and confirm only when asked", () => {
 test("what a move ends is said in words", () => {
   assert.equal(busyWords(st()), "");
   assert.equal(busyWords(st({ status: "working" })), "This ends the turn that is running.");
+  assert.equal(busyWords(st({ status: "waiting" })), "This ends the turn that is running, and the permission card it has open.");
   assert.equal(busyWords(st({ queue: [{ id: 1, kind: "user", text: "a" }] })), "This drops the 1 prompt waiting.");
   assert.equal(busyWords(st({ status: "working", queue: [{ id: 1, kind: "user", text: "a" }, { id: 2, kind: "user", text: "b" }] })), "This ends the turn that is running and drops the 2 prompts waiting.");
 });

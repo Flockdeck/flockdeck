@@ -41,7 +41,7 @@ export function busyWords(st) {
   const running = st.status === "working" || st.status === "waiting" || st.background === true;
   if (!running && !queued) return "";
   const parts = [];
-  if (running) parts.push("ends the turn that is running");
+  if (running) parts.push(st.status === "waiting" ? "ends the turn that is running, and the permission card it has open" : "ends the turn that is running");
   if (queued) parts.push("drops the " + queued + " prompt" + (queued === 1 ? "" : "s") + " waiting");
   return "This " + parts.join(" and ") + ".";
 }

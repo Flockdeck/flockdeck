@@ -163,13 +163,13 @@ func (r *Runtime) PickSession(id string, confirm bool) (string, error) {
 	return "", ErrNoSession
 }
 
-// Busy says a turn is running, a prompt is waiting, the agent is working on its
-// own, or a rewind is out. A pane that is moved to another conversation ends
+// Busy says a turn is running, a prompt is waiting, a permission
+// card is open, the agent is working on its own, or a rewind is out. A pane that is moved to another conversation ends
 // all of these.
 func (r *Runtime) Busy() bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	return r.inTurn || len(r.queue) > 0 || r.rewinding || (r.br != nil && r.br.Background())
+	return r.inTurn || len(r.queue) > 0 || len(r.waiters) > 0 || r.rewinding || (r.br != nil && r.br.Background())
 }
 
 // sameDir says two folder names are the same place. It compares the cleaned

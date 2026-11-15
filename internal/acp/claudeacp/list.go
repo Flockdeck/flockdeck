@@ -61,6 +61,8 @@ func listSessions(root, cwd string) []listedSession {
 		mod time.Time
 	}
 	var files []file
+	deadline := time.Now().Add(historyMaxWait)
+	n := 0
 	for _, e := range ents {
 		name, ok := strings.CutSuffix(e.Name(), ".jsonl")
 		// A symbolic link or junction is not followed: Type is the link's own.
@@ -72,7 +74,10 @@ func listSessions(root, cwd string) []listedSession {
 			continue
 		}
 		files = append(files, file{name, fi.ModTime()})
-		if len(files) >= historyMaxDirs {
+		// No cap here: the directory is read in name order and ids are not in time
+		// order, so stopping early could miss the newest. The time limit below is
+		// the bound.
+		if n++; n%256 == 0 && !time.Now().Before(deadline) {
 			break
 		}
 	}
@@ -91,8 +96,11 @@ func listSessions(root, cwd string) []listedSession {
 		if title == "" {
 			continue
 		}
+		// A file that names no folder in the part read is left out: the dashed
+		// directory name is lossy (C:-b and C: share one), so the file
+		// cannot be said to belong to this folder.
 		if fileCwd == "" {
-			fileCwd = cwd
+			continue
 		}
 		out = append(out, listedSession{ID: f.id, Cwd: fileCwd, Title: title, Updated: f.mod})
 	}
@@ -100,7 +108,8 @@ func listSessions(root, cwd string) []listedSession {
 }
 
 // readHead finds the first prompt the person typed, as one line, and the cwd
-// claude wrote in the file. Either is empty when the start of the file has none.
+// claude wrote in the file. Either is empty when the start of the file has none;
+// the caller leaves such a file out.
 func readHead(path string) (title, cwd string) {
 	f, err := os.Open(path)
 	if err != nil {

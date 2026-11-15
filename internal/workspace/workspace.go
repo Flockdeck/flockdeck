@@ -248,6 +248,9 @@ type Pane struct {
 	// history is what a restarted structured pane shows from the sessions before
 	// this one; it is handed to the new runtime when the pane starts.
 	history []transcript.Entry
+	// pickNote is the line a resumed conversation shows in place of history when the
+	// resume went through (see structuredRuntime.shownPrior). Taken by the next start.
+	pickNote *transcript.Entry
 	// generation counts the restarts of a structured pane. The entries of a
 	// session are numbered from e1, so each session's are renamed with this when
 	// the session becomes history, and an id is never shown twice.

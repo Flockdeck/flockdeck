@@ -211,3 +211,78 @@ func TestConversationCommandsAreRefusedToTheRelayAndViewers(t *testing.T) {
 		t.Error("a command from the relay restarted the pane")
 	}
 }
+
+// A resume the agent cannot reopen leaves the pane with the conversation it had,
+// then the fixed failure line, and the pane works on a new session.
+func TestAFailedResumeKeepsTheOldView(t *testing.T) {
+	e := newStructuredEnvWith(t, "plain", structuredEnvOpts{Args: []string{acptest.ArgSessions + "load,list,load-refused,id=old-1"}})
+	e.status(t, session.StatusIdle)
+	before := e.entries(t)
+	if len(before) == 0 {
+		t.Fatal("the pane has no entries to keep")
+	}
+	if res := e.convOp(t, e.c, command{Cmd: "structuredResume", SessionID: "old-1"}); !res.OK {
+		t.Fatalf("resume: %+v", res)
+	}
+	deadline := time.Now().Add(30 * time.Second)
+	var got []transcript.Entry
+	for {
+		got = e.entries(t)
+		if len(got) > len(before) && got[len(got)-1].Text == structured.ResumeFailedText {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("no failure line; entries %v", kindsOf(got))
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	for i, en := range before {
+		if got[i].Kind != en.Kind || got[i].Markdown != en.Markdown || got[i].Text != en.Text {
+			t.Errorf("entry %d changed: %+v then %+v", i, en, got[i])
+		}
+	}
+	for _, en := range got {
+		if en.Text == "Resumed an earlier conversation from this folder." {
+			t.Error("the pane says it resumed")
+		}
+	}
+}
+
+// A move is refused with its own words while another move, rewind or file
+// restore of the pane is out.
+func TestAMoveWhileAnotherIsOutIsRefusedInItsOwnWords(t *testing.T) {
+	e := convEnv(t)
+	forking.Store(e.child, struct{}{})
+	defer forking.Delete(e.child)
+	for _, cmd := range []command{{Cmd: "structuredResume", SessionID: "old-1"}, {Cmd: "structuredNewConversation"}} {
+		res := e.convOp(t, e.c, cmd)
+		if res.OK || res.Error != structuredMoveInFlight {
+			t.Errorf("%s: %+v", cmd.Cmd, res)
+		}
+		if res.Error == structuredRewindBusy {
+			t.Error("the rewind text was used for a move")
+		}
+	}
+}
+
+// An open permission card is a pending turn: a move needs confirm, and with it
+// the pane moves and the card goes.
+func TestAMoveWithAPermissionCardOpenNeedsConfirm(t *testing.T) {
+	e := convEnv(t)
+	e.sendText(t, "hold-perm")
+	e.until(t, "the permission card", 15*time.Second, func(m convView) bool { return m.Status == "waiting" })
+	rt, _ := ask(e.srv, func() *structured.Runtime { return e.ws.StructuredRuntime(e.child) })
+	if !rt.Busy() {
+		t.Fatal("a pane with a permission card open is not busy")
+	}
+	if res := e.convOp(t, e.c, command{Cmd: "structuredResume", SessionID: "old-1"}); res.OK || res.Error != structuredSessionBusy {
+		t.Fatalf("without confirm: %+v", res)
+	}
+	if now, _ := ask(e.srv, func() *structured.Runtime { return e.ws.StructuredRuntime(e.child) }); now != rt {
+		t.Fatal("a refused move restarted the pane")
+	}
+	if res := e.convOp(t, e.c, command{Cmd: "structuredResume", SessionID: "old-1", Confirm: true}); !res.OK {
+		t.Fatalf("with confirm: %+v", res)
+	}
+	e.waitSessionIs(t, "old-1")
+}

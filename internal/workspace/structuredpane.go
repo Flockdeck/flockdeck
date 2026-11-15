@@ -55,6 +55,11 @@ type structuredRuntime struct {
 	// prior is what the sessions before this one showed, oldest first. A restart
 	// starts a fresh session and keeps the earlier entries as history.
 	prior []transcript.Entry
+	// pickNote is set for a pane moved to a conversation chosen from the list. The
+	// agent replays what it reopens, so when the resume went through only this
+	// line is shown in place of prior. When it did not (the agent could not reopen
+	// the session and made a new one), prior stays, so the old view is not lost.
+	pickNote *transcript.Entry
 
 	mu     sync.Mutex
 	status session.Status
@@ -111,6 +116,8 @@ func (w *Workspace) startStructured(p *Pane, spec agent.Spec) {
 	gen := runtimeGen.Add(1)
 	w.mu.Lock()
 	resume := p.savedSession
+	note := p.pickNote
+	p.pickNote = nil
 	// Taken once: a restart of the fork is a new session, not another fork.
 	fork := p.forkFrom
 	p.forkFrom = nil
@@ -132,7 +139,7 @@ func (w *Workspace) startStructured(p *Pane, spec agent.Spec) {
 		return
 	}
 	p.history = nil
-	sr := &structuredRuntime{w: w, p: p, rt: rt, started: time.Now(), prior: prior, gen: gen,
+	sr := &structuredRuntime{w: w, p: p, rt: rt, started: time.Now(), prior: prior, pickNote: note, gen: gen,
 		status: session.StatusStarting, since: time.Now(), stop: make(chan struct{})}
 	w.mu.Lock()
 	p.Sess = nil
@@ -423,11 +430,24 @@ func (s *structuredRuntime) Conversation() ConversationSource {
 	return ConversationSource{ID: s.p.ID}
 }
 
+// shownPrior is the history shown before this session's own entries. For a pane
+// moved to a conversation from the list it is the old view until the agent has
+// reopened the session, and then only the "Resumed" line, since the replay is
+// the conversation. If the agent could not reopen it, the old view stays.
+func (s *structuredRuntime) shownPrior(r structured.Resume) []transcript.Entry {
+	if s.pickNote != nil && (r == structured.ResumeLoaded || r == structured.ResumeResumed) {
+		return []transcript.Entry{*s.pickNote}
+	}
+	return s.prior
+}
+
 // Entries are the conversation shown, the history of earlier sessions first.
 func (s *structuredRuntime) Entries() []transcript.Entry {
-	cur := s.rt.Snapshot().Entries
-	out := make([]transcript.Entry, 0, len(s.prior)+len(cur))
-	out = append(out, s.prior...)
+	sn := s.rt.Snapshot()
+	cur := sn.Entries
+	prior := s.shownPrior(sn.Resume)
+	out := make([]transcript.Entry, 0, len(prior)+len(cur))
+	out = append(out, prior...)
 	return append(out, cur...)
 }
 
@@ -468,8 +488,9 @@ func (w *Workspace) StructuredSnapshot(id string) (structured.Snapshot, bool) {
 		return structured.Snapshot{}, false
 	}
 	sn := sr.rt.Snapshot()
-	entries := make([]transcript.Entry, 0, len(sr.prior)+len(sn.Entries))
-	entries = append(entries, sr.prior...)
+	prior := sr.shownPrior(sn.Resume)
+	entries := make([]transcript.Entry, 0, len(prior)+len(sn.Entries))
+	entries = append(entries, prior...)
 	sn.Entries = append(entries, sn.Entries...)
 	return sn, true
 }
@@ -588,16 +609,18 @@ func (w *Workspace) restartStructured(p *Pane, old *structuredRuntime, resume st
 	case kind == restartNewConversation:
 		text = NewConversationText
 	case kind == restartPicked:
-		// The agent replays the conversation it reopens, so what the pane showed
-		// before is not kept.
-		history = nil
+		// The old view stays until the agent has reopened the session (shownPrior);
+		// the notice is kept apart so it is not shown above a failed resume.
 		text = ResumedConversationText
 	case resume != "":
 		history = nil
 		text = "Going back did not finish, so the agent was restarted with the conversation as it was before."
 	}
-	history = append(history, transcript.Entry{ID: noteID, Kind: transcript.KindNotice,
-		TS: time.Now().UTC().Format(time.RFC3339), Text: text})
+	noteEntry := transcript.Entry{ID: noteID, Kind: transcript.KindNotice,
+		TS: time.Now().UTC().Format(time.RFC3339), Text: text}
+	if kind != restartPicked {
+		history = append(history, noteEntry)
+	}
 	if n := len(history); n > maxPaneHistory {
 		history = history[n-maxPaneHistory:]
 	}
@@ -607,6 +630,11 @@ func (w *Workspace) restartStructured(p *Pane, old *structuredRuntime, resume st
 	p.history = history
 	w.mu.Lock()
 	p.savedSession = resume
+	if kind == restartPicked {
+		p.pickNote = &noteEntry
+	} else {
+		p.pickNote = nil
+	}
 	w.mu.Unlock()
 	w.startPane(p, false)
 }

@@ -29,9 +29,10 @@ const (
 	structuredSessionsFailed = "The agent could not list its conversations"
 	structuredNoSuchSession  = "That conversation is not one of this folder's. Look at the list again and choose once more"
 	structuredSessionCurrent = "The pane is on that conversation already"
-	structuredSessionBusy    = "A turn is running or prompts are waiting. Confirm to end the turn and drop them"
+	structuredSessionBusy    = "A turn is running, a permission card is open, a rewind is out or prompts are waiting. Confirm to end it all"
 	structuredSessionMoveErr = "The pane could not be moved to another conversation"
 	structuredSessionNoID    = "Name the conversation to resume"
+	structuredMoveInFlight   = "This pane is already being moved, went back or forked a moment ago. Wait for it to finish and look at the list again"
 )
 
 // sessionView is one conversation of the list.
@@ -61,7 +62,7 @@ func (s *Server) structuredConversation(c *controlClient, cmd command) {
 	}
 	// One move at a time, and not while a rewind or fork of the pane runs.
 	if _, busy := forking.LoadOrStore(cmd.ID, struct{}{}); busy {
-		refuse(c, cmd, errStructured(structuredRewindBusy))
+		refuse(c, cmd, errStructured(structuredMoveInFlight))
 		return
 	}
 	go func() {
@@ -83,27 +84,58 @@ func (s *Server) doSessions(c *controlClient, cmd command, rt *structured.Runtim
 	c.sendJSON(teamResultMsg{Type: "teamResult", Req: cmd.Req, Op: cmd.Cmd, OK: true, Sessions: views})
 }
 
+type moveResult int
+
+const (
+	moveDone moveResult = iota
+	moveFailed
+	moveBusy
+)
+
 func (s *Server) doMove(c *controlClient, cmd command, rt *structured.Runtime) {
-	var move func() bool
+	// move runs on the workspace goroutine. Without confirm it looks at Busy again
+	// there, right before the restart, so a prompt that started a turn since the
+	// first check is not dropped unasked.
+	var move func() moveResult
 	if cmd.Cmd == "structuredResume" {
 		id, err := rt.PickSession(cmd.SessionID, cmd.Confirm)
 		if err != nil {
 			refuse(c, cmd, errStructured(sessionRefusal(err)))
 			return
 		}
-		move = func() bool { return s.ws.ResumeStructuredConversation(cmd.ID, id) }
+		move = func() moveResult {
+			if !cmd.Confirm && rt.Busy() {
+				return moveBusy
+			}
+			if s.ws.ResumeStructuredConversation(cmd.ID, id) {
+				return moveDone
+			}
+			return moveFailed
+		}
 	} else {
 		if !cmd.Confirm && rt.Busy() {
 			refuse(c, cmd, errStructured(structuredSessionBusy))
 			return
 		}
-		move = func() bool { return s.ws.NewStructuredConversation(cmd.ID) }
+		move = func() moveResult {
+			if !cmd.Confirm && rt.Busy() {
+				return moveBusy
+			}
+			if s.ws.NewStructuredConversation(cmd.ID) {
+				return moveDone
+			}
+			return moveFailed
+		}
 	}
-	done, ok := ask(s, move)
+	res, ok := ask(s, move)
 	if !ok {
 		return
 	}
-	if !done {
+	if res == moveBusy {
+		refuse(c, cmd, errStructured(structuredSessionBusy))
+		return
+	}
+	if res != moveDone {
 		refuse(c, cmd, errStructured(structuredSessionMoveErr))
 		return
 	}
