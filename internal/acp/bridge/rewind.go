@@ -40,6 +40,7 @@ func (b *Bridge) TruncateBefore(id string) (string, bool) {
 		}
 	}
 	b.items = b.items[:at:at]
+	b.retry = nil
 	b.inFlight = false
 	return text, true
 }

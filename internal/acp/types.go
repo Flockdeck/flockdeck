@@ -3,6 +3,7 @@ package acp
 import (
 	"bytes"
 	"encoding/json"
+	"math"
 )
 
 // ProtocolVersion is the ACP version the client speaks. All of the agents
@@ -298,7 +299,8 @@ func decodeUpdate(sessionID string, raw json.RawMessage) Update {
 		}
 		_ = json.Unmarshal(raw, &w)
 		u.NoticeCode = w.Code
-		if w.Code == NoticeAPIRetry && w.Attempt >= 0 && w.Attempt < 1e6 && w.Max >= 0 && w.Max < 1e6 {
+		whole := func(f float64) bool { return f >= 0 && f < 1e6 && f == math.Trunc(f) }
+		if w.Code == NoticeAPIRetry && whole(w.Attempt) && whole(w.Max) {
 			u.NoticeAttempt, u.NoticeMax, u.NoticeClass = int(w.Attempt), int(w.Max), w.Class
 		}
 	case UpdateUsage:

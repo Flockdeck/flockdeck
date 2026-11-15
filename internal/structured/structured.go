@@ -151,6 +151,10 @@ type Command struct {
 	// extension, so its claim of it is believed. resolve sets it from the
 	// manifest; a test that supplies a Command sets it for its fake agent.
 	Rewind bool
+	// Claude says the program stands in for Flockdeck's own Claude adapter, so
+	// the updates only that adapter may send are taken from it. A test sets it
+	// by hand for its fake agent; nothing else does.
+	Claude bool
 	// RewindTimeout shortens how long a rewind waits for the agent; it is for
 	// tests. Zero means the client's default.
 	RewindTimeout time.Duration
@@ -1198,9 +1202,16 @@ func (r *Runtime) Close() error {
 	return nil
 }
 
+// SettleRetry turns a retry note that is still showing into the past note. A
+// restart calls it before it keeps the entries, since the old agent will not
+// end its turn.
+func (r *Runtime) SettleRetry() { r.br.SettleRetry() }
+
 // finish moves to a final phase (unless one was reached already), releases
 // every waiting request as cancelled and stops the loop.
 func (r *Runtime) finish(p Phase) {
+	// A retry the agent was in the middle of will not be followed by a turn end.
+	r.br.SettleRetry()
 	r.mu.Lock()
 	if p == PhaseClosed {
 		r.closed = true
@@ -1299,7 +1310,10 @@ func (h handler) Update(u acp.Update) {
 // ownClaude says the pane runs Flockdeck's own Claude adapter, not a test's
 // command or another agent.
 func (r *Runtime) ownClaude() bool {
-	return r.opts.Command == nil && r.opts.Spec.ACPOwnClaude()
+	if c := r.opts.Command; c != nil {
+		return c.Claude
+	}
+	return r.opts.Spec.ACPOwnClaude()
 }
 
 // ownClaudeAdapter is the manifest id of Flockdeck's Claude adapter, the only

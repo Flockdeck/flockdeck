@@ -389,3 +389,104 @@ func TestRetryRowEndsWithTheTurn(t *testing.T) {
 		t.Errorf("notices = %q", texts)
 	}
 }
+
+func noticeTexts2(b *Bridge) []string {
+	var out []string
+	for _, e := range b.Snapshot() {
+		if e.Kind == "notice" {
+			out = append(out, e.Text)
+		}
+	}
+	return out
+}
+
+// Progress that is not output also ends a retry: a background turn has no
+// TurnEnd, and compaction or a subagent's text means the agent went on.
+func TestRetryEndsOnOtherProgress(t *testing.T) {
+	for name, u := range map[string]acp.Update{
+		"busy false":     {Kind: acp.UpdateBusy},
+		"compaction":     {Kind: acp.UpdateCompaction},
+		"subagent text":  {Kind: acp.UpdateSubagentText, ToolCallID: "t", SubagentText: "x"},
+		"another notice": {Kind: acp.UpdateNotice, NoticeCode: "new_conversation"},
+	} {
+		b := New(Config{})
+		b.Update(acp.Update{Kind: acp.UpdateBusy, Busy: true})
+		b.Update(retryUpdate(2, 10, "overloaded"))
+		if !strings.Contains(b.Activity(), "retrying") {
+			t.Fatalf("%s: no activity before: %q", name, b.Activity())
+		}
+		b.Update(u)
+		if strings.Contains(strings.Join(noticeTexts2(b), "|"), "is retrying") || strings.Contains(b.Activity(), "retrying") {
+			t.Errorf("%s: still retrying: %q %q", name, noticeTexts2(b), b.Activity())
+		}
+	}
+	// Busy true does not end it, and neither does a retry notice itself.
+	b := New(Config{})
+	b.Update(acp.Update{Kind: acp.UpdateBusy, Busy: true})
+	b.Update(retryUpdate(1, 10, "network"))
+	b.Update(acp.Update{Kind: acp.UpdateBusy, Busy: true})
+	if !strings.Contains(b.Activity(), "retrying") {
+		t.Errorf("activity = %q", b.Activity())
+	}
+}
+
+// Another notice code that carries retry fields adds no retry row.
+func TestOtherNoticeCodeWithRetryFieldsIsNotARetry(t *testing.T) {
+	b := New(Config{})
+	b.StartTurn("go")
+	b.Update(acp.Update{Kind: acp.UpdateNotice, NoticeCode: "SECRET", NoticeAttempt: 1, NoticeMax: 5, NoticeClass: "overloaded"})
+	b.Update(acp.Update{Kind: acp.UpdateNotice, NoticeCode: "untested_version", NoticeAttempt: 1, NoticeMax: 5, NoticeClass: "overloaded"})
+	got := noticeTexts2(b)
+	if len(got) != 1 || strings.Contains(got[0], "retry") || strings.Contains(b.Activity(), "retry") {
+		t.Errorf("notices = %q, activity = %q", got, b.Activity())
+	}
+}
+
+func TestRetryClearedByReplayAndRewind(t *testing.T) {
+	b := New(Config{})
+	b.StartTurn("go")
+	b.Update(retryUpdate(1, 5, "overloaded"))
+	b.BeginReplay()
+	b.EndReplay()
+	if b.retry != nil {
+		t.Error("a replay left the retry state")
+	}
+	id, _ := b.StartTurn("again")
+	b.Update(retryUpdate(1, 5, "overloaded"))
+	if _, ok := b.TruncateBefore(id); !ok {
+		t.Fatal("no truncate")
+	}
+	if b.retry != nil || strings.Contains(b.Activity(), "retrying") {
+		t.Errorf("a rewind left the retry state: %q", b.Activity())
+	}
+}
+
+func TestRetryRowDroppedMidLoopComesBackOnce(t *testing.T) {
+	b := New(Config{MaxEntries: 10})
+	b.StartTurn("go")
+	b.Update(retryUpdate(1, 900, "overloaded"))
+	for i := 0; i < 30; i++ { // enough entries to push the row out
+		b.Update(acp.Update{Kind: acp.UpdateNotice, NoticeCode: "new_conversation"})
+	}
+	b.Update(retryUpdate(2, 900, "overloaded"))
+	n := 0
+	for _, t2 := range noticeTexts2(b) {
+		if strings.Contains(t2, "retrying") {
+			n++
+		}
+	}
+	if n != 1 {
+		t.Errorf("retry rows = %d, want 1: %q", n, noticeTexts2(b))
+	}
+}
+
+func TestManyRetriesStayOneEntry(t *testing.T) {
+	b := New(Config{})
+	b.StartTurn("go")
+	for i := 0; i < 600; i++ {
+		b.Update(retryUpdate(1+i%900, 900, "rate_limit"))
+	}
+	if n := len(b.Snapshot()); n != 2 {
+		t.Errorf("entries = %d, want the prompt and one row", n)
+	}
+}

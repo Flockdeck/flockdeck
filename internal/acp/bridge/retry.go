@@ -23,7 +23,7 @@ var retryWords = map[string]string{
 const maxRetryNumber = 999
 
 // retryRow is the one row a run of retries shows, and the state behind the
-// activity line. A loop of ten retries is one row that changes, not ten.
+// activity line. A long loop of retries is one row that changes, not one row per retry.
 type retryRow struct {
 	it           *item
 	attempt, max int
@@ -78,6 +78,15 @@ func (b *Bridge) endRetry() {
 	r.it.e.Text = fmt.Sprintf("Claude retried %s (%s)", n, retryWord(r.class))
 	r.it.dirty, r.it.urgent = true, true
 	b.reinline(r.it)
+}
+
+// SettleRetry ends a retry that is still showing, for a conversation that will
+// not see another update or turn end (the agent was closed or restarted). The
+// row becomes the past note.
+func (b *Bridge) SettleRetry() {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.endRetry()
 }
 
 // retryActivity is the activity line while a retry is going on, or "".
