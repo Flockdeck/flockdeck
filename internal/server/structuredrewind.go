@@ -30,7 +30,7 @@ import (
 // with the new pane's id. The original is not changed. Neither passes on
 // anything the agent said about a failure.
 //
-// Files (API 1.34, cap structuredRewindFiles). When the pane's folder is in a git
+// Files (API 1.35, cap structuredRewindFiles). When the pane's folder is in a git
 // repository, Flockdeck saves the files before each prompt the person types
 // (internal/filerewind), and the push lists the prompts that have them in
 // rewindFiles. structuredRewindFiles answers with what going back to before a

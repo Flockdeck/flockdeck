@@ -239,7 +239,7 @@ type structuredMsg struct {
 	// structuredrewind.go). It is present whenever the agent can go back.
 	RewindToken string `json:"rewindToken,omitempty"`
 	// RewindFiles are the ids among RewindPoints whose files can be put back
-	// (API 1.34). RewindFilesWhy says why the latest prompt's files were not
+	// (API 1.35). RewindFilesWhy says why the latest prompt's files were not
 	// saved, when they were not; it is empty otherwise.
 	RewindFiles    []string `json:"rewindFiles,omitempty"`
 	RewindFilesWhy string   `json:"rewindFilesWhy,omitempty"`

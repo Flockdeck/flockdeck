@@ -603,7 +603,7 @@ type command struct {
 	// RewindToken is the token of the push the structuredRewind or structuredFork
 	// was chosen from (structuredrewind.go).
 	RewindToken string `json:"rewindToken"`
-	// RestoreFiles and FilePaths go with structuredRewind (API 1.34): the person
+	// RestoreFiles and FilePaths go with structuredRewind (API 1.35): the person
 	// confirmed this list of files from structuredRewindFiles, and wants them put
 	// back with the conversation.
 	RestoreFiles bool     `json:"restoreFiles"`
