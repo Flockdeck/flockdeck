@@ -79,8 +79,8 @@ test("typing / lists the agent's commands, keys move and choose, and the choice 
     assert.equal(m.container.find(".slash-menu"), null);
     box().enter("/re");
     await settle();
-    assert.deepEqual(m.container.findAll(".slash-item").map((e) => e.getAttribute("data-slash")), ["review", "security-review"]);
-    assert.equal(m.container.findAll(".slash-group").map((e) => e.textContent).join("|"), "From the agent");
+    assert.deepEqual(m.container.findAll(".slash-item").map((e) => e.getAttribute("data-slash")), ["resume", "review", "security-review"]);
+    assert.equal(m.container.findAll(".slash-group").map((e) => e.textContent).join("|"), "Flockdeck|From the agent");
     box().keydown("ArrowDown");
     await settle();
     assert.equal(m.container.findAll(".slash-item").filter((e) => e.getAttribute("aria-selected") === "true")[0].getAttribute("data-slash"), "security-review");
@@ -138,7 +138,7 @@ test("a hostile name is not offered, and an agent with no commands gets no agent
   try {
     m.container.find(".structured-input").enter("/");
     await settle();
-    assert.deepEqual(m.container.findAll(".slash-item").map((e) => e.getAttribute("data-slash")), ["stop", "info"]);
+    assert.deepEqual(m.container.findAll(".slash-item").map((e) => e.getAttribute("data-slash")), ["stop", "info", "resume", "new"]);
     assert.equal(m.container.findAll(".slash-group").map((e) => e.textContent).join("|"), "Flockdeck");
   } finally {
     await m.done();

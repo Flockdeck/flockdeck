@@ -507,6 +507,8 @@ func (s *Server) structuredCommand(c *controlClient, cmd command) {
 		s.do(func() { s.structuredShell(c, cmd) })
 	case "structuredRewind", "structuredFork", "structuredRewindFiles":
 		s.do(func() { s.structuredRewind(c, cmd) })
+	case "structuredSessions", "structuredResume", "structuredNewConversation":
+		s.do(func() { s.structuredConversation(c, cmd) })
 	case "structuredWatch":
 		s.do(func() { s.structuredWatch(c, cmd) })
 	case "structuredUnwatch":

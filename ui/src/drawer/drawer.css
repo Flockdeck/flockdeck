@@ -719,6 +719,12 @@
 .rewind-point { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; justify-content: space-between; }
 .rewind-text { flex: 1 1 12em; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .rewind-actions, .rewind-confirm { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.conv-picker { display: flex; flex-direction: column; gap: 6px; padding: 8px; border: 1px solid var(--panel-line); border-radius: 6px; font-size: var(--fs-md); }
+.conv-picker-actions { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.conv-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 4px; max-height: 40vh; overflow-y: auto; }
+.conv-item { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; justify-content: space-between; }
+.conv-title { flex: 1 1 12em; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.conv-time, .conv-here { color: var(--fg-dim); white-space: nowrap; }
 
 /* A structured pane that is not running offers the terminal version of its agent. */
 .way-back { display: flex; flex-direction: column; align-items: flex-start; gap: 8px; padding: 12px 16px; background: var(--bg-inset); color: var(--fg-dim); font-size: var(--fs-lg); overflow-wrap: anywhere; }

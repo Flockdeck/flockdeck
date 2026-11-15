@@ -99,6 +99,7 @@ export function setMessage(pane, control, value, req) {
 /** ownCommandsFor adds /mode and /model to Flockdeck's commands for the ones the agent offers. */
 export function ownCommandsFor(own, controls, rewind = false) {
   const out = [...own];
+  out.push({ name: "resume", id: "resume", description: "Resume an earlier conversation from this folder" }, { name: "new", id: "new", description: "Start a new conversation in this pane" });
   if (rewind) out.push({ name: "rewind", id: "rewind", description: "Go back to an earlier prompt" }, { name: "fork", id: "fork", description: "Start a new pane from an earlier point" });
   if (controlFor(controls, "mode")) out.push({ name: "mode", id: "mode", description: "Choose the agent's mode" });
   if (controlFor(controls, "model")) out.push({ name: "model", id: "model", description: "Choose the agent's model" });

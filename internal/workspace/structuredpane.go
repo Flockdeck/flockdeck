@@ -536,6 +536,27 @@ const maxForks = 4
 // ErrTooManyForks: the pane already has maxForks forks open.
 var ErrTooManyForks = errors.New("that pane already has too many forks open")
 
+// restartKind says why a structured pane is restarted, which decides the notice
+// it shows and whether the earlier entries stay.
+type restartKind int
+
+const (
+	// restartPlain is the person's restart, and a rewind that got no answer when
+	// resume is set.
+	restartPlain restartKind = iota
+	// restartNewConversation is New conversation: a clean session, the earlier
+	// entries kept above a line saying so.
+	restartNewConversation
+	// restartPicked is resuming a conversation chosen from the list.
+	restartPicked
+)
+
+// The lines a pane shows where its conversation changed. They are fixed.
+const (
+	NewConversationText     = "New conversation. The agent does not remember the one above."
+	ResumedConversationText = "Resumed an earlier conversation from this folder."
+)
+
 // restartStructured ends the pane's agent and starts a fresh session. The
 // entries of the old session stay as history, with a line saying where it was
 // restarted. A restart is the person asking for a new session, so the agent's
@@ -548,7 +569,7 @@ var ErrTooManyForks = errors.New("that pane already has too many forks open")
 // closeWait (15 seconds), on the goroutine that called and not under the
 // workspace lock. Between the close and the new runtime p.rt is nil, so the
 // pane reads as exited for that moment.
-func (w *Workspace) restartStructured(p *Pane, old *structuredRuntime, resume string) {
+func (w *Workspace) restartStructured(p *Pane, old *structuredRuntime, resume string, kind restartKind) {
 	// The old session's entries are numbered e1, e2... like the next session's,
 	// so they take the generation as a prefix on becoming history.
 	cur := old.rt.Snapshot().Entries
@@ -563,7 +584,15 @@ func (w *Workspace) restartStructured(p *Pane, old *structuredRuntime, resume st
 	p.generation++
 	_ = old.Close()
 	text := "The agent was restarted. This is a new session."
-	if resume != "" {
+	switch {
+	case kind == restartNewConversation:
+		text = NewConversationText
+	case kind == restartPicked:
+		// The agent replays the conversation it reopens, so what the pane showed
+		// before is not kept.
+		history = nil
+		text = ResumedConversationText
+	case resume != "":
 		history = nil
 		text = "Going back did not finish, so the agent was restarted with the conversation as it was before."
 	}

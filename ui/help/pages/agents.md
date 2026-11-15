@@ -181,6 +181,13 @@ prompt, and a prompt that follows a stopped turn, have no point before them. A f
 as the original, so two agents can edit the same files, and its window starts empty. Both are on the machine
 Flockdeck runs on.
 
+Past conversations: type `/resume`, or choose Conversations in the strip's More menu, to list the conversations this
+folder has had, newest first (up to 30, each with its first prompt and when it last changed). Resume opens one in
+the same pane and shows its earlier messages. Only the claude agent lists them for now; for others the panel says so.
+`/new`, or New conversation in the same panel, starts a clean conversation in the pane for any agent: the old
+messages stay above a line, and the agent does not remember them. Both end a running turn and drop the prompts waiting
+behind it, so Flockdeck asks first when there are any. They are on the machine Flockdeck runs on.
+
 Export, in the More menu, saves the conversation as a Markdown file. Type the full
 path of a folder that exists; Flockdeck makes a new file there named `flockdeck-` and the pane's
 name and the time, never replacing one, and says where. The file holds your prompts, the

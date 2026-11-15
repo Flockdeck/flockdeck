@@ -154,7 +154,7 @@
         "embeddedContext": { "type": "boolean", "description": "A prompt may embed a file's content as a resource." },
         "mcpHttp": { "type": "boolean", "description": "It takes MCP servers over HTTP." },
         "mcpSse": { "type": "boolean", "description": "It takes MCP servers over SSE." },
-        "listSessions": { "type": "boolean", "description": "It lists its stored sessions." },
+        "listSessions": { "type": "boolean", "description": "It lists its stored sessions (session/list). With loadSession or resumeSession, a window offers a picker for the folder's past conversations, through structuredSessions and structuredResume (API 1.36). Flockdeck's Claude adapter has it; its Codex adapter does not." },
         "resumeSession": { "type": "boolean", "description": "It can resume a session without replaying it." },
         "forkSession": { "type": "boolean", "description": "It can fork a session." },
         "rewind": { "type": "boolean", "description": "It is one of Flockdeck's own adapters and can go back to an earlier prompt and fork at one (structuredRewind, structuredFork). Since API 1.25." },

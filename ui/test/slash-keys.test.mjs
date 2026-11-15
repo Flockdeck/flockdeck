@@ -86,7 +86,7 @@ test("an agent command named like one of Flockdeck's is not listed", async () =>
   try {
     m.container.find(".structured-input").enter("/");
     await settle();
-    assert.deepEqual(items(m).map((e) => e.getAttribute("data-slash")), ["stop", "info", "other"]);
+    assert.deepEqual(items(m).map((e) => e.getAttribute("data-slash")), ["stop", "info", "resume", "new", "other"]);
     assert.equal(items(m)[0].textContent.includes("agent stop"), false);
   } finally {
     await m.done();
@@ -107,6 +107,12 @@ test("the choice follows its command when the list changes, and the arrows wrap"
     assert.deepEqual(on(m), ["review"], "the choice moved to another command");
     await m.redraw(cmds.filter((c) => c.name !== "review"));
     assert.deepEqual(on(m), ["new-first"].filter(() => false).concat(["compact"]), "with its row gone the default applies");
+    box().keydown("ArrowUp");
+    await settle();
+    assert.deepEqual(on(m), ["new"]);
+    box().keydown("ArrowUp");
+    await settle();
+    assert.deepEqual(on(m), ["resume"]);
     box().keydown("ArrowUp");
     await settle();
     assert.deepEqual(on(m), ["info"]);
@@ -161,8 +167,8 @@ test("the menu has a count for screen readers, groups that are not options, and 
     await settle();
     assert.equal(box.getAttribute("aria-autocomplete"), "list");
     assert.equal(box.getAttribute("role"), "combobox");
-    assert.equal(m.container.find(".sr-only").textContent, "2 commands");
-    assert.deepEqual(m.container.find(".slash-menu").findAll("div").filter((e) => e.getAttribute("role") === "group").map((e) => e.getAttribute("aria-label")), ["From the agent"]);
+    assert.equal(m.container.find(".sr-only").textContent, "3 commands");
+    assert.deepEqual(m.container.find(".slash-menu").findAll("div").filter((e) => e.getAttribute("role") === "group").map((e) => e.getAttribute("aria-label")), ["Flockdeck", "From the agent"]);
     assert.equal(m.container.findAll("li").length, 0);
   } finally {
     await m.done();

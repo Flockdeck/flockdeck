@@ -287,6 +287,8 @@ type teamResultMsg struct {
 	NestedRepos []string            `json:"nestedRepos,omitempty"`
 	Blocked     []rewindBlockedView `json:"blocked,omitempty"`
 	Restore     *rewindRestoreView  `json:"restore,omitempty"`
+	// Sessions answers structuredSessions: the folder's past conversations, newest first.
+	Sessions []sessionView `json:"sessions,omitempty"`
 	// Pane and Message name the message a mark-seen changed.
 	Pane    string `json:"pane,omitempty"`
 	Message int    `json:"message,omitempty"`

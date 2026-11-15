@@ -1,7 +1,7 @@
 {
   "api": {
     "major": 1,
-    "minor": 35
+    "minor": 36
   },
   "frames": [
     {
@@ -1163,6 +1163,12 @@
       "status": "stable"
     },
     {
+      "name": "structuredNewConversation",
+      "access": "full",
+      "since": "1.36",
+      "status": "stable"
+    },
+    {
       "name": "structuredQueueClear",
       "access": "full",
       "since": "1.19",
@@ -1187,6 +1193,12 @@
       "status": "stable"
     },
     {
+      "name": "structuredResume",
+      "access": "full",
+      "since": "1.36",
+      "status": "stable"
+    },
+    {
       "name": "structuredRewind",
       "access": "full",
       "since": "1.25",
@@ -1208,6 +1220,12 @@
       "name": "structuredRules",
       "access": "full",
       "since": "1.29",
+      "status": "stable"
+    },
+    {
+      "name": "structuredSessions",
+      "access": "full",
+      "since": "1.36",
       "status": "stable"
     },
     {

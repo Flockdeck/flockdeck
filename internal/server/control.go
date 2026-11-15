@@ -603,6 +603,8 @@ type command struct {
 	// RewindToken is the token of the push the structuredRewind or structuredFork
 	// was chosen from (structuredrewind.go).
 	RewindToken string `json:"rewindToken"`
+	// SessionID names the conversation structuredResume moves the pane to (API 1.36).
+	SessionID string `json:"sessionId"`
 	// RestoreFiles and FilePaths go with structuredRewind (API 1.35): the person
 	// confirmed this list of files from structuredRewindFiles, and wants them put
 	// back with the conversation.
@@ -1752,7 +1754,7 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 	case "changesWatch", "changesUnwatch", "changesSnapshot", "filesPage", "diffHunks", "diffContext", "commentAdd", "commentResolve", "commentReopen", "runChecks", "confirmChecks", "requestReview", "submitReview", "approveMerge", "unapproveMerge", "mergeBranch":
 		s.changesCommand(c, cmd)
 		return
-	case "structuredSnapshot", "structuredWatch", "structuredUnwatch", "structuredCancel", "structuredSet", "structuredFiles", "structuredQueueEdit", "structuredQueueRemove", "structuredQueueClear", "structuredQueueSendNow", "structuredExport", "structuredInfo", "structuredRules", "structuredRuleRevoke", "structuredSignIn", "structuredSignInCancel", "structuredShellRun", "structuredShellStop", "structuredShellRemove", "structuredShellSend", "structuredRewind", "structuredFork", "structuredRewindFiles":
+	case "structuredSnapshot", "structuredWatch", "structuredUnwatch", "structuredCancel", "structuredSet", "structuredFiles", "structuredQueueEdit", "structuredQueueRemove", "structuredQueueClear", "structuredQueueSendNow", "structuredExport", "structuredInfo", "structuredRules", "structuredRuleRevoke", "structuredSignIn", "structuredSignInCancel", "structuredShellRun", "structuredShellStop", "structuredShellRemove", "structuredShellSend", "structuredRewind", "structuredFork", "structuredRewindFiles", "structuredSessions", "structuredResume", "structuredNewConversation":
 		s.structuredCommand(c, cmd)
 		return
 	case "worktrees":
