@@ -24,7 +24,7 @@
 * [Remote windows neither keep the app alive nor end it](remote-windows-do-not-keep-app-alive.md) - Only windows on this machine count towards the last window going; relay windows are excluded.
 * [Routing rule order and non-matches](routing-rule-order.md) - First match wins, so rule order matters, and some rules deliberately do not match to let later rules run.
 * [A spawn timeout does not mean the spawn failed](spawn-timeout-is-not-failure.md) - The spawn client words timeouts and dropped connections so agents do not start a second helper.
-* [Legacy state directory and layout file names](state-dir-renamed-from-perch.md) - Earlier builds used a different directory name and unnormalized layout hashes; the store adopts both on load.
+* [Legacy state directory and layout file names](state-dir-renamed-from-perch.md) - Earlier builds used a different directory name and unnormalized layout hashes; the store no longer reads either.
 * [Task board corrupt-file and version handling](task-board-file-recovery.md) - A damaged tasks.json is set aside and the board restarts empty, while a newer-format file blocks writes.
 * [Unreadable or damaged state files are moved aside, not overwritten](unreadable-state-files-are-set-aside.md) - Layouts, projects, session, groups and prefs that fail to read or parse are renamed with a suffix so a fresh save cannot destroy them.
 * [Windows needs a console-linked twin binary](windows-chat-console-twin.md) - The Windows release ships a console build beside the GUI one for the commands Claude Code runs and the update step.

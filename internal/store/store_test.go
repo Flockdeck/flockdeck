@@ -1176,121 +1176,6 @@ func writeLayoutAt(t *testing.T, path string, s *State) {
 	}
 }
 
-// TestLoadAdoptsALayoutSavedUnderTheOldName covers the upgrade that started
-// normalizing roots before hashing them. That changed the file name every
-// layout was stored under, so without this the first run of the new build
-// opens an empty workspace and the real one is never looked at again.
-func TestLoadAdoptsALayoutSavedUnderTheOldName(t *testing.T) {
-	isolateConfig(t)
-	skipUnlessRootsFold(t)
-
-	root := filepath.Join(t.TempDir(), "Repo", "App")
-	old, err := legacyPath(root)
-	if err != nil {
-		t.Fatalf("legacy path: %v", err)
-	}
-	if old == "" {
-		t.Fatal("root is already in normal form, so it cannot exercise the old name")
-	}
-	current, err := path(root)
-	if err != nil {
-		t.Fatalf("path: %v", err)
-	}
-	if old == current {
-		t.Fatal("old and new names match, so there is no upgrade to test")
-	}
-	writeLayoutAt(t, old, &State{
-		Version: Version,
-		Root:    filepath.Clean(root),
-		Tabs:    []Tab{{Title: "last night"}},
-	})
-
-	got, err := Load(root)
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
-	if got == nil {
-		t.Fatal("upgrading lost the saved layout")
-	}
-	if len(got.Tabs) != 1 || got.Tabs[0].Title != "last night" {
-		t.Errorf("restored %+v, want the single tab that was saved", got.Tabs)
-	}
-
-	// The layout is moved rather than copied, so the next save writes to one
-	// file and a later run does not have two to choose between.
-	if _, err := os.Stat(current); err != nil {
-		t.Errorf("layout was not moved to the name in use now: %v", err)
-	}
-	if _, err := os.Stat(old); !errors.Is(err, fs.ErrNotExist) {
-		t.Errorf("layout under the old name = %v, want it moved away", err)
-	}
-}
-
-// TestLoadPrefersTheNameInUseNow checks the migration cannot undo later work:
-// once the new build has saved, that is the layout, and a stale file left
-// under the old name must not come back.
-func TestLoadPrefersTheNameInUseNow(t *testing.T) {
-	isolateConfig(t)
-	skipUnlessRootsFold(t)
-
-	root := filepath.Join(t.TempDir(), "Repo", "App")
-	old, err := legacyPath(root)
-	if err != nil {
-		t.Fatalf("legacy path: %v", err)
-	}
-	writeLayoutAt(t, old, &State{
-		Version: Version,
-		Root:    filepath.Clean(root),
-		Tabs:    []Tab{{Title: "stale"}},
-	})
-	if err := Save(root, &State{Tabs: []Tab{{Title: "current"}}}); err != nil {
-		t.Fatalf("save: %v", err)
-	}
-
-	got, err := Load(root)
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
-	if got == nil || len(got.Tabs) != 1 || got.Tabs[0].Title != "current" {
-		t.Fatalf("restored %+v, want the layout saved under the name in use now", got)
-	}
-	if _, err := os.Stat(old); err != nil {
-		t.Errorf("file under the old name = %v, want it left untouched", err)
-	}
-}
-
-// TestLoadLeavesAnotherProjectsLegacyLayoutAlone checks the root recorded in a
-// layout is still what decides whether it is this project's, on the migration
-// path too. A file reached only through a hash collision must be neither
-// restored nor renamed over this project's name, which would lose it for the
-// project it really belongs to.
-func TestLoadLeavesAnotherProjectsLegacyLayoutAlone(t *testing.T) {
-	isolateConfig(t)
-	skipUnlessRootsFold(t)
-
-	root := filepath.Join(t.TempDir(), "Repo", "App")
-	old, err := legacyPath(root)
-	if err != nil {
-		t.Fatalf("legacy path: %v", err)
-	}
-	writeLayoutAt(t, old, &State{
-		Version: Version,
-		Root:    filepath.Clean(filepath.Join(t.TempDir(), "Other", "Project")),
-		Tabs:    []Tab{{Title: "someone else's"}},
-	})
-
-	got, err := Load(root)
-	if err != nil {
-		t.Fatalf("load: %v", err)
-	}
-	if got != nil {
-		t.Errorf("restored %+v, want nothing for a layout belonging to another root", got)
-	}
-	if _, err := os.Stat(old); err != nil {
-		t.Errorf("other project's layout = %v, want it left where it was", err)
-	}
-}
-
 // TestDamagedLayoutIsKeptRatherThanOverwritten checks a layout that will not
 // parse survives the run that could not read it. Starting empty is fine;
 // starting empty and then saving over the only copy of the user's tabs is how
@@ -1322,39 +1207,6 @@ func TestDamagedLayoutIsKeptRatherThanOverwritten(t *testing.T) {
 	}
 	if string(kept) != string(broken) {
 		t.Errorf("kept copy is %q, want the file exactly as it was: %q", kept, broken)
-	}
-}
-
-// TestDamagedLegacyLayoutIsKeptUnderItsOwnName checks the copy is made of the
-// file that was actually read. A layout still under the pre-normalization name
-// is read from there, so quarantining the name in use now would move nothing
-// and leave the damaged file to be found and rejected again every run.
-func TestDamagedLegacyLayoutIsKeptUnderItsOwnName(t *testing.T) {
-	if runtime.GOOS != "windows" && runtime.GOOS != "darwin" {
-		t.Skip("roots are only respelled on case-folding platforms")
-	}
-	isolateConfig(t)
-
-	root := filepath.Clean("/Repo/Legacy")
-	old, err := legacyPath(root)
-	if err != nil {
-		t.Fatalf("legacy path: %v", err)
-	}
-	if old == "" {
-		t.Fatal("this root should have a distinct pre-normalization name")
-	}
-	if err := os.WriteFile(old, []byte("{ truncated"), 0o600); err != nil {
-		t.Fatalf("write legacy layout: %v", err)
-	}
-
-	if got, err := Load(root); err != nil || got != nil {
-		t.Fatalf("Load = %v, %v; want nothing restored and no error", got, err)
-	}
-	if _, err := os.Stat(old); !errors.Is(err, fs.ErrNotExist) {
-		t.Errorf("the damaged legacy layout is still in place; it will be rejected again every run")
-	}
-	if _, err := os.Stat(old + damagedSuffix); err != nil {
-		t.Errorf("the damaged legacy layout was not kept: %v", err)
 	}
 }
 
@@ -1707,8 +1559,8 @@ func BenchmarkRunSavesChangedLayout(b *testing.B) {
 // — is load-bearing in a way nothing else in the package is. Change any of
 // them and the application looks up a name nothing was ever written to, finds
 // nothing, and opens an empty workspace beside the layout it should have
-// restored. That has happened once already; legacyPath exists to carry that
-// change's victims across.
+// restored. That has happened once already, and a fallback to the old name
+// carried its victims across until it was removed.
 //
 // So these values are not an implementation detail to be updated when the test
 // goes red. A failure here means every saved layout in the world has just been
@@ -1772,28 +1624,6 @@ func TestLayoutFileNamesAreFixed(t *testing.T) {
 	}
 	if got, err := path(fsRoot); err != nil || got != filepath.Join(dir, fsWant) {
 		t.Errorf("path(%q) = %s, %v, want %s", fsRoot, got, err, filepath.Join(dir, fsWant))
-	}
-
-	// And the name the same root was saved under before it was folded, which
-	// is what Load falls back to. Where case is not folded there is no second
-	// name to fall back to and there never was.
-	old, err := legacyPath(root)
-	if err != nil {
-		t.Fatalf("legacy path: %v", err)
-	}
-	switch runtime.GOOS {
-	case "windows":
-		if old != filepath.Join(dir, "layout-baed5f9e244c96f0.json") {
-			t.Errorf("legacyPath(%q) = %s, want layout-baed5f9e244c96f0.json", root, old)
-		}
-	case "darwin":
-		if old != filepath.Join(dir, "layout-1fb07467504dc246.json") {
-			t.Errorf("legacyPath(%q) = %s, want layout-1fb07467504dc246.json", root, old)
-		}
-	default:
-		if old != "" {
-			t.Errorf("legacyPath(%q) = %s, want no fallback name on a platform that does not fold case", root, old)
-		}
 	}
 }
 
