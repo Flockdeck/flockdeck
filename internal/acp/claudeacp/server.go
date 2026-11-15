@@ -283,7 +283,7 @@ func (s *server) handle(m rpcMsg) {
 				"loadSession":         true,
 				"promptCapabilities":  map[string]any{"image": true, "audio": false, "embeddedContext": true},
 				"mcpCapabilities":     map[string]any{"http": true, "sse": true},
-				"sessionCapabilities": map[string]any{"resume": map[string]any{}, "fork": map[string]any{}},
+				"sessionCapabilities": map[string]any{"list": map[string]any{}, "resume": map[string]any{}, "fork": map[string]any{}},
 				"_meta":               map[string]any{extKey: map[string]any{"rewind": 1, "permRules": 1}},
 			},
 			"agentInfo":   map[string]any{"name": "flockdeck-claude", "title": "Claude Code", "version": s.opts.Version},
@@ -295,6 +295,9 @@ func (s *server) handle(m rpcMsg) {
 	case "authenticate":
 		s.wg.Add(1)
 		go func() { defer s.wg.Done(); s.authenticate(m) }()
+	case "session/list":
+		s.wg.Add(1)
+		go func() { defer s.wg.Done(); s.listSessionsCall(m) }()
 	case "_flockdeck/permrules":
 		s.permRules(m)
 	case "_flockdeck/permrule_revoke":

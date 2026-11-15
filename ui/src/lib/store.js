@@ -95,6 +95,8 @@
 //                    warning }, id being the pane it was sent for, or null; the export panel matches it by req
 //   rewindResult     the latest answer to structuredRewind or structuredFork as { id, req, op, ok, error, text,
 //                    pane }, id being the pane it was sent for, or null; the rewind panel matches it by req
+//   conversationResult the latest answer to structuredSessions, structuredResume or structuredNewConversation as
+//                    { id, req, op, ok, error, sessions }, id being the pane it was sent for, or null; the picker matches it by req
 //   shellResult      the latest answer to a structuredShell* command as { id, req, ok, error }, id
 //                    being the pane it was sent for, or null; the "!" list matches it by req
 //   files            the latest structuredFiles reply { id, req, q, files, more, error }, or the
@@ -298,7 +300,7 @@ const initial = () => ({
   hello: null, remote: false, state: null,
   graph: null, graphGone: null, graphRefused: false, graphError: null,
   notice: null, versions: null, helpers: null, helperPlan: null, recents: null, browse: null, batonDraft: null, batonSaved: null, batonError: null,
-  approvals: [], detached: false, sent: null, started: null, structured: null, structuredError: null, cancelError: null, settingError: null, queueResult: null, shellResult: null, exportResult: null, infoResult: null, signInResult: null, rewindResult: null, rulesResult: null, files: null, attached: null, answer: null, asking: null, conversation: null, details: nullMap(), search: null, taskDetail: null, changes: null, diff: null, gitWarn: null, changesBusy: "", changesNote: null, history: null, paneInfo: null, paneMatches: null, keys: null, jevKey: null, radar: null, worktrees: null, agentsList: null, team: null, teamGone: null, teamTasks: null, teamMessages: null, teamResult: null, teamRefused: false, changesTeam: null, changesTeamGone: null, changesTeamRefused: false, changesTeamResult: null, changesTeamResults: [], changesChecks: null, changesDiffs: {}, branchGit: null, session: 0, remoteDevices: null, remotePair: null, approveChallenge: null, remoteOutcome: null, dropped: 0,
+  approvals: [], detached: false, sent: null, started: null, structured: null, structuredError: null, cancelError: null, settingError: null, queueResult: null, shellResult: null, exportResult: null, infoResult: null, signInResult: null, rewindResult: null, conversationResult: null, rulesResult: null, files: null, attached: null, answer: null, asking: null, conversation: null, details: nullMap(), search: null, taskDetail: null, changes: null, diff: null, gitWarn: null, changesBusy: "", changesNote: null, history: null, paneInfo: null, paneMatches: null, keys: null, jevKey: null, radar: null, worktrees: null, agentsList: null, team: null, teamGone: null, teamTasks: null, teamMessages: null, teamResult: null, teamRefused: false, changesTeam: null, changesTeamGone: null, changesTeamRefused: false, changesTeamResult: null, changesTeamResults: [], changesChecks: null, changesDiffs: {}, branchGit: null, session: 0, remoteDevices: null, remotePair: null, approveChallenge: null, remoteOutcome: null, dropped: 0,
 });
 
 /** upsert returns entries with each of the new ones in place of the one with its
@@ -375,6 +377,7 @@ export function createStore(opts) {
   // The same for structuredExport.
   const exportPanes = new Map();
   const rewindPanes = new Map();
+  const conversationPanes = new Map();
   // The same for structuredRules and structuredRuleRevoke.
   const rulesPanes = new Map();
   // The same for the structuredShell commands.
@@ -712,6 +715,11 @@ export function createStore(opts) {
           rewindPanes.delete(msg.req);
           set({ rewindResult: { id, req: String(msg.req || ""), op: msg.op, ok: !!msg.ok, error: msg.ok ? "" : String(msg.error || ""), text: msg.ok && typeof msg.text === "string" ? msg.text : "", cut: msg.ok && msg.cut === true, pane: msg.ok && typeof msg.pane === "string" ? msg.pane : "", files: Array.isArray(msg.files) ? msg.files.slice(0, 300) : [], blocked: Array.isArray(msg.blocked) ? msg.blocked.slice(0, 300) : [], nestedRepos: Array.isArray(msg.nestedRepos) ? msg.nestedRepos.slice(0, 50) : [], restore: msg.ok && msg.restore && typeof msg.restore === "object" ? msg.restore : null } });
         }
+        if (msg.op === "structuredSessions" || msg.op === "structuredResume" || msg.op === "structuredNewConversation") {
+          const id = conversationPanes.get(msg.req) || "";
+          conversationPanes.delete(msg.req);
+          set({ conversationResult: { id, req: String(msg.req || ""), op: msg.op, ok: !!msg.ok, error: msg.ok ? "" : String(msg.error || ""), sessions: msg.ok && Array.isArray(msg.sessions) ? msg.sessions.slice(0, 30) : [] } });
+        }
         if (typeof msg.op === "string" && msg.op.startsWith("structuredShell")) {
           const id = shellPanes.get(msg.req) || "";
           shellPanes.delete(msg.req);
@@ -1006,6 +1014,10 @@ export function createStore(opts) {
       if (sent && (cmd.cmd === "structuredRewind" || cmd.cmd === "structuredFork" || cmd.cmd === "structuredRewindFiles") && cmd.req) {
         if (rewindPanes.size >= 20) rewindPanes.delete(rewindPanes.keys().next().value);
         rewindPanes.set(cmd.req, String(cmd.id || ""));
+      }
+      if (sent && (cmd.cmd === "structuredSessions" || cmd.cmd === "structuredResume" || cmd.cmd === "structuredNewConversation") && cmd.req) {
+        if (conversationPanes.size >= 20) conversationPanes.delete(conversationPanes.keys().next().value);
+        conversationPanes.set(cmd.req, String(cmd.id || ""));
       }
       if (sent && typeof cmd.cmd === "string" && cmd.cmd.startsWith("structuredShell") && cmd.req) {
         if (shellPanes.size >= 20) shellPanes.delete(shellPanes.keys().next().value);

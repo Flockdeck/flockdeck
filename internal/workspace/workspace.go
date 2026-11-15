@@ -248,6 +248,9 @@ type Pane struct {
 	// history is what a restarted structured pane shows from the sessions before
 	// this one; it is handed to the new runtime when the pane starts.
 	history []transcript.Entry
+	// pickNote is the line a resumed conversation shows in place of history when the
+	// resume went through (see structuredRuntime.shownPrior). Taken by the next start.
+	pickNote *transcript.Entry
 	// generation counts the restarts of a structured pane. The entries of a
 	// session are numbered from e1, so each session's are renamed with this when
 	// the session becomes history, and an id is never shown twice.
@@ -2981,12 +2984,41 @@ func (w *Workspace) RestartStructuredPaneResuming(id, resume string) bool {
 }
 
 func (w *Workspace) restartPane(id, resume string) bool {
+	return w.restartPaneAs(id, resume, restartPlain)
+}
+
+// ResumeStructuredConversation restarts the structured pane id on the agent's
+// session session, chosen from the pane folder's list (structured.Runtime.PickSession
+// checks it). The pane keeps its id, its place and its folder. It reports false
+// for a pane that is not there or is not structured.
+func (w *Workspace) ResumeStructuredConversation(id, session string) bool {
+	if p := w.Pane(id); p == nil || session == "" {
+		return false
+	} else if _, ok := p.setRuntime().(*structuredRuntime); !ok {
+		return false
+	}
+	return w.restartPaneAs(id, session, restartPicked)
+}
+
+// NewStructuredConversation restarts the structured pane id on a clean session.
+// The earlier entries stay above a line that says so. It reports false for a pane
+// that is not there or is not structured.
+func (w *Workspace) NewStructuredConversation(id string) bool {
+	if p := w.Pane(id); p == nil {
+		return false
+	} else if _, ok := p.setRuntime().(*structuredRuntime); !ok {
+		return false
+	}
+	return w.restartPaneAs(id, "", restartNewConversation)
+}
+
+func (w *Workspace) restartPaneAs(id, resume string, kind restartKind) bool {
 	p := w.Pane(id)
 	if p == nil {
 		return false
 	}
 	if sr, ok := p.setRuntime().(*structuredRuntime); ok {
-		w.restartStructured(p, sr, resume)
+		w.restartStructured(p, sr, resume, kind)
 		w.wake()
 		return true
 	}

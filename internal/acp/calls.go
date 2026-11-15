@@ -541,3 +541,62 @@ func waitFor(ch <-chan struct{}, d time.Duration) {
 func (c *Client) AuthenticateWait(ctx context.Context, methodID string) error {
 	return c.call(ctx, "authenticate", map[string]any{"methodId": methodID}, nil)
 }
+
+// SessionInfo is one session an agent lists in session/list. Everything in it is
+// the agent's word and is not cleaned here.
+type SessionInfo struct {
+	ID    string
+	Cwd   string
+	Title string
+	// UpdatedAt is the agent's own timestamp text (RFC 3339 in the protocol),
+	// empty when it gave none.
+	UpdatedAt string
+}
+
+// listPageMax bounds the pages of session/list that are followed, so an agent
+// that always names a next page cannot hold the call.
+const listPageMax = 4
+
+// ListSessions asks the agent for the sessions it has for cwd, newest first as
+// the agent gives them. It follows the agent's cursor for a few pages. It
+// returns ErrUnsupported when the agent did not list session/list among its
+// session capabilities. It gives up after Config.SetupTimeout for each page.
+func (c *Client) ListSessions(ctx context.Context, cwd string) ([]SessionInfo, error) {
+	if !c.Capabilities().List {
+		return nil, ErrUnsupported
+	}
+	if !filepath.IsAbs(cwd) {
+		return nil, fmt.Errorf("acp: the session cwd %q is not absolute", cwd)
+	}
+	var out []SessionInfo
+	cursor := ""
+	for page := 0; page < listPageMax; page++ {
+		params := map[string]any{"cwd": cwd}
+		if cursor != "" {
+			params["cursor"] = cursor
+		}
+		pctx, cancel := c.setup(ctx)
+		var raw struct {
+			Sessions []struct {
+				SessionID string `json:"sessionId"`
+				Cwd       string `json:"cwd"`
+				Title     string `json:"title"`
+				UpdatedAt string `json:"updatedAt"`
+			} `json:"sessions"`
+			NextCursor string `json:"nextCursor"`
+		}
+		err := c.call(pctx, "session/list", params, &raw)
+		cancel()
+		if err != nil {
+			return out, err
+		}
+		for _, s := range raw.Sessions {
+			out = append(out, SessionInfo{ID: s.SessionID, Cwd: s.Cwd, Title: s.Title, UpdatedAt: s.UpdatedAt})
+		}
+		if raw.NextCursor == "" || raw.NextCursor == cursor {
+			break
+		}
+		cursor = raw.NextCursor
+	}
+	return out, nil
+}

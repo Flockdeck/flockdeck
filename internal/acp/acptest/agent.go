@@ -341,6 +341,9 @@ func (a *agent) handle(m msg) {
 			sc = cloneMap(sc)
 			delete(sc, "list")
 			delete(sc, "fork")
+			if a.hasSessionOpt("list") {
+				sc["list"] = map[string]any{}
+			}
 			if a.hasSessionOpt("resume") {
 				sc["resume"] = map[string]any{}
 			}
@@ -434,6 +437,8 @@ func (a *agent) handle(m msg) {
 		a.result(m.ID, res)
 	case m.Method == "session/load" || m.Method == "session/resume":
 		a.reopen(m)
+	case m.Method == "session/list" && a.hasSessionOpt("list"):
+		a.list(m)
 	case a.hasSessionOpt("permrules") && (m.Method == "_flockdeck/permrules" || m.Method == "_flockdeck/permrule_revoke"):
 		a.permRulesCall(m)
 	case a.hasSessionOpt("rewind") && (m.Method == "session/fork" || m.Method == "_flockdeck/rewind" || m.Method == "_flockdeck/forkpoint"):
@@ -657,6 +662,30 @@ func (a *agent) hasSessionOpt(name string) bool {
 // knowsSession says the test told the agent it has the session id.
 func (a *agent) knowsSession(id string) bool {
 	return id != "" && a.hasSessionOpt("id="+id)
+}
+
+// list answers session/list. It names every id= session as one of the asked
+// cwd, newest id last, and also two the client must not trust: foreign-1, which
+// belongs to another folder, and hostile-1, whose title has control characters
+// and is long.
+func (a *agent) list(m msg) {
+	var p struct {
+		Cwd string `json:"cwd"`
+	}
+	_ = json.Unmarshal(m.Params, &p)
+	var out []map[string]any
+	n := 0
+	for _, o := range strings.Split(a.sessions, ",") {
+		if id, ok := strings.CutPrefix(o, "id="); ok {
+			n++
+			out = append(out, map[string]any{"sessionId": id, "cwd": p.Cwd, "title": "title of " + id,
+				"updatedAt": fmt.Sprintf("2026-01-%02dT10:00:00Z", n)})
+		}
+	}
+	out = append(out,
+		map[string]any{"sessionId": "foreign-1", "cwd": filepath.Join(filepath.Dir(p.Cwd), "elsewhere"), "title": "another folder", "updatedAt": "2026-02-01T10:00:00Z"},
+		map[string]any{"sessionId": "hostile-1", "cwd": p.Cwd, "title": "\x1b[31mred\x1b[0m first line\nsecond line " + strings.Repeat("x", 500), "updatedAt": "2026-01-01T09:00:00Z"})
+	a.result(m.ID, map[string]any{"sessions": out})
 }
 
 // reopen answers session/load and session/resume.

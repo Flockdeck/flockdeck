@@ -77,6 +77,8 @@ import { ExportPanel } from "./ExportPanel.js";
 import { InfoPanel } from "./InfoPanel.js";
 import { needsSignIn } from "./infoModel.js";
 import { RewindPanel } from "./RewindPanel.js";
+import { ConvPicker } from "./ConvPicker.js";
+import { sessionsOffered } from "./convPickerModel.js";
 import { queueOf, stopMessage } from "./queueModel.js";
 import { ShellList } from "./ShellList.js";
 import { TodoList } from "./TodoList.js";
@@ -142,7 +144,7 @@ export const BACKGROUND_WORDS = "The agent is working on a background task. A pr
  *  first one; error is the store's structuredError; desk is false in a window
  *  reached through the relay. snap is the store's snapshot, which carries the
  *  desk's answer to a send. */
-export function Structured({ pane, snap, st, error = null, cancelError = null, settingError = null, queueResult = null, shellResult = null, exportResult = null, infoResult = null, signInResult = null, rewindResult = null, rulesResult = null, desk = true, store, conv = null, onOlder = null, details = null, onDetail = null, pending = null, search = null, onSearch = null, onClearSearch = null }) {
+export function Structured({ pane, snap, st, error = null, cancelError = null, settingError = null, queueResult = null, shellResult = null, exportResult = null, infoResult = null, signInResult = null, rewindResult = null, rulesResult = null, conversationResult = null, desk = true, store, conv = null, onOlder = null, details = null, onDetail = null, pending = null, search = null, onSearch = null, onClearSearch = null }) {
   // The pane a Stop that was not sent was pressed for, so the words do not follow the drawer to another pane.
   const [stopFailed, setStopFailed] = useState("");
   // The pane whose Stop was sent while a turn ran; it clears when the push says the turn is over.
@@ -164,6 +166,8 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
   const [infoFor, setInfoFor] = useState("");
   // The pane whose rewind and fork panel is open.
   const [rewinding, setRewinding] = useState("");
+  // The pane whose conversation picker is open.
+  const [picking, setPicking] = useState("");
   // What the last change of a setting got that the desk did not say: { pane, text }.
   const [settingNote, setSettingNote] = useState(null);
   // The store's cancelError and settingError objects the person has moved past (the draft changed, they sent or
@@ -225,6 +229,7 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
   const onOwn = (id) => {
     if (id === "info") setInfoFor(pane);
     if (id === "rewind" || id === "fork") setRewinding(pane);
+    if (id === "resume" || id === "new") setPicking(pane);
     if (id === "mode" || id === "model") {
       const c = controlFor(controls, id);
       const el = c && settingsEl.current && settingsEl.current.querySelector ? settingsEl.current.querySelector('[data-setting="' + c.key + '"]') : null;
@@ -243,7 +248,7 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
     const win = el && el.ownerDocument ? el.ownerDocument.defaultView : null;
     const ctx = {
       desk, working: st.status === "working" || st.status === "waiting" || st.background === true, waiting: st.status === "waiting", draft: live.current.draft, stopping: stopping === pane || keyStop.current === pane,
-      menuOpen: live.current.menuOpen, dialogOpen: (!!confirming && confirming.pane === pane) || exporting === pane || rewinding === pane,
+      menuOpen: live.current.menuOpen, dialogOpen: (!!confirming && confirming.pane === pane) || exporting === pane || rewinding === pane || picking === pane,
       selected: selectedText(win, el),
     };
     if (!interruptKey(e, ctx)) {
@@ -276,7 +281,8 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
         </div>`
       : null}`;
   const stripItems = desk
-    ? [{ label: "Agent info", className: "structured-info-btn", expanded: infoFor === pane || needsSignIn(st), disabled: needsSignIn(st), title: needsSignIn(st) ? "Open until the agent is signed in" : undefined, onClick: () => setInfoFor(infoFor === pane ? "" : pane) }]
+    ? [{ label: "Agent info", className: "structured-info-btn", expanded: infoFor === pane || needsSignIn(st), disabled: needsSignIn(st), title: needsSignIn(st) ? "Open until the agent is signed in" : undefined, onClick: () => setInfoFor(infoFor === pane ? "" : pane) },
+        { label: "Conversations", className: "structured-conv-btn", expanded: picking === pane, title: sessionsOffered(st) ? "Resume an earlier conversation from this folder, or start a new one" : "Start a new conversation", onClick: () => setPicking(picking === pane ? "" : pane) }]
     : [];
   const tail = html`${confirming && confirming.pane === pane
       ? html`<div class="structured-note structured-confirm" role="alert" data-confirm=${confirming.key}>
@@ -294,6 +300,7 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
       <${TodoList} st=${st} pane=${pane} />
       ${desk && (infoFor === pane || needsSignIn(st)) ? html`<${InfoPanel} pane=${pane} st=${st} store=${store} result=${infoResult} signInResult=${signInResult} rulesResult=${rulesResult} onClose=${() => setInfoFor("")} />` : null}
       ${desk && rewinding === pane ? html`<${RewindPanel} pane=${pane} store=${store} st=${st} entries=${conv && conv.entries ? conv.entries : []} result=${rewindResult} onText=${(t) => composer.current.restore(t)} onClose=${() => setRewinding("")} />` : null}
+      ${desk && picking === pane ? html`<${ConvPicker} pane=${pane} store=${store} st=${st} result=${conversationResult} onMoved=${() => setPicking("")} onClose=${() => setPicking("")} />` : null}
       ${desk && exporting === pane ? html`<${ExportPanel} pane=${pane} store=${store} result=${exportResult} onClose=${() => setExporting("")} />` : null}
       <${Conversation} lead=${lead} items=${stripItems} conv=${conv} onOlder=${onOlder} details=${details} onDetail=${onDetail} pending=${pending}
         search=${search} onSearch=${onSearch} onClearSearch=${onClearSearch} canExport=${desk} onExport=${() => setExporting(pane)} className="structured-log"

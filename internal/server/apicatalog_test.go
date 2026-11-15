@@ -27,7 +27,7 @@ const apiCatalogPath = "../../api/catalog.json"
 // command or message raises the major; one that adds raises the minor.
 const (
 	apiMajor = 1
-	apiMinor = 35
+	apiMinor = 36
 )
 
 // addedIn names the minor version a command arrived in; any other is 1.0.
@@ -90,6 +90,11 @@ func init() {
 	// subagentText (1.34). No command is new either.
 	// Putting files back with a rewind came with structuredRewindFiles (1.35), and restoreFiles on structuredRewind.
 	addedIn["structuredRewindFiles"] = "1.35"
+	// Listing a pane folder's past conversations and moving the pane between them, and starting a clean
+	// conversation in the pane, came with structuredConversations (1.36).
+	for _, n := range []string{"structuredSessions", "structuredResume", "structuredNewConversation"} {
+		addedIn[n] = "1.36"
+	}
 	// The person's own shell commands came with structuredShell (1.21).
 	for _, n := range []string{"structuredShellRun", "structuredShellStop", "structuredShellRemove", "structuredShellSend"} {
 		addedIn[n] = "1.21"

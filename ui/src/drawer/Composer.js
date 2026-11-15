@@ -35,7 +35,7 @@ export const STOP_GUARD_MS = 500;
 /** Composer is the box. pane, snap, st and store are Structured's; controls are the agent's settings (for
  *  the "/" menu); applySetting(text) answers "none" when the text is not a settings request, "done" when it
  *  was made and "kept" when it was refused or waits for a yes; onOwn(id) runs Flockdeck's /info, /rewind,
- *  /fork, /mode and /model; stop(keep) sends Stop; stopping and stopFailed are Stop's state; settingText,
+ *  /fork, /resume, /new, /mode and /model; stop(keep) sends Stop; stopping and stopFailed are Stop's state; settingText,
  *  settingError and cancelError are the words about a setting and a Stop, for the status line, and onExpire() is
  *  called when they are stale: the draft changed, the person sent or stopped again, or the turn ended;
  *  shellResult is the store's answer to a "!" command; tail is the settings confirm, drawn above the status line. */
@@ -286,7 +286,7 @@ export function Composer({ pane, snap, st, store, controls, applySetting, onOwn,
     if (it.group === "own") {
       setDraft("");
       if (it.id === "stop") { expire(); stop(); }
-      if (it.id === "info" || it.id === "rewind" || it.id === "fork") onOwn(it.id);
+      if (it.id === "info" || it.id === "rewind" || it.id === "fork" || it.id === "resume" || it.id === "new") onOwn(it.id);
       if (it.id === "mode" || it.id === "model") {
         onOwn(it.id);
         setSelKey(null);
