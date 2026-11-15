@@ -203,6 +203,7 @@ Observed with claude 2.1.312 on 27 Oct 2026 (throwaway directory):
   lines (`error: "unknown"`, `error_status: null`, delays growing to 38 seconds), about
   four minutes in all, then an assistant line with `error: "server_error"` and a result
   with `terminal_reason: "api_error"`.
+- The same no-network run on 2.1.325 (15 Nov 2026, first 45 seconds only) gave the same lines: `attempt` 1 to 10 of `max_retries` 10, `retry_delay_ms` 541, 1007, 2261 and growing, `error_status: null`, `error: "unknown"`.
 - A usage limit and a full context could not be provoked. Their shapes come from the
   `claude` binary's own strings: `rate_limit_event` with `rate_limit_info`
   (`status`, `resetsAt` in seconds, `rateLimitType`), the assistant `error` codes above,
@@ -220,6 +221,21 @@ running prompt fails and later prompts fail. The line is never held whole in
 memory. The adapter stops on an interrupt, and on SIGTERM (also SIGHUP on Unix), closing
 every session first: `Run` returns when its context is done, whether or not its
 input is still open.
+
+### Retries
+
+claude's `system/api_retry` line (a request failed and will be tried again after a delay)
+becomes a `flockdeck_notice` update with the code `api_retry`, the whole numbers `attempt` and
+`max`, and a `class`: `overloaded`, `rate_limit`, `server_error`, `network` or `other`. The class
+comes from claude's `error` code; a request with no HTTP status (a timeout, a dropped connection)
+is `network`. Nothing else of the line is passed on, and a line whose numbers do not make sense
+(attempt below 1 or past the maximum, or over 999) is dropped. The pane takes this notice only from
+its own Claude adapter. The bridge shows one `notice` row, "Claude is retrying (attempt 2 of 10,
+overloaded)", and the pane's `activity` says "retrying (attempt 2 of 10, overloaded)". Further
+retries change that row in place. When claude produces output again, or the turn ends, the activity
+line goes and the row becomes "Claude retried 3 times (overloaded)". Stop is not affected: cancel
+sends the interrupt as always and ends claude if the turn does not end in time. That it ends a turn
+that is waiting between retries was not tried against a real claude.
 
 ### Environment
 

@@ -1280,6 +1280,10 @@ func (h handler) Update(u acp.Update) {
 	if (u.Kind == acp.UpdateBusy || u.Kind == acp.UpdateSubagentText) && !h.r.ownClaude() {
 		return
 	}
+	// The same for a retry notice: it sets the pane's activity line.
+	if u.Kind == acp.UpdateNotice && u.NoticeCode == acp.NoticeAPIRetry && !h.r.ownClaude() {
+		return
+	}
 	h.Handler.Update(u)
 	h.r.notify()
 	if u.Kind == acp.UpdateBusy {

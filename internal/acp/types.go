@@ -162,6 +162,10 @@ type Update struct {
 
 	// NoticeCode is set for flockdeck_notice: the code of a fixed notice.
 	NoticeCode string
+	// NoticeAttempt, NoticeMax and NoticeClass are set for the notice with the code
+	// NoticeAPIRetry: which retry of how many, and why. They are unchecked.
+	NoticeAttempt, NoticeMax int
+	NoticeClass              string
 
 	// NewSessionID is set for flockdeck_session.
 	NewSessionID string
@@ -287,10 +291,16 @@ func decodeUpdate(sessionID string, raw json.RawMessage) Update {
 		u.ToolCallID, u.SubagentText = w.ToolCallID, w.Text
 	case UpdateNotice:
 		var w struct {
-			Code string `json:"code"`
+			Code    string  `json:"code"`
+			Attempt float64 `json:"attempt"`
+			Max     float64 `json:"max"`
+			Class   string  `json:"class"`
 		}
 		_ = json.Unmarshal(raw, &w)
 		u.NoticeCode = w.Code
+		if w.Code == NoticeAPIRetry && w.Attempt >= 0 && w.Attempt < 1e6 && w.Max >= 0 && w.Max < 1e6 {
+			u.NoticeAttempt, u.NoticeMax, u.NoticeClass = int(w.Attempt), int(w.Max), w.Class
+		}
 	case UpdateUsage:
 		var w struct {
 			Used *int64 `json:"used"`

@@ -81,7 +81,7 @@ refused in the same words, so a window probing for ids learns nothing: the `team
 | `req` | The window's token. Only on an answer to a command, not on a later push. |
 | `phase` | `starting`, `needs setup`, `ready`, `exited`, `failed` or `closed`. |
 | `status` | `working`, `waiting` or `idle`, while the phase is `ready`. |
-| `activity` | A line naming what a working agent is doing. |
+| `activity` | A line naming what a working agent is doing. While the Claude adapter reports a retry it reads "retrying (attempt 2 of 10, overloaded)". The class is one of overloaded, rate limited, server error, network error or error. |
 | `background` | `true` while the agent works on a turn no prompt of this window started, such as a finished background task (API 1.34, cap `subagentText`). Only the Claude adapter says so. A prompt sent meanwhile stays in `queue` and goes out when the turn ends; Stop ends the agent's turn. `status` is `working` while `background` is `true`, so the pane list and the finished notice follow the agent's own turns as they follow a prompt's, and the notice fires after each background turn, even a short one. Only the pane's own Claude adapter can set it; the same adapter's `sub` is the only one taken, and any other agent's is ignored. It is absent when the phase is not `ready`, and Send now ends the agent's turn. The drawer shows a note and offers Stop. Absent otherwise. |
 | `queued` | How many prompts wait behind the running turn. |
 | `queue` | The waiting prompts, next first (API 1.19): `id`, `pos`, `kind` (`user`, `mail` or `flockdeck`), `state` (`queued`), `peer` (mail only), `text` (cut to 2000 bytes), `clipped` and `images` (since API 1.30: how many pictures the prompt carries, absent for none; an edit of the text keeps them). For `user` the text is exactly as typed, so an edit starts from it; for `mail` the text and `peer` have format and direction characters (Unicode Cf, such as U+202E) removed. A message from another agent is `kind` `mail` with the sender in `peer`; its body never carries the sender, and a window draws `peer` and `text` apart. Prompts the person sent while the turn runs, and mail handed over by the delivery service, are in the same list; mail past the 16 the runtime holds waits in the store and is not listed. |
@@ -146,6 +146,8 @@ the bridge's cap (10000 entries) plus the history kept across restarts (2000). A
 push, they are for a window on this machine; a window through the relay is refused them.
 
 Every entry carries `ts`, an RFC 3339 time in UTC, and the drawer shows it at the foot of a row.
+
+While the Claude adapter retries a failed request, one `notice` entry ("Claude is retrying (attempt 2 of 10, overloaded)") changes in place instead of a row per retry. It becomes "Claude retried 3 times (overloaded)" when the agent goes on or the turn ends.
 
 A `notice` entry has an optional `tone` (API 1.31, cap `noticeTone`). The only value is `failure`, set on a
 notice that says something went wrong: a turn that ended for any reason but a normal end or a cancel
