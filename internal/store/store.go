@@ -167,7 +167,7 @@ func Dir() (string, error) {
 	if DirGuard != nil {
 		DirGuard(base)
 	}
-	dir := stateDir(base)
+	dir := filepath.Join(base, "flockdeck")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return "", fmt.Errorf("create config dir: %w", err)
 	}
@@ -175,89 +175,6 @@ func Dir() (string, error) {
 	return dir, nil
 }
 
-// stateDir works out which directory this run keeps its state in, and having
-// worked it out once, keeps saying so.
-//
-// Every call into this package goes through Dir, and without this every one of
-// them also stats a directory belonging to a build the user stopped running
-// long ago: a fifth of a millisecond, on the path of every load and every
-// save, for a migration that can only ever happen once.
-//
-// Remembering the answer also pins it. Where the move could not be made the
-// old directory is used where it stands, and a second attempt later in the
-// same run could succeed and move the state out from under everything already
-// written to it. One run, one directory.
-var stateDir = func() func(base string) string {
-	var (
-		mu     sync.Mutex
-		under  string
-		chosen string
-	)
-	return func(base string) string {
-		mu.Lock()
-		defer mu.Unlock()
-		// Keyed on the base, because the tests move it: a remembered answer
-		// for somewhere else is no answer at all.
-		if chosen != "" && under == base {
-			return chosen
-		}
-		chosen = adoptLegacyDir(base, filepath.Join(base, "flockdeck"))
-		under = base
-		return chosen
-	}
-}()
-
-// legacyDirName is the directory this state was kept in before the program was
-// renamed. It is looked at only when nothing has been saved under the name in
-// use now, and can be dropped a release after the rename.
-const legacyDirName = "perch"
-
-// adoptLegacyDir moves state saved under the name an earlier build used to the
-// name in use now, and returns the directory to work in.
-//
-// Everything below the directory travels in one rename — every saved layout,
-// the auth token, the generated per-session settings and the browser profile —
-// so upgrading opens the tabs the user left rather than an empty workspace
-// beside a layout nothing would ever look at again.
-//
-// It moves the old directory only when nothing exists under the new name. A
-// directory already there is this build's own state and is never written over,
-// which also makes the migration harmless to run on every call.
-//
-// Where the move cannot be made the old directory is used where it stands. On
-// Windows a file still held open by a detached instance is enough to fail a
-// rename, and continuing to write to the old name costs nothing next to
-// starting empty.
-func adoptLegacyDir(base, dir string) string {
-	if _, err := os.Stat(dir); !errors.Is(err, fs.ErrNotExist) {
-		return dir
-	}
-	old := filepath.Join(base, legacyDirName)
-	if fi, err := os.Stat(old); err != nil || !fi.IsDir() {
-		return dir
-	}
-	if err := renameDir(old, dir); err != nil {
-		// A second instance starting at the same moment can be part-way through
-		// this very move: it looked for the name in use now, found nothing, and
-		// got its rename in first. Ours then fails and the old directory is
-		// already gone. Handing back the old name there would have this run
-		// create it again, empty, and write every layout, the recent list and
-		// its own instance record into a directory nothing will ever adopt,
-		// because the name in use now exists and the old one is never looked at
-		// again. The two instances would not even find each other, each reading
-		// an instance record the other never wrote.
-		if fi, err := os.Stat(dir); err == nil && fi.IsDir() {
-			return dir
-		}
-		return old
-	}
-	return dir
-}
-
-// renameDir moves a directory. It is a variable so a test can stand in for the
-// instant between one instance finding nothing under the name in use now and
-// another moving the old directory onto it.
-var renameDir = os.Rename
 
 // makePrivate narrows a directory that was created before it was kept private,
 // or by a umask that let group and other in. Windows does not express
