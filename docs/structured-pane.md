@@ -326,7 +326,10 @@ Ways to get a terminal pane, which stay available:
 `question` is made an ordinary card with kind `other`, with its own options and command. Answers go only with an option of
 kind exactly `allow_once`; an `allow_always` or other allowing option on a question card is refused. Its `questions` are `{header, question, multiSelect, options: [{label, description}]}`, at
 most 4, each with at most 8 options, all plain text from the agent. The person picks options and may type text
-of their own for any question. The card has an allowing option (the Claude adapter offers `answer`, "Send
+of their own for any question. A window draws each question as a radio group (`multiSelect` false) or a checkbox
+group, with "Other" as the last option of the group and its text box; typing in the box chooses it. It lists what
+is chosen under the questions and sends all the answers with one button. The same form answers a terminal pane's
+question with keys, see docs/terminal-questions.md. The card has an allowing option (the Claude adapter offers `answer`, "Send
 answers") and a refusing one ("Skip"). `permissionAnswer` takes an extra field `answers`, one entry for
 each question, in any order: `{question, selected, other}`, where `question` is the question's position in
 `questions`, `selected` the positions of the options chosen, and `other` the text typed (at most 2000

@@ -25,7 +25,7 @@ const questions = [
 // --- The form's model --------------------------------------------------------
 
 test("blank has an empty answer for each question", () => {
-  assert.deepEqual(blank(questions), [{ selected: [], other: "" }, { selected: [], other: "" }]);
+  assert.deepEqual(blank(questions), [{ selected: [], other: "", otherOn: false }, { selected: [], other: "", otherOn: false }]);
   assert.deepEqual(blank(undefined), []);
 });
 
@@ -36,9 +36,9 @@ test("a question that takes one answer holds one thing: an option or text", () =
   s = pick(s, questions, 0, 0);
   assert.deepEqual(s[0].selected, [0], "choosing another option moves the choice");
   s = type(s, questions, 0, "DuckDB");
-  assert.deepEqual(s[0], { selected: [], other: "DuckDB" }, "typing lets go of the option");
+  assert.deepEqual(s[0], { selected: [], other: "DuckDB", otherOn: true }, "typing lets go of the option");
   s = pick(s, questions, 0, 1);
-  assert.deepEqual(s[0], { selected: [1], other: "" }, "choosing an option clears the text");
+  assert.deepEqual(s[0], { selected: [1], other: "DuckDB", otherOn: false }, "choosing an option lets go of Other and keeps the text");
   s = pick(s, questions, 0, 1);
   assert.deepEqual(s[0].selected, [], "pressing it again lets it go");
 });
@@ -48,7 +48,7 @@ test("a question that takes several holds options and text together", () => {
   s = pick(s, questions, 1, 2);
   s = pick(s, questions, 1, 0);
   s = type(s, questions, 1, "Mail");
-  assert.deepEqual(s[1], { selected: [0, 2], other: "Mail" });
+  assert.deepEqual(s[1], { selected: [0, 2], other: "Mail", otherOn: true });
   s = pick(s, questions, 1, 2);
   assert.deepEqual(s[1].selected, [0]);
   assert.equal(s[0].selected.length, 0, "the other question is untouched");
@@ -76,7 +76,7 @@ test("a typed answer past the limit cannot be sent", () => {
 });
 
 test("a state that holds an option and text for a question that takes one answer is not sendable", () => {
-  const s = [{ selected: [0], other: "DuckDB" }, { selected: [1], other: "" }];
+  const s = [{ selected: [0], other: "DuckDB", otherOn: true }, { selected: [1], other: "", otherOn: false }];
   assert.equal(problem(questions, s), INCOMPLETE_WORDS);
   assert.equal(answers(questions, s), null);
 });
@@ -293,4 +293,102 @@ test("typed text survives a new push of the same card and is cleared for another
   } finally {
     restore();
   }
+});
+
+// --- Real selection ----------------------------------------------------------
+
+const picks = (c, q) => c.findAll(".prompt-question")[q].findAll("input");
+const isOn = (i) => i.checked === true || i.getAttribute("checked") !== null;
+
+test("each question is a radio group or a checkbox group, with Other as its last option", async () => {
+  const { container, restore } = await mount(questionCard());
+  try {
+    const [one, many] = container.findAll(".prompt-question");
+    assert.equal(one.getAttribute("role"), "radiogroup");
+    assert.equal(many.getAttribute("role"), "group");
+    assert.deepEqual(picks(container, 0).map((i) => i.getAttribute("type")), ["radio", "radio", "radio", "text"]);
+    assert.deepEqual(picks(container, 1).map((i) => i.getAttribute("type")), ["checkbox", "checkbox", "checkbox", "checkbox", "text"]);
+    const other = picks(container, 0)[2];
+    assert.equal(other.getAttribute("data-other-option"), "0");
+    assert.equal(other.getAttribute("name"), picks(container, 0)[0].getAttribute("name"), "Other is in the same radio group as the options");
+    assert.ok(container.findAll("label").some((l) => l.textContent === "Other"), "Other has a label");
+    assert.ok(picks(container, 0)[3].getAttribute("aria-label"), "the text box is named");
+  } finally {
+    restore();
+  }
+});
+
+test("choosing Other, or typing in its box, chooses it, and choosing an option lets it go", async () => {
+  const { ws, container, restore } = await mount(questionCard());
+  try {
+    picks(container, 0)[2].click(); // Other, with no text yet
+    await settle();
+    assert.ok(isOn(picks(container, 0)[2]));
+    assert.ok(isDisabled(container.find(".prompt-send")));
+    option(container, 1, 0).click();
+    await settle();
+    assert.match(container.find(".prompt-more").textContent, /Type your own answer/, "Other with no text is said to need some");
+    picks(container, 0)[3].enter("DuckDB");
+    await settle();
+    assert.match(container.find(".prompt-chosen").textContent, /DuckDB/, "the typed text is listed before sending");
+    option(container, 0, 1).click();
+    await settle();
+    assert.ok(!isOn(picks(container, 0)[2]), "an option did not let go of Other");
+    assert.match(container.find(".prompt-chosen").textContent, /SQLite/);
+    assert.ok(!container.find(".prompt-chosen").textContent.includes("DuckDB"));
+    container.find(".prompt-send").click();
+    await settle();
+    assert.deepEqual(ws.commands("permissionAnswer")[0].answers, [{ question: 0, selected: [1] }, { question: 1, selected: [0] }]);
+  } finally {
+    restore();
+  }
+});
+
+test("number keys choose an option, and one past the last chooses Other; a digit in the text box is text", async () => {
+  const { container, restore } = await mount(questionCard());
+  try {
+    const group = container.findAll(".prompt-question")[0];
+    picks(container, 0)[0].dispatch("keydown", { key: "2", ctrlKey: false, altKey: false, metaKey: false });
+    await settle();
+    assert.ok(isOn(picks(container, 0)[1]) && !isOn(picks(container, 0)[0]));
+    const many = picks(container, 1)[0];
+    many.dispatch("keydown", { key: "1", ctrlKey: false, altKey: false, metaKey: false });
+    many.dispatch("keydown", { key: "3", ctrlKey: false, altKey: false, metaKey: false });
+    await settle();
+    assert.deepEqual(picks(container, 1).map(isOn), [true, false, true, false, false]);
+    many.dispatch("keydown", { key: "4", ctrlKey: false, altKey: false, metaKey: false });
+    await settle();
+    assert.ok(isOn(picks(container, 1)[3]), "4 is Other in a question with three options");
+    picks(container, 0)[3].dispatch("keydown", { key: "1", ctrlKey: false, altKey: false, metaKey: false });
+    await settle();
+    assert.ok(isOn(picks(container, 0)[1]), "a digit typed in the box chose an option");
+    assert.ok(group);
+  } finally {
+    restore();
+  }
+});
+
+test("Enter sends once every question is answered, and does nothing before", async () => {
+  const { ws, container, restore } = await mount(questionCard());
+  try {
+    const enter = (el) => el.dispatch("keydown", { key: "Enter", ctrlKey: false, altKey: false, metaKey: false });
+    option(container, 0, 0).click();
+    await settle();
+    enter(option(container, 0, 0));
+    await settle();
+    assert.equal(ws.commands("permissionAnswer").length, 0, "sent with one of two answered");
+    option(container, 1, 1).click();
+    await settle();
+    enter(option(container, 1, 1));
+    enter(option(container, 1, 1));
+    await settle();
+    assert.equal(ws.commands("permissionAnswer").length, 1, "Enter sent more than once");
+  } finally {
+    restore();
+  }
+});
+
+test("a window reached through the relay still has no inputs, and the option list is not a second way to answer", () => {
+  const out = draw(html`<${PermissionCard} node=${{ pane: "p1" }} card=${questionCard()} snap=${{ ...idle, remote: true }} store=${noStore} />`);
+  assert.ok(!out.includes("prompt-chosen") && !out.includes("prompt-other"), out);
 });

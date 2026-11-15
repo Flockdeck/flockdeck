@@ -11,8 +11,13 @@
 //   card's number, the agent's request id and the option's id exactly as the card
 //   carried them, and only in a window on the desk. A remote window shows the
 //   request with no buttons and says to answer it on the desktop.
-// - A question shows its text and options, and the box below it sends the answer
-//   with paneSend by the pane's id, which the desk allows for a question.
+// - A question is a form (questions.js): radio buttons or checkboxes for each question, "Other"
+//   as the last option, what is chosen listed before anything is sent, and one button. On a
+//   structured pane it is sent as permissionAnswer's answers. On a terminal pane it is sent as
+//   keys into claude's own question screen over the terminal socket, after reading that
+//   screen (tuiQuestion.js); if the screen is not what a key needs, nothing is typed and the
+//   card says to answer in the terminal. Without a terminal to read, the card is the text of
+//   the question and the box that sends a line with paneSend.
 //
 // Nothing here picks a choice on its own: no button has the keyboard, no key
 // answers, and an option that remembers its choice (allow_always) is a button
@@ -30,6 +35,7 @@ import { showControls } from "./diff/diffModel.js";
 import { shownName } from "../graph/model.js";
 import { ManagerBar } from "../graph/ManagerBar.js";
 import { QuestionForm } from "./questions.js";
+import { drive, Mismatch, MISMATCH } from "./tuiQuestion.js";
 
 /** KEYS is what each terminal choice types: Yes is Enter, the default of Claude
  *  Code's prompt, and No is Esc, its own "No, and tell Claude what to do
@@ -247,8 +253,63 @@ export function StreamPermission({ node, card, snap, store }) {
   </section>`;
 }
 
-// A question: its text and options, and the box that sends the answer.
-export function Question({ node, ask, snap, store }) {
+/** canForm says a question can be answered with the form: every question has options to choose from. */
+export function canForm(questions) {
+  return Array.isArray(questions) && questions.length > 0 && questions.every((q) => q && Array.isArray(q.options) && q.options.length > 0);
+}
+
+export const ANSWER_SENT_WORDS = "Sent. Waiting for the agent.";
+export const CANCEL_IN_TERMINAL_WORDS = "To cancel, or to chat about it instead, use the terminal below.";
+
+/** Keys is send for drive: the keys go to the terminal and the promise says whether they reached its socket. */
+const typeKeys = (sendKeys) => (keys) => new Promise((resolve) => {
+  if (!sendKeys(keys, (ok) => resolve(!!ok))) resolve(false);
+});
+
+// A terminal pane's question as a form. Sending drives claude's own question
+// screen with keys (tuiQuestion.js), reading the screen before each one.
+function TerminalQuestionForm({ ask, sendKeys, readScreen, viewer = false, waitMs = ANSWER_WAIT_MS }) {
+  const [phase, setPhase] = useState(""); // "", "sending" or "sent"
+  const [note, setNote] = useState("");
+  const busy = useRef(false);
+  useEffect(() => {
+    if (phase !== "sent") return undefined;
+    const t = setTimeout(() => {
+      busy.current = false;
+      setPhase("");
+      setNote(NOT_TAKEN_WORDS);
+    }, waitMs);
+    return () => clearTimeout(t);
+  }, [phase, waitMs]);
+  const onSend = async (_opt, a) => {
+    if (busy.current || viewer || !a) return;
+    busy.current = true;
+    setPhase("sending");
+    setNote("");
+    try {
+      await drive(ask.questions, a, { screen: readScreen, send: typeKeys(sendKeys), wait: (ms) => new Promise((r) => setTimeout(r, ms)) });
+      setPhase("sent");
+    } catch (e) {
+      busy.current = false;
+      setPhase("");
+      setNote(e instanceof Mismatch ? e.reason : MISMATCH.moved);
+    }
+  };
+  const says = viewer ? VIEWER_WORDS : phase === "sending" ? "Answering in the terminal…" : phase === "sent" ? ANSWER_SENT_WORDS : "";
+  return html`
+    <${QuestionForm} card=${ask} done=${phase !== ""} locked=${viewer} allow=${{ id: "answer" }} onSend=${onSend} />
+    <p class="prompt-more">${CANCEL_IN_TERMINAL_WORDS}</p>
+    <p key="status" class="prompt-status" role="status">${says}</p>
+    ${note && !viewer ? html`<p key="refused" class="prompt-status prompt-status--error" role="alert">${note}</p>` : null}
+  `;
+}
+
+// A question: its text and options, and what answers it. In a window on the desk with a terminal it is a form
+// that answers in the terminal's own question screen. Without one it is the text, and the box that sends a line.
+export function Question({ node, ask, snap, store, sendKeys = null, readScreen = null, waitMs = ANSWER_WAIT_MS }) {
+  if (!snap.remote && sendKeys && readScreen && canForm(ask.questions)) {
+    return html`<${TerminalQuestionForm} ask=${ask} sendKeys=${sendKeys} readScreen=${readScreen} viewer=${isViewer(snap)} waitMs=${waitMs} />`;
+  }
   return html`
     ${ask.questions.map((q) => html`<div class="prompt-question">
       ${q.header ? html`<p class="prompt-label">${q.header}</p>` : null}
@@ -270,7 +331,7 @@ export function Question({ node, ask, snap, store }) {
  * store's snapshot, store the store, and sendKeys types into the pane's terminal
  * (the terminal's sendKeys). terminal says whether the pane has one.
  */
-export function Prompt({ node, pane = null, snap, store, sendKeys, terminal = true, waitMs = ANSWER_WAIT_MS }) {
+export function Prompt({ node, pane = null, snap, store, sendKeys, readScreen = null, terminal = true, waitMs = ANSWER_WAIT_MS }) {
   const kind = waitingOn(node, pane);
   if (!kind) return null;
   let body = null;
@@ -298,7 +359,7 @@ export function Prompt({ node, pane = null, snap, store, sendKeys, terminal = tr
   } else if (kind === "ask") {
     id = idOf("a", pane.statusSince, pane.ask.questions.map((q) => q.question).join("\u0002"));
     title = "Question";
-    body = html`<${Question} key=${id} node=${node} ask=${pane.ask} snap=${snap} store=${store} />`;
+    body = html`<${Question} key=${id} node=${node} ask=${pane.ask} snap=${snap} store=${store} sendKeys=${sendKeys} readScreen=${readScreen} waitMs=${waitMs} />`;
   }
   if (!body) {
     // The graph says the pane waits on the person, and the state push has not said

@@ -19,6 +19,7 @@ import {
 import { createDom, install, settle } from "./dom.mjs";
 import { FakeWebSocket, harness, hello } from "./fakes.mjs";
 import { PtySocket, FakeTerm, FakeFit, FakeObserver } from "./termfakes.mjs";
+import { FakeTui } from "./tuifake.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixtureFile = join(here, "..", "..", "internal", "server", "testdata", "graph-fixtures", "01-six-helpers-one-permission.json");
@@ -230,21 +231,99 @@ test("a pane that is not waiting has no card", () => {
 
 const ASK = { questions: [{ header: "Scope", question: "Backfill invoices older than 2024, or leave them?", options: [{ label: "Backfill", description: "all <i>old</i> ones" }, { label: "Leave" }] }] };
 
-test("a question shows its text and options as text, and the box sends the answer with paneSend by the pane's id", () =>
-  withPage({ extra: { [CART]: { ask: ASK } } }, async (m) => {
+const ASK2 = {
+  questions: [
+    { header: "Scope", question: "Backfill invoices older than 2024, or leave them?", options: [{ label: "Backfill", description: "all <i>old</i> ones" }, { label: "Leave" }] },
+    { header: "Extras", question: "Which extras?", multiSelect: true, options: [{ label: "Cache" }, { label: "Queue" }] },
+  ],
+};
+
+// The terminal of the page is fed the keys it was sent, by claude's question screen as FakeTui draws it.
+function claudeAsks(m, questions) {
+  const tui = new FakeTui(questions);
+  const sock = PtySocket.last;
+  const show = () => { FakeTerm.last.screen = tui.lines(); };
+  sock.send = (data) => {
+    sock.sent.push(data);
+    if (typeof data !== "string") { tui.send(Buffer.from(data).toString("latin1")); show(); }
+  };
+  show();
+  return tui;
+}
+
+test("a question is a form of real options, and Send answers picks them in claude's own screen and submits", () =>
+  withPage({ extra: { [CART]: { ask: ASK2 } } }, async (m) => {
     await m.connect();
     await m.open(CART);
-    assert.match(m.card().textContent, /Backfill invoices older than 2024/);
-    assert.equal(m.card().findAll("i").length, 0, "an option's description was drawn as markup");
-    assert.equal(m.card().findAll("li").length, 2);
-    assert.equal(m.choices().length, 0, "a question has no permission buttons");
+    PtySocket.last.open();
+    await settle();
+    const tui = claudeAsks(m, ASK2.questions);
+    const card = m.card();
+    assert.match(card.textContent, /Backfill invoices older than 2024/);
+    assert.equal(card.findAll("i").length, 0, "an option's description was drawn as markup");
+    assert.equal(card.findAll("input").filter((i) => i.getAttribute("type") === "radio").length, 3, "two options and Other for the first question");
+    assert.equal(card.findAll("input").filter((i) => i.getAttribute("type") === "checkbox").length, 3, "two options and Other for the second");
+    assert.equal(m.choices().filter((b) => b.disabled !== true && b.getAttribute("disabled") === null).length, 0, "a question has no permission buttons");
+    assert.equal(card.find(".mbar-input"), null, "the line box is for a question with nothing to choose from");
+    const send = () => m.card().find(".prompt-send");
+    assert.ok(send().disabled === true || send().getAttribute("disabled") !== null, "sendable with nothing chosen");
+    m.card().findAll(".prompt-question")[0].findAll("input").find((i) => i.getAttribute("data-option") === "1").click();
+    m.card().findAll(".prompt-question")[1].findAll("input").find((i) => i.getAttribute("data-option") === "0").click();
+    await settle();
+    assert.match(m.card().find(".prompt-chosen").textContent, /Leave/, "what is chosen is listed before it is sent");
+    assert.match(m.card().find(".prompt-chosen").textContent, /Cache/);
+    send().click();
+    await new Promise((r) => setTimeout(r, 30));
+    await settle();
+    assert.equal(tui.submitted, true, "the review was not submitted");
+    assert.equal(tui.answerOf(0), "Leave");
+    assert.equal(tui.answerOf(1), "Cache");
+    assert.equal(m.ws().commands("paneSend").length, 0, "a question is answered with keys, not with paneSend");
+    assert.match(m.status(), /Waiting for the agent/);
+  }));
+
+test("a terminal that cannot be read gets no keys, and the card says to answer in the terminal", () =>
+  withPage({ extra: { [CART]: { ask: ASK2 } } }, async (m) => {
+    await m.connect();
+    await m.open(CART);
+    PtySocket.last.open();
+    await settle();
+    m.card().findAll(".prompt-question")[0].findAll("input").find((i) => i.getAttribute("data-option") === "0").click();
+    m.card().findAll(".prompt-question")[1].findAll("input").find((i) => i.getAttribute("data-option") === "1").click();
+    await settle();
+    m.card().find(".prompt-send").click();
+    await settle();
+    assert.deepEqual(m.typed(), [], "keys were typed with no screen to check");
+    assert.match(m.card().find(".prompt-status--error").textContent, /nothing was sent/);
+    FakeTerm.last.screen = ["$ npm test", "ok"];
+    m.card().find(".prompt-send").click();
+    await settle();
+    assert.deepEqual(m.typed(), [], "keys were typed while the terminal showed a shell");
+    assert.match(m.card().find(".prompt-status--error").textContent, /not showing the question/);
+  }));
+
+test("a viewer's window shows the form shut and types nothing", () =>
+  withPage({ hello: { role: "viewer" }, extra: { [CART]: { ask: ASK2 } } }, async (m) => {
+    await m.connect();
+    await m.open(CART);
+    await settle();
+    for (const i of m.card().findAll("input")) assert.ok(i.disabled === true || i.getAttribute("disabled") !== null);
+    assert.ok(m.card().find(".prompt-send").disabled === true || m.card().find(".prompt-send").getAttribute("disabled") !== null);
+    assert.match(m.card().textContent, /only view/);
+    assert.deepEqual(m.typed(), []);
+  }));
+
+test("a question with no options to choose from keeps the box that sends a line", () =>
+  withPage({ extra: { [CART]: { ask: { questions: [{ question: "What should it be called?", options: [] }] } } } }, async (m) => {
+    await m.connect();
+    await m.open(CART);
     const input = m.card().find(".mbar-input");
     assert.ok(input, "no box for the answer");
-    input.enter("  Backfill, all of them ");
+    input.enter("  billing ");
     await settle();
     input.keydown("Enter");
     await settle();
-    assert.deepEqual(m.ws().commands("paneSend").map(({ req, ...c }) => c), [{ cmd: "paneSend", id: CART, text: "  Backfill, all of them " }]);
+    assert.deepEqual(m.ws().commands("paneSend").map(({ req, ...c }) => c), [{ cmd: "paneSend", id: CART, text: "  billing " }]);
     await m.push({ type: "notice", text: "That pane is no longer open", error: true });
     assert.equal((m.card().find(".mbar-status--error") || m.card().find(".mbar-status")).textContent, "That pane is no longer open");
   }));
