@@ -277,6 +277,12 @@ type teamResultMsg struct {
 	Text string `json:"text,omitempty"`
 	// Cut says Text was cut because the prompt was longer than is sent back.
 	Cut bool `json:"cut,omitempty"`
+	// Files answers structuredRewindFiles with the files going back would change,
+	// and a structuredRewind refused because the files differ from the list it
+	// carried with the list as it is now (API 1.34). Restore says what a
+	// structuredRewind with restoreFiles did to the files.
+	Files   []rewindFileView   `json:"files,omitempty"`
+	Restore *rewindRestoreView `json:"restore,omitempty"`
 	// Pane and Message name the message a mark-seen changed.
 	Pane    string `json:"pane,omitempty"`
 	Message int    `json:"message,omitempty"`

@@ -197,6 +197,10 @@ type Options struct {
 	Spec agent.Spec
 	// Cwd is the session's working directory, absolute.
 	Cwd string
+	// FileRewind makes a git checkpoint of the files each time a prompt is
+	// sent, so that a rewind can put them back (filerewind.go). Off by default:
+	// it writes refs into the repository Cwd is in.
+	FileRewind bool
 	// Environ is where Spec.ACP.PassEnv is read from. Nil means os.Environ().
 	Environ []string
 	// Key is the API key stored for this agent. It is set in the environment of
@@ -376,6 +380,11 @@ type Snapshot struct {
 	// RewindToken names this runtime and its Epoch; a rewind or fork must carry
 	// the one the window last saw (rewind.go).
 	RewindToken string
+	// FilePoints are the rewind points whose files can be put back, and FilesWhy
+	// says why the latest prompt has no saved files, if it has none
+	// (filerewind.go).
+	FilePoints []string
+	FilesWhy   string
 }
 
 // hello is what the agent said about itself and what the session was given.
@@ -498,6 +507,12 @@ type Runtime struct {
 	marks     []mark
 	rewinding bool
 	epoch     int
+	// ckptRun names this runtime's checkpoint refs, undoSeq numbers the saves a
+	// restore makes, and filesWhy is why the last checkpoint was not made, ""
+	// when it was (filerewind.go).
+	ckptRun  string
+	undoSeq  int
+	filesWhy string
 	// cleared says the agent moved the conversation to another session id on its
 	// own (/clear), so the turn tokens name turns of the old one. rewindMove is
 	// set while this runtime's own rewind runs: the agent then moves the
@@ -1149,6 +1164,7 @@ func (r *Runtime) Snapshot() Snapshot {
 	s.RewindPoints = r.RewindPoints()
 	s.Epoch = r.Epoch()
 	s.RewindToken = r.RewindToken()
+	s.FilePoints, s.FilesWhy = r.FilePoints()
 	if s.Phase == PhaseReady {
 		s.Status = r.br.Status()
 	}
@@ -1168,6 +1184,7 @@ func (r *Runtime) Close() error {
 	r.signinOff = true
 	r.mu.Unlock()
 	r.finish(PhaseClosed)
+	defer r.dropCheckpoints()
 	select {
 	case <-r.done:
 	case <-time.After(closeWait):
@@ -1875,8 +1892,12 @@ func (r *Runtime) loop() {
 			if q.typed {
 				start = r.br.StartTypedTurn
 			}
+			// The files are saved before the prompt goes out, so the copy is of
+			// the files as they were when it was sent.
+			ckpt := r.checkpoint()
 			entry, _ := start(strings.Join(q.blocks, "\n"), promptImages(q.images))
 			token = r.addMark(entry)
+			r.setCheckpoint(token, ckpt)
 		}
 		r.notify()
 		r.turnEvent(TurnEvent{What: TurnBegan, Tag: q.tag})

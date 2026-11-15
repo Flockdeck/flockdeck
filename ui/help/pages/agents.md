@@ -172,10 +172,18 @@ Copy last reply, in the strip's More menu (the three dots), copies the newest on
 has its own Copy. The search button next to More opens the conversation search.
 
 Going back and forking (the claude and codex agents only; other agents do not show it): type
-`/rewind` or `/fork` in the prompt box. The list shows the prompts you can go back to. "Go back to before
-this" asks first, then removes that prompt and everything after it from the conversation and from the agent,
-and puts the prompt's text in the box to edit and send again. It does not put back files the agent changed.
-"Fork from before this" and "Fork the whole conversation" start a new pane beside this one, labelled Fork, with
+`/rewind` or `/fork` in the prompt box, or press Esc twice while the agent is idle. The list shows the prompts
+you can go back to. "Go back to before this" asks first, then removes that prompt and everything after it from the
+conversation and from the agent, and puts the prompt's text in the box to edit and send again. On its own it does
+not put back files the agent changed. When the folder is in a git repository, "Show files to put back" lists
+every file that differs from how it was when you sent that prompt: edited files get their earlier content,
+deleted files come back, and files created since are deleted. "Go back and put these files back" then does
+that for exactly the files you saw. If a file changed after you saw the list, nothing is changed and you get the
+new list to confirm. Before writing, Flockdeck saves the current files in git under a ref it names, so the
+restore can be undone. Files are saved when you send a prompt, only the last 40 prompts keep them, and
+ignored files (build output, `node_modules`) and the git index are never touched. In a folder that is not in a
+git repository, without git, or during a merge or rebase, no files are saved and only the conversation goes back; the
+panel says which. "Fork from before this" and "Fork the whole conversation" start a new pane beside this one, labelled Fork, with
 the conversation up to that point; this pane is not changed. Both wait until the agent is idle. The first
 prompt, and a prompt that follows a stopped turn, have no point before them. A fork works in the same folder
 as the original, so two agents can edit the same files, and its window starts empty. Both are on the machine
@@ -272,8 +280,8 @@ What to know before you use one:
   the agent was restarted. If the new agent cannot be started, they stay too, with
   a line giving the reason.
 - **Rewind and Always do less than in a terminal.** Going back removes the
-  conversation after a prompt and does not put back files the agent changed.
-  There is no Esc Esc and no `/undo`. **Always** on a permission card covers
+  conversation after a prompt, and puts files back only when the folder is in a git
+  repository (see above). There is no `/undo`. **Always** on a permission card covers
   shell commands only, the exact command only, and is forgotten when the pane
   restarts, which Flockdeck does on an update; the agent then asks again.
   Choosing the accept-edits mode in the mode selector asks less for edits.

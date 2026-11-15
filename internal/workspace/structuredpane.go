@@ -115,7 +115,7 @@ func (w *Workspace) startStructured(p *Pane, spec agent.Spec) {
 	fork := p.forkFrom
 	p.forkFrom = nil
 	w.mu.Unlock()
-	opts := structured.Options{Spec: spec, Cwd: p.Cwd, MCPServers: w.mcpServersFor(p, spec), ResumeSession: resume, Fork: fork,
+	opts := structured.Options{Spec: spec, Cwd: p.Cwd, FileRewind: true, MCPServers: w.mcpServersFor(p, spec), ResumeSession: resume, Fork: fork,
 		Key:            creds.StoredKey(spec),
 		OnTurn:         func(e structured.TurnEvent) { w.promptTurn(p.ID, gen, e) },
 		OnSessionMoved: func() { w.noteSessionMoved(p.ID) }}

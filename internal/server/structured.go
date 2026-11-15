@@ -238,6 +238,11 @@ type structuredMsg struct {
 	// RewindToken goes back with structuredRewind and structuredFork (see
 	// structuredrewind.go). It is present whenever the agent can go back.
 	RewindToken string `json:"rewindToken,omitempty"`
+	// RewindFiles are the ids among RewindPoints whose files can be put back
+	// (API 1.34). RewindFilesWhy says why the latest prompt's files were not
+	// saved, when they were not; it is empty otherwise.
+	RewindFiles    []string `json:"rewindFiles,omitempty"`
+	RewindFilesWhy string   `json:"rewindFilesWhy,omitempty"`
 }
 
 // clipStructured makes s fit for a window and cuts it to at most max bytes. It
@@ -500,7 +505,7 @@ func (s *Server) structuredCommand(c *controlClient, cmd command) {
 		s.do(func() { s.structuredRules(c, cmd) })
 	case "structuredShellRun", "structuredShellStop", "structuredShellRemove", "structuredShellSend":
 		s.do(func() { s.structuredShell(c, cmd) })
-	case "structuredRewind", "structuredFork":
+	case "structuredRewind", "structuredFork", "structuredRewindFiles":
 		s.do(func() { s.structuredRewind(c, cmd) })
 	case "structuredWatch":
 		s.do(func() { s.structuredWatch(c, cmd) })

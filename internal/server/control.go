@@ -603,14 +603,19 @@ type command struct {
 	// RewindToken is the token of the push the structuredRewind or structuredFork
 	// was chosen from (structuredrewind.go).
 	RewindToken string `json:"rewindToken"`
-	Hash        string `json:"hash"`
-	Reviewer    string `json:"reviewer"`
-	Note        string `json:"note"`
-	ExpectSha   string `json:"expectSha"`
-	Offset      int    `json:"offset"`
-	Limit       int    `json:"limit"`
-	From        int    `json:"from"`
-	To          int    `json:"to"`
+	// RestoreFiles and FilePaths go with structuredRewind (API 1.34): the person
+	// confirmed this list of files from structuredRewindFiles, and wants them put
+	// back with the conversation.
+	RestoreFiles bool     `json:"restoreFiles"`
+	FilePaths    []string `json:"filePaths"`
+	Hash         string   `json:"hash"`
+	Reviewer     string   `json:"reviewer"`
+	Note         string   `json:"note"`
+	ExpectSha    string   `json:"expectSha"`
+	Offset       int      `json:"offset"`
+	Limit        int      `json:"limit"`
+	From         int      `json:"from"`
+	To           int      `json:"to"`
 	// Setting and Value are structuredSet's: the id of the config option (for
 	// Kind "config") and the value to give the mode, model or option.
 	Setting string `json:"setting"`
@@ -1745,7 +1750,7 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 	case "changesWatch", "changesUnwatch", "changesSnapshot", "filesPage", "diffHunks", "diffContext", "commentAdd", "commentResolve", "commentReopen", "runChecks", "confirmChecks", "requestReview", "submitReview", "approveMerge", "unapproveMerge", "mergeBranch":
 		s.changesCommand(c, cmd)
 		return
-	case "structuredSnapshot", "structuredWatch", "structuredUnwatch", "structuredCancel", "structuredSet", "structuredFiles", "structuredQueueEdit", "structuredQueueRemove", "structuredQueueClear", "structuredQueueSendNow", "structuredExport", "structuredInfo", "structuredRules", "structuredRuleRevoke", "structuredSignIn", "structuredSignInCancel", "structuredShellRun", "structuredShellStop", "structuredShellRemove", "structuredShellSend", "structuredRewind", "structuredFork":
+	case "structuredSnapshot", "structuredWatch", "structuredUnwatch", "structuredCancel", "structuredSet", "structuredFiles", "structuredQueueEdit", "structuredQueueRemove", "structuredQueueClear", "structuredQueueSendNow", "structuredExport", "structuredInfo", "structuredRules", "structuredRuleRevoke", "structuredSignIn", "structuredSignInCancel", "structuredShellRun", "structuredShellStop", "structuredShellRemove", "structuredShellSend", "structuredRewind", "structuredFork", "structuredRewindFiles":
 		s.structuredCommand(c, cmd)
 		return
 	case "worktrees":

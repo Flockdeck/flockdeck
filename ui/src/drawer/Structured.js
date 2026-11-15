@@ -81,6 +81,8 @@ import { queueOf, stopMessage } from "./queueModel.js";
 import { ShellList } from "./ShellList.js";
 import { TodoList } from "./TodoList.js";
 import { interruptKey, selectedText } from "./interruptModel.js";
+import { escEsc } from "./escEscModel.js";
+import { rewindOffered } from "./rewindModel.js";
 import { shellOf } from "./shellModel.js";
 
 export { SEND_NOT_SENT_WORDS, STOP_NOT_SENT_WORDS, FILES_DELAY_MS, ATTACH_WAIT_MS, SAVE_DELAY_MS, IMAGE_NOT_SENT_WORDS, IMAGE_WAITING_WORDS, IMAGE_FAILED_WORDS, IMAGE_UNSUPPORTED_WORDS } from "./Composer.js";
@@ -148,6 +150,8 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
   // The pane a key-sent Stop is out for, set at once so a second press before the page redraws sends nothing;
   // it goes when the turn is no longer running or waiting.
   const keyStop = useRef("");
+  // The time of the last lone Escape, for Esc Esc (escEscModel.js).
+  const lastEsc = useRef(0);
   useEffect(() => {
     if (!st || (st.status !== "working" && st.status !== "waiting")) keyStop.current = "";
   }, [st && st.status]);
@@ -242,7 +246,16 @@ export function Structured({ pane, snap, st, error = null, cancelError = null, s
       menuOpen: live.current.menuOpen, dialogOpen: (!!confirming && confirming.pane === pane) || exporting === pane || rewinding === pane,
       selected: selectedText(win, el),
     };
-    if (!interruptKey(e, ctx)) return;
+    if (!interruptKey(e, ctx)) {
+      // Esc Esc opens the rewind panel of an idle pane that can go back.
+      const r = escEsc(e, lastEsc.current, Date.now(), { desk, working: ctx.working, offered: rewindOffered(st), draft: ctx.draft, menuOpen: ctx.menuOpen, dialogOpen: ctx.dialogOpen });
+      lastEsc.current = r.last;
+      if (r.open) {
+        e.preventDefault();
+        setRewinding(pane);
+      }
+      return;
+    }
     e.preventDefault();
     if (stop()) keyStop.current = pane;
   };

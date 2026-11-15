@@ -707,10 +707,10 @@ export function createStore(opts) {
           rulesPanes.delete(msg.req);
           set({ rulesResult: { id, req: String(msg.req || ""), op: msg.op, ok: !!msg.ok, error: msg.ok ? "" : String(msg.error || ""), rules: msg.ok && Array.isArray(msg.rules) ? msg.rules : [], revoked: msg.ok && typeof msg.revoked === "string" ? msg.revoked : "" } });
         }
-        if (msg.op === "structuredRewind" || msg.op === "structuredFork") {
+        if (msg.op === "structuredRewind" || msg.op === "structuredFork" || msg.op === "structuredRewindFiles") {
           const id = rewindPanes.get(msg.req) || "";
           rewindPanes.delete(msg.req);
-          set({ rewindResult: { id, req: String(msg.req || ""), op: msg.op, ok: !!msg.ok, error: msg.ok ? "" : String(msg.error || ""), text: msg.ok && typeof msg.text === "string" ? msg.text : "", cut: msg.ok && msg.cut === true, pane: msg.ok && typeof msg.pane === "string" ? msg.pane : "" } });
+          set({ rewindResult: { id, req: String(msg.req || ""), op: msg.op, ok: !!msg.ok, error: msg.ok ? "" : String(msg.error || ""), text: msg.ok && typeof msg.text === "string" ? msg.text : "", cut: msg.ok && msg.cut === true, pane: msg.ok && typeof msg.pane === "string" ? msg.pane : "", files: Array.isArray(msg.files) ? msg.files.slice(0, 300) : [], restore: msg.ok && msg.restore && typeof msg.restore === "object" ? msg.restore : null } });
         }
         if (typeof msg.op === "string" && msg.op.startsWith("structuredShell")) {
           const id = shellPanes.get(msg.req) || "";
@@ -1003,7 +1003,7 @@ export function createStore(opts) {
         if (rulesPanes.size >= 20) rulesPanes.delete(rulesPanes.keys().next().value);
         rulesPanes.set(cmd.req, String(cmd.id || ""));
       }
-      if (sent && (cmd.cmd === "structuredRewind" || cmd.cmd === "structuredFork") && cmd.req) {
+      if (sent && (cmd.cmd === "structuredRewind" || cmd.cmd === "structuredFork" || cmd.cmd === "structuredRewindFiles") && cmd.req) {
         if (rewindPanes.size >= 20) rewindPanes.delete(rewindPanes.keys().next().value);
         rewindPanes.set(cmd.req, String(cmd.id || ""));
       }

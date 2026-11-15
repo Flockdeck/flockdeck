@@ -1193,6 +1193,12 @@
       "status": "stable"
     },
     {
+      "name": "structuredRewindFiles",
+      "access": "full",
+      "since": "1.34",
+      "status": "stable"
+    },
+    {
       "name": "structuredRuleRevoke",
       "access": "full",
       "since": "1.29",
