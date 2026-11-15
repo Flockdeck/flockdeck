@@ -229,7 +229,7 @@ func LoginEnv(env []string) []string {
 	for _, kv := range env {
 		name, _, _ := strings.Cut(kv, "=")
 		n := strings.ToUpper(name)
-		if strings.HasPrefix(n, "FLOCKDECK_") || strings.HasPrefix(n, "PERCH_") || strings.Contains(n, "API_KEY") || strings.Contains(n, "AUTH_TOKEN") {
+		if strings.HasPrefix(n, "FLOCKDECK_") || strings.Contains(n, "API_KEY") || strings.Contains(n, "AUTH_TOKEN") {
 			continue
 		}
 		out = append(out, kv)

@@ -28,7 +28,6 @@
 * [FLOCKDECK_TESTISO_REAL_CONFIG and FLOCKDECK_TESTISO_REAL_HOME](flockdeck-testiso-real-dirs.md) - Variables test binaries use to pass the developer's real config and home directories to child test binaries.
 * [FLOCKDECK_TOKEN](flockdeck-token.md) - Shared secret a pane uses to authenticate to its instance.
 * [FLOCKDECK_UPDATE](flockdeck-update.md) - Set to "off" to stop background checks for new releases.
-* [PERCH_ pane variables](perch-pane-env.md) - Deprecated PERCH_ names for the FLOCKDECK_ variables a pane carries.
 * [routing.crossAgent](routing-cross-agent.md) - Lets a routing rule move a spawned helper to another agent, not only to another model.
 * [routing.floor](routing-floor.md) - The lowest model tier routing may choose.
 * [routing.mode](routing-mode.md) - Turns model routing off or on, per installation or per project.

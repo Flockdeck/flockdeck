@@ -61,7 +61,6 @@ func TestTeamPrintsTheRosterAndItsJSON(t *testing.T) {
 func TestTeamCommandsRefuseToRunOutsideAPane(t *testing.T) {
 	for _, k := range []string{"API", "TOKEN", "PANE"} {
 		t.Setenv("FLOCKDECK_"+k, "")
-		t.Setenv("PERCH_"+k, "")
 	}
 	var out, errOut bytes.Buffer
 	for name, err := range map[string]error{

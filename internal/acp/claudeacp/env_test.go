@@ -5,7 +5,7 @@ import "testing"
 // A nil Env on an exec.Cmd means the parent's environment, so dropping every
 // variable must leave an empty list, not nil.
 func TestCleanEnvIsNeverNil(t *testing.T) {
-	got := cleanEnv([]string{"FLOCKDECK_A=1", "perch_b=2"})
+	got := cleanEnv([]string{"FLOCKDECK_A=1", "flockdeck_b=2"})
 	if got == nil || len(got) != 0 {
 		t.Errorf("cleanEnv = %#v", got)
 	}

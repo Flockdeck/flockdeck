@@ -14,9 +14,9 @@ import (
 var envNameRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 // reservedEnvPrefixes are the prefixes of Flockdeck's own variables, which carry
-// its tokens and addresses and the pane's identity (the same values are set
-// under both). No entry can pass one on, whatever the case of its name.
-var reservedEnvPrefixes = []string{"FLOCKDECK_", "PERCH_"}
+// its tokens and addresses and the pane's identity.
+// No entry can pass one on, whatever the case of its name.
+var reservedEnvPrefixes = []string{"FLOCKDECK_"}
 
 // ReservedEnv says name is one of Flockdeck's own variables, in any case.
 func ReservedEnv(name string) bool { return reservedEnv(name) }
@@ -236,7 +236,7 @@ func checkACP(s *Spec) (problems []string, ok bool) {
 		case !envNameRe.MatchString(name):
 			problems = append(problems, fmt.Sprintf("agent %q: %q is not a variable name; it is not passed", s.ID, cleanLine(name, 40)))
 		case reservedEnv(name):
-			problems = append(problems, fmt.Sprintf("agent %q: variables starting FLOCKDECK_ or PERCH_ are never passed to an agent; %q is dropped", s.ID, name))
+			problems = append(problems, fmt.Sprintf("agent %q: variables starting FLOCKDECK_ are never passed to an agent; %q is dropped", s.ID, name))
 		case len(keep) >= maxPassEnv:
 			problems = append(problems, fmt.Sprintf("agent %q: passEnv takes at most %d names; %q is dropped", s.ID, maxPassEnv, name))
 		default:

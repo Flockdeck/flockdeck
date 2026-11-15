@@ -77,7 +77,7 @@ func (w *Workspace) BatonSource(paneID string) (BatonSource, error) {
 	extra := append([]string{}, spec.Env...)
 	if w.hookSrv != nil {
 		tok := w.hookSrv.Token()
-		extra = append(extra, "FLOCKDECK_TOKEN="+tok, "PERCH_TOKEN="+tok)
+		extra = append(extra, "FLOCKDECK_TOKEN="+tok)
 	}
 	return BatonSource{
 		Pane: baton.Pane{

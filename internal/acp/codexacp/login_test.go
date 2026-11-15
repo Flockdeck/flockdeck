@@ -141,7 +141,7 @@ func TestLoginCommandGetsANeutralDirectoryAndACleanEnvironment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := loginHarnessEnv(t, exe, "record", "FD_CODEXACP_LOGINOUT="+out, "FLOCKDECK_TOKEN=x", "PERCH_SESSION=x", "ANTHROPIC_API_KEY=k", "OPENAI_API_KEY=k",
+	h := loginHarnessEnv(t, exe, "record", "FD_CODEXACP_LOGINOUT="+out, "FLOCKDECK_TOKEN=x", "ANTHROPIC_API_KEY=k", "OPENAI_API_KEY=k",
 		"HTTPS_PROXY=http://proxy.example:3128", "NO_PROXY=localhost", "USERPROFILE=C:/h", "HOME=/h")
 	if r := h.call("authenticate", map[string]any{"methodId": agentlogin.MethodID}); r.Error != nil {
 		t.Fatalf("authenticate: %+v", r.Error)
@@ -160,7 +160,7 @@ func TestLoginCommandGetsANeutralDirectoryAndACleanEnvironment(t *testing.T) {
 	for _, n := range lines[1:] {
 		have[strings.ToUpper(n)] = true
 	}
-	for _, bad := range []string{"FLOCKDECK_TOKEN", "PERCH_SESSION", "ANTHROPIC_API_KEY", "OPENAI_API_KEY"} {
+	for _, bad := range []string{"FLOCKDECK_TOKEN", "ANTHROPIC_API_KEY", "OPENAI_API_KEY"} {
 		if have[bad] {
 			t.Errorf("the login command was given %s", bad)
 		}

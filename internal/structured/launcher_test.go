@@ -92,7 +92,7 @@ func TestOwnAdapterGetsHomeVariablesAndNoFlockdeckOnes(t *testing.T) {
 	r := &Runtime{ctx: context.Background(), opts: Options{
 		Spec: ownSpec(),
 		Environ: []string{"HOME=/home/u", "USERPROFILE=/u/profile", appData + "=/u/appdata",
-			"FLOCKDECK_TOKEN=secret", "flockdeck_api=x", "PERCH_TOKEN=s", "AWS_SECRET_ACCESS_KEY=k"},
+			"FLOCKDECK_TOKEN=secret", "flockdeck_api=x", "AWS_SECRET_ACCESS_KEY=k"},
 		Executable: func() (string, error) { return os.Executable() },
 	}}
 	cmd, _, err := r.resolve()
@@ -104,7 +104,7 @@ func TestOwnAdapterGetsHomeVariablesAndNoFlockdeckOnes(t *testing.T) {
 			t.Errorf("%s = %q, %v; want %q", name, got, ok, want)
 		}
 	}
-	for _, name := range []string{"FLOCKDECK_TOKEN", "flockdeck_api", "PERCH_TOKEN", "AWS_SECRET_ACCESS_KEY"} {
+	for _, name := range []string{"FLOCKDECK_TOKEN", "flockdeck_api", "AWS_SECRET_ACCESS_KEY"} {
 		if _, ok := envHas(cmd.env, name); ok {
 			t.Errorf("%s reached the adapter", name)
 		}

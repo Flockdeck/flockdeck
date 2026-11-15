@@ -263,7 +263,6 @@ func TestTaskOverTheCallbackAPIAndOutsideAPane(t *testing.T) {
 		t.Errorf("out = %q, err = %v", out.String(), err)
 	}
 	t.Setenv("FLOCKDECK_PANE", "")
-	t.Setenv("PERCH_PANE", "")
 	if err := runTask([]string{"list"}, strings.NewReader(""), &out); !errors.Is(err, errNotInPane) {
 		t.Errorf("err = %v, want the not-in-a-pane error", err)
 	}

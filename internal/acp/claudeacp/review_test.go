@@ -278,7 +278,8 @@ func TestShutdownDuringSessionNewLeavesNothingRunning(t *testing.T) {
 
 func TestCleanEnvDropsFlockdeckNamesInAnyCase(t *testing.T) {
 	got := cleanEnv([]string{"PATH=/bin", "FLOCKDECK_TOKEN=a", "Flockdeck_Api=b", "perch_x=c", "PERCH_Y=d", "FLOCKDECKX=keep", "HOME=/h"})
-	if want := []string{"PATH=/bin", "FLOCKDECKX=keep", "HOME=/h"}; !reflect.DeepEqual(got, want) {
+	// perch_x and PERCH_Y are ordinary variables now and stay.
+	if want := []string{"PATH=/bin", "perch_x=c", "PERCH_Y=d", "FLOCKDECKX=keep", "HOME=/h"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("env = %v", got)
 	}
 }

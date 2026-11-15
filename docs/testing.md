@@ -24,7 +24,7 @@ func TestMain(m *testing.M) { os.Exit(testiso.Main(m)) }
   `HOMEDRIVE` and `HOMEPATH`. It also unsets `CLAUDE_CONFIG_DIR` and `CODEX_HOME`,
   which the Claude Code and Codex readers look at before `HOME`;
 - unsets every `*_API_KEY`, `*_API_TOKEN` and `*_AUTH_TOKEN` in the environment;
-- unsets every `FLOCKDECK_*` and `PERCH_*` variable (the pane identity, the relay,
+- unsets every `FLOCKDECK_*` variable (the pane identity, the relay,
   the update switch, the signing key and the rest) and `GIT_CONFIG_COUNT`, except
   the `FLOCKDECK_TEST_*` and `FLOCKDECK_ACPTEST_*` helpers and the switches in
   `keptEnv` in `internal/testiso/iso/iso.go` that a person or CI sets to steer

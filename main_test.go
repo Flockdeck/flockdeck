@@ -166,12 +166,9 @@ func TestSpawnBadFlagIsReportedOnce(t *testing.T) {
 func TestSpawnOutsideAPaneExplainsItself(t *testing.T) {
 	t.Setenv("FLOCKDECK_API", "")
 	t.Setenv("FLOCKDECK_TOKEN", "")
-	// paneEnv still falls back to the names an earlier build used, so both
-	// spellings have to go. Running this test from inside a pane started by
-	// such a build would otherwise hand it a working address, and the test
-	// would spawn a real agent instead of failing to find one.
-	t.Setenv("PERCH_API", "")
-	t.Setenv("PERCH_TOKEN", "")
+	// Running this test from inside a pane would otherwise hand it a working
+	// address, and the test would spawn a real agent instead of failing to
+	// find one.
 
 	err := runSpawn([]string{"tidy", "the", "imports"})
 	if err == nil || !strings.Contains(err.Error(), "pane") {
@@ -214,8 +211,6 @@ func TestPeerNameBadFlagIsReportedOnce(t *testing.T) {
 func TestPeerNameOutsideAPaneExplainsItself(t *testing.T) {
 	t.Setenv("FLOCKDECK_API", "")
 	t.Setenv("FLOCKDECK_TOKEN", "")
-	t.Setenv("PERCH_API", "")
-	t.Setenv("PERCH_TOKEN", "")
 
 	err := runPeerName([]string{"flockdeck-8d"})
 	if err == nil || !strings.Contains(err.Error(), "pane") {
@@ -256,7 +251,7 @@ func TestCloseBadFlagIsReportedOnce(t *testing.T) {
 // Outside a pane there is no address to close through, and the message has
 // to say that rather than blaming the pane id.
 func TestCloseOutsideAPaneExplainsItself(t *testing.T) {
-	for _, name := range []string{"FLOCKDECK_API", "FLOCKDECK_TOKEN", "PERCH_API", "PERCH_TOKEN"} {
+	for _, name := range []string{"FLOCKDECK_API", "FLOCKDECK_TOKEN"} {
 		t.Setenv(name, "")
 	}
 
@@ -438,7 +433,7 @@ func TestSpawnTerminalAndShellContradict(t *testing.T) {
 // Outside a pane the answer says what is missing and how to start an agent
 // from where the user is: it said only where the command works.
 func TestSpawnOutsideAPaneSaysWhatToDoInstead(t *testing.T) {
-	for _, name := range []string{"FLOCKDECK_API", "FLOCKDECK_TOKEN", "PERCH_API", "PERCH_TOKEN"} {
+	for _, name := range []string{"FLOCKDECK_API", "FLOCKDECK_TOKEN"} {
 		t.Setenv(name, "")
 	}
 	err := runSpawn([]string{"watch the build"})

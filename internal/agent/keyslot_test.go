@@ -38,7 +38,7 @@ func TestBuiltinKeySlots(t *testing.T) {
 }
 
 func TestACPKeyEnvRefusesWhatIsNotAPlainName(t *testing.T) {
-	for _, name := range []string{"", "FLOCKDECK_API_KEY", "perch_key", "A=B", "A B", "A\nB", "PATH", "TEMP", "1ABC"} {
+	for _, name := range []string{"", "FLOCKDECK_API_KEY", "A=B", "A B", "A\nB", "PATH", "TEMP", "1ABC"} {
 		s := acpKeySpec()
 		s.API.KeyEnv = []string{name}
 		if got := s.ACPKeyEnv(); got != "" {

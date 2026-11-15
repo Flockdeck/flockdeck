@@ -372,7 +372,7 @@ func TestLoginRunsInTheTempDirWithoutKeysOrFlockdeckVariables(t *testing.T) {
 	cwd := t.TempDir() // the "project" directory the adapter itself runs in
 	t.Chdir(cwd)
 	sp := fakeSpec(t, "record", envOut+"="+out,
-		"FLOCKDECK_TOKEN=x", "PERCH_SESSION=x", "ANTHROPIC_API_KEY=k", "OPENAI_API_KEY=k", "ANTHROPIC_AUTH_TOKEN=k",
+		"FLOCKDECK_TOKEN=x", "ANTHROPIC_API_KEY=k", "OPENAI_API_KEY=k", "ANTHROPIC_AUTH_TOKEN=k",
 		"HTTPS_PROXY=http://proxy.example:3128", "NO_PROXY=localhost", "HOME=/h", "USERPROFILE=C:/h", "APPDATA=C:/a")
 	if err := Run(context.Background(), sp, func(string) {}); err != nil {
 		t.Fatal(err)
@@ -392,7 +392,7 @@ func TestLoginRunsInTheTempDirWithoutKeysOrFlockdeckVariables(t *testing.T) {
 		have[strings.ToUpper(n)] = true
 	}
 	for n := range have {
-		if strings.HasPrefix(n, "FLOCKDECK_") || strings.HasPrefix(n, "PERCH_") || strings.Contains(n, "API_KEY") || strings.Contains(n, "AUTH_TOKEN") {
+		if strings.HasPrefix(n, "FLOCKDECK_") || strings.Contains(n, "API_KEY") || strings.Contains(n, "AUTH_TOKEN") {
 			t.Errorf("the command was given %s", n)
 		}
 	}
@@ -405,7 +405,8 @@ func TestLoginRunsInTheTempDirWithoutKeysOrFlockdeckVariables(t *testing.T) {
 
 func TestLoginEnv(t *testing.T) {
 	got := LoginEnv([]string{"A=1", "flockdeck_x=1", "FLOCKDECK_Y=1", "CODEX_API_KEY=k", "x_auth_token=k", "PERCH_Z=1", "PATH=/bin"})
-	if strings.Join(got, ",") != "A=1,PATH=/bin" {
+	// PERCH_Z is an ordinary variable now.
+	if strings.Join(got, ",") != "A=1,PERCH_Z=1,PATH=/bin" {
 		t.Errorf("env = %v", got)
 	}
 }

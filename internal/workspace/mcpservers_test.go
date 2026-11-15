@@ -107,7 +107,7 @@ func TestUserServerEnvIsExactlyWhatTheEntryNames(t *testing.T) {
 	user := []store.MCPServerPref{
 		{Name: "bare", Command: "x"},
 		{Name: "s", Command: "x", Env: map[string]string{
-			"FLOCKDECK_TOKEN": "stolen", "flockdeck_api": "a", "Perch_Token": "p", "1BAD": "x", "A=B": "y", "SAFE": "ok",
+			"FLOCKDECK_TOKEN": "stolen", "flockdeck_api": "a", "1BAD": "x", "A=B": "y", "SAFE": "ok",
 		}},
 	}
 	w := mcpWorkspace(func(string) string { return "pane-token" }, user)

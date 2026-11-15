@@ -62,11 +62,11 @@ these rules, and refuse to go on when one does not hold:
    allow list (`stagedEnv`): the variables Windows needs, a `PATH` of Windows
    and git only (so no real agent is found), and the redirected directories.
    A pane's shell carries `FLOCKDECK_API`, `FLOCKDECK_TOKEN`,
-   `FLOCKDECK_PANE` and more, and their `PERCH_*` twins, all pointing at the
+   `FLOCKDECK_PANE` and more, all pointing at the
    live instance; a mock that saw them would post to it or start panes in it.
    The browsers get the same, with the real `USERPROFILE` (Chrome will not
    start without it); `go build` gets the caller's environment with every
-   `FLOCKDECK_*` and `PERCH_*` removed.
+   `FLOCKDECK_*` removed.
 3. **The live state directory is compared before and after.** Every file in
    `%APPDATA%\flockdeck` (and the old `perch`) is listed with its size, time
    and SHA-256 before anything starts and after everything stops. A file

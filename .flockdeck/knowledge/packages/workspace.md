@@ -34,6 +34,6 @@ A tab belongs to a project and so does a pane, but the two can differ: a tab may
 - Rearranging (`move.go`): `MovePane`, `SwapPanes`, `MovePaneToTab`, `TilePanes`, `MergeTab`, `MoveTab` move live sessions without restarting them.
 - Project groups: [groups](/data/groups-file.md); `ensureGroup` makes every open root a group of one by default.
 - Broadcast, auto-review (`SetPaneAutoReview`), lock (`SetPaneLocked`), mute (`SetPaneMuted`, not persisted), peer name (`SetPanePeerName`, not persisted).
-- Pane environment: `FLOCKDECK_API`, `FLOCKDECK_TOKEN`, `FLOCKDECK_PANE`, `FLOCKDECK_PANE_NAME`, `FLOCKDECK_PROJECT` (each also under a legacy `PERCH_` name), plus `FLOCKDECK_AGENT`, `FLOCKDECK_MODEL`, `FLOCKDECK_ROLE` when applicable. See [FLOCKDECK_PANE](/config/flockdeck-pane.md).
+- Pane environment: `FLOCKDECK_API`, `FLOCKDECK_TOKEN`, `FLOCKDECK_PANE`, `FLOCKDECK_PANE_NAME`, `FLOCKDECK_PROJECT`, plus `FLOCKDECK_AGENT`, `FLOCKDECK_MODEL`, `FLOCKDECK_ROLE` when applicable. See [FLOCKDECK_PANE](/config/flockdeck-pane.md).
 
 Depends on [session](/packages/session.md), [layout](/packages/layout.md), [store](/packages/store.md), [gitx](/packages/gitx.md), [record](/packages/record.md), [hooks](/packages/hooks.md).

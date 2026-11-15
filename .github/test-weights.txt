@@ -36,7 +36,6 @@ internal/jev 0.135 0.182 0.185 1.239
 internal/jevgate 0.177 0.229 0.261 1.318
 internal/keybindings 0.014 1.722 0.133 1.059
 internal/layout 0.201 0.239 0.359 2.671
-internal/legacyenv 0.002 0.023 0.012 1.012
 internal/pricing 0.003 0.056 0.011 1.017
 internal/proctree 0.866 0.501 1.430 1.896
 internal/radar 0.464 8.695 1.596 1.453

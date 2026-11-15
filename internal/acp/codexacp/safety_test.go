@@ -417,7 +417,7 @@ func TestErrorsNeverCarryCodexText(t *testing.T) {
 
 func TestEnvironmentLeavesFlockdeckOut(t *testing.T) {
 	h := newHarness(t, nil, hopts{extraEnv: []string{
-		"FLOCKDECK_TOKEN=a", "flockdeck_lower=b", "Flockdeck_Mixed=c", "PERCH_X=d", "OPENAI_API_KEY=keep", "CODEX_HOME=keep2",
+		"FLOCKDECK_TOKEN=a", "flockdeck_lower=b", "Flockdeck_Mixed=c", "OPENAI_API_KEY=keep", "CODEX_HOME=keep2",
 	}})
 	h.start()
 	var envs []string
@@ -427,7 +427,7 @@ func TestEnvironmentLeavesFlockdeckOut(t *testing.T) {
 		}
 	}
 	joined := strings.Join(envs, "\n")
-	for _, bad := range []string{"FLOCKDECK_TOKEN", "FLOCKDECK_LOWER", "FLOCKDECK_MIXED", "PERCH_X"} {
+	for _, bad := range []string{"FLOCKDECK_TOKEN", "FLOCKDECK_LOWER", "FLOCKDECK_MIXED"} {
 		if strings.Contains(joined, bad) {
 			t.Errorf("%s reached codex", bad)
 		}

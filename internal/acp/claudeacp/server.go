@@ -106,7 +106,7 @@ func cleanEnv(env []string) []string {
 	for _, kv := range env {
 		// Windows names are not case sensitive, so neither is this.
 		up := strings.ToUpper(kv)
-		if strings.HasPrefix(up, "FLOCKDECK_") || strings.HasPrefix(up, "PERCH_") {
+		if strings.HasPrefix(up, "FLOCKDECK_") {
 			continue
 		}
 		out = append(out, kv)
