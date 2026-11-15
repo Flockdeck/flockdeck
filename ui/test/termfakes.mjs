@@ -53,6 +53,9 @@ export class FakeTerm {
     this.dataHandlers = [];
     this.binaryHandlers = [];
     this.textarea = null;
+    // The rows of the screen, as strings, for the code that reads the buffer (a question form).
+    this.screen = null;
+    this.buffer = { active: { baseY: 0, getLine: (i) => (this.screen && this.screen[i] != null ? { translateToString: () => this.screen[i] } : undefined) } };
     FakeTerm.instances.push(this);
   }
   loadAddon() {}

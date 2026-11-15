@@ -14,10 +14,10 @@ import { ageOf } from "../graph/NeedsYou.js";
 import { questionOptions } from "../graph/DecisionBlock.js";
 import { usePaneSend } from "../graph/ManagerBar.js";
 import { showControls } from "./diff/diffModel.js";
-import { Question, IN_TERMINAL_WORDS } from "./Prompt.js";
+import { Question, IN_TERMINAL_WORDS, canForm } from "./Prompt.js";
 
 /** StreamDecision draws the card. node and pane are the graph's and the state push's entries for the pane, snap the store's snapshot and store the store. */
-export function StreamDecision({ node, pane, snap, store, now = Date.now() }) {
+export function StreamDecision({ node, pane, snap, store, now = Date.now(), sendKeys = null, readScreen = null, readCols = null }) {
   const [picked, setPicked] = useState("");
   // One send at a time: a second click before the card is drawn again finds it answered, and a refusal leaves the choices to be pressed again.
   const [out, go] = usePaneSend(snap, (m) => store.send(m));
@@ -34,10 +34,14 @@ export function StreamDecision({ node, pane, snap, store, now = Date.now() }) {
   };
   const note = out && out.kind === "refused" ? showControls(clip(out.text, 160)) : "";
   const status = out && out.kind === "sent" ? "Sent “" + clip(picked, 80) + "”. Waiting for the agent." : out && out.kind === "sending" ? "Sending…" : note;
+  // A terminal that can be read and typed into answers with the question form, which picks in claude's own screen; the buttons below type a label as text.
+  const form = !snap.remote && sendKeys && readScreen && canForm(questions);
   return html`<section class="prompt prompt--stream prompt--decision" role="region" aria-label=${clip(name, 40) + ", decision for you"} data-prompt="ask">
     <p class="prompt-label">${clip(name, 40)}, decision for you</p>
     <h3 class="prompt-title">${age ? "Waiting " + age : "Waiting on you"}</h3>
-    ${options.length > 0 && !snap.remote
+    ${form
+      ? html`<${Question} node=${node} ask=${ask} snap=${snap} store=${store} sendKeys=${sendKeys} readScreen=${readScreen} readCols=${readCols} />`
+      : options.length > 0 && !snap.remote
       ? html`${questions.map((q) => html`<p class="prompt-text">${q.question}</p>`)}
           <div class="prompt-choices" role="group" aria-label="Choices">
             ${options.map((label, i) => html`<button type="button" class=${"prompt-choice" + (i === 0 ? " prompt-choice--primary" : "")} data-option=${label} aria-disabled=${busy ? "true" : undefined} onClick=${() => pick(label)}>${clip(label, 80)}</button>`)}

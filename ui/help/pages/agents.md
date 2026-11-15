@@ -225,9 +225,22 @@ What to know before you use one:
 - **A card shows what you are approving.** A request to leave plan mode shows the
   plan, and a request to edit a file shows the diff. Both are text the agent wrote,
   drawn as plain text and cut when long. When the agent asks you questions (Claude
-  Code does), the card lists them with their options. Choose one or more, or type
-  your own answer, and press *Send answers*; *Skip* tells the agent you did not
-  answer.
+  Code does), the card shows each one as a group of options: round buttons when one
+  answer is allowed, boxes when several are, and *Other* as the last option, which
+  opens a box for your own answer. Click an option, or use the arrow keys and Space,
+  or press 1 to 9 to choose option by number. A list under the questions shows what
+  you have chosen, and *Send answers* sends them all at once (Enter does the same
+  once every question is answered). *Skip* tells the agent you did not answer.
+- **A terminal pane's question is answered in its own screen.** Claude Code's
+  question screen has no mouse. The card reads that screen, moves its cursor with
+  the arrow keys, picks with Enter or Space, goes through the review step and
+  presses *Submit answers* for you. Before every key it checks the screen. If the
+  terminal is showing something else, a question you already moved by hand, or text
+  typed in an *Other* row, the card types nothing more, says so, and leaves the
+  rest to you in the terminal. Before it submits it checks that the review lists
+  exactly your answers. To cancel, or to chat about the question, use the terminal.
+  Your own answer must fit on one row of the terminal; the card says so when it
+  does not. A phone gets no question card and cannot send these keys.
 - **opencode is started to ask, which a repository can override.** opencode, as
   shipped, runs commands and edits files without a question, so Flockdeck starts it
   with `bash` and `edit` set to ask, and each arrives as a permission card. This

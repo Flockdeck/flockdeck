@@ -149,6 +149,27 @@
 .prompt-qtext { white-space: pre-wrap; max-height: 20vh; overflow: auto; }
 .prompt-opt { display: flex; gap: 8px; align-items: baseline; font-size: var(--fs-lg); overflow-wrap: anywhere; }
 .prompt-opt input[type="text"] { flex: 1; min-width: 0; font: inherit; font-size: var(--fs-lg); background: var(--bg-inset); color: var(--fg); border: 1px solid var(--line); border-radius: var(--radius); padding: 4px 6px; }
+/* A whole option row is the target, not only the box, and the chosen row says so. */
+.prompt-opt { align-items: flex-start; padding: 4px 6px; border: 1px solid transparent; border-radius: var(--radius); cursor: pointer; min-height: 32px; }
+.prompt-opt.is-chosen { border-color: var(--accent, var(--fg-dim)); background: var(--bg-inset); }
+.prompt-opt:focus-within { outline: 2px solid var(--accent, var(--fg)); outline-offset: 1px; }
+.prompt-opt input[type="radio"], .prompt-opt input[type="checkbox"] { margin-top: 3px; flex: none; }
+.prompt-opt-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.prompt-other { cursor: default; }
+.prompt-other-body { flex-direction: row; flex-wrap: wrap; align-items: baseline; gap: 6px 8px; }
+.prompt-other-body .prompt-other-text { flex: 1 1 12em; }
+.prompt-chosen { margin: 0; padding: 6px 8px; list-style: none; border: 1px dashed var(--line); border-radius: var(--radius); display: flex; flex-direction: column; gap: 2px; font-size: var(--fs-md); }
+.prompt-chosen li { overflow-wrap: anywhere; }
+.prompt-chosen-q { color: var(--fg-dim); }
+.prompt-chosen .is-unset .prompt-chosen-a { color: var(--fg-dim); font-style: italic; }
+.prompt-hint { margin: 0; font-size: var(--fs-md); color: var(--fg-dim); }
+@media (pointer: coarse), (max-width: 640px) {
+  .prompt-opt { min-height: 44px; align-items: center; }
+  .prompt-opt input[type="radio"], .prompt-opt input[type="checkbox"] { width: 22px; height: 22px; margin-top: 0; }
+  .prompt-hint { display: none; }
+  .prompt-qlist { max-height: 55vh; }
+}
+@media (prefers-contrast: more) { .prompt-opt.is-chosen { border-width: 2px; border-color: var(--fg); } }
 .prompt-qlist { display: flex; flex-direction: column; gap: 10px; max-height: 45vh; overflow: auto; min-height: 0; }
 .prompt-qfoot { position: sticky; bottom: 0; padding-top: 6px; background: var(--bg-overlay); }
 .prompt-option-desc { color: var(--fg-dim); font-size: var(--fs-md); display: inline-block; max-height: 5em; overflow: auto; vertical-align: top; }

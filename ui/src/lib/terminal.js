@@ -614,6 +614,22 @@ export function createTerminal(opts) {
       if (!line) return "";
       return linkIn(line.translateToString(true), col);
     },
+    /** screenLines is the rows of the screen as plain text, the bottom of the buffer where a
+     *  program drawing in place (claude's question screen) keeps its picture, or null
+     *  while there is no terminal. Nothing in it is sent anywhere: the question form reads
+     *  it to check that the program is where a key needs it to be before the key is typed. */
+    screenLines() {
+      if (!term || !term.buffer || !term.buffer.active) return null;
+      const buf = term.buffer.active;
+      const out = [];
+      for (let i = 0; i < term.rows; i++) {
+        const line = buf.getLine(buf.baseY + i);
+        out.push(line ? line.translateToString(true) : "");
+      }
+      return out;
+    },
+    /** screenCols is how many columns the terminal has, or 0 while there is none. */
+    screenCols() { return term ? term.cols || 0 : 0; },
     /** searchReady loads the search addon the first time, and resolves with
      *  whether Find in terminal can work. After a failure the next call tries again. */
     searchReady() {
