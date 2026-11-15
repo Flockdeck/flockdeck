@@ -514,6 +514,10 @@ type Runtime struct {
 	ckptRun  string
 	undoSeq  int
 	filesWhy string
+	// ckptSkip is how many more typed prompts get no checkpoint, after a save
+	// that failed or was slow, and ckptSkipWhy is what filesWhy says for them.
+	ckptSkip    int
+	ckptSkipWhy string
 	// cleared says the agent moved the conversation to another session id on its
 	// own (/clear), so the turn tokens name turns of the old one. rewindMove is
 	// set while this runtime's own rewind runs: the agent then moves the

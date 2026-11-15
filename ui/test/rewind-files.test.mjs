@@ -3,7 +3,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { render } from "../src/vendor/preact.mjs";
 import { html } from "../src/html.js";
-import { rewindMessage, resultWords, filesMessage, filesOffered, filesWhy, filesOf, restoreWords, FILES_NONE_WORDS, FILES_EMPTY_WORDS } from "../src/drawer/rewindModel.js";
+import { rewindMessage, resultWords, filesMessage, filesOffered, filesWhy, filesOf, restoreWords, hasFilterBlock, FILES_FILTER_WORDS, FILES_NONE_WORDS, FILES_EMPTY_WORDS } from "../src/drawer/rewindModel.js";
 import { RewindPanel } from "../src/drawer/RewindPanel.js";
 import { escEsc, DOUBLE_ESC_MS } from "../src/drawer/escEscModel.js";
 import { createDom, install, settle } from "./dom.mjs";
@@ -170,4 +170,18 @@ test("a blocked list names the files and offers no put-back button", async () =>
   } finally {
     await m.done();
   }
+});
+
+test("a restore refused after the conversation went back names the blocked files and why", () => {
+  const r = resultWords({ ok: true, op: "structuredRewind", text: "x", restore: { written: 0, removed: 0, kept: "refs/flockdeck/rewind-undo/kept/r/1", error: "Some files could not be put back safely, so none were. The conversation did go back.", blocked: [{ path: "assets/logo.png", reason: "uses a git filter (Git LFS, for example) or an encoding" }, { path: "gen.txt", reason: "exists and git ignores it" }] } });
+  assert.ok(r.words.includes("assets/logo.png (uses a git filter (Git LFS, for example) or an encoding)"), r.words);
+  assert.ok(r.words.includes("gen.txt (exists and git ignores it)"));
+  assert.ok(r.words.includes(FILES_FILTER_WORDS), "LFS is said plainly");
+  assert.ok(r.words.includes("refs/flockdeck/rewind-undo/kept/r/1"));
+  const plain = restoreWords({ written: 1, blocked: [{ path: "a", reason: "exists and git ignores it" }] });
+  assert.ok(!plain.includes(FILES_FILTER_WORDS));
+  assert.equal(hasFilterBlock([{ path: "a", reason: "exists and git ignores it" }]), false);
+  assert.equal(hasFilterBlock(null), false);
+  const many = restoreWords({ blocked: Array.from({ length: 7 }, (_, i) => ({ path: "f" + i, reason: "x" })) });
+  assert.ok(many.includes("and 2 more"));
 });

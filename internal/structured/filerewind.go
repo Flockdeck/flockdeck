@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/jmwri/flockdeck/internal/filerewind"
@@ -39,9 +40,39 @@ const (
 	FilesWhyNoGit   = "Git is not installed, so Flockdeck has no saved files to put back. Only the conversation can go back."
 	FilesWhyMid     = "A merge, rebase or similar operation was under way when that prompt was sent, so its files were not saved. Only the conversation can go back."
 	FilesWhyFailed  = "Flockdeck could not save the files when that prompt was sent. Only the conversation can go back."
-	FilesWhyTooBig  = "The folder has too many changed or untracked files (over 3000), or one over 32 MB, so its files were not saved when that prompt was sent. Only the conversation can go back."
 	FilesWhySlow    = "Saving the files took too long, so they were not saved when that prompt was sent. Only the conversation can go back."
+	// FilesWhySlowNow is for a list or a restore that took too long. The files
+	// were saved; nothing was changed.
+	FilesWhySlowNow = "Comparing the saved files with the files now took too long, so nothing was changed. The saved files are still there; try again."
+	// FilesWhyTooBig is the general form; whyText names the limit and the file.
+	FilesWhyTooBig = "The folder has too many changed or untracked files, or files that are too large, so its files were not saved when that prompt was sent. Only the conversation can go back."
 )
+
+const (
+	// skipPrompts is how many typed prompts get no checkpoint after a save that
+	// failed or took too long, so that a folder Flockdeck cannot save quickly does
+	// not hold up every prompt.
+	skipPrompts = 3
+)
+
+// slowSave is how long a save may take before the next prompts skip it. A
+// variable so that a test can lower it.
+var slowSave = 10 * time.Second
+
+// whyFile is a file name as it is shown in a reason: control characters out and
+// at most 100 characters.
+func whyFile(p string) string {
+	p = strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return -1
+		}
+		return r
+	}, p)
+	if rs := []rune(p); len(rs) > 100 {
+		p = "..." + string(rs[len(rs)-97:])
+	}
+	return p
+}
 
 // FilesOutcome says what became of the files in a RewindFiles call whose
 // conversation went back.
@@ -70,11 +101,43 @@ func whyText(err error) string {
 	case errors.Is(err, filerewind.ErrMidOperation):
 		return FilesWhyMid
 	case errors.Is(err, filerewind.ErrTooBig):
-		return FilesWhyTooBig
+		return tooBigText(err)
 	case errors.Is(err, filerewind.ErrSlow):
 		return FilesWhySlow
+	case errors.Is(err, filerewind.ErrSlowNow):
+		return FilesWhySlowNow
+	case errors.Is(err, filerewind.ErrEncoding):
+		var fe *filerewind.FileError
+		if errors.As(err, &fe) && fe.Path != "" {
+			return fmt.Sprintf("Git could not convert %s to its working-tree encoding (a .gitattributes rule asks for it), so the files were not saved when that prompt was sent. Fix the file or the rule. Only the conversation can go back.", whyFile(fe.Path))
+		}
+		return "Git could not convert a file to its working-tree encoding (a .gitattributes rule asks for it), so the files were not saved when that prompt was sent. Only the conversation can go back."
 	}
 	return FilesWhyFailed
+}
+
+// tooBigText says which limit the folder is over and, for a file, which.
+func tooBigText(err error) string {
+	var te *filerewind.TooBigError
+	if !errors.As(err, &te) {
+		return FilesWhyTooBig
+	}
+	const tail = " Only the conversation can go back."
+	switch te.Kind {
+	case filerewind.TooManyFiles:
+		return fmt.Sprintf("The folder has %d changed or untracked files, over the limit of %d, so its files were not saved when that prompt was sent.%s", te.Files, filerewind.MaxFiles, tail)
+	case filerewind.FileTooLarge:
+		return fmt.Sprintf("%s is %d MB, over the limit of %d MB for one file, so the files were not saved when that prompt was sent. Move it out of the folder or ignore it in .gitignore.%s", whyFile(te.Path), te.Size>>20, filerewind.MaxFileBytes>>20, tail)
+	}
+	return fmt.Sprintf("The changed and untracked files add up to more than %d MB (the limit was passed at %s), so they were not saved when that prompt was sent. Ignore or move the large ones.%s", filerewind.MaxTotalBytes>>20, whyFile(te.Path), tail)
+}
+
+// backsOff says a failed save is one worth skipping the next prompts for: it
+// took git a while or can fail again the same way. A folder that is not a
+// repository, a missing git and a merge under way are quick to find out each time.
+func backsOff(err error) bool {
+	return !errors.Is(err, filerewind.ErrNotRepo) && !errors.Is(err, filerewind.ErrNoGit) &&
+		!errors.Is(err, filerewind.ErrMidOperation) && !errors.Is(err, filerewind.ErrTooBig)
 }
 
 // checkpoint saves the files, or notes why it could not. It is called from the
@@ -88,16 +151,34 @@ func (r *Runtime) checkpoint() filerewind.Checkpoint {
 	c := r.client
 	if r.ckptRun == "" {
 		r.ckptRun = newToken()
-		filerewind.Register(r.ckptRun)
+		filerewind.Register(r.opts.Cwd, r.ckptRun)
 	}
 	run, n := r.ckptRun, len(r.marks)+1
 	r.mu.Unlock()
 	if c == nil || !c.Capabilities().Rewind {
 		return filerewind.Checkpoint{}
 	}
+	r.mu.Lock()
+	if r.ckptSkip > 0 {
+		r.ckptSkip--
+		r.filesWhy = r.ckptSkipWhy
+		r.mu.Unlock()
+		return filerewind.Checkpoint{}
+	}
+	r.mu.Unlock()
+	start := time.Now()
 	cp, err := filerewind.Capture(r.ctx, r.opts.Cwd, fmt.Sprintf("%s%s/%d-%d", filerewind.RefPrefix, run, n, time.Now().UnixNano()))
+	took := time.Since(start)
 	r.mu.Lock()
 	r.filesWhy = whyText(err)
+	switch {
+	case err != nil && backsOff(err):
+		r.ckptSkip = skipPrompts
+		r.ckptSkipWhy = fmt.Sprintf("Saving the files failed or took too long for an earlier prompt, so Flockdeck skips it for the next %d prompts and then tries again. The reason was: %s", skipPrompts, r.filesWhy)
+	case err == nil && took > slowSave:
+		r.ckptSkip = skipPrompts
+		r.ckptSkipWhy = fmt.Sprintf("Saving the files took %d seconds for an earlier prompt, so Flockdeck skips it for the next %d prompts and then tries again. Only the conversation can go back.", int(took.Seconds()), skipPrompts)
+	}
 	r.mu.Unlock()
 	if err != nil {
 		return filerewind.Checkpoint{}

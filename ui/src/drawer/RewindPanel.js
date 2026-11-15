@@ -13,7 +13,7 @@
 import { useState, useEffect } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
 import { showControls } from "./diff/diffModel.js";
-import { pointsOf, rewindOffered, canAct, rewindMessage, forkMessage, filesMessage, filesOffered, filesWhy, resultWords, REWIND_NOT_SENT_WORDS, REWIND_NOT_OFFERED_WORDS, REWIND_BUSY_WORDS, REWIND_NONE_WORDS, REWIND_CONFIRM_WORDS, FILES_NONE_WORDS, FILES_EMPTY_WORDS, FILES_SAFE_WORDS, FILES_ACTION_WORDS, FILES_BLOCKED_WORDS, FILES_NESTED_WORDS } from "./rewindModel.js";
+import { pointsOf, rewindOffered, canAct, rewindMessage, forkMessage, filesMessage, filesOffered, filesWhy, resultWords, REWIND_NOT_SENT_WORDS, REWIND_NOT_OFFERED_WORDS, REWIND_BUSY_WORDS, REWIND_NONE_WORDS, REWIND_CONFIRM_WORDS, FILES_NONE_WORDS, FILES_EMPTY_WORDS, FILES_SAFE_WORDS, FILES_ACTION_WORDS, FILES_BLOCKED_WORDS, FILES_FILTER_WORDS, FILES_NESTED_WORDS, hasFilterBlock } from "./rewindModel.js";
 
 let rewindSeq = 0;
 
@@ -75,7 +75,7 @@ export function RewindPanel({ pane, store, st, entries = [], result = null, onTe
     const nested = listing.nested && listing.nested.length ? html`<span class="rewind-files-note" data-files="nested">${FILES_NESTED_WORDS} ${listing.nested.map((p) => showControls(p)).join(", ")}</span>` : null;
     if (listing.blocked && listing.blocked.length) {
       return html`<span class="rewind-files" data-files="blocked"><span class="rewind-files-note">${FILES_BLOCKED_WORDS}</span>
-        <ul class="rewind-file-list">${listing.blocked.map((b) => html`<li key=${b.path} class="rewind-file" data-action="blocked"><span class="rewind-file-path">${showControls(b.path)}</span> ${b.reason}</li>`)}</ul>${nested}</span>`;
+        <ul class="rewind-file-list">${listing.blocked.map((b) => html`<li key=${b.path} class="rewind-file" data-action="blocked"><span class="rewind-file-path">${showControls(b.path)}</span> ${b.reason}</li>`)}</ul>${hasFilterBlock(listing.blocked) ? html`<span class="rewind-files-note" data-files="filter">${FILES_FILTER_WORDS}</span>` : null}${nested}</span>`;
     }
     if (listing.files.length === 0) return html`<span class="rewind-files" data-files="empty"><span class="rewind-files-note">${FILES_EMPTY_WORDS}</span>${nested}</span>`;
     return html`<span class="rewind-files" data-files="list">

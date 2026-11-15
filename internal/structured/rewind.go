@@ -271,8 +271,12 @@ func (r *Runtime) rewind(id, token string, files []filerewind.Confirm, out *File
 		if (out.Err != nil || len(out.Result.Failed) > 0) && len(cut) > 0 && cut[0].ckpt.Ref != "" {
 			// The restore did not finish. The checkpoint of the prompt is the only
 			// copy the person can restore from by hand, so it is kept.
+			// If the ref cannot be moved it stays where it is and is named as it
+			// is. It is not dropped with the other cut checkpoints.
 			if kept, err := filerewind.Keep(r.opts.Cwd, cut[0].ckpt.Ref); err == nil {
 				out.Result.Kept = kept
+			} else {
+				out.Result.Kept = cut[0].ckpt.Ref
 			}
 			cut = cut[1:]
 		}

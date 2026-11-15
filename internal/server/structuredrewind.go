@@ -91,6 +91,9 @@ type rewindRestoreView struct {
 	Kept   string   `json:"kept,omitempty"`
 	Failed []string `json:"failed,omitempty"`
 	Error  string   `json:"error,omitempty"`
+	// Blocked lists the files that made the restore unsafe, so that a restore
+	// refused after the conversation went back says which and why.
+	Blocked []rewindBlockedView `json:"blocked,omitempty"`
 }
 
 func fileViews(cs []filerewind.Change) []rewindFileView {
@@ -149,8 +152,8 @@ func filesRefusal(err error) (string, bool) {
 		return structured.FilesWhyNoGit, true
 	case errors.Is(err, filerewind.ErrMidOperation):
 		return structured.FilesWhyMid, true
-	case errors.Is(err, filerewind.ErrTooBig):
-		return structured.FilesWhyTooBig, true
+	case errors.Is(err, filerewind.ErrSlowNow):
+		return structured.FilesWhySlowNow, true
 	case errors.Is(err, filerewind.ErrSlow):
 		return structured.FilesWhySlow, true
 	}
@@ -255,18 +258,28 @@ func (s *Server) structuredRewind(c *controlClient, cmd command) {
 		cut, wasCut := clipStructured(text, structuredRewindTextCut)
 		msg := teamResultMsg{Type: "teamResult", Req: cmd.Req, Op: cmd.Cmd, OK: true, Text: cut, Cut: wasCut}
 		if cmd.RestoreFiles {
-			v := &rewindRestoreView{Written: out.Result.Written, Removed: out.Result.Removed, Undo: out.Result.Undo, Kept: out.Result.Kept}
-			for _, f := range out.Result.Failed {
-				f, _ = clipStructured(f, 400)
-				v.Failed = append(v.Failed, f)
-			}
-			if out.Err != nil {
-				v.Error = filesFailureText(out.Err)
-			}
+			v := restoreView(out)
 			msg.Restore = v
 		}
 		c.sendJSON(msg)
 	}()
+}
+
+// restoreView is what a restore of files did, for the answer to the window.
+func restoreView(out structured.FilesOutcome) *rewindRestoreView {
+	v := &rewindRestoreView{Written: out.Result.Written, Removed: out.Result.Removed, Undo: out.Result.Undo, Kept: out.Result.Kept}
+	for _, f := range out.Result.Failed {
+		f, _ = clipStructured(f, 400)
+		v.Failed = append(v.Failed, f)
+	}
+	if out.Err != nil {
+		v.Error = filesFailureText(out.Err)
+		var be *filerewind.BlockedError
+		if errors.As(out.Err, &be) {
+			v.Blocked = blockedViews(be.Items)
+		}
+	}
+	return v
 }
 
 // doRewindFiles answers structuredRewindFiles: what going back would change.

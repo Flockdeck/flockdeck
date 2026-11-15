@@ -14,6 +14,7 @@ export const FILES_NONE_WORDS = "No saved files exist for this prompt, so only t
 export const FILES_EMPTY_WORDS = "No files differ from how they were when this prompt was sent.";
 export const FILES_SAFE_WORDS = "Only the files listed are changed. Ignored files, files behind a link and the git index are left alone. Before anything is written, the files as they are now are saved in git, and the answer names where.";
 export const FILES_BLOCKED_WORDS = "These files cannot be put back safely, so the files are not put back. Deal with them, or go back without the files:";
+export const FILES_FILTER_WORDS = "Files stored with Git LFS, or run through any other git filter or working-tree encoding, are never put back, because checking them out would run the filter. Go back without the files, then restore those by hand.";
 export const FILES_NESTED_WORDS = "Not touched, because they are nested repositories or submodules:";
 export const FILES_ACTION_WORDS = { overwrite: "gets its earlier content back", recreate: "is written back (it was deleted)", remove: "is deleted (it was created later)" };
 
@@ -65,6 +66,11 @@ export function rewindMessage(pane, entry, req, token, files) {
 export function blockedOf(list) {
   if (!Array.isArray(list)) return [];
   return list.filter((b) => b && typeof b.path === "string" && b.path).map((b) => ({ path: clean(b.path, 400), reason: clean(b.reason, 120) }));
+}
+
+/** hasFilterBlock says one of the blocked files is held back by a git filter (LFS) or an encoding. */
+export function hasFilterBlock(blocked) {
+  return Array.isArray(blocked) && blocked.some((b) => b && typeof b.reason === "string" && b.reason.includes("git filter"));
 }
 
 /** nestedOf keeps the names of nested repositories an answer says were skipped. */
@@ -134,6 +140,11 @@ export function restoreWords(r) {
   if (typeof r.kept === "string" && r.kept) w += " The saved files from the prompt are kept in git as " + clean(r.kept, 200) + ", so you can put them back by hand (git checkout " + clean(r.kept, 200) + " -- <file>).";
   if (typeof r.undo === "string" && r.undo) w += " The files as they were before are saved in git as " + clean(r.undo, 200) + " (git checkout " + clean(r.undo, 200) + " -- . puts them back).";
   if (typeof r.error === "string" && r.error) w += " " + clean(r.error, 300);
+  const blocked = blockedOf(r.blocked);
+  if (blocked.length) {
+    w += " Not put back, because they could not be put back safely: " + blocked.slice(0, 5).map((b) => b.path + (b.reason ? " (" + b.reason + ")" : "")).join("; ") + (blocked.length > 5 ? "; and " + (blocked.length - 5) + " more." : ".");
+    if (hasFilterBlock(blocked)) w += " " + FILES_FILTER_WORDS;
+  }
   if (Array.isArray(r.failed) && r.failed.length) w += " Not restored: " + r.failed.slice(0, 5).map((f) => clean(f, 200)).join("; ") + (r.failed.length > 5 ? "; and " + (r.failed.length - 5) + " more." : ".");
   return w;
 }

@@ -23,9 +23,11 @@
 //   - A file that a git filter (LFS, a smudge driver) or a working-tree encoding
 //     applies to is refused: checking it out would run the filter.
 //   - Submodules and nested repositories are skipped and reported.
-//   - A checkout with more than MaxFiles changed or untracked files, or one of
-//     them over MaxFileBytes, is not saved at all, since a partial copy would
-//     make a restore delete files it never saw.
+//   - A checkout with more than MaxFiles changed or untracked files, one of
+//     them over MaxFileBytes, or MaxTotalBytes of them together, is not saved at
+//     all, since a partial copy would make a restore delete files it never saw.
+//     The limits apply when a checkpoint is made; listing and restoring read
+//     whatever the files are now.
 //   - A checkout in the middle of a merge, rebase, cherry-pick, revert or bisect
 //     is not saved and not restored.
 //
@@ -43,6 +45,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"sort"
 	"strings"
@@ -64,8 +67,14 @@ var (
 	// ErrTooBig means the checkout has too many changed or untracked files, or a
 	// file that is too large, to be saved in a reasonable time.
 	ErrTooBig = errors.New("too many or too large files to save")
-	// ErrSlow means saving or comparing the files took too long.
+	// ErrSlow means saving the files took too long.
 	ErrSlow = errors.New("saving the files took too long")
+	// ErrSlowNow means listing or restoring the files took too long. It is not
+	// about the checkpoint, which was saved.
+	ErrSlowNow = errors.New("comparing the files now took too long")
+	// ErrEncoding means git could not convert a file to its working-tree
+	// encoding, see FileError.
+	ErrEncoding = errors.New("a file could not be converted to its working-tree encoding")
 	// ErrChanged means the files differ from the list that was confirmed.
 	ErrChanged = errors.New("the files changed since the list was shown")
 	// ErrBlocked means some file cannot be put back safely; see BlockedError.
@@ -80,7 +89,7 @@ const (
 	MaxFiles = 3000
 	// MaxFileBytes is the largest such file, and MaxTotalBytes the most together.
 	MaxFileBytes  = 32 << 20
-	MaxTotalBytes = 256 << 20
+	MaxTotalBytes = 128 << 20
 
 	captureTimeout = 15 * time.Second
 	planTimeout    = 30 * time.Second
@@ -98,6 +107,47 @@ const (
 	// before Sweep removes it.
 	StaleRunAge = 7 * 24 * time.Hour
 )
+
+// TooBigError says which limit a checkout is over, and names the file when one
+// file is the reason. It unwraps to ErrTooBig.
+type TooBigError struct {
+	// Kind is TooManyFiles, FileTooLarge or TotalTooLarge.
+	Kind string
+	// Path is the file over the limit (FileTooLarge) or the file that took the
+	// total over it (TotalTooLarge).
+	Path string
+	// Size is the file's size in bytes, or for TotalTooLarge the total so far.
+	Size int64
+	// Files is how many changed or untracked files there are (TooManyFiles).
+	Files int
+}
+
+// Kinds of TooBigError.
+const (
+	TooManyFiles  = "files"
+	FileTooLarge  = "file"
+	TotalTooLarge = "total"
+)
+
+func (e *TooBigError) Error() string {
+	switch e.Kind {
+	case TooManyFiles:
+		return fmt.Sprintf("%s: %d changed or untracked files", ErrTooBig, e.Files)
+	case FileTooLarge:
+		return fmt.Sprintf("%s: %s is %d MB", ErrTooBig, e.Path, e.Size>>20)
+	}
+	return fmt.Sprintf("%s: more than %d MB in all, at %s", ErrTooBig, e.Size>>20, e.Path)
+}
+func (e *TooBigError) Unwrap() error { return ErrTooBig }
+
+// FileError names the file a failed save is about. It unwraps to Err.
+type FileError struct {
+	Path string
+	Err  error
+}
+
+func (e *FileError) Error() string { return fmt.Sprintf("%s: %s", e.Err, e.Path) }
+func (e *FileError) Unwrap() error { return e.Err }
 
 // limits are the size limits, a variable so that a test can lower them.
 var limits = struct {
@@ -144,7 +194,7 @@ const (
 	ReasonIgnored = "exists and git ignores it"
 	ReasonFolder  = "is a folder that holds other files"
 	ReasonInWay   = "has a file in the way"
-	ReasonFilter  = "uses a git filter or encoding"
+	ReasonFilter  = "uses a git filter (Git LFS, for example) or an encoding"
 	ReasonExists  = "exists and is not part of the saved files"
 )
 
@@ -194,13 +244,16 @@ type repo struct {
 	base   string // the folder asked about
 	prefix string // base relative to root, "" or "sub/dir/", as git spells it
 	gitDir string
+	// commonDir is the git folder that holds the refs and objects; for a linked
+	// worktree it is the main checkout's.
+	commonDir string
 }
 
 func locate(ctx context.Context, dir string) (repo, error) {
 	if !gitx.Available() {
 		return repo{}, ErrNoGit
 	}
-	out, err := git(ctx, dir, nil, nil, "rev-parse", "--show-toplevel", "--show-prefix", "--git-dir")
+	out, err := git(ctx, dir, nil, nil, "rev-parse", "--show-toplevel", "--show-prefix", "--git-dir", "--git-common-dir")
 	if err != nil {
 		if ctx.Err() != nil {
 			return repo{}, ErrSlow
@@ -208,13 +261,16 @@ func locate(ctx context.Context, dir string) (repo, error) {
 		return repo{}, ErrNotRepo
 	}
 	lines := strings.Split(strings.TrimRight(out, "\r\n"), "\n")
-	if len(lines) != 3 || strings.TrimSpace(lines[0]) == "" {
+	if len(lines) != 4 || strings.TrimSpace(lines[0]) == "" {
 		return repo{}, ErrNotRepo
 	}
-	r := repo{root: filepath.FromSlash(strings.TrimSpace(lines[0])), prefix: strings.TrimSpace(lines[1]), gitDir: filepath.FromSlash(strings.TrimSpace(lines[2]))}
+	r := repo{root: filepath.FromSlash(strings.TrimSpace(lines[0])), prefix: strings.TrimSpace(lines[1]), gitDir: filepath.FromSlash(strings.TrimSpace(lines[2])), commonDir: filepath.FromSlash(strings.TrimSpace(lines[3]))}
 	r.base = filepath.Join(r.root, filepath.FromSlash(r.prefix))
 	if !filepath.IsAbs(r.gitDir) {
 		r.gitDir = filepath.Join(dir, r.gitDir)
+	}
+	if !filepath.IsAbs(r.commonDir) {
+		r.commonDir = filepath.Join(dir, r.commonDir)
 	}
 	return r, nil
 }
@@ -260,7 +316,6 @@ func Capture(ctx context.Context, dir, ref string) (Checkpoint, error) {
 	if err := midOperation(r.gitDir); err != nil {
 		return Checkpoint{}, err
 	}
-	started := time.Now().Add(-time.Second)
 	tmp, err := os.MkdirTemp("", "flockdeck-rewind-")
 	if err != nil {
 		return Checkpoint{}, err
@@ -268,7 +323,10 @@ func Capture(ctx context.Context, dir, ref string) (Checkpoint, error) {
 	defer os.RemoveAll(tmp)
 	cp, err := r.capture(ctx, tmp, ref)
 	if err != nil {
-		r.cleanTemporaryObjects(started)
+		// A git killed half way can leave tmp_obj_* files in the object folder.
+		// They are not removed here: the folder is shared with every other git
+		// process on the checkout, and one of those may be writing a file with
+		// that name now. git gc removes them once they are old.
 		return Checkpoint{}, timeoutErr(ctx, err)
 	}
 	sweepOnce(r)
@@ -276,6 +334,12 @@ func Capture(ctx context.Context, dir, ref string) (Checkpoint, error) {
 }
 
 func (r repo) capture(ctx context.Context, tmp, ref string) (Checkpoint, error) {
+	// The size limits are checked here and only here: the checkpoint is what a
+	// partial copy would make unsafe. Once it is saved, whatever the files grow
+	// into is listed and compared as it is.
+	if err := r.sizeGuard(ctx); err != nil {
+		return Checkpoint{}, err
+	}
 	env, err := r.scratchIndex(ctx, tmp, "")
 	if err != nil {
 		return Checkpoint{}, err
@@ -301,27 +365,6 @@ func (r repo) commit(ctx context.Context, env []string, tree, msg string) (strin
 	}
 	out, err := git(ctx, r.root, env, nil, args...)
 	return strings.TrimSpace(out), err
-}
-
-// cleanTemporaryObjects removes the half-written object files a killed git
-// leaves in the object directory.
-func (r repo) cleanTemporaryObjects(since time.Time) {
-	out, err := git(context.Background(), r.root, nil, nil, "rev-parse", "--git-path", "objects")
-	if err != nil {
-		return
-	}
-	dir := filepath.FromSlash(strings.TrimSpace(out))
-	if !filepath.IsAbs(dir) {
-		dir = filepath.Join(r.root, dir)
-	}
-	for _, pat := range []string{"tmp_obj_*", filepath.Join("??", "tmp_obj_*")} {
-		matches, _ := filepath.Glob(filepath.Join(dir, pat))
-		for _, m := range matches {
-			if fi, err := os.Lstat(m); err == nil && fi.Mode().IsRegular() && fi.ModTime().After(since) {
-				_ = os.Remove(m)
-			}
-		}
-	}
 }
 
 // Drop deletes a checkpoint ref. It does nothing for a ref outside RefPrefix.
@@ -359,6 +402,20 @@ func Keep(dir, ref string) (string, error) {
 // Plan lists the files under dir that differ between the checkpoint tree and
 // the files now. Nothing is changed.
 func Plan(ctx context.Context, dir, tree string) (Listing, error) {
+	l, err := plan(ctx, dir, tree)
+	return l, nowErr(err)
+}
+
+// nowErr says a timeout while listing or restoring is about the files now, not
+// about the checkpoint.
+func nowErr(err error) error {
+	if errors.Is(err, ErrSlow) {
+		return ErrSlowNow
+	}
+	return err
+}
+
+func plan(ctx context.Context, dir, tree string) (Listing, error) {
 	ctx, cancel := context.WithTimeout(ctx, planTimeout)
 	defer cancel()
 	r, err := locate(ctx, dir)
@@ -380,6 +437,10 @@ func Plan(ctx context.Context, dir, tree string) (Listing, error) {
 // Check does what Restore would check, writing nothing: the files must match
 // the confirmed list and none may be blocked.
 func Check(ctx context.Context, dir, tree string, confirmed []Confirm) error {
+	return nowErr(check(ctx, dir, tree, confirmed))
+}
+
+func check(ctx context.Context, dir, tree string, confirmed []Confirm) error {
 	ctx, cancel := context.WithTimeout(ctx, planTimeout)
 	defer cancel()
 	r, err := locate(ctx, dir)
@@ -506,6 +567,14 @@ func (r repo) block(ctx context.Context, l *Listing) {
 			remove[c.Path] = true
 		}
 	}
+	// On a file system that ignores case, a file that was renamed from Notes.txt
+	// to notes.txt is listed as a file to recreate and a file to remove, and the
+	// two are one file on disk.
+	removeFold := map[string][]string{}
+	for p := range remove {
+		k := strings.ToLower(p)
+		removeFold[k] = append(removeFold[k], p)
+	}
 	var writes []string
 	var ignoreCheck []string
 	memo := map[string]bool{}
@@ -527,6 +596,9 @@ func (r repo) block(ctx context.Context, l *Listing) {
 				add(c.Path, ReasonFolder)
 				continue
 			}
+		case err == nil && c.Action == Recreate && r.isRenamedAway(full, fi, c.Path, removeFold):
+			// The file on disk is the one the restore removes first.
+			continue
 		case err == nil && c.Action == Recreate:
 			// A file that is on disk but was not in the files now: git ignores it,
 			// or the checkout left it out.
@@ -565,6 +637,20 @@ func (r repo) block(ctx context.Context, l *Listing) {
 		}
 	}
 	l.Blocked = out
+}
+
+// isRenamedAway says the file on disk at full is the same file as one that is
+// listed for removal under a name that differs only in case.
+func (r repo) isRenamedAway(full string, fi os.FileInfo, rel string, removeFold map[string][]string) bool {
+	for _, other := range removeFold[strings.ToLower(rel)] {
+		if other == rel {
+			continue
+		}
+		if ofi, err := os.Lstat(filepath.Join(r.root, filepath.FromSlash(other))); err == nil && os.SameFile(fi, ofi) {
+			return true
+		}
+	}
+	return false
 }
 
 // hasOther says the folder holds a file that is not about to be removed.
@@ -655,6 +741,15 @@ func (r repo) viaLink(rel string, memo map[string]bool) bool {
 // written and the error is a *ChangedError with the list as it is. If any file
 // cannot be put back safely the error is a *BlockedError.
 func Restore(ctx context.Context, dir, tree string, confirmed []Confirm, undoName string) (Result, error) {
+	res, err := restore(ctx, dir, tree, confirmed, undoName)
+	return res, nowErr(err)
+}
+
+// beforeWrite is called in Restore after the undo copy is made and before the
+// files are checked once more, so that a test can change a file in that gap.
+var beforeWrite func()
+
+func restore(ctx context.Context, dir, tree string, confirmed []Confirm, undoName string) (Result, error) {
 	ctx, cancel := context.WithTimeout(ctx, restoreTimeout)
 	defer cancel()
 	r, err := locate(ctx, dir)
@@ -695,6 +790,20 @@ func Restore(ctx context.Context, dir, tree string, confirmed []Confirm, undoNam
 		return res, timeoutErr(ctx, err)
 	}
 	res.Undo = undo
+	if beforeWrite != nil {
+		beforeWrite()
+	}
+	// The undo copy of a large checkout takes seconds. A file edited since the
+	// list was judged must not be written over, so the listed files are read
+	// again, and the ids must still be the confirmed ones.
+	again, err := r.recheck(ctx, tmp, tree, now, l.Changes)
+	if err == nil && !sameList(again, confirmed) {
+		err = &ChangedError{Now: Listing{Changes: again, Skipped: l.Skipped, Blocked: l.Blocked}}
+	}
+	if err != nil {
+		_, _ = git(context.WithoutCancel(ctx), r.root, nil, nil, "update-ref", "-d", undo)
+		return Result{}, timeoutErr(ctx, err)
+	}
 
 	memo := map[string]bool{}
 	var write []string
@@ -745,6 +854,46 @@ func Restore(ctx context.Context, dir, tree string, confirmed []Confirm, undoNam
 		res.Failed = append(res.Failed, "writing files: "+writeErr.Error())
 	}
 	return res, nil
+}
+
+// recheck reads the listed files again on top of the tree of the files as they
+// were judged, and returns the changes between the checkpoint and that. Only the
+// listed paths are hashed again, so it is quick. A path that is gone is removed
+// from the copy, one that has appeared is added.
+func (r repo) recheck(ctx context.Context, tmp, tree, now string, listed []Change) ([]Change, error) {
+	env, err := r.scratchIndex(ctx, tmp, now)
+	if err != nil {
+		return nil, err
+	}
+	// A case-only rename lists the old spelling to recreate and the new one to
+	// remove; on a file system that ignores case, looking up the first finds the
+	// second, so only the second is read.
+	removed := map[string]bool{}
+	for _, c := range listed {
+		if c.Action == Remove {
+			removed[strings.ToLower(c.Path)] = true
+		}
+	}
+	names := make([]string, 0, len(listed))
+	for _, c := range listed {
+		if c.Action == Recreate && removed[strings.ToLower(c.Path)] && !removed[c.Path] {
+			continue
+		}
+		names = append(names, c.Path)
+	}
+	in := strings.NewReader(strings.Join(names, "\x00") + "\x00")
+	if _, err := git(ctx, r.root, env, in, "update-index", "--add", "--remove", "-z", "--stdin"); err != nil {
+		return nil, err
+	}
+	again, err := git(ctx, r.root, env, nil, "write-tree")
+	if err != nil {
+		return nil, err
+	}
+	l, err := r.diff(ctx, tree, strings.TrimSpace(again))
+	if err != nil {
+		return nil, err
+	}
+	return l.Changes, nil
 }
 
 // remaining returns the paths that still differ from the tree.
@@ -850,11 +999,8 @@ func (r repo) worktreeTree(ctx context.Context, env []string) (string, error) {
 	if err := gitx.UnsafeReadConfig(ctx, r.root); err != nil {
 		return "", err
 	}
-	if err := r.sizeGuard(ctx); err != nil {
-		return "", err
-	}
 	if _, err := git(ctx, r.root, env, nil, "add", "-A", "--", "."); err != nil {
-		return "", err
+		return "", addFailure(err)
 	}
 	out, err := git(ctx, r.root, env, nil, "ls-files", "-z")
 	if err != nil {
@@ -876,6 +1022,29 @@ func (r repo) worktreeTree(ctx context.Context, env []string) (string, error) {
 	return strings.TrimSpace(tree), err
 }
 
+// encodingFile finds the file in git's complaint about an encoding: "BOM is
+// required in 'x.txt' if encoded as UTF-16", "failed to encode 'x.txt' from
+// UTF-8 to UTF-16".
+var encodingFile = regexp.MustCompile(`(?:required in|encode|decode) '([^']+)'`)
+
+// addFailure says which file a failed git add is about, when git said.
+func addFailure(err error) error {
+	var ge *gitError
+	if !errors.As(err, &ge) {
+		return err
+	}
+	low := strings.ToLower(ge.stderr)
+	if !strings.Contains(low, "encod") && !strings.Contains(low, "bom") {
+		return err
+	}
+	m := encodingFile.FindStringSubmatch(ge.stderr)
+	path := ""
+	if m != nil && localPath(m[1]) {
+		path = m[1]
+	}
+	return &FileError{Path: path, Err: ErrEncoding}
+}
+
 // sizeGuard refuses a checkout with too many changed or untracked files, or one
 // that is too large, before anything is hashed.
 func (r repo) sizeGuard(ctx context.Context) error {
@@ -894,7 +1063,7 @@ func (r repo) sizeGuard(ctx context.Context) error {
 			}
 		}
 		if len(paths) > limits.files {
-			return ErrTooBig
+			return &TooBigError{Kind: TooManyFiles, Files: len(paths)}
 		}
 	}
 	var total int64
@@ -904,8 +1073,11 @@ func (r repo) sizeGuard(ctx context.Context) error {
 			continue
 		}
 		total += fi.Size()
-		if fi.Size() > limits.file || total > limits.total {
-			return ErrTooBig
+		if fi.Size() > limits.file {
+			return &TooBigError{Kind: FileTooLarge, Path: p, Size: fi.Size()}
+		}
+		if total > limits.total {
+			return &TooBigError{Kind: TotalTooLarge, Path: p, Size: total}
 		}
 	}
 	return nil
@@ -963,14 +1135,25 @@ func git(ctx context.Context, dir string, env []string, in io.Reader, args ...st
 		if ctx.Err() != nil {
 			return "", ctx.Err()
 		}
-		msg := strings.TrimSpace(errb.String())
+		full := strings.TrimSpace(errb.String())
+		msg := full
 		if len(msg) > 300 {
 			msg = msg[:300]
 		}
-		return "", fmt.Errorf("git %s: %w: %s", args[0], err, msg)
+		return "", &gitError{op: args[0], err: err, msg: msg, stderr: full}
 	}
 	return out.String(), nil
 }
+
+// gitError is a failed git command. stderr is all of what git said; the text of
+// the error is the start of it.
+type gitError struct {
+	op, msg, stderr string
+	err             error
+}
+
+func (e *gitError) Error() string { return fmt.Sprintf("git %s: %v: %s", e.op, e.err, e.msg) }
+func (e *gitError) Unwrap() error { return e.err }
 
 // keepEnv are the GIT_ variables that are passed on. Everything else that
 // starts with GIT_ is dropped: GIT_DIR, GIT_WORK_TREE, GIT_OBJECT_DIRECTORY and

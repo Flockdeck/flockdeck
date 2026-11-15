@@ -420,28 +420,12 @@ func TestAFolderWithTooManyOrTooLargeFilesIsNotSaved(t *testing.T) {
 	}
 }
 
-func TestHalfWrittenObjectFilesAreCleanedUp(t *testing.T) {
-	dir := newRepo(t)
-	r, err := locate(context.Background(), dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	tmp := filepath.Join(dir, ".git", "objects", "tmp_obj_test")
-	if err := os.WriteFile(tmp, []byte("half"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	r.cleanTemporaryObjects(time.Now().Add(-time.Minute))
-	if _, err := os.Lstat(tmp); err == nil {
-		t.Error("the temporary object file is still there")
-	}
-}
-
 // Review item 8.
 func TestSweepRemovesStaleRunsAndTrimsUndoRefs(t *testing.T) {
 	dir := newRepo(t)
 	capture(t, dir, "deadrun/1")
 	capture(t, dir, "liverun/1")
-	Register("liverun")
+	Register(dir, "liverun")
 	defer Unregister("liverun")
 	head := strings.TrimSpace(gitIn(t, dir, "rev-parse", "HEAD"))
 	for i := 0; i < UndoMaxCount+2; i++ {
@@ -638,5 +622,261 @@ func TestParseRawSkipsSubmodulesAndOddPaths(t *testing.T) {
 		if _, err := parseRaw(bad, ""); err == nil {
 			t.Errorf("path %q accepted", p)
 		}
+	}
+}
+
+func ctxb() context.Context { return context.Background() }
+
+// The size limits apply to a checkpoint, not to listing or restoring from one.
+func TestTheSizeLimitsDoNotApplyAfterTheCheckpointIsSaved(t *testing.T) {
+	dir := newRepo(t)
+	cp := capture(t, dir, "t/20")
+	saved := limits
+	defer func() { limits = saved }()
+	limits.files, limits.file = 3, 10
+	for i := 0; i < 5; i++ {
+		write(t, dir, "n"+string(rune('a'+i))+".txt", "x\n")
+	}
+	write(t, dir, "big.bin", strings.Repeat("y", 100))
+	plan, err := Plan(ctxb(), dir, cp.Tree)
+	if err != nil {
+		t.Fatalf("plan after the agent left many and large files: %v", err)
+	}
+	if len(plan.Changes) != 6 {
+		t.Fatalf("plan = %s", paths(plan))
+	}
+	res, err := Restore(ctxb(), dir, cp.Tree, confirmAll(plan), "t-20")
+	if err != nil || res.Removed != 6 || len(res.Failed) != 0 {
+		t.Fatalf("restore: %+v, %v", res, err)
+	}
+}
+
+// A slow comparison now has its own error, not the one for a slow save.
+func TestASlowComparisonIsNotASlowSave(t *testing.T) {
+	if !errors.Is(nowErr(ErrSlow), ErrSlowNow) || errors.Is(nowErr(ErrSlow), ErrSlow) {
+		t.Fatal("ErrSlow is not turned into ErrSlowNow when listing")
+	}
+	dir := newRepo(t)
+	cp := capture(t, dir, "t/21")
+	ctx, cancel := context.WithCancel(ctxb())
+	cancel()
+	if _, err := Plan(ctx, dir, cp.Tree); errors.Is(err, ErrSlow) {
+		t.Errorf("Plan returned the save error: %v", err)
+	}
+}
+
+func TestTheTotalLimitIs128MBAndTheErrorNamesTheFile(t *testing.T) {
+	if MaxTotalBytes != 128<<20 {
+		t.Fatalf("MaxTotalBytes = %d", MaxTotalBytes)
+	}
+	dir := newRepo(t)
+	saved := limits
+	defer func() { limits = saved }()
+	limits.file = 10
+	write(t, dir, "sub/huge.bin", strings.Repeat("y", 100))
+	_, err := Capture(ctxb(), dir, RefPrefix+"t/22")
+	var te *TooBigError
+	if !errors.As(err, &te) || !errors.Is(err, ErrTooBig) || te.Kind != FileTooLarge || te.Path != "sub/huge.bin" || te.Size != 100 {
+		t.Fatalf("err = %#v", err)
+	}
+	limits = saved
+	limits.total = 150
+	os.Remove(filepath.Join(dir, "sub", "huge.bin"))
+	write(t, dir, "p1.bin", strings.Repeat("y", 100))
+	write(t, dir, "p2.bin", strings.Repeat("y", 100))
+	_, err = Capture(ctxb(), dir, RefPrefix+"t/22")
+	if !errors.As(err, &te) || te.Kind != TotalTooLarge || te.Path == "" {
+		t.Fatalf("total: err = %#v", err)
+	}
+	limits = saved
+	limits.files = 2
+	write(t, dir, "p3.bin", "z")
+	_, err = Capture(ctxb(), dir, RefPrefix+"t/22")
+	if !errors.As(err, &te) || te.Kind != TooManyFiles || te.Files < 3 {
+		t.Fatalf("count: err = %#v", err)
+	}
+}
+
+// Notes.txt renamed to notes.txt is one file, not a refusal.
+func TestACaseOnlyRenameOfAnUntrackedFileRestores(t *testing.T) {
+	if runtime.GOOS != "windows" && runtime.GOOS != "darwin" {
+		t.Skip("case-insensitive file systems only")
+	}
+	dir := newRepo(t)
+	write(t, dir, "Notes.txt", "n1\n")
+	cp := capture(t, dir, "t/23")
+	if err := os.Rename(filepath.Join(dir, "Notes.txt"), filepath.Join(dir, "notes.txt")); err != nil {
+		t.Fatal(err)
+	}
+	plan, err := Plan(ctxb(), dir, cp.Tree)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Blocked) != 0 {
+		t.Fatalf("blocked: %v (plan %s)", plan.Blocked, paths(plan))
+	}
+	if _, err := Restore(ctxb(), dir, cp.Tree, confirmAll(plan), "t-23"); err != nil {
+		t.Fatal(err)
+	}
+	entries, _ := os.ReadDir(dir)
+	var names []string
+	for _, e := range entries {
+		if strings.EqualFold(e.Name(), "notes.txt") {
+			names = append(names, e.Name())
+		}
+	}
+	if len(names) != 1 || names[0] != "Notes.txt" || read(t, dir, "Notes.txt") != "n1\n" {
+		t.Errorf("names = %v", names)
+	}
+}
+
+// A file edited between the check and the write stops the restore.
+func TestAFileEditedAfterTheUndoCopyStopsTheRestore(t *testing.T) {
+	dir := newRepo(t)
+	cp := capture(t, dir, "t/24")
+	write(t, dir, "a.txt", "a2\n")
+	write(t, dir, "new.txt", "n\n")
+	plan, err := Plan(ctxb(), dir, cp.Tree)
+	if err != nil {
+		t.Fatal(err)
+	}
+	beforeWrite = func() {
+		write(t, dir, "a.txt", "typed meanwhile\n")
+		write(t, dir, "new.txt", "also edited\n")
+	}
+	defer func() { beforeWrite = nil }()
+	_, err = Restore(ctxb(), dir, cp.Tree, confirmAll(plan), "t-24")
+	var ce *ChangedError
+	if !errors.As(err, &ce) {
+		t.Fatalf("err = %v", err)
+	}
+	if read(t, dir, "a.txt") != "typed meanwhile\n" || read(t, dir, "new.txt") != "also edited\n" {
+		t.Error("a file was written or removed")
+	}
+	if gitIn(t, dir, "for-each-ref", UndoPrefix) != "" {
+		t.Error("an undo ref was left for a restore that did nothing")
+	}
+}
+
+// git's own temporary files in the shared object folder are not ours to delete.
+func TestAFailedCaptureLeavesOtherProcessesTemporaryObjects(t *testing.T) {
+	dir := newRepo(t)
+	tmp := filepath.Join(dir, ".git", "objects", "tmp_obj_other")
+	if err := os.WriteFile(tmp, []byte("in flight"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	saved := limits
+	defer func() { limits = saved }()
+	limits.files = 1
+	write(t, dir, "x1", "1")
+	write(t, dir, "x2", "2")
+	if _, err := Capture(ctxb(), dir, RefPrefix+"t/25"); !errors.Is(err, ErrTooBig) {
+		t.Fatalf("err = %v", err)
+	}
+	if _, err := os.Lstat(tmp); err != nil {
+		t.Error("another process's temporary object file was removed")
+	}
+}
+
+func backdatedCheckpoint(t *testing.T, dir, ref string, age time.Duration) {
+	t.Helper()
+	head := strings.TrimSpace(gitIn(t, dir, "rev-parse", "HEAD^{tree}"))
+	when := time.Now().Add(-age).Format(time.RFC3339)
+	cmd := exec.Command("git", "-c", "user.name=t", "-c", "user.email=t@t.invalid", "commit-tree", head, "-m", "old")
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(), "GIT_COMMITTER_DATE="+when, "GIT_AUTHOR_DATE="+when)
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, dir, "update-ref", ref, strings.TrimSpace(string(out)))
+}
+
+// A pane of another Flockdeck process keeps its checkpoints however old.
+func TestSweepKeepsTheRunsOfAnotherLiveProcess(t *testing.T) {
+	dir := newRepo(t)
+	backdatedCheckpoint(t, dir, RefPrefix+"otherlive/1", 10*24*time.Hour)
+	backdatedCheckpoint(t, dir, RefPrefix+"dead/1", 10*24*time.Hour)
+	backdatedCheckpoint(t, dir, RefPrefix+"stalemarker/1", 10*24*time.Hour)
+	r, err := locate(ctxb(), dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.touchMarker("otherlive")
+	r.touchMarker("stalemarker")
+	old := time.Now().Add(-2 * liveTTL)
+	if err := os.Chtimes(r.markerPath("stalemarker"), old, old); err != nil {
+		t.Fatal(err)
+	}
+	r.sweep(time.Now())
+	refs := gitIn(t, dir, "for-each-ref", "--format=%(refname)", RefPrefix)
+	if !strings.Contains(refs, "otherlive") || strings.Contains(refs, "dead/") || strings.Contains(refs, "stalemarker") {
+		t.Errorf("refs after the sweep: %q", refs)
+	}
+	if _, err := os.Stat(r.markerPath("stalemarker")); err == nil {
+		t.Error("the marker of a dead run was kept")
+	}
+}
+
+func TestRegisterWritesAMarkerAndUnregisterRemovesIt(t *testing.T) {
+	dir := newRepo(t)
+	r, _ := locate(ctxb(), dir)
+	Register(dir, "mine")
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		if _, err := os.Stat(r.markerPath("mine")); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("no marker")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !r.liveElsewhere("mine", time.Now()) {
+		t.Error("a fresh marker is not live")
+	}
+	Unregister("mine")
+	for {
+		if _, err := os.Stat(r.markerPath("mine")); err != nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the marker was not removed")
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}
+
+// A file ignored after the checkpoint is not overwritten: the restore is refused.
+func TestAFileIgnoredAfterTheCheckpointBlocksTheRestore(t *testing.T) {
+	dir := newRepo(t)
+	write(t, dir, "gen.txt", "saved\n")
+	cp := capture(t, dir, "t/26")
+	write(t, dir, ".gitignore", "ignored/\n*.log\ngen.txt\n")
+	write(t, dir, "gen.txt", "new content\n")
+	plan, err := Plan(ctxb(), dir, cp.Tree)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = Restore(ctxb(), dir, cp.Tree, confirmAll(plan), "t-26")
+	if !blockedHas(err, "gen.txt", ReasonIgnored) {
+		t.Fatalf("plan %s, blocked %v, err %v", paths(plan), plan.Blocked, err)
+	}
+	if read(t, dir, "gen.txt") != "new content\n" {
+		t.Error("the ignored file was overwritten")
+	}
+}
+
+// git cannot encode a file: the answer names it.
+func TestAnEncodingFailureNamesTheFile(t *testing.T) {
+	dir := newRepo(t)
+	write(t, dir, ".gitattributes", "*.u16 working-tree-encoding=UTF-16\n")
+	gitIn(t, dir, "add", "-A")
+	gitIn(t, dir, "commit", "-q", "-m", "attrs")
+	write(t, dir, "docs/bad.u16", "plain bytes, no byte order mark\n")
+	_, err := Capture(ctxb(), dir, RefPrefix+"t/27")
+	var fe *FileError
+	if !errors.As(err, &fe) || !errors.Is(err, ErrEncoding) || fe.Path != "docs/bad.u16" {
+		t.Fatalf("err = %#v", err)
 	}
 }
