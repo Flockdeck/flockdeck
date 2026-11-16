@@ -1,22 +1,16 @@
 ---
 type: File Format
 title: routing.jsonl
-description: Legacy log of model-routing decisions, read back for rule statistics and clearable from Settings.
-resource: internal/route/log.go
+description: Legacy log of model-routing decisions from an older build. Nothing reads, writes or deletes it.
+resource: internal/server/routing.go
 tags: [routing, log, jsonl]
-timestamp: 2026-10-19T00:00:00Z
-code_paths: [internal/route/log.go]
+timestamp: 2026-11-16T00:00:00Z
+code_paths: []
 ---
 # routing.jsonl
 
-In the state (config) directory. No current code writes it: the code that did (Fan out) is gone, and the file is kept readable so Settings can show per-rule statistics (`route.Stats`) and clear it (`route.ClearLog`). Lines that do not parse are skipped.
+In the state (config) directory. Fan out wrote it; that code is gone. Flockdeck no longer reads it either (Settings used to show per-rule override rates from it and had a button to clear it), and it never deletes it: the file is the user's. Settings > Data in the help says so.
 
-| JSON | Meaning |
-|---|---|
-| `at`, `kind`, `project`, `pane` | When, `spawn` or `turn`, project, pane |
-| `agent`, `baselineAgent` | Agent the work ran on; agent it would have run on, only set when a rule moved it to another agent |
-| `source`, `rule` | `rule` or `fallback`; the rule name |
-| `baseline`, `routed` | Model without routing, model chosen |
-| `outcome` | `kept` or `overridden:<model>` |
+Each line was one decision: `at`, `kind`, `project`, `pane`, `agent`, `baselineAgent`, `source`, `rule`, `baseline`, `routed` and `outcome` (`kept` or `overridden:<model>`). It held rule names and model ids, never the task or prompt.
 
-It holds rule names and model ids, never the task or prompt. Stats count `kept` and `overridden:` per rule, skip rows with no rule name, and sort worst override rate first.
+The `clearRoutingLog` command is still accepted so a client built against API 1.x gets an answer; it only sends a notice. It can be removed with the next major API version.

@@ -16,4 +16,4 @@ Related guards:
 - `routing.mode` defaults to off; unreadable values mean off ([mode](/config/routing-mode.md)).
 - Cross-agent moves are a separate switch, spawn-only, and need the target agent to be ready ([crossAgent](/config/routing-cross-agent.md)).
 - Models with no tier are never routed from or to.
-- The [routing log](/data/routing-log.md) records rule names and model ids, never task text.
+- An old [routing log](/data/routing-log.md) holds rule names and model ids, never task text; nothing reads it now.

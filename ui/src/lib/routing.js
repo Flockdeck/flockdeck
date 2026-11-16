@@ -33,8 +33,6 @@ export function routingOf(agents) {
         name: x.name,
         choice: str(x.choice),
         when: str(x.when),
-        kept: Number.isInteger(x.kept) && x.kept > 0 ? x.kept : 0,
-        overridden: Number.isInteger(x.overridden) && x.overridden > 0 ? x.overridden : 0,
       })),
   };
 }
@@ -42,13 +40,6 @@ export function routingOf(agents) {
 /** policyOf is the policy that routes the active project: its own, or every project's. */
 export function policyOf(r) {
   return r.project || r.every;
-}
-
-/** overriddenWords says how often a rule's choice was changed by hand. */
-export function overriddenWords(rule) {
-  const total = rule.kept + rule.overridden;
-  if (!total) return "";
-  return "overridden " + Math.round((100 * rule.overridden) / total) + "% of the time (" + rule.overridden + " of " + total + ")";
 }
 
 const ONE_OF = {
@@ -66,5 +57,3 @@ export function routingCommand(target, text, all) {
   if (target === "mode" && text === "" && all) return null;
   return all ? { cmd: "setRouting", kind: "all", target, text } : { cmd: "setRouting", target, text };
 }
-
-export const CLEAR_LOG_COMMAND = { cmd: "clearRoutingLog" };

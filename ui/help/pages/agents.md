@@ -742,9 +742,7 @@ lost that way.
 rest of the pane's state does, to your own paired devices when Flockdeck Remote
 is on. Helpers and first prompts are not logged. An older version
 that routed fan-out rows kept its choices in `routing.jsonl` in the state
-directory (the last 10,000 lines, never the task), and nothing writes to it
-now. Settings still lists each rule beside how often that log shows it
-overridden, once it has decided at least once. Settings has **Clear routing
-history**, and to turn all of it off, set every project to **Off**. A file that does not parse is a notice in the
+directory. Nothing writes to it and Flockdeck no longer reads it; delete it if
+you want it gone. To turn routing off, set every project to **Off**. A file that does not parse is a notice in the
 interface and nothing worse: the built-in agents carry on, because a typo in a
 settings file is not a reason to be unable to start work.

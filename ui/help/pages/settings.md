@@ -59,10 +59,8 @@ it.
   recognises exactly where it was; minimise cost routes it too, to the
   cheapest model the floor allows. Either way a rule that matches still
   decides first. **Let a rule send work to another agent** is off until you
-  turn it on. The rules in force are listed, each with how often an older
-  version's log shows it overridden where it has decided at least once, with
-  where `agents.json` is, since that is where they are edited, and **Clear
-  routing history** empties that log, which nothing adds to now.
+  turn it on. The rules in force are listed, with where `agents.json` is,
+  since that is where they are edited.
   [Agents and models](#agents) has the rest.
 - **API keys**: set, replace or clear the key an agent uses. A key is
   optional, and an agent with a login of its own uses that without one. The
@@ -195,9 +193,9 @@ set).
 - `remote.json`: this machine's enrolment with the relay.
   `flockdeck remote disable` keeps it and marks it off; `flockdeck remote remove`
   removes it.
-- `routing.jsonl`: what an older version's routing chose for each routed fan-out row,
-  and whether you kept it. Nothing writes to it now. It holds the rule's name and the models, never the task. It
-  keeps the last 10,000 lines, and **Clear routing history** empties it.
+- `routing.jsonl`: what an older version's routing chose for each routed fan-out
+  row. Nothing writes to it and Flockdeck no longer reads it. It is yours to
+  delete.
 - `keybindings.json`: every shortcut you have remapped or cleared under
   **Keyboard**, by the action's own id; one absent from it is still its
   built-in binding. Delete it, or **Reset every shortcut to its default**, to

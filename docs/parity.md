@@ -8,9 +8,9 @@ It compares two lists the sources hold: the actions of the key table (`ui/help/k
 
 | | Actions | Commands |
 | --- | --- | --- |
-| done | 45 | 121 |
+| done | 45 | 120 |
 | replaced | 0 | 6 |
-| cut | 14 | 14 |
+| cut | 14 | 15 |
 | planned | 0 | 14 |
 | unclassified | 0 | 0 |
 | total | 59 | 155 |
@@ -37,6 +37,7 @@ The old interface let a person tile, split, move and broadcast to panes. The new
 | action | `toggleBroadcast` | Broadcasting to panes is cut; a manager sends to its team. |
 | action | `toggleBroadcastMember` | Broadcasting to panes is cut; a manager sends to its team. |
 | action | `promptAll` | Broadcasting to panes is cut; a manager sends to its team. It opens the prompt bar aimed at the focused pane, which the new prompt (paneSend) covers; with broadcast on it reached every member. |
+| command | `clearRoutingLog` | Clearing the routing history is cut; Flockdeck no longer reads routing.jsonl and leaves the file for the user to delete. |
 | command | `dismissTip` | The hint bar of tips is cut; help is under F1. |
 | command | `mergeAllTabs` | Moving and merging panes and tabs is cut; the team is a graph. |
 | command | `mergeTab` | Moving and merging panes and tabs is cut; the team is a graph. |
@@ -154,7 +155,7 @@ These are safety and security controls the new interface has to send. The list i
 | `browse` | done |  |
 | `changes` | done |  |
 | `checkForUpdate` | done |  |
-| `clearRoutingLog` | done |  |
+| `clearRoutingLog` | cut | Clearing the routing history is cut; Flockdeck no longer reads routing.jsonl and leaves the file for the user to delete. |
 | `closeFinishedPanes` | done |  |
 | `closePane` | done |  |
 | `closeProject` | done |  |

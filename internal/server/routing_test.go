@@ -8,7 +8,7 @@ import (
 	"testing"
 
 	"github.com/jmwri/flockdeck/internal/agent"
-	"github.com/jmwri/flockdeck/internal/route"
+	"github.com/jmwri/flockdeck/internal/store"
 	"github.com/jmwri/flockdeck/internal/workspace"
 )
 
@@ -165,33 +165,28 @@ func TestSettingsSeeTheStrategy(t *testing.T) {
 	}
 }
 
-// The rules Settings lists carry the log's own account of how often each was
-// kept versus overridden, so a person editing rules by hand has the evidence
-// routing.jsonl exists for.
-func TestSettingsSeeTheRulesOverrideRate(t *testing.T) {
-	dir := t.TempDir()
-	old := routingLogDir
-	routingLogDir = func() (string, error) { return dir, nil }
-	defer func() { routingLogDir = old }()
-
-	// A log an earlier build wrote: nothing writes one now.
-	lines := `{"kind":"fanout","source":"rule","rule":"rename or move","baseline":"sonnet","routed":"haiku","outcome":"kept"}` + "\n" +
-		`{"kind":"fanout","source":"rule","rule":"rename or move","baseline":"sonnet","routed":"haiku","outcome":"overridden:opus"}` + "\n"
-	if err := os.WriteFile(filepath.Join(dir, route.LogName), []byte(lines), 0o600); err != nil {
+// A routing.jsonl an older build left is the user's: the command that used to
+// empty it only says so now, and settings no longer read it.
+func TestClearRoutingLogLeavesTheFileAlone(t *testing.T) {
+	dir, err := store.Dir()
+	if err != nil {
 		t.Fatal(err)
 	}
-	v := routingOf(catalogRouting(`{"mode": "auto"}`), "")
-	found := false
-	for _, r := range v.Rules {
-		if r.Name != "rename or move" {
-			continue
-		}
-		found = true
-		if r.Kept != 1 || r.Overridden != 1 {
-			t.Errorf("rename or move = %+v, want 1 kept and 1 overridden", r)
-		}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
 	}
-	if !found {
-		t.Fatalf("rules = %+v, want rename or move among them", v.Rules)
+	path := filepath.Join(dir, "routing.jsonl")
+	const line = `{"kind":"fanout","rule":"rename or move","outcome":"kept"}` + "\n"
+	if err := os.WriteFile(path, []byte(line), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c := &controlClient{out: make(chan []byte, 8)}
+	(&Server{}).clearRoutingLog(c)
+	if len(c.out) == 0 {
+		t.Error("the command said nothing")
+	}
+	got, err := os.ReadFile(path)
+	if err != nil || string(got) != line {
+		t.Errorf("routing.jsonl = %q, %v; want it untouched", got, err)
 	}
 }

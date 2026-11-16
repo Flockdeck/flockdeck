@@ -12,7 +12,7 @@ import { render } from "../src/vendor/preact.mjs";
 import { html } from "../src/html.js";
 import { Live } from "../src/shell/Live.js";
 import { jevClearCommand, jevGetCommand, jevOf, jevSetCommand, jevWords } from "../src/lib/jev.js";
-import { overriddenWords, policyOf, routingCommand, routingOf } from "../src/lib/routing.js";
+import { policyOf, routingCommand, routingOf } from "../src/lib/routing.js";
 import { autoReviewCommand } from "../src/drawer/Tools.js";
 import { prefsOf, setting } from "../src/lib/prefs.js";
 import { createDom, install, settle } from "./dom.mjs";
@@ -66,7 +66,7 @@ test("routing: the policy is read defensively, and the project's own replaces ev
     routing: {
       every: { mode: "auto", floor: "mid", strategy: "cost" },
       project: { mode: "weird", floor: "huge", strategy: 4 },
-      rules: [{ name: "docs", choice: "small model", when: "the task is docs", kept: 3, overridden: 1 }, null, { name: 5 }, { name: "x", kept: -2, overridden: 2.5 }],
+      rules: [{ name: "docs", choice: "small model", when: "the task is docs" }, null, { name: 5 }, { name: "x" }],
       crossAgent: true, builtIn: true, note: "n", config: "/home/u/agents.json",
     },
   });
@@ -75,8 +75,6 @@ test("routing: the policy is read defensively, and the project's own replaces ev
   assert.equal(policyOf(r), r.project);
   assert.equal(policyOf({ ...r, project: null }), r.every);
   assert.deepEqual(r.rules.map((x) => x.name), ["docs", "x"]);
-  assert.equal(overriddenWords(r.rules[0]), "overridden 25% of the time (1 of 4)");
-  assert.equal(overriddenWords(r.rules[1]), "");
   assert.equal(r.crossAgent, true);
   assert.equal(routingOf({ routing: {} }).every.mode, "off");
 });
@@ -127,7 +125,7 @@ const graph = () => ({ ...JSON.parse(readFileSync(fixtureFile, "utf8")), root: "
 const projects = [{ root: "/work/a", name: "alpha", waiting: 0, working: 0, active: true }];
 const ROUTING = {
   every: { mode: "auto", floor: "", strategy: "" },
-  rules: [{ name: "docs", choice: "a small model", when: "the task is docs", kept: 3, overridden: 1 }],
+  rules: [{ name: "docs", choice: "a small model", when: "the task is docs" }],
   builtIn: true, config: "/home/u/agents.json",
 };
 const stateOf = (g, { agents = {}, panes = {}, extra = {} } = {}) => ({
@@ -315,7 +313,7 @@ test("Routing: every project's policy is shown and each control sends its change
     assert.match(m.container.find("#set-route-project-label").textContent, /This project, alpha/);
     assert.match(m.container.find("#set-route-project-about").textContent, /Routed as every project is/);
     assert.match(m.text(), /The built-in rules\. The first to match a task decides\. They are edited in agents\.json, at \/home\/u\/agents\.json/);
-    assert.match(m.container.find(".route-rule").textContent, /docs.*a small model.*when the task is docs.*overridden 25% of the time \(1 of 4\)/);
+    assert.match(m.container.find(".route-rule").textContent, /docs.*a small model.*when the task is docs/);
     m.clear();
     await pick(m, "#set-route-all-list", "off");
     await pick(m, "#set-route-floor-list", "mid");
@@ -330,9 +328,6 @@ test("Routing: every project's policy is shown and each control sends its change
       { cmd: "setRouting", kind: "all", target: "strategy", text: "cost" },
       { cmd: "setRouting", kind: "all", target: "crossAgent", text: "true" },
     ]);
-    m.clear();
-    await m.click(m.container.find("#set-route-clear-log"));
-    assert.deepEqual(m.sent("clearRoutingLog"), [{ cmd: "clearRoutingLog" }]);
   }));
 
 test("Routing: a project with its own policy changes that one, and can go back to every project's", () =>
