@@ -281,12 +281,16 @@ func (s *server) openSession(m rpcMsg, kind string) {
 	go ss.worker()
 	tested, _ := s.versionTested()
 
+	ss.mu.Lock()
+	curMode, curModel := ss.mode, ss.model
+	commands := append([]map[string]any(nil), ss.commands...)
+	ss.mu.Unlock()
 	res := map[string]any{
 		"sessionId": ss.id,
-		"modes":     map[string]any{"currentModeId": ss.mode, "availableModes": modes},
+		"modes":     map[string]any{"currentModeId": curMode, "availableModes": modes},
 	}
 	if len(models) > 0 {
-		res["models"] = map[string]any{"currentModelId": ss.model, "availableModels": models}
+		res["models"] = map[string]any{"currentModelId": curModel, "availableModels": models}
 	}
 	s.reply(m.ID, res)
 	ss.opened.Store(true)
@@ -294,8 +298,8 @@ func (s *server) openSession(m rpcMsg, kind string) {
 	if !tested {
 		s.update(ss.id, map[string]any{"sessionUpdate": "flockdeck_notice", "code": "untested_version"})
 	}
-	if len(ss.commands) > 0 {
-		s.update(ss.id, map[string]any{"sessionUpdate": "available_commands_update", "availableCommands": ss.commands})
+	if len(commands) > 0 {
+		s.update(ss.id, map[string]any{"sessionUpdate": "available_commands_update", "availableCommands": commands})
 	}
 }
 
@@ -516,6 +520,7 @@ func (ss *session) initialize() ([]map[string]any, error) {
 	if err := json.Unmarshal(resp, &r); err != nil {
 		return nil, fmt.Errorf("initialize: the answer is not an object: %w", err)
 	}
+	var commands []map[string]any
 	for _, c := range r.Commands {
 		name := strings.TrimPrefix(c.Name, "/")
 		if name == "" {
@@ -525,13 +530,7 @@ func (ss *session) initialize() ([]map[string]any, error) {
 		if c.ArgumentHint != "" {
 			cmd["input"] = map[string]any{"hint": c.ArgumentHint}
 		}
-		ss.commands = append(ss.commands, cmd)
-	}
-	for _, m := range []string{r.Mode, r.CurrentMode} {
-		if knownMode(m) {
-			ss.mode = m
-			break
-		}
+		commands = append(commands, cmd)
 	}
 	var models []map[string]any
 	for _, m := range r.Models {
@@ -544,6 +543,16 @@ func (ss *session) initialize() ([]map[string]any, error) {
 		}
 		models = append(models, map[string]any{"modelId": m.Value, "name": name, "description": m.Description})
 	}
+	// claude's own stream is already being read, and handleInit reads and
+	// writes the mode under mu, so the state from the answer is stored under it.
+	ss.mu.Lock()
+	ss.commands = append(ss.commands, commands...)
+	for _, m := range []string{r.Mode, r.CurrentMode} {
+		if knownMode(m) {
+			ss.mode = m
+			break
+		}
+	}
 	if len(models) > 0 {
 		ss.model = fmt.Sprint(models[0]["modelId"])
 		for _, m := range models {
@@ -552,6 +561,7 @@ func (ss *session) initialize() ([]map[string]any, error) {
 			}
 		}
 	}
+	ss.mu.Unlock()
 	return models, nil
 }
 

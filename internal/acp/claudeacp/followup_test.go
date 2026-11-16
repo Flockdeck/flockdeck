@@ -204,3 +204,12 @@ func TestBusyFalseFromTheWatchdogComesBeforeALaterTrue(t *testing.T) {
 	h.start()
 	waitBusySeq(t, h, []bool{true, false, true}, 10*time.Second)
 }
+
+// claude's init line can arrive while initialize is still storing the state
+// from its answer. Under -race this fails if the two do not share a lock.
+func TestInitLineDuringInitializeDoesNotRace(t *testing.T) {
+	for i := 0; i < 8; i++ {
+		h := newHarness(t, []step{expect(`"subtype":"initialize"`), emit(lInit), emit(lInit), emit(lInit)})
+		h.start()
+	}
+}
