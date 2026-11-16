@@ -3,6 +3,8 @@ package server
 import (
 	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/jmwri/flockdeck/internal/gitx"
 	"github.com/jmwri/flockdeck/internal/store"
@@ -119,18 +121,57 @@ func (s *Server) remotePathKnown(path string) bool {
 		return true
 	}
 	target := store.MetaKey(realPath(path))
+	for _, wt := range s.knownWorktrees() {
+		if underPath(target, wt) {
+			return true
+		}
+	}
+	return false
+}
+
+// worktreeCacheTTL is how long the worktrees of the known projects are kept. A
+// path outside every project used to run git in every known root on each
+// command, on the read loop of the window that sent it; a window sending
+// made-up paths made the desk run git as fast as it could send frames.
+const worktreeCacheTTL = 5 * time.Second
+
+// worktreeCache is the worktree folders of the known roots, as MetaKey spells
+// them, and when they were listed.
+type worktreeCache struct {
+	mu   sync.Mutex
+	at   time.Time
+	list []string
+}
+
+// knownWorktrees lists the worktrees of the known roots, at most once in
+// worktreeCacheTTL however many commands ask. It is dropped when a worktree is
+// added or removed from a window (forgetWorktrees).
+func (s *Server) knownWorktrees() []string {
+	c := &s.wtCache
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if !c.at.IsZero() && time.Since(c.at) < worktreeCacheTTL {
+		return c.list
+	}
+	var out []string
 	for _, root := range s.knownRoots() {
 		wts, err := gitx.List(root)
 		if err != nil {
 			continue
 		}
 		for _, wt := range wts {
-			if underPath(target, store.MetaKey(realPath(wt.Path))) {
-				return true
-			}
+			out = append(out, store.MetaKey(realPath(wt.Path)))
 		}
 	}
-	return false
+	c.at, c.list = time.Now(), out
+	return out
+}
+
+// forgetWorktrees drops the cached list, after a worktree was added or removed.
+func (s *Server) forgetWorktrees() {
+	s.wtCache.mu.Lock()
+	s.wtCache.at = time.Time{}
+	s.wtCache.mu.Unlock()
 }
 
 // remoteWorktreeOK reports whether a window may add or remove a worktree of

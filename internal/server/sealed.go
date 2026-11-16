@@ -1,0 +1,688 @@
+package server
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"net/http"
+	"sort"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/coder/websocket"
+
+	"github.com/jmwri/flockdeck/internal/artifacts"
+	"github.com/jmwri/flockdeck/internal/record"
+	"github.com/jmwri/flockdeck/internal/remote"
+	"github.com/jmwri/flockdeck/internal/store"
+)
+
+// /ws/sealed is the sealed command socket (docs/remote-parity: stage 1). It
+// carries the command and message vocabulary of /ws/control, over the
+// end-to-end channel of /ws/pty and /ws/approvals, so a paired phone can be sent
+// what the control socket's relay scrub holds back, because here the relay can
+// neither read a frame nor forge one.
+//
+// What a device must have before it is told anything, checked when the socket
+// opens, before every command and before every message written:
+//
+//   - the usual end-to-end key, on both sides, and a handshake that used it;
+//   - the desk's mark that this key is verified (remoteVerify);
+//   - the right to see panes: a full device, or a viewer the desk let watch them.
+//
+// It fails closed. A device without a verified key is closed out with the reason
+// and is sent nothing; no frame is ever written in the clear; a command not in
+// sealedCommands is refused without being run; a message not in sealedMessages is
+// dropped.
+//
+// This is tier A of the plan, read only. Every command a connection runs goes
+// through the same handleCommand as a window's, as a window reached through the
+// relay (controlClient.remote is set), so each refusal that holds for the
+// unsealed socket holds here too, apart from the three that sealed lifts for the
+// commands in sealedCommands (liftsRelayRefusal).
+
+// sealedWireVersion is the version of the frames below, sent in the hello.
+const sealedWireVersion = 1
+
+// The limits a sealed connection keeps.
+const (
+	// sealedMaxRequest is the most a request, once opened, may be.
+	sealedMaxRequest = 16 << 10
+	// sealedPadBucket is the size every frame, in either direction, is rounded
+	// up to a multiple of, so that the relay, which sees the size of each sealed
+	// frame, does not learn how long a search or a reply is.
+	sealedPadBucket = approvalPadBucket
+	// sealedSocketsPerDevice is how many sockets one device may hold.
+	sealedSocketsPerDevice = 2
+	// sealedConnectsPerMinute is how many sockets a device may open in a minute,
+	// whether or not they get past the checks.
+	sealedConnectsPerMinute = 20
+	// sealedFrameBurst and sealedFrameRate limit the requests a device sends.
+	sealedFrameBurst = 40
+	sealedFrameRate  = 20.0
+	// sealedBusyMax is how many requests in a row may be turned away for rate
+	// before the socket is closed, and sealedAbuseMax how many frames of the kind
+	// a correct client never sends are put up with in a row.
+	sealedBusyMax  = 20
+	sealedAbuseMax = 3
+	// sealedWriteTimeout bounds one write to the device.
+	sealedWriteTimeout = 10 * time.Second
+	// sealedFirstFrame is how long a socket may stay open without a request.
+	sealedFirstFrame = time.Minute
+)
+
+// What the socket says in a close, besides the approval reasons it shares.
+const (
+	// sealedReasonAccess: the device may not see panes.
+	sealedReasonAccess = "access"
+	// sealedReasonOff: the desk ended the socket (a role change, a verification
+	// taken back, the device unpaired).
+	sealedReasonOff = "disabled"
+)
+
+// sealedTier is what a command or message may be used for. Only A is built.
+const sealedTierA = "A"
+
+// sealedCommands is every command the sealed socket runs, with its tier: the
+// default is that a command is refused. api/catalog.json lists the table (the
+// "sealed" field of a command) and TestSealedTablesAreInTheCatalog holds the two
+// together, so a command is made reachable here by an edit that is read.
+//
+// Tier A is a read of what is on screen already: the structured conversation of
+// a pane and its pushes, a terminal pane's conversation, and the changes and
+// the diff of a folder. None writes, sends text to an agent or starts anything.
+var sealedCommands = map[string]string{
+	"structuredSnapshot": sealedTierA, "structuredWatch": sealedTierA, "structuredUnwatch": sealedTierA,
+	"conversationOpen": sealedTierA, "conversationOlder": sealedTierA, "conversationDetail": sealedTierA,
+	"conversationSearch": sealedTierA, "conversationClose": sealedTierA,
+	"changes": sealedTierA, "diff": sealedTierA,
+}
+
+// sealedMessage says how a message type reaches a sealed device.
+type sealedMessage struct {
+	Tier string
+	// scrub, when set, rewrites the message and may drop it, as the relay's scrubs
+	// do. It is for the answers that only refuse something: the text of a refusal
+	// is redacted and cut to a line, and an answer that holds data is dropped. A
+	// message with no scrub is sent redacted, whole (redactSealed).
+	scrub func([]byte) []byte
+	// strip is the top-level fields taken out first: capabilities a read-only
+	// connection has no use for.
+	strip []string
+}
+
+// sealedMessages is every message type a sealed device is sent, with how.
+// Everything else, the state snapshot, the agents list, the graph, hello, what
+// the desk asked of its own windows, is dropped.
+var sealedMessages = map[string]sealedMessage{
+	// The pane's structured conversation, pushed and answered: its entries, tool
+	// output, plan and permission card. The rewind token lets a window go back to
+	// an earlier prompt, which is an action, so it is not sent.
+	"structured":         {Tier: sealedTierA, strip: []string{"rewindToken"}},
+	"conversationPage":   {Tier: sealedTierA},
+	"conversationAppend": {Tier: sealedTierA},
+	"conversationDetail": {Tier: sealedTierA},
+	"conversationSearch": {Tier: sealedTierA},
+	"changes":            {Tier: sealedTierA},
+	"diff":               {Tier: sealedTierA},
+	// The refusals of a command, in the words the relay is given.
+	"teamResult":    {Tier: sealedTierA, scrub: scrubTeamResult},
+	"changesResult": {Tier: sealedTierA, scrub: scrubChangesResult},
+	"notice":        {Tier: sealedTierA, scrub: scrubNotice},
+}
+
+// liftsRelayRefusal reports whether a command from this connection is let past
+// the refusals a window reached through the relay is given: only a sealed
+// connection, and only a command that sealedCommands names.
+func (c *controlClient) liftsRelayRefusal(cmd string) bool {
+	return c.sealed != nil && sealedCommands[cmd] != ""
+}
+
+// sealedWrite is the one place a message is made fit for a sealed device, as
+// scrubForRemote is for the relay. It skips that scrub, which holds back the
+// conversation, and applies the tier table and redaction instead. It returns
+// nil to send nothing, and sends nothing for a message it cannot read: the
+// connection is never sent what could not be checked.
+func sealedWrite(data []byte) []byte {
+	rule, ok := sealedMessages[messageType(data)]
+	if !ok || rule.Tier != sealedTierA || !hasOneTypeKey(data) {
+		return nil
+	}
+	if rule.scrub != nil {
+		return rule.scrub(data)
+	}
+	return redactSealed(data, rule.strip)
+}
+
+// redactSealed is a message with every string in it redacted (the baton
+// redactor, record.Redact) and the fields in strip taken out. A phone is
+// easy to lose, so what is sent to it is held to the rule the recordings are,
+// even though the channel is sealed. A picture's bytes are not text and are
+// left as they are: base64 of an image is never a readable secret, and the
+// redactor reads a long run of it as one to be cut.
+func redactSealed(data []byte, strip []string) []byte {
+	dec := json.NewDecoder(bytes.NewReader(data))
+	dec.UseNumber()
+	var v map[string]any
+	if dec.Decode(&v) != nil {
+		return nil
+	}
+	for _, k := range strip {
+		delete(v, k)
+	}
+	out, err := json.Marshal(redactTree(v, ""))
+	if err != nil {
+		return nil
+	}
+	return out
+}
+
+// redactTree redacts every string in a decoded message (record.Redact), except a
+// string under the key "data" that is a run of base64. A value is replaced by
+// the name of its key only by record.RedactValue, which is not used: it reads
+// "inputTokens" as a secret and would replace a count with a word.
+func redactTree(v any, key string) any {
+	switch x := v.(type) {
+	case map[string]any:
+		out := make(map[string]any, len(x))
+		for k, e := range x {
+			out[k] = redactTree(e, k)
+		}
+		return out
+	case []any:
+		out := make([]any, len(x))
+		for i, e := range x {
+			out[i] = redactTree(e, key)
+		}
+		return out
+	case string:
+		if key == "data" && isBase64Run(x) {
+			return x
+		}
+		return record.Redact(x)
+	}
+	return v
+}
+
+// isBase64Run reports whether s is at least 64 characters of the base64 alphabet
+// and nothing else.
+func isBase64Run(s string) bool {
+	if len(s) < 64 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		switch c := s[i]; {
+		case 'a' <= c && c <= 'z', 'A' <= c && c <= 'Z', '0' <= c && c <= '9', c == '+', c == '/', c == '=':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
+// padSealed is a JSON object with a "pad" field of zeros added so that its
+// length is a multiple of sealedPadBucket, as padded does for the approvals
+// socket, for a message that is already bytes.
+func padSealed(b []byte) []byte {
+	if len(b) < 2 || b[0] != '{' || b[len(b)-1] != '}' {
+		return nil
+	}
+	const wrap = len(`,"pad":""`)
+	n := len(b) + wrap
+	target := (n + sealedPadBucket - 1) / sealedPadBucket * sealedPadBucket
+	out := make([]byte, 0, target)
+	out = append(out, b[:len(b)-1]...)
+	out = append(out, `,"pad":"`...)
+	out = append(out, bytes.Repeat([]byte{'0'}, target-n)...)
+	out = append(out, `"}`...)
+	return out
+}
+
+// sealedState is what the server keeps about the sealed socket.
+type sealedState struct {
+	mu      sync.Mutex
+	open    map[string]int
+	devices map[string]*sealedDevice
+	// timing is what a test changes for one server.
+	timing sealedTimings
+}
+
+// sealedTimings are read once when a socket is accepted.
+type sealedTimings struct {
+	first, handshake, roster time.Duration
+}
+
+func (t sealedTimings) withDefaults() sealedTimings {
+	if t.first == 0 {
+		t.first = sealedFirstFrame
+	}
+	if t.handshake == 0 {
+		t.handshake = 20 * time.Second
+	}
+	if t.roster == 0 {
+		t.roster = 10 * time.Second
+	}
+	return t
+}
+
+// sealedDevice is what every socket of one device shares, so that opening
+// several does not multiply its allowance.
+type sealedDevice struct {
+	frames, connects *artifacts.Limiter
+}
+
+func (st *sealedState) device(id string) *sealedDevice {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if d := st.devices[id]; d != nil {
+		return d
+	}
+	if st.devices == nil || len(st.devices) >= 1024 {
+		st.devices = map[string]*sealedDevice{}
+	}
+	fr, _ := artifacts.NewLimiter(sealedFrameRate, sealedFrameBurst, nil)
+	cn, _ := artifacts.NewLimiter(float64(sealedConnectsPerMinute)/60, sealedConnectsPerMinute, nil)
+	d := &sealedDevice{frames: fr, connects: cn}
+	st.devices[id] = d
+	return d
+}
+
+func (st *sealedState) take(device string) bool {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if st.open[device] >= sealedSocketsPerDevice {
+		return false
+	}
+	if st.open == nil {
+		st.open = map[string]int{}
+	}
+	st.open[device]++
+	return true
+}
+
+func (st *sealedState) release(device string) {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	if st.open[device]--; st.open[device] <= 0 {
+		delete(st.open, device)
+	}
+}
+
+func (st *sealedState) timings() sealedTimings {
+	st.mu.Lock()
+	defer st.mu.Unlock()
+	return st.timing.withDefaults()
+}
+
+// sealedCheck decides whether device may be sent anything now, from the running
+// program's record and the preferences. key is the device's usual end-to-end key
+// as the handshake proved it, never one read from a roster or sent by the
+// device. It fails closed, and returns the reason a device is refused, or "".
+func (s *Server) sealedCheck(device string, origin remote.KeyOrigin, key []byte) string {
+	if origin != remote.KeyOriginUsual {
+		return approvalReasonOrigin
+	}
+	if a := s.deviceAccess(device); a.EffectiveRole() != store.RoleFull && !a.WatchPanes {
+		return sealedReasonAccess
+	}
+	v := s.deviceVerifier()
+	if v == nil || len(key) == 0 || v.DeviceVerifyState(device, origin, key) != remote.Verified {
+		return approvalReasonVerify
+	}
+	return ""
+}
+
+// sealedLink is one open sealed socket: the encrypted channel, and what is
+// needed to look again at whether the device may be served.
+type sealedLink struct {
+	s            *Server
+	device, name string
+	origin       remote.KeyOrigin
+	key          []byte
+	tc           *e2eConn
+	refuse       func(code int, reason string)
+	// cutCh is closed when the desk ends the socket.
+	cutCh  chan struct{}
+	cutOne sync.Once
+
+	// wmu serialises writes: the e2e session's seal is not safe for two at once,
+	// and the hello, the refusals and the control client's writer all write.
+	wmu sync.Mutex
+}
+
+func (l *sealedLink) cut() { l.cutOne.Do(func() { close(l.cutCh) }) }
+
+// reasonOff is why the device may not be served now, or "".
+func (l *sealedLink) reasonOff() string {
+	select {
+	case <-l.cutCh:
+		return sealedReasonOff
+	default:
+	}
+	return l.s.sealedCheck(l.device, l.origin, l.key)
+}
+
+// gate is reasonOff, closing the socket when it is not empty.
+func (l *sealedLink) gate() bool {
+	reason := l.reasonOff()
+	if reason == "" {
+		return true
+	}
+	select {
+	case <-l.cutCh:
+	default:
+		l.s.sealedDenied(l.device, l.name, reason, false)
+	}
+	l.refuse(artifactCloseRefused, reason)
+	return false
+}
+
+// write is controlClient.write for a sealed connection: the gate, the tier
+// table and redaction, padding, then the seal. It reports whether the
+// connection is still usable; a message that is not sent is not a failure.
+func (l *sealedLink) write(ctx context.Context, data []byte) bool {
+	if !l.gate() {
+		return false
+	}
+	out := sealedWrite(data)
+	if out == nil {
+		return true
+	}
+	return l.writeFrame(ctx, out)
+}
+
+// writeFrame pads and seals one frame the host made itself or that sealedWrite
+// passed. It is the only write to the connection.
+func (l *sealedLink) writeFrame(ctx context.Context, frame []byte) bool {
+	padded := padSealed(frame)
+	if padded == nil {
+		return true
+	}
+	wctx, cancel := context.WithTimeout(ctx, sealedWriteTimeout)
+	defer cancel()
+	l.wmu.Lock()
+	defer l.wmu.Unlock()
+	return l.tc.Write(wctx, websocket.MessageText, padded) == nil
+}
+
+// sealedDenied records a refusal of a socket or a device in the denied log, at a
+// limited rate. The desk is told only of what a correct client never causes
+// (notify): a phone that has not been verified yet asks, and is refused with
+// the reason, without bothering anybody.
+func (s *Server) sealedDenied(device, name, reason string, notify bool) {
+	record, note, suppressed := s.approvals.denial(device+"\x00sealed:"+reason, true)
+	if record {
+		s.logLost(s.approvals.deniedLog.write(auditEvent{Event: "sealed-denied", Device: device, DeviceName: name, Reason: reason, Suppressed: suppressed}))
+	}
+	if notify && note {
+		who := tidy(name)
+		if who == "" {
+			who = "A paired device"
+		}
+		s.noticeDesk(who+" was refused the sealed connection ("+tidy(reason)+"). That is not something Flockdeck's own phone app does", true)
+	}
+}
+
+// sealedHello is the first frame the host sends once the device is let in.
+type sealedHello struct {
+	Type       string   `json:"type"`
+	V          int      `json:"v"`
+	Desk       string   `json:"desk"`
+	Device     string   `json:"device"`
+	API        *apiInfo `json:"api"`
+	Tier       string   `json:"tier"`
+	PadBucket  int      `json:"padBucket"`
+	MaxRequest int      `json:"maxRequest"`
+	Commands   []string `json:"commands"`
+}
+
+// sealedRefusal answers a request that was not run.
+type sealedRefusal struct {
+	Type string `json:"type"`
+	V    int    `json:"v"`
+	Req  string `json:"req,omitempty"`
+	Cmd  string `json:"cmd,omitempty"`
+	Code string `json:"code"`
+}
+
+// The codes of a sealedRefusal. None carries text from an agent.
+const (
+	sealedCodeCommand = "command" // not a command this socket runs
+	sealedCodeBusy    = "busy"    // too many requests too fast
+	sealedCodeShape   = "shape"   // not a command, or not padded
+)
+
+// sealedCommandNames is the commands the socket runs, sorted, as the hello says.
+func sealedCommandNames() []string {
+	out := make([]string, 0, len(sealedCommands))
+	for name := range sealedCommands {
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// handleSealed serves /ws/sealed.
+func (s *Server) handleSealed(w http.ResponseWriter, r *http.Request) {
+	// Only through the relay. Loopback cannot forge the device mark, and the desk
+	// has no use for this socket.
+	if !fromRemote(r) {
+		http.NotFound(w, r)
+		return
+	}
+	device := r.Header.Get("Flockdeck-Remote-Device")
+	// A browser always sends Origin on a WebSocket; one without is not a page.
+	if device == "" || r.Header.Get("Origin") == "" {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	name := tidy(r.Header.Get("Flockdeck-Remote-Device-Name"))
+	origin := remote.KeyOriginUsual
+	if r.Header.Get("Flockdeck-Remote-Origin") == "desk" {
+		origin = remote.KeyOriginDesk
+	}
+
+	// No origin patterns and no compression: this is ciphertext.
+	conn, err := websocket.Accept(w, r, nil)
+	if err != nil {
+		return
+	}
+	conn.SetReadLimit(sealedMaxRequest + 1024)
+	defer conn.CloseNow()
+
+	ctx, cancel := context.WithCancel(r.Context())
+	defer cancel()
+	go func() {
+		select {
+		case <-s.closed:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
+	refuse := func(code int, reason string) {
+		_ = conn.Close(websocket.StatusCode(code), reason)
+	}
+	tm := s.sealed.timings()
+	dev := s.sealed.device(device)
+	if !dev.connects.Allow(1) {
+		s.sealedDenied(device, name, "connect-rate", true)
+		refuse(artifactCloseBusy, artifactErrBusy)
+		return
+	}
+	if !s.sealed.take(device) {
+		s.sealedDenied(device, name, artifactErrBusy, true)
+		refuse(artifactCloseBusy, artifactErrBusy)
+		return
+	}
+	defer s.sealed.release(device)
+
+	l := &sealedLink{s: s, device: device, name: name, origin: origin, refuse: refuse, cutCh: make(chan struct{})}
+	// Registered before the device is checked, so that a change of role between
+	// the two ends it (s.sockets.cut).
+	forget := s.sockets.add(device, func() {
+		l.cut()
+		go func() { _ = conn.Close(websocket.StatusCode(artifactCloseRefused), sealedReasonOff) }()
+	})
+	defer forget()
+
+	// Encryption is not optional: both sides must have a key on file.
+	ra := s.remoteAccess()
+	pctx, pcancel := context.WithTimeout(ctx, tm.roster)
+	defer pcancel()
+	if ra == nil || !ra.E2ECapable(pctx, device, origin) {
+		s.sealedDenied(device, name, approvalReasonKey, false)
+		refuse(artifactCloseRefused, approvalReasonKey)
+		return
+	}
+	// Before spending a handshake, what can be known without the key. The check
+	// that decides is made below with the key the handshake used.
+	if origin != remote.KeyOriginUsual {
+		s.sealedDenied(device, name, approvalReasonOrigin, false)
+		refuse(artifactCloseRefused, approvalReasonOrigin)
+		return
+	}
+	if a := s.deviceAccess(device); a.EffectiveRole() != store.RoleFull && !a.WatchPanes {
+		s.sealedDenied(device, name, sealedReasonAccess, false)
+		refuse(artifactCloseRefused, sealedReasonAccess)
+		return
+	}
+	hctx, hcancel := context.WithTimeout(ctx, tm.handshake)
+	sess, err := s.e2eHandshake(hctx, ra, conn, device, origin)
+	hcancel()
+	if err != nil {
+		// A failed handshake is a fault or a downgrade attempt, never a reason to
+		// go on unencrypted.
+		s.sealedDenied(device, name, "handshake", true)
+		refuse(int(websocket.StatusPolicyViolation), "end-to-end handshake failed")
+		return
+	}
+	l.key = sess.DeviceStaticKey()
+	l.tc = &e2eConn{conn: conn, sess: sess}
+	if !l.gate() {
+		return
+	}
+
+	// The connection is a window of the control socket's own kind, reached
+	// through the relay, whose every write goes through the link and not to the
+	// socket.
+	c := &controlClient{
+		out:    make(chan []byte, 64),
+		ready:  make(chan struct{}, 1),
+		remote: true,
+		device: device,
+		sealed: l,
+	}
+	c.accessOf = func() store.DeviceAccess { return s.deviceAccess(device) }
+	s.mu.Lock()
+	select {
+	case <-s.closed:
+		s.mu.Unlock()
+		return
+	default:
+	}
+	s.connWG.Add(1)
+	s.clients[c] = true
+	s.mu.Unlock()
+	defer s.connWG.Done()
+	defer func() {
+		s.mu.Lock()
+		delete(s.clients, c)
+		s.mu.Unlock()
+		// A window that has gone is watching no pane's conversation either.
+		s.convos.dropClient(c)
+		s.viewersChanged(c)
+	}()
+
+	s.connWG.Add(1)
+	go func() {
+		defer s.connWG.Done()
+		c.writeLoop(ctx)
+		// The writer ends when a write fails or the gate closes the socket; the
+		// reader below is waiting on a read, so it is woken.
+		cancel()
+	}()
+	s.connWG.Add(1)
+	go func() {
+		defer s.connWG.Done()
+		keepalive(ctx, cancel, conn, new(writeGauge), s.pingInterval, s.pingTimeout)
+	}()
+	s.viewersChanged(c)
+
+	if !l.writeFrame(ctx, mustMarshal(sealedHello{
+		Type: "sealedHello", V: sealedWireVersion, Desk: s.deskName(), Device: name, API: currentAPI(), Tier: sealedTierA,
+		PadBucket: sealedPadBucket, MaxRequest: sealedMaxRequest, Commands: sealedCommandNames(),
+	})) {
+		return
+	}
+
+	var busy, abuse int
+	wait := tm.first
+	for {
+		rc, rcl := context.WithTimeout(ctx, wait)
+		wait = 24 * time.Hour
+		typ, data, err := l.tc.Read(rc)
+		rcl()
+		if err != nil {
+			return
+		}
+		// The gate is looked at again before a request is acted on, so a change
+		// made at the desk takes effect on the next one.
+		if !l.gate() {
+			return
+		}
+		if !dev.frames.Allow(1) {
+			if busy++; busy > sealedBusyMax {
+				s.sealedDenied(device, name, "rate", true)
+				refuse(artifactCloseBusy, artifactErrBusy)
+				return
+			}
+			if !l.writeFrame(ctx, mustMarshal(sealedRefusal{Type: "sealedRefused", V: sealedWireVersion, Code: sealedCodeBusy})) {
+				return
+			}
+			continue
+		}
+		busy = 0
+		var cmd command
+		if typ != websocket.MessageText || len(data) == 0 || len(data) > sealedMaxRequest || len(data)%sealedPadBucket != 0 || json.Unmarshal(data, &cmd) != nil {
+			// A request is padded to a multiple of the bucket, so that a search is
+			// not told by its length. One that is not is the sign of a client that
+			// is not the phone's.
+			if abuse++; abuse >= sealedAbuseMax {
+				s.sealedDenied(device, name, "malformed", true)
+				refuse(artifactCloseRefused, "refused")
+				return
+			}
+			if !l.writeFrame(ctx, mustMarshal(sealedRefusal{Type: "sealedRefused", V: sealedWireVersion, Code: sealedCodeShape})) {
+				return
+			}
+			continue
+		}
+		abuse = 0
+		if cmd.Cmd == "" {
+			// A frame with a type and no command (clientHello) has nothing to do here.
+			continue
+		}
+		if sealedCommands[cmd.Cmd] == "" {
+			// Not run, not looked at by handleCommand at all. A newer phone may ask
+			// for more than this desk offers, so it is told and not cut off.
+			if !l.writeFrame(ctx, mustMarshal(sealedRefusal{Type: "sealedRefused", V: sealedWireVersion, Req: clampReq(cmd.Req), Cmd: clampCmd(cmd.Cmd), Code: sealedCodeCommand})) {
+				return
+			}
+			continue
+		}
+		s.guardFor(c, "handling "+cmdName(cmd.Cmd), func() { s.handleCommand(c, cmd) })
+	}
+}
+
+func mustMarshal(v any) []byte {
+	b, err := json.Marshal(v)
+	if err != nil {
+		return nil
+	}
+	return b
+}
+
+// clampReq (and clampCmd) cut what the device sent that is sent back, so that a
+// refusal is not a way to make the desk write what it is given at length.
+func clampReq(s string) string { return strings.ToValidUTF8(cutAt(s, 64), "") }

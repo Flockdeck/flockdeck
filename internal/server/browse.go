@@ -146,6 +146,11 @@ func (s *Server) browse(c *controlClient, path, req string) {
 		// root. A window that may see only the known projects has no use for them.
 		if !c.remote {
 			msg.Places = places()
+		} else {
+			// A window reached through the relay has no use for the machine's own
+			// places, and without any the picker has nowhere to start: it is
+			// offered the projects Flockdeck knows instead.
+			msg.Places = s.projectPlaces()
 		}
 		// The parent is filled in before the listing is attempted. A directory
 		// that cannot be read — one belonging to another user, say — is exactly
@@ -434,4 +439,27 @@ func (s *Server) recents(c *controlClient) {
 		}
 		c.sendJSON(msg)
 	}()
+}
+
+// maxProjectPlaces is how many projects a relay window's picker starts from.
+const maxProjectPlaces = 30
+
+// projectPlaces are the open projects and the recent ones as places for the
+// picker, each once, with the names redacted and cut as a relay window is sent
+// any name (capName).
+func (s *Server) projectPlaces() []dirEntry {
+	out := []dirEntry{}
+	seen := map[string]bool{}
+	for _, root := range s.knownRoots() {
+		key := store.MetaKey(root)
+		if root == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, dirEntry{Name: capName(filepath.Base(root)), Path: root, IsRepo: true})
+		if len(out) >= maxProjectPlaces {
+			break
+		}
+	}
+	return out
 }

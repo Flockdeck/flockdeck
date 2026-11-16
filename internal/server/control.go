@@ -1214,6 +1214,11 @@ type controlClient struct {
 	// paired device it is on, as the relay reported it.
 	remote bool
 	device string
+	// sealed is set on a connection of /ws/sealed. Its messages are written to the
+	// device through it, never to a socket of this struct's own, and remote is
+	// set as well, so every refusal that holds for a window reached through the
+	// relay holds here unless liftsRelayRefusal says otherwise.
+	sealed *sealedLink
 	// artifactsTold is what the window has been told about artifacts: 0 not
 	// yet, else artifactsTellYes or artifactsTellNo.
 	artifactsTold atomic.Int32
@@ -1642,6 +1647,9 @@ func (c *controlClient) drainQueue(ctx context.Context) bool {
 
 // write sends one message and reports whether the connection is still usable.
 func (c *controlClient) write(ctx context.Context, data []byte) bool {
+	if c.sealed != nil {
+		return c.sealed.write(ctx, data)
+	}
 	// The one place every message to this window passes, so the one place a
 	// relay window's messages are scrubbed (relayscrub.go).
 	if c.remote {

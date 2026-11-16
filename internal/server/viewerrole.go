@@ -179,6 +179,11 @@ var commandAccess = map[string]cmdAccess{
 // machine and a full device may send any; a viewer only what the table lists
 // for it. A command the table does not know is refused to a viewer.
 func (s *Server) allowCommand(c *controlClient, name string) bool {
+	// A sealed connection has been held to sealedCommands and to the device's
+	// right to see panes before the command got here.
+	if c.liftsRelayRefusal(name) {
+		return true
+	}
 	a := s.accessOf(c)
 	if a.EffectiveRole() == store.RoleFull {
 		return true
@@ -231,6 +236,10 @@ var watcherMessageTypes = map[string]bool{
 
 // mayReceive reports whether a message may go to this window.
 func (c *controlClient) mayReceive(data []byte) bool {
+	// What a sealed connection is sent is decided by sealedWrite, on its way out.
+	if c.sealed != nil {
+		return true
+	}
 	if c.accessOf == nil {
 		return true
 	}
@@ -285,6 +294,10 @@ func viewerSnapshot(full stateMsg, watch bool) stateMsg {
 // sending them again on every change of the desk's state would still tell it
 // when the agents were busy.
 func (s *Server) sendSnapshotTo(c *controlClient, snap stateMsg, full []byte) {
+	// A sealed connection is sent no snapshot: sealedWrite would drop it.
+	if c.sealed != nil {
+		return
+	}
 	a := s.accessOf(c)
 	if a.EffectiveRole() == store.RoleFull {
 		c.putState(full)
@@ -364,6 +377,10 @@ type accessState struct {
 	approveFile approveFileCache
 	// approvals is the sealed /ws/approvals socket's state (approvals_socket.go).
 	approvals approvalsState
+	// sealed is the sealed /ws/sealed socket's state (sealed.go).
+	sealed sealedState
+	// wtCache is the worktrees of the known projects (remote_paths.go).
+	wtCache worktreeCache
 	// seen is the device ids of the last roster refresh. A turn-on that is being
 	// checked belongs to a device with no record yet, so a device dropped from
 	// the roster is found by comparing with this, not with the records.
