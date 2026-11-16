@@ -143,6 +143,7 @@ var relayDeskOnly = map[string]string{
 	"approveChallenge": "the one-time question for allowing a device to approve, for windows on this machine only",
 	"changesTeam":      "the changes view is refused to a relay window", "changesFiles": "the changes view is refused to a relay window",
 	"diffHunks": "the changes view is refused to a relay window", "diffContext": "the changes view is refused to a relay window",
+	"sealedHello": "the first frame of /ws/sealed, written to that socket only", "sealedRefused": "the answer to a request /ws/sealed did not run, written to that socket only",
 	"changesChecks": "the commands of a check file are for the person at the desk, and confirmChecks is refused to a relay window",
 }
 
@@ -353,12 +354,28 @@ var remoteTextCommands = map[string]bool{
 	"makeBaton":          true,
 }
 
+// relayRefusedCommands are the commands a relay window is refused outright,
+// whatever its role, for a reason other than conversation text (those are
+// remoteTextCommands). Each is answered with a notice and does nothing. The
+// catalog marks them with relayRefused, so a client does not offer them. The
+// value says why.
+//
+// Commands that are refused only for a folder outside the known projects are not
+// here: they are remotePathFields, and the catalog marks them relayPathGated.
+var relayRefusedCommands = map[string]string{
+	"sendPrompt":      "text typed into a pane is the desk's, as paneSend is (stage 0, F1)",
+	"recordPane":      "turning recording on is acknowledged at the desk (stage 0, F3)",
+	"remoteRevoke":    "unpairing a device is done at the desk (stage 0, F2)",
+	"remoteRename":    "renaming a device is done at the desk (stage 0, F2)",
+	"remoteReconnect": "trying the relay again is done at the desk (stage 0, F2)",
+}
+
 // refuseRemoteText answers a relay window's conversation command with a plain
 // refusal and reports whether it did. A conversationOpen is answered with the
 // page a pane with no chat view gets, which is what the phone already draws as
 // its way back to the terminal; the others get the notice.
 func (c *controlClient) refuseRemoteText(cmd command) bool {
-	if !c.remote || !remoteTextCommands[cmd.Cmd] {
+	if !c.remote || !remoteTextCommands[cmd.Cmd] || c.liftsRelayRefusal(cmd.Cmd) {
 		return false
 	}
 	if cmd.Cmd == "conversationOpen" {

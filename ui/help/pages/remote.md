@@ -368,6 +368,16 @@ code of the device's key with the one the device shows and marked it verified;
 a device whose key has changed is refused until you do that again. The controls
 for it are not in the window yet.
 
+The desktop also has a sealed read-only connection, `/ws/sealed`, for a phone app
+that supports it. It is end-to-end encrypted like the terminal and never falls
+back to plain. A device is let in only if its key is marked verified here and it
+may see panes (a full device, or a viewer allowed to watch panes). It is sent a
+structured pane's conversation and the conversation of a terminal pane (rows, tool
+output, pictures, search), and the changes and diff of a folder, with anything
+that looks like a secret redacted. It cannot type, answer, start or change
+anything: every other command is refused on it. Taking the mark away, or changing
+the device's role, ends the connection.
+
 The recordings are sent over their own connection, which is end-to-end encrypted
 or not made at all; unlike the terminal it never falls back to plain. This
 machine reads each recording line by line, redacts it again, cuts it down to the

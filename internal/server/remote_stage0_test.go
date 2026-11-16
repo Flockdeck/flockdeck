@@ -298,3 +298,49 @@ func TestARelayWindowCannotStartAnAgentOutsideAnOpenProject(t *testing.T) {
 		t.Errorf("startAgent at a folder that is not an open project was answered %+v", note)
 	}
 }
+
+// Every command in relayRefusedCommands is a command, and a relay window that
+// sends one is told no and nothing is done.
+func TestRelayRefusedCommandsAreRefused(t *testing.T) {
+	srv, _ := newTestServer(t)
+	known := map[string]bool{}
+	for _, n := range handleCommandCases(t) {
+		known[n] = true
+	}
+	ts := remoteServer(t, srv)
+	phone, err := dialRemoteControl(ts, ts.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer phone.CloseNow()
+	for name, why := range relayRefusedCommands {
+		if !known[name] || why == "" {
+			t.Errorf("%s: not a command, or no reason given", name)
+			continue
+		}
+		sendCmd(t, phone, command{Cmd: name, ID: "nope", Text: "x"})
+		var note noticeMsg
+		readQuick(t, phone, "notice", &note)
+		if !note.Error {
+			t.Errorf("%s through the relay was answered %+v, want a refusal", name, note)
+		}
+	}
+}
+
+// The worktrees of the known projects are listed once for many commands, and
+// again after a worktree is added or removed.
+func TestKnownWorktreesAreCached(t *testing.T) {
+	srv, _ := newTestServer(t)
+	srv.wtCache.mu.Lock()
+	srv.wtCache.at, srv.wtCache.list = time.Now(), []string{"cached"}
+	srv.wtCache.mu.Unlock()
+	for i := 0; i < 3; i++ {
+		if got := srv.knownWorktrees(); len(got) != 1 || got[0] != "cached" {
+			t.Fatalf("the list was made again inside its time to live: %v", got)
+		}
+	}
+	srv.forgetWorktrees()
+	if got := srv.knownWorktrees(); len(got) == 1 && got[0] == "cached" {
+		t.Error("the list was kept after a worktree changed")
+	}
+}

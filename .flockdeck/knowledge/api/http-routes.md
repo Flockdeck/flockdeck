@@ -20,6 +20,7 @@ Registered in `server.New` on one `http.ServeMux`, wrapped by [host guard](/secu
 | `GET /ws/pty` | `handlePTY` | token | [terminal socket](/api/ws-pty.md) |
 | `GET /ws/artifacts` | `handleArtifacts` | relay only | [artifacts socket](/api/ws-artifacts.md) |
 | `GET /ws/approvals` | `handleApprovals` | relay only | [approvals socket](/api/ws-approvals.md) |
+| `GET /ws/sealed` | `handleSealed` | relay only | [sealed socket](/api/ws-sealed.md) |
 | `GET /health` | `handleHealth` | token and URL token | [health](/api/health.md) |
 | `POST /open` | `handleOpen` | token and URL token | [open](/api/open.md) |
 | `POST /quit` | `handleQuit` | token and URL token | [quit](/api/quit.md) |
