@@ -8,13 +8,11 @@ import (
 	"github.com/jmwri/flockdeck/internal/agent"
 	"github.com/jmwri/flockdeck/internal/route"
 	"github.com/jmwri/flockdeck/internal/session"
-	"github.com/jmwri/flockdeck/internal/store"
 	"github.com/jmwri/flockdeck/internal/workspace"
 )
 
 // Model routing, as far as the server takes part in it: working out a routed
-// model for a spawned helper, the policy Settings shows and changes, and the
-// routing log an earlier build kept.
+// model for a spawned helper, and the policy Settings shows and changes.
 
 // routeSpawnChoice decides a model, and maybe an agent, for a helper spawned
 // with `flockdeck spawn` and given neither --agent nor --model. It answers
@@ -85,11 +83,6 @@ func modelNameOf(spec agent.Spec, id string) string {
 	return id
 }
 
-// routingLogDir is where the routing log is kept: Flockdeck's state
-// directory. The tests move it by moving the state directory itself, as they
-// do for every other file kept there; nothing reassigns this.
-var routingLogDir = store.Dir
-
 // paneRoute is what a pane's header says of its routing: the rule that chose
 // its model, the model it would otherwise have run, and whether that moved it
 // "down" or "up" -- empty where the tiers no longer say. RoutedFromAgent
@@ -143,14 +136,11 @@ type routingChoice struct {
 	Strategy string `json:"strategy"`
 }
 
-// ruleView is one rule as Settings lists it, in words, with the log's own
-// account of how often what it chose was kept, where the log has any.
+// ruleView is one rule as Settings lists it, in words.
 type ruleView struct {
-	Name       string `json:"name"`
-	Choice     string `json:"choice"`
-	When       string `json:"when"`
-	Kept       int    `json:"kept,omitempty"`
-	Overridden int    `json:"overridden,omitempty"`
+	Name   string `json:"name"`
+	Choice string `json:"choice"`
+	When   string `json:"when"`
 }
 
 func routingOf(c *agent.Catalog, root string) *routingView {
@@ -161,24 +151,12 @@ func routingOf(c *agent.Catalog, root string) *routingView {
 	}
 	v.BuiltIn = policy.Rules == nil
 	v.CrossAgent = policy.CrossAgent
-	stats := map[string]route.RuleStat{}
-	if dir, err := routingLogDir(); err == nil {
-		if entries, err := route.ReadLog(dir); err == nil {
-			for _, s := range route.Stats(entries) {
-				stats[s.Rule] = s
-			}
-		}
-	}
 	for _, r := range route.RulesOf(policy) {
 		choice := r.Tier
 		if r.Model != "" {
 			choice = r.Agent + " · " + r.Model
 		}
-		rv := ruleView{Name: r.Name, Choice: choice, When: describeWhen(r.When)}
-		if s, ok := stats[r.Name]; ok {
-			rv.Kept, rv.Overridden = s.Kept, s.Overridden
-		}
-		v.Rules = append(v.Rules, rv)
+		v.Rules = append(v.Rules, ruleView{Name: r.Name, Choice: choice, When: describeWhen(r.When)})
 	}
 	if route.New(policy).On() {
 		if spec, model, ok := c.Resolve(root, "", ""); ok {
@@ -328,18 +306,10 @@ func routingNotice(where, field, value string) string {
 	return "Routing is off for " + where
 }
 
-// clearRoutingLog deletes the routing log, which is the user's to delete.
+// clearRoutingLog answers the command Settings used to send to empty
+// routing.jsonl. Nothing reads that file now and nothing deletes it: it is the
+// user's, so it is left where it is. The command stays in the API until the
+// next major version, which is the only point a command may be removed.
 func (s *Server) clearRoutingLog(c *controlClient) {
-	go func() {
-		defer s.surviveFor(c, "clearing the routing history")
-		dir, err := routingLogDir()
-		if err == nil {
-			err = route.ClearLog(dir)
-		}
-		if err != nil {
-			c.notify("Could not clear the routing history: "+err.Error(), true)
-			return
-		}
-		c.notify("Cleared the routing history", false)
-	}()
+	c.notify("Flockdeck no longer reads or clears the routing history. The file routing.jsonl in the state directory is left as it is; delete it by hand if you want it gone", false)
 }

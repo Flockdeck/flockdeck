@@ -17,7 +17,7 @@ Decides which model a spawn or a turn runs on. Deciding reads no file and makes 
 - `Input{Kind, Task, Agent, Current, NoDowngrade, OtherAgent}`; `Kind` is `spawn` or `turn`.
 - `Decision{Model, Tier, Routed, Up, Agent, Source, Rule, Reason}`; `Source` is `rule` or `fallback`.
 - `BuiltinRules()`, `RulesOf(policy)`, `MatchGlob`, `TierOf`.
-- Log: `LogEntry`, `ReadLog`, `Stats`, `StatsByOverrideRate`, `ClearLog` ([routing log](/data/routing-log.md)).
+- No log code: `routing.jsonl` from an older build is left on disk, unread ([routing log](/data/routing-log.md)).
 
 ## Behaviour
 

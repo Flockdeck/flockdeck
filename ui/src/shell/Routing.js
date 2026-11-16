@@ -8,7 +8,7 @@
 // the sentences of a rule came from that file and are drawn as text.
 import { html } from "../html.js";
 import { Row } from "./Controls.js";
-import { CLEAR_LOG_COMMAND, FLOORS, MODES, STRATEGIES, overriddenWords, policyOf, routingCommand, routingOf } from "../lib/routing.js";
+import { FLOORS, MODES, STRATEGIES, policyOf, routingCommand, routingOf } from "../lib/routing.js";
 
 function Pick({ id, label, options, value, disabled = false, onPick }) {
   return html`<select class="dialog-field" id=${id} aria-labelledby=${label} disabled=${disabled} value=${value} onChange=${(e) => onPick(e.target.value)}>
@@ -65,13 +65,8 @@ export function Routing({ agents, project, send }) {
             <span class="key-name">${rule.name}</span>
             <span class="key-id">${rule.choice}</span>
             <span class="key-note">when ${rule.when}</span>
-            ${overriddenWords(rule) ? html`<span class="key-note">${overriddenWords(rule)}</span>` : null}
           </li>`)}
         </ul>`
       : html`<p class="set-intro">No rules, so routing changes nothing.</p>`}
-    <${Row} id="set-route-log" label="Routing history"
-      about="What routing chose, as an earlier version recorded it. Nothing is added to it now. It is kept on this machine, holds no task text, and is never sent anywhere.">
-      <button type="button" class="dialog-btn" id="set-route-clear-log" onClick=${() => send(CLEAR_LOG_COMMAND)}>Clear routing history</button>
-    <//>
   `;
 }

@@ -8,11 +8,11 @@ It compares two lists the sources hold: the actions of the key table (`ui/help/k
 
 | | Actions | Commands |
 | --- | --- | --- |
-| done | 45 | 121 |
+| done | 45 | 120 |
 | replaced | 0 | 6 |
 | cut | 14 | 14 |
 | planned | 0 | 14 |
-| unclassified | 0 | 0 |
+| unclassified | 0 | 1 |
 | total | 59 | 155 |
 
 Done means the new interface runs the action or sends the command under that name. Replaced means it sends another command for it. Cut is on purpose. Planned names the task on the board that owns it.
@@ -154,7 +154,7 @@ These are safety and security controls the new interface has to send. The list i
 | `browse` | done |  |
 | `changes` | done |  |
 | `checkForUpdate` | done |  |
-| `clearRoutingLog` | done |  |
+| `clearRoutingLog` | unclassified |  |
 | `closeFinishedPanes` | done |  |
 | `closePane` | done |  |
 | `closeProject` | done |  |

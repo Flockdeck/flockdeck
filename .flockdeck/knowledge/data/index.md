@@ -26,7 +26,7 @@
 * [Release manifest and site layout](release-manifest.md) - Signed JSON files and directory layout the download site publishes for each release.
 * [remote.json](remote-config-file.md) - This machine's enrolment with a relay: relay address, host id, account id, secret token, name, enabled flag.
 * [remote_verified.json](remote-verified-file.md) - Records of paired devices whose end-to-end key fingerprint the person at this machine compared.
-* [routing.jsonl](routing-log.md) - Legacy log of model-routing decisions, read back for rule statistics and clearable from Settings.
+* [routing.jsonl](routing-log.md) - Legacy log of model-routing decisions. Nothing reads, writes or clears it.
 * [Routing policy](routing-policy.md) - The routing section of agents.json: mode, floor, strategy, crossAgent and ordered rules.
 * [Open-projects session (session.json)](session-file.md) - Record of which projects were open when Flockdeck last exited.
 * [Task board file](task-board.md) - Per-project tasks.json in the main checkout, written atomically and excluded from git.
