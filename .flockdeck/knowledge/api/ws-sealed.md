@@ -7,7 +7,7 @@ tags: [websocket, sealed, remote, e2e, structured]
 timestamp: 2026-11-16T00:00:00Z
 code_paths: [internal/server/sealed.go, internal/server/sealed_control.go, internal/server/e2e.go, internal/server/approvals_socket.go]
 ---
-Handler: `Server.handleSealed`. Route `GET /ws/sealed`. API 1.37 (tier A, cap `sealedControl`) and 1.38 (tier B, cap `sealedAct`), `remote.Capability` 3. Built on the handshake of [/ws/approvals](ws-approvals.md) and [/ws/pty](ws-pty.md).
+Handler: `Server.handleSealed`. Route `GET /ws/sealed`. API 1.37 (tier A, cap `sealedControl`), 1.38 (tier B, cap `sealedAct`) and 1.39 (start flows, history and worktrees, cap `sealedStart`), `remote.Capability` 3. Built on the handshake of [/ws/approvals](ws-approvals.md) and [/ws/pty](ws-pty.md).
 
 ## Gates
 
@@ -26,6 +26,14 @@ Tier B commands: `paneSend` (never to a shell pane: `allowShell` is forced off),
 `permissionAnswer` here answers a question card or a plan card, once: an option of kind `allow_once` or `reject_once`, a plan only with the ids `allow` and `reject`, and an allow only for an adapter Flockdeck wrote. Any other card (a command, an edit, a tool) is refused: that is the approval path's (`/ws/approvals`).
 
 `startAgent` is refused on the unsealed socket (`relayRefused`): the task is a prompt. On the sealed one it runs for a folder inside a known project, and not as a shell.
+
+## Start flows, history and worktrees (1.39)
+
+Tier A reads, for a full device only (`sealedFullOnly`; a viewer the desk let watch panes is refused with code `role`): `recents`, `browse` (a folder inside a known project; the relay's own rule), `conversations` (the history list of a folder, whose summaries are the first prompts, so redacted), `worktrees` (worktrees and branches of a repo) and `structuredSessions` (the past conversations a structured pane could move to; the one teamResult success a tier A device is sent, titles cut to a line and 200 characters, at most 50).
+
+Tier B acts: `resumeConversation` (a folder inside a known project, the agent that recorded it), `worktreeAdd` (the default path beside the repo only, the relay's `remoteWorktreeOK` rule), `structuredResume` and `structuredNewConversation` (move a structured pane to a past conversation or a clean one; `confirm` still decides whether a running turn is ended). `startAgent` gains `branch` and `base` for a new worktree: both need `worktree: true`, both must pass `plainBranchName` (letters, digits, `.`, `-`, `_`, `/`, 100 characters, no `..`, no leading dash) and then git's own check, and a branch that exists is refused, not renamed. `startAgent`, `resumeConversation` and `worktreeAdd` also share a per-device allowance of 5, then one every 2 seconds (`sealedSpawning`), answered `busy`.
+
+Not on the socket: `worktreeRemove` and `worktreePrune` (they destroy work; they wait for a desk confirm), `structuredRewind`, `structuredFork` and `structuredRewindFiles` (the rewind token is not sent), `newTab`, `openProject`, any folder outside the known projects. There is no agent mode field: a mode can switch off the agent's permission checks, so it stays at the desk (`structuredSet`).
 
 ## Messages
 

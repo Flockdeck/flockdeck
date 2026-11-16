@@ -1,7 +1,7 @@
 {
   "api": {
     "major": 1,
-    "minor": 38
+    "minor": 39
   },
   "frames": [
     {
@@ -171,6 +171,7 @@
     {
       "name": "browse",
       "access": "full",
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
@@ -317,6 +318,7 @@
       "access": "full",
       "relayRefused": true,
       "relayPathGated": true,
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
@@ -842,6 +844,7 @@
     {
       "name": "recents",
       "access": "full",
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
@@ -1015,6 +1018,7 @@
       "name": "resumeConversation",
       "access": "full",
       "relayPathGated": true,
+      "sealed": "B",
       "since": "1.0",
       "status": "stable"
     },
@@ -1212,6 +1216,7 @@
     {
       "name": "structuredNewConversation",
       "access": "full",
+      "sealed": "B",
       "since": "1.36",
       "status": "stable"
     },
@@ -1246,6 +1251,7 @@
     {
       "name": "structuredResume",
       "access": "full",
+      "sealed": "B",
       "since": "1.36",
       "status": "stable"
     },
@@ -1276,6 +1282,7 @@
     {
       "name": "structuredSessions",
       "access": "full",
+      "sealed": "A",
       "since": "1.36",
       "status": "stable"
     },
@@ -1506,6 +1513,7 @@
       "name": "worktreeAdd",
       "access": "full",
       "relayPathGated": true,
+      "sealed": "B",
       "since": "1.0",
       "status": "stable"
     },
@@ -1527,6 +1535,7 @@
       "name": "worktrees",
       "access": "full",
       "relayPathGated": true,
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     }
@@ -1600,6 +1609,7 @@
       "name": "browse",
       "relay": "pass",
       "why": "folder names",
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
@@ -1674,6 +1684,7 @@
     {
       "name": "conversations",
       "relay": "scrub",
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
@@ -1878,6 +1889,7 @@
       "name": "recents",
       "relay": "pass",
       "why": "project paths",
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
@@ -1983,6 +1995,7 @@
       "name": "worktrees",
       "relay": "pass",
       "why": "branches and paths",
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     }

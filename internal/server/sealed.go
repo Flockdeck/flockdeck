@@ -38,7 +38,8 @@ import (
 //
 // Tier A is a read, and any verified device with the right to see panes has it.
 // Tier B (API 1.38, stage 3) acts on agents: send, stop, answer, a shell command,
-// a new agent. It needs the desk's "Control agents" switch for that device, which
+// a new agent; from 1.39 (stage 5) also resuming a conversation, adding a
+// worktree and moving a structured pane to another conversation. It needs the desk's "Control agents" switch for that device, which
 // is tied to the key (sealed_control.go), looked at again before every request
 // and every message written, and it is rate limited and logged. Every command a connection runs goes
 // through the same handleCommand as a window's, as a window reached through the
@@ -60,6 +61,11 @@ const (
 	// sealedActBurst and sealedActRate limit tier B requests a device sends.
 	sealedActBurst = 10
 	sealedActRate  = 2.0
+	// sealedSpawnBurst and sealedSpawnRate limit the tier B requests that start a
+	// process or make a folder (sealedSpawning), on top of the limit above: 5 at
+	// once, then one every 2 seconds.
+	sealedSpawnBurst = 5
+	sealedSpawnRate  = 0.5
 	// sealedPadBucket is the size every frame, in either direction, is rounded
 	// up to a multiple of, so that the relay, which sees the size of each sealed
 	// frame, does not learn how long a search or a reply is.
@@ -113,6 +119,14 @@ var sealedCommands = map[string]string{
 	"conversationSearch": sealedTierA, "conversationClose": sealedTierA,
 	"changes": sealedTierA, "diff": sealedTierA,
 
+	// Tier A, start flows and history (API 1.39, stage 5): what a person looks at
+	// before starting or resuming something. The folders Flockdeck knows and the
+	// recent projects, a folder's listing inside them, the past conversations of
+	// a folder, the worktrees and branches of a repo, and the past conversations
+	// a structured pane could move to. Each is for a full device (sealedFullOnly).
+	"conversations": sealedTierA, "worktrees": sealedTierA, "recents": sealedTierA, "browse": sealedTierA,
+	"structuredSessions": sealedTierA,
+
 	// Tier B. Text for an agent (a message, a queued one edited or sent now, a
 	// picture to go with it), stopping a turn, the answer to a question or a plan,
 	// a person's one-line shell command in a structured pane, and a new agent with
@@ -123,6 +137,29 @@ var sealedCommands = map[string]string{
 	"structuredQueueEdit": sealedTierB, "structuredQueueRemove": sealedTierB, "structuredQueueClear": sealedTierB, "structuredQueueSendNow": sealedTierB,
 	"structuredShellRun": sealedTierB, "structuredShellStop": sealedTierB, "structuredShellRemove": sealedTierB, "structuredShellSend": sealedTierB,
 	"permissionAnswer": sealedTierB, "startAgent": sealedTierB,
+
+	// Tier B, stage 5: pick a conversation up again in a folder of a known
+	// project, move a structured pane to another conversation or a clean one, and
+	// add a worktree. Not here: removing or pruning a worktree (it destroys work,
+	// so it stays for the desk until a confirm at the desk exists), and anything
+	// that names a folder outside the known projects.
+	"resumeConversation": sealedTierB, "worktreeAdd": sealedTierB,
+	"structuredResume": sealedTierB, "structuredNewConversation": sealedTierB,
+}
+
+// sealedFullOnly are the tier A commands only a full device is let run. A viewer
+// the desk let watch panes reads the conversation of the panes it sees, and the
+// changes and diff of a folder; it is not let list every conversation of a
+// folder, every branch or the folders of the machine's projects.
+var sealedFullOnly = map[string]bool{
+	"conversations": true, "worktrees": true, "recents": true, "browse": true, "structuredSessions": true,
+}
+
+// sealedSpawning are the tier B commands that make something run or write a
+// folder: a new process, a resumed conversation, a worktree. A device is let
+// do five in ten seconds, whatever else it sends (sealedSpawnBurst).
+var sealedSpawning = map[string]bool{
+	"startAgent": true, "resumeConversation": true, "worktreeAdd": true,
 }
 
 // sealedMessage says how a message type reaches a sealed device.
@@ -154,8 +191,15 @@ var sealedMessages = map[string]sealedMessage{
 	"conversationSearch": {Tier: sealedTierA},
 	"changes":            {Tier: sealedTierA},
 	"diff":               {Tier: sealedTierA},
+	// Start flows and history. The history list holds the first prompt of each
+	// conversation, so it is redacted like any other text; the folder names are
+	// the known projects' own.
+	"conversations": {Tier: sealedTierA},
+	"worktrees":     {Tier: sealedTierA},
+	"recents":       {Tier: sealedTierA},
+	"browse":        {Tier: sealedTierA},
 	// The refusals of a command, in the words the relay is given.
-	"teamResult":    {Tier: sealedTierA, scrub: scrubTeamResult, scrubAct: scrubTeamResultAct},
+	"teamResult":    {Tier: sealedTierA, scrub: scrubTeamResultSealed, scrubAct: scrubTeamResultAct},
 	"changesResult": {Tier: sealedTierA, scrub: scrubChangesResult},
 	"notice":        {Tier: sealedTierA, scrub: scrubNotice},
 	// The answers to tier B commands. A device without the right is sent none.
@@ -312,7 +356,7 @@ func (t sealedTimings) withDefaults() sealedTimings {
 // sealedDevice is what every socket of one device shares, so that opening
 // several does not multiply its allowance.
 type sealedDevice struct {
-	frames, connects, acts *artifacts.Limiter
+	frames, connects, acts, spawns *artifacts.Limiter
 }
 
 func (st *sealedState) device(id string) *sealedDevice {
@@ -327,7 +371,8 @@ func (st *sealedState) device(id string) *sealedDevice {
 	fr, _ := artifacts.NewLimiter(sealedFrameRate, sealedFrameBurst, nil)
 	cn, _ := artifacts.NewLimiter(float64(sealedConnectsPerMinute)/60, sealedConnectsPerMinute, nil)
 	ac, _ := artifacts.NewLimiter(sealedActRate, sealedActBurst, nil)
-	d := &sealedDevice{frames: fr, connects: cn, acts: ac}
+	sp, _ := artifacts.NewLimiter(sealedSpawnRate, sealedSpawnBurst, nil)
+	d := &sealedDevice{frames: fr, connects: cn, acts: ac, spawns: sp}
 	st.devices[id] = d
 	return d
 }
@@ -506,6 +551,8 @@ const (
 	// sealedCodeControl: a tier B command from a device the desk has not let
 	// control agents.
 	sealedCodeControl = "control"
+	// sealedCodeRole: a command only a full device may run, from a viewer.
+	sealedCodeRole = "role"
 )
 
 // sealedCommandNames is the commands the socket runs for a device, sorted, as
@@ -730,7 +777,7 @@ func (s *Server) handleSealed(w http.ResponseWriter, r *http.Request) {
 		if sealedCommands[cmd.Cmd] == "" {
 			// Not run, not looked at by handleCommand at all. A newer phone may ask
 			// for more than this desk offers, so it is told and not cut off.
-			if !l.writeFrame(ctx, mustMarshal(sealedRefusal{Type: "sealedRefused", V: sealedWireVersion, Req: clampReq(cmd.Req), Cmd: clampCmd(cmd.Cmd), Code: sealedCodeCommand})) {
+			if !l.writeFrame(ctx, mustMarshal(sealedRefusal{Type: "sealedRefused", V: sealedWireVersion, Req: clampReq(cmd.Req), Cmd: clampSealedCmd(cmd.Cmd), Code: sealedCodeCommand})) {
 				return
 			}
 			continue
@@ -742,7 +789,14 @@ func (s *Server) handleSealed(w http.ResponseWriter, r *http.Request) {
 				refuse(artifactCloseRefused, "refused")
 				return
 			}
-			if !l.writeFrame(ctx, mustMarshal(sealedRefusal{Type: "sealedRefused", V: sealedWireVersion, Req: clampReq(cmd.Req), Cmd: clampCmd(cmd.Cmd), Code: sealedCodeShape})) {
+			if !l.writeFrame(ctx, mustMarshal(sealedRefusal{Type: "sealedRefused", V: sealedWireVersion, Req: clampReq(cmd.Req), Cmd: clampSealedCmd(cmd.Cmd), Code: sealedCodeShape})) {
+				return
+			}
+			continue
+		}
+		if sealedFullOnly[cmd.Cmd] && s.deviceAccess(device).EffectiveRole() != store.RoleFull {
+			s.sealedDenied(device, name, sealedCodeRole, false)
+			if !l.writeFrame(ctx, mustMarshal(sealedRefusal{Type: "sealedRefused", V: sealedWireVersion, Req: clampReq(cmd.Req), Cmd: clampSealedCmd(cmd.Cmd), Code: sealedCodeRole})) {
 				return
 			}
 			continue
@@ -752,13 +806,19 @@ func (s *Server) handleSealed(w http.ResponseWriter, r *http.Request) {
 			// at the desk, or a key that changed, takes effect on the next one.
 			if !l.mayAct() {
 				s.sealedDenied(device, name, sealedCodeControl, false)
-				if !l.writeFrame(ctx, mustMarshal(sealedRefusal{Type: "sealedRefused", V: sealedWireVersion, Req: clampReq(cmd.Req), Cmd: clampCmd(cmd.Cmd), Code: sealedCodeControl})) {
+				if !l.writeFrame(ctx, mustMarshal(sealedRefusal{Type: "sealedRefused", V: sealedWireVersion, Req: clampReq(cmd.Req), Cmd: clampSealedCmd(cmd.Cmd), Code: sealedCodeControl})) {
 					return
 				}
 				continue
 			}
 			if !dev.acts.Allow(1) {
-				if !l.writeFrame(ctx, mustMarshal(sealedRefusal{Type: "sealedRefused", V: sealedWireVersion, Req: clampReq(cmd.Req), Cmd: clampCmd(cmd.Cmd), Code: sealedCodeBusy})) {
+				if !l.writeFrame(ctx, mustMarshal(sealedRefusal{Type: "sealedRefused", V: sealedWireVersion, Req: clampReq(cmd.Req), Cmd: clampSealedCmd(cmd.Cmd), Code: sealedCodeBusy})) {
+					return
+				}
+				continue
+			}
+			if sealedSpawning[cmd.Cmd] && !dev.spawns.Allow(1) {
+				if !l.writeFrame(ctx, mustMarshal(sealedRefusal{Type: "sealedRefused", V: sealedWireVersion, Req: clampReq(cmd.Req), Cmd: clampSealedCmd(cmd.Cmd), Code: sealedCodeBusy})) {
 					return
 				}
 				continue
@@ -783,3 +843,14 @@ func mustMarshal(v any) []byte {
 // clampReq (and clampCmd) cut what the device sent that is sent back, so that a
 // refusal is not a way to make the desk write what it is given at length.
 func clampReq(s string) string { return strings.ToValidUTF8(cutAt(s, 64), "") }
+
+// clampSealedCmd is clampCmd with room for the longest command name the sealed
+// socket runs (structuredNewConversation is 25 characters), so that a refusal
+// names the command whole.
+func clampSealedCmd(name string) string {
+	const limit = 40
+	if r := []rune(name); len(r) > limit {
+		return strings.ToValidUTF8(string(r[:limit]), "") + "…"
+	}
+	return strings.ToValidUTF8(name, "")
+}

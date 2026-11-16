@@ -374,8 +374,10 @@ back to plain. A device is let in only if its key is marked verified here and it
 may see panes (a full device, or a viewer allowed to watch panes). It is sent a
 structured pane's conversation and the conversation of a terminal pane (rows, tool
 output, pictures, search), and the changes and diff of a folder, with anything
-that looks like a secret redacted. That is all a device gets by default: every
-other command is refused on it.
+that looks like a secret redacted. A full device is also sent what it needs to
+start something: the recent projects, the folders inside them, the past
+conversations of a folder and the worktrees and branches of a repo. That is all
+a device gets by default: every other command is refused on it.
 
 A full device can also be allowed to control agents, per device, from the Remote
 page. The switch is off for every device until you turn it on, needs the device's
@@ -383,8 +385,11 @@ key marked verified, and belongs to that key: a changed key, or a device paired
 again, turns it off. With it a device can send a message to an agent (with
 pictures), stop a turn, edit, remove or send now the prompts waiting behind it,
 answer an agent's question or approve its plan once, run a one-line shell command
-in a structured pane, and start an agent in a project Flockdeck knows. It cannot
-allow always, approve a tool request (that is the approval screen's, or yours at
+in a structured pane, start an agent in a project Flockdeck knows (in a new
+worktree, on a branch it names, if it likes), pick up a past conversation in
+such a project, add a worktree to it and move a structured pane to another
+conversation. It cannot remove a worktree, work in a folder Flockdeck does not
+know, allow always, approve a tool request (that is the approval screen's, or yours at
 the desk), change an agent's mode, commit, push or merge. Each of these is logged
 by name in the device log without the text, and a device that sends them too fast
 is told to wait. The switch is looked at again for every request, so turning it

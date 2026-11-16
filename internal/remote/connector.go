@@ -24,7 +24,8 @@ const Subprotocol = "flockdeck-relay.v1"
 // relay as Flockdeck-Capability when the tunnel opens. It goes up when a
 // build can do something a browser may need to know about; the relay only
 // records it. 3 is the sealed command socket (/ws/sealed, API cap sealedControl);
-// acting through it (tier B, sealedAct) needs no new level, since the hello says the tier.
+// acting through it (tier B, sealedAct) and the start flows and history on it
+// (sealedStart) need no new level, since the hello says the tier and the commands.
 const Capability = 3
 
 // The relay closes the tunnel with one of these when retrying would be wrong.

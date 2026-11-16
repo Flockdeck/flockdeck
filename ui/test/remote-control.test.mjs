@@ -22,7 +22,7 @@ test("controlView: only a full device with a verified key can be switched on", (
 });
 
 test("the wording says what the device gets and what it does not", () => {
-  for (const w of ["messages", "stop", "questions", "plans once", "shell", "start new agents", "allow always", "merge"]) {
+  for (const w of ["messages", "stop", "questions", "plans once", "shell", "start new agents", "past conversation", "worktrees", "allow always", "merge"]) {
     assert.ok(CONTROL_ACK_WORDS.toLowerCase().includes(w), w);
   }
 });

@@ -465,6 +465,39 @@ var sealedActOps = map[string]bool{
 	"structuredCancel": true, "structuredQueueEdit": true, "structuredQueueRemove": true,
 	"structuredQueueClear": true, "structuredQueueSendNow": true,
 	"structuredShellRun": true, "structuredShellStop": true, "structuredShellRemove": true, "structuredShellSend": true,
+	"structuredResume": true, "structuredNewConversation": true,
+}
+
+// maxSessionsSealed is how many past conversations of a pane's folder a sealed
+// device is sent, and maxSessionTitle how much of each title.
+const (
+	maxSessionsSealed = 50
+	maxSessionTitle   = 200
+)
+
+// scrubTeamResultSealed is scrubTeamResult for the sealed socket, which also
+// keeps the one answer that is a read: the list structuredSessions gives. Its
+// ids and titles are cleaned to a line and redacted, and the list is cut.
+func scrubTeamResultSealed(data []byte) []byte {
+	var m teamResultMsg
+	if json.Unmarshal(data, &m) != nil {
+		return nil
+	}
+	if m.OK && m.Op == "structuredSessions" {
+		out := teamResultMsg{Type: "teamResult", Req: m.Req, Op: m.Op, OK: true}
+		for i, v := range m.Sessions {
+			if i == maxSessionsSealed {
+				break
+			}
+			out.Sessions = append(out.Sessions, sessionView{ID: safeLine(v.ID, 200), Title: safeLine(v.Title, maxSessionTitle), Updated: safeLine(v.Updated, 40), Current: v.Current})
+		}
+		b, err := json.Marshal(out)
+		if err != nil {
+			return nil
+		}
+		return b
+	}
+	return scrubTeamResult(data)
 }
 
 // scrubTeamResultAct is scrubTeamResult for a sealed device that may act: it keeps
@@ -475,13 +508,16 @@ func scrubTeamResultAct(data []byte) []byte {
 	if json.Unmarshal(data, &m) != nil {
 		return nil
 	}
+	if m.OK && m.Op == "structuredSessions" {
+		return scrubTeamResultSealed(data)
+	}
 	if m.OK {
 		if !sealedActOps[m.Op] {
 			return nil
 		}
 		return mustMarshal(teamResultMsg{Type: "teamResult", Req: m.Req, Op: m.Op, OK: true})
 	}
-	return scrubTeamResult(data)
+	return scrubTeamResultSealed(data)
 }
 
 // safeLine is a free-text string as a relay window is sent it: made one line,
