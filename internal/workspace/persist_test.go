@@ -615,7 +615,7 @@ func TestRestoredShellTabKeepsItsName(t *testing.T) {
 // renaming itself after its first prompt as soon as it had been restored.
 func TestARestoredWorktreeTabStillNamesItself(t *testing.T) {
 	w := &Workspace{panes: map[string]*Pane{
-		"a": {ID: "a", Kind: session.KindClaude, Cwd: "/src/api-fix-auth", Name: "api-fix-auth"},
+		"a": {ID: "a", Kind: session.KindAgent, Cwd: "/src/api-fix-auth", Name: "api-fix-auth"},
 	}}
 	tab := &Tab{Root: "/src/api", Title: "api-fix-auth", Tree: layout.NewLeaf("a")}
 	if !w.stillAutoTitled(tab) {
@@ -994,7 +994,7 @@ func TestSaveRestoreKeepsKindsAndAxes(t *testing.T) {
 
 	ws := newTestWorkspace(t, root)
 	ws.NewTab(session.KindShell, root, "mixed")
-	ws.SplitPane(layout.Vertical, session.KindClaude)
+	ws.SplitPane(layout.Vertical, session.KindAgent)
 
 	tab := ws.CurrentTab()
 	if tab.Tree.Dir != layout.Vertical {
@@ -1051,7 +1051,7 @@ func TestSaveRestoreKeepsTheAgentAndModel(t *testing.T) {
 	// single keystroke opens it. The chosen agent is deliberately one no
 	// machine running this has an entry for: the pane reports that in place
 	// and starts nothing, which is all this test needs of it.
-	ws.NewTabWith(Choice{Kind: session.KindClaude, Agent: "codex", Model: "gpt-5"}, root, "mixed")
+	ws.NewTabWith(Choice{Kind: session.KindAgent, Agent: "codex", Model: "gpt-5"}, root, "mixed")
 	chosen := ws.CurrentTab().Focus
 	ws.SplitPane(layout.Horizontal, session.KindShell)
 	unchosen := ws.CurrentTab().Focus
@@ -1101,7 +1101,7 @@ func TestSavedKindsAreTheOnesTheStoreNames(t *testing.T) {
 		kind session.Kind
 		want string
 	}{
-		{"an agent pane", session.KindClaude, "agent"},
+		{"an agent pane", session.KindAgent, "agent"},
 		{"a shell pane", session.KindShell, "shell"},
 	}
 	for _, tc := range tests {
@@ -1116,7 +1116,7 @@ func TestSavedKindsAreTheOnesTheStoreNames(t *testing.T) {
 	}
 	// "claude" is what every layout written before this build says, and a
 	// hand-edited one may say it long after. It has always meant an agent.
-	if got := parseKind("claude"); got != session.KindClaude {
+	if got := parseKind("claude"); got != session.KindAgent {
 		t.Errorf("parseKind(\"claude\") = %v, want an agent pane", got)
 	}
 }

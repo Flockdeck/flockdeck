@@ -13,7 +13,7 @@ import (
 // has it report its environment, and returns what it said.
 func environmentOf(t *testing.T, ws *Workspace, lead, agentID string) string {
 	t.Helper()
-	id, err := ws.Spawn(lead, SpawnOptions{Task: "plain", Role: "worker", Agent: agentID, Kind: session.KindClaude, SpawnedByAgent: true})
+	id, err := ws.Spawn(lead, SpawnOptions{Task: "plain", Role: "worker", Agent: agentID, Kind: session.KindAgent, SpawnedByAgent: true})
 	if err != nil {
 		t.Fatalf("spawn %s: %v", agentID, err)
 	}

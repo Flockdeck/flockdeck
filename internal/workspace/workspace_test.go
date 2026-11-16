@@ -32,7 +32,7 @@ func benchWorkspace(projects, tabsPer, panesPer int) *Workspace {
 			var tree *layout.Node
 			var first string
 			for k := 0; k < panesPer; k++ {
-				p := &Pane{ID: uuid.NewString(), Kind: session.KindClaude, Cwd: root, Root: root}
+				p := &Pane{ID: uuid.NewString(), Kind: session.KindAgent, Cwd: root, Root: root}
 				w.panes[p.ID] = p
 				if tree == nil {
 					tree, first = layout.NewLeaf(p.ID), p.ID
@@ -416,13 +416,13 @@ func TestTheDefaultBroadcastSetFollowsTheTabOnScreen(t *testing.T) {
 	root := t.TempDir()
 	ws := newTestWorkspace(t, root)
 
-	first := ws.NewTab(session.KindClaude, root, "first")
+	first := ws.NewTab(session.KindAgent, root, "first")
 	ws.ToggleBroadcast()
 	if !ws.InBroadcast(first.Focus) {
 		t.Fatal("turning broadcast on should cover the agents in the tab")
 	}
 
-	second := ws.NewTab(session.KindClaude, root, "second")
+	second := ws.NewTab(session.KindAgent, root, "second")
 	if !ws.InBroadcast(second.Focus) {
 		t.Error("the tab now on screen is not being broadcast to")
 	}
@@ -443,8 +443,8 @@ func TestRemovingOnePaneFromTheDefaultKeepsTheRest(t *testing.T) {
 	isolateConfig(t)
 	root := t.TempDir()
 	ws := newTestWorkspace(t, root)
-	tab := ws.NewTab(session.KindClaude, root, "pair")
-	ws.SplitPane(layout.Horizontal, session.KindClaude)
+	tab := ws.NewTab(session.KindAgent, root, "pair")
+	ws.SplitPane(layout.Horizontal, session.KindAgent)
 
 	ws.ToggleBroadcast()
 	dropped := tab.Focus
@@ -846,7 +846,7 @@ func TestNewPaneRecordsTheChoice(t *testing.T) {
 		},
 		{
 			name:        "an agent keeps both",
-			choice:      Choice{Kind: session.KindClaude, Agent: "codex", Model: "gpt-5"},
+			choice:      Choice{Kind: session.KindAgent, Agent: "codex", Model: "gpt-5"},
 			wantAgent:   "codex",
 			wantModel:   "gpt-5",
 			wantIsAgent: true,
@@ -855,7 +855,7 @@ func TestNewPaneRecordsTheChoice(t *testing.T) {
 			// Recorded as what it resolved to, so that the header can say what
 			// it runs and a default changed later cannot move its conversation.
 			name:        "an agent chosen by neither name records the defaults it runs",
-			choice:      Choice{Kind: session.KindClaude},
+			choice:      Choice{Kind: session.KindAgent},
 			wantAgent:   agent.DefaultAgentID,
 			wantIsAgent: true,
 			panes:       store.PanesTerminal,
@@ -864,7 +864,7 @@ func TestNewPaneRecordsTheChoice(t *testing.T) {
 			// With no stored choice a new pane is structured, so what is
 			// recorded is the structured entry.
 			name:        "an agent chosen by neither name records the structured default when nothing is stored",
-			choice:      Choice{Kind: session.KindClaude},
+			choice:      Choice{Kind: session.KindAgent},
 			wantAgent:   "claude-acp",
 			wantIsAgent: true,
 		},

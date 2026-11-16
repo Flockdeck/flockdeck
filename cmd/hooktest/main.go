@@ -52,7 +52,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	ws.NewTab(session.KindClaude, cwd, "hooktest")
+	ws.NewTab(session.KindAgent, cwd, "hooktest")
 	p := ws.FocusedPane()
 	// A tab that could not be created at all leaves no pane to read an error
 	// off, so the nil case has to be reported on its own.

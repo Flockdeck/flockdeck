@@ -829,7 +829,7 @@ func (w *Workspace) StartAgentAs(root, agentID, model, cwd, task, role string) (
 
 	p := &Pane{
 		ID:        uuid.NewString(),
-		Kind:      session.KindClaude,
+		Kind:      session.KindAgent,
 		Cwd:       cwd,
 		Name:      filepath.Base(cwd),
 		Root:      open,

@@ -30,7 +30,7 @@ func TestAPaneWhoseCLIIsMissingIsUnavailable(t *testing.T) {
 
 	root := t.TempDir()
 	ws := newTestWorkspace(t, root)
-	ws.NewTabWith(Choice{Kind: session.KindClaude, Agent: "ghost"}, root, "")
+	ws.NewTabWith(Choice{Kind: session.KindAgent, Agent: "ghost"}, root, "")
 	p := ws.FocusedPane()
 	if p == nil || p.Err == nil {
 		t.Fatal("a pane whose CLI is missing reported nothing")

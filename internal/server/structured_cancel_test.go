@@ -22,7 +22,7 @@ func (e *structuredEnv) spawnStructured(t *testing.T, task string) string {
 	t.Helper()
 	id, ok := ask(e.srv, func() string {
 		id, err := e.ws.Spawn(e.boss, workspace.SpawnOptions{Task: task, Role: "worker", Agent: "opencode-acp",
-			Kind: session.KindClaude, SpawnedByAgent: true})
+			Kind: session.KindAgent, SpawnedByAgent: true})
 		if err != nil {
 			t.Errorf("spawn: %v", err)
 		}

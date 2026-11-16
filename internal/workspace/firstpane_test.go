@@ -88,13 +88,13 @@ func TestAOneKeystrokePaneRunsItsProjectsDefault(t *testing.T) {
 	})
 
 	ws := newTestWorkspace(t, first)
-	ws.NewTab(session.KindClaude, first, "")
+	ws.NewTab(session.KindAgent, first, "")
 	if p := ws.FocusedPane(); p.Agent != "gocli" || p.Model != "m1" {
 		t.Errorf("new tab runs %q · %q, want the project's gocli · m1", p.Agent, p.Model)
 	}
 	// Choosing the agent in the picker with its Default model — whatever the
 	// CLI is set to — is a choice, and the project's model must not replace it.
-	ws.NewTabWith(Choice{Kind: session.KindClaude, Agent: "gocli"}, first, "")
+	ws.NewTabWith(Choice{Kind: session.KindAgent, Agent: "gocli"}, first, "")
 	if p := ws.FocusedPane(); p.Agent != "gocli" || p.Model != "" {
 		t.Errorf("gocli chosen on its default model runs %q · %q, want gocli with no model", p.Agent, p.Model)
 	}
@@ -103,7 +103,7 @@ func TestAOneKeystrokePaneRunsItsProjectsDefault(t *testing.T) {
 		t.Fatalf("open second: %v", err)
 	}
 	ws.SelectProject(first)
-	ws.SplitPaneInProject(layout.Horizontal, session.KindClaude, second)
+	ws.SplitPaneInProject(layout.Horizontal, session.KindAgent, second)
 	if p := ws.FocusedPane(); p.Agent != "gocli" || p.Model != "m2" {
 		t.Errorf("split into the second project runs %q · %q, want its gocli · m2", p.Agent, p.Model)
 	}

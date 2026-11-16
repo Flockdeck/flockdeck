@@ -69,7 +69,7 @@ func TestRestartWithBatonStartsANewConversation(t *testing.T) {
 	batonAgents(t)
 	root := t.TempDir()
 	ws := newTestWorkspace(t, root)
-	ws.NewTabWith(Choice{Kind: session.KindClaude, Agent: "gosession"}, root, "")
+	ws.NewTabWith(Choice{Kind: session.KindAgent, Agent: "gosession"}, root, "")
 	p := ws.FocusedPane()
 	if p == nil || p.Sess == nil {
 		t.Fatalf("the pane did not start: %v", p.Err)
@@ -270,7 +270,7 @@ func TestARestartWithBatonThatCannotStartPutsThePaneBack(t *testing.T) {
 	batonAgents(t)
 	root := t.TempDir()
 	ws := newTestWorkspace(t, root)
-	ws.NewTabWith(Choice{Kind: session.KindClaude, Agent: "gosession"}, root, "")
+	ws.NewTabWith(Choice{Kind: session.KindAgent, Agent: "gosession"}, root, "")
 	p := ws.FocusedPane()
 	if p == nil || p.Sess == nil {
 		t.Fatalf("the pane did not start: %v", p.Err)
@@ -309,7 +309,7 @@ func TestAHookFromTheClosedSessionCannotMoveTheConversationBack(t *testing.T) {
 	batonAgents(t)
 	root := t.TempDir()
 	ws := newTestWorkspace(t, root)
-	ws.NewTabWith(Choice{Kind: session.KindClaude, Agent: "gosession"}, root, "")
+	ws.NewTabWith(Choice{Kind: session.KindAgent, Agent: "gosession"}, root, "")
 	p := ws.FocusedPane()
 	waitExited(t, p.Sess)
 	oldLaunch := p.launch
@@ -330,7 +330,7 @@ func TestANewTaskTooLongForTheCommandLineIsRefused(t *testing.T) {
 	batonAgents(t)
 	root := t.TempDir()
 	ws := newTestWorkspace(t, root)
-	ws.NewTabWith(Choice{Kind: session.KindClaude, Agent: "gosession"}, root, "")
+	ws.NewTabWith(Choice{Kind: session.KindAgent, Agent: "gosession"}, root, "")
 	p := ws.FocusedPane()
 	waitExited(t, p.Sess)
 	long := strings.Repeat("x", maxTaskBytes+1)
@@ -376,7 +376,7 @@ func TestABatonSourceScrubberKnowsKeysSavedForNoCatalogAgent(t *testing.T) {
 	}
 	root := t.TempDir()
 	ws := newTestWorkspace(t, root)
-	ws.NewTabWith(Choice{Kind: session.KindClaude, Agent: "gosession"}, root, "")
+	ws.NewTabWith(Choice{Kind: session.KindAgent, Agent: "gosession"}, root, "")
 	src, err := ws.BatonSource(ws.FocusedPane().ID)
 	if err != nil {
 		t.Fatal(err)
@@ -393,7 +393,7 @@ func TestABatonSourceCanBeTakenFromAnyGoroutine(t *testing.T) {
 	batonAgents(t)
 	root := t.TempDir()
 	ws := newTestWorkspace(t, root)
-	ws.NewTabWith(Choice{Kind: session.KindClaude, Agent: "gosession"}, root, "")
+	ws.NewTabWith(Choice{Kind: session.KindAgent, Agent: "gosession"}, root, "")
 	p := ws.FocusedPane()
 	done := make(chan struct{})
 	go func() {
@@ -424,7 +424,7 @@ func TestSavingABatonPrunesOldOnesButNotThoseInUse(t *testing.T) {
 	batonAgents(t)
 	root := t.TempDir()
 	ws := newTestWorkspace(t, root)
-	ws.NewTabWith(Choice{Kind: session.KindClaude, Agent: "gosession"}, root, "")
+	ws.NewTabWith(Choice{Kind: session.KindAgent, Agent: "gosession"}, root, "")
 	p := ws.FocusedPane()
 	st := mustStore(t)
 	old, used := testBaton(), testBaton()

@@ -217,7 +217,7 @@ func TestMovedSessionIDIsSavedThroughTheHook(t *testing.T) {
 	ws.SetSessionMovedHook(func(paneID string) {
 		saved <- struct{}{}
 	})
-	id, err := ws.Spawn(lead, SpawnOptions{Task: "moved-session", Role: "worker", Agent: "claude-acp", Kind: session.KindClaude, SpawnedByAgent: true})
+	id, err := ws.Spawn(lead, SpawnOptions{Task: "moved-session", Role: "worker", Agent: "claude-acp", Kind: session.KindAgent, SpawnedByAgent: true})
 	if err != nil {
 		t.Fatalf("spawn: %v", err)
 	}

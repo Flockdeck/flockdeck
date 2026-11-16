@@ -15,7 +15,7 @@ import (
 // starts it.
 func startedPane(t *testing.T, ws *Workspace, root, agentID string, saved Transport) *Pane {
 	t.Helper()
-	p := &Pane{ID: "wayback-" + agentID, Kind: session.KindClaude, Cwd: root, Root: root, Name: "wayback", Agent: agentID, savedTransport: saved}
+	p := &Pane{ID: "wayback-" + agentID, Kind: session.KindAgent, Cwd: root, Root: root, Name: "wayback", Agent: agentID, savedTransport: saved}
 	ws.mu.Lock()
 	ws.panes[p.ID] = p
 	ws.mu.Unlock()
@@ -83,7 +83,7 @@ func TestTheWayBackIsOfferedForAStructuredPaneThatFailedToStart(t *testing.T) {
 	root := t.TempDir()
 	ws := newTestWorkspace(t, root)
 	missing := t.TempDir() + "/gone"
-	p := &Pane{ID: "wayback-dir", Kind: session.KindClaude, Cwd: missing, Root: root, Name: "dir", Agent: "opencode-acp", savedTransport: TransportStructured}
+	p := &Pane{ID: "wayback-dir", Kind: session.KindAgent, Cwd: missing, Root: root, Name: "dir", Agent: "opencode-acp", savedTransport: TransportStructured}
 	ws.mu.Lock()
 	ws.panes[p.ID] = p
 	ws.mu.Unlock()

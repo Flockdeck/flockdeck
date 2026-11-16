@@ -52,7 +52,7 @@ func TestLiveClaudeSmokePane(t *testing.T) {
 		t.Skip("the claude CLI is not on PATH")
 	}
 
-	ws.NewTabWith(workspace.Choice{Kind: session.KindClaude, Agent: "claude"}, ws.ActiveRoot(), "smoke")
+	ws.NewTabWith(workspace.Choice{Kind: session.KindAgent, Agent: "claude"}, ws.ActiveRoot(), "smoke")
 
 	srv, err := New(ws, testConfig())
 	if err != nil {

@@ -168,11 +168,11 @@ func newCrew(t *testing.T) crew {
 	teamAgents(t)
 	root := t.TempDir()
 	ws := newTestWorkspace(t, root)
-	ws.NewTabWith(Choice{Kind: session.KindClaude, Agent: "sleeper"}, root, "")
+	ws.NewTabWith(Choice{Kind: session.KindAgent, Agent: "sleeper"}, root, "")
 	c := crew{ws: ws, root: root, lead: ws.FocusedPane().ID}
 	ws.Pane(c.lead).Role = "manager"
 	spawn := func(role string) string {
-		id, err := ws.Spawn(c.lead, SpawnOptions{Task: "task", Role: role, Agent: "sleeper", Kind: session.KindClaude, SpawnedByAgent: true})
+		id, err := ws.Spawn(c.lead, SpawnOptions{Task: "task", Role: role, Agent: "sleeper", Kind: session.KindAgent, SpawnedByAgent: true})
 		if err != nil {
 			t.Fatalf("spawn %s: %v", role, err)
 		}
@@ -199,7 +199,7 @@ func TestRosterListsTheProjectsAgentPanesAndMarksTheCaller(t *testing.T) {
 	if err := c.ws.OpenProject(other); err != nil {
 		t.Fatal(err)
 	}
-	c.ws.NewTabWith(Choice{Kind: session.KindClaude, Agent: "sleeper"}, other, "")
+	c.ws.NewTabWith(Choice{Kind: session.KindAgent, Agent: "sleeper"}, other, "")
 	c.ws.NewTab(session.KindShell, c.root, "a shell")
 
 	roster, err := c.ws.Roster(c.w1)
@@ -388,7 +388,7 @@ func waitFor(t *testing.T, what string, ok func() bool) {
 
 func TestAHelperThatExitsOnItsOwnTellsItsParentOnce(t *testing.T) {
 	c := newCrew(t)
-	id, err := c.ws.Spawn(c.lead, SpawnOptions{Task: "boom", Role: "worker", Agent: "quitter", Kind: session.KindClaude, SpawnedByAgent: true})
+	id, err := c.ws.Spawn(c.lead, SpawnOptions{Task: "boom", Role: "worker", Agent: "quitter", Kind: session.KindAgent, SpawnedByAgent: true})
 	if err != nil {
 		t.Fatal(err)
 	}

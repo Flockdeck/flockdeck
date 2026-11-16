@@ -67,7 +67,7 @@ func TestABatonFromANamedPaneHasToBeOfTheSameProject(t *testing.T) {
 	ask(srv, func() struct{} {
 		second = ws.RootOf(parent)
 		first = ws.ActiveRoot()
-		tab := ws.NewTabWith(workspace.Choice{Kind: session.KindClaude, Agent: "gocli"}, first, "other")
+		tab := ws.NewTabWith(workspace.Choice{Kind: session.KindAgent, Agent: "gocli"}, first, "other")
 		otherPane = tab.Focus
 		return struct{}{}
 	})
@@ -81,7 +81,7 @@ func TestABatonFromANamedPaneHasToBeOfTheSameProject(t *testing.T) {
 	// A pane of its own project is fine.
 	var sibling string
 	ask(srv, func() struct{} {
-		sibling = ws.NewTabWith(workspace.Choice{Kind: session.KindClaude, Agent: "gocli"}, second, "sibling").Focus
+		sibling = ws.NewTabWith(workspace.Choice{Kind: session.KindAgent, Agent: "gocli"}, second, "sibling").Focus
 		return struct{}{}
 	})
 	if _, err := srv.resolveBaton(parent, sibling); err != nil {

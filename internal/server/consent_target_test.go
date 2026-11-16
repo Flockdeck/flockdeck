@@ -48,7 +48,7 @@ func targetsFor(t *testing.T, onScreen, ofParent string) (srv *Server, ws *works
 		if err := ws.OpenProject(second); err != nil {
 			t.Error(err)
 		}
-		tab := ws.NewTabWith(workspace.Choice{Kind: session.KindClaude, Agent: "gocli"}, second, "parent")
+		tab := ws.NewTabWith(workspace.Choice{Kind: session.KindAgent, Agent: "gocli"}, second, "parent")
 		id := tab.Focus
 		ws.SelectProject(first)
 		return id

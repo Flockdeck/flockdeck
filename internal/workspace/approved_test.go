@@ -22,20 +22,20 @@ func TestASpawnRunsWhatWasApprovedAndNothingElse(t *testing.T) {
 	bp := prepared(t, ws, root, b, "")
 
 	// The agent and company it was approved for: it starts.
-	id, err := ws.Spawn(parent, SpawnOptions{Kind: session.KindClaude, Agent: "gosession", Baton: &bp, Approved: &ApprovedTarget{Agent: "gosession", Provider: "go", ApprovalRequired: true}})
+	id, err := ws.Spawn(parent, SpawnOptions{Kind: session.KindAgent, Agent: "gosession", Baton: &bp, Approved: &ApprovedTarget{Agent: "gosession", Provider: "go", ApprovalRequired: true}})
 	if err != nil || id == "" {
 		t.Fatalf("a spawn for the approved agent failed: %v", err)
 	}
 	// Another agent than the one approved.
-	if _, err := ws.Spawn(parent, SpawnOptions{Kind: session.KindClaude, Agent: "goprompt", Baton: &bp, Approved: &ApprovedTarget{Agent: "gosession", Provider: "go", ApprovalRequired: true}}); err == nil || !strings.Contains(err.Error(), "approved") {
+	if _, err := ws.Spawn(parent, SpawnOptions{Kind: session.KindAgent, Agent: "goprompt", Baton: &bp, Approved: &ApprovedTarget{Agent: "gosession", Provider: "go", ApprovalRequired: true}}); err == nil || !strings.Contains(err.Error(), "approved") {
 		t.Errorf("another agent than the approved one started: %v", err)
 	}
 	// The same agent for another company: its exe was changed while the user was asked.
-	if _, err := ws.Spawn(parent, SpawnOptions{Kind: session.KindClaude, Agent: "gosession", Baton: &bp, Approved: &ApprovedTarget{Agent: "gosession", Provider: "git", ApprovalRequired: true}}); err == nil || !strings.Contains(err.Error(), "settings changed") {
+	if _, err := ws.Spawn(parent, SpawnOptions{Kind: session.KindAgent, Agent: "gosession", Baton: &bp, Approved: &ApprovedTarget{Agent: "gosession", Provider: "git", ApprovalRequired: true}}); err == nil || !strings.Contains(err.Error(), "settings changed") {
 		t.Errorf("another company than the approved one started: %v", err)
 	}
 	// The agent was removed from the catalog.
-	if _, err := ws.Spawn(parent, SpawnOptions{Kind: session.KindClaude, Agent: "gosession", Baton: &bp, Approved: &ApprovedTarget{Agent: "gone", Provider: "go", ApprovalRequired: true}}); err == nil {
+	if _, err := ws.Spawn(parent, SpawnOptions{Kind: session.KindAgent, Agent: "gosession", Baton: &bp, Approved: &ApprovedTarget{Agent: "gone", Provider: "go", ApprovalRequired: true}}); err == nil {
 		t.Error("an approval for an agent that is not there started one")
 	}
 }
@@ -95,16 +95,16 @@ func TestASpawnNobodyWasAskedAboutMustRunForTheCompanyTheBatonCameFrom(t *testin
 	parent := ws.CurrentTab().Focus
 	bp := prepared(t, ws, root, testBaton(), "")
 	same := &ApprovedTarget{Agent: "gosession", Provider: "go", SourceProvider: "go"}
-	if _, err := ws.Spawn(parent, SpawnOptions{Kind: session.KindClaude, Agent: "gosession", Baton: &bp, Approved: same}); err != nil {
+	if _, err := ws.Spawn(parent, SpawnOptions{Kind: session.KindAgent, Agent: "gosession", Baton: &bp, Approved: same}); err != nil {
 		t.Fatalf("a spawn for the company the baton came from: %v", err)
 	}
 	other := &ApprovedTarget{Agent: "gosession", Provider: "go", SourceProvider: "anthropic"}
-	if _, err := ws.Spawn(parent, SpawnOptions{Kind: session.KindClaude, Agent: "gosession", Baton: &bp, Approved: other}); err == nil || !strings.Contains(err.Error(), "nothing approved") {
+	if _, err := ws.Spawn(parent, SpawnOptions{Kind: session.KindAgent, Agent: "gosession", Baton: &bp, Approved: other}); err == nil || !strings.Contains(err.Error(), "nothing approved") {
 		t.Errorf("a spawn to another company than the baton came from, with no approval, started: %v", err)
 	}
 	// An approval for a pair is accepted when the company is the approved one.
 	approved := &ApprovedTarget{Agent: "gosession", Provider: "go", SourceProvider: "anthropic", ApprovalRequired: true}
-	if _, err := ws.Spawn(parent, SpawnOptions{Kind: session.KindClaude, Agent: "gosession", Baton: &bp, Approved: approved}); err != nil {
+	if _, err := ws.Spawn(parent, SpawnOptions{Kind: session.KindAgent, Agent: "gosession", Baton: &bp, Approved: approved}); err != nil {
 		t.Errorf("an approved pair was refused: %v", err)
 	}
 }

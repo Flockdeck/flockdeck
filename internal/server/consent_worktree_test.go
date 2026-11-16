@@ -108,7 +108,7 @@ func parentIn(t *testing.T, srv *Server, ws *workspace.Workspace, repo string) s
 	t.Helper()
 	id, ok := ask(srv, func() string {
 		ws.ReloadAgents()
-		return ws.NewTabWith(workspace.Choice{Kind: session.KindClaude, Agent: "claude-a"}, repo, "parent").Focus
+		return ws.NewTabWith(workspace.Choice{Kind: session.KindAgent, Agent: "claude-a"}, repo, "parent").Focus
 	})
 	if !ok || id == "" {
 		t.Fatal("the parent pane did not start")

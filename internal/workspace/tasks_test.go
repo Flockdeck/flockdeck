@@ -68,7 +68,7 @@ func TestTheBoardLivesInTheProjectsMainCheckoutAndIsSharedByItsPanes(t *testing.
 	if err := c.ws.OpenProject(other); err != nil {
 		t.Fatal(err)
 	}
-	c.ws.NewTabWith(Choice{Kind: session.KindClaude, Agent: "sleeper"}, other, "")
+	c.ws.NewTabWith(Choice{Kind: session.KindAgent, Agent: "sleeper"}, other, "")
 	var stranger string
 	for _, id := range c.ws.Tabs[len(c.ws.Tabs)-1].Tree.Panes() {
 		stranger = id
@@ -328,7 +328,7 @@ func TestAPaneWithNoRoleIsTheManagerOnlyWhileNoManagerPaneIsRunning(t *testing.T
 	c.mustCall(t, c.reviewer, hooks.TaskRequest{Op: hooks.TaskStatus, ID: "T1", State: "done"})
 
 	// A helper started with no role, beside a live manager.
-	c.ws.NewTabWith(Choice{Kind: session.KindClaude, Agent: "sleeper"}, c.root, "")
+	c.ws.NewTabWith(Choice{Kind: session.KindAgent, Agent: "sleeper"}, c.root, "")
 	helper := c.ws.FocusedPane().ID
 	if got := c.ws.Pane(helper).Role; got != "" {
 		t.Fatalf("the helper has role %q", got)
@@ -362,7 +362,7 @@ func TestTheBoardSurvivesAWorkspaceRestartAndKeepsCountingIDs(t *testing.T) {
 	c.mustCall(t, c.lead, hooks.TaskRequest{Op: hooks.TaskAdd, Title: "two"})
 	// A second workspace over the same project has never opened the board.
 	ws2 := newTestWorkspace(t, c.root)
-	ws2.NewTabWith(Choice{Kind: session.KindClaude, Agent: "sleeper"}, c.root, "")
+	ws2.NewTabWith(Choice{Kind: session.KindAgent, Agent: "sleeper"}, c.root, "")
 	p := ws2.FocusedPane()
 	p.Role = "manager"
 	res, err := ws2.Task(hooks.TaskRequest{Auth: hooks.Auth{Pane: p.ID}, Op: hooks.TaskAdd, Title: "three"})

@@ -104,7 +104,7 @@ func TestRouteFirstTurnRoutesAFreshPaneOntoARoutedModel(t *testing.T) {
 		},
 	})
 
-	ws.NewTabWith(Choice{Kind: session.KindClaude, Agent: "openai", Model: "gpt-5.6-luna"}, root, "")
+	ws.NewTabWith(Choice{Kind: session.KindAgent, Agent: "openai", Model: "gpt-5.6-luna"}, root, "")
 	p := ws.FocusedPane()
 	if p == nil || p.Sess == nil {
 		t.Fatalf("the pane did not start: %v", p.Err)
@@ -145,7 +145,7 @@ func TestRouteFirstTurnDoesNothingWithoutAMatch(t *testing.T) {
 		},
 	})
 
-	ws.NewTabWith(Choice{Kind: session.KindClaude, Agent: "openai", Model: "gpt-5.6-luna"}, root, "")
+	ws.NewTabWith(Choice{Kind: session.KindAgent, Agent: "openai", Model: "gpt-5.6-luna"}, root, "")
 	p := ws.FocusedPane()
 	if p == nil || p.Sess == nil {
 		t.Fatalf("the pane did not start: %v", p.Err)
@@ -177,7 +177,7 @@ func TestRouteFirstTurnOnlyRoutesInAutoMode(t *testing.T) {
 		},
 	})
 
-	ws.NewTabWith(Choice{Kind: session.KindClaude, Agent: "openai", Model: "gpt-5.6-luna"}, root, "")
+	ws.NewTabWith(Choice{Kind: session.KindAgent, Agent: "openai", Model: "gpt-5.6-luna"}, root, "")
 	p := ws.FocusedPane()
 	if p == nil || p.Sess == nil {
 		t.Fatalf("the pane did not start: %v", p.Err)
@@ -202,7 +202,7 @@ func TestRouteFirstTurnLeavesAConversationAlone(t *testing.T) {
 		},
 	})
 
-	ws.NewTabWith(Choice{Kind: session.KindClaude, Agent: "openai", Model: "gpt-5.6-luna"}, root, "")
+	ws.NewTabWith(Choice{Kind: session.KindAgent, Agent: "openai", Model: "gpt-5.6-luna"}, root, "")
 	p := ws.FocusedPane()
 	if p == nil || p.Sess == nil {
 		t.Fatalf("the pane did not start: %v", p.Err)

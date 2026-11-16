@@ -18,7 +18,7 @@ func TestSaveRestoreKeepsWhatRoutingChose(t *testing.T) {
 	root := t.TempDir()
 
 	ws := newTestWorkspace(t, root)
-	ws.NewTabWith(Choice{Kind: session.KindClaude, Agent: "codex", Model: "gpt-5.6-luna"}, root, "routed")
+	ws.NewTabWith(Choice{Kind: session.KindAgent, Agent: "codex", Model: "gpt-5.6-luna"}, root, "routed")
 	id := ws.CurrentTab().Focus
 	p := ws.Pane(id)
 	p.Routed, p.RoutedFrom = "run the tests", "gpt-5.6-terra"
@@ -47,7 +47,7 @@ func TestSaveRestoreKeepsTheAgentRoutingMovedFrom(t *testing.T) {
 	root := t.TempDir()
 
 	ws := newTestWorkspace(t, root)
-	ws.NewTabWith(Choice{Kind: session.KindClaude, Agent: "gemini", Model: "gemini-2.5-flash"}, root, "routed")
+	ws.NewTabWith(Choice{Kind: session.KindAgent, Agent: "gemini", Model: "gemini-2.5-flash"}, root, "routed")
 	id := ws.CurrentTab().Focus
 	p := ws.Pane(id)
 	p.Routed, p.RoutedFrom, p.RoutedFromAgent = "tests go local", "sonnet", "claude"

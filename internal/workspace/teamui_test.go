@@ -160,7 +160,7 @@ func TestTheUserPrunesAndSeesOnlyItsOwnProject(t *testing.T) {
 	if err := c.ws.OpenProject(other); err != nil {
 		t.Fatal(err)
 	}
-	c.ws.NewTabWith(Choice{Kind: session.KindClaude, Agent: "sleeper"}, other, "")
+	c.ws.NewTabWith(Choice{Kind: session.KindAgent, Agent: "sleeper"}, other, "")
 	if res, err := c.ws.UserTask(other, hooks.TaskRequest{Op: hooks.TaskList, State: "all"}); err != nil || len(res.Tasks) != 0 {
 		t.Errorf("another project's board = %+v, %v", res.Tasks, err)
 	}
@@ -278,7 +278,7 @@ func TestTheUserListsAndMarksMessagesOfItsProjectOnly(t *testing.T) {
 	if err := c.ws.OpenProject(other); err != nil {
 		t.Fatal(err)
 	}
-	c.ws.NewTabWith(Choice{Kind: session.KindClaude, Agent: "sleeper"}, other, "")
+	c.ws.NewTabWith(Choice{Kind: session.KindAgent, Agent: "sleeper"}, other, "")
 	if _, err := c.ws.UserSeeMessage(other, c.w1, all[1].ID); err == nil || !strings.Contains(err.Error(), "not an agent pane of this project") {
 		t.Errorf("read across projects = %v", err)
 	}

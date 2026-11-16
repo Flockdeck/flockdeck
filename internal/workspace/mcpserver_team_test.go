@@ -128,7 +128,7 @@ func TestListPeersIsTheCallersProjectAndNothingSecret(t *testing.T) {
 	if err := c.ws.OpenProject(other); err != nil {
 		t.Fatal(err)
 	}
-	c.ws.NewTabWith(Choice{Kind: session.KindClaude, Agent: "sleeper"}, other, "")
+	c.ws.NewTabWith(Choice{Kind: session.KindAgent, Agent: "sleeper"}, other, "")
 	foreign := c.ws.FocusedPane().ID
 	tok := srv.IssuePaneToken(c.w1)
 
