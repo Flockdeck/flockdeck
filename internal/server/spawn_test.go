@@ -321,3 +321,24 @@ func TestLocalBranchesFoldCase(t *testing.T) {
 		t.Errorf("branch = %q, which differs from an existing branch only by case", jobs[0].branch)
 	}
 }
+
+// A model the agent does not offer is refused before git has made a branch.
+func TestSpawnWithAModelTheAgentLacksCutsNoWorktree(t *testing.T) {
+	srv, ws, repo := newRepoServer(t)
+	parent := make(chan string, 1)
+	srv.do(func() { parent <- ws.CurrentTab().Focus })
+	spec := ws.Catalog().Visible()[0]
+	if len(spec.Models) == 0 {
+		t.Skip("the first agent lists no models")
+	}
+	hookSrv := ws.HookServer()
+	_, err := hooks.Spawn(hookSrv.BaseURL(), hookSrv.Token(), <-parent, hooks.SpawnRequest{
+		Task: "fix the parser", Branch: "fix-parser", Agent: spec.ID, Model: "no-such-model",
+	})
+	if err == nil || !strings.Contains(err.Error(), "no-such-model") {
+		t.Fatalf("spawn = %v, want a refusal naming the model", err)
+	}
+	if taken, _ := localBranches(repo); taken["fix-parser"] {
+		t.Error("a refused spawn left its branch behind")
+	}
+}

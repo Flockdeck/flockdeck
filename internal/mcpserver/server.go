@@ -275,7 +275,7 @@ var toolList = []map[string]any{
 		"description": "Start a helper agent for this pane, as `flockdeck spawn` does. The helper works on `task` and is a pane of this project. " +
 			"Unless `role` names one that shares the checkout, or no_worktree is set, a helper that works on its own branch " +
 			"gets a git worktree and a branch named from its task; `worktree` names the branch. " +
-			"The role you are in decides which roles you may start. Returns the new pane id and where it works.",
+			"The role you are in decides which roles you may start. A terminal helper cannot be started from here, because it would be given Flockdeck's address and a token; terminal is refused. Returns the new pane id and where it works.",
 		"inputSchema": map[string]any{
 			"type": "object",
 			"properties": map[string]any{
@@ -288,7 +288,6 @@ var toolList = []map[string]any{
 				"split":       map[string]any{"type": "boolean", "description": "Place the helper beside this pane instead of in a new tab. tab takes precedence."},
 				"agent":       map[string]any{"type": "string", "description": "Id of the agent to start. The role's agent applies where this is not given."},
 				"model":       map[string]any{"type": "string", "description": "Which of that agent's models to ask for."},
-				"terminal":    map[string]any{"type": "boolean", "description": "Start the agent in a terminal pane instead of a structured one."},
 			},
 			"required":             []string{"task"},
 			"additionalProperties": false,

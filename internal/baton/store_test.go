@@ -2,10 +2,12 @@ package baton
 
 import (
 	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -268,5 +270,54 @@ func TestStoreSaveLeavesNoTempFileAndNoPartialBaton(t *testing.T) {
 	list, err := s.List()
 	if err != nil || len(list) != 1 {
 		t.Errorf("List = %d batons, %v; want 1", len(list), err)
+	}
+}
+
+func TestStoreSaveOfTheSameIDTwiceOrAtOnceGivesErrExistsAtWorst(t *testing.T) {
+	dir := t.TempDir()
+	s := NewStore(dir)
+	b := sample()
+	// A fresh leftover of the old fixed name must not turn a save into an error.
+	if err := os.WriteFile(filepath.Join(dir, "."+b.ID+".md.tmp"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var wg sync.WaitGroup
+	errs := make([]error, 8)
+	for i := range errs {
+		wg.Add(1)
+		go func() { defer wg.Done(); errs[i] = s.Save(b) }()
+	}
+	wg.Wait()
+	saved := 0
+	for _, err := range errs {
+		switch {
+		case err == nil:
+			saved++
+		case !errors.Is(err, ErrExists):
+			t.Errorf("save = %v, want nil or ErrExists", err)
+		}
+	}
+	if saved != 1 {
+		t.Errorf("%d saves won, want 1", saved)
+	}
+}
+
+func TestStoreSaveRemovesAStaleCopyOfItsID(t *testing.T) {
+	dir := t.TempDir()
+	s := NewStore(dir)
+	b := sample()
+	stale := filepath.Join(dir, "."+b.ID+".md.tmp")
+	if err := os.WriteFile(stale, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	old := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(stale, old, old); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Save(b); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(stale); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("stale copy still there: %v", err)
 	}
 }

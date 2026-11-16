@@ -7,6 +7,7 @@
 package agent
 
 import (
+	"fmt"
 	"regexp"
 	"strings"
 )
@@ -393,4 +394,54 @@ func (s Spec) OffersWakeText() bool {
 // and an agent behind a protocol is listed only while structured panes are on.
 func (s Spec) OfferedInPicker(structuredOn bool) bool {
 	return !s.Hidden && (s.Runner != RunnerACP || structuredOn)
+}
+
+// OffersModel reports whether the agent can be asked for model.
+//
+// An empty model is the choice not having been made, which every agent accepts
+// (a CLI then keeps whatever it was configured with). An agent that lists no
+// models takes whatever it is given, so there is nothing there to be wrong.
+func (s Spec) OffersModel(model string) bool {
+	if model == "" || len(s.Models) == 0 {
+		return true
+	}
+	for _, m := range s.Models {
+		if m.ID == model {
+			return true
+		}
+	}
+	return false
+}
+
+// ModelIDs are the ids of the models the agent lists.
+func (s Spec) ModelIDs() []string {
+	var out []string
+	for _, m := range s.Models {
+		if m.ID != "" {
+			out = append(out, m.ID)
+		}
+	}
+	return out
+}
+
+// CheckModel checks a model against the agent it is asked of. spec is that
+// agent when one was named. With none named, the model is checked against the
+// whole catalog, because which agent it will belong to is the project's default
+// and is not known until the pane is made; that still catches a typo.
+func CheckModel(visible []Spec, spec *Spec, model string) error {
+	if model == "" {
+		return nil
+	}
+	if spec != nil {
+		if !spec.OffersModel(model) {
+			return fmt.Errorf("%s has no model called %q; it offers %s", spec.ID, model, strings.Join(spec.ModelIDs(), ", "))
+		}
+		return nil
+	}
+	for _, s := range visible {
+		if !s.Hidden && s.OffersModel(model) {
+			return nil
+		}
+	}
+	return fmt.Errorf("no agent offers a model called %q", model)
 }

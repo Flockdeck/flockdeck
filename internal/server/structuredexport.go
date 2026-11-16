@@ -111,7 +111,9 @@ func (s *Server) structuredExport(c *controlClient, cmd command) {
 			return func() { c.sendJSON(m) }
 		}()
 		structuredExporting.Delete(id)
-		answer()
+		// The send is outside the recover above, so it has one of its own: a
+		// panic in answering must not take the process down.
+		s.sendExportAnswer(c, answer)
 	}()
 }
 
@@ -127,4 +129,16 @@ func exportWords(err error) string {
 		}
 	}
 	return structuredExportFailed
+}
+
+// sendExportAnswer runs the send of an export's answer. A panic in it is
+// reported and swallowed: it runs on a goroutine of its own, so left alone it
+// would end the process.
+func (s *Server) sendExportAnswer(c *controlClient, answer func()) {
+	defer func() {
+		if r := recover(); r != nil {
+			s.reportPanic(c, "answering a conversation export", r)
+		}
+	}()
+	answer()
 }

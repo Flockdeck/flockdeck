@@ -316,7 +316,7 @@ func TestMCPSpawnActsAsThePaneOfTheTokenAndMirrorsTheCLI(t *testing.T) {
 	})
 	a, b := srv.IssuePaneToken("pA"), srv.IssuePaneToken("pB")
 	res, err := MCPSpawn(context.Background(), srv.BaseURL(), a, MCPSpawnBody{
-		Task: " build it ", Role: "worker", Name: "the build", Tab: "work", Worktree: "feat/x", Split: true, Agent: "claude", Model: "m", Terminal: true,
+		Task: " build it ", Role: "worker", Name: "the build", Tab: "work", Worktree: "feat/x", Split: true, Agent: "claude", Model: "m",
 	})
 	if err != nil || res.PaneID != "p9" || res.Branch != "feat/x" {
 		t.Fatalf("spawn = %+v, %v", res, err)
@@ -329,7 +329,7 @@ func TestMCPSpawnActsAsThePaneOfTheTokenAndMirrorsTheCLI(t *testing.T) {
 	}
 	g := seen[0]
 	if g.Parent != "pA" || g.Task != "build it" || g.Role != "worker" || g.Label != team.PaneLabelText("the build") || g.Tab != "work" ||
-		g.Branch != "feat/x" || !g.Split || g.Agent != "claude" || g.Model != "m" || !g.Terminal || g.Ctx == nil {
+		g.Branch != "feat/x" || !g.Split || g.Agent != "claude" || g.Model != "m" || g.Ctx == nil {
 		t.Errorf("first request = %+v", g)
 	}
 	if g.Shell || g.Baton != "" || g.TaskID != "" || g.Record || g.BatonElsewhere || g.Token != "" {
@@ -351,6 +351,7 @@ func TestMCPSpawnRefusesWhatTheCLIRefuses(t *testing.T) {
 		"worktree and none":    {Task: "x", Worktree: "b", NoWorktree: true},
 		"tab with a line feed": {Task: "x", Tab: "a\nb"},
 		"tab too long":         {Task: "x", Tab: strings.Repeat("t", MaxTabName+1)},
+		"terminal":             {Task: "x", Terminal: true},
 	} {
 		if _, err := MCPSpawn(context.Background(), srv.BaseURL(), tok, body); err == nil {
 			t.Errorf("%s: spawned", name)
@@ -433,5 +434,21 @@ func TestMCPSpawnIsRateLimitedPerPane(t *testing.T) {
 	now = now.Add(spawnEvery)
 	if code, _ := rawMCP(t, srv, PathMCPSpawn, a, `{"task":"x"}`); code != 200 {
 		t.Errorf("after the refill = %d, want 200", code)
+	}
+}
+
+func TestMCPSpawnWordsItsRefusalsForAnAgentWithNoShell(t *testing.T) {
+	srv, _ := newServer(t)
+	srv.SetSpawnHandler(func(SpawnRequest) (SpawnResult, error) {
+		return SpawnResult{}, errors.New("a pane may have 3 helpers; close the ones that are done with `flockdeck close <pane-id>` or wait for them to finish; pass -no-worktree to start it in your checkout")
+	})
+	tok := srv.IssuePaneToken("pA")
+	_, err := MCPSpawn(context.Background(), srv.BaseURL(), tok, MCPSpawnBody{Task: "x"})
+	if err == nil || strings.Contains(err.Error(), "flockdeck close") || strings.Contains(err.Error(), "-no-worktree") || !strings.Contains(err.Error(), "set no_worktree") {
+		t.Errorf("err = %v, want it reworded for the tool", err)
+	}
+	_, err = MCPSpawn(context.Background(), srv.BaseURL(), tok, MCPSpawnBody{Task: "x", Terminal: true})
+	if err == nil || !strings.Contains(err.Error(), "terminal is not available") {
+		t.Errorf("terminal err = %v", err)
 	}
 }

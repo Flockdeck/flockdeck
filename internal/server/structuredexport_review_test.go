@@ -65,3 +65,14 @@ func TestStructuredExportRefusesWhenTheRedactorCannotBeMadeWhole(t *testing.T) {
 		t.Errorf("files written: %v", left)
 	}
 }
+
+func TestStructuredExportSurvivesAPanicInTheSend(t *testing.T) {
+	var s Server
+	done := false
+	// A nil client: reportPanic copes, and the panic must not escape.
+	s.sendExportAnswer(nil, func() { panic("send boom") })
+	s.sendExportAnswer(nil, func() { done = true })
+	if !done {
+		t.Error("the answer after a panicking one did not run")
+	}
+}

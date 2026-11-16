@@ -360,12 +360,27 @@ func (s *Server) handleMCPSpawn(w http.ResponseWriter, r *http.Request) {
 	req.Ctx = r.Context()
 	res, err := fn(req)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadRequest)
+		http.Error(w, mcpSpawnWords(err.Error()), http.StatusBadRequest)
 		return
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(res)
 }
+
+// mcpSpawnWords rewords a refusal of the spawn handler for an agent that has no
+// shell and so no command line: the handler words them for `flockdeck spawn`.
+func mcpSpawnWords(msg string) string {
+	return strings.NewReplacer(
+		"close the ones that are done with `flockdeck close <pane-id>` or wait for them to finish", "wait for some of them to finish before starting another",
+		"pass -no-worktree to start it in your checkout", "set no_worktree to start it in your checkout",
+		"pass -no-worktree to start it there", "set no_worktree to start it there",
+		"use -role", "set role",
+		"-tab", "tab",
+	).Replace(msg)
+}
+
+// MCPTerminalRefusal is the answer to a spawn that asks for a terminal pane.
+const MCPTerminalRefusal = "terminal is not available from this tool: a terminal helper is given Flockdeck's address and a token, which a structured pane is kept without. Leave it out and the helper starts as the agent's default pane"
 
 // request checks the body as `flockdeck spawn` checks its flags and returns the
 // request for pane to make.
@@ -377,9 +392,12 @@ func (b MCPSpawnBody) request(pane string) (SpawnRequest, error) {
 	if b.NoWorktree && b.Worktree != "" {
 		return SpawnRequest{}, errors.New("worktree asks for a worktree and no_worktree for none, so they cannot go together")
 	}
+	if b.Terminal {
+		return SpawnRequest{}, errors.New(MCPTerminalRefusal)
+	}
 	tab, err := CleanTabName(b.Tab)
 	if err != nil {
-		return SpawnRequest{}, errors.New(strings.Replace(err.Error(), "-tab", "tab", 1))
+		return SpawnRequest{}, errors.New(mcpSpawnWords(err.Error()))
 	}
 	return SpawnRequest{
 		Parent:     pane,

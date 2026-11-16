@@ -2396,15 +2396,7 @@ func findSpec(specs []agent.Spec, id string) (agent.Spec, bool) {
 // models takes whatever it is given, so there is nothing there to be wrong
 // either.
 func offersModel(s agent.Spec, model string) bool {
-	if model == "" || len(s.Models) == 0 {
-		return true
-	}
-	for _, m := range s.Models {
-		if m.ID == model {
-			return true
-		}
-	}
-	return false
+	return s.OffersModel(model)
 }
 
 // checkAgent checks an agent and a model named on the command line against the
