@@ -112,6 +112,20 @@ const (
 // cuts one worktree -- per call, with nothing else to stop a window calling it as fast as it can
 // send frames.
 func (s *Server) startAgent(c *controlClient, cmd command) {
+	// The task is a prompt. Through the relay's own socket it could be read, or
+	// forged, so a relay window is refused here and starts agents on the sealed
+	// socket (tier B), where the same limits are kept: a project Flockdeck knows,
+	// and an agent, not a shell.
+	if c.remote {
+		if c.sealed == nil {
+			c.notify(startAgentSealedOnly, true)
+			return
+		}
+		if cmd.Kind == "shell" {
+			c.notify("A shell is started on the desktop, not from a phone", true)
+			return
+		}
+	}
 	if !c.startAgentLimit.allow(startAgentRateLimit, startAgentRateWindow) {
 		c.notify("Too many agents started too quickly -- wait a moment and try again", true)
 		return
@@ -154,6 +168,10 @@ func (s *Server) startAgent(c *controlClient, cmd command) {
 		return
 	}
 	root := f.root
+	if c.sealed != nil && !s.insideKnownProject(root) {
+		c.notify(remotePathsDeskOnly, true)
+		return
+	}
 
 	go func() {
 		defer s.surviveFor(c, "starting an agent")
@@ -929,3 +947,8 @@ func uniqueBranch(base string, taken, used map[string]bool) string {
 
 // spawnApproved is told what every baton spawn carries into Spawn: a test looks at it.
 var spawnApproved = func(*workspace.ApprovedTarget) {}
+
+// startAgentSealedOnly is what a window reached through the relay's own socket is
+// told when it starts an agent: the task is a prompt, so it goes over the sealed
+// socket and needs the desk's "Control agents" switch for the device.
+const startAgentSealedOnly = "Starting an agent from a paired device needs the desktop's Control agents switch for it, and an app that speaks the sealed connection. Update the app, or start it on the desktop"

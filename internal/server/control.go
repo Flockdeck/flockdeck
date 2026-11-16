@@ -1731,6 +1731,9 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 	case "setDeviceApprove":
 		s.setDeviceApprove(c, cmd)
 		return
+	case "setDeviceControl":
+		s.setDeviceControl(c, cmd)
+		return
 	case "setApprovalsOff":
 		s.setApprovalsOff(c, cmd)
 		return

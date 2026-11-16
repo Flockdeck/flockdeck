@@ -1,7 +1,7 @@
 {
   "api": {
     "major": 1,
-    "minor": 37
+    "minor": 38
   },
   "frames": [
     {
@@ -152,6 +152,7 @@
     {
       "name": "attachImage",
       "access": "full",
+      "sealed": "B",
       "since": "1.0",
       "status": "stable"
     },
@@ -767,6 +768,7 @@
     {
       "name": "paneSend",
       "access": "full",
+      "sealed": "B",
       "since": "1.0",
       "status": "stable"
     },
@@ -779,6 +781,7 @@
     {
       "name": "permissionAnswer",
       "access": "full",
+      "sealed": "B",
       "since": "1.0",
       "status": "stable"
     },
@@ -1107,6 +1110,12 @@
       "status": "stable"
     },
     {
+      "name": "setDeviceControl",
+      "access": "full",
+      "since": "1.38",
+      "status": "stable"
+    },
+    {
       "name": "setDeviceRole",
       "access": "full",
       "since": "1.0",
@@ -1146,6 +1155,8 @@
     {
       "name": "startAgent",
       "access": "full",
+      "relayRefused": true,
+      "sealed": "B",
       "since": "1.0",
       "status": "stable"
     },
@@ -1170,6 +1181,7 @@
     {
       "name": "structuredCancel",
       "access": "full",
+      "sealed": "B",
       "since": "1.0",
       "status": "stable"
     },
@@ -1206,24 +1218,28 @@
     {
       "name": "structuredQueueClear",
       "access": "full",
+      "sealed": "B",
       "since": "1.19",
       "status": "stable"
     },
     {
       "name": "structuredQueueEdit",
       "access": "full",
+      "sealed": "B",
       "since": "1.19",
       "status": "stable"
     },
     {
       "name": "structuredQueueRemove",
       "access": "full",
+      "sealed": "B",
       "since": "1.19",
       "status": "stable"
     },
     {
       "name": "structuredQueueSendNow",
       "access": "full",
+      "sealed": "B",
       "since": "1.19",
       "status": "stable"
     },
@@ -1272,24 +1288,28 @@
     {
       "name": "structuredShellRemove",
       "access": "full",
+      "sealed": "B",
       "since": "1.21",
       "status": "stable"
     },
     {
       "name": "structuredShellRun",
       "access": "full",
+      "sealed": "B",
       "since": "1.21",
       "status": "stable"
     },
     {
       "name": "structuredShellSend",
       "access": "full",
+      "sealed": "B",
       "since": "1.21",
       "status": "stable"
     },
     {
       "name": "structuredShellStop",
       "access": "full",
+      "sealed": "B",
       "since": "1.21",
       "status": "stable"
     },
@@ -1516,6 +1536,7 @@
       "name": "agentStarted",
       "relay": "pass",
       "why": "ids",
+      "sealed": "B",
       "since": "1.0",
       "status": "stable"
     },
@@ -1552,6 +1573,7 @@
       "name": "attachImageResult",
       "relay": "pass",
       "why": "a path or a reason",
+      "sealed": "B",
       "since": "1.0",
       "status": "stable"
     },
@@ -1827,12 +1849,14 @@
       "name": "paneSend",
       "relay": "deskOnly",
       "why": "refused to a relay window",
+      "sealed": "B",
       "since": "1.0",
       "status": "stable"
     },
     {
       "name": "permissionAnswer",
       "relay": "scrub",
+      "sealed": "B",
       "since": "1.0",
       "status": "stable"
     },

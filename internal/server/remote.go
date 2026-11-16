@@ -9,6 +9,7 @@ import (
 
 	"github.com/jmwri/flockdeck/internal/e2e"
 	"github.com/jmwri/flockdeck/internal/remote"
+	"github.com/jmwri/flockdeck/internal/store"
 )
 
 // Remote access puts this same server in front of a browser on another
@@ -288,6 +289,9 @@ type remoteDeviceView struct {
 	// phone app cannot answer a request yet (phoneApprovalLive). Sent only to a
 	// window on this machine.
 	ApproveHeld bool `json:"approveHeld,omitempty"`
+	// Control says the desk let the device act on agents through the sealed
+	// socket (tier B, since 1.38). Sent only to a window on this machine.
+	Control bool `json:"control,omitempty"`
 	// DeskFingerprint is the same for the device's other key, the one a
 	// window opened from this machine's own full interface uses
 	// (remote.KeyOriginDesk). That window shows the code on its own side.
@@ -364,6 +368,7 @@ func (s *Server) remoteDevices(c *controlClient) {
 		s.forgetRolesExcept(roster.Devices)
 		// And any grant to approve whose key has changed since.
 		s.reconcileApprovals(roster.Devices)
+		s.reconcileControl(roster.Devices)
 		// This machine's own key is read from this machine, not from the
 		// roster: a relay that swapped the roster's copy would otherwise
 		// make the code shown here agree with the code on a device that
@@ -388,6 +393,7 @@ func (s *Server) remoteDevices(c *controlClient) {
 					msg.Devices[i].Approve = a.ApproveOn(approveAckVersion) && !s.approvalStale(d, a)
 					msg.Devices[i].ApproveKey = s.approveKeyState(d)
 					msg.Devices[i].ApproveHeld = !s.phoneApprovalAvailable()
+					msg.Devices[i].Control = a.Control && a.EffectiveRole() == store.RoleFull && !s.controlStale(d, a)
 				}
 			}
 		}

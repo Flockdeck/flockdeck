@@ -368,6 +368,7 @@ var relayRefusedCommands = map[string]string{
 	"remoteRevoke":    "unpairing a device is done at the desk (stage 0, F2)",
 	"remoteRename":    "renaming a device is done at the desk (stage 0, F2)",
 	"remoteReconnect": "trying the relay again is done at the desk (stage 0, F2)",
+	"startAgent":      "a task is a prompt the relay could read or forge, so starting an agent is for the sealed socket (stage 3)",
 }
 
 // refuseRemoteText answers a relay window's conversation command with a plain
@@ -457,6 +458,30 @@ func scrubTeamResult(data []byte) []byte {
 		return nil
 	}
 	return out
+}
+
+// sealedActOps are the teamResult ops a device that may act is told succeeded.
+var sealedActOps = map[string]bool{
+	"structuredCancel": true, "structuredQueueEdit": true, "structuredQueueRemove": true,
+	"structuredQueueClear": true, "structuredQueueSendNow": true,
+	"structuredShellRun": true, "structuredShellStop": true, "structuredShellRemove": true, "structuredShellSend": true,
+}
+
+// scrubTeamResultAct is scrubTeamResult for a sealed device that may act: it keeps
+// a refusal as before, and the plain success of the ops tier B runs. Any other
+// answer, which would hold team data, is dropped.
+func scrubTeamResultAct(data []byte) []byte {
+	var m teamResultMsg
+	if json.Unmarshal(data, &m) != nil {
+		return nil
+	}
+	if m.OK {
+		if !sealedActOps[m.Op] {
+			return nil
+		}
+		return mustMarshal(teamResultMsg{Type: "teamResult", Req: m.Req, Op: m.Op, OK: true})
+	}
+	return scrubTeamResult(data)
 }
 
 // safeLine is a free-text string as a relay window is sent it: made one line,

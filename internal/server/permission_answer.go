@@ -119,7 +119,7 @@ func (s *Server) permissionAnswer(c *controlClient, cmd command) {
 		c.notify(msg, true)
 	}
 	// permission-answer-relay: the refusal to lift when a sealed team socket exists.
-	if c.remote {
+	if c.remote && !c.liftsRelayRefusal("permissionAnswer") {
 		refuse(permissionAnswerDeskOnly)
 		return
 	}
@@ -159,6 +159,12 @@ func (s *Server) permissionAnswer(c *controlClient, cmd command) {
 			refuse(permissionUnknownOption)
 			return
 		}
+		if c.sealed != nil {
+			if why := sealedAnswerRefusal(card, cmd.OptionID, kind, pane.OwnAdapter()); why != "" {
+				refuse(why)
+				return
+			}
+		}
 		var err error
 		if len(card.Questions) > 0 || len(cmd.Answers) > 0 {
 			// Answers go with a question card and its allowing option, and
@@ -189,6 +195,44 @@ func (s *Server) permissionAnswer(c *controlClient, cmd command) {
 		permissionLog("permission answered: pane %s card %d request %s option %s (%s)", cleanForNotice(cmd.ID), cmd.CardSeq, cleanForNotice(cmd.RequestID), cleanForNotice(cmd.OptionID), kind)
 		c.sendJSON(permissionAnswerMsg{Type: "permissionAnswer", Req: cmd.Req, ID: cmd.ID, CardSeq: cmd.CardSeq, RequestID: cmd.RequestID, OK: true})
 	})
+}
+
+// What a sealed device is told when it answers a card it may not.
+const (
+	sealedAnswerNotQP   = "That request is approved on the desktop, or with the approval screen. A phone answers questions and plans here"
+	sealedAnswerOnce    = "A phone answers once. Allow always and the like are set on the desktop"
+	sealedAnswerForeign = "That agent was not written by Flockdeck, so a phone may deny its request and not allow it"
+	sealedAnswerPlain   = "That way of approving the plan is chosen on the desktop"
+)
+
+// sealedAnswerRefusal is why a device on the sealed socket may not give this
+// answer to this card, or "". The sealed socket answers a question or a plan,
+// once: a card of any other kind (a command, an edit, a tool) is the approval
+// path's, with its own limits. The option must have the kind allow_once or
+// reject_once, so an allow-always or a rule is never given from a phone, and an
+// agent Flockdeck did not write may only be denied, since its option ids mean
+// whatever it says. A plan is approved or rejected with the plain options only,
+// not the one that also switches the agent to accepting edits.
+func sealedAnswerRefusal(card *bridge.Card, optionID, kind string, own bool) string {
+	question := len(card.Questions) > 0 || card.Kind == bridge.QuestionKind
+	plan := card.Kind == "switch_mode"
+	if !question && !plan {
+		return sealedAnswerNotQP
+	}
+	if kind != bridge.AllowOnce && kind != "reject_once" {
+		return sealedAnswerOnce
+	}
+	if kind == bridge.AllowOnce && !own {
+		return sealedAnswerForeign
+	}
+	if plan {
+		// The adapters' own ids. optionFor is not used: a plan has two allow_once
+		// options, which it reads as no single one.
+		if (kind == bridge.AllowOnce && optionID != "allow") || (kind == "reject_once" && optionID != "reject") {
+			return sealedAnswerPlain
+		}
+	}
+	return ""
 }
 
 // cleanForNotice is s as one short line for a notice or a log: control

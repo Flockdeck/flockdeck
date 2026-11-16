@@ -210,8 +210,9 @@ func TestSealedLetsAVerifiedDeviceIn(t *testing.T) {
 			t.Errorf("%s: hello = %v", dev, hello)
 		}
 		cmds, _ := hello["commands"].([]any)
-		if len(cmds) != len(sealedCommands) {
-			t.Errorf("%s: the hello lists %d commands, the table has %d", dev, len(cmds), len(sealedCommands))
+		// Tier A only: the desk has not let either device control agents.
+		if want := len(sealedCommandNames(false)); len(cmds) != want {
+			t.Errorf("%s: the hello lists %d commands, tier A has %d", dev, len(cmds), want)
 		}
 		api, _ := hello["api"].(map[string]any)
 		caps, _ := api["caps"].([]any)
@@ -346,8 +347,8 @@ func TestSealedRunsOnlyTheTableOfCommands(t *testing.T) {
 	}
 	// A hundred and some commands in a burst would meet the rate limit, so the
 	// ones that matter most are sent by name, and the rest are checked by table.
-	for _, name := range []string{"sendPrompt", "paneSend", "startAgent", "quit", "restart", "structuredCancel", "structuredShellRun",
-		"permissionAnswer", "commit", "gitPush", "mergeBranch", "browse", "worktreeAdd", "keySet", "remoteRevoke", "setDeviceRole", "closePane", "conversations"} {
+	for _, name := range []string{"sendPrompt", "structuredSet", "quit", "restart",
+		"commit", "gitPush", "mergeBranch", "browse", "worktreeAdd", "keySet", "remoteRevoke", "setDeviceRole", "closePane", "conversations"} {
 		if sealedCommands[name] != "" {
 			t.Fatalf("%s is in the table", name)
 		}
@@ -368,8 +369,9 @@ func TestSealedRunsOnlyTheTableOfCommands(t *testing.T) {
 	}
 }
 
-// Every command of the table is one the server knows, a read, and tier A.
-func TestSealedTableIsReadOnlyAndKnown(t *testing.T) {
+// Every command of the table is one the server knows, and is tier A (a read) or
+// tier B (acts, needs the desk's Control agents switch).
+func TestSealedTableIsKnownAndTiered(t *testing.T) {
 	cases := map[string]bool{}
 	for _, n := range handleCommandCases(t) {
 		cases[n] = true
@@ -378,15 +380,22 @@ func TestSealedTableIsReadOnlyAndKnown(t *testing.T) {
 		if !cases[name] {
 			t.Errorf("%s is in the sealed table and is not a command", name)
 		}
-		if tier != sealedTierA {
-			t.Errorf("%s is tier %q, and only A is built", name, tier)
+		if tier != sealedTierA && tier != sealedTierB {
+			t.Errorf("%s is tier %q, and only A and B are built", name, tier)
 		}
 	}
-	// The writes and the starts of the plan's later tiers are not here.
-	for _, name := range []string{"paneSend", "permissionAnswer", "attachImage", "structuredQueueEdit", "structuredSet", "structuredShellRun",
-		"commit", "gitPush", "startAgent", "mergeBranch", "keySet"} {
+	// Tier A never writes, whatever else changes.
+	for _, name := range []string{"paneSend", "permissionAnswer", "attachImage", "structuredQueueEdit", "structuredShellRun", "startAgent", "structuredCancel"} {
+		if sealedCommands[name] != sealedTierB {
+			t.Errorf("%s is tier %q, want B", name, sealedCommands[name])
+		}
+	}
+	// What a phone does not do from this socket: a mode (which can switch off the
+	// agent's permission checks), git, merges, keys, devices.
+	for _, name := range []string{"structuredSet", "commit", "gitPush", "gitPull", "mergeBranch", "keySet", "setDeviceControl",
+		"setDeviceApprove", "setDeviceRole", "browse", "sendPrompt", "structuredRewind"} {
 		if sealedCommands[name] != "" {
-			t.Errorf("%s is in the tier A table", name)
+			t.Errorf("%s is in the sealed table", name)
 		}
 	}
 }
@@ -466,7 +475,7 @@ const sealedSecret = "AKIAIOSFODNN7EXAMPLE"
 func TestSealedWriteRedactsAndKeepsTheFormOfAMessage(t *testing.T) {
 	in := `{"type":"structured","id":"p","kind":"structured","rewindToken":"tok-1","rewindPoints":["a"],` +
 		`"usage":{"inputTokens":1200,"outputTokens":34},"title":"Plan ` + planted + `","err":"key ` + sealedSecret + ` rejected"}`
-	out := sealedWrite([]byte(in))
+	out := sealedWrite([]byte(in), nil)
 	if out == nil {
 		t.Fatal("a structured message was dropped")
 	}
@@ -499,7 +508,7 @@ func TestSealedWriteRedactsAndKeepsTheFormOfAMessage(t *testing.T) {
 func TestSealedWriteLeavesPictureBytes(t *testing.T) {
 	data := strings.Repeat("QUJD", 200)
 	in := `{"type":"conversationDetail","id":"p","entry":"1","detail":{"data":"` + data + `","text":"` + sealedSecret + `"}}`
-	out := sealedWrite([]byte(in))
+	out := sealedWrite([]byte(in), nil)
 	if !bytes.Contains(out, []byte(data)) {
 		t.Error("the picture's bytes were changed")
 	}
@@ -531,7 +540,7 @@ func TestSealedWriteDropsWhatTheTableDoesNotName(t *testing.T) {
 		`{"type":"notice","Type":"state","text":"x"}`,
 		`{"type":"structured","type":"state"}`,
 	} {
-		if got := sealedWrite([]byte(raw)); got != nil {
+		if got := sealedWrite([]byte(raw), nil); got != nil {
 			t.Errorf("%q was written: %s", raw, got)
 		}
 	}
@@ -544,14 +553,14 @@ func TestSealedWriteDropsWhatTheTableDoesNotName(t *testing.T) {
 // A refusal is told in the relay's words: redacted and cut to a line; an answer
 // that holds data is dropped.
 func TestSealedWriteScrubsRefusals(t *testing.T) {
-	out := sealedWrite([]byte(`{"type":"notice","text":"failed with ` + sealedSecret + `\nnext line","error":true}`))
+	out := sealedWrite([]byte(`{"type":"notice","text":"failed with `+sealedSecret+`\nnext line","error":true}`), nil)
 	if out == nil || bytes.Contains(out, []byte(sealedSecret)) || bytes.Contains(out, []byte(`\n`)) {
 		t.Errorf("notice = %s", out)
 	}
-	if got := sealedWrite([]byte(`{"type":"teamResult","req":"r","op":"x","ok":true}`)); got != nil {
+	if got := sealedWrite([]byte(`{"type":"teamResult","req":"r","op":"x","ok":true}`), nil); got != nil {
 		t.Errorf("a teamResult that holds an answer was written: %s", got)
 	}
-	if got := sealedWrite([]byte(`{"type":"teamResult","req":"r","op":"x","error":"no"}`)); got == nil {
+	if got := sealedWrite([]byte(`{"type":"teamResult","req":"r","op":"x","error":"no"}`), nil); got == nil {
 		t.Error("a refusal was dropped")
 	}
 }
@@ -625,7 +634,7 @@ func TestSealedLiftsOnlyTheTableOfRefusals(t *testing.T) {
 			t.Errorf("%s is not lifted on a sealed connection", name)
 		}
 	}
-	for _, name := range []string{"paneSend", "structuredCancel", "sendPrompt", "browse", "conversations"} {
+	for _, name := range []string{"structuredSet", "sendPrompt", "browse", "conversations", "commit"} {
 		if c.liftsRelayRefusal(name) {
 			t.Errorf("%s is lifted on a sealed connection", name)
 		}

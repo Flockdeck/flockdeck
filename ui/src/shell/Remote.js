@@ -26,7 +26,7 @@ import { Confirm } from "./Confirm.js";
 import {
   ACCESS, APPROVE_ACK_WORDS, challengeCommand, DESK_ONLY_ACCESS, DESK_ONLY_APPROVE, DESK_ONLY_JOIN, DESK_ONLY_REMOTE, ENTERPRISE_WORDS, INTRO_WORDS, KEPT_WORDS, LINK_WARNING, PAIR_WORDS, PLAN_WORDS, POLL_MS,
   VERIFY_HELP, VERIFY_HELP_RELAY, accessOf, addsAccess, accessIndex, ago, bare, deviceCodes, devicesCommand, enableCommand, leftText, moveCommand, nextAccess, outcomeOf, pairCommand, joinLine, pairLive, pairOf,
-  approveCommand, approveOffCommand, approveView, deviceName, planText, qrSource, renameCommand, resumeCommand, revokeCommand, roleCommand, rosterOf, summaryOf, unverifyCommand, untilText, verifyCommand, verifyText, viewOf,
+  approveCommand, approveOffCommand, approveView, CONTROL_ACK_WORDS, controlCommand, controlView, deviceName, planText, qrSource, renameCommand, resumeCommand, revokeCommand, roleCommand, rosterOf, summaryOf, unverifyCommand, untilText, verifyCommand, verifyText, viewOf,
 } from "../lib/remote.js";
 
 const NEW_DRAFT = { relay: "", name: "", join: "", invite: "", more: false };
@@ -313,6 +313,7 @@ export function Remote({ status, roster, challenge = null, pair, outcome, remote
     const about = { id: d.id, level: accessIndex(d), name };
     const here = renaming && renaming.kind === "device" && renaming.id === d.id;
     const ap = approveView(d);
+    const ct = controlView(d);
     return html`<li class="remote-row" key=${d.id} data-device=${d.id}>
       <div class="key-main">
         <div class="key-title"><span class="key-name">${name}</span>${mine ? html`<span class="key-id">this device</span>` : null}</div>
@@ -350,6 +351,15 @@ export function Remote({ status, roster, challenge = null, pair, outcome, remote
                     if (!go(approveCommand(d.id, true, challengeRef.current))) setProblem("The desktop has not sent its confirmation for " + name + " yet. Nothing was sent. Try again.");
                   }, { ...about, key: d.approveKey, base: challenge ? challenge.seq || 0 : 0 });
                 }}>Approve: off</button>`}
+        ${remote || !ct.offered
+          ? null
+          : ct.on
+            ? html`<button type="button" class="dialog-btn remote-control" aria-pressed="true" aria-label=${"Controlling agents for " + name + ": on. Press to turn it off."}
+                onClick=${() => go(controlCommand(d.id, false))}>Control: on</button>`
+            : html`<button type="button" class="dialog-btn remote-control" aria-pressed="false" disabled=${!ct.canTurnOn}
+                aria-label=${"Controlling agents for " + name + ": off. " + (ct.canTurnOn ? "Press to turn it on." : "Verify its code first.")}
+                onClick=${() => ask("control:" + d.id, "Let " + name + " control your agents?", [CONTROL_ACK_WORDS], "Allow control",
+                  () => go(controlCommand(d.id, true)), { ...about, key: d.approveKey })}>Control: off</button>`}
         <button type="button" class="dialog-btn" onClick=${() => setRenaming({ kind: "device", id: d.id, value: d.name })}>Rename</button>
         <button type="button" class="dialog-btn dialog-btn--danger" aria-label=${"Unpair " + name}
           onClick=${() => ask("device:" + d.id, mine ? "Unpair this device?" : "Unpair " + name + "?",
@@ -360,6 +370,7 @@ export function Remote({ status, roster, challenge = null, pair, outcome, remote
       ${confirmFor("device:" + d.id)}
       ${confirmFor("access:" + d.id)}
       ${confirmFor("approve:" + d.id)}
+      ${confirmFor("control:" + d.id)}
     </li>`;
   };
   const devicesBox = () => {

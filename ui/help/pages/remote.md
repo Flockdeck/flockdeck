@@ -374,9 +374,22 @@ back to plain. A device is let in only if its key is marked verified here and it
 may see panes (a full device, or a viewer allowed to watch panes). It is sent a
 structured pane's conversation and the conversation of a terminal pane (rows, tool
 output, pictures, search), and the changes and diff of a folder, with anything
-that looks like a secret redacted. It cannot type, answer, start or change
-anything: every other command is refused on it. Taking the mark away, or changing
-the device's role, ends the connection.
+that looks like a secret redacted. That is all a device gets by default: every
+other command is refused on it.
+
+A full device can also be allowed to control agents, per device, from the Remote
+page. The switch is off for every device until you turn it on, needs the device's
+key marked verified, and belongs to that key: a changed key, or a device paired
+again, turns it off. With it a device can send a message to an agent (with
+pictures), stop a turn, edit, remove or send now the prompts waiting behind it,
+answer an agent's question or approve its plan once, run a one-line shell command
+in a structured pane, and start an agent in a project Flockdeck knows. It cannot
+allow always, approve a tool request (that is the approval screen's, or yours at
+the desk), change an agent's mode, commit, push or merge. Each of these is logged
+by name in the device log without the text, and a device that sends them too fast
+is told to wait. The switch is looked at again for every request, so turning it
+off takes effect on the next one. Taking the mark away, or changing the device's
+role, ends the connection.
 
 The recordings are sent over their own connection, which is end-to-end encrypted
 or not made at all; unlike the terminal it never falls back to plain. This

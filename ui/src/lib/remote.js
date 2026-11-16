@@ -407,6 +407,23 @@ export function approveCommand(id, on, challenge) {
   return { cmd: "setDeviceApprove", id, on: true, nonce: challenge.nonce, v: challenge.v };
 }
 
+/** CONTROL_ACK_WORDS is shown before a device is allowed to control agents (tier B of the sealed connection). */
+export const CONTROL_ACK_WORDS =
+  "This device will be able to send messages and pictures to your agents, stop them, answer their questions, approve their plans once, run one-line shell commands in a structured pane and start new agents. It cannot allow always, approve tool requests, commit, push or merge. Turn it off here at any time.";
+
+/** controlCommand turns a device's right to control agents on or off. Turning it on says the person has just read CONTROL_ACK_WORDS. */
+export function controlCommand(id, on) {
+  if (!id) return null;
+  return on ? { cmd: "setDeviceControl", id, on: true, confirmed: true } : { cmd: "setDeviceControl", id, on: false };
+}
+
+/** controlView is how a device row shows the switch: only a full device can hold it, and it needs a verified key. */
+export function controlView(d) {
+  const on = !!d.control;
+  const full = d.role === "full";
+  return { on, offered: full || on, canTurnOn: full && d.approveKey === "verified" };
+}
+
 /** approveOffCommand is the kill switch: no device approves until it is allowed again, one at a time. */
 export function approveOffCommand() {
   return { cmd: "setApprovalsOff" };

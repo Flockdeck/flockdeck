@@ -36,7 +36,11 @@ import (
 // sealedCommands is refused without being run; a message not in sealedMessages is
 // dropped.
 //
-// This is tier A of the plan, read only. Every command a connection runs goes
+// Tier A is a read, and any verified device with the right to see panes has it.
+// Tier B (API 1.38, stage 3) acts on agents: send, stop, answer, a shell command,
+// a new agent. It needs the desk's "Control agents" switch for that device, which
+// is tied to the key (sealed_control.go), looked at again before every request
+// and every message written, and it is rate limited and logged. Every command a connection runs goes
 // through the same handleCommand as a window's, as a window reached through the
 // relay (controlClient.remote is set), so each refusal that holds for the
 // unsealed socket holds here too, apart from the three that sealed lifts for the
@@ -49,6 +53,13 @@ const sealedWireVersion = 1
 const (
 	// sealedMaxRequest is the most a request, once opened, may be.
 	sealedMaxRequest = 16 << 10
+	// sealedMaxImageRequest is the most an attachImage request may be: a picture
+	// the phone has already scaled down. It stays under the relay's 4 MiB per
+	// tunnel session buffer.
+	sealedMaxImageRequest = 3 << 20
+	// sealedActBurst and sealedActRate limit tier B requests a device sends.
+	sealedActBurst = 10
+	sealedActRate  = 2.0
 	// sealedPadBucket is the size every frame, in either direction, is rounded
 	// up to a multiple of, so that the relay, which sees the size of each sealed
 	// frame, does not learn how long a search or a reply is.
@@ -81,8 +92,12 @@ const (
 	sealedReasonOff = "disabled"
 )
 
-// sealedTier is what a command or message may be used for. Only A is built.
-const sealedTierA = "A"
+// sealedTier is what a command or message may be used for. A reads. B acts on
+// agents and needs "Control agents" (sealed_control.go).
+const (
+	sealedTierA = "A"
+	sealedTierB = "B"
+)
 
 // sealedCommands is every command the sealed socket runs, with its tier: the
 // default is that a command is refused. api/catalog.json lists the table (the
@@ -97,6 +112,17 @@ var sealedCommands = map[string]string{
 	"conversationOpen": sealedTierA, "conversationOlder": sealedTierA, "conversationDetail": sealedTierA,
 	"conversationSearch": sealedTierA, "conversationClose": sealedTierA,
 	"changes": sealedTierA, "diff": sealedTierA,
+
+	// Tier B. Text for an agent (a message, a queued one edited or sent now, a
+	// picture to go with it), stopping a turn, the answer to a question or a plan,
+	// a person's one-line shell command in a structured pane, and a new agent with
+	// its first prompt. Not here, on purpose: structuredSet (a mode such as
+	// bypassing permissions), allow-always answers, tool approvals (stage 4),
+	// commit and push (stage 6), merges.
+	"paneSend": sealedTierB, "attachImage": sealedTierB, "structuredCancel": sealedTierB,
+	"structuredQueueEdit": sealedTierB, "structuredQueueRemove": sealedTierB, "structuredQueueClear": sealedTierB, "structuredQueueSendNow": sealedTierB,
+	"structuredShellRun": sealedTierB, "structuredShellStop": sealedTierB, "structuredShellRemove": sealedTierB, "structuredShellSend": sealedTierB,
+	"permissionAnswer": sealedTierB, "startAgent": sealedTierB,
 }
 
 // sealedMessage says how a message type reaches a sealed device.
@@ -107,6 +133,8 @@ type sealedMessage struct {
 	// is redacted and cut to a line, and an answer that holds data is dropped. A
 	// message with no scrub is sent redacted, whole (redactSealed).
 	scrub func([]byte) []byte
+	// scrubAct, when set, is used in place of scrub for a device that may act.
+	scrubAct func([]byte) []byte
 	// strip is the top-level fields taken out first: capabilities a read-only
 	// connection has no use for.
 	strip []string
@@ -127,9 +155,14 @@ var sealedMessages = map[string]sealedMessage{
 	"changes":            {Tier: sealedTierA},
 	"diff":               {Tier: sealedTierA},
 	// The refusals of a command, in the words the relay is given.
-	"teamResult":    {Tier: sealedTierA, scrub: scrubTeamResult},
+	"teamResult":    {Tier: sealedTierA, scrub: scrubTeamResult, scrubAct: scrubTeamResultAct},
 	"changesResult": {Tier: sealedTierA, scrub: scrubChangesResult},
 	"notice":        {Tier: sealedTierA, scrub: scrubNotice},
+	// The answers to tier B commands. A device without the right is sent none.
+	"paneSend":          {Tier: sealedTierB},
+	"permissionAnswer":  {Tier: sealedTierB},
+	"attachImageResult": {Tier: sealedTierB},
+	"agentStarted":      {Tier: sealedTierB},
 }
 
 // liftsRelayRefusal reports whether a command from this connection is let past
@@ -144,10 +177,20 @@ func (c *controlClient) liftsRelayRefusal(cmd string) bool {
 // conversation, and applies the tier table and redaction instead. It returns
 // nil to send nothing, and sends nothing for a message it cannot read: the
 // connection is never sent what could not be checked.
-func sealedWrite(data []byte) []byte {
+//
+// act says whether the device may act (tier B). It is called only for a message
+// that needs it, so that the check is made once per such message and not per
+// frame.
+func sealedWrite(data []byte, act func() bool) []byte {
 	rule, ok := sealedMessages[messageType(data)]
-	if !ok || rule.Tier != sealedTierA || !hasOneTypeKey(data) {
+	if !ok || (rule.Tier != sealedTierA && rule.Tier != sealedTierB) || !hasOneTypeKey(data) {
 		return nil
+	}
+	if rule.Tier == sealedTierB && (act == nil || !act()) {
+		return nil
+	}
+	if rule.scrubAct != nil && act != nil && act() {
+		return rule.scrubAct(data)
 	}
 	if rule.scrub != nil {
 		return rule.scrub(data)
@@ -269,7 +312,7 @@ func (t sealedTimings) withDefaults() sealedTimings {
 // sealedDevice is what every socket of one device shares, so that opening
 // several does not multiply its allowance.
 type sealedDevice struct {
-	frames, connects *artifacts.Limiter
+	frames, connects, acts *artifacts.Limiter
 }
 
 func (st *sealedState) device(id string) *sealedDevice {
@@ -283,7 +326,8 @@ func (st *sealedState) device(id string) *sealedDevice {
 	}
 	fr, _ := artifacts.NewLimiter(sealedFrameRate, sealedFrameBurst, nil)
 	cn, _ := artifacts.NewLimiter(float64(sealedConnectsPerMinute)/60, sealedConnectsPerMinute, nil)
-	d := &sealedDevice{frames: fr, connects: cn}
+	ac, _ := artifacts.NewLimiter(sealedActRate, sealedActBurst, nil)
+	d := &sealedDevice{frames: fr, connects: cn, acts: ac}
 	st.devices[id] = d
 	return d
 }
@@ -378,6 +422,12 @@ func (l *sealedLink) gate() bool {
 	return false
 }
 
+// mayAct is whether the device may act on agents now: the desk's switch, for the
+// key this connection proved, in the record in force and in the file.
+func (l *sealedLink) mayAct() bool {
+	return l.reasonOff() == "" && l.s.mayControlWithKey(l.device, l.key)
+}
+
 // write is controlClient.write for a sealed connection: the gate, the tier
 // table and redaction, padding, then the seal. It reports whether the
 // connection is still usable; a message that is not sent is not a failure.
@@ -385,7 +435,7 @@ func (l *sealedLink) write(ctx context.Context, data []byte) bool {
 	if !l.gate() {
 		return false
 	}
-	out := sealedWrite(data)
+	out := sealedWrite(data, l.mayAct)
 	if out == nil {
 		return true
 	}
@@ -434,7 +484,9 @@ type sealedHello struct {
 	Tier       string   `json:"tier"`
 	PadBucket  int      `json:"padBucket"`
 	MaxRequest int      `json:"maxRequest"`
-	Commands   []string `json:"commands"`
+	// MaxImageRequest is the most an attachImage request may be (tier B).
+	MaxImageRequest int      `json:"maxImageRequest,omitempty"`
+	Commands        []string `json:"commands"`
 }
 
 // sealedRefusal answers a request that was not run.
@@ -451,12 +503,19 @@ const (
 	sealedCodeCommand = "command" // not a command this socket runs
 	sealedCodeBusy    = "busy"    // too many requests too fast
 	sealedCodeShape   = "shape"   // not a command, or not padded
+	// sealedCodeControl: a tier B command from a device the desk has not let
+	// control agents.
+	sealedCodeControl = "control"
 )
 
-// sealedCommandNames is the commands the socket runs, sorted, as the hello says.
-func sealedCommandNames() []string {
+// sealedCommandNames is the commands the socket runs for a device, sorted, as
+// the hello says: tier A only unless the device may act.
+func sealedCommandNames(act bool) []string {
 	out := make([]string, 0, len(sealedCommands))
-	for name := range sealedCommands {
+	for name, tier := range sealedCommands {
+		if tier == sealedTierB && !act {
+			continue
+		}
 		out = append(out, name)
 	}
 	sort.Strings(out)
@@ -488,7 +547,7 @@ func (s *Server) handleSealed(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		return
 	}
-	conn.SetReadLimit(sealedMaxRequest + 1024)
+	conn.SetReadLimit(sealedMaxImageRequest + 1024)
 	defer conn.CloseNow()
 
 	ctx, cancel := context.WithCancel(r.Context())
@@ -609,9 +668,14 @@ func (s *Server) handleSealed(w http.ResponseWriter, r *http.Request) {
 	}()
 	s.viewersChanged(c)
 
+	helloAct := s.mayControlWithKey(device, l.key)
+	helloTier := sealedTierA
+	if helloAct {
+		helloTier = sealedTierB
+	}
 	if !l.writeFrame(ctx, mustMarshal(sealedHello{
-		Type: "sealedHello", V: sealedWireVersion, Desk: s.deskName(), Device: name, API: currentAPI(), Tier: sealedTierA,
-		PadBucket: sealedPadBucket, MaxRequest: sealedMaxRequest, Commands: sealedCommandNames(),
+		Type: "sealedHello", V: sealedWireVersion, Desk: s.deskName(), Device: name, API: currentAPI(), Tier: helloTier,
+		PadBucket: sealedPadBucket, MaxRequest: sealedMaxRequest, MaxImageRequest: sealedMaxImageRequest, Commands: sealedCommandNames(helloAct),
 	})) {
 		return
 	}
@@ -644,7 +708,7 @@ func (s *Server) handleSealed(w http.ResponseWriter, r *http.Request) {
 		}
 		busy = 0
 		var cmd command
-		if typ != websocket.MessageText || len(data) == 0 || len(data) > sealedMaxRequest || len(data)%sealedPadBucket != 0 || json.Unmarshal(data, &cmd) != nil {
+		if typ != websocket.MessageText || len(data) == 0 || len(data) > sealedMaxImageRequest || len(data)%sealedPadBucket != 0 || json.Unmarshal(data, &cmd) != nil {
 			// A request is padded to a multiple of the bucket, so that a search is
 			// not told by its length. One that is not is the sign of a client that
 			// is not the phone's.
@@ -670,6 +734,39 @@ func (s *Server) handleSealed(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			continue
+		}
+		if len(data) > sealedMaxRequest && cmd.Cmd != "attachImage" {
+			// Only a picture is allowed to be long.
+			if abuse++; abuse >= sealedAbuseMax {
+				s.sealedDenied(device, name, "malformed", true)
+				refuse(artifactCloseRefused, "refused")
+				return
+			}
+			if !l.writeFrame(ctx, mustMarshal(sealedRefusal{Type: "sealedRefused", V: sealedWireVersion, Req: clampReq(cmd.Req), Cmd: clampCmd(cmd.Cmd), Code: sealedCodeShape})) {
+				return
+			}
+			continue
+		}
+		if sealedCommands[cmd.Cmd] == sealedTierB {
+			// Looked at again for every request, so that taking the right away
+			// at the desk, or a key that changed, takes effect on the next one.
+			if !l.mayAct() {
+				s.sealedDenied(device, name, sealedCodeControl, false)
+				if !l.writeFrame(ctx, mustMarshal(sealedRefusal{Type: "sealedRefused", V: sealedWireVersion, Req: clampReq(cmd.Req), Cmd: clampCmd(cmd.Cmd), Code: sealedCodeControl})) {
+					return
+				}
+				continue
+			}
+			if !dev.acts.Allow(1) {
+				if !l.writeFrame(ctx, mustMarshal(sealedRefusal{Type: "sealedRefused", V: sealedWireVersion, Req: clampReq(cmd.Req), Cmd: clampCmd(cmd.Cmd), Code: sealedCodeBusy})) {
+					return
+				}
+				continue
+			}
+			// What was done, never what it said: no text, picture or command line.
+			s.approvals.auditAsync(auditEvent{Event: "sealed-act", Device: device, DeviceName: name, Kind: cmd.Cmd, Pane: clampReq(cmd.ID)})
+			// A shell pane is not an agent: text for one is a command line.
+			cmd.AllowShell = false
 		}
 		s.guardFor(c, "handling "+cmdName(cmd.Cmd), func() { s.handleCommand(c, cmd) })
 	}

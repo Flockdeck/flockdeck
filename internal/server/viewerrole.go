@@ -127,7 +127,7 @@ var commandAccess = map[string]cmdAccess{
 	"remoteReconnect": accessFull, "setDeviceRole": accessFull,
 	// Whether a device may answer an agent's permission requests from its phone
 	// is the desk's to decide, and a viewer never decides it.
-	"setDeviceApprove": accessFull, "setApprovalsOff": accessFull, "approveChallenge": accessFull,
+	"setDeviceControl": accessFull, "setDeviceApprove": accessFull, "setApprovalsOff": accessFull, "approveChallenge": accessFull,
 	"remoteVerify": accessFull, "remoteUnverify": accessFull,
 	"helpSeen": accessFull, "dismissTip": accessFull, "fontSize": accessFull, "uiPrefs": accessFull, "notifications": accessFull,
 	"scrollback": accessFull, "updates": accessFull, "checkForUpdate": accessFull,
@@ -368,6 +368,8 @@ type accessState struct {
 	// unpaired. An enable that began before the change sees a different number
 	// when it comes to apply, and does not apply (applyDeviceApprove).
 	approveGen atomic.Uint64
+	// controlGen is the same for control of agents (sealed_control.go).
+	controlGen atomic.Uint64
 	// approveLiveOn makes phone approval available on one server whatever
 	// phoneApprovalLive says. Only a test sets it.
 	approveLiveOn bool
@@ -485,6 +487,11 @@ func (s *Server) applyDeviceRole(c *controlClient, device string, access store.D
 		// Changing what a device may see does not change whether it may approve,
 		// and does not widen it: the switch and its agreement stay as they were.
 		access.Approve, access.ApproveV, access.ApproveAt, access.ApproveKey = old.Approve, old.ApproveV, old.ApproveAt, old.ApproveKey
+		// A viewer cannot hold control, so a change to viewer takes it away.
+		access.Control, access.ControlAt, access.ControlKey = old.Control, old.ControlAt, old.ControlKey
+		if access.EffectiveRole() != store.RoleFull {
+			access.Control, access.ControlAt, access.ControlKey = false, time.Time{}, ""
+		}
 		next, ok := p.WithAccess(device, access)
 		if !ok {
 			c.notify("Too many devices have their own setting; make some of them full again first", true)
