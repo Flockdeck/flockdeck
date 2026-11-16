@@ -279,6 +279,19 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Warm the module cache
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          # A proxy hiccup should fail here, in a named step, not inside a test
+          # that runs go list for other platforms.
+          for try in 1 2 3; do
+            go mod download && exit 0
+            echo "go mod download failed (try $try of 3)"
+            [ "$try" -lt 3 ] && sleep 5
+          done
+          exit 1
+
       - name: Install GTK4/WebKitGTK dev packages (Linux, for Wails)
         if: runner.os == 'Linux'
         timeout-minutes: 25
@@ -383,6 +396,19 @@ jobs:
           go-version-file: go.mod
           cache: true
 
+      - name: Warm the module cache
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          # A proxy hiccup should fail here, in a named step, not inside a test
+          # that runs go list for other platforms.
+          for try in 1 2 3; do
+            go mod download && exit 0
+            echo "go mod download failed (try $try of 3)"
+            [ "$try" -lt 3 ] && sleep 5
+          done
+          exit 1
+
       - name: Install GTK4/WebKitGTK dev packages (Linux, for Wails)
         if: runner.os == 'Linux'
         timeout-minutes: 25
@@ -470,6 +496,20 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+
+      - name: Warm the module cache
+        if: needs.changes.outputs.docs_only == 'true' && matrix.os == 'ubuntu-latest'
+        timeout-minutes: 5
+        shell: bash
+        run: |
+          # A proxy hiccup should fail here, in a named step, not inside a test
+          # that runs go list for other platforms.
+          for try in 1 2 3; do
+            go mod download && exit 0
+            echo "go mod download failed (try $try of 3)"
+            [ "$try" -lt 3 ] && sleep 5
+          done
+          exit 1
 
       - name: Test what reads the docs (documentation-only change)
         if: needs.changes.outputs.docs_only == 'true' && matrix.os == 'ubuntu-latest'

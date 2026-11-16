@@ -73,26 +73,74 @@ export function tabsStateOf(ui) {
   return { names, order: unique(idList(raw.order)), archived: unique(idList(raw.archived)) };
 }
 
-// How busy a group of panes is, as the tab says it: waiting when any waits on
-// the person, else working when any works.
-function activityOf(model, panes, needs) {
-  let working = false;
+// How many of a group of panes are at work and how many wait on the person (or
+// are blocked), by the same activity the rail's counts use: a pane that is idle
+// with background work still running is working. A node's activity is what the
+// pane is drawn as doing; its status is the fallback.
+function countsOf(model, panes) {
+  let working = 0;
+  let waiting = 0;
   for (const p of panes) {
     const n = model.byPane.get(p);
     const state = n ? n.activity || n.status : "";
-    if (state === "waiting") return "waiting";
-    if (state === "working") working = true;
+    if (state === "waiting" || state === "blocked") waiting++;
+    else if (state === "working") working++;
   }
-  return needs > 0 ? "waiting" : working ? "working" : "";
+  return { working, waiting };
+}
+
+// How busy a group of panes is, as the tab says it: waiting when any waits on
+// the person, else working when any works.
+function activityOf(counts, needs) {
+  if (counts.waiting > 0) return "waiting";
+  return needs > 0 ? "waiting" : counts.working > 0 ? "working" : "";
+}
+
+/** itemsWords says how many items need the person: "1 item needs you", "3 items need you". */
+export function itemsWords(n) {
+  return n === 1 ? "1 item needs you" : n + " items need you";
+}
+
+/** agentsWords says how many agents wait for the person. */
+export function agentsWords(n) {
+  return n === 1 ? "1 agent waiting for you" : n + " agents waiting for you";
+}
+
+/** attentionOf is the count a hidden (archived) goal's entry shows and the words
+ *  for it: its items that need the person, or, when it has none, the panes in it
+ *  that wait (a waiting pane with no prompt has no item). null when it has neither. */
+export function attentionOf(tab) {
+  if (tab.needs > 0) return { n: tab.needs, words: itemsWords(tab.needs) };
+  if (tab.waiting > 0) return { n: tab.waiting, words: agentsWords(tab.waiting) };
+  return null;
+}
+
+/** plusNeedsOf names the archived goals that have something for the person, as
+ *  { id, label, n, words }, for the "+" button. */
+export function plusNeedsOf(archived) {
+  const out = [];
+  for (const t of archived) {
+    const a = attentionOf(t);
+    if (a) out.push({ id: t.id, label: t.label, n: a.n, words: a.words });
+  }
+  return out;
+}
+
+/** plusWords is what the "+" button says for those goals: "" when none. */
+export function plusWords(list) {
+  if (list.length === 0) return "";
+  const names = list.map((g) => g.label + " (" + g.n + ")").join(", ");
+  return (list.length === 1 ? "Archived goal needs you: " : "Archived goals need you: ") + names;
 }
 
 /**
  * goalTabsOf lists the tabs for a graph model and the person's choices:
  *   tabs: the open ones, the goals in the person's order (a goal they have not
  *     placed goes after those, in the graph's order) and Solo last, each
- *     { id, kind: "team" | "solo", label, named, title, needs, activity }.
- *     needs is how many needs it has for the person (what the goal line counts),
- *     and activity "waiting", "working" or "".
+ *     { id, kind: "team" | "solo", label, named, title, needs, waiting, working, activity }.
+ *     needs is how many items need the person (what the goal line counts),
+ *     waiting and working are how many of its panes wait on the person and work
+ *     (the rail's counts, for this goal), and activity "waiting", "working" or "".
  *   archived: the goals the person put away, as the same objects.
  * Solo is always listed, even with no panes, so the strip does not change shape
  * when the last solo pane ends; it cannot be archived.
@@ -109,6 +157,7 @@ export function goalTabsOf(model, state) {
     const label = named ? s.names[t.id] : task && task.title ? labelOf(task.title) : !t.goal && task ? task.id : labelOf(t.goal);
     // The same count as the goal line's "need you", so the two agree.
     const needs = t.needs.length + t.needsHidden;
+    const counts = countsOf(model, t.members);
     made.set(t.id, {
       id: t.id,
       kind: "team",
@@ -116,7 +165,9 @@ export function goalTabsOf(model, state) {
       named,
       title: task ? taskLabelOf(task) + (t.goal ? " · " + t.goal : "") : t.goal || label,
       needs,
-      activity: activityOf(model, t.members, needs),
+      waiting: counts.waiting,
+      working: counts.working,
+      activity: activityOf(counts, needs),
     });
   }
   const placed = s.order.filter((id) => made.has(id));
@@ -125,10 +176,11 @@ export function goalTabsOf(model, state) {
   const all = [...placed, ...rest].map((id) => made.get(id));
   const solo = model && model.ok ? model.solo.map((n) => n.pane) : [];
   const soloNeeds = model && model.ok ? model.soloNeeds.length + model.soloNeedsHidden : 0;
+  const soloCounts = model && model.ok ? countsOf(model, solo) : { working: 0, waiting: 0 };
   return {
     tabs: [
       ...all.filter((t) => !archived.has(t.id)),
-      { id: SOLO, kind: "solo", label: "Solo", named: false, title: "Panes that are in no goal", needs: soloNeeds, activity: activityOf(model, solo, soloNeeds) },
+      { id: SOLO, kind: "solo", label: "Solo", named: false, title: "Panes that are in no goal", needs: soloNeeds, waiting: soloCounts.waiting, working: soloCounts.working, activity: activityOf(soloCounts, soloNeeds) },
     ],
     archived: all.filter((t) => archived.has(t.id)),
   };

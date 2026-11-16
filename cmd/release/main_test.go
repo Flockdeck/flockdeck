@@ -8,6 +8,7 @@ import (
 	"debug/pe"
 	"encoding/xml"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -15,6 +16,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/blakesmith/ar"
 	"github.com/jmwri/flockdeck/internal/selfupdate"
@@ -467,16 +469,8 @@ func TestNoticesNameEveryLinkedModule(t *testing.T) {
 		t.Fatalf("go list -m: %v", err)
 	}
 	for _, p := range platforms {
-		cmd := exec.Command("go", "list", "-deps", "-f", "{{with .Module}}{{.Path}}{{end}}", ".")
-		cmd.Env = append(os.Environ(), "GOOS="+p.OS, "GOARCH="+p.Arch, "CGO_ENABLED=0")
-		out, err := cmd.Output()
+		out, err := listLinkedModules(p.OS, p.Arch)
 		if err != nil {
-			// What the go command said is in the error, and was dropped: one
-			// run on Windows failed here with only "exit status 1".
-			var exit *exec.ExitError
-			if errors.As(err, &exit) {
-				t.Fatalf("go list for %s/%s: %v\n%s", p.OS, p.Arch, err, exit.Stderr)
-			}
 			t.Fatalf("go list for %s/%s: %v", p.OS, p.Arch, err)
 		}
 		seen := map[string]bool{}
@@ -489,6 +483,73 @@ func TestNoticesNameEveryLinkedModule(t *testing.T) {
 				t.Errorf("%s/%s links %s, which THIRD-PARTY-NOTICES.md does not name", p.OS, p.Arch, m)
 			}
 		}
+	}
+}
+
+// listLinkedModules asks the go command which modules a release for one
+// platform links. The command downloads the modules that platform needs and the
+// machine's own has not loaded: on a Windows runner that is creack/pty and
+// u-root, which only the Linux and macOS builds import. That is a fetch from
+// the module proxy, so a failure is tried again a few times before it counts;
+// what the command said is kept in the error, since "exit status 1" alone was
+// all the one failure on record left to read.
+func listLinkedModules(goos, goarch string) ([]byte, error) {
+	var out []byte
+	var err error
+	for try := 0; try < listTries; try++ {
+		if try > 0 {
+			time.Sleep(time.Duration(try) * listRetryWait)
+		}
+		out, err = runList(goos, goarch)
+		if err == nil {
+			return out, nil
+		}
+	}
+	return nil, err
+}
+
+var (
+	listTries     = 3
+	listRetryWait = 3 * time.Second
+	runList       = func(goos, goarch string) ([]byte, error) {
+		cmd := exec.Command("go", "list", "-deps", "-f", "{{with .Module}}{{.Path}}{{end}}", ".")
+		cmd.Env = append(os.Environ(), "GOOS="+goos, "GOARCH="+goarch, "CGO_ENABLED=0")
+		out, err := cmd.Output()
+		var exit *exec.ExitError
+		if errors.As(err, &exit) {
+			err = fmt.Errorf("%w: %s", err, exit.Stderr)
+		}
+		return out, err
+	}
+)
+
+// A list that fails once and then works is a flaky download, not a missing
+// module; one that keeps failing is reported with what it said.
+func TestListLinkedModulesRetriesAFailedDownload(t *testing.T) {
+	prevRun, prevWait := runList, listRetryWait
+	defer func() { runList, listRetryWait = prevRun, prevWait }()
+	listRetryWait = time.Millisecond
+
+	calls := 0
+	runList = func(goos, goarch string) ([]byte, error) {
+		calls++
+		if calls < 3 {
+			return nil, errors.New("go: downloading creack/pty: connection reset")
+		}
+		return []byte("example.com/m"), nil
+	}
+	out, err := listLinkedModules("linux", "amd64")
+	if err != nil || string(out) != "example.com/m" || calls != 3 {
+		t.Fatalf("out %q, err %v after %d calls, want the third to succeed", out, err, calls)
+	}
+
+	calls = 0
+	runList = func(goos, goarch string) ([]byte, error) {
+		calls++
+		return nil, errors.New("go: no such module")
+	}
+	if _, err := listLinkedModules("linux", "amd64"); err == nil || !strings.Contains(err.Error(), "no such module") || calls != listTries {
+		t.Fatalf("err %v after %d calls, want the last error after %d", err, calls, listTries)
 	}
 }
 

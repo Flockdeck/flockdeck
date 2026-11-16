@@ -12,7 +12,7 @@
 // is drawn as text.
 import { useEffect, useState } from "../vendor/hooks.mjs";
 import { html } from "../html.js";
-import { clip } from "./Node.js";
+import { clip, stateOf } from "./Node.js";
 import { shownName, taskOfTeam, taskLabelOf } from "./model.js";
 
 /** TICK_MS is how often the elapsed time is looked at again. */
@@ -70,7 +70,8 @@ export function summaryOf(model, team, now) {
   let working = 0;
   for (const id of team.members) {
     const n = model.byPane.get(id);
-    if (n && n.status === "working") working++;
+    // The rail's teal count reads the activity (an idle pane with background work still running is working); so does this.
+    if (n && stateOf(n).key === "working") working++;
   }
   return {
     goal: goalOf(model, team),

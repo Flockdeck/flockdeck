@@ -241,6 +241,34 @@ test("a remote window that watches a project afterwards still sends no graph com
   m.done();
 });
 
+// A relay window and a viewer cannot choose the project the desk shows, so the
+// panes it holds are the open project's. Another project's count is a count, not
+// a button that would open a list that never fills.
+for (const [name, over] of [["relay", { remote: true }], ["viewer", { role: "viewer" }]]) {
+  test(`${name} window: only the open project's orange count opens a list`, async () => {
+    const m = await mount();
+    await m.connect(over);
+    const wait = { p1: { id: "p1", name: "writer", activity: "waiting", status: "waiting" } };
+    await m.push({ type: "state", root: "/work/a", projects: [{ root: "/work/a", name: "alpha", waiting: 1, working: 0 }, { root: "/work/b", name: "beta", waiting: 2, working: 0 }], panes: wait });
+    const counts = m.container.findAll(".rail-waiting");
+    assert.equal(counts.length, 2);
+    const [open, other] = counts;
+    assert.equal(open.nodeName, "BUTTON", "the open project's count is a button");
+    assert.equal(other.nodeName, "SPAN", "another project's count is only a count");
+    assert.equal(other.textContent, "2");
+    assert.match(other.attributes.title, /2 agents waiting for you/);
+    assert.equal(other.attributes["aria-label"], "2 agents waiting for you");
+    other.click();
+    await settle();
+    assert.equal(m.container.find(".popover"), null, "nothing opens for it");
+    open.click();
+    await settle();
+    assert.equal(m.container.findAll(".needs-row").length, 1, "the open project's list is filled");
+    assert.doesNotMatch(m.container.find(".popover").textContent, /Opening the project/);
+    m.done();
+  });
+}
+
 test("the graph is refused by the desk: the same roster and line, and no retry", async () => {
   const m = await mount();
   await m.connect();

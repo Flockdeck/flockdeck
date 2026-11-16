@@ -448,8 +448,22 @@ func (s *Server) remotePair(c *controlClient, kind string) {
 // for a code that takes another desktop into this account.
 const deskOnlyJoin = "A code for another desktop to join this account is made on the machine Flockdeck runs on, not from a window reached through the relay"
 
+// deskOnlyDevices is what a window reached through the relay is told when it
+// asks to unpair or rename a device, or rename this machine. A phone left
+// unlocked could otherwise lock every other device out, or put a name on one
+// that the person at the desk would trust.
+const deskOnlyDevices = "Unpairing or renaming a device is done on the machine Flockdeck runs on, not from a window reached through the relay"
+
+// deskOnlyReconnect is what it is told when it asks for the relay to be tried
+// again, which drops every window that came by that connection.
+const deskOnlyReconnect = "Trying the relay again is done on the machine Flockdeck runs on, not from a window reached through the relay"
+
 // remoteRevoke unpairs a device and sends the list again.
 func (s *Server) remoteRevoke(c *controlClient, id string) {
+	if c.remote {
+		c.notify(deskOnlyDevices, true)
+		return
+	}
 	if id == "" {
 		c.notify("No device was named", true)
 		return
@@ -476,6 +490,10 @@ func (s *Server) remoteRevoke(c *controlClient, id string) {
 // the dialog, and sends the list again with the new name in it. A name that
 // could not be one is refused before the relay is asked.
 func (s *Server) remoteRename(c *controlClient, kind, id, name string) {
+	if c.remote {
+		c.notify(deskOnlyDevices, true)
+		return
+	}
 	clean, err := remote.CheckName(name)
 	if err != nil {
 		c.notify("Could not rename it: "+err.Error(), true)
@@ -640,6 +658,12 @@ func (s *Server) remoteMove(c *controlClient, cmd command) {
 // remoteReconnect is the dialog's "try again": the relay is tried now rather
 // than when the tunnel's own wait runs out.
 func (s *Server) remoteReconnect(c *controlClient) {
+	// The dialog's button waits for an outcome, so one is sent as well as the notice.
+	if c.remote {
+		c.sendJSON(remoteOutcomeMsg{Type: "remoteOutcome", Action: "reconnect", Error: deskOnlyReconnect})
+		c.notify(deskOnlyReconnect, true)
+		return
+	}
 	s.remoteCall(c, "reconnect", "trying the relay again", func(_ context.Context, ra RemoteAccess, msg *remoteOutcomeMsg) {
 		if err := ra.Reconnect(); err != nil {
 			msg.Error = err.Error()

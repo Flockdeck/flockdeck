@@ -379,7 +379,7 @@ button { font: inherit; color: inherit; }
 }
 .shell--rail-collapsed .rail-item { border-color: var(--line); background: var(--bg-raised); }
 .shell--rail-collapsed .rail-item.is-active { background: var(--accent-subtle); border-color: var(--accent-line); box-shadow: inset 0 0 0 1px var(--accent); }
-.shell--rail-collapsed .rail-item .badge {
+.shell--rail-collapsed .rail-row .badge--waiting {
   position: absolute;
   top: -5px;
   right: -5px;
@@ -389,6 +389,8 @@ button { font: inherit; color: inherit; }
   line-height: 16px;
 }
 .shell--rail-collapsed .rail-item .badge--working { display: none; }
+.shell--rail-collapsed .rail-row .rail-waiting { transform: none; }
+.shell--rail-collapsed .rail-item.has-waiting { padding-right: 0; }
 .shell--rail-collapsed .rail-btn.has-update { color: var(--on-accent); background: var(--accent); }
 .rail { position: relative; }
 .rail-resize {
@@ -417,6 +419,41 @@ button { font: inherit; color: inherit; }
   border-color: var(--waiting-line);
 }
 .badge--working { color: var(--working); }
+/* The orange count is a button of its own beside the project's, at the end of the row; the project's button leaves room for it. */
+.rail-row { position: relative; }
+.rail-item.has-waiting { padding-right: 40px; }
+.rail-waiting {
+  position: absolute;
+  top: 50%;
+  right: 8px;
+  transform: translateY(-50%);
+  cursor: pointer;
+}
+.rail-waiting:hover, .rail-waiting[aria-expanded="true"] { border-color: var(--waiting); }
+/* A project that cannot open a list (a relay or viewer window): the count is not a control. */
+.rail-waiting--count { cursor: default; }
+.rail-waiting--count:hover { border-color: var(--waiting-line); }
+.rail-waiting:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+/* The panel a count or a tab's badge opens, over the page. */
+.popover {
+  position: fixed;
+  z-index: 20;
+  width: 340px;
+  max-width: calc(100vw - 16px);
+  max-height: 70vh;
+  overflow-y: auto;
+  padding: 10px;
+  background: var(--bg-raised);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-2);
+}
+.popover:focus { outline: none; }
+.popover .needs { margin: 0; }
+.popover .needs-list { max-height: none; overflow: visible; }
+.needs-pick--plain { grid-template-columns: minmax(0, 1fr) auto; }
+.needs-pick--plain .needs-why { grid-column: 1 / -1; }
+.needs-pick--plain .needs-age { grid-column: 2; }
 
 /* The strip across the top holds the manager bar. */
 .top {

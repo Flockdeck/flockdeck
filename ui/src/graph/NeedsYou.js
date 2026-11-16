@@ -70,7 +70,7 @@ export function NeedsYou({ model, onSelect, max = Infinity }) {
   }
   return html`
     <section class="needs" aria-label="Needs you">
-      <h2 class="needs-head">Needs you (${all.length + hidden})</h2>
+      <h2 class="needs-head">${hidden > 0 ? "Needs you (showing " + all.length + " of " + (all.length + hidden) + ")" : "Needs you (" + all.length + ")"}</h2>
       <ol class="needs-list">
         ${rows.map((r, i) => {
           const body = html`
