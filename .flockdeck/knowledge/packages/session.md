@@ -15,7 +15,7 @@ Terminal emulation happens in the browser; this package owns the process, fans o
 |---|---|
 | `Launch` / `Launch.Config()` | Resolves an `agent.Spec`, model, pane id, cwd and prompt into a `Config` (argv, env, settings file). |
 | `ChatExe(selfExe)` | The program a hook or status-line command runs: on Windows the console twin `flockdeck-chat.exe` beside the exe when present, see [Windows console twin](/gotchas/windows-chat-console-twin.md) |
-| `Start(Config)` -> `*Session` | Spawn on a PTY; `Kind` is `KindAgent` (alias `KindClaude`) or `KindShell` |
+| `Start(Config)` -> `*Session` | Spawn on a PTY; `Kind` is `KindAgent` or `KindShell` |
 | `Subscribe`, `SubscribeFrom(epoch, off)`, `Unsubscribe`, `Write`, `WriteString`, `Resize`, `Close` | Viewer fan-out and input |
 | `Status` | starting, working, waiting, blocked, idle, exited; `NeedsAttention` is waiting or blocked |
 | `ApplyEvent(Event)`, `SetStatus*`, `ResolveBlocked`, `CompactionStatus` | Hook-driven status |

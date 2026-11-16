@@ -1273,7 +1273,7 @@ func (w *Workspace) firstPaneKind() session.Kind {
 	if _, err := w.AgentSpec(""); err != nil {
 		return session.KindShell
 	}
-	return session.KindClaude
+	return session.KindAgent
 }
 
 // SelectProject shows an already open project. Naming any one of a
@@ -4011,7 +4011,7 @@ func (w *Workspace) OpenConversationAs(id, cwd, title, agentID string) error {
 
 	p := &Pane{
 		ID:     paneID,
-		Kind:   session.KindClaude,
+		Kind:   session.KindAgent,
 		Agent:  spec.ID,
 		Cwd:    cwd,
 		Name:   filepath.Base(cwd),

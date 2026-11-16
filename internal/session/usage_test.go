@@ -62,7 +62,7 @@ func resetProcTable() {
 func usagePane(pid int) *Session {
 	return &Session{
 		ID:          "usage-pane",
-		Kind:        KindClaude,
+		Kind:        KindAgent,
 		cmd:         &pty.Cmd{Process: &os.Process{Pid: pid}},
 		status:      StatusWorking,
 		statusSince: time.Now(),

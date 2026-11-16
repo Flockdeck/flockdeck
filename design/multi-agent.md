@@ -22,7 +22,7 @@ twelve branches that merge.
 
 ## 1. What is being built
 
-Today a pane is `KindClaude` or `KindShell`, and every decision that follows —
+Today a pane is `KindAgent` or `KindShell`, and every decision that follows —
 what to run, how status is known, where the transcript is, whether resuming is
 possible, how the pane briefing is delivered — is the `claude` CLI's answer,
 written in line. Afterwards:

@@ -90,7 +90,7 @@ func newStructuredEnvWith(t *testing.T, task string, o structuredEnvOpts) *struc
 	}
 	id, ok := ask(e.srv, func() string {
 		id, err := e.ws.Spawn(e.boss, workspace.SpawnOptions{Task: task, Cwd: o.Cwd, Role: "worker", Agent: "opencode-acp",
-			Kind: session.KindClaude, SpawnedByAgent: true})
+			Kind: session.KindAgent, SpawnedByAgent: true})
 		if err != nil {
 			t.Errorf("spawn: %v", err)
 		}

@@ -509,7 +509,7 @@ func TestNoLifecycleEventCanMarkALivePaneExited(t *testing.T) {
 
 		f := newFakePTY()
 		s := fakeSession(f)
-		s.Kind = KindClaude
+		s.Kind = KindAgent
 		s.SetStatus(st, detail)
 
 		if s.Exited() {

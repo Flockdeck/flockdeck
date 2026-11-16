@@ -57,12 +57,10 @@ func TestTheAccentColourIsKeptAndRestricted(t *testing.T) {
 	}
 }
 
-// "teal" was a swatch of its own while the default accent was blue. The
-// default is now the mark's cyan, which teal was nearest to, so a window (an
-// older one, or a phone's) that still sends teal is not refused: it is kept
-// as the default. Blue, which used to be the default and had no name worth
-// sending, is a swatch of its own and is kept by name.
-func TestTealIsStillAcceptedAndIsTheDefaultAccent(t *testing.T) {
+// "teal" is no longer a swatch, so it is refused like any other colour outside
+// the set and the accent stays as it was. Blue is a swatch of its own and is
+// kept by name.
+func TestTealIsRefused(t *testing.T) {
 	srv, _ := newTestServer(t)
 	conn := dialControl(t, srv)
 	nextHello(t, conn)
@@ -76,12 +74,12 @@ func TestTealIsStillAcceptedAndIsTheDefaultAccent(t *testing.T) {
 	}
 
 	sendCmd(t, conn, command{Cmd: "accentColor", Text: "teal"})
+	// A refused colour pushes nothing, so send a valid one after it and check
+	// that blue survived until then.
+	sendCmd(t, conn, command{Cmd: "accentColor", Text: "green"})
 	got := nextPrefs(t, conn, func(p store.Prefs) bool { return p.AccentColor != "blue" })
-	if got.AccentColor != "" {
-		t.Fatalf("teal is kept as %q, want it kept as the default", got.AccentColor)
-	}
-	if saved := store.LoadPrefs(); saved.AccentColor != "" {
-		t.Errorf("teal reached disk as %q, want the default", saved.AccentColor)
+	if got.AccentColor != "green" {
+		t.Fatalf("accent after teal then green is %q, want green (teal must not change it)", got.AccentColor)
 	}
 }
 

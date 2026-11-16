@@ -568,7 +568,7 @@ func TestMovePaneToNewTabNamesTheTab(t *testing.T) {
 	// A pane with no task falls back to the directory, but stays open to being
 	// named by the next thing it is asked — as a fresh Claude tab would be.
 	ws.NewTab(session.KindShell, root, "two")
-	ws.SplitPane(layout.Horizontal, session.KindClaude)
+	ws.SplitPane(layout.Horizontal, session.KindAgent)
 	plain := panesOfTab(ws.CurrentTab())[1]
 	if err := ws.MovePaneToNewTab(plain); err != nil {
 		t.Fatalf("move to new tab: %v", err)

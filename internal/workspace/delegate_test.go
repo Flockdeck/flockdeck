@@ -133,7 +133,7 @@ func TestOnlyAHelperWithAParentWhoseAgentReportsItsStatusIsReported(t *testing.T
 func TestAnAgentMayHaveOnlyMaxHelpersOpen(t *testing.T) {
 	c := newCrew(t)
 	spawn := func() (string, error) {
-		return c.ws.Spawn(c.lead, SpawnOptions{Task: "more", Role: "worker", Agent: "sleeper", Kind: session.KindClaude, SpawnedByAgent: true})
+		return c.ws.Spawn(c.lead, SpawnOptions{Task: "more", Role: "worker", Agent: "sleeper", Kind: session.KindAgent, SpawnedByAgent: true})
 	}
 	// The crew already holds three.
 	var last string
@@ -149,7 +149,7 @@ func TestAnAgentMayHaveOnlyMaxHelpersOpen(t *testing.T) {
 		t.Fatalf("the ninth helper = %v, want a refusal that says how to make room", err)
 	}
 	// A pane started by hand, with no parent, is not counted against the manager.
-	if _, err := c.ws.Spawn(c.lead, SpawnOptions{Task: "by the user", Role: "worker", Agent: "sleeper", Kind: session.KindClaude}); err != nil {
+	if _, err := c.ws.Spawn(c.lead, SpawnOptions{Task: "by the user", Role: "worker", Agent: "sleeper", Kind: session.KindAgent}); err != nil {
 		t.Errorf("a start from the window was refused: %v", err)
 	}
 	c.ws.ClosePaneByID(last)
@@ -196,7 +196,7 @@ func drawTab(t *Tab, letters map[string]byte) string {
 func TestSpawnWithATabNameGathersOnePieceOfWorkInOneTab(t *testing.T) {
 	c := newCrew(t)
 	start := func(role, tab string) string {
-		id, err := c.ws.Spawn(c.lead, SpawnOptions{Task: "t", Role: role, Agent: "sleeper", Kind: session.KindClaude, SpawnedByAgent: true, TabName: tab})
+		id, err := c.ws.Spawn(c.lead, SpawnOptions{Task: "t", Role: role, Agent: "sleeper", Kind: session.KindAgent, SpawnedByAgent: true, TabName: tab})
 		if err != nil {
 			t.Fatalf("spawn %s in %q: %v", role, tab, err)
 		}
@@ -270,12 +270,12 @@ func TestSpawnWithATabNameGathersOnePieceOfWorkInOneTab(t *testing.T) {
 // A tab name is looked for in the project the caller is in only.
 func TestSpawnWithATabNameDoesNotJoinAnotherProjectsTab(t *testing.T) {
 	c := newCrew(t)
-	first, err := c.ws.Spawn(c.lead, SpawnOptions{Task: "t", Role: "worker", Agent: "sleeper", Kind: session.KindClaude, SpawnedByAgent: true, TabName: "shared"})
+	first, err := c.ws.Spawn(c.lead, SpawnOptions{Task: "t", Role: "worker", Agent: "sleeper", Kind: session.KindAgent, SpawnedByAgent: true, TabName: "shared"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	tabOf(c.ws, first).Root = t.TempDir() // as though the tab belonged to another project
-	second, err := c.ws.Spawn(c.lead, SpawnOptions{Task: "t", Role: "worker", Agent: "sleeper", Kind: session.KindClaude, SpawnedByAgent: true, TabName: "shared"})
+	second, err := c.ws.Spawn(c.lead, SpawnOptions{Task: "t", Role: "worker", Agent: "sleeper", Kind: session.KindAgent, SpawnedByAgent: true, TabName: "shared"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -289,7 +289,7 @@ func TestSpawnWithATabNameDoesNotJoinAnotherProjectsTab(t *testing.T) {
 func TestHelperCapCountsExitedPanesAndEveryoneBelow(t *testing.T) {
 	c := newCrew(t)
 	start := func(parent, role, agentID string) (string, error) {
-		return c.ws.Spawn(parent, SpawnOptions{Task: "t", Role: role, Agent: agentID, Kind: session.KindClaude, SpawnedByAgent: true})
+		return c.ws.Spawn(parent, SpawnOptions{Task: "t", Role: role, Agent: agentID, Kind: session.KindAgent, SpawnedByAgent: true})
 	}
 
 	// A helper that exits at once is still open as a pane.
@@ -339,7 +339,7 @@ func TestHelperCapCountsExitedPanesAndEveryoneBelow(t *testing.T) {
 func TestAHelperStartedByAnAgentDoesNotInheritAutoReview(t *testing.T) {
 	c := newCrew(t)
 	c.ws.Pane(c.lead).AutoReview = true
-	by, err := c.ws.Spawn(c.lead, SpawnOptions{Task: "t", Role: "worker", Agent: "sleeper", Kind: session.KindClaude, SpawnedByAgent: true})
+	by, err := c.ws.Spawn(c.lead, SpawnOptions{Task: "t", Role: "worker", Agent: "sleeper", Kind: session.KindAgent, SpawnedByAgent: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -347,7 +347,7 @@ func TestAHelperStartedByAnAgentDoesNotInheritAutoReview(t *testing.T) {
 		t.Error("a helper the manager started inherited auto-review")
 	}
 	// A pane the user starts from the window, from this pane, still does: that is the user's choice.
-	win, err := c.ws.Spawn(c.lead, SpawnOptions{Task: "t", Role: "worker", Agent: "sleeper", Kind: session.KindClaude})
+	win, err := c.ws.Spawn(c.lead, SpawnOptions{Task: "t", Role: "worker", Agent: "sleeper", Kind: session.KindAgent})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -385,7 +385,7 @@ func TestIdleReportWaitsOutTheDwellFromTheLastIdleEdge(t *testing.T) {
 func TestSpawnWithATabNameLeavesOtherTabsAlone(t *testing.T) {
 	c := newCrew(t)
 	start := func(o SpawnOptions) string {
-		o.Task, o.Role, o.Agent, o.Kind, o.SpawnedByAgent = "t", "worker", "sleeper", session.KindClaude, true
+		o.Task, o.Role, o.Agent, o.Kind, o.SpawnedByAgent = "t", "worker", "sleeper", session.KindAgent, true
 		id, err := c.ws.Spawn(c.lead, o)
 		if err != nil {
 			t.Fatal(err)
@@ -473,7 +473,7 @@ func TestStartsThatAllPassTheEarlyCheckCannotOvershootTheHelperCap(t *testing.T)
 			defer wg.Done()
 			onLoop.Lock()
 			defer onLoop.Unlock()
-			_, err := c.ws.Spawn(c.lead, SpawnOptions{Task: "t", Role: "worker", Agent: "sleeper", Kind: session.KindClaude, SpawnedByAgent: true})
+			_, err := c.ws.Spawn(c.lead, SpawnOptions{Task: "t", Role: "worker", Agent: "sleeper", Kind: session.KindAgent, SpawnedByAgent: true})
 			errs <- err
 		}()
 	}
@@ -498,7 +498,7 @@ func TestStartsThatAllPassTheEarlyCheckCannotOvershootTheHelperCap(t *testing.T)
 func TestHelperCapStillCountsTheChildrenOfAClosedHelper(t *testing.T) {
 	c := newCrew(t)
 	for i := 0; i < 4; i++ {
-		if _, err := c.ws.Spawn(c.w1, SpawnOptions{Task: "t", Agent: "sleeper", Kind: session.KindClaude, SpawnedByAgent: true}); err != nil {
+		if _, err := c.ws.Spawn(c.w1, SpawnOptions{Task: "t", Agent: "sleeper", Kind: session.KindAgent, SpawnedByAgent: true}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -506,13 +506,13 @@ func TestHelperCapStillCountsTheChildrenOfAClosedHelper(t *testing.T) {
 		t.Fatalf("%d below the manager, want 7", n)
 	}
 	c.ws.ClosePaneByID(c.w1) // the helper in the middle, whose four are left
-	if _, err := c.ws.Spawn(c.lead, SpawnOptions{Task: "t", Role: "worker", Agent: "sleeper", Kind: session.KindClaude, SpawnedByAgent: true}); err != nil {
+	if _, err := c.ws.Spawn(c.lead, SpawnOptions{Task: "t", Role: "worker", Agent: "sleeper", Kind: session.KindAgent, SpawnedByAgent: true}); err != nil {
 		t.Fatalf("the manager has 6 below it: %v", err)
 	}
-	if _, err := c.ws.Spawn(c.lead, SpawnOptions{Task: "t", Role: "worker", Agent: "sleeper", Kind: session.KindClaude, SpawnedByAgent: true}); err != nil {
+	if _, err := c.ws.Spawn(c.lead, SpawnOptions{Task: "t", Role: "worker", Agent: "sleeper", Kind: session.KindAgent, SpawnedByAgent: true}); err != nil {
 		t.Fatalf("the manager has 7 below it: %v", err)
 	}
-	if _, err := c.ws.Spawn(c.lead, SpawnOptions{Task: "t", Role: "worker", Agent: "sleeper", Kind: session.KindClaude, SpawnedByAgent: true}); err == nil {
+	if _, err := c.ws.Spawn(c.lead, SpawnOptions{Task: "t", Role: "worker", Agent: "sleeper", Kind: session.KindAgent, SpawnedByAgent: true}); err == nil {
 		t.Error("with 8 below it, counting four whose parent was closed, the manager started a ninth")
 	}
 }

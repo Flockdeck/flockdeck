@@ -695,7 +695,7 @@ func parseKind(s string) session.Kind {
 	if s == "shell" {
 		return session.KindShell
 	}
-	return session.KindClaude
+	return session.KindAgent
 }
 
 func dirName(d layout.Dir) string {

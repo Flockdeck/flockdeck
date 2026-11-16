@@ -831,7 +831,7 @@ func (s *Server) installSpawnHandler() {
 			}
 		}
 
-		kind := session.KindClaude
+		kind := session.KindAgent
 		if req.Shell {
 			kind = session.KindShell
 		}

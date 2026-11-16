@@ -46,7 +46,7 @@ func knowledgePane(t *testing.T) (ws *Workspace, pane, root string, notices chan
 	ws = newTestWorkspace(t, root)
 	notices = make(chan string, 4)
 	ws.SetRecordingNoticeHook(func(_, text string) { notices <- text })
-	pane = ws.NewTab(session.KindClaude, root, "k").Focus
+	pane = ws.NewTab(session.KindAgent, root, "k").Focus
 	return
 }
 
@@ -109,7 +109,7 @@ func TestKnowledgePointerIsOffAndAskedOnceWhenNotPrivate(t *testing.T) {
 			// A second workspace, as after a restart, does not ask again.
 			ws2 := newTestWorkspace(t, ws.activeRoot)
 			ws2.SetRecordingNoticeHook(func(_, text string) { notices <- text })
-			p2 := ws2.NewTab(session.KindClaude, ws.activeRoot, "k2").Focus
+			p2 := ws2.NewTab(session.KindAgent, ws.activeRoot, "k2").Focus
 			ws2.PaneContext(p2)
 			select {
 			case n := <-notices:
@@ -159,7 +159,7 @@ func TestKnowledgePointerNeedsABundleInThePanesOwnCheckout(t *testing.T) {
 	isolateConfig(t)
 	root := t.TempDir()
 	ws := newTestWorkspace(t, root)
-	pane := ws.NewTab(session.KindClaude, root, "k").Focus
+	pane := ws.NewTab(session.KindAgent, root, "k").Focus
 	c, _ := ws.PaneContext(pane)
 	time.Sleep(50 * time.Millisecond)
 	c, _ = ws.PaneContext(pane)

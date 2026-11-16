@@ -284,7 +284,7 @@ func TestBroadcastDefaultIsDroppedWhenBroadcastIsTurnedOff(t *testing.T) {
 	isolateConfig(t)
 	root := t.TempDir()
 	ws := newTestWorkspace(t, root)
-	tab := ws.NewTab(session.KindClaude, root, "first")
+	tab := ws.NewTab(session.KindAgent, root, "first")
 
 	ws.ToggleBroadcast()
 	if !ws.InBroadcast(tab.Focus) {
@@ -384,7 +384,7 @@ func TestTabTitleFromAPromptIsAppliedOnARead(t *testing.T) {
 	isolateConfig(t)
 	root := t.TempDir()
 	ws := newTestWorkspace(t, root)
-	tab := ws.NewTab(session.KindClaude, root, "")
+	tab := ws.NewTab(session.KindAgent, root, "")
 	if !tab.AutoTitle {
 		t.Fatal("a tab named after its directory should be waiting for a prompt")
 	}
@@ -1196,7 +1196,7 @@ func TestPaneContextNamesTheAgentASiblingRuns(t *testing.T) {
 	// A live process is what keeps a sibling in the list; which agent it is
 	// recorded as is what is under test, so the shell is relabelled as one.
 	p := ws.Pane(child)
-	p.Kind, p.Agent, p.Model = session.KindClaude, "codex", "gpt-5"
+	p.Kind, p.Agent, p.Model = session.KindAgent, "codex", "gpt-5"
 
 	c, _ := ws.PaneContext(parent)
 	if len(c.Siblings) != 1 {

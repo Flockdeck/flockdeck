@@ -145,7 +145,7 @@ func (e *structuredEnv) spawnSecond(t *testing.T) string {
 	t.Helper()
 	id, ok := ask(e.srv, func() string {
 		id, err := e.ws.Spawn(e.boss, workspace.SpawnOptions{Task: "plain", Role: "worker", Agent: "opencode-acp",
-			Kind: session.KindClaude, SpawnedByAgent: true})
+			Kind: session.KindAgent, SpawnedByAgent: true})
 		if err != nil {
 			t.Errorf("spawn: %v", err)
 		}

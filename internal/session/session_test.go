@@ -620,7 +620,7 @@ func TestWriteToAnExitedPaneSaysSo(t *testing.T) {
 func claudePane() *Session {
 	return &Session{
 		ID:          "claude-pane",
-		Kind:        KindClaude,
+		Kind:        KindAgent,
 		status:      StatusIdle,
 		statusSince: time.Now(),
 		sawInput:    true,
@@ -1224,7 +1224,7 @@ func TestAnsweringAPaneClearsAnInferredWait(t *testing.T) {
 	f := newFakePTY()
 	t.Cleanup(func() { _ = f.Close() })
 	s := fakeSession(f)
-	s.Kind = KindClaude
+	s.Kind = KindAgent
 	s.sawInput = true
 	s.status = StatusIdle
 	s.idleAfter = 40 * time.Millisecond
@@ -1335,7 +1335,7 @@ func TestEnterAnswersAPermissionPrompt(t *testing.T) {
 	f := newFakePTY()
 	t.Cleanup(func() { _ = f.Close() })
 	s := fakeSession(f)
-	s.Kind = KindClaude
+	s.Kind = KindAgent
 	s.sawInput = true
 	report := func(event, tool string) {
 		if st, detail, ok := StatusForEvent(event, tool, ""); ok {
@@ -1406,7 +1406,7 @@ func TestARefusedPermissionPromptGoesBackToIdle(t *testing.T) {
 	f := newFakePTY()
 	t.Cleanup(func() { _ = f.Close() })
 	s := fakeSession(f)
-	s.Kind = KindClaude
+	s.Kind = KindAgent
 	s.sawInput = true
 	// Long next to the 10 ms between the writes below, which a busy runner can
 	// stretch: at 60 ms a pause of that size read as the drawing having stopped,
@@ -1522,7 +1522,7 @@ func TestClosingAPaneRacesEverythingElse(t *testing.T) {
 	for round := 0; round < 50; round++ {
 		f := newFakePTY()
 		s := fakeSession(f)
-		s.Kind = KindClaude
+		s.Kind = KindAgent
 		s.idleAfter = time.Millisecond
 		go s.pumpOutput()
 
@@ -1814,7 +1814,7 @@ func TestAPaneWithoutPatternsIsUnchanged(t *testing.T) {
 	f := newFakePTY()
 	t.Cleanup(func() { _ = f.Close() })
 	s := fakeSession(f)
-	s.Kind = KindClaude
+	s.Kind = KindAgent
 	s.sawInput = true
 	s.startedAt = time.Now()
 	s.status = StatusIdle

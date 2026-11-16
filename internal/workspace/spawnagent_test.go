@@ -29,7 +29,7 @@ func TestAHelperIsCheckedForTheAgentItWillRun(t *testing.T) {
 	parent := ws.CurrentTab().Focus
 	ws.SelectProject(first)
 
-	child, err := ws.Spawn(parent, SpawnOptions{Task: "reticulate the splines", Kind: session.KindClaude})
+	child, err := ws.Spawn(parent, SpawnOptions{Task: "reticulate the splines", Kind: session.KindAgent})
 	if err != nil {
 		t.Fatalf("the spawn was refused over the project on screen's agent: %v", err)
 	}

@@ -124,12 +124,12 @@ func TestAgentSpecByIDRefusesAStructuredAgentWhileTheyAreOff(t *testing.T) {
 // current tab the filter would never be reached.
 func TestABroadcastLeavesOutStructuredPanes(t *testing.T) {
 	ws, lead, _ := structuredCrew(t)
-	terminal, err := ws.Spawn(lead, SpawnOptions{Task: "t", Role: "worker", Agent: "sleeper", Kind: session.KindClaude, SpawnedByAgent: true})
+	terminal, err := ws.Spawn(lead, SpawnOptions{Task: "t", Role: "worker", Agent: "sleeper", Kind: session.KindAgent, SpawnedByAgent: true})
 	if err != nil {
 		t.Fatal(err)
 	}
 	tab := ws.TabIDOf(terminal)
-	id, err := ws.Spawn(lead, SpawnOptions{Task: "plain", Role: "worker", Agent: "opencode-acp", Kind: session.KindClaude, SpawnedByAgent: true, Tab: tab})
+	id, err := ws.Spawn(lead, SpawnOptions{Task: "plain", Role: "worker", Agent: "opencode-acp", Kind: session.KindAgent, SpawnedByAgent: true, Tab: tab})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,7 +165,7 @@ func TestStructuredPanesLeaveNoGoroutinesBehind(t *testing.T) {
 	root := t.TempDir()
 	ws := newTestWorkspace(t, root)
 	useFakeAgent(ws)
-	ws.NewTabWith(Choice{Kind: session.KindClaude, Agent: "sleeper"}, root, "")
+	ws.NewTabWith(Choice{Kind: session.KindAgent, Agent: "sleeper"}, root, "")
 	lead := ws.FocusedPane().ID
 	ws.Pane(lead).Role = "manager"
 	settled := func() int {

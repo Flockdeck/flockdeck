@@ -14,7 +14,7 @@ func TestAStrayToolAfterTheNudgeSettlesWhenQuiet(t *testing.T) {
 	f := newFakePTY()
 	t.Cleanup(func() { _ = f.Close() })
 	s := fakeSession(f)
-	s.Kind = KindClaude
+	s.Kind = KindAgent
 	s.hooksSeen = true
 	s.answerQuiet = 100 * time.Millisecond
 
@@ -47,7 +47,7 @@ func TestAStrayToolStaysWorkingWhileItDraws(t *testing.T) {
 	f := newFakePTY()
 	t.Cleanup(func() { _ = f.Close() })
 	s := fakeSession(f)
-	s.Kind = KindClaude
+	s.Kind = KindAgent
 	s.hooksSeen = true
 	s.answerQuiet = 250 * time.Millisecond
 

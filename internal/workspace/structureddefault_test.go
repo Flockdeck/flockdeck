@@ -157,7 +157,7 @@ func TestAnEmptyAgentPaneSavedAsTerminalRestoresAsTerminal(t *testing.T) {
 			ws := newTestWorkspace(t, root)
 			useFakeAgent(ws)
 			p := &Pane{
-				ID: "restored-" + tc.name, Kind: session.KindClaude, Cwd: root, Root: root,
+				ID: "restored-" + tc.name, Kind: session.KindAgent, Cwd: root, Root: root,
 				Name: "restored", savedTransport: tc.saved,
 			}
 			ws.mu.Lock()
@@ -179,7 +179,7 @@ func TestATabCanHoldAStructuredAndATerminalHelper(t *testing.T) {
 	for i, terminal := range []bool{false, true} {
 		id, err := ws.Spawn(lead, SpawnOptions{
 			Task: "mixed", Role: "worker", Agent: "opencode", Terminal: terminal,
-			Split: true, Kind: session.KindClaude, SpawnedByAgent: true,
+			Split: true, Kind: session.KindAgent, SpawnedByAgent: true,
 		})
 		if err != nil {
 			t.Fatalf("spawn (terminal %v): %v", terminal, err)

@@ -52,7 +52,7 @@ func TestAPaneLosesWhatEveryAgentAsksToStrip(t *testing.T) {
 
 	root := t.TempDir()
 	ws := newTestWorkspace(t, root)
-	ws.NewTabWith(Choice{Kind: session.KindClaude, Agent: "printer"}, root, "")
+	ws.NewTabWith(Choice{Kind: session.KindAgent, Agent: "printer"}, root, "")
 	p := ws.FocusedPane()
 	if p == nil || p.Sess == nil {
 		t.Fatalf("the pane did not start: %v", p.Err)

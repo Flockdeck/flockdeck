@@ -51,7 +51,7 @@ func structuredCrew(t *testing.T) (ws *Workspace, lead, root string) {
 	root = t.TempDir()
 	ws = newTestWorkspace(t, root)
 	useFakeAgent(ws)
-	ws.NewTabWith(Choice{Kind: session.KindClaude, Agent: "sleeper"}, root, "")
+	ws.NewTabWith(Choice{Kind: session.KindAgent, Agent: "sleeper"}, root, "")
 	lead = ws.FocusedPane().ID
 	ws.Pane(lead).Role = "manager"
 	return ws, lead, root
@@ -66,7 +66,7 @@ func useFakeAgent(ws *Workspace) {
 
 func spawnStructured(t *testing.T, ws *Workspace, lead, task string) string {
 	t.Helper()
-	id, err := ws.Spawn(lead, SpawnOptions{Task: task, Role: "worker", Agent: "opencode-acp", Kind: session.KindClaude, SpawnedByAgent: true})
+	id, err := ws.Spawn(lead, SpawnOptions{Task: task, Role: "worker", Agent: "opencode-acp", Kind: session.KindAgent, SpawnedByAgent: true})
 	if err != nil {
 		t.Fatalf("spawn: %v", err)
 	}
@@ -165,14 +165,14 @@ func TestStructuredHelpersCountAgainstTheCap(t *testing.T) {
 	for i := 0; i < MaxHelpers; i++ {
 		task := "plain"
 		if i%2 == 0 {
-			if _, err := ws.Spawn(lead, SpawnOptions{Task: "t", Role: "worker", Agent: "sleeper", Kind: session.KindClaude, SpawnedByAgent: true}); err != nil {
+			if _, err := ws.Spawn(lead, SpawnOptions{Task: "t", Role: "worker", Agent: "sleeper", Kind: session.KindAgent, SpawnedByAgent: true}); err != nil {
 				t.Fatalf("terminal helper %d: %v", i, err)
 			}
 			continue
 		}
 		spawnStructured(t, ws, lead, task)
 	}
-	_, err := ws.Spawn(lead, SpawnOptions{Task: "plain", Role: "worker", Agent: "opencode-acp", Kind: session.KindClaude, SpawnedByAgent: true})
+	_, err := ws.Spawn(lead, SpawnOptions{Task: "plain", Role: "worker", Agent: "opencode-acp", Kind: session.KindAgent, SpawnedByAgent: true})
 	if err == nil {
 		t.Fatal("a ninth helper was started")
 	}
@@ -193,14 +193,14 @@ func TestStructuredPanesAreOptIn(t *testing.T) {
 	root := t.TempDir()
 	ws := newTestWorkspace(t, root)
 	useFakeAgent(ws)
-	ws.NewTabWith(Choice{Kind: session.KindClaude, Agent: "sleeper"}, root, "")
+	ws.NewTabWith(Choice{Kind: session.KindAgent, Agent: "sleeper"}, root, "")
 	lead := ws.FocusedPane().ID
-	_, err := ws.Spawn(lead, SpawnOptions{Task: "plain", Role: "worker", Agent: "opencode-acp", Kind: session.KindClaude, SpawnedByAgent: true})
+	_, err := ws.Spawn(lead, SpawnOptions{Task: "plain", Role: "worker", Agent: "opencode-acp", Kind: session.KindAgent, SpawnedByAgent: true})
 	if err == nil || !strings.Contains(err.Error(), "turned off") {
 		t.Errorf("spawn with the preference off: %v", err)
 	}
 	// A pane that already names the agent does not start.
-	tab := ws.NewTabWith(Choice{Kind: session.KindClaude, Agent: "opencode-acp"}, root, "")
+	tab := ws.NewTabWith(Choice{Kind: session.KindAgent, Agent: "opencode-acp"}, root, "")
 	p := ws.Pane(tab.Focus)
 	if p.Err == nil || p.Structured() || !strings.Contains(p.Err.Error(), "Settings") || strings.Contains(p.Err.Error(), "prefs.json") {
 		t.Errorf("pane err %v, structured %v", p.Err, p.Structured())

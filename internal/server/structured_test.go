@@ -476,7 +476,7 @@ func TestStructuredWatchesLeaveNoGoroutines(t *testing.T) {
 }
 
 func spawnStructuredOpts(task string) workspace.SpawnOptions {
-	return workspace.SpawnOptions{Task: task, Role: "worker", Agent: "opencode-acp", Kind: session.KindClaude, SpawnedByAgent: true}
+	return workspace.SpawnOptions{Task: task, Role: "worker", Agent: "opencode-acp", Kind: session.KindAgent, SpawnedByAgent: true}
 }
 
 // waitFor waits until a pane's entries show text.

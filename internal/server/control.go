@@ -1109,13 +1109,12 @@ func kindName(k session.Kind) string {
 	return "agent"
 }
 
-// parseKind reads one back. "claude" is still accepted because a window left
-// open across an upgrade goes on sending the word it was built with.
+// parseKind reads one back. Anything that is not "shell" is an agent pane.
 func parseKind(s string) session.Kind {
 	if s == "shell" {
 		return session.KindShell
 	}
-	return session.KindClaude
+	return session.KindAgent
 }
 
 func parseDir(s string) layout.Dir {

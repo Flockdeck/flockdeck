@@ -597,7 +597,7 @@ func (s *Server) batonCommand(c *controlClient, cmd command) {
 			}
 			r, ok := ask(s, func() result {
 				id, err := s.ws.Spawn(in.id, workspace.SpawnOptions{
-					Task: task, Cwd: cwd, Split: cmd.Split, Kind: session.KindClaude,
+					Task: task, Cwd: cwd, Split: cmd.Split, Kind: session.KindAgent,
 					Agent: cmd.Agent, Model: cmd.Model, Baton: &bp,
 				})
 				if err == nil {

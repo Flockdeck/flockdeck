@@ -1088,7 +1088,7 @@ func TestAPaneThatNeverStartedStillTakesASocket(t *testing.T) {
 	if ws.ClaudeAvailable() {
 		t.Skip("the claude CLI is still resolvable with an empty PATH")
 	}
-	ws.NewTab(session.KindClaude, ws.ActiveRoot(), "agent")
+	ws.NewTab(session.KindAgent, ws.ActiveRoot(), "agent")
 
 	srv, err := New(ws, testConfig())
 	if err != nil {

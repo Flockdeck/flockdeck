@@ -41,7 +41,7 @@ func TestSpawnGivesAHelperTheLabelAskedForOrOneMadeFromItsTask(t *testing.T) {
 	c := newCrew(t)
 	spawn := func(opts SpawnOptions) *Pane {
 		t.Helper()
-		opts.Role, opts.Agent, opts.Kind, opts.SpawnedByAgent = "worker", "sleeper", session.KindClaude, true
+		opts.Role, opts.Agent, opts.Kind, opts.SpawnedByAgent = "worker", "sleeper", session.KindAgent, true
 		id, err := c.ws.Spawn(c.lead, opts)
 		if err != nil {
 			t.Fatal(err)
@@ -115,7 +115,7 @@ func TestAManagerCannotNameAPaneOfAnotherProject(t *testing.T) {
 	if err := c.ws.OpenProject(other); err != nil {
 		t.Fatal(err)
 	}
-	c.ws.NewTabWith(Choice{Kind: session.KindClaude, Agent: "sleeper"}, other, "")
+	c.ws.NewTabWith(Choice{Kind: session.KindAgent, Agent: "sleeper"}, other, "")
 	foreign := c.ws.FocusedPane().ID
 	if _, err := c.ws.SetPaneLabel(c.lead, foreign, "mine"); err == nil || !strings.Contains(err.Error(), "not in your project") {
 		t.Errorf("a manager naming a pane of another project: %v", err)

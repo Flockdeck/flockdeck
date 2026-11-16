@@ -27,12 +27,6 @@ const (
 	KindShell
 )
 
-// KindClaude is what an agent pane was called while the `claude` CLI was the
-// only agent Flockdeck could run. It is the same kind under its older name, kept
-// so that a pane is not read as a different sort of thing depending on which
-// name the caller reached for.
-const KindClaude = KindAgent
-
 const (
 	// replayBytes is how much recent output each pane keeps so a reconnecting
 	// or reloading viewer can rebuild its screen.

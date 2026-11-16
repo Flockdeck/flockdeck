@@ -102,7 +102,7 @@ func TestSendToPaneRoutesAFirstTurn(t *testing.T) {
 			{Name: "hard turn work", Tier: agent.TierTop, When: agent.RuleMatch{Kind: route.KindTurn, Task: "race"}},
 		},
 	})
-	ws.NewTabWith(Choice{Kind: session.KindClaude, Agent: "openai", Model: "gpt-5.6-luna"}, root, "")
+	ws.NewTabWith(Choice{Kind: session.KindAgent, Agent: "openai", Model: "gpt-5.6-luna"}, root, "")
 	p := ws.FocusedPane()
 	if p == nil || p.Sess == nil {
 		t.Fatalf("the pane did not start: %v", p.Err)
@@ -120,7 +120,7 @@ func TestSendToPaneRoutesAFirstTurn(t *testing.T) {
 		t.Error("a routed send left the in-flight flag set")
 	}
 
-	ws.NewTabWith(Choice{Kind: session.KindClaude, Agent: "openai", Model: "gpt-5.6-luna"}, root, "")
+	ws.NewTabWith(Choice{Kind: session.KindAgent, Agent: "openai", Model: "gpt-5.6-luna"}, root, "")
 	q := ws.FocusedPane()
 	launch := q.launch
 	if res, err := ws.SendToPane(q.ID, "write the changelog entry", false); err != nil || res.Routed || q.launch != launch {

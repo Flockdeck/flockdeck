@@ -18,7 +18,7 @@ func TestARenamedTabGoesBackToTheTitleItWouldHaveNow(t *testing.T) {
 	root := t.TempDir()
 	ws := newTestWorkspace(t, root)
 
-	tab := ws.NewTab(session.KindClaude, root, "")
+	tab := ws.NewTab(session.KindAgent, root, "")
 	base := tab.Title
 	ws.NameTab(tab.ID, "parser work")
 	if !tab.Named || tab.AutoTitle {
@@ -43,7 +43,7 @@ func TestARenamedTabGoesBackToTheTitleItWouldHaveNow(t *testing.T) {
 
 	// Named twice before any prompt, it goes back to its directory name and
 	// to waiting for the first prompt, as a tab never named would be.
-	fresh := ws.NewTab(session.KindClaude, root, "")
+	fresh := ws.NewTab(session.KindAgent, root, "")
 	ws.NameTab(fresh.ID, "later")
 	ws.NameTab(fresh.ID, "later still")
 	ws.UseAutoTitle(fresh.ID)
@@ -66,14 +66,14 @@ func TestAHandNameIsKeptWithTheLayout(t *testing.T) {
 	root := t.TempDir()
 	ws := newTestWorkspace(t, root)
 
-	unprompted := ws.NewTab(session.KindClaude, root, "")
+	unprompted := ws.NewTab(session.KindAgent, root, "")
 	base := unprompted.Title
 	ws.NameTab(unprompted.ID, "mine")
-	prompted := ws.NewTab(session.KindClaude, root, "")
+	prompted := ws.NewTab(session.KindAgent, root, "")
 	ws.nameTabAfterPrompt(prompted.Focus, "rewrite the parser")
 	ws.Projects()
 	ws.NameTab(prompted.ID, "also mine")
-	ws.NewTab(session.KindClaude, root, "")
+	ws.NewTab(session.KindAgent, root, "")
 	if err := ws.SaveProject(root); err != nil {
 		t.Fatalf("save: %v", err)
 	}

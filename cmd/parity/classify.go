@@ -182,7 +182,7 @@ var serverSuppliedCommands = []string{"approveBaton"}
 // of the server that the old interface names, and the scan missed) skips these.
 var notCommands = []string{
 	"Bash", "Edit", "MultiEdit", "Write", "all", "auto", "block", "clear", "close", "dark",
-	"down", "hello", "left", "list", "open", "recordings", "resize", "set", "teal", "top", "up",
+	"down", "hello", "left", "list", "open", "recordings", "resize", "set", "top", "up",
 }
 
 // blocksRetirement are commands that are safety or security controls. The new
