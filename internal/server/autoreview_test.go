@@ -13,9 +13,6 @@ func TestAutoReviewCommandSetsStateAndCapability(t *testing.T) {
 	srv, ws := newTestServer(t)
 	conn := dialControl(t, srv)
 	st := nextState(t, conn, nil)
-	if !st.CanAutoReview {
-		t.Error("the state does not say autoReview is understood")
-	}
 	id := agentFirstPane(t, srv, ws)
 	if st.Panes[id].AutoReview {
 		t.Fatal("a pane started out with auto-review on")

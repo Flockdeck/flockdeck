@@ -269,29 +269,12 @@ type stateMsg struct {
 	// enrolled for remote access — in which case the window shows nothing
 	// about it at all.
 	Remote *remoteView `json:"remote,omitempty"`
-	// CanStartAgent says this instance understands the startAgent command, so
-	// a phone can offer to start one. It is always true where this field is
-	// sent at all; a window is a phone reading an older desktop's state the
-	// moment it is absent, which is what lets it hide the offer instead of
-	// sending a command that would be silently dropped.
-	CanStartAgent bool `json:"canStartAgent,omitempty"`
 	// CanSearchConversation says this instance understands the
 	// conversationSearch command, so a phone can offer a search button in the
 	// chat header. Always true where sent at all; an older desktop that
 	// never sends it is exactly the case a phone should hide the button for,
 	// rather than send a command that would be silently dropped.
 	CanSearchConversation bool `json:"canSearchConversation,omitempty"`
-	// CanMutePane says this instance understands the mutePane command, so a
-	// phone can offer to mute one pane's push notifications rather than only
-	// all or none. Always true where sent at all; an older desktop that never
-	// sends it is exactly the case a phone should hide the offer for, rather
-	// than send a command that would be silently dropped.
-	CanMutePane bool `json:"canMutePane,omitempty"`
-	// CanAutoReview says this instance understands the autoReview command, so
-	// a phone can offer to turn auto-review approvals on or off for a pane
-	// rather than the offer being silently dropped by an older desktop that
-	// never sends this field at all.
-	CanAutoReview bool `json:"canAutoReview,omitempty"`
 }
 
 // projectView is one open project as the picker and switcher show it.
@@ -817,10 +800,7 @@ func (s *Server) snapshot() stateMsg {
 		Update:                s.Update(),
 		Recall:                s.Recall(),
 		Remote:                s.remoteSnapshot(),
-		CanStartAgent:         true,
 		CanSearchConversation: true,
-		CanMutePane:           true,
-		CanAutoReview:         true,
 	}
 	// These are sized rather than grown, and made rather than left nil: the
 	// window walks them without checking them first, so an empty one has to
