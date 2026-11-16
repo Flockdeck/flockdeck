@@ -70,6 +70,8 @@ const (
 	whyRearrange = "Moving and merging panes and tabs is cut; the team is a graph."
 	whyBroadcast = "Broadcasting to panes is cut; a manager sends to its team."
 	whyHints     = "The hint bar of tips is cut; help is under F1."
+	// whyRoutingLog is T258: nothing reads routing.jsonl, so nothing clears it.
+	whyRoutingLog = "Clearing the routing history is cut; Flockdeck no longer reads routing.jsonl and leaves the file for the user to delete."
 )
 
 // keyVerdicts classify every action of the key table that the new shell does not
@@ -99,6 +101,10 @@ var keyVerdicts = map[string]Verdict{
 // cmdVerdicts classify every control-socket command the old interface sends
 // that the new one does not. The new interface's own commands are not here.
 var cmdVerdicts = map[string]Verdict{
+	// Nothing reads routing.jsonl any more, so there is nothing to clear. The
+	// command stays in the API until the next major version.
+	"clearRoutingLog": cut(whyRoutingLog),
+
 	// Replaced by what the new interface sends.
 	"sendPrompt": replaced("paneSend", "Prompting one pane; prompting all is cut"),
 
