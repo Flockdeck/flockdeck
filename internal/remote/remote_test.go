@@ -79,6 +79,50 @@ func TestConfigRoundTrip(t *testing.T) {
 	}
 }
 
+// A machine enrolled under the relay's old name has the address rewritten on
+// load, and nothing else in the file changes.
+func TestLoadRewritesTheOldRelayName(t *testing.T) {
+	isolate(t)
+	p, err := path()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// No "enabled" field: a file an earlier version wrote, which is enabled.
+	old := `{"relay":"https://relay.flockdeck.ai","hostId":"h1","accountId":"a1","token":"fdh_x","name":"desk"}`
+	if err := os.WriteFile(p, []byte(old), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Load()
+	if err != nil || got == nil {
+		t.Fatalf("Load = %v, %v", got, err)
+	}
+	want := Config{Relay: DefaultRelay, HostID: "h1", AccountID: "a1", Token: "fdh_x", Name: "desk"}
+	if *got != want {
+		t.Errorf("Load = %+v, want %+v", *got, want)
+	}
+	data, err := os.ReadFile(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "relay.flockdeck.ai") || !strings.Contains(string(data), DefaultRelay) {
+		t.Errorf("remote.json was not rewritten:\n%s", data)
+	}
+	again, err := Load()
+	if err != nil || *again != want {
+		t.Errorf("second Load = %+v, %v", again, err)
+	}
+
+	// A disabled machine stays disabled, and another relay is left alone.
+	other := Config{Relay: "https://relay.example", HostID: "h2", AccountID: "a2", Token: "fdh_y", Disabled: true}
+	if err := other.Save(); err != nil {
+		t.Fatal(err)
+	}
+	got, err = Load()
+	if err != nil || *got != other {
+		t.Errorf("Load of another relay = %+v, %v; want %+v", got, err, other)
+	}
+}
+
 // A file that cannot be read is not the same as not being enrolled: saying
 // "not enabled" would invite enrolling a second time over a live host.
 func TestLoadRefusesABrokenFile(t *testing.T) {

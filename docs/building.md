@@ -118,8 +118,7 @@ in `ui/src/vendor/` from the `@xterm/xterm`, `@xterm/addon-fit`,
 The front end is the team-graph shell in `ui/src/`. The directory
 keeps the name it had while the old front end existed; it is the only one now, and a
 plain `go build` embeds it. There is no build tag and no runtime flag. The old front end
-was deleted in T162; its history is in git, and `docs/old-ui-fix-ledger.md` is a record of
-what was fixed in it while it was frozen.
+was deleted in T162; its history is in git.
 
 ```sh
 go build -o flockdeck.exe .

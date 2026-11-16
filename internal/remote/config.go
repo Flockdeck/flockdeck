@@ -28,10 +28,10 @@ import (
 
 // DefaultRelay is the relay a machine is enrolled with when nobody names one.
 //
-// It was https://relay.flockdeck.ai in v0.2.0, and a machine enrolled then
-// keeps that address in its remote.json. That is fine: the relay still answers
-// desktops on its old name, and sends a browser that arrives there to this
-// one.
+// It was https://relay.flockdeck.ai in v0.2.0. Load rewrites that address in a
+// machine's remote.json. The relay still answers desktops on the old name, and
+// sends a browser that arrives there to this one, so SameRelay keeps treating
+// the two as one relay.
 const DefaultRelay = "https://remote.flockdeck.ai"
 
 // oldDefaultRelay is DefaultRelay's name in v0.2.0.
@@ -165,7 +165,34 @@ func Load() (*Config, error) {
 	if u, err := url.Parse(c.Relay); err == nil && (u.Scheme == "http" || u.Scheme == "ws") && !isLoopback(u.Hostname()) {
 		return nil, fmt.Errorf("%s names a relay at %s without TLS, which this machine's token would cross in the clear; put https:// in its place, or delete it to start again", p, u.Host)
 	}
+	// A machine enrolled in v0.2.0 holds the relay's old name. Move it to the
+	// current one, once, so the file says where this machine really connects.
+	// Only the address changes: the host, token and keys are the same, so the
+	// machine stays the same host on the same account. If the write fails the
+	// old name is left on disk, which the relay still answers, and it is tried
+	// again on the next load.
+	if usesOldRelayName(c.Relay) {
+		old := c.Relay
+		c.Relay = DefaultRelay
+		if err := c.Save(); err != nil {
+			c.Relay = old
+		}
+	}
 	return &c, nil
+}
+
+// usesOldRelayName reports whether addr is the hosted relay under the name it
+// had in v0.2.0, however it was typed.
+func usesOldRelayName(addr string) bool {
+	canonical, err := CheckRelay(addr)
+	if err != nil || canonical != DefaultRelay {
+		return false
+	}
+	u, err := url.Parse(strings.TrimSpace(addr))
+	if err != nil {
+		return false
+	}
+	return strings.EqualFold(u.Hostname(), "relay.flockdeck.ai")
 }
 
 // Save writes the enrolment, readable by this user only.
