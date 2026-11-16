@@ -101,6 +101,26 @@ func (e *approveEnv) allow(t *testing.T, device string) {
 	}
 }
 
+// quietGit stops anything that reads the preferences file in the background
+// on the server's behalf. A window opening, or the server's first minute,
+// has the git loop refresh every shown checkout, and a refresh reads the
+// preferences (whether the conflict radar is on) through store.LoadPrefs,
+// which moves a damaged file aside. A test that damages the file on purpose,
+// to see what the code under test does with it, would find the file gone
+// whenever such a refresh came round just then.
+//
+// With git off the PATH no refresh gets as far as that read, and the refreshes
+// already on their way are waited out. The server's workspace goroutine is
+// asked something first, so a refresh it was about to start has started.
+func quietGit(t *testing.T, srv *Server) {
+	t.Helper()
+	t.Setenv("PATH", "")
+	if _, ok := ask(srv, func() bool { return true }); !ok {
+		t.Fatal("the server closed before the git refreshes settled")
+	}
+	waitUntil(t, "the running git refreshes to finish", func() bool { return srv.gitReads.Load() == 0 })
+}
+
 // askChallenge opens the question for a device, as the dialog does, and returns
 // the host's answer.
 func askChallenge(t *testing.T, conn *websocket.Conn, device string) approveChallengeMsg {

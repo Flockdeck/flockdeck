@@ -660,7 +660,18 @@ func (s *Server) installSpawnHandler() {
 				err = s.ws.HelperRoom(req.Parent)
 			}
 			if err == nil && !req.Shell {
-				_, err = s.ws.AgentSpec(req.Agent)
+				var spec agent.Spec
+				spec, err = s.ws.AgentSpec(req.Agent)
+				// The model is checked before the worktree below is cut, so a
+				// misspelt one leaves no branch behind. With no agent named it is
+				// checked against the catalog, as the command line does.
+				if err == nil {
+					var named *agent.Spec
+					if req.Agent != "" {
+						named = &spec
+					}
+					err = agent.CheckModel(s.ws.Catalog().Visible(), named, req.Model)
+				}
 			}
 			if err == nil && req.Record {
 				err = recordSpawnRefusal(req.Shell, store.LoadPrefs().RecordingAcknowledged)

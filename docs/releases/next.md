@@ -1,0 +1,1 @@
+- A structured pane starts helpers with the `spawn` tool. It takes the same role, name, tab, worktree and agent options as `flockdeck spawn` and is checked by the same rules.

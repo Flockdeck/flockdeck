@@ -95,6 +95,11 @@ func (s *claudeStream) repoint() {
 		return
 	}
 	s.path = p
+	s.rebuild()
+}
+
+// rebuild forgets what was read and starts again from the file's beginning.
+func (s *claudeStream) rebuild() {
 	s.offset = 0
 	s.carry = nil
 	s.autoID = 0
@@ -123,6 +128,12 @@ func (s *claudeStream) Refresh() []Entry {
 		return nil
 	}
 	defer f.Close()
+	// A file shorter than what was already read was replaced or rewritten
+	// under the same name. Reading on from the old offset would find nothing
+	// for ever, so the entries are rebuilt from the new file.
+	if fi, err := f.Stat(); err == nil && fi.Size() < s.offset {
+		s.rebuild()
+	}
 	if _, err := f.Seek(s.offset, io.SeekStart); err != nil {
 		return nil
 	}

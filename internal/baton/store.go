@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/jmwri/flockdeck/internal/store"
 )
@@ -66,14 +67,45 @@ func (s *Store) Save(b Baton) error {
 	if err := os.MkdirAll(s.dir, 0o700); err != nil {
 		return err
 	}
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	// The text goes into a file of its own first and is linked under the
+	// baton's name once it is whole, so a reader or a crash never meets a
+	// half-written baton. A link refuses an existing name, which keeps the
+	// rule that a baton is never replaced.
+	// The copy has a name of its own, so a retried or concurrent save of the
+	// same id does not meet another's copy: whichever links first wins and the
+	// other gets ErrExists. A copy left by a crashed save is removed.
+	removeStaleCopies(s.dir, b.ID)
+	tmp, err := writeCopy(s.dir, b.ID, Render(b))
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp)
+	err = os.Link(tmp, path)
 	if errors.Is(err, fs.ErrExist) {
 		return ErrExists
+	}
+	if err == nil {
+		return nil
+	}
+	// A folder that cannot hold hard links (FAT, some network shares) gets the
+	// old way: create the final name and write into it.
+	return writeNew(path, Render(b), true)
+}
+
+// writeNew creates path, which must not exist, and writes text to it. With
+// removeOnFail a failed write removes the file again.
+func writeNew(path, text string, removeOnFail ...bool) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if errors.Is(err, fs.ErrExist) {
+		if len(removeOnFail) > 0 {
+			return ErrExists
+		}
+		return err
 	}
 	if err != nil {
 		return err
 	}
-	_, werr := f.WriteString(Render(b))
+	_, werr := f.WriteString(text)
 	if cerr := f.Close(); werr == nil {
 		werr = cerr
 	}
@@ -286,4 +318,37 @@ func (s *Store) readSources() map[string]string {
 		m = map[string]string{}
 	}
 	return m
+}
+
+// staleCopyAge is how old a temp copy of a baton must be before a later save
+// takes it for the leftover of a crashed one rather than a save in flight.
+const staleCopyAge = time.Minute
+
+// writeCopy writes text to a new temp file in dir for the baton id and returns
+// its path.
+func writeCopy(dir, id, text string) (string, error) {
+	f, err := os.CreateTemp(dir, "."+id+".md.*.tmp")
+	if err != nil {
+		return "", err
+	}
+	_, werr := f.WriteString(text)
+	if cerr := f.Close(); werr == nil {
+		werr = cerr
+	}
+	if werr != nil {
+		_ = os.Remove(f.Name())
+		return "", werr
+	}
+	return f.Name(), nil
+}
+
+// removeStaleCopies removes the temp copies of baton id that are older than
+// staleCopyAge. A copy younger than that may belong to a save in progress.
+func removeStaleCopies(dir, id string) {
+	old, _ := filepath.Glob(filepath.Join(dir, "."+id+".md*.tmp"))
+	for _, p := range old {
+		if fi, err := os.Stat(p); err == nil && time.Since(fi.ModTime()) > staleCopyAge {
+			_ = os.Remove(p)
+		}
+	}
 }
