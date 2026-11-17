@@ -409,7 +409,7 @@ export function approveCommand(id, on, challenge) {
 
 /** CONTROL_ACK_WORDS is shown before a device is allowed to control agents (tier B of the sealed connection). */
 export const CONTROL_ACK_WORDS =
-  "This device will be able to send messages and pictures to your agents, stop them, answer their questions, approve their plans once, run one-line shell commands in a structured pane, start new agents (on a new branch if it asks), pick up a past conversation and add worktrees to projects Flockdeck knows. It cannot allow always, approve tool requests, commit, push or merge. Turn it off here at any time.";
+  "This device will be able to send messages and pictures to your agents, stop them, answer their questions, approve their plans once, run one-line shell commands in a structured pane, start new agents (on a new branch if it asks), pick up a past conversation and add worktrees to projects Flockdeck knows. It can ask to commit, push or pull, which you allow here one request at a time. It cannot allow always, approve tool requests or merge. Turn it off here at any time.";
 
 /** controlCommand turns a device's right to control agents on or off. Turning it on says the person has just read CONTROL_ACK_WORDS. */
 export function controlCommand(id, on) {

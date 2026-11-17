@@ -66,6 +66,11 @@ const (
 	// once, then one every 2 seconds.
 	sealedSpawnBurst = 5
 	sealedSpawnRate  = 0.5
+	// sealedAskBurst and sealedAskRate limit the questions a device may put to the
+	// desk (tier C): 3 at once, then one every 20 seconds, so a device cannot keep a
+	// dialog in front of the person.
+	sealedAskBurst = 3
+	sealedAskRate  = 0.05
 	// sealedPadBucket is the size every frame, in either direction, is rounded
 	// up to a multiple of, so that the relay, which sees the size of each sealed
 	// frame, does not learn how long a search or a reply is.
@@ -103,6 +108,9 @@ const (
 const (
 	sealedTierA = "A"
 	sealedTierB = "B"
+	// sealedTierC acts on the repository (commit, push, pull) and needs what tier B
+	// needs and a person at the desk saying yes to each request (sealed_confirm.go).
+	sealedTierC = "C"
 )
 
 // sealedCommands is every command the sealed socket runs, with its tier: the
@@ -118,6 +126,15 @@ var sealedCommands = map[string]string{
 	"conversationOpen": sealedTierA, "conversationOlder": sealedTierA, "conversationDetail": sealedTierA,
 	"conversationSearch": sealedTierA, "conversationClose": sealedTierA,
 	"changes": sealedTierA, "diff": sealedTierA,
+
+	// Tier A, changes and checks (API 1.40, stage 6): the branch list of a project,
+	// a branch's files in pages, a file's hunks and the lines around one, and the
+	// CI status of a folder. Reads of repository content, redacted like the rest.
+	// Not here: the watch (it pushes for as long as the socket is open), the
+	// comments, reviews and merge gate that write (commentAdd, requestReview,
+	// approveMerge, mergeBranch) and running a project's check commands.
+	"changesSnapshot": sealedTierA, "filesPage": sealedTierA, "diffHunks": sealedTierA, "diffContext": sealedTierA,
+	"ghChecks": sealedTierA,
 
 	// Tier A, start flows and history (API 1.39, stage 5): what a person looks at
 	// before starting or resuming something. The folders Flockdeck knows and the
@@ -145,6 +162,11 @@ var sealedCommands = map[string]string{
 	// that names a folder outside the known projects.
 	"resumeConversation": sealedTierB, "worktreeAdd": sealedTierB,
 	"structuredResume": sealedTierB, "structuredNewConversation": sealedTierB,
+
+	// Tier C, stage 6: commit, push and pull. Each request is held until a person at
+	// the desk answers it (sealed_confirm.go), asked again for the next. Merges are
+	// not here; they are the desk's. deskConfirmAnswer is not here either.
+	"commit": sealedTierC, "gitPush": sealedTierC, "gitPull": sealedTierC,
 }
 
 // sealedFullOnly are the tier A commands only a full device is let run. A viewer
@@ -196,17 +218,23 @@ var sealedMessages = map[string]sealedMessage{
 	// the known projects' own.
 	"conversations": {Tier: sealedTierA},
 	"worktrees":     {Tier: sealedTierA},
-	"recents":       {Tier: sealedTierA},
-	"browse":        {Tier: sealedTierA},
+	// The changes view (1.40): the branch list, a branch's files, hunks, the lines
+	// around one, and the CI status.
+	"changesTeam": {Tier: sealedTierA}, "changesFiles": {Tier: sealedTierA},
+	"diffHunks": {Tier: sealedTierA}, "diffContext": {Tier: sealedTierA}, "ghChecks": {Tier: sealedTierA},
+	"recents": {Tier: sealedTierA},
+	"browse":  {Tier: sealedTierA},
 	// The refusals of a command, in the words the relay is given.
 	"teamResult":    {Tier: sealedTierA, scrub: scrubTeamResultSealed, scrubAct: scrubTeamResultAct},
-	"changesResult": {Tier: sealedTierA, scrub: scrubChangesResult},
+	"changesResult": {Tier: sealedTierA, scrub: scrubChangesResultSealed},
 	"notice":        {Tier: sealedTierA, scrub: scrubNotice},
 	// The answers to tier B commands. A device without the right is sent none.
 	"paneSend":          {Tier: sealedTierB},
 	"permissionAnswer":  {Tier: sealedTierB},
 	"attachImageResult": {Tier: sealedTierB},
 	"agentStarted":      {Tier: sealedTierB},
+	// Where a commit, push or pull waits: the state only, no text.
+	"gitConfirm": {Tier: sealedTierB},
 }
 
 // liftsRelayRefusal reports whether a command from this connection is let past
@@ -356,7 +384,7 @@ func (t sealedTimings) withDefaults() sealedTimings {
 // sealedDevice is what every socket of one device shares, so that opening
 // several does not multiply its allowance.
 type sealedDevice struct {
-	frames, connects, acts, spawns *artifacts.Limiter
+	frames, connects, acts, spawns, asks *artifacts.Limiter
 }
 
 func (st *sealedState) device(id string) *sealedDevice {
@@ -372,7 +400,8 @@ func (st *sealedState) device(id string) *sealedDevice {
 	cn, _ := artifacts.NewLimiter(float64(sealedConnectsPerMinute)/60, sealedConnectsPerMinute, nil)
 	ac, _ := artifacts.NewLimiter(sealedActRate, sealedActBurst, nil)
 	sp, _ := artifacts.NewLimiter(sealedSpawnRate, sealedSpawnBurst, nil)
-	d := &sealedDevice{frames: fr, connects: cn, acts: ac, spawns: sp}
+	ak, _ := artifacts.NewLimiter(sealedAskRate, sealedAskBurst, nil)
+	d := &sealedDevice{frames: fr, connects: cn, acts: ac, spawns: sp, asks: ak}
 	st.devices[id] = d
 	return d
 }
@@ -560,7 +589,7 @@ const (
 func sealedCommandNames(act bool) []string {
 	out := make([]string, 0, len(sealedCommands))
 	for name, tier := range sealedCommands {
-		if tier == sealedTierB && !act {
+		if tier != sealedTierA && !act {
 			continue
 		}
 		out = append(out, name)
@@ -622,8 +651,16 @@ func (s *Server) handleSealed(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer s.sealed.release(device)
+	var link *sealedLink
+	// Questions put to the desk for this socket end with it.
+	defer func() {
+		if link != nil {
+			s.dropConfirms(link)
+		}
+	}()
 
 	l := &sealedLink{s: s, device: device, name: name, origin: origin, refuse: refuse, cutCh: make(chan struct{})}
+	link = l
 	// Registered before the device is checked, so that a change of role between
 	// the two ends it (s.sockets.cut).
 	forget := s.sockets.add(device, func() {
@@ -801,7 +838,7 @@ func (s *Server) handleSealed(w http.ResponseWriter, r *http.Request) {
 			}
 			continue
 		}
-		if sealedCommands[cmd.Cmd] == sealedTierB {
+		if tier := sealedCommands[cmd.Cmd]; tier == sealedTierB || tier == sealedTierC {
 			// Looked at again for every request, so that taking the right away
 			// at the desk, or a key that changed, takes effect on the next one.
 			if !l.mayAct() {

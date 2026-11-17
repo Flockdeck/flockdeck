@@ -32,6 +32,7 @@ var remotePathFields = map[string]struct{ root, path bool }{
 	"worktreeRemove":     {root: true, path: true},
 	"worktreePrune":      {root: true},
 	"changes":            {path: true},
+	"changesSnapshot":    {root: true},
 	"diff":               {path: true},
 	"commit":             {path: true},
 	"gitPush":            {path: true},

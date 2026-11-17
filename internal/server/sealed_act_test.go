@@ -75,7 +75,7 @@ func TestSealedActNeedsTheRightDeviceKeyAndRole(t *testing.T) {
 	e.grantControl(t, "full")
 	if _, hello := e.open(t, "full"); hello["tier"] != sealedTierB {
 		t.Errorf("a device with the switch is told tier %v", hello["tier"])
-	} else if c := helloCommands(hello); !c["paneSend"] || !c["permissionAnswer"] || !c["startAgent"] || c["structuredSet"] || c["commit"] {
+	} else if c := helloCommands(hello); !c["paneSend"] || !c["permissionAnswer"] || !c["startAgent"] || c["structuredSet"] || !c["commit"] || c["mergeBranch"] || c["deskConfirmAnswer"] {
 		t.Errorf("the tier B commands are %v", c)
 	}
 

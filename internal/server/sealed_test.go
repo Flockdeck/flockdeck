@@ -348,7 +348,7 @@ func TestSealedRunsOnlyTheTableOfCommands(t *testing.T) {
 	// A hundred and some commands in a burst would meet the rate limit, so the
 	// ones that matter most are sent by name, and the rest are checked by table.
 	for _, name := range []string{"sendPrompt", "structuredSet", "quit", "restart",
-		"commit", "gitPush", "mergeBranch", "worktreeRemove", "worktreePrune", "keySet", "remoteRevoke", "setDeviceRole", "closePane", "structuredRewind"} {
+		"gitFetch", "mergeBranch", "deskConfirmAnswer", "worktreeRemove", "worktreePrune", "keySet", "remoteRevoke", "setDeviceRole", "closePane", "structuredRewind"} {
 		if sealedCommands[name] != "" {
 			t.Fatalf("%s is in the table", name)
 		}
@@ -380,8 +380,8 @@ func TestSealedTableIsKnownAndTiered(t *testing.T) {
 		if !cases[name] {
 			t.Errorf("%s is in the sealed table and is not a command", name)
 		}
-		if tier != sealedTierA && tier != sealedTierB {
-			t.Errorf("%s is tier %q, and only A and B are built", name, tier)
+		if tier != sealedTierA && tier != sealedTierB && tier != sealedTierC {
+			t.Errorf("%s is tier %q, and only A, B and C are built", name, tier)
 		}
 	}
 	// Tier A never writes, whatever else changes.
@@ -392,7 +392,7 @@ func TestSealedTableIsKnownAndTiered(t *testing.T) {
 	}
 	// What a phone does not do from this socket: a mode (which can switch off the
 	// agent's permission checks), git, merges, keys, devices.
-	for _, name := range []string{"structuredSet", "commit", "gitPush", "gitPull", "mergeBranch", "keySet", "setDeviceControl",
+	for _, name := range []string{"structuredSet", "gitFetch", "deskConfirmAnswer", "mergeBranch", "commentAdd", "runChecks", "changesWatch", "keySet", "setDeviceControl",
 		"setDeviceApprove", "setDeviceRole", "sendPrompt", "structuredRewind", "worktreeRemove", "worktreePrune"} {
 		if sealedCommands[name] != "" {
 			t.Errorf("%s is in the sealed table", name)
@@ -634,7 +634,7 @@ func TestSealedLiftsOnlyTheTableOfRefusals(t *testing.T) {
 			t.Errorf("%s is not lifted on a sealed connection", name)
 		}
 	}
-	for _, name := range []string{"structuredSet", "sendPrompt", "worktreeRemove", "structuredRewind", "commit"} {
+	for _, name := range []string{"structuredSet", "sendPrompt", "worktreeRemove", "structuredRewind", "mergeBranch"} {
 		if c.liftsRelayRefusal(name) {
 			t.Errorf("%s is lifted on a sealed connection", name)
 		}

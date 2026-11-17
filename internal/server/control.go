@@ -1740,6 +1740,9 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 	case "approveChallenge":
 		s.askApprove(c, cmd)
 		return
+	case "deskConfirmAnswer":
+		s.answerDeskConfirm(c, cmd)
+		return
 	case "teamSnapshot", "teamWatch", "teamUnwatch", "taskList", "taskGet", "taskAdd", "taskAssign",
 		"taskStatus", "taskNote", "taskBranch", "taskDepends", "taskEstimate", "taskTeam", "taskPrune", "msgList", "msgSend", "msgSeen", "teamClose":
 		s.teamCommand(c, cmd)
@@ -1817,12 +1820,21 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		s.showDiff(c, cmd.Path, cmd.Text)
 		return
 	case "commit":
+		if s.gitAskedOfDesk(c, cmd) {
+			return
+		}
 		s.commitChanges(c, cmd.Path, cmd.Text, cmd.Push, cmd.Files, cmd.Stamps, cmd.Omitted, gitAnswer{cmd.GitAccept, cmd.GitSeen})
 		return
 	case "gitPush":
+		if s.gitAskedOfDesk(c, cmd) {
+			return
+		}
 		s.runRemote(c, "push", cmd.Path, gitAnswer{cmd.GitAccept, cmd.GitSeen})
 		return
 	case "gitPull":
+		if s.gitAskedOfDesk(c, cmd) {
+			return
+		}
 		s.runRemote(c, "pull", cmd.Path, gitAnswer{cmd.GitAccept, cmd.GitSeen})
 		return
 	case "gitFetch":

@@ -42,7 +42,7 @@ func TestSealedStartTables(t *testing.T) {
 	// Destroying work, rewinding it and the git that runs programs are not here:
 	// they wait for a confirm at the desk or stay with it.
 	for _, n := range []string{"worktreeRemove", "worktreePrune", "structuredRewind", "structuredFork", "structuredRewindFiles",
-		"commit", "gitPush", "gitPull", "gitFetch", "mergeBranch", "approveMerge", "openProject", "newTab", "splitPane", "spawn", "structuredSet"} {
+		"gitFetch", "mergeBranch", "approveMerge", "openProject", "newTab", "splitPane", "spawn", "structuredSet"} {
 		if sealedCommands[n] != "" {
 			t.Errorf("%s is on the sealed socket", n)
 		}

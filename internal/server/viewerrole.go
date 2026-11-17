@@ -127,7 +127,7 @@ var commandAccess = map[string]cmdAccess{
 	"remoteReconnect": accessFull, "setDeviceRole": accessFull,
 	// Whether a device may answer an agent's permission requests from its phone
 	// is the desk's to decide, and a viewer never decides it.
-	"setDeviceControl": accessFull, "setDeviceApprove": accessFull, "setApprovalsOff": accessFull, "approveChallenge": accessFull,
+	"setDeviceControl": accessFull, "setDeviceApprove": accessFull, "setApprovalsOff": accessFull, "approveChallenge": accessFull, "deskConfirmAnswer": accessFull,
 	"remoteVerify": accessFull, "remoteUnverify": accessFull,
 	"helpSeen": accessFull, "dismissTip": accessFull, "fontSize": accessFull, "uiPrefs": accessFull, "notifications": accessFull,
 	"scrollback": accessFull, "updates": accessFull, "checkForUpdate": accessFull,
@@ -376,6 +376,9 @@ type accessState struct {
 	// approveAsk holds the one-time questions handed to windows at the desk, and
 	// approveFile the last read of the preferences file for the approval gate.
 	approveAsk  approveAsk
+	// deskConfirms is the commits, pushes and pulls of paired devices waiting for
+	// a yes at the desk (sealed_confirm.go).
+	deskConfirms deskConfirmState
 	approveFile approveFileCache
 	// approvals is the sealed /ws/approvals socket's state (approvals_socket.go).
 	approvals approvalsState

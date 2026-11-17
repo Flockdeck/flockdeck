@@ -1,7 +1,7 @@
 {
   "api": {
     "major": 1,
-    "minor": 39
+    "minor": 40
   },
   "frames": [
     {
@@ -186,6 +186,8 @@
     {
       "name": "changesSnapshot",
       "access": "full",
+      "relayPathGated": true,
+      "sealed": "A",
       "since": "1.5",
       "status": "stable"
     },
@@ -258,7 +260,9 @@
     {
       "name": "commit",
       "access": "full",
+      "relayRefused": true,
       "relayPathGated": true,
+      "sealed": "C",
       "since": "1.0",
       "status": "stable"
     },
@@ -335,6 +339,13 @@
       "status": "stable"
     },
     {
+      "name": "deskConfirmAnswer",
+      "access": "full",
+      "relayRefused": true,
+      "since": "1.40",
+      "status": "stable"
+    },
+    {
       "name": "detach",
       "access": "full",
       "since": "1.0",
@@ -351,12 +362,14 @@
     {
       "name": "diffContext",
       "access": "full",
+      "sealed": "A",
       "since": "1.5",
       "status": "stable"
     },
     {
       "name": "diffHunks",
       "access": "full",
+      "sealed": "A",
       "since": "1.5",
       "status": "stable"
     },
@@ -375,6 +388,7 @@
     {
       "name": "filesPage",
       "access": "full",
+      "sealed": "A",
       "since": "1.5",
       "status": "stable"
     },
@@ -412,6 +426,7 @@
       "name": "ghChecks",
       "access": "full",
       "relayPathGated": true,
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
@@ -513,14 +528,18 @@
     {
       "name": "gitPull",
       "access": "full",
+      "relayRefused": true,
       "relayPathGated": true,
+      "sealed": "C",
       "since": "1.0",
       "status": "stable"
     },
     {
       "name": "gitPush",
       "access": "full",
+      "relayRefused": true,
       "relayPathGated": true,
+      "sealed": "C",
       "since": "1.0",
       "status": "stable"
     },
@@ -1632,6 +1651,7 @@
       "name": "changesFiles",
       "relay": "deskOnly",
       "why": "the changes view is refused to a relay window",
+      "sealed": "A",
       "since": "1.5",
       "status": "stable"
     },
@@ -1646,6 +1666,7 @@
       "name": "changesTeam",
       "relay": "deskOnly",
       "why": "the changes view is refused to a relay window",
+      "sealed": "A",
       "since": "1.5",
       "status": "stable"
     },
@@ -1689,6 +1710,13 @@
       "status": "stable"
     },
     {
+      "name": "deskConfirm",
+      "relay": "deskOnly",
+      "why": "the question put to a window at the desk about a device's commit, push or pull",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
       "name": "detached",
       "relay": "pass",
       "why": "a flag",
@@ -1707,6 +1735,7 @@
       "name": "diffContext",
       "relay": "deskOnly",
       "why": "the changes view is refused to a relay window",
+      "sealed": "A",
       "since": "1.5",
       "status": "stable"
     },
@@ -1714,6 +1743,7 @@
       "name": "diffHunks",
       "relay": "deskOnly",
       "why": "the changes view is refused to a relay window",
+      "sealed": "A",
       "since": "1.5",
       "status": "stable"
     },
@@ -1721,6 +1751,7 @@
       "name": "ghChecks",
       "relay": "pass",
       "why": "check runs",
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
@@ -1763,6 +1794,14 @@
       "name": "ghStatus",
       "relay": "pass",
       "why": "gh install state",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "gitConfirm",
+      "relay": "deskOnly",
+      "why": "where a device's commit, push or pull stands, written to /ws/sealed only",
+      "sealed": "B",
       "since": "1.0",
       "status": "stable"
     },

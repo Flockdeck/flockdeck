@@ -143,6 +143,7 @@ var relayDeskOnly = map[string]string{
 	"approveChallenge": "the one-time question for allowing a device to approve, for windows on this machine only",
 	"changesTeam":      "the changes view is refused to a relay window", "changesFiles": "the changes view is refused to a relay window",
 	"diffHunks": "the changes view is refused to a relay window", "diffContext": "the changes view is refused to a relay window",
+	"deskConfirm": "the question put to a window at the desk about a device's commit, push or pull", "gitConfirm": "where a device's commit, push or pull stands, written to /ws/sealed only",
 	"sealedHello": "the first frame of /ws/sealed, written to that socket only", "sealedRefused": "the answer to a request /ws/sealed did not run, written to that socket only",
 	"changesChecks": "the commands of a check file are for the person at the desk, and confirmChecks is refused to a relay window",
 }
@@ -363,12 +364,16 @@ var remoteTextCommands = map[string]bool{
 // Commands that are refused only for a folder outside the known projects are not
 // here: they are remotePathFields, and the catalog marks them relayPathGated.
 var relayRefusedCommands = map[string]string{
-	"sendPrompt":      "text typed into a pane is the desk's, as paneSend is (stage 0, F1)",
-	"recordPane":      "turning recording on is acknowledged at the desk (stage 0, F3)",
-	"remoteRevoke":    "unpairing a device is done at the desk (stage 0, F2)",
-	"remoteRename":    "renaming a device is done at the desk (stage 0, F2)",
-	"remoteReconnect": "trying the relay again is done at the desk (stage 0, F2)",
-	"startAgent":      "a task is a prompt the relay could read or forge, so starting an agent is for the sealed socket (stage 3)",
+	"sendPrompt":        "text typed into a pane is the desk's, as paneSend is (stage 0, F1)",
+	"recordPane":        "turning recording on is acknowledged at the desk (stage 0, F3)",
+	"remoteRevoke":      "unpairing a device is done at the desk (stage 0, F2)",
+	"remoteRename":      "renaming a device is done at the desk (stage 0, F2)",
+	"remoteReconnect":   "trying the relay again is done at the desk (stage 0, F2)",
+	"commit":            "a commit from a device is asked of the person at the desk, and only the sealed socket carries it (stage 6)",
+	"gitPush":           "a push from a device is asked of the person at the desk, and only the sealed socket carries it (stage 6)",
+	"gitPull":           "a pull from a device is asked of the person at the desk, and only the sealed socket carries it (stage 6)",
+	"deskConfirmAnswer": "the answer to a device's commit, push or pull is the desk's alone (stage 6)",
+	"startAgent":        "a task is a prompt the relay could read or forge, so starting an agent is for the sealed socket (stage 3)",
 }
 
 // refuseRemoteText answers a relay window's conversation command with a plain
