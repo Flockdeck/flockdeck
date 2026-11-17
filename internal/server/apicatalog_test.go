@@ -27,7 +27,7 @@ const apiCatalogPath = "../../api/catalog.json"
 // command or message raises the major; one that adds raises the minor.
 const (
 	apiMajor = 1
-	apiMinor = 41
+	apiMinor = 42
 )
 
 // addedIn names the minor version a command arrived in; any other is 1.0.
@@ -105,6 +105,10 @@ func init() {
 	addedIn["deskConfirmAnswer"] = "1.40"
 	// The team view on the sealed socket (tier A reads, msgSend and msgSeen at tier B) came with
 	// sealedTeam (1.41). No command or message is new.
+	// Settings, devices and GitHub on the sealed socket (sealedSettings, 1.42):
+	// pushPrefsGet is the one new command; pushPrefs, deviceRoster and deviceRevoked
+	// are new messages.
+	addedIn["pushPrefsGet"] = "1.42"
 	// The person's own shell commands came with structuredShell (1.21).
 	for _, n := range []string{"structuredShellRun", "structuredShellStop", "structuredShellRemove", "structuredShellSend"} {
 		addedIn[n] = "1.21"

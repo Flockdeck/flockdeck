@@ -136,7 +136,8 @@ var relayPass = map[string]string{
 // nothing sends them to one, and a relay window that is sent one is sent
 // nothing. The test holds the list to what the server sends.
 var relayDeskOnly = map[string]string{
-	"team": "the team panel is refused to a relay window", "teamGone": "a watched project that can no longer be read; the watch is refused to a relay window", "tasks": "the board is refused to a relay window", "messages": "mail is refused to a relay window",
+	"team": "the team panel is refused to a relay window", "pushPrefs": "push preferences, for the sealed socket only", "deviceRoster": "the device list cut down for a sealed device only", "deviceRevoked": "how a sealed device unpairing itself ended",
+	"teamGone": "a watched project that can no longer be read; the watch is refused to a relay window", "tasks": "the board is refused to a relay window", "messages": "mail is refused to a relay window",
 	"paneInfo": "refused to a relay window", "paneMatches": "refused to a relay window", "paneSend": "refused to a relay window",
 	"structuredFiles":  "file names of a pane's directory, refused to a relay window",
 	"noticeWithdraw":   "an approval for windows on this machine only",
@@ -372,6 +373,8 @@ var relayRefusedCommands = map[string]string{
 	"commit":            "a commit from a device is asked of the person at the desk, and only the sealed socket carries it (stage 6)",
 	"gitPush":           "a push from a device is asked of the person at the desk, and only the sealed socket carries it (stage 6)",
 	"gitPull":           "a pull from a device is asked of the person at the desk, and only the sealed socket carries it (stage 6)",
+	"ghPRComment":       "a comment on GitHub from a device is asked of the person at the desk, and only the sealed socket carries it (stage 8)",
+	"ghIssueComment":    "a comment on GitHub from a device is asked of the person at the desk, and only the sealed socket carries it (stage 8)",
 	"deskConfirmAnswer": "the answer to a device's commit, push or pull is the desk's alone (stage 6)",
 	"startAgent":        "a task is a prompt the relay could read or forge, so starting an agent is for the sealed socket (stage 3)",
 }

@@ -348,7 +348,7 @@ func TestSealedRunsOnlyTheTableOfCommands(t *testing.T) {
 	// A hundred and some commands in a burst would meet the rate limit, so the
 	// ones that matter most are sent by name, and the rest are checked by table.
 	for _, name := range []string{"sendPrompt", "structuredSet", "quit", "restart",
-		"gitFetch", "mergeBranch", "deskConfirmAnswer", "worktreeRemove", "worktreePrune", "keySet", "remoteRevoke", "setDeviceRole", "closePane", "structuredRewind"} {
+		"gitFetch", "mergeBranch", "deskConfirmAnswer", "worktreeRemove", "worktreePrune", "keySet", "remoteRename", "setDeviceRole", "closePane", "structuredRewind"} {
 		if sealedCommands[name] != "" {
 			t.Fatalf("%s is in the table", name)
 		}

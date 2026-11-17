@@ -134,7 +134,7 @@ var commandAccess = map[string]cmdAccess{
 	"helpers": accessFull, "helperPlan": accessFull, "helperInstall": accessFull, "helperStart": accessFull,
 	"helperStop": accessFull, "helperOpen": accessFull, "helperUninstall": accessFull,
 	"listVersions": accessFull, "installVersion": accessFull, "presence": accessFull,
-	"pushNotify": accessFull, "pushAnonymous": accessFull, "pushDelay": accessFull, "resetTips": accessFull,
+	"pushNotify": accessFull, "pushAnonymous": accessFull, "pushDelay": accessFull, "pushPrefsGet": accessFull, "resetTips": accessFull,
 	"cursorBlink": accessFull, "cursorStyle": accessFull, "screenReader": accessFull, "statusLine": accessFull,
 	"fontFamily": accessFull, "railExpanded": accessFull, "railWidth": accessFull, "theme": accessFull,
 	"accentColor": accessFull, "autoReviewDefault": accessFull,

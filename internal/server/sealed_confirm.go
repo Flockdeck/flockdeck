@@ -29,6 +29,11 @@ import (
 // token can open a page of its own and answer. What it stops is the relay, the
 // phone and a replayed or blind command, none of which can answer.
 //
+// Stage 8 adds a comment on a pull request or an issue (ghPRComment,
+// ghIssueComment) to the three. It is the same flow: the comment goes out under
+// the person's GitHub account, so the desk reads what it says and which pull
+// request or issue it is for before it runs.
+//
 // Merges are not here and stay desk-only.
 
 const (
@@ -57,6 +62,7 @@ const (
 // Words for the device. Fixed, so a refusal never quotes anything.
 const (
 	gitDeskOnly   = "Commit, push and pull are asked of the person at the desk and run only for the sealed connection"
+	ghDeskOnly    = "A comment on GitHub is asked of the person at the desk and runs only for the sealed connection"
 	gitNeedsAPath = "A commit, push or pull from a device names the folder"
 )
 
@@ -158,8 +164,11 @@ func (d *deskConfirmState) dropLink(l *sealedLink) []*deskConfirm {
 
 // isGitAction is the commands tier C holds for the desk.
 func isGitAction(cmd string) bool {
-	return cmd == "commit" || cmd == "gitPush" || cmd == "gitPull"
+	return cmd == "commit" || cmd == "gitPush" || cmd == "gitPull" || isGHComment(cmd)
 }
+
+// isGHComment is a comment on a pull request or an issue.
+func isGHComment(cmd string) bool { return cmd == "ghPRComment" || cmd == "ghIssueComment" }
 
 // gitAskedOfDesk is the first thing handleCommand does with commit, push and
 // pull. It reports whether it dealt with the command. A window on this machine
@@ -172,7 +181,11 @@ func (s *Server) gitAskedOfDesk(c *controlClient, cmd command) bool {
 		return false
 	}
 	if c.sealed == nil {
-		c.notify(gitDeskOnly, true)
+		if isGHComment(cmd.Cmd) {
+			c.notify(ghDeskOnly, true)
+		} else {
+			c.notify(gitDeskOnly, true)
+		}
 		return true
 	}
 	s.askDeskGit(c, cmd)
@@ -192,6 +205,10 @@ func confirmAction(cmd command) string {
 		return "commit"
 	case cmd.Cmd == "gitPush":
 		return "push"
+	case cmd.Cmd == "ghPRComment":
+		return "comment on a pull request"
+	case cmd.Cmd == "ghIssueComment":
+		return "comment on an issue"
 	}
 	return "pull"
 }
@@ -203,6 +220,15 @@ func confirmAction(cmd command) string {
 // the person is deciding on them.
 func confirmSummary(cmd command, dir string) string {
 	var b strings.Builder
+	if isGHComment(cmd.Cmd) {
+		kind := "pull request"
+		if cmd.Cmd == "ghIssueComment" {
+			kind = "issue"
+		}
+		b.WriteString("Comment on " + kind + " #" + strconv.Itoa(cmd.GHNumber) + " in " + tidy(shortName(dir)))
+		b.WriteString(". Comment: " + safeLine(cmd.GHBody, 300))
+		return b.String()
+	}
 	b.WriteString(strings.ToUpper(confirmAction(cmd)[:1]) + confirmAction(cmd)[1:])
 	b.WriteString(" in ")
 	b.WriteString(tidy(shortName(dir)))
@@ -239,6 +265,12 @@ func (s *Server) askDeskGit(c *controlClient, cmd command) {
 	}
 	if cmd.Cmd == "commit" {
 		if strings.TrimSpace(cmd.Text) == "" || len(cmd.Text) > confirmMaxMessage || len(cmd.Files) > confirmMaxFiles {
+			refuse(confirmBad)
+			return
+		}
+	}
+	if isGHComment(cmd.Cmd) {
+		if cmd.GHNumber <= 0 || strings.TrimSpace(cmd.GHBody) == "" || len(cmd.GHBody) > confirmMaxMessage {
 			refuse(confirmBad)
 			return
 		}
@@ -378,6 +410,10 @@ func (s *Server) runGitAction(c *controlClient, cmd command) {
 		s.runRemote(c, "push", cmd.Path, gitAnswer{})
 	case "gitPull":
 		s.runRemote(c, "pull", cmd.Path, gitAnswer{})
+	case "ghPRComment":
+		s.ghPRComment(c, cmd.Path, cmd.GHNumber, cmd.GHBody)
+	case "ghIssueComment":
+		s.ghIssueComment(c, cmd.Path, cmd.GHNumber, cmd.GHBody)
 	}
 }
 

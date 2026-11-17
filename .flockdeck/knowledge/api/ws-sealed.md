@@ -5,9 +5,9 @@ description: End-to-end encrypted, relay-only socket that carries a slice of the
 resource: internal/server/sealed.go
 tags: [websocket, sealed, remote, e2e, structured]
 timestamp: 2026-11-16T00:00:00Z
-code_paths: [internal/server/sealed.go, internal/server/sealed_control.go, internal/server/e2e.go, internal/server/approvals_socket.go]
+code_paths: [internal/server/sealed.go, internal/server/sealed_control.go, internal/server/sealed_stage8.go, internal/server/sealed_confirm.go, internal/server/e2e.go, internal/server/approvals_socket.go]
 ---
-Handler: `Server.handleSealed`. Route `GET /ws/sealed`. API 1.37 (tier A, cap `sealedControl`), 1.38 (tier B, cap `sealedAct`) 1.39 (start flows, history and worktrees, cap `sealedStart`), 1.40 (changes, diffs and checks, and commit, push and pull behind a desk confirm, cap `sealedGit`) and 1.41 (the team view, cap `sealedTeam`), `remote.Capability` 3. Built on the handshake of [/ws/approvals](ws-approvals.md) and [/ws/pty](ws-pty.md).
+Handler: `Server.handleSealed`. Route `GET /ws/sealed`. API 1.37 (tier A, cap `sealedControl`), 1.38 (tier B, cap `sealedAct`) 1.39 (start flows, history and worktrees, cap `sealedStart`), 1.40 (changes, diffs and checks, and commit, push and pull behind a desk confirm, cap `sealedGit`) 1.41 (the team view, cap `sealedTeam`) and 1.42 (push preferences, devices and GitHub, cap `sealedSettings`), `remote.Capability` 3. Built on the handshake of [/ws/approvals](ws-approvals.md) and [/ws/pty](ws-pty.md).
 
 ## Gates
 
@@ -52,6 +52,18 @@ Tier A reads, for a full device only (`sealedFullOnly`; a viewer is refused with
 Tier B, the person's voice: `msgSend` (a message to a pane, a name or a role of the project, from the person, not from the device) and `msgSeen` (the person's own mark on a message). The answer is the plain success, with no count. They share the tier B limit and the log, which names the command and the device, never the text.
 
 Not on the socket: `taskList`, `taskGet`, `taskAdd` and the other task commands, `teamClose` (it closes panes), `setRouting` and `clearRoutingLog` (who gets a task is the desk's), merges. Goals are the `goal` of a team in the graph; there is no goal command, and the goal tabs of the desktop (`uiPrefs`) are not on the socket. The unsealed socket still refuses all of these (`teamDeskOnly`).
+
+## Settings, devices and GitHub (1.42)
+
+Tier A: `pushPrefsGet` (any served device) answers `pushPrefs`: `off`, `anonymous`, the effective `delaySeconds` and the `defaultSeconds`, `minSeconds` and `maxSeconds` it is held to. `remoteDevices` (full device only) answers `deviceRoster`, built from the desk's list but cut down: per device its name, `created`, `lastSeen` and `current`, plus `self` (this device's id) and `enabled`. No public key, fingerprint, verify state, role, host, plan or the id of another device is sent. `remoteRevoke` is run only with `id` equal to the device's own (`sealedSelfOnly`; any other id or none is refused with code `self`, and the relay is not asked). It shares the tier B rate, is logged as `sealed-self` (`unpaired` or `failed`) by device and name, and is allowed to a viewer too, because it only takes that device's own access away. The answer is `deviceRevoked` (`ok`, or `error` in fixed words), written before the device's key is forgotten and its sockets are cut; the desk is shown a notice.
+
+GitHub reads for a full device (`sealedFullOnly`): `ghStatus` (installed, signed in, account and host), `ghPRs`, `ghPR`, `ghIssues`, `ghIssue`. A pull request or issue is cut to a size (`scrubGHView`: body 20,000 characters, the newest 50 comments, each 4,000) and redacted.
+
+Tier B: `pushNotify`, `pushAnonymous`, `pushDelay` (a delay out of bounds is not a change). Each is answered with `pushPrefs`, changed or not. They change what is pushed to every paired device, so they need the device's Control agents switch like the rest of tier B.
+
+Tier C, held for a yes at the desk with the commit, push and pull flow ([sealed_confirm.go](../../../internal/server/sealed_confirm.go)): `ghPRComment` and `ghIssueComment`. The request needs `path` (a working tree in a known project), `ghNumber` above zero and a non-blank `ghBody` of at most 4,000 bytes. The desk is asked "comment on a pull request" or "comment on an issue" with the number and the first 300 characters of the comment, and a yes posts exactly that. The answer is `gitConfirm` (its `cmd` names the command) and then `ghPR` or `ghIssue`. The unsealed socket refuses both (`ghDeskOnly`).
+
+Not on the socket: `remotePair`, `remoteRename`, `remoteReconnect`, `remoteVerify`, `remoteEnable` and the other commands that change who can reach or control this machine, `setDeviceRole`, `setDeviceControl`, `setDeviceApprove`, `ghPRCreate`, `ghIssueCreate`, `ghLogin`, `ghLogout`, `ghInstall`, merges, other settings (theme, fonts, keybindings, agent defaults, privacy toggles, provider keys) and updates.
 
 ## Messages
 

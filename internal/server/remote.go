@@ -344,21 +344,30 @@ func (s *Server) remoteDevices(c *controlClient) {
 			Type: "remoteDevices", Devices: []remoteDeviceView{}, Hosts: []remote.Host{},
 			Current: c.device,
 		}
+		// A sealed device is told the narrow roster, never the keys, fingerprints or
+		// hosts of this one (sealed_stage8.go).
+		send := func() {
+			if c.sealed != nil {
+				c.sendJSON(sealedRoster(msg, c.device))
+				return
+			}
+			c.sendJSON(msg)
+		}
 		cl, err := s.remoteClient()
 		switch {
 		case errors.Is(err, remote.ErrNotEnabled):
-			c.sendJSON(msg)
+			send()
 			return
 		case err != nil:
 			msg.Error = err.Error()
-			c.sendJSON(msg)
+			send()
 			return
 		}
 		msg.Enabled = true
 		roster, err := cl.Devices(context.Background())
 		if err != nil {
 			msg.Error = err.Error()
-			c.sendJSON(msg)
+			send()
 			return
 		}
 		// A device unpaired from its own page is gone from the roster, and
@@ -401,7 +410,7 @@ func (s *Server) remoteDevices(c *controlClient) {
 			msg.Hosts = roster.Hosts
 		}
 		msg.Plan = roster.Plan
-		c.sendJSON(msg)
+		send()
 	}()
 }
 

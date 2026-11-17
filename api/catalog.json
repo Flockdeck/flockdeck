@@ -1,7 +1,7 @@
 {
   "api": {
     "major": 1,
-    "minor": 41
+    "minor": 42
   },
   "frames": [
     {
@@ -440,13 +440,16 @@
       "name": "ghIssue",
       "access": "full",
       "relayPathGated": true,
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
     {
       "name": "ghIssueComment",
       "access": "full",
+      "relayRefused": true,
       "relayPathGated": true,
+      "sealed": "C",
       "since": "1.0",
       "status": "stable"
     },
@@ -461,6 +464,7 @@
       "name": "ghIssues",
       "access": "full",
       "relayPathGated": true,
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
@@ -487,13 +491,16 @@
       "name": "ghPR",
       "access": "full",
       "relayPathGated": true,
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
     {
       "name": "ghPRComment",
       "access": "full",
+      "relayRefused": true,
       "relayPathGated": true,
+      "sealed": "C",
       "since": "1.0",
       "status": "stable"
     },
@@ -508,6 +515,7 @@
       "name": "ghPRs",
       "access": "full",
       "relayPathGated": true,
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
@@ -515,6 +523,7 @@
       "name": "ghStatus",
       "access": "full",
       "relayPathGated": true,
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
@@ -833,19 +842,29 @@
     {
       "name": "pushAnonymous",
       "access": "full",
+      "sealed": "B",
       "since": "1.0",
       "status": "stable"
     },
     {
       "name": "pushDelay",
       "access": "full",
+      "sealed": "B",
       "since": "1.0",
       "status": "stable"
     },
     {
       "name": "pushNotify",
       "access": "full",
+      "sealed": "B",
       "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "pushPrefsGet",
+      "access": "full",
+      "sealed": "A",
+      "since": "1.42",
       "status": "stable"
     },
     {
@@ -889,6 +908,7 @@
     {
       "name": "remoteDevices",
       "access": "full",
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
@@ -940,6 +960,7 @@
       "name": "remoteRevoke",
       "access": "full",
       "relayRefused": true,
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
@@ -1733,6 +1754,22 @@
       "status": "stable"
     },
     {
+      "name": "deviceRevoked",
+      "relay": "deskOnly",
+      "why": "how a sealed device unpairing itself ended",
+      "sealed": "A",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "deviceRoster",
+      "relay": "deskOnly",
+      "why": "the device list cut down for a sealed device only",
+      "sealed": "A",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
       "name": "diff",
       "relay": "pass",
       "why": "a diff",
@@ -1768,6 +1805,7 @@
       "name": "ghIssue",
       "relay": "pass",
       "why": "an issue",
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
@@ -1775,6 +1813,7 @@
       "name": "ghIssues",
       "relay": "pass",
       "why": "issues",
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
@@ -1782,6 +1821,7 @@
       "name": "ghPR",
       "relay": "pass",
       "why": "a pull request",
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
@@ -1789,6 +1829,7 @@
       "name": "ghPRs",
       "relay": "pass",
       "why": "pull requests",
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
@@ -1803,6 +1844,7 @@
       "name": "ghStatus",
       "relay": "pass",
       "why": "gh install state",
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
@@ -1925,6 +1967,14 @@
       "name": "prefs",
       "relay": "pass",
       "why": "settings",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "pushPrefs",
+      "relay": "deskOnly",
+      "why": "push preferences, for the sealed socket only",
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },

@@ -1865,6 +1865,9 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		s.ghPRCreate(c, cmd.Path, cmd.GHTitle, cmd.GHBody, cmd.GHBase, cmd.GHDraft)
 		return
 	case "ghPRComment":
+		if s.gitAskedOfDesk(c, cmd) {
+			return
+		}
 		s.ghPRComment(c, cmd.Path, cmd.GHNumber, cmd.GHBody)
 		return
 	case "ghIssues":
@@ -1877,6 +1880,9 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		s.ghIssueCreate(c, cmd.Path, cmd.GHTitle, cmd.GHBody)
 		return
 	case "ghIssueComment":
+		if s.gitAskedOfDesk(c, cmd) {
+			return
+		}
 		s.ghIssueComment(c, cmd.Path, cmd.GHNumber, cmd.GHBody)
 		return
 	case "ghChecks":
@@ -1917,6 +1923,11 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		s.remotePair(c, cmd.Kind)
 		return
 	case "remoteRevoke":
+		// A sealed device may unpair itself and no other (sealed_stage8.go).
+		if c.sealed != nil && cmd.ID != "" && cmd.ID == c.device {
+			s.revokeSelf(c, cmd.Req)
+			return
+		}
 		s.remoteRevoke(c, cmd.ID)
 		return
 	case "remoteRename":
@@ -2021,13 +2032,16 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		s.setDeskUsed(c, cmd.Kind == "used")
 		return
 	case "pushNotify":
-		s.setPushOff(c, cmd.Kind == "off")
+		s.setPushOffThen(c, cmd.Kind == "off", s.pushPrefsReply(c, cmd.Req))
 		return
 	case "pushAnonymous":
-		s.setPushAnonymous(c, cmd.Kind == "on")
+		s.setPushAnonymousThen(c, cmd.Kind == "on", s.pushPrefsReply(c, cmd.Req))
 		return
 	case "pushDelay":
-		s.setPushDelay(c, cmd.Size)
+		s.setPushDelayThen(c, cmd.Size, s.pushPrefsReply(c, cmd.Req))
+		return
+	case "pushPrefsGet":
+		s.sendPushPrefs(c, cmd.Req)
 		return
 	case "resetTips":
 		s.resetTips(c)

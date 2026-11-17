@@ -183,6 +183,19 @@ var sealedCommands = map[string]string{
 	// rest: T203 removes it), teamClose (it closes panes), setRouting and
 	// clearRoutingLog (who gets a task is the desk's), merges.
 	"msgSend": sealedTierB, "msgSeen": sealedTierB,
+
+	// Stage 8 (API 1.42). Tier A: the push preferences as they stand; the list of
+	// paired devices, cut down (full device only); unpairing the device itself and
+	// no other (sealedSelfOnly); GitHub reads for a full device. Tier B: the three
+	// push preferences. Tier C: a comment on a pull request or an issue, asked of
+	// the desk each time. Not here, on purpose: remotePair, remoteRename,
+	// setDeviceRole, setDeviceControl, remoteVerify, remoteEnable and the other
+	// commands that change who can reach or control this machine, ghPRCreate,
+	// ghIssueCreate, ghLogin, ghLogout, ghInstall, merges.
+	"pushPrefsGet": sealedTierA, "remoteDevices": sealedTierA, "remoteRevoke": sealedTierA,
+	"ghStatus": sealedTierA, "ghPRs": sealedTierA, "ghPR": sealedTierA, "ghIssues": sealedTierA, "ghIssue": sealedTierA,
+	"pushNotify": sealedTierB, "pushAnonymous": sealedTierB, "pushDelay": sealedTierB,
+	"ghPRComment": sealedTierC, "ghIssueComment": sealedTierC,
 }
 
 // sealedFullOnly are the tier A commands only a full device is let run. A viewer
@@ -193,6 +206,7 @@ var sealedFullOnly = map[string]bool{
 	"conversations": true, "worktrees": true, "recents": true, "browse": true, "structuredSessions": true,
 	"teamSnapshot": true, "teamWatch": true, "teamUnwatch": true,
 	"graphSnapshot": true, "graphWatch": true, "graphUnwatch": true, "msgList": true,
+	"remoteDevices": true, "ghStatus": true, "ghPRs": true, "ghPR": true, "ghIssues": true, "ghIssue": true,
 }
 
 // sealedSpawning are the tier B commands that make something run or write a
@@ -250,6 +264,12 @@ var sealedMessages = map[string]sealedMessage{
 	"messages": {Tier: sealedTierA},
 	"graph":    {Tier: sealedTierA},
 	"teamGone": {Tier: sealedTierA, scrub: scrubTeamGone},
+	// Stage 8 (1.42): the push preferences, the cut-down device list and how
+	// unpairing the device itself ended, and GitHub. A pull request or an issue is
+	// cut to a size and redacted (scrubGHView); a list holds titles only.
+	"pushPrefs": {Tier: sealedTierA}, "deviceRoster": {Tier: sealedTierA}, "deviceRevoked": {Tier: sealedTierA},
+	"ghStatus": {Tier: sealedTierA}, "ghPRs": {Tier: sealedTierA}, "ghIssues": {Tier: sealedTierA},
+	"ghPR": {Tier: sealedTierA, scrub: scrubGHView}, "ghIssue": {Tier: sealedTierA, scrub: scrubGHView},
 	// The refusals of a command, in the words the relay is given.
 	"teamResult":    {Tier: sealedTierA, scrub: scrubTeamResultSealed, scrubAct: scrubTeamResultAct},
 	"changesResult": {Tier: sealedTierA, scrub: scrubChangesResultSealed},
@@ -863,6 +883,24 @@ func (s *Server) handleSealed(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 			continue
+		}
+		if sealedSelfOnly[cmd.Cmd] {
+			// A command that is for the device itself only: another device's id is
+			// refused, and the rate and the log are those of tier B, so that a
+			// device cannot use it to fill either.
+			if cmd.ID == "" || cmd.ID != device {
+				s.sealedDenied(device, name, sealedCodeSelf, false)
+				if !l.writeFrame(ctx, mustMarshal(sealedRefusal{Type: "sealedRefused", V: sealedWireVersion, Req: clampReq(cmd.Req), Cmd: clampSealedCmd(cmd.Cmd), Code: sealedCodeSelf})) {
+					return
+				}
+				continue
+			}
+			if !dev.acts.Allow(1) {
+				if !l.writeFrame(ctx, mustMarshal(sealedRefusal{Type: "sealedRefused", V: sealedWireVersion, Req: clampReq(cmd.Req), Cmd: clampSealedCmd(cmd.Cmd), Code: sealedCodeBusy})) {
+					return
+				}
+				continue
+			}
 		}
 		if tier := sealedCommands[cmd.Cmd]; tier == sealedTierB || tier == sealedTierC {
 			// Looked at again for every request, so that taking the right away
