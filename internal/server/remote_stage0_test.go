@@ -279,9 +279,10 @@ func containsString(list []string, s string) bool {
 	return false
 }
 
-// startAgent from a relay window is limited to an open project already: a
-// root that is not one is refused. This is the second half of the plan's
-// finding F4 and it is not a gap, so nothing was changed; the test holds it.
+// startAgent from a relay window is refused outright since the sealed act
+// tier (stage 3), so a root outside an open project is refused too. The sealed
+// socket holds the open-project rule; this test holds that the unsealed one
+// starts nothing.
 func TestARelayWindowCannotStartAnAgentOutsideAnOpenProject(t *testing.T) {
 	srv, _ := newTestServer(t)
 	outside := t.TempDir()
@@ -294,7 +295,7 @@ func TestARelayWindowCannotStartAnAgentOutsideAnOpenProject(t *testing.T) {
 	sendCmd(t, phone, command{Cmd: "startAgent", Root: outside, Task: "stage0", Req: "s"})
 	var note noticeMsg
 	readQuick(t, phone, "notice", &note)
-	if !note.Error || !strings.Contains(note.Text, "not an open project") {
+	if !note.Error {
 		t.Errorf("startAgent at a folder that is not an open project was answered %+v", note)
 	}
 }
