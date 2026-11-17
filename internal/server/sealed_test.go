@@ -523,7 +523,6 @@ func TestSealedWriteDropsWhatTheTableDoesNotName(t *testing.T) {
 	for _, raw := range []string{
 		`{"type":"state","panes":{}}`,
 		`{"type":"agents","items":[]}`,
-		`{"type":"graph","nodes":[]}`,
 		`{"type":"hello","keys":[]}`,
 		`{"type":"prefs"}`,
 		`{"type":"relayTeams"}`,

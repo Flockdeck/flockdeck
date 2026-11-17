@@ -136,7 +136,7 @@ var relayPass = map[string]string{
 // nothing sends them to one, and a relay window that is sent one is sent
 // nothing. The test holds the list to what the server sends.
 var relayDeskOnly = map[string]string{
-	"team": "the team panel is refused to a relay window", "tasks": "the board is refused to a relay window", "messages": "mail is refused to a relay window",
+	"team": "the team panel is refused to a relay window", "teamGone": "a watched project that can no longer be read; the watch is refused to a relay window", "tasks": "the board is refused to a relay window", "messages": "mail is refused to a relay window",
 	"paneInfo": "refused to a relay window", "paneMatches": "refused to a relay window", "paneSend": "refused to a relay window",
 	"structuredFiles":  "file names of a pane's directory, refused to a relay window",
 	"noticeWithdraw":   "an approval for windows on this machine only",
@@ -429,6 +429,10 @@ const maxRemoteNotice = 400
 // as it was.
 func scrubNotice(data []byte) []byte { return cutField(data, "text") }
 
+// scrubTeamGone cuts the reason a watched project can no longer be read to a
+// redacted line.
+func scrubTeamGone(data []byte) []byte { return cutField(data, "error") }
+
 // scrubBatonError does the same for the reason a baton command failed.
 func scrubBatonError(data []byte) []byte { return cutField(data, "error") }
 
@@ -471,6 +475,7 @@ var sealedActOps = map[string]bool{
 	"structuredQueueClear": true, "structuredQueueSendNow": true,
 	"structuredShellRun": true, "structuredShellStop": true, "structuredShellRemove": true, "structuredShellSend": true,
 	"structuredResume": true, "structuredNewConversation": true,
+	"msgSend": true, "msgSeen": true,
 }
 
 // maxSessionsSealed is how many past conversations of a pane's folder a sealed

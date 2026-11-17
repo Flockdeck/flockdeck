@@ -167,6 +167,22 @@ var sealedCommands = map[string]string{
 	// the desk answers it (sealed_confirm.go), asked again for the next. Merges are
 	// not here; they are the desk's. deskConfirmAnswer is not here either.
 	"commit": sealedTierC, "gitPush": sealedTierC, "gitPull": sealedTierC,
+
+	// Tier A, the team view (API 1.41, stage 7): the roster, the graph with what
+	// each agent needs and its live line, the goal of each team, and the mail
+	// between agents. A watch is allowed: it is sent to this socket only and ends
+	// with it, at most every teamInterval. Each is for a full device
+	// (sealedFullOnly), because the roster names every pane of the project.
+	"teamSnapshot": sealedTierA, "teamWatch": sealedTierA, "teamUnwatch": sealedTierA,
+	"graphSnapshot": sealedTierA, "graphWatch": sealedTierA, "graphUnwatch": sealedTierA,
+	"msgList": sealedTierA,
+
+	// Tier B, stage 7: a message from the person to a pane, a name or a role of
+	// the project (as the Team panel sends it), and the person's own "seen" mark
+	// on a message. Not here, on purpose: the task board (taskList, taskAdd and the
+	// rest: T203 removes it), teamClose (it closes panes), setRouting and
+	// clearRoutingLog (who gets a task is the desk's), merges.
+	"msgSend": sealedTierB, "msgSeen": sealedTierB,
 }
 
 // sealedFullOnly are the tier A commands only a full device is let run. A viewer
@@ -175,6 +191,8 @@ var sealedCommands = map[string]string{
 // folder, every branch or the folders of the machine's projects.
 var sealedFullOnly = map[string]bool{
 	"conversations": true, "worktrees": true, "recents": true, "browse": true, "structuredSessions": true,
+	"teamSnapshot": true, "teamWatch": true, "teamUnwatch": true,
+	"graphSnapshot": true, "graphWatch": true, "graphUnwatch": true, "msgList": true,
 }
 
 // sealedSpawning are the tier B commands that make something run or write a
@@ -224,6 +242,14 @@ var sealedMessages = map[string]sealedMessage{
 	"diffHunks": {Tier: sealedTierA}, "diffContext": {Tier: sealedTierA}, "ghChecks": {Tier: sealedTierA},
 	"recents": {Tier: sealedTierA},
 	"browse":  {Tier: sealedTierA},
+	// The team view (1.41). The team message is the Team panel's whole picture; its
+	// task board is taken out (T203 removes the board and no task command runs
+	// here), which leaves the roster, the counts and the mail. teamGone says a
+	// project can no longer be read, in one redacted line.
+	"team":     {Tier: sealedTierA, strip: []string{"tasks", "openHidden", "finishedHidden", "boardError"}},
+	"messages": {Tier: sealedTierA},
+	"graph":    {Tier: sealedTierA},
+	"teamGone": {Tier: sealedTierA, scrub: scrubTeamGone},
 	// The refusals of a command, in the words the relay is given.
 	"teamResult":    {Tier: sealedTierA, scrub: scrubTeamResultSealed, scrubAct: scrubTeamResultAct},
 	"changesResult": {Tier: sealedTierA, scrub: scrubChangesResultSealed},

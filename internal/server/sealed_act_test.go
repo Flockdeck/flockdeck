@@ -180,7 +180,7 @@ func TestSealedWriteOfTierBMessages(t *testing.T) {
 			t.Errorf("the success of %s was dropped", op)
 		}
 	}
-	for _, op := range []string{"taskAdd", "msgSend", "teamSnapshot", "structuredSet", ""} {
+	for _, op := range []string{"taskAdd", "teamSnapshot", "structuredSet", ""} {
 		if got := sealedWrite(ok(op), yes); got != nil {
 			t.Errorf("the success of %q was written: %s", op, got)
 		}

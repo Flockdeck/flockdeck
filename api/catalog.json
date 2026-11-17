@@ -1,7 +1,7 @@
 {
   "api": {
     "major": 1,
-    "minor": 40
+    "minor": 41
   },
   "frames": [
     {
@@ -546,18 +546,21 @@
     {
       "name": "graphSnapshot",
       "access": "full",
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
     {
       "name": "graphUnwatch",
       "access": "full",
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
     {
       "name": "graphWatch",
       "access": "full",
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
@@ -721,18 +724,21 @@
     {
       "name": "msgList",
       "access": "full",
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
     {
       "name": "msgSeen",
       "access": "full",
+      "sealed": "B",
       "since": "1.0",
       "status": "stable"
     },
     {
       "name": "msgSend",
       "access": "full",
+      "sealed": "B",
       "since": "1.0",
       "status": "stable"
     },
@@ -1459,18 +1465,21 @@
     {
       "name": "teamSnapshot",
       "access": "full",
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
     {
       "name": "teamUnwatch",
       "access": "full",
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
     {
       "name": "teamWatch",
       "access": "full",
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
@@ -1814,6 +1823,7 @@
     {
       "name": "graph",
       "relay": "scrub",
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
@@ -1864,6 +1874,7 @@
       "name": "messages",
       "relay": "deskOnly",
       "why": "mail is refused to a relay window",
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
@@ -2005,6 +2016,15 @@
       "name": "team",
       "relay": "deskOnly",
       "why": "the team panel is refused to a relay window",
+      "sealed": "A",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "teamGone",
+      "relay": "deskOnly",
+      "why": "a watched project that can no longer be read; the watch is refused to a relay window",
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },

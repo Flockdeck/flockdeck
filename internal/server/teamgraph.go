@@ -904,7 +904,7 @@ func (s *Server) armGraphTick() {
 // team socket exists; a terminal pane can be approved from a phone only through
 // the drawer's choice buttons on the sealed terminal path; merges are desk-only.
 func (s *Server) graphCommand(c *controlClient, cmd command) {
-	if c.remote {
+	if c.remote && !c.liftsRelayRefusal(cmd.Cmd) {
 		c.sendJSON(teamResultMsg{Type: "teamResult", Req: cmd.Req, Op: cmd.Cmd, Error: teamDeskOnly, Code: teamDeskOnlyCode})
 		c.notify(teamDeskOnly, true)
 		return
