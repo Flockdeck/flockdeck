@@ -307,11 +307,14 @@ func sealedWrite(data []byte, act func() bool) []byte {
 	if rule.Tier == sealedTierB && (act == nil || !act()) {
 		return nil
 	}
+	// A scrub cuts the one field it knows to a line; every other string of the
+	// message is then redacted as for any other, so a field it did not expect is
+	// not sent in the clear.
 	if rule.scrubAct != nil && act != nil && act() {
-		return rule.scrubAct(data)
+		return redactScrubbed(rule.scrubAct(data), rule.strip)
 	}
 	if rule.scrub != nil {
-		return rule.scrub(data)
+		return redactScrubbed(rule.scrub(data), rule.strip)
 	}
 	return redactSealed(data, rule.strip)
 }
@@ -954,4 +957,13 @@ func clampSealedCmd(name string) string {
 		return strings.ToValidUTF8(string(r[:limit]), "") + "…"
 	}
 	return strings.ToValidUTF8(name, "")
+}
+
+// redactScrubbed redacts what a scrub left, and passes on its choice to send
+// nothing.
+func redactScrubbed(out []byte, strip []string) []byte {
+	if out == nil {
+		return nil
+	}
+	return redactSealed(out, strip)
 }
