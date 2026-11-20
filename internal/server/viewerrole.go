@@ -375,11 +375,11 @@ type accessState struct {
 	approveLiveOn bool
 	// approveAsk holds the one-time questions handed to windows at the desk, and
 	// approveFile the last read of the preferences file for the approval gate.
-	approveAsk  approveAsk
+	approveAsk approveAsk
 	// deskConfirms is the commits, pushes and pulls of paired devices waiting for
 	// a yes at the desk (sealed_confirm.go).
 	deskConfirms deskConfirmState
-	approveFile approveFileCache
+	approveFile  approveFileCache
 	// approvals is the sealed /ws/approvals socket's state (approvals_socket.go).
 	approvals approvalsState
 	// sealed is the sealed /ws/sealed socket's state (sealed.go).

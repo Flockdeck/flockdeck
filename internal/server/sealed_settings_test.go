@@ -440,7 +440,10 @@ func TestSealedGitHubWritesBeyondCommentsAreRefused(t *testing.T) {
 	e.grantControl(t, "full")
 	created := false
 	ghCreatePR = func(string, ghcli.PRCreateOptions) (*ghcli.PR, error) { created = true; return &ghcli.PR{}, nil }
-	ghCreateIssue = func(string, ghcli.IssueCreateOptions) (*ghcli.Issue, error) { created = true; return &ghcli.Issue{}, nil }
+	ghCreateIssue = func(string, ghcli.IssueCreateOptions) (*ghcli.Issue, error) {
+		created = true
+		return &ghcli.Issue{}, nil
+	}
 	p, _ := e.open(t, "full")
 	for _, n := range []string{"ghPRCreate", "ghIssueCreate", "ghLogin", "ghLogout", "ghInstall", "ghLoginCancel"} {
 		p.send(command{Cmd: n, Path: repo, GHTitle: "t", Req: "r-" + n})
