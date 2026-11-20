@@ -530,6 +530,7 @@ func New(ws *workspace.Workspace, cfg Config) (*Server, error) {
 	mux.HandleFunc("/remote/approvals/stop", s.handleApprovalsStop)
 	mux.HandleFunc("/ws/artifacts", s.handleArtifacts)
 	mux.HandleFunc("/ws/approvals", s.handleApprovals)
+	mux.HandleFunc("/ws/sealed", s.handleSealed)
 	s.mux = mux
 	s.publishAccess()
 

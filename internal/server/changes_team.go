@@ -160,7 +160,9 @@ func (s *Server) changesTasks(root string) map[string]string {
 // through the relay is refused by changesPlanned, as for every command of the
 // contract.
 func (s *Server) changesCommand(c *controlClient, cmd command) {
-	if c.remote {
+	// The reads the sealed socket carries (sealedCommands) are let through; the
+	// rest of the contract is refused to a window through the relay as before.
+	if c.remote && !c.liftsRelayRefusal(cmd.Cmd) {
 		s.changesPlanned(c, cmd)
 		return
 	}

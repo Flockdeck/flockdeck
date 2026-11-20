@@ -3,6 +3,8 @@ package server
 import (
 	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/jmwri/flockdeck/internal/gitx"
 	"github.com/jmwri/flockdeck/internal/store"
@@ -30,6 +32,7 @@ var remotePathFields = map[string]struct{ root, path bool }{
 	"worktreeRemove":     {root: true, path: true},
 	"worktreePrune":      {root: true},
 	"changes":            {path: true},
+	"changesSnapshot":    {root: true},
 	"diff":               {path: true},
 	"commit":             {path: true},
 	"gitPush":            {path: true},
@@ -119,18 +122,106 @@ func (s *Server) remotePathKnown(path string) bool {
 		return true
 	}
 	target := store.MetaKey(realPath(path))
+	for _, wt := range s.knownWorktrees() {
+		if underPath(target, wt) {
+			return true
+		}
+	}
+	return false
+}
+
+// worktreeCacheTTL is how long the worktrees of the known projects are kept. A
+// path outside every project used to run git in every known root on each
+// command, on the read loop of the window that sent it; a window sending
+// made-up paths made the desk run git as fast as it could send frames.
+const worktreeCacheTTL = 5 * time.Second
+
+// worktreeCache is the worktree folders of the known roots, when they were
+// listed, and the listing in progress, if any.
+type worktreeCache struct {
+	mu   sync.Mutex
+	at   time.Time
+	list []string
+	// gen counts forgetWorktrees, so a listing that began before one is not
+	// kept as current.
+	gen uint64
+	// flight is closed when the listing now running ends; callers that arrive
+	// meanwhile wait for it and share its answer rather than run git again.
+	flight chan struct{}
+	// lister is what lists the worktrees; a test replaces it. Nil is listKnownWorktrees.
+	lister func() []string
+}
+
+// knownWorktrees lists the worktrees of the known roots, at most once in
+// worktreeCacheTTL however many commands ask. The git runs happen outside the
+// lock, one listing at a time (the callers that arrive during it wait for it),
+// so a slow repository does not hold every other command that needs the cache.
+// It is dropped when a worktree is added or removed from a window
+// (forgetWorktrees).
+func (s *Server) knownWorktrees() []string {
+	c := &s.wtCache
+	for {
+		c.mu.Lock()
+		if !c.at.IsZero() && time.Since(c.at) < worktreeCacheTTL {
+			list := c.list
+			c.mu.Unlock()
+			return list
+		}
+		if wait := c.flight; wait != nil {
+			c.mu.Unlock()
+			<-wait
+			continue
+		}
+		done := make(chan struct{})
+		c.flight = done
+		gen := c.gen
+		c.mu.Unlock()
+
+		// The flight is ended in a defer: a listing that panics (a recovered panic in a
+		// window's handler) must not leave the flight set, or every later caller would
+		// wait on it for good. A listing that did not finish is not kept.
+		var out []string
+		finished := false
+		defer func() {
+			c.mu.Lock()
+			if finished && c.gen == gen {
+				c.at, c.list = time.Now(), out
+			}
+			c.flight = nil
+			c.mu.Unlock()
+			close(done)
+		}()
+		list := s.listKnownWorktrees
+		if c.lister != nil {
+			list = c.lister
+		}
+		out = list()
+		finished = true
+		return out
+	}
+}
+
+// listKnownWorktrees runs git in every known root. It takes no lock of the cache.
+func (s *Server) listKnownWorktrees() []string {
+	var out []string
 	for _, root := range s.knownRoots() {
 		wts, err := gitx.List(root)
 		if err != nil {
 			continue
 		}
 		for _, wt := range wts {
-			if underPath(target, store.MetaKey(realPath(wt.Path))) {
-				return true
-			}
+			out = append(out, store.MetaKey(realPath(wt.Path)))
 		}
 	}
-	return false
+	return out
+}
+
+// forgetWorktrees drops the cached list, after a worktree was added or removed.
+func (s *Server) forgetWorktrees() {
+	s.wtCache.mu.Lock()
+	s.wtCache.at = time.Time{}
+	s.wtCache.gen++
+	s.wtCache.mu.Unlock()
 }
 
 // remoteWorktreeOK reports whether a window may add or remove a worktree of

@@ -14,7 +14,7 @@ import { Live } from "../src/shell/Live.js";
 import { Remote } from "../src/shell/Remote.js";
 import { canClear, clearKeyCommand, keyNotes, keyStatus, keysOf, setKeyCommand } from "../src/lib/apikeys.js";
 import {
-  ACCESS, APPROVE_ACK_VERSION, APPROVE_ACK_WORDS, approveCommand, challengeCommand, approveOffCommand, approveView, accessIndex, accessOf, addsAccess, deviceName, nextAccess, ago, daysLeft, deviceCodes, enableCommand, joinLine, leftText, moveCommand, outcomeOf, PAIR_CAP_MS, pairLive, pairOf, planOf, planText, qrSource, renameCommand,
+  ACCESS, APPROVE_ACK_VERSION, CONTROL_ACK_WORDS, APPROVE_ACK_WORDS, approveCommand, challengeCommand, approveOffCommand, approveView, accessIndex, accessOf, addsAccess, deviceName, nextAccess, ago, daysLeft, deviceCodes, enableCommand, joinLine, leftText, moveCommand, outcomeOf, PAIR_CAP_MS, pairLive, pairOf, planOf, planText, qrSource, renameCommand,
   retryClock, revokeCommand, roleCommand, rosterOf, summaryOf, unverifyCommand, untilText, verifyCommand, viewOf,
 } from "../src/lib/remote.js";
 import {
@@ -1451,4 +1451,28 @@ test("Remote: Allow approving waits for a fresh challenge for this device and sh
     assert.equal(isDisabled(allow()), false);
     await m.click(allow());
     assert.deepEqual(m.sent("setDeviceApprove"), [{ cmd: "setDeviceApprove", id: "d2", on: true, nonce: "n2", v: APPROVE_ACK_VERSION }]);
+  }));
+
+test("Remote: Allow control asks the host for its challenge and sends the nonce it gives, only after the answer", () =>
+  withPage({ extra: { remote: TUNNEL } }, async (m) => {
+    await m.connect();
+    await m.openSettings("remote");
+    await m.push(APPROVE_ROSTER);
+    const row = (id) => m.container.findAll(".remote-row").find((r) => r.attributes["data-device"] === id);
+    const allow = () => m.byText(".confirm button", /^Allow control$/);
+    const ch = (over) => ({ type: "approveChallenge", id: "d2", kind: "control", nonce: "c1", v: APPROVE_ACK_VERSION, text: CONTROL_ACK_WORDS + " (host)", expiresMs: 120000, ...over });
+    m.clear();
+    await m.click(row("d2").find(".remote-control"));
+    assert.deepEqual(m.sent("approveChallenge"), [{ cmd: "approveChallenge", id: "d2", kind: "control" }]);
+    assert.ok(isDisabled(allow()), "no challenge has arrived: it cannot be pressed");
+    await m.click(allow());
+    assert.deepEqual(m.sent("setDeviceControl"), [], "a disabled button sends nothing");
+    // A challenge of the approving kind for the same device is not the control question's.
+    await m.push(ch({ kind: undefined, nonce: "a1" }));
+    assert.ok(isDisabled(allow()));
+    await m.push(ch());
+    assert.equal(isDisabled(allow()), false);
+    assert.ok(m.container.find(".confirm").textContent.includes("(host)"), "the host's own words are shown");
+    await m.click(allow());
+    assert.deepEqual(m.sent("setDeviceControl"), [{ cmd: "setDeviceControl", id: "d2", on: true, confirmed: true, nonce: "c1", v: APPROVE_ACK_VERSION }]);
   }));

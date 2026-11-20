@@ -368,6 +368,58 @@ code of the device's key with the one the device shows and marked it verified;
 a device whose key has changed is refused until you do that again. The controls
 for it are not in the window yet.
 
+The desktop also has a sealed read-only connection, `/ws/sealed`, for a phone app
+that supports it. It is end-to-end encrypted like the terminal and never falls
+back to plain. A device is let in only if its key is marked verified here and it
+may see panes (a full device, or a viewer allowed to watch panes). It is sent a
+structured pane's conversation and the conversation of a terminal pane (rows, tool
+output, pictures, search), and the changes, diffs and CI checks of a project,
+with anything that looks like a secret redacted. A full device is also sent what it needs to
+start something: the recent projects, the folders inside them, the past
+conversations of a folder and the worktrees and branches of a repo, and the team
+view of a project: its agents, what each needs from you, each team's goal and the
+mail between agents. The task board is not sent. A full device is also sent the
+pull requests and issues of a project and whether GitHub is signed in, with long
+bodies and comment threads cut short, and the names and last-seen times of your
+paired devices, never their keys. Any device can read the push settings. That is
+all a device gets by default: every other command is refused on it.
+
+A device can unpair itself, from its own screen, with no switch: it takes that
+device's own access away and ends its connection, and you are told. It cannot
+unpair or rename another device, make a pairing link, change roles or switches,
+verify a key, or switch Remote on or off. Those stay on this machine.
+
+A full device can also be allowed to control agents, per device, from the Remote
+page. The switch is off for every device until you turn it on, needs the device's
+key marked verified, and belongs to that key: a changed key, or a device paired
+again, turns it off. With it a device can send a message to an agent (with
+pictures), stop a turn, edit, remove or send now the prompts waiting behind it,
+answer an agent's question or approve its plan once, run a one-line shell command
+in a structured pane, start an agent in a project Flockdeck knows (in a new
+worktree, on a branch it names, if it likes), pick up a past conversation in
+such a project, add a worktree to it, move a structured pane to another
+conversation and send a message to an agent or team from the team view, which
+reaches the agent as a message from you, and change the push settings (turn
+notifications off, name or not name the pane, how long a wait lasts before a
+push), which apply to every paired device. It cannot remove a worktree, work in a folder Flockdeck does not
+know, close agents, change which agent gets a task, allow always, approve a tool request (that is the approval screen's, or yours at
+the desk), change an agent's mode or merge. Each of these is logged
+by name in the device log without the text, and a device that sends them too fast
+is told to wait.
+
+A device with that switch can also ask to commit, push or pull in a project
+Flockdeck knows, or to comment on a pull request or an issue on GitHub. Creating
+a pull request or an issue, and signing in or out of GitHub, are not offered. Nothing runs until you say yes in the Flockdeck window on this
+machine: it shows which device asked, the repository and branch, and for a commit
+the files and the first line of the message, and waits two minutes. Allow runs
+that one request; the next is asked again. The answer cannot come from a paired
+device, and a git setting or hook that needs your approval is still approved only
+here. A device that is switched off, unpaired or disconnected before you answer is
+not served. A paired device on the older connection is refused all three. Merges
+are done at the desk only. The switch is looked at again for every request, so turning it
+off takes effect on the next one. Taking the mark away, or changing the device's
+role, ends the connection.
+
 The recordings are sent over their own connection, which is end-to-end encrypted
 or not made at all; unlike the terminal it never falls back to plain. This
 machine reads each recording line by line, redacts it again, cuts it down to the

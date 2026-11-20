@@ -9,9 +9,6 @@ func TestMutePaneCommandSetsStateAndCapability(t *testing.T) {
 	srv, ws := newTestServer(t)
 	conn := dialControl(t, srv)
 	st := nextState(t, conn, nil)
-	if !st.CanMutePane {
-		t.Error("the state does not say mutePane is understood")
-	}
 	id := firstPane(t, srv, ws)
 	if st.Panes[id].Muted {
 		t.Fatal("a pane started out muted")

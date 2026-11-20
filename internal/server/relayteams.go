@@ -352,7 +352,7 @@ func (s *Server) relayTeamsData() []byte {
 func (s *Server) relayClients() []*controlClient {
 	var out []*controlClient
 	for _, c := range s.greetedClients() {
-		if c.remote {
+		if c.remote && c.sealed == nil {
 			out = append(out, c)
 		}
 	}
@@ -362,7 +362,7 @@ func (s *Server) relayClients() []*controlClient {
 // sendRelayTeamsTo sends one window through the relay the form now, for a window
 // that has just come in. It must run on the workspace goroutine.
 func (s *Server) sendRelayTeamsTo(c *controlClient) {
-	if !c.remote {
+	if !c.remote || c.sealed != nil {
 		return
 	}
 	data := s.relayTeamsData()

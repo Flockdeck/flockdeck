@@ -455,7 +455,7 @@ func (s *Server) structuredSnapshotOf(id string) (structured.Snapshot, bool) {
 // structuredCommand answers the structured pane commands.
 func (s *Server) structuredCommand(c *controlClient, cmd command) {
 	// structured-pane-relay: the refusal to lift when a sealed channel exists.
-	if c.remote {
+	if c.remote && !c.liftsRelayRefusal(cmd.Cmd) {
 		c.sendJSON(teamResultMsg{Type: "teamResult", Req: cmd.Req, Op: cmd.Cmd, Error: structuredDeskOnly})
 		c.notify(structuredDeskOnly, true)
 		return

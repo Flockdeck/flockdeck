@@ -569,23 +569,36 @@ func pushAbout(hostID, desktop string, waits []waitingAgent, anonymous bool) pus
 }
 
 // setPushOff records whether the paired devices are notified.
-func (s *Server) setPushOff(c *controlClient, off bool) {
-	s.updatePrefs(c, func(p *store.Prefs) bool { return setPref(&p.Push.Off, off) })
-}
+func (s *Server) setPushOff(c *controlClient, off bool) { s.setPushOffThen(c, off, nil) }
 
 // setPushAnonymous records whether a push names the pane and its project.
-func (s *Server) setPushAnonymous(c *controlClient, on bool) {
-	s.updatePrefs(c, func(p *store.Prefs) bool { return setPref(&p.Push.Anonymous, on) })
-}
+func (s *Server) setPushAnonymous(c *controlClient, on bool) { s.setPushAnonymousThen(c, on, nil) }
 
 // setPushDelay records how long a wait lasts before it is pushed, within the
 // bounds. The default is kept as nothing.
-func (s *Server) setPushDelay(c *controlClient, seconds int) {
+func (s *Server) setPushDelay(c *controlClient, seconds int) { s.setPushDelayThen(c, seconds, nil) }
+
+// The three below are the setters with a callback that runs on the workspace
+// goroutine once the change is in force or was not made (sealed_stage8.go uses it
+// to tell a phone where the preference stands). A delay out of bounds is not a
+// change and calls then at once.
+func (s *Server) setPushOffThen(c *controlClient, off bool, then func(prefsResult)) {
+	s.updatePrefsThen(c, func(p *store.Prefs) bool { return setPref(&p.Push.Off, off) }, then)
+}
+
+func (s *Server) setPushAnonymousThen(c *controlClient, on bool, then func(prefsResult)) {
+	s.updatePrefsThen(c, func(p *store.Prefs) bool { return setPref(&p.Push.Anonymous, on) }, then)
+}
+
+func (s *Server) setPushDelayThen(c *controlClient, seconds int, then func(prefsResult)) {
 	if !pushDelayInBounds(seconds) {
+		if then != nil {
+			s.do(func() { then(prefsUnchanged) })
+		}
 		return
 	}
 	if time.Duration(seconds)*time.Second == defaultPushDelay {
 		seconds = 0
 	}
-	s.updatePrefs(c, func(p *store.Prefs) bool { return setPref(&p.Push.DelaySeconds, seconds) })
+	s.updatePrefsThen(c, func(p *store.Prefs) bool { return setPref(&p.Push.DelaySeconds, seconds) }, then)
 }

@@ -71,7 +71,7 @@ export function cleanNodes(nodes, depth = 0) {
  *  with the words to show. A page with no slug or title is left out. */
 export function pagesFrom(data) {
   const list = data && Array.isArray(data.pages) ? data.pages : null;
-  if (!list) return { error: "The help pages came back in a form this window cannot read. The desktop may be an older version." };
+  if (!list) return { error: "The help pages came back in a form this window cannot read." };
   const seen = new Set();
   const pages = [];
   for (const p of list.slice(0, MAX_PAGES)) {

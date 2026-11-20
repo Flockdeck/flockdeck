@@ -112,6 +112,37 @@ const (
 // cuts one worktree -- per call, with nothing else to stop a window calling it as fast as it can
 // send frames.
 func (s *Server) startAgent(c *controlClient, cmd command) {
+	// The task is a prompt. Through the relay's own socket it could be read, or
+	// forged, so a relay window is refused here and starts agents on the sealed
+	// socket (tier B), where the same limits are kept: a project Flockdeck knows,
+	// and an agent, not a shell.
+	if c.remote {
+		if c.sealed == nil {
+			c.notify(startAgentSealedOnly, true)
+			return
+		}
+		if cmd.Kind == "shell" {
+			c.notify("A shell is started on the desktop, not from a phone", true)
+			return
+		}
+	}
+	// A branch name and a starting point are for a new worktree, and are held to
+	// a plain shape before git is asked anything: they come from a phone.
+	branch, base := strings.TrimSpace(cmd.Branch), strings.TrimSpace(cmd.Base)
+	if branch != "" || base != "" {
+		if !cmd.Worktree {
+			c.notify("A branch or a base is only used with a new worktree. Turn the worktree on, or leave them empty", true)
+			return
+		}
+		if branch != "" && !plainBranchName(branch) {
+			c.notify("That is not a branch name Flockdeck will start an agent on. Use letters, digits, dots, dashes, underscores and slashes, up to 100 characters", true)
+			return
+		}
+		if base != "" && !plainBranchName(base) {
+			c.notify("That is not a base Flockdeck will start from. Name a branch or a tag", true)
+			return
+		}
+	}
 	if !c.startAgentLimit.allow(startAgentRateLimit, startAgentRateWindow) {
 		c.notify("Too many agents started too quickly -- wait a moment and try again", true)
 		return
@@ -154,13 +185,17 @@ func (s *Server) startAgent(c *controlClient, cmd command) {
 		return
 	}
 	root := f.root
+	if c.sealed != nil && !s.insideKnownProject(root) {
+		c.notify(remotePathsDeskOnly, true)
+		return
+	}
 
 	go func() {
 		defer s.surviveFor(c, "starting an agent")
 		// job carries the branch and worktree StartAgent should run in, and
 		// nothing else: it is the same shape a spawned helper's worktree has,
 		// reused here for its naming rather than duplicated.
-		job := &worktreeJob{task: task, cwd: root}
+		job := &worktreeJob{task: task, cwd: root, want: branch, base: base}
 		var repo string
 		if cmd.Worktree {
 			repo = gitRoot(root)
@@ -224,6 +259,11 @@ type worktreeJob struct {
 	// path is where that worktree goes.
 	branch string
 	path   string
+	// want and base are a branch name and a starting point the caller chose
+	// (startAgent from the sealed socket). A job with a want gets exactly that
+	// branch, or fails; the name is never made unique by a number on the end.
+	want string
+	base string
 	// created is whether this run made the job's worktree and its branch,
 	// which is what makes them this run's to discard.
 	created bool
@@ -260,8 +300,12 @@ func prepareWorktrees(c *controlClient, repo string, jobs []*worktreeJob) bool {
 	for _, j := range jobs {
 		from[j] = j.cwd
 	}
+	base := make(map[string]string, len(jobs))
+	for _, j := range jobs {
+		base[j.path] = j.base
+	}
 	makeWorktrees(jobs, func(branch, path string) error {
-		return gitx.AddNewBranch(repo, path, branch)
+		return gitx.AddNewBranchFrom(repo, path, branch, base[path])
 	})
 	for _, j := range jobs {
 		if j.created {
@@ -303,6 +347,11 @@ func sameFolderIn(repo, base, wt string) (cwd, origin string) {
 func nameBranches(jobs []*worktreeJob, taken map[string]bool) {
 	used := map[string]bool{}
 	for _, j := range jobs {
+		if j.want != "" {
+			j.branch = j.want
+			used[j.branch] = true
+			continue
+		}
 		j.branch = uniqueBranch(workspace.BranchNameFor(j.task), taken, used)
 		used[j.branch] = true
 	}
@@ -929,3 +978,34 @@ func uniqueBranch(base string, taken, used map[string]bool) string {
 
 // spawnApproved is told what every baton spawn carries into Spawn: a test looks at it.
 var spawnApproved = func(*workspace.ApprovedTarget) {}
+
+// startAgentSealedOnly is what a window reached through the relay's own socket is
+// told when it starts an agent: the task is a prompt, so it goes over the sealed
+// socket and needs the desk's "Control agents" switch for the device.
+const startAgentSealedOnly = "Starting an agent from a paired device needs the desktop's Control agents switch for it, and an app that speaks the sealed connection. Update the app, or start it on the desktop"
+
+// maxBranchName is the longest branch name or base a start is given.
+const maxBranchName = 100
+
+// plainBranchName reports whether s is a branch name or a starting point a
+// phone may name for a new worktree: ordinary characters only, no leading dash
+// or dot, no "..", no empty part, no ".lock", and no trailing slash or dot. It
+// is stricter than git and is checked before git is run; git then checks the
+// name again.
+func plainBranchName(s string) bool {
+	if s == "" || len(s) > maxBranchName || strings.HasPrefix(s, "-") || strings.HasPrefix(s, ".") || strings.HasPrefix(s, "/") {
+		return false
+	}
+	if strings.HasSuffix(s, "/") || strings.HasSuffix(s, ".") || strings.HasSuffix(s, ".lock") ||
+		strings.Contains(s, "..") || strings.Contains(s, "//") || strings.Contains(s, "/.") || strings.Contains(s, ".lock/") || strings.Contains(s, "@{") {
+		return false
+	}
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '.', r == '-', r == '_', r == '/':
+		default:
+			return false
+		}
+	}
+	return s != "@"
+}

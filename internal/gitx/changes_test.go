@@ -647,9 +647,9 @@ func TestUntrackedTellsTrackedFilesApart(t *testing.T) {
 	if !untracked(repo, "new.txt") {
 		t.Error("a new file is untracked")
 	}
-	// An ignored file has no diff either, so it is still shown whole.
-	if !untracked(repo, "build/out.txt") {
-		t.Error("an ignored file has nothing in the index to diff against")
+	// An ignored file is not listed, so Diff does not render it whole as a new file.
+	if untracked(repo, "build/out.txt") {
+		t.Error("an ignored file is not untracked, so it is not shown as an addition")
 	}
 	// Outside a repository the answer is "no", so the caller reports git's
 	// error rather than dumping the file as an addition.
@@ -1852,5 +1852,55 @@ func TestAnotherFailureIsNotReportedAsTheLock(t *testing.T) {
 	named := &gitError{"fatal: Unable to create '" + lock + "': File exists."}
 	if got := indexLockOf(repo, named); got == "" {
 		t.Error("a failure naming the lock was not recognised")
+	}
+}
+
+// A file the repository ignores (.env) is not a new file to show whole: the
+// sealed phone reads Diff, and the desk's change list never offers it.
+func TestDiffOfAnIgnoredFileDoesNotRenderIt(t *testing.T) {
+	t.Parallel()
+	repo := newRepo(t)
+	if err := os.WriteFile(filepath.Join(repo, ".gitignore"), []byte(".env\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, ".env"), []byte("TOKEN=hunter2-secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	diff, err := Diff(repo, ".env")
+	if err == nil && strings.Contains(diff, "hunter2-secret") {
+		t.Errorf("an ignored file was shown:\n%s", diff)
+	}
+}
+
+// ReviewSnapshot lists every changed file, ignored ones left out, each with a
+// stamp, and SameReviewed notices a file written since.
+func TestReviewSnapshotListsEverythingAndNoticesAWrite(t *testing.T) {
+	t.Parallel()
+	repo := newRepo(t)
+	if err := os.WriteFile(filepath.Join(repo, ".gitignore"), []byte("skip.log\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for name, body := range map[string]string{"README.md": "x\n", "b.txt": "b\n", "skip.log": "no\n"} {
+		if err := os.WriteFile(filepath.Join(repo, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a, err := ReviewSnapshot(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(a.Files, ","); got != ".gitignore,README.md,b.txt" {
+		t.Errorf("files = %q", got)
+	}
+	b, _ := ReviewSnapshot(repo)
+	if !SameReviewed(a, b) {
+		t.Error("an unchanged tree was not the same")
+	}
+	if err := os.WriteFile(filepath.Join(repo, "b.txt"), []byte("a longer b\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, _ := ReviewSnapshot(repo)
+	if SameReviewed(a, c) {
+		t.Error("a file written since was not noticed")
 	}
 }

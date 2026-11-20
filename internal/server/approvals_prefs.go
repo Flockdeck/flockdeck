@@ -292,8 +292,9 @@ func (s *Server) setApprovalsOff(c *controlClient, cmd command) {
 // for and the save's error. done is called once, on the workspace goroutine,
 // whether or not anything changed.
 func (s *Server) stopApprovals(done func(n int, saveErr error)) {
-	var was []string
+	var was, controlWas []string
 	s.approveGen.Add(1)
+	s.controlGen.Add(1)
 	s.updateAccessReport(true, func(p *store.Prefs) bool {
 		// Who it was on for is read from the record in force, not from p, which
 		// the file may already have narrowed (the command line writes it first).
@@ -301,12 +302,21 @@ func (s *Server) stopApprovals(done func(n int, saveErr error)) {
 			if a.Approve {
 				was = append(was, id)
 			}
+			if a.Control {
+				controlWas = append(controlWas, id)
+			}
 		}
 		ch, _ := approvalsOff(p)
+		// The kill switch takes the right to act with it.
+		next, off := p.WithoutControl()
+		if len(off) > 0 || len(next.Devices) != len(p.Devices) {
+			*p = next
+			ch = true
+		}
 		return ch
 	}, func(applied bool, saveErr error) {
 		slices.Sort(was)
-		for _, d := range was {
+		for _, d := range slices.Concat(was, controlWas) {
 			s.sockets.cut(d)
 		}
 		s.approvals.auditAsync(auditEvent{Event: "approvals-off", Device: "desk", Len: len(was), Reason: saveReason(saveErr)})

@@ -269,29 +269,12 @@ type stateMsg struct {
 	// enrolled for remote access — in which case the window shows nothing
 	// about it at all.
 	Remote *remoteView `json:"remote,omitempty"`
-	// CanStartAgent says this instance understands the startAgent command, so
-	// a phone can offer to start one. It is always true where this field is
-	// sent at all; a window is a phone reading an older desktop's state the
-	// moment it is absent, which is what lets it hide the offer instead of
-	// sending a command that would be silently dropped.
-	CanStartAgent bool `json:"canStartAgent,omitempty"`
 	// CanSearchConversation says this instance understands the
 	// conversationSearch command, so a phone can offer a search button in the
 	// chat header. Always true where sent at all; an older desktop that
 	// never sends it is exactly the case a phone should hide the button for,
 	// rather than send a command that would be silently dropped.
 	CanSearchConversation bool `json:"canSearchConversation,omitempty"`
-	// CanMutePane says this instance understands the mutePane command, so a
-	// phone can offer to mute one pane's push notifications rather than only
-	// all or none. Always true where sent at all; an older desktop that never
-	// sends it is exactly the case a phone should hide the offer for, rather
-	// than send a command that would be silently dropped.
-	CanMutePane bool `json:"canMutePane,omitempty"`
-	// CanAutoReview says this instance understands the autoReview command, so
-	// a phone can offer to turn auto-review approvals on or off for a pane
-	// rather than the offer being silently dropped by an older desktop that
-	// never sends this field at all.
-	CanAutoReview bool `json:"canAutoReview,omitempty"`
 }
 
 // projectView is one open project as the picker and switcher show it.
@@ -817,10 +800,7 @@ func (s *Server) snapshot() stateMsg {
 		Update:                s.Update(),
 		Recall:                s.Recall(),
 		Remote:                s.remoteSnapshot(),
-		CanStartAgent:         true,
 		CanSearchConversation: true,
-		CanMutePane:           true,
-		CanAutoReview:         true,
 	}
 	// These are sized rather than grown, and made rather than left nil: the
 	// window walks them without checking them first, so an empty one has to
@@ -1214,6 +1194,11 @@ type controlClient struct {
 	// paired device it is on, as the relay reported it.
 	remote bool
 	device string
+	// sealed is set on a connection of /ws/sealed. Its messages are written to the
+	// device through it, never to a socket of this struct's own, and remote is
+	// set as well, so every refusal that holds for a window reached through the
+	// relay holds here unless liftsRelayRefusal says otherwise.
+	sealed *sealedLink
 	// artifactsTold is what the window has been told about artifacts: 0 not
 	// yet, else artifactsTellYes or artifactsTellNo.
 	artifactsTold atomic.Int32
@@ -1551,6 +1536,7 @@ func (s *Server) handleControl(w http.ResponseWriter, r *http.Request) {
 		s.mu.Lock()
 		delete(s.clients, c)
 		s.approveAsk.dropWindow(c)
+		s.controlAsk.dropWindow(c)
 		s.mu.Unlock()
 		// A window that has gone is watching no pane's conversation either.
 		s.convos.dropClient(c)
@@ -1642,6 +1628,9 @@ func (c *controlClient) drainQueue(ctx context.Context) bool {
 
 // write sends one message and reports whether the connection is still usable.
 func (c *controlClient) write(ctx context.Context, data []byte) bool {
+	if c.sealed != nil {
+		return c.sealed.write(ctx, data)
+	}
 	// The one place every message to this window passes, so the one place a
 	// relay window's messages are scrubbed (relayscrub.go).
 	if c.remote {
@@ -1743,11 +1732,17 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 	case "setDeviceApprove":
 		s.setDeviceApprove(c, cmd)
 		return
+	case "setDeviceControl":
+		s.setDeviceControl(c, cmd)
+		return
 	case "setApprovalsOff":
 		s.setApprovalsOff(c, cmd)
 		return
 	case "approveChallenge":
 		s.askApprove(c, cmd)
+		return
+	case "deskConfirmAnswer":
+		s.answerDeskConfirm(c, cmd)
 		return
 	case "teamSnapshot", "teamWatch", "teamUnwatch", "taskList", "taskGet", "taskAdd", "taskAssign",
 		"taskStatus", "taskNote", "taskBranch", "taskDepends", "taskEstimate", "taskTeam", "taskPrune", "msgList", "msgSend", "msgSeen", "teamClose":
@@ -1826,12 +1821,21 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		s.showDiff(c, cmd.Path, cmd.Text)
 		return
 	case "commit":
+		if s.gitAskedOfDesk(c, cmd) {
+			return
+		}
 		s.commitChanges(c, cmd.Path, cmd.Text, cmd.Push, cmd.Files, cmd.Stamps, cmd.Omitted, gitAnswer{cmd.GitAccept, cmd.GitSeen})
 		return
 	case "gitPush":
+		if s.gitAskedOfDesk(c, cmd) {
+			return
+		}
 		s.runRemote(c, "push", cmd.Path, gitAnswer{cmd.GitAccept, cmd.GitSeen})
 		return
 	case "gitPull":
+		if s.gitAskedOfDesk(c, cmd) {
+			return
+		}
 		s.runRemote(c, "pull", cmd.Path, gitAnswer{cmd.GitAccept, cmd.GitSeen})
 		return
 	case "gitFetch":
@@ -1862,6 +1866,9 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		s.ghPRCreate(c, cmd.Path, cmd.GHTitle, cmd.GHBody, cmd.GHBase, cmd.GHDraft)
 		return
 	case "ghPRComment":
+		if s.gitAskedOfDesk(c, cmd) {
+			return
+		}
 		s.ghPRComment(c, cmd.Path, cmd.GHNumber, cmd.GHBody)
 		return
 	case "ghIssues":
@@ -1874,6 +1881,9 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		s.ghIssueCreate(c, cmd.Path, cmd.GHTitle, cmd.GHBody)
 		return
 	case "ghIssueComment":
+		if s.gitAskedOfDesk(c, cmd) {
+			return
+		}
 		s.ghIssueComment(c, cmd.Path, cmd.GHNumber, cmd.GHBody)
 		return
 	case "ghChecks":
@@ -1914,6 +1924,11 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		s.remotePair(c, cmd.Kind)
 		return
 	case "remoteRevoke":
+		// A sealed device may unpair itself and no other (sealed_stage8.go).
+		if c.sealed != nil && cmd.ID != "" && cmd.ID == c.device {
+			s.revokeSelf(c, cmd.Req)
+			return
+		}
 		s.remoteRevoke(c, cmd.ID)
 		return
 	case "remoteRename":
@@ -2018,13 +2033,16 @@ func (s *Server) handleCommand(c *controlClient, cmd command) {
 		s.setDeskUsed(c, cmd.Kind == "used")
 		return
 	case "pushNotify":
-		s.setPushOff(c, cmd.Kind == "off")
+		s.setPushOffThen(c, cmd.Kind == "off", s.pushPrefsReply(c, cmd.Req))
 		return
 	case "pushAnonymous":
-		s.setPushAnonymous(c, cmd.Kind == "on")
+		s.setPushAnonymousThen(c, cmd.Kind == "on", s.pushPrefsReply(c, cmd.Req))
 		return
 	case "pushDelay":
-		s.setPushDelay(c, cmd.Size)
+		s.setPushDelayThen(c, cmd.Size, s.pushPrefsReply(c, cmd.Req))
+		return
+	case "pushPrefsGet":
+		s.sendPushPrefs(c, cmd.Req)
 		return
 	case "resetTips":
 		s.resetTips(c)

@@ -37,7 +37,7 @@ type paneSendMsg struct {
 // team socket exists; a terminal pane can be approved from a phone only through
 // the drawer's choice buttons on the sealed terminal path; merges are desk-only.
 func (s *Server) paneSend(c *controlClient, cmd command) {
-	if c.remote {
+	if c.remote && !c.liftsRelayRefusal("paneSend") {
 		c.notifyReq(paneSendDeskOnly, true, cmd.Req)
 		return
 	}
