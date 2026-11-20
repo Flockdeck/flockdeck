@@ -1,8 +1,11 @@
 package server
 
 import (
+	"encoding/base64"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -49,7 +52,7 @@ func TestAttachImageHasQuotasAndCleanup(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	trimPaneUploads(dir, attachPaneFiles-1, attachPaneBytes)
+	trimPaneUploads(dir, "", attachPaneFiles-1, attachPaneBytes)
 	left, _ := os.ReadDir(dir)
 	if len(left) != attachPaneFiles-1 {
 		t.Fatalf("%d files left, want %d", len(left), attachPaneFiles-1)
@@ -57,7 +60,7 @@ func TestAttachImageHasQuotasAndCleanup(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, "aa.jpg")); err == nil {
 		t.Error("the oldest picture was kept")
 	}
-	trimPaneUploads(dir, 100, 5)
+	trimPaneUploads(dir, "", 100, 5)
 	left, _ = os.ReadDir(dir)
 	if len(left) != 5 {
 		t.Errorf("%d files left under a 5 byte cap, want 5", len(left))
@@ -249,5 +252,108 @@ func TestKnownWorktreesDoesNotWedgeAfterAPanic(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("the next caller waits for ever")
+	}
+}
+
+// A device's cap on a pane's folder is its own pictures: its uploads do not push
+// out the desk's own, or another device's.
+func TestPaneUploadCapIsPerOwner(t *testing.T) {
+	dir := t.TempDir()
+	devA, devB := uploadOwner("phone-a"), uploadOwner("phone-b")
+	if devA == devB || devA == "" {
+		t.Fatalf("owner tags %q %q", devA, devB)
+	}
+	base := time.Now().Add(-time.Hour)
+	put := func(i int, owner, label string) string {
+		name := fmt.Sprintf("%d-%s%s%d.jpg", 1000+i, owner, label, i)
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		at := base.Add(time.Duration(i) * time.Minute)
+		_ = os.Chtimes(p, at, at)
+		return p
+	}
+	// The desk's pictures are the oldest of all.
+	var desk []string
+	for i := 0; i < 3; i++ {
+		desk = append(desk, put(i, "", "desk"))
+	}
+	other := put(3, devB, "other")
+	for i := 4; i < 4+attachPaneFiles+5; i++ {
+		put(i, devA, "mine")
+	}
+	trimPaneUploads(dir, devA, attachPaneFiles-1, attachPaneBytes)
+	for _, p := range append(desk, other) {
+		if _, err := os.Stat(p); err != nil {
+			t.Errorf("a picture that is not this device's was removed: %s", filepath.Base(p))
+		}
+	}
+	left, _ := os.ReadDir(dir)
+	mine := 0
+	for _, f := range left {
+		if ownedUpload(f.Name(), devA) {
+			mine++
+		}
+	}
+	if mine != attachPaneFiles-1 {
+		t.Errorf("the device holds %d pictures, want %d", mine, attachPaneFiles-1)
+	}
+	// And the desk trimming its own leaves the devices'.
+	trimPaneUploads(dir, "", 1, attachPaneBytes)
+	after, _ := os.ReadDir(dir)
+	if len(after) != 1+1+attachPaneFiles-1 {
+		t.Errorf("%d files after the desk trimmed its own, want one desk picture, one of the other device's and the device's %d", len(after), attachPaneFiles-1)
+	}
+	if !uploadFileName.MatchString(fmt.Sprintf("%d-%s%s.jpg", 5, devA, strings.Repeat("n", 60-len(devA)))) {
+		t.Error("a tagged name is not one the upload reader accepts")
+	}
+}
+
+// A picture saved for a device carries its tag and the file is one a message can
+// point at; the desk's own carries none.
+func TestSavedPictureCarriesItsOwnersTag(t *testing.T) {
+	srv, _ := newTestServer(t)
+	_ = srv
+	png := base64.StdEncoding.EncodeToString(testPNG(t, 2, 2))
+	mine, err := saveAttachedImageFor(uploadOwner("phone-a"), "pane-x", "shot", "image/png", png)
+	if err != nil {
+		t.Fatal(err)
+	}
+	desk, err := saveAttachedImage("pane-x", "shot", "image/png", png)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ownedUpload(filepath.Base(mine), uploadOwner("phone-a")) || ownedUpload(filepath.Base(mine), "") {
+		t.Errorf("the device's picture is %s", filepath.Base(mine))
+	}
+	if !ownedUpload(filepath.Base(desk), "") {
+		t.Errorf("the desk's picture is %s", filepath.Base(desk))
+	}
+	for _, p := range []string{mine, desk} {
+		if !uploadFileName.MatchString(filepath.Base(p)) {
+			t.Errorf("%s is not a name the upload reader accepts", filepath.Base(p))
+		}
+	}
+}
+
+// A request for a pane that is not there costs the device none of its allowance.
+func TestUploadAllowanceIsChargedAfterThePaneIsKnown(t *testing.T) {
+	e := newSealedEnv(t)
+	e.grantControl(t, "full")
+	p, _ := e.open(t, "full")
+	data := strings.Repeat("A", 4096)
+	for i := 0; i < 5; i++ {
+		p.send(command{Cmd: "attachImage", ID: "no-such-pane", Name: "a.jpg", Data: data, Req: "img"})
+		if res := p.readType("attachImageResult"); res["error"] != paneGone {
+			t.Fatalf("attachImage = %v, want %q", res, paneGone)
+		}
+	}
+	d := e.srv.sealed.device("full")
+	d.dmu.Lock()
+	charged := d.upBytes
+	d.dmu.Unlock()
+	if charged != 0 {
+		t.Errorf("a pane that is not there cost %d bytes of the device's allowance", charged)
 	}
 }
