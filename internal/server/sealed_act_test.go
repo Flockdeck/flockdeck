@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"encoding/json"
 	"strings"
 	"testing"
 	"time"
@@ -421,5 +422,65 @@ func TestSetDeviceControlIsDeskOnly(t *testing.T) {
 	time.Sleep(300 * time.Millisecond)
 	if a := srv.deviceAccess("full"); a.Control || a.ControlKey != "" {
 		t.Errorf("a viewer still holds control: %+v", a)
+	}
+}
+
+// Turning Control agents on needs a one-use question the host gave this window
+// for this device, as phone approval does; a page Origin and confirmed:true are
+// not enough.
+func TestSetDeviceControlOnNeedsAChallenge(t *testing.T) {
+	srv, _ := newTestServer(t)
+	page := func() *controlClient {
+		return &controlClient{out: make(chan []byte, 16), ready: make(chan struct{}, 1), page: true}
+	}
+	read := func(c *controlClient, typ string) map[string]any {
+		t.Helper()
+		for {
+			select {
+			case data := <-c.out:
+				var m map[string]any
+				if json.Unmarshal(data, &m) == nil && m["type"] == typ {
+					return m
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatalf("no %s message", typ)
+			}
+		}
+	}
+	a, b := page(), page()
+	srv.handleCommand(a, command{Cmd: "setDeviceControl", ID: "full", On: true, Confirmed: true})
+	if n := read(a, "notice"); n["text"] != controlNeedsChallenge {
+		t.Errorf("a turn-on with no challenge was answered %v", n)
+	}
+	srv.handleCommand(a, command{Cmd: "setDeviceControl", ID: "full", On: true, Confirmed: true, Nonce: "guess"})
+	read(a, "notice")
+
+	srv.handleCommand(a, command{Cmd: "approveChallenge", ID: "full", Kind: "control"})
+	ch := read(a, "approveChallenge")
+	nonce, _ := ch["nonce"].(string)
+	if nonce == "" || ch["kind"] != "control" {
+		t.Fatalf("challenge = %v", ch)
+	}
+	// Not the approve question's pool, not another window's, not another device's.
+	if srv.approveAsk.take(nonce, a, "full", approveAckVersion) {
+		t.Error("the control nonce answered an approve question")
+	}
+	srv.handleCommand(a, command{Cmd: "approveChallenge", ID: "full", Kind: "control"})
+	nonce = read(a, "approveChallenge")["nonce"].(string)
+	if srv.controlAsk.take(nonce, b, "full", approveAckVersion) {
+		t.Error("another window used the nonce")
+	}
+	srv.handleCommand(a, command{Cmd: "approveChallenge", ID: "full", Kind: "control"})
+	nonce = read(a, "approveChallenge")["nonce"].(string)
+	if srv.controlAsk.take(nonce, a, "other", approveAckVersion) {
+		t.Error("the nonce was used for another device")
+	}
+	srv.handleCommand(a, command{Cmd: "approveChallenge", ID: "full", Kind: "control"})
+	nonce = read(a, "approveChallenge")["nonce"].(string)
+	if !srv.controlAsk.take(nonce, a, "full", approveAckVersion) {
+		t.Error("the right window and device could not use it")
+	}
+	if srv.controlAsk.take(nonce, a, "full", approveAckVersion) {
+		t.Error("a nonce was used twice")
 	}
 }

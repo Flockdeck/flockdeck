@@ -376,6 +376,10 @@ type accessState struct {
 	// approveAsk holds the one-time questions handed to windows at the desk, and
 	// approveFile the last read of the preferences file for the approval gate.
 	approveAsk approveAsk
+	// controlAsk is the same for turning "Control agents" on: a one-use nonce,
+	// asked with approveChallenge and kind "control", that setDeviceControl on
+	// must carry (sealed_control.go).
+	controlAsk approveAsk
 	// deskConfirms is the commits, pushes and pulls of paired devices waiting for
 	// a yes at the desk (sealed_confirm.go).
 	deskConfirms deskConfirmState

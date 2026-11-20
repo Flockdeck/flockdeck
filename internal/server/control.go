@@ -1536,6 +1536,7 @@ func (s *Server) handleControl(w http.ResponseWriter, r *http.Request) {
 		s.mu.Lock()
 		delete(s.clients, c)
 		s.approveAsk.dropWindow(c)
+		s.controlAsk.dropWindow(c)
 		s.mu.Unlock()
 		// A window that has gone is watching no pane's conversation either.
 		s.convos.dropClient(c)

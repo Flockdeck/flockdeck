@@ -24,6 +24,16 @@ const deskOnlyControl = "Whether a paired device may control agents is set on th
 // allow a device to control agents.
 const pageOnlyControl = "A device can only be allowed to control agents from a Flockdeck window on this machine"
 
+// controlNeedsChallenge is what a turn-on without the host's question is answered.
+const controlNeedsChallenge = "Open the question for that device first. This request does not carry the confirmation the host gave this window"
+
+// controlAckText is the wording the desk shows before a device is allowed to
+// control agents; ui/src/lib/remote.js has the same words (CONTROL_ACK_WORDS).
+// Control agents is equivalent to remote code execution on this machine: a
+// device with it can run shell commands, start agents and type into any pane
+// without a confirm at the desk.
+const controlAckText = "This device will be able to send messages and pictures to your agents, stop them, answer their questions, approve their plans once, run one-line shell commands in a structured pane, start new agents (on a new branch if it asks), pick up a past conversation and add worktrees to projects Flockdeck knows. It can ask to commit, push or pull, which you allow here one request at a time. It cannot allow always, approve tool requests or merge. Turn it off here at any time."
+
 // mayControlWithKey is the gate for tier B. A device may act only when the switch
 // is on, it is a full device, and the grant was made for the key it is using now
 // (key is the usual key as the handshake proved it). Both the running program's
@@ -74,6 +84,13 @@ func (s *Server) setDeviceControl(c *controlClient, cmd command) {
 	}
 	if !c.page || !cmd.Confirmed {
 		c.notify(pageOnlyControl, true)
+		return
+	}
+	// A one-use question the host gave this window for this device (approveChallenge
+	// with kind "control"), as turning on phone approval needs. A command sent
+	// blind, replayed or sent from another connection carries none.
+	if !s.controlAsk.take(cmd.Nonce, c, device, approveAckVersion) {
+		c.notify(controlNeedsChallenge, true)
 		return
 	}
 	gen := s.controlGen.Load()
