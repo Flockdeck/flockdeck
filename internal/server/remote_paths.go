@@ -148,6 +148,8 @@ type worktreeCache struct {
 	// flight is closed when the listing now running ends; callers that arrive
 	// meanwhile wait for it and share its answer rather than run git again.
 	flight chan struct{}
+	// lister is what lists the worktrees; a test replaces it. Nil is listKnownWorktrees.
+	lister func() []string
 }
 
 // knownWorktrees lists the worktrees of the known roots, at most once in
@@ -175,15 +177,26 @@ func (s *Server) knownWorktrees() []string {
 		gen := c.gen
 		c.mu.Unlock()
 
-		out := s.listKnownWorktrees()
-
-		c.mu.Lock()
-		if c.gen == gen {
-			c.at, c.list = time.Now(), out
+		// The flight is ended in a defer: a listing that panics (a recovered panic in a
+		// window's handler) must not leave the flight set, or every later caller would
+		// wait on it for good. A listing that did not finish is not kept.
+		var out []string
+		finished := false
+		defer func() {
+			c.mu.Lock()
+			if finished && c.gen == gen {
+				c.at, c.list = time.Now(), out
+			}
+			c.flight = nil
+			c.mu.Unlock()
+			close(done)
+		}()
+		list := s.listKnownWorktrees
+		if c.lister != nil {
+			list = c.lister
 		}
-		c.flight = nil
-		c.mu.Unlock()
-		close(done)
+		out = list()
+		finished = true
 		return out
 	}
 }

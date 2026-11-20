@@ -217,3 +217,37 @@ func TestKnownWorktreesWaitsOutsideTheLock(t *testing.T) {
 		t.Fatal("the waiter never returned")
 	}
 }
+
+// A listing that panics must not leave the flight set: the next caller would wait
+// on it for good.
+func TestKnownWorktreesDoesNotWedgeAfterAPanic(t *testing.T) {
+	srv, _ := newTestServer(t)
+	c := &srv.wtCache
+	c.lister = func() []string { panic("git listing blew up") }
+	func() {
+		defer func() { _ = recover() }()
+		srv.knownWorktrees()
+		t.Error("the panic was swallowed")
+	}()
+	c.mu.Lock()
+	wedged := c.flight != nil
+	cached := !c.at.IsZero()
+	c.mu.Unlock()
+	if wedged {
+		t.Fatal("the flight is still set after the panic")
+	}
+	if cached {
+		t.Error("a listing that did not finish was kept")
+	}
+	c.lister = func() []string { return []string{"fine"} }
+	got := make(chan []string, 1)
+	go func() { got <- srv.knownWorktrees() }()
+	select {
+	case l := <-got:
+		if len(l) != 1 || l[0] != "fine" {
+			t.Errorf("got %v", l)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the next caller waits for ever")
+	}
+}
