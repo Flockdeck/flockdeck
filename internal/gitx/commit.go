@@ -3,6 +3,7 @@ package gitx
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -605,6 +606,11 @@ var errEmptyMessage = &gitError{"a commit message is required"}
 // person who has to approve a commit is shown, read by the host and not taken
 // from whoever asked, and what CommitReviewedGuarded then holds the commit to.
 func ReviewSnapshot(dir string) (Reviewed, error) {
+	// A device asks for this before anyone has approved anything, so it is not a commit the
+	// person asked for: a repository that would run a program on a read is refused.
+	if err := UnsafeReadConfig(context.Background(), dir); err != nil {
+		return Reviewed{}, err
+	}
 	out, err := run(dir, "status", "--porcelain", "--untracked-files=all", "-z")
 	if err != nil {
 		return Reviewed{}, err

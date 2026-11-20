@@ -647,9 +647,9 @@ func TestUntrackedTellsTrackedFilesApart(t *testing.T) {
 	if !untracked(repo, "new.txt") {
 		t.Error("a new file is untracked")
 	}
-	// An ignored file has no diff either, so it is still shown whole.
-	if !untracked(repo, "build/out.txt") {
-		t.Error("an ignored file has nothing in the index to diff against")
+	// An ignored file is not listed, so Diff does not render it whole as a new file.
+	if untracked(repo, "build/out.txt") {
+		t.Error("an ignored file is not untracked, so it is not shown as an addition")
 	}
 	// Outside a repository the answer is "no", so the caller reports git's
 	// error rather than dumping the file as an addition.
