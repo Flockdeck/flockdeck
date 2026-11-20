@@ -3,6 +3,8 @@ package gitx
 import (
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 )
@@ -42,6 +44,14 @@ var ErrPullMerge = &gitError{"this branch has more than one branch.<name>.merge 
 // ErrPinOption is a pinned value that git would read as an option.
 var ErrPinOption = &gitError{"a remote, URL or branch name here starts with '-', which git would read as an option, so it is not run from here"}
 
+// ErrPinHook is a push of a repository that has a pre-push hook or uses Git LFS.
+// A pinned push runs no hooks, so the owner's check would be skipped and LFS
+// would send pointers without their content.
+var ErrPinHook = &gitError{"this repository has a pre-push hook or Git LFS: push from the desk"}
+
+// ErrPinURL is a pinned URL that git would rewrite again when it is given it.
+var ErrPinURL = &gitError{"a URL here is rewritten again by a url.<base>.insteadOf or pushInsteadOf rule, so where it connects is not the URL shown, and it is not run from here"}
+
 // ErrPinProgram is a setting in the repository's own configuration that runs a
 // program or reroutes the connection.
 type ErrPinProgram struct{ Key string }
@@ -66,7 +76,7 @@ func optionLike(vals ...string) bool {
 // blanking the user's own (a credential helper or ssh command from the global
 // configuration), so a repository that sets one is refused instead.
 // core.hooksPath is not here: the pinned run points it at nothing itself.
-var localProgramKeys = regexp.MustCompile(`^(core\.(sshcommand|askpass|gitproxy|alternaterefscommand)|credential\.(.+\.)?helper|remote\..+\.(uploadpack|receivepack|vcs|proxy)|http\.(.+\.)?proxy|hook\..+\.command|lfs\.customtransfer\..+\.path)$`)
+var localProgramKeys = regexp.MustCompile(`^(core\.(sshcommand|askpass|gitproxy|alternaterefscommand)|credential\.(.+\.)?helper|remote\..+\.(uploadpack|receivepack|vcs|proxy)|http\.(.+\.)?(proxy|curloptresolve|sslcainfo|sslcapath|sslverify|proxyauthmethod|proxysslcainfo|proxysslverify)|ssh\.variant|url\..+\.(insteadof|pushinsteadof)|hook\..+\.command|lfs\.customtransfer\..+\.path)$`)
 
 // repoProgramSetting returns the first setting in the repository's own
 // configuration (local, worktree, and what they include) that would run a
@@ -96,6 +106,8 @@ func repoProgramSetting(dir string, pull bool) (string, error) {
 		case key == "protocol.allow" && strings.EqualFold(val, "always"):
 			return key, nil
 		case pull && strings.HasPrefix(key, "filter.") && runsProgram(key, val):
+			return key, nil
+		case pull && strings.HasPrefix(key, "submodule.") && strings.HasSuffix(key, ".update") && strings.HasPrefix(val, "!"):
 			return key, nil
 		}
 	}
@@ -147,6 +159,15 @@ func ResolvePin(dir string, pull bool) (RemotePin, error) {
 		if err := checkProgramSetting(dir, false); err != nil {
 			return RemotePin{}, err
 		}
+		if !urlStable(dir, p.PushURL) {
+			return RemotePin{}, ErrPinURL
+		}
+		if hook, err := prePushOrLFS(dir); err != nil || hook {
+			if err != nil {
+				return RemotePin{}, errConfigRead
+			}
+			return RemotePin{}, ErrPinHook
+		}
 		return p, nil
 	}
 	remote, err := configValues(dir, "branch."+branch+".remote")
@@ -170,9 +191,10 @@ func ResolvePin(dir string, pull bool) (RemotePin, error) {
 	if err := checkProgramSetting(dir, true); err != nil {
 		return RemotePin{}, err
 	}
+	// A branch that pulls from this repository itself ('.') has no remote to pin
+	// a URL for, so it fails closed.
 	if p.PullRemote == "." {
-		p.FetchURL = "."
-		return p, nil
+		return RemotePin{}, ErrPullRemote
 	}
 	// A branch whose remote is a URL has no remote.<name>.url to read.
 	if urls, uerr := configValues(dir, "remote."+p.PullRemote+".url"); uerr != nil || len(urls) == 0 {
@@ -185,6 +207,9 @@ func ResolvePin(dir string, pull bool) (RemotePin, error) {
 	p.FetchURL = strings.TrimSpace(url)
 	if optionLike(p.FetchURL) {
 		return RemotePin{}, ErrPinOption
+	}
+	if !urlStable(dir, p.FetchURL) {
+		return RemotePin{}, ErrPinURL
 	}
 	return p, nil
 }
@@ -262,7 +287,7 @@ var runOwnConfig = append(append([]string{}, noHooks...), "-c", "protocol.ext.al
 // other as the pin having moved.
 func programRefusal(err error) error {
 	var pe *ErrPinProgram
-	if errors.As(err, &pe) {
+	if errors.As(err, &pe) || errors.Is(err, ErrPinHook) || errors.Is(err, ErrPinURL) || errors.Is(err, ErrPullRemote) {
 		return err
 	}
 	return ErrPinMoved
@@ -274,9 +299,10 @@ func programRefusal(err error) error {
 // The pin and the head are looked at again first, immediately before git
 // starts; what is pushed is the sha read there, and the URL is the pinned one,
 // so a remote or refspec setting written since the approval is not consulted.
-// The one thing the repository can still change after the last look is a
-// url.<base>.pushInsteadOf rewrite of the pinned URL, which git applies to a URL
-// argument as well. Programs set in the user's own configuration still run.
+// The URL is also checked to be one git does not rewrite again (git applies
+// url.<base>.insteadOf and pushInsteadOf to a URL argument as well), and
+// repository rewrite rules are refused outright. Programs set in the user's own
+// configuration still run.
 func PushPinned(dir string, pin RemotePin, expect PushExpect) (string, error) {
 	now, err := ResolvePin(dir, false)
 	if err != nil {
@@ -316,6 +342,79 @@ func PushPinned(dir string, pin RemotePin, expect PushExpect) (string, error) {
 	return out, nil
 }
 
+// urlStable reports whether git, given url as a repository argument, uses it
+// unchanged. The URL a pin holds has had url.<base>.insteadOf applied once by git
+// remote get-url; a second pass that changes it means the connection goes
+// somewhere the pin does not show.
+func urlStable(dir, url string) bool {
+	out, err := run(dir, "ls-remote", "--get-url", "--", url)
+	return err == nil && strings.TrimSpace(out) == url
+}
+
+// prePushOrLFS reports whether the repository has a pre-push hook (wherever
+// core.hooksPath puts it), a core.hooksPath of its own, an LFS filter, or an
+// attributes file that names filter=lfs. A pinned push runs no hooks, so for
+// these the owner's check would be skipped and LFS content not uploaded.
+func prePushOrLFS(dir string) (bool, error) {
+	out, err := run(dir, "config", "--list", "--show-scope", "-z")
+	if err != nil {
+		return false, errConfigRead
+	}
+	// git here is run with core.hooksPath pointed at nothing (command scope), so
+	// that entry is not the repository's and is skipped.
+	hooksPath := ""
+	parts := strings.Split(out, "\x00")
+	for i := 0; i+1 < len(parts); i += 2 {
+		scope := parts[i]
+		key, val, _ := strings.Cut(parts[i+1], "\n")
+		key, val = strings.ToLower(key), strings.TrimSpace(val)
+		local := scope == "local" || scope == "worktree" || scope == "command"
+		if key == "core.hookspath" && val != "" && !(scope == "command" && val == os.DevNull) {
+			if local {
+				return true, nil
+			}
+			hooksPath = val
+		}
+		if local && strings.HasPrefix(key, "filter.lfs.") {
+			return true, nil
+		}
+	}
+	hooks := filepath.Join(hooksPath, "pre-push")
+	if hooksPath == "" {
+		common, err := run(dir, "rev-parse", "--git-common-dir")
+		if err != nil {
+			return false, errConfigRead
+		}
+		common = strings.TrimSpace(common)
+		if !filepath.IsAbs(common) {
+			common = filepath.Join(dir, common)
+		}
+		hooks = filepath.Join(common, "hooks", "pre-push")
+	} else if rest, ok := strings.CutPrefix(hooksPath, "~/"); ok {
+		if home, herr := os.UserHomeDir(); herr == nil {
+			hooks = filepath.Join(home, rest, "pre-push")
+		}
+	}
+	if _, err := os.Stat(hooks); err == nil {
+		return true, nil
+	}
+	if path, err := run(dir, "rev-parse", "--git-path", "info/attributes"); err == nil && attributesNameLFS(dir, strings.TrimSpace(path)) {
+		return true, nil
+	}
+	if top, err := run(dir, "rev-parse", "--show-toplevel"); err == nil && attributesNameLFS(strings.TrimSpace(top), ".gitattributes") {
+		return true, nil
+	}
+	return false, nil
+}
+
+func attributesNameLFS(base, path string) bool {
+	if !filepath.IsAbs(path) {
+		path = filepath.Join(base, path)
+	}
+	b, err := os.ReadFile(path)
+	return err == nil && strings.Contains(strings.ToLower(string(b)), "filter=lfs")
+}
+
 // PullPinned fast-forwards the branch from the pinned URL and ref, and from
 // nothing else: git pull --ff-only -- <pinned fetch URL> <pinned ref>, with
 // pull.rebase set aside and the repository's hooks off. The pin and the head are
@@ -329,9 +428,6 @@ func PullPinned(dir string, pin RemotePin, head string) (string, error) {
 		return "", ErrPinMoved
 	}
 	args := append(append([]string{}, runOwnConfig...), "-c", "pull.rebase=false", "pull", "--ff-only")
-	if vals, cerr := configValues(dir, "submodule.recurse"); cerr == nil && len(vals) == 0 {
-		args = append(args, "--recurse-submodules")
-	}
 	args = append(args, "--", pin.FetchURL, pin.Merge)
 	out, err := pullRun(dir, args)
 	if err == nil {

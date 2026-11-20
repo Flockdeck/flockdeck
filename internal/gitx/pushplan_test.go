@@ -336,7 +336,7 @@ func TestPinnedRunsDoNotRunRepositoryHooks(t *testing.T) {
 	repo, bare := pinnedRepo(t)
 	marker := filepath.Join(t.TempDir(), "ran")
 	script := "#!/bin/sh\necho x > '" + filepath.ToSlash(marker) + "'\n"
-	for _, h := range []string{"pre-push", "post-merge"} {
+	for _, h := range []string{"post-merge"} {
 		if err := os.WriteFile(filepath.Join(repo, ".git", "hooks", h), []byte(script), 0o755); err != nil {
 			t.Fatal(err)
 		}

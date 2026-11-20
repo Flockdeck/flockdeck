@@ -109,6 +109,8 @@ const (
 	reasonPullShape   = "a pull here would not come from one named remote and one branch"
 	reasonPinProgram  = "the repository's own git configuration runs a program or reroutes the connection for a push or pull"
 	reasonPinOption   = "a remote, URL or branch name starts with '-', which git would read as an option"
+	reasonPushHook    = "this repository has a pre-push hook or Git LFS: push from the desk"
+	reasonPinURL      = "a URL here is rewritten again by a url.<base>.insteadOf or pushInsteadOf rule, so where it connects is not the URL shown"
 	reasonPushName    = "this branch tracks a branch of another name, which a push is not run for here"
 	reasonInternal    = "the request could not be set up"
 )
@@ -370,6 +372,13 @@ func confirmSummary(cmd command, dir, branch, remote string, r *gitx.Reviewed, p
 			b.WriteString(". No remote found")
 		}
 	}
+	if cmd.Cmd != "commit" || cmd.Push {
+		what := "push"
+		if cmd.Cmd == "gitPull" {
+			what = "pull"
+		}
+		b.WriteString(". Hooks are not run for a " + what + " from the phone")
+	}
 	if pin.head != "" {
 		b.WriteString(". Now at commit " + pin.head[:min(len(pin.head), 12)])
 	}
@@ -589,7 +598,9 @@ func (s *Server) askDeskGit(c *controlClient, cmd command) {
 			return
 		}
 		pin.ahead = n
-	} else if cmd.Cmd == "gitPull" && remote != "" {
+	} else if cmd.Cmd == "gitPull" {
+		// Keyed on the pull configuration, not on a push target: a branch with
+		// no push remote (branch.<b>.remote = '.') is refused here, not run unpinned.
 		var perr error
 		if rpin, perr = gitx.ResolvePin(dir, true); perr != nil {
 			bad(pinReason(perr, reasonPullRead))
@@ -734,6 +745,10 @@ func pinReason(err error, fallback string) string {
 		return reasonPinProgram + " (" + pe.Key + ")"
 	case errors.Is(err, gitx.ErrPinOption):
 		return reasonPinOption
+	case errors.Is(err, gitx.ErrPinHook):
+		return reasonPushHook
+	case errors.Is(err, gitx.ErrPinURL):
+		return reasonPinURL
 	case errors.Is(err, gitx.ErrPullRemote), errors.Is(err, gitx.ErrPullMerge):
 		return reasonPullShape + " (" + err.Error() + ")"
 	}
@@ -751,9 +766,10 @@ func (s *Server) pinHolds(q *deskConfirm) bool {
 	if gitx.CurrentBranch(q.dir) != q.branch {
 		return false
 	}
-	if q.cmd.Cmd == "gitPull" && q.hasPin {
-		// A pull is shown, and held to, where it fetches from and what it merges.
-		if q.rpin.String() != q.remote {
+	if q.cmd.Cmd == "gitPull" {
+		// A pull is shown, and held to, where it fetches from and what it merges:
+		// the ResolvePin comparison below, not the push target.
+		if !q.hasPin {
 			return false
 		}
 	} else if (q.cmd.Cmd != "commit" || q.cmd.Push) && gitx.PushTarget(q.dir) != q.remote {
