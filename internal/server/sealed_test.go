@@ -364,7 +364,10 @@ func TestSealedRunsOnlyTheTableOfCommands(t *testing.T) {
 		}
 	}
 	// Nothing was run: the server was not asked to quit, and no notice was made.
-	if _, ok := e.srv.sealed.open["full"]; !ok {
+	e.srv.sealed.mu.Lock()
+	_, open := e.srv.sealed.open["full"]
+	e.srv.sealed.mu.Unlock()
+	if !open {
 		t.Error("the connection went away")
 	}
 }

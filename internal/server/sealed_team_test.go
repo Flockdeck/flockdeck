@@ -194,6 +194,8 @@ func TestSealedTeamWatch(t *testing.T) {
 
 func teamWatching(s *Server) bool {
 	r, _ := ask(s, func() bool {
+		s.mu.Lock()
+		defer s.mu.Unlock()
 		for c := range s.clients {
 			if c.sealed != nil && c.teamRoot != "" {
 				return true
@@ -214,6 +216,8 @@ func TestSealedTeamWatchEndsWithTheSocket(t *testing.T) {
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		if r, _ := ask(te.srv, func() bool {
+			te.srv.mu.Lock()
+			defer te.srv.mu.Unlock()
 			for c := range te.srv.clients {
 				if c.sealed != nil {
 					return true
