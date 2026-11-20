@@ -83,8 +83,15 @@ export class Mismatch extends Error {
 const norm = (s) => String(s == null ? "" : s).replace(/\s+/g, " ").trim();
 const OPTION_ROW = /^(❯|>| ) (\d+)\. (.*)$/;
 const TAB_BAR = /^\s*←\s+(.*?)\s*Submit\s+→\s*$/;
+// claude draws its boxes and ticks with the figures library, which falls back to ASCII on Windows consoles:
+// "☐ Tier B" is "[ ] Tier B", "☒" is "[×]", "✔" is "√" and the cursor "❯" is ">". Both forms are read.
+const BOXES = /☐|☒|\[[ ×xX✔✓√]\]/g;
+const BOX_ROW = /^\[([ ×xX✔✓√])\] (.*)$/;
+const TICK_END = / [✔✓√]$/;
 // A single-choice question asked alone has just its own box and header.
-const ONE_BAR = /^\s*[☐☒]\s+[^☐☒✔←→]+$/;
+const ONE_BAR = /^\s*(?:[☐☒]|\[[ ×xX✔✓√]\])\s+[^☐☒✔✓√←→]+$/;
+// The question's own text may be drawn behind a vertical bar.
+const unbar = (l) => l.trim().replace(/^[│┃|]\s?/, "");
 
 /** cleanText is a typed answer as one line of printable text, which is all the TUI's text row can be given. */
 export function cleanText(s) {
@@ -134,7 +141,7 @@ export function parseScreen(lines) {
     }
   }
   if (bar < 0) return null;
-  const tabs = (lines[bar].match(/[☐☒]/g) || []).length;
+  const tabs = (lines[bar].match(BOXES) || []).length;
   const rows = [];
   const body = [];
   for (let i = bar + 1; i < lines.length; i++) {
@@ -149,28 +156,28 @@ export function parseScreen(lines) {
   const cursors = rows.filter((r) => r.cursor);
   if (cursors.length !== 1) return null;
   const cursor = cursors[0].n;
-  const text = body.map((l) => l.trim()).filter(Boolean);
+  const text = body.map(unbar).filter(Boolean);
   if (text.length > 0 && /^Review your answers/.test(text[0])) {
     const entries = [];
     let cur = null;
     for (const t of text.slice(1)) {
       if (/^Ready to submit/.test(t)) break;
-      if (t.startsWith("●")) {
+      if (/^[●*•] /.test(t)) {
         cur = { question: norm(t.slice(1)), answer: "" };
         entries.push(cur);
       } else if (cur) {
-        cur.answer = norm(cur.answer + " " + t.replace(/^→\s*/, ""));
+        cur.answer = norm(cur.answer + " " + t.replace(/^(?:→|->)\s*/, ""));
       }
     }
     if (one) return null;
     return { kind: "review", tabs, entries, rows: rows.map((r) => ({ n: r.n, label: norm(r.raw), cursor: r.cursor })), cursor };
   }
   if (rows.length < 3 || text.length === 0) return null;
-  const multi = /^\[[ ✔]\] /.test(rows[rows.length - 2].raw);
+  const multi = BOX_ROW.test(rows[rows.length - 2].raw);
   const out = rows.map((r) => {
-    const m = /^\[([ ✔])\] (.*)$/.exec(r.raw);
-    if (m) return { n: r.n, label: norm(m[2]), cursor: r.cursor, checked: m[1] === "✔" };
-    return { n: r.n, label: norm(r.raw.replace(/ ✔$/, "")), cursor: r.cursor, checked: / ✔$/.test(r.raw) };
+    const m = BOX_ROW.exec(r.raw);
+    if (m) return { n: r.n, label: norm(m[2]), cursor: r.cursor, checked: m[1] !== " " };
+    return { n: r.n, label: norm(r.raw.replace(TICK_END, "")), cursor: r.cursor, checked: TICK_END.test(r.raw) };
   });
   if (one && multi) return null;
   return { kind: "question", tabs, one, question: norm(text.join(" ")), rows: out, cursor, multi };

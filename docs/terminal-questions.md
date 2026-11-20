@@ -66,6 +66,15 @@ Ready to submit your answers?
 
 Several answers of one question are joined with ", ", the options first and the typed text last.
 
+## The ASCII drawing
+
+On a Windows console claude draws its figures with ASCII fallbacks (seen in a manager pane's screenshot, four
+questions): the tab bar is `←  [ ] Tier B  [ ] Viewer reads  √ Submit  →`, a ticked tab or box is `[×]`, an answered
+option ends in `√`, and the cursor is `>`. The question text can also be drawn behind a `│` bar. The reader accepts both
+drawings (`☐ ☒ ✔ ❯` and `[ ] [×] √ >`). Tests: `ui/test/tui-multiq.test.mjs`, with the screenshot's screen as a fixture,
+a multi-select tab and a review, and the whole tabbed flow driven against both drawings. Anything else still fails the
+checks and is left to the terminal.
+
 ## What the drawer sends
 
 For each question, from the first: arrows to put the cursor on the row, Enter (single) or Space (multiple) to pick, the

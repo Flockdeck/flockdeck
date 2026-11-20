@@ -18,6 +18,8 @@ export class FakeTui {
     this.cols = 110;
     this.drift = null; // a function that changes the rows drawn, for a claude that draws differently
     this.onSend = null; // called with the keys, before they are pressed
+    this.ascii = false; // claude on a Windows console draws "[ ]", "[×]", "√" and ">" in place of ☐ ☒ ✔ ❯
+    this.bars = false; // the question text is drawn behind a vertical bar
   }
   get review() { return this.at >= this.qs.length; }
   get q() { return this.qs[this.at]; }
@@ -85,29 +87,31 @@ export class FakeTui {
     return this.drift ? this.drift(rows) : rows;
   }
   draw() {
+    const g = this.ascii ? { off: "[ ]", on: "[×]", tick: "√", ptr: ">", bullet: "●" } : { off: "☐", on: "☒", tick: "✔", ptr: "❯", bullet: "●" };
+    const bar = (t) => (this.bars ? "│ " + t : t);
     if (this.submitted && this.one) return ["● User answered Claude's questions:", "  ⎿  · " + this.qs[0].question + " → " + this.answerOf(0)];
     const done = (i) => (this.qs[i].multiSelect ? this.picked[i].size > 0 : this.picked[i] != null);
-    const bar = this.one ? " ☐ " + (this.qs[0].header || "") : "←  " + this.qs.map((q, i) => (done(i) ? "☒ " : "☐ ") + (q.header || "")).join("  ") + "  ✔ Submit  →";
+    const head = this.one ? " " + g.off + " " + (this.qs[0].header || "") : "←  " + this.qs.map((q, i) => (done(i) ? g.on + " " : g.off + " ") + (q.header || "")).join("  ") + "  " + g.tick + " Submit  →";
     if (this.review) {
-      const out = [bar, "", "Review your answers", ""];
+      const out = [head, "", "Review your answers", ""];
       this.qs.forEach((q, i) => out.push(" ● " + q.question, "   → " + this.answerOf(i)));
-      out.push("", "Ready to submit your answers?", "", (this.cursor === 1 ? "❯" : " ") + " 1. Submit answers", (this.cursor === 2 ? "❯" : " ") + " 2. Cancel");
+      out.push("", "Ready to submit your answers?", "", (this.cursor === 1 ? g.ptr : " ") + " 1. Submit answers", (this.cursor === 2 ? g.ptr : " ") + " 2. Cancel");
       return out;
     }
     const q = this.q;
-    const out = [bar, "", q.question, ""];
+    const out = [head, "", bar(q.question), ""];
     q.options.forEach((o, i) => {
       const n = i + 1;
-      const mark = q.multiSelect ? (this.picked[this.at].has(n) ? "[✔] " : "[ ] ") : "";
-      const tick = !q.multiSelect && this.picked[this.at] === n ? " ✔" : "";
-      out.push((this.cursor === n ? "❯" : " ") + " " + n + ". " + mark + o.label + tick);
+      const mark = q.multiSelect ? (this.picked[this.at].has(n) ? "[" + (this.ascii ? "×" : "✔") + "] " : "[ ] ") : "";
+      const tick = !q.multiSelect && this.picked[this.at] === n ? " " + g.tick : "";
+      out.push((this.cursor === n ? g.ptr : " ") + " " + n + ". " + mark + o.label + tick);
       if (o.description) out.push("     " + o.description);
     });
     const n = this.other;
     const t = this.text[this.at];
     const label = t || (q.multiSelect ? "Type something" : "Type something.");
-    const mark = q.multiSelect ? (this.picked[this.at].has(n) ? "[✔] " : "[ ] ") : "";
-    out.push((this.cursor === n ? "❯" : " ") + " " + n + ". " + mark + label);
+    const mark = q.multiSelect ? (this.picked[this.at].has(n) ? "[" + (this.ascii ? "×" : "✔") + "] " : "[ ] ") : "";
+    out.push((this.cursor === n ? g.ptr : " ") + " " + n + ". " + mark + label);
     if (q.multiSelect) out.push("     Next");
     out.push("─".repeat(100), "  " + (n + 1) + ". Chat about this", "", this.footer);
     return out;
