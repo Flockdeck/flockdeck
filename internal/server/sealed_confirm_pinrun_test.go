@@ -98,3 +98,24 @@ func TestSealedFirstCommitWithPushOnAnUnbornBranchIsAsked(t *testing.T) {
 		t.Errorf("the summary: %q", ask.Summary)
 	}
 }
+
+// A pull is shown the URL it fetches from and the ref it merges, not the push URL.
+func TestSealedPullShowsTheFetchURLAndMergeRef(t *testing.T) {
+	isolateGit(t)
+	e, p, desk, repo := gitEnv(t)
+	setConfig(t, repo, "remote.origin.url", "https://example.com/fetch-from.git")
+	setConfig(t, repo, "remote.origin.pushurl", "https://example.com/push-to.git")
+	setConfig(t, repo, "branch.main.remote", "origin")
+	setConfig(t, repo, "branch.main.merge", "refs/heads/trunk")
+	ask := askCommit(t, p, desk, command{Cmd: "gitPull", Path: repo, Req: "a"})
+	for _, want := range []string{"fetch-from.git", "refs/heads/trunk"} {
+		if !strings.Contains(ask.Summary, want) {
+			t.Errorf("the pull summary lacks %q: %q", want, ask.Summary)
+		}
+	}
+	if strings.Contains(ask.Summary, "push-to.git") {
+		t.Errorf("the pull summary shows the push URL: %q", ask.Summary)
+	}
+	e.srv.handleCommand(desk, command{Cmd: "deskConfirmAnswer", ID: ask.ID, Nonce: ask.Nonce, On: false})
+	p.gitState(confirmDenied)
+}

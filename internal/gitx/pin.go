@@ -3,6 +3,7 @@ package gitx
 import (
 	"errors"
 	"fmt"
+	"regexp"
 	"strings"
 )
 
@@ -32,9 +33,92 @@ var ErrPinMoved = &gitError{"the repository changed after this was approved (the
 // ErrPushName is a branch that tracks a branch of another name.
 var ErrPushName = &gitError{"this branch tracks a branch of another name, so a push of it is not run from here"}
 
+// ErrPullRemote is a pull whose remote is not a single named remote with a URL.
+var ErrPullRemote = &gitError{"this branch pulls from something that is not a single named remote (a URL, or several remotes), so a pull of it is not run from here"}
+
+// ErrPullMerge is a pull of a branch with more than one branch.<name>.merge.
+var ErrPullMerge = &gitError{"this branch has more than one branch.<name>.merge setting, so a pull of it is not run from here: git would merge all of them"}
+
+// ErrPinOption is a pinned value that git would read as an option.
+var ErrPinOption = &gitError{"a remote, URL or branch name here starts with '-', which git would read as an option, so it is not run from here"}
+
+// ErrPinProgram is a setting in the repository's own configuration that runs a
+// program or reroutes the connection.
+type ErrPinProgram struct{ Key string }
+
+func (e *ErrPinProgram) Error() string {
+	return "the repository's own git configuration sets " + e.Key + ", which runs a program or reroutes the connection, so a push or pull approved from elsewhere is not run. Run it from a terminal, or remove the setting"
+}
+
+// optionLike reports whether any of vals would be read by git as an option.
+func optionLike(vals ...string) bool {
+	for _, v := range vals {
+		if strings.HasPrefix(v, "-") {
+			return true
+		}
+	}
+	return false
+}
+
+// localProgramKeys are the settings of the repository's own configuration that a
+// pinned push or pull refuses to run beside: the ones that start a program or
+// send the connection elsewhere. The pinned run cannot blank them without also
+// blanking the user's own (a credential helper or ssh command from the global
+// configuration), so a repository that sets one is refused instead.
+// core.hooksPath is not here: the pinned run points it at nothing itself.
+var localProgramKeys = regexp.MustCompile(`^(core\.(sshcommand|askpass|gitproxy|alternaterefscommand)|credential\.(.+\.)?helper|remote\..+\.(uploadpack|receivepack|vcs|proxy)|http\.(.+\.)?proxy|hook\..+\.command|lfs\.customtransfer\..+\.path)$`)
+
+// repoProgramSetting returns the first setting in the repository's own
+// configuration (local, worktree, and what they include) that would run a
+// program or reroute the connection for a push or pull, or "". A pull also
+// refuses a filter driver, which the checkout it does would run.
+func repoProgramSetting(dir string, pull bool) (string, error) {
+	out, err := run(dir, "config", "--list", "--show-scope", "-z")
+	if err != nil {
+		return "", errConfigRead
+	}
+	parts := strings.Split(out, "\x00")
+	for i := 0; i+1 < len(parts); i += 2 {
+		if scope := parts[i]; scope != "local" && scope != "worktree" && scope != "command" {
+			continue
+		}
+		key, val, _ := strings.Cut(parts[i+1], "\n")
+		key = strings.ToLower(key)
+		val = strings.TrimSpace(val)
+		if val == "" {
+			continue
+		}
+		switch {
+		case localProgramKeys.MatchString(key):
+			return key, nil
+		case key == "protocol.ext.allow" && !strings.EqualFold(val, "never"):
+			return key, nil
+		case key == "protocol.allow" && strings.EqualFold(val, "always"):
+			return key, nil
+		case pull && strings.HasPrefix(key, "filter.") && runsProgram(key, val):
+			return key, nil
+		}
+	}
+	return "", nil
+}
+
+func checkProgramSetting(dir string, pull bool) error {
+	key, err := repoProgramSetting(dir, pull)
+	if err != nil {
+		return err
+	}
+	if key != "" {
+		return &ErrPinProgram{key}
+	}
+	return nil
+}
+
 // ResolvePin reads where a push (pull false) or a pull (pull true) of the
 // checked-out branch would go. Any part that cannot be read is an error: a pin
-// with a hole in it holds to nothing.
+// with a hole in it holds to nothing. A value git would read as an option, a
+// pull that is not from one named remote and one branch, and a repository
+// setting that runs a program are refused here, so they are refused at the ask
+// and again at the run.
 func ResolvePin(dir string, pull bool) (RemotePin, error) {
 	branch := CurrentBranch(dir)
 	if branch == "" {
@@ -46,14 +130,23 @@ func ResolvePin(dir string, pull bool) (RemotePin, error) {
 		if !ok {
 			return RemotePin{}, errors.New("no remote to push to")
 		}
+		if optionLike(remote, dest) {
+			return RemotePin{}, ErrPinOption
+		}
 		if UpstreamOf(dir) != "" && dest != branch {
 			return RemotePin{}, ErrPushName
 		}
-		url, err := run(dir, "remote", "get-url", "--push", remote)
+		url, err := run(dir, "remote", "get-url", "--push", "--", remote)
 		if err != nil || strings.TrimSpace(url) == "" {
 			return RemotePin{}, errors.New("the push URL could not be read")
 		}
 		p.Remote, p.Dest, p.PushURL = remote, dest, strings.TrimSpace(url)
+		if optionLike(p.PushURL) {
+			return RemotePin{}, ErrPinOption
+		}
+		if err := checkProgramSetting(dir, false); err != nil {
+			return RemotePin{}, err
+		}
 		return p, nil
 	}
 	remote, err := configValues(dir, "branch."+branch+".remote")
@@ -64,16 +157,35 @@ func ResolvePin(dir string, pull bool) (RemotePin, error) {
 	if err != nil || len(merge) == 0 || merge[len(merge)-1] == "" {
 		return RemotePin{}, errors.New("the branch this branch pulls could not be read")
 	}
-	p.PullRemote, p.Merge = remote[len(remote)-1], merge[len(merge)-1]
+	if len(remote) > 1 {
+		return RemotePin{}, ErrPullRemote
+	}
+	if len(merge) > 1 {
+		return RemotePin{}, ErrPullMerge
+	}
+	p.PullRemote, p.Merge = remote[0], merge[0]
+	if optionLike(p.PullRemote, p.Merge) {
+		return RemotePin{}, ErrPinOption
+	}
+	if err := checkProgramSetting(dir, true); err != nil {
+		return RemotePin{}, err
+	}
 	if p.PullRemote == "." {
 		p.FetchURL = "."
 		return p, nil
 	}
-	url, err := run(dir, "remote", "get-url", p.PullRemote)
+	// A branch whose remote is a URL has no remote.<name>.url to read.
+	if urls, uerr := configValues(dir, "remote."+p.PullRemote+".url"); uerr != nil || len(urls) == 0 {
+		return RemotePin{}, ErrPullRemote
+	}
+	url, err := run(dir, "remote", "get-url", "--", p.PullRemote)
 	if err != nil || strings.TrimSpace(url) == "" {
 		return RemotePin{}, errors.New("the fetch URL could not be read")
 	}
 	p.FetchURL = strings.TrimSpace(url)
+	if optionLike(p.FetchURL) {
+		return RemotePin{}, ErrPinOption
+	}
 	return p, nil
 }
 
@@ -81,12 +193,16 @@ func ResolvePin(dir string, pull bool) (RemotePin, error) {
 type PushExpect struct {
 	// Head is the commit the branch was at when the push was approved.
 	Head string
-	// AfterCommit is set when a commit was made in between: the branch must then
-	// be at a commit whose parent is Head ("" for the first commit of a branch).
+	// AfterCommit is set when the request made a commit before pushing: the
+	// branch must then be at exactly Sha.
 	AfterCommit bool
+	// Sha is the commit the commit step made, as NewCommit returned it.
+	Sha string
 }
 
-// headMatches reports whether HEAD is what e expects, and returns it.
+// headMatches reports whether HEAD is what e expects, and returns it. After a
+// commit it is exact: HEAD must be the commit that was made, so an amend or a
+// merge written between the commit and the push is refused.
 func headMatches(dir string, e PushExpect) (string, bool) {
 	head := HeadSHA(dir)
 	if head == "" {
@@ -95,11 +211,36 @@ func headMatches(dir string, e PushExpect) (string, bool) {
 	if !e.AfterCommit {
 		return head, head == e.Head
 	}
-	parent, err := run(dir, "rev-parse", "--verify", "-q", "HEAD^")
-	if err != nil {
-		parent = ""
+	return head, e.Sha != "" && head == e.Sha
+}
+
+// NewCommit is read straight after the commit step. It returns the sha the
+// branch is at and checks that it is a new commit with one parent, the commit
+// approved (before), or a root commit when before is "" (a branch with no
+// commits yet). Anything else, a merge or a commit on top of another, is
+// ErrPinMoved. The commit and this read are two steps, so a commit written in
+// the gap is the one returned; what the push later holds to is this sha.
+func NewCommit(dir, before string) (string, error) {
+	head := HeadSHA(dir)
+	if head == "" || head == before {
+		return "", ErrPinMoved
 	}
-	return head, strings.TrimSpace(parent) == e.Head && head != e.Head
+	out, err := run(dir, "rev-list", "--parents", "-n", "1", head)
+	if err != nil {
+		return "", ErrPinMoved
+	}
+	f := strings.Fields(out)
+	if len(f) < 1 || f[0] != head {
+		return "", ErrPinMoved
+	}
+	parents := f[1:]
+	switch {
+	case before == "" && len(parents) == 0:
+	case before != "" && len(parents) == 1 && parents[0] == before:
+	default:
+		return "", ErrPinMoved
+	}
+	return head, nil
 }
 
 // pushOwnConfig is what a pinned push is run with so that git's settings cannot
@@ -112,24 +253,43 @@ var pushOwnConfig = []string{
 	"-c", "push.recurseSubmodules=check",
 }
 
+// runOwnConfig is added to a pinned push or pull so that the repository's hooks
+// (pre-push, post-merge and the rest) do not run, and the ext:: transport, which
+// runs a command, is off.
+var runOwnConfig = append(append([]string{}, noHooks...), "-c", "protocol.ext.allow=never")
+
+// programRefusal passes on the one resolve error that says why, and reads any
+// other as the pin having moved.
+func programRefusal(err error) error {
+	var pe *ErrPinProgram
+	if errors.As(err, &pe) {
+		return err
+	}
+	return ErrPinMoved
+}
+
 // PushPinned sends the commit the branch is at to the pinned destination and to
-// nothing else: git push <pinned URL> <sha>:refs/heads/<dest>, with the settings
-// that would widen a push set aside. The pin and the head are looked at again
-// first, immediately before git starts; what is pushed is the sha read there,
-// and the URL is the pinned one, so a remote or refspec setting written since the
-// approval is not consulted. The one thing the repository can still change after
-// the last look is a url.<base>.pushInsteadOf rewrite of the pinned URL, which
-// git applies to a URL argument as well.
+// nothing else: git push -- <pinned URL> <sha>:refs/heads/<dest>, with the
+// settings that would widen a push set aside and the repository's hooks off.
+// The pin and the head are looked at again first, immediately before git
+// starts; what is pushed is the sha read there, and the URL is the pinned one,
+// so a remote or refspec setting written since the approval is not consulted.
+// The one thing the repository can still change after the last look is a
+// url.<base>.pushInsteadOf rewrite of the pinned URL, which git applies to a URL
+// argument as well. Programs set in the user's own configuration still run.
 func PushPinned(dir string, pin RemotePin, expect PushExpect) (string, error) {
 	now, err := ResolvePin(dir, false)
-	if err != nil || now != pin {
+	if err != nil {
+		return "", programRefusal(err)
+	}
+	if now != pin {
 		return "", ErrPinMoved
 	}
 	head, ok := headMatches(dir, expect)
 	if !ok {
 		return "", ErrPinMoved
 	}
-	args := append(append([]string{}, pushOwnConfig...), "push", pin.PushURL, head+":refs/heads/"+pin.Dest)
+	args := append(append(append([]string{}, runOwnConfig...), pushOwnConfig...), "push", "--", pin.PushURL, head+":refs/heads/"+pin.Dest)
 	out, err := runVerbose(dir, args...)
 	if err != nil {
 		if strings.Contains(err.Error(), "not be found on any remote") {
@@ -141,31 +301,52 @@ func PushPinned(dir string, pin RemotePin, expect PushExpect) (string, error) {
 		}
 		return "", err
 	}
-	// A push by name sets the upstream the first time; one by URL cannot, so the
-	// tracking ref and the upstream are set here, from what was sent.
+	// A push by URL does not move the tracking ref, so it is set from what was
+	// sent: created, with the upstream, the first time; otherwise moved when it
+	// exists, so ahead and behind count from what the remote now has.
+	tracking := "refs/remotes/" + pin.Remote + "/" + pin.Dest
+	_, missing := run(dir, "rev-parse", "--verify", "-q", tracking)
 	if UpstreamOf(dir) == "" {
-		if _, e := run(dir, "update-ref", "refs/remotes/"+pin.Remote+"/"+pin.Dest, head); e == nil {
+		if _, e := run(dir, "update-ref", tracking, head); e == nil {
 			_, _ = run(dir, "branch", "--set-upstream-to="+pin.Remote+"/"+pin.Dest, pin.Branch)
 		}
+	} else if missing == nil {
+		_, _ = run(dir, "update-ref", tracking, head)
 	}
 	return out, nil
 }
 
 // PullPinned fast-forwards the branch from the pinned URL and ref, and from
-// nothing else: git pull --ff-only <pinned fetch URL> <pinned ref>, with
-// pull.rebase set aside. The pin and the head are looked at again immediately
-// before git starts.
+// nothing else: git pull --ff-only -- <pinned fetch URL> <pinned ref>, with
+// pull.rebase set aside and the repository's hooks off. The pin and the head are
+// looked at again immediately before git starts.
 func PullPinned(dir string, pin RemotePin, head string) (string, error) {
 	now, err := ResolvePin(dir, true)
-	if err != nil || now != pin || HeadSHA(dir) != head {
+	if err != nil {
+		return "", programRefusal(err)
+	}
+	if now != pin || HeadSHA(dir) != head {
 		return "", ErrPinMoved
 	}
-	args := []string{"-c", "pull.rebase=false", "pull", "--ff-only"}
+	args := append(append([]string{}, runOwnConfig...), "-c", "pull.rebase=false", "pull", "--ff-only")
 	if vals, cerr := configValues(dir, "submodule.recurse"); cerr == nil && len(vals) == 0 {
 		args = append(args, "--recurse-submodules")
 	}
-	args = append(args, pin.FetchURL, pin.Merge)
-	return pullRun(dir, args)
+	args = append(args, "--", pin.FetchURL, pin.Merge)
+	out, err := pullRun(dir, args)
+	if err == nil {
+		// A pull by URL leaves refs/remotes/<remote>/<branch> where it was, so
+		// ahead and behind read wrong; it is set to what was fetched.
+		if b, ok := strings.CutPrefix(pin.Merge, "refs/heads/"); ok && pin.PullRemote != "." {
+			tracking := "refs/remotes/" + pin.PullRemote + "/" + b
+			if _, e := run(dir, "rev-parse", "--verify", "-q", tracking); e == nil {
+				if sha, e := run(dir, "rev-parse", "--verify", "-q", "FETCH_HEAD"); e == nil && strings.TrimSpace(sha) != "" {
+					_, _ = run(dir, "update-ref", tracking, strings.TrimSpace(sha))
+				}
+			}
+		}
+	}
+	return out, err
 }
 
 // String is the pin as a person reads it.

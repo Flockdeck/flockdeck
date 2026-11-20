@@ -3,6 +3,8 @@ package gitx
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -183,7 +185,7 @@ func TestPushPinnedIgnoresAConfigChangeAfterThePin(t *testing.T) {
 	}
 	// A commit the request itself made is pushed: its parent is the pinned head.
 	pin2, _ := ResolvePin(repo, false)
-	if _, err := PushPinned(repo, pin2, PushExpect{Head: head, AfterCommit: true}); err != nil {
+	if _, err := PushPinned(repo, pin2, PushExpect{Head: head, AfterCommit: true, Sha: HeadSHA(repo)}); err != nil {
 		t.Fatalf("the commit made after the ask: %v", err)
 	}
 }
@@ -213,5 +215,177 @@ func TestPullPinnedHoldsTheFetchURLAndMergeBranch(t *testing.T) {
 	}
 	if _, err := PullPinned(repo, pin, head); err != nil {
 		t.Fatalf("an unchanged pin: %v", err)
+	}
+}
+
+func pinnedRepo(t *testing.T) (repo, bare string) {
+	t.Helper()
+	repo = newRepo(t)
+	bare = t.TempDir()
+	gitRun(t, bare, "init", "-q", "--bare")
+	gitRun(t, repo, "remote", "add", "origin", bare)
+	gitRun(t, repo, "push", "-q", "-u", "origin", "main")
+	return repo, bare
+}
+
+// A commit amended between the commit step and the push has the same parent but
+// is not the commit that was made: the push is refused.
+func TestPushPinnedRefusesAnAmendedCommit(t *testing.T) {
+	repo, bare := pinnedRepo(t)
+	pin, err := ResolvePin(repo, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	before := HeadSHA(repo)
+	commitFile(t, repo, "a.txt")
+	made, err := NewCommit(repo, before)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gitRun(t, repo, "commit", "-q", "--amend", "--allow-empty", "-m", "amended")
+	if _, err := PushPinned(repo, pin, PushExpect{Head: before, AfterCommit: true, Sha: made}); err == nil {
+		t.Fatal("an amended commit was pushed")
+	}
+	if got := strings.TrimSpace(gitRun(t, bare, "rev-parse", "refs/heads/main")); got != before {
+		t.Fatalf("the remote moved to %s", got)
+	}
+}
+
+// NewCommit takes only a single-parent child of the approved head, or a root
+// commit for a branch with none.
+func TestNewCommitWantsOneParentThatIsTheApprovedHead(t *testing.T) {
+	repo := newRepo(t)
+	before := HeadSHA(repo)
+	if _, err := NewCommit(repo, before); err == nil {
+		t.Error("no new commit was read as one")
+	}
+	gitRun(t, repo, "checkout", "-q", "-b", "side")
+	commitFile(t, repo, "side.txt")
+	gitRun(t, repo, "checkout", "-q", "main")
+	commitFile(t, repo, "main.txt")
+	mainHead := HeadSHA(repo)
+	gitRun(t, repo, "merge", "-q", "--no-ff", "-m", "merge", "side")
+	if _, err := NewCommit(repo, mainHead); err == nil {
+		t.Error("a merge commit was accepted")
+	}
+	gitRun(t, repo, "reset", "-q", "--hard", mainHead)
+	commitFile(t, repo, "c.txt")
+	if sha, err := NewCommit(repo, mainHead); err != nil || sha != HeadSHA(repo) {
+		t.Errorf("a plain commit: %q, %v", sha, err)
+	}
+	// An unborn branch: only a root commit is the first commit.
+	empty := t.TempDir()
+	gitRun(t, empty, "init", "-q", "-b", "main")
+	gitRun(t, empty, "config", "user.email", "t@example.com")
+	gitRun(t, empty, "config", "user.name", "t")
+	commitFile(t, empty, "r.txt")
+	if _, err := NewCommit(empty, ""); err != nil {
+		t.Errorf("a root commit on an unborn branch: %v", err)
+	}
+	if _, err := NewCommit(empty, before); err == nil {
+		t.Error("a root commit was accepted as a child of another head")
+	}
+}
+
+// A remote, URL or merge ref that starts with '-' is refused, not passed to git.
+func TestResolvePinRefusesAnOptionLookingValue(t *testing.T) {
+	repo, _ := pinnedRepo(t)
+	gitRun(t, repo, "config", "remote.origin.pushurl", "--receive-pack=touch pwned")
+	if _, err := ResolvePin(repo, false); !errors.Is(err, ErrPinOption) {
+		t.Errorf("push: %v", err)
+	}
+	gitRun(t, repo, "config", "--unset", "remote.origin.pushurl")
+	gitRun(t, repo, "config", "remote.origin.url", "--upload-pack=touch pwned")
+	if _, err := ResolvePin(repo, true); !errors.Is(err, ErrPinOption) {
+		t.Errorf("pull url: %v", err)
+	}
+}
+
+// A pinned push moves the tracking ref, and a pinned pull does.
+func TestPinnedPushAndPullMoveTheTrackingRef(t *testing.T) {
+	repo, bare := pinnedRepo(t)
+	pin, _ := ResolvePin(repo, false)
+	before := HeadSHA(repo)
+	commitFile(t, repo, "a.txt")
+	sha := HeadSHA(repo)
+	if _, err := PushPinned(repo, pin, PushExpect{Head: before, AfterCommit: true, Sha: sha}); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(gitRun(t, repo, "rev-parse", "refs/remotes/origin/main")); got != sha {
+		t.Fatalf("tracking ref after push = %s, want %s", got, sha)
+	}
+	// Another clone pushes; a pinned pull brings it in and the tracking ref follows.
+	other := t.TempDir()
+	gitRun(t, other, "clone", "-q", "-b", "main", bare, ".")
+	gitRun(t, other, "config", "user.email", "t@example.com")
+	gitRun(t, other, "config", "user.name", "t")
+	commitFile(t, other, "b.txt")
+	gitRun(t, other, "push", "-q", "origin", "main")
+	want := HeadSHA(other)
+	ppin, _ := ResolvePin(repo, true)
+	if _, err := PullPinned(repo, ppin, HeadSHA(repo)); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(gitRun(t, repo, "rev-parse", "refs/remotes/origin/main")); got != want || HeadSHA(repo) != want {
+		t.Fatalf("after pull: tracking %s, head %s, want %s", got, HeadSHA(repo), want)
+	}
+}
+
+// A hook written into the repository does not run on a pinned push or pull.
+func TestPinnedRunsDoNotRunRepositoryHooks(t *testing.T) {
+	repo, bare := pinnedRepo(t)
+	marker := filepath.Join(t.TempDir(), "ran")
+	script := "#!/bin/sh\necho x > '" + filepath.ToSlash(marker) + "'\n"
+	for _, h := range []string{"pre-push", "post-merge"} {
+		if err := os.WriteFile(filepath.Join(repo, ".git", "hooks", h), []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pin, _ := ResolvePin(repo, false)
+	before := HeadSHA(repo)
+	commitFile(t, repo, "a.txt")
+	if _, err := PushPinned(repo, pin, PushExpect{Head: before, AfterCommit: true, Sha: HeadSHA(repo)}); err != nil {
+		t.Fatal(err)
+	}
+	other := t.TempDir()
+	gitRun(t, other, "clone", "-q", "-b", "main", bare, ".")
+	gitRun(t, other, "config", "user.email", "t@example.com")
+	gitRun(t, other, "config", "user.name", "t")
+	commitFile(t, other, "b.txt")
+	gitRun(t, other, "push", "-q", "origin", "main")
+	ppin, _ := ResolvePin(repo, true)
+	if _, err := PullPinned(repo, ppin, HeadSHA(repo)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("a repository hook ran")
+	}
+}
+
+// A program setting in the repository's own configuration is refused.
+func TestResolvePinRefusesARepositoryProgramSetting(t *testing.T) {
+	repo, _ := pinnedRepo(t)
+	gitRun(t, repo, "config", "core.sshCommand", "evil")
+	var pe *ErrPinProgram
+	if _, err := ResolvePin(repo, false); !errors.As(err, &pe) {
+		t.Errorf("push: %v", err)
+	}
+	if _, err := ResolvePin(repo, true); !errors.As(err, &pe) {
+		t.Errorf("pull: %v", err)
+	}
+}
+
+// A pull of a branch that names a URL, or several merge refs, is refused with a reason.
+func TestResolvePinRefusesAPullItCannotPin(t *testing.T) {
+	repo, bare := pinnedRepo(t)
+	gitRun(t, repo, "config", "--add", "branch.main.merge", "refs/heads/other")
+	if _, err := ResolvePin(repo, true); !errors.Is(err, ErrPullMerge) {
+		t.Errorf("two merge values: %v", err)
+	}
+	gitRun(t, repo, "config", "--unset-all", "branch.main.merge")
+	gitRun(t, repo, "config", "branch.main.merge", "refs/heads/main")
+	gitRun(t, repo, "config", "branch.main.remote", bare)
+	if _, err := ResolvePin(repo, true); !errors.Is(err, ErrPullRemote) {
+		t.Errorf("a URL as the remote: %v", err)
 	}
 }

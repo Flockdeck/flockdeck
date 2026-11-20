@@ -444,6 +444,19 @@ func (s *Server) commitChangesPinned(c *controlClient, path, message string, pus
 			return
 		}
 		c.notify("Committed in "+shortName(dir), false)
+		// The commit just made, read before anything else can move the branch: the
+		// pinned push sends exactly this one.
+		var made string
+		if push && pp != nil {
+			sha, nerr := gitx.NewCommit(dir, pp.head)
+			if nerr != nil {
+				c.notify("Committed, but not pushed: "+nerr.Error(), true)
+				s.sendChanges(c, dir, asked, "committed")
+				answered = true
+				return
+			}
+			made = sha
+		}
 		if push {
 			// A hook the commit ran may have changed what a push would run.
 			if !s.gitProgramsAccepted(c, dir, path, "push", "gitPush", ans.accept, ans.seen) {
@@ -457,7 +470,7 @@ func (s *Server) commitChangesPinned(c *controlClient, path, message string, pus
 				err error
 			)
 			if pp != nil {
-				out, err = gitx.PushPinned(dir, pp.pin, gitx.PushExpect{Head: pp.head, AfterCommit: true})
+				out, err = gitx.PushPinned(dir, pp.pin, gitx.PushExpect{Head: pp.head, AfterCommit: true, Sha: made})
 			} else {
 				out, err = gitx.Push(dir)
 			}

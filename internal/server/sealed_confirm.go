@@ -106,6 +106,9 @@ const (
 	reasonPushShape   = "a plain push here would send more than the current branch"
 	reasonPushRead    = "what a push would send could not be read"
 	reasonPullRead    = "where a pull would come from could not be read"
+	reasonPullShape   = "a pull here would not come from one named remote and one branch"
+	reasonPinProgram  = "the repository's own git configuration runs a program or reroutes the connection for a push or pull"
+	reasonPinOption   = "a remote, URL or branch name starts with '-', which git would read as an option"
 	reasonPushName    = "this branch tracks a branch of another name, which a push is not run for here"
 	reasonInternal    = "the request could not be set up"
 )
@@ -575,7 +578,7 @@ func (s *Server) askDeskGit(c *controlClient, cmd command) {
 			if errors.Is(perr, gitx.ErrPushName) {
 				bad(reasonPushName)
 			} else {
-				bad(reasonPushRead)
+				bad(pinReason(perr, reasonPushRead))
 			}
 			return
 		}
@@ -589,10 +592,13 @@ func (s *Server) askDeskGit(c *controlClient, cmd command) {
 	} else if cmd.Cmd == "gitPull" && remote != "" {
 		var perr error
 		if rpin, perr = gitx.ResolvePin(dir, true); perr != nil {
-			bad(reasonPullRead)
+			bad(pinReason(perr, reasonPullRead))
 			return
 		}
 		hasPin = true
+		// A pull fetches from remote.<name>.url and merges branch.<name>.merge, not
+		// from where a push goes, so that is what the person is shown and held to.
+		remote = rpin.String()
 	}
 	id, err := randomHex(8)
 	if err != nil {
@@ -719,6 +725,21 @@ func (s *Server) answerDeskConfirm(c *controlClient, cmd command) {
 	s.runGitAction(q.c, q)
 }
 
+// pinReason is the reason a refused pin gives the desk and the phone: what is
+// wrong with it where that is known, else fallback.
+func pinReason(err error, fallback string) string {
+	var pe *gitx.ErrPinProgram
+	switch {
+	case errors.As(err, &pe):
+		return reasonPinProgram + " (" + pe.Key + ")"
+	case errors.Is(err, gitx.ErrPinOption):
+		return reasonPinOption
+	case errors.Is(err, gitx.ErrPullRemote), errors.Is(err, gitx.ErrPullMerge):
+		return reasonPullShape + " (" + err.Error() + ")"
+	}
+	return fallback
+}
+
 // pinHolds reports whether what the person was shown at the ask is still what
 // would run: the folder is a known project, the branch is the same, a push or
 // pull goes to the same remote, and the files a commit would record are the
@@ -730,7 +751,12 @@ func (s *Server) pinHolds(q *deskConfirm) bool {
 	if gitx.CurrentBranch(q.dir) != q.branch {
 		return false
 	}
-	if (q.cmd.Cmd != "commit" || q.cmd.Push) && gitx.PushTarget(q.dir) != q.remote {
+	if q.cmd.Cmd == "gitPull" && q.hasPin {
+		// A pull is shown, and held to, where it fetches from and what it merges.
+		if q.rpin.String() != q.remote {
+			return false
+		}
+	} else if (q.cmd.Cmd != "commit" || q.cmd.Push) && gitx.PushTarget(q.dir) != q.remote {
 		return false
 	}
 	if gitx.HeadSHA(q.dir) != q.head {
