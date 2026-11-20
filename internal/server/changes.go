@@ -370,6 +370,20 @@ func notUTF8Name(dir, file string) bool {
 // answer that follows is the tree as it is now. A window that sends no list
 // commits everything, as the button always did.
 func (s *Server) commitChanges(c *controlClient, path, message string, push bool, listed []string, stamps map[string]string, unlisted int, ans gitAnswer) {
+	s.commitChangesPinned(c, path, message, push, listed, stamps, unlisted, ans, nil)
+}
+
+// pinnedRun is where a push or pull a person approved goes, and the commit the
+// branch was at: the git command is run from these (gitx.PushPinned,
+// gitx.PullPinned), not from the repository's settings as they are by then.
+type pinnedRun struct {
+	pin  gitx.RemotePin
+	head string
+}
+
+// commitChangesPinned is commitChanges whose push, when there is one, is the
+// pinned one. A nil pp pushes as the repository's settings say.
+func (s *Server) commitChangesPinned(c *controlClient, path, message string, push bool, listed []string, stamps map[string]string, unlisted int, ans gitAnswer, pp *pinnedRun) {
 	dir := s.reviewDir(path)
 	// The listing a commit ends on counts from when the commit was asked for,
 	// so a review opened while it ran is not drawn over when it finishes.
@@ -438,7 +452,16 @@ func (s *Server) commitChanges(c *controlClient, path, message string, push bool
 				answered = true
 				return
 			}
-			if out, err := gitx.Push(dir); err != nil {
+			var (
+				out string
+				err error
+			)
+			if pp != nil {
+				out, err = gitx.PushPinned(dir, pp.pin, gitx.PushExpect{Head: pp.head, AfterCommit: true})
+			} else {
+				out, err = gitx.Push(dir)
+			}
+			if err != nil {
 				c.notify(err.Error(), true)
 			} else {
 				c.notify(remoteSummary("push", out), false)
@@ -465,6 +488,13 @@ var errAskedAgain = errors.New("the repository's git settings or hooks changed w
 
 // runRemote performs a push, pull or fetch and reports the result.
 func (s *Server) runRemote(c *controlClient, action, path string, ans gitAnswer) {
+	s.runRemotePinned(c, action, path, ans, nil)
+}
+
+// runRemotePinned is runRemote whose push or pull, when pp is set, goes where it
+// was approved to go and sends or takes what was approved, however the
+// repository's settings have changed since.
+func (s *Server) runRemotePinned(c *controlClient, action, path string, ans gitAnswer, pp *pinnedRun) {
 	dir := s.reviewDir(path)
 	asked := changeListings.asked(c) // as a commit's: see commitChanges
 	go func() {
@@ -479,9 +509,17 @@ func (s *Server) runRemote(c *controlClient, action, path string, ans gitAnswer)
 		)
 		switch action {
 		case "push":
-			out, err = gitx.Push(dir)
+			if pp != nil {
+				out, err = gitx.PushPinned(dir, pp.pin, gitx.PushExpect{Head: pp.head})
+			} else {
+				out, err = gitx.Push(dir)
+			}
 		case "pull":
-			out, err = gitx.Pull(dir)
+			if pp != nil {
+				out, err = gitx.PullPinned(dir, pp.pin, pp.head)
+			} else {
+				out, err = gitx.Pull(dir)
+			}
 		case "fetch":
 			out, err = gitx.Fetch(dir)
 		default:

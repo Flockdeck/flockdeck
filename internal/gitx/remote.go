@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os/exec"
 	"strconv"
 	"strings"
 )
@@ -185,6 +186,12 @@ func Pull(dir string) (string, error) {
 	if _, cerr := run(dir, "config", "--get", "submodule.recurse"); cerr != nil {
 		args = append(args, "--recurse-submodules")
 	}
+	return pullRun(dir, args)
+}
+
+// pullRun runs the pull command args and explains the two ways it commonly
+// fails.
+func pullRun(dir string, args []string) (string, error) {
 	out, err := runVerbose(dir, args...)
 	if err != nil {
 		// Bringing the branch up to date writes the index, which an agent's
@@ -307,8 +314,13 @@ func HeadSHA(dir string) string {
 
 // PushAhead counts the commits a push of the checked-out branch would send: those
 // not yet on the branch's upstream, or, with none, on any branch of the remote a
-// first push would go to. An error means it could not be read.
+// first push would go to. An error means it could not be read. A branch with no
+// commit yet (an unborn HEAD) sends none: the commit a request makes is the
+// first, and is not counted here.
 func PushAhead(dir string) (int, error) {
+	if HeadSHA(dir) == "" && CurrentBranch(dir) != "" {
+		return 0, nil
+	}
 	args := []string{"rev-list", "--count", "@{u}..HEAD"}
 	if UpstreamOf(dir) == "" {
 		remote, _, ok := pushDest(dir)
@@ -328,49 +340,110 @@ func PushAhead(dir string) (int, error) {
 	return n, nil
 }
 
-// PushSettingsRisk says, in fixed words, why a plain "git push" here would send
-// more than the checked-out branch, or somewhere other than the remote PushTarget
-// names: push.default of "matching" (every branch), a remote.<name>.push refspec
-// that names something else or a mirror remote, a branch.<name>.pushRemote or
-// remote.pushDefault that redirects the push. It is "" when the push is the one
-// shown. The agent that wrote to the repository can set any of these between a
-// question and its answer, so the check is made at both.
+// errConfigRead is a setting that could not be read, as opposed to one that is
+// not set.
+var errConfigRead = errors.New("a git setting could not be read")
+
+// configValues reads every value of a setting. A setting that is not set is an
+// empty answer; git failing for any other reason is an error, so a check made
+// on it fails closed rather than reading "no setting" into a failed read.
+func configValues(dir, key string) ([]string, error) {
+	out, err := run(dir, "config", "--get-all", key)
+	if err != nil {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) && ee.ExitCode() == 1 {
+			return nil, nil
+		}
+		return nil, errConfigRead
+	}
+	var vals []string
+	for _, v := range strings.Split(strings.TrimSuffix(strings.TrimSuffix(out, "\n"), "\r"), "\n") {
+		vals = append(vals, strings.TrimSpace(v))
+	}
+	return vals, nil
+}
+
+// PushSettingsRisk says, in fixed words that name the setting, why a push here
+// would send more than the checked-out branch, or somewhere other than the
+// remote PushTarget names: push.default of "matching" (every branch), a
+// remote.<name>.push refspec that names something else or a mirror remote, a
+// branch.<name>.pushRemote or remote.pushDefault that redirects the push,
+// push.followTags (tags go too), push.pushOption (options the remote acts on).
+// It is "" when the push is the one shown. The agent that wrote to the
+// repository can set any of these between a question and its answer, so the
+// check is made at both. A setting that cannot be read is a risk.
+//
+// A branch with no upstream is pushed with an explicit remote and refspec, which
+// push.default, remote.<name>.push, pushRemote and pushDefault do not touch, so
+// those are not looked at then.
 func PushSettingsRisk(dir string) string {
 	branch := CurrentBranch(dir)
 	remote, _, ok := pushDest(dir)
 	if branch == "" || !ok {
 		return ""
 	}
+	hasUpstream := UpstreamOf(dir) != ""
+	var failed bool
 	get := func(key string) string {
-		out, err := run(dir, "config", "--get", key)
+		vals, err := configValues(dir, key)
 		if err != nil {
+			failed = true
 			return ""
 		}
-		return strings.TrimSpace(out)
+		if len(vals) == 0 {
+			return ""
+		}
+		return vals[len(vals)-1]
 	}
-	switch strings.ToLower(get("push.default")) {
-	case "", "simple", "current", "upstream", "tracking", "nothing":
-	default:
-		return "push.default would send more than the current branch"
-	}
-	if r := get("branch." + branch + ".pushRemote"); r != "" && r != remote {
-		return "branch.<name>.pushRemote sends the push to another remote"
-	}
-	if r := get("remote.pushDefault"); r != "" && r != remote && get("branch."+branch+".pushRemote") == "" {
-		return "remote.pushDefault sends the push to another remote"
-	}
-	if strings.EqualFold(get("remote."+remote+".mirror"), "true") {
-		return "the remote is a mirror, which a push sends every ref to"
-	}
-	if out, err := run(dir, "config", "--get-all", "remote."+remote+".push"); err == nil {
-		for _, spec := range strings.Split(out, "\n") {
-			spec = strings.TrimSpace(spec)
-			switch spec {
-			case "", "HEAD", branch, "refs/heads/" + branch, branch + ":" + branch, "refs/heads/" + branch + ":refs/heads/" + branch:
+	why := func() string {
+		if hasUpstream {
+			switch strings.ToLower(get("push.default")) {
+			case "", "simple", "current", "upstream", "tracking", "nothing":
 			default:
-				return "remote.<name>.push sends something other than the current branch"
+				return "push.default would send more than the current branch"
+			}
+			if r := get("branch." + branch + ".pushRemote"); r != "" && r != remote {
+				return "branch.<name>.pushRemote sends the push to another remote"
+			}
+			if r := get("remote.pushDefault"); r != "" && r != remote && get("branch."+branch+".pushRemote") == "" {
+				return "remote.pushDefault sends the push to another remote"
 			}
 		}
+		if strings.EqualFold(get("remote."+remote+".mirror"), "true") {
+			return "remote.<name>.mirror makes the push send every ref"
+		}
+		if v := strings.ToLower(get("push.followTags")); v == "true" || v == "1" || v == "yes" || v == "on" {
+			return "push.followTags sends tags with the push"
+		}
+		if vals, err := configValues(dir, "push.pushOption"); err != nil {
+			failed = true
+		} else {
+			for _, v := range vals {
+				if v != "" {
+					return "push.pushOption sends options to the remote"
+				}
+			}
+		}
+		if hasUpstream {
+			vals, err := configValues(dir, "remote."+remote+".push")
+			if err != nil {
+				failed = true
+			}
+			for _, spec := range vals {
+				switch spec {
+				case "", "HEAD", branch, "refs/heads/" + branch, branch + ":" + branch, "refs/heads/" + branch + ":refs/heads/" + branch:
+				default:
+					return "remote.<name>.push sends something other than the current branch"
+				}
+			}
+		}
+		return ""
+	}()
+	if why != "" {
+		return why
+	}
+	if failed {
+		return "a git setting that decides what a push sends could not be read"
 	}
 	return ""
 }

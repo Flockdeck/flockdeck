@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"strconv"
 	"strings"
 	"sync"
@@ -51,7 +52,8 @@ import (
 // many commits it would send, both shown, and is refused if git's settings
 // (push.default, remote.<name>.push, pushRemote) would send more than the current
 // branch. A yes that is refused tells the desk that nothing ran. A question left
-// to lapse costs the device the base wait and is not counted as a no.
+// to lapse costs the device a wait that doubles with each further lapse and no
+// yes between (20 s up to 5 min), and is not counted as a no.
 //
 // Merges are not here and stay desk-only.
 
@@ -103,6 +105,8 @@ const (
 	reasonReadFiles   = "the changed files could not be read"
 	reasonPushShape   = "a plain push here would send more than the current branch"
 	reasonPushRead    = "what a push would send could not be read"
+	reasonPullRead    = "where a pull would come from could not be read"
+	reasonPushName    = "this branch tracks a branch of another name, which a push is not run for here"
 	reasonInternal    = "the request could not be set up"
 )
 
@@ -167,6 +171,10 @@ type deskConfirm struct {
 	head   string
 	ahead  int
 	pushes bool
+	// rpin is where the push or pull goes, read at the ask and run from at the yes;
+	// hasPin is false when there is no remote to read it for.
+	rpin   gitx.RemotePin
+	hasPin bool
 }
 
 // deskConfirmState holds the questions open now.
@@ -427,22 +435,31 @@ func unseenSecrets(files []string) int {
 // secretLookingName reports whether a path's file name is the kind that holds a
 // credential: an environment file, a key or certificate, an SSH identity.
 func secretLookingName(path string) bool {
-	name := strings.ToLower(path)
-	if i := strings.LastIndexAny(name, "/\\"); i >= 0 {
-		name = name[i+1:]
+	full := "/" + strings.ToLower(strings.ReplaceAll(path, "\\", "/"))
+	// Anything inside a folder that holds credentials.
+	if strings.Contains(full, "/.ssh/") || strings.Contains(full, "/.aws/") {
+		return true
 	}
+	name := full[strings.LastIndex(full, "/")+1:]
 	switch {
 	case name == ".env" || strings.HasPrefix(name, ".env."), strings.HasSuffix(name, ".env"):
 		return true
 	case strings.HasPrefix(name, "id_rsa"), strings.HasPrefix(name, "id_dsa"), strings.HasPrefix(name, "id_ecdsa"), strings.HasPrefix(name, "id_ed25519"):
 		return true
 	}
-	for _, ext := range []string{".pem", ".key", ".p12", ".pfx", ".jks", ".keystore", ".ppk", ".kdbx"} {
+	for _, ext := range []string{".pem", ".key", ".p12", ".pfx", ".jks", ".keystore", ".ppk", ".kdbx", ".gpg", ".asc", ".tfvars"} {
 		if strings.HasSuffix(name, ext) {
 			return true
 		}
 	}
-	return name == ".netrc" || name == ".npmrc" || name == ".pgpass" || name == "credentials" || name == "credentials.json"
+	if strings.HasPrefix(name, "service-account") && strings.HasSuffix(name, ".json") {
+		return true
+	}
+	switch name {
+	case ".netrc", ".npmrc", ".pgpass", "credentials", "credentials.json", ".git-credentials", ".htpasswd", "kubeconfig":
+		return true
+	}
+	return false
 }
 
 // tidyFull is tidy without its length cut: a path is shown whole.
@@ -545,17 +562,37 @@ func (s *Server) askDeskGit(c *controlClient, cmd command) {
 	// With no remote the push has nowhere to go and fails on its own ("No remote
 	// found" is shown); there is nothing to count.
 	pin := gitPin{head: gitx.HeadSHA(dir), pushes: remote != "" && (cmd.Cmd == "gitPush" || (cmd.Cmd == "commit" && cmd.Push))}
+	var rpin gitx.RemotePin
+	hasPin := false
 	if pin.pushes {
-		if gitx.PushSettingsRisk(dir) != "" {
-			bad(reasonPushShape)
+		if why := gitx.PushSettingsRisk(dir); why != "" {
+			s.noticeDesk("Refused a request from "+tidy(l.name)+" to "+confirmAction(cmd)+": "+why+". Nothing was asked of you", true)
+			bad(reasonPushShape + " (" + why + ")")
 			return
 		}
+		var perr error
+		if rpin, perr = gitx.ResolvePin(dir, false); perr != nil {
+			if errors.Is(perr, gitx.ErrPushName) {
+				bad(reasonPushName)
+			} else {
+				bad(reasonPushRead)
+			}
+			return
+		}
+		hasPin = true
 		n, err := gitx.PushAhead(dir)
 		if err != nil {
 			bad(reasonPushRead)
 			return
 		}
 		pin.ahead = n
+	} else if cmd.Cmd == "gitPull" && remote != "" {
+		var perr error
+		if rpin, perr = gitx.ResolvePin(dir, true); perr != nil {
+			bad(reasonPullRead)
+			return
+		}
+		hasPin = true
 	}
 	id, err := randomHex(8)
 	if err != nil {
@@ -569,7 +606,7 @@ func (s *Server) askDeskGit(c *controlClient, cmd command) {
 	q := &deskConfirm{
 		id: id, device: c.device, name: l.name, key: l.key, link: l, c: c, cmd: cmd,
 		action: confirmAction(cmd), dir: dir, nonces: map[*controlClient]string{}, expires: time.Now().Add(deskConfirmLife),
-		branch: branch, remote: remote, reviewed: reviewed, head: pin.head, ahead: pin.ahead, pushes: pin.pushes,
+		branch: branch, remote: remote, reviewed: reviewed, head: pin.head, ahead: pin.ahead, pushes: pin.pushes, rpin: rpin, hasPin: hasPin,
 	}
 	summary := confirmSummary(cmd, dir, branch, remote, reviewed, pin)
 	for _, w := range windows {
@@ -619,7 +656,7 @@ func (s *Server) settleConfirm(id, outcome string) {
 
 func (s *Server) finishConfirm(q *deskConfirm, outcome string) {
 	// A no lengthens the wait before this device may put another, each one doubling
-	// it; a question left to lapse costs the base wait and is not counted as a no.
+	// it; a question left to lapse is not counted as a no (noteLapsed escalates it slowly).
 	switch outcome {
 	case confirmDenied:
 		s.sealed.device(q.device).noteDenied(time.Now())
@@ -707,6 +744,12 @@ func (s *Server) pinHolds(q *deskConfirm) bool {
 			return false
 		}
 	}
+	if q.hasPin {
+		now, err := gitx.ResolvePin(q.dir, q.cmd.Cmd == "gitPull")
+		if err != nil || now != q.rpin {
+			return false
+		}
+	}
 	if q.reviewed != nil {
 		now, err := gitx.ReviewSnapshot(q.dir)
 		if err != nil || !gitx.SameReviewed(*q.reviewed, now) {
@@ -724,14 +767,18 @@ func (s *Server) pinHolds(q *deskConfirm) bool {
 func (s *Server) runGitAction(c *controlClient, q *deskConfirm) {
 	cmd := q.cmd
 	cmd.Path = q.dir
+	var pp *pinnedRun
+	if q.hasPin {
+		pp = &pinnedRun{pin: q.rpin, head: q.head}
+	}
 	switch cmd.Cmd {
 	case "commit":
 		r := q.reviewed
-		s.commitChanges(c, cmd.Path, cmd.Text, cmd.Push, r.Files, r.Stamps, r.Unlisted, gitAnswer{})
+		s.commitChangesPinned(c, cmd.Path, cmd.Text, cmd.Push, r.Files, r.Stamps, r.Unlisted, gitAnswer{}, pp)
 	case "gitPush":
-		s.runRemote(c, "push", cmd.Path, gitAnswer{})
+		s.runRemotePinned(c, "push", cmd.Path, gitAnswer{}, pp)
 	case "gitPull":
-		s.runRemote(c, "pull", cmd.Path, gitAnswer{})
+		s.runRemotePinned(c, "pull", cmd.Path, gitAnswer{}, pp)
 	case "ghPRComment":
 		s.ghPRComment(c, cmd.Path, cmd.GHNumber, cmd.GHBody)
 	case "ghIssueComment":
