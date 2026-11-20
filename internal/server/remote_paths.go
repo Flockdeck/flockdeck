@@ -136,24 +136,60 @@ func (s *Server) remotePathKnown(path string) bool {
 // made-up paths made the desk run git as fast as it could send frames.
 const worktreeCacheTTL = 5 * time.Second
 
-// worktreeCache is the worktree folders of the known roots, as MetaKey spells
-// them, and when they were listed.
+// worktreeCache is the worktree folders of the known roots, when they were
+// listed, and the listing in progress, if any.
 type worktreeCache struct {
 	mu   sync.Mutex
 	at   time.Time
 	list []string
+	// gen counts forgetWorktrees, so a listing that began before one is not
+	// kept as current.
+	gen uint64
+	// flight is closed when the listing now running ends; callers that arrive
+	// meanwhile wait for it and share its answer rather than run git again.
+	flight chan struct{}
 }
 
 // knownWorktrees lists the worktrees of the known roots, at most once in
-// worktreeCacheTTL however many commands ask. It is dropped when a worktree is
-// added or removed from a window (forgetWorktrees).
+// worktreeCacheTTL however many commands ask. The git runs happen outside the
+// lock, one listing at a time (the callers that arrive during it wait for it),
+// so a slow repository does not hold every other command that needs the cache.
+// It is dropped when a worktree is added or removed from a window
+// (forgetWorktrees).
 func (s *Server) knownWorktrees() []string {
 	c := &s.wtCache
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if !c.at.IsZero() && time.Since(c.at) < worktreeCacheTTL {
-		return c.list
+	for {
+		c.mu.Lock()
+		if !c.at.IsZero() && time.Since(c.at) < worktreeCacheTTL {
+			list := c.list
+			c.mu.Unlock()
+			return list
+		}
+		if wait := c.flight; wait != nil {
+			c.mu.Unlock()
+			<-wait
+			continue
+		}
+		done := make(chan struct{})
+		c.flight = done
+		gen := c.gen
+		c.mu.Unlock()
+
+		out := s.listKnownWorktrees()
+
+		c.mu.Lock()
+		if c.gen == gen {
+			c.at, c.list = time.Now(), out
+		}
+		c.flight = nil
+		c.mu.Unlock()
+		close(done)
+		return out
 	}
+}
+
+// listKnownWorktrees runs git in every known root. It takes no lock of the cache.
+func (s *Server) listKnownWorktrees() []string {
 	var out []string
 	for _, root := range s.knownRoots() {
 		wts, err := gitx.List(root)
@@ -164,7 +200,6 @@ func (s *Server) knownWorktrees() []string {
 			out = append(out, store.MetaKey(realPath(wt.Path)))
 		}
 	}
-	c.at, c.list = time.Now(), out
 	return out
 }
 
@@ -172,6 +207,7 @@ func (s *Server) knownWorktrees() []string {
 func (s *Server) forgetWorktrees() {
 	s.wtCache.mu.Lock()
 	s.wtCache.at = time.Time{}
+	s.wtCache.gen++
 	s.wtCache.mu.Unlock()
 }
 

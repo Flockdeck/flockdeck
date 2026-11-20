@@ -167,3 +167,32 @@ func TestSealedLiveSessionIsRechecked(t *testing.T) {
 		}
 	})
 }
+
+// A listing of the known worktrees in progress does not hold the cache's lock,
+// and callers that arrive meanwhile wait for it and share its answer.
+func TestKnownWorktreesWaitsOutsideTheLock(t *testing.T) {
+	srv, _ := newTestServer(t)
+	c := &srv.wtCache
+	flight := make(chan struct{})
+	c.mu.Lock()
+	c.flight = flight
+	c.mu.Unlock()
+
+	got := make(chan []string, 1)
+	go func() { got <- srv.knownWorktrees() }()
+	time.Sleep(100 * time.Millisecond)
+	if !c.mu.TryLock() {
+		t.Fatal("the cache lock is held while a listing runs")
+	}
+	c.at, c.list, c.flight = time.Now(), []string{"shared"}, nil
+	c.mu.Unlock()
+	close(flight)
+	select {
+	case l := <-got:
+		if len(l) != 1 || l[0] != "shared" {
+			t.Errorf("the waiter got %v", l)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the waiter never returned")
+	}
+}
