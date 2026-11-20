@@ -102,8 +102,9 @@ const (
 	// taken back, the device unpaired).
 	sealedReasonOff = "disabled"
 	// sealedReasonRoster: a live socket's recheck found the relay's roster no longer
-	// lists the device with a key, or could not be asked. The device was unpaired, or
-	// the relay did not answer; it may try again later, and is refused if it is gone.
+	// lists the device with a key. A relay that cannot be asked does not cause it
+	// when a key for the device is cached (e2eRoster keeps it, whatever its age);
+	// it does when there is none.
 	sealedReasonRoster = "roster"
 	// sealedReasonRekeyed: the roster gives the device another key than the socket
 	// handshook with (it was paired again under the same id). The socket is ended and
@@ -476,6 +477,8 @@ type sealedDevice struct {
 	upBytes   int64
 	denials   int
 	lastDeny  time.Time
+	lapses    int
+	lastLapse time.Time
 	askNotBef time.Time
 }
 
@@ -488,6 +491,8 @@ const (
 	sealedDenyBase   = 20 * time.Second
 	sealedDenyMax    = 15 * time.Minute
 	sealedDenyMemory = time.Hour
+	// sealedLapseMax is the longest wait that unanswered questions alone earn.
+	sealedLapseMax = 5 * time.Minute
 )
 
 // noteDenied records that the desk said no to a question of this device and
@@ -513,13 +518,27 @@ func (d *sealedDevice) noteDenied(now time.Time) {
 }
 
 // noteLapsed records a question nobody answered. Nobody at the desk may simply
-// have been away, so it is not counted as a refusal: it costs the base wait (so a
-// phone cannot raise a modal every few seconds) and does not move the doubling,
-// which would otherwise push the wait to its longest without anyone having said no.
+// have been away, so it is not counted as a refusal and does not move the
+// doubling of noteDenied. It costs the base wait, and each further one with no
+// yes in between (within sealedDenyMemory) doubles that, up to sealedLapseMax:
+// a phone that asks again every time one lapses cannot keep raising a modal at a
+// flat rate for as long as the desk is unattended. A yes (noteAllowed) resets it.
 func (d *sealedDevice) noteLapsed(now time.Time) {
 	d.dmu.Lock()
 	defer d.dmu.Unlock()
-	if at := now.Add(sealedDenyBase); at.After(d.askNotBef) {
+	if now.Sub(d.lastLapse) > sealedDenyMemory {
+		d.lapses = 0
+	}
+	d.lapses++
+	d.lastLapse = now
+	wait := sealedDenyBase
+	for i := 1; i < d.lapses && wait < sealedLapseMax; i++ {
+		wait *= 2
+	}
+	if wait > sealedLapseMax {
+		wait = sealedLapseMax
+	}
+	if at := now.Add(wait); at.After(d.askNotBef) {
 		d.askNotBef = at
 	}
 }
@@ -527,7 +546,7 @@ func (d *sealedDevice) noteLapsed(now time.Time) {
 // noteAllowed clears the record: a person who says yes is using the phone.
 func (d *sealedDevice) noteAllowed() {
 	d.dmu.Lock()
-	d.denials, d.askNotBef = 0, time.Time{}
+	d.denials, d.lapses, d.askNotBef = 0, 0, time.Time{}
 	d.dmu.Unlock()
 }
 

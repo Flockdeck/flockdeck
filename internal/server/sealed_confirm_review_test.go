@@ -99,17 +99,24 @@ func TestSealedPushIsHeldToTheHeadTheAheadCountAndTheSettings(t *testing.T) {
 	t.Run("settings that send more are refused at the ask", func(t *testing.T) {
 		for name, kv := range map[string][2]string{
 			"push.default":       {"push.default", "matching"},
-			"remote.origin.push": {"remote.origin.push", "refs/heads/*:refs/heads/*"},
+			"remote.<name>.push": {"remote.origin.push", "refs/heads/*:refs/heads/*"},
 			"pushRemote":         {"branch.main.pushRemote", "elsewhere"},
+			"push.followTags":    {"push.followTags", "true"},
+			"push.pushOption":    {"push.pushOption", "x"},
 		} {
 			t.Run(name, func(t *testing.T) {
 				_, p, desk, repo := repoWithRemote(t)
+				// With an upstream, so that the settings are the ones that decide the push.
+				sealedGitRun(t, repo, "update-ref", "refs/remotes/origin/main", "HEAD")
+				sealedGitRun(t, repo, "config", "branch.main.remote", "origin")
+				sealedGitRun(t, repo, "config", "branch.main.merge", "refs/heads/main")
 				sealedGitRun(t, repo, "config", kv[0], kv[1])
 				p.send(command{Cmd: "gitPush", Path: repo, Req: "c"})
 				got := p.gitState(confirmBad)
-				if got["reason"] != reasonPushShape {
-					t.Errorf("the reason is %v, want %q", got["reason"], reasonPushShape)
+				if r, _ := got["reason"].(string); !strings.HasPrefix(r, reasonPushShape) || !strings.Contains(r, name) {
+					t.Errorf("the reason is %v, want %q naming %s", got["reason"], reasonPushShape, name)
 				}
+				deskNotice(t, desk, name)
 				noDeskConfirm(t, desk)
 			})
 		}
@@ -117,7 +124,7 @@ func TestSealedPushIsHeldToTheHeadTheAheadCountAndTheSettings(t *testing.T) {
 	t.Run("settings changed after the ask make the yes moved", func(t *testing.T) {
 		e, p, desk, repo := repoWithRemote(t)
 		ask := askCommit(t, p, desk, command{Cmd: "gitPush", Path: repo, Req: "c"})
-		sealedGitRun(t, repo, "config", "remote.origin.push", "refs/heads/*:refs/heads/*")
+		sealedGitRun(t, repo, "config", "push.followTags", "true")
 		e.srv.handleCommand(desk, command{Cmd: "deskConfirmAnswer", ID: ask.ID, Nonce: ask.Nonce, On: true})
 		p.gitState(confirmMoved)
 	})
@@ -146,7 +153,9 @@ func TestSealedCommitCountsSecretLookingFilesThatAreNotNamed(t *testing.T) {
 }
 
 func TestSecretLookingNames(t *testing.T) {
-	for _, n := range []string{".env", "app/.env.local", "prod.env", "a/b/server.pem", "tls.key", "id_rsa", "dir/id_ed25519.pub", "x.p12", ".netrc"} {
+	for _, n := range []string{".env", "app/.env.local", "prod.env", "a/b/server.pem", "tls.key", "id_rsa", "dir/id_ed25519.pub", "x.p12", ".netrc",
+		".git-credentials", "web/.htpasswd", "backup.gpg", "key.asc", "prod.tfvars", "service-account-prod.json", "ops/kubeconfig",
+		"home/.ssh/config", ".ssh/known_hosts", "x/.aws/config", `win\.aws\credentials`} {
 		if !secretLookingName(n) {
 			t.Errorf("%q is not taken for a secret", n)
 		}
@@ -190,16 +199,19 @@ func TestSealedBadRefusalsSayWhy(t *testing.T) {
 	}
 }
 
-// Only a no counts toward the doubling; a lapse costs the base wait and no more.
+// A lapse is not a no: it does not move the doubling of denials. It has its own
+// slow, capped escalation (TestSealedLapsesEscalateSlowlyUntilAYes).
 func TestSealedLapsesDoNotDoubleTheWait(t *testing.T) {
 	d := &sealedDevice{}
 	now := time.Now()
 	for i := 0; i < 12; i++ {
 		d.noteLapsed(now)
 	}
-	if w := d.waitAt(now); w != sealedDenyBase {
-		t.Fatalf("after many lapses the wait is %v, want the base %v", w, sealedDenyBase)
+	if w := d.waitAt(now); w != sealedLapseMax {
+		t.Fatalf("after many lapses the wait is %v, want the cap %v", w, sealedLapseMax)
 	}
+	d.noteAllowed()
+	now = now.Add(time.Hour + time.Second)
 	d.noteDenied(now)
 	if w := d.waitAt(now); w != sealedDenyBase {
 		t.Fatalf("the first no after lapses waits %v, want the base %v", w, sealedDenyBase)
@@ -230,5 +242,24 @@ func TestSealedWaitIsAStateWithSeconds(t *testing.T) {
 				t.Errorf("waitSecs = %v, want 1..%d", got["waitSecs"], int(sealedDenyBase/time.Second))
 			}
 		})
+	}
+}
+
+// Consecutive lapses with no yes in between double the wait, up to a cap; a yes
+// starts it over.
+func TestSealedLapsesEscalateSlowlyUntilAYes(t *testing.T) {
+	d := &sealedDevice{}
+	now := time.Now()
+	want := []time.Duration{20 * time.Second, 40 * time.Second, 80 * time.Second, 160 * time.Second, 5 * time.Minute, 5 * time.Minute}
+	for i, w := range want {
+		d.noteLapsed(now)
+		if got := d.waitAt(now); got != w {
+			t.Fatalf("lapse %d waits %v, want %v", i+1, got, w)
+		}
+	}
+	d.noteAllowed()
+	d.noteLapsed(now)
+	if got := d.waitAt(now); got != sealedDenyBase {
+		t.Fatalf("the first lapse after a yes waits %v, want %v", got, sealedDenyBase)
 	}
 }
