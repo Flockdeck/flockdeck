@@ -285,3 +285,23 @@ func TestStartAgentBranchAndBase(t *testing.T) {
 		t.Errorf("a base that does not exist: %+v", r)
 	}
 }
+
+// A viewer the desk let watch panes reads conversations, not repository files:
+// the sealed table must refuse what the unsealed one marks accessFull.
+func TestSealedWatcherCannotReadRepositoryFiles(t *testing.T) {
+	e := newSealedEnv(t)
+	p, _ := e.open(t, "watcher")
+	for _, n := range []string{"diff", "changes", "changesSnapshot", "filesPage", "diffHunks", "diffContext", "ghChecks"} {
+		if commandAccess[n] != accessFull {
+			t.Errorf("%s: unsealed access is %v, the test assumes accessFull", n, commandAccess[n])
+		}
+		if !sealedFullOnly[n] {
+			t.Errorf("%s is not full only", n)
+		}
+		p.send(command{Cmd: n, ID: "x", Req: "r-" + n})
+		got := p.readType("sealedRefused")
+		if got["code"] != sealedCodeRole || got["cmd"] != n {
+			t.Errorf("a watcher's %s was answered %v", n, got)
+		}
+	}
+}

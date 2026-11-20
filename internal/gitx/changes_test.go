@@ -1854,3 +1854,20 @@ func TestAnotherFailureIsNotReportedAsTheLock(t *testing.T) {
 		t.Error("a failure naming the lock was not recognised")
 	}
 }
+
+// A file the repository ignores (.env) is not a new file to show whole: the
+// sealed phone reads Diff, and the desk's change list never offers it.
+func TestDiffOfAnIgnoredFileDoesNotRenderIt(t *testing.T) {
+	t.Parallel()
+	repo := newRepo(t)
+	if err := os.WriteFile(filepath.Join(repo, ".gitignore"), []byte(".env\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, ".env"), []byte("TOKEN=hunter2-secret\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	diff, err := Diff(repo, ".env")
+	if err == nil && strings.Contains(diff, "hunter2-secret") {
+		t.Errorf("an ignored file was shown:\n%s", diff)
+	}
+}

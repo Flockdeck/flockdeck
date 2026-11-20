@@ -118,9 +118,11 @@ const (
 // "sealed" field of a command) and TestSealedTablesAreInTheCatalog holds the two
 // together, so a command is made reachable here by an edit that is read.
 //
-// Tier A is a read of what is on screen already: the structured conversation of
-// a pane and its pushes, a terminal pane's conversation, and the changes and
-// the diff of a folder. None writes, sends text to an agent or starts anything.
+// Tier A is a read: the structured conversation of a pane and its pushes, a
+// terminal pane's conversation, and the changes and the diff of a folder. None
+// writes, sends text to an agent or starts anything. Reads of repository files
+// (the changes and diff family) are for a full device only (sealedFullOnly),
+// as they are for the unsealed table (commandAccess).
 var sealedCommands = map[string]string{
 	"structuredSnapshot": sealedTierA, "structuredWatch": sealedTierA, "structuredUnwatch": sealedTierA,
 	"conversationOpen": sealedTierA, "conversationOlder": sealedTierA, "conversationDetail": sealedTierA,
@@ -199,14 +201,19 @@ var sealedCommands = map[string]string{
 }
 
 // sealedFullOnly are the tier A commands only a full device is let run. A viewer
-// the desk let watch panes reads the conversation of the panes it sees, and the
-// changes and diff of a folder; it is not let list every conversation of a
-// folder, every branch or the folders of the machine's projects.
+// the desk let watch panes reads the conversation of the panes it sees. It is
+// not let read repository files (the changes and the diff of a folder, a
+// branch's files, hunks, CI status), list every conversation of a folder, every
+// branch or the folders of the machine's projects. allowCommand lets every
+// sealedCommands entry through for a sealed connection, so this table is the
+// only role check these commands get.
 var sealedFullOnly = map[string]bool{
 	"conversations": true, "worktrees": true, "recents": true, "browse": true, "structuredSessions": true,
 	"teamSnapshot": true, "teamWatch": true, "teamUnwatch": true,
 	"graphSnapshot": true, "graphWatch": true, "graphUnwatch": true, "msgList": true,
 	"remoteDevices": true, "ghStatus": true, "ghPRs": true, "ghPR": true, "ghIssues": true, "ghIssue": true,
+	"changes": true, "diff": true, "changesSnapshot": true, "filesPage": true,
+	"diffHunks": true, "diffContext": true, "ghChecks": true,
 }
 
 // sealedSpawning are the tier B commands that make something run or write a
