@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/jmwri/flockdeck/internal/e2e"
 )
 
 // The push preferences are the desk's: no prompt guards them, so a phone with
@@ -153,8 +155,26 @@ func TestSealedLiveSessionIsRechecked(t *testing.T) {
 		e.fake.capable["full"] = false
 		e.fake.mu.Unlock()
 		code, reason := closeOf(t, p.conn)
-		if code != artifactCloseRefused || reason != approvalReasonKey {
-			t.Errorf("closed with %d %q, want %d %q", code, reason, artifactCloseRefused, approvalReasonKey)
+		if code != artifactCloseRefused || reason != sealedReasonRoster {
+			t.Errorf("closed with %d %q, want %d %q", code, reason, artifactCloseRefused, sealedReasonRoster)
+		}
+	})
+	// Paired again under the same id: the roster still lists a key, but not the one
+	// this socket handshook with.
+	t.Run("paired again with another key", func(t *testing.T) {
+		e := newSealedEnv(t)
+		e.srv.sealed.timing = sealedTimings{recheck: 50 * time.Millisecond}
+		p, _ := e.open(t, "full")
+		next, err := e2e.GenerateStaticKey()
+		if err != nil {
+			t.Fatal(err)
+		}
+		e.fake.kmu.Lock()
+		e.fake.keys["full"] = next.PublicKey().Bytes()
+		e.fake.kmu.Unlock()
+		code, reason := closeOf(t, p.conn)
+		if code != artifactCloseRefused || reason != sealedReasonRekeyed {
+			t.Errorf("closed with %d %q, want %d %q", code, reason, artifactCloseRefused, sealedReasonRekeyed)
 		}
 	})
 	t.Run("too old", func(t *testing.T) {
@@ -162,8 +182,9 @@ func TestSealedLiveSessionIsRechecked(t *testing.T) {
 		e.srv.sealed.timing = sealedTimings{recheck: 50 * time.Millisecond, maxAge: 120 * time.Millisecond}
 		p, _ := e.open(t, "full")
 		code, reason := closeOf(t, p.conn)
-		if code != artifactCloseRefused || reason != sealedReasonOff {
-			t.Errorf("closed with %d %q, want %d %q", code, reason, artifactCloseRefused, sealedReasonOff)
+		// Not the desk switching it off and not a refusal: the phone reconnects at once.
+		if code != sealedCloseRenew || reason != sealedReasonRenew {
+			t.Errorf("closed with %d %q, want %d %q", code, reason, sealedCloseRenew, sealedReasonRenew)
 		}
 	})
 }

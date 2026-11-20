@@ -101,7 +101,24 @@ const (
 	// sealedReasonOff: the desk ended the socket (a role change, a verification
 	// taken back, the device unpaired).
 	sealedReasonOff = "disabled"
+	// sealedReasonRoster: a live socket's recheck found the relay's roster no longer
+	// lists the device with a key, or could not be asked. The device was unpaired, or
+	// the relay did not answer; it may try again later, and is refused if it is gone.
+	sealedReasonRoster = "roster"
+	// sealedReasonRekeyed: the roster gives the device another key than the socket
+	// handshook with (it was paired again under the same id). The socket is ended and
+	// the device must handshake again; whether it is let in depends on the desk having
+	// verified the new key.
+	sealedReasonRekeyed = "rekeyed"
+	// sealedReasonRenew: the socket reached its maximum age. Nothing is wrong: the
+	// device reconnects at once (close code sealedCloseRenew).
+	sealedReasonRenew = "renew"
 )
+
+// sealedCloseRenew is the close code for a socket that reached its maximum age. It
+// is not a refusal: the phone reconnects without waiting and without telling the
+// person.
+const sealedCloseRenew = 4410
 
 // sealedTier is what a command or message may be used for. A reads. B acts on
 // agents and needs "Control agents" (sealed_control.go).
@@ -686,6 +703,29 @@ func (l *sealedLink) writeFrame(ctx context.Context, frame []byte) bool {
 	return l.tc.Write(wctx, websocket.MessageText, padded) == nil
 }
 
+// liveRosterReason is the recheck of a live socket against the relay's roster. It
+// is "" when the device is still listed with the very key the socket handshook
+// with, sealedReasonRoster when it is not listed with a key (or the relay could not
+// say), and sealedReasonRekeyed when it is listed with another: a device paired
+// again under the same id holds a key the socket was not made with.
+func (s *Server) liveRosterReason(ctx context.Context, ra RemoteAccess, device string, origin remote.KeyOrigin, key []byte) string {
+	if !ra.E2ECapable(ctx, device, origin) {
+		return sealedReasonRoster
+	}
+	keyer, ok := ra.(artifactKeyer)
+	if !ok {
+		return ""
+	}
+	cur, have := keyer.E2EDeviceKey(ctx, device, origin)
+	switch {
+	case !have:
+		return sealedReasonRoster
+	case !bytes.Equal(cur, key):
+		return sealedReasonRekeyed
+	}
+	return ""
+}
+
 // sealedDenied records a refusal of a socket or a device in the denied log, at a
 // limited rate. The desk is told only of what a correct client never causes
 // (notify): a phone that has not been verified yet asks, and is refused with
@@ -926,22 +966,21 @@ func (s *Server) handleSealed(w http.ResponseWriter, r *http.Request) {
 			case <-tick.C:
 			}
 			if time.Since(born) > tm.maxAge {
-				s.sealedDenied(device, name, "session-age", false)
-				refuse(artifactCloseRefused, sealedReasonOff)
+				refuse(sealedCloseRenew, sealedReasonRenew)
 				return
 			}
 			if !l.gate() {
 				return
 			}
 			rctx, rcancel := context.WithTimeout(ctx, tm.roster)
-			ok := ra.E2ECapable(rctx, device, origin)
+			reason := s.liveRosterReason(rctx, ra, device, origin, l.key)
 			rcancel()
 			if ctx.Err() != nil {
 				return
 			}
-			if !ok {
-				s.sealedDenied(device, name, approvalReasonKey, false)
-				refuse(artifactCloseRefused, approvalReasonKey)
+			if reason != "" {
+				s.sealedDenied(device, name, reason, false)
+				refuse(artifactCloseRefused, reason)
 				return
 			}
 		}
