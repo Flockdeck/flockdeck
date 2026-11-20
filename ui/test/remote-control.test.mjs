@@ -2,13 +2,26 @@
 // connection): the command it sends and when it is offered.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { CONTROL_ACK_WORDS, controlCommand, controlView } from "../src/lib/remote.js";
+import { CONTROL_ACK_WORDS, approveCommand, challengeCommand, controlCommand, controlView } from "../src/lib/remote.js";
 
-test("controlCommand: on carries the confirmation, off needs none, no id sends nothing", () => {
-  assert.deepEqual(controlCommand("d1", true), { cmd: "setDeviceControl", id: "d1", on: true, confirmed: true });
+test("controlCommand: on carries the confirmation and the host's nonce, off needs none, no id sends nothing", () => {
+  const ch = { id: "d1", kind: "control", nonce: "n1", v: 3 };
+  assert.deepEqual(controlCommand("d1", true, ch), { cmd: "setDeviceControl", id: "d1", on: true, confirmed: true, nonce: "n1", v: 3 });
+  // Without the host's challenge for this device and of this kind, nothing is sent: the host would refuse it.
+  assert.equal(controlCommand("d1", true), null);
+  assert.equal(controlCommand("d1", true, { ...ch, id: "d2" }), null);
+  assert.equal(controlCommand("d1", true, { ...ch, nonce: "" }), null);
+  assert.equal(controlCommand("d1", true, { ...ch, kind: undefined }), null, "the approving question's nonce is not this one's");
+  assert.equal(approveCommand("d1", true, ch), null, "and the control nonce does not turn approving on");
   assert.deepEqual(controlCommand("d1", false), { cmd: "setDeviceControl", id: "d1", on: false });
   assert.equal(controlCommand("", true), null);
   assert.equal(controlCommand(undefined, false), null);
+});
+
+test("challengeCommand asks the control question only when told to", () => {
+  assert.deepEqual(challengeCommand("d1", "control"), { cmd: "approveChallenge", id: "d1", kind: "control" });
+  assert.deepEqual(challengeCommand("d1"), { cmd: "approveChallenge", id: "d1" });
+  assert.equal(challengeCommand("", "control"), null);
 });
 
 test("controlView: only a full device with a verified key can be switched on", () => {

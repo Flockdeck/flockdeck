@@ -393,9 +393,11 @@ export function unverifyCommand(id, origin) {
   return id ? { cmd: "remoteUnverify", id, kind: origin === "desk" ? "desk" : "usual" } : null;
 }
 
-/** challengeCommand opens the question for a device: the host answers with the wording and a one-time nonce for this window. */
-export function challengeCommand(id) {
-  return id ? { cmd: "approveChallenge", id } : null;
+/** challengeCommand opens the question for a device: the host answers with the wording and a one-time nonce for this window.
+ *  kind "control" asks the question about turning Control agents on; anything else asks the one about approving. */
+export function challengeCommand(id, kind) {
+  if (!id) return null;
+  return kind === "control" ? { cmd: "approveChallenge", id, kind: "control" } : { cmd: "approveChallenge", id };
 }
 
 /** approveCommand turns a device's approving on or off. Turning it on carries the wording version the person was shown and the
@@ -403,7 +405,7 @@ export function challengeCommand(id) {
 export function approveCommand(id, on, challenge) {
   if (!id) return null;
   if (!on) return { cmd: "setDeviceApprove", id, on: false };
-  if (!challenge || challenge.id !== id || typeof challenge.nonce !== "string" || !challenge.nonce) return null;
+  if (!challenge || challenge.id !== id || challenge.kind === "control" || typeof challenge.nonce !== "string" || !challenge.nonce) return null;
   return { cmd: "setDeviceApprove", id, on: true, nonce: challenge.nonce, v: challenge.v };
 }
 
@@ -411,10 +413,14 @@ export function approveCommand(id, on, challenge) {
 export const CONTROL_ACK_WORDS =
   "This device will be able to send messages and pictures to your agents, stop them, answer their questions, approve their plans once, run one-line shell commands in a structured pane, start new agents (on a new branch if it asks), pick up a past conversation and add worktrees to projects Flockdeck knows. It can ask to commit, push or pull, which you allow here one request at a time. It cannot allow always, approve tool requests or merge. Turn it off here at any time.";
 
-/** controlCommand turns a device's right to control agents on or off. Turning it on says the person has just read CONTROL_ACK_WORDS. */
-export function controlCommand(id, on) {
+/** controlCommand turns a device's right to control agents on or off. Turning it on says the person has just read the wording
+ *  and carries the one-use nonce the host gave this window for this device (challengeCommand(id, "control")); without a
+ *  challenge of kind "control" for this device it is null and nothing is sent. */
+export function controlCommand(id, on, challenge) {
   if (!id) return null;
-  return on ? { cmd: "setDeviceControl", id, on: true, confirmed: true } : { cmd: "setDeviceControl", id, on: false };
+  if (!on) return { cmd: "setDeviceControl", id, on: false };
+  if (!challenge || challenge.id !== id || challenge.kind !== "control" || typeof challenge.nonce !== "string" || !challenge.nonce) return null;
+  return { cmd: "setDeviceControl", id, on: true, confirmed: true, nonce: challenge.nonce, v: challenge.v };
 }
 
 /** controlView is how a device row shows the switch: only a full device can hold it, and it needs a verified key. */

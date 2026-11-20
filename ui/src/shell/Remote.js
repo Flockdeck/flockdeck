@@ -170,17 +170,19 @@ export function Remote({ status, roster, challenge = null, pair, outcome, remote
   // The words are the host's own when it has answered; this page's copy until then.
   // The answer to this question's own request for a challenge: for this device, newer than the one the page held when the
   // question opened (that one was spent or is another question's), with a nonce and no error.
-  const freshChallenge = (q, c) => !!q && !!q.device && !!c && c.id === q.device.id && (c.seq || 0) > (q.device.base || 0);
+  // The challenge of the other kind (approving, or Control agents) is never taken for this one's.
+  const kindOf = (at) => (typeof at !== "string" ? "" : at.startsWith("approve:") ? "approve" : at.startsWith("control:") ? "control" : "");
+  const freshChallenge = (q, c) => !!q && !!q.device && !!c && c.id === q.device.id && (c.seq || 0) > (q.device.base || 0) && (c.kind === "control" ? "control" : "approve") === kindOf(q.at);
   const approveReady = (q, c) => freshChallenge(q, c) && typeof c.nonce === "string" && c.nonce !== "" && !c.error;
-  const approveWords = (q) => (approveReady(q, challenge) && challenge.text ? challenge.text : APPROVE_ACK_WORDS);
+  const approveWords = (q) => (approveReady(q, challenge) && challenge.text ? challenge.text : kindOf((q && q.at) || "") === "control" ? CONTROL_ACK_WORDS : APPROVE_ACK_WORDS);
   const confirmFor = (at) =>
     asking && asking.at === at
-      ? html`<${Confirm} title=${asking.title} words=${at.startsWith("approve:") ? [approveWords(asking)] : asking.words} label=${asking.label}
-          disabled=${at.startsWith("approve:") && !approveReady(asking, challenge)}
-          note=${at.startsWith("approve:") && freshChallenge(asking, challenge) ? challenge.error || "" : ""}
+      ? html`<${Confirm} title=${asking.title} words=${kindOf(at) ? [approveWords(asking)] : asking.words} label=${asking.label}
+          disabled=${!!kindOf(at) && !approveReady(asking, challenge)}
+          note=${kindOf(at) && freshChallenge(asking, challenge) ? challenge.error || "" : ""}
           onConfirm=${() => {
             const q = asking;
-            if (q.at.startsWith("approve:") && !approveReady(q, challengeRef.current)) return;
+            if (kindOf(q.at) && !approveReady(q, challengeRef.current)) return;
             setAsking(null);
             if (changed(q)) {
               setProblem("Access for " + q.device.name + " changed while you were deciding. Nothing was sent. Look at it again.");
@@ -358,8 +360,12 @@ export function Remote({ status, roster, challenge = null, pair, outcome, remote
                 onClick=${() => go(controlCommand(d.id, false))}>Control: on</button>`
             : html`<button type="button" class="dialog-btn remote-control" aria-pressed="false" disabled=${!ct.canTurnOn}
                 aria-label=${"Controlling agents for " + name + ": off. " + (ct.canTurnOn ? "Press to turn it on." : "Verify its code first.")}
-                onClick=${() => ask("control:" + d.id, "Let " + name + " control your agents?", [CONTROL_ACK_WORDS], "Allow control",
-                  () => go(controlCommand(d.id, true)), { ...about, key: d.approveKey })}>Control: off</button>`}
+                onClick=${() => {
+                  if (!go(challengeCommand(d.id, "control"))) return;
+                  ask("control:" + d.id, "Let " + name + " control your agents?", [CONTROL_ACK_WORDS], "Allow control", () => {
+                    if (!go(controlCommand(d.id, true, challengeRef.current))) setProblem("The desktop has not sent its confirmation for " + name + " yet. Nothing was sent. Try again.");
+                  }, { ...about, key: d.approveKey, base: challenge ? challenge.seq || 0 : 0 });
+                }}>Control: off</button>`}
         <button type="button" class="dialog-btn" onClick=${() => setRenaming({ kind: "device", id: d.id, value: d.name })}>Rename</button>
         <button type="button" class="dialog-btn dialog-btn--danger" aria-label=${"Unpair " + name}
           onClick=${() => ask("device:" + d.id, mine ? "Unpair this device?" : "Unpair " + name + "?",
