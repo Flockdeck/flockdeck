@@ -195,7 +195,7 @@ func TestSealedCommitWaitsForTheDesk(t *testing.T) {
 	e, p, desk, repo := gitEnv(t)
 	s := e.srv
 	dirty(t, repo)
-	p.send(command{Cmd: "commit", Path: repo, Text: "add new file " + sealedSecret, Req: "c1"})
+	p.send(command{Cmd: "commit", Path: repo, Text: "add new file", Req: "c1"})
 	waiting := p.gitState(confirmWaiting)
 	if waiting["req"] != "c1" || waiting["cmd"] != "commit" {
 		t.Errorf("waiting = %v", waiting)
@@ -353,6 +353,9 @@ func TestSealedConfirmExpiresAndGoesWithTheSocket(t *testing.T) {
 		t.Errorf("the desk was told %+v", done)
 	}
 	e.srv.handleCommand(desk, command{Cmd: "deskConfirmAnswer", ID: ask.ID, Nonce: ask.Nonce, On: true})
+	// A question left to lapse counts as a refusal; the wait it brings is not
+	// what this test is about.
+	e.srv.sealed.device("full").noteAllowed()
 
 	p.send(command{Cmd: "commit", Path: repo, Text: "m", Req: "c2"})
 	p.gitState(confirmWaiting)
@@ -499,6 +502,8 @@ func TestSealedGitAsksAreLimited(t *testing.T) {
 		}
 		e.srv.handleCommand(desk, command{Cmd: "deskConfirmAnswer", ID: ask.ID, Nonce: ask.Nonce, On: false})
 		p.gitState(confirmDenied)
+		// The wait a refusal brings is tested on its own (TestSealedDenyWaitsBeforeTheNextAsk).
+		e.srv.sealed.device("full").noteAllowed()
 	}
 	p.send(command{Cmd: "gitPull", Path: repo, Req: "q"})
 	p.gitState(confirmBusy)

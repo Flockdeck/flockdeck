@@ -164,6 +164,9 @@ func (s *Server) revokeSelf(c *controlClient, req string) {
 		l.writeFrame(ctx, mustMarshal(res))
 		s.forgetVerified(device)
 		s.forgetRole(device)
+		// Its Control agents record goes with it: a device paired again under the
+		// same id must be allowed again, not inherit the old grant.
+		s.clearControlFor(device, "unpaired", "A device that unpaired itself had its right to control agents removed")
 		s.approvals.auditAsync(auditEvent{Event: "sealed-self", Device: device, DeviceName: name, Kind: "remoteRevoke", Reason: "unpaired"})
 		who := tidy(name)
 		if who == "" {

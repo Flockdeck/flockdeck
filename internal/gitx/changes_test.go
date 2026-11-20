@@ -1871,3 +1871,36 @@ func TestDiffOfAnIgnoredFileDoesNotRenderIt(t *testing.T) {
 		t.Errorf("an ignored file was shown:\n%s", diff)
 	}
 }
+
+// ReviewSnapshot lists every changed file, ignored ones left out, each with a
+// stamp, and SameReviewed notices a file written since.
+func TestReviewSnapshotListsEverythingAndNoticesAWrite(t *testing.T) {
+	t.Parallel()
+	repo := newRepo(t)
+	if err := os.WriteFile(filepath.Join(repo, ".gitignore"), []byte("skip.log\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for name, body := range map[string]string{"README.md": "x\n", "b.txt": "b\n", "skip.log": "no\n"} {
+		if err := os.WriteFile(filepath.Join(repo, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a, err := ReviewSnapshot(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(a.Files, ","); got != ".gitignore,README.md,b.txt" {
+		t.Errorf("files = %q", got)
+	}
+	b, _ := ReviewSnapshot(repo)
+	if !SameReviewed(a, b) {
+		t.Error("an unchanged tree was not the same")
+	}
+	if err := os.WriteFile(filepath.Join(repo, "b.txt"), []byte("a longer b\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c, _ := ReviewSnapshot(repo)
+	if SameReviewed(a, c) {
+		t.Error("a file written since was not noticed")
+	}
+}

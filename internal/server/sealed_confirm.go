@@ -5,8 +5,10 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/jmwri/flockdeck/internal/gitx"
+	"github.com/jmwri/flockdeck/internal/record"
 )
 
 // Tier C of /ws/sealed (docs/remote-parity: stage 6): commit, push and pull from
@@ -34,6 +36,17 @@ import (
 // the person's GitHub account, so the desk reads what it says and which pull
 // request or issue it is for before it runs.
 //
+// What the desk is shown is what runs. The host reads the repository itself when
+// the request arrives (the files a commit would record, the branch, where a push
+// would go), stores that, and ignores whatever the device said about files at the
+// yes: the device's Files, Stamps and Omitted are never used. The folder, branch
+// and remote are pinned at the ask, and a yes is refused ("moved") if the
+// folder is no longer a known project, the branch is another, the remote
+// changed, or the files a commit would record are no longer the ones shown. A
+// message or comment is shown whole; one the desk's redaction would change, or
+// that holds a character that cannot be shown as it is, is refused rather than
+// posted as it was sent.
+//
 // Merges are not here and stay desk-only.
 
 const (
@@ -41,9 +54,13 @@ const (
 	deskConfirmLife = 2 * time.Minute
 	// deskConfirmMax is how many questions may be open at once, all devices.
 	deskConfirmMax = 8
-	// confirmMaxMessage and confirmMaxFiles bound what a commit request may carry.
-	confirmMaxMessage = 4000
+	// confirmMaxMessage is the most characters of a commit message or a GitHub
+	// comment a request may carry: all of it is shown to the person at the desk.
+	confirmMaxMessage = 1000
+	// confirmMaxFiles is the most changed files a commit request is asked for;
+	// confirmShownFiles of them are named to the desk, with a count of the rest.
 	confirmMaxFiles   = 5000
+	confirmShownFiles = 25
 )
 
 // The states of a gitConfirm (what the device is told) and the outcome of a
@@ -57,6 +74,10 @@ const (
 	confirmBusy    = "busy"   // another question of this device is open, or too many are
 	confirmNoDesk  = "nodesk" // no window at the desk to ask
 	confirmBad     = "bad"    // the request was not well formed
+	// confirmMoved: between the question and the yes the folder, the branch, the
+	// remote or the files of a commit changed, so what was shown is not what would
+	// run. Nothing ran; ask again.
+	confirmMoved = "moved"
 )
 
 // Words for the device. Fixed, so a refusal never quotes anything.
@@ -105,6 +126,11 @@ type deskConfirm struct {
 	nonces  map[*controlClient]string
 	expires time.Time
 	timer   *time.Timer
+
+	// What was shown, read by the host at the ask and held to at the yes.
+	branch   string
+	remote   string
+	reviewed *gitx.Reviewed
 }
 
 // deskConfirmState holds the questions open now.
@@ -213,41 +239,104 @@ func confirmAction(cmd command) string {
 	return "pull"
 }
 
-// confirmSummary is what the person at the desk reads. It names the repository,
-// the branch and, for a commit, the files and the first line of the message. It is
-// built from what the request will do, with control characters taken out; the
-// message and file names are the device's own words, shown as they are because
-// the person is deciding on them.
-func confirmSummary(cmd command, dir string) string {
+// shownText is text as the person at the desk is shown it, and whether it can be
+// shown faithfully. It cannot when the desk's redaction would change it (the
+// request is then refused: what posts must be what was read, not the raw text
+// behind a redacted view), when it holds a control or format character that
+// would be hidden or reorder what is read, or when it is longer than max.
+// A line break is shown as a visible mark so the text is read whole on one line.
+func shownText(text string, max int) (string, bool) {
+	text = strings.ReplaceAll(text, "\r\n", "\n")
+	if strings.TrimSpace(text) == "" || len([]rune(text)) > max || record.Redact(text) != text {
+		return "", false
+	}
+	var b strings.Builder
+	for _, r := range text {
+		switch {
+		case r == '\n':
+			b.WriteString(" ↵ ")
+		case r == '\t':
+			b.WriteByte(' ')
+		case unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || r == ' ' || r == ' ':
+			return "", false
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String(), true
+}
+
+// shownName is a file name as shown: the characters that cannot be shown become
+// a space, and a long one is cut. The person is deciding on the list, and a name
+// that cannot be shown whole is visibly cut ("...").
+func shownName(name string) string {
+	return cutAt(normaliseLine(name), 120)
+}
+
+// confirmSummary is what the person at the desk reads. It names the full folder,
+// the branch, where a push or pull would go and, for a commit, the files the
+// host found changed (all of them, up to confirmShownFiles by name and then a
+// count) and the whole message; for a comment, the whole comment. Control
+// characters are taken out. The text the device sent is shown as it will run;
+// shownText has already refused what cannot be.
+func confirmSummary(cmd command, dir, branch, remote string, r *gitx.Reviewed) string {
 	var b strings.Builder
 	if isGHComment(cmd.Cmd) {
 		kind := "pull request"
 		if cmd.Cmd == "ghIssueComment" {
 			kind = "issue"
 		}
-		b.WriteString("Comment on " + kind + " #" + strconv.Itoa(cmd.GHNumber) + " in " + tidy(shortName(dir)))
-		b.WriteString(". Comment: " + safeLine(cmd.GHBody, 300))
+		b.WriteString("Comment on " + kind + " #" + strconv.Itoa(cmd.GHNumber) + " in " + tidyFull(dir))
+		text, _ := shownText(cmd.GHBody, confirmMaxMessage)
+		b.WriteString(". Comment: " + text)
 		return b.String()
 	}
 	b.WriteString(strings.ToUpper(confirmAction(cmd)[:1]) + confirmAction(cmd)[1:])
 	b.WriteString(" in ")
-	b.WriteString(tidy(shortName(dir)))
-	if br := gitx.CurrentBranch(dir); br != "" {
+	b.WriteString(tidyFull(dir))
+	if branch != "" {
 		b.WriteString(" on branch ")
-		b.WriteString(tidy(br))
+		b.WriteString(tidyFull(branch))
 	}
-	if cmd.Cmd == "commit" {
-		switch {
-		case cmd.Files == nil:
-			b.WriteString(". Everything that changed")
-		case len(cmd.Files) == 1:
-			b.WriteString(". 1 file: " + safeLine(cmd.Files[0], 80))
-		default:
-			b.WriteString(". " + strconv.Itoa(len(cmd.Files)) + " files, among them " + safeLine(cmd.Files[0], 60))
+	if cmd.Cmd != "commit" || cmd.Push {
+		if remote != "" {
+			b.WriteString(". Remote: " + tidyFull(remote))
+		} else {
+			b.WriteString(". No remote found")
 		}
-		b.WriteString(". Message: " + safeLine(cmd.Text, 200))
+	}
+	if cmd.Cmd == "commit" && r != nil {
+		b.WriteString(". " + strconv.Itoa(len(r.Files)) + " changed file")
+		if len(r.Files) != 1 {
+			b.WriteString("s")
+		}
+		b.WriteString(": ")
+		for i, f := range r.Files {
+			if i == confirmShownFiles {
+				b.WriteString(", and " + strconv.Itoa(len(r.Files)-i) + " more")
+				break
+			}
+			if i > 0 {
+				b.WriteString(", ")
+			}
+			b.WriteString(shownName(f))
+		}
+		text, _ := shownText(cmd.Text, confirmMaxMessage)
+		b.WriteString(". Message: " + text)
 	}
 	return b.String()
+}
+
+// tidyFull is tidy without its length cut: a path is shown whole.
+func tidyFull(s string) string {
+	var b strings.Builder
+	for _, r := range s {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) || r == ' ' || r == ' ' {
+			r = ' '
+		}
+		b.WriteRune(r)
+	}
+	return strings.TrimSpace(b.String())
 }
 
 // askDeskGit holds a commit, push or pull from the device c until the desk
@@ -263,14 +352,15 @@ func (s *Server) askDeskGit(c *controlClient, cmd command) {
 		refuse(confirmBad)
 		return
 	}
+	// The text that will run must be showable as it is (shownText).
 	if cmd.Cmd == "commit" {
-		if strings.TrimSpace(cmd.Text) == "" || len(cmd.Text) > confirmMaxMessage || len(cmd.Files) > confirmMaxFiles {
+		if _, ok := shownText(cmd.Text, confirmMaxMessage); !ok {
 			refuse(confirmBad)
 			return
 		}
 	}
 	if isGHComment(cmd.Cmd) {
-		if cmd.GHNumber <= 0 || strings.TrimSpace(cmd.GHBody) == "" || len(cmd.GHBody) > confirmMaxMessage {
+		if _, ok := shownText(cmd.GHBody, confirmMaxMessage); !ok || cmd.GHNumber <= 0 {
 			refuse(confirmBad)
 			return
 		}
@@ -278,7 +368,7 @@ func (s *Server) askDeskGit(c *controlClient, cmd command) {
 	// The folder is known (refuseRemotePaths ran first); it must also be a working
 	// tree, so what the desk is shown is a repository.
 	dir, err := treeRoot(unquotePath(cmd.Path))
-	if err != nil {
+	if err != nil || !s.remotePathKnown(dir) {
 		refuse(confirmBad)
 		return
 	}
@@ -288,7 +378,9 @@ func (s *Server) askDeskGit(c *controlClient, cmd command) {
 		refuse(confirmOff)
 		return
 	}
-	if !s.sealed.device(c.device).asks.Allow(1) {
+	dev := s.sealed.device(c.device)
+	// A desk that has said no to this device lately is not asked again at once.
+	if !dev.mayAskAt(time.Now()) || !dev.asks.Allow(1) {
 		refuse(confirmBusy)
 		return
 	}
@@ -297,17 +389,37 @@ func (s *Server) askDeskGit(c *controlClient, cmd command) {
 		refuse(confirmNoDesk)
 		return
 	}
+	// What would run, read now by the host: the branch, where a push or pull goes
+	// and, for a commit, every file it would record. None of it comes from the device.
+	branch := gitx.CurrentBranch(dir)
+	var remote string
+	if cmd.Cmd != "commit" || cmd.Push {
+		remote = gitx.PushTarget(dir)
+	}
+	var reviewed *gitx.Reviewed
+	if cmd.Cmd == "commit" {
+		r, err := gitx.ReviewSnapshot(dir)
+		if err != nil || len(r.Files) == 0 || len(r.Files) > confirmMaxFiles {
+			refuse(confirmBad)
+			return
+		}
+		reviewed = &r
+	}
 	id, err := randomHex(8)
 	if err != nil {
 		refuse(confirmBad)
 		return
 	}
-	cmd.Path = unquotePath(cmd.Path)
+	// The folder the request runs in is the one shown, not the device's spelling.
+	cmd.Path = dir
+	// The device's own account of the files is not used: the host's list is.
+	cmd.Files, cmd.Stamps, cmd.Omitted = nil, nil, 0
 	q := &deskConfirm{
 		id: id, device: c.device, name: l.name, key: l.key, link: l, c: c, cmd: cmd,
 		action: confirmAction(cmd), dir: dir, nonces: map[*controlClient]string{}, expires: time.Now().Add(deskConfirmLife),
+		branch: branch, remote: remote, reviewed: reviewed,
 	}
-	summary := confirmSummary(cmd, dir)
+	summary := confirmSummary(cmd, dir, branch, remote, reviewed)
 	for _, w := range windows {
 		n, err := randomHex(16)
 		if err != nil {
@@ -316,11 +428,14 @@ func (s *Server) askDeskGit(c *controlClient, cmd command) {
 		}
 		q.nonces[w] = n
 	}
+	// The timer is set before the question is shared, so nothing reads it while
+	// it is written.
+	q.timer = time.AfterFunc(deskConfirmLife, func() { s.settleConfirm(id, confirmExpired) })
 	if !s.deskConfirms.add(q) {
+		q.timer.Stop()
 		refuse(confirmBusy)
 		return
 	}
-	q.timer = time.AfterFunc(deskConfirmLife, func() { s.settleConfirm(id, confirmExpired) })
 	s.approvals.auditAsync(auditEvent{Event: "sealed-git", Device: c.device, DeviceName: l.name, Kind: cmd.Cmd, Reason: "asked"})
 	for w, n := range q.nonces {
 		w.sendJSON(deskConfirmMsg{Type: "deskConfirm", ID: id, State: "ask", Nonce: n, Action: q.action, Device: tidy(l.name), Summary: summary, ExpiresMS: int(deskConfirmLife / time.Millisecond)})
@@ -351,6 +466,11 @@ func (s *Server) settleConfirm(id, outcome string) {
 }
 
 func (s *Server) finishConfirm(q *deskConfirm, outcome string) {
+	// A no, or a question left to lapse, lengthens the wait before this device may
+	// put another (sealedDevice.noteDenied).
+	if outcome == confirmDenied || outcome == confirmExpired {
+		s.sealed.device(q.device).noteDenied(time.Now())
+	}
 	q.c.confirmState(q.cmd, q.id, outcome, 0)
 	s.approvals.auditAsync(auditEvent{Event: "sealed-git", Device: q.device, DeviceName: q.name, Kind: q.cmd.Cmd, Reason: outcome})
 	for w := range q.nonces {
@@ -390,22 +510,56 @@ func (s *Server) answerDeskConfirm(c *controlClient, cmd command) {
 		s.finishConfirm(q, confirmOff)
 		return
 	}
+	// What was shown is looked at once more: the folder, the branch, the remote
+	// and the files of a commit must still be what the person read.
+	if !s.pinHolds(q) {
+		s.finishConfirm(q, confirmMoved)
+		return
+	}
+	s.sealed.device(q.device).noteAllowed()
 	s.approvals.auditAsync(auditEvent{Event: "sealed-git", Device: q.device, DeviceName: q.name, Kind: q.cmd.Cmd, Reason: confirmAllowed})
 	q.c.confirmState(q.cmd, q.id, confirmAllowed, 0)
 	for w := range q.nonces {
 		w.sendJSON(deskConfirmMsg{Type: "deskConfirm", ID: q.id, State: "done", Action: q.action, Outcome: confirmAllowed})
 	}
-	s.runGitAction(q.c, q.cmd)
+	s.runGitAction(q.c, q)
 }
 
-// runGitAction runs a confirmed request with the arguments the device sent. A
-// git warning about the repository's settings or hooks is still answered at the
-// desk only (gitProgramsAccepted refuses it to a remote client), so no answer is
-// passed.
-func (s *Server) runGitAction(c *controlClient, cmd command) {
+// pinHolds reports whether what the person was shown at the ask is still what
+// would run: the folder is a known project, the branch is the same, a push or
+// pull goes to the same remote, and the files a commit would record are the
+// same, unwritten since.
+func (s *Server) pinHolds(q *deskConfirm) bool {
+	if !s.remotePathKnown(q.dir) {
+		return false
+	}
+	if gitx.CurrentBranch(q.dir) != q.branch {
+		return false
+	}
+	if (q.cmd.Cmd != "commit" || q.cmd.Push) && gitx.PushTarget(q.dir) != q.remote {
+		return false
+	}
+	if q.reviewed != nil {
+		now, err := gitx.ReviewSnapshot(q.dir)
+		if err != nil || !gitx.SameReviewed(*q.reviewed, now) {
+			return false
+		}
+	}
+	return true
+}
+
+// runGitAction runs a confirmed request in the folder pinned at the ask. A commit
+// is made of the files the host listed then (q.reviewed), never of what the device
+// sent. A git warning about the repository's settings or hooks is still answered
+// at the desk only (gitProgramsAccepted refuses it to a remote client), so no
+// answer is passed.
+func (s *Server) runGitAction(c *controlClient, q *deskConfirm) {
+	cmd := q.cmd
+	cmd.Path = q.dir
 	switch cmd.Cmd {
 	case "commit":
-		s.commitChanges(c, cmd.Path, cmd.Text, cmd.Push, cmd.Files, cmd.Stamps, cmd.Omitted, gitAnswer{})
+		r := q.reviewed
+		s.commitChanges(c, cmd.Path, cmd.Text, cmd.Push, r.Files, r.Stamps, r.Unlisted, gitAnswer{})
 	case "gitPush":
 		s.runRemote(c, "push", cmd.Path, gitAnswer{})
 	case "gitPull":

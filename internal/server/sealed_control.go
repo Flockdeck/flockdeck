@@ -209,6 +209,12 @@ func (s *Server) reconcileControl(devices []remote.Device) {
 // clearControl switches one device's control off, ends its sockets, and makes any
 // turn-on still being checked give up.
 func (s *Server) clearControl(device string) {
+	s.clearControlFor(device, "key-changed-or-unpaired", "A device's right to control agents was switched off because its key is no longer the one it was allowed with. Allow it again once you have verified the key")
+}
+
+// clearControlFor is clearControl with the reason written to the log and the
+// words the desk is told.
+func (s *Server) clearControlFor(device, reason, notice string) {
 	s.controlGen.Add(1)
 	changed := false
 	s.updateAccessReport(true, func(p *store.Prefs) bool {
@@ -227,8 +233,8 @@ func (s *Server) clearControl(device string) {
 	}, func(applied bool, _ error) {
 		if applied && changed {
 			s.sockets.cut(device)
-			s.approvals.auditAsync(auditEvent{Event: "device-control-off", Device: device, Reason: "key-changed-or-unpaired"})
-			s.noticeDesk("A device's right to control agents was switched off because its key is no longer the one it was allowed with. Allow it again once you have verified the key", false)
+			s.approvals.auditAsync(auditEvent{Event: "device-control-off", Device: device, Reason: reason})
+			s.noticeDesk(notice, false)
 		}
 	})
 }

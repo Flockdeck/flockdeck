@@ -68,7 +68,9 @@ Held for a yes at the desk (see below): `commit`, `gitPush`, `gitPull`, `ghPRCom
 
 ## The Control agents switch
 
-It is per device, off for every device including ones that were full before, and set only at the desk: Settings, Remote, the **Control** button beside a device. Turning it on shows what it allows and needs the device's key marked verified. `setDeviceControl` is refused from any window reached through the relay, so a phone cannot grant itself the right.
+Tier B is equivalent to remote code execution on this machine. A device with Control agents can run shell commands in a structured pane (`structuredShell*`), start an agent with any first prompt (`startAgent`), and type into any pane it can see (`paneSend`), and none of these is confirmed at the desk. Whatever an agent in that pane can do, the device can make it do. The only gate is this switch, so turn it on only for a phone you would trust with a terminal on this machine. Tier C (commit, push, pull, GitHub comments) is the only tier a person at the desk confirms.
+
+It is per device, off for every device including ones that were full before, and set only at the desk: Settings, Remote, the **Control** button beside a device. Turning it on shows what it allows, needs the device's key marked verified, and needs a one-use challenge the host gives that window for that device (`approveChallenge` with `kind` `control`), so a command sent blind or replayed does nothing. `setDeviceControl` is refused from any window reached through the relay, so a phone cannot grant itself the right.
 
 The grant is stored with the hash of the key it was made for (`DeviceAccess.ControlKey`). `mayControlWithKey` needs both the running record and the preferences file to say yes for the key in use now and a full role. It is asked before every tier B or C request and before every tier B message is written. A refusal is `sealedRefused` with code `control`.
 
@@ -78,13 +80,13 @@ Limits for tier B: 2 requests a second (burst 10) per device. `startAgent`, `res
 
 ## The desk confirm for commit, push and pull
 
-Tier C commands are not run when received. `askDeskGit` holds each as a `deskConfirm` for at most 2 minutes, with one open per device and eight in all. A device may ask 3 at once, then one every 20 seconds.
+Tier C commands are not run when received. `askDeskGit` holds each as a `deskConfirm` for at most 2 minutes, with one open per device and eight in all. A device may ask 3 at once, then one every 20 seconds. Each question the desk answers no to, or lets lapse, makes the device wait before it may ask again: 20 seconds, doubling for each further refusal within an hour, up to 15 minutes. A yes clears it.
 
-1. The phone sends `commit`, `gitPush` or `gitPull` with a `path` in a known project that is a working tree. A commit needs a message. `ghPRComment` and `ghIssueComment` need a PR or issue number and a body of up to 4,000 bytes.
-2. The phone is sent `gitConfirm` with a state: `waiting`, then `allowed`, `denied`, `expired`, or `off` (the right went, the key changed or the socket closed). `busy`, `nodesk` (no window on this machine to ask) and `bad` come at once.
-3. Every window on this machine that opened as a page is shown a card: the device name, the repository and branch, for a commit the file count and first line of the message, for a comment the number and the first 300 characters. Each window has its own nonce.
+1. The phone sends `commit`, `gitPush` or `gitPull` with a `path` in a known project that is a working tree. A commit needs a message of up to 1,000 characters. `ghPRComment` and `ghIssueComment` need a PR or issue number and a body of up to 1,000 characters. A message or comment that the desk's redaction would change, or that holds a control or formatting character, is refused (`bad`), not posted as sent.
+2. The phone is sent `gitConfirm` with a state: `waiting`, then `allowed`, `denied`, `expired`, or `off` (the right went, the key changed or the socket closed), or `moved` (the folder, branch, remote or files changed between the question and the yes). `busy`, `nodesk` (no window on this machine to ask) and `bad` come at once.
+3. Every window on this machine that opened as a page is shown a card: the device name, the full folder, the branch, for a push or pull the remote, for a commit every changed file the host finds (the first 25 by name, then a count) and the whole message, for a comment the number and the whole comment. The host reads the repository itself at that moment; what the phone says about files is ignored. Each window has its own nonce.
 4. The answer, `deskConfirmAnswer`, is taken only from such a window with its nonce, and only once. The device's right is checked again before anything runs.
-5. A yes runs that one request with the arguments the device sent, as a remote client, so a git settings or hook warning is still answered at the desk. Nothing is remembered; the next request is asked again.
+5. A yes first checks that the folder is still a known project, the branch and remote are the same and, for a commit, the files and their sizes and times are the ones shown; if not, the device gets `moved` and nothing runs. Otherwise it runs that one request in the folder shown, with the message the device sent and the files the host listed, as a remote client, so a git settings or hook warning is still answered at the desk. Nothing is remembered; the next request is asked again.
 
 Over `/ws/control` the same commands are refused (`gitDeskOnly`, `ghDeskOnly`). The device log records `sealed-git` events (asked, then the outcome) by device name and kind, with no message, path or file name.
 
