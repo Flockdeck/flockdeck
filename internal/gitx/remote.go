@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -260,26 +261,116 @@ func Remotes(dir string) []string {
 	return names
 }
 
-// PushTarget names where a push of the checked-out branch would go: the remote
-// the branch tracks, else the one Push would pick, with its push URL. It is ""
-// when there is no branch or no remote. A person is shown it before a push they
-// did not start themselves is run (the sealed phone socket).
-func PushTarget(dir string) string {
+// pushDest is where a push of the checked-out branch would go: the remote the
+// branch tracks, else the one Push would pick, and the branch name there. ok is
+// false when there is no branch or no remote.
+func pushDest(dir string) (remote, name string, ok bool) {
 	branch := CurrentBranch(dir)
 	if branch == "" {
-		return ""
+		return "", "", false
 	}
-	var remote, name string
 	if up := UpstreamOf(dir); up != "" {
 		remote, name = splitUpstream(dir, up)
 	}
 	if remote == "" {
 		r, err := pushRemote(dir, branch)
 		if err != nil {
-			return ""
+			return "", "", false
 		}
 		remote, name = r, branch
 	}
+	return remote, name, true
+}
+
+// PushTarget names where a push of the checked-out branch would go: the remote
+// the branch tracks, else the one Push would pick, with its push URL. It is ""
+// when there is no branch or no remote. A person is shown it before a push they
+// did not start themselves is run (the sealed phone socket).
+func PushTarget(dir string) string {
+	remote, name, ok := pushDest(dir)
+	if !ok {
+		return ""
+	}
 	url, _ := run(dir, "remote", "get-url", "--push", remote)
 	return remote + " " + strings.TrimSpace(url) + " (branch " + name + ")"
+}
+
+// HeadSHA is the commit the checked-out branch is at, or "" when there is none
+// (a branch with no commits yet, or a folder that is not a repository).
+func HeadSHA(dir string) string {
+	out, err := run(dir, "rev-parse", "--verify", "-q", "HEAD")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(out)
+}
+
+// PushAhead counts the commits a push of the checked-out branch would send: those
+// not yet on the branch's upstream, or, with none, on any branch of the remote a
+// first push would go to. An error means it could not be read.
+func PushAhead(dir string) (int, error) {
+	args := []string{"rev-list", "--count", "@{u}..HEAD"}
+	if UpstreamOf(dir) == "" {
+		remote, _, ok := pushDest(dir)
+		if !ok {
+			return 0, errors.New("no remote to count against")
+		}
+		args = []string{"rev-list", "--count", "HEAD", "--not", "--remotes=" + remote}
+	}
+	out, err := run(dir, args...)
+	if err != nil {
+		return 0, err
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(out))
+	if err != nil {
+		return 0, err
+	}
+	return n, nil
+}
+
+// PushSettingsRisk says, in fixed words, why a plain "git push" here would send
+// more than the checked-out branch, or somewhere other than the remote PushTarget
+// names: push.default of "matching" (every branch), a remote.<name>.push refspec
+// that names something else or a mirror remote, a branch.<name>.pushRemote or
+// remote.pushDefault that redirects the push. It is "" when the push is the one
+// shown. The agent that wrote to the repository can set any of these between a
+// question and its answer, so the check is made at both.
+func PushSettingsRisk(dir string) string {
+	branch := CurrentBranch(dir)
+	remote, _, ok := pushDest(dir)
+	if branch == "" || !ok {
+		return ""
+	}
+	get := func(key string) string {
+		out, err := run(dir, "config", "--get", key)
+		if err != nil {
+			return ""
+		}
+		return strings.TrimSpace(out)
+	}
+	switch strings.ToLower(get("push.default")) {
+	case "", "simple", "current", "upstream", "tracking", "nothing":
+	default:
+		return "push.default would send more than the current branch"
+	}
+	if r := get("branch." + branch + ".pushRemote"); r != "" && r != remote {
+		return "branch.<name>.pushRemote sends the push to another remote"
+	}
+	if r := get("remote.pushDefault"); r != "" && r != remote && get("branch."+branch+".pushRemote") == "" {
+		return "remote.pushDefault sends the push to another remote"
+	}
+	if strings.EqualFold(get("remote."+remote+".mirror"), "true") {
+		return "the remote is a mirror, which a push sends every ref to"
+	}
+	if out, err := run(dir, "config", "--get-all", "remote."+remote+".push"); err == nil {
+		for _, spec := range strings.Split(out, "\n") {
+			spec = strings.TrimSpace(spec)
+			switch spec {
+			case "", "HEAD", branch, "refs/heads/" + branch, branch + ":" + branch, "refs/heads/" + branch + ":refs/heads/" + branch:
+			default:
+				return "remote.<name>.push sends something other than the current branch"
+			}
+		}
+	}
+	return ""
 }

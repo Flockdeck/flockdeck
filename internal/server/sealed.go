@@ -473,9 +473,10 @@ const (
 	sealedDenyMemory = time.Hour
 )
 
-// noteDenied records that the desk said no to a question of this device, or let
-// it lapse, and lengthens the wait before it may ask again: a stolen phone
-// cannot raise a modal at the desk every few seconds for as long as it likes.
+// noteDenied records that the desk said no to a question of this device and
+// lengthens the wait before it may ask again: a stolen phone cannot raise a modal
+// at the desk every few seconds for as long as it likes. Only an explicit no
+// counts toward the doubling; a question left to lapse is noteLapsed.
 func (d *sealedDevice) noteDenied(now time.Time) {
 	d.dmu.Lock()
 	defer d.dmu.Unlock()
@@ -494,6 +495,18 @@ func (d *sealedDevice) noteDenied(now time.Time) {
 	d.askNotBef = now.Add(wait)
 }
 
+// noteLapsed records a question nobody answered. Nobody at the desk may simply
+// have been away, so it is not counted as a refusal: it costs the base wait (so a
+// phone cannot raise a modal every few seconds) and does not move the doubling,
+// which would otherwise push the wait to its longest without anyone having said no.
+func (d *sealedDevice) noteLapsed(now time.Time) {
+	d.dmu.Lock()
+	defer d.dmu.Unlock()
+	if at := now.Add(sealedDenyBase); at.After(d.askNotBef) {
+		d.askNotBef = at
+	}
+}
+
 // noteAllowed clears the record: a person who says yes is using the phone.
 func (d *sealedDevice) noteAllowed() {
 	d.dmu.Lock()
@@ -502,10 +515,16 @@ func (d *sealedDevice) noteAllowed() {
 }
 
 // mayAskAt reports whether the wait after the last refusal is over.
-func (d *sealedDevice) mayAskAt(now time.Time) bool {
+func (d *sealedDevice) mayAskAt(now time.Time) bool { return d.waitAt(now) == 0 }
+
+// waitAt is how long is left of the wait after the last refusal, or 0.
+func (d *sealedDevice) waitAt(now time.Time) time.Duration {
 	d.dmu.Lock()
 	defer d.dmu.Unlock()
-	return !now.Before(d.askNotBef)
+	if now.Before(d.askNotBef) {
+		return d.askNotBef.Sub(now)
+	}
+	return 0
 }
 
 func (st *sealedState) device(id string) *sealedDevice {

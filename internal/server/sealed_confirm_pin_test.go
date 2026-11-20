@@ -159,7 +159,7 @@ func TestSealedDenyWaitsBeforeTheNextAsk(t *testing.T) {
 	e.srv.handleCommand(desk, command{Cmd: "deskConfirmAnswer", ID: ask.ID, Nonce: ask.Nonce, On: false})
 	p.gitState(confirmDenied)
 	p.send(command{Cmd: "gitPull", Path: repo, Req: "b"})
-	p.gitState(confirmBusy)
+	p.gitState(confirmWait)
 	noNewAsk(t, desk)
 }
 
