@@ -59,7 +59,7 @@ Tier A: `pushPrefsGet` (any served device) answers `pushPrefs`: `off`, `anonymou
 
 GitHub reads for a full device (`sealedFullOnly`): `ghStatus` (installed, signed in, account and host), `ghPRs`, `ghPR`, `ghIssues`, `ghIssue`. A pull request or issue is cut to a size (`scrubGHView`: body 20,000 characters, the newest 50 comments, each 4,000) and redacted.
 
-Tier B: `pushNotify`, `pushAnonymous`, `pushDelay` (a delay out of bounds is not a change). Each is answered with `pushPrefs`, changed or not. They change what is pushed to every paired device, so they need the device's Control agents switch like the rest of tier B.
+Not on the socket: `pushNotify`, `pushAnonymous`, `pushDelay`. They change what is pushed to every paired device and no prompt at the desk guards them, so they are desk only. `pushPrefsGet` stays a read and is answered with `pushPrefs`.
 
 Tier C, held for a yes at the desk with the commit, push and pull flow ([sealed_confirm.go](../../../internal/server/sealed_confirm.go)): `ghPRComment` and `ghIssueComment`. The request needs `path` (a working tree in a known project), `ghNumber` above zero and a non-blank `ghBody` of at most 4,000 bytes. The desk is asked "comment on a pull request" or "comment on an issue" with the number and the first 300 characters of the comment, and a yes posts exactly that. The answer is `gitConfirm` (its `cmd` names the command) and then `ghPR` or `ghIssue`. The unsealed socket refuses both (`ghDeskOnly`).
 

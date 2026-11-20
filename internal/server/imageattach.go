@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/jmwri/flockdeck/internal/store"
@@ -53,6 +55,37 @@ const (
 	attachImageRateWindow = 10 * time.Second
 )
 
+// The disk a picture may take. A sealed device is let attach attachDeviceBytes
+// in attachDeviceWindow (it is a paired phone with Control agents, but a stolen
+// one must not fill the disk); each pane's folder is kept to attachPaneFiles and
+// attachPaneBytes, the oldest going first; and the age sweep runs at most every
+// attachSweepEvery while pictures are being attached, not only at startup.
+const (
+	attachDeviceBytes  = 48 << 20
+	attachDeviceWindow = time.Hour
+	attachPaneFiles    = 20
+	attachPaneBytes    = 64 << 20
+	attachSweepEvery   = time.Hour
+)
+
+// lastAttachSweep is when the age sweep last ran, as Unix nanoseconds.
+var lastAttachSweep atomic.Int64
+
+// reserveUpload says whether the device may attach n more bytes now, and counts
+// them if so.
+func (d *sealedDevice) reserveUpload(n int64, now time.Time) bool {
+	d.dmu.Lock()
+	defer d.dmu.Unlock()
+	if now.Sub(d.upSince) > attachDeviceWindow {
+		d.upSince, d.upBytes = now, 0
+	}
+	if d.upBytes+n > attachDeviceBytes {
+		return false
+	}
+	d.upBytes += n
+	return true
+}
+
 // attachImage saves a picture the phone sent for a pane's prompt, and answers
 // with the path an agent in that pane can read it back from.
 func (s *Server) attachImage(c *controlClient, paneID, req, name, mediaType, dataB64 string) {
@@ -64,6 +97,16 @@ func (s *Server) attachImage(c *controlClient, paneID, req, name, mediaType, dat
 		defer s.surviveFor(c, "attaching a picture")
 		if paneID == "" {
 			return
+		}
+		// A sealed device has a byte quota; the check is on the encoded size, an
+		// upper bound of what is written.
+		if c.sealed != nil && !s.sealed.device(c.device).reserveUpload(int64(len(dataB64))*3/4, time.Now()) {
+			c.sendJSON(attachImageResultMsg{Type: "attachImageResult", ID: paneID, Req: req, Error: "too many pictures attached; try again later"})
+			return
+		}
+		if now := time.Now().UnixNano(); now-lastAttachSweep.Load() > int64(attachSweepEvery) {
+			lastAttachSweep.Store(now)
+			cleanupAttachedImages(attachedImageMaxAge)
 		}
 		// Scoped exactly as conversationOpen is: a client asking to attach to
 		// a pane it cannot see -- closed since, or never open to it at all --
@@ -115,12 +158,46 @@ func saveAttachedImage(paneID, name, mediaType, dataB64 string) (string, error) 
 	if err := os.MkdirAll(paneDir, 0o700); err != nil {
 		return "", fmt.Errorf("create a place to save it: %w", err)
 	}
+	trimPaneUploads(paneDir, attachPaneFiles-1, attachPaneBytes-int64(len(data)))
 	filename := fmt.Sprintf("%d-%s.%s", time.Now().UnixNano(), sanitizeAttachName(name), ext)
 	path := filepath.Join(paneDir, filename)
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		return "", fmt.Errorf("save it: %w", err)
 	}
 	return path, nil
+}
+
+// trimPaneUploads removes the oldest pictures of a pane's folder until it holds
+// at most maxFiles files and maxBytes bytes, to make room for one more.
+func trimPaneUploads(paneDir string, maxFiles int, maxBytes int64) {
+	entries, err := os.ReadDir(paneDir)
+	if err != nil {
+		return
+	}
+	type pic struct {
+		path string
+		at   time.Time
+		size int64
+	}
+	var pics []pic
+	var total int64
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		pics = append(pics, pic{filepath.Join(paneDir, e.Name()), info.ModTime(), info.Size()})
+		total += info.Size()
+	}
+	sort.Slice(pics, func(i, j int) bool { return pics[i].at.Before(pics[j].at) })
+	for len(pics) > 0 && (len(pics) > maxFiles || total > maxBytes) {
+		_ = os.Remove(pics[0].path)
+		total -= pics[0].size
+		pics = pics[1:]
+	}
 }
 
 // sanitizeAttachName reduces a name the phone sent to something safe to put

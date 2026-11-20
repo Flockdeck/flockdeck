@@ -51,7 +51,6 @@ A full device with Control agents on:
 - Answer a question card or approve a plan card, once (`permissionAnswer`): allow once or reject once, nothing else.
 - Start an agent in a folder inside a known project, optionally in a new worktree on a named branch; resume a past conversation; add a worktree; move a structured pane to another conversation or a clean one (`startAgent`, `resumeConversation`, `worktreeAdd`, `structuredResume`, `structuredNewConversation`).
 - Send a message to a pane, name or role from the team view, and mark mail seen (`msgSend`, `msgSeen`). The agent receives it as from the person.
-- Change the push settings (`pushNotify`, `pushAnonymous`, `pushDelay`). These apply to every paired device.
 
 ### Tier C
 

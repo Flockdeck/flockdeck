@@ -842,21 +842,18 @@
     {
       "name": "pushAnonymous",
       "access": "full",
-      "sealed": "B",
       "since": "1.0",
       "status": "stable"
     },
     {
       "name": "pushDelay",
       "access": "full",
-      "sealed": "B",
       "since": "1.0",
       "status": "stable"
     },
     {
       "name": "pushNotify",
       "access": "full",
-      "sealed": "B",
       "since": "1.0",
       "status": "stable"
     },

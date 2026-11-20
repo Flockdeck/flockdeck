@@ -259,3 +259,27 @@ func Remotes(dir string) []string {
 	}
 	return names
 }
+
+// PushTarget names where a push of the checked-out branch would go: the remote
+// the branch tracks, else the one Push would pick, with its push URL. It is ""
+// when there is no branch or no remote. A person is shown it before a push they
+// did not start themselves is run (the sealed phone socket).
+func PushTarget(dir string) string {
+	branch := CurrentBranch(dir)
+	if branch == "" {
+		return ""
+	}
+	var remote, name string
+	if up := UpstreamOf(dir); up != "" {
+		remote, name = splitUpstream(dir, up)
+	}
+	if remote == "" {
+		r, err := pushRemote(dir, branch)
+		if err != nil {
+			return ""
+		}
+		remote, name = r, branch
+	}
+	url, _ := run(dir, "remote", "get-url", "--push", remote)
+	return remote + " " + strings.TrimSpace(url) + " (branch " + name + ")"
+}

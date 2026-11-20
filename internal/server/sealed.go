@@ -188,15 +188,15 @@ var sealedCommands = map[string]string{
 
 	// Stage 8 (API 1.42). Tier A: the push preferences as they stand; the list of
 	// paired devices, cut down (full device only); unpairing the device itself and
-	// no other (sealedSelfOnly); GitHub reads for a full device. Tier B: the three
-	// push preferences. Tier C: a comment on a pull request or an issue, asked of
+	// no other (sealedSelfOnly); GitHub reads for a full device. Tier C: a comment on a pull request or an issue, asked of
 	// the desk each time. Not here, on purpose: remotePair, remoteRename,
 	// setDeviceRole, setDeviceControl, remoteVerify, remoteEnable and the other
 	// commands that change who can reach or control this machine, ghPRCreate,
-	// ghIssueCreate, ghLogin, ghLogout, ghInstall, merges.
+	// ghIssueCreate, ghLogin, ghLogout, ghInstall, merges, and the three push
+	// settings (pushNotify, pushAnonymous, pushDelay): they change what every
+	// paired device is sent, no prompt guards them, so they are the desk's.
 	"pushPrefsGet": sealedTierA, "remoteDevices": sealedTierA, "remoteRevoke": sealedTierA,
 	"ghStatus": sealedTierA, "ghPRs": sealedTierA, "ghPR": sealedTierA, "ghIssues": sealedTierA, "ghIssue": sealedTierA,
-	"pushNotify": sealedTierB, "pushAnonymous": sealedTierB, "pushDelay": sealedTierB,
 	"ghPRComment": sealedTierC, "ghIssueComment": sealedTierC,
 }
 
@@ -422,6 +422,9 @@ type sealedState struct {
 // sealedTimings are read once when a socket is accepted.
 type sealedTimings struct {
 	first, handshake, roster time.Duration
+	// recheck is how often a live socket is looked at against the roster and the
+	// desk's settings again, and maxAge is the longest a socket lives.
+	recheck, maxAge time.Duration
 }
 
 func (t sealedTimings) withDefaults() sealedTimings {
@@ -434,6 +437,12 @@ func (t sealedTimings) withDefaults() sealedTimings {
 	if t.roster == 0 {
 		t.roster = 10 * time.Second
 	}
+	if t.recheck == 0 {
+		t.recheck = 30 * time.Second
+	}
+	if t.maxAge == 0 {
+		t.maxAge = 12 * time.Hour
+	}
 	return t
 }
 
@@ -441,6 +450,62 @@ func (t sealedTimings) withDefaults() sealedTimings {
 // several does not multiply its allowance.
 type sealedDevice struct {
 	frames, connects, acts, spawns, asks *artifacts.Limiter
+
+	// dmu guards the desk's refusals of this device's questions: how many the
+	// person at the desk has said no to (or let lapse), and when the next one
+	// may be asked. See noteDenied.
+	dmu       sync.Mutex
+	upSince   time.Time
+	upBytes   int64
+	denials   int
+	lastDeny  time.Time
+	askNotBef time.Time
+}
+
+// sealedDeviceMax is how many devices keep an allowance in memory at once.
+const sealedDeviceMax = 1024
+
+const (
+	// sealedDenyBase is the wait after the first refused question; each further
+	// one within sealedDenyMemory doubles it, up to sealedDenyMax.
+	sealedDenyBase   = 20 * time.Second
+	sealedDenyMax    = 15 * time.Minute
+	sealedDenyMemory = time.Hour
+)
+
+// noteDenied records that the desk said no to a question of this device, or let
+// it lapse, and lengthens the wait before it may ask again: a stolen phone
+// cannot raise a modal at the desk every few seconds for as long as it likes.
+func (d *sealedDevice) noteDenied(now time.Time) {
+	d.dmu.Lock()
+	defer d.dmu.Unlock()
+	if now.Sub(d.lastDeny) > sealedDenyMemory {
+		d.denials = 0
+	}
+	d.denials++
+	d.lastDeny = now
+	wait := sealedDenyBase
+	for i := 1; i < d.denials && wait < sealedDenyMax; i++ {
+		wait *= 2
+	}
+	if wait > sealedDenyMax {
+		wait = sealedDenyMax
+	}
+	d.askNotBef = now.Add(wait)
+}
+
+// noteAllowed clears the record: a person who says yes is using the phone.
+func (d *sealedDevice) noteAllowed() {
+	d.dmu.Lock()
+	d.denials, d.askNotBef = 0, time.Time{}
+	d.dmu.Unlock()
+}
+
+// mayAskAt reports whether the wait after the last refusal is over.
+func (d *sealedDevice) mayAskAt(now time.Time) bool {
+	d.dmu.Lock()
+	defer d.dmu.Unlock()
+	return !now.Before(d.askNotBef)
 }
 
 func (st *sealedState) device(id string) *sealedDevice {
@@ -449,8 +514,24 @@ func (st *sealedState) device(id string) *sealedDevice {
 	if d := st.devices[id]; d != nil {
 		return d
 	}
-	if st.devices == nil || len(st.devices) >= 1024 {
+	if st.devices == nil {
 		st.devices = map[string]*sealedDevice{}
+	}
+	// Full: drop one entry, not the table, so a flood of new ids cannot reset
+	// every device's allowance. One with no socket open is chosen when there is
+	// one; the order of a map is the only randomness needed.
+	if len(st.devices) >= sealedDeviceMax {
+		victim := ""
+		for id := range st.devices {
+			if victim == "" {
+				victim = id
+			}
+			if st.open[id] == 0 {
+				victim = id
+				break
+			}
+		}
+		delete(st.devices, victim)
 	}
 	fr, _ := artifacts.NewLimiter(sealedFrameRate, sealedFrameBurst, nil)
 	cn, _ := artifacts.NewLimiter(float64(sealedConnectsPerMinute)/60, sealedConnectsPerMinute, nil)
@@ -695,18 +776,6 @@ func (s *Server) handleSealed(w http.ResponseWriter, r *http.Request) {
 		_ = conn.Close(websocket.StatusCode(code), reason)
 	}
 	tm := s.sealed.timings()
-	dev := s.sealed.device(device)
-	if !dev.connects.Allow(1) {
-		s.sealedDenied(device, name, "connect-rate", true)
-		refuse(artifactCloseBusy, artifactErrBusy)
-		return
-	}
-	if !s.sealed.take(device) {
-		s.sealedDenied(device, name, artifactErrBusy, true)
-		refuse(artifactCloseBusy, artifactErrBusy)
-		return
-	}
-	defer s.sealed.release(device)
 	var link *sealedLink
 	// Questions put to the desk for this socket end with it.
 	defer func() {
@@ -746,6 +815,20 @@ func (s *Server) handleSealed(w http.ResponseWriter, r *http.Request) {
 		refuse(artifactCloseRefused, sealedReasonAccess)
 		return
 	}
+	// Past the roster and the access checks: only now does the device get an
+	// allowance in memory, so an id that is not paired allocates nothing.
+	dev := s.sealed.device(device)
+	if !dev.connects.Allow(1) {
+		s.sealedDenied(device, name, "connect-rate", true)
+		refuse(artifactCloseBusy, artifactErrBusy)
+		return
+	}
+	if !s.sealed.take(device) {
+		s.sealedDenied(device, name, artifactErrBusy, true)
+		refuse(artifactCloseBusy, artifactErrBusy)
+		return
+	}
+	defer s.sealed.release(device)
 	hctx, hcancel := context.WithTimeout(ctx, tm.handshake)
 	sess, err := s.e2eHandshake(hctx, ra, conn, device, origin)
 	hcancel()
@@ -807,6 +890,43 @@ func (s *Server) handleSealed(w http.ResponseWriter, r *http.Request) {
 		keepalive(ctx, cancel, conn, new(writeGauge), s.pingInterval, s.pingTimeout)
 	}()
 	s.viewersChanged(c)
+
+	// A live socket is looked at again, whether or not it sends anything: a
+	// device taken off the roster or no longer verified is cut within
+	// tm.recheck, and no socket outlives tm.maxAge.
+	s.connWG.Add(1)
+	go func() {
+		defer s.connWG.Done()
+		tick := time.NewTicker(tm.recheck)
+		defer tick.Stop()
+		born := time.Now()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-tick.C:
+			}
+			if time.Since(born) > tm.maxAge {
+				s.sealedDenied(device, name, "session-age", false)
+				refuse(artifactCloseRefused, sealedReasonOff)
+				return
+			}
+			if !l.gate() {
+				return
+			}
+			rctx, rcancel := context.WithTimeout(ctx, tm.roster)
+			ok := ra.E2ECapable(rctx, device, origin)
+			rcancel()
+			if ctx.Err() != nil {
+				return
+			}
+			if !ok {
+				s.sealedDenied(device, name, approvalReasonKey, false)
+				refuse(artifactCloseRefused, approvalReasonKey)
+				return
+			}
+		}
+	}()
 
 	helloAct := s.mayControlWithKey(device, l.key)
 	helloTier := sealedTierA

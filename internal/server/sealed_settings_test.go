@@ -48,8 +48,8 @@ func TestSealedSettingsTables(t *testing.T) {
 		t.Error("remoteRevoke is not held to the device itself")
 	}
 	for _, n := range []string{"pushNotify", "pushAnonymous", "pushDelay"} {
-		if sealedCommands[n] != sealedTierB {
-			t.Errorf("%s is tier %q, want B", n, sealedCommands[n])
+		if sealedCommands[n] != "" {
+			t.Errorf("%s is on the sealed socket at tier %q, want desk only", n, sealedCommands[n])
 		}
 	}
 	for _, n := range []string{"ghPRComment", "ghIssueComment"} {
@@ -85,71 +85,37 @@ func pushPrefsNow(t *testing.T, p *sealedPhone, req string) map[string]any {
 	return p.readType("pushPrefs")
 }
 
-// The preferences are a read for any device that is served; the three that
-// change them need the desk's switch, and the answer says where they stand.
+// The preferences are a read for any device that is served. The three that
+// change them are the desk's: nothing at the desk asks before they run, so they
+// are not on the socket at all, whatever the device's switch says.
 func TestSealedPushPrefs(t *testing.T) {
 	e := newSealedEnv(t)
 	p, hello := e.open(t, "full")
-	if helloCommands(hello)["pushDelay"] {
-		t.Error("a device without the switch is told it may change push preferences")
-	}
 	got := pushPrefsNow(t, p, "g")
 	if got["req"] != "g" || got["off"] != false || got["anonymous"] != false || got["delaySeconds"] != float64(30) ||
 		got["minSeconds"] != float64(5) || got["maxSeconds"] != float64(3600) || got["defaultSeconds"] != float64(30) {
 		t.Errorf("preferences = %v", got)
 	}
-	for _, c := range []command{{Cmd: "pushNotify", Kind: "off"}, {Cmd: "pushAnonymous", Kind: "on"}, {Cmd: "pushDelay", Size: 120}} {
+	changes := []command{{Cmd: "pushNotify", Kind: "off"}, {Cmd: "pushAnonymous", Kind: "on"}, {Cmd: "pushDelay", Size: 120}}
+	for _, c := range changes {
+		if helloCommands(hello)[c.Cmd] {
+			t.Errorf("%s is in the hello", c.Cmd)
+		}
+	}
+	e.grantControl(t, "full")
+	q, hello := e.open(t, "full")
+	for _, c := range changes {
+		if helloCommands(hello)[c.Cmd] {
+			t.Errorf("%s is in the hello of a device that may act", c.Cmd)
+		}
 		c.Req = "r-" + c.Cmd
-		p.send(c)
-		if r := p.readType("sealedRefused"); r["code"] != sealedCodeControl || r["cmd"] != c.Cmd {
-			t.Errorf("%s without the switch was answered %v", c.Cmd, r)
+		q.send(c)
+		if r := q.readType("sealedRefused"); r["code"] != sealedCodeCommand || r["cmd"] != c.Cmd {
+			t.Errorf("%s was answered %v", c.Cmd, r)
 		}
 	}
 	if pp := e.srv.prefs.Push; pp.Off || pp.Anonymous || pp.DelaySeconds != 0 {
-		t.Errorf("a refused device changed the preferences: %+v", pp)
-	}
-
-	e.grantControl(t, "full")
-	q, hello := e.open(t, "full")
-	if !helloCommands(hello)["pushDelay"] {
-		t.Error("pushDelay is not in the hello of a device that may act")
-	}
-	q.send(command{Cmd: "pushDelay", Size: 120, Req: "d"})
-	if got := q.readType("pushPrefs"); got["req"] != "d" || got["delaySeconds"] != float64(120) {
-		t.Errorf("after pushDelay: %v", got)
-	}
-	q.send(command{Cmd: "pushNotify", Kind: "off", Req: "n"})
-	if got := q.readType("pushPrefs"); got["off"] != true || got["delaySeconds"] != float64(120) {
-		t.Errorf("after pushNotify: %v", got)
-	}
-	q.send(command{Cmd: "pushAnonymous", Kind: "on", Req: "a"})
-	if got := q.readType("pushPrefs"); got["anonymous"] != true || got["off"] != true {
-		t.Errorf("after pushAnonymous: %v", got)
-	}
-	// Out of bounds is not a change; the answer still says where it stands.
-	for _, size := range []int{1, 4, 3601, -1, 1 << 40} {
-		q.send(command{Cmd: "pushDelay", Size: size, Req: "b"})
-		if got := q.readType("pushPrefs"); got["delaySeconds"] != float64(120) {
-			t.Errorf("a delay of %d was taken: %v", size, got)
-		}
-	}
-	// The default is kept as nothing, and read back as the default.
-	q.send(command{Cmd: "pushDelay", Size: 30, Req: "z"})
-	if got := q.readType("pushPrefs"); got["delaySeconds"] != float64(30) {
-		t.Errorf("the default delay: %v", got)
-	}
-	if pp := e.srv.prefs.Push; !pp.Off || !pp.Anonymous || pp.DelaySeconds != 0 {
-		t.Errorf("the desk's preferences = %+v", pp)
-	}
-
-	// The switch is looked at again for every request.
-	e.setControl(t, "full", store.RoleFull, false, "")
-	q.send(command{Cmd: "pushNotify", Kind: "on", Req: "late"})
-	if r := q.readType("sealedRefused"); r["code"] != sealedCodeControl {
-		t.Errorf("after the switch was taken away: %v", r)
-	}
-	if !e.srv.prefs.Push.Off {
-		t.Error("a device without the switch turned notifications back on")
+		t.Errorf("a device changed the preferences: %+v", pp)
 	}
 }
 
@@ -161,7 +127,7 @@ func TestSealedPushPrefsForAWatcher(t *testing.T) {
 		t.Errorf("preferences = %v", got)
 	}
 	p.send(command{Cmd: "pushDelay", Size: 60, Req: "x"})
-	if r := p.readType("sealedRefused"); r["code"] != sealedCodeControl {
+	if r := p.readType("sealedRefused"); r["code"] != sealedCodeCommand {
 		t.Errorf("a watcher's pushDelay was answered %v", r)
 	}
 }
