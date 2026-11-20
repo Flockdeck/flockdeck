@@ -106,4 +106,4 @@ A command that runs and fails answers in its own result type (`teamResult`, `cha
 
 ## Tests, and what they do not cover
 
-The Go tests in `internal/server/sealed*_test.go` run a real handshake against a fake device. The phone client's tests run against a fake desktop. Nothing automated runs a phone through the real relay, so push, the handshake over a real tunnel, the relay's 4 MiB buffer and 4,096-frame limits, and the desk card on a real screen are checked by hand: see [remote-phone-checklist.md](remote-phone-checklist.md).
+The Go tests in `internal/server/sealed*_test.go` run a real handshake against a fake device. The phone client's tests run against a fake desktop. Nothing automated runs a phone through the real relay, so push, the handshake through the real relay, the relay's 4 MiB buffer and 4,096-frame limits, and the desk card on a real screen are checked by hand: see [remote-phone-checklist.md](remote-phone-checklist.md).
