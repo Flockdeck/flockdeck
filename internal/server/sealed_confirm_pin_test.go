@@ -83,6 +83,7 @@ func TestSealedGitIsRefusedWhenTheBranchChangedAfterTheAsk(t *testing.T) {
 	for _, cmd := range []string{"gitPush", "gitPull", "commit"} {
 		t.Run(cmd, func(t *testing.T) {
 			e, p, desk, repo := gitEnv(t)
+			withOrigin(t, repo)
 			dirty(t, repo)
 			ask := askCommit(t, p, desk, command{Cmd: cmd, Path: repo, Text: "m", Req: "c"})
 			if !strings.Contains(ask.Summary, "on branch main") {

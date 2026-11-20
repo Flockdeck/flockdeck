@@ -97,6 +97,18 @@ func gitEnv(t *testing.T) (*sealedEnv, *sealedPhone, *controlClient, string) {
 	return e, p, desk, repo
 }
 
+// withOrigin gives the repository a local bare origin with an upstream branch.
+// A pull that cannot be pinned is refused before it asks, so tests that need a
+// pull to reach the ask need a real remote.
+func withOrigin(t *testing.T, repo string) {
+	t.Helper()
+	origin := filepath.Join(t.TempDir(), "origin.git")
+	sealedGitRun(t, filepath.Dir(origin), "init", "--bare", origin)
+	sealedGitRun(t, repo, "remote", "add", "origin", origin)
+	branch := sealedGitRun(t, repo, "rev-parse", "--abbrev-ref", "HEAD")
+	sealedGitRun(t, repo, "push", "-u", "origin", branch)
+}
+
 func dirty(t *testing.T, repo string) {
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(repo, "new.txt"), []byte("x\n"), 0o600); err != nil {
@@ -330,6 +342,7 @@ func TestSealedGitRefusals(t *testing.T) {
 	p.gitState(confirmBad)
 	noDeskConfirm(t, desk)
 
+	withOrigin(t, repo)
 	p.send(command{Cmd: "gitPull", Path: repo, Req: "e"})
 	p.gitState(confirmWaiting)
 	nextDeskConfirm(t, desk)
@@ -492,6 +505,7 @@ func TestSealedConfirmAuditHoldsNoText(t *testing.T) {
 // one every 20 seconds, answered busy whatever became of the earlier ones.
 func TestSealedGitAsksAreLimited(t *testing.T) {
 	e, p, desk, repo := gitEnv(t)
+	withOrigin(t, repo)
 	dirty(t, repo)
 	for i := 0; i < sealedAskBurst; i++ {
 		p.send(command{Cmd: "gitPull", Path: repo, Req: "q"})
