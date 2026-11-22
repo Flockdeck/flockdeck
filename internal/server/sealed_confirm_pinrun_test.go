@@ -86,7 +86,7 @@ func TestAnApprovedPushIsNotChangedByConfigWrittenDuringTheScan(t *testing.T) {
 // (what is sent is counted as none before it, and the commit makes it one).
 func TestSealedFirstCommitWithPushOnAnUnbornBranchIsAsked(t *testing.T) {
 	_, p, desk, repo := gitEnv(t)
-	sealedGitRun(t, repo, "remote", "add", "origin", "https://example.com/team/new.git")
+	sealedGitRun(t, repo, "remote", "set-url", "origin", "https://example.com/team/new.git")
 	sealedGitRun(t, repo, "checkout", "-q", "--orphan", "fresh")
 	sealedGitRun(t, repo, "rm", "-rfq", ".")
 	dirty(t, repo)

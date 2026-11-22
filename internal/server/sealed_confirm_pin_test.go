@@ -83,7 +83,6 @@ func TestSealedGitIsRefusedWhenTheBranchChangedAfterTheAsk(t *testing.T) {
 	for _, cmd := range []string{"gitPush", "gitPull", "commit"} {
 		t.Run(cmd, func(t *testing.T) {
 			e, p, desk, repo := gitEnv(t)
-			withOrigin(t, repo)
 			dirty(t, repo)
 			ask := askCommit(t, p, desk, command{Cmd: cmd, Path: repo, Text: "m", Req: "c"})
 			if !strings.Contains(ask.Summary, "on branch main") {
@@ -102,7 +101,7 @@ func TestSealedGitIsRefusedWhenTheBranchChangedAfterTheAsk(t *testing.T) {
 
 func TestSealedPushShowsTheRemoteAndRefusesWhenItChanged(t *testing.T) {
 	e, p, desk, repo := gitEnv(t)
-	sealedGitRun(t, repo, "remote", "add", "origin", "https://example.com/team/one.git")
+	sealedGitRun(t, repo, "remote", "set-url", "origin", "https://example.com/team/one.git")
 	ask := askCommit(t, p, desk, command{Cmd: "gitPush", Path: repo, Req: "c"})
 	if !strings.Contains(ask.Summary, "example.com/team/one.git") || !strings.Contains(ask.Summary, repo) {
 		t.Errorf("the remote or folder is not shown: %q", ask.Summary)

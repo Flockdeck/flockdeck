@@ -90,6 +90,7 @@ func commitCount(t *testing.T, dir string) string {
 func gitEnv(t *testing.T) (*sealedEnv, *sealedPhone, *controlClient, string) {
 	t.Helper()
 	srv, _, repo := newRepoServer(t)
+	withOrigin(t, repo)
 	e := newSealedEnvFor(t, srv)
 	e.grantControl(t, "full")
 	desk := deskWindow(t, srv)
@@ -97,16 +98,18 @@ func gitEnv(t *testing.T) (*sealedEnv, *sealedPhone, *controlClient, string) {
 	return e, p, desk, repo
 }
 
-// withOrigin gives the repository a local bare origin with an upstream branch.
-// A pull that cannot be pinned is refused before it asks, so tests that need a
-// pull to reach the ask need a real remote.
+// withOrigin gives the repository a remote and an upstream branch, so a pull
+// can be pinned: one that cannot is refused before it asks. The remote is a
+// web address and not a folder, because a remote on this machine is a program
+// settings question that would stop every commit and push test at the desk.
+// Nothing is fetched from it; the upstream ref is made by hand.
 func withOrigin(t *testing.T, repo string) {
 	t.Helper()
-	origin := filepath.Join(t.TempDir(), "origin.git")
-	sealedGitRun(t, filepath.Dir(origin), "init", "--bare", origin)
-	sealedGitRun(t, repo, "remote", "add", "origin", origin)
+	sealedGitRun(t, repo, "remote", "add", "origin", "https://example.com/team/origin.git")
 	branch := sealedGitRun(t, repo, "rev-parse", "--abbrev-ref", "HEAD")
-	sealedGitRun(t, repo, "push", "-u", "origin", branch)
+	sealedGitRun(t, repo, "update-ref", "refs/remotes/origin/"+branch, "HEAD")
+	sealedGitRun(t, repo, "config", "branch."+branch+".remote", "origin")
+	sealedGitRun(t, repo, "config", "branch."+branch+".merge", "refs/heads/"+branch)
 }
 
 func dirty(t *testing.T, repo string) {
@@ -322,6 +325,7 @@ func TestSealedConfirmIsRegatedAtTheYes(t *testing.T) {
 // with no message are not asked.
 func TestSealedGitRefusals(t *testing.T) {
 	srv, _, repo := newRepoServer(t)
+	withOrigin(t, repo)
 	e := newSealedEnvFor(t, srv)
 	e.grantControl(t, "full")
 	p, _ := e.open(t, "full")
@@ -342,7 +346,6 @@ func TestSealedGitRefusals(t *testing.T) {
 	p.gitState(confirmBad)
 	noDeskConfirm(t, desk)
 
-	withOrigin(t, repo)
 	p.send(command{Cmd: "gitPull", Path: repo, Req: "e"})
 	p.gitState(confirmWaiting)
 	nextDeskConfirm(t, desk)
@@ -505,7 +508,6 @@ func TestSealedConfirmAuditHoldsNoText(t *testing.T) {
 // one every 20 seconds, answered busy whatever became of the earlier ones.
 func TestSealedGitAsksAreLimited(t *testing.T) {
 	e, p, desk, repo := gitEnv(t)
-	withOrigin(t, repo)
 	dirty(t, repo)
 	for i := 0; i < sealedAskBurst; i++ {
 		p.send(command{Cmd: "gitPull", Path: repo, Req: "q"})

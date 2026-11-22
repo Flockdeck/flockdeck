@@ -38,7 +38,12 @@ func deskNotice(t *testing.T, w *controlClient, want string) {
 func repoWithRemote(t *testing.T) (*sealedEnv, *sealedPhone, *controlClient, string) {
 	t.Helper()
 	e, p, desk, repo := gitEnv(t)
-	sealedGitRun(t, repo, "remote", "add", "origin", "https://example.com/team/one.git")
+	sealedGitRun(t, repo, "remote", "set-url", "origin", "https://example.com/team/one.git")
+	// These tests count the commits a push sends against no upstream, as a
+	// fresh clone-less repository has none.
+	sealedGitRun(t, repo, "update-ref", "-d", "refs/remotes/origin/main")
+	sealedGitRun(t, repo, "config", "--unset", "branch.main.remote")
+	sealedGitRun(t, repo, "config", "--unset", "branch.main.merge")
 	return e, p, desk, repo
 }
 
