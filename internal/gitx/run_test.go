@@ -119,7 +119,7 @@ func TestErrorsNameTheCommandNotItsArguments(t *testing.T) {
 		{[]string{"commit", "-m", "a long message"}, "git commit"},
 		{[]string{"worktree", "remove", "--force", "--", "/some/path"}, "git worktree remove"},
 		{[]string{"push", "--set-upstream", "origin", "main"}, "git push"},
-		{[]string{"-c", "k=v", "status"}, "git"},
+		{[]string{"-c", "k=v", "status"}, "git status"},
 	} {
 		if got := gitLabel(tc.args); got != tc.want {
 			t.Errorf("gitLabel(%q) = %q, want %q", tc.args, got, tc.want)

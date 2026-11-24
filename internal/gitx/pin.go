@@ -1,6 +1,7 @@
 package gitx
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -395,23 +396,26 @@ func prePushOrLFS(dir string) (bool, error) {
 			hooks = filepath.Join(home, rest, "pre-push")
 		}
 	}
-	if _, err := os.Stat(hooks); err == nil {
+	// The disk is looked at through the scan layer, which refuses a network
+	// share. A path it will not look at is treated as a hook that may be there.
+	sfs := newScanFS(context.Background())
+	if _, err := sfs.Stat(hooks); err == nil || blocked(err) {
 		return true, nil
 	}
-	if path, err := run(dir, "rev-parse", "--git-path", "info/attributes"); err == nil && attributesNameLFS(dir, strings.TrimSpace(path)) {
+	if path, err := run(dir, "rev-parse", "--git-path", "info/attributes"); err == nil && attributesNameLFS(sfs, dir, strings.TrimSpace(path)) {
 		return true, nil
 	}
-	if top, err := run(dir, "rev-parse", "--show-toplevel"); err == nil && attributesNameLFS(strings.TrimSpace(top), ".gitattributes") {
+	if top, err := run(dir, "rev-parse", "--show-toplevel"); err == nil && attributesNameLFS(sfs, strings.TrimSpace(top), ".gitattributes") {
 		return true, nil
 	}
 	return false, nil
 }
 
-func attributesNameLFS(base, path string) bool {
+func attributesNameLFS(sfs *scanFS, base, path string) bool {
 	if !filepath.IsAbs(path) {
 		path = filepath.Join(base, path)
 	}
-	b, err := os.ReadFile(path)
+	b, err := sfs.ReadFile(path)
 	return err == nil && strings.Contains(strings.ToLower(string(b)), "filter=lfs")
 }
 
