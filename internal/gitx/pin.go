@@ -2,6 +2,8 @@ package gitx
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"os"
@@ -77,7 +79,28 @@ func optionLike(vals ...string) bool {
 // blanking the user's own (a credential helper or ssh command from the global
 // configuration), so a repository that sets one is refused instead.
 // core.hooksPath is not here: the pinned run points it at nothing itself.
-var localProgramKeys = regexp.MustCompile(`^(core\.(sshcommand|askpass|gitproxy|alternaterefscommand)|credential\.(.+\.)?helper|remote\..+\.(uploadpack|receivepack|vcs|proxy)|http\.(.+\.)?(proxy|curloptresolve|sslcainfo|sslcapath|sslverify|proxyauthmethod|proxysslcainfo|proxysslverify)|ssh\.variant|url\..+\.(insteadof|pushinsteadof)|hook\..+\.command|lfs\.customtransfer\..+\.path)$`)
+var localProgramKeys = regexp.MustCompile(`^(core\.(sshcommand|askpass|gitproxy|alternaterefscommand)|gpg\.(.+\.)?program|gpg\.ssh\.defaultkeycommand|credential\.(.+\.)?helper|remote\..+\.(uploadpack|receivepack|vcs|proxy)|http\.(.+\.)?(proxy|curloptresolve|sslcainfo|sslcapath|sslverify|proxyauthmethod|proxyssl[a-z]*|extraheader|cookiefile|sslcert[a-z]*|sslkey[a-z]*|followredirects)|ssh\.variant|url\..+\.(insteadof|pushinsteadof)|hook\..+\.command|lfs\.customtransfer\..+\.path)$`)
+
+// rewriteKeys are the url.<base>.insteadOf and pushInsteadOf keys. An empty value
+// is not skipped for these: it matches every URL.
+var rewriteKeys = regexp.MustCompile(`^url\..+\.(insteadof|pushinsteadof)$`)
+
+// strayRemote reports whether key is a remote.<name>.<variable> setting for a
+// name that is not a remote the repository really has (one with a url), or that
+// is spelt like a URL or a path. git push and pull read the URL they are given as
+// a remote name first, so such a setting is a way to send them elsewhere.
+func strayRemote(key string, real map[string]bool) bool {
+	rest, ok := strings.CutPrefix(key, "remote.")
+	if !ok {
+		return false
+	}
+	i := strings.LastIndex(rest, ".")
+	if i <= 0 {
+		return false
+	}
+	name := rest[:i]
+	return strings.ContainsAny(name, ":/\\") || !real[name]
+}
 
 // repoProgramSetting returns the first setting in the repository's own
 // configuration (local, worktree, and what they include) that would run a
@@ -89,6 +112,13 @@ func repoProgramSetting(dir string, pull bool) (string, error) {
 		return "", errConfigRead
 	}
 	parts := strings.Split(out, "\x00")
+	real := map[string]bool{}
+	for i := 0; i+1 < len(parts); i += 2 {
+		key, _, _ := strings.Cut(parts[i+1], "\n")
+		if name, ok := strings.CutPrefix(strings.ToLower(key), "remote."); ok && strings.HasSuffix(name, ".url") {
+			real[strings.TrimSuffix(name, ".url")] = true
+		}
+	}
 	for i := 0; i+1 < len(parts); i += 2 {
 		if scope := parts[i]; scope != "local" && scope != "worktree" && scope != "command" {
 			continue
@@ -96,10 +126,12 @@ func repoProgramSetting(dir string, pull bool) (string, error) {
 		key, val, _ := strings.Cut(parts[i+1], "\n")
 		key = strings.ToLower(key)
 		val = strings.TrimSpace(val)
-		if val == "" {
+		if val == "" && !rewriteKeys.MatchString(key) {
 			continue
 		}
 		switch {
+		case strayRemote(key, real):
+			return key, nil
 		case localProgramKeys.MatchString(key):
 			return key, nil
 		case key == "protocol.ext.allow" && !strings.EqualFold(val, "never"):
@@ -277,6 +309,7 @@ var pushOwnConfig = []string{
 	"-c", "push.followTags=false",
 	"-c", "push.pushOption=",
 	"-c", "push.recurseSubmodules=check",
+	"-c", "push.gpgSign=false",
 }
 
 // runOwnConfig is added to a pinned push or pull so that the repository's hooks
@@ -292,6 +325,15 @@ func programRefusal(err error) error {
 		return err
 	}
 	return ErrPinMoved
+}
+
+// pinRemoteName is a remote name made for one run. git reads a URL argument as a
+// remote name first, so the pinned URL is given as the url of a remote nothing in
+// the repository can have set anything for.
+func pinRemoteName() string {
+	b := make([]byte, 8)
+	_, _ = rand.Read(b)
+	return "flockdeck-pin-" + hex.EncodeToString(b)
 }
 
 // PushPinned sends the commit the branch is at to the pinned destination and to
@@ -316,7 +358,8 @@ func PushPinned(dir string, pin RemotePin, expect PushExpect) (string, error) {
 	if !ok {
 		return "", ErrPinMoved
 	}
-	args := append(append(append([]string{}, runOwnConfig...), pushOwnConfig...), "push", "--", pin.PushURL, head+":refs/heads/"+pin.Dest)
+	name := pinRemoteName()
+	args := append(append(append([]string{}, runOwnConfig...), pushOwnConfig...), "-c", "remote."+name+".url="+pin.PushURL, "push", "--", name, head+":refs/heads/"+pin.Dest)
 	out, err := runVerbose(dir, args...)
 	if err != nil {
 		if strings.Contains(err.Error(), "not be found on any remote") {
@@ -431,8 +474,11 @@ func PullPinned(dir string, pin RemotePin, head string) (string, error) {
 	if now != pin || HeadSHA(dir) != head {
 		return "", ErrPinMoved
 	}
-	args := append(append([]string{}, runOwnConfig...), "-c", "pull.rebase=false", "pull", "--ff-only")
-	args = append(args, "--", pin.FetchURL, pin.Merge)
+	name := pinRemoteName()
+	args := append(append([]string{}, runOwnConfig...), "-c", "pull.rebase=false",
+		"-c", "fetch.recurseSubmodules=no", "-c", "submodule.recurse=false",
+		"-c", "remote."+name+".url="+pin.FetchURL, "pull", "--ff-only")
+	args = append(args, "--", name, pin.Merge)
 	out, err := pullRun(dir, args)
 	if err == nil {
 		// A pull by URL leaves refs/remotes/<remote>/<branch> where it was, so
