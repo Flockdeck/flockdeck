@@ -60,7 +60,13 @@ var ErrPinURL = &gitError{"a URL here is rewritten again by a url.<base>.instead
 type ErrPinProgram struct{ Key string }
 
 func (e *ErrPinProgram) Error() string {
-	return "the repository's own git configuration sets " + e.Key + ", which runs a program or reroutes the connection, so a push or pull approved from elsewhere is not run. Run it from a terminal, or remove the setting"
+	msg := "the repository's own git configuration sets " + e.Key + ", which runs a program or reroutes the connection, so a push or pull approved from elsewhere is not run. Run it from a terminal, or remove the setting"
+	if rest, ok := strings.CutPrefix(e.Key, "remote."); ok {
+		if i := strings.LastIndex(rest, "."); i > 0 && strings.ContainsAny(rest[:i], ":/\\") {
+			msg += ". A remote whose name contains / or : (or a backslash) is refused here because git reads a name spelt like that as a URL; rename it"
+		}
+	}
+	return msg
 }
 
 // optionLike reports whether any of vals would be read by git as an option.
@@ -477,7 +483,10 @@ func PullPinned(dir string, pin RemotePin, head string) (string, error) {
 	name := pinRemoteName()
 	args := append(append([]string{}, runOwnConfig...), "-c", "pull.rebase=false",
 		"-c", "fetch.recurseSubmodules=no", "-c", "submodule.recurse=false",
-		"-c", "remote."+name+".url="+pin.FetchURL, "pull", "--ff-only")
+		"-c", "remote."+name+".url="+pin.FetchURL, "pull", "--ff-only",
+		// On the command line this outranks submodule.<name>.fetchRecurseSubmodules
+		// (.git/config or .gitmodules), which a -c of the global one does not.
+		"--no-recurse-submodules")
 	args = append(args, "--", name, pin.Merge)
 	out, err := pullRun(dir, args)
 	if err == nil {

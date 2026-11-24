@@ -87,6 +87,21 @@ func TestResolvePinRefusesMoreProgramAndTransportSettings(t *testing.T) {
 // configuration in each submodule's own git directory, which is never checked.
 // A pinned pull leaves them alone.
 func TestAPinnedPullDoesNotRecurseIntoSubmodules(t *testing.T) {
+	pinnedPullLeavesSubmodule(t, func(mine string) {
+		gitRun(t, mine, "config", "submodule.recurse", "true")
+		gitRun(t, mine, "config", "fetch.recurseSubmodules", "on-demand")
+	})
+}
+
+// A per-submodule setting outranks fetch.recurseSubmodules, so only the command
+// line option keeps the pull out of the submodule's own remote.
+func TestAPinnedPullIgnoresAPerSubmoduleFetchRecurseSetting(t *testing.T) {
+	pinnedPullLeavesSubmodule(t, func(mine string) {
+		gitRun(t, mine, "config", "submodule.sub.fetchRecurseSubmodules", "true")
+	})
+}
+
+func pinnedPullLeavesSubmodule(t *testing.T, configure func(mine string)) {
 	bare := func() string {
 		dir := t.TempDir()
 		cmd := exec.Command("git", "init", "-q", "--bare", "--initial-branch=main")
@@ -124,17 +139,21 @@ func TestAPinnedPullDoesNotRecurseIntoSubmodules(t *testing.T) {
 	t.Setenv("GIT_CONFIG_COUNT", "1")
 	t.Setenv("GIT_CONFIG_KEY_0", "protocol.file.allow")
 	t.Setenv("GIT_CONFIG_VALUE_0", "always")
-	gitRun(t, mine, "config", "submodule.recurse", "true")
-	gitRun(t, mine, "config", "fetch.recurseSubmodules", "on-demand")
+	configure(mine)
 	pin, err := ResolvePin(mine, true)
 	if err != nil {
 		t.Fatal(err)
 	}
-	subBefore := strings.TrimSpace(gitRun(t, filepath.Join(mine, "sub"), "rev-parse", "HEAD"))
+	msub := filepath.Join(mine, "sub")
+	subBefore := strings.TrimSpace(gitRun(t, msub, "rev-parse", "HEAD"))
+	trackBefore := strings.TrimSpace(gitRun(t, msub, "rev-parse", "refs/remotes/origin/main"))
 	if _, err := PullPinned(mine, pin, HeadSHA(mine)); err != nil {
 		t.Fatalf("pull: %v", err)
 	}
 	if got := strings.TrimSpace(gitRun(t, filepath.Join(mine, "sub"), "rev-parse", "HEAD")); got != subBefore {
 		t.Errorf("the pull updated the submodule: %s, was %s", got, subBefore)
+	}
+	if got := strings.TrimSpace(gitRun(t, msub, "rev-parse", "refs/remotes/origin/main")); got != trackBefore {
+		t.Errorf("the pull fetched from the submodule's own remote: %s, was %s", got, trackBefore)
 	}
 }
