@@ -473,13 +473,27 @@ func CommonDir(dir string) (string, error) {
 // no worktree and nothing on it, so it is deleted again rather than left for
 // somebody to wonder about.
 func AddNewBranch(repoDir, path, branch string) error {
+	return AddNewBranchFrom(repoDir, path, branch, "")
+}
+
+// AddNewBranchFrom is AddNewBranch starting at base, a commit-ish a caller named,
+// or at HEAD when base is empty. The name is checked the way git checks one, and
+// base goes after "--" with the path, so that neither is read as an option.
+func AddNewBranchFrom(repoDir, path, branch, base string) error {
 	if branch == "" {
 		return &gitError{"a new worktree needs a branch name"}
 	}
 	if branchExists(repoDir, branch) {
 		return &gitError{fmt.Sprintf("a branch called %s already exists, so it was not taken for a new worktree", branch)}
 	}
-	err := addWorktree(repoDir, path, branch, true, "worktree", "add", "-b", branch, "--no-track", "--", path)
+	if _, err := run(repoDir, "check-ref-format", "--branch", branch); err != nil {
+		return &gitError{fmt.Sprintf("%q cannot be a branch name", branch)}
+	}
+	args := []string{"worktree", "add", "-b", branch, "--no-track", "--", path}
+	if base != "" {
+		args = append(args, base)
+	}
+	err := addWorktree(repoDir, path, branch, true, args...)
 	if err != nil && !branchTakenFirst(err) {
 		if uerr := undoNewBranch(repoDir, path, branch); uerr != nil {
 			return fmt.Errorf("%w (%v)", err, uerr)

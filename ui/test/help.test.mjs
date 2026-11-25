@@ -64,8 +64,8 @@ test("a page nested without end stops at a depth", () => {
 });
 
 test("the pages of an answer are checked, and a bad answer says so", () => {
-  assert.equal(pagesFrom(null).error.includes("older version"), true);
-  assert.equal(pagesFrom({ pages: "x" }).error.includes("older version"), true);
+  assert.equal(pagesFrom(null).error.includes("cannot read"), true);
+  assert.equal(pagesFrom({ pages: "x" }).error.includes("cannot read"), true);
   assert.equal(pagesFrom({ pages: [] }).error, "There are no help pages.");
   const got = pagesFrom({ pages: [PAGES[0], PAGES[0], { slug: "", title: "x", tree: [p("a")] }, { slug: "b", title: "B", tree: [] }, null, { slug: "c", title: "C", tree: [p("c")], text: 5, summary: 7 }] });
   assert.deepEqual(got.pages.map((x) => x.slug), ["panes", "c"]);

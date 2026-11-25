@@ -1,7 +1,7 @@
 {
   "api": {
     "major": 1,
-    "minor": 36
+    "minor": 42
   },
   "frames": [
     {
@@ -115,6 +115,7 @@
     {
       "name": "addRepoToGroup",
       "access": "full",
+      "relayPathGated": true,
       "since": "1.0",
       "status": "stable"
     },
@@ -151,6 +152,7 @@
     {
       "name": "attachImage",
       "access": "full",
+      "sealed": "B",
       "since": "1.0",
       "status": "stable"
     },
@@ -169,18 +171,23 @@
     {
       "name": "browse",
       "access": "full",
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
     {
       "name": "changes",
       "access": "full",
+      "relayPathGated": true,
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
     {
       "name": "changesSnapshot",
       "access": "full",
+      "relayPathGated": true,
+      "sealed": "A",
       "since": "1.5",
       "status": "stable"
     },
@@ -253,6 +260,9 @@
     {
       "name": "commit",
       "access": "full",
+      "relayRefused": true,
+      "relayPathGated": true,
+      "sealed": "C",
       "since": "1.0",
       "status": "stable"
     },
@@ -271,6 +281,7 @@
     {
       "name": "conversationClose",
       "access": "watcher",
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
@@ -278,6 +289,7 @@
       "name": "conversationDetail",
       "access": "watcher",
       "relayRefused": true,
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
@@ -285,6 +297,7 @@
       "name": "conversationOlder",
       "access": "watcher",
       "relayRefused": true,
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
@@ -292,6 +305,7 @@
       "name": "conversationOpen",
       "access": "watcher",
       "relayRefused": true,
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
@@ -299,6 +313,7 @@
       "name": "conversationSearch",
       "access": "watcher",
       "relayRefused": true,
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
@@ -306,6 +321,8 @@
       "name": "conversations",
       "access": "full",
       "relayRefused": true,
+      "relayPathGated": true,
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
@@ -322,6 +339,13 @@
       "status": "stable"
     },
     {
+      "name": "deskConfirmAnswer",
+      "access": "full",
+      "relayRefused": true,
+      "since": "1.40",
+      "status": "stable"
+    },
+    {
       "name": "detach",
       "access": "full",
       "since": "1.0",
@@ -330,18 +354,22 @@
     {
       "name": "diff",
       "access": "full",
+      "relayPathGated": true,
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
     {
       "name": "diffContext",
       "access": "full",
+      "sealed": "A",
       "since": "1.5",
       "status": "stable"
     },
     {
       "name": "diffHunks",
       "access": "full",
+      "sealed": "A",
       "since": "1.5",
       "status": "stable"
     },
@@ -360,6 +388,7 @@
     {
       "name": "filesPage",
       "access": "full",
+      "sealed": "A",
       "since": "1.5",
       "status": "stable"
     },
@@ -396,6 +425,8 @@
     {
       "name": "ghChecks",
       "access": "full",
+      "relayPathGated": true,
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
@@ -408,24 +439,32 @@
     {
       "name": "ghIssue",
       "access": "full",
+      "relayPathGated": true,
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
     {
       "name": "ghIssueComment",
       "access": "full",
+      "relayRefused": true,
+      "relayPathGated": true,
+      "sealed": "C",
       "since": "1.0",
       "status": "stable"
     },
     {
       "name": "ghIssueCreate",
       "access": "full",
+      "relayPathGated": true,
       "since": "1.0",
       "status": "stable"
     },
     {
       "name": "ghIssues",
       "access": "full",
+      "relayPathGated": true,
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
@@ -444,72 +483,93 @@
     {
       "name": "ghLogout",
       "access": "full",
+      "relayPathGated": true,
       "since": "1.0",
       "status": "stable"
     },
     {
       "name": "ghPR",
       "access": "full",
+      "relayPathGated": true,
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
     {
       "name": "ghPRComment",
       "access": "full",
+      "relayRefused": true,
+      "relayPathGated": true,
+      "sealed": "C",
       "since": "1.0",
       "status": "stable"
     },
     {
       "name": "ghPRCreate",
       "access": "full",
+      "relayPathGated": true,
       "since": "1.0",
       "status": "stable"
     },
     {
       "name": "ghPRs",
       "access": "full",
+      "relayPathGated": true,
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
     {
       "name": "ghStatus",
       "access": "full",
+      "relayPathGated": true,
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
     {
       "name": "gitFetch",
       "access": "full",
+      "relayPathGated": true,
       "since": "1.0",
       "status": "stable"
     },
     {
       "name": "gitPull",
       "access": "full",
+      "relayRefused": true,
+      "relayPathGated": true,
+      "sealed": "C",
       "since": "1.0",
       "status": "stable"
     },
     {
       "name": "gitPush",
       "access": "full",
+      "relayRefused": true,
+      "relayPathGated": true,
+      "sealed": "C",
       "since": "1.0",
       "status": "stable"
     },
     {
       "name": "graphSnapshot",
       "access": "full",
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
     {
       "name": "graphUnwatch",
       "access": "full",
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
     {
       "name": "graphWatch",
       "access": "full",
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
@@ -673,18 +733,21 @@
     {
       "name": "msgList",
       "access": "full",
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
     {
       "name": "msgSeen",
       "access": "full",
+      "sealed": "B",
       "since": "1.0",
       "status": "stable"
     },
     {
       "name": "msgSend",
       "access": "full",
+      "sealed": "B",
       "since": "1.0",
       "status": "stable"
     },
@@ -697,6 +760,7 @@
     {
       "name": "newTab",
       "access": "full",
+      "relayPathGated": true,
       "since": "1.0",
       "status": "stable"
     },
@@ -715,6 +779,7 @@
     {
       "name": "openProject",
       "access": "full",
+      "relayPathGated": true,
       "since": "1.0",
       "status": "stable"
     },
@@ -739,6 +804,7 @@
     {
       "name": "paneSend",
       "access": "full",
+      "sealed": "B",
       "since": "1.0",
       "status": "stable"
     },
@@ -751,6 +817,7 @@
     {
       "name": "permissionAnswer",
       "access": "full",
+      "sealed": "B",
       "since": "1.0",
       "status": "stable"
     },
@@ -791,6 +858,13 @@
       "status": "stable"
     },
     {
+      "name": "pushPrefsGet",
+      "access": "full",
+      "sealed": "A",
+      "since": "1.42",
+      "status": "stable"
+    },
+    {
       "name": "quit",
       "access": "full",
       "since": "1.0",
@@ -811,12 +885,14 @@
     {
       "name": "recents",
       "access": "full",
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
     {
       "name": "recordPane",
       "access": "full",
+      "relayRefused": true,
       "since": "1.0",
       "status": "stable"
     },
@@ -829,6 +905,7 @@
     {
       "name": "remoteDevices",
       "access": "full",
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
@@ -853,12 +930,14 @@
     {
       "name": "remotePair",
       "access": "full",
+      "relayRefused": true,
       "since": "1.0",
       "status": "stable"
     },
     {
       "name": "remoteReconnect",
       "access": "full",
+      "relayRefused": true,
       "since": "1.0",
       "status": "stable"
     },
@@ -871,12 +950,15 @@
     {
       "name": "remoteRename",
       "access": "full",
+      "relayRefused": true,
       "since": "1.0",
       "status": "stable"
     },
     {
       "name": "remoteRevoke",
       "access": "full",
+      "relayRefused": true,
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
@@ -979,6 +1061,8 @@
     {
       "name": "resumeConversation",
       "access": "full",
+      "relayPathGated": true,
+      "sealed": "B",
       "since": "1.0",
       "status": "stable"
     },
@@ -1051,6 +1135,7 @@
     {
       "name": "sendPrompt",
       "access": "full",
+      "relayRefused": true,
       "since": "1.0",
       "status": "stable"
     },
@@ -1070,6 +1155,12 @@
       "name": "setDeviceApprove",
       "access": "full",
       "since": "1.26",
+      "status": "stable"
+    },
+    {
+      "name": "setDeviceControl",
+      "access": "full",
+      "since": "1.38",
       "status": "stable"
     },
     {
@@ -1105,12 +1196,15 @@
     {
       "name": "splitPane",
       "access": "full",
+      "relayPathGated": true,
       "since": "1.0",
       "status": "stable"
     },
     {
       "name": "startAgent",
       "access": "full",
+      "relayRefused": true,
+      "sealed": "B",
       "since": "1.0",
       "status": "stable"
     },
@@ -1135,6 +1229,7 @@
     {
       "name": "structuredCancel",
       "access": "full",
+      "sealed": "B",
       "since": "1.0",
       "status": "stable"
     },
@@ -1165,36 +1260,42 @@
     {
       "name": "structuredNewConversation",
       "access": "full",
+      "sealed": "B",
       "since": "1.36",
       "status": "stable"
     },
     {
       "name": "structuredQueueClear",
       "access": "full",
+      "sealed": "B",
       "since": "1.19",
       "status": "stable"
     },
     {
       "name": "structuredQueueEdit",
       "access": "full",
+      "sealed": "B",
       "since": "1.19",
       "status": "stable"
     },
     {
       "name": "structuredQueueRemove",
       "access": "full",
+      "sealed": "B",
       "since": "1.19",
       "status": "stable"
     },
     {
       "name": "structuredQueueSendNow",
       "access": "full",
+      "sealed": "B",
       "since": "1.19",
       "status": "stable"
     },
     {
       "name": "structuredResume",
       "access": "full",
+      "sealed": "B",
       "since": "1.36",
       "status": "stable"
     },
@@ -1225,6 +1326,7 @@
     {
       "name": "structuredSessions",
       "access": "full",
+      "sealed": "A",
       "since": "1.36",
       "status": "stable"
     },
@@ -1237,24 +1339,28 @@
     {
       "name": "structuredShellRemove",
       "access": "full",
+      "sealed": "B",
       "since": "1.21",
       "status": "stable"
     },
     {
       "name": "structuredShellRun",
       "access": "full",
+      "sealed": "B",
       "since": "1.21",
       "status": "stable"
     },
     {
       "name": "structuredShellSend",
       "access": "full",
+      "sealed": "B",
       "since": "1.21",
       "status": "stable"
     },
     {
       "name": "structuredShellStop",
       "access": "full",
+      "sealed": "B",
       "since": "1.21",
       "status": "stable"
     },
@@ -1273,18 +1379,21 @@
     {
       "name": "structuredSnapshot",
       "access": "full",
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
     {
       "name": "structuredUnwatch",
       "access": "full",
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
     {
       "name": "structuredWatch",
       "access": "full",
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
@@ -1375,18 +1484,21 @@
     {
       "name": "teamSnapshot",
       "access": "full",
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
     {
       "name": "teamUnwatch",
       "access": "full",
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
     {
       "name": "teamWatch",
       "access": "full",
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
@@ -1447,24 +1559,30 @@
     {
       "name": "worktreeAdd",
       "access": "full",
+      "relayPathGated": true,
+      "sealed": "B",
       "since": "1.0",
       "status": "stable"
     },
     {
       "name": "worktreePrune",
       "access": "full",
+      "relayPathGated": true,
       "since": "1.0",
       "status": "stable"
     },
     {
       "name": "worktreeRemove",
       "access": "full",
+      "relayPathGated": true,
       "since": "1.0",
       "status": "stable"
     },
     {
       "name": "worktrees",
       "access": "full",
+      "relayPathGated": true,
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     }
@@ -1474,6 +1592,7 @@
       "name": "agentStarted",
       "relay": "pass",
       "why": "ids",
+      "sealed": "B",
       "since": "1.0",
       "status": "stable"
     },
@@ -1510,6 +1629,7 @@
       "name": "attachImageResult",
       "relay": "pass",
       "why": "a path or a reason",
+      "sealed": "B",
       "since": "1.0",
       "status": "stable"
     },
@@ -1536,6 +1656,7 @@
       "name": "browse",
       "relay": "pass",
       "why": "folder names",
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
@@ -1543,6 +1664,7 @@
       "name": "changes",
       "relay": "pass",
       "why": "git status",
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
@@ -1557,12 +1679,14 @@
       "name": "changesFiles",
       "relay": "deskOnly",
       "why": "the changes view is refused to a relay window",
+      "sealed": "A",
       "since": "1.5",
       "status": "stable"
     },
     {
       "name": "changesResult",
       "relay": "scrub",
+      "sealed": "A",
       "since": "1.3",
       "status": "planned"
     },
@@ -1570,6 +1694,7 @@
       "name": "changesTeam",
       "relay": "deskOnly",
       "why": "the changes view is refused to a relay window",
+      "sealed": "A",
       "since": "1.5",
       "status": "stable"
     },
@@ -1577,6 +1702,7 @@
       "name": "conversationAppend",
       "relay": "scrub",
       "viewers": "watcher",
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
@@ -1584,6 +1710,7 @@
       "name": "conversationDetail",
       "relay": "scrub",
       "viewers": "watcher",
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
@@ -1591,6 +1718,7 @@
       "name": "conversationPage",
       "relay": "scrub",
       "viewers": "watcher",
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
@@ -1598,12 +1726,21 @@
       "name": "conversationSearch",
       "relay": "scrub",
       "viewers": "watcher",
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
     {
       "name": "conversations",
       "relay": "scrub",
+      "sealed": "A",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "deskConfirm",
+      "relay": "deskOnly",
+      "why": "the question put to a window at the desk about a device's commit, push or pull",
       "since": "1.0",
       "status": "stable"
     },
@@ -1615,9 +1752,26 @@
       "status": "stable"
     },
     {
+      "name": "deviceRevoked",
+      "relay": "deskOnly",
+      "why": "how a sealed device unpairing itself ended",
+      "sealed": "A",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "deviceRoster",
+      "relay": "deskOnly",
+      "why": "the device list cut down for a sealed device only",
+      "sealed": "A",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
       "name": "diff",
       "relay": "pass",
       "why": "a diff",
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
@@ -1625,6 +1779,7 @@
       "name": "diffContext",
       "relay": "deskOnly",
       "why": "the changes view is refused to a relay window",
+      "sealed": "A",
       "since": "1.5",
       "status": "stable"
     },
@@ -1632,6 +1787,7 @@
       "name": "diffHunks",
       "relay": "deskOnly",
       "why": "the changes view is refused to a relay window",
+      "sealed": "A",
       "since": "1.5",
       "status": "stable"
     },
@@ -1639,6 +1795,7 @@
       "name": "ghChecks",
       "relay": "pass",
       "why": "check runs",
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
@@ -1646,6 +1803,7 @@
       "name": "ghIssue",
       "relay": "pass",
       "why": "an issue",
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
@@ -1653,6 +1811,7 @@
       "name": "ghIssues",
       "relay": "pass",
       "why": "issues",
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
@@ -1660,6 +1819,7 @@
       "name": "ghPR",
       "relay": "pass",
       "why": "a pull request",
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
@@ -1667,6 +1827,7 @@
       "name": "ghPRs",
       "relay": "pass",
       "why": "pull requests",
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
@@ -1681,6 +1842,15 @@
       "name": "ghStatus",
       "relay": "pass",
       "why": "gh install state",
+      "sealed": "A",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "gitConfirm",
+      "relay": "deskOnly",
+      "why": "where a device's commit, push or pull stands, written to /ws/sealed only",
+      "sealed": "B",
       "since": "1.0",
       "status": "stable"
     },
@@ -1693,6 +1863,7 @@
     {
       "name": "graph",
       "relay": "scrub",
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
@@ -1743,12 +1914,14 @@
       "name": "messages",
       "relay": "deskOnly",
       "why": "mail is refused to a relay window",
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
     {
       "name": "notice",
       "relay": "scrub",
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
@@ -1777,12 +1950,14 @@
       "name": "paneSend",
       "relay": "deskOnly",
       "why": "refused to a relay window",
+      "sealed": "B",
       "since": "1.0",
       "status": "stable"
     },
     {
       "name": "permissionAnswer",
       "relay": "scrub",
+      "sealed": "B",
       "since": "1.0",
       "status": "stable"
     },
@@ -1790,6 +1965,14 @@
       "name": "prefs",
       "relay": "pass",
       "why": "settings",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "pushPrefs",
+      "relay": "deskOnly",
+      "why": "push preferences, for the sealed socket only",
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
@@ -1804,6 +1987,7 @@
       "name": "recents",
       "relay": "pass",
       "why": "project paths",
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
@@ -1836,6 +2020,20 @@
       "status": "stable"
     },
     {
+      "name": "sealedHello",
+      "relay": "deskOnly",
+      "why": "the first frame of /ws/sealed, written to that socket only",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "sealedRefused",
+      "relay": "deskOnly",
+      "why": "the answer to a request /ws/sealed did not run, written to that socket only",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
       "name": "state",
       "relay": "scrub",
       "since": "1.0",
@@ -1844,6 +2042,7 @@
     {
       "name": "structured",
       "relay": "scrub",
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
@@ -1865,12 +2064,22 @@
       "name": "team",
       "relay": "deskOnly",
       "why": "the team panel is refused to a relay window",
+      "sealed": "A",
+      "since": "1.0",
+      "status": "stable"
+    },
+    {
+      "name": "teamGone",
+      "relay": "deskOnly",
+      "why": "a watched project that can no longer be read; the watch is refused to a relay window",
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
     {
       "name": "teamResult",
       "relay": "scrub",
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     },
@@ -1893,6 +2102,7 @@
       "name": "worktrees",
       "relay": "pass",
       "why": "branches and paths",
+      "sealed": "A",
       "since": "1.0",
       "status": "stable"
     }

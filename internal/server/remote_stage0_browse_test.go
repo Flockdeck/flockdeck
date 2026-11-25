@@ -66,7 +66,7 @@ func wantRefusal(t *testing.T, phone *websocket.Conn, what string) {
 
 // Places are the machine's home, Documents, drive letters and root: nothing a
 // window that may see only known projects needs.
-func TestARelayWindowBrowseCarriesNoPlaces(t *testing.T) {
+func TestARelayWindowBrowseStartsFromKnownProjects(t *testing.T) {
 	srv, ws := newTestServer(t)
 	known := ws.ActiveRoot()
 	phone := dialPhone(t, srv)
@@ -74,8 +74,15 @@ func TestARelayWindowBrowseCarriesNoPlaces(t *testing.T) {
 	if m.Error != "" {
 		t.Fatalf("browse of a known project: %+v", m)
 	}
-	if len(m.Places) != 0 {
-		t.Errorf("a relay window was sent %d places: %+v", len(m.Places), m.Places)
+	// The machine's places (home, drives) are not sent. The picker starts from the
+	// projects Flockdeck knows instead, and nothing else.
+	if len(m.Places) == 0 {
+		t.Error("a relay window has nowhere to start the picker from")
+	}
+	for _, p := range m.Places {
+		if !srv.insideKnownProject(p.Path) {
+			t.Errorf("a relay window was offered %q, which is not a known project", p.Path)
+		}
 	}
 	desk := dialControl(t, srv)
 	sendCmd(t, desk, command{Cmd: "browse", Path: known, Req: "d"})

@@ -634,7 +634,7 @@ func taskNumber(id string) int {
 // teamCommand answers the commands of the Team panel. A window reached through
 // the relay is refused all of them.
 func (s *Server) teamCommand(c *controlClient, cmd command) {
-	if c.remote {
+	if c.remote && !c.liftsRelayRefusal(cmd.Cmd) {
 		c.sendJSON(teamResultMsg{Type: "teamResult", Req: cmd.Req, Op: cmd.Cmd, Error: teamDeskOnly, Code: teamDeskOnlyCode})
 		c.notify(teamDeskOnly, true)
 		return
@@ -724,15 +724,18 @@ func (s *Server) teamWatch(c *controlClient, cmd command) {
 	})
 }
 
+// teamGoneMsg is what teamGone sends.
+type teamGoneMsg struct {
+	Type  string `json:"type"`
+	Root  string `json:"root"`
+	Error string `json:"error"`
+}
+
 // teamGone is what a window watching a project is sent when the project can no
 // longer be read, a closed one above all, so that it shows that and not the last
 // picture.
 func teamGone(root string, err error) []byte {
-	data, _ := json.Marshal(struct {
-		Type  string `json:"type"`
-		Root  string `json:"root"`
-		Error string `json:"error"`
-	}{"teamGone", root, err.Error()})
+	data, _ := json.Marshal(teamGoneMsg{Type: "teamGone", Root: root, Error: err.Error()})
 	return data
 }
 

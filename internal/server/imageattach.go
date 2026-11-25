@@ -2,11 +2,16 @@ package server
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
+	"sort"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/jmwri/flockdeck/internal/store"
@@ -53,6 +58,37 @@ const (
 	attachImageRateWindow = 10 * time.Second
 )
 
+// The disk a picture may take. A sealed device is let attach attachDeviceBytes
+// in attachDeviceWindow (it is a paired phone with Control agents, but a stolen
+// one must not fill the disk); each pane's folder is kept to attachPaneFiles and
+// attachPaneBytes, the oldest going first; and the age sweep runs at most every
+// attachSweepEvery while pictures are being attached, not only at startup.
+const (
+	attachDeviceBytes  = 48 << 20
+	attachDeviceWindow = time.Hour
+	attachPaneFiles    = 20
+	attachPaneBytes    = 64 << 20
+	attachSweepEvery   = time.Hour
+)
+
+// lastAttachSweep is when the age sweep last ran, as Unix nanoseconds.
+var lastAttachSweep atomic.Int64
+
+// reserveUpload says whether the device may attach n more bytes now, and counts
+// them if so.
+func (d *sealedDevice) reserveUpload(n int64, now time.Time) bool {
+	d.dmu.Lock()
+	defer d.dmu.Unlock()
+	if now.Sub(d.upSince) > attachDeviceWindow {
+		d.upSince, d.upBytes = now, 0
+	}
+	if d.upBytes+n > attachDeviceBytes {
+		return false
+	}
+	d.upBytes += n
+	return true
+}
+
 // attachImage saves a picture the phone sent for a pane's prompt, and answers
 // with the path an agent in that pane can read it back from.
 func (s *Server) attachImage(c *controlClient, paneID, req, name, mediaType, dataB64 string) {
@@ -65,6 +101,10 @@ func (s *Server) attachImage(c *controlClient, paneID, req, name, mediaType, dat
 		if paneID == "" {
 			return
 		}
+		if now := time.Now().UnixNano(); now-lastAttachSweep.Load() > int64(attachSweepEvery) {
+			lastAttachSweep.Store(now)
+			cleanupAttachedImages(attachedImageMaxAge)
+		}
 		// Scoped exactly as conversationOpen is: a client asking to attach to
 		// a pane it cannot see -- closed since, or never open to it at all --
 		// is answered plainly here, since this reply drives a chip the phone
@@ -74,7 +114,19 @@ func (s *Server) attachImage(c *controlClient, paneID, req, name, mediaType, dat
 			c.sendJSON(attachImageResultMsg{Type: "attachImageResult", ID: paneID, Req: req, Error: paneGone})
 			return
 		}
-		path, err := saveAttachedImage(paneID, name, mediaType, dataB64)
+		// A sealed device has a byte quota; the check is on the encoded size, an
+		// upper bound of what is written. It is charged only now, after the pane is
+		// known to be one the device may attach to: a request for a pane that is not
+		// there costs the device nothing, and writes nothing.
+		owner := ""
+		if c.sealed != nil {
+			if !s.sealed.device(c.device).reserveUpload(int64(len(dataB64))*3/4, time.Now()) {
+				c.sendJSON(attachImageResultMsg{Type: "attachImageResult", ID: paneID, Req: req, Error: "too many pictures attached; try again later"})
+				return
+			}
+			owner = uploadOwner(c.device)
+		}
+		path, err := saveAttachedImageFor(owner, paneID, name, mediaType, dataB64)
 		if err != nil {
 			c.sendJSON(attachImageResultMsg{Type: "attachImageResult", ID: paneID, Req: req, Error: err.Error()})
 			return
@@ -83,9 +135,38 @@ func (s *Server) attachImage(c *controlClient, paneID, req, name, mediaType, dat
 	}()
 }
 
-// saveAttachedImage decodes, validates and writes one picture, and returns the
-// path it was saved at.
+// uploadOwner is the tag a sealed device's pictures carry in their file names
+// ("dv", eight hex digits of a hash of the device id, an underscore), so that the
+// cap on a pane's folder, and what is trimmed to keep it, is that device's own
+// pictures and never the desk's or another device's. The desk's own are untagged.
+func uploadOwner(device string) string {
+	sum := sha256.Sum256([]byte(device))
+	return "dv" + hex.EncodeToString(sum[:4]) + "_"
+}
+
+// uploadTag matches the tag uploadOwner gives, after a file's leading number.
+var uploadTag = regexp.MustCompile(`^[0-9]+-dv[0-9a-f]{8}_`)
+
+// ownedUpload says whether a file in a pane's folder is owner's: a tagged name
+// carries that owner's tag; an owner of "" (the desk) owns the untagged ones.
+func ownedUpload(name, owner string) bool {
+	if owner == "" {
+		return !uploadTag.MatchString(name)
+	}
+	i := strings.IndexByte(name, '-')
+	return i >= 0 && strings.HasPrefix(name[i+1:], owner)
+}
+
+// saveAttachedImage is saveAttachedImageFor the desk's own pictures.
 func saveAttachedImage(paneID, name, mediaType, dataB64 string) (string, error) {
+	return saveAttachedImageFor("", paneID, name, mediaType, dataB64)
+}
+
+// saveAttachedImageFor decodes, validates and writes one picture for owner (""
+// for the desk, else uploadOwner of a device), and returns the path it was saved
+// at. Only owner's own pictures in the pane's folder are counted or removed to
+// make room.
+func saveAttachedImageFor(owner, paneID, name, mediaType, dataB64 string) (string, error) {
 	_ = mediaType // the claimed type is never trusted over the bytes themselves
 	if dataB64 == "" {
 		return "", fmt.Errorf("no picture was sent")
@@ -115,12 +196,54 @@ func saveAttachedImage(paneID, name, mediaType, dataB64 string) (string, error) 
 	if err := os.MkdirAll(paneDir, 0o700); err != nil {
 		return "", fmt.Errorf("create a place to save it: %w", err)
 	}
-	filename := fmt.Sprintf("%d-%s.%s", time.Now().UnixNano(), sanitizeAttachName(name), ext)
+	trimPaneUploads(paneDir, owner, attachPaneFiles-1, attachPaneBytes-int64(len(data)))
+	// The tag takes part of the 60 characters a name may have (uploadFileName).
+	clean := sanitizeAttachName(name)
+	if r := []rune(clean); len(r) > 60-len(owner) {
+		clean = string(r[:60-len(owner)])
+	}
+	filename := fmt.Sprintf("%d-%s%s.%s", time.Now().UnixNano(), owner, clean, ext)
 	path := filepath.Join(paneDir, filename)
 	if err := os.WriteFile(path, data, 0o600); err != nil {
 		return "", fmt.Errorf("save it: %w", err)
 	}
 	return path, nil
+}
+
+// trimPaneUploads removes the oldest of owner's pictures in a pane's folder until
+// owner holds at most maxFiles files and maxBytes bytes there, to make room for
+// one more. Pictures that are not owner's are neither counted nor touched: a
+// device's uploads must not push out the desk's own, or another device's, which
+// a queued message may still point at.
+func trimPaneUploads(paneDir, owner string, maxFiles int, maxBytes int64) {
+	entries, err := os.ReadDir(paneDir)
+	if err != nil {
+		return
+	}
+	type pic struct {
+		path string
+		at   time.Time
+		size int64
+	}
+	var pics []pic
+	var total int64
+	for _, e := range entries {
+		if e.IsDir() || !ownedUpload(e.Name(), owner) {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		pics = append(pics, pic{filepath.Join(paneDir, e.Name()), info.ModTime(), info.Size()})
+		total += info.Size()
+	}
+	sort.Slice(pics, func(i, j int) bool { return pics[i].at.Before(pics[j].at) })
+	for len(pics) > 0 && (len(pics) > maxFiles || total > maxBytes) {
+		_ = os.Remove(pics[0].path)
+		total -= pics[0].size
+		pics = pics[1:]
+	}
 }
 
 // sanitizeAttachName reduces a name the phone sent to something safe to put

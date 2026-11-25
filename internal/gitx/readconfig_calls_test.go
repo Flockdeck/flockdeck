@@ -12,7 +12,7 @@ import (
 // filter, is decided where it is called (see UnsafeReadConfig). A call added without that
 // decision would start reading checkouts ungated, so this lists how often each file names
 // such a command and fails when a count changes: gate the new call (or decide that it
-// needs none, as for a tree-only diff, a worktree add or a commit the person asked for),
+// needs none, as for a tree-only diff, a worktree add or a commit the person asked for; ReviewSnapshot is gated because a device asks for it),
 // then update the number. ls-files counts because -m or --modified through it
 // compares the working tree. Counts are of the quoted words in the non-test files of gitx
 // and changes; comparesWorkingTree in changes/read.go names them too.
@@ -20,7 +20,7 @@ func TestEveryCallThatComparesTheWorkingTreeIsAccountedFor(t *testing.T) {
 	words := []string{"status", "diff", "add", "update-index", "stash", "diff-files", "diff-index", "ls-files", "--modified"}
 	want := map[string]map[string]int{
 		"changes.go":          {"status": 2, "diff": 2, "ls-files": 1},
-		"commit.go":           {"status": 2, "diff": 1, "add": 2},
+		"commit.go":           {"status": 3, "diff": 1, "add": 2},
 		"indexrefresh.go":     {"update-index": 1},
 		"made.go":             {"status": 1, "ls-files": 2},
 		"merge.go":            {"status": 2, "ls-files": 1},

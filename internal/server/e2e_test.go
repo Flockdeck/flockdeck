@@ -129,10 +129,16 @@ func TestPTYEndToEndEncryptsWhenBothSidesHaveAKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv.SetRemote(&e2eFakeRemote{
-		capable:   map[string]bool{"d1": true},
-		hostPriv:  hostPriv,
-		devicePub: map[string]*ecdh.PublicKey{"d1": devicePriv.PublicKey()},
+	// The device's key is marked verified, as typing needs.
+	key := devicePriv.PublicKey().Bytes()
+	srv.SetRemote(&approvalsFake{
+		e2eFakeRemote: e2eFakeRemote{
+			capable:   map[string]bool{"d1": true},
+			hostPriv:  hostPriv,
+			devicePub: map[string]*ecdh.PublicKey{"d1": devicePriv.PublicKey()},
+		},
+		keys:   map[string][]byte{"d1": key},
+		states: map[string]remote.VerifyState{vk("d1", key): remote.Verified},
 	})
 
 	ts := remoteServer(t, srv)
@@ -320,8 +326,8 @@ func TestPTYRefusesAHandshakeThatFailsRatherThanFallingBack(t *testing.T) {
 
 // TestPTYFallsBackToPlaintextWithoutADeviceKey covers an older browser that
 // has never registered an end-to-end key: E2ECapable says no, so handlePTY
-// never attempts a handshake at all, and the terminal is served exactly as
-// it always was.
+// never attempts a handshake at all, and the terminal is served in the clear.
+// Such a device has no key to mark verified, so it may watch and not type.
 func TestPTYFallsBackToPlaintextWithoutADeviceKey(t *testing.T) {
 	srv, ws := newTestServer(t)
 	paneID, ok := ask(srv, func() string { return ws.CurrentTab().Focus })
@@ -337,21 +343,10 @@ func TestPTYFallsBackToPlaintextWithoutADeviceKey(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
-	marker := fmt.Sprintf("plain-marker-%d", time.Now().UnixNano())
-	if err := conn.Write(ctx, websocket.MessageBinary, []byte("echo "+marker+"\n")); err != nil {
+	// A device with no key cannot have one marked verified, so it may watch
+	// and is not let type: the marker below is thrown away, not run.
+	if err := conn.Write(ctx, websocket.MessageBinary, []byte("echo plain-marker-never\r")); err != nil {
 		t.Fatalf("write: %v", err)
-	}
-	var seen strings.Builder
-	deadline := time.Now().Add(20 * time.Second)
-	for !strings.Contains(seen.String(), marker) {
-		if time.Now().After(deadline) {
-			t.Fatalf("timed out waiting for the marker; saw:\n%s", seen.String())
-		}
-		_, data, err := conn.Read(ctx)
-		if err != nil {
-			t.Fatalf("read: %v", err)
-		}
-		seen.Write(data)
 	}
 
 	waitFor(t, func() bool {

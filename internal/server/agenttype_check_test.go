@@ -115,6 +115,14 @@ type agentTypeAllow struct {
 // agentTypeAllowed are the places allowed to name an agent type or reach a
 // session, by file, then "function | expression". See the comment above.
 var agentTypeAllowed = map[string]map[string]agentTypeAllow{
+	"internal/server/permission_answer.go": {
+		"sealedAnswerRefusal | card.Kind == bridge.QuestionKind": {1, "a permission card's tool kind, not an agent type"},
+		"sealedAnswerRefusal | card.Kind == \"switch_mode\"":     {1, "a permission card's tool kind, not an agent type"},
+		"sealedAnswerRefusal | kind != bridge.AllowOnce":         {1, "a permission option's kind, not an agent type"},
+		"sealedAnswerRefusal | kind != \"reject_once\"":          {1, "a permission option's kind, not an agent type"},
+		"sealedAnswerRefusal | kind == bridge.AllowOnce":         {2, "a permission option's kind, not an agent type"},
+		"sealedAnswerRefusal | kind == \"reject_once\"":          {1, "a permission option's kind, not an agent type"},
+	},
 	"internal/server/approval_card.go": {
 		"projectCard | c.Kind == bridge.QuestionKind": {1, "a permission card's tool kind, not an agent type"},
 		"projectCard | c.Kind == \"switch_mode\"":     {1, "a permission card's tool kind, not an agent type"},

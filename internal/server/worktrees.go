@@ -360,6 +360,8 @@ func (s *Server) worktreeTarget(root string) string {
 // addWorktree creates a worktree in root -- or the active project's own
 // repo, when root names none -- and reports the outcome.
 func (s *Server) addWorktree(c *controlClient, root, branch, base, path string) {
+	// A new, removed or pruned worktree is a folder the known projects gain or lose.
+	s.forgetWorktrees()
 	root = s.worktreeTarget(root)
 	// The listing this ends on counts from when it was asked for, so a panel
 	// opened on another project meanwhile is not drawn over.
@@ -389,6 +391,8 @@ func (s *Server) addWorktree(c *controlClient, root, branch, base, path string) 
 }
 
 func (s *Server) removeWorktree(c *controlClient, root, path string, force bool) {
+	// A new, removed or pruned worktree is a folder the known projects gain or lose.
+	s.forgetWorktrees()
 	root = s.worktreeTarget(root)
 	asked := worktreeListings.asked(c) // as addWorktree's
 	go func() {
@@ -429,6 +433,8 @@ func (s *Server) removeWorktree(c *controlClient, root, path string, force bool)
 }
 
 func (s *Server) pruneWorktrees(c *controlClient, root string) {
+	// A new, removed or pruned worktree is a folder the known projects gain or lose.
+	s.forgetWorktrees()
 	root = s.worktreeTarget(root)
 	asked := worktreeListings.asked(c) // as addWorktree's
 	go func() {

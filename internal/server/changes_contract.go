@@ -78,6 +78,36 @@ func (s *Server) changesPlanned(c *controlClient, cmd command) {
 	c.sendJSON(changesResultMsg{Type: "changesResult", Req: cmd.Req, Op: cmd.Cmd, Code: "unsupported", Error: changesUnsupported})
 }
 
+// scrubChangesResultSealed is scrubChangesResult for the sealed socket, which is
+// also told why a read could not be answered, in fixed words: what git or the
+// desktop wrote in error is not sent. An answer that holds data is dropped.
+func scrubChangesResultSealed(data []byte) []byte {
+	var m changesResultMsg
+	if json.Unmarshal(data, &m) != nil || m.OK {
+		return nil
+	}
+	var text string
+	switch m.Code {
+	case "deskOnly":
+		text = changesDeskOnly
+	case "unsupported":
+		text = changesUnsupported
+	case "busy":
+		text = changesBusyText
+	case "badRequest":
+		text = "That request was not understood"
+	case "noBranch":
+		text = "That branch could not be read"
+	default:
+		return nil
+	}
+	out, err := json.Marshal(changesResultMsg{Type: "changesResult", Req: m.Req, Op: m.Op, Code: m.Code, Error: text})
+	if err != nil {
+		return nil
+	}
+	return out
+}
+
 // scrubChangesResult keeps the refusal a relay window is given for a command of the
 // contract and drops any answer that holds data.
 func scrubChangesResult(data []byte) []byte {

@@ -127,14 +127,14 @@ var commandAccess = map[string]cmdAccess{
 	"remoteReconnect": accessFull, "setDeviceRole": accessFull,
 	// Whether a device may answer an agent's permission requests from its phone
 	// is the desk's to decide, and a viewer never decides it.
-	"setDeviceApprove": accessFull, "setApprovalsOff": accessFull, "approveChallenge": accessFull,
+	"setDeviceControl": accessFull, "setDeviceApprove": accessFull, "setApprovalsOff": accessFull, "approveChallenge": accessFull, "deskConfirmAnswer": accessFull,
 	"remoteVerify": accessFull, "remoteUnverify": accessFull,
 	"helpSeen": accessFull, "dismissTip": accessFull, "fontSize": accessFull, "uiPrefs": accessFull, "notifications": accessFull,
 	"scrollback": accessFull, "updates": accessFull, "checkForUpdate": accessFull,
 	"helpers": accessFull, "helperPlan": accessFull, "helperInstall": accessFull, "helperStart": accessFull,
 	"helperStop": accessFull, "helperOpen": accessFull, "helperUninstall": accessFull,
 	"listVersions": accessFull, "installVersion": accessFull, "presence": accessFull,
-	"pushNotify": accessFull, "pushAnonymous": accessFull, "pushDelay": accessFull, "resetTips": accessFull,
+	"pushNotify": accessFull, "pushAnonymous": accessFull, "pushDelay": accessFull, "pushPrefsGet": accessFull, "resetTips": accessFull,
 	"cursorBlink": accessFull, "cursorStyle": accessFull, "screenReader": accessFull, "statusLine": accessFull,
 	"fontFamily": accessFull, "railExpanded": accessFull, "railWidth": accessFull, "theme": accessFull,
 	"accentColor": accessFull, "autoReviewDefault": accessFull,
@@ -179,6 +179,11 @@ var commandAccess = map[string]cmdAccess{
 // machine and a full device may send any; a viewer only what the table lists
 // for it. A command the table does not know is refused to a viewer.
 func (s *Server) allowCommand(c *controlClient, name string) bool {
+	// A sealed connection has been held to sealedCommands and to the device's
+	// right to see panes before the command got here.
+	if c.liftsRelayRefusal(name) {
+		return true
+	}
 	a := s.accessOf(c)
 	if a.EffectiveRole() == store.RoleFull {
 		return true
@@ -231,6 +236,10 @@ var watcherMessageTypes = map[string]bool{
 
 // mayReceive reports whether a message may go to this window.
 func (c *controlClient) mayReceive(data []byte) bool {
+	// What a sealed connection is sent is decided by sealedWrite, on its way out.
+	if c.sealed != nil {
+		return true
+	}
 	if c.accessOf == nil {
 		return true
 	}
@@ -285,6 +294,10 @@ func viewerSnapshot(full stateMsg, watch bool) stateMsg {
 // sending them again on every change of the desk's state would still tell it
 // when the agents were busy.
 func (s *Server) sendSnapshotTo(c *controlClient, snap stateMsg, full []byte) {
+	// A sealed connection is sent no snapshot: sealedWrite would drop it.
+	if c.sealed != nil {
+		return
+	}
 	a := s.accessOf(c)
 	if a.EffectiveRole() == store.RoleFull {
 		c.putState(full)
@@ -355,15 +368,28 @@ type accessState struct {
 	// unpaired. An enable that began before the change sees a different number
 	// when it comes to apply, and does not apply (applyDeviceApprove).
 	approveGen atomic.Uint64
+	// controlGen is the same for control of agents (sealed_control.go).
+	controlGen atomic.Uint64
 	// approveLiveOn makes phone approval available on one server whatever
 	// phoneApprovalLive says. Only a test sets it.
 	approveLiveOn bool
 	// approveAsk holds the one-time questions handed to windows at the desk, and
 	// approveFile the last read of the preferences file for the approval gate.
-	approveAsk  approveAsk
-	approveFile approveFileCache
+	approveAsk approveAsk
+	// controlAsk is the same for turning "Control agents" on: a one-use nonce,
+	// asked with approveChallenge and kind "control", that setDeviceControl on
+	// must carry (sealed_control.go).
+	controlAsk approveAsk
+	// deskConfirms is the commits, pushes and pulls of paired devices waiting for
+	// a yes at the desk (sealed_confirm.go).
+	deskConfirms deskConfirmState
+	approveFile  approveFileCache
 	// approvals is the sealed /ws/approvals socket's state (approvals_socket.go).
 	approvals approvalsState
+	// sealed is the sealed /ws/sealed socket's state (sealed.go).
+	sealed sealedState
+	// wtCache is the worktrees of the known projects (remote_paths.go).
+	wtCache worktreeCache
 	// seen is the device ids of the last roster refresh. A turn-on that is being
 	// checked belongs to a device with no record yet, so a device dropped from
 	// the roster is found by comparing with this, not with the records.
@@ -468,6 +494,11 @@ func (s *Server) applyDeviceRole(c *controlClient, device string, access store.D
 		// Changing what a device may see does not change whether it may approve,
 		// and does not widen it: the switch and its agreement stay as they were.
 		access.Approve, access.ApproveV, access.ApproveAt, access.ApproveKey = old.Approve, old.ApproveV, old.ApproveAt, old.ApproveKey
+		// A viewer cannot hold control, so a change to viewer takes it away.
+		access.Control, access.ControlAt, access.ControlKey = old.Control, old.ControlAt, old.ControlKey
+		if access.EffectiveRole() != store.RoleFull {
+			access.Control, access.ControlAt, access.ControlKey = false, time.Time{}, ""
+		}
 		next, ok := p.WithAccess(device, access)
 		if !ok {
 			c.notify("Too many devices have their own setting; make some of them full again first", true)

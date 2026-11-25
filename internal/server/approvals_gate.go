@@ -166,6 +166,9 @@ type approveChallengeMsg struct {
 	Text      string `json:"text"`
 	ExpiresMS int    `json:"expiresMs"`
 	Error     string `json:"error,omitempty"`
+	// Kind is "control" for the question about turning "Control agents" on, and
+	// absent for the one about approving.
+	Kind string `json:"kind,omitempty"`
 }
 
 // askApprove answers a page at the desk that opened the question "Let this device
@@ -186,6 +189,16 @@ func (s *Server) askApprove(c *controlClient, cmd command) {
 	}
 	if !c.page {
 		c.notify(pageOnlyApprove, true)
+		return
+	}
+	if cmd.Kind == "control" {
+		msg := approveChallengeMsg{Type: "approveChallenge", ID: cmd.ID, V: approveAckVersion, Text: controlAckText, ExpiresMS: int(approveChallengeLife / time.Millisecond), Kind: "control"}
+		n, ok := s.controlAsk.give(c, cmd.ID)
+		if !ok {
+			msg.Error = "Too many questions are open. Try again in a moment"
+		}
+		msg.Nonce = n
+		c.sendJSON(msg)
 		return
 	}
 	if !s.phoneApprovalAvailable() {

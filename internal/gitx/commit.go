@@ -3,12 +3,14 @@ package gitx
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -598,3 +600,50 @@ func hasConflictMarkers(path string, size int) bool {
 // errEmptyMessage is returned rather than letting git open an editor, which
 // would hang with nowhere to type.
 var errEmptyMessage = &gitError{"a commit message is required"}
+
+// ReviewSnapshot reads the working tree as a commit would record it now: every
+// changed file, each with its Stamp, and none left unlisted. It is what a
+// person who has to approve a commit is shown, read by the host and not taken
+// from whoever asked, and what CommitReviewedGuarded then holds the commit to.
+func ReviewSnapshot(dir string) (Reviewed, error) {
+	// A device asks for this before anyone has approved anything, so it is not a commit the
+	// person asked for: a repository that would run a program on a read is refused.
+	if err := UnsafeReadConfig(context.Background(), dir); err != nil {
+		return Reviewed{}, err
+	}
+	out, err := run(dir, "status", "--porcelain", "--untracked-files=all", "-z")
+	if err != nil {
+		return Reviewed{}, err
+	}
+	r := Reviewed{Stamps: map[string]string{}}
+	seen := map[string]bool{}
+	for _, rec := range statusRecords(out) {
+		path, ok := rec.shown()
+		if !ok {
+			continue
+		}
+		name := jsonName(path)
+		if seen[name] {
+			continue
+		}
+		seen[name] = true
+		r.Files = append(r.Files, name)
+		r.Stamps[name] = Stamp(dir, path)
+	}
+	sort.Strings(r.Files)
+	return r, nil
+}
+
+// SameReviewed reports whether two snapshots name the same files with the same
+// stamps. A stamp of "" (a directory) is held only to being listed.
+func SameReviewed(a, b Reviewed) bool {
+	if len(a.Files) != len(b.Files) || a.Unlisted != b.Unlisted {
+		return false
+	}
+	for i, f := range a.Files {
+		if b.Files[i] != f || a.Stamps[f] != b.Stamps[f] {
+			return false
+		}
+	}
+	return true
+}

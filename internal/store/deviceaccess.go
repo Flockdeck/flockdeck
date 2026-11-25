@@ -51,6 +51,15 @@ type DeviceAccess struct {
 	// under the same id, or whose key changed, has a different hash and is not
 	// allowed (ApproveFor) until the desk turns it on again.
 	ApproveKey string `json:"approveKey,omitempty"`
+	// Control lets the device act on agents through the sealed socket (tier B):
+	// send text, stop a turn, answer a question or approve a plan once, run a
+	// shell command in a structured pane and start an agent. It is off for every
+	// device, full ones included, until the desk turns it on for that one device,
+	// and the grant belongs to the key it was made for, as Approve's does
+	// (ControlFor). ControlAt is when.
+	Control    bool      `json:"control,omitempty"`
+	ControlAt  time.Time `json:"controlAt,omitzero"`
+	ControlKey string    `json:"controlKey,omitempty"`
 }
 
 // KeyHash is what ApproveKey holds for a device key: the hex SHA-256 of its raw bytes.
@@ -67,6 +76,45 @@ func KeyHash(key []byte) string {
 // this, not ApproveOn.
 func (a DeviceAccess) ApproveFor(version int, keyHash string) bool {
 	return a.ApproveOn(version) && keyHash != "" && a.ApproveKey == keyHash
+}
+
+// ControlFor reports whether the device may act on agents with the key whose
+// KeyHash is keyHash: the switch is on and the grant was made for this key.
+// Anything that lets a device act must ask this.
+func (a DeviceAccess) ControlFor(keyHash string) bool {
+	return a.Control && keyHash != "" && a.ControlKey == keyHash
+}
+
+// clearControl returns a with the grant to control agents removed.
+func (a DeviceAccess) clearControl() DeviceAccess {
+	a.Control, a.ControlAt, a.ControlKey = false, time.Time{}, ""
+	return a
+}
+
+// WithoutControl returns the preferences with control switched off for every
+// device, and the ids of the devices it was on for.
+func (p Prefs) WithoutControl() (Prefs, []string) {
+	var was []string
+	next := maps.Clone(p.Devices)
+	for id, a := range p.Devices {
+		if !a.Control && a.ControlKey == "" && a.ControlAt.IsZero() {
+			continue
+		}
+		if a.Control {
+			was = append(was, id)
+		}
+		a = a.clearControl()
+		if a == (DeviceAccess{Role: RoleFull}) {
+			delete(next, id)
+		} else {
+			next[id] = a
+		}
+	}
+	if len(next) == 0 {
+		next = nil
+	}
+	p.Devices = next
+	return p, was
 }
 
 // clearApprove returns a with approval and what goes with it removed.
@@ -135,6 +183,16 @@ func (p *Prefs) AdoptAccess(from Prefs) {
 			}
 		}
 	}
+	// Control is narrowed by the file in the same way.
+	for id, a := range p.Devices {
+		if a.Control && !file[id].Control {
+			if cleared := a.clearControl(); cleared == (DeviceAccess{Role: RoleFull}) {
+				delete(p.Devices, id)
+			} else {
+				p.Devices[id] = cleared
+			}
+		}
+	}
 	if len(p.Devices) == 0 {
 		p.Devices = nil
 	}
@@ -179,6 +237,9 @@ func (p Prefs) WithAccess(deviceID string, a DeviceAccess) (Prefs, bool) {
 	}
 	if !a.Approve {
 		a = a.clearApprove()
+	}
+	if !a.Control {
+		a = a.clearControl()
 	}
 	next := maps.Clone(p.Devices)
 	if a == (DeviceAccess{Role: RoleFull}) {

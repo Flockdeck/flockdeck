@@ -653,7 +653,7 @@ func untracked(dir, path string) bool {
 func isUntracked(dir, path string) (bool, error) {
 	var out string
 	err := retryIndex(func() (e error) {
-		out, e = runIndex(context.Background(), dir, "ls-files", "--others", "--", pathspec(path))
+		out, e = runIndex(context.Background(), dir, "ls-files", "--others", "--exclude-standard", "--", pathspec(path))
 		return e
 	})
 	if err != nil {

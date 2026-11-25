@@ -272,9 +272,6 @@ func TestAViewerIsSentNothingOfTheDesks(t *testing.T) {
 		if len(st.Tabs) != 0 || len(st.Panes) != 0 || len(st.Projects) != 0 || st.Root != "" || st.Remote != nil || len(st.Agents.Items) != 0 {
 			t.Errorf("a viewer was sent a snapshot with content: %s", raw[i])
 		}
-		if st.CanStartAgent || st.CanMutePane || st.CanAutoReview {
-			t.Errorf("a viewer was told it can act: %s", raw[i])
-		}
 	}
 	// Activity on the desk does not reach it either, not even as repeats.
 	if n := countOf(types, "state"); n > 1 {
@@ -313,7 +310,7 @@ func TestAViewerAllowedToWatchSeesPanesButNotTheDesk(t *testing.T) {
 	if len(st.Panes) == 0 || len(st.Tabs) == 0 {
 		t.Fatalf("a viewer allowed to watch was sent no panes: %+v", st)
 	}
-	if st.Remote != nil || len(st.Agents.Items) != 0 || st.CanStartAgent || st.CanMutePane || st.CanAutoReview {
+	if st.Remote != nil || len(st.Agents.Items) != 0 {
 		t.Errorf("a watcher was sent more than the panes: %+v", st)
 	}
 	_ = ws

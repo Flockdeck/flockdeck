@@ -73,10 +73,19 @@ var noHooks = []string{"-c", "core.hooksPath=" + os.DevNull}
 // hookRunners are the subcommands that run the repository's hooks.
 var hookRunners = map[string]bool{"commit": true, "push": true, "pull": true, "fetch": true, "worktree": true}
 
+// afterConfig drops the "-c key=value" pairs a caller put ahead of the
+// subcommand, so what is left starts with the subcommand.
+func afterConfig(args []string) []string {
+	for len(args) >= 2 && args[0] == "-c" {
+		args = args[2:]
+	}
+	return args
+}
+
 // configFor is what goes ahead of a git command's arguments.
 func configFor(args []string) []string {
 	cfg := append([]string{}, ownConfig...)
-	if len(args) == 0 || !hookRunners[args[0]] {
+	if rest := afterConfig(args); len(rest) == 0 || !hookRunners[rest[0]] {
 		cfg = append(cfg, noHooks...)
 	}
 	return cfg
@@ -383,7 +392,7 @@ func (e *commandError) Unwrap() error { return e.err }
 // they came before, and crowded out, what git had actually said.
 func gitLabel(args []string) string {
 	words := []string{"git"}
-	for _, a := range args {
+	for _, a := range afterConfig(args) {
 		if strings.HasPrefix(a, "-") || len(words) == 3 {
 			break
 		}

@@ -27,7 +27,7 @@ const apiCatalogPath = "../../api/catalog.json"
 // command or message raises the major; one that adds raises the minor.
 const (
 	apiMajor = 1
-	apiMinor = 36
+	apiMinor = 42
 )
 
 // addedIn names the minor version a command arrived in; any other is 1.0.
@@ -95,10 +95,29 @@ func init() {
 	for _, n := range []string{"structuredSessions", "structuredResume", "structuredNewConversation"} {
 		addedIn[n] = "1.36"
 	}
+	// The sealed command socket (/ws/sealed) came with sealedControl (1.37). No command is new.
+	// Acting on agents through it (tier B) and the desk's switch for it came with sealedAct (1.38).
+	addedIn["setDeviceControl"] = "1.38"
+	// The start flows, history and worktrees on the sealed socket came with sealedStart (1.39).
+	// No command is new: startAgent gained branch and base.
+	// Changes, diffs and checks on the sealed socket (tier A), and commit, push and pull behind a
+	// desk confirmation (tier C), came with sealedGit (1.40).
+	addedIn["deskConfirmAnswer"] = "1.40"
+	// The team view on the sealed socket (tier A reads, msgSend and msgSeen at tier B) came with
+	// sealedTeam (1.41). No command or message is new.
+	// Settings, devices and GitHub on the sealed socket (sealedSettings, 1.42):
+	// pushPrefsGet is the one new command; pushPrefs, deviceRoster and deviceRevoked
+	// are new messages.
+	addedIn["pushPrefsGet"] = "1.42"
 	// The person's own shell commands came with structuredShell (1.21).
 	for _, n := range []string{"structuredShellRun", "structuredShellStop", "structuredShellRemove", "structuredShellSend"} {
 		addedIn[n] = "1.21"
 	}
+}
+
+// relayRefusedFor says whether a relay window is refused the command outright.
+func relayRefusedFor(name string) bool {
+	return remoteTextCommands[name] || relayRefusedCommands[name] != ""
 }
 
 func sinceOf(name string) string {
@@ -125,10 +144,17 @@ type catalogCommand struct {
 	// (any viewer).
 	Access string `json:"access"`
 	// RelayRefused is set when a relay window is refused the command whatever its
-	// role, because the answer would carry conversation text.
-	RelayRefused bool   `json:"relayRefused,omitempty"`
-	Since        string `json:"since"`
-	Status       string `json:"status"`
+	// role: because the answer would carry conversation text (remoteTextCommands)
+	// or for another reason (relayRefusedCommands).
+	RelayRefused bool `json:"relayRefused,omitempty"`
+	// RelayPathGated is set when a relay window is let send the command only for
+	// a folder inside a project Flockdeck knows (remotePathFields).
+	RelayPathGated bool `json:"relayPathGated,omitempty"`
+	// Sealed is the tier the command is run at on /ws/sealed ("A" is read only),
+	// or empty when that socket refuses it (sealedCommands).
+	Sealed string `json:"sealed,omitempty"`
+	Since  string `json:"since"`
+	Status string `json:"status"`
 }
 
 type catalogMessage struct {
@@ -141,8 +167,11 @@ type catalogMessage struct {
 	// Viewers is who of the viewing devices is sent it: "" (nobody), "viewer"
 	// or "watcher".
 	Viewers string `json:"viewers,omitempty"`
-	Since   string `json:"since"`
-	Status  string `json:"status"`
+	// Sealed is the tier at which /ws/sealed sends the message, or empty when it
+	// never does (sealedMessages).
+	Sealed string `json:"sealed,omitempty"`
+	Since  string `json:"since"`
+	Status string `json:"status"`
 }
 
 // catalogFrame is a frame a window sends that is not a command (clientFrames).
@@ -185,8 +214,10 @@ func buildAPICatalog(t *testing.T) catalogFile {
 	names := handleCommandCases(t)
 	sort.Strings(names)
 	for _, name := range names {
+		_, gated := remotePathFields[name]
 		c.Commands = append(c.Commands, catalogCommand{Name: name, Access: access[commandAccess[name]],
-			RelayRefused: remoteTextCommands[name], Since: sinceOf(name), Status: statusOf(name)})
+			RelayRefused: relayRefusedFor(name), RelayPathGated: gated, Sealed: sealedCommands[name],
+			Since: sinceOf(name), Status: statusOf(name)})
 	}
 	sent := sentMessageTypes(t)
 	var types []string
@@ -195,7 +226,7 @@ func buildAPICatalog(t *testing.T) catalogFile {
 	}
 	sort.Strings(types)
 	for _, typ := range types {
-		m := catalogMessage{Name: typ, Since: sinceOf(typ), Status: statusOf(typ)}
+		m := catalogMessage{Name: typ, Sealed: sealedMessages[typ].Tier, Since: sinceOf(typ), Status: statusOf(typ)}
 		switch _, scrubbed := relayScrubs[typ]; {
 		case scrubbed:
 			m.Relay = "scrub"
@@ -282,8 +313,14 @@ func TestAPICatalogAgreesWithTheServer(t *testing.T) {
 		if want := map[cmdAccess]string{accessFull: "full", accessWatcher: "watcher", accessViewer: "viewer"}[a]; cmd.Access != want {
 			t.Errorf("%s: the catalog says access %q, commandAccess says %q", cmd.Name, cmd.Access, want)
 		}
-		if cmd.RelayRefused != remoteTextCommands[cmd.Name] {
-			t.Errorf("%s: relayRefused is %v in the catalog, %v in remoteTextCommands", cmd.Name, cmd.RelayRefused, remoteTextCommands[cmd.Name])
+		if cmd.RelayRefused != relayRefusedFor(cmd.Name) {
+			t.Errorf("%s: relayRefused is %v in the catalog, %v in remoteTextCommands and relayRefusedCommands", cmd.Name, cmd.RelayRefused, relayRefusedFor(cmd.Name))
+		}
+		if _, gated := remotePathFields[cmd.Name]; cmd.RelayPathGated != gated {
+			t.Errorf("%s: relayPathGated is %v in the catalog, %v in remotePathFields", cmd.Name, cmd.RelayPathGated, gated)
+		}
+		if cmd.Sealed != sealedCommands[cmd.Name] {
+			t.Errorf("%s: sealed is %q in the catalog, %q in sealedCommands", cmd.Name, cmd.Sealed, sealedCommands[cmd.Name])
 		}
 	}
 	sort.Strings(inFile)
@@ -307,6 +344,9 @@ func TestAPICatalogAgreesWithTheServer(t *testing.T) {
 		}
 		if !sent[m.Name] {
 			t.Errorf("the catalog has the message %q, which the server no longer sends", m.Name)
+		}
+		if m.Sealed != sealedMessages[m.Name].Tier {
+			t.Errorf("%s: sealed is %q in the catalog, %q in sealedMessages", m.Name, m.Sealed, sealedMessages[m.Name].Tier)
 		}
 		_, scrubbed := relayScrubs[m.Name]
 		_, passed := relayPass[m.Name]

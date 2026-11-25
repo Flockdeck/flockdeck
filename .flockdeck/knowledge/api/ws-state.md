@@ -21,11 +21,11 @@ Struct `stateMsg` (`type: "state"`), built on the workspace goroutine by `snapsh
 | `agents` | agent catalog: which agents exist, which can start here, defaults |
 | `update`, `recall` | staged update, recalled-version notice |
 | `remote` | tunnel state, see [remote commands](/api/ws-commands-remote.md) |
-| `canStartAgent`, `canSearchConversation`, `canMutePane`, `canAutoReview` | capability flags; absent on an older desktop, which is how a phone knows to hide the offer |
+| `canSearchConversation` | capability flag; absent on an older desktop, which is how a phone knows to hide the search button. `canStartAgent`, `canMutePane` and `canAutoReview` were removed: the phone no longer reads them |
 
 ## Delivery rules
 
 - Pushed at most every 100 ms for agent chatter (`stateInterval`) and 5 ms after a change a person just asked for (`askedInterval`). An unchanged snapshot is not resent (`lastState`).
 - Windows keep only the newest pending snapshot (`pending`): snapshots supersede each other, other messages queue in order.
 - A usage rebuild every 5 s (`usageRefresh`) while a window is open; the result is sent only if the rounded figures differ.
-- A viewer device gets `viewerSnapshot`: empty projects, tabs and panes, unless the desk allowed it to watch panes, in which case panes are included without the agent catalog, update and recall, relay address, other devices' viewers or the capability flags except `canSearchConversation`.
+- A viewer device gets `viewerSnapshot`: empty projects, tabs and panes, unless the desk allowed it to watch panes, in which case panes are included without the agent catalog, update and recall, relay address, other devices' viewers (`canSearchConversation` is still sent).

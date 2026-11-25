@@ -9,6 +9,7 @@ import (
 
 	"github.com/jmwri/flockdeck/internal/e2e"
 	"github.com/jmwri/flockdeck/internal/remote"
+	"github.com/jmwri/flockdeck/internal/store"
 )
 
 // Remote access puts this same server in front of a browser on another
@@ -288,6 +289,9 @@ type remoteDeviceView struct {
 	// phone app cannot answer a request yet (phoneApprovalLive). Sent only to a
 	// window on this machine.
 	ApproveHeld bool `json:"approveHeld,omitempty"`
+	// Control says the desk let the device act on agents through the sealed
+	// socket (tier B, since 1.38). Sent only to a window on this machine.
+	Control bool `json:"control,omitempty"`
 	// DeskFingerprint is the same for the device's other key, the one a
 	// window opened from this machine's own full interface uses
 	// (remote.KeyOriginDesk). That window shows the code on its own side.
@@ -340,21 +344,30 @@ func (s *Server) remoteDevices(c *controlClient) {
 			Type: "remoteDevices", Devices: []remoteDeviceView{}, Hosts: []remote.Host{},
 			Current: c.device,
 		}
+		// A sealed device is told the narrow roster, never the keys, fingerprints or
+		// hosts of this one (sealed_stage8.go).
+		send := func() {
+			if c.sealed != nil {
+				c.sendJSON(sealedRoster(msg, c.device))
+				return
+			}
+			c.sendJSON(msg)
+		}
 		cl, err := s.remoteClient()
 		switch {
 		case errors.Is(err, remote.ErrNotEnabled):
-			c.sendJSON(msg)
+			send()
 			return
 		case err != nil:
 			msg.Error = err.Error()
-			c.sendJSON(msg)
+			send()
 			return
 		}
 		msg.Enabled = true
 		roster, err := cl.Devices(context.Background())
 		if err != nil {
 			msg.Error = err.Error()
-			c.sendJSON(msg)
+			send()
 			return
 		}
 		// A device unpaired from its own page is gone from the roster, and
@@ -364,6 +377,7 @@ func (s *Server) remoteDevices(c *controlClient) {
 		s.forgetRolesExcept(roster.Devices)
 		// And any grant to approve whose key has changed since.
 		s.reconcileApprovals(roster.Devices)
+		s.reconcileControl(roster.Devices)
 		// This machine's own key is read from this machine, not from the
 		// roster: a relay that swapped the roster's copy would otherwise
 		// make the code shown here agree with the code on a device that
@@ -388,6 +402,7 @@ func (s *Server) remoteDevices(c *controlClient) {
 					msg.Devices[i].Approve = a.ApproveOn(approveAckVersion) && !s.approvalStale(d, a)
 					msg.Devices[i].ApproveKey = s.approveKeyState(d)
 					msg.Devices[i].ApproveHeld = !s.phoneApprovalAvailable()
+					msg.Devices[i].Control = a.Control && a.EffectiveRole() == store.RoleFull && !s.controlStale(d, a)
 				}
 			}
 		}
@@ -395,7 +410,7 @@ func (s *Server) remoteDevices(c *controlClient) {
 			msg.Hosts = roster.Hosts
 		}
 		msg.Plan = roster.Plan
-		c.sendJSON(msg)
+		send()
 	}()
 }
 
@@ -406,15 +421,22 @@ func (s *Server) remotePair(c *controlClient, kind string) {
 	if kind != remote.KindHost {
 		kind = remote.KindDevice
 	}
-	// A join code takes another desktop into this account, after which every
-	// device paired with it reaches this machine and that one reaches every
-	// agent here. Asked for from a window reached through the relay -- a
-	// phone left unlocked, say -- it is a way back in that outlasts unpairing
-	// the phone. The dialog there offers only a device code; this is for a
+	// A code of either kind is made at the desk. A join code takes another
+	// desktop into this account, after which every device paired with it
+	// reaches this machine and that one reaches every agent here. A device
+	// code pairs a new phone, which is a way back in that outlasts unpairing
+	// the one asking. Asked for from a window reached through the relay -- a
+	// phone left unlocked, say -- either is a way back in that outlasts
+	// unpairing the phone. The dialog there offers neither; this is for a
 	// window that sends it anyway.
-	if kind == remote.KindHost && c.remote {
-		c.sendJSON(remotePairMsg{Type: "remotePair", Kind: kind, Error: deskOnlyJoin})
-		c.notify(deskOnlyJoin, true)
+	if c.remote {
+		msg := deskOnlyPair
+		if kind == remote.KindHost {
+			msg = deskOnlyJoin
+		}
+		c.sendJSON(remotePairMsg{Type: "remotePair", Kind: kind, Error: msg})
+		c.notify(msg, true)
+		s.noticeDesk("A window reached through the relay asked for a pairing code. It was refused", true)
 		return
 	}
 	go func() {
@@ -447,6 +469,10 @@ func (s *Server) remotePair(c *controlClient, kind string) {
 // deskOnlyJoin is what a window reached through the relay is told when it asks
 // for a code that takes another desktop into this account.
 const deskOnlyJoin = "A code for another desktop to join this account is made on the machine Flockdeck runs on, not from a window reached through the relay"
+
+// deskOnlyPair is what a window reached through the relay is told when it asks
+// for a code that pairs another device.
+const deskOnlyPair = "A code to pair a device is made on the machine Flockdeck runs on, not from a window reached through the relay"
 
 // deskOnlyDevices is what a window reached through the relay is told when it
 // asks to unpair or rename a device, or rename this machine. A phone left

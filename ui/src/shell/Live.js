@@ -32,6 +32,7 @@ import { TreeNotes } from "../graph/TreeNotes.js";
 import { Home, sameProject, rosterOf } from "./Home.js";
 import { Start } from "./Start.js";
 import { Confirm } from "./Confirm.js";
+import { answerCommand, deskConfirmWords } from "../lib/deskconfirm.js";
 import { LIST } from "./keys.js";
 import { Updates } from "./Updates.js";
 import { trapTab } from "./focus.js";
@@ -922,6 +923,12 @@ export function Live({ store, matchMedia, window: win, terminalOptions = null, p
       : null}
     ${baton
       ? html`<${Baton} draft=${draft} pane=${baton.name} run=${runBaton} answer=${batonAnswer} onClose=${() => setBaton(null)} />`
+      : null}
+    ${!snap.remote && snap.deskConfirms && snap.deskConfirms.length
+      ? html`<${ModalScrim} onKeyDown=${(e) => e.key === LIST.tab && trapTab(e, e.currentTarget)}>
+          <${Confirm} title=${deskConfirmWords(snap.deskConfirms[0]).title} words=${deskConfirmWords(snap.deskConfirms[0]).words} label="Allow this once"
+            onConfirm=${() => send(answerCommand(snap.deskConfirms[0], true))} onCancel=${() => send(answerCommand(snap.deskConfirms[0], false))} />
+        <//>`
       : null}
     ${closeAsk
       ? html`<${ModalScrim} onKeyDown=${(e) => e.key === LIST.tab && trapTab(e, e.currentTarget)}>

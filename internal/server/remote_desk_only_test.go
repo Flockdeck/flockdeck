@@ -101,12 +101,11 @@ func TestAKeyIsSetOnlyAtTheDesk(t *testing.T) {
 	}
 }
 
-// TestAJoinCodeIsMadeOnlyAtTheDesk covers a phone asking for the code that
+// TestAPairingCodeIsMadeOnlyAtTheDesk covers a phone asking for the code that
 // takes another desktop into this account. Every device paired with that
 // desktop would then reach this one, so the code is a way back in that
-// outlasts unpairing the phone that asked for it. A device code is still the
-// phone's to ask for.
-func TestAJoinCodeIsMadeOnlyAtTheDesk(t *testing.T) {
+// outlasts unpairing the phone that asked for it. A device code is refused too.
+func TestAPairingCodeIsMadeOnlyAtTheDesk(t *testing.T) {
 	srv, _ := newTestServer(t)
 	srv.SetRemote(&fakeRemote{})
 	ts := remoteServer(t, srv)
@@ -128,11 +127,16 @@ func TestAJoinCodeIsMadeOnlyAtTheDesk(t *testing.T) {
 		t.Errorf("a join code asked for through the relay was told %+v, want to ask on the machine itself", note)
 	}
 
-	// A device code goes on to remote access, which here has none to give.
+	// A device code is the desk's as well: a phone that could mint one would
+	// have a way back in that outlasts its own unpairing.
 	sendCmd(t, phone, command{Cmd: "remotePair", Kind: "device"})
 	readUntil(t, phone, "remotePair", &pair)
-	if pair.Kind != "device" || strings.Contains(pair.Error, "join this account") {
-		t.Errorf("a device code asked for through the relay was answered %+v, want it asked for", pair)
+	if pair.Code != "" || pair.URL != "" || pair.Kind != "device" || pair.Error != deskOnlyPair {
+		t.Errorf("a device code asked for through the relay was answered %+v, want it refused", pair)
+	}
+	readUntil(t, phone, "notice", &note)
+	if !note.Error || !strings.Contains(note.Text, "machine") {
+		t.Errorf("a device code asked for through the relay was told %+v, want to ask on the machine itself", note)
 	}
 }
 
