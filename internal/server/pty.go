@@ -136,7 +136,31 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 	defer cancel()
 	// mayType is asked for each keystroke and measurement, not once: the desk
 	// can make a device a viewer while its terminal is open.
-	mayType := func() bool { return access == nil || access().EffectiveRole() == store.RoleFull }
+	//
+	// A device reached through the relay types only when its key is marked
+	// verified as well, the rule /ws/sealed applies before it says anything
+	// (sealedCheck). A full device whose key the desk has not compared may
+	// watch the pane, as a viewer the desk let watch may, but what it sends is
+	// thrown away: a key the relay could have swapped is not one to take
+	// keystrokes from. relayKey is the key sampled as the socket opens, which
+	// the handshake then uses; whether it is marked verified is asked each time.
+	var relayKey []byte
+	relayOrigin := remote.KeyOriginUsual
+	keyVerified := func() bool { return true }
+	if access != nil {
+		device := r.Header.Get("Flockdeck-Remote-Device")
+		if r.Header.Get("Flockdeck-Remote-Origin") == "desk" {
+			relayOrigin = remote.KeyOriginDesk
+		}
+		relayKey, _ = s.deviceKey(r.Context(), device, relayOrigin)
+		keyVerified = func() bool {
+			v := s.deviceVerifier()
+			return v != nil && len(relayKey) > 0 && v.DeviceVerifyState(device, relayOrigin, relayKey) == remote.Verified
+		}
+	}
+	mayType := func() bool {
+		return access == nil || (access().EffectiveRole() == store.RoleFull && keyVerified())
+	}
 	if access != nil {
 		// The desk changing the device's role ends this socket. Looked at again
 		// once it is on the list, so a change made between the check above and
@@ -185,10 +209,7 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 		// is, and "desk" for the one case there is: a browser reached this
 		// pane through this host's own full interface rather than the usual
 		// way. See remote.KeyOrigin's own doc.
-		origin := remote.KeyOriginUsual
-		if r.Header.Get("Flockdeck-Remote-Origin") == "desk" {
-			origin = remote.KeyOriginDesk
-		}
+		origin := relayOrigin
 		if ra := s.remoteAccess(); ra != nil && ra.E2ECapable(ctx, device, origin) {
 			sess, err := s.e2eHandshake(ctx, ra, conn, device, origin)
 			if err != nil {
@@ -289,6 +310,9 @@ func (s *Server) handlePTY(w http.ResponseWriter, r *http.Request) {
 				// One that replaces it after a restart starts from nothing.
 				from = -1
 				h := streamHeader{Epoch: sess.Epoch(), Offset: start, Resumed: resumed, End: start + int64(len(replay))}
+				if relay && !mayType() {
+					h.ReadOnly, h.Message = ptyReadOnlyReason(access(), keyVerified())
+				}
 				if err := writeHeader(ctx, tc, &writes, h); err != nil {
 					if subID >= 0 {
 						sess.Unsubscribe(subID)
@@ -1364,6 +1388,28 @@ type streamHeader struct {
 	// in them -- what it is, where its cursor is -- as though they had just
 	// been asked, and the window keeps those answers from the program.
 	End int64 `json:"end"`
+	// ReadOnly says why this socket's input is thrown away, and Message is the
+	// words to show for it: "verify" for a full device whose key the desk has
+	// not marked verified, "role" for a viewer. Both are absent when the
+	// window may type.
+	ReadOnly string `json:"readonly,omitempty"`
+	Message  string `json:"message,omitempty"`
+}
+
+// The fixed words a terminal socket gives for not taking a device's input.
+const (
+	ptyReadOnlyVerify = "verify"
+	ptyReadOnlyRole   = "role"
+	ptyMsgVerify      = "This device can watch this terminal but not type into it until its key is marked verified on the machine Flockdeck runs on"
+	ptyMsgRole        = "This device can only view"
+)
+
+// ptyReadOnlyReason is the reason and message for a device that may not type.
+func ptyReadOnlyReason(a store.DeviceAccess, verified bool) (reason, message string) {
+	if a.EffectiveRole() == store.RoleFull && !verified {
+		return ptyReadOnlyVerify, ptyMsgVerify
+	}
+	return ptyReadOnlyRole, ptyMsgRole
 }
 
 // writeHeader sends a streamHeader, as the only text frame a terminal socket

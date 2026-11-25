@@ -18,6 +18,10 @@ A device that fails one is closed with 4403 and a reason (`key`, `origin`, `acce
 
 Every request goes through the same `handleCommand` as a window does, with the relay's refusals still in force except the few the sealed table lifts by name. A command not in `sealedCommands` is refused and never reaches it. Every message goes through `sealedWrite`: only the types in `sealedMessages`, every string redacted for secrets (picture bytes left alone), the rewind token and the task board taken out, refusal text cut to a line.
 
+`/ws/pty`, the terminal, is end-to-end encrypted when the device has a key. A paired device that is full may watch a terminal whatever the state of its key, but its keystrokes and resizes are taken only while the desk has marked that key verified, the same mark `/ws/sealed` needs. A full device whose key is not verified, including one with no key at all, is treated as a viewer for input: what it sends is thrown away and the stream header (sent when the window asks to resume) carries `readonly: "verify"` and a `message` to show. A viewer the desk let watch carries `readonly: "role"`. The verified mark is looked at again for every frame, so taking it back stops typing on a socket that is already open. The key checked is the one the relay listed when the socket opened.
+
+A pairing code, for another device or for another desktop, is made at the desk. `remotePair` is refused to every window reached through the relay (a `remotePair` message with `error` set, and a notice), and the desk is told that it was tried.
+
 ## Tiers
 
 | Tier | Needs | Examples |

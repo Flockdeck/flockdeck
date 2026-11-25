@@ -370,6 +370,7 @@ var relayRefusedCommands = map[string]string{
 	"remoteRevoke":      "unpairing a device is done at the desk (stage 0, F2)",
 	"remoteRename":      "renaming a device is done at the desk (stage 0, F2)",
 	"remoteReconnect":   "trying the relay again is done at the desk (stage 0, F2)",
+	"remotePair":        "a pairing code, for a device or for a desktop, is made at the desk (stage 0, finding 5)",
 	"commit":            "a commit from a device is asked of the person at the desk, and only the sealed socket carries it (stage 6)",
 	"gitPush":           "a push from a device is asked of the person at the desk, and only the sealed socket carries it (stage 6)",
 	"gitPull":           "a pull from a device is asked of the person at the desk, and only the sealed socket carries it (stage 6)",

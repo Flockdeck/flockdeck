@@ -421,15 +421,22 @@ func (s *Server) remotePair(c *controlClient, kind string) {
 	if kind != remote.KindHost {
 		kind = remote.KindDevice
 	}
-	// A join code takes another desktop into this account, after which every
-	// device paired with it reaches this machine and that one reaches every
-	// agent here. Asked for from a window reached through the relay -- a
-	// phone left unlocked, say -- it is a way back in that outlasts unpairing
-	// the phone. The dialog there offers only a device code; this is for a
+	// A code of either kind is made at the desk. A join code takes another
+	// desktop into this account, after which every device paired with it
+	// reaches this machine and that one reaches every agent here. A device
+	// code pairs a new phone, which is a way back in that outlasts unpairing
+	// the one asking. Asked for from a window reached through the relay -- a
+	// phone left unlocked, say -- either is a way back in that outlasts
+	// unpairing the phone. The dialog there offers neither; this is for a
 	// window that sends it anyway.
-	if kind == remote.KindHost && c.remote {
-		c.sendJSON(remotePairMsg{Type: "remotePair", Kind: kind, Error: deskOnlyJoin})
-		c.notify(deskOnlyJoin, true)
+	if c.remote {
+		msg := deskOnlyPair
+		if kind == remote.KindHost {
+			msg = deskOnlyJoin
+		}
+		c.sendJSON(remotePairMsg{Type: "remotePair", Kind: kind, Error: msg})
+		c.notify(msg, true)
+		s.noticeDesk("A window reached through the relay asked for a pairing code. It was refused", true)
 		return
 	}
 	go func() {
@@ -462,6 +469,10 @@ func (s *Server) remotePair(c *controlClient, kind string) {
 // deskOnlyJoin is what a window reached through the relay is told when it asks
 // for a code that takes another desktop into this account.
 const deskOnlyJoin = "A code for another desktop to join this account is made on the machine Flockdeck runs on, not from a window reached through the relay"
+
+// deskOnlyPair is what a window reached through the relay is told when it asks
+// for a code that pairs another device.
+const deskOnlyPair = "A code to pair a device is made on the machine Flockdeck runs on, not from a window reached through the relay"
 
 // deskOnlyDevices is what a window reached through the relay is told when it
 // asks to unpair or rename a device, or rename this machine. A phone left

@@ -930,6 +930,7 @@
     {
       "name": "remotePair",
       "access": "full",
+      "relayRefused": true,
       "since": "1.0",
       "status": "stable"
     },
